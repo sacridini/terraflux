@@ -45,6 +45,9 @@ the same model on one machine or distributed across many headless workers.
 terraflux app                 # or: terraflux app model.toml
 ```
 
+A double click on `terraflux.exe` (or `terraflux` without a command) opens the application too, and so does a
+model file dropped on it or opened with it; started that way on Windows, it shows no console.
+
 - **New model:** a wizard picks the model (Dinamica EGO's, CLUE-S, ordered), reads the land use maps and the
   drivers (the dates and steps from the band names), checks the data (grids, classes, missing values, constant
   or collinear drivers) and offers to fix what it can (resampling a driver to the land use map's grid), then

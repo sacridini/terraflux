@@ -1,4 +1,5 @@
-//! `terraflux`: run, check and create land change models.
+//! `terraflux`: run, check and create land change models. Without a command (a double click), or with only a
+//! model file (dropped on it, "open with"), it opens the application.
 
 mod cluster;
 
@@ -18,8 +19,9 @@ struct Cli {
     /// Threads to use (default: all the cores but one; never every core).
     #[arg(long, global = true)]
     threads: Option<usize>,
+    /// The command (none: the application).
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 #[derive(Subcommand)]
@@ -379,12 +381,50 @@ fn report(model: &Model, engine: &Engine) -> bool {
     !issues.iter().any(|i| i.severity == Severity::Error)
 }
 
+/// Open the application; started from the file explorer, without the console Windows opened for it.
+fn app(model: Option<PathBuf>) -> Result<()> {
+    hide_own_console();
+    terraflux_app::run(model).map_err(|e| anyhow::anyhow!("the application: {e}"))
+}
+
+/// Free the console when no other program shares it (a double click opened it for this one; a terminal's stays).
+#[cfg(windows)]
+fn hide_own_console() {
+    unsafe extern "system" {
+        fn GetConsoleProcessList(list: *mut u32, count: u32) -> u32;
+        fn FreeConsole() -> i32;
+    }
+    let mut ids = [0u32; 2];
+    // SAFETY: the list has room for the 2 ids asked for
+    if unsafe { GetConsoleProcessList(ids.as_mut_ptr(), 2) } == 1 {
+        // SAFETY: no handle of the console is kept
+        unsafe { FreeConsole() };
+    }
+}
+
+#[cfg(not(windows))]
+fn hide_own_console() {}
+
 fn main() -> Result<()> {
+    // a model file alone: the application with it
+    let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    if let [one] = args.as_slice() {
+        let p = PathBuf::from(one);
+        if p.is_file()
+            && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("toml") || e.eq_ignore_ascii_case("json"))
+        {
+            terraflux_ops::threads::init(None);
+            return app(Some(p));
+        }
+    }
     let cli = Cli::parse();
     terraflux_ops::threads::init(cli.threads);
+    let Some(command) = cli.command else {
+        return app(None);
+    };
     let engine = Engine::default();
     let rt = || tokio::runtime::Builder::new_multi_thread().enable_all().build();
-    match cli.command {
+    match command {
         Command::Serve { listen, timeout } => rt()?.block_on(cluster::serve(listen, timeout))?,
         Command::Worker { coordinator, name, cache } => rt()?.block_on(cluster::worker(&coordinator, name, cache))?,
         Command::Workers { coordinator } => rt()?.block_on(cluster::workers(&coordinator))?,
@@ -397,9 +437,7 @@ fn main() -> Result<()> {
             rt()?.block_on(cluster::submit(&model, tasks, &out, &at))?;
         }
         Command::Calibrate(a) => rt()?.block_on(cluster::calibrate(&a))?,
-        Command::App { model } => {
-            terraflux_app::run(model).map_err(|e| anyhow::anyhow!("the application: {e}"))?;
-        }
+        Command::App { model } => app(model)?,
         Command::Run { model, out, set, quiet, tiled, tile, radius, disk, coordinator } => {
             let mut m = Model::load_expanded(&model).with_context(|| format!("reading {}", model.display()))?;
             let dir = model.parent().map(Path::to_path_buf).unwrap_or_default();
