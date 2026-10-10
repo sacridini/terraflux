@@ -6,6 +6,23 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-10
+
+### Added
+- Agents (type `Agents`: a population, a column per attribute): `agents.table` (macro agents written in the
+  model), `agents.parcels` (an agent per parcel, its size and the means of maps over it), `agents.update`
+  (behaviour: rules `attribute = expression` in order, map algebra's expressions), `agents.map` (an attribute
+  painted on the parcels) and `agents.summary` (count, sums and means, to collect). Agents are carried along
+  loops as the map is, and written as CSV.
+- CRAFTY's competition for land (`crafty.allocate`): agent functional types produce services from the cells'
+  capitals; unmet demand sets the services' value; managers give up below a threshold, and the most competitive
+  type takes offered cells over the incumbent by its giving-in threshold; the demand's columns mapped to
+  services (`services`); the same maps with the same seed.
+- `docs/agents.md`.
+- Tests: the agents' operators; CRAFTY's supply meets the demand and each type settles where its capitals are;
+  a coupled model (a growing population giving the demand, parcel managers subsidising fertility, CRAFTY
+  allocating) run by the engine.
+
 ## [0.6.0] - 2026-10-10
 
 ### Added

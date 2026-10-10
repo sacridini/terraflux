@@ -405,6 +405,38 @@ Pendências:
 - operadores nativos plugáveis em Rust carregados em tempo de execução;
 - biblioteca de submodelos no aplicativo.
 
+### Fase 7 — feita (Terraflux 0.7.0, 2026-10-10)
+
+- **Agentes no mesmo grafo:** o tipo `Agents` é uma população em colunas de atributos, carregada nos laços
+  como o mapa.
+  - `agents.table`: agentes macro (países, mercados) escritos no modelo.
+  - `agents.parcels`: um gestor por parcela, com o tamanho e as médias de mapas sobre ela.
+  - `agents.update`: o comportamento, em regras `atributo = expressão` (as expressões da álgebra de mapas).
+  - `agents.map`: um atributo pintado nas parcelas, como potencial, restrição ou multiplicador.
+  - `agents.summary`: contagem, somas e médias para coletar.
+- **CRAFTY** (`crafty.allocate`):
+  - tipos funcionais de agentes produzem serviços a partir dos capitais das células;
+  - a demanda não atendida dá valor aos serviços;
+  - há abandono abaixo do limiar e tomada da célula pelo tipo mais competitivo acima do limiar de cessão do
+    ocupante;
+  - o RNG é por contador.
+- **Teste de acoplamento:**
+  - a população cresce e gera a demanda;
+  - os gestores subsidiam a fertilidade da sua parcela;
+  - o CRAFTY aloca, a oferta acompanha a demanda e o subsídio atrai agricultores.
+- **Decisão diferente do plano:** em vez de `bevy_ecs`, uma tabela colunar de atributos. Os modelos de agentes
+  de uso do solo são populações de atributos numéricos processadas em lote, e a tabela é mais simples, mais
+  rápida e se integra ao grafo e à álgebra de mapas sem outra dependência. Os comportamentos usam as
+  expressões da álgebra de mapas em vez de Rhai; plugins WebAssembly por agente ficam como extensão.
+
+Pendências gerais, depois das fases:
+- regiões e demandas regionais, CLUMondo, FUTURES e MOLUSCE no Terraflux;
+- reprojeção (PROJ), vetores e distâncias com um clique;
+- editor de legenda, gráficos editáveis do WoE e assistente de análise das mudanças;
+- motor por tiles para os outros modelos, variáveis dinâmicas, álgebra de mapas e agentes, além de Zarr/COG;
+- plugins WebAssembly para o comportamento de agentes;
+- autenticação e TLS no coordenador.
+
 ## Verificação
 
 - **Fase 0:** `pytest` do landschaft passa sem alterar tolerâncias.
