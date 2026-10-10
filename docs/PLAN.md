@@ -324,6 +324,54 @@ Pendências da preparação de dados, para depois do motor distribuído:
 - **Segurança:** ainda sem autenticação nem TLS. O `serve` escuta em 127.0.0.1 por padrão e a documentação
   recomenda rede confiável ou túnel SSH.
 
+### Fase 5 — motor por tiles feito, numa máquina ou em várias (Terraflux 0.5.0, 2026-10-10)
+
+- **Crate `terraflux-engine` (`terraflux run --tiled`):** o modelo do Dinamica EGO em tiles lidos, calculados e
+  escritos um a um, em paralelo. As camadas dos passos ficam em memória ou em disco (`--disk`, tiles f32 com
+  LZ4 e cache dos tiles decodificados, `TERRAFLUX_CACHE_MB`).
+  - **Ajustes por redução:** Markov e pesos de evidência são somados entre os tiles e saem bit a bit iguais aos
+    do motor exato; as manchas observadas são medidas dentro de cada tile.
+  - **RNG por contador** (hash SplitMix de semente, passo, transição e célula).
+  - **Alocação por limiar:** as sementes do Expander e do Patcher são as células cuja chave
+    (Efraimidis–Spirakis, `u^(1/p)`) passa um limiar. Os limiares de poda de todas as transições saem dos
+    mesmos histogramas somados entre os tiles; as maiores chaves são coletadas uma vez por fase, e o limiar de
+    cada rodada é uma seleção exata. As manchas crescem até `--radius` células da semente, com halo de 2R+2; a
+    célula disputada fica com a chave maior. Cada transição para de ajustar quando atinge a demanda, e o
+    excesso é cortado pela pontuação exata.
+  - Cada célula só avalia as transições da sua classe; cada janela de um arquivo de drivers é decodificada uma
+    vez para todas as bandas.
+- **Passes como dados** (`terraflux_engine::pass`): cada passada sobre os tiles é uma `Task` que devolve uma
+  `Part`, e as partes se juntam em qualquer ordem no mesmo resultado. Um `Runner` executa as passadas: `Local`
+  (threads desta máquina) ou `terraflux_dist::tiles::Remote`.
+- **Motor por tiles distribuído** (`--coordinator`): cada passada vira um job do coordenador, com trechos
+  contíguos de tiles como tarefas (4 por worker). Os workers leem os mapas e escrevem as camadas no
+  armazenamento compartilhado, e só as somas (histogramas, contagens, chaves) passam pelo coordenador. O
+  coordenador ganhou `Wait` e `Forget`.
+- **GeoTIFF por janelas** (`Reader`, `Reader::reopen`) e escrita de tiles em qualquer ordem (`TiledWriter`).
+- **Threads:** nenhum comando usa todos os núcleos. O padrão é todos menos um (`--threads`,
+  `TERRAFLUX_THREADS`), no pool do rayon, no OpenMP dos kernels do landschaft e nos workers do cluster local.
+  Os testes rodam dois de cada vez, com quatro threads cada (`.cargo/config.toml`).
+- **Testes:**
+  - Markov e WoE iguais aos do motor exato com qualquer tamanho de tile;
+  - mesmos mapas com qualquer particionamento, para os mesmos ajustes;
+  - demanda atendida (2%);
+  - equivalência estatística com o motor exato em Sibuyan: similaridade fuzzy de 0,690 contra 0,682 e áreas
+    por classe a cerca de uma célula;
+  - os mesmos mapas com os tiles em 2 workers (trechos de qualquer tamanho) e nas threads desta máquina;
+  - mapas em memória não vão para workers.
+- **Benchmark** (Sibuyan repetido 32 × 32 vezes: 8192 × 6912 = 56,6 milhões de células, 10 transições, 3
+  passos, tiles de 1024, camadas em disco, **4 threads**): 318 s no total, com 43 s de ajustes e cerca de 92 s
+  por passo (33 s de probabilidades do WoE). Pico de memória de 3,3 GB, dos quais até 2 GB são de cache de
+  tiles. A demanda de cada transição foi atendida exatamente. A primeira versão levava 533 s; a melhora veio
+  das passadas em lote, da coleta única das chaves, da convergência por transição, da leitura única das bandas
+  e do cache dos buckets do WoE.
+
+Falta para fechar a fase 5:
+- Zarr v3 e COG;
+- os outros modelos (CLUE-S, ordenado, CARS) e as variáveis dinâmicas por tiles;
+- probabilidades do WoE mais rápidas por tile (hoje o kernel do motor exato, bit a bit);
+- benchmarks de estado, bioma, América do Sul e mundo, e de escalabilidade em várias máquinas.
+
 ## Verificação
 
 - **Fase 0:** `pytest` do landschaft passa sem alterar tolerâncias.

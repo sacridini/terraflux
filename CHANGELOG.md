@@ -6,6 +6,40 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-10
+
+### Added
+- The tiled engine (crate `terraflux-engine`, `terraflux run --tiled`): Dinamica EGO's model on maps larger than
+  memory, cut in tiles read, computed and written one at a time, in parallel, with the steps' layers in memory
+  or on disk (`--disk`). With the same fitted pieces, the same seed gives the same maps whatever the tiling
+  (`--tile`); the patches a fit measures depend on the tiles (a patch across a tile's edge counts as two).
+  - Fits by reduction over the tiles: the Markov chain, the weights of evidence and the patches' statistics
+    are the exact engine's to the bit.
+  - Random numbers by counter: every draw is a function of the seed, the step, the transition and the cell.
+  - Allocation by thresholds: the Expander's and the Patcher's seeds are the cells whose random keys pass
+    thresholds found from histograms summed over the tiles; patches grow within a radius (`--radius`) of their
+    seed, every tile with a halo of twice that radius; cells claimed by several patches go to the highest key;
+    the thresholds are adjusted in rounds until the changes meet the demand. Statistically equivalent to the
+    exact engine (the same areas, a similar fuzzy similarity), not the same draws.
+  - Few passes over the map per phase: the thresholds of every transition are found in the same passes; the
+    largest keys are collected once, so each round's seeds are a selection; the changes past the demand are
+    cut by their exact scores.
+  - Each window of a file of drivers is decoded once for all its bands; readers are kept open per thread.
+  - Layers on disk keep the tiles read lately decoded in memory (`TERRAFLUX_CACHE_MB`, 2048 by default).
+  - `TERRAFLUX_TRACE` prints the time of each pass of a step.
+  - 56.6 million cells, 10 transitions, 3 steps on 4 threads: 318 s (43 s of fits, about 92 s a step).
+- The tiled engine on many machines (`terraflux run --tiled --disk <shared> --coordinator <url>`): every pass
+  over the tiles is a job of the coordinator, its tasks runs of tiles, the workers reading the maps and writing
+  the layers on shared storage; the maps are those of the same run on one machine (`terraflux_engine::pass`:
+  passes as data, `terraflux_dist::tiles::Remote`). The coordinator waits for jobs (`Wait`) and forgets
+  them (`Forget`).
+- GeoTIFF: windowed reading (`Reader`) and tiled writing in any order (`TiledWriter`), for maps larger than
+  memory.
+- `woe.probability` computes the buckets of a variable once for the transitions from a class (they share
+  their layout): about twice as fast, the same values.
+- `--threads` on every command. Parallel work never takes every core: by default all the cores but one (or
+  `TERRAFLUX_THREADS`), for Rust's tasks, landschaft's OpenMP kernels and the workers of a local cluster.
+
 ## [0.4.0] - 2026-10-10
 
 ### Added
