@@ -20,6 +20,7 @@
 #include "sim/plus.hpp"
 #include "sim/rglm.hpp"
 #include "sim/rules.hpp"
+#include "sim/similarity.hpp"
 #include "sim/woe.hpp"
 #include "terraflux-ls-sys/src/lib.rs.h"
 
@@ -292,6 +293,14 @@ CarsOut cars(std::int64_t ny, std::int64_t nx, std::int32_t k, rust::Slice<const
     std::vector<std::int64_t> last(r.trace.end() - static_cast<std::ptrdiff_t>(m), r.trace.end());
     return CarsOut{to_rust<std::int32_t>(r.landscape), r.iterations, r.converged, r.decays,
                    to_rust<std::int64_t>(last)};
+}
+
+SimilarityOut similarity(rust::Slice<const std::int32_t> a, rust::Slice<const std::int32_t> b, std::int64_t ny,
+                         std::int64_t nx, std::int32_t window, bool exponential) {
+    check(static_cast<i64>(a.size()) == ny * nx && b.size() == a.size(), "the maps differ in size from ny x nx");
+    check(window >= 1 && window % 2 == 1, "the window must be odd");
+    const auto r = sim::reciprocal_similarity(ny, nx, a.data(), b.data(), window, exponential);
+    return SimilarityOut{to_rust<float>(r.first), to_rust<float>(r.second), r.first_mean, r.second_mean};
 }
 
 ObservedPatches observed_patches(rust::Slice<const double> a, rust::Slice<const double> b, std::int64_t ny,

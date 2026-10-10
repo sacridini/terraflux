@@ -6,11 +6,11 @@ Terraflux is a native application for land change simulation with cellular autom
 Dinamica EGO: a visual model builder, guided data preparation and live maps, with an engine that runs
 the same model on one machine or distributed across many headless workers.
 
-> **Status:** 0.2 — the model graph, the exact engine and the command line run Dinamica EGO's classic model,
-> CLUE-S, the ordered allocation and PLUS's CARS, with dynamic variables, bit for bit as landschaft's
-> `ls.simulate` (and so as lulcc); models fitted in Python run here unchanged. The application and the
-> distributed engine come next; the plan is in [`docs/PLAN.md`](docs/PLAN.md)
-> (Portuguese) and the changes in [`CHANGELOG.md`](CHANGELOG.md).
+> **Status:** 0.3 — the application (a wizard that checks and fixes the data, live maps, the model's graph,
+> charts and validation), the exact engine and the command line run Dinamica EGO's classic model, CLUE-S, the
+> ordered allocation and PLUS's CARS, with dynamic variables, bit for bit as landschaft's `ls.simulate` (and so
+> as lulcc); models fitted in Python run here unchanged. The distributed engine comes next; the plan is in
+> [`docs/PLAN.md`](docs/PLAN.md) (Portuguese) and the changes in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Goals
 
@@ -35,6 +35,25 @@ the same model on one machine or distributed across many headless workers.
 - **Distribution:** gRPC between a coordinator and workers, with Zarr and COG on shared storage.
 - **Python:** through landschaft's `ls.simulate`.
 
+## The application
+
+```bash
+terraflux app                 # or: terraflux app model.toml
+```
+
+- **New model:** a wizard picks the model (Dinamica EGO's, CLUE-S, ordered), reads the land use maps and the
+  drivers (the dates and steps from the band names), checks the data (grids, classes, missing values, constant
+  or collinear drivers) and offers to fix what it can (resampling a driver to the land use map's grid), then
+  writes the model with a note on every choice.
+- **Map:** the maps of the run as they come, step by step; zoom, pan, the class and coordinates under the pointer.
+- **Charts:** the area of each class along the steps. **Graph:** the model's nodes, what each does and why.
+- **Validation:** the last map against an observed one: figure of merit, hits, misses and false alarms, and
+  Dinamica EGO's fuzzy similarity of the changes in windows of growing size.
+
+![A Dinamica model of Sibuyan after 14 steps](docs/images/map.png)
+
+![The model's graph, a node's note](docs/images/graph.png)
+
 ## Quick start
 
 ```bash
@@ -44,6 +63,7 @@ terraflux check model.toml          # every operator, reference and connection c
 terraflux run model.toml            # writes output/maps.tif (a band per step), steps.csv, weights.csv
 terraflux run model.toml --set seed=7 --out other
 terraflux ops                       # the operators and what they do
+terraflux resample drivers.tif --like landuse.tif -o drivers_aligned.tif
 ```
 
 `terraflux new clue` and `terraflux new ordered` make lulcc's CLUE-S and ordered models (logistic regressions,
@@ -117,9 +137,10 @@ Eigen 3.4. `tools/make_reference.py` writes the reference outputs of the parity 
 |---|---|
 | `terraflux-graph` | the model graph: file format, references, signatures, checks |
 | `terraflux-ops` | the operators (Markov chains, demands, logistic regression, weights of evidence, CLUE-S, ordered, Expander/Patcher) and the presets |
-| `terraflux-exec` | the exact engine: inputs, graph run, outputs |
-| `terraflux-raster` | grids, rasters, GeoTIFF reading and writing in pure Rust (BigTIFF, tiles, LZW, Deflate, predictors) |
+| `terraflux-exec` | the exact engine: inputs, graph run, outputs; the checks of the data |
+| `terraflux-raster` | grids, rasters, GeoTIFF reading and writing in pure Rust (BigTIFF, tiles, LZW, Deflate, predictors), resampling |
 | `terraflux-ls-sys` | the bridge to landschaft's C++ kernels |
+| `terraflux-app` | the application (egui, wgpu): wizard, live maps, graph, charts, validation |
 | `terraflux-cli` | the `terraflux` command |
 
 ## License

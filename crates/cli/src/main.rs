@@ -19,6 +19,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Open the application (with a model, if given).
+    App { model: Option<PathBuf> },
     /// Run a model and write its outputs.
     Run {
         /// The model (.toml or .json).
@@ -33,7 +35,7 @@ enum Command {
         #[arg(short, long)]
         quiet: bool,
     },
-    /// Check a model without running it.
+    /// Check a model and its data without running it.
     Check { model: PathBuf },
     /// List the operators (`--json`: their full signatures).
     Ops {
@@ -45,6 +47,18 @@ enum Command {
     New(Box<New>),
     /// Write a model in another format (by the extension: .toml or .json).
     Convert { from: PathBuf, to: PathBuf },
+    /// Resample a raster to the grid of another (of the same coordinate reference system).
+    Resample {
+        input: PathBuf,
+        /// The raster whose grid to take.
+        #[arg(long)]
+        like: PathBuf,
+        #[arg(short, long)]
+        output: PathBuf,
+        /// auto (classes: nearest or mode; continuous: bilinear or average), nearest, mode, bilinear, average.
+        #[arg(long, default_value = "auto")]
+        method: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -165,26 +179,8 @@ fn absolute(p: &str) -> Result<PathBuf> {
     Ok(abs)
 }
 
-/// `path` relative to `dir` when it is inside it (or next to it), else absolute; with forward slashes.
 fn relative_to(path: &Path, dir: &Path) -> String {
-    let p: Vec<_> = path.components().collect();
-    let d: Vec<_> = dir.components().collect();
-    let same = |a: &std::path::Component, b: &std::path::Component| {
-        if cfg!(windows) {
-            a.as_os_str().to_string_lossy().to_lowercase() == b.as_os_str().to_string_lossy().to_lowercase()
-        } else {
-            a == b
-        }
-    };
-    let common = p.iter().zip(&d).take_while(|(a, b)| same(a, b)).count();
-    let s = if common == 0 {
-        path.to_string_lossy().into_owned()
-    } else {
-        let mut parts: Vec<String> = std::iter::repeat_n("..".to_string(), d.len() - common).collect();
-        parts.extend(p[common..].iter().map(|c| c.as_os_str().to_string_lossy().into_owned()));
-        parts.join("/")
-    };
-    s.replace('\\', "/")
+    terraflux_graph::relative_path(path, dir)
 }
 
 /// `file.tif:band` -> (file, band); a Windows drive letter is not a band.
@@ -319,6 +315,9 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     let engine = Engine::default();
     match cli.command {
+        Command::App { model } => {
+            terraflux_app::run(model).map_err(|e| anyhow::anyhow!("the application: {e}"))?;
+        }
         Command::Run { model, out, set, quiet } => {
             let m = Model::load(&model).with_context(|| format!("reading {}", model.display()))?;
             let dir = model.parent().map(Path::to_path_buf).unwrap_or_default();
@@ -345,7 +344,21 @@ fn main() -> Result<()> {
         }
         Command::Check { model } => {
             let m = Model::load(&model)?;
-            if report(&m, &engine) {
+            let mut ok = report(&m, &engine);
+            let dir = model.parent().map(Path::to_path_buf).unwrap_or_default();
+            match load_inputs(&m, &dir, &BTreeMap::new()) {
+                Err(e) => {
+                    eprintln!("error: the inputs: {e}");
+                    ok = false;
+                }
+                Ok(inputs) => {
+                    for f in terraflux_exec::lint::lint(&m, &inputs) {
+                        eprintln!("{f}");
+                        ok &= f.level != terraflux_exec::lint::Level::Error;
+                    }
+                }
+            }
+            if ok {
                 eprintln!("{}: no errors", model.display());
             } else {
                 std::process::exit(1);
@@ -375,6 +388,14 @@ fn main() -> Result<()> {
         }
         Command::Convert { from, to } => {
             Model::load(&from)?.save(&to)?;
+        }
+        Command::Resample { input, like, output, method } => {
+            use terraflux_raster::resample::{Method, resample};
+            let m = Method::parse(&method).with_context(|| format!("unknown method {method:?}"))?;
+            let grid = terraflux_raster::Raster::read(&like)?.grid;
+            let (r, used) = resample(&terraflux_raster::Raster::read(&input)?, &grid, m)?;
+            r.write(&output)?;
+            eprintln!("wrote {} ({used:?})", output.display());
         }
     }
     Ok(())

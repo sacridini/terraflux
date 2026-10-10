@@ -5,6 +5,7 @@
 //! gives the same maps as `ls.simulate` with the same seed.
 
 mod io;
+pub mod lint;
 
 use std::collections::BTreeMap;
 
@@ -15,6 +16,8 @@ pub use io::{load_inputs, write_outputs, write_value};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("the run was stopped")]
+    Cancelled,
     #[error("{0}")]
     Model(String),
     #[error("{at}: {message}")]
@@ -35,6 +38,12 @@ pub trait Observer {
     fn step(&mut self, _at: &str, _step: usize, _of: usize) {}
     /// A warning of an operator.
     fn warning(&mut self, _at: &str, _message: &str) {}
+    /// The values a container collected at a step (the application draws the maps as they come).
+    fn collected(&mut self, _at: &str, _step: usize, _of: usize, _values: &BTreeMap<String, Value>) {}
+    /// Whether to stop: checked before every node.
+    fn cancelled(&mut self) -> bool {
+        false
+    }
 }
 
 /// An observer that ignores everything.
@@ -138,6 +147,9 @@ impl Engine {
         let ordered = order(nodes, |n| dependencies(n, nodes)).map_err(|e| Error::Model(e.to_string()))?;
         for node in ordered {
             let at = if prefix.is_empty() { node.id.clone() } else { format!("{prefix}/{}", node.id) };
+            if obs.cancelled() {
+                return Err(Error::Cancelled);
+            }
             obs.node(&at);
             let out = self.run_node(node, env, inputs, &at, obs, warnings)?;
             env.results.insert(node.id.clone(), out);
@@ -212,10 +224,13 @@ impl Engine {
             c.insert("step".into(), Value::Integer(step as i64));
             let mut child = Env { parent: Some(env), results: BTreeMap::new(), carried: c };
             self.run_scope(&body.nodes, &mut child, inputs, at, obs, warnings)?;
+            let mut now = BTreeMap::new();
             for (name, r) in &body.collect {
                 let v = self.resolve(&Source::Ref(r.clone()), &child, inputs, &format!("{at}/collect.{name}"))?;
-                series.get_mut(name).unwrap().push(v);
+                series.get_mut(name).unwrap().push(v.clone());
+                now.insert(name.clone(), v);
             }
+            obs.collected(at, step, times, &now);
             let mut next = BTreeMap::new();
             for (name, r) in &body.carry {
                 next.insert(

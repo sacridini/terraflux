@@ -75,6 +75,13 @@ pub mod ffi {
         patches: Vec<i64>,
     }
 
+    struct SimilarityOut {
+        first: Vec<f32>,
+        second: Vec<f32>,
+        first_mean: f64,
+        second_mean: f64,
+    }
+
     struct CarsOut {
         landscape: Vec<i32>,
         iterations: i64,
@@ -217,11 +224,14 @@ pub mod ffi {
             max_iter: i64,
             seed: u64,
         ) -> Result<CarsOut>;
+        fn similarity(a: &[i32], b: &[i32], ny: i64, nx: i64, window: i32, exponential: bool) -> Result<SimilarityOut>;
         fn observed_patches(a: &[f64], b: &[f64], ny: i64, nx: i64, from: f64, to: f64) -> Result<ObservedPatches>;
     }
 }
 
-pub use ffi::{CarsOut, CluesOut, GlmFit, NbRule, ObservedPatches, OrderedOut, PatchOut, PatchSpec, WoeWeights};
+pub use ffi::{
+    CarsOut, CluesOut, GlmFit, NbRule, ObservedPatches, OrderedOut, PatchOut, PatchSpec, SimilarityOut, WoeWeights,
+};
 
 /// R's generator after `set.seed(seed)`.
 pub struct RRng(cxx::UniquePtr<ffi::RRng>);

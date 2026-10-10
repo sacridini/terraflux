@@ -287,6 +287,24 @@ Desvios do plano:
 Pendências movidas para depois da fase 3: demandas regionais, CLUMondo, FUTURES, MOLUSCE, distâncias de custo,
 e o potencial de estimadores do scikit-learn (hoje exportado como raster de previsões).
 
+### Fase 3 — feita (Terraflux 0.3.0, 2026-10-10)
+
+- **Aplicativo** (`terraflux app`, egui sobre wgpu):
+  - assistente de novo modelo com verificação dos dados e reamostragem dos drivers desalinhados;
+  - execução em segundo plano com os mapas chegando passo a passo, e botão de parar;
+  - abas de gráficos de área, grafo do modelo (com as notas), texto do modelo e validação (figure of merit e
+    similaridade fuzzy).
+- **Lint dos dados** (também no `terraflux check`), cada problema com o que fazer.
+- **Reamostragem** na mesma projeção (`terraflux resample`).
+- **Testes da interface** renderizados fora da tela (egui_kittest), com capturas em `docs/images`.
+
+Pendências da preparação de dados, para depois do motor distribuído:
+- reprojeção entre CRSs (precisa do PROJ);
+- leitura de vetores (estradas, rios) para gerar distâncias com um clique;
+- editor de legenda e reclassificação;
+- ajuste das faixas do WoE com gráficos editáveis;
+- assistente para a análise das mudanças (matriz e intensidade).
+
 ## Verificação
 
 - **Fase 0:** `pytest` do landschaft passa sem alterar tolerâncias.

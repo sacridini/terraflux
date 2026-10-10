@@ -113,3 +113,29 @@ fn fitted_pieces_from_the_model_file() {
         .is_err()
     );
 }
+
+#[test]
+fn agreement_and_figure_of_merit() {
+    use terraflux_ops::validate::agreement;
+    let start = map(1, 4, &[1.0, 1.0, 1.0, 1.0]);
+    let obs = map(1, 4, &[2.0, 2.0, 1.0, 1.0]);
+    let sim = map(1, 4, &[2.0, 3.0, 2.0, 1.0]);
+    let a = agreement(&obs, &sim, &start).unwrap();
+    assert_eq!((a.hits, a.wrong_hits, a.misses, a.false_alarms), (1, 1, 0, 1));
+    assert!((a.figure_of_merit - 1.0 / 3.0).abs() < 1e-15 && a.overall == 0.5);
+    assert_eq!(a.quantity, vec![(1.0, -1), (2.0, 0), (3.0, 1)]);
+}
+
+#[test]
+fn similarity_of_differences() {
+    // landschaft's example: one cell changed, simulated one cell away
+    let t0 = map(6, 6, &[1.0; 36]);
+    let mut o = vec![1.0; 36];
+    o[2 * 6 + 2] = 2.0;
+    let mut s = vec![1.0; 36];
+    s[2 * 6 + 3] = 2.0;
+    let t =
+        terraflux_ops::validate::similarity_of_differences(&t0, &map(6, 6, &o), &map(6, 6, &s), &[1, 3], true).unwrap();
+    assert_eq!(t.rows[0][3], 0.0);
+    assert!((t.rows[1][3] - 0.5f64.sqrt()).abs() < 1e-6, "{}", t.rows[1][3]);
+}

@@ -314,6 +314,29 @@ impl Model {
     }
 }
 
+/// `path` relative to `dir` when they share a root (with `..` where needed), else as it is; with forward
+/// slashes, as the model file stores paths. On Windows the comparison ignores case.
+pub fn relative_path(path: &Path, dir: &Path) -> String {
+    let p: Vec<_> = path.components().collect();
+    let d: Vec<_> = dir.components().collect();
+    let same = |a: &std::path::Component, b: &std::path::Component| {
+        if cfg!(windows) {
+            a.as_os_str().to_string_lossy().to_lowercase() == b.as_os_str().to_string_lossy().to_lowercase()
+        } else {
+            a == b
+        }
+    };
+    let common = p.iter().zip(&d).take_while(|(a, b)| same(a, b)).count();
+    let s = if common == 0 {
+        path.to_string_lossy().into_owned()
+    } else {
+        let mut parts: Vec<String> = std::iter::repeat_n("..".to_string(), d.len() - common).collect();
+        parts.extend(p[common..].iter().map(|c| c.as_os_str().to_string_lossy().into_owned()));
+        parts.join("/")
+    };
+    s.replace('\\', "/")
+}
+
 /// The order to run nodes in: each after the nodes it depends on in the same scope (an error on a cycle).
 ///
 /// `deps(node)` gives the ids, in the same scope, that the node depends on.

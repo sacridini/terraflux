@@ -20,6 +20,7 @@ struct PatchSpec;
 struct PatchOut;
 struct ObservedPatches;
 struct CarsOut;
+struct SimilarityOut;
 
 std::unique_ptr<nlm::RRng> rrng_new(std::int32_t seed);
 double rrng_unif_rand(nlm::RRng& rng);
@@ -83,6 +84,8 @@ CarsOut cars(std::int64_t ny, std::int64_t nx, std::int32_t k, rust::Slice<const
              rust::Slice<const double> seeds, rust::Slice<const std::uint8_t> allowed,
              rust::Slice<const std::int64_t> demand, std::int32_t window, double decay, double step,
              std::int64_t max_iter, std::uint64_t seed);
+SimilarityOut similarity(rust::Slice<const std::int32_t> a, rust::Slice<const std::int32_t> b, std::int64_t ny,
+                         std::int64_t nx, std::int32_t window, bool exponential);
 ObservedPatches observed_patches(rust::Slice<const double> a, rust::Slice<const double> b, std::int64_t ny,
                                  std::int64_t nx, double from, double to);
 

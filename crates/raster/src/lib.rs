@@ -18,6 +18,7 @@
 #![allow(clippy::chunks_exact_to_as_chunks)]
 
 pub mod npy;
+pub mod resample;
 pub mod tiff;
 
 use serde::{Deserialize, Serialize};

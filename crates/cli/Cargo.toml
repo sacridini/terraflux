@@ -15,6 +15,8 @@ path = "src/main.rs"
 anyhow.workspace = true
 clap.workspace = true
 serde_json.workspace = true
+terraflux-app = { path = "../app" }
 terraflux-exec = { path = "../exec" }
 terraflux-graph = { path = "../graph" }
 terraflux-ops = { path = "../ops" }
+terraflux-raster = { path = "../raster" }

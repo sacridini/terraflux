@@ -18,6 +18,7 @@ pub mod lulcc;
 pub mod markov;
 pub mod plus;
 pub mod presets;
+pub mod validate;
 pub mod value;
 pub mod woe;
 
@@ -217,6 +218,7 @@ impl Registry {
         dynamic::register(&mut r);
         fitted::register(&mut r);
         plus::register(&mut r);
+        validate::register(&mut r);
         r
     }
 
