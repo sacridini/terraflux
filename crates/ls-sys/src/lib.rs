@@ -75,6 +75,15 @@ pub mod ffi {
         patches: Vec<i64>,
     }
 
+    struct CarsOut {
+        landscape: Vec<i32>,
+        iterations: i64,
+        converged: bool,
+        decays: i64,
+        /// the cells of each region x class after the last iteration
+        last: Vec<i64>,
+    }
+
     #[derive(Debug, Clone, Copy, PartialEq)]
     struct ObservedPatches {
         cells: i64,
@@ -189,11 +198,30 @@ pub mod ffi {
             win_cols: i32,
             seed: u64,
         ) -> Result<PatchOut>;
+        fn cars(
+            ny: i64,
+            nx: i64,
+            k: i32,
+            landscape: &[i32],
+            fixed: &[u8],
+            region: &[i32],
+            nreg: i32,
+            probability: &[f64],
+            weights: &[f64],
+            seeds: &[f64],
+            allowed: &[u8],
+            demand: &[i64],
+            window: i32,
+            decay: f64,
+            step: f64,
+            max_iter: i64,
+            seed: u64,
+        ) -> Result<CarsOut>;
         fn observed_patches(a: &[f64], b: &[f64], ny: i64, nx: i64, from: f64, to: f64) -> Result<ObservedPatches>;
     }
 }
 
-pub use ffi::{CluesOut, GlmFit, NbRule, ObservedPatches, OrderedOut, PatchOut, PatchSpec, WoeWeights};
+pub use ffi::{CarsOut, CluesOut, GlmFit, NbRule, ObservedPatches, OrderedOut, PatchOut, PatchSpec, WoeWeights};
 
 /// R's generator after `set.seed(seed)`.
 pub struct RRng(cxx::UniquePtr<ffi::RRng>);

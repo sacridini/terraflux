@@ -19,6 +19,7 @@ struct WoeWeights;
 struct PatchSpec;
 struct PatchOut;
 struct ObservedPatches;
+struct CarsOut;
 
 std::unique_ptr<nlm::RRng> rrng_new(std::int32_t seed);
 double rrng_unif_rand(nlm::RRng& rng);
@@ -76,6 +77,12 @@ rust::Vec<double> glm_predict(rust::Slice<const double> x, std::int64_t n, std::
 PatchOut allocate_patches(std::int64_t ny, std::int64_t nx, rust::Slice<const std::int32_t> landscape,
                           rust::Slice<const PatchSpec> specs, double prune_factor, std::int32_t win_rows,
                           std::int32_t win_cols, std::uint64_t seed);
+CarsOut cars(std::int64_t ny, std::int64_t nx, std::int32_t k, rust::Slice<const std::int32_t> landscape,
+             rust::Slice<const std::uint8_t> fixed, rust::Slice<const std::int32_t> region, std::int32_t nreg,
+             rust::Slice<const double> probability, rust::Slice<const double> weights,
+             rust::Slice<const double> seeds, rust::Slice<const std::uint8_t> allowed,
+             rust::Slice<const std::int64_t> demand, std::int32_t window, double decay, double step,
+             std::int64_t max_iter, std::uint64_t seed);
 ObservedPatches observed_patches(rust::Slice<const double> a, rust::Slice<const double> b, std::int64_t ny,
                                  std::int64_t nx, double from, double to);
 

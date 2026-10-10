@@ -1,0 +1,207 @@
+//! Dynamic variables (landschaft's `distance_to`, `share_of`): drivers computed again from the simulated map
+//! at every step, and the stacks they go into (`stack.set`, `stack.classes`).
+
+use std::sync::Arc;
+
+use terraflux_graph::{Access, OpSignature, PortSpec, Type};
+use terraflux_ls_sys::ffi;
+
+use crate::{Args, Ctx, Error, Key, Map, Operator, Outputs, Registry, Result, Stack, Value, outputs};
+
+fn classes_param(args: &Args) -> Result<Vec<f64>> {
+    match args.params.get("classes") {
+        Some(serde_json::Value::Number(n)) => Ok(vec![n.as_f64().unwrap()]),
+        Some(v) => serde_json::from_value(v.clone()).map_err(|e| Error::msg(format!("classes: {e}"))),
+        None => Err(Error::msg(format!("node {:?}: give the classes", args.node))),
+    }
+}
+
+/// The Euclidean distance from each cell to the nearest cell of some classes (exact, between cell centres),
+/// in map units (`res` the side of a cell) or cells; the map's diagonal everywhere when no cell has them; NaN
+/// where the map has no value.
+pub fn distance_to(land: &Map, classes: &[f64], res: f64) -> Result<Map> {
+    let (ny, nx) = land.shape();
+    let origin: Vec<u8> = land.data.iter().map(|v| u8::from(classes.contains(v))).collect();
+    let mut out = if origin.contains(&1) {
+        ffi::distance_exact(&origin, ny as i64, nx as i64, res)?
+    } else {
+        vec![(ny as f64).hypot(nx as f64) * res; ny * nx]
+    };
+    for (o, v) in out.iter_mut().zip(land.data.iter()) {
+        if v.is_nan() {
+            *o = f64::NAN;
+        }
+    }
+    Ok(Map::new(land.grid.clone(), out))
+}
+
+/// The share of the cells around each cell (weights of the window, the cells without a value left out) that
+/// hold some classes; NaN where the map has no value.
+pub fn share_of(land: &Map, classes: &[f64], window: &[Vec<f64>]) -> Result<Map> {
+    let (ny, nx) = land.shape();
+    let (wy, wx) = (window.len(), window.first().map_or(0, Vec::len));
+    if wy % 2 == 0 || wx % 2 == 0 || window.iter().any(|r| r.len() != wx) {
+        return Err(Error::msg("the window needs two odd sides"));
+    }
+    let presence: Vec<f64> = land
+        .data
+        .iter()
+        .map(|v| if v.is_nan() { f64::NAN } else { f64::from(u8::from(classes.contains(v))) })
+        .collect();
+    let mut out = ffi::focal_mean(&presence, ny as i64, nx as i64, &window.concat(), wy as i32, wx as i32)?;
+    for (o, v) in out.iter_mut().zip(land.data.iter()) {
+        if v.is_nan() {
+            *o = f64::NAN;
+        }
+    }
+    Ok(Map::new(land.grid.clone(), out))
+}
+
+struct DistanceTo;
+
+impl Operator for DistanceTo {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "dynamic.distance_to",
+            "The distance from each cell to the nearest cell of some classes (exact Euclidean distance between \
+             cell centres), in map units or cells: a driver that moves with the simulated map.",
+            Access::Global,
+        )
+        .input(PortSpec::new("landscape", Type::Map, "the map"))
+        .output(PortSpec::new("distance", Type::Map, "the distances (NaN where the map has no value)"))
+        .param(PortSpec::new("classes", Type::Any, "a class or a list"))
+        .param(PortSpec::optional("unit", Type::Text, "\"map\" (default; square cells) or \"cells\""))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let land = args.map("landscape")?;
+        let classes = classes_param(args)?;
+        let unit: String = args.param("unit", "map".to_string())?;
+        let res = match unit.as_str() {
+            "cells" => 1.0,
+            "map" => {
+                let (rx, ry) = land.grid.resolution();
+                if (rx - ry).abs() > 1e-9 * rx.abs().max(ry.abs()) {
+                    return Err(Error::msg("distances in map units need square cells (unit = \"cells\")"));
+                }
+                rx
+            }
+            u => return Err(Error::msg(format!("unit must be \"map\" or \"cells\", not {u:?}"))),
+        };
+        Ok(outputs([("distance", Value::Map(distance_to(land, &classes, res)?))]))
+    }
+}
+
+struct ShareOf;
+
+impl Operator for ShareOf {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "dynamic.share_of",
+            "The share of the cells around each cell that hold some classes (the mean of the window's weights x \
+             presence over the cells with a value): a driver that moves with the simulated map.",
+            Access::Halo(1),
+        )
+        .input(PortSpec::new("landscape", Type::Map, "the map"))
+        .output(PortSpec::new("share", Type::Map, "the shares (NaN where the map has no value)"))
+        .param(PortSpec::new("classes", Type::Any, "a class or a list"))
+        .param(PortSpec::optional("window", Type::Any, "the side of a window of ones (3), or its weights"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let land = args.map("landscape")?;
+        let classes = classes_param(args)?;
+        let window: Vec<Vec<f64>> = match args.params.get("window") {
+            None => vec![vec![1.0; 3]; 3],
+            Some(serde_json::Value::Number(n)) => {
+                let s = n.as_u64().ok_or_else(|| Error::msg("the window's side must be a whole number"))? as usize;
+                vec![vec![1.0; s]; s]
+            }
+            Some(v) => serde_json::from_value(v.clone()).map_err(|e| Error::msg(format!("window: {e}")))?,
+        };
+        Ok(outputs([("share", Value::Map(share_of(land, &classes, &window)?))]))
+    }
+}
+
+struct Set;
+
+impl Operator for Set {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "stack.set",
+            "A stack with a map in the layer of a name (replacing the layer of that name, else added at the end): \
+             a dynamic variable in place of the static driver of the same name.",
+            Access::Local,
+        )
+        .input(PortSpec::new("stack", Type::Stack, "the stack"))
+        .input(PortSpec::new("map", Type::Map, "the map"))
+        .output(PortSpec::new("stack", Type::Stack, "the stack with the map"))
+        .param(PortSpec::new("name", Type::Text, "the layer's name"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let s = args.stack("stack")?;
+        let m = args.map("map")?;
+        let name: String = args.param("name", String::new())?;
+        if name.is_empty() {
+            return Err(Error::msg(format!("node {:?}: give the layer's name", args.node)));
+        }
+        if m.data.len() != s.grid.cells() {
+            return Err(Error::msg("the map differs in size from the stack"));
+        }
+        let mut out = s.clone();
+        let key = Key::Name(name);
+        match out.keys.iter().position(|k| *k == key) {
+            Some(i) => out.layers[i] = m.data.clone(),
+            None => {
+                out.keys.push(key);
+                out.layers.push(m.data.clone());
+            }
+        }
+        Ok(outputs([("stack", Value::Stack(out))]))
+    }
+}
+
+struct Classes;
+
+impl Operator for Classes {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "stack.classes",
+            "A stack whose layers are named by class (\"1\", \"2\"...) or transition (\"1_to_3\") as the suitability \
+             of each class or the probability of each transition (e.g. computed elsewhere and read from a file).",
+            Access::None,
+        )
+        .input(PortSpec::new("stack", Type::Stack, "layers named by class"))
+        .output(PortSpec::new("stack", Type::Stack, "a layer per class"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let s = args.stack("stack")?;
+        let keys = s
+            .keys
+            .iter()
+            .map(|k| match k {
+                Key::Name(n) => {
+                    let bad = || Error::msg(format!("the layer {n:?} is not named by a class (or \"from_to_to\")"));
+                    match n.split_once("_to_") {
+                        Some((f, t)) => Ok(Key::Transition(
+                            f.trim().parse().map_err(|_| bad())?,
+                            t.trim().parse().map_err(|_| bad())?,
+                        )),
+                        None => n.trim().parse::<f64>().map(Key::Class).map_err(|_| bad()),
+                    }
+                }
+                other => Ok(other.clone()),
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(outputs([("stack", Value::Stack(Stack { grid: s.grid.clone(), keys, layers: s.layers.clone() }))]))
+    }
+}
+
+pub fn register(r: &mut Registry) {
+    r.add(Arc::new(DistanceTo));
+    r.add(Arc::new(ShareOf));
+    r.add(Arc::new(Set));
+    r.add(Arc::new(Classes));
+}

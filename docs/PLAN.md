@@ -270,6 +270,23 @@ Desvios do plano:
 - **Presets da fase 1:** Dinamica, CLUE-S e Ordered. Ficaram para a fase 2: FUTURES, PLUS/CARS, CLUMondo,
   MOLUSCE, as variáveis dinâmicas (`distance_to`, `share_of`) e as demandas regionais.
 
+### Fase 2 — feita (Terraflux 0.2.0 e landschaft 1.44.0, 2026-10-10)
+
+- **No landschaft:** `Model.save`, `Model.load` e `S.terraflux`. As peças ajustadas vão para o grafo como
+  literais (`woe.weights`, `glm.coefficients`, `markov.matrix`, `demand.table`, `patches.settings`) e os dados
+  em GeoTIFF float64.
+- **No Terraflux, operadores novos:**
+  - variáveis dinâmicas (`dynamic.distance_to`, `dynamic.share_of`, `stack.set`);
+  - PLUS/CARS (`plus.demand`, `cars.step`);
+  - `stack.classes`.
+- **Testes:**
+  - no landschaft, `run`, `save` → `load` → `run` e `terraflux run` dão os mesmos bits (Dinamica, CLUE-S com
+    regras, Ordered, dinâmicas, CARS, potencial em raster);
+  - no Terraflux, modelos gravados pelo landschaft batem com os mapas dele.
+
+Pendências movidas para depois da fase 3: demandas regionais, CLUMondo, FUTURES, MOLUSCE, distâncias de custo,
+e o potencial de estimadores do scikit-learn (hoje exportado como raster de previsões).
+
 ## Verificação
 
 - **Fase 0:** `pytest` do landschaft passa sem alterar tolerâncias.

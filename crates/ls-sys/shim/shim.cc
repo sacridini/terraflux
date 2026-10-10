@@ -17,6 +17,7 @@
 #include "sim/observed.hpp"
 #include "sim/ordered.hpp"
 #include "sim/patches.hpp"
+#include "sim/plus.hpp"
 #include "sim/rglm.hpp"
 #include "sim/rules.hpp"
 #include "sim/woe.hpp"
@@ -261,6 +262,36 @@ PatchOut allocate_patches(std::int64_t ny, std::int64_t nx, rust::Slice<const st
     const auto r = sim::allocate_patches(ny, nx, land.data(), ts, prune_factor, win_rows, win_cols, seed);
     return PatchOut{to_rust<std::int32_t>(r.landscape), to_rust<std::int64_t>(r.expanded),
                     to_rust<std::int64_t>(r.patched), to_rust<std::int64_t>(r.patches)};
+}
+
+CarsOut cars(std::int64_t ny, std::int64_t nx, std::int32_t k, rust::Slice<const std::int32_t> landscape,
+             rust::Slice<const std::uint8_t> fixed, rust::Slice<const std::int32_t> region, std::int32_t nreg,
+             rust::Slice<const double> probability, rust::Slice<const double> weights,
+             rust::Slice<const double> seeds, rust::Slice<const std::uint8_t> allowed,
+             rust::Slice<const std::int64_t> demand, std::int32_t window, double decay, double step,
+             std::int64_t max_iter, std::uint64_t seed) {
+    // fixed and region: empty for none
+    const i64 n = ny * nx;
+    check(static_cast<i64>(landscape.size()) == n, "the map differs in size from ny x nx");
+    check(fixed.empty() || static_cast<i64>(fixed.size()) == n, "the fixed cells differ in size from the landscape");
+    check(region.empty() || static_cast<i64>(region.size()) == n, "the regions differ in size from the landscape");
+    check(static_cast<i64>(probability.size()) == i64{k} * n, "the probabilities must be classes x cells");
+    check(static_cast<i64>(weights.size()) == k && static_cast<i64>(seeds.size()) == k, "one weight and seed per class");
+    check(static_cast<i64>(allowed.size()) == i64{k} * k, "the conversion matrix must be classes x classes");
+    check(static_cast<i64>(demand.size()) == i64{nreg} * k, "the demand must be regions x classes");
+    sim::CarsSettings s;
+    s.window = window;
+    s.decay = decay;
+    s.step = step;
+    s.max_iter = max_iter;
+    s.seed = seed;
+    const auto r = sim::cars_run(ny, nx, k, landscape.data(), fixed.empty() ? nullptr : fixed.data(),
+                                 region.empty() ? nullptr : region.data(), nreg, probability.data(), weights.data(),
+                                 seeds.data(), allowed.data(), demand.data(), s);
+    const std::size_t m = static_cast<std::size_t>(nreg) * static_cast<std::size_t>(k);
+    std::vector<std::int64_t> last(r.trace.end() - static_cast<std::ptrdiff_t>(m), r.trace.end());
+    return CarsOut{to_rust<std::int32_t>(r.landscape), r.iterations, r.converged, r.decays,
+                   to_rust<std::int64_t>(last)};
 }
 
 ObservedPatches observed_patches(rust::Slice<const double> a, rust::Slice<const double> b, std::int64_t ny,

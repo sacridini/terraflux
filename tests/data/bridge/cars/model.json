@@ -1,0 +1,480 @@
+{
+  "format": "terraflux/1",
+  "name": "landschaft CARS model",
+  "description": "Written by landschaft's Model.save.",
+  "inputs": {
+    "start": {
+      "kind": "map",
+      "path": "../../inputs/sibuyan_landuse.tif",
+      "note": "the map the simulation starts from"
+    },
+    "seed": {
+      "kind": "value",
+      "value": 7,
+      "note": "the seed of the simulation"
+    },
+    "drivers": {
+      "kind": "stack",
+      "path": "../../inputs/sibuyan_drivers.tif",
+      "note": "the explanatory variables"
+    }
+  },
+  "nodes": [
+    {
+      "id": "potential",
+      "op": "glm.coefficients",
+      "params": {
+        "fits": [
+          {
+            "class": 1,
+            "drivers": [
+              "aspect",
+              "diorite",
+              "dist_roads",
+              "dist_sea",
+              "dist_streams",
+              "dist_urban",
+              "elevation",
+              "moderate_erosion",
+              "no_erosion",
+              "pop_density",
+              "sediments",
+              "slope",
+              "ultramafic"
+            ],
+            "coefficients": [
+              -2.456155264701505,
+              0.0033169139221067615,
+              1.9047078004134543,
+              1.4408107899402715e-06,
+              0.0003920327812085582,
+              -7.520313101561694e-05,
+              0.00011768432867522135,
+              0.002807310653098402,
+              -2.1859706549805002,
+              -1.1974942113333633,
+              -0.00028940851469528987,
+              0.6993015945180429,
+              -0.0014176477013781174,
+              2.698519814282393
+            ],
+            "pivot": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14
+            ],
+            "rank": 14,
+            "iterations": 7,
+            "converged": true,
+            "deviance": 4502.613705533748,
+            "null_deviance": 9324.169934451844,
+            "cells": 7226
+          },
+          {
+            "class": 2,
+            "drivers": [
+              "aspect",
+              "diorite",
+              "dist_roads",
+              "dist_sea",
+              "dist_streams",
+              "dist_urban",
+              "elevation",
+              "moderate_erosion",
+              "no_erosion",
+              "pop_density",
+              "sediments",
+              "slope",
+              "ultramafic"
+            ],
+            "coefficients": [
+              0.38236093342276495,
+              -0.0027785469449317576,
+              0.9631754723446998,
+              -0.0003351980255567441,
+              -0.0007259321666922828,
+              7.963957250319681e-05,
+              -0.0001605349861173201,
+              -0.002526354665528141,
+              1.5158371519070517,
+              -0.17476896393585964,
+              -9.816678232216456e-05,
+              0.8198061807632941,
+              0.04825197108221129,
+              -0.5320521781616896
+            ],
+            "pivot": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14
+            ],
+            "rank": 14,
+            "iterations": 8,
+            "converged": true,
+            "deviance": 3728.929430940647,
+            "null_deviance": 6360.207891837355,
+            "cells": 7226
+          },
+          {
+            "class": 3,
+            "drivers": [
+              "aspect",
+              "diorite",
+              "dist_roads",
+              "dist_sea",
+              "dist_streams",
+              "dist_urban",
+              "elevation",
+              "moderate_erosion",
+              "no_erosion",
+              "pop_density",
+              "sediments",
+              "slope",
+              "ultramafic"
+            ],
+            "coefficients": [
+              -1.0149988983491658,
+              -0.0007256755251568113,
+              -14.174296076050052,
+              -0.0004858496292382469,
+              0.0003599294528855718,
+              -0.0008036433518440806,
+              -4.270149979924953e-05,
+              -0.0007562903451847266,
+              1.4188235196613914,
+              0.29405001914195045,
+              -6.811409443169816e-05,
+              -1.1162455848590604,
+              0.0245513813249842,
+              -3.333072259514551
+            ],
+            "pivot": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14
+            ],
+            "rank": 14,
+            "iterations": 15,
+            "converged": true,
+            "deviance": 4002.237162716734,
+            "null_deviance": 5189.699603750314,
+            "cells": 7226
+          },
+          {
+            "class": 4,
+            "drivers": [
+              "aspect",
+              "diorite",
+              "dist_roads",
+              "dist_sea",
+              "dist_streams",
+              "dist_urban",
+              "elevation",
+              "moderate_erosion",
+              "no_erosion",
+              "pop_density",
+              "sediments",
+              "slope",
+              "ultramafic"
+            ],
+            "coefficients": [
+              -16.721587932176615,
+              -0.0025356950473866676,
+              2.8195285931318645,
+              0.0005861573773443964,
+              0.00016319296958299895,
+              0.00018391985550152533,
+              5.018438748343838e-05,
+              -0.02606256348599685,
+              -0.25316601261918287,
+              -0.08261857990562607,
+              0.00036939439514738903,
+              15.13012063781088,
+              -0.11861411533366745,
+              14.235127678790173
+            ],
+            "pivot": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14
+            ],
+            "rank": 14,
+            "iterations": 20,
+            "converged": true,
+            "deviance": 1320.1732310755413,
+            "null_deviance": 1997.2433991563557,
+            "cells": 7226
+          },
+          {
+            "class": 5,
+            "drivers": [
+              "aspect",
+              "diorite",
+              "dist_roads",
+              "dist_sea",
+              "dist_streams",
+              "dist_urban",
+              "elevation",
+              "moderate_erosion",
+              "no_erosion",
+              "pop_density",
+              "sediments",
+              "slope",
+              "ultramafic"
+            ],
+            "coefficients": [
+              -13.720371475190738,
+              0.0017053521117736561,
+              2.529867931343959,
+              0.000778270128821404,
+              -0.0036182793416734914,
+              -0.00023905703285824785,
+              5.150173793125086e-05,
+              -0.011829790132386083,
+              -2.225015070659917,
+              -0.3041658988092952,
+              -0.00022819452231927356,
+              13.898603664069592,
+              -0.05731547272825416,
+              -2.8085680226837373
+            ],
+            "pivot": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14
+            ],
+            "rank": 14,
+            "iterations": 21,
+            "converged": true,
+            "deviance": 1075.4595712430933,
+            "null_deviance": 2382.2018039364248,
+            "cells": 7226
+          }
+        ]
+      },
+      "note": "Logistic regressions fitted with landschaft."
+    },
+    {
+      "id": "demand",
+      "op": "markov.matrix",
+      "params": {
+        "classes": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "single": [
+          [
+            0.8807961041710777,
+            0.02667795892441245,
+            0.06775354647469828,
+            0.024560660597078128,
+            0.00021172983273343214
+          ],
+          [
+            0.0,
+            0.9844559585492227,
+            0.015544041450777202,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.09177592371871275,
+            0.8879618593563766,
+            0.01907032181168057,
+            0.0011918951132300357
+          ],
+          [
+            0.0,
+            0.27232142857142855,
+            0.03125,
+            0.6964285714285714,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "multi": [
+          [
+            0.990974610090462,
+            0.0015005012402040513,
+            0.005378160626907113,
+            0.002133794569643091,
+            1.293347278380232e-05
+          ],
+          [
+            0.0,
+            0.9988319774260467,
+            0.0011821602080506763,
+            -1.3467460919847301e-05,
+            -6.701731775449256e-07
+          ],
+          [
+            0.0,
+            0.006743829602641299,
+            0.9914663033898715,
+            0.0016998908079378272,
+            8.997619954942323e-05
+          ],
+          [
+            0.0,
+            0.022950054104540506,
+            0.0025932498695877063,
+            0.9744582166832348,
+            -1.520657363238061e-06
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "steps": 14
+      },
+      "note": "The Markov chain fitted with landschaft (its matrix per step included)."
+    },
+    {
+      "id": "cars_demand",
+      "op": "plus.demand",
+      "inputs": {
+        "start": "$start",
+        "markov": "demand.markov"
+      },
+      "params": {
+        "steps": 3
+      }
+    },
+    {
+      "id": "probability",
+      "op": "glm.predict",
+      "inputs": {
+        "model": "potential.model",
+        "drivers": "$drivers",
+        "landscape": "$start"
+      }
+    },
+    {
+      "id": "simulation",
+      "op": "control.repeat",
+      "inputs": {
+        "times": "cars_demand.steps",
+        "landscape": "$start"
+      },
+      "body": {
+        "nodes": [
+          {
+            "id": "allocate",
+            "op": "cars.step",
+            "inputs": {
+              "landscape": "@landscape",
+              "probability": "probability.suitability",
+              "demand": "cars_demand.demand",
+              "step": "@step",
+              "seed": "$seed"
+            },
+            "params": {
+              "weights": {
+                "1": 1.0,
+                "2": 1.0,
+                "3": 1.0,
+                "4": 1.0,
+                "5": 1.0
+              },
+              "seeds": {
+                "1": 0.1,
+                "2": 0.1,
+                "3": 0.1,
+                "4": 0.1,
+                "5": 0.1
+              },
+              "decay": 0.9,
+              "step_size": 20,
+              "window": 3,
+              "max_iter": 500
+            }
+          }
+        ],
+        "carry": {
+          "landscape": "allocate.landscape"
+        },
+        "collect": {
+          "maps": "allocate.landscape",
+          "info": "allocate.info"
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "maps": {
+      "from": "simulation.maps"
+    },
+    "steps": {
+      "from": "simulation.info"
+    }
+  }
+}

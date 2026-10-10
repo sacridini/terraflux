@@ -11,9 +11,12 @@
 
 pub mod demand;
 pub mod dinamica;
+pub mod dynamic;
+pub mod fitted;
 pub mod glm;
 pub mod lulcc;
 pub mod markov;
+pub mod plus;
 pub mod presets;
 pub mod value;
 pub mod woe;
@@ -211,6 +214,9 @@ impl Registry {
         woe::register(&mut r);
         lulcc::register(&mut r);
         dinamica::register(&mut r);
+        dynamic::register(&mut r);
+        fitted::register(&mut r);
+        plus::register(&mut r);
         r
     }
 

@@ -107,6 +107,39 @@ def lulcc(case, allocation, seed, *, elasticity=None, rules=False, nb=False):
                 "coefficients": lr.coefficients.loc[[1, 2, 3]].to_numpy()})
 
 
+def bridge():
+    """Models saved by landschaft (Model.save) that Terraflux must run as ls.simulate does."""
+    lu = ls.load_raster(INPUTS / "sibuyan_landuse.tif")
+    dr = ls.load_raster(INPUTS / "sibuyan_drivers.tif")
+    names = [str(v) for v in dr.band.values]
+    drivers = {n: dr[k] for k, n in enumerate(names)}
+    land_path, drv_path = "../../inputs/sibuyan_landuse.tif", "../../inputs/sibuyan_drivers.tif"
+
+    def write(case, model, drv_for_save, run_drivers, seed):
+        d = ROOT / "bridge" / case
+        shutil.rmtree(d, ignore_errors=True)
+        d.mkdir(parents=True)
+        model.save(d / "model.json", land_path, drv_for_save, seed=seed)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            maps = model.run(lu[0], run_drivers, seed=seed).maps.values[1:]
+        profile = {"driver": "GTiff", "count": maps.shape[0], "height": maps.shape[1], "width": maps.shape[2],
+                   "dtype": "uint8", "nodata": 255, "compress": "deflate"}
+        with rasterio.open(d / "expected.tif", "w", **profile) as dst:
+            dst.write(np.where(np.isnan(maps), 255, maps).astype(np.uint8))
+
+    write("dinamica", S.presets.dinamica(lu[0], lu[1], dr, steps=14, woe=250), drv_path, dr, 3)
+    # CLUE-S with a dynamic variable (the share of forest around) and neighbourhood rules
+    share = S.share_of(1, 3)
+    lr = S.LogisticRegression().fit(lu[0], {**drivers, "forest_share": share(lu[0])})
+    model = S.Model(lr, S.AreaDemand.from_maps(lu, times=[0, 14]), S.CLUE(max_diff=20, mean_diff=10),
+                    S.Rules(elasticity=0.3, neighbourhood=S.Neighbourhood({2: 0.1})), dynamic={"forest_share": share})
+    write("clue_dynamic", model, drv_path, dr, 5)
+    model = S.Model(S.LogisticRegression().fit(lu[0], dr), S.Markov.from_maps(lu[0], lu[1], steps=14),
+                    S.CARS(steps=3, step_size=20, max_iter=500))
+    write("cars", model, drv_path, dr, 7)
+
+
 def main():
     copy_inputs()
     dinamica()
@@ -116,6 +149,7 @@ def main():
     lulcc("ordered_pie", S.Ordered([2, 1, 3], stochastic=True), 3)
     lulcc("ordered_pie_det", S.Ordered([2, 1, 3], stochastic=False), 3)
     lulcc("ordered_pie_rules", S.Ordered([2, 1, 3], stochastic=True), 5, rules=True, nb=True)
+    bridge()
     print(f"landschaft {ls.__version__}: references written to {REF}")
 
 

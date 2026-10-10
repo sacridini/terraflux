@@ -6,9 +6,10 @@ Terraflux is a native application for land change simulation with cellular autom
 Dinamica EGO: a visual model builder, guided data preparation and live maps, with an engine that runs
 the same model on one machine or distributed across many headless workers.
 
-> **Status:** 0.1 — the model graph, the exact engine and the command line run Dinamica EGO's classic model,
-> CLUE-S and the ordered allocation, bit for bit as landschaft's `ls.simulate` (and so as lulcc). The
-> application, Python bridge and distributed engine come next; the plan is in [`docs/PLAN.md`](docs/PLAN.md)
+> **Status:** 0.2 — the model graph, the exact engine and the command line run Dinamica EGO's classic model,
+> CLUE-S, the ordered allocation and PLUS's CARS, with dynamic variables, bit for bit as landschaft's
+> `ls.simulate` (and so as lulcc); models fitted in Python run here unchanged. The application and the
+> distributed engine come next; the plan is in [`docs/PLAN.md`](docs/PLAN.md)
 > (Portuguese) and the changes in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Goals
@@ -47,6 +48,20 @@ terraflux ops                       # the operators and what they do
 
 `terraflux new clue` and `terraflux new ordered` make lulcc's CLUE-S and ordered models (logistic regressions,
 a demand interpolated from observed maps, conversion rules, elasticities, neighbourhoods, restrictions).
+
+## From Python
+
+[landschaft](https://github.com/sacridini/landschaft) writes its fitted models as Terraflux graphs:
+
+```python
+import landschaft as ls
+
+S = ls.simulate
+model = S.presets.dinamica(lu[0], lu[1], drivers, steps=14)   # fitted in Python
+model.save("dinamica.json", lu[0], drivers, seed=1)            # the graph and its data
+maps = S.terraflux("dinamica.json")                            # run by Terraflux: the maps of model.run
+model, inputs = S.Model.load("dinamica.json")                  # and back
+```
 
 ## The model file
 

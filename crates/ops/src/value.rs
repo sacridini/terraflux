@@ -203,14 +203,38 @@ impl Demand {
 pub struct GlmClass {
     pub class: f64,
     pub drivers: Vec<String>,
+    /// NaN for an aliased driver (R's NA; null in JSON).
+    #[serde(deserialize_with = "nullable_vec")]
     pub coefficients: Vec<f64>,
     pub pivot: Vec<i32>,
     pub rank: i32,
+    #[serde(default)]
     pub iterations: i32,
+    #[serde(default = "yes")]
     pub converged: bool,
+    #[serde(default = "nan", deserialize_with = "nullable")]
     pub deviance: f64,
+    #[serde(default = "nan", deserialize_with = "nullable")]
     pub null_deviance: f64,
+    #[serde(default)]
     pub cells: usize,
+}
+
+fn yes() -> bool {
+    true
+}
+
+fn nan() -> f64 {
+    f64::NAN
+}
+
+/// A number, null for NaN (JSON has no NaN).
+fn nullable<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<f64, D::Error> {
+    Ok(Option::<f64>::deserialize(d)?.unwrap_or(f64::NAN))
+}
+
+fn nullable_vec<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Vec<f64>, D::Error> {
+    Ok(Vec::<Option<f64>>::deserialize(d)?.into_iter().map(|v| v.unwrap_or(f64::NAN)).collect())
 }
 
 /// Logistic regressions of the presence of each class (lulcc's glmModels).
