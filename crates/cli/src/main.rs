@@ -15,6 +15,9 @@ use terraflux_ops::presets;
 #[derive(Parser)]
 #[command(name = "terraflux", version, about = "Land use and land cover change modelling")]
 struct Cli {
+    /// Threads to use (default: all the cores but one; never every core).
+    #[arg(long, global = true)]
+    threads: Option<usize>,
     #[command(subcommand)]
     command: Command,
 }
@@ -36,6 +39,23 @@ enum Command {
         /// Print only errors.
         #[arg(short, long)]
         quiet: bool,
+        /// Run on tiles (maps larger than memory; Dinamica EGO's model): the same maps with any tiling,
+        /// statistically equivalent to the exact engine.
+        #[arg(long)]
+        tiled: bool,
+        /// The side of the tiles (cells).
+        #[arg(long, default_value_t = 1024)]
+        tile: usize,
+        /// The largest distance of a patch's cell from its seed (cells).
+        #[arg(long, default_value_t = 32)]
+        radius: usize,
+        /// Keep the steps' layers in this folder instead of memory.
+        #[arg(long)]
+        disk: Option<PathBuf>,
+        /// Run the tiles on a coordinator's workers (with --tiled; the model's files and --disk on storage
+        /// every worker sees at the same paths).
+        #[arg(long)]
+        coordinator: Option<String>,
     },
     /// Check a model and its data without running it.
     Check { model: PathBuf },
@@ -361,6 +381,7 @@ fn report(model: &Model, engine: &Engine) -> bool {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    terraflux_ops::threads::init(cli.threads);
     let engine = Engine::default();
     let rt = || tokio::runtime::Builder::new_multi_thread().enable_all().build();
     match cli.command {
@@ -379,9 +400,41 @@ fn main() -> Result<()> {
         Command::App { model } => {
             terraflux_app::run(model).map_err(|e| anyhow::anyhow!("the application: {e}"))?;
         }
-        Command::Run { model, out, set, quiet } => {
-            let m = Model::load(&model).with_context(|| format!("reading {}", model.display()))?;
+        Command::Run { model, out, set, quiet, tiled, tile, radius, disk, coordinator } => {
+            let mut m = Model::load(&model).with_context(|| format!("reading {}", model.display()))?;
             let dir = model.parent().map(Path::to_path_buf).unwrap_or_default();
+            if tiled {
+                let mut o = BTreeMap::new();
+                for s in &set {
+                    let (k, v) = s.split_once('=').with_context(|| format!("--set {s}: give name=value"))?;
+                    let v = serde_json::from_str(v).unwrap_or_else(|_| serde_json::Value::String(v.to_string()));
+                    o.insert(if k.contains('.') { k.to_string() } else { format!("${k}") }, v);
+                }
+                m.apply(&o)?;
+                let t = Instant::now();
+                let opt = terraflux_engine::graph::Options {
+                    tile,
+                    settings: terraflux_engine::dinamica::Settings { radius, ..Default::default() },
+                    disk,
+                    runner: match &coordinator {
+                        Some(url) => Some(std::sync::Arc::new(terraflux_dist::tiles::Remote::connect(url)?)),
+                        None => None,
+                    },
+                };
+                let out = out.unwrap_or_else(|| dir.join("output"));
+                let report = terraflux_engine::graph::run(&m, &dir, &out, &opt, |s| {
+                    if !quiet {
+                        eprintln!("  {s} ({:.1} s)", t.elapsed().as_secs_f64());
+                    }
+                })?;
+                if !quiet {
+                    for f in &report.files {
+                        eprintln!("wrote {}", f.display());
+                    }
+                    eprintln!("done in {:.1} s", t.elapsed().as_secs_f64());
+                }
+                return Ok(());
+            }
             let mut overrides = BTreeMap::new();
             for s in &set {
                 let (k, v) = s.split_once('=').with_context(|| format!("--set {s}: give name=value"))?;

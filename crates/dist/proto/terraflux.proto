@@ -4,6 +4,10 @@
 // fetch the data of a task by hash, send heartbeats while they run it and send its result. Clients store the
 // data, submit jobs (a model and the overrides of each of its tasks) and read their status and results.
 // Structured values (models, overrides, evaluations, metrics) travel as JSON.
+//
+// A job of kind "tiles" is a pass of the tiled engine: its payload is the pass (where the maps are, what to
+// compute), each task's payload the tiles it computes, each result's payload the tiles' part (all encoded by
+// the engine). Its workers read and write the maps on storage they share.
 syntax = "proto3";
 package terraflux.v1;
 
@@ -18,6 +22,10 @@ service Coordinator {
   rpc HasBlob(BlobId) returns (Ack);
   rpc Submit(JobSpec) returns (JobId);
   rpc Status(JobId) returns (JobStatus);
+  // The status once every task is done or failed (or after wait_ms).
+  rpc Wait(WaitRequest) returns (JobStatus);
+  // Drop a job and its results.
+  rpc Forget(JobId) returns (Ack);
   rpc Results(JobId) returns (JobResults);
   rpc Workers(Empty) returns (WorkerList);
 }
@@ -37,6 +45,9 @@ message TaskAssignment {
   string overrides_json = 4;
   string evaluation_json = 5;
   bool return_files = 6;
+  string kind = 7;
+  bytes payload = 8;
+  bytes task_payload = 9;
 }
 
 message BlobId { string hash = 1; }
@@ -53,17 +64,21 @@ message TaskResult {
   double seconds = 7;
   repeated string warnings = 8;
   string label = 9;
+  bytes payload = 10;
 }
 
-message TaskSpec { string label = 1; string overrides_json = 2; }
+message TaskSpec { string label = 1; string overrides_json = 2; bytes payload = 3; }
 message JobSpec {
   string name = 1;
   string model_json = 2;
   repeated TaskSpec tasks = 3;
   bool return_files = 4;
   string evaluation_json = 5;
+  string kind = 6;
+  bytes payload = 7;
 }
 message JobId { string id = 1; }
+message WaitRequest { string id = 1; uint32 wait_ms = 2; }
 message JobStatus {
   string id = 1;
   uint32 total = 2;

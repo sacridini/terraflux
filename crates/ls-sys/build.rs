@@ -56,9 +56,9 @@ fn main() {
     let mut bridge = cxx_build::bridge("src/lib.rs");
     bridge.file("shim/shim.cc").include(&include).include(&manifest).std("c++17");
     if target.contains("msvc") {
-        bridge.flag("/fp:precise").flag("/EHsc").flag("/permissive-");
+        bridge.flag("/fp:precise").flag("/EHsc").flag("/permissive-").flag("/openmp");
     } else {
-        bridge.flag("-ffp-contract=off").flag("-fno-fast-math");
+        bridge.flag("-ffp-contract=off").flag("-fno-fast-math").flag("-fopenmp");
     }
     bridge.compile("terraflux_shim");
     println!("cargo:rerun-if-changed=shim/shim.cc");

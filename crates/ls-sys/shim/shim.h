@@ -22,6 +22,10 @@ struct ObservedPatches;
 struct CarsOut;
 struct SimilarityOut;
 
+// the threads of the kernels (OpenMP) of the calling thread, and their most
+void set_threads(std::int32_t n);
+std::int32_t max_threads();
+
 std::unique_ptr<nlm::RRng> rrng_new(std::int32_t seed);
 double rrng_unif_rand(nlm::RRng& rng);
 rust::Vec<double> rrng_runif(nlm::RRng& rng, std::size_t n);

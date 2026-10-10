@@ -9,6 +9,74 @@ fn data(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests").join("data").join(name)
 }
 
+#[test]
+fn tiles_written_in_any_order() {
+    use terraflux_raster::tiff::TiledWriter;
+    let src = Raster::read(data("pie_small.tif")).unwrap(); // 40 x 30, 3 bands, a CRS
+    let (w, h) = (src.grid.width, src.grid.height);
+    let out = tmp("tiled_any_order.tif");
+    let names: Vec<Option<String>> = src.bands.iter().map(|b| b.name.clone()).collect();
+    let mut tw = TiledWriter::create(&out, &src.grid, names, DataType::U8, src.nodata, 16, Some(6)).unwrap();
+    let tiles: Vec<(usize, usize)> = (0..2).flat_map(|r| (0..3).map(move |c| (c, r))).collect();
+    for &(c, r) in tiles.iter().rev() {
+        let (x0, y0) = (c * 16, r * 16);
+        let (cw, ch) = (16.min(w - x0), 16.min(h - y0));
+        let cut: Vec<Vec<f64>> = src
+            .bands
+            .iter()
+            .map(|b| {
+                (0..ch).flat_map(|y| (0..cw).map(move |x| (y, x))).map(|(y, x)| b.data[(y0 + y) * w + x0 + x]).collect()
+            })
+            .collect();
+        let refs: Vec<&[f64]> = cut.iter().map(|v| v.as_slice()).collect();
+        tw.write_tile(c, r, &refs).unwrap();
+    }
+    tw.finish().unwrap();
+    let back = Raster::read(&out).unwrap();
+    assert_eq!(back.grid, src.grid);
+    assert_eq!(back.bands, src.bands);
+    assert_eq!(back.nodata, src.nodata);
+}
+
+#[test]
+fn windows_read_only_what_they_cover() {
+    use terraflux_raster::tiff::{Reader, Window};
+    for file in [
+        "lu_plain.tif",
+        "lu_u16_lzw_tiled_pred2.tif",
+        "lu_packbits_band.tif",
+        "dr_f32_pred3_tiled.tif",
+        "dr_bigtiff_be.tif",
+    ] {
+        let full = Raster::read(data(file)).unwrap();
+        let (w, h) = (full.grid.width as i64, full.grid.height as i64);
+        for win in [
+            Window { x0: 0, y0: 0, width: 10, height: 7 },
+            Window { x0: 37, y0: 21, width: 50, height: 33 },
+            Window { x0: -5, y0: -3, width: 20, height: 10 },
+            Window { x0: w - 8, y0: h - 4, width: 16, height: 9 },
+        ] {
+            let mut r = Reader::open(data(file)).unwrap();
+            assert_eq!(r.meta.grid, full.grid);
+            let got = r.window(win).unwrap();
+            for (b, band) in got.iter().enumerate() {
+                for y in 0..win.height as i64 {
+                    for x in 0..win.width as i64 {
+                        let (gx, gy) = (win.x0 + x, win.y0 + y);
+                        let v = band[(y * win.width as i64 + x) as usize];
+                        if gx < 0 || gy < 0 || gx >= w || gy >= h {
+                            assert!(v.is_nan(), "{file}: outside the image");
+                        } else {
+                            let e = full.bands[b].data[(gy * w + gx) as usize];
+                            assert!(v.to_bits() == e.to_bits() || (v.is_nan() && e.is_nan()), "{file} {win:?}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn tmp(name: &str) -> PathBuf {
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
     std::fs::create_dir_all(&dir).unwrap();

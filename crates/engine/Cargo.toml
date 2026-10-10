@@ -1,0 +1,21 @@
+[package]
+name = "terraflux-engine"
+description = "The tiled engine of Terraflux: models on maps larger than memory, deterministic whatever the tiling"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+bincode = { version = "2", features = ["serde"] }
+lz4_flex = "0.11"
+rayon.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+terraflux-exec = { path = "../exec" }
+terraflux-graph = { path = "../graph" }
+terraflux-ls-sys = { path = "../ls-sys" }
+terraflux-ops = { path = "../ops" }
+terraflux-raster = { path = "../raster" }

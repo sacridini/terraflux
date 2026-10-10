@@ -28,6 +28,7 @@ use std::sync::Arc;
 use serde::de::DeserializeOwned;
 use terraflux_graph::{Access, Catalog, OpSignature, PortSpec, Type};
 
+pub use terraflux_ls_sys::threads;
 pub use value::{Demand, GlmModel, Key, Map, Markov, PatchParams, Stack, Table, Value};
 
 #[derive(Debug, Clone, thiserror::Error)]

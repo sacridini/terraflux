@@ -63,15 +63,55 @@ impl Client {
             model_json: model.to_json().map_err(|e| Error::Other(e.to_string()))?,
             tasks: tasks
                 .iter()
-                .map(|(label, o)| Ok(TaskSpec { label: label.clone(), overrides_json: serde_json::to_string(o)? }))
+                .map(|(label, o)| {
+                    Ok(TaskSpec {
+                        label: label.clone(),
+                        overrides_json: serde_json::to_string(o)?,
+                        payload: Vec::new(),
+                    })
+                })
                 .collect::<Result<_>>()?,
             return_files,
             evaluation_json: match evaluation {
                 Some(e) => serde_json::to_string(e)?,
                 None => String::new(),
             },
+            kind: String::new(),
+            payload: Vec::new(),
         };
         Ok(self.c.submit(spec).await?.into_inner().id)
+    }
+
+    /// Submit a job of kind `kind`: its payload and its tasks' (labelled by their number).
+    pub async fn submit_payload(&mut self, kind: &str, payload: Vec<u8>, tasks: Vec<Vec<u8>>) -> Result<String> {
+        let spec = JobSpec {
+            name: kind.to_string(),
+            kind: kind.to_string(),
+            payload,
+            tasks: tasks
+                .into_iter()
+                .enumerate()
+                .map(|(i, p)| TaskSpec { label: i.to_string(), overrides_json: String::new(), payload: p })
+                .collect(),
+            ..Default::default()
+        };
+        Ok(self.c.submit(spec).await?.into_inner().id)
+    }
+
+    /// Wait (on the coordinator) until every task of a job is done or failed.
+    pub async fn wait_done(&mut self, job: &str) -> Result<JobStatus> {
+        loop {
+            let s = self.c.wait(WaitRequest { id: job.to_string(), wait_ms: 30_000 }).await?.into_inner();
+            if s.done + s.failed == s.total {
+                return Ok(s);
+            }
+        }
+    }
+
+    /// Drop a job and its results from the coordinator.
+    pub async fn forget(&mut self, job: &str) -> Result<()> {
+        self.c.forget(JobId { id: job.to_string() }).await?;
+        Ok(())
     }
 
     pub async fn status(&mut self, job: &str) -> Result<JobStatus> {

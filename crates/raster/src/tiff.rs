@@ -175,6 +175,7 @@ fn read_ifd(f: &mut File, e: Endian, big: bool, offset: u64) -> Result<Ifd> {
 }
 
 /// How the cells of a TIFF image are stored.
+#[derive(Clone)]
 struct Layout {
     width: usize,
     height: usize,
@@ -367,10 +368,20 @@ fn chunk_values(l: &Layout, mut bytes: Vec<u8>, cols: usize, samples: usize) -> 
     Ok(v)
 }
 
-/// The cells of the image, band by band.
-fn read_bands(f: &mut File, l: &Layout) -> Result<Vec<Vec<f64>>> {
+/// A part of an image: columns `x0..x0 + width`, rows `y0..y0 + height` (it may pass the image's edges: the
+/// cells outside it are NaN).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Window {
+    pub x0: i64,
+    pub y0: i64,
+    pub width: usize,
+    pub height: usize,
+}
+
+/// The cells of a window of the image, band by band (only the chunks that touch it are read).
+fn read_bands(f: &mut File, l: &Layout, win: Window) -> Result<Vec<Vec<f64>>> {
     let (w, h, spp) = (l.width, l.height, l.spp);
-    let mut bands = vec![vec![0.0f64; w * h]; spp];
+    let mut bands = vec![vec![f64::NAN; win.width * win.height]; spp];
     let bps = l.dtype.bytes();
     let chunk_samples = if l.planar == 2 { 1 } else { spp };
     let (cw, ch) = l.tiles.unwrap_or((w, l.rows_per_strip));
@@ -381,9 +392,16 @@ fn read_bands(f: &mut File, l: &Layout) -> Result<Vec<Vec<f64>>> {
     if l.offsets.len() < per_plane * planes {
         return Err(Error::Invalid(format!("{} chunks for {} expected", l.offsets.len(), per_plane * planes)));
     }
+    // the image's cells in the window
+    let (wx0, wy0) = (win.x0.max(0) as usize, win.y0.max(0) as usize);
+    let wx1 = (win.x0 + win.width as i64).clamp(0, w as i64) as usize;
+    let wy1 = (win.y0 + win.height as i64).clamp(0, h as i64) as usize;
+    if wx0 >= wx1 || wy0 >= wy1 {
+        return Ok(bands);
+    }
     for plane in 0..planes {
-        for ty in 0..down {
-            for tx in 0..across {
+        for ty in wy0 / ch..wy1.div_ceil(ch) {
+            for tx in wx0 / cw..wx1.div_ceil(cw) {
                 let k = plane * per_plane + ty * across + tx;
                 let y0 = ty * ch;
                 // strips hold only the image's rows; tiles are always whole
@@ -398,13 +416,22 @@ fn read_bands(f: &mut File, l: &Layout) -> Result<Vec<Vec<f64>>> {
                 let x0 = tx * cw;
                 for r in 0..rows.min(h.saturating_sub(y0)) {
                     let y = y0 + r;
+                    if y < wy0 || y >= wy1 {
+                        continue;
+                    }
+                    let oy = (y as i64 - win.y0) as usize;
                     for c in 0..cw.min(w - x0) {
+                        let x = x0 + c;
+                        if x < wx0 || x >= wx1 {
+                            continue;
+                        }
+                        let o = oy * win.width + (x as i64 - win.x0) as usize;
                         let base = (r * cw + c) * chunk_samples;
                         if l.planar == 2 {
-                            bands[plane][y * w + x0 + c] = vals[base];
+                            bands[plane][o] = vals[base];
                         } else {
                             for (s, band) in bands.iter_mut().enumerate() {
-                                band[y * w + x0 + c] = vals[base + s];
+                                band[o] = vals[base + s];
                             }
                         }
                     }
@@ -489,41 +516,86 @@ fn band_names(xml: &str, spp: usize) -> Vec<Option<String>> {
     names
 }
 
+/// An open TIFF file: its grid, type, no-data value and band names, and windows of its cells read on demand.
+pub struct Reader {
+    file: File,
+    path: std::path::PathBuf,
+    layout: std::sync::Arc<Layout>,
+    /// The raster without cells (`bands` hold their names and empty data).
+    pub meta: Raster,
+}
+
+impl Reader {
+    pub fn open(path: impl AsRef<Path>) -> Result<Reader> {
+        let mut f = File::open(path.as_ref())?;
+        let head = read_at(&mut f, 0, 16).or_else(|_| read_at(&mut f, 0, 8))?;
+        let e = match &head[..2] {
+            b"II" => Endian { little: true },
+            b"MM" => Endian { little: false },
+            _ => return Err(Error::NotTiff),
+        };
+        let (big, first) = match e.u16(&head[2..]) {
+            42 => (false, e.u32(&head[4..]) as u64),
+            43 => {
+                if head.len() < 16 {
+                    return Err(Error::NotTiff);
+                }
+                (true, e.u64(&head[8..]))
+            }
+            _ => return Err(Error::NotTiff),
+        };
+        let ifd = read_ifd(&mut f, e, big, first)?;
+        let l = layout(&ifd, e)?;
+        let geo = GeoTags {
+            pixel_scale: ifd.floats(MODEL_PIXEL_SCALE, e)?,
+            tiepoints: ifd.floats(MODEL_TIEPOINT, e)?,
+            transformation: ifd.floats(MODEL_TRANSFORMATION, e)?,
+            geokeys: ifd.uints(GEO_KEY_DIRECTORY, e)?.map(|v| v.into_iter().map(|x| x as u16).collect()),
+            double_params: ifd.floats(GEO_DOUBLE_PARAMS, e)?,
+            ascii_params: ifd.get(GEO_ASCII_PARAMS).map(|x| String::from_utf8_lossy(&x.data).into_owned()),
+        };
+        let transform = geotransform(&geo);
+        let nodata = ifd.get(GDAL_NODATA).and_then(|x| parse_nodata(&x.text()));
+        let names = ifd.get(GDAL_METADATA).map(|x| band_names(&x.text(), l.spp)).unwrap_or_else(|| vec![None; l.spp]);
+        let meta = Raster {
+            grid: Grid { width: l.width, height: l.height, transform, geo },
+            bands: names.into_iter().map(|name| Band { name, data: Vec::new() }).collect(),
+            dtype: l.dtype,
+            nodata,
+        };
+        Ok(Reader { file: f, path: path.as_ref().to_path_buf(), layout: std::sync::Arc::new(l), meta })
+    }
+
+    /// The same image opened again (a reader per thread), without parsing its directory again.
+    pub fn reopen(&self) -> Result<Reader> {
+        Ok(Reader {
+            file: File::open(&self.path)?,
+            path: self.path.clone(),
+            layout: self.layout.clone(),
+            meta: self.meta.clone(),
+        })
+    }
+
+    /// The cells of a window, every band (NaN outside the image; no-data values as they are).
+    pub fn window(&mut self, win: Window) -> Result<Vec<Vec<f64>>> {
+        read_bands(&mut self.file, &self.layout, win)
+    }
+
+    /// Every cell.
+    pub fn read_all(mut self) -> Result<Raster> {
+        let win = Window { x0: 0, y0: 0, width: self.layout.width, height: self.layout.height };
+        let data = self.window(win)?;
+        let mut r = self.meta;
+        for (b, d) in r.bands.iter_mut().zip(data) {
+            b.data = d;
+        }
+        Ok(r)
+    }
+}
+
 /// Read the first image of a TIFF file.
 pub fn read(path: impl AsRef<Path>) -> Result<Raster> {
-    let mut f = File::open(path.as_ref())?;
-    let head = read_at(&mut f, 0, 16).or_else(|_| read_at(&mut f, 0, 8))?;
-    let e = match &head[..2] {
-        b"II" => Endian { little: true },
-        b"MM" => Endian { little: false },
-        _ => return Err(Error::NotTiff),
-    };
-    let (big, first) = match e.u16(&head[2..]) {
-        42 => (false, e.u32(&head[4..]) as u64),
-        43 => {
-            if head.len() < 16 {
-                return Err(Error::NotTiff);
-            }
-            (true, e.u64(&head[8..]))
-        }
-        _ => return Err(Error::NotTiff),
-    };
-    let ifd = read_ifd(&mut f, e, big, first)?;
-    let l = layout(&ifd, e)?;
-    let geo = GeoTags {
-        pixel_scale: ifd.floats(MODEL_PIXEL_SCALE, e)?,
-        tiepoints: ifd.floats(MODEL_TIEPOINT, e)?,
-        transformation: ifd.floats(MODEL_TRANSFORMATION, e)?,
-        geokeys: ifd.uints(GEO_KEY_DIRECTORY, e)?.map(|v| v.into_iter().map(|x| x as u16).collect()),
-        double_params: ifd.floats(GEO_DOUBLE_PARAMS, e)?,
-        ascii_params: ifd.get(GEO_ASCII_PARAMS).map(|x| String::from_utf8_lossy(&x.data).into_owned()),
-    };
-    let transform = geotransform(&geo);
-    let nodata = ifd.get(GDAL_NODATA).and_then(|x| parse_nodata(&x.text()));
-    let names = ifd.get(GDAL_METADATA).map(|x| band_names(&x.text(), l.spp)).unwrap_or_else(|| vec![None; l.spp]);
-    let data = read_bands(&mut f, &l)?;
-    let bands = data.into_iter().zip(names).map(|(data, name)| Band { name, data }).collect();
-    Ok(Raster { grid: Grid { width: l.width, height: l.height, transform, geo }, bands, dtype: l.dtype, nodata })
+    Reader::open(path)?.read_all()
 }
 
 // ----------------------------------------------------------------------------- writing
@@ -670,10 +742,6 @@ pub fn write(r: &Raster, path: impl AsRef<Path>, opt: &WriteOptions) -> Result<(
         counts.push(data.len() as u64);
         pos += data.len() as u64;
     }
-    if !big && pos > u32::MAX as u64 {
-        return Err(Error::Raster("the file passes 4 GB: write it as BigTIFF".into()));
-    }
-
     // the IFD
     let mut tags: Vec<(u16, Value)> = vec![
         (IMAGE_WIDTH, Value::Long(vec![w as u32])),
@@ -686,19 +754,38 @@ pub fn write(r: &Raster, path: impl AsRef<Path>, opt: &WriteOptions) -> Result<(
         (PLANAR_CONFIG, Value::Short(vec![1])),
         (SAMPLE_FORMAT, Value::Short(vec![dtype.sample_format(); spp])),
     ];
+    chunk_tags(&mut tags, STRIP_OFFSETS, STRIP_BYTE_COUNTS, offsets, counts, big);
+    let names: Vec<Option<String>> = r.bands.iter().map(|b| b.name.clone()).collect();
+    grid_tags(&mut tags, &r.grid, &names, r.nodata);
+    finish(&mut out, pos, tags, big)
+}
+
+fn chunk_tags(
+    tags: &mut Vec<(u16, Value)>,
+    off_tag: u16,
+    cnt_tag: u16,
+    offsets: Vec<u64>,
+    counts: Vec<u64>,
+    big: bool,
+) {
     if big {
-        tags.push((STRIP_OFFSETS, Value::Long8(offsets)));
-        tags.push((STRIP_BYTE_COUNTS, Value::Long8(counts)));
+        tags.push((off_tag, Value::Long8(offsets)));
+        tags.push((cnt_tag, Value::Long8(counts)));
     } else {
-        tags.push((STRIP_OFFSETS, Value::Long(offsets.iter().map(|&v| v as u32).collect())));
-        tags.push((STRIP_BYTE_COUNTS, Value::Long(counts.iter().map(|&v| v as u32).collect())));
+        tags.push((off_tag, Value::Long(offsets.iter().map(|&v| v as u32).collect())));
+        tags.push((cnt_tag, Value::Long(counts.iter().map(|&v| v as u32).collect())));
     }
+}
+
+/// The tags of the georeference, band names and no-data value.
+fn grid_tags(tags: &mut Vec<(u16, Value)>, grid: &Grid, names: &[Option<String>], nodata: Option<f64>) {
+    let spp = names.len();
     if spp > 1 {
         tags.push((EXTRA_SAMPLES, Value::Short(vec![0; spp - 1])));
     }
-    let g = &r.grid.geo;
+    let g = &grid.geo;
     let has_geo = g.geokeys.is_some() || g.pixel_scale.is_some() || g.transformation.is_some();
-    let t = r.grid.transform;
+    let t = grid.transform;
     if t[2] == 0.0 && t[4] == 0.0 {
         if has_geo || t != [0.0, 1.0, 0.0, 0.0, 0.0, -1.0] {
             tags.push((MODEL_PIXEL_SCALE, Value::Double(vec![t[1], -t[5], 0.0])));
@@ -727,10 +814,10 @@ pub fn write(r: &Raster, path: impl AsRef<Path>, opt: &WriteOptions) -> Result<(
     if let Some(a) = &g.ascii_params {
         tags.push((GEO_ASCII_PARAMS, Value::Ascii(a.trim_end_matches('\0').to_string())));
     }
-    if r.bands.iter().any(|b| b.name.is_some()) {
+    if names.iter().any(Option::is_some) {
         let mut xml = String::from("<GDALMetadata>\n");
-        for (i, b) in r.bands.iter().enumerate() {
-            if let Some(n) = &b.name {
+        for (i, n) in names.iter().enumerate() {
+            if let Some(n) = n {
                 xml.push_str(&format!(
                     "  <Item name=\"DESCRIPTION\" sample=\"{i}\" role=\"description\">{}</Item>\n",
                     xml_escape(n)
@@ -740,12 +827,18 @@ pub fn write(r: &Raster, path: impl AsRef<Path>, opt: &WriteOptions) -> Result<(
         xml.push_str("</GDALMetadata>");
         tags.push((GDAL_METADATA, Value::Ascii(xml)));
     }
-    if let Some(nd) = r.nodata {
+    if let Some(nd) = nodata {
         tags.push((GDAL_NODATA, Value::Ascii(format_nodata(nd))));
     }
-    tags.sort_by_key(|(tag, _)| *tag);
+}
 
-    // the IFD after the strips (word-aligned), the values that do not fit in their entry after it
+/// The IFD after the image data (word-aligned), the values that do not fit in their entry after it, and the
+/// header pointing at it.
+fn finish(out: &mut BufWriter<File>, mut pos: u64, mut tags: Vec<(u16, Value)>, big: bool) -> Result<()> {
+    tags.sort_by_key(|(tag, _)| *tag);
+    if !big && pos > u32::MAX as u64 {
+        return Err(Error::Raster("the file passes 4 GB: write it as BigTIFF".into()));
+    }
     if pos % 2 == 1 {
         out.write_all(&[0])?;
         pos += 1;
@@ -793,7 +886,6 @@ pub fn write(r: &Raster, path: impl AsRef<Path>, opt: &WriteOptions) -> Result<(
     }
     out.write_all(&ifd)?;
     out.write_all(&extra)?;
-    // the header
     let mut header = Vec::new();
     header.extend(b"II");
     if big {
@@ -809,4 +901,119 @@ pub fn write(r: &Raster, path: impl AsRef<Path>, opt: &WriteOptions) -> Result<(
     out.write_all(&header)?;
     out.flush()?;
     Ok(())
+}
+
+/// A tiled GeoTIFF written tile by tile, in any order, never whole in memory (BigTIFF when it could pass
+/// 4 GB): the output of maps larger than memory.
+pub struct TiledWriter {
+    out: BufWriter<File>,
+    pos: u64,
+    big: bool,
+    grid: Grid,
+    names: Vec<Option<String>>,
+    dtype: DataType,
+    nodata: Option<f64>,
+    tile: usize,
+    deflate: Option<u32>,
+    offsets: Vec<u64>,
+    counts: Vec<u64>,
+}
+
+impl TiledWriter {
+    /// A file of `names.len()` bands; `tile` a multiple of 16 (TIFF's rule).
+    pub fn create(
+        path: impl AsRef<Path>,
+        grid: &Grid,
+        names: Vec<Option<String>>,
+        dtype: DataType,
+        nodata: Option<f64>,
+        tile: usize,
+        deflate: Option<u32>,
+    ) -> Result<TiledWriter> {
+        if tile == 0 || !tile.is_multiple_of(16) {
+            return Err(Error::Raster("a TIFF tile's side is a multiple of 16".into()));
+        }
+        if names.is_empty() {
+            return Err(Error::Raster("a raster needs a band".into()));
+        }
+        let n = grid.width.div_ceil(tile) * grid.height.div_ceil(tile);
+        let raw =
+            (grid.width.div_ceil(tile) * tile * grid.height.div_ceil(tile) * tile * names.len() * dtype.bytes()) as u64;
+        let big = raw > 3_900_000_000;
+        let mut out = BufWriter::new(File::create(path.as_ref())?);
+        let header_len: u64 = if big { 16 } else { 8 };
+        out.write_all(&vec![0u8; header_len as usize])?;
+        Ok(TiledWriter {
+            out,
+            pos: header_len,
+            big,
+            grid: grid.clone(),
+            names,
+            dtype,
+            nodata,
+            tile,
+            deflate,
+            offsets: vec![0; n],
+            counts: vec![0; n],
+        })
+    }
+
+    /// The tile of column `col`, row `row`: each band's cells of the tile (its width x height, smaller at the
+    /// right and bottom edges), row by row.
+    pub fn write_tile(&mut self, col: usize, row: usize, bands: &[&[f64]]) -> Result<()> {
+        let (t, w, h) = (self.tile, self.grid.width, self.grid.height);
+        let across = w.div_ceil(t);
+        if col >= across || row >= h.div_ceil(t) || bands.len() != self.names.len() {
+            return Err(Error::Raster("no such tile, or not a band per band of the file".into()));
+        }
+        let (tw, th) = (t.min(w - col * t), t.min(h - row * t));
+        if bands.iter().any(|b| b.len() != tw * th) {
+            return Err(Error::Raster("a band differs in size from the tile".into()));
+        }
+        let fill = if self.dtype.is_float() { f64::NAN } else { self.nodata.filter(|v| !v.is_nan()).unwrap_or(0.0) };
+        let mut buf = Vec::with_capacity(t * t * bands.len() * self.dtype.bytes());
+        for y in 0..t {
+            for x in 0..t {
+                for b in bands {
+                    let v = if x < tw && y < th { b[y * tw + x] } else { fill };
+                    encode_value(if v.is_nan() { fill } else { v }, self.dtype, &mut buf);
+                }
+            }
+        }
+        let data = match self.deflate {
+            Some(level) => {
+                let mut z = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::new(level));
+                z.write_all(&buf)?;
+                z.finish()?
+            }
+            None => buf,
+        };
+        let k = row * across + col;
+        self.out.write_all(&data)?;
+        self.offsets[k] = self.pos;
+        self.counts[k] = data.len() as u64;
+        self.pos += data.len() as u64;
+        Ok(())
+    }
+
+    pub fn finish(mut self) -> Result<()> {
+        let spp = self.names.len();
+        let bps = self.dtype.bytes();
+        let mut tags: Vec<(u16, Value)> = vec![
+            (IMAGE_WIDTH, Value::Long(vec![self.grid.width as u32])),
+            (IMAGE_LENGTH, Value::Long(vec![self.grid.height as u32])),
+            (BITS_PER_SAMPLE, Value::Short(vec![(bps * 8) as u16; spp])),
+            (COMPRESSION, Value::Short(vec![if self.deflate.is_some() { 8 } else { 1 }])),
+            (PHOTOMETRIC, Value::Short(vec![1])),
+            (SAMPLES_PER_PIXEL, Value::Short(vec![spp as u16])),
+            (PLANAR_CONFIG, Value::Short(vec![1])),
+            (TILE_WIDTH, Value::Long(vec![self.tile as u32])),
+            (TILE_LENGTH, Value::Long(vec![self.tile as u32])),
+            (SAMPLE_FORMAT, Value::Short(vec![self.dtype.sample_format(); spp])),
+        ];
+        let (offsets, counts) = (std::mem::take(&mut self.offsets), std::mem::take(&mut self.counts));
+        chunk_tags(&mut tags, TILE_OFFSETS, TILE_BYTE_COUNTS, offsets, counts, self.big);
+        grid_tags(&mut tags, &self.grid, &self.names, self.nodata);
+        finish(&mut self.out, self.pos, tags, self.big)
+    }
 }

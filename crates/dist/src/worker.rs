@@ -24,11 +24,18 @@ pub struct Options {
     pub cache: PathBuf,
     /// Seconds between heartbeats while a task runs.
     pub heartbeat: Duration,
+    /// The kernels' threads of each task (never every core).
+    pub threads: usize,
 }
 
 impl Options {
     pub fn new(name: &str, cache: impl Into<PathBuf>) -> Self {
-        Options { name: name.to_string(), cache: cache.into(), heartbeat: Duration::from_secs(5) }
+        Options {
+            name: name.to_string(),
+            cache: cache.into(),
+            heartbeat: Duration::from_secs(5),
+            threads: terraflux_ops::threads::default_threads(),
+        }
     }
 }
 
@@ -112,7 +119,7 @@ pub fn run_task(
 
 /// Ask for tasks and run them until `stop`; reconnects when the coordinator goes away.
 pub async fn run(url: &str, opts: Options, stop: Arc<AtomicBool>) -> Result<()> {
-    let threads = std::thread::available_parallelism().map(|n| n.get() as u32).unwrap_or(1);
+    let threads = opts.threads as u32;
     while !stop.load(Ordering::Relaxed) {
         let mut client = match connect(url).await {
             Ok(c) => c,
@@ -140,7 +147,14 @@ pub async fn run(url: &str, opts: Options, stop: Arc<AtomicBool>) -> Result<()> 
                 continue;
             }
             let t0 = Instant::now();
-            let result = work(&mut client, &opts, &id, &task).await;
+            let (result, payload) = if task.kind == "tiles" {
+                match tiles(&mut client, &opts, &id, &task).await {
+                    Ok(p) => (Ok((String::new(), Vec::new(), Vec::new())), p),
+                    Err(e) => (Err(e), Vec::new()),
+                }
+            } else {
+                (work(&mut client, &opts, &id, &task).await, Vec::new())
+            };
             let (ok, error, metrics, files, warnings) = match result {
                 Ok((m, f, w)) => (true, String::new(), m, f, w),
                 Err(e) => (false, e.to_string(), String::new(), Vec::new(), Vec::new()),
@@ -155,6 +169,7 @@ pub async fn run(url: &str, opts: Options, stop: Arc<AtomicBool>) -> Result<()> 
                 seconds: t0.elapsed().as_secs_f64(),
                 warnings,
                 label: String::new(),
+                payload,
             };
             if client.complete(r).await.is_err() {
                 break;
@@ -162,6 +177,44 @@ pub async fn run(url: &str, opts: Options, stop: Arc<AtomicBool>) -> Result<()> 
         }
     }
     Ok(())
+}
+
+/// Heartbeats to the coordinator until the returned flag is set.
+fn heartbeats(
+    client: &CoordinatorClient<Channel>,
+    id: &str,
+    every: Duration,
+) -> (Arc<AtomicBool>, tokio::task::JoinHandle<()>) {
+    let done = Arc::new(AtomicBool::new(false));
+    let (d, mut hb, wid) = (done.clone(), client.clone(), id.to_string());
+    let beat = tokio::spawn(async move {
+        while !d.load(Ordering::Relaxed) {
+            tokio::time::sleep(every).await;
+            let _ = hb.heartbeat(WorkerId { id: wid.clone() }).await;
+        }
+    });
+    (done, beat)
+}
+
+/// A pass of the tiled engine on some tiles (the maps on shared storage): its part, encoded.
+async fn tiles(
+    client: &mut CoordinatorClient<Channel>,
+    opts: &Options,
+    id: &str,
+    task: &TaskAssignment,
+) -> Result<Vec<u8>> {
+    let (done, beat) = heartbeats(client, id, opts.heartbeat);
+    let (job, chosen, threads) = (task.payload.clone(), task.task_payload.clone(), opts.threads);
+    let r = tokio::task::spawn_blocking(move || {
+        terraflux_ops::threads::ensure();
+        terraflux_ops::threads::set_kernel_threads(threads);
+        terraflux_engine::pass::run_encoded(&job, &chosen).map_err(|e| Error::Other(e.to_string()))
+    })
+    .await
+    .map_err(|e| Error::Other(format!("the task stopped: {e}")))?;
+    done.store(true, Ordering::Relaxed);
+    beat.abort();
+    r
 }
 
 async fn work(
@@ -177,18 +230,16 @@ async fn work(
         if task.evaluation_json.is_empty() { None } else { Some(serde_json::from_str(&task.evaluation_json)?) };
     localize(client, &opts.cache, &mut model, eval.as_mut()).await?;
     // heartbeats while the task runs
-    let done = Arc::new(AtomicBool::new(false));
-    let (d, mut hb, wid, every) = (done.clone(), client.clone(), id.to_string(), opts.heartbeat);
-    let beat = tokio::spawn(async move {
-        while !d.load(Ordering::Relaxed) {
-            tokio::time::sleep(every).await;
-            let _ = hb.heartbeat(WorkerId { id: wid.clone() }).await;
-        }
-    });
+    let (done, beat) = heartbeats(client, id, opts.heartbeat);
     let files = task.return_files.then(|| opts.cache.join("out").join(task.task_id.replace('/', "_")));
-    let r = tokio::task::spawn_blocking(move || run_task(model, &overrides, eval.as_ref(), files.as_deref()))
-        .await
-        .map_err(|e| Error::Other(format!("the task stopped: {e}")))?;
+    let threads = opts.threads;
+    let r = tokio::task::spawn_blocking(move || {
+        terraflux_ops::threads::ensure();
+        terraflux_ops::threads::set_kernel_threads(threads);
+        run_task(model, &overrides, eval.as_ref(), files.as_deref())
+    })
+    .await
+    .map_err(|e| Error::Other(format!("the task stopped: {e}")))?;
     done.store(true, Ordering::Relaxed);
     beat.abort();
     r

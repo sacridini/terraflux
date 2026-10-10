@@ -252,29 +252,63 @@ fn explicit_buckets(values: &[f64], edges: &[f64]) -> Vec<i32> {
         .collect()
 }
 
-/// landschaft's `_layout`: the buckets of a variable for one initial class (its extent over `cells`).
-fn layout(values: &[f64], v: &VarSpec, cells: &[bool]) -> Result<(Layout, Vec<i32>)> {
-    let inside: Vec<f64> = values.iter().zip(cells).filter(|(x, c)| **c && x.is_finite()).map(|(x, _)| *x).collect();
+/// The extent of a variable over the cells of a class: its smallest and largest finite values and, for a
+/// categorical one, its distinct values. Extents of parts of a map merge into the whole map's.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Extent {
+    pub lo: f64,
+    pub hi: f64,
+    pub any: bool,
+    pub values: Vec<f64>,
+}
+
+impl Extent {
+    pub fn of(values: &[f64], cells: &[bool], categorical: bool) -> Extent {
+        let mut e = Extent { lo: f64::INFINITY, hi: f64::NEG_INFINITY, any: false, values: Vec::new() };
+        for (x, c) in values.iter().zip(cells) {
+            if *c && x.is_finite() {
+                e.any = true;
+                e.lo = e.lo.min(*x);
+                e.hi = e.hi.max(*x);
+                if categorical {
+                    e.values.push(*x);
+                }
+            }
+        }
+        e.values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        e.values.dedup();
+        e
+    }
+
+    pub fn merge(&mut self, o: &Extent) {
+        if !o.any {
+            return;
+        }
+        if !self.any {
+            *self = o.clone();
+            return;
+        }
+        self.lo = self.lo.min(o.lo);
+        self.hi = self.hi.max(o.hi);
+        self.values.extend_from_slice(&o.values);
+        self.values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        self.values.dedup();
+    }
+}
+
+/// landschaft's `_layout`: the buckets of a variable for one initial class, from its extent over the class's
+/// cells.
+pub fn layout_from(v: &VarSpec, e: &Extent) -> Result<Layout> {
     if v.categorical {
-        let mut classes = inside.clone();
-        classes.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        classes.dedup();
+        let classes = e.values.clone();
         let n = classes.len();
-        let b = ffi::woe_buckets(values, true, &classes, 0.0, 1.0, n as i64)?;
-        return Ok((Layout { categorical: true, classes, start: 0.0, increment: 1.0, n }, b));
+        return Ok(Layout { categorical: true, classes, start: 0.0, increment: 1.0, n });
     }
     if let Some(edges) = &v.breaks {
         let n = edges.len().saturating_sub(1);
-        return Ok((
-            Layout { categorical: false, classes: edges.clone(), start: 0.0, increment: 1.0, n },
-            explicit_buckets(values, edges),
-        ));
+        return Ok(Layout { categorical: false, classes: edges.clone(), start: 0.0, increment: 1.0, n });
     }
-    let (lo, hi) = if inside.is_empty() {
-        (0.0, 0.0)
-    } else {
-        inside.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), &x| (a.min(x), b.max(x)))
-    };
+    let (lo, hi) = if e.any { (e.lo, e.hi) } else { (0.0, 0.0) };
     let inc = match v.increment {
         None => {
             if hi > lo {
@@ -297,8 +331,24 @@ fn layout(values: &[f64], v: &VarSpec, cells: &[bool]) -> Result<(Layout, Vec<i3
     let start = if x < 0.0 { x } else { 0.0 };
     let top = ((hi / inc).floor() + 1.0) * inc;
     let n = ((top - start) / inc).round_ties_even().max(1.0) as usize; // Python's round()
-    let b = ffi::woe_buckets(values, false, &[], start, inc, n as i64)?;
-    Ok((Layout { categorical: false, classes: Vec::new(), start, increment: inc, n }, b))
+    Ok(Layout { categorical: false, classes: Vec::new(), start, increment: inc, n })
+}
+
+/// The bucket of each cell of a variable for a fit (-1 where missing or out of the layout).
+pub fn fit_buckets(values: &[f64], lay: &Layout, v: &VarSpec) -> Result<Vec<i32>> {
+    if lay.categorical {
+        return Ok(ffi::woe_buckets(values, true, &lay.classes, 0.0, 1.0, lay.n as i64)?);
+    }
+    if v.breaks.is_some() {
+        return Ok(explicit_buckets(values, &lay.classes));
+    }
+    Ok(ffi::woe_buckets(values, false, &[], lay.start, lay.increment, lay.n as i64)?)
+}
+
+fn layout(values: &[f64], v: &VarSpec, cells: &[bool]) -> Result<(Layout, Vec<i32>)> {
+    let lay = layout_from(v, &Extent::of(values, cells, v.categorical))?;
+    let b = fit_buckets(values, &lay, v)?;
+    Ok((lay, b))
 }
 
 /// The bucket of every cell of a (possibly new) driver map for an entry: values beyond the calibrated extent
@@ -325,6 +375,101 @@ fn cell_buckets(e: &Entry, values: &[f64]) -> Result<Vec<i32>> {
     Ok(k)
 }
 
+/// The settings of each variable (`variables` sorted by name), from a fit's settings.
+pub fn variable_specs(variables: &[String], s: &Settings) -> Result<Vec<VarSpec>> {
+    if s.possible != "any" && s.possible != "stay" {
+        return Err(Error::msg("possible must be \"any\" or \"stay\""));
+    }
+    let mut common = s.ranges.clone();
+    for name in &s.categorical {
+        common.insert(name.clone(), "categorical".into());
+    }
+    if let Some(unknown) = common.keys().find(|k| !variables.contains(k)) {
+        return Err(Error::msg(format!("no driver named {unknown:?}")));
+    }
+    variables.iter().map(|name| spec(name, common.get(name), s)).collect()
+}
+
+/// The transitions observed in a matrix of counts (classes x classes), rows then columns.
+pub fn observed_transitions(classes: &[f64], counts: &[i64]) -> Vec<(f64, f64)> {
+    let k = classes.len();
+    let mut t = Vec::new();
+    for i in 0..k {
+        for j in 0..k {
+            if i != j && counts[i * k + j] != 0 {
+                t.push((classes[i], classes[j]));
+            }
+        }
+    }
+    t
+}
+
+/// The ranges and weights of one variable for one transition, from the cells of its initial class by bucket
+/// and final class (`counts`: buckets x `fin`).
+#[allow(clippy::too_many_arguments)]
+pub fn entry_from_counts(
+    f: f64,
+    t: f64,
+    name: &str,
+    v: VarSpec,
+    lay: Layout,
+    counts: &[i64],
+    fin: &[f64],
+    s: &Settings,
+) -> Result<(Entry, Vec<Row>)> {
+    let j = fin.partition_point(|&c| c < t);
+    let stay = fin.partition_point(|&c| c < f);
+    let has_t = j < fin.len() && fin[j] == t;
+    let has_stay = stay < fin.len() && fin[stay] == f;
+    let c = counts;
+    let nf = fin.len();
+    let executed: Vec<i64> = (0..lay.n).map(|r| if has_t { c[r * nf + j] } else { 0 }).collect();
+    let possible: Vec<i64> = if s.possible == "any" {
+        (0..lay.n).map(|r| c[r * nf..(r + 1) * nf].iter().sum()).collect()
+    } else {
+        (0..lay.n).map(|r| executed[r] + if has_stay { c[r * nf + stay] } else { 0 }).collect()
+    };
+    let limits: Vec<usize> = if lay.categorical || v.breaks.is_some() {
+        (1..=lay.n).collect()
+    } else {
+        ffi::woe_generalise(&possible, &executed, v.min_delta, v.max_delta, v.tolerance, s.fix_abnormal)?
+            .into_iter()
+            .map(|x| x as usize)
+            .collect()
+    };
+    let mut cb = vec![0i64];
+    let mut cn = vec![0i64];
+    for r in 0..lay.n {
+        cb.push(cb[r] + possible[r]);
+        cn.push(cn[r] + executed[r]);
+    }
+    let (big_a, big_n) = (cb[lay.n] as f64, cn[lay.n] as f64);
+    let mut weights = Vec::with_capacity(limits.len());
+    let mut rows = Vec::new();
+    let mut lo = 0;
+    for &hi in &limits {
+        let (nb, bb) = (cn[hi] - cn[lo], cb[hi] - cb[lo]);
+        let w = ffi::woe_weights(nb as f64, bb as f64, big_n, big_a, s.fix_abnormal);
+        weights.push(w.plus);
+        let (lower, upper) =
+            if v.breaks.is_none() { (lay.limit(lo), lay.limit(hi)) } else { (lay.classes[lo], lay.classes[hi]) };
+        rows.push(Row {
+            from: f,
+            to: t,
+            variable: name.to_string(),
+            lower,
+            upper,
+            possible: bb,
+            executed: nb,
+            weight: w.plus,
+            contrast: w.contrast,
+            significant: w.significant,
+        });
+        lo = hi;
+    }
+    Ok((Entry { from: f, to: t, variable: name.to_string(), spec: v, layout: lay, limits, weights }, rows))
+}
+
 /// Calibrate the ranges and weights from the map at the start (`t0`) and at the end (`t1`).
 pub fn fit(
     t0: &Map,
@@ -333,9 +478,6 @@ pub fn fit(
     s: &Settings,
     transitions: Option<Vec<(f64, f64)>>,
 ) -> Result<WoeModel> {
-    if s.possible != "any" && s.possible != "stay" {
-        return Err(Error::msg("possible must be \"any\" or \"stay\""));
-    }
     let a = &t0.data;
     let b = &t1.data;
     if a.len() != b.len() || drivers.grid.cells() != a.len() {
@@ -343,107 +485,33 @@ pub fn fit(
     }
     let mut variables = drivers.names();
     variables.sort();
-    let mut common = s.ranges.clone();
-    for name in &s.categorical {
-        common.insert(name.clone(), "categorical".into());
-    }
-    if let Some(unknown) = common.keys().find(|k| !variables.contains(k)) {
-        return Err(Error::msg(format!("no driver named {unknown:?}")));
-    }
+    let specs = variable_specs(&variables, s)?;
     let transitions = match transitions.or_else(|| s.transitions.clone()) {
         Some(t) => t,
         None => {
             let cls = classes_of(&[t0, t1]);
-            let ct = ffi::crosstab(a, b, &cls, &cls)?;
-            let k = cls.len();
-            let mut t = Vec::new();
-            for i in 0..k {
-                for j in 0..k {
-                    if i != j && ct[i * k + j] != 0 {
-                        t.push((cls[i], cls[j]));
-                    }
-                }
-            }
-            t
+            observed_transitions(&cls, &ffi::crosstab(a, b, &cls, &cls)?)
         }
     };
     let fin = classes_of(&[t1]);
     let valid: Vec<bool> = a.iter().zip(b.iter()).map(|(x, y)| !x.is_nan() && !y.is_nan()).collect();
-    let mut cache: BTreeMap<String, (Layout, Vec<i32>, Vec<i64>)> = BTreeMap::new();
+    let mut cache: BTreeMap<String, (Layout, Vec<i64>)> = BTreeMap::new();
     let mut entries = Vec::new();
     let mut rows = Vec::new();
     for &(f, t) in &transitions {
-        let j = fin.partition_point(|&c| c < t);
-        let stay = fin.partition_point(|&c| c < f);
-        let has_t = j < fin.len() && fin[j] == t;
-        let has_stay = stay < fin.len() && fin[stay] == f;
-        for name in &variables {
-            let v = spec(name, common.get(name), s)?;
+        for (name, v) in variables.iter().zip(&specs) {
             let values = drivers.by_name(name).unwrap();
             let sig = format!("{f}|{name}|{}|{:?}|{:?}", v.categorical, v.increment, v.breaks);
             if !cache.contains_key(&sig) {
                 let cells: Vec<bool> = valid.iter().zip(a.iter()).map(|(&ok, &x)| ok && x == f).collect();
-                let (lay, buckets) = layout(values, &v, &cells)?;
+                let (lay, buckets) = layout(values, v, &cells)?;
                 let counts = ffi::woe_counts(a, b, &buckets, lay.n as i64, f, &fin)?;
-                cache.insert(sig.clone(), (lay, buckets, counts));
+                cache.insert(sig.clone(), (lay, counts));
             }
-            let (lay, _, c) = &cache[&sig];
-            let nf = fin.len();
-            let executed: Vec<i64> = (0..lay.n).map(|r| if has_t { c[r * nf + j] } else { 0 }).collect();
-            let possible: Vec<i64> = if s.possible == "any" {
-                (0..lay.n).map(|r| c[r * nf..(r + 1) * nf].iter().sum()).collect()
-            } else {
-                (0..lay.n).map(|r| executed[r] + if has_stay { c[r * nf + stay] } else { 0 }).collect()
-            };
-            let limits: Vec<usize> = if lay.categorical || v.breaks.is_some() {
-                (1..=lay.n).collect()
-            } else {
-                ffi::woe_generalise(&possible, &executed, v.min_delta, v.max_delta, v.tolerance, s.fix_abnormal)?
-                    .into_iter()
-                    .map(|x| x as usize)
-                    .collect()
-            };
-            let mut cb = vec![0i64];
-            let mut cn = vec![0i64];
-            for r in 0..lay.n {
-                cb.push(cb[r] + possible[r]);
-                cn.push(cn[r] + executed[r]);
-            }
-            let (big_a, big_n) = (cb[lay.n] as f64, cn[lay.n] as f64);
-            let mut weights = Vec::with_capacity(limits.len());
-            let mut lo = 0;
-            for &hi in &limits {
-                let (nb, bb) = (cn[hi] - cn[lo], cb[hi] - cb[lo]);
-                let w = ffi::woe_weights(nb as f64, bb as f64, big_n, big_a, s.fix_abnormal);
-                weights.push(w.plus);
-                let (lower, upper) = if v.breaks.is_none() {
-                    (lay.limit(lo), lay.limit(hi))
-                } else {
-                    (lay.classes[lo], lay.classes[hi])
-                };
-                rows.push(Row {
-                    from: f,
-                    to: t,
-                    variable: name.clone(),
-                    lower,
-                    upper,
-                    possible: bb,
-                    executed: nb,
-                    weight: w.plus,
-                    contrast: w.contrast,
-                    significant: w.significant,
-                });
-                lo = hi;
-            }
-            entries.push(Entry {
-                from: f,
-                to: t,
-                variable: name.clone(),
-                spec: v,
-                layout: lay.clone(),
-                limits,
-                weights,
-            });
+            let (lay, c) = &cache[&sig];
+            let (e, r) = entry_from_counts(f, t, name, v.clone(), lay.clone(), c, &fin, s)?;
+            entries.push(e);
+            rows.extend(r);
         }
     }
     Ok(WoeModel { transitions, entries, rows, fix_abnormal: s.fix_abnormal })
@@ -458,6 +526,8 @@ pub fn probability(model: &WoeModel, landscape: &Map, drivers: &Stack) -> Result
         return Err(Error::msg("the drivers differ in size from the landscape"));
     }
     let mut sums: Vec<Vec<f64>> = Vec::with_capacity(model.transitions.len());
+    // the buckets of a variable by a layout, computed once (the transitions from a class share their layouts)
+    let mut known: Vec<(&Entry, Vec<i32>)> = Vec::new();
     for &(f, t) in &model.transitions {
         let mut buckets = Vec::new();
         let mut weights = Vec::new();
@@ -465,7 +535,15 @@ pub fn probability(model: &WoeModel, landscape: &Map, drivers: &Stack) -> Result
         for e in model.entries.iter().filter(|e| e.from == f && e.to == t) {
             let values =
                 drivers.by_name(&e.variable).ok_or_else(|| Error::msg(format!("drivers lack {:?}", e.variable)))?;
-            buckets.extend(cell_buckets(e, values)?);
+            let same = |o: &Entry| o.variable == e.variable && o.layout == e.layout && o.spec == e.spec;
+            match known.iter().find(|(o, _)| same(o)) {
+                Some((_, b)) => buckets.extend_from_slice(b),
+                None => {
+                    let b = cell_buckets(e, values)?;
+                    buckets.extend_from_slice(&b);
+                    known.push((e, b));
+                }
+            }
             let rb = e.range_of_bucket();
             weights.extend(rb.iter().map(|&r| e.weights[r]));
             offsets.push(weights.len() as i64);

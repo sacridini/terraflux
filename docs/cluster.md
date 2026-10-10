@@ -87,5 +87,27 @@ network, or reach it through an SSH tunnel (`ssh -L 7700:localhost:7700 coordina
 | the input files (once, by hash) | client | coordinator, then each worker once |
 | a task's output files (maps as GeoTIFF, tables as CSV), or its metrics | worker | coordinator, then client |
 
-Batches of large maps (a continent at 30 m) are the work of the tiled engine (next): its tasks are parts of one
-run, its data read from shared storage rather than sent.
+| a pass of the tiled engine (where the maps are, what to compute) and the tiles of each task | client | coordinator, then each worker |
+| a pass's part of some tiles (histograms, counts, keys) | worker | coordinator, then client |
+
+## One large map on many machines
+
+Batches run many small models; the tiled engine runs one model too large for a machine (a continent at
+30 m). Its tiles are spread over the workers:
+
+```bash
+terraflux worker --coordinator http://coordinator-host:7700          # on every machine that works
+terraflux run model.toml --tiled --disk /shared/run-1/layers --coordinator http://coordinator-host:7700
+```
+
+- **Shared storage:** the workers read the model's maps and read and write the steps' layers themselves, at
+  the same paths as the machine that runs the model (NFS, SMB, a cluster's parallel file system). Only the
+  passes and their sums travel through the coordinator.
+- **Passes:** every pass over the tiles (a histogram, a count, the growth of the patches) is a job whose
+  tasks are runs of contiguous tiles (`4` per worker); the machine that runs the model merges their parts
+  and decides the next pass.
+- **The same maps:** the parts merge in any order into the same sums, so the maps are those of the same model
+  run with `--tiled` on one machine, however many workers and whichever computed which tiles.
+- **Workers that vanish:** as with batches, their tasks go to other workers; a task writes whole tiles under
+  their final names only when done, so a task run twice writes the same tiles.
+

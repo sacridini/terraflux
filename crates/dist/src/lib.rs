@@ -11,6 +11,7 @@ pub mod batch;
 pub mod client;
 pub mod coordinator;
 pub mod evaluate;
+pub mod tiles;
 pub mod worker;
 
 pub mod proto {
@@ -60,10 +61,14 @@ impl Local {
         let url = format!("http://{addr}");
         let stop = Arc::new(AtomicBool::new(false));
         let mut handles = vec![server];
+        // the workers share the machine's threads (never every core)
+        let per = (terraflux_ops::threads::most() / workers.max(1)).max(1);
         for k in 0..workers {
             let (u, s, c) = (url.clone(), stop.clone(), cache.clone());
             handles.push(tokio::spawn(async move {
-                let _ = worker::run(&u, worker::Options::new(&format!("local-{k}"), c), s).await;
+                let mut o = worker::Options::new(&format!("local-{k}"), c);
+                o.threads = per;
+                let _ = worker::run(&u, o, s).await;
             }));
         }
         Ok(Local { url, stop, service, handles })

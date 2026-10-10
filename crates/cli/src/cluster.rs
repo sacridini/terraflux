@@ -36,8 +36,8 @@ async fn place(w: &Where) -> Result<(String, Option<Local>)> {
     match &w.coordinator {
         Some(u) => Ok((u.clone(), None)),
         None => {
-            let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
-            let n = w.workers.unwrap_or((cores / 4).max(1));
+            let most = terraflux_ops::threads::most();
+            let n = w.workers.unwrap_or((most / 4).max(1)).clamp(1, most);
             let local = Local::start(n, default_cache(), Options::default()).await?;
             eprintln!("{n} workers on this machine");
             Ok((local.url.clone(), Some(local)))

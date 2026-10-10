@@ -6,12 +6,13 @@ Terraflux is a native application for land change simulation with cellular autom
 Dinamica EGO: a visual model builder, guided data preparation and live maps, with an engine that runs
 the same model on one machine or distributed across many headless workers.
 
-> **Status:** 0.4 — the application (a wizard that checks and fixes the data, live maps, the model's graph,
+> **Status:** 0.5 — the application (a wizard that checks and fixes the data, live maps, the model's graph,
 > charts and validation), the exact engine, the command line and batches on many machines (replicates,
 > scenarios, calibration) run Dinamica EGO's classic model, CLUE-S, the ordered allocation and PLUS's CARS, with
 > dynamic variables, bit for bit as landschaft's `ls.simulate` (and so as lulcc); models fitted in Python run
-> here unchanged. The tiled engine for continental and global maps comes next; the plan is in
-> [`docs/PLAN.md`](docs/PLAN.md) (Portuguese) and the changes in [`CHANGELOG.md`](CHANGELOG.md).
+> here unchanged. A tiled engine runs Dinamica EGO's model on maps larger than memory, on one machine or many: the
+> same maps whatever the number of workers. The plan is in [`docs/PLAN.md`](docs/PLAN.md)
+> (Portuguese) and the changes in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Goals
 
@@ -84,6 +85,30 @@ terraflux submit model.toml --scenarios scenarios.toml --coordinator http://coor
 Workers only connect to the coordinator; data travels once, by hash; a task whose worker vanishes runs on
 another. See [`docs/cluster.md`](docs/cluster.md) (and the Slurm template in `tools/slurm`).
 
+## Maps larger than memory
+
+```bash
+terraflux run model.toml --tiled                          # tiles of 1024 cells, layers in memory
+terraflux run model.toml --tiled --tile 2048 --disk layers  # the steps' layers kept on disk
+terraflux run model.toml --tiled --threads 8               # threads (default: all the cores but one)
+```
+
+The tiled engine runs Dinamica EGO's model tile by tile. Its Markov chains and weights of evidence are the
+exact engine's to the bit (they are sums over the tiles); the patches a fit measures are measured within tiles.
+Its allocation draws random numbers by counter and finds the seeds of the patches from histograms summed over
+the tiles, so with the same fitted pieces the same seed gives the same maps whatever the tiling and the number
+of machines, statistically equivalent to the exact engine's (the same areas of change, a similar fuzzy
+similarity). Patches grow within `--radius` cells of their seed.
+
+On many machines, the tiles go to a coordinator's workers, the maps and the layers on storage they share:
+
+```bash
+terraflux run model.toml --tiled --disk /shared/layers --coordinator http://coordinator-host:7700
+```
+
+No command takes every core: Rust's tasks, landschaft's OpenMP kernels and the workers of a local cluster share
+all the cores but one, unless `--threads` (or `TERRAFLUX_THREADS`) says otherwise.
+
 ## From Python
 
 [landschaft](https://github.com/sacridini/landschaft) writes its fitted models as Terraflux graphs:
@@ -153,7 +178,8 @@ Eigen 3.4. `tools/make_reference.py` writes the reference outputs of the parity 
 | `terraflux-graph` | the model graph: file format, references, signatures, checks |
 | `terraflux-ops` | the operators (Markov chains, demands, logistic regression, weights of evidence, CLUE-S, ordered, Expander/Patcher) and the presets |
 | `terraflux-exec` | the exact engine: inputs, graph run, outputs; the checks of the data |
-| `terraflux-raster` | grids, rasters, GeoTIFF reading and writing in pure Rust (BigTIFF, tiles, LZW, Deflate, predictors), resampling |
+| `terraflux-engine` | the tiled engine: fits by reduction, counter-based random numbers, allocation by thresholds |
+| `terraflux-raster` | grids, rasters, GeoTIFF reading and writing in pure Rust (BigTIFF, tiles, windows, LZW, Deflate, predictors), resampling |
 | `terraflux-ls-sys` | the bridge to landschaft's C++ kernels |
 | `terraflux-app` | the application (egui, wgpu): wizard, live maps, graph, charts, validation |
 | `terraflux-dist` | the coordinator, the workers and the batches (gRPC) |

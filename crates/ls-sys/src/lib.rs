@@ -110,6 +110,8 @@ pub mod ffi {
         #[namespace = "nlm"]
         type RRng;
 
+        fn set_threads(n: i32);
+        fn max_threads() -> i32;
         fn rrng_new(seed: i32) -> UniquePtr<RRng>;
         fn rrng_unif_rand(rng: Pin<&mut RRng>) -> f64;
         fn rrng_runif(rng: Pin<&mut RRng>, n: usize) -> Vec<f64>;
@@ -232,6 +234,58 @@ pub mod ffi {
 pub use ffi::{
     CarsOut, CluesOut, GlmFit, NbRule, ObservedPatches, OrderedOut, PatchOut, PatchSpec, SimilarityOut, WoeWeights,
 };
+
+/// The threads Terraflux uses: never every core of the machine (all but one by default).
+pub mod threads {
+    use std::sync::Once;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static INIT: Once = Once::new();
+    static THREADS: AtomicUsize = AtomicUsize::new(0);
+
+    /// The cores of the machine.
+    pub fn cores() -> usize {
+        std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1)
+    }
+
+    /// The most threads Terraflux may use: all the cores but one (one on a machine of one).
+    pub fn most() -> usize {
+        cores().saturating_sub(1).max(1)
+    }
+
+    /// The threads by default: `TERRAFLUX_THREADS`, else all the cores but one; never more than [`most`].
+    pub fn default_threads() -> usize {
+        std::env::var("TERRAFLUX_THREADS").ok().and_then(|v| v.parse().ok()).unwrap_or_else(most).clamp(1, most())
+    }
+
+    /// Set the threads once for the process (later calls do nothing): the kernels' OpenMP threads and the
+    /// pool of parallel tasks, whose threads run the kernels with one thread each (no more threads than
+    /// asked in all). Returns the threads in use.
+    pub fn init(n: Option<usize>) -> usize {
+        INIT.call_once(|| {
+            let n = n.unwrap_or_else(default_threads).clamp(1, most());
+            // SAFETY: before any other thread of ours runs
+            unsafe { std::env::set_var("OMP_NUM_THREADS", n.to_string()) };
+            crate::ffi::set_threads(n as i32);
+            let _ = rayon::ThreadPoolBuilder::new()
+                .num_threads(n)
+                .start_handler(|_| crate::ffi::set_threads(1))
+                .build_global();
+            THREADS.store(n, Ordering::Relaxed);
+        });
+        THREADS.load(Ordering::Relaxed)
+    }
+
+    /// The threads in use (setting them by default first).
+    pub fn ensure() -> usize {
+        init(None)
+    }
+
+    /// The kernels' threads for the calling thread (a worker sharing the machine with others).
+    pub fn set_kernel_threads(n: usize) {
+        crate::ffi::set_threads(n.clamp(1, most()) as i32);
+    }
+}
 
 /// R's generator after `set.seed(seed)`.
 pub struct RRng(cxx::UniquePtr<ffi::RRng>);

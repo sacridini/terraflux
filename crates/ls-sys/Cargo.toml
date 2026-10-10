@@ -10,6 +10,7 @@ links = "landschaft"
 
 [dependencies]
 cxx.workspace = true
+rayon.workspace = true
 
 [build-dependencies]
 cmake.workspace = true

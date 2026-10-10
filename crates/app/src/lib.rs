@@ -14,6 +14,7 @@ pub use app::TerrafluxApp;
 
 /// Open the application's window (with a model, if given).
 pub fn run(model: Option<PathBuf>) -> eframe::Result<()> {
+    terraflux_ops::threads::ensure();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([1280.0, 820.0]).with_title("Terraflux"),
         ..Default::default()

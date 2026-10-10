@@ -7,6 +7,10 @@
 #include "terraflux-ls-sys/shim/shim.h"
 
 #include <stdexcept>
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 #include <vector>
 
 #include "lsm/rmath.hpp"
@@ -56,6 +60,22 @@ void check(bool ok, const char* what) {
 }
 
 }  // namespace
+
+void set_threads(std::int32_t n) {
+#ifdef _OPENMP
+    omp_set_num_threads(n < 1 ? 1 : n);
+#else
+    (void)n;
+#endif
+}
+
+std::int32_t max_threads() {
+#ifdef _OPENMP
+    return omp_get_max_threads();
+#else
+    return 1;
+#endif
+}
 
 std::unique_ptr<nlm::RRng> rrng_new(std::int32_t seed) { return std::make_unique<nlm::RRng>(seed); }
 

@@ -1,0 +1,5 @@
+# Tests never take every core: two at a time, four threads each (kernels and parallel tasks).
+[env]
+RUST_TEST_THREADS = "2"
+TERRAFLUX_THREADS = "4"
+OMP_NUM_THREADS = "4"

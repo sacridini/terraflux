@@ -103,6 +103,7 @@ impl Default for Engine {
 impl Engine {
     /// Check the model (errors stop it), then run it on the inputs.
     pub fn run(&self, model: &Model, inputs: &BTreeMap<String, Value>, obs: &mut dyn Observer) -> Result<Results> {
+        terraflux_ops::threads::ensure();
         let errors: Vec<String> = check(model, &self.registry)
             .into_iter()
             .filter(|i| i.severity == Severity::Error)

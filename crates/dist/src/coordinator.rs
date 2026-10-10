@@ -41,12 +41,15 @@ enum State {
 struct Task {
     label: String,
     overrides_json: String,
+    payload: Vec<u8>,
     state: State,
     attempts: u32,
     result: Option<TaskResult>,
 }
 
 struct Job {
+    kind: String,
+    payload: Arc<Vec<u8>>,
     model_json: String,
     evaluation_json: String,
     return_files: bool,
@@ -176,6 +179,9 @@ impl Coordinator for Service {
                         overrides_json: t.overrides_json.clone(),
                         evaluation_json: j.evaluation_json.clone(),
                         return_files: j.return_files,
+                        kind: j.kind.clone(),
+                        payload: (*j.payload).clone(),
+                        task_payload: t.payload.clone(),
                     };
                     if let Some(w) = g.workers.get_mut(&r.worker) {
                         w.task = Some((job, i));
@@ -258,6 +264,8 @@ impl Coordinator for Service {
         g.jobs.insert(
             id.clone(),
             Job {
+                kind: s.kind,
+                payload: Arc::new(s.payload),
                 model_json: s.model_json,
                 evaluation_json: s.evaluation_json,
                 return_files: s.return_files,
@@ -267,6 +275,7 @@ impl Coordinator for Service {
                     .map(|t| Task {
                         label: t.label,
                         overrides_json: t.overrides_json,
+                        payload: t.payload,
                         state: State::Pending,
                         attempts: 0,
                         result: None,
@@ -288,6 +297,31 @@ impl Coordinator for Service {
         let g = self.lock();
         let j = g.jobs.get(&id).ok_or_else(|| Status::not_found("unknown job"))?;
         Ok(Response::new(status_of(&id, j)))
+    }
+
+    async fn wait(&self, r: Request<WaitRequest>) -> Result<Response<JobStatus>, Status> {
+        let r = r.into_inner();
+        let deadline = Instant::now() + Duration::from_millis(u64::from(r.wait_ms.min(60_000)));
+        loop {
+            let notified = self.notify.notified();
+            let s = {
+                let g = self.lock();
+                let j = g.jobs.get(&r.id).ok_or_else(|| Status::not_found("unknown job"))?;
+                status_of(&r.id, j)
+            };
+            let left = deadline.saturating_duration_since(Instant::now());
+            if s.done + s.failed == s.total || left.is_zero() || tokio::time::timeout(left, notified).await.is_err() {
+                return Ok(Response::new(s));
+            }
+        }
+    }
+
+    async fn forget(&self, r: Request<JobId>) -> Result<Response<Ack>, Status> {
+        let id = r.into_inner().id;
+        let mut g = self.lock();
+        let ok = g.jobs.remove(&id).is_some();
+        g.queue.retain(|(j, _)| *j != id);
+        Ok(Response::new(Ack { ok }))
     }
 
     async fn results(&self, r: Request<JobId>) -> Result<Response<JobResults>, Status> {
