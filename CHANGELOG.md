@@ -6,6 +6,32 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-10
+
+### Added
+- The node editor (the application's Graph tab): operators added from a list, ports connected by dragging
+  (each connection checked against the operators' signatures: types, cycles, ports), nodes moved (their place
+  saved in the model, `pos`), renamed (their references follow) and deleted, values and settings typed, the
+  bodies of loops and groups edited in their own scope (what they read from outside on the left), the model
+  saved as written. `terraflux_app::editor` holds the editing operations.
+- Map algebra (`map.calc`, as Dinamica EGO's Calculate Map): an expression over inputs of any names (maps,
+  numbers, the layers of stacks as `stack.layer`): arithmetic, comparisons, `and or not`, `if then else`,
+  functions, and neighbourhood functions (`nbsum nbmean nbmin nbmax nbcount`); missing cells propagate.
+- Groups (`control.group`: a body run once, its inputs `@name` inside, its outputs `body.outputs`) and
+  submodels (`control.submodel`: another model file as one node, expanded into a group before a run; its
+  file inputs become inputs of the outer model).
+- WebAssembly plugins (`plugin.wasm`, wasmi): a function of any language compiled to WebAssembly called for
+  every cell, in a sandbox (no imports, a budget of instructions); batches send the module to the workers by
+  hash.
+- Operators may take inputs of any name (`OpSignature::extra`).
+- `docs/modelling.md`.
+- Tests: the editor's operations (types, cycles, renames, removals, bodies) and the editor in the application;
+  map algebra; groups and submodels in the engine; plugins (and their sandbox); a submodel of map algebra and a
+  plugin give on workers the bytes of a local run.
+
+### Changed
+- The application's Graph tab is the node editor (the read-only diagram is gone).
+
 ## [0.5.0] - 2026-10-10
 
 ### Added

@@ -372,6 +372,39 @@ Falta para fechar a fase 5:
 - probabilidades do WoE mais rápidas por tile (hoje o kernel do motor exato, bit a bit);
 - benchmarks de estado, bioma, América do Sul e mundo, e de escalabilidade em várias máquinas.
 
+### Fase 6 — feita (Terraflux 0.6.0, 2026-10-10)
+
+- **Editor de nós** (aba Graph do aplicativo):
+  - adicionar operadores e ligar portas arrastando, com cada ligação verificada pelos tipos, ciclos e portas;
+  - mover nós (a posição fica no modelo, `pos`), renomear com as referências acompanhando, e apagar;
+  - editar valores e configurações;
+  - entrar no corpo de laços e grupos, vendo à esquerda o que vem de fora;
+  - salvar o modelo como escrito.
+
+  As operações ficam em `terraflux_app::editor`, testadas sem interface.
+- **Álgebra de mapas** (`map.calc`, como o Calculate Map do Dinamica):
+  - expressões sobre entradas de qualquer nome: mapas, números e camadas de pilhas (`stack.layer`);
+  - aritmética, comparações, lógica, `if then else` e funções;
+  - vizinhanças `nbsum nbmean nbmin nbmax nbcount`;
+  - nulos que se propagam.
+- **Grupos e submodelos:**
+  - `control.group` roda o corpo uma vez, com entradas `@nome` e saídas `body.outputs`;
+  - `control.submodel` usa outro arquivo de modelo como um nó e é expandido em grupo antes de rodar. As
+    entradas de arquivo dele viram entradas do modelo de fora.
+- **Plugins WebAssembly** (`plugin.wasm`, com wasmi):
+  - uma função de qualquer linguagem chamada por célula;
+  - sandbox sem imports e com orçamento de instruções;
+  - em lotes, o módulo vai para os workers por hash.
+- **Documentação:** `docs/modelling.md`.
+- **Verificação da fase:** um modelo com um submodelo de álgebra de mapas e um plugin dá nos workers os mesmos
+  bytes que localmente.
+
+Pendências:
+- álgebra de mapas, grupos e plugins no motor por tiles (hoje só o modelo clássico do Dinamica);
+- JIT da álgebra de mapas (Cranelift ou WGSL);
+- operadores nativos plugáveis em Rust carregados em tempo de execução;
+- biblioteca de submodelos no aplicativo.
+
 ## Verificação
 
 - **Fase 0:** `pytest` do landschaft passa sem alterar tolerâncias.
