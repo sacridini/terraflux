@@ -218,7 +218,9 @@ terraflux/                   Cargo workspace, GPL-3.0-or-later
    - `crates/graph`, `ops`, `exec` (modo exato) e `ls-sys`;
    - presets como grafos;
    - `run modelo.toml` com GeoTIFF.
-2. **Ponte Python:** `Model.save()`/`load()` no landschaft ↔ grafo, com ida e volta sem perda.
+2. **Ponte Python:** `Model.save()`/`load()` no landschaft ↔ grafo, com ida e volta sem perda. Também entram
+   os operadores que faltaram na fase 1: variáveis dinâmicas, demandas regionais, PLUS/CARS, FUTURES,
+   CLUMondo e MOLUSCE.
 3. **GUI MVP em egui:**
    - projeto e grade de referência;
    - assistente de preparação de dados (seção 4) com lint;
@@ -231,6 +233,42 @@ terraflux/                   Cargo workspace, GPL-3.0-or-later
    - benchmarks: estado, bioma, América do Sul e mundo a 30 m.
 6. **Editor de nós completo + álgebra de mapas + submodelos + plugins WASM.**
 7. **Camada ABM.**
+
+## Andamento
+
+### Fase 0 — feita (landschaft 1.43.0, 2026-10-10)
+
+Portados para C++ (`src/cpp/sim/`), com o Python chamando-os e os testes bit a bit inalterados:
+- **Regras:** `rules.cpp` (matriz de conversões com os códigos do lulcc, conversões automáticas, vizinhança).
+- **Alocação ordenada:** `ordered.cpp`.
+- **Demanda e Markov:** `demand.cpp` (`approxExtrap`, `roundSum`, matriz por contagens, raiz por `log()`/`exp()`
+  de matriz do Eigen, projeção).
+- **Manchas observadas:** `observed.cpp` (sem `scipy.ndimage`).
+- **WoE:** faixas, pesos e probabilidades em `woe.cpp`.
+
+A opção `LANDSCHAFT_PYTHON=OFF` compila e instala só as bibliotecas estáticas. `test_simulate_kernels.py`
+guarda o código numpy anterior como referência (74 testes).
+
+Desvio do plano: o laço de passos (`Model.run`, laços do Dinamica/PLUS/CLUMondo) **não** foi para C++. No
+Python ele continua como estava; no Terraflux ele é o grafo (`control.repeat` + operadores de um passo). Uma
+terceira cópia do laço em C++ não traria nada.
+
+### Fase 1 — feita (Terraflux 0.1.0, 2026-10-10)
+
+- **Crates:** `graph`, `ops`, `exec`, `raster`, `ls-sys` e `cli`. O landschaft entra como submódulo SSH (o
+  repositório é privado).
+- **Paridade bit a bit com o landschaft**, e portanto com o lulcc:
+  - Dinamica em Sibuyan: Markov, pesos, manchas e os mapas dos 14 passos;
+  - CLUE-S: vinheta, todas as regras com histórico e máscara, vizinhança;
+  - Ordered: estocástico, determinístico, regras com vizinhança.
+- **CLI:** `run`, `check`, `ops`, `new dinamica|clue|ordered` e `convert`.
+
+Desvios do plano:
+- **E/S de GeoTIFF em Rust puro** (`terraflux-raster`) em vez do crate `gdal`. A máquina não tem as bibliotecas
+  de desenvolvimento do GDAL, e assim o aplicativo instala sem DLLs externas. Reprojeção e Zarr ficam para as
+  fases 3 e 5.
+- **Presets da fase 1:** Dinamica, CLUE-S e Ordered. Ficaram para a fase 2: FUTURES, PLUS/CARS, CLUMondo,
+  MOLUSCE, as variáveis dinâmicas (`distance_to`, `share_of`) e as demandas regionais.
 
 ## Verificação
 

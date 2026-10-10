@@ -1,0 +1,284 @@
+//! The operators of Terraflux's model graph.
+//!
+//! Each operator implements [`Operator`]: its [`OpSignature`] (the ports and
+//! settings it takes and gives, which the graph is checked against) and
+//! `run`, from the values of its inputs to the values of its outputs. The
+//! [`Registry`] holds them by name.
+//!
+//! The land change operators reproduce landschaft's `ls.simulate` step by
+//! step, calling the same C++ kernels (through `terraflux-ls-sys`), so that
+//! a model gives the same maps here as in Python with the same seed.
+
+pub mod demand;
+pub mod dinamica;
+pub mod glm;
+pub mod lulcc;
+pub mod markov;
+pub mod presets;
+pub mod value;
+pub mod woe;
+
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
+use serde::de::DeserializeOwned;
+use terraflux_graph::{Access, Catalog, OpSignature, PortSpec, Type};
+
+pub use value::{Demand, GlmModel, Key, Map, Markov, PatchParams, Stack, Table, Value};
+
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("{0}")]
+pub struct Error(pub String);
+
+impl Error {
+    pub fn msg(m: impl Into<String>) -> Self {
+        Error(m.into())
+    }
+}
+
+impl From<terraflux_ls_sys::Error> for Error {
+    fn from(e: terraflux_ls_sys::Error) -> Self {
+        Error(e.what().to_string())
+    }
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+/// What an operator may report while it runs.
+#[derive(Default)]
+pub struct Ctx {
+    /// Warnings (e.g. an allocation that could not meet its demand).
+    pub warnings: Vec<String>,
+}
+
+impl Ctx {
+    pub fn warn(&mut self, m: impl Into<String>) {
+        self.warnings.push(m.into());
+    }
+}
+
+/// The inputs and settings of one run of an operator.
+pub struct Args<'a> {
+    pub node: &'a str,
+    pub inputs: BTreeMap<String, Value>,
+    pub params: &'a serde_json::Map<String, serde_json::Value>,
+}
+
+impl Args<'_> {
+    fn missing(&self, port: &str) -> Error {
+        Error::msg(format!("node {:?}: no input {port:?}", self.node))
+    }
+
+    fn wrong(&self, port: &str, want: &str, got: &Value) -> Error {
+        Error::msg(format!("node {:?}: the input {port:?} is a {:?}, not a {want}", self.node, got.ty()))
+    }
+
+    pub fn get(&self, port: &str) -> Option<&Value> {
+        self.inputs.get(port)
+    }
+
+    pub fn map(&self, port: &str) -> Result<&Map> {
+        match self.get(port).ok_or_else(|| self.missing(port))? {
+            Value::Map(m) => Ok(m),
+            v => Err(self.wrong(port, "map", v)),
+        }
+    }
+
+    pub fn opt_map(&self, port: &str) -> Result<Option<&Map>> {
+        match self.get(port) {
+            None => Ok(None),
+            Some(Value::Map(m)) => Ok(Some(m)),
+            Some(v) => Err(self.wrong(port, "map", v)),
+        }
+    }
+
+    pub fn stack(&self, port: &str) -> Result<&Stack> {
+        match self.get(port).ok_or_else(|| self.missing(port))? {
+            Value::Stack(s) => Ok(s),
+            v => Err(self.wrong(port, "stack", v)),
+        }
+    }
+
+    pub fn opt_stack(&self, port: &str) -> Result<Option<&Stack>> {
+        match self.get(port) {
+            None => Ok(None),
+            Some(Value::Stack(s)) => Ok(Some(s)),
+            Some(v) => Err(self.wrong(port, "stack", v)),
+        }
+    }
+
+    pub fn number(&self, port: &str) -> Result<f64> {
+        let v = self.get(port).ok_or_else(|| self.missing(port))?;
+        v.as_number().ok_or_else(|| self.wrong(port, "number", v))
+    }
+
+    pub fn integer(&self, port: &str) -> Result<i64> {
+        let x = self.number(port)?;
+        if x.fract() != 0.0 {
+            return Err(Error::msg(format!("node {:?}: {port:?} must be a whole number, not {x}", self.node)));
+        }
+        Ok(x as i64)
+    }
+
+    pub fn markov(&self, port: &str) -> Result<&Arc<Markov>> {
+        match self.get(port).ok_or_else(|| self.missing(port))? {
+            Value::Markov(m) => Ok(m),
+            v => Err(self.wrong(port, "Markov chain", v)),
+        }
+    }
+
+    pub fn demand(&self, port: &str) -> Result<&Arc<Demand>> {
+        match self.get(port).ok_or_else(|| self.missing(port))? {
+            Value::Demand(m) => Ok(m),
+            v => Err(self.wrong(port, "demand", v)),
+        }
+    }
+
+    pub fn glm(&self, port: &str) -> Result<&Arc<GlmModel>> {
+        match self.get(port).ok_or_else(|| self.missing(port))? {
+            Value::Glm(m) => Ok(m),
+            v => Err(self.wrong(port, "logistic regression", v)),
+        }
+    }
+
+    pub fn woe(&self, port: &str) -> Result<&Arc<woe::WoeModel>> {
+        match self.get(port).ok_or_else(|| self.missing(port))? {
+            Value::Woe(m) => Ok(m),
+            v => Err(self.wrong(port, "weights of evidence", v)),
+        }
+    }
+
+    pub fn patches(&self, port: &str) -> Result<&Arc<PatchParams>> {
+        match self.get(port).ok_or_else(|| self.missing(port))? {
+            Value::Patches(m) => Ok(m),
+            v => Err(self.wrong(port, "patch settings", v)),
+        }
+    }
+
+    pub fn rng(&self, port: &str) -> Result<&value::Rng> {
+        match self.get(port).ok_or_else(|| self.missing(port))? {
+            Value::Rng(r) => Ok(r),
+            v => Err(self.wrong(port, "random generator", v)),
+        }
+    }
+
+    /// A setting read into a type (its default when absent).
+    pub fn param<T: DeserializeOwned>(&self, name: &str, default: T) -> Result<T> {
+        match self.params.get(name) {
+            None => Ok(default),
+            Some(v) => serde_json::from_value(v.clone())
+                .map_err(|e| Error::msg(format!("node {:?}: the setting {name:?}: {e}", self.node))),
+        }
+    }
+
+    pub fn opt_param<T: DeserializeOwned>(&self, name: &str) -> Result<Option<T>> {
+        match self.params.get(name) {
+            None | Some(serde_json::Value::Null) => Ok(None),
+            Some(v) => serde_json::from_value(v.clone())
+                .map(Some)
+                .map_err(|e| Error::msg(format!("node {:?}: the setting {name:?}: {e}", self.node))),
+        }
+    }
+}
+
+pub type Outputs = BTreeMap<String, Value>;
+
+/// An operator of the graph.
+pub trait Operator: Send + Sync {
+    fn signature(&self) -> OpSignature;
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs>;
+}
+
+/// The operators by name.
+#[derive(Clone)]
+pub struct Registry {
+    ops: BTreeMap<String, Arc<dyn Operator>>,
+}
+
+impl Registry {
+    pub fn empty() -> Self {
+        Registry { ops: BTreeMap::new() }
+    }
+
+    /// Every operator of this crate.
+    pub fn standard() -> Self {
+        let mut r = Registry::empty();
+        r.add(Arc::new(Repeat));
+        r.add(Arc::new(RngNew));
+        markov::register(&mut r);
+        demand::register(&mut r);
+        glm::register(&mut r);
+        woe::register(&mut r);
+        lulcc::register(&mut r);
+        dinamica::register(&mut r);
+        r
+    }
+
+    pub fn add(&mut self, op: Arc<dyn Operator>) {
+        self.ops.insert(op.signature().name, op);
+    }
+
+    pub fn get(&self, name: &str) -> Option<&Arc<dyn Operator>> {
+        self.ops.get(name)
+    }
+
+    pub fn signatures(&self) -> Vec<OpSignature> {
+        self.ops.values().map(|o| o.signature()).collect()
+    }
+}
+
+impl Catalog for Registry {
+    fn signature(&self, op: &str) -> Option<OpSignature> {
+        self.ops.get(op).map(|o| o.signature())
+    }
+}
+
+/// `control.repeat`: the engine runs its body; the operator only declares it.
+pub struct Repeat;
+
+impl Operator for Repeat {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "control.repeat",
+            "Run the body once per step (1..times): `@step` is the step, each carried value starts as the input of \
+             its name and takes the value of its reference at the end of every step, each collected reference \
+             gives a series with its value at every step. The outputs are the carried values after the last step \
+             and the collected series.",
+            Access::None,
+        )
+        .input(PortSpec::new("times", Type::Integer, "how many steps"))
+        .container()
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        Err(Error::msg(format!("node {:?}: control.repeat is run by the engine", args.node)))
+    }
+}
+
+/// `rng.r`: R's generator after `set.seed(seed)`.
+pub struct RngNew;
+
+impl Operator for RngNew {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "rng.r",
+            "R's random number generator after set.seed(seed) (Mersenne-Twister), as lulcc and landschaft use it: \
+             carry it along a loop so that every step draws after the previous one.",
+            Access::None,
+        )
+        .input(PortSpec::new("seed", Type::Integer, "the seed"))
+        .output(PortSpec::new("rng", Type::Rng, "the generator"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let seed = args.integer("seed")?;
+        let seed = i32::try_from(seed).map_err(|_| Error::msg(format!("the seed {seed} does not fit 32 bits")))?;
+        let rng = value::Rng(Arc::new(std::sync::Mutex::new(terraflux_ls_sys::RRng::new(seed))));
+        Ok([("rng".to_string(), Value::Rng(rng))].into())
+    }
+}
+
+/// Outputs from (name, value) pairs.
+pub(crate) fn outputs<const N: usize>(pairs: [(&str, Value); N]) -> Outputs {
+    pairs.into_iter().map(|(k, v)| (k.to_string(), v)).collect()
+}

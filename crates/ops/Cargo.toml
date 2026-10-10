@@ -1,0 +1,16 @@
+[package]
+name = "terraflux-ops"
+description = "The operators of Terraflux's model graph: land change analysis, potential, demand and allocation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+terraflux-graph = { path = "../graph" }
+terraflux-ls-sys = { path = "../ls-sys" }
+terraflux-raster = { path = "../raster" }

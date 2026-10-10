@@ -1,0 +1,16 @@
+[package]
+name = "terraflux-exec"
+description = "Runs Terraflux models: reads the inputs, runs the graph, writes the outputs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+terraflux-graph = { path = "../graph" }
+terraflux-ops = { path = "../ops" }
+terraflux-raster = { path = "../raster" }

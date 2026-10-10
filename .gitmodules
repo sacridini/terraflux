@@ -1,0 +1,3 @@
+[submodule "extern/landschaft"]
+	path = extern/landschaft
+	url = git@github.com:sacridini/landschaft.git

@@ -1,0 +1,16 @@
+[package]
+name = "terraflux-ls-sys"
+description = "Landschaft's C++ simulation kernels for Terraflux (cxx bridge)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+links = "landschaft"
+
+[dependencies]
+cxx.workspace = true
+
+[build-dependencies]
+cmake.workspace = true
+cxx-build.workspace = true
