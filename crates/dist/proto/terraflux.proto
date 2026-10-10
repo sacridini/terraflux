@@ -1,0 +1,85 @@
+// The protocol between Terraflux's coordinator, its workers and its clients.
+//
+// Workers only call the coordinator (they need no open port): they register, ask for tasks (a long poll),
+// fetch the data of a task by hash, send heartbeats while they run it and send its result. Clients store the
+// data, submit jobs (a model and the overrides of each of its tasks) and read their status and results.
+// Structured values (models, overrides, evaluations, metrics) travel as JSON.
+syntax = "proto3";
+package terraflux.v1;
+
+service Coordinator {
+  rpc Register(WorkerHello) returns (WorkerId);
+  rpc NextTask(TaskRequest) returns (TaskAssignment);
+  rpc GetBlob(BlobId) returns (Blob);
+  rpc Heartbeat(WorkerId) returns (Ack);
+  rpc Complete(TaskResult) returns (Ack);
+
+  rpc PutBlob(Blob) returns (BlobId);
+  rpc HasBlob(BlobId) returns (Ack);
+  rpc Submit(JobSpec) returns (JobId);
+  rpc Status(JobId) returns (JobStatus);
+  rpc Results(JobId) returns (JobResults);
+  rpc Workers(Empty) returns (WorkerList);
+}
+
+message Empty {}
+message Ack { bool ok = 1; }
+
+message WorkerHello { string name = 1; uint32 threads = 2; string version = 3; }
+message WorkerId { string id = 1; }
+message TaskRequest { string worker = 1; uint32 wait_ms = 2; }
+
+// task_id empty: no task now.
+message TaskAssignment {
+  string task_id = 1;
+  string job_id = 2;
+  string model_json = 3;
+  string overrides_json = 4;
+  string evaluation_json = 5;
+  bool return_files = 6;
+}
+
+message BlobId { string hash = 1; }
+message Blob { string hash = 1; bytes data = 2; }
+
+message OutputFile { string name = 1; bytes data = 2; }
+message TaskResult {
+  string task_id = 1;
+  string worker = 2;
+  bool ok = 3;
+  string error = 4;
+  string metrics_json = 5;
+  repeated OutputFile files = 6;
+  double seconds = 7;
+  repeated string warnings = 8;
+  string label = 9;
+}
+
+message TaskSpec { string label = 1; string overrides_json = 2; }
+message JobSpec {
+  string name = 1;
+  string model_json = 2;
+  repeated TaskSpec tasks = 3;
+  bool return_files = 4;
+  string evaluation_json = 5;
+}
+message JobId { string id = 1; }
+message JobStatus {
+  string id = 1;
+  uint32 total = 2;
+  uint32 done = 3;
+  uint32 failed = 4;
+  uint32 running = 5;
+  repeated string errors = 6;
+}
+message JobResults { repeated TaskResult results = 1; }
+
+message WorkerState {
+  string id = 1;
+  string name = 2;
+  uint32 threads = 3;
+  uint32 done = 4;
+  string task = 5;
+  double seen_seconds_ago = 6;
+}
+message WorkerList { repeated WorkerState workers = 1; }

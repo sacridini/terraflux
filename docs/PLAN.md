@@ -305,6 +305,25 @@ Pendências da preparação de dados, para depois do motor distribuído:
 - ajuste das faixas do WoE com gráficos editáveis;
 - assistente para a análise das mudanças (matriz e intensidade).
 
+### Fase 4 — feita (Terraflux 0.4.0, 2026-10-10)
+
+- **Crate `terraflux-dist` (gRPC com tonic):**
+  - coordenador com fila, blobs por SHA-256, registro de workers e reenvio por heartbeat (3 tentativas);
+  - workers headless só com conexão de saída e cache por hash;
+  - clientes de lote: réplicas, cenários em TOML, calibração por grade ou hipercubo latino, avaliada no worker
+    (figure of merit, concordância, similaridade fuzzy) e com a média sobre os seeds.
+- **CLI:** `serve`, `worker`, `workers`, `submit` e `calibrate`. Sem `--coordinator`, tudo roda num cluster
+  local dentro do próprio processo.
+- **Substituições por tarefa** no grafo (`Model::apply`).
+- **Documentação:** `docs/cluster.md` e template Slurm.
+- **Testes:**
+  - réplicas no worker dão os mesmos bytes que localmente;
+  - a calibração acha o parâmetro que gerou o mapa "observado";
+  - a tarefa de um worker que some roda em outro;
+  - cache compartilhado sem corrida.
+- **Segurança:** ainda sem autenticação nem TLS. O `serve` escuta em 127.0.0.1 por padrão e a documentação
+  recomenda rede confiável ou túnel SSH.
+
 ## Verificação
 
 - **Fase 0:** `pytest` do landschaft passa sem alterar tolerâncias.

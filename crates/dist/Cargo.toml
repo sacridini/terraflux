@@ -1,0 +1,29 @@
+[package]
+name = "terraflux-dist"
+description = "Terraflux on many machines: a coordinator, headless workers and the batches they run"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+prost = "0.14"
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+sha2 = "0.11"
+hex = "0.4"
+thiserror.workspace = true
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net"] }
+tokio-stream = { version = "0.1", features = ["net"] }
+tonic = "0.14"
+tonic-prost = "0.14"
+terraflux-exec = { path = "../exec" }
+terraflux-graph = { path = "../graph" }
+terraflux-ops = { path = "../ops" }
+terraflux-raster = { path = "../raster" }
+
+[build-dependencies]
+tonic-prost-build = "0.14"
+protoc-bin-vendored = "3"

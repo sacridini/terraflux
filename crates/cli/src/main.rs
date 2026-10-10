@@ -1,5 +1,7 @@
 //! `terraflux`: run, check and create land change models.
 
+mod cluster;
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -47,6 +49,52 @@ enum Command {
     New(Box<New>),
     /// Write a model in another format (by the extension: .toml or .json).
     Convert { from: PathBuf, to: PathBuf },
+    /// Run a coordinator: workers ask it for tasks, clients submit batches to it.
+    Serve {
+        /// The address to listen on (127.0.0.1: this machine only; 0.0.0.0:7700 for the network).
+        #[arg(long, default_value = "127.0.0.1:7700")]
+        listen: std::net::SocketAddr,
+        /// Seconds without news from a worker before its task goes to another.
+        #[arg(long, default_value_t = 60)]
+        timeout: u64,
+    },
+    /// Run a headless worker: tasks from a coordinator, until stopped.
+    Worker {
+        #[arg(long)]
+        coordinator: String,
+        #[arg(long)]
+        name: Option<String>,
+        /// Where the data of the tasks is kept.
+        #[arg(long)]
+        cache: Option<PathBuf>,
+    },
+    /// The workers of a coordinator and what they do.
+    Workers {
+        #[arg(long)]
+        coordinator: String,
+    },
+    /// Run a batch of a model: replicates (one seed each) or scenarios, here or on a coordinator's workers.
+    Submit {
+        model: PathBuf,
+        /// Runs with the seeds `--first-seed`, `--first-seed + 1`...
+        #[arg(long)]
+        replicates: Option<usize>,
+        #[arg(long, default_value_t = 1)]
+        first_seed: i64,
+        /// Scenarios: a TOML file of `[[scenario]] name = "..." set = { "$seed" = 2, "node.setting" = 1.2 }`.
+        #[arg(long)]
+        scenarios: Option<PathBuf>,
+        /// The input holding the seed.
+        #[arg(long, default_value = "seed")]
+        seed_input: String,
+        /// The folder of the results: one folder per task.
+        #[arg(short, long, default_value = "batch")]
+        out: PathBuf,
+        #[command(flatten)]
+        at: cluster::Where,
+    },
+    /// Calibrate settings of a model against an observed map, here or on a coordinator's workers.
+    Calibrate(Box<cluster::Calibrate>),
     /// Resample a raster to the grid of another (of the same coordinate reference system).
     Resample {
         input: PathBuf,
@@ -314,7 +362,20 @@ fn report(model: &Model, engine: &Engine) -> bool {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let engine = Engine::default();
+    let rt = || tokio::runtime::Builder::new_multi_thread().enable_all().build();
     match cli.command {
+        Command::Serve { listen, timeout } => rt()?.block_on(cluster::serve(listen, timeout))?,
+        Command::Worker { coordinator, name, cache } => rt()?.block_on(cluster::worker(&coordinator, name, cache))?,
+        Command::Workers { coordinator } => rt()?.block_on(cluster::workers(&coordinator))?,
+        Command::Submit { model, replicates, first_seed, scenarios, seed_input, out, at } => {
+            let tasks = match (replicates, scenarios) {
+                (Some(n), None) => terraflux_dist::batch::replicates(n, first_seed, &seed_input),
+                (None, Some(f)) => terraflux_dist::batch::scenarios(&std::fs::read_to_string(&f)?)?,
+                _ => bail!("give --replicates or --scenarios"),
+            };
+            rt()?.block_on(cluster::submit(&model, tasks, &out, &at))?;
+        }
+        Command::Calibrate(a) => rt()?.block_on(cluster::calibrate(&a))?,
         Command::App { model } => {
             terraflux_app::run(model).map_err(|e| anyhow::anyhow!("the application: {e}"))?;
         }

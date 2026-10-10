@@ -312,6 +312,50 @@ impl Model {
     pub fn node(&self, id: &str) -> Option<&Node> {
         self.nodes.iter().find(|n| n.id == id)
     }
+
+    /// The node of a path of ids (`simulation/allocate`: a node of a container's body).
+    pub fn node_mut(&mut self, path: &str) -> Option<&mut Node> {
+        let mut parts = path.split('/');
+        let mut node = self.nodes.iter_mut().find(|n| Some(n.id.as_str()) == parts.clone().next())?;
+        parts.next();
+        for id in parts {
+            node = node.body.as_mut()?.nodes.iter_mut().find(|n| n.id == id)?;
+        }
+        Some(node)
+    }
+
+    /// Change the model for one run of a batch: `$input` sets a value input (or the path of a file input);
+    /// `node.name` (`node/inner.name` in a body) sets the literal input of that name, else the setting.
+    pub fn apply(&mut self, overrides: &BTreeMap<String, serde_json::Value>) -> Result<()> {
+        for (key, value) in overrides {
+            if let Some(name) = key.strip_prefix('$') {
+                let input = self.inputs.get_mut(name).ok_or_else(|| Error::Model(format!("no input ${name}")))?;
+                match input {
+                    Input::Value { value: v, .. } => *v = value.clone(),
+                    Input::Map { path, .. } | Input::Stack { path, .. } => {
+                        *path = value
+                            .as_str()
+                            .ok_or_else(|| Error::Model(format!("${name} is a file: give its path")))?
+                            .to_string();
+                    }
+                }
+                continue;
+            }
+            let (path, name) =
+                key.rsplit_once('.').ok_or_else(|| Error::Model(format!("{key:?}: give $input or node.setting")))?;
+            let node = self.node_mut(path).ok_or_else(|| Error::Model(format!("{key:?}: no node {path:?}")))?;
+            match node.inputs.get_mut(name) {
+                Some(Source::Literal(v)) => *v = value.clone(),
+                Some(Source::Ref(r)) => {
+                    return Err(Error::Model(format!("{key:?}: the input comes from {r}, not a value")));
+                }
+                None => {
+                    node.params.insert(name.to_string(), value.clone());
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 /// `path` relative to `dir` when they share a root (with `..` where needed), else as it is; with forward
@@ -479,6 +523,29 @@ inputs = { a = "m.out", k = 14, f = 0.5, flag = true }
         let o = order(&m.nodes, |n| dependencies(n, &m.nodes)).unwrap();
         let ids: Vec<&str> = o.iter().map(|n| n.id.as_str()).collect();
         assert_eq!(ids, vec!["a", "b", "loop"]);
+    }
+
+    #[test]
+    fn overrides() {
+        let mut m = sample();
+        let o: BTreeMap<String, serde_json::Value> = [
+            ("$seed".to_string(), serde_json::json!(9)),
+            ("$t0".to_string(), serde_json::json!("other.tif")),
+            ("a.steps".to_string(), serde_json::json!(3)),
+            ("b.k".to_string(), serde_json::json!(5)),
+            ("loop/step.new".to_string(), serde_json::json!(true)),
+        ]
+        .into();
+        m.apply(&o).unwrap();
+        assert!(matches!(&m.inputs["seed"], Input::Value { value, .. } if value == 9));
+        assert!(matches!(&m.inputs["t0"], Input::Map { path, .. } if path == "other.tif"));
+        assert_eq!(m.node("a").unwrap().params["steps"], 3);
+        assert_eq!(m.node("b").unwrap().inputs["k"], Source::Literal(5.into()));
+        assert_eq!(m.node("loop").unwrap().body.as_ref().unwrap().nodes[0].params["new"], true);
+        for bad in ["$nope", "zz.x", "b.a", "plain"] {
+            let o: BTreeMap<String, serde_json::Value> = [(bad.to_string(), serde_json::json!(1))].into();
+            assert!(m.clone().apply(&o).is_err(), "{bad}");
+        }
     }
 
     #[test]

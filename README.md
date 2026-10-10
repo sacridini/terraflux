@@ -6,10 +6,11 @@ Terraflux is a native application for land change simulation with cellular autom
 Dinamica EGO: a visual model builder, guided data preparation and live maps, with an engine that runs
 the same model on one machine or distributed across many headless workers.
 
-> **Status:** 0.3 — the application (a wizard that checks and fixes the data, live maps, the model's graph,
-> charts and validation), the exact engine and the command line run Dinamica EGO's classic model, CLUE-S, the
-> ordered allocation and PLUS's CARS, with dynamic variables, bit for bit as landschaft's `ls.simulate` (and so
-> as lulcc); models fitted in Python run here unchanged. The distributed engine comes next; the plan is in
+> **Status:** 0.4 — the application (a wizard that checks and fixes the data, live maps, the model's graph,
+> charts and validation), the exact engine, the command line and batches on many machines (replicates,
+> scenarios, calibration) run Dinamica EGO's classic model, CLUE-S, the ordered allocation and PLUS's CARS, with
+> dynamic variables, bit for bit as landschaft's `ls.simulate` (and so as lulcc); models fitted in Python run
+> here unchanged. The tiled engine for continental and global maps comes next; the plan is in
 > [`docs/PLAN.md`](docs/PLAN.md) (Portuguese) and the changes in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Goals
@@ -68,6 +69,20 @@ terraflux resample drivers.tif --like landuse.tif -o drivers_aligned.tif
 
 `terraflux new clue` and `terraflux new ordered` make lulcc's CLUE-S and ordered models (logistic regressions,
 a demand interpolated from observed maps, conversion rules, elasticities, neighbourhoods, restrictions).
+
+## Many runs, many machines
+
+```bash
+terraflux submit model.toml --replicates 50 --out replicates            # the cores of this machine
+terraflux calibrate model.toml --param patches.isometry=0.5:2.5 --observed landuse.tif:2011 --metric similarity:5
+
+terraflux serve --listen 0.0.0.0:7700                                   # a coordinator
+terraflux worker --coordinator http://coordinator-host:7700             # on every machine that works
+terraflux submit model.toml --scenarios scenarios.toml --coordinator http://coordinator-host:7700
+```
+
+Workers only connect to the coordinator; data travels once, by hash; a task whose worker vanishes runs on
+another. See [`docs/cluster.md`](docs/cluster.md) (and the Slurm template in `tools/slurm`).
 
 ## From Python
 
@@ -141,6 +156,7 @@ Eigen 3.4. `tools/make_reference.py` writes the reference outputs of the parity 
 | `terraflux-raster` | grids, rasters, GeoTIFF reading and writing in pure Rust (BigTIFF, tiles, LZW, Deflate, predictors), resampling |
 | `terraflux-ls-sys` | the bridge to landschaft's C++ kernels |
 | `terraflux-app` | the application (egui, wgpu): wizard, live maps, graph, charts, validation |
+| `terraflux-dist` | the coordinator, the workers and the batches (gRPC) |
 | `terraflux-cli` | the `terraflux` command |
 
 ## License
