@@ -9,7 +9,9 @@
 //! step, calling the same C++ kernels (through `terraflux-ls-sys`), so that
 //! a model gives the same maps here as in Python with the same seed.
 
+pub mod agents;
 pub mod algebra;
+pub mod crafty;
 pub mod demand;
 pub mod dinamica;
 pub mod dynamic;
@@ -214,7 +216,9 @@ impl Registry {
         r.add(Arc::new(Group));
         r.add(Arc::new(Submodel));
         r.add(Arc::new(RngNew));
+        agents::register(&mut r);
         algebra::register(&mut r);
+        crafty::register(&mut r);
         markov::register(&mut r);
         demand::register(&mut r);
         glm::register(&mut r);

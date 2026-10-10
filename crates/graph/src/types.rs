@@ -34,6 +34,8 @@ pub enum Type {
     Rules,
     /// A random number generator carrying its state from step to step.
     Rng,
+    /// A population of agents: attributes by name, a value per agent.
+    Agents,
 }
 
 impl Type {

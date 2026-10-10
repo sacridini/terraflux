@@ -296,6 +296,7 @@ pub enum Value {
     Woe(Arc<crate::woe::WoeModel>),
     Patches(Arc<PatchParams>),
     Rng(Rng),
+    Agents(Arc<crate::agents::Agents>),
 }
 
 impl Value {
@@ -316,6 +317,7 @@ impl Value {
             Value::Woe(_) => Type::Woe,
             Value::Patches(_) => Type::Patches,
             Value::Rng(_) => Type::Rng,
+            Value::Agents(_) => Type::Agents,
         }
     }
 

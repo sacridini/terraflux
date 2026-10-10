@@ -6,11 +6,12 @@ Terraflux is a native application for land change simulation with cellular autom
 Dinamica EGO: a visual model builder, guided data preparation and live maps, with an engine that runs
 the same model on one machine or distributed across many headless workers.
 
-> **Status:** 0.6 — the application (a wizard that checks and fixes the data, live maps, a node editor,
+> **Status:** 0.7 — the application (a wizard that checks and fixes the data, live maps, a node editor,
 > charts and validation), the exact engine, the command line and batches on many machines (replicates,
 > scenarios, calibration) run Dinamica EGO's classic model, CLUE-S, the ordered allocation and PLUS's CARS, with
 > dynamic variables, bit for bit as landschaft's `ls.simulate` (and so as lulcc); models fitted in Python run
-> here unchanged. Map algebra, submodels and WebAssembly plugins change a model's logic. A tiled engine runs
+> here unchanged. Map algebra, submodels and WebAssembly plugins change a model's logic; agents (macro agents,
+> parcel managers, CRAFTY's competition for land) act on the map in the same graph. A tiled engine runs
 > Dinamica EGO's model on maps larger than memory, on one machine or many: the same maps whatever the number of
 > workers. The plan is in [`docs/PLAN.md`](docs/PLAN.md) (Portuguese) and the changes in
 > [`CHANGELOG.md`](CHANGELOG.md).
@@ -27,7 +28,7 @@ the same model on one machine or distributed across many headless workers.
 - **Any scale.** An exact mode, bit for bit with the reference tools on one machine, and a scalable mode
   over tiles: deterministic whatever the partitioning, up to global scenarios at 30 m.
 - **Flexible logic.** Map algebra, reusable submodels and pluggable operators (Rust and WASM).
-- **Agents later.** An agent-based layer on top of the cellular automata.
+- **Agents.** An agent-based layer on top of the cellular automata, in the same graph.
 
 ## Technology
 
@@ -97,6 +98,13 @@ params = { path = "plugins/keep.wasm" }
 ```
 
 See [`docs/modelling.md`](docs/modelling.md): the node editor, map algebra, groups and submodels, plugins.
+
+## Agents
+
+Populations of agents carried along the loop with the map: macro agents giving the demand, parcel managers
+changing the potential of their parcels (`agents.table`, `agents.parcels`, `agents.update` with rules
+`attribute = expression`, `agents.map`, `agents.summary`), and CRAFTY's competition for land between agent
+functional types (`crafty.allocate`). See [`docs/agents.md`](docs/agents.md).
 
 ## Many runs, many machines
 
@@ -203,7 +211,7 @@ Eigen 3.4. `tools/make_reference.py` writes the reference outputs of the parity 
 | Crate | What it holds |
 |---|---|
 | `terraflux-graph` | the model graph: file format, references, signatures, checks, submodels |
-| `terraflux-ops` | the operators (Markov chains, demands, logistic regression, weights of evidence, CLUE-S, ordered, Expander/Patcher, map algebra, WebAssembly plugins) and the presets |
+| `terraflux-ops` | the operators (Markov chains, demands, logistic regression, weights of evidence, CLUE-S, ordered, Expander/Patcher, map algebra, WebAssembly plugins, agents, CRAFTY) and the presets |
 | `terraflux-exec` | the exact engine: inputs, graph run, outputs; the checks of the data |
 | `terraflux-engine` | the tiled engine: fits by reduction, counter-based random numbers, allocation by thresholds |
 | `terraflux-raster` | grids, rasters, GeoTIFF reading and writing in pure Rust (BigTIFF, tiles, windows, LZW, Deflate, predictors), resampling |
