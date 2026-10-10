@@ -6,6 +6,21 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-10
+
+### Added
+- Models written by landschaft (1.44.0, `Model.save`) run here bit for bit as `ls.simulate` runs them: their fitted
+  pieces are given in the graph by `woe.weights`, `glm.coefficients`, `markov.matrix` and `patches.settings` (NaN
+  coefficients as `null` in JSON).
+- Dynamic variables: `dynamic.distance_to` (exact Euclidean distance, map units or cells), `dynamic.share_of`
+  (focal share of classes) and `stack.set`, recomputed from the simulated map at every step.
+- PLUS's CARS: `plus.demand` (a Markov chain projected from the starting map, or an area demand) and `cars.step`.
+- `stack.classes`: layers named by class or transition (`1_to_3`) as a potential computed elsewhere.
+- Tests: models saved by landschaft (Dinamica, CLUE-S with a dynamic variable and neighbourhood rules, CARS) give
+  the maps landschaft gives.
+
+### Changed
+- The submodule `extern/landschaft` at 1.44.0.
 ## [0.1.0] - 2026-10-10
 
 ### Added
