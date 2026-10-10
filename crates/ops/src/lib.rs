@@ -9,6 +9,7 @@
 //! step, calling the same C++ kernels (through `terraflux-ls-sys`), so that
 //! a model gives the same maps here as in Python with the same seed.
 
+pub mod algebra;
 pub mod demand;
 pub mod dinamica;
 pub mod dynamic;
@@ -16,6 +17,7 @@ pub mod fitted;
 pub mod glm;
 pub mod lulcc;
 pub mod markov;
+pub mod plugin;
 pub mod plus;
 pub mod presets;
 pub mod validate;
@@ -209,7 +211,10 @@ impl Registry {
     pub fn standard() -> Self {
         let mut r = Registry::empty();
         r.add(Arc::new(Repeat));
+        r.add(Arc::new(Group));
+        r.add(Arc::new(Submodel));
         r.add(Arc::new(RngNew));
+        algebra::register(&mut r);
         markov::register(&mut r);
         demand::register(&mut r);
         glm::register(&mut r);
@@ -219,6 +224,7 @@ impl Registry {
         dynamic::register(&mut r);
         fitted::register(&mut r);
         plus::register(&mut r);
+        plugin::register(&mut r);
         validate::register(&mut r);
         r
     }
@@ -261,6 +267,44 @@ impl Operator for Repeat {
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         Err(Error::msg(format!("node {:?}: control.repeat is run by the engine", args.node)))
+    }
+}
+
+/// `control.group`: the engine runs its body once; the operator only declares it.
+pub struct Group;
+
+impl Operator for Group {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            terraflux_graph::GROUP,
+            "Run the body once: its inputs (any names) are @name inside, its outputs the references of              body.outputs. Submodels become groups.",
+            Access::None,
+        )
+        .extra(Type::Any)
+        .container()
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        Err(Error::msg(format!("node {:?}: control.group is run by the engine", args.node)))
+    }
+}
+
+/// `control.submodel`: another model file, expanded into a group before a run.
+pub struct Submodel;
+
+impl Operator for Submodel {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            terraflux_graph::SUBMODEL,
+            "Another model used as one node: its inputs are the node's inputs of the same names (its value inputs              keep their values when not given; its files become inputs of this model), its outputs the node's.              Expanded into a control.group before the model runs.",
+            Access::None,
+        )
+        .extra(Type::Any)
+        .param(PortSpec::new("path", Type::Text, "the model file, relative to this model's folder"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        Err(Error::msg(format!("node {:?}: expand the submodels before running the model", args.node)))
     }
 }
 

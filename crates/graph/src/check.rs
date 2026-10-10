@@ -82,17 +82,31 @@ impl<'a> Checker<'a> {
         match r {
             Ref::Input(n) => self.input_type(n).ok_or_else(|| format!("no input named ${n}")),
             Ref::Carried(n) => {
-                let Some(c) = scopes.iter().rev().find_map(|s| s.container) else {
-                    return Err(format!("@{n} outside a container"));
-                };
-                if n == "step" {
-                    return Ok(Type::Integer);
-                }
-                let body = c.body.as_ref().unwrap();
-                if !body.carry.contains_key(n) {
+                // the innermost container that has it: a group's inputs, a loop's step and carried values
+                let mut any = false;
+                for (i, sc) in scopes.iter().enumerate().rev() {
+                    let Some(c) = sc.container else { continue };
+                    any = true;
+                    let outside = &scopes[..i];
+                    if c.op == crate::GROUP {
+                        if let Some(s) = c.inputs.get(n) {
+                            return self.source_type(Some(s), outside);
+                        }
+                        continue;
+                    }
+                    if n == "step" {
+                        return Ok(Type::Integer);
+                    }
+                    if c.body.as_ref().is_some_and(|b| b.carry.contains_key(n)) {
+                        return self.source_type(c.inputs.get(n), outside);
+                    }
                     return Err(format!("@{n} is not carried by {:?}", c.id));
                 }
-                self.source_type(c.inputs.get(n), scopes)
+                if any {
+                    Err(format!("@{n} is not an input of the enclosing groups"))
+                } else {
+                    Err(format!("@{n} outside a container"))
+                }
             }
             Ref::Port { node, port } => {
                 for (depth, s) in scopes.iter().enumerate().rev() {
@@ -130,6 +144,12 @@ impl<'a> Checker<'a> {
             if b.carry.contains_key(port) {
                 return self.source_type(n.inputs.get(port), scopes);
             }
+            if let Some(r) = b.outputs.get(port) {
+                let mut inner: Vec<Scope<'a>> =
+                    scopes.iter().map(|s| Scope { nodes: s.nodes, container: s.container }).collect();
+                inner.push(Scope { nodes: &b.nodes, container: Some(n) });
+                return Ref::parse(r).map_err(|e| e.to_string()).and_then(|r| self.type_of(&r, &inner));
+            }
         }
         Err(format!("node {:?} ({}) has no output {port:?}", n.id, n.op))
     }
@@ -163,10 +183,12 @@ impl<'a> Checker<'a> {
                 continue;
             };
             for (port, src) in &n.inputs {
-                let carried = sig.container && n.body.as_ref().is_some_and(|b| b.carry.contains_key(port));
+                let carried = sig.container
+                    && (n.op == crate::GROUP || n.body.as_ref().is_some_and(|b| b.carry.contains_key(port)));
                 let want = match sig.input_spec(port) {
                     Some(p) => p.ty,
                     None if carried => Type::Any,
+                    None if sig.extra.is_some() && valid_id(port) => sig.extra.unwrap(),
                     None => {
                         self.error(&at, format!("{} has no input {port:?}", n.op));
                         continue;
@@ -221,6 +243,9 @@ impl<'a> Checker<'a> {
         }
         for (name, r) in &b.collect {
             self.check_ref(&format!("{at}/collect.{name}"), r, Type::Any, scopes);
+        }
+        for (name, r) in &b.outputs {
+            self.check_ref(&format!("{at}/outputs.{name}"), r, Type::Any, scopes);
         }
         scopes.pop();
     }

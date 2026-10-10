@@ -91,6 +91,9 @@ pub struct OpSignature {
     pub access: Access,
     /// Whether the node holds a body of nodes (and its outputs are the body's carried and collected values).
     pub container: bool,
+    /// Inputs of any other name the operator takes, of this type (map algebra's variables).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra: Option<Type>,
 }
 
 impl OpSignature {
@@ -103,6 +106,7 @@ impl OpSignature {
             params: Vec::new(),
             access,
             container: false,
+            extra: None,
         }
     }
 
@@ -123,6 +127,12 @@ impl OpSignature {
 
     pub fn container(mut self) -> Self {
         self.container = true;
+        self
+    }
+
+    /// The operator takes inputs of any other name, of type `ty`.
+    pub fn extra(mut self, ty: Type) -> Self {
+        self.extra = Some(ty);
         self
     }
 

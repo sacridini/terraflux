@@ -83,6 +83,22 @@ pub async fn localize(
             *path = blob(client, cache, h).await?.to_string_lossy().into_owned();
         }
     }
+    let mut hashes = Vec::new();
+    crate::client::plugin_paths(&mut model.nodes, &mut |p| {
+        if let Some(h) = p.strip_prefix("blob:") {
+            hashes.push(h.to_string());
+        }
+    });
+    let mut local = std::collections::BTreeMap::new();
+    for h in hashes {
+        let f = blob(client, cache, &h).await?;
+        local.insert(format!("blob:{h}"), f.to_string_lossy().into_owned());
+    }
+    crate::client::plugin_paths(&mut model.nodes, &mut |p| {
+        if let Some(f) = local.get(p.as_str()) {
+            *p = f.clone();
+        }
+    });
     if let Some(e) = eval
         && let Some(h) = e.observed.strip_prefix("blob:")
     {

@@ -157,3 +157,72 @@ async fn workers_sharing_a_cache_fetch_the_data_together() {
     assert_eq!((s.done, s.failed), (12, 0), "{:?}", s.errors);
     local.shutdown();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn plugins_travel_to_the_workers() {
+    // a submodel of map algebra and a WebAssembly plugin on Sibuyan's land use; the module sent to the workers
+    // by hash
+    let dir = tmp("plugin-model");
+    std::fs::write(
+        dir.join("double.wat"),
+        r#"(module (func (export "cell") (param $x f64) (result f64) (f64.mul (local.get $x) (f64.const 2))))"#,
+    )
+    .unwrap();
+    let mut m = Model::new("plugin");
+    m.inputs.insert(
+        "t0".into(),
+        Input::Map { path: data("sibuyan_landuse.tif"), band: Some("1997".into()), nodata: None, note: None },
+    );
+    // the map algebra in a submodel
+    std::fs::write(
+        dir.join("forest.toml"),
+        "format = \"terraflux/1\"
+[inputs.lu]
+kind = \"map\"
+path = \"none.tif\"
+[[nodes]]
+id = \"is\"
+op = \"map.calc\"
+inputs = { lu = \"$lu\" }
+params = { expression = \"lu == 1\" }
+[outputs.map]
+from = \"is.map\"
+",
+    )
+    .unwrap();
+    m.nodes.push(
+        terraflux_graph::Node::new("forest", terraflux_graph::SUBMODEL).input("lu", "$t0").param("path", "forest.toml"),
+    );
+    m.nodes.push(
+        terraflux_graph::Node::new("twice", terraflux_graph::PLUGIN)
+            .input("x", "forest.map")
+            .param("path", "double.wat"),
+    );
+    m.outputs.insert(
+        "twice".into(),
+        terraflux_graph::Output { from: "twice.map".into(), path: None, dtype: Some("u8".into()) },
+    );
+    let path = dir.join("model.toml");
+    m.save(&path).unwrap();
+    let m = Model::load_expanded(&path).unwrap();
+
+    let local = Local::start(2, tmp("cache-plugin"), Options::default()).await.unwrap();
+    let mut c = Client::connect(&local.url).await.unwrap();
+    let bundled = c.bundle(&m, &dir).await.unwrap();
+    let p = bundled.node("twice").unwrap().params["path"].as_str().unwrap().to_string();
+    assert!(p.starts_with("blob:"), "{p}");
+    let job = c.submit("plugin", &bundled, &[("one".to_string(), BTreeMap::new())], true, None).await.unwrap();
+    let s = c.wait(&job, |_| {}).await.unwrap();
+    assert_eq!((s.done, s.failed), (1, 0), "{:?}", s.errors);
+    let theirs = c.results(&job).await.unwrap()[0].files.iter().find(|f| f.name == "twice.tif").unwrap().data.clone();
+    let (_, files, _) = run_task(m.clone(), &BTreeMap::new(), None, Some(&tmp("plugin-local"))).unwrap();
+    let mine = &files.iter().find(|f| f.name == "twice.tif").unwrap().data;
+    assert_eq!(mine, &theirs);
+    let f = tmp("plugin-out").join("twice.tif");
+    std::fs::write(&f, &theirs).unwrap();
+    let r = terraflux_raster::Raster::read(&f).unwrap();
+    let values: std::collections::BTreeSet<u64> =
+        r.bands[0].masked(r.nodata).iter().filter(|v| !v.is_nan()).map(|v| v.to_bits()).collect();
+    assert_eq!(values, [0.0f64.to_bits(), 2.0f64.to_bits()].into(), "forest cells doubled, the others 0");
+    local.shutdown();
+}

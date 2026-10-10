@@ -8,11 +8,12 @@ use std::time::{Duration, Instant};
 use egui::{Color32, RichText, Ui};
 use egui_plot::{Legend, Line, Plot};
 use terraflux_exec::lint::{Finding, Level, lint};
-use terraflux_graph::{Issue, Model, Severity, check};
+use terraflux_graph::{Issue, Model, Severity, Source, check};
 use terraflux_ops::validate::{Agreement, agreement, similarity_of_differences};
 use terraflux_ops::{Map, Registry, Table, Value};
 use terraflux_raster::Raster;
 
+use crate::editor_view::{Action, EditorState};
 use crate::map_view::{Hover, MapView, class_counts, legend};
 use crate::palette::Coloring;
 use crate::runner::{Message, Run};
@@ -41,7 +42,15 @@ pub struct Validation {
 
 /// A model open.
 pub struct Session {
+    /// The model as written (what the editor changes and saves).
+    pub source: Model,
+    /// The model run: its submodels expanded.
     pub model: Model,
+    /// The editor's state; whether the model changed since it was saved.
+    pub editor: EditorState,
+    pub dirty: bool,
+    /// The texts being typed in the side panel, by field.
+    pub fields: BTreeMap<String, String>,
     pub path: PathBuf,
     pub issues: Vec<Issue>,
     pub findings: Vec<Finding>,
@@ -67,16 +76,22 @@ pub struct Session {
 
 impl Session {
     pub fn open(path: &Path) -> Result<Session, String> {
-        let model = Model::load(path).map_err(|e| format!("{}: {e}", path.display()))?;
-        let issues = check(&model, &Registry::standard());
+        let source = Model::load(path).map_err(|e| format!("{}: {e}", path.display()))?;
         let base = path.parent().map(Path::to_path_buf).unwrap_or_default();
+        let mut model = source.clone();
+        terraflux_graph::submodel::expand(&mut model, &base).map_err(|e| format!("{}: {e}", path.display()))?;
+        let issues = check(&model, &Registry::standard());
         let (inputs, load_error) = match terraflux_exec::load_inputs(&model, &base, &BTreeMap::new()) {
             Ok(i) => (Some(i), None),
             Err(e) => (None, Some(e.to_string())),
         };
         let findings = inputs.as_ref().map(|i| lint(&model, i)).unwrap_or_default();
         let mut s = Session {
+            source,
             model,
+            editor: EditorState::default(),
+            dirty: false,
+            fields: BTreeMap::new(),
             path: path.to_path_buf(),
             issues,
             findings,
@@ -120,6 +135,28 @@ impl Session {
             Some(Value::Map(m)) => Some(m.clone()),
             _ => None,
         })
+    }
+
+    /// After an edit of the source: the model run and its checks follow.
+    pub fn edited(&mut self) {
+        self.dirty = true;
+        self.fields.clear();
+        let base = self.path.parent().map(Path::to_path_buf).unwrap_or_default();
+        let mut m = self.source.clone();
+        match terraflux_graph::submodel::expand(&mut m, &base) {
+            Ok(()) => {
+                self.issues = check(&m, &Registry::standard());
+                self.model = m;
+            }
+            Err(e) => self.editor.message = Some(e.to_string()),
+        }
+    }
+
+    /// Write the model where it was read.
+    pub fn save(&mut self) -> Result<(), String> {
+        self.source.save(&self.path).map_err(|e| e.to_string())?;
+        self.dirty = false;
+        Ok(())
     }
 
     pub fn running(&self) -> bool {
@@ -389,31 +426,92 @@ impl TerrafluxApp {
 
     fn graph_tab(&mut self, ui: &mut Ui) {
         let Some(s) = &mut self.session else { return };
-        egui::Panel::right("node_side").resizable(true).default_size(280.0).show(ui, |ui| {
-            match s.selected.as_ref().and_then(|k| s.model.node(k)) {
-                Some(n) => {
-                    ui.heading(&n.id);
-                    ui.label(RichText::new(&n.op).monospace());
-                    if let Some(sig) = Registry::standard().get(&n.op).map(|o| o.signature()) {
-                        ui.label(sig.doc);
-                    }
-                    if let Some(note) = &n.note {
-                        ui.separator();
-                        ui.label(RichText::new("Why").strong());
-                        ui.label(note);
-                    }
-                    ui.separator();
-                    ui.label(RichText::new("Inputs and settings").strong());
-                    ui.label(RichText::new(crate::graph_view::settings(n)).monospace());
+        let r = Registry::standard();
+        egui::Panel::top("editor_bar").show(ui, |ui| {
+            ui.horizontal(|ui| {
+                if ui.selectable_label(s.editor.path.is_empty(), "Top level").clicked() {
+                    s.editor.path.clear();
+                    s.selected = None;
                 }
-                None => {
-                    ui.label("Click a node to see what it does, why it is there and its settings.");
+                for k in 0..s.editor.path.len() {
+                    ui.label("/");
+                    if ui.selectable_label(k + 1 == s.editor.path.len(), &s.editor.path[k]).clicked() {
+                        s.editor.path.truncate(k + 1);
+                        s.selected = None;
+                    }
                 }
-            }
+                ui.separator();
+                let mut names: Vec<String> = r.signatures().into_iter().map(|g| g.name).collect();
+                names.sort();
+                egui::ComboBox::from_id_salt("add_op")
+                    .selected_text(if s.editor.add.is_empty() { "operator..." } else { s.editor.add.as_str() })
+                    .show_ui(ui, |ui| {
+                        for n in names {
+                            ui.selectable_value(&mut s.editor.add, n.clone(), n);
+                        }
+                    });
+                if ui.add_enabled(!s.editor.add.is_empty(), egui::Button::new("Add node")).clicked() {
+                    let op = s.editor.add.clone();
+                    // below the nodes there
+                    let nodes = s.source.scope(&s.editor.path).cloned().unwrap_or_default();
+                    let auto = crate::editor_view::auto_positions(&nodes);
+                    let y = nodes.iter().map(|n| n.pos.unwrap_or(auto[&n.id])[1] + 160.0).fold(0.0f32, f32::max);
+                    match crate::editor::add_node(&mut s.source, &r, &s.editor.path, &op, [0.0, y]) {
+                        Ok(id) => {
+                            s.selected = Some(id);
+                            s.edited();
+                        }
+                        Err(e) => s.editor.message = Some(e),
+                    }
+                }
+                ui.separator();
+                if ui.add_enabled(s.dirty, egui::Button::new("Save")).clicked()
+                    && let Err(e) = s.save()
+                {
+                    s.editor.message = Some(e);
+                }
+                if let Some(m) = &s.editor.message {
+                    ui.colored_label(ui.visuals().warn_fg_color, m);
+                }
+            });
+        });
+        egui::Panel::right("node_side").resizable(true).default_size(320.0).show(ui, |ui| {
+            egui::ScrollArea::vertical().show(ui, |ui| node_panel(ui, s, &r));
         });
         egui::CentralPanel::default().show(ui, |ui| {
-            if let Some(k) = crate::graph_view::show(ui, &s.model) {
-                s.selected = Some(k);
+            let actions = crate::editor_view::show(ui, &s.source, &r, &mut s.editor, s.selected.as_deref());
+            for a in actions {
+                let path = s.editor.path.clone();
+                let result = match a {
+                    Action::Select(id) => {
+                        if s.selected.as_deref() != Some(id.as_str()) {
+                            s.fields.clear();
+                        }
+                        s.selected = Some(id);
+                        Ok(false)
+                    }
+                    Action::Enter(id) => {
+                        s.editor.path.push(id);
+                        s.selected = None;
+                        s.fields.clear();
+                        Ok(false)
+                    }
+                    Action::Move(id, p) => crate::editor::move_node(&mut s.source, &path, &id, p).map(|_| {
+                        s.dirty = true;
+                        false
+                    }),
+                    Action::Connect { reference, node, port } => {
+                        crate::editor::connect(&mut s.source, &r, &path, &reference, &node, &port).map(|_| true)
+                    }
+                };
+                match result {
+                    Ok(true) => {
+                        s.editor.message = None;
+                        s.edited();
+                    }
+                    Ok(false) => {}
+                    Err(e) => s.editor.message = Some(e),
+                }
             }
         });
     }
@@ -587,5 +685,185 @@ impl TerrafluxApp {
 impl eframe::App for TerrafluxApp {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         self.frame(ui);
+    }
+}
+
+/// The side panel of the node selected: what it does and why, its id, its inputs and settings, a container's
+/// outputs; every field editable.
+fn node_panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
+    let path = s.editor.path.clone();
+    let Some(id) = s.selected.clone() else {
+        ui.label("Click a node to edit it; drag from an output (right) to an input (left) to connect them; double-click a container to edit its body.");
+        return;
+    };
+    let Some(n) = s.source.scope(&path).and_then(|v| v.iter().find(|n| n.id == id)).cloned() else {
+        s.selected = None;
+        return;
+    };
+    let mut change: Option<Result<(), String>> = None;
+    let field = |s: &mut Session, key: &str, init: String| -> String {
+        s.fields.entry(key.to_string()).or_insert(init).clone()
+    };
+    ui.horizontal(|ui| {
+        let mut name = field(s, "id", n.id.clone());
+        ui.add(egui::TextEdit::singleline(&mut name).desired_width(140.0));
+        s.fields.insert("id".into(), name.clone());
+        if ui.button("Rename").clicked() {
+            change = Some(crate::editor::rename_node(&mut s.source, &path, &n.id, &name).map(|_| {
+                s.selected = Some(name.clone());
+            }));
+        }
+    });
+    ui.label(RichText::new(&n.op).monospace());
+    let sig = r.get(&n.op).map(|o| o.signature());
+    if let Some(sig) = &sig {
+        ui.label(&sig.doc);
+    }
+    if let Some(note) = &n.note {
+        ui.separator();
+        ui.label(RichText::new("Why").strong());
+        ui.label(note);
+    }
+    ui.separator();
+    ui.label(RichText::new("Inputs").strong());
+    egui::Grid::new("inputs").num_columns(3).show(ui, |ui| {
+        for (port, ty, required) in crate::editor::input_ports(&n, r) {
+            ui.label(if required { format!("{port} *") } else { port.clone() }).on_hover_text(format!("{ty:?}"));
+            match n.inputs.get(&port) {
+                Some(Source::Ref(reference)) => {
+                    ui.label(RichText::new(format!("<- {reference}")).monospace());
+                    if ui.small_button("x").on_hover_text("disconnect").clicked() {
+                        change = Some(crate::editor::disconnect(&mut s.source, &path, &n.id, &port));
+                    }
+                }
+                other => {
+                    let init = match other {
+                        Some(Source::Literal(v)) => v.to_string(),
+                        _ => String::new(),
+                    };
+                    let key = format!("in.{port}");
+                    let mut text = field(s, &key, init.clone());
+                    let resp = ui.add(egui::TextEdit::singleline(&mut text).desired_width(120.0).hint_text("value"));
+                    s.fields.insert(key, text.clone());
+                    if resp.lost_focus() && text != init {
+                        change = Some(crate::editor::set_literal(&mut s.source, r, &path, &n.id, &port, &text));
+                    }
+                }
+            }
+            ui.end_row();
+        }
+    });
+    if sig.as_ref().is_some_and(|g| g.extra.is_some() || g.container) {
+        ui.horizontal(|ui| {
+            let mut name = field(s, "new_input", String::new());
+            ui.add(egui::TextEdit::singleline(&mut name).desired_width(100.0).hint_text("name"));
+            let mut value = field(s, "new_value", String::new());
+            ui.add(egui::TextEdit::singleline(&mut value).desired_width(100.0).hint_text("$input, node.port or value"));
+            s.fields.insert("new_input".into(), name.clone());
+            s.fields.insert("new_value".into(), value.clone());
+            if ui.button("Add input").clicked() && !name.is_empty() {
+                let v = value.trim();
+                change = Some(if v.starts_with('$') || v.starts_with('@') || terraflux_graph::Ref::parse(v).is_ok() {
+                    crate::editor::connect(&mut s.source, r, &path, v, &n.id, &name)
+                } else {
+                    crate::editor::set_literal(&mut s.source, r, &path, &n.id, &name, v)
+                });
+            }
+        });
+    }
+    let mut params: Vec<(String, String)> =
+        sig.as_ref().map(|g| g.params.iter().map(|p| (p.name.clone(), p.doc.clone())).collect()).unwrap_or_default();
+    for k in n.params.keys() {
+        if !params.iter().any(|(p, _)| p == k) {
+            params.push((k.clone(), String::new()));
+        }
+    }
+    if !params.is_empty() {
+        ui.separator();
+        ui.label(RichText::new("Settings").strong());
+        for (name, doc) in params {
+            let init = n
+                .params
+                .get(&name)
+                .map(|v| match v {
+                    serde_json::Value::String(t) => t.clone(),
+                    v => v.to_string(),
+                })
+                .unwrap_or_default();
+            ui.label(&name).on_hover_text(doc);
+            let key = format!("param.{name}");
+            let mut text = field(s, &key, init.clone());
+            let resp = ui.add(egui::TextEdit::multiline(&mut text).desired_rows(1).desired_width(f32::INFINITY));
+            s.fields.insert(key, text.clone());
+            if resp.lost_focus() && text != init {
+                change = Some(crate::editor::set_param(&mut s.source, &path, &n.id, &name, &text));
+            }
+        }
+    }
+    if let Some(b) = &n.body {
+        ui.separator();
+        ui.label(RichText::new("Body").strong());
+        let maps: Vec<(&str, &BTreeMap<String, String>)> = if n.op == terraflux_graph::GROUP {
+            vec![("outputs", &b.outputs)]
+        } else {
+            vec![("carry", &b.carry), ("collect", &b.collect)]
+        };
+        for (which, map) in &maps {
+            for (k, v) in map.iter() {
+                ui.label(RichText::new(format!("{which}: {k} <- {v}")).monospace());
+            }
+        }
+        ui.horizontal(|ui| {
+            let mut which = field(s, "body_which", maps[0].0.to_string());
+            egui::ComboBox::from_id_salt("which").selected_text(&which).show_ui(ui, |ui| {
+                for (w, _) in &maps {
+                    ui.selectable_value(&mut which, w.to_string(), *w);
+                }
+            });
+            s.fields.insert("body_which".into(), which.clone());
+            let mut name = field(s, "body_name", String::new());
+            ui.add(egui::TextEdit::singleline(&mut name).desired_width(80.0).hint_text("name"));
+            let mut reference = field(s, "body_ref", String::new());
+            ui.add(egui::TextEdit::singleline(&mut reference).desired_width(110.0).hint_text("node.port inside"));
+            s.fields.insert("body_name".into(), name.clone());
+            s.fields.insert("body_ref".into(), reference.clone());
+            if ui.button("Set").clicked() {
+                let mut inner = path.clone();
+                inner.push(n.id.clone());
+                change = Some(crate::editor::set_body_map(&mut s.source, r, &inner, &which, &name, reference.trim()));
+            }
+        });
+        if ui.button("Edit the body").clicked() {
+            s.editor.path.push(n.id.clone());
+            s.selected = None;
+            s.fields.clear();
+        }
+    }
+    ui.separator();
+    if ui.button("Delete node").clicked() {
+        change = Some(crate::editor::remove_node(&mut s.source, &path, &n.id).map(|_| s.selected = None));
+    }
+    let issues: Vec<&Issue> = s
+        .issues
+        .iter()
+        .filter(|i| {
+            i.at.split('.').next()
+                == Some(&if path.is_empty() { id.clone() } else { format!("{}/{id}", path.join("/")) })
+        })
+        .collect();
+    for i in issues {
+        ui.colored_label(
+            if i.severity == Severity::Error { ui.visuals().error_fg_color } else { ui.visuals().warn_fg_color },
+            &i.message,
+        );
+    }
+    match change {
+        Some(Ok(())) => {
+            s.fields.clear();
+            s.editor.message = None;
+            s.edited();
+        }
+        Some(Err(e)) => s.editor.message = Some(e),
+        None => {}
     }
 }

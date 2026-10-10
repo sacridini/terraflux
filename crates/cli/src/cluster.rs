@@ -92,7 +92,7 @@ fn progress(s: &terraflux_dist::proto::JobStatus) {
 
 /// Run a batch of tasks of a model and write each task's files in `out/<label>/`.
 pub async fn submit(model_path: &Path, tasks: Vec<TaskOf>, out: &Path, w: &Where) -> Result<()> {
-    let model = Model::load(model_path).with_context(|| format!("reading {}", model_path.display()))?;
+    let model = Model::load_expanded(model_path).with_context(|| format!("reading {}", model_path.display()))?;
     let base = model_path.parent().map(Path::to_path_buf).unwrap_or_default();
     let (url, local) = place(w).await?;
     let mut c = Client::connect(&url).await?;
@@ -157,7 +157,7 @@ pub struct Calibrate {
 }
 
 pub async fn calibrate(a: &Calibrate) -> Result<()> {
-    let model = Model::load(&a.model).with_context(|| format!("reading {}", a.model.display()))?;
+    let model = Model::load_expanded(&a.model).with_context(|| format!("reading {}", a.model.display()))?;
     let base = a.model.parent().map(Path::to_path_buf).unwrap_or_default();
     let params: Vec<Param> = a.params.iter().map(|p| Param::parse(p, a.n)).collect::<terraflux_dist::Result<_>>()?;
     let candidates = match a.method.as_str() {

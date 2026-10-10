@@ -18,6 +18,7 @@
 //! operators' signatures before anything runs.
 
 mod check;
+pub mod submodel;
 mod types;
 
 use std::collections::BTreeMap;
@@ -27,6 +28,17 @@ use serde::{Deserialize, Serialize};
 
 pub use check::{Catalog, Issue, Severity, check};
 pub use types::{Access, OpSignature, PortSpec, Type};
+
+/// The container that runs its body once: a group of nodes with its own inputs (`@name` inside) and outputs
+/// (`body.outputs`), as submodels become.
+pub const GROUP: &str = "control.group";
+
+/// A node that stands for another model file (`params.path`), expanded into a group before a run
+/// ([`submodel::expand`]).
+pub const SUBMODEL: &str = "control.submodel";
+
+/// A WebAssembly plugin (`params.path`, relative to the model's folder until the model is expanded).
+pub const PLUGIN: &str = "plugin.wasm";
 
 /// The version of the model format this crate reads and writes.
 pub const FORMAT: &str = "terraflux/1";
@@ -173,6 +185,9 @@ pub struct Node {
     /// The nodes of a container.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body: Option<Body>,
+    /// Where the node editor draws it (its scope's coordinates).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pos: Option<[f32; 2]>,
 }
 
 impl Node {
@@ -184,6 +199,7 @@ impl Node {
             params: serde_json::Map::new(),
             note: None,
             body: None,
+            pos: None,
         }
     }
 
@@ -227,6 +243,9 @@ pub struct Body {
     /// Output name -> the reference whose value at every step is collected into a series.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub collect: BTreeMap<String, String>,
+    /// Output name -> the reference giving it (a group's outputs).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub outputs: BTreeMap<String, String>,
 }
 
 /// A value the model writes.
@@ -264,6 +283,14 @@ impl Model {
             Model::from_json(&text)?
         };
         Ok(model)
+    }
+
+    /// Read a model and expand its submodels (to run it).
+    pub fn load_expanded(path: impl AsRef<Path>) -> Result<Model> {
+        let path = path.as_ref();
+        let mut m = Model::load(path)?;
+        submodel::expand(&mut m, path.parent().unwrap_or(Path::new("")))?;
+        Ok(m)
     }
 
     /// Write a model as TOML (`.toml`) or JSON (any other extension).
@@ -311,6 +338,23 @@ impl Model {
     /// The node of an id at the top level.
     pub fn node(&self, id: &str) -> Option<&Node> {
         self.nodes.iter().find(|n| n.id == id)
+    }
+
+    /// The nodes of a scope: the top level (an empty path) or the body of the container at a path of ids.
+    pub fn scope(&self, path: &[String]) -> Option<&Vec<Node>> {
+        let mut nodes = &self.nodes;
+        for id in path {
+            nodes = &nodes.iter().find(|n| &n.id == id)?.body.as_ref()?.nodes;
+        }
+        Some(nodes)
+    }
+
+    pub fn scope_mut(&mut self, path: &[String]) -> Option<&mut Vec<Node>> {
+        let mut nodes = &mut self.nodes;
+        for id in path {
+            nodes = &mut nodes.iter_mut().find(|n| &n.id == id)?.body.as_mut()?.nodes;
+        }
+        Some(nodes)
     }
 
     /// The node of a path of ids (`simulation/allocate`: a node of a container's body).
@@ -433,6 +477,7 @@ pub fn references(node: &Node) -> Vec<String> {
         }
         out.extend(b.carry.values().cloned());
         out.extend(b.collect.values().cloned());
+        out.extend(b.outputs.values().cloned());
     }
     out
 }
@@ -472,6 +517,7 @@ mod tests {
             nodes: vec![Node::new("step", "x.op").input("land", "@land").input("p", "b.out")],
             carry: [("land".to_string(), "step.out".to_string())].into(),
             collect: [("maps".to_string(), "step.out".to_string())].into(),
+            ..Default::default()
         }));
         m.outputs.insert("maps".into(), Output { from: "loop.maps".into(), path: None, dtype: Some("u8".into()) });
         m

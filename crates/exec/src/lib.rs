@@ -174,6 +174,9 @@ impl Engine {
         if node.op == "control.repeat" {
             return self.repeat(node, env, values, inputs, at, obs, warnings);
         }
+        if node.op == terraflux_graph::GROUP {
+            return self.group(node, env, values, inputs, at, obs, warnings);
+        }
         let op = self
             .registry
             .get(&node.op)
@@ -190,6 +193,31 @@ impl Engine {
             if !out.contains_key(&p.name) {
                 return Err(Error::Node { at: at.into(), message: format!("{} gave no output {:?}", node.op, p.name) });
             }
+        }
+        Ok(out)
+    }
+
+    /// A group: its body once, its inputs carried inside, its outputs from `body.outputs`.
+    #[allow(clippy::too_many_arguments)]
+    fn group(
+        &self,
+        node: &Node,
+        env: &Env,
+        values: BTreeMap<String, Value>,
+        inputs: &BTreeMap<String, Value>,
+        at: &str,
+        obs: &mut dyn Observer,
+        warnings: &mut Vec<String>,
+    ) -> Result<Outputs> {
+        let body = node.body.as_ref().ok_or_else(|| Error::Node { at: at.into(), message: "no body".into() })?;
+        let mut child = Env { parent: Some(env), results: BTreeMap::new(), carried: values };
+        self.run_scope(&body.nodes, &mut child, inputs, at, obs, warnings)?;
+        let mut out = Outputs::new();
+        for (name, r) in &body.outputs {
+            out.insert(
+                name.clone(),
+                self.resolve(&Source::Ref(r.clone()), &child, inputs, &format!("{at}/outputs.{name}"))?,
+            );
         }
         Ok(out)
     }
@@ -291,6 +319,7 @@ mod tests {
                 ],
                 carry: [("total".to_string(), "acc.sum".to_string())].into(),
                 collect: [("each".to_string(), "acc.sum".to_string())].into(),
+                ..Default::default()
             },
         ));
         m.nodes.push(Node::new("four", "test.add").literal("x", 3).literal("y", 1));
@@ -300,6 +329,82 @@ mod tests {
         let Value::Series(s) = r.get("loop.each").unwrap() else { panic!() };
         let v: Vec<f64> = s.iter().map(|x| x.as_number().unwrap()).collect();
         assert_eq!(v, vec![12.0, 15.0, 19.0, 24.0]);
+    }
+
+    #[test]
+    fn groups_and_submodels() {
+        // a group: 3 + 1, then + 10; inside a loop, a group sees the loop's step
+        let mut m = Model::new("t");
+        m.nodes.push(Node::new("g", terraflux_graph::GROUP).literal("x", 3).body(Body {
+            nodes: vec![Node::new("inc", "test.add").input("x", "@x").literal("y", 1)],
+            outputs: [("y".to_string(), "inc.sum".to_string())].into(),
+            ..Default::default()
+        }));
+        m.nodes.push(Node::new("after", "test.add").input("x", "g.y").literal("y", 10));
+        m.nodes.push(Node::new("loop", "control.repeat").literal("times", 2).literal("total", 0).body(Body {
+            nodes: vec![Node::new("in", terraflux_graph::GROUP).input("x", "@total").body(Body {
+                nodes: vec![Node::new("add", "test.add").input("x", "@x").input("y", "@step")],
+                outputs: [("v".to_string(), "add.sum".to_string())].into(),
+                ..Default::default()
+            })],
+            carry: [("total".to_string(), "in.v".to_string())].into(),
+            ..Default::default()
+        }));
+        let r = engine().run(&m, &BTreeMap::new(), &mut Quiet).unwrap();
+        assert_eq!(r.get("after.sum").unwrap().as_number(), Some(14.0));
+        assert_eq!(r.get("loop.total").unwrap().as_number(), Some(3.0));
+
+        // the same group as a submodel file
+        let d = std::env::temp_dir().join(format!("terraflux-exec-sub-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(
+            d.join("inc.toml"),
+            "format = \"terraflux/1\"
+[inputs.x]
+kind = \"value\"
+value = 0
+[[nodes]]
+id = \"inc\"
+op = \"test.add\"
+inputs = { x = \"$x\", y = 1 }
+[outputs.y]
+from = \"inc.sum\"
+",
+        )
+        .unwrap();
+        let mut m = Model::new("t");
+        m.nodes.push(Node::new("g", terraflux_graph::SUBMODEL).literal("x", 3).param("path", "inc.toml"));
+        m.nodes.push(Node::new("after", "test.add").input("x", "g.y").literal("y", 10));
+        assert!(engine().run(&m, &BTreeMap::new(), &mut Quiet).is_err(), "submodels are expanded first");
+        terraflux_graph::submodel::expand(&mut m, &d).unwrap();
+        let r = engine().run(&m, &BTreeMap::new(), &mut Quiet).unwrap();
+        assert_eq!(r.get("after.sum").unwrap().as_number(), Some(14.0));
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn map_algebra() {
+        let g = Arc::new(terraflux_raster::Grid::new(2, 2));
+        let land = Value::Map(terraflux_ops::Map::new(g, vec![1.0, 2.0, 3.0, f64::NAN]));
+        let mut m = Model::new("t");
+        m.inputs.insert(
+            "land".into(),
+            terraflux_graph::Input::Map { path: "x.tif".into(), band: None, nodata: None, note: None },
+        );
+        m.nodes.push(
+            Node::new("calc", "map.calc")
+                .input("lu", "$land")
+                .literal("k", 10)
+                .param("expression", "if lu >= 2 then lu * k else 0"),
+        );
+        let r = engine().run(&m, &[("land".to_string(), land)].into(), &mut Quiet).unwrap();
+        let Value::Map(out) = r.get("calc.map").unwrap() else { panic!() };
+        assert_eq!(out.data[..3], [0.0, 20.0, 30.0]);
+        assert!(out.data[3].is_nan());
+        // a bad expression names the node
+        m.nodes[0].params.insert("expression".into(), "lu +".into());
+        let e = engine().run(&m, &BTreeMap::new(), &mut Quiet).err().unwrap().to_string();
+        assert!(e.contains("calc") || e.contains("no value"), "{e}");
     }
 
     #[test]

@@ -6,13 +6,14 @@ Terraflux is a native application for land change simulation with cellular autom
 Dinamica EGO: a visual model builder, guided data preparation and live maps, with an engine that runs
 the same model on one machine or distributed across many headless workers.
 
-> **Status:** 0.5 — the application (a wizard that checks and fixes the data, live maps, the model's graph,
+> **Status:** 0.6 — the application (a wizard that checks and fixes the data, live maps, a node editor,
 > charts and validation), the exact engine, the command line and batches on many machines (replicates,
 > scenarios, calibration) run Dinamica EGO's classic model, CLUE-S, the ordered allocation and PLUS's CARS, with
 > dynamic variables, bit for bit as landschaft's `ls.simulate` (and so as lulcc); models fitted in Python run
-> here unchanged. A tiled engine runs Dinamica EGO's model on maps larger than memory, on one machine or many: the
-> same maps whatever the number of workers. The plan is in [`docs/PLAN.md`](docs/PLAN.md)
-> (Portuguese) and the changes in [`CHANGELOG.md`](CHANGELOG.md).
+> here unchanged. Map algebra, submodels and WebAssembly plugins change a model's logic. A tiled engine runs
+> Dinamica EGO's model on maps larger than memory, on one machine or many: the same maps whatever the number of
+> workers. The plan is in [`docs/PLAN.md`](docs/PLAN.md) (Portuguese) and the changes in
+> [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Goals
 
@@ -47,14 +48,16 @@ terraflux app                 # or: terraflux app model.toml
   drivers (the dates and steps from the band names), checks the data (grids, classes, missing values, constant
   or collinear drivers) and offers to fix what it can (resampling a driver to the land use map's grid), then
   writes the model with a note on every choice.
+- **Graph:** the node editor. Add operators, connect their ports (each connection checked), type their
+  values and settings, edit the bodies of loops and groups, save; the note of every node says why it is there.
 - **Map:** the maps of the run as they come, step by step; zoom, pan, the class and coordinates under the pointer.
-- **Charts:** the area of each class along the steps. **Graph:** the model's nodes, what each does and why.
+- **Charts:** the area of each class along the steps.
 - **Validation:** the last map against an observed one: figure of merit, hits, misses and false alarms, and
   Dinamica EGO's fuzzy similarity of the changes in windows of growing size.
 
 ![A Dinamica model of Sibuyan after 14 steps](docs/images/map.png)
 
-![The model's graph, a node's note](docs/images/graph.png)
+![The node editor](docs/images/graph.png)
 
 ## Quick start
 
@@ -70,6 +73,30 @@ terraflux resample drivers.tif --like landuse.tif -o drivers_aligned.tif
 
 `terraflux new clue` and `terraflux new ordered` make lulcc's CLUE-S and ordered models (logistic regressions,
 a demand interpolated from observed maps, conversion rules, elasticities, neighbourhoods, restrictions).
+
+## Changing the logic
+
+```toml
+[[nodes]]
+id = "suitable"
+op = "map.calc"                                      # map algebra, as Dinamica EGO's Calculate Map
+inputs = { land = "$t0", drivers = "$drivers" }
+params = { expression = "if land == 3 and drivers.dist_roads < 500 then nbmean(land == 2, 1) else 0" }
+
+[[nodes]]
+id = "forest"
+op = "control.submodel"                              # another model file as one node
+inputs = { lu = "$t0" }
+params = { path = "lib/forest.toml" }
+
+[[nodes]]
+id = "keep"
+op = "plugin.wasm"                                   # a function in WebAssembly (any language), sandboxed
+inputs = { land = "$t0", slope = "suitable.map" }
+params = { path = "plugins/keep.wasm" }
+```
+
+See [`docs/modelling.md`](docs/modelling.md): the node editor, map algebra, groups and submodels, plugins.
 
 ## Many runs, many machines
 
@@ -175,13 +202,13 @@ Eigen 3.4. `tools/make_reference.py` writes the reference outputs of the parity 
 
 | Crate | What it holds |
 |---|---|
-| `terraflux-graph` | the model graph: file format, references, signatures, checks |
-| `terraflux-ops` | the operators (Markov chains, demands, logistic regression, weights of evidence, CLUE-S, ordered, Expander/Patcher) and the presets |
+| `terraflux-graph` | the model graph: file format, references, signatures, checks, submodels |
+| `terraflux-ops` | the operators (Markov chains, demands, logistic regression, weights of evidence, CLUE-S, ordered, Expander/Patcher, map algebra, WebAssembly plugins) and the presets |
 | `terraflux-exec` | the exact engine: inputs, graph run, outputs; the checks of the data |
 | `terraflux-engine` | the tiled engine: fits by reduction, counter-based random numbers, allocation by thresholds |
 | `terraflux-raster` | grids, rasters, GeoTIFF reading and writing in pure Rust (BigTIFF, tiles, windows, LZW, Deflate, predictors), resampling |
 | `terraflux-ls-sys` | the bridge to landschaft's C++ kernels |
-| `terraflux-app` | the application (egui, wgpu): wizard, live maps, graph, charts, validation |
+| `terraflux-app` | the application (egui, wgpu): wizard, node editor, live maps, charts, validation |
 | `terraflux-dist` | the coordinator, the workers and the batches (gRPC) |
 | `terraflux-cli` | the `terraflux` command |
 

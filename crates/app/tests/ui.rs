@@ -115,3 +115,51 @@ fn the_wizard_checks_the_data() {
     assert!(h.query_by_label_contains("resample it to the reference grid").is_some());
     shot(&mut h, "8-wizard-check");
 }
+
+#[test]
+fn the_editor_changes_the_graph() {
+    let path = tmp("ui-edited.toml");
+    std::fs::copy(model(), &path).unwrap();
+    let mut h = harness(TerrafluxApp::new(Some(path.clone())));
+    h.state_mut().tab = Tab::Graph;
+    h.run_steps(3);
+    shot(&mut h, "9-editor");
+    // a node of map algebra, added from the bar and connected in the side panel's terms
+    h.state_mut().session.as_mut().unwrap().editor.add = "map.calc".into();
+    h.run_steps(2);
+    h.get_by_label("Add node").click();
+    h.run_steps(3);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        assert_eq!(s.selected.as_deref(), Some("calc"));
+        let r = terraflux_ops::Registry::standard();
+        terraflux_app::editor::connect(&mut s.source, &r, &[], "$t0", "calc", "land").unwrap();
+        terraflux_app::editor::set_param(&mut s.source, &[], "calc", "expression", "land == 1").unwrap();
+        s.edited();
+        assert!(s.model.node("calc").is_some());
+        assert!(!s.issues.iter().any(|i| i.at.starts_with("calc")), "{:?}", s.issues);
+    }
+    h.run_steps(3);
+    assert!(h.query_by_label("Delete node").is_some(), "the selected node's panel");
+    shot(&mut h, "9b-editor-node");
+    // into the loop's body and back
+    h.state_mut().session.as_mut().unwrap().editor.path = vec!["simulation".into()];
+    h.run_steps(3);
+    assert!(h.query_by_label("simulation").is_some(), "the breadcrumb shows the container");
+    {
+        let s = h.state().session.as_ref().unwrap();
+        let r = terraflux_ops::Registry::standard();
+        let src = terraflux_app::editor::sources(&s.source, &r, &s.editor.path);
+        assert!(src.iter().any(|(x, _)| x == "@landscape"), "the loop's carried value is a source: {src:?}");
+    }
+    shot(&mut h, "9c-editor-body");
+    h.get_by_label("Top level").click();
+    h.run_steps(2);
+    assert!(h.state().session.as_ref().unwrap().editor.path.is_empty());
+    h.get_by_label("Save").click();
+    h.run_steps(2);
+    let saved = terraflux_graph::Model::load(&path).unwrap();
+    assert_eq!(saved.node("calc").unwrap().params["expression"], "land == 1");
+    assert!(saved.node("calc").unwrap().pos.is_some());
+    assert!(!h.state().session.as_ref().unwrap().dirty);
+}

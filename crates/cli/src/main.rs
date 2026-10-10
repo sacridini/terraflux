@@ -401,7 +401,7 @@ fn main() -> Result<()> {
             terraflux_app::run(model).map_err(|e| anyhow::anyhow!("the application: {e}"))?;
         }
         Command::Run { model, out, set, quiet, tiled, tile, radius, disk, coordinator } => {
-            let mut m = Model::load(&model).with_context(|| format!("reading {}", model.display()))?;
+            let mut m = Model::load_expanded(&model).with_context(|| format!("reading {}", model.display()))?;
             let dir = model.parent().map(Path::to_path_buf).unwrap_or_default();
             if tiled {
                 let mut o = BTreeMap::new();
@@ -457,7 +457,7 @@ fn main() -> Result<()> {
             }
         }
         Command::Check { model } => {
-            let m = Model::load(&model)?;
+            let m = Model::load_expanded(&model)?;
             let mut ok = report(&m, &engine);
             let dir = model.parent().map(Path::to_path_buf).unwrap_or_default();
             match load_inputs(&m, &dir, &BTreeMap::new()) {

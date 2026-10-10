@@ -47,6 +47,21 @@ impl Client {
                 *path = self.upload(&full).await?;
             }
         }
+        // the plugins' modules
+        let mut paths = Vec::new();
+        plugin_paths(&mut m.nodes, &mut |p| paths.push(p.clone()));
+        let mut sent = std::collections::BTreeMap::new();
+        for p in paths {
+            if !p.starts_with("blob:") && !sent.contains_key(&p) {
+                let full = if Path::new(&p).is_absolute() { Path::new(&p).to_path_buf() } else { base.join(&p) };
+                sent.insert(p.clone(), self.upload(&full).await?);
+            }
+        }
+        plugin_paths(&mut m.nodes, &mut |p| {
+            if let Some(b) = sent.get(p.as_str()) {
+                *p = b.clone();
+            }
+        });
         Ok(m)
     }
 
@@ -143,5 +158,19 @@ impl Client {
 
     pub async fn workers(&mut self) -> Result<Vec<WorkerState>> {
         Ok(self.c.workers(Empty {}).await?.into_inner().workers)
+    }
+}
+
+/// Every plugin's path in some nodes (their bodies' included).
+pub fn plugin_paths(nodes: &mut [terraflux_graph::Node], f: &mut dyn FnMut(&mut String)) {
+    for n in nodes {
+        if n.op == terraflux_graph::PLUGIN
+            && let Some(serde_json::Value::String(p)) = n.params.get_mut("path")
+        {
+            f(p);
+        }
+        if let Some(b) = &mut n.body {
+            plugin_paths(&mut b.nodes, f);
+        }
     }
 }

@@ -2,7 +2,8 @@
 //! come, the area of each class along the steps and the validation against an observed map.
 
 pub mod app;
-pub mod graph_view;
+pub mod editor;
+pub mod editor_view;
 pub mod map_view;
 pub mod palette;
 pub mod runner;
