@@ -6,6 +6,20 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-10
+
+### Added
+- Batches on many machines (crate `terraflux-dist`, gRPC): `terraflux serve` (a coordinator), `terraflux worker`
+  (a headless worker: it only connects to the coordinator), `terraflux workers`, `terraflux submit` (replicates or
+  scenarios: a folder of outputs per task) and `terraflux calibrate` (a grid or a Latin hypercube of settings,
+  each run with the same seeds, scored on the workers against an observed map: figure of merit, overall
+  agreement or the fuzzy similarity of the changes; the best settings written as a calibrated model). Without
+  `--coordinator`, a coordinator and workers run in the command's own process. The data travels once, by
+  SHA-256; workers keep a cache; a task whose worker stops sending heartbeats runs on another (three attempts).
+- Model overrides (`Model::apply`): `$input` and `node.setting` (`node/inner.setting` inside a loop).
+- `docs/cluster.md` and a Slurm template (`tools/slurm/terraflux-workers.sbatch`).
+- Tests: replicates on workers give the bytes of local runs; a calibration finds the setting that made the
+  observed map; the task of a vanished worker runs on another; workers sharing a cache fetch the data together.
 ## [0.3.0] - 2026-10-10
 
 ### Added
