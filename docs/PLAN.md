@@ -1,0 +1,255 @@
+# Plano do Terraflux: sucessor espiritual do Dinamica EGO
+
+## Context
+
+A ideia é criar um **sucessor espiritual do Dinamica EGO**: mais moderno, mais otimizado e mais fácil de
+usar, sem ficar simplista. Ele precisa:
+- Modelar mudança do uso do solo com autômatos celulares, com uma camada de agentes (ABM) depois.
+- Ter GUI em **egui** (Rust) e também rodar headless, distribuído em várias máquinas.
+- Escalar até **cenários mundiais a 30 m**.
+- Reaproveitar a lógica do `landschaft` (`C:\Users\eduar\Documents\dev\landschaft`, C++17/OpenMP com
+  cerca de 150 mil linhas). O `ls.simulate` reproduz lulcc, CLUMondo, r.futures, MOLUSCE, OpenLand e
+  diffeR bit a bit; PLUS e Dinamica foram implementados a partir das publicações.
+- Ser **objetivo e guiado na preparação dos dados** para quem tem pouca experiência, mas **flexível** para
+  quem quer mudar a lógica de funcionamento.
+
+### O que a exploração do landschaft mostrou
+
+- **Kernels C++ reaproveitáveis.** Os de `src/cpp/sim/` (crosstab, WoE, rglm, CLUE-S, CLUMondo, FUTURES,
+  Expander/Patcher, CARS, similaridade fuzzy, validação) não dependem de pybind: usam ponteiros crus e
+  `std::vector`, e o binding fica isolado em `src/cpp/sim/python.cpp`. Cada módulo é uma biblioteca
+  estática (`simcore`, `lsmcore`, `nlmcore`…) no `CMakeLists.txt`.
+- **Lógica que existe só em Python e precisa virar nativa:**
+  - o laço do `Model.run` (`simulate/_model.py:292`);
+  - os laços de Dinamica, PLUS e CLUMondo (`_patches.py`, `_plus.py`, `_clumondo.py`);
+  - `Markov`, `AreaDemand`/`Regional`, `Rules`, `Ordered`;
+  - o corte de faixas do WoE, a calibração e a maior parte da validação/diffeR;
+  - `_dynamic.py`.
+- **Bloqueios para distribuir:**
+  - O simulate roda inteiro em memória.
+  - Todas as alocações ordenam o mapa inteiro (`patches.cpp:174`, `clumondo.cpp:260`, `plus.cpp:90`,
+    `futures.cpp:248`, `Ordered`).
+  - Os RNGs são sequenciais. Só o `CellRandom(seed, iter, cell)` de `plus.cpp:27` é baseado em contador.
+- **Peças úteis para preparar dados:**
+  - reprojeção (`io/warp.cpp`, `_reproject.py`);
+  - rasterização (`lsm/rasterize.cpp`) e zonal (`io/zonal.cpp`);
+  - distâncias e custo (`distance.py`, `cost/`);
+  - `_dynamic.py` (`distance_to`, `share_of`);
+  - diagnósticos do WoE (Cramér, JIU) em `_woe.py`;
+  - leitura em blocos (`lsm/tiled.cpp`, `mspa_tiling.py`).
+- **GDAL:** o C++ não usa GDAL; o I/O é por rasterio no Python.
+- **Licença:** tudo é GPL-3.0-or-later, com ports de código GPL. O aplicativo também será
+  GPL-3.0-or-later.
+
+## Decisões tomadas
+
+- **Linguagens:**
+  - Rust no aplicativo: GUI em **egui + wgpu**, motor, I/O, distribuição.
+  - Kernels C++ do landschaft via `cxx`.
+  - A lógica que hoje está só em Python é portada para C++ dentro do landschaft, validada pelos testes bit a
+    bit existentes.
+- **Distribuição:** gRPC entre máquinas avulsas e nuvem, com armazenamento compartilhado e template Slurm.
+- **Repositório:** novo, com o landschaft como submódulo.
+- **ABM:** camada posterior, com espaço reservado na arquitetura.
+- **Interfaces:** o **model builder visual e o Python juntos**, como frentes de um mesmo grafo de modelo.
+  O Python fica fora do laço de simulação.
+
+## Princípios de produto
+
+1. **Um único modelo, várias frentes.** O modelo é um **grafo de operadores tipados**, salvo num formato
+   texto versionável. Assistente, editor de nós, Python e arquivo texto produzem e consomem o mesmo grafo.
+2. **Fácil sem esconder nada (revelação progressiva).** Toda decisão automática do assistente vira **nós
+   explícitos no grafo**, com a justificativa anotada. O iniciante aceita os padrões. O avançado abre o
+   grafo e muda qualquer coisa. Não existe "mágica" que não possa ser inspecionada ou sobrescrita.
+3. **Padrões corretos por construção.** O app escolhe o método certo pelo tipo de dado: categórico ou
+   contínuo, área ou contagem. Ele explica a escolha em uma frase e avisa quando o usuário a contraria.
+4. **Diagnóstico antes de rodar.** Um "lint" do modelo aponta problemas antes da simulação. Ver a seção de
+   preparação de dados.
+5. **Flexível na lógica.** Operadores são extensíveis: álgebra de mapas, submodelos reutilizáveis e
+   plugins. Ver a seção de flexibilidade.
+6. **O mesmo modelo roda em qualquer escala.** Do notebook ao mundo a 30 m, sem reescrever nada: o motor
+   decide como particionar.
+
+## Arquitetura
+
+```
+ Assistente (egui) ──┐
+ Editor de nós (egui)┼──►  Grafo do modelo (IR tipado, texto)  ──►  Planejador  ──►  Executor local (exato)
+ Python (landschaft) ┤                                                         └─►  Executor por tiles (cluster)
+ Arquivo .toml ──────┘
+```
+
+### 1. Grafo do modelo (o núcleo)
+
+- **Tipos:** mapa categórico, mapa contínuo, tabela, lookup table, matriz de transição, número, máscara,
+  região, camada vetorial (e, depois, agentes).
+- **Cada operador declara o próprio acesso aos dados.** É isso que permite ao planejador cortar o grafo
+  em tiles e sincronizar só onde precisa:
+  - `local`: célula a célula;
+  - `halo(r)`: vizinhança;
+  - `global`: reduções como demanda, histogramas e Markov.
+- **Containers no estilo Dinamica:** `Repeat` (passos), `ForEachCategory`, `ForEachRegion`, `Submodel`.
+- **Formato texto** (TOML/JSON) com versão de schema e migrações automáticas.
+- **Presets como grafos prontos:** `clue_s`, `ordered`, `clumondo`, `futures`, `dinamica`, `plus` e
+  `molusce`, a partir de `simulate/presets.py`.
+
+### 2. Dois modos de execução
+
+- **Modo exato** (uma máquina): bit a bit igual ao landschaft e às referências. Usa os mesmos RNGs e as
+  mesmas ordenações globais.
+- **Modo escalável** (tiles, várias máquinas): estatisticamente equivalente ao exato, e **determinístico
+  independentemente do particionamento**. Para isso:
+  - RNG por contador (Philox) chaveado por `(seed, passo, transição, id global da célula)`;
+  - alocação por **limiar** obtido de histogramas somados entre os workers (comunicação O(bins)), por
+    região × transição;
+  - halos com a largura do raio de vizinhança;
+  - conflitos de manchas entre tiles resolvidos por prioridade determinística.
+
+### 3. Distribuição
+
+- **Um binário** com os subcomandos `terraflux app`, `serve`, `worker` e `run`.
+- **Controle:** gRPC (`tonic`).
+- **Dados:** os workers leem e escrevem direto em armazenamento compartilhado (S3/MinIO/NFS), em
+  **Zarr v3 com sharding** (`zarrs`) e COG (`gdal`). Os halos vão de worker para worker.
+- **Ordem:** primeiro paralelismo de **tarefas** (réplicas, cenários, calibração), depois de **domínio**
+  (tiles).
+- **Dentro de cada máquina:** `rayon` e OpenMP. GPU (`wgpu` compute) depois.
+- **Ordem de grandeza mundial:** cerca de 1,6×10¹¹ células de terra, ~165 GB por mapa u8 e ~660 GB por
+  mapa de probabilidade f32. Viável com ~16 nós de 256 GB ou com out-of-core.
+
+### 4. Preparação de dados guiada (foco em quem tem pouca experiência)
+
+Um **projeto** tem uma **grade de referência**: CRS, resolução, extensão e máscara de estudo. O fluxo do
+assistente:
+
+1. **Importar.** Arrastar rasters e vetores de qualquer CRS e resolução. O app:
+   - detecta o tipo (categórico ou contínuo, pela tabela de cores, tipo inteiro e número de valores únicos)
+     e pede confirmação;
+   - sugere a grade de referência a partir do mapa de uso do solo.
+2. **Harmonizar automaticamente para a grade.** O reamostramento correto vem do tipo:
+   - categórico: vizinho mais próximo ou moda;
+   - contínuo: bilinear ou média;
+   - contagem: soma.
+
+   Também cuida de recorte, alinhamento, nodata unificado e máscara. Cada passo vira um nó no grafo.
+3. **Legenda e classes.** Editor de legenda e reclassificação (juntar classes) com pré-visualização. Avisa
+   classes raras ou ausentes num dos anos.
+4. **Mudanças observadas.** A partir de dois ou mais mapas:
+   - matriz de transição, análise de intensidade e componentes da diferença;
+   - **sugestão das transições a modelar**, ignorando as de área insignificante, com o motivo.
+5. **Variáveis explicativas.**
+   - Geração com um clique a partir de vetores: distância a estradas, rios e áreas urbanas; distância à
+     classe X (dinâmica); declividade a partir do MDE.
+   - Diagnóstico de colinearidade (Cramér, JIU, correlação) com sugestão de quais remover.
+   - Para o WoE: faixas automáticas e gráficos dos pesos por faixa, editáveis.
+6. **Calibração e validação**, que seguem o mesmo padrão:
+   - métodos padrão sensatos: similaridade fuzzy em várias janelas, figure of merit, três mapas;
+   - gráficos explicados em linguagem simples.
+
+**Lint do modelo antes de rodar:**
+- grades desalinhadas;
+- nodata inconsistente;
+- variável constante;
+- transição sem célula de origem;
+- demanda impossível (maior que a área disponível);
+- variáveis colineares;
+- falta de período de validação.
+
+Cada aviso vem com uma ação de correção sugerida.
+
+### 5. Flexibilidade da lógica
+
+- **Álgebra de mapas:** expressões no estilo do *Calculate Map* do Dinamica (condicionais, vizinhança,
+  lookup tables), avaliadas por tile. Depois, JIT via Cranelift ou WGSL. Cobre a maior parte da lógica
+  customizada **dentro** do laço, e roda em qualquer worker.
+- **Submodelos reutilizáveis:** grafos salvos como bibliotecas e usados como um único nó.
+- **Operadores nativos plugáveis:**
+  - um trait Rust `Operator` (tipos de entrada e saída, acesso, execução por tile) com registro;
+  - plugins externos em **WASM**, portáveis e seguros para enviar aos workers.
+- **Python fora do laço:** prepara dados, treina potencial (scikit-learn, XGBoost) e analisa resultados.
+  O modelo treinado entra no grafo como coeficientes, raster ou ONNX. Um callback Python no laço só é
+  aceito em operador marcado "somente local", e o app avisa que esse modelo não distribui.
+
+### 6. Interfaces
+
+- **GUI egui (wgpu):**
+  - **Assistente** de projeto, dados e preset.
+  - **Editor de nós** (`egui-snarl`), que abre o mesmo grafo, com tipos verificados ao conectar.
+  - **Inspeção em cada nó:** clicar mostra o mapa ou a tabela da última execução.
+  - **Mapa ao vivo** sobre uma pirâmide de overviews por tiles, com `walkers` para o mapa base opcional.
+  - **Gráficos** com `egui_plot`.
+- **Python:** o próprio `ls.simulate` do landschaft, acrescido de `Model.save()` e `Model.load()` (grafo)
+  e de `ls.simulate.submit(model, cluster=...)`, que devolve `xarray`.
+- **CLI:** `run modelo.toml`, `serve`, `worker`.
+
+### 7. ABM (fase posterior)
+
+- **Uma camada sobre o raster,** com `bevy_ecs` standalone num passo síncrono com o CA.
+- **Agentes:**
+  - macro (países, mercados), que geram a demanda;
+  - gestores de parcelas, que modulam potencial e regras;
+  - competição por célula no estilo CRAFTY.
+- **No grafo:** novos tipos (agentes, parcelas) e operadores.
+- **Comportamentos:** Rhai ou WASM.
+
+## Estrutura do repositório novo (`terraflux`)
+
+```
+terraflux/                   Cargo workspace, GPL-3.0-or-later
+  extern/landschaft          submódulo git
+  crates/ls-sys              bridge cxx para simcore/lsmcore/nlmcore (build.rs com crate cmake)
+  crates/graph               IR do modelo: tipos, operadores, registro, formato texto, migrações, lint
+  crates/ops                 operadores (wrappers dos kernels, álgebra de mapas, containers)
+  crates/raster              grade de referência, harmonização, tiles, halos, pirâmides, Zarr/COG
+  crates/exec                planejador; executores local (exato) e por tiles (RNG por contador, reduções)
+  crates/dist                coordenador e worker (tonic, .proto)
+  crates/app                 GUI egui: assistente, editor de nós, mapa, gráficos
+  crates/cli                 binário: app | serve | worker | run
+```
+
+## Fases
+
+0. **Landschaft:**
+   - Portar para C++ (`src/cpp/sim/`) Markov, AreaDemand/Regional, Rules, Ordered, o corte de faixas do
+     WoE, o laço do `Model.run` e os laços de Dinamica/PLUS/CLUMondo. O Python vira um wrapper fino.
+   - Adicionar a opção CMake `LANDSCHAFT_PYTHON=OFF` (só bibliotecas estáticas).
+   - Testes bit a bit inalterados.
+1. **Grafo + executor local + CLI:**
+   - `crates/graph`, `ops`, `exec` (modo exato) e `ls-sys`;
+   - presets como grafos;
+   - `run modelo.toml` com GeoTIFF.
+2. **Ponte Python:** `Model.save()`/`load()` no landschaft ↔ grafo, com ida e volta sem perda.
+3. **GUI MVP em egui:**
+   - projeto e grade de referência;
+   - assistente de preparação de dados (seção 4) com lint;
+   - assistente de preset;
+   - mapa ao vivo, gráficos e painel de validação;
+   - **visualização do grafo** gerado, ainda somente leitura.
+4. **Distribuição por tarefas:** réplicas, cenários e calibração em workers headless.
+5. **Motor por tiles:**
+   - modo escalável, out-of-core e Zarr;
+   - benchmarks: estado, bioma, América do Sul e mundo a 30 m.
+6. **Editor de nós completo + álgebra de mapas + submodelos + plugins WASM.**
+7. **Camada ABM.**
+
+## Verificação
+
+- **Fase 0:** `pytest` do landschaft passa sem alterar tolerâncias.
+- **Fase 1:** cada preset rodado pela CLI e por `ls.simulate.run` com o mesmo seed dá mapas idênticos byte
+  a byte.
+- **Fase 2:**
+  - Ida e volta do grafo: `Model → save → load → Model` dá o mesmo resultado.
+  - Um modelo salvo pelo Python roda na CLI com saída idêntica.
+- **Fase 3:**
+  - Com os dados do exemplo `pie_landuse` (`ls.simulate.example_data`) em CRS e resoluções diferentes, o
+    assistente harmoniza, simula e valida de ponta a ponta.
+  - O lint detecta casos de teste com erros plantados.
+- **Fase 4:** N réplicas distribuídas são idênticas a N rodadas locais.
+- **Fase 5:**
+  - Invariância ao particionamento: o mesmo seed com 1, 4 e 16 workers e tiles diferentes dá mapas
+    idênticos.
+  - Equivalência estatística com o modo exato: demanda exata, tamanhos de manchas, fuzzy similarity e
+    figure of merit.
+  - Escalabilidade fraca e forte.
+- **Fase 6:** um modelo customizado com álgebra de mapas e submodelo roda local e distribuído com o mesmo
+  resultado.

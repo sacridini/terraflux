@@ -1,0 +1,8 @@
+/target/
+**/*.rs.bk
+*.pdb
+*.aux.xml
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
