@@ -6,6 +6,28 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-10
+
+### Added
+- The application (`terraflux app`, crate `terraflux-app`, egui on wgpu):
+  - a wizard of new models (Dinamica EGO's, CLUE-S, ordered): the land use maps and drivers picked, the dates
+    and steps taken from the band names, the data checked, misaligned drivers resampled to the land use map's
+    grid on request, the model written with a note on every choice;
+  - the run in the background, its maps drawn step by step as they come (zoom, pan, the cell under the
+    pointer), stopped at any time;
+  - the area of each class along the steps; the model's graph (what each node does and why); the model and the
+    problems of its data;
+  - validation against an observed map: figure of merit, hits, wrong hits, misses, false alarms, and the fuzzy
+    similarity of the changes per window.
+- The checks of a model's data (`terraflux_exec::lint`, also in `terraflux check`): grids, coordinate reference
+  systems, whole classes, change between the two dates, drivers without values, constant, missing where the land
+  use has a class or collinear; each with what to do.
+- `validate.agreement` and `validate.similarity` (landschaft's `agreement` and `similarity_of_differences`).
+- Resampling to another grid of the same coordinate reference system (`terraflux_raster::resample`,
+  `terraflux resample`): nearest or mode for classes, bilinear or average for continuous values.
+- The engine reports the values collected at each step and can be stopped.
+- Tests of the application rendered off screen (egui_kittest): a model opened and run, every tab, the wizard
+  stopping on misaligned data.
 ## [0.2.0] - 2026-10-10
 
 ### Added
