@@ -6,6 +6,13 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-10
+
+### Changed
+- `terraflux` without a command (a double click on the executable) opens the application, and so does a model
+  file given alone (dropped on the executable, "open with"); on Windows the console opened for it goes away (a
+  terminal's stays).
+
 ## [0.7.0] - 2026-10-10
 
 ### Added
