@@ -38,6 +38,8 @@
 #include "opt/milp.hpp"
 #include "opt/proxirr.hpp"
 #include "opt/wide.hpp"
+#include "opt/zones.hpp"
+#include "opt/zones_wide.hpp"
 #include "prio/prio.hpp"
 #include "rest/habitat.hpp"
 #include "rest/intactness.hpp"
@@ -741,8 +743,16 @@ SolveOut opt_solve(const MilpModel& model, const SolveSettings& settings, rust::
     } else if (how == "wide") {
         check(opt::is_wide(m, n_units), "not a wide model (units with finite bounds, few other columns)");
         r = opt::solve_wide(m, n_units, o);
+    } else if (how == "zones") {
+        check(opt::is_zone_covering(m, n_units),
+              "not a covering model with zones (n_units units, target rows and one row per unit)");
+        r = opt::solve_zone_covering(m, n_units, o);
+    } else if (how == "zones_wide") {
+        check(opt::is_zone_wide(m, n_units),
+              "not a wide model with zones (n_units units with a GUB row each, few other columns)");
+        r = opt::solve_zone_wide(m, n_units, o);
     } else {
-        check(how == "highs", "the method is highs, covering or wide");
+        check(how == "highs", "the method is highs, covering, wide, zones or zones_wide");
         r = opt::solve_highs(m, o);
     }
     SolveOut out;

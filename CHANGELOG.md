@@ -51,6 +51,15 @@ minor versions.
   thresholds above the least cost), the Pareto front of cost and shortfall, and Cohon's penalty; boundary,
   connectivity or linear penalties; every candidate's cost and criterion, and the candidates TOPSIS and the knee of
   the curve choose; the solves in parallel. prioritizr's optima, thresholds and least cost on landschaft's 3 cases.
+- Management zones for `prioritize.optimize` (prioritizr's zones): planning units that go to at most one zone (or
+  exactly one, `mandatory_allocation`), a cost per zone (`zone_costs`, a layer per zone; or a cost column per
+  zone), every zone's own features (`zone_features`, prioritizr's zones(); a mapping of columns) or the base
+  features with every zone's contribution (a number, one per feature, a raster or a column), Marxan's rij with a
+  zone column; targets summed over the zones, per zone (a features x zones matrix) or by hand with lists of zones
+  (`manual_targets`); every objective, with one budget or one per zone; weights per target or per feature and
+  zone; locked units and manual bounds per zone; the solution as the zone of every unit and a layer per zone. The
+  models are prioritizr's compile() bit for bit on landschaft's 23 zone cases, solved on landschaft's zones
+  engines to prioritizr's optima.
 - prioritizr's evaluation of a solution (`prioritize.evaluate`): the units selected, their cost and boundary, the
   features' representation, the targets' coverage, Ferrier et al.'s irreplaceability and the rarity-weighted
   richness; prioritizr's numbers bit for bit on the cases landschaft keeps; and on request the replacement

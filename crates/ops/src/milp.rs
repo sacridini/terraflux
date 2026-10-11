@@ -9,6 +9,9 @@ use std::collections::BTreeMap;
 
 use terraflux_ls_sys::ffi;
 
+mod zones;
+pub use zones::{Contribution, ZoneFeatures, fake_zone_targets, resolve_zone_targets};
+
 /// The planning units: cells of a raster with a cost, and the features' amounts in them.
 #[derive(Debug, Clone)]
 pub struct Units {
@@ -29,6 +32,14 @@ pub struct Units {
     pub raster: bool,
     /// the cells of the raster, or the rows of the table, the units come from
     pub size: usize,
+    /// management zones: their names (none: no zones). With zones the columns are every unit in every zone, zone
+    /// after zone (column z * units + i): `cost` (no value where a unit cannot go to a zone) and `rij` (features x
+    /// columns); `totals` are then R's sums of the zones' totals
+    pub zones: Vec<String>,
+    /// with zones: every feature's total in every zone (features x zones)
+    pub zone_totals: Vec<Vec<f64>>,
+    /// with zones from contributions: the base features' totals
+    pub base_totals: Option<Vec<f64>>,
 }
 
 /// A sparse matrix in compressed rows.
@@ -125,6 +136,9 @@ impl Units {
             transform,
             raster: true,
             size: n,
+            zones: Vec::new(),
+            zone_totals: Vec::new(),
+            base_totals: None,
         })
     }
 
@@ -163,6 +177,9 @@ impl Units {
             transform: [0.0; 6],
             raster: false,
             size: n,
+            zones: Vec::new(),
+            zone_totals: Vec::new(),
+            base_totals: None,
         })
     }
 
@@ -219,6 +236,9 @@ impl Units {
             transform: [0.0; 6],
             raster: false,
             size: n,
+            zones: Vec::new(),
+            zone_totals: Vec::new(),
+            base_totals: None,
         })
     }
 
@@ -290,6 +310,8 @@ pub struct ManualTarget {
     pub relative: bool,
     pub sense: String,
     pub target: f64,
+    /// with zones: the zones whose amounts it adds up (none: every zone)
+    pub zones: Option<Vec<usize>>,
 }
 
 /// prioritizr's targets.
@@ -306,6 +328,9 @@ pub enum TargetSpec {
         cap: Option<(f64, f64)>,
     },
     Manual(Vec<ManualTarget>),
+    /// with zones: every zone's own targets (features x zones)
+    RelativeZones(Vec<Vec<f64>>),
+    AbsoluteZones(Vec<Vec<f64>>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -329,6 +354,12 @@ pub struct Problem {
     pub spatial: Vec<Spatial>,
     /// add_manual_bounded_constraints and add_manual_locked_constraints, in the order added (after the locked units)
     pub bounds: Vec<ManualBounds>,
+    /// with zones: a budget per zone (none: the objective's one budget)
+    pub zone_budgets: Vec<f64>,
+    /// with zones: feature weights per feature and zone (features x zones)
+    pub zone_weights: Option<Vec<Vec<f64>>>,
+    /// with zones: every unit goes to exactly one zone (add_mandatory_allocation_constraints)
+    pub mandatory: bool,
 }
 
 /// Manual bounds of units (prioritizr's add_manual_bounded_constraints, or add_manual_locked_constraints with
@@ -341,16 +372,21 @@ pub struct ManualBounds {
     pub pu: Vec<f64>,
     pub lower: Vec<f64>,
     pub upper: Vec<f64>,
+    /// with zones: every row's zone (1..)
+    pub zone: Option<Vec<f64>>,
 }
 
 /// The targets as the model's rows: the feature, sense and amount of each, and the total relative targets are
 /// shares of.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Targets {
     pub feature: Vec<usize>,
     pub sense: Vec<String>,
     pub value: Vec<f64>,
     pub total: Vec<f64>,
+    /// with zones: every target's zones, and their names ("protect + use")
+    pub zone: Vec<Vec<usize>>,
+    pub labels: Vec<String>,
 }
 
 /// prioritizr's loglinear_interpolation: y1 up to x1, y2 from x2, between them linear in log10(x) (R's approx()).
@@ -389,10 +425,15 @@ pub fn resolve_targets(spec: &TargetSpec, totals: &[f64]) -> Result<Targets, Str
             sense: ge(nf),
             value: totals.iter().zip(r).map(|(t, r)| t * r).collect(),
             total: totals.to_vec(),
+            ..Targets::default()
         },
-        TargetSpec::Absolute(a) => {
-            Targets { feature: (0..nf).collect(), sense: ge(nf), value: a.clone(), total: totals.to_vec() }
-        }
+        TargetSpec::Absolute(a) => Targets {
+            feature: (0..nf).collect(),
+            sense: ge(nf),
+            value: a.clone(),
+            total: totals.to_vec(),
+            ..Targets::default()
+        },
         TargetSpec::Loglinear { lo_amount, lo_target, hi_amount, hi_target, cap } => {
             let share = loglinear(totals, *lo_amount, *lo_target, *hi_amount, *hi_target)?;
             let mut value: Vec<f64> = totals.iter().zip(&share).map(|(a, s)| a * s).collect();
@@ -403,7 +444,7 @@ pub fn resolve_targets(spec: &TargetSpec, totals: &[f64]) -> Result<Targets, Str
                     }
                 }
             }
-            Targets { feature: (0..nf).collect(), sense: ge(nf), value, total: totals.to_vec() }
+            Targets { feature: (0..nf).collect(), sense: ge(nf), value, total: totals.to_vec(), ..Targets::default() }
         }
         TargetSpec::Manual(t) => {
             for m in t {
@@ -419,7 +460,11 @@ pub fn resolve_targets(spec: &TargetSpec, totals: &[f64]) -> Result<Targets, Str
                 sense: t.iter().map(|m| m.sense.clone()).collect(),
                 value: t.iter().map(|m| if m.relative { totals[m.feature] * m.target } else { m.target }).collect(),
                 total: t.iter().map(|m| totals[m.feature]).collect(),
+                ..Targets::default()
             }
+        }
+        TargetSpec::RelativeZones(_) | TargetSpec::AbsoluteZones(_) => {
+            return Err("targets per zone need a problem with zones".into());
         }
     })
 }
@@ -440,6 +485,8 @@ pub struct Model {
     pub col_ids: Vec<String>,
     /// The node sets that must form one patch (contiguity): the solve separates cuts on them.
     pub connected: Vec<Connected>,
+    /// With zones: the planning units (in every zone; the zones' engines take them), else 0.
+    pub zone_units: usize,
 }
 
 /// One set of node columns that must form one patch, as compiled by `add_connected`: the first columns of its
@@ -505,6 +552,7 @@ impl Builder {
             row_ids: self.row_ids,
             col_ids: self.col_ids,
             connected: self.connected,
+            zone_units: 0,
         }
     }
 }
@@ -650,22 +698,33 @@ pub fn compile(p: &Problem) -> Result<(Model, Targets), String> {
     let nf = u.names.len();
     let n = u.n();
     let kind = &p.objective;
+    let zoned = u.zoned();
+    if zoned && !p.spatial.is_empty() {
+        return Err("spatial penalties and constraints are not supported with zones yet".into());
+    }
     let t = if kind.no_targets() {
-        // prioritizr's "fake" targets: one per feature
-        Targets {
-            feature: (0..nf).collect(),
-            sense: vec!["?".into(); nf],
-            value: vec![0.0; nf],
-            total: u.totals.clone(),
+        // prioritizr's "fake" targets: one per feature (and zone)
+        if zoned {
+            fake_zone_targets(u)
+        } else {
+            Targets {
+                feature: (0..nf).collect(),
+                sense: vec!["?".into(); nf],
+                value: vec![0.0; nf],
+                total: u.totals.clone(),
+                ..Targets::default()
+            }
         }
     } else {
         let spec = p.targets.as_ref().ok_or_else(|| {
             format!("the {} objective needs targets (relative, absolute, loglinear or manual)", kind.name())
         })?;
-        resolve_targets(spec, &u.totals)?
+        if zoned { resolve_zone_targets(u, spec)? } else { resolve_targets(spec, &u.totals)? }
     };
     let nt = t.feature.len();
-    let cost = &u.cost;
+    // a unit without a cost in a zone: cost 0 there and the column fixed at 0 (prioritizr's objectives)
+    let cost_v: Vec<f64> = u.cost.iter().map(|&c| if zoned && !c.is_finite() { 0.0 } else { c }).collect();
+    let cost = &cost_v;
     let mut lb = vec![0.0; n];
     let (mut ub, mut vtype) = match p.decisions {
         Decisions::Binary => (vec![1.0; n], vec!['B'; n]),
@@ -674,11 +733,15 @@ pub fn compile(p: &Problem) -> Result<(Model, Targets), String> {
     };
     // the targets' rows: their features' amounts in the units
     let (mut rows, mut cols, mut vals) = (Vec::new(), Vec::new(), Vec::new());
-    for (i, &f) in t.feature.iter().enumerate() {
-        let (idx, v) = u.rij.row(f);
-        rows.extend(std::iter::repeat_n(i, idx.len()));
-        cols.extend_from_slice(idx);
-        vals.extend_from_slice(v);
+    if zoned {
+        (rows, cols, vals) = zones::zone_target_entries(u, &t);
+    } else {
+        for (i, &f) in t.feature.iter().enumerate() {
+            let (idx, v) = u.rij.row(f);
+            rows.extend(std::iter::repeat_n(i, idx.len()));
+            cols.extend_from_slice(idx);
+            vals.extend_from_slice(v);
+        }
     }
     let target_entries = vals.len();
     let mut obj = vec![0.0; n];
@@ -686,12 +749,28 @@ pub fn compile(p: &Problem) -> Result<(Model, Targets), String> {
     let mut row_ids: Vec<String>;
     let mut sense: Vec<String>;
     let mut rhs: Vec<f64>;
-    let budget = kind.budget();
+    // one budget over every zone, or one per zone (a row each, zone after zone)
+    let budgets: Vec<f64> = match kind.budget() {
+        None => Vec::new(),
+        Some(b) if p.zone_budgets.is_empty() => vec![b],
+        Some(_) => {
+            if !zoned || p.zone_budgets.len() != u.nz() {
+                return Err(format!("one budget, or one per zone ({})", u.nz()));
+            }
+            p.zone_budgets.clone()
+        }
+    };
+    let nb = budgets.len();
     let (mut nrow_extra, mut ncol_extra, mut weight_cols) = (0usize, 0usize, None);
-    let bud_sense = || if budget.is_some() { vec!["<=".to_string()] } else { Vec::new() };
-    let bud_ids = || if budget.is_some() { vec!["budget".to_string()] } else { Vec::new() };
+    let bud_sense = || vec!["<=".to_string(); nb];
+    let bud_ids = || vec!["budget".to_string(); nb];
+    let nu = u.units();
     let budget_row = |rows: &mut Vec<usize>, cols: &mut Vec<usize>, vals: &mut Vec<f64>, row: usize| {
-        rows.extend(std::iter::repeat_n(row, n));
+        if nb == 1 {
+            rows.extend(std::iter::repeat_n(row, n));
+        } else {
+            rows.extend((0..nb).flat_map(|z| std::iter::repeat_n(row + z, nu)));
+        }
         cols.extend(0..n);
         vals.extend_from_slice(cost);
     };
@@ -703,9 +782,9 @@ pub fn compile(p: &Problem) -> Result<(Model, Targets), String> {
             rhs = t.value.clone();
             row_ids = vec!["spp_target".into(); nt];
         }
-        Objective::MinShortfall(b) => {
+        Objective::MinShortfall(_) => {
             sense = [t.sense.clone(), bud_sense()].concat();
-            rhs = [t.value.clone(), vec![*b]].concat();
+            rhs = [t.value.clone(), budgets.clone()].concat();
             obj.extend(t.value.iter().map(|&v| inv_target(v)));
             lb.extend(vec![0.0; nt]);
             ub.extend(vec![f64::INFINITY; nt]);
@@ -716,13 +795,13 @@ pub fn compile(p: &Problem) -> Result<(Model, Targets), String> {
             budget_row(&mut rows, &mut cols, &mut vals, nt);
             col_ids.extend(vec!["spp_met".to_string(); nt]);
             row_ids = [vec!["spp_target".to_string(); nt], bud_ids()].concat();
-            nrow_extra = 1;
+            nrow_extra = nb;
             ncol_extra = nt;
             weight_cols = Some(n);
         }
-        Objective::MinLargestShortfall(b) => {
+        Objective::MinLargestShortfall(_) => {
             sense = [t.sense.clone(), vec![">=".to_string(); nt], bud_sense()].concat();
-            rhs = [t.value.clone(), vec![0.0; nt], vec![*b]].concat();
+            rhs = [t.value.clone(), vec![0.0; nt], budgets.clone()].concat();
             obj.extend(vec![0.0; nt]);
             obj.push(1.0);
             lb.extend(vec![0.0; nt + 1]);
@@ -741,19 +820,23 @@ pub fn compile(p: &Problem) -> Result<(Model, Targets), String> {
             col_ids.extend(vec!["spp_met".to_string(); nt]);
             col_ids.push("max_shortfall".into());
             row_ids = [vec!["spp_target".to_string(); nt], vec!["max_shortfall".to_string(); nt], bud_ids()].concat();
-            nrow_extra = nt + 1;
+            nrow_extra = nt + nb;
             ncol_extra = nt + 1;
         }
-        Objective::MaxUtility(b) | Objective::MaxCover(b) | Objective::MaxFeatures(b) => {
+        Objective::MaxUtility(_) | Objective::MaxCover(_) | Objective::MaxFeatures(_) => {
             let scale = -0.01 / seq_sum(cost);
             obj = cost.iter().map(|c| c * scale).collect();
             obj.extend(vec![1.0; nt]);
             match kind {
                 Objective::MaxUtility(_) => {
                     // the positive amounts of every feature (Matrix's rowSums, in unit order)
-                    let abund: Vec<f64> = (0..nf)
-                        .map(|f| seq_sum(&u.rij.row(f).1.iter().map(|v| v.max(0.0)).collect::<Vec<_>>()))
-                        .collect();
+                    let abund: Vec<f64> = if zoned {
+                        zones::positive_abundances(u, &t)
+                    } else {
+                        (0..nf)
+                            .map(|f| seq_sum(&u.rij.row(f).1.iter().map(|v| v.max(0.0)).collect::<Vec<_>>()))
+                            .collect()
+                    };
                     let negative = u.rij.nnz() > 0 && u.rij.value.iter().cloned().fold(f64::INFINITY, f64::min) < 0.0;
                     lb.extend(vec![if negative { f64::NEG_INFINITY } else { 0.0 }; nt]);
                     ub.extend(abund.iter().map(|a| a.max(0.0)));
@@ -762,7 +845,7 @@ pub fn compile(p: &Problem) -> Result<(Model, Targets), String> {
                     cols.extend(n..n + nt);
                     vals.extend(vec![-1.0; nt]);
                     sense = [vec!["=".to_string(); nt], bud_sense()].concat();
-                    rhs = [vec![0.0; nt], vec![*b]].concat();
+                    rhs = [vec![0.0; nt], budgets.clone()].concat();
                     col_ids.extend(vec!["amount".to_string(); nt]);
                     row_ids = [vec!["spp_amount".to_string(); nt], bud_ids()].concat();
                 }
@@ -774,7 +857,7 @@ pub fn compile(p: &Problem) -> Result<(Model, Targets), String> {
                     cols.extend(n..n + nt);
                     vals.extend(vec![-1.0; nt]);
                     sense = [vec![">=".to_string(); nt], bud_sense()].concat();
-                    rhs = [vec![0.0; nt], vec![*b]].concat();
+                    rhs = [vec![0.0; nt], budgets.clone()].concat();
                     col_ids.extend(vec!["present".to_string(); nt]);
                     row_ids = [vec!["spp_present".to_string(); nt], bud_ids()].concat();
                 }
@@ -786,17 +869,17 @@ pub fn compile(p: &Problem) -> Result<(Model, Targets), String> {
                     cols.extend(n..n + nt);
                     vals.extend(t.value.iter().map(|v| -v));
                     sense = [t.sense.clone(), bud_sense()].concat();
-                    rhs = [vec![0.0; nt], vec![*b]].concat();
+                    rhs = [vec![0.0; nt], budgets.clone()].concat();
                     col_ids.extend(vec!["spp_met".to_string(); nt]);
                     row_ids = [vec!["spp_target".to_string(); nt], bud_ids()].concat();
                 }
             }
             budget_row(&mut rows, &mut cols, &mut vals, nt);
-            nrow_extra = 1;
+            nrow_extra = nb;
             ncol_extra = nt;
             weight_cols = Some(n);
         }
-        Objective::MaxPhyloDiv(b, tree) | Objective::MaxPhyloEnd(b, tree) => {
+        Objective::MaxPhyloDiv(_, tree) | Objective::MaxPhyloEnd(_, tree) => {
             let (below, mut lengths) = tree_branches(tree, &u.names)?;
             if matches!(kind, Objective::MaxPhyloEnd(..)) {
                 lengths = endemism_lengths(&below, &lengths, &u.totals);
@@ -817,34 +900,68 @@ pub fn compile(p: &Problem) -> Result<(Model, Targets), String> {
             // a branch is met when a target of a feature below it is: sum of those targets' columns - branch >= 0
             for (e, fs) in below.iter().enumerate() {
                 for k in (0..nt).filter(|&k| fs.contains(&t.feature[k])) {
-                    rows.push(nt + 1 + e);
+                    rows.push(nt + nb + e);
                     cols.push(n + k);
                     vals.push(1.0);
                 }
-                rows.push(nt + 1 + e);
+                rows.push(nt + nb + e);
                 cols.push(n + nt + e);
                 vals.push(-1.0);
             }
             sense = [t.sense.clone(), bud_sense(), vec![">=".to_string(); ne]].concat();
-            rhs = [vec![0.0; nt], vec![*b], vec![0.0; ne]].concat();
+            rhs = [vec![0.0; nt], budgets.clone(), vec![0.0; ne]].concat();
             col_ids.extend(vec!["spp_met".to_string(); nt]);
             col_ids.extend(vec!["branch_met".to_string(); ne]);
             row_ids = [vec!["spp_target".to_string(); nt], bud_ids(), vec!["branch_target".to_string(); ne]].concat();
-            nrow_extra = 1 + ne;
+            nrow_extra = nb + ne;
             ncol_extra = nt + ne;
             weight_cols = Some(n);
         }
-        Objective::MinPenalties(b) => {
+        Objective::MinPenalties(_) => {
             sense = [t.sense.clone(), bud_sense()].concat();
-            rhs = [t.value.clone(), vec![*b]].concat();
+            rhs = [t.value.clone(), budgets.clone()].concat();
             budget_row(&mut rows, &mut cols, &mut vals, nt);
             row_ids = [vec!["spp_target".to_string(); nt], bud_ids()].concat();
-            nrow_extra = 1;
+            nrow_extra = nb;
         }
     }
     let mut nrow = nt + nrow_extra;
     let mut ncol = n + ncol_extra;
-    if let Some(w) = &p.weights
+    if zoned {
+        // every unit goes to one zone at most (exactly one with mandatory allocation): after the objective's rows
+        // (rcpp_add_zones_constraints)
+        let nz = u.nz();
+        for i in 0..nu {
+            for z in 0..nz {
+                rows.push(nrow + i);
+                cols.push(z * nu + i);
+                vals.push(1.0);
+            }
+        }
+        sense.extend(std::iter::repeat_n(if p.mandatory { "=" } else { "<=" }.to_string(), nu));
+        rhs.extend(std::iter::repeat_n(1.0, nu));
+        row_ids.extend(std::iter::repeat_n("pu_zone".to_string(), nu));
+        nrow += nu;
+        for (o, c) in obj.iter_mut().zip(&u.cost) {
+            if !c.is_finite() {
+                *o = 0.0;
+            }
+        }
+    }
+    // with zones and no targets (every feature in every zone): weights per feature and zone, zone after zone, or
+    // the same in every zone
+    let weights: Option<Vec<f64>> = match (&p.zone_weights, &p.weights) {
+        (Some(m), _) if zoned && kind.no_targets() => {
+            if m.len() != nf || m.iter().any(|r| r.len() != u.nz()) {
+                return Err(format!("the weights need one value per feature and zone ({nf} x {})", u.nz()));
+            }
+            Some((0..u.nz()).flat_map(|z| m.iter().map(move |r| r[z])).collect())
+        }
+        (Some(_), _) => return Err("weights per feature and zone need an objective without targets".into()),
+        (None, Some(w)) if zoned && kind.no_targets() && w.len() == nf => Some(w.repeat(u.nz())),
+        (None, w) => w.clone(),
+    };
+    if let Some(w) = &weights
         && !kind.no_weights()
     {
         if w.len() != nt {
@@ -923,16 +1040,24 @@ pub fn compile(p: &Problem) -> Result<(Model, Targets), String> {
     for sp in p.spatial.iter().filter(|s| !s.is_penalty()) {
         apply_spatial(&mut b, u, sp)?;
     }
-    // locked units (bounds only)
+    // locked units (bounds only; with zones only where a unit has a cost in the zone)
+    let open = |j: usize| !zoned || u.cost[j].is_finite();
+    if zoned && p.locked_in.len() == n {
+        for i in 0..nu {
+            if (0..u.nz()).filter(|&z| p.locked_in[z * nu + i] && open(z * nu + i)).count() > 1 {
+                return Err(format!("the planning unit {} is locked into more than one zone", i + 1));
+            }
+        }
+    }
     if p.locked_in.len() == n && p.locked_out.len() == n {
         if let Some(i) = (0..n).find(|&i| p.locked_in[i] && p.locked_out[i]) {
             return Err(format!("the planning unit {} is both locked in and locked out", i + 1));
         }
         for i in 0..n {
-            if p.locked_in[i] {
+            if p.locked_in[i] && open(i) {
                 b.lb[i] = 1.0;
             }
-            if p.locked_out[i] {
+            if p.locked_out[i] && open(i) {
                 b.ub[i] = 0.0;
             }
         }
@@ -959,7 +1084,18 @@ pub fn compile(p: &Problem) -> Result<(Model, Targets), String> {
             }
             let j = pos[unit as usize - 1];
             if j != usize::MAX {
-                set.push((j, mb.lower[k], mb.upper[k]));
+                let z = match &mb.zone {
+                    Some(zs) if zoned => {
+                        let z = zs[k];
+                        if !(z >= 1.0 && z <= u.nz() as f64 && z.fract() == 0.0) {
+                            return Err(format!("{what}: {z} is no zone (1-{})", u.nz()));
+                        }
+                        z as usize - 1
+                    }
+                    None if zoned => return Err(format!("{what}: with zones, give every row's zone")),
+                    _ => 0,
+                };
+                set.push((z * nu + j, mb.lower[k], mb.upper[k]));
             }
         }
         if set.iter().any(|&(_, lo, hi)| !(lo >= 0.0 && hi <= limit)) {
@@ -976,7 +1112,19 @@ pub fn compile(p: &Problem) -> Result<(Model, Targets), String> {
             b.ub[j] = hi;
         }
     }
-    Ok((b.model(), t))
+    if zoned {
+        // the zones without a cost closed
+        let bad = (0..n).filter(|&j| !open(j) && b.lb[j] > 0.0).count();
+        if bad > 0 {
+            return Err(format!("{bad} planning units are locked or bounded into zones where they have no cost"));
+        }
+        for j in (0..n).filter(|&j| !open(j)) {
+            b.ub[j] = 0.0;
+        }
+    }
+    let mut m = b.model();
+    m.zone_units = if zoned { nu } else { 0 };
+    Ok((m, t))
 }
 
 /// A model's rows' bounds (-inf / inf where open).
@@ -1045,7 +1193,38 @@ fn highs(
         offset: 0.0,
     };
     let settings = ffi::SolveSettings { gap, time_limit, presolve: "choose".into(), relaxation, start: start.to_vec() };
+    if m.zone_units > 0 {
+        // with zones: minimum sets on the zones engine, models with few columns besides the units' on the zones
+        // wide engine, or HiGHS (also when a model is not of the engine's form after all)
+        let how = zone_method(m);
+        if how != "highs"
+            && let Ok(r) = ffi::opt_solve(&model, &settings, how, m.zone_units as i64)
+        {
+            return Ok(r);
+        }
+        return ffi::opt_solve(&model, &settings, "highs", 0).map_err(|e| e.what().to_string());
+    }
     ffi::opt_solve(&model, &settings, method(m, n_units), n_units as i64).map_err(|e| e.what().to_string())
+}
+
+/// landschaft's choice of engine with zones: zones (a minimum set: target rows and one row per unit over the units'
+/// columns), zones_wide (few columns and rows besides the units') or HiGHS.
+fn zone_method(m: &Model) -> &'static str {
+    let units = m.col_ids.iter().filter(|c| *c == "pu").count();
+    let gub = m.row_ids.iter().filter(|r| *r == "pu_zone").count();
+    let covering = !m.maximize
+        && m.zone_units > 0
+        && m.obj.len().is_multiple_of(m.zone_units)
+        && m.row_ids.iter().all(|r| r == "spp_target" || r == "pu_zone")
+        && units == m.obj.len()
+        && m.sense.iter().zip(&m.row_ids).all(|(s, r)| r != "spp_target" || s == ">=");
+    if covering {
+        "zones"
+    } else if m.obj.len() - units <= 20000 && m.row_ids.len() - gub <= 5000 && gub > 0 {
+        "zones_wide"
+    } else {
+        "highs"
+    }
 }
 
 const FLOW_SCALE: f64 = 1.0e7; // integer capacities, as landschaft's (scipy's maximum_flow)
@@ -1411,6 +1590,7 @@ impl Model {
             col_ids: perm.iter().map(|&j| self.col_ids[j].clone()).collect(),
             // the plain MIP of the exact model (no cuts on the columns moved)
             connected: Vec::new(),
+            zone_units: 0,
         }
     }
 }

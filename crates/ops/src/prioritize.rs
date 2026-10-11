@@ -936,6 +936,9 @@ fn units_of(args: &Args) -> Result<milp::Units> {
         }
     };
     let Some(pu) = table("pu") else {
+        if let Some(Value::Stack(costs)) = args.get("zone_costs") {
+            return zone_raster_units(args, costs);
+        }
         let features = args.stack("features")?;
         let cost = args.map("cost")?;
         if (features.grid.width, features.grid.height) != (cost.grid.width, cost.grid.height) {
@@ -952,6 +955,9 @@ fn units_of(args: &Args) -> Result<milp::Units> {
         )
         .map_err(err);
     };
+    if let Some((zones, cost_columns)) = zone_cost_columns(args)? {
+        return zone_table_units(args, pu, zones, cost_columns);
+    }
     let cost_column: String = args.param("cost_column", "cost".to_string())?;
     let col = |t: &Table, c: &str, what: &str| t.column(c).ok_or_else(|| err(format!("{what} has no column {c:?}")));
     let cost = col(pu, &cost_column, "pu")?;
@@ -979,6 +985,221 @@ fn units_of(args: &Args) -> Result<milp::Units> {
             let refs: Vec<&[f64]> = cols.iter().map(|c| c.as_slice()).collect();
             milp::Units::table(&cost, &refs, names).map_err(err)
         }
+    }
+}
+
+/// Raster units with zones: `zone_costs` (a layer per zone, named by zone), and every zone's own features
+/// (`zone_features`, zone after zone) or the base `features` with every zone's `contribution` (a number or one per
+/// feature; a raster of `contribution_maps`, named by zone).
+fn zone_raster_units(args: &Args, costs: &Stack) -> Result<milp::Units> {
+    let node = args.node;
+    let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
+    let zones: Vec<String> = costs.keys.iter().map(|k| k.to_string()).collect();
+    let nz = zones.len();
+    let cost_layers: Vec<&[f64]> = costs.layers.iter().map(|l| l.as_slice()).collect();
+    let shape = (costs.grid.height, costs.grid.width);
+    let given_names: Option<Vec<String>> = args.opt_param("feature_names")?;
+    if let Some(Value::Stack(zf)) = args.get("zone_features") {
+        if zf.layers.len() % nz != 0 {
+            return Err(err(format!(
+                "zone_features: every zone needs the same features ({} layers, {nz} zones)",
+                zf.layers.len()
+            )));
+        }
+        let nf = zf.layers.len() / nz;
+        let names = match (given_names, args.get("features")) {
+            (Some(n), _) => n,
+            (None, Some(Value::Stack(f))) if f.layers.len() == nf => f.keys.iter().map(|k| k.to_string()).collect(),
+            _ => zf.keys[..nf].iter().map(|k| k.to_string()).collect(),
+        };
+        if names.len() != nf {
+            return Err(err(format!("feature_names: {} names for {nf} features", names.len())));
+        }
+        let layers = zf.layers.iter().map(|l| l.as_slice()).collect();
+        return milp::Units::raster_zones(
+            &cost_layers,
+            milp::ZoneFeatures::General(layers),
+            zones,
+            names,
+            shape,
+            costs.grid.transform,
+        )
+        .map_err(err);
+    }
+    let features = args.stack("features")?;
+    let nf = features.layers.len();
+    let names = given_names.unwrap_or_else(|| features.keys.iter().map(|k| k.to_string()).collect());
+    let given: serde_json::Map<String, serde_json::Value> = args.param("contribution", serde_json::Map::new())?;
+    if let Some(z) = given.keys().find(|z| !zones.contains(z)) {
+        return Err(err(format!("contribution: unknown zone {z:?} (zones: {zones:?})")));
+    }
+    let maps = match args.get("contribution_maps") {
+        Some(Value::Stack(m)) => Some(m),
+        _ => None,
+    };
+    let mut factors = Vec::new();
+    for z in &zones {
+        if let Some(m) =
+            maps.and_then(|m| m.keys.iter().position(|k| &k.to_string() == z).map(|k| m.layers[k].as_slice()))
+        {
+            factors.push(milp::Contribution::Map(m));
+            continue;
+        }
+        let f = match given.get(z) {
+            None => vec![1.0; nf],
+            Some(serde_json::Value::Number(x)) => vec![x.as_f64().unwrap(); nf],
+            Some(v) => serde_json::from_value(v.clone()).map_err(|e| err(format!("contribution of {z:?}: {e}")))?,
+        };
+        if f.len() != nf || f.iter().any(|x| !x.is_finite()) {
+            return Err(err(format!("contribution of {z:?}: one number, or one per feature ({nf})")));
+        }
+        factors.push(milp::Contribution::Factors(f));
+    }
+    let base = features.layers.iter().map(|l| l.as_slice()).collect();
+    milp::Units::raster_zones(
+        &cost_layers,
+        milp::ZoneFeatures::Contribution { base, factors },
+        zones,
+        names,
+        shape,
+        costs.grid.transform,
+    )
+    .map_err(err)
+}
+
+/// Table units with zones: their names and cost columns (`cost_column` a mapping zone -> column, or a list of
+/// columns, the zones then named by `zones` or by the columns). None without zones.
+fn zone_cost_columns(args: &Args) -> Result<Option<(Vec<String>, Vec<String>)>> {
+    let node = args.node;
+    let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
+    let names_of = |v: &serde_json::Value| -> Result<Vec<String>> {
+        let l: Vec<serde_json::Value> = serde_json::from_value(v.clone()).map_err(|e| err(format!("zones: {e}")))?;
+        l.iter()
+            .map(|z| match z {
+                serde_json::Value::String(s) => Ok(s.clone()),
+                serde_json::Value::Object(o) => o
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .map(String::from)
+                    .ok_or_else(|| err("zones: [{id, name}, ...] or names".into())),
+                _ => Err(err("zones: [{id, name}, ...] or names".into())),
+            })
+            .collect()
+    };
+    match args.params.get("cost_column") {
+        Some(serde_json::Value::Object(m)) => {
+            let zones: Vec<String> = m.keys().cloned().collect();
+            let cols = m
+                .values()
+                .map(|v| v.as_str().map(String::from).ok_or_else(|| err("cost_column: zone -> column".into())))
+                .collect::<Result<Vec<_>>>()?;
+            Ok(Some((zones, cols)))
+        }
+        Some(v @ serde_json::Value::Array(_)) => {
+            let cols: Vec<String> = serde_json::from_value(v.clone()).map_err(|e| err(format!("cost_column: {e}")))?;
+            let zones = match args.params.get("zones") {
+                Some(z) if !z.is_null() => names_of(z)?,
+                _ => cols.clone(),
+            };
+            if zones.len() != cols.len() {
+                return Err(err(format!("one cost column per zone ({}), got {}", zones.len(), cols.len())));
+            }
+            Ok(Some((zones, cols)))
+        }
+        _ => Ok(None),
+    }
+}
+
+/// Table units with zones: every zone's feature columns (`features` a mapping zone -> columns), the base features'
+/// columns with every zone's `contribution` (a number, one per feature, or a column), or Marxan's spec and rij with
+/// a zone column (`zones`: [{id, name}, ...]).
+fn zone_table_units(args: &Args, pu: &Table, zones: Vec<String>, cost_columns: Vec<String>) -> Result<milp::Units> {
+    let node = args.node;
+    let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
+    let col = |t: &Table, c: &str, what: &str| t.column(c).ok_or_else(|| err(format!("{what} has no column {c:?}")));
+    let costs = cost_columns.iter().map(|c| col(pu, c, "pu")).collect::<Result<Vec<_>>>()?;
+    let cost_refs: Vec<&[f64]> = costs.iter().map(|c| c.as_slice()).collect();
+    let nz = zones.len();
+    if let (Some(Value::Table(spec)), Some(Value::Table(rij))) = (args.get("spec"), args.get("rij")) {
+        let ids = col(spec, "id", "spec")?;
+        let names = ids.iter().map(|v| terraflux_ops_label(*v)).collect();
+        let zone_ids: Vec<f64> = match args.params.get("zones") {
+            Some(serde_json::Value::Array(l)) if l.iter().all(|z| z.is_object()) => l
+                .iter()
+                .map(|z| z.get("id").and_then(|v| v.as_f64()).ok_or_else(|| err("zones: [{id, name}, ...]".into())))
+                .collect::<Result<_>>()?,
+            _ => (1..=nz).map(|z| z as f64).collect(),
+        };
+        let zone_col = rij.column("zone").unwrap_or_else(|| vec![zone_ids[0]; rij.rows.len()]);
+        return milp::Units::rij_zones(
+            &col(pu, "id", "pu")?,
+            &cost_refs,
+            &ids,
+            names,
+            (&col(rij, "pu", "rij")?, &col(rij, "species", "rij")?, &zone_col, &col(rij, "amount", "rij")?),
+            &zone_ids,
+            zones,
+        )
+        .map_err(err);
+    }
+    let given_names: Option<Vec<String>> = args.opt_param("feature_names")?;
+    match args.params.get("features") {
+        Some(serde_json::Value::Object(m)) => {
+            let mut amounts = Vec::with_capacity(nz);
+            let mut first: Option<Vec<String>> = None;
+            for z in &zones {
+                let cols: Vec<String> = match m.get(z) {
+                    Some(serde_json::Value::String(c)) => vec![c.clone()],
+                    Some(v) => serde_json::from_value(v.clone()).map_err(|e| err(format!("features of {z:?}: {e}")))?,
+                    None => return Err(err(format!("features: no columns for the zone {z:?}"))),
+                };
+                if first.as_ref().is_some_and(|f| f.len() != cols.len()) {
+                    return Err(err("every zone must have the same number of feature columns".into()));
+                }
+                amounts.push(cols.iter().map(|c| col(pu, c, "pu")).collect::<Result<Vec<_>>>()?);
+                first.get_or_insert(cols);
+            }
+            let names = given_names.unwrap_or_else(|| first.unwrap_or_default());
+            milp::Units::table_zones(&cost_refs, &amounts, None, zones, names).map_err(err)
+        }
+        Some(v) => {
+            let names: Vec<String> = match v {
+                serde_json::Value::String(s) => vec![s.clone()],
+                _ => serde_json::from_value(v.clone()).map_err(|e| err(format!("features: {e}")))?,
+            };
+            let base = names.iter().map(|c| col(pu, c, "pu")).collect::<Result<Vec<_>>>()?;
+            let nf = base.len();
+            let given: serde_json::Map<String, serde_json::Value> =
+                args.param("contribution", serde_json::Map::new())?;
+            let mut amounts = Vec::with_capacity(nz);
+            for z in &zones {
+                let a: Vec<Vec<f64>> = match given.get(z) {
+                    None => base.clone(),
+                    Some(serde_json::Value::Number(x)) => {
+                        let k = x.as_f64().unwrap();
+                        base.iter().map(|f| f.iter().map(|v| v * k).collect()).collect()
+                    }
+                    Some(serde_json::Value::String(c)) => {
+                        let k = col(pu, c, "pu")?;
+                        base.iter().map(|f| f.iter().zip(&k).map(|(v, k)| v * k).collect()).collect()
+                    }
+                    Some(v) => {
+                        let k: Vec<f64> = serde_json::from_value(v.clone())
+                            .map_err(|e| err(format!("contribution of {z:?}: {e}")))?;
+                        if k.len() != nf {
+                            return Err(err(format!(
+                                "contribution of {z:?}: one number, one per feature ({nf}) or a column"
+                            )));
+                        }
+                        base.iter().zip(&k).map(|(f, k)| f.iter().map(|v| v * k).collect()).collect()
+                    }
+                };
+                amounts.push(a);
+            }
+            milp::Units::table_zones(&cost_refs, &amounts, Some(&base), zones, given_names.unwrap_or(names))
+                .map_err(err)
+        }
+        None => Err(err("give pu's feature columns (features: a list, or a mapping zone -> columns)".into())),
     }
 }
 
@@ -1015,8 +1236,26 @@ pub fn problem_of(args: &Args) -> Result<milp::Problem> {
     let units = units_of(args)?;
     let nf = units.names.len();
     let n = units.n();
-    let budget = || -> Result<f64> {
-        args.opt_param::<f64>("budget")?.ok_or_else(|| err("this objective needs a budget".into()))
+    let (nz, zoned) = (units.nz(), units.zoned());
+    // one budget, or one per zone
+    let budgets: Vec<f64> = match args.params.get("budget") {
+        None | Some(serde_json::Value::Null) => Vec::new(),
+        Some(serde_json::Value::Number(b)) => vec![b.as_f64().unwrap()],
+        Some(v) => serde_json::from_value(v.clone()).map_err(|e| err(format!("budget: {e}")))?,
+    };
+    let budget =
+        || -> Result<f64> { budgets.first().copied().ok_or_else(|| err("this objective needs a budget".into())) };
+    let zone_budgets = if budgets.len() > 1 { budgets.clone() } else { Vec::new() };
+    // a matrix (features x zones) given as a list of lists
+    let matrix = |name: &str| -> Result<Option<Vec<Vec<f64>>>> {
+        match args.params.get(name) {
+            Some(serde_json::Value::Array(l)) if l.iter().any(|v| v.is_array()) => {
+                let m: Vec<Vec<f64>> = serde_json::from_value(serde_json::Value::Array(l.clone()))
+                    .map_err(|e| err(format!("{name}: {e} (features x zones)")))?;
+                Ok(Some(m))
+            }
+            _ => Ok(None),
+        }
     };
     let objective: String = args.param("objective", "min_set".to_string())?;
     let objective = match objective.as_str() {
@@ -1052,7 +1291,57 @@ pub fn problem_of(args: &Args) -> Result<milp::Problem> {
             }
         }
     };
-    let targets = if let Some(r) = per_feature("relative_targets")? {
+    let manual = |v: &serde_json::Value| -> Result<milp::TargetSpec> {
+        // [{feature: name or 1.., zone: name or [names] (default every zone), type: relative|absolute, sense, target}]
+        let l: Vec<serde_json::Map<String, serde_json::Value>> =
+            serde_json::from_value(v.clone()).map_err(|e| err(format!("manual_targets: {e}")))?;
+        let zone_of = |z: &serde_json::Value| -> Result<usize> {
+            match z {
+                serde_json::Value::String(s) => units
+                    .zones
+                    .iter()
+                    .position(|x| x == s)
+                    .ok_or_else(|| err(format!("manual_targets: unknown zone {s:?}"))),
+                serde_json::Value::Number(k) => Ok((k.as_f64().unwrap() as usize).saturating_sub(1)),
+                _ => Err(err("manual_targets: a zone is a name or a number (1..)".into())),
+            }
+        };
+        let mut out = Vec::with_capacity(l.len());
+        for m in &l {
+            let feature = match m.get("feature") {
+                Some(serde_json::Value::String(s)) => units
+                    .names
+                    .iter()
+                    .position(|x| x == s)
+                    .ok_or_else(|| err(format!("manual_targets: unknown feature {s:?}")))?,
+                Some(serde_json::Value::Number(k)) => (k.as_f64().unwrap() as usize).saturating_sub(1),
+                _ => return Err(err("manual_targets: every target needs its feature".into())),
+            };
+            let zones = match m.get("zone") {
+                None | Some(serde_json::Value::Null) => None,
+                Some(serde_json::Value::Array(zs)) => Some(zs.iter().map(&zone_of).collect::<Result<Vec<_>>>()?),
+                Some(z) => Some(vec![zone_of(z)?]),
+            };
+            out.push(milp::ManualTarget {
+                feature,
+                relative: m.get("type").and_then(|t| t.as_str()).unwrap_or("relative") == "relative",
+                sense: m.get("sense").and_then(|s| s.as_str()).unwrap_or(">=").to_string(),
+                target: m
+                    .get("target")
+                    .and_then(|t| t.as_f64())
+                    .ok_or_else(|| err("manual_targets: every target needs its target".into()))?,
+                zones,
+            });
+        }
+        Ok(milp::TargetSpec::Manual(out))
+    };
+    let targets = if let Some(m) = matrix("relative_targets")? {
+        Some(milp::TargetSpec::RelativeZones(m))
+    } else if let Some(m) = matrix("absolute_targets")? {
+        Some(milp::TargetSpec::AbsoluteZones(m))
+    } else if let Some(v) = args.params.get("manual_targets").filter(|v| !v.is_null()) {
+        Some(manual(v)?)
+    } else if let Some(r) = per_feature("relative_targets")? {
         Some(milp::TargetSpec::Relative(r))
     } else if let Some(a) = per_feature("absolute_targets")? {
         Some(milp::TargetSpec::Absolute(a))
@@ -1076,6 +1365,7 @@ pub fn problem_of(args: &Args) -> Result<milp::Problem> {
         let col = |c: &str| t.column(c).ok_or_else(|| err(format!("targets needs a column {c:?}")));
         let (f, rel, tg) = (col("feature")?, col("relative")?, col("target")?);
         let sense = t.column("sense").unwrap_or_else(|| vec![1.0; f.len()]);
+        let zone = t.column("zone");
         Some(milp::TargetSpec::Manual(
             (0..f.len())
                 .map(|i| milp::ManualTarget {
@@ -1087,13 +1377,28 @@ pub fn problem_of(args: &Args) -> Result<milp::Problem> {
                         _ => "=".into(),
                     },
                     target: tg[i],
+                    zones: zone.as_ref().map(|z| vec![(z[i] as usize).saturating_sub(1)]),
                 })
                 .collect(),
         ))
     } else {
         None
     };
-    let weights = per_feature("feature_weights")?;
+    // weights per feature (or target), or per feature and zone (features x zones)
+    let (weights, zone_weights) = match matrix("feature_weights")? {
+        Some(m) if m.iter().all(|r| r.len() == 1) => (Some(m.into_iter().flatten().collect()), None),
+        Some(m) => (None, Some(m)),
+        None => match args.params.get("feature_weights") {
+            Some(serde_json::Value::Array(l)) if zoned => (
+                Some(
+                    serde_json::from_value(serde_json::Value::Array(l.clone()))
+                        .map_err(|e| err(format!("feature_weights: {e}")))?,
+                ),
+                None,
+            ),
+            _ => (per_feature("feature_weights")?, None),
+        },
+    };
     let decisions: String = args.param("decisions", "binary".to_string())?;
     let decisions = match decisions.as_str() {
         "binary" => milp::Decisions::Binary,
@@ -1117,6 +1422,30 @@ pub fn problem_of(args: &Args) -> Result<milp::Problem> {
         Ok(m.data.to_vec())
     };
     let locked = |port: &str| -> Result<Vec<bool>> {
+        if zoned {
+            // a layer per zone (zone_locked_in, zone_locked_out), or a column per zone
+            let columns: Option<Vec<String>> = args.opt_param(&format!("{port}_column"))?;
+            let layers: Vec<Vec<f64>> = match (pu, columns, args.get(&format!("zone_{port}"))) {
+                (Some(t), Some(cols), _) => cols
+                    .iter()
+                    .map(|c| t.column(c).ok_or_else(|| err(format!("pu has no column {c:?}"))))
+                    .collect::<Result<_>>()?,
+                (None, _, Some(Value::Stack(s))) => {
+                    if s.layers.len() != nz || s.layers.iter().any(|l| l.len() != units.size) {
+                        return Err(err(format!("zone_{port}: a layer per zone ({nz}) on the costs' grid")));
+                    }
+                    s.layers.iter().map(|l| l.to_vec()).collect()
+                }
+                _ => return Ok(vec![false; n]),
+            };
+            if layers.len() != nz {
+                return Err(err(format!("{port}: one per zone ({nz})")));
+            }
+            return Ok((0..nz)
+                .flat_map(|z| units.cells.iter().map(move |&c| (z, c)))
+                .map(|(z, c)| !layers[z][c].is_nan() && layers[z][c] != 0.0)
+                .collect());
+        }
         let column: Option<String> = args.opt_param(&format!("{port}_column"))?;
         if pu.is_some() && column.is_none() {
             return Ok(vec![false; n]);
@@ -1232,10 +1561,28 @@ pub fn problem_of(args: &Args) -> Result<milp::Problem> {
                 pu: col("pu")?,
                 lower: col(cols[0])?,
                 upper: col(cols[1])?,
+                zone: t.column("zone"),
             });
         }
     }
-    Ok(milp::Problem { units, objective, targets, weights, decisions, locked_in, locked_out, spatial, bounds })
+    let mandatory: bool = args.param("mandatory_allocation", false)?;
+    if (mandatory || !zone_budgets.is_empty() || zone_weights.is_some()) && !zoned {
+        return Err(err("mandatory allocation, budgets per zone and weights per zone need zones".into()));
+    }
+    Ok(milp::Problem {
+        units,
+        objective,
+        targets,
+        weights,
+        decisions,
+        locked_in,
+        locked_out,
+        spatial,
+        bounds,
+        zone_budgets,
+        zone_weights,
+        mandatory,
+    })
 }
 
 struct Optimize;
@@ -1256,6 +1603,20 @@ impl Operator for Optimize {
         )
         .input(PortSpec::optional("features", Type::Stack, "the features' amounts, a layer each"))
         .input(PortSpec::optional("cost", Type::Map, "the cost of each cell (no value: not a planning unit)"))
+        .input(PortSpec::optional(
+            "zone_costs",
+            Type::Stack,
+            "management zones: the cost of every cell in every zone, a layer per zone named by it (no value: the \
+             cell cannot go to the zone)",
+        ))
+        .input(PortSpec::optional(
+            "zone_features",
+            Type::Stack,
+            "zones: every zone's own features, zone after zone (prioritizr's zones()); else features and contribution",
+        ))
+        .input(PortSpec::optional("contribution_maps", Type::Stack, "zones: a contribution raster per zone, named by it"))
+        .input(PortSpec::optional("zone_locked_in", Type::Stack, "zones: the units locked into every zone, a layer each"))
+        .input(PortSpec::optional("zone_locked_out", Type::Stack, "zones: the units locked out of every zone"))
         .input(PortSpec::optional(
             "pu",
             Type::Table,
@@ -1286,7 +1647,12 @@ impl Operator for Optimize {
         ))
         .input(PortSpec::optional("penalty_data", Type::Map, "linear penalties: a value per cell"))
         .input(PortSpec::optional("constraint_data", Type::Map, "the linear constraint: a value per cell"))
-        .output(PortSpec::optional("solution", Type::Map, "maps: the share of each unit selected (1 selected)"))
+        .output(PortSpec::optional(
+            "solution",
+            Type::Map,
+            "maps: the share of each unit selected (1 selected); zones: the zone of each unit (1.., 0 none)",
+        ))
+        .output(PortSpec::optional("allocation", Type::Stack, "maps with zones: the share of each zone, a layer each"))
         .output(PortSpec::new(
             "selection",
             Type::Table,
@@ -1312,7 +1678,28 @@ impl Operator for Optimize {
             "min_set (default), min_shortfall, min_largest_shortfall, max_utility, max_features, max_cover, \
              min_penalties, max_phylo_div, max_phylo_end",
         ))
-        .param(PortSpec::optional("budget", Type::Number, "the objectives with a budget: the cost they may spend"))
+        .param(PortSpec::optional(
+            "budget",
+            Type::Any,
+            "the objectives with a budget: the cost they may spend (with zones: one, or one per zone)",
+        ))
+        .param(PortSpec::optional(
+            "manual_targets",
+            Type::Any,
+            "[{feature, zone (a name or names; default every zone), type: relative|absolute, sense, target}, ...]",
+        ))
+        .param(PortSpec::optional(
+            "contribution",
+            Type::Any,
+            "zones: every zone's share of the features ({zone: a number, one per feature, or tables: a column})",
+        ))
+        .param(PortSpec::optional("feature_names", Type::Any, "zones: the features' names"))
+        .param(PortSpec::optional("zones", Type::Any, "tables with zones: the zones' names, or Marxan's [{id, name}, ...]"))
+        .param(PortSpec::optional(
+            "mandatory_allocation",
+            Type::Bool,
+            "zones: every planning unit goes to a zone (add_mandatory_allocation_constraints)",
+        ))
         .param(PortSpec::optional(
             "tree",
             Type::Text,
@@ -1393,26 +1780,34 @@ impl Operator for Optimize {
                 vec![r]
             }
         };
+        let u = &p.units;
+        let (nu, nz, zoned) = (u.units(), u.nz(), u.zoned());
         let xs: Vec<&[f64]> = rs.iter().map(|r| &r.x[..n]).collect();
         let x = xs[0];
-        let cost = &p.units.cost;
-        let names: Vec<String> = match portfolio {
+        let cost = &u.cost;
+        // a column per solution (and zone)
+        let solution_names: Vec<String> = match portfolio {
             Some(_) => (1..=xs.len()).map(|k| format!("solution_{k}")).collect(),
             None => vec!["solution".into()],
         };
+        let zone_suffix = |z: usize| if zoned { format!("_{}", u.zones[z]) } else { String::new() };
         let frequency: Vec<f64> = (0..n).map(|i| xs.iter().map(|x| x[i]).sum::<f64>() / xs.len() as f64).collect();
         let mut columns = vec!["unit".to_string()];
-        columns.extend(names.iter().cloned());
+        for name in &solution_names {
+            columns.extend((0..nz).map(|z| format!("{name}{}", zone_suffix(z))));
+        }
         if portfolio.is_some() {
-            columns.push("frequency".into());
+            columns.extend((0..nz).map(|z| format!("frequency{}", zone_suffix(z))));
         }
         let mut selection = Table::new(columns);
-        selection.rows = (0..n)
+        selection.rows = (0..nu)
             .map(|i| {
-                let mut row = vec![(p.units.cells[i] + 1) as f64];
-                row.extend(xs.iter().map(|x| x[i]));
+                let mut row = vec![(u.cells[i] + 1) as f64];
+                for x in &xs {
+                    row.extend((0..nz).map(|z| x[z * nu + i]));
+                }
                 if portfolio.is_some() {
-                    row.push(frequency[i]);
+                    row.extend((0..nz).map(|z| frequency[z * nu + i]));
                 }
                 row
             })
@@ -1423,14 +1818,9 @@ impl Operator for Optimize {
         }
         let mut summary = Table::new(columns);
         for (k, (r, x)) in rs.iter().zip(&xs).enumerate() {
-            let spent: f64 = cost.iter().zip(x.iter()).map(|(c, x)| c * x).sum();
-            let mut row = vec![
-                r.objective,
-                spent,
-                x.iter().filter(|&&v| v > 0.5).count() as f64,
-                r.gap,
-                f64::from(u8::from(r.status == "optimal")),
-            ];
+            let spent: f64 = cost.iter().zip(x.iter()).filter(|(c, _)| c.is_finite()).map(|(c, x)| c * x).sum();
+            let selected = (0..nu).filter(|&i| (0..nz).any(|z| x[z * nu + i] > 0.5)).count();
+            let mut row = vec![r.objective, spent, selected as f64, r.gap, f64::from(u8::from(r.status == "optimal"))];
             if portfolio.is_some() {
                 row.insert(0, (k + 1) as f64);
             }
@@ -1438,8 +1828,9 @@ impl Operator for Optimize {
         }
         let mut coverage = Table::new(["feature", "held", "target", "total", "met"].map(String::from).to_vec());
         for (k, &f) in t.feature.iter().enumerate() {
-            let (idx, v) = p.units.rij.row(f);
-            let held: f64 = idx.iter().zip(v).map(|(&i, a)| a * x[i]).sum();
+            let (idx, v) = u.rij.row(f);
+            let counts = |i: usize| !zoned || t.zone[k].contains(&(i / nu));
+            let held: f64 = idx.iter().zip(v).filter(|(i, _)| counts(**i)).map(|(&i, a)| a * x[i]).sum();
             let tol = 1e-6 * t.value[k].abs().max(1.0);
             let met = match t.sense[k].as_str() {
                 ">=" => held >= t.value[k] - tol,
@@ -1454,20 +1845,49 @@ impl Operator for Optimize {
             ("summary", Value::Table(summary)),
             ("coverage", Value::Table(coverage)),
         ]);
-        if p.units.raster {
-            let grid = args.map("cost")?.grid.clone();
+        if u.raster {
+            let grid = match args.get("zone_costs") {
+                Some(Value::Stack(s)) => s.grid.clone(),
+                _ => args.map("cost")?.grid.clone(),
+            };
             let on_grid = |v: &[f64]| {
                 let mut out = vec![f64::NAN; grid.width * grid.height];
-                for (i, &c) in p.units.cells.iter().enumerate() {
+                for (i, &c) in u.cells.iter().enumerate() {
                     out[c] = v[i];
                 }
                 out
             };
-            out.insert("solution".into(), Value::Map(Map::new(grid.clone(), on_grid(x))));
+            // with zones: the zone of every unit (prioritizr's category_layer: the zone with the most, 0 none)
+            let zone_of = |x: &[f64]| -> Vec<f64> {
+                (0..nu)
+                    .map(|i| {
+                        let (best, v) = (0..nz)
+                            .map(|z| (z, if cost[z * nu + i].is_finite() { x[z * nu + i] } else { f64::NEG_INFINITY }))
+                            .fold((0, f64::NEG_INFINITY), |b, c| if c.1 > b.1 { c } else { b });
+                        if v > 0.0 { (best + 1) as f64 } else { 0.0 }
+                    })
+                    .collect()
+            };
+            let shown = |x: &[f64]| if zoned { on_grid(&zone_of(x)) } else { on_grid(x) };
+            out.insert("solution".into(), Value::Map(Map::new(grid.clone(), shown(x))));
+            if zoned {
+                let keys = u.zones.iter().map(|z| Key::Name(z.clone())).collect();
+                let layers = (0..nz)
+                    .map(|z| {
+                        let v: Vec<f64> = (0..nu)
+                            .map(|i| if cost[z * nu + i].is_finite() { x[z * nu + i] } else { f64::NAN })
+                            .collect();
+                        Arc::new(on_grid(&v))
+                    })
+                    .collect();
+                out.insert("allocation".into(), Value::Stack(Stack { grid: grid.clone(), keys, layers }));
+            }
             if portfolio.is_some() {
-                let keys = names.iter().map(|n| Key::Name(n.clone())).collect();
-                let layers = xs.iter().map(|x| Arc::new(on_grid(x))).collect();
-                out.insert("frequency".into(), Value::Map(Map::new(grid.clone(), on_grid(&frequency))));
+                let keys = solution_names.iter().map(|n| Key::Name(n.clone())).collect();
+                let layers = xs.iter().map(|x| Arc::new(shown(x))).collect();
+                if !zoned {
+                    out.insert("frequency".into(), Value::Map(Map::new(grid.clone(), on_grid(&frequency))));
+                }
                 out.insert("solutions".into(), Value::Stack(Stack { grid, keys, layers }));
             }
         }
@@ -1623,6 +2043,9 @@ impl Operator for Evaluate {
         let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
         let p = problem_of(args)?;
         let u = &p.units;
+        if u.zoned() {
+            return Err(err("the evaluation does not support zones yet".into()));
+        }
         let s = solution_of(args, u)?;
         let bm = matrix_of(args, "boundary_data", u.size)?;
         let e = milp::evaluate(u, &s, args.param("edge_factor", 0.5)?, bm.as_ref()).map_err(err)?;
@@ -1966,6 +2389,9 @@ impl Operator for Calibrate {
         };
         let p0 = problem(&base)?;
         let u = &p0.units;
+        if u.zoned() {
+            return Err(err("the calibration does not support zones yet".into()));
+        }
         let n = u.n();
         let cost_of = |c: &Candidate| u.cost.iter().zip(&c.out.x[..n]).map(|(a, b)| a * b).sum::<f64>();
         // the criterion traded off: of the problem without the penalty

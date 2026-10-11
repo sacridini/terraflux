@@ -5,7 +5,8 @@ landschaft keeps prioritizr 8.0.6's compiled models and optima (extern/landschaf
 optimize) of rasters its tests draw with numpy (tests/optimize_cases.py); this writes them (cost, features,
 locked units, penalty data, solutions; NaN where no value) into tests/data/reference/optimize_inputs.npz, and
 its tables (planning units, features, amounts, boundary, connectivity and adjacency matrices, a solution,
-manual bounds) as Terraflux's tables into optimize_tables.json:
+manual bounds) as Terraflux's tables into optimize_tables.json; the zone problems' rasters into
+optimize_zones.npz and their tables (zones as numbers 1..) into optimize_zone_tables.json:
 
     python tools/make_optimize_inputs.py
 """
@@ -40,7 +41,8 @@ def main() -> None:
 
     def table(df) -> dict:
         return {"columns": [str(c) for c in df.columns],
-                "rows": [[float(v) for v in row] for row in df.to_numpy(dtype=np.float64)]}
+                "rows": [[None if np.isnan(v) else float(v) for v in row]
+                         for row in df.to_numpy(dtype=np.float64)]}  # NaN: null
 
     spec = oc.spec_table()[["id"]]
     tables = {"pu_table": table(oc.pu_table()), "spec_table": table(spec), "rij_table": table(oc.rij_table()),
@@ -50,6 +52,35 @@ def main() -> None:
     path = out.with_name("optimize_tables.json")
     path.write_text(json.dumps(tables) + "\n", encoding="utf-8")
     print(path, list(tables))
+
+    # management zones (protect, use, restore): every zone's cost and features (zone after zone), the restoration
+    # gain (a contribution), the locks, values per zone, fixed allocations
+    zones = {
+        "zone_cost": oc.zone_cost().values,
+        "zone_features": np.concatenate([oc.zf_protect().values, oc.zf_use().values, oc.zf_restore().values]),
+        "zone_gain": oc.zone_contributions()[2],
+        "zone_locked_in": oc.zone_locked_in().values,
+        "zone_locked_out": oc.zone_locked_out().values,
+        "zone_linear": oc.zone_linear().values,
+        "zone_sol": oc.zone_sol().values,
+        "zone_solp": oc.zone_solp().values,
+    }
+    zout = out.with_name("optimize_zones.npz")
+    np.savez_compressed(zout, **{k: np.ascontiguousarray(v, dtype=np.float64) for k, v in zones.items()})
+    print(zout, {k: v.shape for k, v in zones.items()})
+
+    def zone_index(df):
+        df = df.copy()
+        df["zone"] = [float(oc.ZONES.index(z) + 1) for z in df["zone"]]
+        return df
+
+    ztables = {"zone_table": table(oc.zone_table()), "zone_rij": table(oc.zone_rij()),
+               "zone_bounds_cells": table(zone_index(oc.zone_bounds_cells())),
+               "zone_status_cells": table(zone_index(oc.zone_status_cells())),
+               "cell_conn": table(oc.cell_conn()), "cell_asym": table(oc.cell_asym()), "zone_bnd": table(oc.zone_bnd())}
+    zpath = out.with_name("optimize_zone_tables.json")
+    zpath.write_text(json.dumps(ztables) + "\n", encoding="utf-8")
+    print(zpath, list(ztables))
 
 
 if __name__ == "__main__":
