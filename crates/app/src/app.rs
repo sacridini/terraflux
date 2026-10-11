@@ -92,6 +92,20 @@ pub fn default_layout() -> DockState<Pane> {
     d
 }
 
+/// The panes kept that `keep` says to keep, and the floating windows left with none taken away (egui_dock's
+/// own `retain_tabs` leaves such a window, a tree of one empty node, and panics drawing it).
+fn retain_panes(dock: &mut DockState<Pane>, keep: impl FnMut(&mut Pane) -> bool) {
+    dock.retain_tabs(keep);
+    let empty: Vec<_> = dock
+        .iter_surfaces_indexed()
+        .filter(|(i, s)| !i.is_main() && s.node_tree().is_some_and(|t| t.num_tabs() == 0))
+        .map(|(i, _)| i)
+        .collect();
+    for i in empty.into_iter().rev() {
+        dock.remove_surface(i);
+    }
+}
+
 /// The version of the layout kept (a layout of another version is let go).
 const LAYOUT_VERSION: u32 = 2;
 
@@ -1647,10 +1661,10 @@ impl TerrafluxApp {
     /// Close a pane wherever it is.
     pub fn close(&mut self, pane: Pane) {
         if let Some(d) = &mut self.dock {
-            d.retain_tabs(|t| *t != pane);
+            retain_panes(d, |t| *t != pane);
         }
         for w in &mut self.windows {
-            w.dock.retain_tabs(|t| *t != pane);
+            retain_panes(&mut w.dock, |t| *t != pane);
         }
         self.windows.retain(|w| w.dock.iter_all_tabs().next().is_some());
     }
@@ -1666,9 +1680,9 @@ impl TerrafluxApp {
         };
         let stale = |t: &mut Pane| !matches!(t, Pane::Map(id) if !known.contains(id));
         let dock = self.dock.get_or_insert_with(default_layout);
-        dock.retain_tabs(stale);
+        retain_panes(dock, stale);
         for w in &mut self.windows {
-            w.dock.retain_tabs(stale);
+            retain_panes(&mut w.dock, stale);
         }
         self.windows.retain(|w| w.dock.iter_all_tabs().next().is_some());
         let dock = self.dock.get_or_insert_with(default_layout);
@@ -1777,7 +1791,7 @@ impl TerrafluxApp {
             && l.version == LAYOUT_VERSION
         {
             // the maps of nodes were of the last session
-            l.main.retain_tabs(|t| !matches!(t, Pane::Map(_)));
+            retain_panes(&mut l.main, |t| !matches!(t, Pane::Map(_)));
             self.dock = Some(l.main);
             for panes in l.windows {
                 for p in panes.into_iter().filter(|p| !matches!(p, Pane::Map(_))) {

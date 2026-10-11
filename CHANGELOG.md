@@ -138,6 +138,8 @@ minor versions.
 - Outputs given on request or for some inputs only (`prioritize.evaluate`'s replacement, rank, coverage and
   Ferrier's; `prioritize.optimize`'s maps with tables) no longer fail the run: an operator's optional outputs may
   be missing.
+- Closing a pane, or the maps of a past session, no longer leaves an empty floating window that panics when
+  drawn (egui_dock's retain_tabs): such windows are removed.
 
 ## [0.9.0] - 2026-10-11
 
