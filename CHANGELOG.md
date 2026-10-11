@@ -22,6 +22,11 @@ minor versions.
   asymmetric connectivity matrices and adjacency matrices as tables (i, j, x); linear penalties and constraints of
   a column; penalties and constraints in the order given (`spatial`); the selection per unit as a table. The
   models are prioritizr's compile(), bit for bit, on landschaft's 12 table cases.
+- Portfolios of solutions for `prioritize.optimize` (`portfolio`): cuts (the best distinct solutions, prioritizr's
+  no-good cut fixed), top (each to optimality), gap (within `pool_gap` of the optimum) and shuffle (the columns in
+  random orders); a column per solution and the frequency of selection, a row per solution in the summary, and
+  with maps a layer per solution and the frequency map. The objectives of prioritizr's (Gurobi's solution pool)
+  on the cases landschaft keeps.
 - prioritizr's evaluation of a solution (`prioritize.evaluate`): the units selected, their cost and boundary, the
   features' representation, the targets' coverage, Ferrier et al.'s irreplaceability and the rarity-weighted
   richness; prioritizr's numbers bit for bit on the cases landschaft keeps; and on request the replacement
@@ -58,6 +63,9 @@ minor versions.
 ### Fixed
 - Numbers in models and settings are read to the bit (serde_json's float_roundtrip): a decimal could become the
   double next to its own (the comparisons with landschaft's JSON references are now exact too).
+- Outputs given on request or for some inputs only (`prioritize.evaluate`'s replacement, rank, coverage and
+  Ferrier's; `prioritize.optimize`'s maps with tables) no longer fail the run: an operator's optional outputs may
+  be missing.
 
 ## [0.9.0] - 2026-10-11
 
