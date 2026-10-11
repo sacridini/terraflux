@@ -353,3 +353,123 @@ fn plan_exact_is_the_optimum() {
     assert_eq!(s.column("optimal").unwrap()[0], 1.0);
     assert!((s.column("benefit").unwrap()[0] - f).abs() <= 1e-9 * f.abs().max(1.0));
 }
+
+/// plangea's multi_exrisk_aggregate on a plan: the total reduction of the extinction risk and, from z's
+/// deviation 0.1, its two forms of the uncertainty (in quadrature, linear).
+#[test]
+fn risk_reduction_is_plangeas() {
+    let d = data();
+    let (_, p) = plan_inputs(&d);
+    let x = &d.reference["bd_absent/x_vals"].data;
+    let k = p.risks[0].base.len();
+    for (method, key) in [("independent", "quad"), ("linear", "lin")] {
+        let want = &d.reference[&format!("bd_absent/exrisk_{key}")].data;
+        let rr = p.risk_reduction(0, x, &vec![0.1; k], method, 1e-6).unwrap();
+        assert!((rr.total - want[0]).abs() <= 1e-12 * want[0].abs(), "{method}: {} != {}", rr.total, want[0]);
+        assert!((rr.sd - want[1]).abs() <= 1e-6 * want[1].abs(), "{method}: {} != {}", rr.sd, want[1]);
+    }
+}
+
+/// The ecosystems' risk of collapse (multi_calc_ec) with the ecoregions' natural area over all their land (the
+/// corrected form): plangea's layer at no plan and at a plan; plangea's own form (over its problem's cells) differs.
+#[test]
+fn ecosystem_risk_is_plangeas_corrected() {
+    let d = data();
+    let veg = vegetation(&d, &d.meta["oa_cases"]["oa_past_er"]);
+    let ea = run(
+        "restoration.ecosystem_areas",
+        vec![
+            ("land_cover", stack(&d.inputs["land_cover"], &strings(&d.meta["classes"]))),
+            ("ecoregions", map(&d.inputs["ecoregion_codes"])),
+        ],
+        serde_json::json!({"natural": d.meta["natural"], "anthropic": d.meta["anthropic"], "cell_area": 1.0}),
+    );
+    let (Value::Map(anthropic), Value::Table(t), Value::Stack(gain)) = (&veg["anthropic"], &ea["table"], &ea["gain"])
+    else {
+        panic!()
+    };
+    let n = anthropic.data.len();
+    let mut p = terraflux_ops::restoration_plan::Plan::new(
+        &anthropic.data,
+        &vec![1.0; n],
+        &vec![1.0; n],
+        (anthropic.grid.height, anthropic.grid.width),
+    )
+    .unwrap();
+    let k = t.rows.len();
+    let layers: Vec<&[f64]> = gain.layers.iter().map(|l| l.as_slice()).collect();
+    p.add_risk(
+        &t.column("current").unwrap(),
+        &t.column("potential").unwrap(),
+        &t.column("valid").unwrap().iter().map(|v| *v != 0.0).collect::<Vec<_>>(),
+        &layers,
+        &vec![0.25; k],
+        &vec![0.0; k],
+        1.0,
+    )
+    .unwrap();
+    let master = cells(&d.reference["ec_land/master_index"]);
+    assert_eq!(p.index, master);
+    let x = &d.inputs["ec_x"].data;
+    for (name, plangea_form) in [("ec_land", false), ("ec_master", true)] {
+        let domain = cells(&d.reference[&format!("{name}/domain")]);
+        let pos: Vec<usize> = master.iter().map(|c| domain.binary_search(c).unwrap()).collect();
+        for (key, cum) in [("ec0", vec![0.0; p.n()]), ("ecx", x.clone())] {
+            let ours = p.steps_layer(&p.risks[0], &cum);
+            let theirs: Vec<f64> = pos.iter().map(|&i| d.reference[&format!("{name}/{key}")].data[i]).collect();
+            let rel = ours.iter().zip(&theirs).map(|(a, b)| (a - b).abs() / b.abs()).fold(0.0, f64::max);
+            if plangea_form {
+                assert!(rel > 0.1, "{name} {key}: plangea's own form should differ");
+            } else {
+                assert!(rel <= 1e-7, "{name} {key}: {rel}");
+            }
+        }
+    }
+}
+
+/// harmonize_sr_ecosys: the target shared among the ecoregions in steps, as plangea; the exact shares meet the
+/// target and the KKT conditions (one marginal value among the ecosystems off their bounds).
+#[test]
+fn ecosystem_targets_are_plangeas() {
+    let d = data();
+    let ea = run(
+        "restoration.ecosystem_areas",
+        vec![
+            ("land_cover", stack(&d.inputs["land_cover"], &strings(&d.meta["classes"]))),
+            ("ecoregions", map(&d.inputs["ecoregion_codes"])),
+        ],
+        serde_json::json!({"natural": d.meta["natural"], "anthropic": d.meta["anthropic"], "cell_area": 1.0}),
+    );
+    let Value::Table(t) = &ea["table"] else { panic!() };
+    let (n, pot) = (t.column("current").unwrap(), t.column("potential").unwrap());
+    for (name, spec) in d.meta["esys_cases"].as_object().unwrap() {
+        let (target, minimum, hl) =
+            (spec["target"].as_f64().unwrap(), spec["minimum"].as_f64().unwrap(), spec["hl"].as_f64().unwrap());
+        let params = |method: &str| {
+            serde_json::json!({"target": target, "minimum": minimum, "half_life": hl, "method": method,
+                               "steps": spec["steps"]})
+        };
+        let out = run("restoration.ecosystem_targets", vec![("table", ea["table"].clone())], params("steps"));
+        let Value::Table(s) = &out["targets"] else { panic!() };
+        assert_eq!(s.column("region").unwrap(), d.reference[&format!("{name}/codes")].data, "{name}: codes");
+        let want = &d.reference[&format!("{name}/targets")].data;
+        for (a, b) in s.column("target").unwrap().iter().zip(want) {
+            assert!((a - b).abs() <= 1e-12 * b.abs(), "{name}: {a} != {b}");
+        }
+        let out = run("restoration.ecosystem_targets", vec![("table", ea["table"].clone())], params("exact"));
+        let Value::Table(e) = &out["targets"] else { panic!() };
+        let a = e.column("target").unwrap();
+        assert!((a.iter().sum::<f64>() - target).abs() <= 1e-12 * target, "{name}: the target");
+        let least: Vec<f64> = (0..3).map(|k| (target / 3.0 * minimum).min(pot[k] - n[k])).collect();
+        let marginal: Vec<f64> = (0..3)
+            .map(|k| {
+                let r = (n[k] + a[k]) / pot[k];
+                0.25 * r.powf(-0.75) * (hl * r).exp() / pot[k]
+            })
+            .collect();
+        let free: Vec<usize> = (0..3).filter(|&k| a[k] > least[k] + 1e-9 && a[k] < pot[k] - n[k] - 1e-9).collect();
+        let (lo, hi) = free.iter().fold((f64::INFINITY, 0.0f64), |(l, h), &k| (l.min(marginal[k]), h.max(marginal[k])));
+        assert!(hi - lo <= 1e-7 * hi, "{name}: the marginal values");
+        assert!((0..3).filter(|&k| a[k] <= least[k] + 1e-9).all(|k| marginal[k] <= lo * (1.0 + 1e-7)), "{name}");
+    }
+}

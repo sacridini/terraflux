@@ -82,6 +82,12 @@ minor versions.
   by simplicial decomposition (a proven Frank-Wolfe bound; species at their potential lifted); steps: plangea's
   procedure (the target in steps, the benefits recomputed between them); uniform. plangea's units, bounds,
   biodiversity layers and plans of its steps on the cases landschaft keeps.
+- The reduction of the extinction risk a plan brings and its uncertainty from z (plangea's multi_exrisk_aggregate:
+  correlated, in quadrature or linear), in `restoration.plan`'s summary and species table; plangea's numbers.
+- The ecosystems' risk of collapse: `restoration.ecosystem_areas` (every ecoregion's natural area now and before
+  conversion, and what restoring a cell gives it; plangea's ec over all the ecoregion's land, the corrected form)
+  and `restoration.ecosystem_targets` (a restoration target shared among the ecosystems for the least risk:
+  plangea's steps, or the exact optimum). plangea's layers and targets on the cases landschaft keeps.
 - prioritizr's evaluation of a solution (`prioritize.evaluate`): the units selected, their cost and boundary, the
   features' representation, the targets' coverage, Ferrier et al.'s irreplaceability and the rarity-weighted
   richness; prioritizr's numbers bit for bit on the cases landschaft keeps; and on request the replacement

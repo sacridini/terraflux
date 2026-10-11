@@ -21,6 +21,8 @@ sys.path.insert(0, str(ROOT / "extern" / "landschaft" / "tests"))
 
 import plangea_cases as pc  # noqa: E402
 
+REF = ROOT / "extern" / "landschaft" / "tests" / "data" / "reference" / "plangea"
+
 
 def footprint(spec):
     """As landschaft's test_plangea_reference._footprint."""
@@ -46,6 +48,10 @@ def main() -> None:
             arrays[f"{name}/reduction"] = pc.reduction(conv)
             if not spec.get("gradient"):
                 arrays[f"{name}/restored"] = pc.restored(spec["shape"], spec["seed"] + 200)
+    # the ecosystems: the ecoregion codes and the restored shares of the master pixels (ec_x)
+    arrays["ecoregion_codes"] = pc.ecoregion_codes()
+    with np.load(REF / "reference.npz") as z:
+        arrays["ec_x"] = pc.ec_x(z["ec_land/master_index"].size)
     habitats: dict[str, list[str]] = {}
     for s, c in pc.habitat_table().itertuples(index=False):
         habitats.setdefault(str(s), []).append(str(c))
@@ -63,6 +69,8 @@ def main() -> None:
                          if kk != "shape"} for k, s in pc.IT_CASES.items()},
         "oa_cases": pc.OA_CASES,
         "bd_cases": pc.BD_CASES,
+        "scen_cases": pc.SCEN_CASES,
+        "esys_cases": pc.ESYS_CASES,
     }
     out = ROOT / "tests" / "data" / "reference"
     np.savez_compressed(out / "plangea_inputs.npz", **{k: np.ascontiguousarray(v, dtype=np.float64)

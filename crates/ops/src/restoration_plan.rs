@@ -24,6 +24,8 @@ pub const PLANGEA_DELTA: f64 = 1e-6;
 
 pub fn register(r: &mut Registry) {
     r.add(Arc::new(PlanRestoration));
+    r.add(Arc::new(EcosystemAreasOp));
+    r.add(Arc::new(EcosystemTargetsOp));
 }
 
 /// A risk benefit: species with habitat now, potential habitat and the habitat a unit share of every unit adds.
@@ -759,7 +761,7 @@ impl Operator for PlanRestoration {
         .output(PortSpec::new(
             "summary",
             Type::Table,
-            "the weighted benefit, the area (km²), the cost, the bound (exact), optimal (1) and the rounds",
+            "the weighted benefit, the area (km²), the cost, the bound (exact), optimal (1), the rounds, the              extinction risk's reduction and its standard deviation",
         ))
         .output(PortSpec::new(
             "benefits",
@@ -769,7 +771,7 @@ impl Operator for PlanRestoration {
         .output(PortSpec::new(
             "species",
             Type::Table,
-            "per species counted (its row in the area of habitat's table): the risk without and with the plan",
+            "per species counted (its row in the area of habitat's table): the habitat gained, the risk without              and with the plan, the reduction",
         ))
         .param(PortSpec::optional("method", Type::Text, "exact (default), steps or uniform"))
         .param(PortSpec::optional("steps", Type::Integer, "steps: the parts of the target (default 1)"))
@@ -790,6 +792,16 @@ impl Operator for PlanRestoration {
             "the share of the habitat value restored land does not deliver (0; one or one per species)",
         ))
         .param(PortSpec::optional("cell_area", Type::Number, "a cell's area in km² (default: the grid's)"))
+        .param(PortSpec::optional(
+            "z_sd",
+            Type::Any,
+            "the standard deviation of z (plangea: 0.1; one or one per species counted): the risk reduction's",
+        ))
+        .param(PortSpec::optional(
+            "uncertainty",
+            Type::Text,
+            "how the species' sensitivities to z add up: correlated (default), independent or linear (plangea's)",
+        ))
         .param(PortSpec::optional("tolerance", Type::Number, "exact: the relative gap to the bound (1e-7)"))
         .param(PortSpec::optional("time_limit", Type::Number, "exact: seconds (default none)"))
     }
@@ -899,25 +911,403 @@ impl Operator for PlanRestoration {
         let total: f64 = values.iter().zip(&weights).map(|(v, w)| v * w).sum();
         let area_x: f64 = p.area.iter().zip(&x).map(|(a, x)| a * x).sum();
         let cost = p.cost.as_ref().map_or(f64::NAN, |c| c.iter().zip(&x).map(|(c, x)| c * x).sum());
-        let mut summary =
-            Table::new(["benefit", "area", "cost", "bound", "optimal", "rounds"].map(String::from).to_vec());
-        summary.rows.push(vec![total, area_x, cost, bound, f64::from(u8::from(status == "optimal")), rounds as f64]);
-        let mut species = Table::new(vec!["species".into(), "risk_before".into(), "risk_after".into()]);
-        for b in &p.risks {
-            let y = mv(&b.gain, &x);
-            for (s, &row) in b.species.iter().enumerate() {
-                species.rows.push(vec![
-                    (row + 1) as f64,
-                    1.0 - h(b.base[s] / b.potential[s], b.z[s]),
-                    1.0 - h((b.base[s] + y[s]) / b.potential[s], b.z[s]),
-                ]);
+        // the risk reduction (plangea's multi_exrisk_aggregate) and its deviation from z's
+        let (mut reduction, mut sd) = (f64::NAN, f64::NAN);
+        let mut species =
+            Table::new(["species", "gained", "risk_before", "risk_after", "reduction"].map(String::from).to_vec());
+        if !p.risks.is_empty() {
+            let k = p.risks[0].base.len();
+            let z_sd: Vec<f64> = match args.params.get("z_sd") {
+                None | Some(serde_json::Value::Null) => Vec::new(),
+                Some(serde_json::Value::Number(v)) => vec![v.as_f64().unwrap(); k],
+                Some(v) => serde_json::from_value(v.clone()).map_err(|e| err(format!("z_sd: {e}")))?,
+            };
+            let how: String = args.param("uncertainty", "correlated".to_string())?;
+            let rr = p.risk_reduction(0, &x, &z_sd, &how, 1e-6).map_err(err)?;
+            (reduction, sd) = (rr.total, rr.sd);
+            for (s, &row) in p.risks[0].species.iter().enumerate() {
+                species.rows.push(vec![(row + 1) as f64, rr.gained[s], rr.before[s], rr.after[s], rr.reduction[s]]);
             }
         }
+        let mut summary = Table::new(
+            ["benefit", "area", "cost", "bound", "optimal", "rounds", "risk_reduction", "sd"]
+                .map(String::from)
+                .to_vec(),
+        );
+        summary.rows.push(vec![
+            total,
+            area_x,
+            cost,
+            bound,
+            f64::from(u8::from(status == "optimal")),
+            rounds as f64,
+            reduction,
+            sd,
+        ]);
         Ok(outputs([
             ("restored", Value::Map(Map::new(grid, restored))),
             ("summary", Value::Table(summary)),
             ("benefits", Value::Table(benefits)),
             ("species", Value::Table(species)),
         ]))
+    }
+}
+
+/// plangea's multi_exrisk_aggregate: an updated habitat this close to 0 is 0.
+pub const EXRISK_EPS: f64 = 1e-8;
+
+/// The reduction of the extinction risk a plan brings (plangea's multi_exrisk_aggregate): per species its habitat
+/// gained, its risk before and after; the total reduction and, with z's standard deviations, the total's.
+pub struct RiskReduction {
+    pub gained: Vec<f64>,
+    pub before: Vec<f64>,
+    pub after: Vec<f64>,
+    pub reduction: Vec<f64>,
+    pub total: f64,
+    pub sd: f64,
+}
+
+impl Plan {
+    /// The risk reduction of a plan for the risk benefit `b`; `z_sd` per species (empty: no uncertainty), how the
+    /// species' sensitivities to z add up (correlated: |sum|; independent: in quadrature; linear: sum of |.|,
+    /// plangea's two forms), z's forward difference.
+    pub fn risk_reduction(
+        &self,
+        b: usize,
+        x: &[f64],
+        z_sd: &[f64],
+        method: &str,
+        step: f64,
+    ) -> std::result::Result<RiskReduction, String> {
+        let b = self.risks.get(b).ok_or("the problem has no such extinction-risk benefit")?;
+        let gained = mv(&b.gain, &x.iter().map(|v| if v.is_nan() { 0.0 } else { *v }).collect::<Vec<_>>());
+        let after: Vec<f64> = b
+            .base
+            .iter()
+            .zip(&gained)
+            .map(|(a, g)| {
+                let v = a + g;
+                if v.abs() < EXRISK_EPS { 0.0 } else { v }
+            })
+            .collect();
+        let risk = |a: f64, s: usize, z: f64| (1.0 - (a / b.potential[s]).powf(z)).max(0.0);
+        let reduction = |dz: f64| -> Vec<f64> {
+            (0..b.base.len())
+                .map(|s| {
+                    let v = risk(b.base[s], s, b.z[s] + dz) - risk(after[s], s, b.z[s] + dz);
+                    if v.is_nan() { 0.0 } else { v }
+                })
+                .collect()
+        };
+        let red = reduction(0.0);
+        let total = red.iter().sum();
+        let sd = if z_sd.is_empty() {
+            f64::NAN
+        } else {
+            if z_sd.len() != red.len() {
+                return Err(format!("z_sd: one per species counted ({})", red.len()));
+            }
+            let up = reduction(step);
+            let d: Vec<f64> = (0..red.len()).map(|s| (up[s] - red[s]) / step * z_sd[s]).collect();
+            match method {
+                "correlated" => d.iter().sum::<f64>().abs(),
+                "independent" => d.iter().map(|v| v * v).sum::<f64>().sqrt(),
+                "linear" => d.iter().map(|v| v.abs()).sum(),
+                m => return Err(format!("method: correlated, independent or linear, not {m:?}")),
+            }
+        };
+        Ok(RiskReduction {
+            before: (0..b.base.len()).map(|s| risk(b.base[s], s, b.z[s])).collect(),
+            after: (0..b.base.len()).map(|s| risk(after[s], s, b.z[s])).collect(),
+            gained,
+            reduction: red,
+            total,
+            sd,
+        })
+    }
+}
+
+/// The ecosystems' (ecoregions') natural area now and before conversion, and what restoring a cell gives them
+/// (plangea's ec): per ecoregion code its natural area (current), natural plus anthropic (potential) and cells;
+/// and per ecoregion a layer of the cell's area where it has anthropic land. Every cell of the ecoregion counts
+/// (plangea sums over its problem's cells only, which overstates the loss).
+pub struct EcosystemAreas {
+    pub codes: Vec<f64>,
+    pub current: Vec<f64>,
+    pub potential: Vec<f64>,
+    pub cells: Vec<f64>,
+    pub gain: Vec<Vec<f64>>,
+}
+
+pub fn ecosystem_areas(natural: &[f64], anthropic: &[f64], ecoregions: &[f64], area: &[f64]) -> EcosystemAreas {
+    let mut codes: Vec<f64> = ecoregions.iter().copied().filter(|v| v.is_finite()).collect();
+    codes.sort_by(f64::total_cmp);
+    codes.dedup();
+    let mut out = EcosystemAreas {
+        codes: codes.clone(),
+        current: Vec::new(),
+        potential: Vec::new(),
+        cells: Vec::new(),
+        gain: Vec::new(),
+    };
+    for &code in &codes {
+        let cells: Vec<usize> = (0..ecoregions.len()).filter(|&c| ecoregions[c] == code).collect();
+        out.current.push(cells.iter().map(|&c| area[c] * natural[c]).sum());
+        out.potential.push(cells.iter().map(|&c| area[c] * (natural[c] + anthropic[c])).sum());
+        out.cells.push(cells.len() as f64);
+        let mut g = vec![0.0; ecoregions.len()];
+        for &c in &cells {
+            if anthropic[c] > 0.0 {
+                g[c] = area[c];
+            }
+        }
+        out.gain.push(g);
+    }
+    out
+}
+
+/// Share a restoration target among ecosystems for the least risk of collapse (plangea's harmonize_sr_ecosys):
+/// every ecosystem with natural area n of a potential t gets a share between its least (`minimum` of an equal
+/// split, up to its converted area) and t - n, for the most total of ((n + a) / t)^z, each marginal value damped by
+/// exp(half_life (n + a) / t). exact: the marginal values equal among the ecosystems off their bounds (bisection);
+/// steps: plangea's procedure (the target in steps, each a linear program on the marginal values).
+#[allow(clippy::too_many_arguments)]
+pub fn ecosystem_targets(
+    n_e: &[f64],
+    t_e: &[f64],
+    target: f64,
+    minimum: f64,
+    z: f64,
+    half_life: f64,
+    exact: bool,
+    steps: usize,
+) -> std::result::Result<Vec<f64>, String> {
+    if !(0.0..=1.0).contains(&minimum) {
+        return Err("minimum must be in [0, 1]".into());
+    }
+    if !(z > 0.0 && z < 1.0) {
+        return Err("z must be in (0, 1)".into());
+    }
+    if half_life >= 1.0 - z {
+        return Err("half_life must be below 1 - z (the marginal value must fall with the area)".into());
+    }
+    let k = n_e.len();
+    let up: Vec<f64> = (0..k).map(|e| (t_e[e] - n_e[e]).max(0.0)).collect();
+    if !exact {
+        if steps < 1 {
+            return Err("steps must be at least 1".into());
+        }
+        let values = |nat: &[f64]| -> Vec<f64> {
+            (0..k)
+                .map(|e| {
+                    let r1 = (1.0 - (nat[e] / t_e[e]).powf(z)).max(0.0);
+                    let r2 = (1.0 - ((nat[e] + PLANGEA_DELTA) / t_e[e]).powf(z)).max(0.0);
+                    (r2 - r1).abs() / PLANGEA_DELTA * (half_life * nat[e] / t_e[e]).exp()
+                })
+                .collect()
+        };
+        let mut obj = values(n_e);
+        let mut ub = up.clone();
+        let step = target / steps as f64;
+        let mut least: Vec<f64> = (0..k).map(|e| (step / k as f64 * minimum).min(ub[e])).collect();
+        let mut total = vec![0.0; k];
+        for _ in 0..steps {
+            let mut x = least.clone();
+            let mut left = step - x.iter().sum::<f64>();
+            let mut order: Vec<usize> = (0..k).collect();
+            order.sort_by(|&a, &b| obj[b].total_cmp(&obj[a]));
+            for e in order {
+                if left <= 0.0 {
+                    break;
+                }
+                let add = (ub[e] - x[e]).min(left);
+                if add > 0.0 {
+                    x[e] += add;
+                    left -= add;
+                }
+            }
+            for e in 0..k {
+                ub[e] = (ub[e] - x[e]).max(0.0);
+                least[e] = least[e].min(ub[e]);
+                total[e] += x[e];
+            }
+            obj = values(&n_e.iter().zip(&total).map(|(n, t)| n + t).collect::<Vec<_>>());
+        }
+        return Ok(total);
+    }
+    let least: Vec<f64> = (0..k).map(|e| (target / k as f64 * minimum).min(up[e])).collect();
+    let marginal = |e: usize, a: f64| {
+        let r = (n_e[e] + a) / t_e[e];
+        z * r.powf(z - 1.0) * (half_life * r).exp() / t_e[e]
+    };
+    let share = |lam: f64| -> Vec<f64> {
+        (0..k)
+            .map(|e| {
+                if marginal(e, up[e]) >= lam {
+                    return up[e];
+                }
+                if marginal(e, least[e]) <= lam {
+                    return least[e];
+                }
+                let (mut lo, mut hi) = (least[e], up[e]);
+                for _ in 0..200 {
+                    let mid = 0.5 * (lo + hi);
+                    if marginal(e, mid) > lam {
+                        lo = mid;
+                    } else {
+                        hi = mid;
+                    }
+                }
+                0.5 * (lo + hi)
+            })
+            .collect()
+    };
+    if up.iter().sum::<f64>() <= target {
+        return Ok(up);
+    }
+    let m_least: Vec<f64> = (0..k).map(|e| marginal(e, least[e])).collect();
+    let mut lam_hi = m_least.iter().map(|m| if m.is_finite() { *m } else { 0.0 }).fold(0.0, f64::max) + 1.0;
+    if m_least.iter().any(|m| !m.is_finite()) {
+        lam_hi = (0..k).map(|e| marginal(e, (least[e] + 1e-12 * t_e[e].max(1.0)).min(up[e]))).fold(0.0, f64::max) * 2.0
+            + 1.0;
+    }
+    let mut lam_lo = 0.0;
+    for _ in 0..200 {
+        let lam = 0.5 * (lam_lo + lam_hi);
+        if share(lam).iter().sum::<f64>() > target {
+            lam_lo = lam;
+        } else {
+            lam_hi = lam;
+        }
+    }
+    let mut a = share(lam_hi);
+    // the last bit of the target to the ecosystems at the marginal value
+    let free: Vec<usize> = (0..k).filter(|&e| a[e] > least[e] && a[e] < up[e]).collect();
+    let rest = target - a.iter().sum::<f64>();
+    if rest > 0.0 && !free.is_empty() {
+        let room: f64 = free.iter().map(|&e| up[e] - a[e]).sum();
+        let f = (rest / room).min(1.0);
+        for &e in &free {
+            a[e] += (up[e] - a[e]) * f;
+        }
+    }
+    Ok(a)
+}
+
+struct EcosystemAreasOp;
+
+impl Operator for EcosystemAreasOp {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "restoration.ecosystem_areas",
+            "The ecosystems' (ecoregions') natural area now and before conversion and what restoring a cell gives \
+             them (plangea's ec): restoration.plan's table and gain for the risk of ecosystem collapse. Every cell \
+             of an ecoregion counts (plangea counts its problem's cells only, overstating the loss).",
+            Access::Global,
+        )
+        .input(PortSpec::new("land_cover", Type::Stack, "the share of each class, by name"))
+        .input(PortSpec::new("ecoregions", Type::Map, "ecoregion codes (no value: none)"))
+        .output(PortSpec::new(
+            "table",
+            Type::Table,
+            "per ecoregion: its code, natural area (current), natural and anthropic (potential), cells, valid",
+        ))
+        .output(PortSpec::new("gain", Type::Stack, "per ecoregion: the area a unit of a cell restored gives it"))
+        .param(PortSpec::new("natural", Type::Any, "the natural classes"))
+        .param(PortSpec::new("anthropic", Type::Any, "the anthropic classes"))
+        .param(PortSpec::optional("cell_area", Type::Number, "a cell's area in km² (default: the grid's)"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let node = args.node;
+        let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
+        let cover = args.stack("land_cover")?;
+        let eco = args.map("ecoregions")?;
+        let n = cover.grid.width * cover.grid.height;
+        if eco.data.len() != n {
+            return Err(err("the ecoregions are not on the land cover's grid".into()));
+        }
+        let sum = |param: &str| -> Result<Vec<f64>> {
+            let names: Vec<String> = args.param(param, Vec::new())?;
+            let mut out = vec![0.0; n];
+            for c in &names {
+                let k = cover
+                    .keys
+                    .iter()
+                    .position(|key| &key.to_string() == c)
+                    .ok_or_else(|| err(format!("the land cover has no layer {c:?}")))?;
+                for (o, v) in out.iter_mut().zip(cover.layers[k].iter()) {
+                    *o += if v.is_nan() { 0.0 } else { *v };
+                }
+            }
+            Ok(out)
+        };
+        let (nat, ant) = (sum("natural")?, sum("anthropic")?);
+        let area: Vec<f64> = match args.opt_param::<f64>("cell_area")? {
+            Some(a) => vec![a; n],
+            None => crate::restoration::cell_area_km2(&cover.grid)
+                .ok_or_else(|| err("the grid has no coordinate system: give cell_area (km²)".into()))?,
+        };
+        let e = ecosystem_areas(&nat, &ant, &eco.data, &area);
+        let mut table = Table::new(["code", "current", "potential", "range_cells", "valid"].map(String::from).to_vec());
+        table.rows = (0..e.codes.len())
+            .map(|k| {
+                vec![e.codes[k], e.current[k], e.potential[k], e.cells[k], f64::from(u8::from(e.potential[k] > 0.0))]
+            })
+            .collect();
+        let keys = e.codes.iter().map(|c| crate::Key::Name(crate::value::class_label(*c))).collect();
+        let layers = e.gain.into_iter().map(Arc::new).collect();
+        Ok(outputs([
+            ("table", Value::Table(table)),
+            ("gain", Value::Stack(crate::Stack { grid: cover.grid.clone(), keys, layers })),
+        ]))
+    }
+}
+
+struct EcosystemTargetsOp;
+
+impl Operator for EcosystemTargetsOp {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "restoration.ecosystem_targets",
+            "Share a restoration target among ecosystems for the least risk of collapse (plangea's ecosystemic \
+             sub-region targets): every ecosystem between its least share and its converted area, for the most \
+             total of ((natural + share) / potential)^z, damped by exp(half_life x the ratio). exact: the optimum; \
+             steps: plangea's procedure. The targets per region for restoration.plan (target: {code: area}).",
+            Access::Global,
+        )
+        .input(PortSpec::new("table", Type::Table, "restoration.ecosystem_areas's table"))
+        .output(PortSpec::new("targets", Type::Table, "per ecosystem: its code (region) and its share (target)"))
+        .param(PortSpec::new("target", Type::Number, "the area to share (km²)"))
+        .param(PortSpec::optional("minimum", Type::Number, "every ecosystem's least share, of an equal split (0)"))
+        .param(PortSpec::optional("z", Type::Number, "the species-area exponent (0.25)"))
+        .param(PortSpec::optional("half_life", Type::Number, "the damping exponent (0: none; below 1 - z)"))
+        .param(PortSpec::optional("method", Type::Text, "exact (default) or steps"))
+        .param(PortSpec::optional("steps", Type::Integer, "steps: the parts of the target (10)"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let node = args.node;
+        let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
+        let Some(Value::Table(t)) = args.get("table") else { return Err(err("the table is needed".into())) };
+        let col = |c: &str| t.column(c).ok_or_else(|| err(format!("the table needs a column {c}")));
+        let (codes, cur, pot, valid) = (col("code")?, col("current")?, col("potential")?, col("valid")?);
+        let keep: Vec<usize> = (0..codes.len()).filter(|&k| valid[k] != 0.0 && pot[k] > 0.0).collect();
+        let pick = |v: &[f64]| keep.iter().map(|&k| v[k]).collect::<Vec<f64>>();
+        let method: String = args.param("method", "exact".to_string())?;
+        let a = ecosystem_targets(
+            &pick(&cur),
+            &pick(&pot),
+            args.param("target", 0.0)?,
+            args.param("minimum", 0.0)?,
+            args.param("z", PLANGEA_Z)?,
+            args.param("half_life", 0.0)?,
+            method != "steps",
+            args.param("steps", 10)?,
+        )
+        .map_err(err)?;
+        let mut out = Table::new(vec!["region".into(), "target".into()]);
+        out.rows = keep.iter().zip(&a).map(|(&k, a)| vec![codes[k], *a]).collect();
+        Ok(outputs([("targets", Value::Table(out))]))
     }
 }

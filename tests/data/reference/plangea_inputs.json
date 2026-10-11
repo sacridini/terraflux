@@ -160,5 +160,43 @@
    "include_absent": false,
    "elevation": true
   }
+ },
+ "scen_cases": {
+  "scen_1": {
+   "steps": 1,
+   "share": 0.3
+  },
+  "scen_3": {
+   "steps": 3,
+   "share": 0.3
+  },
+  "scen_4_60": {
+   "steps": 4,
+   "share": 0.6
+  }
+ },
+ "esys_cases": {
+  "esys_10": {
+   "target": 8.0,
+   "minimum": 0.5,
+   "hl": 0.0,
+   "steps": 10,
+   "change": [
+    4.0,
+    -1.5,
+    2.0
+   ]
+  },
+  "esys_damped": {
+   "target": 15.0,
+   "minimum": 0.2,
+   "hl": -1.0,
+   "steps": 5,
+   "change": [
+    3.0,
+    1.0,
+    -5.0
+   ]
+  }
  }
 }
