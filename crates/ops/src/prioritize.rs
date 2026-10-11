@@ -17,6 +17,7 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(Proxirr));
     r.add(Arc::new(Optimize));
     r.add(Arc::new(Evaluate));
+    r.add(Arc::new(Calibrate));
 }
 
 /// Zonation's marginal loss rules.
@@ -1742,6 +1743,447 @@ impl Operator for Evaluate {
                 layers.push(Arc::new(on_grid(&totals)));
                 out.insert("ferrier".into(), Value::Stack(Stack { grid, keys, layers }));
             }
+        }
+        Ok(out)
+    }
+}
+
+/// numpy's linspace: start + k step, the last exactly stop.
+fn linspace(start: f64, stop: f64, n: usize) -> Vec<f64> {
+    if n == 1 {
+        return vec![start];
+    }
+    let step = (stop - start) / (n - 1) as f64;
+    let mut v: Vec<f64> = (0..n).map(|k| k as f64 * step + start).collect();
+    v[n - 1] = stop;
+    v
+}
+
+/// TOPSIS (R's topsis package) of alternatives (rows) on criteria where smaller is better, equal weights: every
+/// alternative's closeness to the ideal (0-1, larger is better; no value where undefined).
+pub fn topsis(d: &[Vec<f64>]) -> Vec<f64> {
+    let nc = d.first().map_or(0, |r| r.len());
+    let w = 1.0 / nc as f64;
+    let norm: Vec<f64> = (0..nc).map(|c| d.iter().map(|r| r[c] * r[c]).sum::<f64>().sqrt()).collect();
+    let v: Vec<Vec<f64>> = d.iter().map(|r| (0..nc).map(|c| r[c] / norm[c] * w).collect()).collect();
+    let col = |c: usize| v.iter().map(move |r| r[c]);
+    let best: Vec<f64> = (0..nc).map(|c| col(c).fold(f64::NAN, f64::min)).collect();
+    let worst: Vec<f64> = (0..nc).map(|c| col(c).fold(f64::NAN, f64::max)).collect();
+    v.iter()
+        .map(|r| {
+            let du = (0..nc).map(|c| (r[c] - best[c]).powi(2)).sum::<f64>().sqrt();
+            let dl = (0..nc).map(|c| (r[c] - worst[c]).powi(2)).sum::<f64>().sqrt();
+            dl / (dl + du)
+        })
+        .collect()
+}
+
+/// The knee (elbow) of a trade-off curve: the point farthest from the straight line between its ends, both axes
+/// scaled to 0-1 (the points in the order of x). Its position.
+pub fn knee_point(x: &[f64], y: &[f64]) -> usize {
+    if x.len() < 3 {
+        return 0;
+    }
+    let mut order: Vec<usize> = (0..x.len()).collect();
+    order.sort_by(|&a, &b| x[a].total_cmp(&x[b]));
+    let scale = |v: Vec<f64>| {
+        let (lo, hi) = v.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(l, h), &x| (l.min(x), h.max(x)));
+        let span = hi - lo;
+        v.into_iter().map(|x| if span > 0.0 { (x - lo) / span } else { 0.0 }).collect::<Vec<f64>>()
+    };
+    let xs = scale(order.iter().map(|&k| x[k]).collect());
+    let ys = scale(order.iter().map(|&k| y[k]).collect());
+    let last = xs.len() - 1;
+    let (lx, ly) = (xs[last] - xs[0], ys[last] - ys[0]);
+    let length = lx.hypot(ly);
+    if length == 0.0 {
+        return order[0];
+    }
+    let dist: Vec<f64> = (0..xs.len()).map(|k| (lx * (ys[k] - ys[0]) - ly * (xs[k] - xs[0])).abs() / length).collect();
+    // the first of the farthest (numpy's argmax)
+    let far = (0..dist.len()).fold(0, |b, k| if dist[k] > dist[b] { k } else { b });
+    order[far]
+}
+
+/// A candidate solved: its problem, the solver's result and the units' values.
+struct Candidate {
+    problem: milp::Problem,
+    out: ffi::SolveOut,
+}
+
+struct Calibrate;
+
+impl Calibrate {
+    /// The node's settings with the penalty traded off at `value` (added to `spatial` when given as a list).
+    fn with_penalty(
+        params: &serde_json::Map<String, serde_json::Value>,
+        penalty: &str,
+        value: f64,
+    ) -> Result<serde_json::Map<String, serde_json::Value>> {
+        let mut q = params.clone();
+        if let Some(serde_json::Value::Array(list)) = q.get_mut("spatial") {
+            list.push(serde_json::json!({"kind": if penalty == "linear" { "linear_penalty" } else { penalty }, "penalty": value}));
+            return Ok(q);
+        }
+        let key = match penalty {
+            "boundary" => "boundary_penalty",
+            "connectivity" => "connectivity_penalty",
+            "asym_connectivity" => "asym_connectivity_penalty",
+            "linear" => "linear_penalty",
+            o => {
+                return Err(Error::msg(format!(
+                    "unknown penalty {o:?} (boundary, connectivity, asym_connectivity, linear)"
+                )));
+            }
+        };
+        q.insert(key.into(), value.into());
+        Ok(q)
+    }
+
+    fn with_objective(
+        params: &serde_json::Map<String, serde_json::Value>,
+        objective: &str,
+        budget: Option<f64>,
+    ) -> serde_json::Map<String, serde_json::Value> {
+        let mut q = params.clone();
+        q.insert("objective".into(), objective.into());
+        match budget {
+            Some(b) => q.insert("budget".into(), b.into()),
+            None => q.remove("budget"),
+        };
+        q
+    }
+}
+
+impl Operator for Calibrate {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "prioritize.calibrate",
+            "prioritizr's calibration of trade-offs (its tutorial, Hanson et al.): candidate solutions of a problem \
+             (given as to prioritize.optimize, without the penalty traded off) over a trade-off parameter. \
+             blended: the problem with a range of penalty weights (default 9 over 1/100 to 100 times Cohon et \
+             al.'s penalty); hierarchical: the least penalty within cost thresholds above the least cost \
+             solution's; pareto: the least total shortfall of the targets within budgets; cohon: the penalty of \
+             Cohon et al. (1979) from the two ideal solutions. Every candidate's cost and criterion (boundary, \
+             connectivity, linear penalty or shortfall), and the candidates TOPSIS and the knee of the curve \
+             choose. The solves run in parallel.",
+            Access::Global,
+        )
+        .input(PortSpec::optional("features", Type::Stack, "the features' amounts, a layer each"))
+        .input(PortSpec::optional("cost", Type::Map, "the cost of each cell (no value: not a planning unit)"))
+        .input(PortSpec::optional("pu", Type::Table, "tables instead of maps: as prioritize.optimize's"))
+        .input(PortSpec::optional("spec", Type::Table, "Marxan-style: the features (id)"))
+        .input(PortSpec::optional("rij", Type::Table, "Marxan-style: the amounts (pu, species, amount)"))
+        .input(PortSpec::optional("locked_in", Type::Map, "the units that must be selected (not 0)"))
+        .input(PortSpec::optional("locked_out", Type::Map, "the units that may not be selected (not 0)"))
+        .input(PortSpec::optional("targets", Type::Table, "targets by hand, as prioritize.optimize's"))
+        .input(PortSpec::optional("boundary_data", Type::Table, "a boundary matrix of every unit: i, j, x (1-based)"))
+        .input(PortSpec::optional("connectivity_data", Type::Table, "a symmetric connectivity matrix: i, j, x"))
+        .input(PortSpec::optional("asym_connectivity_data", Type::Table, "a connectivity matrix: i, j, x"))
+        .input(PortSpec::optional("adjacency_data", Type::Table, "an adjacency matrix of every unit: i, j, x"))
+        .input(PortSpec::optional("penalty_data", Type::Map, "the linear penalty: a value per cell"))
+        .input(PortSpec::optional("constraint_data", Type::Map, "a linear constraint: a value per cell"))
+        .input(PortSpec::optional("bounds", Type::Table, "manual bounds, as prioritize.optimize's"))
+        .input(PortSpec::optional("status", Type::Table, "manual locked units, as prioritize.optimize's"))
+        .output(PortSpec::new(
+            "table",
+            Type::Table,
+            "per candidate: value (the penalty, cost threshold or budget), cost, the criterion (boundary, \
+             connectivity, asym_connectivity, linear or shortfall; pareto: met, the targets met), objective, \
+             optimal (1), gap, topsis_score, topsis and knee (1: chosen; pareto: efficient). cohon: the two ideal \
+             solutions' cost and criterion and the penalty",
+        ))
+        .output(PortSpec::new("selection", Type::Table, "per unit: its cell or row (1..) and every candidate's share"))
+        .output(PortSpec::optional("solutions", Type::Stack, "maps: every candidate, a layer each"))
+        .output(PortSpec::optional("best", Type::Map, "maps: the candidate TOPSIS chooses"))
+        .param(PortSpec::optional("approach", Type::Text, "blended (default), hierarchical, pareto or cohon"))
+        .param(PortSpec::optional(
+            "penalty",
+            Type::Text,
+            "the penalty traded off against the cost: boundary (default), connectivity, asym_connectivity, linear",
+        ))
+        .param(PortSpec::optional(
+            "values",
+            Type::Any,
+            "the candidates: blended's penalties, hierarchical's cost thresholds, pareto's budgets",
+        ))
+        .param(PortSpec::optional("n", Type::Integer, "the candidates without values (blended 9, pareto 10)"))
+        .param(PortSpec::optional(
+            "inflation",
+            Type::Any,
+            "hierarchical without values: the thresholds the least cost x (1 + these), rounded up (1e-5 to 4)",
+        ))
+        .param(PortSpec::optional(
+            "objective",
+            Type::Text,
+            "the problem's objective (min_set; pareto: any with targets)",
+        ))
+        .param(PortSpec::optional("relative_targets", Type::Any, "as prioritize.optimize's"))
+        .param(PortSpec::optional("absolute_targets", Type::Any, "as prioritize.optimize's"))
+        .param(PortSpec::optional("loglinear_targets", Type::Any, "as prioritize.optimize's"))
+        .param(PortSpec::optional("feature_weights", Type::Any, "as prioritize.optimize's"))
+        .param(PortSpec::optional("decisions", Type::Text, "as prioritize.optimize's"))
+        .param(PortSpec::optional("edge_factor", Type::Number, "the boundary: the weight of edges to no unit (0.5)"))
+        .param(PortSpec::optional("cost_column", Type::Text, "tables: as prioritize.optimize's"))
+        .param(PortSpec::optional("features", Type::Any, "tables: as prioritize.optimize's"))
+        .param(PortSpec::optional("penalty_column", Type::Text, "tables: pu's column of the linear penalty"))
+        .param(PortSpec::optional("spatial", Type::Any, "other penalties and constraints, as prioritize.optimize's"))
+        .param(PortSpec::optional("gap", Type::Number, "the candidates' optimality gap (default 0.1)"))
+        .param(PortSpec::optional("ideal_gap", Type::Number, "the least cost and Cohon's ideal solutions' gap (0)"))
+        .param(PortSpec::optional("time_limit", Type::Number, "seconds per solve (default none)"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        use rayon::prelude::*;
+        let node = args.node;
+        let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
+        let approach: String = args.param("approach", "blended".to_string())?;
+        let penalty: String = args.param("penalty", "boundary".to_string())?;
+        let edge_factor: f64 = args.param("edge_factor", 0.5)?;
+        let gap: f64 = args.param("gap", 0.1)?;
+        let ideal_gap: f64 = args.param("ideal_gap", 0.0)?;
+        let time_limit: f64 = args.opt_param("time_limit")?.unwrap_or(f64::INFINITY);
+        let base = args.params.clone();
+        let problem = |params: &serde_json::Map<String, serde_json::Value>| {
+            problem_of(&Args { node, inputs: args.inputs.clone(), params })
+        };
+        let solve = |p: milp::Problem, gap: f64| -> Result<Candidate> {
+            let (m, _) = milp::compile(&p).map_err(err)?;
+            let out = milp::solve(&m, p.units.n(), gap, time_limit).map_err(err)?;
+            if !out.has_solution {
+                return Err(err(format!("no solution: {}", out.status)));
+            }
+            Ok(Candidate { problem: p, out })
+        };
+        let solve_all = |problems: Vec<milp::Problem>| -> Result<Vec<Candidate>> {
+            problems
+                .into_par_iter()
+                .map(|p| {
+                    ffi::set_threads(1);
+                    solve(p, gap)
+                })
+                .collect()
+        };
+        let p0 = problem(&base)?;
+        let u = &p0.units;
+        let n = u.n();
+        let cost_of = |c: &Candidate| u.cost.iter().zip(&c.out.x[..n]).map(|(a, b)| a * b).sum::<f64>();
+        // the criterion traded off: of the problem without the penalty
+        let bm = matrix_of(args, "boundary_data", u.size)?;
+        let criterion = |c: &Candidate| -> Result<f64> {
+            let s = &c.out.x[..n];
+            match penalty.as_str() {
+                "boundary" => milp::evaluate(u, s, edge_factor, bm.as_ref())
+                    .map_err(err)?
+                    .boundary
+                    .ok_or_else(|| err("table units need boundary_data".into())),
+                "connectivity" | "asym_connectivity" => {
+                    let port = format!("{penalty}_data");
+                    let m = matrix_of(args, &port, u.size)?.ok_or_else(|| err(format!("{penalty} needs {port}")))?;
+                    Ok(milp::connectivity(u, &m, s, penalty == "asym_connectivity").map_err(err)?.0)
+                }
+                "linear" => {
+                    let q = problem(&Self::with_penalty(&base, "linear", 1.0)?)?;
+                    let data = q
+                        .spatial
+                        .iter()
+                        .find_map(|sp| match sp {
+                            milp::Spatial::LinearPenalty { data, .. } => Some(data.clone()),
+                            _ => None,
+                        })
+                        .ok_or_else(|| err("the linear penalty needs penalty_data or penalty_column".into()))?;
+                    Ok(u.cells.iter().zip(s).map(|(&c, x)| if data[c].is_finite() { data[c] * x } else { 0.0 }).sum())
+                }
+                o => Err(err(format!("unknown penalty {o:?} (boundary, connectivity, asym_connectivity, linear)"))),
+            }
+        };
+        let min_set = |what: &str| -> Result<()> {
+            if p0.objective != milp::Objective::MinSet {
+                return Err(err(format!("{what} needs a min set problem (without the penalty)")));
+            }
+            Ok(())
+        };
+        let cohon = || -> Result<(f64, [(f64, f64); 2])> {
+            min_set("Cohon's penalty")?;
+            let least_cost = solve(problem(&base)?, ideal_gap)?;
+            let budget = u.cost.iter().sum::<f64>() + 1.0;
+            let q = Self::with_objective(&Self::with_penalty(&base, &penalty, 1.0)?, "min_penalties", Some(budget));
+            let least_pen = solve(problem(&q)?, ideal_gap)?;
+            let m3 = (cost_of(&least_cost), criterion(&least_cost)?);
+            let m4 = (cost_of(&least_pen), criterion(&least_pen)?);
+            if m3.1 == m4.1 {
+                return Err(err(format!("the two ideal solutions have the same {penalty}: no trade-off to calibrate")));
+            }
+            Ok((milp::r_round(((m3.0 - m4.0) / (m3.1 - m4.1)).abs(), 5), [m3, m4]))
+        };
+        let values: Option<Vec<f64>> = match args.params.get("values") {
+            None | Some(serde_json::Value::Null) => None,
+            Some(serde_json::Value::Number(v)) => Some(vec![v.as_f64().unwrap()]),
+            Some(v) => Some(serde_json::from_value(v.clone()).map_err(|e| err(format!("values: {e}")))?),
+        };
+        if values.as_ref().is_some_and(|v| v.is_empty() || v.iter().any(|x| !x.is_finite() || *x < 0.0)) {
+            return Err(err("values must be finite and >= 0".into()));
+        }
+        let (values, candidates, crit_name) = match approach.as_str() {
+            "cohon" => {
+                let (value, ideals) = cohon()?;
+                let mut t = Table::new(["solution", "cost", penalty.as_str(), "penalty"].map(String::from).to_vec());
+                t.rows = ideals.iter().enumerate().map(|(k, (c, v))| vec![(k + 1) as f64, *c, *v, value]).collect();
+                let mut sel = Table::new(vec!["unit".into()]);
+                sel.rows = u.cells.iter().map(|&c| vec![(c + 1) as f64]).collect();
+                return Ok(outputs([("table", Value::Table(t)), ("selection", Value::Table(sel))]));
+            }
+            "blended" => {
+                let values = match values {
+                    Some(v) => v,
+                    None => {
+                        let (c, _) = cohon()?;
+                        if c <= 0.0 {
+                            return Err(err("the Cohon penalty is 0: give the values".into()));
+                        }
+                        let k: usize = args.param("n", 9)?;
+                        linspace(-2.0, 2.0, k).into_iter().map(|e| c * 10f64.powf(e)).collect()
+                    }
+                };
+                let problems = values
+                    .iter()
+                    .map(|&v| problem(&Self::with_penalty(&base, &penalty, v)?))
+                    .collect::<Result<Vec<_>>>()?;
+                (values, solve_all(problems)?, penalty.clone())
+            }
+            "hierarchical" => {
+                min_set("the hierarchical approach")?;
+                let thresholds = match values {
+                    Some(v) => v,
+                    None => {
+                        let least = solve(problem(&base)?, ideal_gap)?;
+                        let c = cost_of(&least);
+                        let inflation: Vec<f64> = match args.params.get("inflation") {
+                            None | Some(serde_json::Value::Null) => linspace(1e-5, 4.0, 9),
+                            Some(v) => serde_json::from_value(v.clone()).map_err(|e| err(format!("inflation: {e}")))?,
+                        };
+                        inflation.iter().map(|i| (c + c * i).ceil()).collect()
+                    }
+                };
+                if thresholds.iter().any(|&t| t <= 0.0) {
+                    return Err(err("the cost thresholds must be > 0".into()));
+                }
+                let pen = Self::with_penalty(&base, &penalty, 1.0)?;
+                let problems = thresholds
+                    .iter()
+                    .map(|&t| problem(&Self::with_objective(&pen, "min_penalties", Some(t))))
+                    .collect::<Result<Vec<_>>>()?;
+                (thresholds, solve_all(problems)?, penalty.clone())
+            }
+            "pareto" => {
+                if p0.targets.is_none() {
+                    return Err(err("the pareto front needs targets".into()));
+                }
+                let budgets = match values {
+                    Some(v) => v,
+                    None => {
+                        let k: usize = args.param("n", 10)?;
+                        let top = cost_of(&solve(problem(&Self::with_objective(&base, "min_set", None))?, gap)?);
+                        // the locked-in units' cost is spent anyway
+                        let (m, _) = milp::compile(&p0).map_err(err)?;
+                        let fixed: f64 = u.cost.iter().zip(&m.lb[..n]).map(|(c, l)| c * l).sum();
+                        linspace(fixed + (top - fixed) / k as f64, top, k)
+                    }
+                };
+                let problems = budgets
+                    .iter()
+                    .map(|&b| problem(&Self::with_objective(&base, "min_shortfall", Some(b))))
+                    .collect::<Result<Vec<_>>>()?;
+                (budgets, solve_all(problems)?, "shortfall".to_string())
+            }
+            o => return Err(err(format!("unknown approach {o:?} (blended, hierarchical, pareto, cohon)"))),
+        };
+        let pareto = approach == "pareto";
+        let mut crit = Vec::with_capacity(candidates.len());
+        let mut met = Vec::new();
+        for c in &candidates {
+            if pareto {
+                // min shortfall's: each shortfall as a share of its target
+                let spec = c.problem.targets.as_ref().unwrap();
+                let t = milp::resolve_targets(spec, &u.totals).map_err(err)?;
+                let held = milp::targets_held(u, &t, &c.out.x[..n]);
+                let (mut total, mut k_met) = (0.0, 0.0);
+                for (k, &h) in held.iter().enumerate() {
+                    let target = t.value[k];
+                    let short = match t.sense[k].as_str() {
+                        ">=" if h >= target => 0.0,
+                        "=" if h - target < 1e-10 => 0.0,
+                        "<=" if h <= target => 0.0,
+                        _ => (target - h).abs(),
+                    };
+                    total += if target > 0.0 { short / target } else { 0.0 };
+                    k_met += f64::from(u8::from(short < 1e-10));
+                }
+                crit.push(total);
+                met.push(k_met);
+            } else {
+                crit.push(criterion(c)?);
+            }
+        }
+        let costs: Vec<f64> = candidates.iter().map(cost_of).collect();
+        let scores = topsis(&costs.iter().zip(&crit).map(|(&a, &b)| vec![a, b]).collect::<Vec<_>>());
+        let chosen = (0..scores.len())
+            .filter(|&k| !scores[k].is_nan())
+            .fold(None, |b: Option<usize>, k| match b {
+                Some(j) if scores[j] >= scores[k] => Some(j),
+                _ => Some(k),
+            })
+            .unwrap_or(0);
+        let knee = knee_point(&crit, &costs);
+        let mut columns: Vec<String> = vec!["value".into(), "cost".into(), crit_name];
+        if pareto {
+            columns.push("met".into());
+        }
+        columns.extend(["objective", "optimal", "gap", "topsis_score", "topsis", "knee"].map(String::from));
+        if pareto {
+            columns.push("efficient".into());
+        }
+        let mut table = Table::new(columns);
+        for (k, c) in candidates.iter().enumerate() {
+            let mut row = vec![values[k], costs[k], crit[k]];
+            if pareto {
+                row.push(met[k]);
+            }
+            row.extend([
+                c.out.objective,
+                f64::from(u8::from(c.out.status == "optimal")),
+                c.out.gap,
+                scores[k],
+                f64::from(u8::from(k == chosen)),
+                f64::from(u8::from(k == knee)),
+            ]);
+            if pareto {
+                let dominated = (0..candidates.len())
+                    .any(|j| costs[j] <= costs[k] && crit[j] <= crit[k] && (costs[j] < costs[k] || crit[j] < crit[k]));
+                row.push(f64::from(u8::from(!dominated)));
+            }
+            table.rows.push(row);
+        }
+        let mut columns = vec!["unit".to_string()];
+        columns.extend((1..=candidates.len()).map(|k| format!("candidate_{k}")));
+        let mut selection = Table::new(columns);
+        selection.rows = (0..n)
+            .map(|i| std::iter::once((u.cells[i] + 1) as f64).chain(candidates.iter().map(|c| c.out.x[i])).collect())
+            .collect();
+        let mut out = outputs([("table", Value::Table(table)), ("selection", Value::Table(selection))]);
+        if u.raster {
+            let grid = args.map("cost")?.grid.clone();
+            let on_grid = |x: &[f64]| {
+                let mut m = vec![f64::NAN; grid.width * grid.height];
+                for (i, &c) in u.cells.iter().enumerate() {
+                    m[c] = x[i];
+                }
+                m
+            };
+            let keys = (1..=candidates.len()).map(|k| Key::Name(format!("candidate_{k}"))).collect();
+            let layers = candidates.iter().map(|c| Arc::new(on_grid(&c.out.x[..n]))).collect();
+            out.insert("best".into(), Value::Map(Map::new(grid.clone(), on_grid(&candidates[chosen].out.x[..n]))));
+            out.insert("solutions".into(), Value::Stack(Stack { grid, keys, layers }));
         }
         Ok(out)
     }

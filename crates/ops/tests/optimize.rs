@@ -1122,3 +1122,71 @@ fn bounds_optima_are_prioritizrs() {
         assert!(close || (better && (ours - want).abs() <= 1e-5 * want.abs().max(1.0)), "{name}: {ours} != {want}");
     }
 }
+
+/// prioritize.calibrate on the raster cases: its candidates and their objectives, and the reference's.
+fn calibrate_run(extra: serde_json::Value) -> terraflux_ops::Outputs {
+    let inputs = inputs();
+    let mut params = serde_json::json!({"relative_targets": 0.3, "gap": 0.0}).as_object().unwrap().clone();
+    params.extend(extra.as_object().unwrap().clone());
+    let args = Args { node: "n", inputs: args_of(&inputs, NONE, None), params: &params };
+    let registry = terraflux_ops::Registry::standard();
+    registry.get("prioritize.calibrate").unwrap().run(&mut terraflux_ops::Ctx::default(), &args).unwrap()
+}
+
+fn calibrate_column(out: &terraflux_ops::Outputs, c: &str) -> Vec<f64> {
+    let Value::Table(t) = &out["table"] else { panic!() };
+    t.column(c).unwrap_or_else(|| panic!("{c}"))
+}
+
+fn assert_objectives(name: &str, ours: &[f64], want: &[f64]) {
+    assert_eq!(ours.len(), want.len(), "{name}");
+    for (a, b) in ours.iter().zip(want) {
+        assert!((a - b).abs() <= 1e-9 * b.abs().max(1.0), "{name}: {ours:?} != {want:?}");
+    }
+}
+
+/// The Pareto front of cost and shortfall: prioritizr's min shortfall optima at its budgets; TOPSIS and the knee
+/// of a curve as landschaft's (R's topsis package).
+#[test]
+fn calibrate_pareto_is_prioritizrs() {
+    let r = reference("calibrate");
+    let out = calibrate_run(serde_json::json!({"approach": "pareto", "values": [500, 1000, 2000, 3000]}));
+    assert_eq!(calibrate_column(&out, "value"), r.floats("calibrate_pareto/budget"));
+    assert_objectives("pareto", &calibrate_column(&out, "objective"), &r.floats("calibrate_pareto/objective"));
+    // the shortfall is the objective (equal weights), every candidate efficient, one chosen by each method
+    for (a, b) in calibrate_column(&out, "shortfall").iter().zip(calibrate_column(&out, "objective")) {
+        assert!((a - b).abs() <= 1e-6 * b.max(1.0), "shortfall {a} != {b}");
+    }
+    assert!(calibrate_column(&out, "efficient").iter().all(|&e| e == 1.0));
+    assert_eq!(calibrate_column(&out, "topsis").iter().sum::<f64>(), 1.0);
+    assert_eq!(calibrate_column(&out, "knee").iter().sum::<f64>(), 1.0);
+    let Value::Stack(s) = &out["solutions"] else { panic!() };
+    assert_eq!(s.layers.len(), 4);
+
+    let scores = terraflux_ops::prioritize::topsis(&[vec![1.0, 9.0], vec![4.0, 4.0], vec![9.0, 1.0]]);
+    assert!(scores[1] > scores[0] && (scores[0] - scores[2]).abs() < 1e-12, "{scores:?}");
+    let knee = terraflux_ops::prioritize::knee_point(&[0.0, 1.0, 2.0, 3.0, 4.0, 5.0], &[10.0, 4.0, 2.0, 1.5, 1.2, 1.0]);
+    assert_eq!(knee, 2);
+}
+
+/// The blended approach (min set with boundary penalties of five weights) and the hierarchical one (the least
+/// boundary within cost thresholds above the least cost, rounded up): prioritizr's optima, thresholds and least
+/// cost (Gurobi's at gap 0; about 4 minutes: cargo test -- --ignored).
+#[test]
+#[ignore]
+fn calibrate_blended_and_hierarchical_are_prioritizrs() {
+    let r = reference("calibrate");
+    let out = calibrate_run(serde_json::json!({"approach": "blended", "values": [0.001, 0.01, 0.1, 1, 10]}));
+    assert_objectives("blended", &calibrate_column(&out, "objective"), &r.floats("calibrate_blended/objective"));
+    let out = calibrate_run(serde_json::json!({"approach": "hierarchical"}));
+    assert_eq!(calibrate_column(&out, "value"), r.floats("calibrate_hierarchical/threshold"));
+    assert_objectives(
+        "hierarchical",
+        &calibrate_column(&out, "objective"),
+        &r.floats("calibrate_hierarchical/objective"),
+    );
+    let cohon = calibrate_run(serde_json::json!({"approach": "cohon"}));
+    let cost = calibrate_column(&cohon, "cost");
+    assert_objectives("least cost", &cost[..1], &r.floats("calibrate_hierarchical/s1_cost"));
+    assert!(calibrate_column(&cohon, "penalty")[0] > 0.0);
+}

@@ -46,6 +46,11 @@ minor versions.
 - The phylogenetic objectives of `prioritize.optimize`: max_phylo_div and max_phylo_end (a phylogeny in Newick,
   its tips the features; the branches met where a target below them is). prioritizr's compile() bit for bit (with
   its tip-order bug fixed when the tips come in another order) and its optima on landschaft's 4 cases.
+- prioritizr's calibration of trade-offs (`prioritize.calibrate`): the blended approach (a range of penalty
+  weights, by default around Cohon et al.'s penalty), the hierarchical one (the least penalty within cost
+  thresholds above the least cost), the Pareto front of cost and shortfall, and Cohon's penalty; boundary,
+  connectivity or linear penalties; every candidate's cost and criterion, and the candidates TOPSIS and the knee of
+  the curve choose; the solves in parallel. prioritizr's optima, thresholds and least cost on landschaft's 3 cases.
 - prioritizr's evaluation of a solution (`prioritize.evaluate`): the units selected, their cost and boundary, the
   features' representation, the targets' coverage, Ferrier et al.'s irreplaceability and the rarity-weighted
   richness; prioritizr's numbers bit for bit on the cases landschaft keeps; and on request the replacement
