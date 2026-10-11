@@ -510,8 +510,10 @@ Pendências:
   corte do prioritizr corrigido, top, gap, shuffle), a contiguidade e a contiguidade por feição (a formulação exata
   do landschaft, com cortes por fluxo máximo), os limites manuais, os objetivos filogenéticos e a calibração
   (`prioritize.calibrate`: blended, hierárquica, Pareto, Cohon, TOPSIS e joelho), tudo bit a bit com o compile() do
-  prioritizr ou com os seus ótimos; faltam as zonas, as unidades de polígonos (precisam de vetores) e o risco de
-  extinção), prioriactions, o planejamento do plangea.
+  prioritizr ou com os seus ótimos; as zonas de manejo (unidades, alvos, objetivos, orçamentos e pesos por zona,
+  travas e limites por zona, alocação obrigatória, termos espaciais com matrizes de zonas, contiguidade por grupo
+  de zonas, avaliação geral e por zona; 37 casos bit a bit, com os motores de zonas do landschaft); faltam as
+  unidades de polígonos (precisam de vetores) e o risco de extinção), prioriactions, o planejamento do plangea.
 - **Próximos:** MSPA por tiles para rasters maiores que a memória; mapa de fundo de satélite (GDAL XYZ/WMS);
   vetores (OGR) para rasterizar e medir distâncias; instaladores com o GDAL; os outros kernels C++ já prontos (reclassificação, zonal, distância, métricas de paisagem,
   FAD, SPA), depois reprojeção (PROJ embutido e o warp do landschaft) e vetores.
