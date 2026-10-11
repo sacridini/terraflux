@@ -19,6 +19,10 @@ pub struct Units {
     pub names: Vec<String>,
     /// raster units: the cell of each unit
     pub cells: Vec<usize>,
+    /// the raster's rows and columns and its geotransform
+    pub ny: usize,
+    pub nx: usize,
+    pub transform: [f64; 6],
 }
 
 /// A sparse matrix in compressed rows.
@@ -77,7 +81,13 @@ fn seq_sum(v: &[f64]) -> f64 {
 impl Units {
     /// Raster units: the cells with a finite cost, the features' amounts there (no value 0) and their totals
     /// over the whole raster (terra's), through landschaft's FeatureMatrix.
-    pub fn raster(cost: &[f64], features: &[&[f64]], names: Vec<String>) -> Result<Units, String> {
+    pub fn raster(
+        cost: &[f64],
+        features: &[&[f64]],
+        names: Vec<String>,
+        (ny, nx): (usize, usize),
+        transform: [f64; 6],
+    ) -> Result<Units, String> {
         if features.is_empty() {
             return Err("no features".into());
         }
@@ -104,6 +114,9 @@ impl Units {
             totals: m.totals,
             names,
             cells,
+            ny,
+            nx,
+            transform,
         })
     }
 
@@ -202,6 +215,8 @@ pub struct Problem {
     pub decisions: Decisions,
     pub locked_in: Vec<bool>,
     pub locked_out: Vec<bool>,
+    /// penalties and constraints, in the order added (prioritizr applies the penalties, then the constraints)
+    pub spatial: Vec<Spatial>,
 }
 
 /// The targets as the model's rows: the feature, sense and amount of each, and the total relative targets are
@@ -549,6 +564,12 @@ pub fn compile(p: &Problem) -> Result<(Model, Targets), String> {
         maximize: kind.name().starts_with("max"),
         n,
     };
+    for sp in p.spatial.iter().filter(|s| s.is_penalty()) {
+        apply_spatial(&mut b, u, sp)?;
+    }
+    for sp in p.spatial.iter().filter(|s| !s.is_penalty()) {
+        apply_spatial(&mut b, u, sp)?;
+    }
     // locked units (bounds only)
     if p.locked_in.len() == n && p.locked_out.len() == n {
         if let Some(i) = (0..n).find(|&i| p.locked_in[i] && p.locked_out[i]) {
@@ -606,4 +627,301 @@ pub fn solve(m: &Model, n_units: usize, gap: f64, time_limit: f64) -> Result<ffi
     let settings =
         ffi::SolveSettings { gap, time_limit, presolve: "choose".into(), relaxation: false, start: Vec::new() };
     ffi::opt_solve(&model, &settings, method(m, n_units), n_units as i64).map_err(|e| e.what().to_string())
+}
+
+/// prioritizr's spatial penalties and constraints (on raster units).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Spatial {
+    /// add_boundary_penalties(penalty, edge_factor) on the units' boundary matrix
+    Boundary { penalty: f64, edge_factor: f64 },
+    /// add_linear_penalties(penalty, data): a value per cell
+    LinearPenalty { penalty: f64, data: Vec<f64> },
+    /// add_linear_constraints(threshold, sense, data): a value per cell
+    LinearConstraint { threshold: f64, sense: String, data: Vec<f64> },
+    /// add_neighbors_constraints(k, clamp) on the units' 4-adjacency
+    Neighbors { k: f64, clamp: bool },
+}
+
+impl Spatial {
+    fn is_penalty(&self) -> bool {
+        matches!(self, Spatial::Boundary { .. } | Spatial::LinearPenalty { .. })
+    }
+}
+
+/// A sparse matrix in compressed columns (Matrix's dgCMatrix, armadillo's sp_mat).
+#[derive(Debug, Clone, Default)]
+struct Csc {
+    n: usize,
+    start: Vec<usize>,
+    index: Vec<usize>,
+    value: Vec<f64>,
+}
+
+impl Csc {
+    /// From triplets of an n x n matrix: duplicates added up (scipy's sum_duplicates), rows in order.
+    fn from_triplets(n: usize, rows: &[usize], cols: &[usize], vals: &[f64]) -> Csc {
+        let t = Csr::from_triplets(n, n, cols, rows, vals);
+        Csc { n, start: t.start, index: t.index, value: t.value }
+    }
+
+    /// The units' sub-matrix (rows and columns of `cells`, in their order), zeros dropped.
+    fn cut(&self, cells: &[usize]) -> Csc {
+        let mut pos = vec![usize::MAX; self.n];
+        for (k, &c) in cells.iter().enumerate() {
+            pos[c] = k;
+        }
+        let mut out = Csc { n: cells.len(), start: vec![0], index: Vec::new(), value: Vec::new() };
+        for &c in cells {
+            let mut col: Vec<(usize, f64)> = (self.start[c]..self.start[c + 1])
+                .filter(|&e| pos[self.index[e]] != usize::MAX && self.value[e] != 0.0)
+                .map(|e| (pos[self.index[e]], self.value[e]))
+                .collect();
+            col.sort_by_key(|&(r, _)| r);
+            for (r, v) in col {
+                out.index.push(r);
+                out.value.push(v);
+            }
+            out.start.push(out.index.len());
+        }
+        out
+    }
+
+    fn diagonal(&self) -> Vec<f64> {
+        (0..self.n)
+            .map(|j| (self.start[j]..self.start[j + 1]).find(|&e| self.index[e] == j).map_or(0.0, |e| self.value[e]))
+            .collect()
+    }
+
+    /// Matrix::rowSums: every row's sum in double, over the columns in order.
+    fn row_sums(&self) -> Vec<f64> {
+        let mut by_row: Vec<Vec<(usize, f64)>> = vec![Vec::new(); self.n];
+        for j in 0..self.n {
+            for e in self.start[j]..self.start[j + 1] {
+                by_row[self.index[e]].push((j, self.value[e]));
+            }
+        }
+        by_row.iter().map(|r| r.iter().fold(0.0, |a, (_, v)| a + v)).collect()
+    }
+}
+
+/// The cells of a raster whose cost is finite, and their 4-neighbour pairs: vertical (upper, lower) then
+/// horizontal (left, right), each in the raster's order.
+fn pairs_4(include: &[usize], ny: usize, nx: usize) -> [(Vec<usize>, Vec<usize>); 2] {
+    let mut mask = vec![false; ny * nx];
+    for &c in include {
+        mask[c] = true;
+    }
+    let (mut u, mut d) = (Vec::new(), Vec::new());
+    for y in 0..ny.saturating_sub(1) {
+        for x in 0..nx {
+            let (a, b) = (y * nx + x, (y + 1) * nx + x);
+            if mask[a] && mask[b] {
+                u.push(a);
+                d.push(b);
+            }
+        }
+    }
+    let (mut l, mut r) = (Vec::new(), Vec::new());
+    for y in 0..ny {
+        for x in 0..nx.saturating_sub(1) {
+            let (a, b) = (y * nx + x, y * nx + x + 1);
+            if mask[a] && mask[b] {
+                l.push(a);
+                r.push(b);
+            }
+        }
+    }
+    [(u, d), (l, r)]
+}
+
+/// A symmetric matrix from the pairs (i, j) of value v.
+fn symmetric(i: &[usize], j: &[usize], v: &[f64]) -> (Vec<usize>, Vec<usize>, Vec<f64>) {
+    ([i, j].concat(), [j, i].concat(), [v, v].concat())
+}
+
+impl Units {
+    /// prioritizr's boundary_matrix of the raster, cut to the units: the shared edges of 4-neighbours, every
+    /// cell's perimeter on the diagonal.
+    fn boundary_matrix(&self) -> Csc {
+        let (ny, nx) = (self.ny, self.nx);
+        let n = ny * nx;
+        let t = self.transform;
+        // as landschaft's _res, operation for operation
+        let xres = (t[0] + nx as f64 * t[1] - t[0]) / nx as f64;
+        let yres = (t[3] - (t[3] + ny as f64 * t[5])) / ny as f64;
+        let [(u, d), (l, r)] = pairs_4(&self.cells, ny, nx);
+        let v: Vec<f64> = [vec![xres; u.len()], vec![yres; l.len()]].concat();
+        let (mut rows, mut cols, mut vals) = symmetric(&[u, l].concat(), &[d, r].concat(), &v);
+        // + the perimeters on the diagonal (added after the shared edges)
+        let perimeter = (xres + yres) * 2.0;
+        let sym = Csc::from_triplets(n, &rows, &cols, &vals);
+        rows.clear();
+        cols.clear();
+        vals.clear();
+        for j in 0..n {
+            for e in sym.start[j]..sym.start[j + 1] {
+                rows.push(sym.index[e]);
+                cols.push(j);
+                vals.push(sym.value[e]);
+            }
+        }
+        for &c in &self.cells {
+            rows.push(c);
+            cols.push(c);
+            vals.push(perimeter);
+        }
+        Csc::from_triplets(n, &rows, &cols, &vals).cut(&self.cells)
+    }
+
+    /// prioritizr's adjacency_matrix (4 neighbours) of the raster, cut to the units.
+    fn adjacency_matrix(&self) -> Csc {
+        let n = self.ny * self.nx;
+        let [(u, d), (l, r)] = pairs_4(&self.cells, self.ny, self.nx);
+        let i = [u, l].concat();
+        let j = [d, r].concat();
+        let (rows, cols, vals) = symmetric(&i, &j, &vec![1.0; i.len()]);
+        let mut m = Csc::from_triplets(n, &rows, &cols, &vals);
+        m.value.iter_mut().for_each(|v| *v = 1.0);
+        m.cut(&self.cells)
+    }
+}
+
+impl Builder {
+    fn add_columns(&mut self, obj: &[f64], lb: f64, ub: f64, vtype: char, id: &str) -> usize {
+        let first = self.ncol;
+        self.obj.extend_from_slice(obj);
+        self.lb.extend(std::iter::repeat_n(lb, obj.len()));
+        self.ub.extend(std::iter::repeat_n(ub, obj.len()));
+        self.vtype.extend(std::iter::repeat_n(vtype, obj.len()));
+        self.col_ids.extend(std::iter::repeat_n(id.to_string(), obj.len()));
+        self.ncol += obj.len();
+        first
+    }
+
+    /// Rows numbered from 0 (r), appended after the current ones.
+    fn add_rows(&mut self, r: &[usize], c: &[usize], v: &[f64], sense: &[String], rhs: &[f64], ids: &[String]) {
+        let at = self.nrow;
+        self.push(r.iter().map(|x| x + at), c.iter().copied(), v.iter().copied());
+        self.sense.extend_from_slice(sense);
+        self.rhs.extend_from_slice(rhs);
+        self.row_ids.extend_from_slice(ids);
+        self.nrow += sense.len();
+    }
+
+    /// One column per pair (x_i x_j, linearised) and its rows, as rcpp_apply_*_penalties.
+    fn pair_columns(&mut self, pi: &[usize], pj: &[usize], coef: &[f64], id: &str) {
+        if pi.is_empty() {
+            return;
+        }
+        let vt = self.vtype[0];
+        let first = self.add_columns(coef, 0.0, 1.0, vt, id);
+        let (mut r, mut c, mut v, mut sense, mut rhs, mut ids) = (vec![], vec![], vec![], vec![], vec![], vec![]);
+        let mut row = 0;
+        for k in 0..pi.len() {
+            let var = first + k;
+            for (other, suffix) in [(pi[k], "1"), (pj[k], "2")] {
+                r.extend([row, row]);
+                c.extend([var, other]);
+                v.extend([1.0, -1.0]);
+                sense.push("<=".to_string());
+                rhs.push(0.0);
+                ids.push(format!("{id}{suffix}"));
+                row += 1;
+            }
+            let third = if self.maximize { coef[k] < 0.0 } else { coef[k] > 0.0 };
+            if third {
+                r.extend([row, row, row]);
+                c.extend([var, pi[k], pj[k]]);
+                v.extend([1.0, -1.0, -1.0]);
+                sense.push(">=".to_string());
+                rhs.push(-1.0);
+                ids.push(format!("{id}3"));
+                row += 1;
+            }
+        }
+        self.add_rows(&r, &c, &v, &sense, &rhs, &ids);
+    }
+}
+
+/// A spatial penalty or constraint applied to the model being compiled.
+fn apply_spatial(b: &mut Builder, u: &Units, s: &Spatial) -> Result<(), String> {
+    let n = b.n;
+    match s {
+        Spatial::Boundary { penalty, edge_factor } => {
+            if !(penalty.abs() > 1e-50) {
+                return Ok(());
+            }
+            let bm = u.boundary_matrix();
+            let total = bm.diagonal();
+            let rs = bm.row_sums();
+            let p = if b.maximize { -penalty } else { *penalty };
+            for i in 0..n {
+                let exposed = total[i] - (rs[i] - total[i]);
+                b.obj[i] += p * 1.0 * ((total[i] - exposed) + (exposed * edge_factor));
+            }
+            // the strictly lower triangle, by column then row
+            let (mut pi, mut pj, mut coef) = (vec![], vec![], vec![]);
+            for j in 0..bm.n {
+                for e in bm.start[j]..bm.start[j + 1] {
+                    let i = bm.index[e];
+                    if i > j {
+                        let cv = bm.value[e] * 1.0 * p;
+                        if cv.abs() > 1.0e-15 {
+                            pi.push(i);
+                            pj.push(j);
+                            coef.push(cv * -2.0);
+                        }
+                    }
+                }
+            }
+            b.pair_columns(&pi, &pj, &coef, "b");
+        }
+        Spatial::LinearPenalty { penalty, data } => {
+            if !(penalty.abs() > 1e-50) {
+                return Ok(());
+            }
+            let p = if b.maximize { -penalty } else { *penalty };
+            for (i, &c) in u.cells.iter().enumerate() {
+                let v = if data[c].is_nan() { 0.0 } else { data[c] };
+                let cv = v * p;
+                b.obj[i] += if v != 0.0 && cv.abs() > 1.0e-15 { cv } else { 0.0 };
+            }
+        }
+        Spatial::LinearConstraint { threshold, sense, data } => {
+            let (mut c, mut v) = (vec![], vec![]);
+            for (i, &cell) in u.cells.iter().enumerate() {
+                let x = if data[cell].is_nan() { 0.0 } else { data[cell] };
+                if x != 0.0 {
+                    c.push(i);
+                    v.push(x);
+                }
+            }
+            b.add_rows(&vec![0; c.len()], &c, &v, &[sense.clone()], &[*threshold], &["lc".to_string()]);
+        }
+        Spatial::Neighbors { k, clamp } => {
+            let d = u.adjacency_matrix();
+            let mut kk = vec![*k; n];
+            if *clamp {
+                for (k, rs) in kk.iter_mut().zip(d.row_sums()) {
+                    *k = k.min(rs);
+                }
+            }
+            if !(kk.iter().cloned().fold(0.0, f64::max) > 0.0) {
+                return Ok(());
+            }
+            let (mut r, mut c, mut v): (Vec<usize>, Vec<usize>, Vec<f64>) =
+                ((0..n).collect(), (0..n).collect(), kk.iter().map(|k| k * -1.0).collect());
+            for j in 0..d.n {
+                for e in d.start[j]..d.start[j + 1] {
+                    if d.value[e] > 1.0e-15 && d.index[e] != j {
+                        r.push(d.index[e]);
+                        c.push(j);
+                        v.push(1.0);
+                    }
+                }
+            }
+            b.add_rows(&r, &c, &v, &vec![">=".to_string(); n], &vec![0.0; n], &vec!["n".to_string(); n]);
+        }
+    }
+    Ok(())
 }

@@ -39,8 +39,11 @@ fn inputs() -> BTreeMap<String, Array> {
     .unwrap()
 }
 
+const NONE: &[&str] = &[];
+const BOTH: &[&str] = &["locked_in", "locked_out"];
+
 /// The cases of raster units (prioritizr's R calls in landschaft's optimize_cases.py) as the node's settings.
-fn cases() -> Vec<(&'static str, &'static str, serde_json::Value, bool, Option<Table>)> {
+fn cases() -> Vec<(&'static str, &'static str, serde_json::Value, &'static [&'static str], Option<Table>)> {
     use serde_json::json;
     let abs = json!([1.2, 0.9, 1, 120, 4]);
     let manual = |rows: Vec<[f64; 4]>| {
@@ -49,30 +52,30 @@ fn cases() -> Vec<(&'static str, &'static str, serde_json::Value, bool, Option<T
         Some(t)
     };
     vec![
-        ("core", "minset_raster_relative", json!({"relative_targets": 0.3}), false, None),
-        ("core", "minset_raster_relative_each", json!({"relative_targets": [0.1, 0.25, 0.5, 0.2, 0.35]}), false, None),
-        ("core", "minset_raster_absolute", json!({"absolute_targets": abs}), false, None),
-        ("core", "minset_raster_locked", json!({"relative_targets": 0.3}), true, None),
-        ("core", "minset_raster_proportion", json!({"relative_targets": 0.3, "decisions": "proportion"}), false, None),
+        ("core", "minset_raster_relative", json!({"relative_targets": 0.3}), NONE, None),
+        ("core", "minset_raster_relative_each", json!({"relative_targets": [0.1, 0.25, 0.5, 0.2, 0.35]}), NONE, None),
+        ("core", "minset_raster_absolute", json!({"absolute_targets": abs}), NONE, None),
+        ("core", "minset_raster_locked", json!({"relative_targets": 0.3}), BOTH, None),
+        ("core", "minset_raster_proportion", json!({"relative_targets": 0.3, "decisions": "proportion"}), NONE, None),
         (
             "core",
             "minset_raster_semicontinuous",
             json!({"relative_targets": 0.3, "decisions": "semicontinuous", "upper_limit": 0.6}),
-            false,
+            NONE,
             None,
         ),
         (
             "core",
             "minset_raster_locked_proportion",
             json!({"relative_targets": 0.3, "decisions": "proportion"}),
-            true,
+            BOTH,
             None,
         ),
         (
             "objectives",
             "min_shortfall",
             json!({"objective": "min_shortfall", "budget": 2500, "relative_targets": 0.4}),
-            false,
+            NONE,
             None,
         ),
         (
@@ -80,30 +83,30 @@ fn cases() -> Vec<(&'static str, &'static str, serde_json::Value, bool, Option<T
             "min_shortfall_weights_tiny",
             json!({"objective": "min_shortfall", "budget": 2500, "absolute_targets": [1.2, 1e-5, 1, 120, 4],
                    "feature_weights": [1, 2, 0.5, 3, 1]}),
-            false,
+            NONE,
             None,
         ),
         (
             "objectives",
             "min_shortfall_tiny",
             json!({"objective": "min_shortfall", "budget": 2500, "absolute_targets": [1.2, 1e-5, 1, 120, 4]}),
-            false,
+            NONE,
             None,
         ),
         (
             "objectives",
             "min_largest_shortfall",
             json!({"objective": "min_largest_shortfall", "budget": 2500, "relative_targets": [0.3, 0.4, 0.5, 0.2, 0.35]}),
-            true,
+            BOTH,
             None,
         ),
-        ("objectives", "max_utility", json!({"objective": "max_utility", "budget": 2500}), false, None),
+        ("objectives", "max_utility", json!({"objective": "max_utility", "budget": 2500}), NONE, None),
         (
             "objectives",
             "max_utility_weights",
             json!({"objective": "max_utility", "budget": 2500, "feature_weights": [5, 1, 2, 0.01, 0.5],
                    "decisions": "proportion"}),
-            false,
+            NONE,
             None,
         ),
         (
@@ -111,22 +114,22 @@ fn cases() -> Vec<(&'static str, &'static str, serde_json::Value, bool, Option<T
             "max_features",
             json!({"objective": "max_features", "budget": 2500, "relative_targets": [0.3, 0.4, 0.5, 0.2, 0.35],
                    "feature_weights": [1, 2, 3, 1, 2]}),
-            false,
+            NONE,
             None,
         ),
-        ("objectives", "max_cover", json!({"objective": "max_cover", "budget": 800}), false, None),
+        ("objectives", "max_cover", json!({"objective": "max_cover", "budget": 800}), NONE, None),
         (
             "objectives",
             "min_penalties",
             json!({"objective": "min_penalties", "budget": 2500, "relative_targets": 0.2}),
-            false,
+            NONE,
             None,
         ),
         (
             "objectives",
             "targets_manual",
             json!({}),
-            false,
+            NONE,
             manual(vec![
                 [1.0, 1.0, 1.0, 0.3],
                 [2.0, 0.0, -1.0, 2.0],
@@ -139,18 +142,44 @@ fn cases() -> Vec<(&'static str, &'static str, serde_json::Value, bool, Option<T
             "objectives",
             "targets_manual_equal",
             json!({"decisions": "proportion"}),
-            false,
+            NONE,
             manual(vec![[1.0, 1.0, 0.0, 0.3], [3.0, 0.0, 1.0, 1.1], [5.0, 1.0, 0.0, 0.25]]),
         ),
-        ("objectives", "targets_loglinear", json!({"loglinear_targets": [3, 0.6, 300, 0.2]}), false, None),
-        ("objectives", "targets_loglinear_cap", json!({"loglinear_targets": [3, 0.6, 300, 0.2, 100, 50]}), false, None),
+        ("objectives", "targets_loglinear", json!({"loglinear_targets": [3, 0.6, 300, 0.2]}), NONE, None),
+        ("objectives", "targets_loglinear_cap", json!({"loglinear_targets": [3, 0.6, 300, 0.2, 100, 50]}), NONE, None),
+        ("spatial", "boundary_raster", json!({"relative_targets": 0.3, "boundary_penalty": 0.5}), NONE, None),
+        (
+            "spatial",
+            "boundary_raster_edge_max",
+            json!({"objective": "max_utility", "budget": 2500, "boundary_penalty": 0.002, "edge_factor": 0.3}),
+            &["locked_in"],
+            None,
+        ),
+        (
+            "spatial",
+            "linear_penalties",
+            json!({"relative_targets": 0.3, "linear_penalty": 7.5}),
+            &["penalty_data"],
+            None,
+        ),
+        (
+            "spatial",
+            "linear_constraints",
+            json!({"relative_targets": 0.3, "linear_threshold": 250, "linear_sense": "<="}),
+            &["constraint_data"],
+            None,
+        ),
+        ("spatial", "neighbors_raster", json!({"relative_targets": 0.3, "neighbors": 2}), NONE, None),
     ]
 }
 
-fn args_of(inputs: &BTreeMap<String, Array>, locked: bool, targets: Option<Table>) -> BTreeMap<String, Value> {
+fn args_of(inputs: &BTreeMap<String, Array>, locks: &[&str], targets: Option<Table>) -> BTreeMap<String, Value> {
     let f = &inputs["features"];
     let (ny, nx) = (f.shape[1], f.shape[2]);
-    let grid = Arc::new(terraflux_raster::Grid::new(nx, ny));
+    // the cases' grid: cells of 100 m, the top-left corner at (0, rows x 100)
+    let mut grid = terraflux_raster::Grid::new(nx, ny);
+    grid.transform = [0.0, 100.0, 0.0, ny as f64 * 100.0, 0.0, -100.0];
+    let grid = Arc::new(grid);
     let mut out = BTreeMap::new();
     out.insert(
         "features".to_string(),
@@ -161,10 +190,10 @@ fn args_of(inputs: &BTreeMap<String, Array>, locked: bool, targets: Option<Table
         }),
     );
     out.insert("cost".into(), Value::Map(Map::new(grid.clone(), inputs["pu_cost"].data.clone())));
-    if locked {
-        for k in ["locked_in", "locked_out"] {
-            out.insert(k.into(), Value::Map(Map::new(grid.clone(), inputs[k].data.clone())));
-        }
+    for &k in locks {
+        // the penalty raster feeds the linear penalties and constraint
+        let source = if k.ends_with("_data") { "penalty_raster" } else { k };
+        out.insert(k.into(), Value::Map(Map::new(grid.clone(), inputs[source].data.clone())));
     }
     if let Some(t) = targets {
         out.insert("targets".into(), Value::Table(t));
@@ -177,10 +206,12 @@ fn args_of(inputs: &BTreeMap<String, Array>, locked: bool, targets: Option<Table
 #[test]
 fn compile_is_prioritizrs() {
     let inputs = inputs();
-    let refs: BTreeMap<&str, Reference> = [("core", reference("core")), ("objectives", reference("objectives"))].into();
-    for (group, name, params, locked, targets) in cases() {
+    let refs: BTreeMap<&str, Reference> =
+        [("core", reference("core")), ("objectives", reference("objectives")), ("spatial", reference("spatial"))]
+            .into();
+    for (group, name, params, locks, targets) in cases() {
         let r = &refs[group];
-        let ins = args_of(&inputs, locked, targets);
+        let ins = args_of(&inputs, locks, targets);
         let params = params.as_object().unwrap().clone();
         let args = Args { node: "n", inputs: ins, params: &params };
         let p = terraflux_ops::prioritize::problem_of(&args).unwrap_or_else(|e| panic!("{name}: {e}"));
@@ -219,7 +250,7 @@ fn compile_is_prioritizrs() {
 }
 
 /// The cases HiGHS solves at gap 0 in under a few seconds (the others take up to half a minute).
-const QUICK: [&str; 10] = [
+const QUICK: [&str; 12] = [
     "minset_raster_relative",
     "minset_raster_absolute",
     "minset_raster_proportion",
@@ -230,6 +261,8 @@ const QUICK: [&str; 10] = [
     "max_utility_weights",
     "min_penalties",
     "targets_manual_equal",
+    "boundary_raster_edge_max",
+    "linear_constraints",
 ];
 
 /// HiGHS at gap 0 reaches prioritizr's optimum on the quick cases.
@@ -249,12 +282,14 @@ fn every_optimum_is_prioritizrs() {
 /// maximise (where the cost only breaks ties and Gurobi stops within its tolerances), never worse.
 fn optima(which: impl Fn(&str) -> bool) {
     let inputs = inputs();
-    let refs: BTreeMap<&str, Reference> = [("core", reference("core")), ("objectives", reference("objectives"))].into();
+    let refs: BTreeMap<&str, Reference> =
+        [("core", reference("core")), ("objectives", reference("objectives")), ("spatial", reference("spatial"))]
+            .into();
     let registry = terraflux_ops::Registry::standard();
-    for (group, name, params, locked, targets) in cases().into_iter().filter(|c| which(c.1)) {
+    for (group, name, params, locks, targets) in cases().into_iter().filter(|c| which(c.1)) {
         let mut params = params.as_object().unwrap().clone();
         params.insert("gap".into(), 0.0.into());
-        let args = Args { node: "n", inputs: args_of(&inputs, locked, targets), params: &params };
+        let args = Args { node: "n", inputs: args_of(&inputs, locks, targets), params: &params };
         let out = registry
             .get("prioritize.optimize")
             .unwrap()

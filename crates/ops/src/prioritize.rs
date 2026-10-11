@@ -932,7 +932,9 @@ pub fn problem_of(args: &Args) -> Result<milp::Problem> {
     }
     let layers: Vec<&[f64]> = features.layers.iter().map(|l| l.as_slice()).collect();
     let names: Vec<String> = features.keys.iter().map(|k| k.to_string()).collect();
-    let units = milp::Units::raster(&cost.data, &layers, names).map_err(err)?;
+    let units =
+        milp::Units::raster(&cost.data, &layers, names, (cost.grid.height, cost.grid.width), cost.grid.transform)
+            .map_err(err)?;
     let nf = units.names.len();
     let n = units.n();
     let budget = || -> Result<f64> {
@@ -1018,7 +1020,32 @@ pub fn problem_of(args: &Args) -> Result<milp::Problem> {
         })
     };
     let (locked_in, locked_out) = (locked("locked_in")?, locked("locked_out")?);
-    Ok(milp::Problem { units, objective, targets, weights, decisions, locked_in, locked_out })
+    // the spatial penalties, then the constraints
+    let mut spatial = Vec::new();
+    if let Some(penalty) = args.opt_param::<f64>("boundary_penalty")? {
+        spatial.push(milp::Spatial::Boundary { penalty, edge_factor: args.param("edge_factor", 0.5)? });
+    }
+    let grid_values = |port: &str| -> Result<Vec<f64>> {
+        let m = args.map(port)?;
+        if (m.grid.width, m.grid.height) != (cost.grid.width, cost.grid.height) {
+            return Err(err(format!("{port} is not on the cost's grid")));
+        }
+        Ok(m.data.to_vec())
+    };
+    if let Some(penalty) = args.opt_param::<f64>("linear_penalty")? {
+        spatial.push(milp::Spatial::LinearPenalty { penalty, data: grid_values("penalty_data")? });
+    }
+    if let Some(threshold) = args.opt_param::<f64>("linear_threshold")? {
+        let sense: String = args.param("linear_sense", "<=".to_string())?;
+        if !matches!(sense.as_str(), ">=" | "<=" | "=") {
+            return Err(err(format!("linear_sense is >=, <= or =, not {sense:?}")));
+        }
+        spatial.push(milp::Spatial::LinearConstraint { threshold, sense, data: grid_values("constraint_data")? });
+    }
+    if let Some(k) = args.opt_param::<f64>("neighbors")? {
+        spatial.push(milp::Spatial::Neighbors { k, clamp: args.param("clamp", true)? });
+    }
+    Ok(milp::Problem { units, objective, targets, weights, decisions, locked_in, locked_out, spatial })
 }
 
 struct Optimize;
@@ -1032,7 +1059,8 @@ impl Operator for Optimize {
              prioritizr compiles. Objectives: min_set (meet every target at the least cost), min_shortfall, \
              min_largest_shortfall, max_utility, max_features, max_cover, min_penalties (with a budget); \
              targets relative, absolute, loglinear or by hand; feature weights; binary, proportion or \
-             semicontinuous decisions; locked units.",
+             semicontinuous decisions; locked units; boundary and linear penalties, a linear constraint, \
+             neighbour constraints.",
             Access::Global,
         )
         .input(PortSpec::new("features", Type::Stack, "the features' amounts, a layer each"))
@@ -1044,6 +1072,8 @@ impl Operator for Optimize {
             Type::Table,
             "targets by hand: feature (1..), relative (1) or absolute (0), sense (1 >=, -1 <=, 0 =), target",
         ))
+        .input(PortSpec::optional("penalty_data", Type::Map, "linear penalties: a value per cell"))
+        .input(PortSpec::optional("constraint_data", Type::Map, "the linear constraint: a value per cell"))
         .output(PortSpec::new("solution", Type::Map, "the share of each unit selected (1 selected)"))
         .output(PortSpec::new(
             "summary",
@@ -1071,6 +1101,17 @@ impl Operator for Optimize {
         .param(PortSpec::optional("feature_weights", Type::Any, "a weight per feature"))
         .param(PortSpec::optional("decisions", Type::Text, "binary (default), proportion or semicontinuous"))
         .param(PortSpec::optional("upper_limit", Type::Number, "semicontinuous: the most of a unit selected"))
+        .param(PortSpec::optional(
+            "boundary_penalty",
+            Type::Number,
+            "boundary penalties: the weight of the selection's boundary (its exposed edges times edge_factor)",
+        ))
+        .param(PortSpec::optional("edge_factor", Type::Number, "boundary penalties: the weight of edges to no unit (0.5)"))
+        .param(PortSpec::optional("linear_penalty", Type::Number, "linear penalties: the weight of penalty_data"))
+        .param(PortSpec::optional("linear_threshold", Type::Number, "a linear constraint on constraint_data"))
+        .param(PortSpec::optional("linear_sense", Type::Text, "the linear constraint's sense: <= (default), >=, ="))
+        .param(PortSpec::optional("neighbors", Type::Number, "every selected unit has this many selected neighbours"))
+        .param(PortSpec::optional("clamp", Type::Bool, "neighbors: fewer for the units with fewer (default true)"))
         .param(PortSpec::optional("gap", Type::Number, "the relative optimality gap (default 0.1, as prioritizr)"))
         .param(PortSpec::optional("time_limit", Type::Number, "seconds (default none)"))
     }

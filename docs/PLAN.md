@@ -503,7 +503,8 @@ Pendências:
   do problema), o compilador do prioritizr (MILP; D1 feito:
   `prioritize.optimize` com unidades de raster, os objetivos sem termos espaciais, os alvos, pesos, decisões e
   travas; os modelos bit a bit com o compile() do prioritizr nos 20 casos de raster, e o ótimo do Gurobi alcançado
-  pelo HiGHS; faltam as penalidades e restrições espaciais, as zonas, a filogenia, o risco de extinção, os
+  pelo HiGHS; D2: penalidades de fronteira e lineares, restrição linear e de vizinhos, os 25 casos de raster bit a
+  bit; faltam a conectividade (precisa de unidades de tabela ou de uma matriz), a contiguidade, as zonas, a filogenia, o risco de extinção, os
   portfólios, a importância de Ferrier e por substituição, e as unidades de tabela e de polígonos), prioriactions, o planejamento do
   plangea.
 - **Próximos:** MSPA por tiles para rasters maiores que a memória; mapa de fundo de satélite (GDAL XYZ/WMS);
