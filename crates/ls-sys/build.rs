@@ -22,6 +22,9 @@ fn main() {
     println!("cargo:rerun-if-changed={}", source.join("src").join("cpp").join("sim").display());
     println!("cargo:rerun-if-changed={}", source.join("src").join("cpp").join("gtb").display());
     println!("cargo:rerun-if-changed={}", source.join("src").join("cpp").join("lsm").display());
+    println!("cargo:rerun-if-changed={}", source.join("src").join("cpp").join("rest").display());
+    println!("cargo:rerun-if-changed={}", source.join("src").join("cpp").join("opt").display());
+    println!("cargo:rerun-if-changed={}", source.join("src").join("cpp").join("prio").display());
 
     let target = std::env::var("TARGET").unwrap();
     if target.contains("msvc") && std::env::var_os("CMAKE").is_none() {
@@ -35,7 +38,8 @@ fn main() {
     println!("cargo:rerun-if-env-changed=CMAKE");
 
     let mut cfg = cmake::Config::new(&source);
-    cfg.define("LANDSCHAFT_PYTHON", "OFF").profile("Release");
+    // the MILP prioritization too (optcore, with HiGHS)
+    cfg.define("LANDSCHAFT_PYTHON", "OFF").define("LANDSCHAFT_MILP", "ON").profile("Release");
     if let Some(eigen) = std::env::var_os("LANDSCHAFT_EIGEN_DIR") {
         cfg.define("FETCHCONTENT_SOURCE_DIR_EIGEN", eigen);
     }
@@ -43,7 +47,7 @@ fn main() {
     let include = dst.join("include");
 
     println!("cargo:rustc-link-search=native={}", dst.join("lib").display());
-    for lib in ["simcore", "lsmcore", "nlmcore", "gtbcore"] {
+    for lib in ["simcore", "lsmcore", "nlmcore", "gtbcore", "priocore", "restcore", "optcore", "highs"] {
         println!("cargo:rustc-link-lib=static={lib}");
     }
     // the OpenMP runtime of the kernels

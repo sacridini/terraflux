@@ -1,0 +1,164 @@
+{
+ "classes": [
+  "forest",
+  "savanna",
+  "wetland",
+  "crops",
+  "pasture",
+  "water"
+ ],
+ "natural": [
+  "forest",
+  "savanna",
+  "wetland"
+ ],
+ "anthropic": [
+  "crops",
+  "pasture"
+ ],
+ "species": [
+  "sp_a",
+  "sp_b",
+  "sp_c",
+  "sp_d",
+  "sp_e",
+  "sp_f"
+ ],
+ "res": 1000.0,
+ "suitability": {
+  "sp_a": [
+   "forest",
+   "crops"
+  ],
+  "sp_b": [
+   "savanna",
+   "wetland"
+  ],
+  "sp_c": [
+   "crops"
+  ],
+  "sp_d": [
+   "forest"
+  ],
+  "sp_f": [
+   "forest"
+  ]
+ },
+ "elevation_limits": [
+  [
+   "sp_a",
+   500.0,
+   null
+  ],
+  [
+   "sp_b",
+   null,
+   1200.0
+  ],
+  [
+   "sp_d",
+   300.0,
+   1500.0
+  ]
+ ],
+ "it_cases": {
+  "it_default": {
+   "seed": 21,
+   "radius": 2,
+   "gamma": 0.40235947810852507,
+   "beta": -0.2,
+   "z": 0.5,
+   "res": 1000.0
+  },
+  "it_params": {
+   "seed": 24,
+   "radius": 3,
+   "gamma": 0.3,
+   "beta": -0.1,
+   "z": 0.7,
+   "res": 2000.0
+  },
+  "it_restored": {
+   "seed": 25,
+   "radius": 1,
+   "gamma": 0.40235947810852507,
+   "beta": -0.2,
+   "z": 0.5,
+   "res": 1000.0,
+   "restore": true
+  },
+  "it_gradient": {
+   "seed": 26,
+   "radius": 2,
+   "gamma": 0.40235947810852507,
+   "beta": -0.2,
+   "z": 0.5,
+   "res": 1000.0,
+   "restore": true,
+   "gradient": true,
+   "low": 2.0
+  }
+ },
+ "oa_cases": {
+  "oa_past_er": {
+   "past": true,
+   "er": true,
+   "failsafe": [
+    "forest",
+    "savanna"
+   ],
+   "problem": [
+    "R"
+   ]
+  },
+  "oa_er": {
+   "past": false,
+   "er": true,
+   "failsafe": [
+    "forest",
+    "savanna",
+    "wetland"
+   ],
+   "problem": [
+    "R"
+   ]
+  },
+  "oa_flat": {
+   "past": true,
+   "er": false,
+   "failsafe": [
+    "forest"
+   ],
+   "problem": [
+    "R"
+   ],
+   "fixed": true
+  },
+  "oa_convert": {
+   "past": true,
+   "er": true,
+   "failsafe": [
+    "forest",
+    "savanna",
+    "wetland"
+   ],
+   "problem": [
+    "R",
+    "D"
+   ]
+  }
+ },
+ "bd_cases": {
+  "bd_absent": {
+   "oa": "oa_past_er",
+   "include_absent": true,
+   "elevation": false,
+   "exrisk": true
+  },
+  "bd_elevation": {
+   "oa": "oa_er",
+   "include_absent": false,
+   "elevation": true
+  }
+ }
+}

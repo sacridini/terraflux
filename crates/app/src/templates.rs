@@ -16,7 +16,7 @@ impl Template {
     }
 }
 
-pub const TEMPLATES: [Template; 9] = [
+pub const TEMPLATES: [Template; 10] = [
     Template {
         name: "MSPA of a forest",
         about: "a map of three classes drawn by chance, its forest made MSPA's foreground by a reclassification, \
@@ -313,6 +313,62 @@ id = "plot_window"
 op = "view.plot"
 inputs = { value = "window.maps" }
 params = { title = "Diversity around each cell" }
+"#,
+    },
+    Template {
+        name: "Ecological intactness",
+        about: "a human footprint drawn by chance, the ecological intactness it leaves (Beyer et al., as plangea), \
+                and where restoring would raise it most",
+        toml: r#"
+format = "terraflux/1"
+name = "Ecological intactness"
+description = "Beyer et al.'s ecological intactness of a human footprint, and its gradient as cells are restored."
+
+[[nodes]]
+id = "field"
+op = "nlm.gaussian_field"
+params = { rows = 120, columns = 120, range = 12, seed = 8 }
+note = "A smooth surface from 0 to 1 drawn by chance."
+
+[[nodes]]
+id = "footprint"
+op = "map.calc"
+inputs = { f = "field.map" }
+params = { expression = "f * f * 30" }
+note = "A human footprint of 0 to 30 (in its place, a raster.read of the Human Footprint Index)."
+
+[[nodes]]
+id = "intactness"
+op = "restoration.intactness"
+inputs = { footprint = "footprint.map" }
+params = { radius = 3, cell_size = 1.0 }
+note = "The habitat's quality exp(-gamma footprint) of each cell and of those within 3 cells: 1 intact, 0 lost. cell_size: a cell's side in km (a projected map gives it)."
+
+[[nodes]]
+id = "reduction"
+op = "map.calc"
+inputs = { f = "footprint.map" }
+params = { expression = "f / 2" }
+note = "How much a cell's footprint falls when it is restored: half of it, here."
+
+[[nodes]]
+id = "gradient"
+op = "restoration.intactness_gradient"
+inputs = { footprint = "footprint.map", reduction = "reduction.map" }
+params = { radius = 3, cell_size = 1.0 }
+note = "How much the total intactness rises per unit of each cell restored: where restoring pays most."
+
+[[nodes]]
+id = "plot_intactness"
+op = "view.plot"
+inputs = { value = "intactness.map" }
+params = { title = "Ecological intactness" }
+
+[[nodes]]
+id = "plot_gradient"
+op = "view.plot"
+inputs = { value = "gradient.map" }
+params = { title = "Where restoring raises it most" }
 "#,
     },
     Template {

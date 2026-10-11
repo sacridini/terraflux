@@ -28,6 +28,8 @@
 #include "gtb/mspa.hpp"
 #include "gtb/spa.hpp"
 #include "lsm/landscape.hpp"
+#include "rest/habitat.hpp"
+#include "rest/intactness.hpp"
 #include "lsm/rmath.hpp"
 #include "nlm/models.hpp"
 #include "sim/change.hpp"
@@ -350,6 +352,123 @@ ChangeOut fos_change(rust::Slice<const std::uint8_t> a, rust::Slice<const std::u
     out.values.push_back(r.frag_increase_pct);
     for (const auto& row : r.matrix_6x6)
         for (i64 n : row) out.matrix.push_back(n);
+    return out;
+}
+
+namespace {
+
+// a slice, or null when it is empty
+template <class T>
+const T* or_null(rust::Slice<const T> s, std::size_t n, const char* what) {
+    if (s.empty()) return nullptr;
+    check(s.size() == n, what);
+    return s.data();
+}
+
+rest::IntactnessParams intactness_params(double gamma, double beta, double z, std::int32_t radius, double dx,
+                                         double dy) {
+    check(radius >= 0, "the radius is 0 cells or more");
+    check(z > 0, "z is above 0");
+    return rest::IntactnessParams{gamma, beta, z, radius, dx, dy};
+}
+
+}  // namespace
+
+rust::Vec<double> rest_footprint(rust::Slice<const double> hfi, rust::Slice<const double> reduction,
+                                 rust::Slice<const double> restored, std::int64_t ny, std::int64_t nx) {
+    const std::size_t n = static_cast<std::size_t>(ny * nx);
+    check(hfi.size() == n, "the footprint differs in size from ny x nx");
+    return to_rust<double>(rest::restored_footprint(hfi.data(), or_null(reduction, n, "the reduction's grid"),
+                                                    or_null(restored, n, "the restored shares' grid"), ny, nx,
+                                                    max_threads()));
+}
+
+rust::Vec<double> rest_intactness(rust::Slice<const double> hfi, std::int64_t ny, std::int64_t nx, double gamma,
+                                  double beta, double z, std::int32_t radius, double dx, double dy) {
+    check(static_cast<i64>(hfi.size()) == ny * nx, "the footprint differs in size from ny x nx");
+    return to_rust<double>(
+        rest::intactness(hfi.data(), ny, nx, intactness_params(gamma, beta, z, radius, dx, dy), max_threads()));
+}
+
+rust::Vec<double> rest_intactness_gradient(rust::Slice<const double> hfi, rust::Slice<const double> reduction,
+                                           std::int64_t ny, std::int64_t nx, double gamma, double beta, double z,
+                                           std::int32_t radius, double dx, double dy) {
+    check(static_cast<i64>(hfi.size()) == ny * nx && hfi.size() == reduction.size(),
+          "the footprint and the reduction differ in size from ny x nx");
+    return to_rust<double>(rest::intactness_gradient(hfi.data(), reduction.data(), ny, nx,
+                                                     intactness_params(gamma, beta, z, radius, dx, dy),
+                                                     max_threads()));
+}
+
+VegetationOut rest_original_vegetation(rust::Slice<const double> natural, std::int32_t k,
+                                       rust::Slice<const double> anthropic, std::int32_t m, std::int64_t n,
+                                       rust::Slice<const double> past, rust::Slice<const double> ecoregion,
+                                       rust::Slice<const std::uint8_t> domain, rust::Slice<const std::uint8_t> fill,
+                                       double threshold, bool restore_current) {
+    const std::size_t kn = static_cast<std::size_t>(k) * static_cast<std::size_t>(n);
+    check(k > 0 && m > 0 && n >= 0, "natural and anthropic classes are needed");
+    check(natural.size() == kn, "the natural shares are k x n");
+    check(anthropic.size() == static_cast<std::size_t>(m) * static_cast<std::size_t>(n), "the anthropic shares are m x n");
+    check(fill.size() == static_cast<std::size_t>(k), "a failsafe flag per natural class");
+    const rest::Vegetation v = rest::original_vegetation(
+        natural.data(), k, anthropic.data(), m, n, or_null(past, kn, "the past shares are k x n"),
+        or_null(ecoregion, kn, "the ecoregions' shares are k x n"),
+        or_null(domain, static_cast<std::size_t>(n), "a domain flag per pixel"), fill.data(), threshold,
+        restore_current, max_threads());
+    VegetationOut out;
+    out.original = to_rust<double>(v.original);
+    out.restore = to_rust<double>(v.restore);
+    out.source = to_rust<std::uint8_t>(v.source);
+    out.fill = to_rust<double>(v.fill);
+    return out;
+}
+
+namespace {
+
+void check_ranges(rust::Slice<const std::int64_t> range_ptr, rust::Slice<const std::int64_t> range_idx,
+                  rust::Slice<const std::uint8_t> suitable, std::int64_t n, std::int32_t k, std::int64_t ns) {
+    check(range_ptr.size() == static_cast<std::size_t>(ns + 1) && range_ptr[0] == 0 &&
+              range_ptr[static_cast<std::size_t>(ns)] == static_cast<i64>(range_idx.size()),
+          "the ranges are ns + 1 offsets into the pixels");
+    for (i64 p : range_idx) check(p >= 0 && p < n, "a range's pixel is outside the map");
+    check(suitable.size() == static_cast<std::size_t>(ns) * static_cast<std::size_t>(k), "suitability is ns x k");
+}
+
+}  // namespace
+
+HabitatOut rest_habitat(rust::Slice<const double> current, rust::Slice<const double> original,
+                        rust::Slice<const double> area, std::int64_t n, std::int32_t k,
+                        rust::Slice<const std::int64_t> range_ptr, rust::Slice<const std::int64_t> range_idx,
+                        rust::Slice<const std::uint8_t> suitable, std::int64_t ns) {
+    const std::size_t kn = static_cast<std::size_t>(k) * static_cast<std::size_t>(n);
+    check(current.size() == kn && original.size() == kn, "the shares are k x n");
+    check(area.size() == static_cast<std::size_t>(n), "an area per pixel");
+    check_ranges(range_ptr, range_idx, suitable, n, k, ns);
+    std::vector<double> now(static_cast<std::size_t>(ns)), pot(static_cast<std::size_t>(ns));
+    rest::habitat_areas(current.data(), original.data(), area.data(), n, k, range_ptr.data(), range_idx.data(),
+                        suitable.data(), ns, now.data(), pot.data(), max_threads());
+    HabitatOut out;
+    out.now = to_rust<double>(now);
+    out.potential = to_rust<double>(pot);
+    return out;
+}
+
+GainOut rest_habitat_gain(rust::Slice<const double> restore, rust::Slice<const double> area, std::int64_t n,
+                          std::int32_t k, rust::Slice<const std::int64_t> range_ptr,
+                          rust::Slice<const std::int64_t> range_idx, rust::Slice<const std::uint8_t> suitable,
+                          std::int64_t ns, rust::Slice<const std::uint8_t> domain) {
+    check(restore.size() == static_cast<std::size_t>(k) * static_cast<std::size_t>(n), "the shares are k x n");
+    check(area.size() == static_cast<std::size_t>(n), "an area per pixel");
+    check_ranges(range_ptr, range_idx, suitable, n, k, ns);
+    std::vector<i64> indptr, index;
+    std::vector<double> gain;
+    rest::habitat_gain(restore.data(), area.data(), n, k, range_ptr.data(), range_idx.data(), suitable.data(), ns,
+                       or_null(domain, static_cast<std::size_t>(n), "a domain flag per pixel"), indptr, index, gain,
+                       max_threads());
+    GainOut out;
+    out.indptr = to_rust<std::int64_t>(indptr);
+    out.index = to_rust<std::int64_t>(index);
+    out.gain = to_rust<double>(gain);
     return out;
 }
 

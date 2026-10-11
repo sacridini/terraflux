@@ -79,6 +79,35 @@ impl GeoTags {
         }
         found
     }
+
+    /// The value of a GeoKey held in the directory itself (no other tag).
+    pub fn geokey(&self, key: u16) -> Option<u16> {
+        let keys = self.geokeys.as_ref()?;
+        let n = *keys.get(3)? as usize;
+        (0..n).filter_map(|k| keys.get(4 + 4 * k..8 + 4 * k)).find(|e| e[0] == key && e[1] == 0).map(|e| e[3])
+    }
+
+    /// Whether the coordinates are longitudes and latitudes (GTModelTypeGeoKey, or the WKT), when known.
+    pub fn is_geographic(&self) -> Option<bool> {
+        if let Some(w) = &self.wkt {
+            let w = w.trim_start().to_ascii_uppercase();
+            return Some(w.starts_with("GEOGCS") || w.starts_with("GEOGCRS") || w.starts_with("GEODCRS"));
+        }
+        match self.geokey(1024)? {
+            1 => Some(false),
+            2 => Some(true),
+            _ => None,
+        }
+    }
+
+    /// Metres per unit of a projected grid's coordinates (ProjLinearUnitsGeoKey: metres unless it says feet).
+    pub fn linear_unit(&self) -> f64 {
+        match self.geokey(3076) {
+            Some(9002) => 0.3048,
+            Some(9003) => 1200.0 / 3937.0,
+            _ => 1.0,
+        }
+    }
 }
 
 /// The size and georeference of a grid of cells.

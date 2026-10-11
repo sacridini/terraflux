@@ -32,6 +32,9 @@ struct ChangeOut;
 struct DistanceOut;
 struct LsmOptions;
 struct LsmTable;
+struct VegetationOut;
+struct HabitatOut;
+struct GainOut;
 
 // the threads of the kernels (OpenMP) of the calling thread, and their most
 void set_threads(std::int32_t n);
@@ -93,6 +96,28 @@ ChangeOut morphological_change(rust::Slice<const std::uint8_t> a, rust::Slice<co
 ChangeOut fos_change(rust::Slice<const std::uint8_t> a, rust::Slice<const std::uint8_t> b, std::int64_t ny,
                      std::int64_t nx);
 DistanceOut euclidean_distance(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx);
+
+// restoration planning's inputs after plangea (rest::); `past`, `ecoregion`, `domain` empty for none
+rust::Vec<double> rest_footprint(rust::Slice<const double> hfi, rust::Slice<const double> reduction,
+                                 rust::Slice<const double> restored, std::int64_t ny, std::int64_t nx);
+rust::Vec<double> rest_intactness(rust::Slice<const double> hfi, std::int64_t ny, std::int64_t nx, double gamma,
+                                  double beta, double z, std::int32_t radius, double dx, double dy);
+rust::Vec<double> rest_intactness_gradient(rust::Slice<const double> hfi, rust::Slice<const double> reduction,
+                                           std::int64_t ny, std::int64_t nx, double gamma, double beta, double z,
+                                           std::int32_t radius, double dx, double dy);
+VegetationOut rest_original_vegetation(rust::Slice<const double> natural, std::int32_t k,
+                                       rust::Slice<const double> anthropic, std::int32_t m, std::int64_t n,
+                                       rust::Slice<const double> past, rust::Slice<const double> ecoregion,
+                                       rust::Slice<const std::uint8_t> domain, rust::Slice<const std::uint8_t> fill,
+                                       double threshold, bool restore_current);
+HabitatOut rest_habitat(rust::Slice<const double> current, rust::Slice<const double> original,
+                        rust::Slice<const double> area, std::int64_t n, std::int32_t k,
+                        rust::Slice<const std::int64_t> range_ptr, rust::Slice<const std::int64_t> range_idx,
+                        rust::Slice<const std::uint8_t> suitable, std::int64_t ns);
+GainOut rest_habitat_gain(rust::Slice<const double> restore, rust::Slice<const double> area, std::int64_t n,
+                          std::int32_t k, rust::Slice<const std::int64_t> range_ptr,
+                          rust::Slice<const std::int64_t> range_idx, rust::Slice<const std::uint8_t> suitable,
+                          std::int64_t ns, rust::Slice<const std::uint8_t> domain);
 
 // landscape metrics (lsm::), as landscapemetrics: classes as 32-bit integers, `na` empty or 1 where a cell is NA
 LsmTable lsm_table(rust::Slice<const std::int32_t> values, rust::Slice<const std::uint8_t> na, std::int64_t ny,

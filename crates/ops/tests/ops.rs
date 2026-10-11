@@ -444,11 +444,12 @@ fn the_map<'a>(out: &'a terraflux_ops::Outputs, port: &str) -> &'a Map {
     m
 }
 
-/// Numbers equal but for the last bits (the C++ built with other optimisations for Python), whole ones exactly.
+/// The same numbers, to the bit (the JSON read with serde_json's float_roundtrip, which gives every decimal's
+/// nearest double).
 fn assert_close(got: &[f64], want: &[f64]) {
     assert_eq!(got.len(), want.len());
     for (a, b) in got.iter().zip(want) {
-        assert!(if b.fract() == 0.0 { a == b } else { close(*a, *b, 1e-12) }, "{got:?} != {want:?}");
+        assert!(a.to_bits() == b.to_bits() || (a.is_nan() && b.is_nan()), "{got:?} != {want:?}");
     }
 }
 
@@ -565,7 +566,7 @@ fn parcels_contortion_and_distance_are_landschafts() {
             ("division", "division"),
             ("parc", "parc"),
         ] {
-            assert!(close(s.column(ours).unwrap()[0], f(&g[theirs]), 1e-12), "{what}: {ours}");
+            assert_eq!(s.column(ours).unwrap()[0].to_bits(), f(&g[theirs]).to_bits(), "{what}: {ours}");
         }
         let counts: Vec<f64> = case["counts"].as_array().unwrap().iter().map(f).collect();
         assert_eq!(table(&out, "stats").column("parcels").unwrap(), counts, "{what}");

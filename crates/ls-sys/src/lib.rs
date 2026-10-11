@@ -204,6 +204,29 @@ pub mod ffi {
         patch_class: Vec<i32>,
     }
 
+    /// plangea's original vegetation of the pixels with land: the share of every natural class originally and
+    /// that restored land returns to (k x n), where it came from (0 past cover, 1 the ecoregion's, 2 the
+    /// failsafe), and the failsafe shares (k).
+    struct VegetationOut {
+        original: Vec<f64>,
+        restore: Vec<f64>,
+        source: Vec<u8>,
+        fill: Vec<f64>,
+    }
+
+    /// The current and potential area of habitat of every species.
+    struct HabitatOut {
+        now: Vec<f64>,
+        potential: Vec<f64>,
+    }
+
+    /// The habitat each species gains per unit of a pixel restored: CSR rows by species.
+    struct GainOut {
+        indptr: Vec<i64>,
+        index: Vec<i64>,
+        gain: Vec<f64>,
+    }
+
     #[derive(Debug, Clone, Copy, PartialEq)]
     struct ObservedPatches {
         cells: i64,
@@ -284,6 +307,66 @@ pub mod ffi {
         /// the % of fragmentation decreasing and increasing; the 6 x 6 matrix of the classes (rare..intact)
         fn fos_change(a: &[u8], b: &[u8], ny: i64, nx: i64) -> Result<ChangeOut>;
         fn euclidean_distance(input: &[u8], ny: i64, nx: i64) -> Result<DistanceOut>;
+        /// The human footprint after restoring the shares `restored` with `reduction` per unit (at least 0).
+        fn rest_footprint(hfi: &[f64], reduction: &[f64], restored: &[f64], ny: i64, nx: i64) -> Result<Vec<f64>>;
+        fn rest_intactness(
+            hfi: &[f64],
+            ny: i64,
+            nx: i64,
+            gamma: f64,
+            beta: f64,
+            z: f64,
+            radius: i32,
+            dx: f64,
+            dy: f64,
+        ) -> Result<Vec<f64>>;
+        fn rest_intactness_gradient(
+            hfi: &[f64],
+            reduction: &[f64],
+            ny: i64,
+            nx: i64,
+            gamma: f64,
+            beta: f64,
+            z: f64,
+            radius: i32,
+            dx: f64,
+            dy: f64,
+        ) -> Result<Vec<f64>>;
+        fn rest_original_vegetation(
+            natural: &[f64],
+            k: i32,
+            anthropic: &[f64],
+            m: i32,
+            n: i64,
+            past: &[f64],
+            ecoregion: &[f64],
+            domain: &[u8],
+            fill: &[u8],
+            threshold: f64,
+            restore_current: bool,
+        ) -> Result<VegetationOut>;
+        fn rest_habitat(
+            current: &[f64],
+            original: &[f64],
+            area: &[f64],
+            n: i64,
+            k: i32,
+            range_ptr: &[i64],
+            range_idx: &[i64],
+            suitable: &[u8],
+            ns: i64,
+        ) -> Result<HabitatOut>;
+        fn rest_habitat_gain(
+            restore: &[f64],
+            area: &[f64],
+            n: i64,
+            k: i32,
+            range_ptr: &[i64],
+            range_idx: &[i64],
+            suitable: &[u8],
+            ns: i64,
+            domain: &[u8],
+        ) -> Result<GainOut>;
         fn lsm_table(
             values: &[i32],
             na: &[u8],

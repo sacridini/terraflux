@@ -95,6 +95,8 @@ model file dropped on it or opened with it; started that way on Windows, it show
   landscape and in a moving window (`metrics.patch`, `metrics.class`, `metrics.landscape`, `metrics.window`), the
   same values as R's landscapemetrics; tables sorted, filtered and drawn as bars in the viewer, and the maps of a
   metric per patch or class.
+- **Restoration planning (plangea):** ecological intactness of a human footprint and its gradient as cells are
+  restored, the original vegetation of converted land, the area of habitat of species; plangea's bits.
 - **Rasters of any size:** opening a raster reads its header only; the viewer reads the tiles in view at the
   screen's resolution (in threads, the coarser level shown meanwhile), so a raster of billions of cells shows
   in under half a second and zooms smoothly; a folder or a pattern (`forest/*.tif`) is one stack, a layer per

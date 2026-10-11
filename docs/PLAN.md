@@ -492,6 +492,13 @@ Pendências:
   vêm do landschaft por um gerador. Testadas contra o landscapemetrics do R: todos os valores que o landschaft
   guarda (14 rasters, 5 conjuntos de opções, mais de 100 mil valores) e as janelas móveis. O visualizador de
   tabelas virou um componente (ordenar, filtrar, barras).
+- **Priorização e restauração — começo (2026-10-11):** o landschaft ganhou a opção `LANDSCHAFT_MILP`, que compila
+  o `optcore` e o HiGHS sem Python, e o Terraflux liga o `priocore`, o `restcore` e o `optcore`. Primeiro
+  sub-bloco: as entradas do plangea (`restoration.intactness`, `intactness_gradient`, `original_vegetation` e
+  `sdm.area_of_habitat`), bit a bit com as saídas do plangea. A causa de diferenças no último bit em testes
+  anteriores era o serde_json, que sem `float_roundtrip` lia um decimal no double vizinho; corrigido. A ordem do
+  resto: Zonation, Marxan/ProxIRR/Ferrier, o compilador do prioritizr (MILP), prioriactions, o planejamento do
+  plangea.
 - **Próximos:** MSPA por tiles para rasters maiores que a memória; mapa de fundo de satélite (GDAL XYZ/WMS);
   vetores (OGR) para rasterizar e medir distâncias; instaladores com o GDAL; os outros kernels C++ já prontos (reclassificação, zonal, distância, métricas de paisagem,
   FAD, SPA), depois reprojeção (PROJ embutido e o warp do landschaft) e vetores.

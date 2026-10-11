@@ -73,6 +73,27 @@ fn options(o: &serde_json::Value) -> terraflux_ls_sys::ffi::LsmOptions {
     opt
 }
 
+/// Metrics R does not give to the bit (landschaft's test_lsm_reference.py): circle (landscapemetrics shuffles
+/// Welzl's points at random), gyrate (R's sums of coordinates in extended precision) and enn (R's search may
+/// settle on an equally near pair).
+const NOT_BITWISE: [&str; 3] = ["circle", "gyrate", "enn"];
+
+/// Units in the last place landschaft allows (sums of many logarithms and roots that cancel).
+const ULPS: u64 = 128;
+
+fn same_bits(a: f64, b: f64) -> bool {
+    if a.is_nan() || b.is_nan() {
+        return a.is_nan() && b.is_nan();
+    }
+    if a == b {
+        return true;
+    }
+    if a.signum() != b.signum() {
+        return false;
+    }
+    a.to_bits().abs_diff(b.to_bits()) <= ULPS
+}
+
 fn close(a: f64, b: f64) -> bool {
     (a.is_nan() && b.is_nan()) || a == b || (a - b).abs() <= ATOL + RTOL * b.abs()
 }
@@ -116,6 +137,14 @@ fn metrics_are_landscapemetrics() {
         let wrong: Vec<_> =
             ours.iter().filter(|(k, v)| !close(**v, theirs[*k])).map(|(k, v)| (k, *v, theirs[k])).take(5).collect();
         assert!(wrong.is_empty(), "{fname}: {wrong:?}");
+        // and the same bits, but for the metrics R itself does not give to the bit
+        let not_bitwise: Vec<_> = ours
+            .iter()
+            .filter(|(k, v)| !NOT_BITWISE.iter().any(|m| k.3.starts_with(m)) && !same_bits(**v, theirs[*k]))
+            .map(|(k, v)| (k, *v, theirs[k]))
+            .take(5)
+            .collect();
+        assert!(not_bitwise.is_empty(), "{fname}: not the same bits: {not_bitwise:?}");
         files += 1;
         values += ours.len();
     }

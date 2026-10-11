@@ -6,6 +6,22 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Restoration planning's inputs after plangea, through landschaft's C++, plangea's bits: ecological intactness
+  (Beyer et al. 2020) of a human footprint, before and after restoring cells (`restoration.intactness`), its
+  gradient (`restoration.intactness_gradient`), the original vegetation of converted land
+  (`restoration.original_vegetation`: past cover, ecoregions, failsafe shares) and the area of habitat of species
+  (`sdm.area_of_habitat`: suitable classes, elevation limits, the habitat gained per cell restored). Tested against
+  the plangea outputs landschaft keeps (`tools/make_plangea_inputs.py` writes the maps they were made from).
+- Template: Ecological intactness.
+- `GeoTags::is_geographic`, `linear_unit` and `geokey`.
+- The build links landschaft's prioritization (Zonation), restoration planning and MILP (HiGHS) libraries
+  (landschaft's new `LANDSCHAFT_MILP` option).
+
+### Fixed
+- Numbers in models and settings are read to the bit (serde_json's float_roundtrip): a decimal could become the
+  double next to its own (the comparisons with landschaft's JSON references are now exact too).
+
 ## [0.9.0] - 2026-10-11
 
 ### Added
