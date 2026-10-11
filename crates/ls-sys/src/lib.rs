@@ -227,6 +227,54 @@ pub mod ffi {
         gain: Vec<f64>,
     }
 
+    /// Zonation's statistics of the layers: the cells seen, and per layer its zeros, negative values, cells
+    /// without data, its largest value (after the thresholds) and its largest one before them.
+    struct PrioStatsOut {
+        pixels: i64,
+        zeros: Vec<i64>,
+        negative: Vec<i64>,
+        nodata: Vec<i64>,
+        max_values: Vec<f32>,
+        orig_max_values: Vec<f32>,
+    }
+
+    /// Zonation's settings of a ranking: the rule (ABF, CAZ1, CAZ2, CAZMAX, CAZP, CAZPW, RAND, LOAD) and its
+    /// parameter, per layer the weight and ABF's z (NaN: the parameter), and the iterations' settings.
+    struct PrioSettings {
+        rule: String,
+        param: f64,
+        weights: Vec<f32>,
+        abf_z: Vec<f32>,
+        cost_in_ranking: bool,
+        max_iterations: i32,
+        ranking_error: f32,
+        stop_on_plateau: bool,
+        smoothing: f32,
+        curves_interval: f32,
+        seed: u64,
+    }
+
+    /// Zonation's ranking: the cells with data (their index in the map), the rank of each and the order they
+    /// were removed in, the iterations and the ranking error (a fraction) of each; the curves (the rank at each
+    /// sample, the remaining level of every layer (samples x layers), the cost), the AUC and total cost; per
+    /// layer its sum and the quantization's error (%).
+    struct PrioRankOut {
+        cell_index: Vec<i64>,
+        rank: Vec<f32>,
+        order: Vec<u32>,
+        iterations: i32,
+        ranking_error: f64,
+        history_error: Vec<f64>,
+        curve_rank: Vec<f32>,
+        curve_levels: Vec<f32>,
+        curve_cost: Vec<f64>,
+        auc: f64,
+        total_cost: f64,
+        curve_interval: i64,
+        orig_abs_sums: Vec<f64>,
+        quantization_errors: Vec<f64>,
+    }
+
     #[derive(Debug, Clone, Copy, PartialEq)]
     struct ObservedPatches {
         cells: i64,
@@ -367,6 +415,34 @@ pub mod ffi {
             ns: i64,
             domain: &[u8],
         ) -> Result<GainOut>;
+        fn prio_stats(
+            values: &[f32],
+            layers: i32,
+            ny: i64,
+            nx: i64,
+            nodata: &[f32],
+            extract: &[f32],
+            thresholds: &[f32],
+            area: &[u8],
+        ) -> Result<PrioStatsOut>;
+        fn prio_rank(
+            values: &[f32],
+            layers: i32,
+            ny: i64,
+            nx: i64,
+            nodata: &[f32],
+            extract: &[f32],
+            thresholds: &[f32],
+            max_values: &[f32],
+            keep_zeros: &[u8],
+            bits: i32,
+            area: &[u8],
+            block_rows: i64,
+            settings: &PrioSettings,
+            cost: &[f64],
+            hmask: &[f64],
+            solution: &[f64],
+        ) -> Result<PrioRankOut>;
         fn lsm_table(
             values: &[i32],
             na: &[u8],

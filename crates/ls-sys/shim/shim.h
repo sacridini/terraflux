@@ -35,6 +35,9 @@ struct LsmTable;
 struct VegetationOut;
 struct HabitatOut;
 struct GainOut;
+struct PrioStatsOut;
+struct PrioSettings;
+struct PrioRankOut;
 
 // the threads of the kernels (OpenMP) of the calling thread, and their most
 void set_threads(std::int32_t n);
@@ -118,6 +121,21 @@ GainOut rest_habitat_gain(rust::Slice<const double> restore, rust::Slice<const d
                           std::int32_t k, rust::Slice<const std::int64_t> range_ptr,
                           rust::Slice<const std::int64_t> range_idx, rust::Slice<const std::uint8_t> suitable,
                           std::int64_t ns, rust::Slice<const std::uint8_t> domain);
+
+// Zonation 5's ranking (prio::): features (layers, ny, nx) float32, NaN or `nodata` without data; `area` empty
+// or 1 inside the analysis area
+PrioStatsOut prio_stats(rust::Slice<const float> values, std::int32_t layers, std::int64_t ny, std::int64_t nx,
+                        rust::Slice<const float> nodata, rust::Slice<const float> extract,
+                        rust::Slice<const float> thresholds, rust::Slice<const std::uint8_t> area);
+// the ranking of the layers given (those with data), with Zonation's settings; cost, hmask and solution are maps
+// (ny x nx, empty for none) gathered at the cells with data as Zonation does
+PrioRankOut prio_rank(rust::Slice<const float> values, std::int32_t layers, std::int64_t ny, std::int64_t nx,
+                      rust::Slice<const float> nodata, rust::Slice<const float> extract,
+                      rust::Slice<const float> thresholds, rust::Slice<const float> max_values,
+                      rust::Slice<const std::uint8_t> keep_zeros, std::int32_t bits,
+                      rust::Slice<const std::uint8_t> area, std::int64_t block_rows, const PrioSettings& settings,
+                      rust::Slice<const double> cost, rust::Slice<const double> hmask,
+                      rust::Slice<const double> solution);
 
 // landscape metrics (lsm::), as landscapemetrics: classes as 32-bit integers, `na` empty or 1 where a cell is NA
 LsmTable lsm_table(rust::Slice<const std::int32_t> values, rust::Slice<const std::uint8_t> na, std::int64_t ny,

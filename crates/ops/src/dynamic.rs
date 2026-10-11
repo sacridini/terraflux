@@ -203,5 +203,40 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(DistanceTo));
     r.add(Arc::new(ShareOf));
     r.add(Arc::new(Set));
+    r.add(Arc::new(Of));
     r.add(Arc::new(Classes));
+}
+
+/// `stack.of`: maps of a grid as one stack.
+struct Of;
+
+impl Operator for Of {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "stack.of",
+            "Maps of one grid as a stack, a layer each named as its input (any names: the features of a \
+             prioritization, the drivers of a model), in the order of their names.",
+            Access::Local,
+        )
+        .extra(Type::Map)
+        .output(PortSpec::new("stack", Type::Stack, "the maps' stack"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let mut grid = None;
+        let (mut keys, mut layers) = (Vec::new(), Vec::new());
+        for (name, v) in &args.inputs {
+            let Value::Map(m) = v else {
+                return Err(Error::msg(format!("node {:?}: {name} is no map", args.node)));
+            };
+            let g = grid.get_or_insert_with(|| m.grid.clone());
+            if (g.width, g.height) != (m.grid.width, m.grid.height) {
+                return Err(Error::msg(format!("node {:?}: {name} is not on the grid of the others", args.node)));
+            }
+            keys.push(Key::Name(name.clone()));
+            layers.push(m.data.clone());
+        }
+        let grid = grid.ok_or_else(|| Error::msg(format!("node {:?}: no maps", args.node)))?;
+        Ok(outputs([("stack", Value::Stack(Stack { grid, keys, layers }))]))
+    }
 }

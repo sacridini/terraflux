@@ -7,6 +7,15 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- Zonation 5's priority ranking (`prioritize.zonation`) through landschaft's C++: every rule (CAZ1, CAZ2, CAZMAX,
+  ABF, CAZP, CAZPW, RAND, LOAD), weights and weight groups, thresholds, value extraction, the zero modes, 8 or 16
+  bits, costs, hierarchic masks, analysis areas, the iterations' settings; the rank map, the performance curves,
+  the features' table, the AUC. The same rank maps, bit for bit, and iterations as the z5 binary on the 41 cases
+  landschaft keeps (`tools/make_zonation_inputs.py` writes the rasters they were made from).
+- The rank in Zonation's ramp (dark to red), for the maps named rank or priority.
+- `stack.of`: maps as one stack, a layer per input (the features of a prioritization).
+- Template: Zonation.
+- `.npy` files in Fortran order, and of 16-bit and unsigned 32-bit integers.
 - Restoration planning's inputs after plangea, through landschaft's C++, plangea's bits: ecological intactness
   (Beyer et al. 2020) of a human footprint, before and after restoring cells (`restoration.intactness`), its
   gradient (`restoration.intactness_gradient`), the original vegetation of converted land

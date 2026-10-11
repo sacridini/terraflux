@@ -636,6 +636,35 @@ fn metrics_show_as_tables_bars_and_maps() {
     shot(&mut h, "20-metrics");
 }
 
+/// Zonation's rank in its ramp (dark to red), the features built by stack.of.
+#[test]
+fn zonation_rank_in_its_colours() {
+    let mut h = harness(TerrafluxApp::new(None));
+    h.run_steps(2);
+    let ctx = h.ctx.clone();
+    let t = terraflux_app::templates::TEMPLATES.iter().find(|t| t.name == "Zonation").unwrap();
+    h.state_mut().start_template(&ctx, t);
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("plot_rank", "shown").is_some()
+    });
+    h.state_mut().session.as_mut().unwrap().open_map("plot_rank", "shown");
+    until(&mut h, "the legend", |a| {
+        let s = a.session.as_ref().unwrap();
+        let Some(terraflux_ops::Value::Map(m)) = s.value_of("plot_rank", "shown") else { return false };
+        s.looks.peek(&terraflux_app::map_view::Source::from(&m)).is_some_and(|l| {
+            matches!(
+                l.coloring,
+                terraflux_app::palette::Coloring::Continuous { ramp: terraflux_app::palette::Ramp::Rank, .. }
+            )
+        })
+    });
+    let s = h.state().session.as_ref().unwrap();
+    let Some(terraflux_ops::Value::Table(curves)) = s.value_of("zonation", "curves") else { panic!("{:?}", s.error) };
+    assert_eq!(curves.columns[2..], ["bird", "frog", "orchid", "wetland"]);
+    shot(&mut h, "21-zonation");
+}
+
 /// Every template that needs no file runs from the command line's engine.
 #[test]
 fn templates_run() {

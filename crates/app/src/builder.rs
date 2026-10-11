@@ -250,6 +250,8 @@ pub enum Palette {
     Shade,
     /// NDVI, EVI: red to green.
     Vegetation,
+    /// A priority rank (Zonation's): dark to red.
+    Rank,
 }
 
 impl Palette {
@@ -272,6 +274,8 @@ impl Palette {
             Palette::Product(Product::Spa)
         } else if has("acc") || has("accounting") {
             Palette::Product(Product::Accounting)
+        } else if has("rank") || starts("priorit") {
+            Palette::Rank
         } else if starts("hillshade") || has("shade") {
             Palette::Shade
         } else if has("dem")
@@ -299,6 +303,7 @@ impl Palette {
             Palette::Elevation => ramp(Ramp::Terrain),
             Palette::Shade => ramp(Ramp::Grey),
             Palette::Vegetation => ramp(Ramp::Vegetation),
+            Palette::Rank => ramp(Ramp::Rank),
             Palette::Product(p) => {
                 let counts = class_counts(values);
                 // a file named so that is not the product's values: by its values

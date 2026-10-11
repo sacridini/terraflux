@@ -34,6 +34,7 @@ pub mod plugin;
 pub mod plus;
 pub mod prepare;
 pub mod presets;
+pub mod prioritize;
 pub mod restoration;
 pub mod validate;
 pub mod value;
@@ -250,6 +251,7 @@ impl Registry {
         landscape::register(&mut r);
         plus::register(&mut r);
         prepare::register(&mut r);
+        prioritize::register(&mut r);
         restoration::register(&mut r);
         plugin::register(&mut r);
         validate::register(&mut r);

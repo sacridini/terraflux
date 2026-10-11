@@ -60,6 +60,8 @@ pub enum Ramp {
     Grey,
     /// Red to yellow to green: NDVI, EVI.
     Vegetation,
+    /// Dark to red: Zonation's priority ranks (the top fraction red), as landschaft's.
+    Rank,
 }
 
 impl Ramp {
@@ -86,6 +88,19 @@ impl Ramp {
                 [250.0, 250.0, 250.0],
             ],
             Ramp::Grey => &[[0.0, 0.0, 0.0], [255.0, 255.0, 255.0]],
+            Ramp::Rank => &[
+                [0.0, 0.0, 0.0],
+                [43.0, 26.0, 91.0],
+                [47.0, 75.0, 154.0],
+                [42.0, 133.0, 180.0],
+                [79.0, 185.0, 164.0],
+                [166.0, 217.0, 106.0],
+                [254.0, 224.0, 139.0],
+                [253.0, 174.0, 97.0],
+                [244.0, 109.0, 67.0],
+                [215.0, 48.0, 39.0],
+                [165.0, 0.0, 38.0],
+            ],
             // RdYlGn (ColorBrewer)
             Ramp::Vegetation => &[
                 [165.0, 0.0, 38.0],

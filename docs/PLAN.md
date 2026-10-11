@@ -497,7 +497,8 @@ Pendências:
   sub-bloco: as entradas do plangea (`restoration.intactness`, `intactness_gradient`, `original_vegetation` e
   `sdm.area_of_habitat`), bit a bit com as saídas do plangea. A causa de diferenças no último bit em testes
   anteriores era o serde_json, que sem `float_roundtrip` lia um decimal no double vizinho; corrigido. A ordem do
-  resto: Zonation, Marxan/ProxIRR/Ferrier, o compilador do prioritizr (MILP), prioriactions, o planejamento do
+  resto: Zonation (feito: `prioritize.zonation`, os 41 casos do grupo core bit a bit com o z5; falta a
+  conectividade, os impactos, a retenção e o pós-processamento), Marxan/ProxIRR/Ferrier, o compilador do prioritizr (MILP), prioriactions, o planejamento do
   plangea.
 - **Próximos:** MSPA por tiles para rasters maiores que a memória; mapa de fundo de satélite (GDAL XYZ/WMS);
   vetores (OGR) para rasterizar e medir distâncias; instaladores com o GDAL; os outros kernels C++ já prontos (reclassificação, zonal, distância, métricas de paisagem,

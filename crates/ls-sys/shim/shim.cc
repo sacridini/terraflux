@@ -6,7 +6,10 @@
 
 #include "terraflux-ls-sys/shim/shim.h"
 
+#include <algorithm>
 #include <array>
+#include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <string>
 
@@ -28,6 +31,7 @@
 #include "gtb/mspa.hpp"
 #include "gtb/spa.hpp"
 #include "lsm/landscape.hpp"
+#include "prio/prio.hpp"
 #include "rest/habitat.hpp"
 #include "rest/intactness.hpp"
 #include "lsm/rmath.hpp"
@@ -469,6 +473,135 @@ GainOut rest_habitat_gain(rust::Slice<const double> restore, rust::Slice<const d
     out.indptr = to_rust<std::int64_t>(indptr);
     out.index = to_rust<std::int64_t>(index);
     out.gain = to_rust<double>(gain);
+    return out;
+}
+
+namespace {
+
+prio::ReadRules prio_rules(std::int32_t layers, rust::Slice<const float> nodata, rust::Slice<const float> extract,
+                           rust::Slice<const float> thresholds) {
+    const std::size_t n = static_cast<std::size_t>(layers);
+    check(layers > 0 && nodata.size() == n && extract.size() == n && thresholds.size() == n,
+          "a nodata, an extracted value and a threshold per layer");
+    prio::ReadRules r;
+    r.layers = layers;
+    r.nodata.assign(nodata.begin(), nodata.end());
+    r.extract.assign(extract.begin(), extract.end());
+    r.thresholds.assign(thresholds.begin(), thresholds.end());
+    return r;
+}
+
+void prio_check(rust::Slice<const float> values, std::int32_t layers, std::int64_t ny, std::int64_t nx,
+                rust::Slice<const std::uint8_t> area) {
+    check(ny > 0 && nx > 0 && static_cast<i64>(values.size()) == i64{layers} * ny * nx, "the layers are layers x ny x nx");
+    check(area.empty() || static_cast<i64>(area.size()) == ny * nx, "the analysis area differs from the layers' grid");
+}
+
+// Zonation's values of a map at the data cells (readImageMatchingMapDataIndexes): NoData 0, clipped to [lo, hi],
+// rounded first when `round`
+std::vector<double> gather(rust::Slice<const double> map, const prio::Buffer<i64>& cells, i64 n, double lo, double hi,
+                           bool round) {
+    std::vector<double> out;
+    if (map.empty()) return out;
+    check(static_cast<i64>(map.size()) == n, "a map of the features' grid");
+    out.resize(cells.size());
+    for (std::size_t i = 0; i < cells.size(); ++i) {
+        double v = map[static_cast<std::size_t>(cells[i])];
+        if (std::isnan(v)) {
+            out[i] = 0.0;
+            continue;
+        }
+        if (round) v = std::nearbyint(v);
+        out[i] = std::min(std::max(v, lo), hi);
+    }
+    return out;
+}
+
+prio::Rule prio_rule(const rust::String& s) {
+    const std::string r(s);
+    if (r == "ABF") return prio::Rule::ABF;
+    if (r == "CAZ1") return prio::Rule::CAZ1;
+    if (r == "CAZ2") return prio::Rule::CAZ2;
+    if (r == "CAZMAX") return prio::Rule::CAZMAX;
+    if (r == "CAZP") return prio::Rule::CAZP;
+    if (r == "CAZPW") return prio::Rule::CAZPW;
+    if (r == "RAND") return prio::Rule::RAND;
+    if (r == "LOAD") return prio::Rule::LOAD;
+    throw std::invalid_argument("unknown marginal loss rule: " + r);
+}
+
+}  // namespace
+
+PrioStatsOut prio_stats(rust::Slice<const float> values, std::int32_t layers, std::int64_t ny, std::int64_t nx,
+                        rust::Slice<const float> nodata, rust::Slice<const float> extract,
+                        rust::Slice<const float> thresholds, rust::Slice<const std::uint8_t> area) {
+    prio_check(values, layers, ny, nx, area);
+    prio::Stats s(prio_rules(layers, nodata, extract, thresholds));
+    s.add_block(values.data(), ny, nx, area.empty() ? nullptr : area.data());
+    PrioStatsOut out;
+    out.pixels = s.pixels;
+    out.zeros = to_rust<std::int64_t>(s.zeros);
+    out.negative = to_rust<std::int64_t>(s.negative);
+    out.nodata = to_rust<std::int64_t>(s.nodata);
+    out.max_values = to_rust<float>(s.max_values);
+    out.orig_max_values = to_rust<float>(s.orig_max_values);
+    return out;
+}
+
+PrioRankOut prio_rank(rust::Slice<const float> values, std::int32_t layers, std::int64_t ny, std::int64_t nx,
+                      rust::Slice<const float> nodata, rust::Slice<const float> extract,
+                      rust::Slice<const float> thresholds, rust::Slice<const float> max_values,
+                      rust::Slice<const std::uint8_t> keep_zeros, std::int32_t bits,
+                      rust::Slice<const std::uint8_t> area, std::int64_t block_rows, const PrioSettings& settings,
+                      rust::Slice<const double> cost, rust::Slice<const double> hmask,
+                      rust::Slice<const double> solution) {
+    prio_check(values, layers, ny, nx, area);
+    check(bits == 8 || bits == 16, "bits is 8 or 16");
+    const std::size_t L = static_cast<std::size_t>(layers);
+    check(max_values.size() == L && keep_zeros.size() == L, "a maximum and a zero mode per layer");
+    check(settings.weights.size() == L && settings.abf_z.size() == L, "a weight and an ABF z per layer");
+    prio::Data d(prio_rules(layers, nodata, extract, thresholds), std::vector<float>(max_values.begin(), max_values.end()),
+                 std::vector<std::uint8_t>(keep_zeros.begin(), keep_zeros.end()), bits);
+    d.add_block(values.data(), ny, nx, area.empty() ? nullptr : area.data(), nullptr, block_rows > 0 ? block_rows : ny);
+    d.finish();
+    check(d.cells() > 0, "no cells with data");
+    const i64 n = ny * nx;
+    prio::RankSettings s;
+    s.rule = prio_rule(settings.rule);
+    s.param = settings.param;
+    s.weights.assign(settings.weights.begin(), settings.weights.end());
+    s.abf_z.assign(settings.abf_z.begin(), settings.abf_z.end());
+    for (double v : gather(cost, d.cell_index, n, 0.0, std::numeric_limits<double>::infinity(), false))
+        s.cost.push_back(static_cast<float>(v));
+    s.cost_in_ranking = settings.cost_in_ranking;
+    for (double v : gather(hmask, d.cell_index, n, 0.0, 255.0, true)) s.hmask.push_back(static_cast<std::uint8_t>(v));
+    for (double v : gather(solution, d.cell_index, n, -std::numeric_limits<double>::infinity(),
+                           std::numeric_limits<double>::infinity(), false))
+        s.solution.push_back(static_cast<float>(v));
+    check(s.rule != prio::Rule::LOAD || !s.solution.empty(), "the LOAD rule needs a solution");
+    s.max_iterations = settings.max_iterations;
+    s.ranking_error = settings.ranking_error;
+    s.stop_on_plateau = settings.stop_on_plateau;
+    s.smoothing = settings.smoothing;
+    s.curves_interval = settings.curves_interval;
+    s.seed = settings.seed;
+    const prio::RankResult r = prio::rank(d, s);
+    PrioRankOut out;
+    out.cell_index.reserve(d.cell_index.size());
+    for (i64 c : d.cell_index) out.cell_index.push_back(c);
+    out.rank = to_rust<float>(r.rank);
+    out.order = to_rust<std::uint32_t>(r.order);
+    out.iterations = r.iterations;
+    out.ranking_error = r.ranking_error;
+    out.history_error = to_rust<double>(r.history_error);
+    out.curve_rank = to_rust<float>(r.curve_rank);
+    out.curve_levels = to_rust<float>(r.curve_levels);
+    out.curve_cost = to_rust<double>(r.curve_cost);
+    out.auc = r.auc;
+    out.total_cost = r.total_cost;
+    out.curve_interval = r.curve_interval;
+    out.orig_abs_sums = to_rust<double>(d.orig_abs_sums);
+    out.quantization_errors = to_rust<double>(d.quantization_errors);
     return out;
 }
 

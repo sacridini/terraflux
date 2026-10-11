@@ -1,0 +1,829 @@
+{
+ "cases": {
+  "caz1": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "rule": "CAZ1"
+   }
+  },
+  "caz2": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "rule": "CAZ2"
+   }
+  },
+  "cazmax": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "rule": "CAZMAX"
+   }
+  },
+  "abf_025": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "rule": "ABF",
+    "rule_param": 0.25
+   }
+  },
+  "abf_06": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "rule": "ABF",
+    "rule_param": 0.6
+   }
+  },
+  "cazp_2": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "rule": "CAZP",
+    "rule_param": 2.0
+   }
+  },
+  "cazp_05": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "rule": "CAZP",
+    "rule_param": 0.5
+   }
+  },
+  "cazpw_3": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "rule": "CAZPW",
+    "rule_param": 3.0
+   }
+  },
+  "caz2_16bit": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "rule": "CAZ2",
+    "bits": 16
+   }
+  },
+  "abf_16bit": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "rule": "ABF",
+    "bits": 16
+   }
+  },
+  "caz2_weights": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "weights": [
+     2.0,
+     1.0,
+     1.0,
+     3.0,
+     0.5,
+     1.0,
+     1.5,
+     1.0
+    ]
+   }
+  },
+  "caz1_negweights": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "rule": "CAZ1",
+    "weights": [
+     2.0,
+     1.0,
+     -1.0,
+     3.0,
+     0.0,
+     1.0,
+     -0.5,
+     1.0
+    ]
+   }
+  },
+  "caz2_negweights": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "rule": "CAZ2",
+    "weights": [
+     2.0,
+     1.0,
+     -1.0,
+     3.0,
+     0.0,
+     1.0,
+     -0.5,
+     1.0
+    ]
+   }
+  },
+  "cazmax_negweights": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "rule": "CAZMAX",
+    "weights": [
+     2.0,
+     1.0,
+     -1.0,
+     3.0,
+     0.0,
+     1.0,
+     -0.5,
+     1.0
+    ]
+   }
+  },
+  "abf_025_negweights": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "rule": "ABF",
+    "weights": [
+     2.0,
+     1.0,
+     -1.0,
+     3.0,
+     0.0,
+     1.0,
+     -0.5,
+     1.0
+    ],
+    "rule_param": 0.25
+   }
+  },
+  "cazpw_2_negweights": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "rule": "CAZPW",
+    "weights": [
+     2.0,
+     1.0,
+     -1.0,
+     3.0,
+     0.0,
+     1.0,
+     -0.5,
+     1.0
+    ],
+    "rule_param": 2.0
+   }
+  },
+  "caz2_weightgroups": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "weights": [
+     2.0,
+     1.0,
+     1.0,
+     3.0,
+     0.5,
+     1.0,
+     1.5,
+     1.0
+    ],
+    "weight_groups": [
+     1,
+     1,
+     2,
+     2,
+     2,
+     3,
+     -1,
+     3
+    ],
+    "group_weights": {
+     "1": 4.0,
+     "2": 1.0,
+     "3": 2.5
+    }
+   }
+  },
+  "caz2_groups": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "weights": [
+     2.0,
+     1.0,
+     1.0,
+     3.0,
+     0.5,
+     1.0,
+     1.5,
+     1.0
+    ],
+    "groups": [
+     1,
+     1,
+     2,
+     2,
+     2,
+     3,
+     3,
+     3
+    ]
+   }
+  },
+  "caz2_threshold": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "thresholds": [
+     0.0,
+     0.2,
+     0.0,
+     0.5,
+     0.1,
+     0.0,
+     0.3,
+     0.0
+    ]
+   }
+  },
+  "abf_layer_z": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "rule": "ABF",
+    "rule_param": 0.35,
+    "abf_z": [
+     0.25,
+     0.5,
+     0.35,
+     0.1,
+     0.25,
+     0.8,
+     0.15,
+     0.3
+    ]
+   }
+  },
+  "caz2_zero_none": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "zero_mode": "none"
+   }
+  },
+  "caz2_zero_dynamic": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "zero_mode": "dynamic",
+    "keep_zeros": [
+     1,
+     0,
+     0,
+     1,
+     0,
+     0,
+     1,
+     0
+    ]
+   }
+  },
+  "caz2_mixed": {
+   "layers": [
+    "sp0",
+    "pa0",
+    "count",
+    "holes",
+    "sp3",
+    "pa1"
+   ],
+   "params": {}
+  },
+  "abf_mixed": {
+   "layers": [
+    "sp0",
+    "pa0",
+    "count",
+    "holes",
+    "sp3",
+    "pa1"
+   ],
+   "params": {
+    "rule": "ABF"
+   }
+  },
+  "caz1_presence": {
+   "layers": [
+    "pa0",
+    "pa1"
+   ],
+   "params": {
+    "rule": "CAZ1"
+   }
+  },
+  "caz2_extract": {
+   "layers": [
+    "landcover",
+    "landcover",
+    "landcover",
+    "sp1"
+   ],
+   "params": {
+    "extract": [
+     1.0,
+     2.0,
+     4.0,
+     null
+    ]
+   }
+  },
+  "caz2_cost_tracked": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "cost": "cost",
+    "cost_in_ranking": false
+   }
+  },
+  "caz2_cost": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "cost": "cost"
+   }
+  },
+  "abf_cost_negweights": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "rule": "ABF",
+    "weights": [
+     2.0,
+     1.0,
+     -1.0,
+     3.0,
+     0.0,
+     1.0,
+     -0.5,
+     1.0
+    ],
+    "cost": "cost"
+   }
+  },
+  "caz2_hmask": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "hierarchic_mask": "hmask"
+   }
+  },
+  "caz2_hmask_cost": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "weights": [
+     2.0,
+     1.0,
+     1.0,
+     3.0,
+     0.5,
+     1.0,
+     1.5,
+     1.0
+    ],
+    "hierarchic_mask": "hmask",
+    "cost": "cost"
+   }
+  },
+  "caz2_area_all": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "analysis_area": "areas"
+   }
+  },
+  "caz2_area_2": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "analysis_area": "areas",
+    "area": 2
+   }
+  },
+  "caz2_smoothing": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "smoothing_factor": 0.5
+   }
+  },
+  "caz2_maxiter": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "max_iterations": 3
+   }
+  },
+  "caz2_error": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "ranking_error": 0.2,
+    "stop_on_plateau": true
+   }
+  },
+  "caz2_curves": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "curves_interval": 0.01
+   }
+  },
+  "load": {
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "rule": "LOAD",
+    "solution": "sp7"
+   }
+  },
+  "big_caz2": {
+   "layers": [
+    "big0",
+    "big1",
+    "big2",
+    "big3",
+    "big4",
+    "big5",
+    "big6",
+    "big7",
+    "big8",
+    "big9",
+    "big10",
+    "big11"
+   ],
+   "params": {}
+  },
+  "big_abf": {
+   "layers": [
+    "big0",
+    "big1",
+    "big2",
+    "big3",
+    "big4",
+    "big5",
+    "big6",
+    "big7",
+    "big8",
+    "big9",
+    "big10",
+    "big11"
+   ],
+   "params": {
+    "rule": "ABF"
+   }
+  },
+  "big_caz1_weights": {
+   "layers": [
+    "big0",
+    "big1",
+    "big2",
+    "big3",
+    "big4",
+    "big5",
+    "big6",
+    "big7",
+    "big8",
+    "big9",
+    "big10",
+    "big11"
+   ],
+   "params": {
+    "rule": "CAZ1",
+    "weights": [
+     1.0,
+     2.0,
+     3.0,
+     4.0,
+     1.0,
+     2.0,
+     3.0,
+     4.0,
+     1.0,
+     2.0,
+     3.0,
+     4.0
+    ]
+   }
+  }
+ },
+ "nodata": {
+  "areas": null,
+  "big0": null,
+  "big1": null,
+  "big10": null,
+  "big11": null,
+  "big2": null,
+  "big3": null,
+  "big4": null,
+  "big5": null,
+  "big6": null,
+  "big7": null,
+  "big8": null,
+  "big9": null,
+  "cost": null,
+  "count": -9999.0,
+  "hmask": null,
+  "holes": null,
+  "landcover": 0.0,
+  "pa0": 255.0,
+  "pa1": 255.0,
+  "sp0": null,
+  "sp1": null,
+  "sp2": null,
+  "sp3": null,
+  "sp4": null,
+  "sp5": null,
+  "sp6": null,
+  "sp7": null
+ }
+}
