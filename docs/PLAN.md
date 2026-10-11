@@ -513,7 +513,13 @@ Pendências:
   prioritizr ou com os seus ótimos; as zonas de manejo (unidades, alvos, objetivos, orçamentos e pesos por zona,
   travas e limites por zona, alocação obrigatória, termos espaciais com matrizes de zonas, contiguidade por grupo
   de zonas, avaliação geral e por zona; 37 casos bit a bit, com os motores de zonas do landschaft); faltam as
-  unidades de polígonos (precisam de vetores) e o risco de extinção), prioriactions, o planejamento do plangea.
+  unidades de polígonos (precisam de vetores) e o risco de extinção); E feito: prioriactions (`prioritize.actions`, o
+  modelo bit a bit, os ótimos e as figuras dos 6 casos, pelo C++ do landschaft); F feito: o planejamento do plangea
+  (`restoration.plan`: risco de extinção e benefícios lineares, metas de área por paisagem ou região, orçamento,
+  o método exato por decomposição simplicial com o limite de Frank-Wolfe, os passos do plangea, o plano uniforme,
+  conservação e conversão, curvas de trade-off com o gradiente, mudanças projetadas; a redução do risco com a
+  incerteza de z; `restoration.ecosystem_areas` e `ecosystem_targets`), com os números do plangea nos casos que o
+  landschaft guarda; faltam o benefício de integridade no planejador, o custo mínimo e a comparação de pesos.
 - **Próximos:** MSPA por tiles para rasters maiores que a memória; mapa de fundo de satélite (GDAL XYZ/WMS);
   vetores (OGR) para rasterizar e medir distâncias; instaladores com o GDAL; os outros kernels C++ já prontos (reclassificação, zonal, distância, métricas de paisagem,
   FAD, SPA), depois reprojeção (PROJ embutido e o warp do landschaft) e vetores.
