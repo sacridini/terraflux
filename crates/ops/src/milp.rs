@@ -729,6 +729,159 @@ pub fn solve(m: &Model, n_units: usize, gap: f64, time_limit: f64) -> Result<ffi
     ffi::opt_solve(&model, &settings, method(m, n_units), n_units as i64).map_err(|e| e.what().to_string())
 }
 
+/// prioritizr's portfolios: several solutions of a problem (add_*_portfolio).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Portfolio {
+    /// The k best distinct solutions, one solve after another, each forbidding the earlier ones with a no-good
+    /// cut on the units (the selected less the others <= selected - 1). prioritizr 8.0.6's cut has the
+    /// coefficients 2 s, not 2 s - 1: it forbids keeping half of the earlier solution, not the solution; the
+    /// correct cut here, as landschaft's.
+    Cuts(usize),
+    /// As cuts, every solve to optimality (Gurobi's solution pool's k best).
+    Top(usize),
+    /// Solutions within pool_gap of the optimum (relative to it), as many as found up to k.
+    Gap(usize, f64),
+    /// The model's columns in random orders (seeded): optimal solutions that differ where there are ties.
+    Shuffle { k: usize, seed: u64, remove_duplicates: bool },
+}
+
+impl Model {
+    /// The model with a row more.
+    fn with_row(&self, idx: &[usize], val: &[f64], sense: &str, rhs: f64, id: &str) -> Model {
+        let mut m = self.clone();
+        let mut row: Vec<(usize, f64)> = idx.iter().copied().zip(val.iter().copied()).filter(|e| e.1 != 0.0).collect();
+        row.sort_by_key(|e| e.0);
+        m.a.index.extend(row.iter().map(|e| e.0));
+        m.a.value.extend(row.iter().map(|e| e.1));
+        m.a.start.push(m.a.index.len());
+        m.a.nrow += 1;
+        m.sense.push(sense.into());
+        m.rhs.push(rhs);
+        m.row_ids.push(id.into());
+        m
+    }
+
+    /// The model with its columns in the order perm (column k of the new model is column perm[k]).
+    fn permuted(&self, perm: &[usize]) -> Model {
+        let mut at = vec![0; perm.len()];
+        for (k, &j) in perm.iter().enumerate() {
+            at[j] = k;
+        }
+        let (mut r, mut c, mut v) = (Vec::new(), Vec::new(), Vec::new());
+        for i in 0..self.a.nrow {
+            let (idx, val) = self.a.row(i);
+            r.extend(std::iter::repeat_n(i, idx.len()));
+            c.extend(idx.iter().map(|&j| at[j]));
+            v.extend_from_slice(val);
+        }
+        let pick = |x: &[f64]| perm.iter().map(|&j| x[j]).collect::<Vec<f64>>();
+        Model {
+            a: Csr::from_triplets(self.a.nrow, self.a.ncol, &r, &c, &v),
+            obj: pick(&self.obj),
+            lb: pick(&self.lb),
+            ub: pick(&self.ub),
+            rhs: self.rhs.clone(),
+            sense: self.sense.clone(),
+            vtype: perm.iter().map(|&j| self.vtype[j]).collect(),
+            maximize: self.maximize,
+            row_ids: self.row_ids.clone(),
+            col_ids: perm.iter().map(|&j| self.col_ids[j].clone()).collect(),
+        }
+    }
+}
+
+/// splitmix64: the shuffle portfolio's random orders.
+struct Rng(u64);
+
+impl Rng {
+    fn next(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^ (z >> 31)
+    }
+
+    /// Fisher and Yates' shuffle.
+    fn shuffle(&mut self, v: &mut [usize]) {
+        for i in (1..v.len()).rev() {
+            let j = (self.next() % (i as u64 + 1)) as usize;
+            v.swap(i, j);
+        }
+    }
+}
+
+/// A portfolio's solutions: best first (cuts, top, gap) or in the order found (shuffle).
+pub fn solve_portfolio(
+    m: &Model,
+    n_units: usize,
+    portfolio: &Portfolio,
+    gap: f64,
+    time_limit: f64,
+) -> Result<Vec<ffi::SolveOut>, String> {
+    let n = n_units;
+    let mut out = Vec::new();
+    match *portfolio {
+        Portfolio::Cuts(k) | Portfolio::Top(k) | Portfolio::Gap(k, _) => {
+            let binary = (0..n).all(|j| (m.vtype[j] == 'B' || m.vtype[j] == 'I') && m.ub[j] <= 1.0);
+            if !binary {
+                return Err("the cuts, top and gap portfolios need binary decisions".into());
+            }
+            let gap = if matches!(portfolio, Portfolio::Top(_)) { 0.0 } else { gap };
+            let mut cur = m.clone();
+            for _ in 0..k {
+                let r = solve(&cur, n, gap, time_limit)?;
+                if !r.has_solution || r.status == "infeasible" {
+                    break;
+                }
+                if let (Portfolio::Gap(_, g), true) = (portfolio, out.is_empty()) {
+                    // Gurobi's PoolGap: within pool_gap of the optimum, relative to it
+                    let best = r.objective;
+                    let (sense, bound) =
+                        if m.maximize { (">=", best - g * best.abs()) } else { ("<=", best + g * best.abs()) };
+                    cur = cur.with_row(&(0..m.obj.len()).collect::<Vec<_>>(), &m.obj, sense, bound, "pool_gap");
+                }
+                let s: Vec<f64> = r.x[..n].iter().map(|v| v.round()).collect();
+                let coef: Vec<f64> = s.iter().map(|v| 2.0 * v - 1.0).collect();
+                cur = cur.with_row(&(0..n).collect::<Vec<_>>(), &coef, "<=", s.iter().sum::<f64>() - 1.0, "cuts");
+                out.push(r);
+            }
+        }
+        Portfolio::Shuffle { k, seed, remove_duplicates } => {
+            let mut rng = Rng(seed);
+            let mut seen = std::collections::HashSet::new();
+            let mut tries = 0;
+            while out.len() < k && tries < 4 * k {
+                tries += 1;
+                // the units in a random order, then the other columns (the engines want the units first)
+                let mut units: Vec<usize> = (0..n).collect();
+                let mut rest: Vec<usize> = (n..m.obj.len()).collect();
+                rng.shuffle(&mut units);
+                rng.shuffle(&mut rest);
+                let perm: Vec<usize> = units.into_iter().chain(rest).collect();
+                let mut r = solve(&m.permuted(&perm), n, gap, time_limit)?;
+                if !r.has_solution {
+                    break;
+                }
+                let mut x = vec![0.0; m.obj.len()];
+                for (k, &j) in perm.iter().enumerate() {
+                    x[j] = r.x[k];
+                }
+                r.x = x;
+                let key: Vec<i64> = r.x[..n].iter().map(|v| (v * 1e6).round() as i64).collect();
+                if !seen.insert(key) && remove_duplicates {
+                    continue;
+                }
+                out.push(r);
+            }
+        }
+    }
+    if out.is_empty() {
+        return Err("no solution".into());
+    }
+    Ok(out)
+}
+
 /// prioritizr's spatial penalties and constraints (on raster units).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Spatial {

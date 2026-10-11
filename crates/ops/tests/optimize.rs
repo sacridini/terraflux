@@ -609,3 +609,82 @@ fn table_compile_is_prioritizrs() {
         assert_model(name, &m, &refs[group]);
     }
 }
+
+/// prioritizr's portfolios on its table of units: the cuts portfolio (with its no-good cut fixed), top and gap
+/// (Gurobi's solution pool) reach the same objectives, distinct solutions; shuffle's are all optimal; the maps of
+/// a raster problem's portfolio.
+#[test]
+fn portfolios_are_prioritizrs() {
+    use serde_json::json;
+    let t = tables();
+    let r = reference("portfolio");
+    let registry = terraflux_ops::Registry::standard();
+    let try_run = |ins: BTreeMap<String, Value>, params: serde_json::Value| {
+        let params = params.as_object().unwrap().clone();
+        let args = Args { node: "n", inputs: ins, params: &params };
+        registry.get("prioritize.optimize").unwrap().run(&mut terraflux_ops::Ctx::default(), &args)
+    };
+    let run = |ins, params| try_run(ins, params).unwrap();
+    let table = |out: &BTreeMap<String, Value>, name: &str| match &out[name] {
+        Value::Table(t) => t.clone(),
+        _ => panic!("{name}"),
+    };
+    let base = json!({"features": ["f1", "f2", "f3", "f4", "f5"], "relative_targets": 0.3, "gap": 0});
+    let with = |extra: serde_json::Value| {
+        let mut p = base.clone();
+        p.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        p
+    };
+    let pu: BTreeMap<String, Value> = [("pu".to_string(), Value::Table(t["pu_table"].clone()))].into();
+    for (name, params) in [
+        ("portfolio_cuts_fixed", json!({"portfolio": "cuts", "number_solutions": 4})),
+        ("portfolio_top", json!({"portfolio": "top", "number_solutions": 3})),
+        ("portfolio_gap", json!({"portfolio": "gap", "number_solutions": 5, "pool_gap": 0.02})),
+    ] {
+        let out = run(pu.clone(), with(params));
+        let summary = table(&out, "summary");
+        let ours = summary.column("objective").unwrap();
+        let want = r.floats(&format!("{name}/objective"));
+        assert_eq!(ours.len(), want.len(), "{name}");
+        for (a, b) in ours.iter().zip(&want) {
+            assert!((a - b).abs() <= 1e-9 * b.abs().max(1.0), "{name}: {ours:?} != {want:?}");
+        }
+        let sel = table(&out, "selection");
+        let k = want.len();
+        assert_eq!(sel.columns.len(), k + 2, "{name}: unit, solution_1.., frequency");
+        let mut seen = std::collections::BTreeSet::new();
+        for c in 1..=k {
+            let v: Vec<u8> = sel.rows.iter().map(|row| row[c].round() as u8).collect();
+            assert!(seen.insert(v), "{name}: solution {c} is a duplicate");
+        }
+        for row in &sel.rows {
+            let mean = row[1..=k].iter().sum::<f64>() / k as f64;
+            assert!((row[k + 1] - mean).abs() < 1e-12, "{name}: frequency");
+        }
+    }
+    let out = run(pu.clone(), with(json!({"portfolio": "shuffle", "number_solutions": 3, "seed": 2})));
+    let obj = table(&out, "summary").column("objective").unwrap();
+    assert!(!obj.is_empty() && obj.iter().all(|o| (o - obj[0]).abs() <= 1e-9 * obj[0].abs()), "shuffle: {obj:?}");
+    let e = try_run(pu.clone(), with(json!({"portfolio": "cuts", "number_solutions": 2, "decisions": "proportion"})));
+    assert!(e.unwrap_err().to_string().contains("binary"));
+    let e = try_run(pu.clone(), with(json!({"portfolio": "cuts", "number_solutions": 0})));
+    assert!(e.unwrap_err().to_string().contains("whole number"));
+    // a raster problem's portfolio: a layer per solution, the frequency on the units only
+    let inputs = inputs();
+    let out =
+        run(args_of(&inputs, NONE, None), json!({"relative_targets": 0.3, "portfolio": "cuts", "number_solutions": 3}));
+    let (Value::Stack(st), Value::Map(freq), Value::Map(first)) =
+        (&out["solutions"], &out["frequency"], &out["solution"])
+    else {
+        panic!("maps")
+    };
+    assert_eq!(st.layers.len(), 3);
+    for (i, &f) in freq.data.iter().enumerate() {
+        assert_eq!(f.is_nan(), first.data[i].is_nan());
+        if !f.is_nan() {
+            let mean = st.layers.iter().map(|l| l[i]).sum::<f64>() / 3.0;
+            assert!((0.0..=1.0).contains(&f) && (f - mean).abs() < 1e-12);
+            assert_eq!(st.layers[0][i], first.data[i]);
+        }
+    }
+}

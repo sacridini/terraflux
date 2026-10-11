@@ -1215,8 +1215,8 @@ impl Operator for Optimize {
              prioritizr compiles. Objectives: min_set (meet every target at the least cost), min_shortfall, \
              min_largest_shortfall, max_utility, max_features, max_cover, min_penalties (with a budget); \
              targets relative, absolute, loglinear or by hand; feature weights; binary, proportion or \
-             semicontinuous decisions; locked units; boundary and linear penalties, a linear constraint, \
-             neighbour constraints.",
+             semicontinuous decisions; locked units; boundary, connectivity and linear penalties, linear \
+             constraints, neighbour constraints; planning units in maps or tables; portfolios of solutions.",
             Access::Global,
         )
         .input(PortSpec::optional("features", Type::Stack, "the features' amounts, a layer each"))
@@ -1241,17 +1241,25 @@ impl Operator for Optimize {
         ))
         .input(PortSpec::optional("penalty_data", Type::Map, "linear penalties: a value per cell"))
         .input(PortSpec::optional("constraint_data", Type::Map, "the linear constraint: a value per cell"))
-        .output(PortSpec::new("solution", Type::Map, "maps: the share of each unit selected (1 selected)"))
-        .output(PortSpec::new("selection", Type::Table, "per unit: its cell or row (1..) and the share selected"))
+        .output(PortSpec::optional("solution", Type::Map, "maps: the share of each unit selected (1 selected)"))
+        .output(PortSpec::new(
+            "selection",
+            Type::Table,
+            "per unit: its cell or row (1..) and the share selected (a portfolio: solution_1.., frequency)",
+        ))
         .output(PortSpec::new(
             "summary",
             Type::Table,
-            "the solution's objective, cost, units selected, the solver's gap and status (1 optimal)",
+            "the solution's objective, cost, units selected, the solver's gap and status (1 optimal); a row per \
+             solution of a portfolio",
         ))
+        .output(PortSpec::optional("solutions", Type::Stack, "maps, a portfolio: every solution, a layer each"))
+        .output(PortSpec::optional("frequency", Type::Map, "maps, a portfolio: the share of the solutions selecting a unit"))
         .output(PortSpec::new(
             "coverage",
             Type::Table,
-            "per target: its feature, the amount held, the target, the feature's total, and whether it is met",
+            "per target: its feature, the amount held, the target, the feature's total, and whether it is met \
+             (of the first solution)",
         ))
         .param(PortSpec::optional(
             "objective",
@@ -1294,6 +1302,16 @@ impl Operator for Optimize {
             "penalties and constraints in order: [{kind: boundary|connectivity|asym_connectivity|linear_penalty|\
              linear_constraint|neighbors, penalty, edge_factor, threshold, sense, column, k, clamp}, ...]",
         ))
+        .param(PortSpec::optional(
+            "portfolio",
+            Type::Text,
+            "several solutions: cuts (the best distinct ones), top (the best, each to optimality), gap (within \
+             pool_gap of the optimum), shuffle (the columns in random orders)",
+        ))
+        .param(PortSpec::optional("number_solutions", Type::Number, "a portfolio's solutions (default 10)"))
+        .param(PortSpec::optional("pool_gap", Type::Number, "the gap portfolio: how far from the optimum (0.1)"))
+        .param(PortSpec::optional("seed", Type::Number, "the shuffle portfolio's random orders (default 0)"))
+        .param(PortSpec::optional("remove_duplicates", Type::Bool, "the shuffle portfolio: distinct solutions (true)"))
         .param(PortSpec::optional("gap", Type::Number, "the relative optimality gap (default 0.1, as prioritizr)"))
         .param(PortSpec::optional("time_limit", Type::Number, "seconds (default none)"))
     }
@@ -1306,23 +1324,60 @@ impl Operator for Optimize {
         let gap: f64 = args.param("gap", 0.1)?;
         let time_limit: f64 = args.opt_param("time_limit")?.unwrap_or(f64::INFINITY);
         let n = p.units.n();
-        let r = milp::solve(&model, n, gap, time_limit).map_err(err)?;
-        if !r.has_solution {
-            return Err(err(format!("no solution: {}", r.status)));
-        }
-        let x = &r.x[..n];
+        let portfolio = portfolio_of(args)?;
+        let rs = match &portfolio {
+            Some(pf) => milp::solve_portfolio(&model, n, pf, gap, time_limit).map_err(err)?,
+            None => {
+                let r = milp::solve(&model, n, gap, time_limit).map_err(err)?;
+                if !r.has_solution {
+                    return Err(err(format!("no solution: {}", r.status)));
+                }
+                vec![r]
+            }
+        };
+        let xs: Vec<&[f64]> = rs.iter().map(|r| &r.x[..n]).collect();
+        let x = xs[0];
         let cost = &p.units.cost;
-        let mut selection = Table::new(vec!["unit".into(), "solution".into()]);
-        selection.rows = p.units.cells.iter().zip(x).map(|(&c, &v)| vec![(c + 1) as f64, v]).collect();
-        let spent: f64 = cost.iter().zip(x).map(|(c, x)| c * x).sum();
-        let mut summary = Table::new(["objective", "cost", "selected", "gap", "optimal"].map(String::from).to_vec());
-        summary.rows.push(vec![
-            r.objective,
-            spent,
-            x.iter().filter(|&&v| v > 0.5).count() as f64,
-            r.gap,
-            f64::from(u8::from(r.status == "optimal")),
-        ]);
+        let names: Vec<String> = match portfolio {
+            Some(_) => (1..=xs.len()).map(|k| format!("solution_{k}")).collect(),
+            None => vec!["solution".into()],
+        };
+        let frequency: Vec<f64> = (0..n).map(|i| xs.iter().map(|x| x[i]).sum::<f64>() / xs.len() as f64).collect();
+        let mut columns = vec!["unit".to_string()];
+        columns.extend(names.iter().cloned());
+        if portfolio.is_some() {
+            columns.push("frequency".into());
+        }
+        let mut selection = Table::new(columns);
+        selection.rows = (0..n)
+            .map(|i| {
+                let mut row = vec![(p.units.cells[i] + 1) as f64];
+                row.extend(xs.iter().map(|x| x[i]));
+                if portfolio.is_some() {
+                    row.push(frequency[i]);
+                }
+                row
+            })
+            .collect();
+        let mut columns: Vec<String> = ["objective", "cost", "selected", "gap", "optimal"].map(String::from).to_vec();
+        if portfolio.is_some() {
+            columns.insert(0, "solution".into());
+        }
+        let mut summary = Table::new(columns);
+        for (k, (r, x)) in rs.iter().zip(&xs).enumerate() {
+            let spent: f64 = cost.iter().zip(x.iter()).map(|(c, x)| c * x).sum();
+            let mut row = vec![
+                r.objective,
+                spent,
+                x.iter().filter(|&&v| v > 0.5).count() as f64,
+                r.gap,
+                f64::from(u8::from(r.status == "optimal")),
+            ];
+            if portfolio.is_some() {
+                row.insert(0, (k + 1) as f64);
+            }
+            summary.rows.push(row);
+        }
         let mut coverage = Table::new(["feature", "held", "target", "total", "met"].map(String::from).to_vec());
         for (k, &f) in t.feature.iter().enumerate() {
             let (idx, v) = p.units.rij.row(f);
@@ -1343,14 +1398,51 @@ impl Operator for Optimize {
         ]);
         if p.units.raster {
             let grid = args.map("cost")?.grid.clone();
-            let mut solution = vec![f64::NAN; grid.width * grid.height];
-            for (i, &c) in p.units.cells.iter().enumerate() {
-                solution[c] = x[i];
+            let on_grid = |v: &[f64]| {
+                let mut out = vec![f64::NAN; grid.width * grid.height];
+                for (i, &c) in p.units.cells.iter().enumerate() {
+                    out[c] = v[i];
+                }
+                out
+            };
+            out.insert("solution".into(), Value::Map(Map::new(grid.clone(), on_grid(x))));
+            if portfolio.is_some() {
+                let keys = names.iter().map(|n| Key::Name(n.clone())).collect();
+                let layers = xs.iter().map(|x| Arc::new(on_grid(x))).collect();
+                out.insert("frequency".into(), Value::Map(Map::new(grid.clone(), on_grid(&frequency))));
+                out.insert("solutions".into(), Value::Stack(Stack { grid, keys, layers }));
             }
-            out.insert("solution".into(), Value::Map(Map::new(grid, solution)));
         }
         Ok(out)
     }
+}
+
+/// The portfolio asked for: portfolio, number_solutions, pool_gap, seed, remove_duplicates.
+fn portfolio_of(args: &Args) -> Result<Option<milp::Portfolio>> {
+    let node = args.node;
+    let Some(kind) = args.opt_param::<String>("portfolio")? else { return Ok(None) };
+    let k: f64 = args.param("number_solutions", 10.0)?;
+    if k < 1.0 || k.fract() != 0.0 {
+        return Err(Error::msg(format!("node {node:?}: number_solutions must be a whole number >= 1")));
+    }
+    let k = k as usize;
+    Ok(Some(match kind.as_str() {
+        "cuts" => milp::Portfolio::Cuts(k),
+        "top" => milp::Portfolio::Top(k),
+        "gap" => {
+            let g: f64 = args.param("pool_gap", 0.1)?;
+            if !(g >= 0.0 && g.is_finite()) {
+                return Err(Error::msg(format!("node {node:?}: pool_gap must be >= 0")));
+            }
+            milp::Portfolio::Gap(k, g)
+        }
+        "shuffle" => milp::Portfolio::Shuffle {
+            k,
+            seed: args.param::<f64>("seed", 0.0)? as u64,
+            remove_duplicates: args.param("remove_duplicates", true)?,
+        },
+        o => return Err(Error::msg(format!("node {node:?}: unknown portfolio {o:?} (cuts, top, gap, shuffle)"))),
+    }))
 }
 
 struct Evaluate;
@@ -1371,17 +1463,17 @@ impl Operator for Evaluate {
         .input(PortSpec::optional("targets", Type::Table, "targets by hand, as prioritize.optimize's"))
         .output(PortSpec::new("summary", Type::Table, "the units selected (n), their cost and boundary"))
         .output(PortSpec::new("representation", Type::Table, "per feature: its total, the amount held and its share"))
-        .output(PortSpec::new(
+        .output(PortSpec::optional(
             "coverage",
             Type::Table,
             "per target: its feature, met (1), the total, the target, the amount held and the shortfall, and \
              these relative to the total",
         ))
-        .output(PortSpec::new("ferrier", Type::Stack, "Ferrier's irreplaceability per feature and in total"))
+        .output(PortSpec::optional("ferrier", Type::Stack, "Ferrier's irreplaceability per feature and in total"))
         .output(PortSpec::new("rarity", Type::Map, "the rarity-weighted richness of the units selected"))
-        .output(PortSpec::new("replacement", Type::Map, "replacement: each selected unit's replacement cost"))
-        .output(PortSpec::new("rank", Type::Map, "rank: each selected unit's rank importance"))
-        .output(PortSpec::new("rank_budgets", Type::Table, "rank: the budgets and the objective at each"))
+        .output(PortSpec::optional("replacement", Type::Map, "replacement: each selected unit's replacement cost"))
+        .output(PortSpec::optional("rank", Type::Map, "rank: each selected unit's rank importance"))
+        .output(PortSpec::optional("rank_budgets", Type::Table, "rank: the budgets and the objective at each"))
         .param(PortSpec::optional("relative_targets", Type::Any, "a share of each feature's total (or one for all)"))
         .param(PortSpec::optional("absolute_targets", Type::Any, "an amount per feature"))
         .param(PortSpec::optional("loglinear_targets", Type::Any, "as prioritize.optimize's"))

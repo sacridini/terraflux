@@ -433,7 +433,8 @@ impl Engine {
             warnings.push(format!("{at}: {w}"));
         }
         let sig = self.registry.signature(&node.op).unwrap();
-        for p in &sig.outputs {
+        // the optional outputs: given on request or for some inputs only (a reader of one missing has no value)
+        for p in sig.outputs.iter().filter(|p| p.required) {
             if !out.contains_key(&p.name) {
                 return Err(Error::Node { at: at.into(), message: format!("{} gave no output {:?}", node.op, p.name) });
             }
