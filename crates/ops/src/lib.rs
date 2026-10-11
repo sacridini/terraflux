@@ -38,6 +38,7 @@ pub mod prepare;
 pub mod presets;
 pub mod prioritize;
 pub mod restoration;
+pub mod restoration_plan;
 pub mod validate;
 pub mod value;
 pub mod view;
@@ -256,6 +257,7 @@ impl Registry {
         prioritize::register(&mut r);
         actions::register(&mut r);
         restoration::register(&mut r);
+        restoration_plan::register(&mut r);
         plugin::register(&mut r);
         validate::register(&mut r);
         view::register(&mut r);

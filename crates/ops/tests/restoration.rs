@@ -234,3 +234,122 @@ fn area_of_habitat_is_plangeas() {
         }
     }
 }
+
+/// bd_absent's restoration problem: the vegetation (oa_past_er), the area of habitat and its gain, cells of 1 km².
+fn plan_inputs(d: &Data) -> (Vec<(&'static str, Value)>, terraflux_ops::restoration_plan::Plan) {
+    let spec = &d.meta["bd_cases"]["bd_absent"];
+    let veg = vegetation(d, &d.meta["oa_cases"][spec["oa"].as_str().unwrap()]);
+    let species = strings(&d.meta["species"]);
+    let aoh = run(
+        "sdm.area_of_habitat",
+        vec![
+            ("ranges", stack(&d.inputs["ranges"], &species)),
+            ("land_cover", stack(&d.inputs["land_cover"], &strings(&d.meta["classes"]))),
+            ("original", veg["original"].clone()),
+            ("restore", veg["restore"].clone()),
+            ("anthropic", veg["anthropic"].clone()),
+        ],
+        serde_json::json!({"natural": d.meta["natural"], "suitability": d.meta["suitability"], "cell_area": 1.0,
+                           "include_unlisted": spec["include_absent"]}),
+    );
+    let (Value::Map(anthropic), Value::Table(t), Value::Stack(gain)) = (&veg["anthropic"], &aoh["table"], &aoh["gain"])
+    else {
+        panic!()
+    };
+    let n = anthropic.data.len();
+    let mut p = terraflux_ops::restoration_plan::Plan::new(
+        &anthropic.data,
+        &vec![1.0; n],
+        &vec![1.0; n],
+        (anthropic.grid.height, anthropic.grid.width),
+    )
+    .unwrap();
+    let layers: Vec<&[f64]> = gain.layers.iter().map(|l| l.as_slice()).collect();
+    let k = t.rows.len();
+    p.add_risk(
+        &t.column("current").unwrap(),
+        &t.column("potential").unwrap(),
+        &t.column("valid").unwrap().iter().map(|v| *v != 0.0).collect::<Vec<_>>(),
+        &layers,
+        &vec![0.25; k],
+        &vec![0.0; k],
+        1.0,
+    )
+    .unwrap();
+    let inputs =
+        vec![("restorable", veg["anthropic"].clone()), ("table", aoh["table"].clone()), ("gain", aoh["gain"].clone())];
+    (inputs, p)
+}
+
+/// plangea's restoration problem: its units and bounds, its biodiversity layer (the finite-difference slopes of
+/// the species' risk times the habitat a unit of a cell restored gives; to the last bits but one), and its
+/// procedure (scen: the target in steps, the layer refreshed between them, each step's linear program; HiGHS
+/// here, Gurobi there: their optimum is unique), as landschaft's test_prioritize_restoration.
+#[test]
+fn plan_steps_is_plangeas() {
+    let d = data();
+    let (inputs, p) = plan_inputs(&d);
+    let master = cells(&d.reference["bd_absent/master_index"]);
+    assert_eq!(p.index, master, "the units");
+    assert_eq!(p.upper, d.reference["scen_1/ub"].data, "the bounds");
+    let close = |what: &str, a: &[f64], b: &[f64], rtol: f64, atol: f64| {
+        assert_eq!(a.len(), b.len(), "{what}");
+        for (i, (x, y)) in a.iter().zip(b).enumerate() {
+            assert!((x - y).abs() <= atol + rtol * y.abs(), "{what}[{i}]: {x} != {y}");
+        }
+    };
+    close("bd", &p.steps_layer(&p.risks[0], &vec![0.0; p.n()]), &d.reference["bd_absent/bd"].data, 1e-15, 0.0);
+    for (name, steps) in [("scen_1", 1usize), ("scen_3", 3), ("scen_4_60", 4)] {
+        let target = d.reference[&format!("{name}/target")].data[0];
+        let out = run(
+            "restoration.plan",
+            inputs.clone(),
+            serde_json::json!({"method": "steps", "steps": steps, "target": target, "cell_area": 1.0}),
+        );
+        let Value::Map(restored) = &out["restored"] else { panic!() };
+        let x: Vec<f64> = p.index.iter().map(|&c| restored.data[c]).collect();
+        close(name, &x, &d.reference[&format!("{name}/x")].data, 0.0, 1e-12);
+        for k in 1..steps {
+            let cum = &d.reference[&format!("{name}/cum_{k}")].data;
+            close(
+                &format!("{name} bd_{k}"),
+                &p.steps_layer(&p.risks[0], cum),
+                &d.reference[&format!("{name}/bd_{k}")].data,
+                1e-7,
+                0.0,
+            );
+        }
+    }
+}
+
+/// The exact plan: optimal within the tolerance (the Frank-Wolfe bound), no worse than plangea's procedure and the
+/// uniform plan for the same area, the area at the target; the uniform plan every unit by the same share.
+#[test]
+fn plan_exact_is_the_optimum() {
+    let d = data();
+    let (inputs, mut p) = plan_inputs(&d);
+    let target = d.reference["scen_1/target"].data[0];
+    p.add_area_target(&[(None, target)], None, "<=", false).unwrap();
+    let (x, bound, status, _) = p.exact(1e-9, f64::INFINITY).unwrap();
+    assert_eq!(status, "optimal");
+    let f = p.objective(&x);
+    assert!(bound >= f && bound - f <= 1e-9 * bound.abs().max(1.0), "{f} {bound}");
+    let area: f64 = p.area.iter().zip(&x).map(|(a, x)| a * x).sum();
+    assert!(area <= target * (1.0 + 1e-9));
+    for steps in [1, 3] {
+        let s = p.steps(steps).unwrap();
+        assert!(f >= p.objective(&s) - 1e-12, "steps {steps}: {} > {f}", p.objective(&s));
+    }
+    let u = p.uniform(target);
+    assert!(f >= p.objective(&u));
+    let total: f64 = p.upper.iter().zip(&p.area).map(|(u, a)| u * a).sum();
+    for (a, b) in u.iter().zip(&p.upper) {
+        assert!((a - b * (target / total)).abs() <= 1e-15 * b.max(1e-300));
+    }
+    // the operator's
+    let out =
+        run("restoration.plan", inputs, serde_json::json!({"target": target, "cell_area": 1.0, "tolerance": 1e-9}));
+    let Value::Table(s) = &out["summary"] else { panic!() };
+    assert_eq!(s.column("optimal").unwrap()[0], 1.0);
+    assert!((s.column("benefit").unwrap()[0] - f).abs() <= 1e-9 * f.abs().max(1.0));
+}

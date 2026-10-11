@@ -75,6 +75,13 @@ minor versions.
   inputData() checks, defaults and warnings; the monitoring, the actions, getActions(), the cost, the benefit
   (total and per unit), the potential benefit and the connectivity. prioriactions's model bit for bit, its optima
   and its figures on landschaft's 6 cases (`tools/make_optimize_inputs.py` writes their tables).
+- Restoration planning as plangea (`restoration.plan`): how much of every converted cell to restore for the most
+  benefit within area targets (in the landscape or per region, absolute or shares) and a budget: the reduction of
+  the species' extinction risk (the species-area relationship on `sdm.area_of_habitat`'s table and gain; z and a
+  restoration discount per species) and linear benefits (carbon per km²). exact: the optimum within a tolerance
+  by simplicial decomposition (a proven Frank-Wolfe bound; species at their potential lifted); steps: plangea's
+  procedure (the target in steps, the benefits recomputed between them); uniform. plangea's units, bounds,
+  biodiversity layers and plans of its steps on the cases landschaft keeps.
 - prioritizr's evaluation of a solution (`prioritize.evaluate`): the units selected, their cost and boundary, the
   features' representation, the targets' coverage, Ferrier et al.'s irreplaceability and the rarity-weighted
   richness; prioritizr's numbers bit for bit on the cases landschaft keeps; and on request the replacement
