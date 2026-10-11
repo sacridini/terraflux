@@ -28,6 +28,8 @@ def main() -> None:
         "locked_in": oc.locked_in().values,
         "locked_out": oc.locked_out().values,
         "penalty_raster": oc.penalty_raster().values,
+        "sol_raster": oc.sol_raster().values,
+        "solp_raster": oc.solp_raster().values,
     }
     out = ROOT / "tests" / "data" / "reference" / "optimize_inputs.npz"
     np.savez_compressed(out, **{k: np.ascontiguousarray(v, dtype=np.float64) for k, v in arrays.items()})

@@ -388,6 +388,13 @@ pub mod ffi {
         gap: f64,
     }
 
+    /// A sparse matrix in compressed columns: start (columns + 1), row, value.
+    struct CscOut {
+        start: Vec<i64>,
+        index: Vec<i64>,
+        value: Vec<f64>,
+    }
+
     #[derive(Debug, Clone, Copy, PartialEq)]
     struct ObservedPatches {
         cells: i64,
@@ -562,6 +569,29 @@ pub mod ffi {
         fn proxirr_beta_gamma(start: &[i64], alphas: &[f64]) -> Result<ProxirrOut>;
         fn opt_features(values: &[f64], layers: i64, unit: &[i64]) -> Result<FeaturesOut>;
         fn opt_solve(model: &MilpModel, settings: &SolveSettings, method: &str, n_units: i64) -> Result<SolveOut>;
+        /// prioritizr's boundary of a solution (rcpp_boundary): the strictly lower triangle of the boundary
+        /// matrix in compressed columns, every unit's exposed and total boundary.
+        fn eval_boundary(
+            edge_factor: f64,
+            start: &[i64],
+            index: &[i64],
+            value: &[f64],
+            exposed: &[f64],
+            total: &[f64],
+            solution: &[f64],
+        ) -> Result<f64>;
+        /// prioritizr's Ferrier scores (rcpp_ferrier_score) of the selected units: rij features x units in
+        /// compressed columns; the scores as features x units in compressed columns.
+        fn eval_ferrier(
+            start: &[i64],
+            index: &[i64],
+            value: &[f64],
+            nrow: i64,
+            targets: &[f64],
+            selected: &[u8],
+        ) -> Result<CscOut>;
+        /// Armadillo's accumulate (two interleaved partial sums).
+        fn eval_accumulate(x: &[f64]) -> f64;
         fn lsm_table(
             values: &[i32],
             na: &[u8],

@@ -308,3 +308,79 @@ fn optima(which: impl Fn(&str) -> bool) {
         assert_eq!(s.column("optimal").unwrap()[0], 1.0, "{name}");
     }
 }
+
+/// prioritizr's evaluation of a solution (eval_*), bit for bit: its units, cost and boundary (with prioritizr's
+/// edge factor and another), the features' representation, the targets' coverage, Ferrier's importance and the
+/// rarity-weighted richness (rescaled and not), of a binary and a proportional solution.
+#[test]
+fn evaluation_is_prioritizrs() {
+    let inputs = inputs();
+    let r = reference("eval");
+    let registry = terraflux_ops::Registry::standard();
+    let bits = |what: &str, a: &[f64], b: &[f64]| {
+        assert_eq!(a.len(), b.len(), "{what}");
+        for (i, (x, y)) in a.iter().zip(b).enumerate() {
+            assert!(x.to_bits() == y.to_bits() || (x.is_nan() && y.is_nan()), "{what}[{i}]: {x} != {y}");
+        }
+    };
+    let cases = [
+        ("eval_raster", "sol_raster", serde_json::json!({"relative_targets": 0.3}), true),
+        (
+            "eval_raster_proportion",
+            "solp_raster",
+            serde_json::json!({"absolute_targets": [1.2, 0.9, 1, 120, 4], "decisions": "proportion"}),
+            false,
+        ),
+    ];
+    for (name, sol, params, full) in cases {
+        let run = |extra: serde_json::Value| {
+            let mut p = params.as_object().unwrap().clone();
+            p.extend(extra.as_object().unwrap().clone());
+            let mut ins = args_of(&inputs, NONE, None);
+            let g = match &ins["cost"] {
+                Value::Map(m) => m.grid.clone(),
+                _ => unreachable!(),
+            };
+            ins.insert("solution".into(), Value::Map(Map::new(g, inputs[sol].data.clone())));
+            let args = Args { node: "n", inputs: ins, params: &p };
+            registry.get("prioritize.evaluate").unwrap().run(&mut terraflux_ops::Ctx::default(), &args).unwrap()
+        };
+        let table = |out: &terraflux_ops::Outputs, port: &str, col: &str| {
+            let Value::Table(t) = &out[port] else { panic!("{port}") };
+            t.column(col).unwrap()
+        };
+        let k = |s: &str| format!("{name}/{s}");
+        let out = run(serde_json::json!({}));
+        bits("n", &table(&out, "summary", "n"), &r.floats(&k("n/n")));
+        bits("cost", &table(&out, "summary", "cost"), &r.floats(&k("cost/cost")));
+        bits("boundary", &table(&out, "summary", "boundary"), &r.floats(&k("boundary/boundary")));
+        for col in ["total_amount", "absolute_held", "relative_held"] {
+            bits(col, &table(&out, "representation", col), &r.floats(&k(&format!("representation/{col}"))));
+        }
+        for col in [
+            "met",
+            "total_amount",
+            "absolute_target",
+            "absolute_held",
+            "absolute_shortfall",
+            "relative_target",
+            "relative_held",
+            "relative_shortfall",
+        ] {
+            bits(col, &table(&out, "coverage", col), &r.floats(&k(&format!("coverage/{col}"))));
+        }
+        if full {
+            let edge = run(serde_json::json!({"edge_factor": 0.3}));
+            bits("boundary 0.3", &table(&edge, "summary", "boundary"), &r.floats(&k("boundary_edge/boundary")));
+            let Value::Stack(f) = &out["ferrier"] else { panic!() };
+            for (key, layer) in f.keys.iter().zip(&f.layers) {
+                bits(&format!("ferrier {key}"), layer, &r.floats(&k(&format!("ferrier/{key}"))));
+            }
+            let Value::Map(rare) = &out["rarity"] else { panic!() };
+            bits("rarity", &rare.data, &r.floats(&k("rare/rwr")));
+            let raw = run(serde_json::json!({"rescale": false}));
+            let Value::Map(rare) = &raw["rarity"] else { panic!() };
+            bits("rarity raw", &rare.data, &r.floats(&k("rare_raw/rwr")));
+        }
+    }
+}

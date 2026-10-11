@@ -32,6 +32,7 @@
 #include "gtb/spa.hpp"
 #include "lsm/landscape.hpp"
 #include "opt/cover.hpp"
+#include "opt/eval.hpp"
 #include "opt/features.hpp"
 #include "opt/marxan.hpp"
 #include "opt/milp.hpp"
@@ -752,6 +753,53 @@ SolveOut opt_solve(const MilpModel& model, const SolveSettings& settings, rust::
     out.bound = r.bound;
     out.gap = r.gap;
     return out;
+}
+
+namespace {
+
+opt::eval::Csc csc_of(rust::Slice<const std::int64_t> start, rust::Slice<const std::int64_t> index,
+                      rust::Slice<const double> value, i64 nrow) {
+    check(!start.empty() && index.size() == value.size() &&
+              start[start.size() - 1] == static_cast<i64>(value.size()),
+          "a matrix in compressed columns");
+    opt::eval::Csc m;
+    m.nrow = nrow;
+    m.ncol = static_cast<i64>(start.size()) - 1;
+    m.start = to_std(start);
+    m.index = to_std(index);
+    m.value = to_std(value);
+    return m;
+}
+
+}  // namespace
+
+double eval_boundary(double edge_factor, rust::Slice<const std::int64_t> start, rust::Slice<const std::int64_t> index,
+                     rust::Slice<const double> value, rust::Slice<const double> exposed,
+                     rust::Slice<const double> total, rust::Slice<const double> solution) {
+    const i64 n = static_cast<i64>(start.size()) - 1;
+    check(static_cast<i64>(exposed.size()) == n && static_cast<i64>(total.size()) == n &&
+              static_cast<i64>(solution.size()) == n,
+          "an exposed and a total boundary and a value per unit");
+    return opt::eval::boundary(edge_factor, csc_of(start, index, value, n), to_std(exposed), to_std(total),
+                               to_std(solution));
+}
+
+CscOut eval_ferrier(rust::Slice<const std::int64_t> start, rust::Slice<const std::int64_t> index,
+                    rust::Slice<const double> value, std::int64_t nrow, rust::Slice<const double> targets,
+                    rust::Slice<const std::uint8_t> selected) {
+    const opt::eval::Csc rij = csc_of(start, index, value, nrow);
+    check(static_cast<i64>(targets.size()) == nrow, "a target per feature");
+    check(static_cast<i64>(selected.size()) == rij.ncol, "a flag per unit");
+    const opt::eval::Csc s = opt::eval::ferrier_score(rij, to_std(targets), to_std(selected));
+    CscOut out;
+    out.start = to_rust<std::int64_t>(s.start);
+    out.index = to_rust<std::int64_t>(s.index);
+    out.value = to_rust<double>(s.value);
+    return out;
+}
+
+double eval_accumulate(rust::Slice<const double> x) {
+    return opt::eval::accumulate(x.data(), static_cast<i64>(x.size()));
 }
 
 namespace {

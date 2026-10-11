@@ -9,13 +9,14 @@ use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 use terraflux_ls_sys::ffi;
 
 use crate::milp;
-use crate::{Args, Ctx, Error, Map, Operator, Outputs, Registry, Result, Stack, Table, Value, outputs};
+use crate::{Args, Ctx, Error, Key, Map, Operator, Outputs, Registry, Result, Stack, Table, Value, outputs};
 
 pub fn register(r: &mut Registry) {
     r.add(Arc::new(Zonation));
     r.add(Arc::new(Marxan));
     r.add(Arc::new(Proxirr));
     r.add(Arc::new(Optimize));
+    r.add(Arc::new(Evaluate));
 }
 
 /// Zonation's marginal loss rules.
@@ -1162,5 +1163,122 @@ impl Operator for Optimize {
             ("summary", Value::Table(summary)),
             ("coverage", Value::Table(coverage)),
         ]))
+    }
+}
+
+struct Evaluate;
+
+impl Operator for Evaluate {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "prioritize.evaluate",
+            "prioritizr's evaluation of a solution (eval_*), its numbers bit for bit: the units selected, their \
+             cost and boundary; how much of each feature it holds; with targets, their coverage and Ferrier et \
+             al.'s irreplaceability of the units selected; the rarity-weighted richness of the units selected. The \
+             problem is given as to prioritize.optimize (features, cost, targets).",
+            Access::Global,
+        )
+        .input(PortSpec::new("features", Type::Stack, "the features' amounts, a layer each"))
+        .input(PortSpec::new("cost", Type::Map, "the cost of each cell (no value: not a planning unit)"))
+        .input(PortSpec::new("solution", Type::Map, "the share of each unit selected"))
+        .input(PortSpec::optional("targets", Type::Table, "targets by hand, as prioritize.optimize's"))
+        .output(PortSpec::new("summary", Type::Table, "the units selected (n), their cost and boundary"))
+        .output(PortSpec::new("representation", Type::Table, "per feature: its total, the amount held and its share"))
+        .output(PortSpec::new(
+            "coverage",
+            Type::Table,
+            "per target: its feature, met (1), the total, the target, the amount held and the shortfall, and \
+             these relative to the total",
+        ))
+        .output(PortSpec::new("ferrier", Type::Stack, "Ferrier's irreplaceability per feature and in total"))
+        .output(PortSpec::new("rarity", Type::Map, "the rarity-weighted richness of the units selected"))
+        .param(PortSpec::optional("relative_targets", Type::Any, "a share of each feature's total (or one for all)"))
+        .param(PortSpec::optional("absolute_targets", Type::Any, "an amount per feature"))
+        .param(PortSpec::optional("loglinear_targets", Type::Any, "as prioritize.optimize's"))
+        .param(PortSpec::optional("edge_factor", Type::Number, "the boundary: the weight of edges to no unit (0.5)"))
+        .param(PortSpec::optional("rescale", Type::Bool, "the rarity rescaled to 0.01-1 (default true)"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let node = args.node;
+        let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
+        let p = problem_of(args)?;
+        let u = &p.units;
+        let sol = args.map("solution")?;
+        if sol.data.len() != u.ny * u.nx {
+            return Err(err("the solution is not on the cost's grid".into()));
+        }
+        let s: Vec<f64> = u.cells.iter().map(|&c| if sol.data[c].is_finite() { sol.data[c] } else { 0.0 }).collect();
+        let e = milp::evaluate(u, &s, args.param("edge_factor", 0.5)?).map_err(err)?;
+        let mut summary = Table::new(vec!["n".into(), "cost".into(), "boundary".into()]);
+        summary.rows.push(vec![e.n, e.cost, e.boundary]);
+        let mut rep =
+            Table::new(["feature", "total_amount", "absolute_held", "relative_held"].map(String::from).to_vec());
+        rep.rows =
+            (0..u.names.len()).map(|f| vec![(f + 1) as f64, u.totals[f], e.held[f], e.held[f] / u.totals[f]]).collect();
+        let grid = args.map("cost")?.grid.clone();
+        let on_grid = |v: &[f64]| {
+            let mut m = vec![f64::NAN; u.ny * u.nx];
+            for (i, &c) in u.cells.iter().enumerate() {
+                m[c] = v[i];
+            }
+            m
+        };
+        let rescale: bool = args.param("rescale", true)?;
+        let mut out = outputs([
+            ("summary", Value::Table(summary)),
+            ("representation", Value::Table(rep)),
+            ("rarity", Value::Map(Map::new(grid.clone(), on_grid(&milp::rare_richness(u, &s, rescale).map_err(err)?)))),
+        ]);
+        if let Some(spec) = &p.targets {
+            let t = milp::resolve_targets(spec, &u.totals).map_err(err)?;
+            let held = milp::targets_held(u, &t, &s);
+            let mut cov = Table::new(
+                [
+                    "feature",
+                    "met",
+                    "total_amount",
+                    "absolute_target",
+                    "absolute_held",
+                    "absolute_shortfall",
+                    "relative_target",
+                    "relative_held",
+                    "relative_shortfall",
+                ]
+                .map(String::from)
+                .to_vec(),
+            );
+            for (k, &h) in held.iter().enumerate() {
+                let (target, total) = (t.value[k], t.total[k]);
+                let mut short = (target - h).abs();
+                match t.sense[k].as_str() {
+                    ">=" if h >= target => short = 0.0,
+                    "=" if h - target < 1e-10 => short = 0.0,
+                    "<=" if h <= target => short = 0.0,
+                    _ => {}
+                }
+                let rel = |v: f64| if (v / total).is_finite() { v / total } else { 0.0 };
+                cov.rows.push(vec![
+                    (t.feature[k] + 1) as f64,
+                    f64::from(u8::from(short < 1e-10)),
+                    total,
+                    target,
+                    h,
+                    short,
+                    rel(target),
+                    rel(h),
+                    rel(short),
+                ]);
+            }
+            out.insert("coverage".into(), Value::Table(cov));
+            if let Ok((scores, totals)) = milp::ferrier(u, &t, &s) {
+                let mut keys: Vec<Key> = u.names.iter().map(|n| Key::Name(n.clone())).collect();
+                keys.push(Key::Name("total".into()));
+                let mut layers: Vec<Arc<Vec<f64>>> = scores.iter().map(|v| Arc::new(on_grid(v))).collect();
+                layers.push(Arc::new(on_grid(&totals)));
+                out.insert("ferrier".into(), Value::Stack(Stack { grid, keys, layers }));
+            }
+        }
+        Ok(out)
     }
 }

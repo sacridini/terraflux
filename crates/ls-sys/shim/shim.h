@@ -46,6 +46,7 @@ struct FeaturesOut;
 struct MilpModel;
 struct SolveSettings;
 struct SolveOut;
+struct CscOut;
 
 // the threads of the kernels (OpenMP) of the calling thread, and their most
 void set_threads(std::int32_t n);
@@ -158,6 +159,17 @@ ProxirrOut proxirr_beta_gamma(rust::Slice<const std::int64_t> start, rust::Slice
 // unit of each cell, -1 none), and a model solved by HiGHS (method: highs, covering or wide)
 FeaturesOut opt_features(rust::Slice<const double> values, std::int64_t layers, rust::Slice<const std::int64_t> unit);
 SolveOut opt_solve(const MilpModel& model, const SolveSettings& settings, rust::Str method, std::int64_t n_units);
+
+// prioritizr's evaluation of solutions (opt::eval): the boundary of a solution (lower: the strictly lower
+// triangle of the boundary matrix in compressed columns), Ferrier's scores (rij: features x units in compressed
+// columns), Armadillo's accumulate
+double eval_boundary(double edge_factor, rust::Slice<const std::int64_t> start, rust::Slice<const std::int64_t> index,
+                     rust::Slice<const double> value, rust::Slice<const double> exposed,
+                     rust::Slice<const double> total, rust::Slice<const double> solution);
+CscOut eval_ferrier(rust::Slice<const std::int64_t> start, rust::Slice<const std::int64_t> index,
+                    rust::Slice<const double> value, std::int64_t nrow, rust::Slice<const double> targets,
+                    rust::Slice<const std::uint8_t> selected);
+double eval_accumulate(rust::Slice<const double> x);
 
 // landscape metrics (lsm::), as landscapemetrics: classes as 32-bit integers, `na` empty or 1 where a cell is NA
 LsmTable lsm_table(rust::Slice<const std::int32_t> values, rust::Slice<const std::uint8_t> na, std::int64_t ny,

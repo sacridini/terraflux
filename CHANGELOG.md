@@ -17,6 +17,9 @@ minor versions.
   on the grid, a summary and the targets' coverage. The models are prioritizr 8.0.6's compile(), bit for bit, on
   the 25 raster cases landschaft keeps, and HiGHS reaches their optima (Gurobi's at gap 0)
   (`tools/make_optimize_inputs.py`).
+- prioritizr's evaluation of a solution (`prioritize.evaluate`): the units selected, their cost and boundary, the
+  features' representation, the targets' coverage, Ferrier et al.'s irreplaceability and the rarity-weighted
+  richness; prioritizr's numbers bit for bit on the cases landschaft keeps.
 - Template: Conservation planning (prioritizr).
 - Marxan 4 (`prioritize.marxan`) through landschaft's C++: from Marxan's tables (pu, spec, puvspr, bound) or from
   maps (every cell a planning unit, its shared edges its boundaries), every option of input.dat; every run's

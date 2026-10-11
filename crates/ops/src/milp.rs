@@ -925,3 +925,203 @@ fn apply_spatial(b: &mut Builder, u: &Units, s: &Spatial) -> Result<(), String> 
     }
     Ok(())
 }
+
+/// R's round(x, digits) (R >= 4.0): of the two decimal candidates around x the closer, the even one on a tie.
+pub fn r_round(x: f64, digits: i32) -> f64 {
+    let sgn = if x < 0.0 { -1.0 } else { 1.0 };
+    let a = x.abs();
+    let p10 = 10f64.powi(digits);
+    let x10 = p10 * a;
+    let i10 = x10.floor();
+    let xd = i10 / p10;
+    let xu = x10.ceil() / p10;
+    let (du, dd) = (xu - a, a - xd);
+    let up = du < dd || (du == dd && i10 % 2.0 == 1.0);
+    sgn * if up { xu } else { xd }
+}
+
+/// prioritizr's evaluation of a solution (eval_*): its values per unit (no value 0).
+pub struct Evaluation {
+    /// eval_n_summary and eval_cost_summary: R's sums
+    pub n: f64,
+    pub cost: f64,
+    /// eval_boundary_summary
+    pub boundary: f64,
+    /// eval_feature_representation_summary: per feature its amount held
+    pub held: Vec<f64>,
+}
+
+/// A solution's units selected (above 1e-10).
+fn selected(s: &[f64]) -> Result<Vec<usize>, String> {
+    let sel: Vec<usize> = (0..s.len()).filter(|&i| s[i] > 1e-10).collect();
+    if sel.is_empty() {
+        return Err("the solution selects no planning unit".into());
+    }
+    Ok(sel)
+}
+
+/// The summaries of a solution (s: a value per unit).
+pub fn evaluate(u: &Units, s: &[f64], edge_factor: f64) -> Result<Evaluation, String> {
+    if !(0.0..=1.0).contains(&edge_factor) {
+        return Err("edge_factor must be between 0 and 1".into());
+    }
+    let cost: Vec<f64> = u.cost.iter().zip(s).map(|(c, x)| c * x).collect();
+    // the boundary matrix rounded as prioritizr's eval does
+    let mut bm = u.boundary_matrix();
+    bm.value.iter_mut().for_each(|v| *v = r_round(*v, 6));
+    let total = bm.diagonal();
+    let exposed: Vec<f64> = total.iter().zip(bm.row_sums()).map(|(t, r)| t - (r - t)).collect();
+    let mut lower = Csc { n: bm.n, start: vec![0], index: Vec::new(), value: Vec::new() };
+    for j in 0..bm.n {
+        for e in bm.start[j]..bm.start[j + 1] {
+            if bm.index[e] > j && bm.value[e] != 0.0 {
+                lower.index.push(bm.index[e]);
+                lower.value.push(bm.value[e]);
+            }
+        }
+        lower.start.push(lower.index.len());
+    }
+    let boundary = ffi::eval_boundary(
+        edge_factor,
+        &lower.start.iter().map(|&x| x as i64).collect::<Vec<_>>(),
+        &lower.index.iter().map(|&x| x as i64).collect::<Vec<_>>(),
+        &lower.value,
+        &exposed,
+        &total,
+        s,
+    )
+    .map_err(|e| e.what().to_string())?;
+    let held = (0..u.rij.nrow)
+        .map(|f| {
+            let (idx, v) = u.rij.row(f);
+            idx.iter().zip(v).filter(|(i, _)| s[**i] != 0.0).fold(0.0, |a, (i, x)| a + x * s[*i])
+        })
+        .collect();
+    Ok(Evaluation { n: ffi::r_sum(s), cost: ffi::r_sum(&cost), boundary, held })
+}
+
+/// eval_target_coverage_summary's amounts held of the targets (Armadillo's sums of their non-zero products).
+pub fn targets_held(u: &Units, t: &Targets, s: &[f64]) -> Vec<f64> {
+    t.feature
+        .iter()
+        .map(|&f| {
+            let (idx, v) = u.rij.row(f);
+            let prod: Vec<f64> = idx.iter().zip(v).map(|(i, x)| x * s[*i]).filter(|p| *p != 0.0).collect();
+            ffi::eval_accumulate(&prod)
+        })
+        .collect()
+}
+
+/// eval_ferrier_importance: features x units scores of the selected units (0 elsewhere), and their totals.
+pub fn ferrier(u: &Units, t: &Targets, s: &[f64]) -> Result<(Vec<Vec<f64>>, Vec<f64>), String> {
+    let nf = u.names.len();
+    if t.feature.len() != nf || t.feature.iter().enumerate().any(|(k, f)| *f != k) || t.sense.iter().any(|x| x != ">=")
+    {
+        return Err("Ferrier's importance needs one '>=' target per feature".into());
+    }
+    if t.value.iter().any(|v| *v < 0.0) || u.rij.value.iter().any(|v| *v < 0.0) {
+        return Err("Ferrier's importance needs targets and amounts >= 0".into());
+    }
+    let sel = selected(s)?;
+    let n = u.n();
+    // rij in compressed columns
+    let mut by_col: Vec<Vec<(usize, f64)>> = vec![Vec::new(); n];
+    for f in 0..nf {
+        let (idx, v) = u.rij.row(f);
+        for (i, x) in idx.iter().zip(v) {
+            by_col[*i].push((f, *x));
+        }
+    }
+    let (mut start, mut index, mut value) = (vec![0i64], Vec::new(), Vec::new());
+    for col in &by_col {
+        for (f, x) in col {
+            index.push(*f as i64);
+            value.push(*x);
+        }
+        start.push(index.len() as i64);
+    }
+    let mask: Vec<u8> = (0..n).map(|i| u8::from(sel.contains(&i))).collect();
+    let sc = ffi::eval_ferrier(&start, &index, &value, nf as i64, &t.value, &mask).map_err(|e| e.what().to_string())?;
+    let mut out = vec![vec![0.0; n]; nf];
+    let mut totals = vec![0.0; n];
+    for j in 0..n {
+        let (a, b) = (sc.start[j] as usize, sc.start[j + 1] as usize);
+        for e in a..b {
+            out[sc.index[e] as usize][j] = sc.value[e];
+        }
+        if mask[j] == 1 {
+            totals[j] = sc.value[a..b].iter().fold(0.0, |s, x| s + x);
+        }
+    }
+    Ok((out, totals))
+}
+
+/// prioritizr's rescale of importance scores to [0.01, 1] (the non-zero ones).
+fn rescale(x: &mut [f64]) {
+    let ind: Vec<usize> = (0..x.len()).filter(|&i| x[i].is_finite() && x[i].abs() > 1e-10).collect();
+    if ind.is_empty() {
+        return;
+    }
+    let lo = ind.iter().map(|&i| x[i]).fold(f64::INFINITY, f64::min);
+    let hi = ind.iter().map(|&i| x[i]).fold(f64::NEG_INFINITY, f64::max);
+    for &i in &ind {
+        x[i] = if (hi - lo).abs() < 1e-10 { (0.01 + 1.0) / 2.0 } else { (x[i] - lo) / (hi - lo) * (1.0 - 0.01) + 0.01 };
+    }
+}
+
+/// eval_rare_richness_importance: per unit (selected) the sum over the features of its amount over the feature's
+/// largest amount and total, rescaled to [0.01, 1] with `rescale`.
+pub fn rare_richness(u: &Units, s: &[f64], rescale_it: bool) -> Result<Vec<f64>, String> {
+    let sel = selected(s)?;
+    let nf = u.names.len();
+    let negative = u.rij.value.iter().any(|v| *v < 0.0);
+    let m: Vec<f64> = (0..nf)
+        .map(|f| {
+            let (idx, v) = u.rij.row(f);
+            let mx = v.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            if idx.is_empty() {
+                0.0
+            } else if negative && idx.len() < u.n() {
+                // the zeros of a sparse row count in its maximum
+                mx.max(0.0)
+            } else if negative {
+                mx
+            } else {
+                mx.max(0.0)
+            }
+        })
+        .collect();
+    let mut dense = vec![vec![0.0; sel.len()]; nf];
+    let pos: std::collections::HashMap<usize, usize> = sel.iter().enumerate().map(|(k, &i)| (i, k)).collect();
+    for (f, row) in dense.iter_mut().enumerate() {
+        let (idx, v) = u.rij.row(f);
+        for (i, x) in idx.iter().zip(v) {
+            if let Some(&k) = pos.get(i) {
+                row[k] = *x;
+            }
+        }
+    }
+    let mut v: Vec<f64> = (0..sel.len())
+        .map(|k| {
+            (0..nf).fold(0.0, |a, f| {
+                let mut o = dense[f][k] / m[f];
+                if !o.is_finite() {
+                    o = 0.0;
+                }
+                o /= u.totals[f];
+                if !o.is_finite() {
+                    o = 0.0;
+                }
+                a + o
+            })
+        })
+        .collect();
+    if rescale_it {
+        rescale(&mut v);
+    }
+    let mut out = vec![0.0; u.n()];
+    for (k, &i) in sel.iter().enumerate() {
+        out[i] = v[k];
+    }
+    Ok(out)
+}
