@@ -14,6 +14,7 @@ wat = "1"
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+terraflux-gdal = { path = "../gdal" }
 terraflux-graph = { path = "../graph" }
 terraflux-ls-sys = { path = "../ls-sys" }
 terraflux-raster = { path = "../raster" }

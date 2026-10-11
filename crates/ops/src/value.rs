@@ -297,6 +297,8 @@ pub enum Value {
     Patches(Arc<PatchParams>),
     Rng(Rng),
     Agents(Arc<crate::agents::Agents>),
+    /// Rasters on disk, read when needed.
+    Raster(Arc<crate::files::Rasters>),
 }
 
 impl Value {
@@ -318,6 +320,7 @@ impl Value {
             Value::Patches(_) => Type::Patches,
             Value::Rng(_) => Type::Rng,
             Value::Agents(_) => Type::Agents,
+            Value::Raster(_) => Type::Raster,
         }
     }
 

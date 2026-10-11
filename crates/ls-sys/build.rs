@@ -20,6 +20,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=LANDSCHAFT_EIGEN_DIR");
     println!("cargo:rerun-if-changed={}", source.join("CMakeLists.txt").display());
     println!("cargo:rerun-if-changed={}", source.join("src").join("cpp").join("sim").display());
+    println!("cargo:rerun-if-changed={}", source.join("src").join("cpp").join("gtb").display());
 
     let target = std::env::var("TARGET").unwrap();
     if target.contains("msvc") && std::env::var_os("CMAKE").is_none() {
@@ -41,7 +42,7 @@ fn main() {
     let include = dst.join("include");
 
     println!("cargo:rustc-link-search=native={}", dst.join("lib").display());
-    for lib in ["simcore", "lsmcore", "nlmcore"] {
+    for lib in ["simcore", "lsmcore", "nlmcore", "gtbcore"] {
         println!("cargo:rustc-link-lib=static={lib}");
     }
     // the OpenMP runtime of the kernels

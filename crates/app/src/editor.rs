@@ -52,7 +52,7 @@ fn fresh_id(nodes: &[Node], op: &str) -> String {
 
 /// Add a node of an operator to a scope (containers with an empty body); its id.
 pub fn add_node(m: &mut Model, r: &Registry, path: &[String], op: &str, pos: [f32; 2]) -> Result<String> {
-    let sig = r.get(op).map(|o| o.signature()).ok_or_else(|| format!("no operator {op:?}"))?;
+    let sig = r.sig(op).ok_or_else(|| format!("no operator {op:?}"))?;
     let nodes = scope_mut(m, path)?;
     let id = fresh_id(nodes, op);
     let mut n = Node::new(&id, op);
@@ -259,7 +259,7 @@ pub fn sources(m: &Model, r: &Registry, path: &[String]) -> Vec<(String, Type)> 
 /// container's carried values).
 pub fn input_ports(n: &Node, r: &Registry) -> Vec<(String, Type, bool)> {
     let mut out: Vec<(String, Type, bool)> = Vec::new();
-    if let Some(sig) = r.get(&n.op).map(|o| o.signature()) {
+    if let Some(sig) = r.sig(&n.op) {
         out.extend(sig.inputs.iter().map(|p| (p.name.clone(), p.ty, p.required)));
         for k in n.inputs.keys() {
             if !out.iter().any(|(x, _, _)| x == k) {
@@ -273,7 +273,7 @@ pub fn input_ports(n: &Node, r: &Registry) -> Vec<(String, Type, bool)> {
 /// The output ports of a node: its operator's, or a container's (carried, collected, a group's outputs).
 pub fn output_ports(n: &Node, r: &Registry) -> Vec<(String, Type)> {
     let mut out: Vec<(String, Type)> = Vec::new();
-    if let Some(sig) = r.get(&n.op).map(|o| o.signature()) {
+    if let Some(sig) = r.sig(&n.op) {
         out.extend(sig.outputs.iter().map(|p| (p.name.clone(), p.ty)));
     }
     if let Some(b) = &n.body {

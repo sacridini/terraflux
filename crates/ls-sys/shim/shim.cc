@@ -13,6 +13,7 @@
 #endif
 #include <vector>
 
+#include "gtb/mspa.hpp"
 #include "lsm/rmath.hpp"
 #include "nlm/models.hpp"
 #include "sim/change.hpp"
@@ -107,6 +108,48 @@ rust::Vec<double> focal_mean(rust::Slice<const double> x, std::int64_t ny, std::
 rust::Vec<double> distance_exact(rust::Slice<const std::uint8_t> origin, std::int64_t ny, std::int64_t nx, double res) {
     check(static_cast<i64>(origin.size()) == ny * nx, "the map differs in size from ny x nx");
     return to_rust<double>(nlm::distance_exact(to_std(origin), ny, nx, res));
+}
+
+rust::Vec<double> nlm_random_cluster(std::int32_t seed, std::int64_t ny, std::int64_t nx, double p,
+                                     rust::Slice<const double> ai, std::int32_t neighbourhood) {
+    check(ny > 0 && nx > 0, "the map needs rows and columns");
+    check(p > 0.0 && p <= 1.0, "p is a share of the cells, in (0, 1]");
+    check(!ai.empty(), "give the types' weights");
+    check(neighbourhood == 4 || neighbourhood == 8, "the neighbourhood is 4 or 8");
+    nlm::RRng rng(seed);
+    return to_rust<double>(nlm::random_cluster(rng, ny, nx, p, to_std(ai), neighbourhood));
+}
+
+rust::Vec<double> nlm_gaussian_field(std::int32_t seed, std::int64_t ny, std::int64_t nx, double autocorr_range,
+                                     double mag_var, double nug, double mean) {
+    check(ny > 0 && nx > 0, "the map needs rows and columns");
+    check(autocorr_range > 0.0, "the range of autocorrelation is above 0");
+    nlm::RRng rng(seed);
+    return to_rust<double>(nlm::gaussian_field(rng, ny, nx, autocorr_range, mag_var, nug, mean));
+}
+
+rust::Vec<double> nlm_fbm(std::int32_t seed, std::int64_t ny, std::int64_t nx, double fract_dim) {
+    check(ny > 0 && nx > 0, "the map needs rows and columns");
+    check(fract_dim > 0.0 && fract_dim <= 2.0, "the fractal dimension is in (0, 2]");
+    nlm::RRng rng(seed);
+    return to_rust<double>(nlm::fbm(rng, ny, nx, fract_dim));
+}
+
+rust::Vec<std::uint8_t> mspa(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx,
+                             std::int32_t connectivity, std::int32_t edge_width, bool internal) {
+    check(ny >= 0 && nx >= 0 && static_cast<i64>(input.size()) == ny * nx, "the map differs in size from ny x nx");
+    gtb::ImageU8 im(nx, ny);
+    if (im.size() > 0) std::copy(input.begin(), input.end(), im.data());
+    gtb::MspaParams p;
+    p.connectivity = connectivity;
+    p.edge_width = edge_width;
+    p.internal = internal;
+    p.threads = 0;  // the stages in parallel, the kernels with the calling thread's OpenMP threads
+    const gtb::ImageU8 out = gtb::mspa(im, p);
+    rust::Vec<std::uint8_t> v;
+    v.reserve(static_cast<std::size_t>(out.size()));
+    for (i64 i = 0; i < out.size(); ++i) v.push_back(out[i]);
+    return v;
 }
 
 rust::Vec<double> allow_matrix(rust::Slice<const double> x, rust::Slice<const std::int64_t> hist,

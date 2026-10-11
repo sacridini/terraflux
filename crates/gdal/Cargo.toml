@@ -1,0 +1,12 @@
+[package]
+name = "terraflux-gdal"
+description = "GDAL for Terraflux, loaded when the program runs: every format GDAL reads, its warping and translating"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+libloading = "0.8"
+terraflux-raster = { path = "../raster" }

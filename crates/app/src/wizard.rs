@@ -1,7 +1,9 @@
-//! The wizard of a new model: which model, which data, what is wrong with the data, which settings; it writes a
-//! model whose every choice is a node with a note, ready to read and change.
+//! The wizard of a new model: which model, which data (checked as soon as it is chosen, in a thread, what is
+//! wrong with it shown next to it), which settings; it writes a model whose every choice is a node with a note,
+//! ready to read and change.
 
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{Receiver, TryRecvError, channel};
 
 use egui::{RichText, Ui};
 use serde_json::json;
@@ -73,6 +75,14 @@ impl Picked {
         Ok(Picked { path: path.to_path_buf(), bands: r.band_names(), classes })
     }
 
+    /// The path and band names only, from the file's header (no class read).
+    pub fn header(path: &Path) -> Result<Picked, String> {
+        match terraflux_raster::tiff::Reader::open(path) {
+            Ok(r) => Ok(Picked { path: path.to_path_buf(), bands: r.meta.band_names(), classes: Vec::new() }),
+            Err(_) => Picked::read(path),
+        }
+    }
+
     /// The band names as numbers (years), when they all are.
     pub fn times(&self) -> Option<Vec<f64>> {
         self.bands.iter().map(|b| b.trim().parse::<f64>().ok()).collect()
@@ -83,8 +93,27 @@ impl Picked {
 pub enum Step {
     Kind,
     Data,
-    Check,
     Settings,
+}
+
+impl Step {
+    const ALL: [Step; 3] = [Step::Kind, Step::Data, Step::Settings];
+
+    fn title(self) -> &'static str {
+        match self {
+            Step::Kind => "The model",
+            Step::Data => "The data",
+            Step::Settings => "The settings",
+        }
+    }
+}
+
+/// What a thread of the wizard did.
+enum Done {
+    /// The data checked, for the choices of `key`.
+    Checked { key: String, findings: Vec<Finding>, error: Option<String> },
+    /// An input resampled: the new raster and what was done.
+    Resampled { input: String, result: Result<(Picked, String), String> },
 }
 
 pub enum Outcome {
@@ -114,6 +143,10 @@ pub struct Wizard {
     pub error: Option<String>,
     /// What was done to the data (the inputs' notes), by input.
     pub notes: std::collections::BTreeMap<String, String>,
+    /// The choices the findings are of (see [`Wizard::key`]).
+    pub checked: Option<String>,
+    /// The thread at work (checking or resampling) and what it does.
+    job: Option<(Receiver<Done>, &'static str)>,
 }
 
 impl Default for Wizard {
@@ -137,12 +170,63 @@ impl Default for Wizard {
             findings: Vec::new(),
             error: None,
             notes: Default::default(),
+            checked: None,
+            job: None,
         }
     }
 }
 
 fn pick(title: &str) -> Option<PathBuf> {
     rfd::FileDialog::new().set_title(title).add_filter("GeoTIFF", &["tif", "tiff"]).pick_file()
+}
+
+/// The findings of a model's data, or why it could not be read.
+fn checked(model: Result<Model, String>) -> (Vec<Finding>, Option<String>) {
+    match model {
+        Err(e) => (Vec::new(), Some(e)),
+        Ok(m) => match terraflux_exec::load_inputs(&m, Path::new(""), &Default::default()) {
+            Err(e) => (Vec::new(), Some(e.to_string())),
+            Ok(inputs) => (lint(&m, &inputs), None),
+        },
+    }
+}
+
+/// Resample a raster to the grid of the land use map: a new file next to it, the method chosen by the kind of
+/// data; the new raster and what was done.
+fn resampled(landuse: &Path, picked: &Picked) -> Result<(Picked, String), String> {
+    use terraflux_raster::resample::{Method, resample};
+    let reference = terraflux_raster::tiff::Reader::open(landuse).map_err(|e| e.to_string())?.meta.grid;
+    let src = Raster::read(&picked.path).map_err(|e| e.to_string())?;
+    let (out, methods) = resample(&src, &reference, Method::Auto).map_err(|e| e.to_string())?;
+    let stem = picked.path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let ref_stem = landuse.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let path = picked.path.with_file_name(format!("{stem}_on_{ref_stem}.tif"));
+    out.write(&path).map_err(|e| e.to_string())?;
+    let mut names: Vec<&str> = methods
+        .iter()
+        .map(|m| match m {
+            Method::Nearest => "nearest",
+            Method::Mode => "mode",
+            Method::Bilinear => "bilinear",
+            Method::Average => "average",
+            Method::Auto => "auto",
+        })
+        .collect();
+    names.dedup();
+    let note =
+        format!("resampled from {} to the grid of the land use map ({})", picked.path.display(), names.join(", "));
+    Ok((Picked::header(&path)?, note))
+}
+
+/// A raster chosen: its file's name and how many bands, the path and the bands' names on hover.
+fn chosen(ui: &mut Ui, picked: Option<&Picked>, bands: &str) {
+    let Some(p) = picked else {
+        ui.label(RichText::new("none").weak());
+        return;
+    };
+    let name = p.path.file_name().map_or_else(|| p.path.display().to_string(), |n| n.to_string_lossy().into_owned());
+    ui.label(RichText::new(name).strong()).on_hover_text(p.path.display().to_string());
+    ui.label(RichText::new(format!("{} {bands}", p.bands.len())).weak()).on_hover_text(p.bands.join(", "));
 }
 
 fn path_text(p: &Path, dir: Option<&Path>) -> String {
@@ -181,6 +265,17 @@ impl Wizard {
 
     /// The model of the wizard's choices; paths relative to `dir` (the model file's folder) when given.
     pub fn build(&self, dir: Option<&Path>) -> Result<Model, String> {
+        self.build_with(dir, &self.order)
+    }
+
+    /// The classes of the land use map in order, the order of the ordered allocation by default.
+    fn default_order(&self) -> String {
+        self.landuse
+            .as_ref()
+            .map_or(String::new(), |lu| lu.classes.iter().map(|c| format!("{c}")).collect::<Vec<_>>().join(", "))
+    }
+
+    fn build_with(&self, dir: Option<&Path>, order: &str) -> Result<Model, String> {
         let lu = self.landuse.as_ref().ok_or("choose the land use map")?;
         let dr = self.drivers.as_ref().ok_or("choose the drivers")?;
         let mut m = Model::new(self.kind.title());
@@ -253,8 +348,7 @@ impl Wizard {
                 let allocation = if self.kind == Kind::Clue {
                     json!({"method": "clue"})
                 } else {
-                    let order: Vec<f64> = self
-                        .order
+                    let order: Vec<f64> = order
                         .split(',')
                         .map(|s| s.trim().parse::<f64>().map_err(|_| format!("{:?} is not a class", s.trim())))
                         .collect::<Result<_, _>>()?;
@@ -282,54 +376,134 @@ impl Wizard {
         Ok(m)
     }
 
+    /// The choices the data and its check depend on.
+    pub fn key(&self) -> String {
+        format!(
+            "{:?}|{:?}|{:?}|{}|{}|{}",
+            self.kind,
+            self.landuse.as_ref().map(|p| &p.path),
+            self.drivers.as_ref().map(|p| &p.path),
+            self.t0,
+            self.t1,
+            self.times
+        )
+    }
+
+    /// The model to check: while no order of the classes is chosen, theirs.
+    fn to_check(&self) -> Result<Model, String> {
+        if self.order.trim().is_empty() { self.build_with(None, &self.default_order()) } else { self.build(None) }
+    }
+
     /// Read the data of the model and check it.
     pub fn check(&mut self) {
-        self.findings.clear();
-        self.error = None;
-        match self.build(None) {
-            Err(e) => self.error = Some(e),
-            Ok(m) => match terraflux_exec::load_inputs(&m, Path::new(""), &Default::default()) {
-                Err(e) => self.error = Some(e.to_string()),
-                Ok(inputs) => self.findings = lint(&m, &inputs),
+        let (findings, error) = checked(self.to_check());
+        self.findings = findings;
+        self.error = error;
+        self.checked = Some(self.key());
+    }
+
+    /// Check the data in a thread; `ctx` is woken when done.
+    pub fn start_check(&mut self, ctx: &egui::Context) {
+        let key = self.key();
+        let model = self.to_check();
+        let (tx, rx) = channel();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let (findings, error) = checked(model);
+            let _ = tx.send(Done::Checked { key, findings, error });
+            ctx.request_repaint();
+        });
+        self.job = Some((rx, "Checking the data..."));
+    }
+
+    /// Whether a thread is at work.
+    pub fn working(&self) -> bool {
+        self.job.is_some()
+    }
+
+    /// Whether the data was checked as it is chosen now.
+    pub fn is_checked(&self) -> bool {
+        self.checked.as_deref() == Some(self.key().as_str()) && !self.working()
+    }
+
+    /// Wait for the thread at work.
+    pub fn wait(&mut self) {
+        if let Some((rx, _)) = self.job.take()
+            && let Ok(d) = rx.recv()
+        {
+            self.done(d);
+        }
+    }
+
+    /// Take what a thread did.
+    pub fn poll(&mut self) {
+        let Some((rx, _)) = &self.job else { return };
+        match rx.try_recv() {
+            Ok(d) => {
+                self.job = None;
+                self.done(d);
+            }
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => self.job = None,
+        }
+    }
+
+    fn done(&mut self, d: Done) {
+        match d {
+            // the check of earlier choices is let go: the choices of now are checked next
+            Done::Checked { key, findings, error } if key == self.key() => {
+                self.findings = findings;
+                self.error = error;
+                self.checked = Some(key);
+            }
+            Done::Checked { .. } => {}
+            Done::Resampled { input, result } => match result {
+                Ok((p, note)) => {
+                    self.notes.insert(input, note);
+                    self.drivers = Some(p);
+                }
+                Err(e) => self.error = Some(e),
             },
         }
+    }
+
+    fn to_resample(&self, input: &str) -> Result<(PathBuf, Picked), String> {
+        let lu = self.landuse.as_ref().ok_or("choose the land use map")?;
+        let picked = match input {
+            "drivers" => self.drivers.as_ref().ok_or("choose the drivers")?,
+            _ => return Err(format!("${input} cannot be resampled here")),
+        };
+        Ok((lu.path.clone(), picked.clone()))
     }
 
     /// Resample an input's raster to the land use map's grid: a new file next to it, the method chosen by the
     /// kind of data; the wizard then uses it and checks again.
     pub fn resample(&mut self, input: &str) -> Result<(), String> {
-        use terraflux_raster::resample::{Method, resample};
-        let lu = self.landuse.as_ref().ok_or("choose the land use map")?;
-        let reference = Raster::read(&lu.path).map_err(|e| e.to_string())?.grid;
-        let picked = match input {
-            "drivers" => self.drivers.as_ref().ok_or("choose the drivers")?,
-            _ => return Err(format!("${input} cannot be resampled here")),
-        };
-        let src = Raster::read(&picked.path).map_err(|e| e.to_string())?;
-        let (out, methods) = resample(&src, &reference, Method::Auto).map_err(|e| e.to_string())?;
-        let stem = picked.path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-        let ref_stem = lu.path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-        let path = picked.path.with_file_name(format!("{stem}_on_{ref_stem}.tif"));
-        out.write(&path).map_err(|e| e.to_string())?;
-        let mut names: Vec<&str> = methods
-            .iter()
-            .map(|m| match m {
-                Method::Nearest => "nearest",
-                Method::Mode => "mode",
-                Method::Bilinear => "bilinear",
-                Method::Average => "average",
-                Method::Auto => "auto",
-            })
-            .collect();
-        names.dedup();
-        self.notes.insert(
-            input.to_string(),
-            format!("resampled from {} to the grid of the land use map ({})", picked.path.display(), names.join(", ")),
-        );
-        let p = Picked::read(&path)?;
-        self.drivers = Some(p);
+        let (lu, picked) = self.to_resample(input)?;
+        let result = Ok(resampled(&lu, &picked)?);
+        self.done(Done::Resampled { input: input.to_string(), result });
         self.check();
         Ok(())
+    }
+
+    /// Resample in a thread (the data is checked again after).
+    pub fn start_resample(&mut self, input: &str, ctx: &egui::Context) {
+        let (lu, picked) = match self.to_resample(input) {
+            Ok(x) => x,
+            Err(e) => {
+                self.error = Some(e);
+                return;
+            }
+        };
+        let (tx, rx) = channel();
+        let ctx = ctx.clone();
+        let input = input.to_string();
+        std::thread::spawn(move || {
+            let result = resampled(&lu, &picked);
+            let _ = tx.send(Done::Resampled { input, result });
+            ctx.request_repaint();
+        });
+        self.job = Some((rx, "Resampling..."));
     }
 
     pub fn blocked(&self) -> bool {
@@ -344,14 +518,134 @@ impl Wizard {
         Ok(path.to_path_buf())
     }
 
+    /// The data step: the maps chosen, then checked at once in a thread, what is wrong shown below them.
+    fn data(&mut self, ui: &mut Ui) {
+        crate::theme::section(ui, "Land use");
+        ui.horizontal(|ui| {
+            if ui.button("Land use map...").clicked()
+                && let Some(p) = pick("The land use map (one band per date)")
+            {
+                match Picked::read(&p) {
+                    Ok(x) => {
+                        self.error = None;
+                        self.landuse_picked(x);
+                    }
+                    Err(e) => self.error = Some(e),
+                }
+            }
+            chosen(ui, self.landuse.as_ref(), "dates");
+        });
+        if let Some(lu) = &self.landuse {
+            if self.kind == Kind::Dinamica {
+                let bands = lu.bands.clone();
+                egui::ComboBox::from_label("the start of the calibration period")
+                    .selected_text(&bands[self.t0.min(bands.len() - 1)])
+                    .show_ui(ui, |ui| {
+                        for (i, b) in bands.iter().enumerate() {
+                            ui.selectable_value(&mut self.t0, i, b);
+                        }
+                    });
+                egui::ComboBox::from_label("its end").selected_text(&bands[self.t1.min(bands.len() - 1)]).show_ui(
+                    ui,
+                    |ui| {
+                        for (i, b) in bands.iter().enumerate() {
+                            ui.selectable_value(&mut self.t1, i, b);
+                        }
+                    },
+                );
+            } else {
+                ui.horizontal(|ui| {
+                    ui.label("the date of each band:");
+                    ui.text_edit_singleline(&mut self.times);
+                });
+            }
+        }
+        ui.add_space(6.0);
+        crate::theme::section(ui, "Drivers");
+        ui.horizontal(|ui| {
+            if ui.button("Drivers...").clicked()
+                && let Some(p) = pick("The drivers (one band per variable)")
+            {
+                match Picked::header(&p) {
+                    Ok(x) => {
+                        self.error = None;
+                        self.drivers = Some(x);
+                    }
+                    Err(e) => self.error = Some(e),
+                }
+            }
+            chosen(ui, self.drivers.as_ref(), "variables");
+        });
+        ui.add_space(10.0);
+        crate::theme::section(ui, "What the data looks like");
+        if self.landuse.is_none() || self.drivers.is_none() {
+            if let Some(e) = &self.error {
+                ui.colored_label(ui.visuals().error_fg_color, e);
+            }
+            ui.label(RichText::new("Choose both maps: they are checked as soon as they are chosen.").weak());
+            return;
+        }
+        if !self.working() && self.checked.as_deref() != Some(self.key().as_str()) {
+            self.start_check(ui.ctx());
+        }
+        if let Some((_, what)) = &self.job {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label(*what);
+            });
+            return;
+        }
+        if let Some(e) = &self.error {
+            ui.colored_label(ui.visuals().error_fg_color, e);
+        } else if self.findings.is_empty() {
+            ui.colored_label(
+                egui::Color32::from_rgb(150, 224, 120),
+                "Every map is on the same grid and nothing looks wrong.",
+            );
+        }
+        let mut act = None;
+        for f in &self.findings {
+            let colour = match f.level {
+                Level::Error => ui.visuals().error_fg_color,
+                Level::Warning => ui.visuals().warn_fg_color,
+                Level::Info => ui.visuals().text_color(),
+            };
+            ui.colored_label(colour, format!("{}: {}", f.at, f.message));
+            if let Some(fix) = &f.fix {
+                ui.indent(&f.message, |ui| {
+                    ui.label(format!("what to do: {fix}"));
+                    if let Some(Action::Resample { input, .. }) = &f.action
+                        && input == "drivers"
+                        && ui.button("Resample it to the grid of the land use map").clicked()
+                    {
+                        act = Some(input.clone());
+                    }
+                });
+            }
+        }
+        if let Some(input) = act {
+            self.start_resample(&input, ui.ctx());
+        }
+        for (input, note) in &self.notes {
+            ui.label(RichText::new(format!("${input}: {note}")).weak());
+        }
+    }
+
     pub fn show(&mut self, ui: &mut Ui) -> Option<Outcome> {
+        self.poll();
         let mut out = None;
-        ui.heading("New model");
-        ui.label(match self.step {
-            Step::Kind => "1 of 4: the model",
-            Step::Data => "2 of 4: the data",
-            Step::Check => "3 of 4: what the data looks like",
-            Step::Settings => "4 of 4: the settings",
+        ui.add_space(10.0);
+        ui.label(RichText::new("New model").size(20.0).strong());
+        ui.add_space(6.0);
+        // the steps, the one at hand lit
+        ui.horizontal(|ui| {
+            for (i, st) in Step::ALL.iter().enumerate() {
+                if i > 0 {
+                    ui.label(RichText::new("—").weak());
+                }
+                let text = RichText::new(format!("{}  {}", i + 1, st.title()));
+                ui.label(if *st == self.step { text.strong().color(crate::theme::ACCENT) } else { text.weak() });
+            }
         });
         ui.separator();
         match self.step {
@@ -362,95 +656,9 @@ impl Wizard {
                     ui.add_space(6.0);
                 }
             }
-            Step::Data => {
-                ui.horizontal(|ui| {
-                    if ui.button("Land use map...").clicked()
-                        && let Some(p) = pick("The land use map (one band per date)")
-                    {
-                        match Picked::read(&p) {
-                            Ok(x) => self.landuse_picked(x),
-                            Err(e) => self.error = Some(e),
-                        }
-                    }
-                    ui.label(self.landuse.as_ref().map_or("none".into(), |p| p.path.display().to_string()));
-                });
-                if let Some(lu) = &self.landuse {
-                    if self.kind == Kind::Dinamica {
-                        let bands = lu.bands.clone();
-                        egui::ComboBox::from_label("the start of the calibration period")
-                            .selected_text(&bands[self.t0.min(bands.len() - 1)])
-                            .show_ui(ui, |ui| {
-                                for (i, b) in bands.iter().enumerate() {
-                                    ui.selectable_value(&mut self.t0, i, b);
-                                }
-                            });
-                        egui::ComboBox::from_label("its end")
-                            .selected_text(&bands[self.t1.min(bands.len() - 1)])
-                            .show_ui(ui, |ui| {
-                                for (i, b) in bands.iter().enumerate() {
-                                    ui.selectable_value(&mut self.t1, i, b);
-                                }
-                            });
-                    } else {
-                        ui.horizontal(|ui| {
-                            ui.label("the date of each band:");
-                            ui.text_edit_singleline(&mut self.times);
-                        });
-                    }
-                }
-                ui.horizontal(|ui| {
-                    if ui.button("Drivers...").clicked()
-                        && let Some(p) = pick("The drivers (one band per variable)")
-                    {
-                        match Picked::read(&p) {
-                            Ok(x) => self.drivers = Some(x),
-                            Err(e) => self.error = Some(e),
-                        }
-                    }
-                    ui.label(
-                        self.drivers
-                            .as_ref()
-                            .map_or("none".into(), |p| format!("{} ({})", p.path.display(), p.bands.join(", "))),
-                    );
-                });
-            }
-            Step::Check => {
-                if let Some(e) = &self.error {
-                    ui.colored_label(ui.visuals().error_fg_color, e);
-                } else if self.findings.is_empty() {
-                    ui.label("Every map is on the same grid and nothing looks wrong.");
-                }
-                let mut act = None;
-                for f in &self.findings {
-                    let colour = match f.level {
-                        Level::Error => ui.visuals().error_fg_color,
-                        Level::Warning => ui.visuals().warn_fg_color,
-                        Level::Info => ui.visuals().text_color(),
-                    };
-                    ui.colored_label(colour, format!("{}: {}", f.at, f.message));
-                    if let Some(fix) = &f.fix {
-                        ui.indent(&f.message, |ui| {
-                            ui.label(format!("what to do: {fix}"));
-                            if let Some(Action::Resample { input, .. }) = &f.action
-                                && input == "drivers"
-                                && ui.button("Resample it to the grid of the land use map").clicked()
-                            {
-                                act = Some(input.clone());
-                            }
-                        });
-                    }
-                }
-                if let Some(input) = act
-                    && let Err(e) = self.resample(&input)
-                {
-                    self.error = Some(e);
-                }
-                for (input, note) in &self.notes {
-                    ui.label(format!("${input}: {note}"));
-                }
-            }
+            Step::Data => self.data(ui),
             Step::Settings => {
-                egui::Grid::new("settings").num_columns(2).show(ui, |ui| {
+                egui::Grid::new("settings").num_columns(2).spacing([16.0, 6.0]).show(ui, |ui| {
                     if self.kind == Kind::Dinamica {
                         ui.label("time steps between the two maps");
                         ui.add(egui::DragValue::new(&mut self.steps).range(1..=1000));
@@ -512,35 +720,36 @@ impl Wizard {
             }
             if self.step != Step::Kind && ui.button("Back").clicked() {
                 self.step = match self.step {
-                    Step::Data => Step::Kind,
-                    Step::Check => Step::Data,
-                    _ => Step::Check,
+                    Step::Settings => Step::Data,
+                    _ => Step::Kind,
                 };
             }
+            let accent = |text: &str, on: bool| {
+                if on {
+                    egui::Button::new(RichText::new(text).color(crate::theme::ON_ACCENT).strong())
+                        .fill(crate::theme::ACCENT)
+                } else {
+                    egui::Button::new(text)
+                }
+            };
             match self.step {
-                Step::Kind | Step::Data => {
-                    let ready = self.step == Step::Kind || (self.landuse.is_some() && self.drivers.is_some());
-                    if ui.add_enabled(ready, egui::Button::new("Next")).clicked() {
-                        if self.step == Step::Kind {
-                            self.step = Step::Data;
-                        } else {
-                            self.check();
-                            self.step = Step::Check;
-                        }
+                Step::Kind => {
+                    if ui.add(accent("Next", true)).clicked() {
+                        self.step = Step::Data;
                     }
                 }
-                Step::Check => {
-                    if ui.add_enabled(!self.blocked(), egui::Button::new("Next")).clicked() {
-                        if self.order.is_empty()
-                            && let Some(lu) = &self.landuse
-                        {
-                            self.order = lu.classes.iter().map(|c| format!("{c}")).collect::<Vec<_>>().join(", ");
+                Step::Data => {
+                    let ready =
+                        self.landuse.is_some() && self.drivers.is_some() && self.is_checked() && !self.blocked();
+                    if ui.add_enabled(ready, accent("Next", ready)).clicked() {
+                        if self.order.trim().is_empty() {
+                            self.order = self.default_order();
                         }
                         self.step = Step::Settings;
                     }
                 }
                 Step::Settings => {
-                    if ui.button("Create the model...").clicked()
+                    if ui.add(accent("Create the model...", true)).clicked()
                         && let Some(p) = rfd::FileDialog::new()
                             .set_title("Save the model")
                             .add_filter("Terraflux model", &["toml", "json"])

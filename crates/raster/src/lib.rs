@@ -17,6 +17,7 @@
 // bytes to numbers by fixed-size chunks, as readable as as_chunks
 #![allow(clippy::chunks_exact_to_as_chunks)]
 
+pub mod image;
 pub mod npy;
 pub mod resample;
 pub mod tiff;
@@ -55,6 +56,11 @@ pub struct GeoTags {
     pub double_params: Option<Vec<f64>>,
     /// GeoAsciiParamsTag (34737).
     pub ascii_params: Option<String>,
+    /// The coordinate reference system as WKT, when it comes from GDAL (a file of another format) rather than
+    /// from GeoTIFF keys.
+    /// (Always written: the workers' binary messages carry every field.)
+    #[serde(default)]
+    pub wkt: Option<String>,
 }
 
 impl GeoTags {
@@ -161,6 +167,38 @@ impl DataType {
             (3, 64) => DataType::F64,
             _ => return None,
         })
+    }
+
+    /// A type by its name (`u8`, `i16`, `f32`...).
+    pub fn parse(name: &str) -> Option<DataType> {
+        serde_json::from_value(serde_json::Value::String(name.trim().to_ascii_lowercase())).ok()
+    }
+
+    /// The type to write maps in: `wanted`, else the smallest that holds their values (u8 for classes 0-254,
+    /// i32 for other whole numbers, f32 otherwise); and a no-data value outside the values (NaN for floats).
+    pub fn fitting(values: &[&[f64]], wanted: Option<DataType>) -> (DataType, Option<f64>) {
+        let finite = || values.iter().flat_map(|v| v.iter()).filter(|x| !x.is_nan());
+        let whole = finite().all(|x| x.fract() == 0.0);
+        let (lo, hi) = finite().fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), &x| (a.min(x), b.max(x)));
+        let t = match wanted {
+            Some(t) => t,
+            None if whole && lo >= 0.0 && hi <= 254.0 => DataType::U8,
+            None if whole && lo > -2147483648.0 && hi <= 2147483647.0 => DataType::I32,
+            None => DataType::F32,
+        };
+        let nodata = if t.is_float() {
+            Some(f64::NAN)
+        } else {
+            let (min, max) = t.range();
+            if hi < max {
+                Some(max)
+            } else if lo > min {
+                Some(min)
+            } else {
+                None
+            }
+        };
+        (t, nodata)
     }
 
     /// The smallest and largest values the type holds.

@@ -125,6 +125,7 @@ pub trait Source: Send + Sync {
 
 /// Where a map is, for another machine: a band of a file, or a layer of tiles on disk (shared storage).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[allow(clippy::large_enum_variant)] // a few per model
 pub enum Spec {
     File { path: PathBuf, band: usize, nodata: Option<f64> },
     Layer { dir: PathBuf, grid: Grid, size: usize },

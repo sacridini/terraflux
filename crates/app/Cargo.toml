@@ -8,12 +8,16 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
+bytemuck = { version = "1", features = ["derive"] }
+egui_dock = { version = "0.21", features = ["serde"] }
 eframe = { version = "0.36", default-features = false, features = ["default_fonts", "wgpu", "accesskit", "x11", "wayland"] }
 egui = "0.36"
 egui_plot = "0.37"
 rfd = "0.17"
+serde.workspace = true
 serde_json.workspace = true
 terraflux-exec = { path = "../exec" }
+terraflux-gdal = { path = "../gdal" }
 terraflux-graph = { path = "../graph" }
 terraflux-ops = { path = "../ops" }
 terraflux-raster = { path = "../raster" }

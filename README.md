@@ -48,20 +48,76 @@ terraflux app                 # or: terraflux app model.toml
 A double click on `terraflux.exe` (or `terraflux` without a command) opens the application too, and so does a
 model file dropped on it or opened with it; started that way on Windows, it shows no console.
 
-- **New model:** a wizard picks the model (Dinamica EGO's, CLUE-S, ordered), reads the land use maps and the
-  drivers (the dates and steps from the band names), checks the data (grids, classes, missing values, constant
-  or collinear drivers) and offers to fix what it can (resampling a driver to the land use map's grid), then
-  writes the model with a note on every choice.
-- **Graph:** the node editor. Add operators, connect their ports (each connection checked), type their
-  values and settings, edit the bodies of loops and groups, save; the note of every node says why it is there.
-- **Map:** the maps of the run as they come, step by step; zoom, pan, the class and coordinates under the pointer.
+- **Panes you arrange:** the model, the operators, the node, the viewer, the simulation's maps, the areas, the
+  validation and the text are tabs to drag, split, close (the View menu turns each on or off) or take to a
+  window of their own on another screen (right click on a tab); the layout is kept between sessions. A double
+  click on a node opens its map in a tab of its own: one per node, brought to the front when it is open already
+  (a new one once it is closed).
+- **Seeing without writing:** `view.plot` shows a map, a stack, a loop's maps or rasters in a tab of its own,
+  refreshed at every run (read, reclassify, plot: no file). What a tab or the viewer shows is saved from it
+  (Save output: a file only, or a file and a `raster.write` in the model), in the background.
+- **Basemaps:** under any map shown, satellite imagery or a map of the world (Esri's imagery and topographic
+  map, OpenStreetMap, OpenTopoMap, Carto), warped by GDAL onto the data's CRS, kept in a cache; the data over it
+  shown or hidden, at the opacity chosen.
+- **Editing many nodes:** drag on the canvas to select the nodes in a box (shift or ctrl and a click add or take
+  one away, ctrl+A all), drag one to move them all, del deletes them; Arrange (ctrl+L) puts the nodes in tidy
+  columns by what they read, ordered so that connections cross little.
+- **Builder** (where the application opens): open a raster, click the operators of the library (by
+  landschaft's subjects, with a search) and they come connected to the node selected; what the node selected gives is shown under the
+  canvas (a map with its legend, the maps of a stack or of a loop's steps, a table, a value). A run stops at the
+  node shown and takes what did not change from the cache, so after every change of a setting only what it
+  touches runs again and its result shows at once (ctrl+enter runs to the node, F5 the whole model). Save a map
+  as a raster, the model as a file.
+- **From the keyboard:** `/` opens a search of the operators anywhere; type part of a name or of what it does,
+  the arrows choose, enter adds it connected to the node selected (which the new node becomes, so a chain is
+  built key after key), esc closes the search.
+- **Templates:** models to start from, run as soon as they open: MSPA of a forest (a map drawn by a neutral
+  landscape model, reclassified, MSPA, plotted), MSPA of your map, a forest cut from a surface by ranges, MSPA's
+  edge width compared, the neutral landscape models side by side.
+- **Reclassifying:** the rules of `raster.reclassify` as a table (the values, what they become), the classes of
+  the map it reads with their share beside them (A rule per class fills it), or its range for a continuous map
+  (4 equal ranges), and how to write values, ranges (`0..10`), every other value (`*`) and no data (`nan`).
+- **Colours that fit the data,** as landschaft's plot: classes (whole values, few of them) a colour each, other
+  values a ramp, centred on 0 in blue and red when they are on both sides of it; MSPA's classes in
+  GuidosToolbox's colours and names, through the plots that show them and in files named so; elevations, a
+  hillshade and NDVI by their ramps (by the names of their nodes, files and bands).
+- **Rasters of any size:** opening a raster reads its header only; the viewer reads the tiles in view at the
+  screen's resolution (in threads, the coarser level shown meanwhile), so a raster of billions of cells shows
+  in under half a second and zooms smoothly; a folder or a pattern (`forest/*.tif`) is one stack, a layer per
+  band of each file (Open a folder as a stack), to go through.
+  Operators that need a map in memory read it then.
+- **GDAL:** every format GDAL reads, and by GDAL: `raster.reproject`, `raster.resample`, `raster.match`
+  (another raster's grid), `raster.clip`, `raster.convert` (formats, cell types, COG), `raster.mosaic`,
+  `raster.terrain` (slope, aspect, hillshade, TRI, TPI, roughness), `raster.fill` (gaps) and
+  `distance.proximity` (the distance to some values, on the file whatever its size); `raster.reclassify` by
+  Terraflux. A series may hold files of different grids (tiles to join). GDAL is loaded when the
+  program runs (no GDAL is needed to build Terraflux): from the folder `gdal` next to the program (the
+  installers bring it; `tools/bundle-gdal.ps1` copies one there), `TERRAFLUX_GDAL`, or an installed GDAL.
+  Without it, GeoTIFF is read and written by Terraflux itself.
+- **Large diagrams:** the canvas is drawn by the GPU (the boxes, ports and connections in a few instanced draws
+  whatever their number) and laid out only when the graph changes; texts are written for the nodes in view
+  when the zoom makes them readable. Drag the background (or with the middle button) to move, the wheel to zoom,
+  Home to see the whole graph. With 10,000 nodes a frame takes about 0.1 ms, dragging a node 0.5 ms.
+- **Wizard:** a wizard in three steps picks the model (Dinamica EGO's, CLUE-S, ordered), reads the land use
+  maps and the drivers (the dates and steps from the band names), checks the data as soon as it is chosen
+  (grids, classes, missing values, constant or collinear drivers) and offers to fix what it can (resampling a
+  driver to the land use map's grid), then writes the model with a note on every choice.
+- **The node editor:** connect ports (each connection checked), type values and settings, edit the bodies of
+  loops and groups; the note of every node says why it is there.
+- **Map:** the maps of the run as they come, step by step, and the maps of the inputs: a stack's one after the
+  other (a slider, the arrow keys, play) with small images of all of them; zoom, pan, the class and coordinates
+  under the pointer.
 - **Charts:** the area of each class along the steps.
 - **Validation:** the last map against an observed one: figure of merit, hits, misses and false alarms, and
   Dinamica EGO's fuzzy similarity of the changes in windows of growing size.
 
 ![A Dinamica model of Sibuyan after 14 steps](docs/images/map.png)
 
-![The node editor](docs/images/graph.png)
+![The builder: a raster, MSPA on it and its result](docs/images/graph.png)
+
+If the window stutters when it is moved or resized, how frames reach the screen can be changed:
+`TERRAFLUX_PRESENT=novsync` (frames as soon as they are drawn), `TERRAFLUX_LATENCY=2` (frames queued; 1 by
+default) and `WGPU_BACKEND=dx12`, `vulkan` or `gl` (the graphics interface).
 
 ## Quick start
 
@@ -167,6 +223,28 @@ A model is a graph of operators in TOML (or JSON): its inputs, its nodes and its
 operator on inputs that come from the model's inputs (`$name`), from other nodes (`node.port`), from values
 carried along a loop (`@name`, `@step`) or literal values; its `note` says why it is there. The models made by
 `terraflux new` are written out node by node, so that anything they chose can be read and changed.
+
+Rasters can also come in and go out through nodes, as the builder writes them (paths relative to the model's
+folder):
+
+```toml
+[[nodes]]
+id = "read"
+op = "raster.read"
+params = { path = "forest.tif" }
+
+[[nodes]]
+id = "mspa"
+op = "landscape.mspa"                 # GuidosToolbox's MSPA, the same bits
+inputs = { map = "read.map" }
+params = { foreground = 1, edge_width = 2 }
+
+[[nodes]]
+id = "write"
+op = "raster.write"
+inputs = { value = "mspa.map" }
+params = { path = "forest_mspa.tif" }
+```
 
 ```toml
 format = "terraflux/1"

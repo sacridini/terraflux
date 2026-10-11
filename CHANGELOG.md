@@ -6,6 +6,118 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- `/` searches the operators from the keyboard: the arrows choose, enter adds the one chosen connected to the node
+  selected, esc closes the search. The library's search ranks names before descriptions.
+- Templates (the Templates menu): models that run as soon as they open, to see a flow and check it works: MSPA
+  of a forest, MSPA of your map, a forest from a surface, MSPA's edge width, neutral landscapes.
+- Neutral landscape models from landschaft's port of NLMR: `nlm.random_cluster`, `nlm.gaussian_field`,
+  `nlm.fbm` (a size, or another map's grid; a seed).
+- `raster.reclassify`'s rules as a table in the node: the classes of the map read with their share (A rule per
+  class), or its range (4 equal ranges), and how to write the rules.
+- Open a folder as a stack (the library, and A folder... on a `raster.read`).
+- Colours by what the values are: a ramp centred on 0 for values on both sides of it; terrain, grey and
+  red-to-green ramps for elevations, hillshades and NDVI (by the names of nodes, files and bands); MSPA's
+  colours and names through `view.plot` and for files named so.
+- GDAL, loaded when the program runs (`terraflux-gdal`: a few functions of its C API, no GDAL to build): every
+  format it reads, read in windows at any resolution with a handle per thread; `raster.reproject` (gdalwarp: a
+  CRS, a resolution, an extent, the method by the data), `raster.match` (landschaft's match_grid),
+  `raster.clip` (gdal_translate); the CRS of rasters it read written to the files made. Found in the folder
+  `gdal` next to the program (`tools/bundle-gdal.ps1`), in `TERRAFLUX_GDAL`, or installed.
+- `raster.reclassify`: rules `1 2 3 -> 1`, `0..10 -> 2`, `* -> nan`.
+- More of GDAL: `raster.resample`, `raster.convert` (formats, cell types), `raster.mosaic` (a series of tiles
+  into one raster), `raster.terrain` (gdaldem), `raster.fill` (gdal_fillnodata), `distance.proximity`
+  (gdal_proximity). A series may hold files of different grids (each layer on its file's grid; no stack of
+  them).
+- Several nodes at once: a box of selection, shift or ctrl and a click, ctrl+A, Esc; the nodes selected moved
+  together and deleted together. Arrange (ctrl+L): columns by depth, each ordered by the rows of the nodes it
+  reads.
+- A double click on a node opens its output in a map tab of its own (run first if it has not run), beside the
+  viewer; as many map tabs as one likes, each movable to another window.
+- The View menu turns each pane on or off.
+- `view.plot` (Visualization): its map tab opens by itself when it runs and is refreshed at every run; nothing
+  is written. Save output, in the viewer and every map tab: the output to a file (GeoTIFF, CSV or JSON, in the
+  background, the status bar telling when done), or to a file and a `raster.write` in the model.
+- Nodes move anywhere on the canvas (no more limit at the top and the left).
+- Basemaps in the viewer and the map tabs: Esri's imagery and topographic map, OpenStreetMap, OpenTopoMap and
+  Carto's light map, by GDAL's WMS driver (tiles kept in the user's cache), warped onto the data's grid tile by
+  tile in threads of their own (finer than the data's cells when zoomed in, around the data too); the data shown
+  or hidden over it, at an opacity; the services' attribution written on the map
+  (`terraflux_gdal::tile_service`, `warp_image`). GDAL's web requests use its certificates and say they are
+  Terraflux's.
+- Rasters of any size: `raster.read` reads headers only and gives rasters on disk (`Value::Raster`, type
+  `raster`; a folder or a pattern gives a series), read whole only where a port takes a map or a stack (up to
+  two billion cells); `raster.write` copies them in blocks. `terraflux_raster::image::Image` reads windows at
+  any step, from overviews when the file has them, decoding only the chunks needed, in parallel, with a cache.
+- The viewer draws maps from a pyramid of tiles made by threads (the tiles in view, at the screen's
+  resolution; the coarser one shown until a tile comes): a raster of 7.3 billion cells shows in 0.4 s and a
+  view 67 times closer completes in 0.3 s, frames under 10 ms.
+- Panes in a dock (`egui_dock`): dragged, split, closed and opened again (Panels menu), or taken to a window of
+  their own on another screen; the layout kept in the user's application data.
+- The library follows landschaft's subjects (the sections of its reference), land change simulation grouped by
+  model; the subjects still empty shown dimmed.
+- The application opens in the model builder: a library of the operators by subject (with a search) whose
+  operators come connected to the node selected, rasters opened and saved from it, and under the canvas what
+  the node selected gives (a map with its legend, the maps of a stack or of a loop's steps, a table, a value).
+  A run stops at the node shown (ctrl+enter, or by itself after every edit) and takes the rest from the cache;
+  each node shows how it did (running, run, from the cache, failed); F5 runs the whole model, del deletes a
+  node, ctrl+S saves. New models start empty (New), the wizard is a button (Wizard...).
+- Runs that keep what the nodes gave (`Engine::run_with` and `Cache`): a node runs again only when it, a node it
+  depends on, an input or a file it reads changed (its place on the canvas and its note do not count); a run
+  may stop at a node (its ancestors only, and only their errors stop it); loops give back what they collected
+  from the cache. Nodes that give a random generator, those after them, and `raster.write`, always run.
+- `raster.read` (a band as a map, every band as a stack) and `raster.write` (a map, a stack or a loop's maps,
+  in the smallest type that holds them): rasters read and written by nodes, their paths relative to the
+  model's folder in the file and absolute once it is expanded, as plugins'.
+- `landscape.mspa`: GuidosToolbox's Morphological Spatial Pattern Analysis through landschaft's port (the
+  `gtbcore` library), its foreground the classes given or GTB's codes; shown in GTB's colours with the names
+  of its classes. Tested bit for bit against the outputs of GTB's `mspa` executable that landschaft keeps.
+- `terraflux_raster::npy::read_npz` and `DataType::fitting` (the cell type a raster is written in).
+- The builder's canvas for large diagrams: drawn by the GPU (wgpu pipelines in egui's render pass: the boxes,
+  ports and connections as instances, the curves and the smoothed edges in the shaders), uploaded only when the
+  graph changes; a camera (drag the background or with the middle button, the wheel zooms around the pointer,
+  Home fits the graph) instead of a scrolled area; the texts of the nodes in view only, and only when readable;
+  a grid finds what is under the pointer; a node dragged moves alone in the scene. With 10,000 nodes a frame
+  takes about 0.1 ms (it took 4.7 s with 2,000), dragging a node 0.5 ms, an edit about 30 ms.
+- How frames are presented: one frame queued by default (the window follows the pointer more closely);
+  `TERRAFLUX_PRESENT`, `TERRAFLUX_LATENCY` and wgpu's `WGPU_BACKEND` to try what is smoothest on a machine.
+- Tests of the canvas with the pointer (select, move, connect, show an output, zoom) and with 5,000 nodes;
+  timings with 100, 1,000 and 10,000 nodes (`cargo test --release -p terraflux-app --test canvas -- --ignored
+  --nocapture`).
+- The map tab shows the maps of the inputs too: a stack's one after the other (a slider, the left and right
+  keys, play) with small images of all of them; maps of the land use's classes in its colours.
+
+### Changed
+- A double click on a node shows its map in its one tab: brought to the front when it is open already, a new one
+  only once it is closed (it opened a tab at every double click).
+- A folder or a pattern read by `raster.read` gives every band of every file (named `file band` when a file
+  has more than one), as one stack when they share a grid; it gave the first band of each file.
+- No more tabs at the top: the panes are arranged in the dock; the application opens with the model, the
+  operators, the node and the viewer (the simulation's maps, the areas and the validation from the View menu).
+- The library's groups (land change simulation's models) are closed until opened.
+- The canvas: dragging the background selects; the view moves with the right or the middle button.
+- The application's look: mid greys in flat panels, an orange accent for what is selected or on (after Ableton
+  Live), a status bar with the cell under the pointer.
+- The wizard has three steps: the data is checked as soon as it is chosen, in a thread, and what is wrong is
+  shown below it (no step only to say that the data is right).
+- A faster application: a model's data is read in a thread (the window answers at once); the area of each
+  class is counted once per map, in the run's thread, instead of at every frame (the charts and the map tab
+  drew slower the more steps there were); maps are coloured from tables, in a thread (a frame never waits
+  for a map: the one shown before stays meanwhile), and their textures kept to be shown again at once; the
+  legends of the maps shown are worked out in threads; a run uses the data read when the model was opened.
+  With a map of 2048 x 1728 cells shown and MSPA running on it, frames take under 4 ms.
+
+### Fixed
+- The name of an MSPA value from 156 up overflowed (a panic in debug builds).
+- Checking a model and ordering its nodes took time growing with the square of its nodes (a node looked for in
+  a list for every reference): 141 ms for 10,000 nodes, now 10 ms; the engine's runs and fingerprints too. The
+  order of the nodes no longer recurses (chains of any length).
+- The automatic layout of the canvas took time growing with the cube of the nodes, at every frame.
+- The operators' signatures are made once (`Registry::sig`), not at every look-up.
+- The text tab lays out only the lines in view, and the model's text is made only when the tab is shown.
+- The node editor no longer shows the references inside a loop's body as sources of the top level.
+- The wizard's check of an ordered allocation no longer fails before the order of the classes is chosen.
+
 ## [0.7.1] - 2026-10-10
 
 ### Changed

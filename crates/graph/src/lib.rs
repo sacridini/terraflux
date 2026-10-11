@@ -40,6 +40,26 @@ pub const SUBMODEL: &str = "control.submodel";
 /// A WebAssembly plugin (`params.path`, relative to the model's folder until the model is expanded).
 pub const PLUGIN: &str = "plugin.wasm";
 
+/// The operators whose `params.path` is a file: relative to the model's folder in the model file, absolute
+/// once the model is expanded to run ([`submodel::expand`]).
+pub const FILE_OPS: [&str; 3] = [PLUGIN, "raster.read", "raster.write"];
+
+/// Make the file paths of the nodes ([`FILE_OPS`]) relative to `dir` (the folder a model is saved in).
+pub fn relative_paths(nodes: &mut [Node], dir: &Path) {
+    for n in nodes.iter_mut() {
+        if FILE_OPS.contains(&n.op.as_str())
+            && let Some(serde_json::Value::String(p)) = n.params.get_mut("path")
+            && !p.starts_with("blob:")
+            && Path::new(p.as_str()).is_absolute()
+        {
+            *p = relative_path(Path::new(p.as_str()), dir);
+        }
+        if let Some(b) = &mut n.body {
+            relative_paths(&mut b.nodes, dir);
+        }
+    }
+}
+
 /// The version of the model format this crate reads and writes.
 pub const FORMAT: &str = "terraflux/1";
 
@@ -429,34 +449,42 @@ pub fn relative_path(path: &Path, dir: &Path) -> String {
 ///
 /// `deps(node)` gives the ids, in the same scope, that the node depends on.
 pub fn order(nodes: &[Node], deps: impl Fn(&Node) -> Vec<String>) -> Result<Vec<&Node>> {
-    let index: BTreeMap<&str, usize> = nodes.iter().enumerate().map(|(i, n)| (n.id.as_str(), i)).collect();
+    let index: std::collections::HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, n)| (n.id.as_str(), i)).collect();
     let mut state = vec![0u8; nodes.len()]; // 0 new, 1 visiting, 2 done
     let mut out = Vec::with_capacity(nodes.len());
-    fn visit<'a>(
-        i: usize,
-        nodes: &'a [Node],
-        index: &BTreeMap<&str, usize>,
-        deps: &dyn Fn(&Node) -> Vec<String>,
-        state: &mut [u8],
-        out: &mut Vec<&'a Node>,
-    ) -> Result<()> {
-        match state[i] {
-            2 => return Ok(()),
-            1 => return Err(Error::Model(format!("the graph has a cycle through node {:?}", nodes[i].id))),
-            _ => {}
+    // depth first without recursion (chains of any length): each node with its dependencies left to visit
+    let mut stack: Vec<(usize, Vec<usize>)> = Vec::new();
+    for start in 0..nodes.len() {
+        if state[start] != 0 {
+            continue;
         }
-        state[i] = 1;
-        for d in deps(&nodes[i]) {
-            if let Some(&j) = index.get(d.as_str()) {
-                visit(j, nodes, index, deps, state, out)?;
+        let deps_of = |i: usize| -> Vec<usize> {
+            let mut d: Vec<usize> = deps(&nodes[i]).iter().filter_map(|d| index.get(d.as_str()).copied()).collect();
+            d.reverse();
+            d
+        };
+        state[start] = 1;
+        stack.push((start, deps_of(start)));
+        while let Some((i, todo)) = stack.last_mut() {
+            match todo.pop() {
+                Some(j) => match state[j] {
+                    2 => {}
+                    1 => return Err(Error::Model(format!("the graph has a cycle through node {:?}", nodes[j].id))),
+                    _ => {
+                        state[j] = 1;
+                        let d = deps_of(j);
+                        stack.push((j, d));
+                    }
+                },
+                None => {
+                    let i = *i;
+                    state[i] = 2;
+                    out.push(&nodes[i]);
+                    stack.pop();
+                }
             }
         }
-        state[i] = 2;
-        out.push(&nodes[i]);
-        Ok(())
-    }
-    for i in 0..nodes.len() {
-        visit(i, nodes, &index, &deps, &mut state, &mut out)?;
     }
     Ok(out)
 }
@@ -485,13 +513,24 @@ pub fn references(node: &Node) -> Vec<String> {
 /// The ids of the nodes of `scope` that a node depends on: the nodes its references (its body's
 /// included) name, when they are in that scope and not in its own body.
 pub fn dependencies(node: &Node, scope: &[Node]) -> Vec<String> {
-    let own: Vec<&str> =
+    dependencies_among(node, &ids(scope))
+}
+
+/// The ids of a scope's nodes, to find the dependencies of many of its nodes ([`dependencies_among`]) in time
+/// proportional to their references.
+pub fn ids(scope: &[Node]) -> std::collections::HashSet<&str> {
+    scope.iter().map(|n| n.id.as_str()).collect()
+}
+
+/// [`dependencies`], the scope given by its ids.
+pub fn dependencies_among(node: &Node, scope: &std::collections::HashSet<&str>) -> Vec<String> {
+    let own: std::collections::HashSet<&str> =
         node.body.as_ref().map(|b| b.nodes.iter().map(|n| n.id.as_str()).collect()).unwrap_or_default();
     let mut out = Vec::new();
     for r in references(node) {
         if let Ok(Ref::Port { node: id, .. }) = Ref::parse(&r)
-            && !own.contains(&id.as_str())
-            && scope.iter().any(|n| n.id == id)
+            && !own.contains(id.as_str())
+            && scope.contains(id.as_str())
             && !out.contains(&id)
         {
             out.push(id);

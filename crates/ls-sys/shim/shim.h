@@ -38,6 +38,17 @@ rust::Vec<double> focal_mean(rust::Slice<const double> x, std::int64_t ny, std::
                              rust::Slice<const double> w, std::int32_t wy, std::int32_t wx);
 rust::Vec<double> distance_exact(rust::Slice<const std::uint8_t> origin, std::int64_t ny, std::int64_t nx, double res);
 
+// GuidosToolbox's MSPA (gtb::mspa): cells coded 0 missing, 1 background, 2 foreground
+// NLMR's neutral landscape models (nlm::), drawn with R's generator from `seed` (row-major ny x nx)
+rust::Vec<double> nlm_random_cluster(std::int32_t seed, std::int64_t ny, std::int64_t nx, double p,
+                                     rust::Slice<const double> ai, std::int32_t neighbourhood);
+rust::Vec<double> nlm_gaussian_field(std::int32_t seed, std::int64_t ny, std::int64_t nx, double autocorr_range,
+                                     double mag_var, double nug, double mean);
+rust::Vec<double> nlm_fbm(std::int32_t seed, std::int64_t ny, std::int64_t nx, double fract_dim);
+
+rust::Vec<std::uint8_t> mspa(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx,
+                             std::int32_t connectivity, std::int32_t edge_width, bool internal);
+
 rust::Vec<double> allow_matrix(rust::Slice<const double> x, rust::Slice<const std::int64_t> hist,
                                rust::Slice<const double> classes, rust::Slice<const double> cd,
                                rust::Slice<const std::int64_t> rules);

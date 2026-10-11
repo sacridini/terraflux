@@ -1,14 +1,15 @@
 //! Running a model in the background: the engine in a thread, its progress, maps and warnings sent to the
-//! application as they come, and a way to stop it.
+//! application as they come, and a way to stop it. The outputs of the nodes are kept in a cache shared with
+//! the application (which shows them), so that a run after an edit only runs what changed.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
-use terraflux_exec::{Engine, Observer, Results};
+use terraflux_exec::{Cache, Engine, Error, Observer, Results};
 use terraflux_graph::Model;
 use terraflux_ops::Value;
 
@@ -16,14 +17,23 @@ use terraflux_ops::Value;
 pub enum Message {
     /// A node started.
     Node(String),
-    /// A container finished a step, with the values it collected.
+    /// A container finished a step, with the values it collected and the cells of each class of its map
+    /// (counted in the run's thread).
     Step {
         at: String,
         step: usize,
         of: usize,
         values: BTreeMap<String, Value>,
+        counts: Option<Vec<(f64, usize)>>,
     },
     Warning(String),
+    /// A top-level node is done (its outputs in the cache), run or `cached`.
+    Finished {
+        at: String,
+        cached: bool,
+    },
+    /// The node that stopped the run.
+    Failed(String),
     /// The run ended.
     Done(Result<Results, String>),
 }
@@ -40,12 +50,21 @@ impl Observer for Sending {
     }
 
     fn collected(&mut self, at: &str, step: usize, of: usize, values: &BTreeMap<String, Value>) {
-        let _ = self.tx.send(Message::Step { at: at.to_string(), step, of, values: values.clone() });
+        let counts = match values.get("maps") {
+            Some(Value::Map(m)) => Some(crate::map_view::class_counts(&m.data)),
+            _ => None,
+        };
+        let _ = self.tx.send(Message::Step { at: at.to_string(), step, of, values: values.clone(), counts });
         (self.repaint)();
     }
 
     fn warning(&mut self, at: &str, message: &str) {
         let _ = self.tx.send(Message::Warning(format!("{at}: {message}")));
+    }
+
+    fn done(&mut self, at: &str, cached: bool) {
+        let _ = self.tx.send(Message::Finished { at: at.to_string(), cached });
+        (self.repaint)();
     }
 
     fn cancelled(&mut self) -> bool {
@@ -61,17 +80,33 @@ pub struct Run {
 }
 
 impl Run {
-    /// Read the inputs (relative to `base`) and run the model in a thread; `repaint` wakes the application.
-    pub fn start(model: Model, base: PathBuf, repaint: Box<dyn Fn() + Send>) -> Run {
+    /// Run the model in a thread on its inputs, read first (relative to `base`) when not given: every node, or
+    /// what `target` needs; the outputs kept in `cache`. `repaint` wakes the application.
+    pub fn start(
+        model: Model,
+        inputs: Option<BTreeMap<String, Value>>,
+        base: PathBuf,
+        cache: Arc<Mutex<Cache>>,
+        target: Option<String>,
+        repaint: Box<dyn Fn() + Send>,
+    ) -> Run {
         let (tx, rx) = channel();
         let stop = Arc::new(AtomicBool::new(false));
         let s = stop.clone();
         let thread = std::thread::spawn(move || {
             let done_tx = tx.clone();
             let result = (|| {
-                let inputs = terraflux_exec::load_inputs(&model, &base, &BTreeMap::new()).map_err(|e| e.to_string())?;
+                let inputs = match inputs {
+                    Some(i) => i,
+                    None => terraflux_exec::load_inputs(&model, &base, &BTreeMap::new()).map_err(|e| e.to_string())?,
+                };
                 let mut obs = Sending { tx, stop: s, repaint };
-                let r = Engine::default().run(&model, &inputs, &mut obs).map_err(|e| e.to_string());
+                let r = Engine::default().run_with(&model, &inputs, &mut obs, Some(&cache), target.as_deref());
+                if let Err(Error::Node { at, .. }) = &r {
+                    let top = at.split(['/', '.']).next().unwrap_or(at).to_string();
+                    let _ = obs.tx.send(Message::Failed(top));
+                }
+                let r = r.map_err(|e| e.to_string());
                 (obs.repaint)();
                 r
             })();

@@ -9,6 +9,7 @@ use std::path::Path;
 use crate::{Band, DataType, Error, GeoTags, Grid, Raster, Result};
 
 // tags
+const NEW_SUBFILE_TYPE: u16 = 254;
 const IMAGE_WIDTH: u16 = 256;
 const IMAGE_LENGTH: u16 = 257;
 const BITS_PER_SAMPLE: u16 = 258;
@@ -65,7 +66,7 @@ fn type_size(t: u16) -> Option<usize> {
 // ----------------------------------------------------------------------------- reading
 
 #[derive(Clone, Copy)]
-struct Endian {
+pub(crate) struct Endian {
     little: bool,
 }
 
@@ -121,7 +122,7 @@ impl Entry {
     }
 }
 
-struct Ifd {
+pub(crate) struct Ifd {
     entries: std::collections::BTreeMap<u16, Entry>,
 }
 
@@ -151,6 +152,11 @@ fn read_at(f: &mut File, offset: u64, len: usize) -> Result<Vec<u8>> {
 }
 
 fn read_ifd(f: &mut File, e: Endian, big: bool, offset: u64) -> Result<Ifd> {
+    read_ifd_next(f, e, big, offset).map(|(ifd, _)| ifd)
+}
+
+/// An image file directory and the offset of the next (0: none).
+fn read_ifd_next(f: &mut File, e: Endian, big: bool, offset: u64) -> Result<(Ifd, u64)> {
     let (count_len, entry_len, inline) = if big { (8, 20, 8) } else { (2, 12, 4) };
     let head = read_at(f, offset, count_len)?;
     let n = if big { e.u64(&head) } else { e.u16(&head) as u64 } as usize;
@@ -171,28 +177,76 @@ fn read_ifd(f: &mut File, e: Endian, big: bool, offset: u64) -> Result<Ifd> {
         };
         entries.insert(tag, Entry { typ, count, data });
     }
-    Ok(Ifd { entries })
+    let next_len = if big { 8 } else { 4 };
+    let next = read_at(f, offset + count_len as u64 + (n * entry_len) as u64, next_len)
+        .map(|b| if big { e.u64(&b) } else { e.u32(&b) as u64 })
+        .unwrap_or(0);
+    Ok((Ifd { entries }, next))
 }
 
 /// How the cells of a TIFF image are stored.
 #[derive(Clone)]
-struct Layout {
-    width: usize,
-    height: usize,
-    spp: usize,
-    dtype: DataType,
-    planar: u16,
-    compression: u16,
-    predictor: u16,
+pub(crate) struct Layout {
+    pub(crate) width: usize,
+    pub(crate) height: usize,
+    pub(crate) spp: usize,
+    pub(crate) dtype: DataType,
+    pub(crate) planar: u16,
+    pub(crate) compression: u16,
+    pub(crate) predictor: u16,
     /// rows per strip, or the tile's (width, height)
-    tiles: Option<(usize, usize)>,
-    rows_per_strip: usize,
-    offsets: Vec<u64>,
-    counts: Vec<u64>,
-    endian: Endian,
+    pub(crate) tiles: Option<(usize, usize)>,
+    pub(crate) rows_per_strip: usize,
+    pub(crate) offsets: Vec<u64>,
+    pub(crate) counts: Vec<u64>,
+    pub(crate) endian: Endian,
 }
 
-fn layout(ifd: &Ifd, e: Endian) -> Result<Layout> {
+impl Layout {
+    /// A chunk's (strip's or tile's) size in cells.
+    pub(crate) fn chunk(&self) -> (usize, usize) {
+        self.tiles.unwrap_or((self.width, self.rows_per_strip))
+    }
+}
+
+/// The directories of a file's first image and of its overviews (reduced copies, GDAL's internal overviews
+/// and COGs'), with the endianness; the image's directory first.
+pub(crate) fn directories(path: &Path) -> Result<(Endian, Vec<(Ifd, Layout)>)> {
+    let mut f = File::open(path)?;
+    let head = read_at(&mut f, 0, 16).or_else(|_| read_at(&mut f, 0, 8))?;
+    let e = match &head[..2] {
+        b"II" => Endian { little: true },
+        b"MM" => Endian { little: false },
+        _ => return Err(Error::NotTiff),
+    };
+    let (big, mut next) = match e.u16(&head[2..]) {
+        42 => (false, e.u32(&head[4..]) as u64),
+        43 if head.len() >= 16 => (true, e.u64(&head[8..])),
+        _ => return Err(Error::NotTiff),
+    };
+    let mut out: Vec<(Ifd, Layout)> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    while next != 0 && seen.insert(next) && out.len() < 64 {
+        let (ifd, n) = read_ifd_next(&mut f, e, big, next)?;
+        next = n;
+        let kind = ifd.uint(NEW_SUBFILE_TYPE, e)?.unwrap_or(0);
+        if out.is_empty() {
+            let l = layout(&ifd, e)?;
+            out.push((ifd, l));
+        } else if kind & 1 == 1 && kind & 4 == 0 {
+            // a reduced copy, not a mask
+            if let Ok(l) = layout(&ifd, e) {
+                out.push((ifd, l));
+            }
+        }
+    }
+    if out.is_empty() {
+        return Err(Error::Invalid("no image".into()));
+    }
+    Ok((e, out))
+}
+
+pub(crate) fn layout(ifd: &Ifd, e: Endian) -> Result<Layout> {
     let need =
         |tag: u16, what: &str| -> Result<u64> { ifd.uint(tag, e)?.ok_or_else(|| Error::Invalid(format!("no {what}"))) };
     let width = need(IMAGE_WIDTH, "image width")? as usize;
@@ -238,7 +292,7 @@ fn layout(ifd: &Ifd, e: Endian) -> Result<Layout> {
     })
 }
 
-fn decompress(compression: u16, raw: &[u8], expected: usize) -> Result<Vec<u8>> {
+pub(crate) fn decompress(compression: u16, raw: &[u8], expected: usize) -> Result<Vec<u8>> {
     let mut out = match compression {
         1 => raw.to_vec(),
         8 | 32946 => {
@@ -292,7 +346,7 @@ fn packbits(raw: &[u8], expected: usize) -> Vec<u8> {
 }
 
 /// The values of a decoded chunk (rows x cols x samples), as f64, after the predictor.
-fn chunk_values(l: &Layout, mut bytes: Vec<u8>, cols: usize, samples: usize) -> Result<Vec<f64>> {
+pub(crate) fn chunk_values(l: &Layout, mut bytes: Vec<u8>, cols: usize, samples: usize) -> Result<Vec<f64>> {
     let bps = l.dtype.bytes();
     let row_bytes = cols * samples * bps;
     if l.predictor == 3 {
@@ -442,7 +496,7 @@ fn read_bands(f: &mut File, l: &Layout, win: Window) -> Result<Vec<Vec<f64>>> {
     Ok(bands)
 }
 
-fn geotransform(geo: &GeoTags) -> [f64; 6] {
+pub(crate) fn geotransform(geo: &GeoTags) -> [f64; 6] {
     if let Some(m) = &geo.transformation
         && m.len() >= 8
     {
@@ -471,7 +525,7 @@ fn raster_is_point(geo: &GeoTags) -> bool {
     (0..n).any(|k| keys.get(4 + 4 * k) == Some(&1025) && keys.get(4 + 4 * k + 3) == Some(&2))
 }
 
-fn parse_nodata(s: &str) -> Option<f64> {
+pub(crate) fn parse_nodata(s: &str) -> Option<f64> {
     let t = s.trim().trim_end_matches('\0').trim();
     if t.is_empty() {
         return None;
@@ -493,7 +547,7 @@ fn xml_escape(s: &str) -> String {
 }
 
 /// Band descriptions in GDAL's metadata XML (items DESCRIPTION, role "description").
-fn band_names(xml: &str, spp: usize) -> Vec<Option<String>> {
+pub(crate) fn band_names(xml: &str, spp: usize) -> Vec<Option<String>> {
     let mut names = vec![None; spp];
     for item in xml.split("<Item").skip(1) {
         let Some(close) = item.find('>') else { continue };
@@ -553,6 +607,7 @@ impl Reader {
             geokeys: ifd.uints(GEO_KEY_DIRECTORY, e)?.map(|v| v.into_iter().map(|x| x as u16).collect()),
             double_params: ifd.floats(GEO_DOUBLE_PARAMS, e)?,
             ascii_params: ifd.get(GEO_ASCII_PARAMS).map(|x| String::from_utf8_lossy(&x.data).into_owned()),
+            wkt: None,
         };
         let transform = geotransform(&geo);
         let nodata = ifd.get(GDAL_NODATA).and_then(|x| parse_nodata(&x.text()));

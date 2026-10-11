@@ -3,13 +3,19 @@
 //!
 //! This is the exact engine: whole maps in memory, the kernels in the order landschaft runs them, so a model
 //! gives the same maps as `ls.simulate` with the same seed.
+//!
+//! With a [`Cache`] ([`Engine::run_with`]) the outputs of the top-level nodes are kept between runs, and a node
+//! runs again only when it, a node it depends on, an input or a file it reads changed; a run may stop at a
+//! node (its ancestors only run). The application runs the model as it is edited this way.
 
 mod io;
 pub mod lint;
 
 use std::collections::BTreeMap;
+use std::hash::{Hash, Hasher};
+use std::sync::Mutex;
 
-use terraflux_graph::{Catalog, Model, Node, Ref, Severity, Source, check, dependencies, order};
+use terraflux_graph::{Catalog, Model, Node, Ref, Severity, Source, check, dependencies_among, ids, order};
 use terraflux_ops::{Args, Ctx, Outputs, Registry, Value};
 
 pub use io::{load_inputs, write_outputs, write_value};
@@ -40,6 +46,8 @@ pub trait Observer {
     fn warning(&mut self, _at: &str, _message: &str) {}
     /// The values a container collected at a step (the application draws the maps as they come).
     fn collected(&mut self, _at: &str, _step: usize, _of: usize, _values: &BTreeMap<String, Value>) {}
+    /// A top-level node is done: run, or its outputs taken from the cache.
+    fn done(&mut self, _at: &str, _cached: bool) {}
     /// Whether to stop: checked before every node.
     fn cancelled(&mut self) -> bool {
         false
@@ -65,6 +73,111 @@ impl Results {
             _ => None,
         }
     }
+}
+
+/// The outputs of a top-level node kept, the fingerprint of what they came from and the node's warnings.
+struct Kept {
+    print: u64,
+    outputs: Outputs,
+    warnings: Vec<String>,
+}
+
+/// The outputs of the top-level nodes of a model kept between runs ([`Engine::run_with`]).
+#[derive(Default)]
+pub struct Cache {
+    kept: BTreeMap<String, Kept>,
+}
+
+impl Cache {
+    /// The outputs kept of a node.
+    pub fn outputs(&self, node: &str) -> Option<&Outputs> {
+        self.kept.get(node).map(|k| &k.outputs)
+    }
+
+    /// The nodes with outputs kept.
+    pub fn nodes(&self) -> impl Iterator<Item = &str> {
+        self.kept.keys().map(String::as_str)
+    }
+
+    pub fn forget(&mut self, node: &str) {
+        self.kept.remove(node);
+    }
+
+    pub fn clear(&mut self) {
+        self.kept.clear();
+    }
+}
+
+/// Whether a value holds a random generator, whose state changes as it is used (not to be kept).
+fn holds_rng(v: &Value) -> bool {
+    match v {
+        Value::Rng(_) => true,
+        Value::Series(s) => s.iter().any(holds_rng),
+        _ => false,
+    }
+}
+
+/// A node as it counts for its outputs: without its place on the canvas and its note.
+fn bare(n: &Node) -> Node {
+    let mut n = n.clone();
+    n.pos = None;
+    n.note = None;
+    if let Some(b) = &mut n.body {
+        b.nodes = b.nodes.iter().map(bare).collect();
+    }
+    n
+}
+
+/// The size and time of the files a node reads (in its body too).
+fn files_read(n: &Node, h: &mut impl Hasher) {
+    if n.op == "raster.read"
+        && let Some(serde_json::Value::String(p)) = n.params.get("path")
+    {
+        match std::fs::metadata(p) {
+            Ok(m) => (m.len(), m.modified().ok()).hash(h),
+            Err(_) => "missing".hash(h),
+        }
+    }
+    for b in n.body.iter().flat_map(|b| &b.nodes) {
+        files_read(b, h);
+    }
+}
+
+/// The fingerprint of a top-level node's outputs: the node, the fingerprints of the nodes it depends on, the
+/// inputs it reads and the files; none when a node it depends on is not kept.
+fn fingerprint(
+    n: &Node,
+    model: &Model,
+    among: &std::collections::HashSet<&str>,
+    inputs: &BTreeMap<String, Value>,
+    prints: &BTreeMap<String, Option<u64>>,
+) -> Option<u64> {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    serde_json::to_string(&bare(n)).unwrap_or_default().hash(&mut h);
+    for d in dependencies_among(n, among) {
+        (d.as_str(), (*prints.get(&d)?)?).hash(&mut h);
+    }
+    let mut read: Vec<String> =
+        terraflux_graph::references(n).iter().filter_map(|r| r.strip_prefix('$').map(String::from)).collect();
+    read.sort();
+    read.dedup();
+    for name in read {
+        name.hash(&mut h);
+        serde_json::to_string(&model.inputs.get(&name)).unwrap_or_default().hash(&mut h);
+        match inputs.get(&name) {
+            Some(Value::Map(m)) => (std::sync::Arc::as_ptr(&m.data) as usize).hash(&mut h),
+            Some(Value::Stack(s)) => s.layers.iter().for_each(|l| (std::sync::Arc::as_ptr(l) as usize).hash(&mut h)),
+            Some(v) => format!("{v:?}").hash(&mut h),
+            None => {}
+        }
+    }
+    files_read(n, &mut h);
+    Some(h.finish())
+}
+
+/// The top-level node of a place (`node`, `node.port`, `container/inner...`).
+fn head(at: &str) -> &str {
+    at.split(['/', '.']).next().unwrap_or(at)
 }
 
 struct Env<'p> {
@@ -103,24 +216,141 @@ impl Default for Engine {
 impl Engine {
     /// Check the model (errors stop it), then run it on the inputs.
     pub fn run(&self, model: &Model, inputs: &BTreeMap<String, Value>, obs: &mut dyn Observer) -> Result<Results> {
+        self.run_with(model, inputs, obs, None, None)
+    }
+
+    /// Run the model, or only what a top-level node needs (`target`: the node and the nodes it depends on),
+    /// taking the outputs of the nodes that did not change from `cache` and keeping the new ones there. Only
+    /// the errors of the nodes run stop it. Nodes whose outputs hold a random generator, the nodes that depend
+    /// on them, and `raster.write` (a file to write) always run.
+    pub fn run_with(
+        &self,
+        model: &Model,
+        inputs: &BTreeMap<String, Value>,
+        obs: &mut dyn Observer,
+        cache: Option<&Mutex<Cache>>,
+        target: Option<&str>,
+    ) -> Result<Results> {
         terraflux_ops::threads::ensure();
+        let among = ids(&model.nodes);
+        let by_id: std::collections::HashMap<&str, &Node> = model.nodes.iter().map(|n| (n.id.as_str(), n)).collect();
+        // the nodes to run: every one, or the target's ancestors
+        let needed: Option<std::collections::BTreeSet<String>> = match target {
+            None => None,
+            Some(t) => {
+                if !by_id.contains_key(t) {
+                    return Err(Error::Model(format!("no node {t:?}")));
+                }
+                let mut set = std::collections::BTreeSet::new();
+                let mut todo = vec![t.to_string()];
+                while let Some(id) = todo.pop() {
+                    if !set.contains(&id)
+                        && let Some(n) = by_id.get(id.as_str())
+                    {
+                        todo.extend(dependencies_among(n, &among));
+                        set.insert(id);
+                    }
+                }
+                Some(set)
+            }
+        };
+        let runs = |id: &str| needed.as_ref().is_none_or(|s| s.contains(id));
         let errors: Vec<String> = check(model, &self.registry)
             .into_iter()
-            .filter(|i| i.severity == Severity::Error)
+            .filter(|i| i.severity == Severity::Error && (i.at.is_empty() || runs(head(&i.at))))
             .map(|i| i.to_string())
             .collect();
         if !errors.is_empty() {
             return Err(Error::Model(format!("the model has errors:\n  {}", errors.join("\n  "))));
         }
-        for name in model.inputs.keys() {
-            if !inputs.contains_key(name) {
+        let read: Vec<String> = match &needed {
+            None => model.inputs.keys().cloned().collect(),
+            Some(set) => model
+                .nodes
+                .iter()
+                .filter(|n| set.contains(&n.id))
+                .flat_map(terraflux_graph::references)
+                .filter_map(|r| r.strip_prefix('$').map(String::from))
+                .collect(),
+        };
+        for name in read {
+            if !inputs.contains_key(&name) {
                 return Err(Error::Model(format!("no value for the input ${name}")));
             }
         }
         let mut env = Env { parent: None, results: BTreeMap::new(), carried: BTreeMap::new() };
         let mut warnings = Vec::new();
-        self.run_scope(&model.nodes, &mut env, inputs, "", obs, &mut warnings)?;
+        let ordered =
+            order(&model.nodes, |n| dependencies_among(n, &among)).map_err(|e| Error::Model(e.to_string()))?;
+        let mut prints: BTreeMap<String, Option<u64>> = BTreeMap::new();
+        for node in ordered {
+            if !runs(&node.id) {
+                continue;
+            }
+            if obs.cancelled() {
+                return Err(Error::Cancelled);
+            }
+            let at = node.id.as_str();
+            let print = cache.and_then(|_| fingerprint(node, model, &among, inputs, &prints));
+            let kept = match (cache, print) {
+                (Some(c), Some(p)) => c
+                    .lock()
+                    .unwrap()
+                    .kept
+                    .get(&node.id)
+                    .filter(|k| k.print == p)
+                    .map(|k| (k.outputs.clone(), k.warnings.clone())),
+                _ => None,
+            };
+            if let Some((out, ws)) = kept {
+                obs.node(at);
+                for w in &ws {
+                    obs.warning(at, w);
+                    warnings.push(format!("{at}: {w}"));
+                }
+                Self::replay(node, &out, obs);
+                obs.done(at, true);
+                env.results.insert(node.id.clone(), out);
+                prints.insert(node.id.clone(), print);
+                continue;
+            }
+            obs.node(at);
+            let before = warnings.len();
+            let out = self.run_node(node, &env, inputs, at, obs, &mut warnings)?;
+            let keep = print.is_some() && node.op != "raster.write" && !out.values().any(holds_rng);
+            if let (Some(c), Some(p), true) = (cache, print, keep) {
+                let prefix = format!("{at}: ");
+                let ws = warnings[before..].iter().map(|w| w.strip_prefix(&prefix).unwrap_or(w).to_string()).collect();
+                c.lock().unwrap().kept.insert(node.id.clone(), Kept { print: p, outputs: out.clone(), warnings: ws });
+            }
+            prints.insert(node.id.clone(), if keep { print } else { None });
+            obs.done(at, false);
+            env.results.insert(node.id.clone(), out);
+        }
+        if let Some(c) = cache {
+            c.lock().unwrap().kept.retain(|id, _| by_id.contains_key(id.as_str()));
+        }
         Ok(Results { values: env.results, warnings })
+    }
+
+    /// What a loop collected, step by step, from its kept outputs (as if it ran).
+    fn replay(node: &Node, out: &Outputs, obs: &mut dyn Observer) {
+        let Some(body) = node.body.as_ref().filter(|_| node.op == "control.repeat") else { return };
+        let series: BTreeMap<&String, &Vec<Value>> = body
+            .collect
+            .keys()
+            .filter_map(|k| match out.get(k) {
+                Some(Value::Series(s)) => Some((k, s)),
+                _ => None,
+            })
+            .collect();
+        let steps = series.values().map(|s| s.len()).max().unwrap_or(0);
+        for step in 1..=steps {
+            let now: BTreeMap<String, Value> =
+                series.iter().filter_map(|(k, s)| s.get(step - 1).map(|v| ((*k).clone(), v.clone()))).collect();
+            obs.collected(&node.id, step, steps, &now);
+            obs.step(&node.id, step, steps);
+        }
     }
 
     fn resolve(&self, src: &Source, env: &Env, inputs: &BTreeMap<String, Value>, at: &str) -> Result<Value> {
@@ -145,7 +375,8 @@ impl Engine {
         obs: &mut dyn Observer,
         warnings: &mut Vec<String>,
     ) -> Result<()> {
-        let ordered = order(nodes, |n| dependencies(n, nodes)).map_err(|e| Error::Model(e.to_string()))?;
+        let among = ids(nodes);
+        let ordered = order(nodes, |n| dependencies_among(n, &among)).map_err(|e| Error::Model(e.to_string()))?;
         for node in ordered {
             let at = if prefix.is_empty() { node.id.clone() } else { format!("{prefix}/{}", node.id) };
             if obs.cancelled() {
@@ -170,6 +401,19 @@ impl Engine {
         let mut values = BTreeMap::new();
         for (port, src) in &node.inputs {
             values.insert(port.clone(), self.resolve(src, env, inputs, &format!("{at}.{port}"))?);
+        }
+        // rasters on disk are read whole where a port takes a map or a stack (a container's values: maps)
+        let sig = self.registry.sig(&node.op).cloned();
+        for (port, v) in values.iter_mut() {
+            if matches!(v, Value::Raster(_)) {
+                let want = sig
+                    .as_ref()
+                    .and_then(|s| s.input_spec(port).map(|p| p.ty).or(s.extra))
+                    .unwrap_or(terraflux_graph::Type::Map);
+                let raster = std::mem::replace(v, Value::Bool(false));
+                *v = terraflux_ops::files::as_port(raster, want)
+                    .map_err(|e| Error::Node { at: format!("{at}.{port}"), message: e.to_string() })?;
+            }
         }
         if node.op == "control.repeat" {
             return self.repeat(node, env, values, inputs, at, obs, warnings);

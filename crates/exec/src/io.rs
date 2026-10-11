@@ -98,36 +98,16 @@ pub fn load_inputs(
     Ok(out)
 }
 
-/// The type a map is written in: the given one, else the smallest that holds its values (u8 for classes
-/// 0-254, i32 for other whole numbers, f32 otherwise), with a no-data value outside them.
+/// The type a map is written in: the given one, else the smallest that holds its values.
 fn choose_type(values: &[&[f64]], dtype: Option<&str>) -> Result<(DataType, Option<f64>)> {
-    let parse = |s: &str| -> Result<DataType> {
-        serde_json::from_value(serde_json::Value::String(s.to_ascii_lowercase()))
-            .map_err(|_| Error::Model(format!("unknown cell type {s:?} (u8, i16, i32, f32, f64...)")))
+    let wanted = match dtype {
+        Some(s) => Some(
+            DataType::parse(s)
+                .ok_or_else(|| Error::Model(format!("unknown cell type {s:?} (u8, i16, i32, f32, f64...)")))?,
+        ),
+        None => None,
     };
-    let finite = || values.iter().flat_map(|v| v.iter()).filter(|x| !x.is_nan());
-    let whole = finite().all(|x| x.fract() == 0.0);
-    let (lo, hi) = finite().fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), &x| (a.min(x), b.max(x)));
-    let t = match dtype {
-        Some(s) => parse(s)?,
-        None if whole && lo >= 0.0 && hi <= 254.0 => DataType::U8,
-        None if whole && lo > -2147483648.0 && hi <= 2147483647.0 => DataType::I32,
-        None => DataType::F32,
-    };
-    let nodata = match t {
-        DataType::F32 | DataType::F64 => Some(f64::NAN),
-        _ => {
-            let (min, max) = t.range();
-            if hi < max {
-                Some(max)
-            } else if lo > min {
-                Some(min)
-            } else {
-                None
-            }
-        }
-    };
-    Ok((t, nodata))
+    Ok(DataType::fitting(values, wanted))
 }
 
 fn write_maps(grid: &Grid, layers: Vec<(Option<String>, &[f64])>, path: &Path, dtype: Option<&str>) -> Result<PathBuf> {
@@ -140,7 +120,7 @@ fn write_maps(grid: &Grid, layers: Vec<(Option<String>, &[f64])>, path: &Path, d
         nodata,
     };
     let path = path.with_extension("tif");
-    r.write(&path)?;
+    terraflux_ops::prepare::write_with_crs(&r, &path).map_err(|e| Error::Model(e.to_string()))?;
     Ok(path)
 }
 
@@ -196,6 +176,15 @@ pub fn write_value(value: &Value, path: &Path, dtype: Option<&str>) -> Result<Pa
         Value::Series(_) => Err(Error::Model("a series of mixed values cannot be written".into())),
         Value::Rng(_) => Err(Error::Model("a random generator cannot be written".into())),
         Value::Agents(a) => write_text(path, "csv", &a.to_table().to_csv()),
+        Value::Raster(r) => {
+            let path = path.with_extension("tif");
+            let wanted = match dtype {
+                Some(s) => Some(DataType::parse(s).ok_or_else(|| Error::Model(format!("unknown cell type {s:?}")))?),
+                None => None,
+            };
+            terraflux_ops::files::copy(r, &path, wanted).map_err(|e| Error::Model(e.to_string()))?;
+            Ok(path)
+        }
     }
 }
 

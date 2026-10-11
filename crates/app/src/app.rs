@@ -1,31 +1,204 @@
 //! The application: a model open (its graph, its data checked), its run with the maps drawn as they come, the
-//! area of each class along the steps, and the validation against an observed map.
+//! maps of its inputs (a stack's one after the other), the area of each class along the steps, and the
+//! validation against an observed map.
+//!
+//! What takes long is done in threads: the data is read and its colours and areas worked out while the window
+//! keeps answering, the areas of the simulated maps are counted in the run's thread, and the maps' textures are
+//! kept to be shown again at once.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{Receiver, TryRecvError};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use egui::{Color32, RichText, Ui};
+use egui::{Color32, Margin, RichText, Ui, Vec2};
+use egui_dock::{DockState, NodeIndex};
 use egui_plot::{Legend, Line, Plot};
+use terraflux_exec::Cache;
 use terraflux_exec::lint::{Finding, Level, lint};
-use terraflux_graph::{Issue, Model, Severity, Source, check};
+use terraflux_graph::{Input, Issue, Model, Severity, Source, check};
 use terraflux_ops::validate::{Agreement, agreement, similarity_of_differences};
 use terraflux_ops::{Map, Registry, Table, Value};
 use terraflux_raster::Raster;
 
-use crate::editor_view::{Action, EditorState};
-use crate::map_view::{Hover, MapView, class_counts, legend};
+use crate::builder::{Library, Looks};
+use crate::editor_view::{EditorState, NodeStatus};
+use crate::map_view::{Hover, MapView, Thumbs, class_counts, legend};
 use crate::palette::Coloring;
 use crate::runner::{Message, Run};
+use crate::theme;
 use crate::wizard::{Outcome, Wizard};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Tab {
-    Map,
-    Charts,
-    Graph,
+/// A pane of the application: a tab of the dock, moved, split, closed (the Panels menu brings it back) or taken
+/// to a window of its own (another screen).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum Pane {
+    /// The model's graph.
     Model,
+    /// The operators' library.
+    Operators,
+    /// The node selected.
+    Node,
+    /// What the node selected gives.
+    Viewer,
+    /// The run's maps, step by step, and the inputs' maps.
+    Simulation,
+    /// The area of each class along the steps.
+    Areas,
     Validation,
+    /// The model as text, and its problems.
+    Text,
+    /// A node's output in a tab of its own (opened by a double click on the node; one per node, brought to the
+    /// front when it is open already).
+    Map(u64),
+}
+
+impl Pane {
+    pub const ALL: [Pane; 8] = [
+        Pane::Model,
+        Pane::Operators,
+        Pane::Node,
+        Pane::Viewer,
+        Pane::Simulation,
+        Pane::Areas,
+        Pane::Validation,
+        Pane::Text,
+    ];
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Pane::Model => "Model",
+            Pane::Operators => "Operators",
+            Pane::Node => "Node",
+            Pane::Viewer => "Viewer",
+            Pane::Simulation => "Simulation",
+            Pane::Areas => "Areas",
+            Pane::Validation => "Validation",
+            Pane::Text => "Text",
+            Pane::Map(_) => "Map",
+        }
+    }
+}
+
+/// The panes as they first are: the operators on the left, the model in the middle over the viewer, the node
+/// on the right (the others from the View menu; the maps of nodes open beside the viewer).
+pub fn default_layout() -> DockState<Pane> {
+    let mut d = DockState::new(vec![Pane::Model, Pane::Text]);
+    let s = d.main_surface_mut();
+    let [model, _] = s.split_left(NodeIndex::root(), 0.17, vec![Pane::Operators]);
+    let [model, _] = s.split_right(model, 0.74, vec![Pane::Node]);
+    let [_, _] = s.split_below(model, 0.5, vec![Pane::Viewer]);
+    d
+}
+
+/// The version of the layout kept (a layout of another version is let go).
+const LAYOUT_VERSION: u32 = 2;
+
+/// A window of its own (another screen): its panes in a dock.
+pub struct Detached {
+    pub id: egui::ViewportId,
+    pub dock: DockState<Pane>,
+}
+
+/// The layout kept between sessions: the main dock, and the panes of each window of their own.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Layout {
+    #[serde(default)]
+    version: u32,
+    main: DockState<Pane>,
+    windows: Vec<Vec<Pane>>,
+}
+
+/// Where the layout is kept (the user's application data).
+pub fn layout_file() -> Option<PathBuf> {
+    std::env::var_os("APPDATA")
+        .or_else(|| std::env::var_os("XDG_CONFIG_HOME"))
+        .map(|d| PathBuf::from(d).join("Terraflux").join("layout.json"))
+}
+
+/// What the panes asked of the dock in a frame.
+#[derive(Default)]
+struct Moves {
+    /// to a window of their own
+    detach: Vec<Pane>,
+    /// back to the main window
+    attach: Vec<Pane>,
+}
+
+/// The dock's view of the application: each pane drawn by the application.
+struct Panes<'a> {
+    app: &'a mut TerrafluxApp,
+    moves: &'a mut Moves,
+    /// whether these panes are in a window of their own
+    detached: bool,
+}
+
+impl egui_dock::TabViewer for Panes<'_> {
+    type Tab = Pane;
+
+    fn id(&mut self, tab: &mut Pane) -> egui::Id {
+        egui::Id::new(("pane", *tab))
+    }
+
+    fn title(&mut self, tab: &mut Pane) -> egui::WidgetText {
+        match tab {
+            Pane::Map(id) => self
+                .app
+                .session
+                .as_ref()
+                .and_then(|s| s.map_tabs.get(id))
+                .map_or("Map".to_string(), |m| {
+                    // a plot's title, else the node and the output
+                    let title = self.app.session.as_ref().and_then(|s| {
+                        let n = s.source.nodes.iter().find(|n| n.id == m.node)?;
+                        (n.op == "view.plot").then(|| n.params.get("title")?.as_str().map(String::from)).flatten()
+                    });
+                    title.unwrap_or_else(|| format!("{} · {}", m.node, m.port))
+                })
+                .into(),
+            t => t.title().into(),
+        }
+    }
+
+    fn on_close(&mut self, tab: &mut Pane) -> egui_dock::widgets::tab_viewer::OnCloseResponse {
+        if let Pane::Map(id) = tab
+            && let Some(s) = &mut self.app.session
+        {
+            s.map_tabs.remove(id);
+        }
+        egui_dock::widgets::tab_viewer::OnCloseResponse::Close
+    }
+
+    fn ui(&mut self, ui: &mut Ui, tab: &mut Pane) {
+        self.app.pane(ui, *tab);
+    }
+
+    fn context_menu(&mut self, ui: &mut Ui, tab: &mut Pane, _path: egui_dock::NodePath) {
+        if self.detached {
+            if ui.button("Back to the main window").clicked() {
+                self.moves.attach.push(*tab);
+                ui.close();
+            }
+        } else if ui.button("Open in a window of its own").on_hover_text("to take it to another screen").clicked() {
+            self.moves.detach.push(*tab);
+            ui.close();
+        }
+    }
+}
+
+/// The dock's look: the theme's greys, the tab shown in the panel's grey, the bar a shade darker.
+fn dock_style(ui: &Ui) -> egui_dock::Style {
+    let mut st = egui_dock::Style::from_egui(ui.style().as_ref());
+    st.tab_bar.bg_fill = theme::BAR;
+    st.tab_bar.hline_color = theme::BAR;
+    st.tab_bar.height = 24.0;
+    st.tab.active.bg_fill = ui.visuals().panel_fill;
+    st.tab.focused.bg_fill = ui.visuals().panel_fill;
+    st.tab.focused.text_color = theme::ACCENT;
+    st.tab.active.text_color = ui.visuals().strong_text_color();
+    st.main_surface_border_stroke = egui::Stroke::NONE;
+    st
 }
 
 /// Comparing the last simulated map with an observed one.
@@ -40,27 +213,145 @@ pub struct Validation {
     pub error: Option<String>,
 }
 
+/// What a map looks like: its colours and, for classes, the cells of each.
+#[derive(Debug, Clone)]
+pub struct Look {
+    pub coloring: Coloring,
+    pub counts: Vec<(f64, usize)>,
+    /// Whether the classes are MSPA's (named so in the legend).
+    pub mspa: bool,
+}
+
+impl Look {
+    /// The look of a map's cells; its classes in the colours of `base` when `base` has them all (a map of the
+    /// same classes, as the land use of another date).
+    pub fn of(values: &[f64], base: Option<&Coloring>) -> Look {
+        let mut coloring = Coloring::for_values(values);
+        if let (Some(b @ Coloring::Classes(known)), Coloring::Classes(own)) = (base, &coloring)
+            && own.iter().all(|(v, _)| known.iter().any(|(k, _)| k == v))
+        {
+            coloring = coloring.like(b);
+        }
+        let counts = if matches!(coloring, Coloring::Classes(_)) { class_counts(values) } else { Vec::new() };
+        Look { coloring, counts, mspa: false }
+    }
+}
+
+/// An input the map tab shows: one map, or the maps of a stack to go through.
+pub struct Layer {
+    /// `$name`
+    pub name: String,
+    pub stack: bool,
+    /// The name of each map, the map and its look.
+    pub bands: Vec<(String, Map, Look)>,
+    /// The map shown.
+    pub shown: usize,
+}
+
+/// A model's data, read in a thread: its values, what is wrong with them, the map the simulation starts from
+/// and the maps of the inputs, with their looks.
+pub struct Loaded {
+    /// The model's inputs the values are of.
+    pub of: BTreeMap<String, Input>,
+    pub inputs: Result<BTreeMap<String, Value>, String>,
+    pub findings: Vec<Finding>,
+    pub start: Option<(Map, Look)>,
+    pub layers: Vec<Layer>,
+}
+
+impl Loaded {
+    pub fn read(model: &Model, base: &Path) -> Loaded {
+        let of = model.inputs.clone();
+        let inputs = match terraflux_exec::load_inputs(model, base, &BTreeMap::new()) {
+            Ok(i) => i,
+            Err(e) => {
+                return Loaded {
+                    of,
+                    inputs: Err(e.to_string()),
+                    findings: Vec::new(),
+                    start: None,
+                    layers: Vec::new(),
+                };
+            }
+        };
+        let findings = lint(model, &inputs);
+        let start = start_map(model, &inputs).map(|m| {
+            let look = Look::of(&m.data, None);
+            (m, look)
+        });
+        let classes = start.as_ref().map(|(_, l)| &l.coloring);
+        let layers = inputs
+            .iter()
+            .filter_map(|(name, v)| {
+                let bands = match v {
+                    Value::Map(m) => {
+                        let band = match model.inputs.get(name) {
+                            Some(Input::Map { band: Some(b), .. }) => b.clone(),
+                            _ => "band 1".into(),
+                        };
+                        vec![(band, m.clone(), Look::of(&m.data, classes))]
+                    }
+                    Value::Stack(st) => st
+                        .keys
+                        .iter()
+                        .zip(&st.layers)
+                        .map(|(k, d)| {
+                            (k.to_string(), Map { grid: st.grid.clone(), data: d.clone() }, Look::of(d, classes))
+                        })
+                        .collect(),
+                    _ => return None,
+                };
+                Some(Layer { name: format!("${name}"), stack: matches!(v, Value::Stack(_)), bands, shown: 0 })
+            })
+            .collect();
+        Loaded { of, inputs: Ok(inputs), findings, start, layers }
+    }
+}
+
+/// The map a simulation starts from: the first value of a loop's carried `landscape`, else `$start` or `$t0`.
+pub fn start_map(model: &Model, inputs: &BTreeMap<String, Value>) -> Option<Map> {
+    for n in &model.nodes {
+        if n.body.is_some()
+            && let Some(Source::Ref(r)) = n.inputs.get("landscape")
+            && let Some(Value::Map(m)) = r.strip_prefix('$').and_then(|k| inputs.get(k))
+        {
+            return Some(m.clone());
+        }
+    }
+    ["start", "t0"].iter().find_map(|k| match inputs.get(*k) {
+        Some(Value::Map(m)) => Some(m.clone()),
+        _ => None,
+    })
+}
+
 /// A model open.
 pub struct Session {
     /// The model as written (what the editor changes and saves).
     pub source: Model,
     /// The model run: its submodels expanded.
     pub model: Model,
+    /// The model run as text (the model tab).
+    pub toml: Option<String>,
     /// The editor's state; whether the model changed since it was saved.
     pub editor: EditorState,
     pub dirty: bool,
     /// The texts being typed in the side panel, by field.
     pub fields: BTreeMap<String, String>,
-    pub path: PathBuf,
+    /// The model's file (none: not saved yet).
+    pub path: Option<PathBuf>,
     pub issues: Vec<Issue>,
     pub findings: Vec<Finding>,
     pub inputs: Option<BTreeMap<String, Value>>,
+    /// The model's inputs `inputs` are of (a run reads them again when they changed).
+    inputs_of: BTreeMap<String, Input>,
     pub load_error: Option<String>,
+    loading: Option<Receiver<Loaded>>,
     pub run: Option<Run>,
     pub progress: Option<(String, usize, usize)>,
     pub node: String,
-    /// The map the simulation starts from, then the map of every step.
+    /// The map the simulation starts from, then the map of every step; the cells of each class of each.
     pub maps: Vec<Map>,
+    pub counts: Vec<Vec<(f64, usize)>>,
     pub tables: Vec<Table>,
     pub shown: usize,
     pub follow: bool,
@@ -69,38 +360,103 @@ pub struct Session {
     pub elapsed: Option<Duration>,
     pub started: Option<Instant>,
     pub view: MapView,
+    pub thumbs: Thumbs,
+    /// The colours of the simulated maps.
     pub coloring: Option<Coloring>,
+    /// The inputs' maps; the one shown (none: the simulation).
+    pub layers: Vec<Layer>,
+    pub layer: Option<usize>,
+    /// Going through the steps or maps of the layer by itself.
+    pub playing: bool,
+    tick: Instant,
     pub selected: Option<String>,
     pub validation: Validation,
+    /// The outputs of the nodes run, kept between runs (a run only runs what changed).
+    pub cache: Arc<Mutex<Cache>>,
+    /// How each top-level node did in the last run.
+    pub status: BTreeMap<String, NodeStatus>,
+    /// Counters of the changes of the model and of the nodes' states (the canvas is laid out again then).
+    pub revision: u64,
+    pub status_rev: u64,
+    /// The node a run stops at (none: the whole model).
+    pub target: Option<String>,
+    /// What every top-level node gave in the runs so far (the cache keeps only what may be used again).
+    pub outputs: BTreeMap<String, terraflux_ops::Outputs>,
+    /// The output shown under the canvas: node and port; the band or step of a stack or series.
+    pub preview: Option<(String, String)>,
+    pub preview_band: usize,
+    /// Whether the band chosen of the rasters shown was shown first already.
+    pub preview_chosen: bool,
+    pub preview_view: MapView,
+    pub looks: Looks,
+    /// The outputs shown in map tabs of their own (a double click on a node), by tab; the tabs the dock is still
+    /// to show.
+    pub map_tabs: BTreeMap<u64, crate::builder::Shown>,
+    next_tab: u64,
+    pub opened: Vec<u64>,
+    /// The map tabs to bring to the front (asked for again while open).
+    pub raised: Vec<u64>,
+    /// Outputs being saved (in threads): where, and what came of it; a word for the status bar and since when.
+    saving: Vec<(PathBuf, Receiver<Result<PathBuf, String>>)>,
+    pub notice: Option<(String, Instant)>,
+    /// Run up to the node shown after every edit; when the last edit was.
+    pub auto: bool,
+    /// Run the whole model once its data is read.
+    pub run_when_ready: bool,
+    edited_at: Option<Instant>,
 }
 
 impl Session {
+    /// Read a model and check it; its data is read in a thread (see [`Session::loading`]).
     pub fn open(path: &Path) -> Result<Session, String> {
         let source = Model::load(path).map_err(|e| format!("{}: {e}", path.display()))?;
-        let base = path.parent().map(Path::to_path_buf).unwrap_or_default();
+        Session::new(source, Some(path.to_path_buf()))
+    }
+
+    /// A model without nodes, not saved yet.
+    pub fn blank() -> Session {
+        let mut m = Model::new("Untitled");
+        m.name = Some("Untitled".into());
+        Session::new(m, None).expect("an empty model")
+    }
+
+    /// A model to start from, not saved yet.
+    pub fn template(t: &crate::templates::Template) -> Result<Session, String> {
+        let mut s = Session::new(t.model(), None)?;
+        s.dirty = true;
+        Ok(s)
+    }
+
+    fn new(source: Model, path: Option<PathBuf>) -> Result<Session, String> {
+        let base = path.as_deref().and_then(Path::parent).map(Path::to_path_buf).unwrap_or_default();
+        let shown = path.as_ref().map_or("the model".into(), |p| p.display().to_string());
         let mut model = source.clone();
-        terraflux_graph::submodel::expand(&mut model, &base).map_err(|e| format!("{}: {e}", path.display()))?;
+        terraflux_graph::submodel::expand(&mut model, &base).map_err(|e| format!("{shown}: {e}"))?;
         let issues = check(&model, &Registry::standard());
-        let (inputs, load_error) = match terraflux_exec::load_inputs(&model, &base, &BTreeMap::new()) {
-            Ok(i) => (Some(i), None),
-            Err(e) => (None, Some(e.to_string())),
-        };
-        let findings = inputs.as_ref().map(|i| lint(&model, i)).unwrap_or_default();
-        let mut s = Session {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let m = model.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(Loaded::read(&m, &base));
+        });
+        Ok(Session {
+            toml: None,
             source,
             model,
             editor: EditorState::default(),
             dirty: false,
             fields: BTreeMap::new(),
-            path: path.to_path_buf(),
+            path,
             issues,
-            findings,
-            inputs,
-            load_error,
+            findings: Vec::new(),
+            inputs: None,
+            inputs_of: BTreeMap::new(),
+            load_error: None,
+            loading: Some(rx),
             run: None,
             progress: None,
             node: String::new(),
             maps: Vec::new(),
+            counts: Vec::new(),
             tables: Vec::new(),
             shown: 0,
             follow: true,
@@ -109,43 +465,105 @@ impl Session {
             elapsed: None,
             started: None,
             view: MapView::default(),
+            thumbs: Thumbs::default(),
             coloring: None,
+            layers: Vec::new(),
+            layer: None,
+            playing: false,
+            tick: Instant::now(),
             selected: None,
             validation: Validation { windows: "1, 3, 5, 7, 9, 11".into(), ..Default::default() },
-        };
-        if let Some(m) = s.start_map() {
-            s.coloring = Some(Coloring::for_values(&m.data));
-            s.maps = vec![m];
-        }
-        Ok(s)
+            cache: Arc::new(Mutex::new(Cache::default())),
+            status: BTreeMap::new(),
+            revision: 0,
+            status_rev: 0,
+            target: None,
+            outputs: BTreeMap::new(),
+            preview: None,
+            preview_band: 0,
+            preview_chosen: false,
+            preview_view: MapView::default(),
+            looks: Looks::default(),
+            auto: true,
+            edited_at: None,
+            map_tabs: BTreeMap::new(),
+            next_tab: 0,
+            opened: Vec::new(),
+            raised: Vec::new(),
+            run_when_ready: false,
+            saving: Vec::new(),
+            notice: None,
+        })
     }
 
-    /// The map the simulation starts from: the first value of the loop's carried `landscape`.
-    pub fn start_map(&self) -> Option<Map> {
-        let inputs = self.inputs.as_ref()?;
-        for n in &self.model.nodes {
-            if n.body.is_some()
-                && let Some(terraflux_graph::Source::Ref(r)) = n.inputs.get("landscape")
-                && let Some(Value::Map(m)) = r.strip_prefix('$').and_then(|k| inputs.get(k))
-            {
-                return Some(m.clone());
+    /// The folder the model's paths are relative to.
+    pub fn base(&self) -> PathBuf {
+        self.path.as_deref().and_then(Path::parent).map(Path::to_path_buf).unwrap_or_default()
+    }
+
+    /// The model's name, else its file's.
+    pub fn title(&self) -> String {
+        self.model
+            .name
+            .clone()
+            .unwrap_or_else(|| self.path.as_ref().map_or("Untitled".into(), |p| p.display().to_string()))
+    }
+
+    /// Whether the data is still being read.
+    pub fn loading(&self) -> bool {
+        self.loading.is_some()
+    }
+
+    /// Wait for the data.
+    pub fn wait(&mut self) {
+        if let Some(rx) = self.loading.take() {
+            match rx.recv() {
+                Ok(l) => self.loaded(l),
+                Err(_) => self.load_error = Some("the data could not be read".into()),
             }
         }
-        ["start", "t0"].iter().find_map(|k| match inputs.get(*k) {
-            Some(Value::Map(m)) => Some(m.clone()),
-            _ => None,
-        })
+    }
+
+    fn loaded(&mut self, l: Loaded) {
+        self.inputs_of = l.of;
+        match l.inputs {
+            Ok(i) => {
+                self.inputs = Some(i);
+                self.load_error = None;
+            }
+            Err(e) => {
+                self.inputs = None;
+                self.load_error = Some(e);
+            }
+        }
+        self.findings = l.findings;
+        if let Some((m, look)) = l.start {
+            self.coloring = Some(look.coloring);
+            self.maps = vec![m];
+            self.counts = vec![look.counts];
+        }
+        self.layers = l.layers;
+        if self.maps.is_empty() && !self.layers.is_empty() {
+            self.layer = Some(0);
+        }
     }
 
     /// After an edit of the source: the model run and its checks follow.
     pub fn edited(&mut self) {
         self.dirty = true;
         self.fields.clear();
-        let base = self.path.parent().map(Path::to_path_buf).unwrap_or_default();
+        self.edited_at = Some(Instant::now());
+        self.revision += 1;
+        // what the nodes gave may be out of date until they run again
+        if !self.running() {
+            self.status.clear();
+            self.status_rev += 1;
+        }
         let mut m = self.source.clone();
-        match terraflux_graph::submodel::expand(&mut m, &base) {
+        match terraflux_graph::submodel::expand(&mut m, &self.base()) {
             Ok(()) => {
                 self.issues = check(&m, &Registry::standard());
+                self.toml = None;
                 self.model = m;
             }
             Err(e) => self.editor.message = Some(e.to_string()),
@@ -154,8 +572,27 @@ impl Session {
 
     /// Write the model where it was read.
     pub fn save(&mut self) -> Result<(), String> {
-        self.source.save(&self.path).map_err(|e| e.to_string())?;
+        let path = self.path.clone().ok_or("the model has no file yet")?;
+        self.save_as(&path)
+    }
+
+    /// Write the model to a file, the paths of its files relative to the file's folder; the model is that
+    /// file's from then on.
+    pub fn save_as(&mut self, path: &Path) -> Result<(), String> {
+        let dir = path.parent().unwrap_or(Path::new(""));
+        terraflux_graph::relative_paths(&mut self.source.nodes, dir);
+        if self.path.is_none() && self.source.name.as_deref() == Some("Untitled") {
+            self.source.name = path.file_stem().map(|s| s.to_string_lossy().into_owned());
+        }
+        self.source.save(path).map_err(|e| e.to_string())?;
+        self.revision += 1;
+        self.path = Some(path.to_path_buf());
         self.dirty = false;
+        let mut m = self.source.clone();
+        if terraflux_graph::submodel::expand(&mut m, dir).is_ok() {
+            self.toml = None;
+            self.model = m;
+        }
         Ok(())
     }
 
@@ -165,34 +602,192 @@ impl Session {
 
     pub fn can_run(&self) -> bool {
         !self.running()
+            && !self.loading()
             && self.load_error.is_none()
             && !self.issues.iter().any(|i| i.severity == Severity::Error)
             && !self.findings.iter().any(|f| f.level == Level::Error)
     }
 
+    /// Whether a run may stop at a node: only the errors of the nodes it needs count, and the engine checks
+    /// them.
+    pub fn can_run_to(&self) -> bool {
+        !self.running() && !self.loading() && self.load_error.is_none()
+    }
+
+    /// Run the whole model.
     pub fn start(&mut self, repaint: Box<dyn Fn() + Send>) {
-        let base = self.path.parent().map(Path::to_path_buf).unwrap_or_default();
+        self.start_to(None, repaint);
+    }
+
+    /// Run what a node needs (none: the whole model); what did not change since the last run comes from the
+    /// cache.
+    pub fn start_to(&mut self, target: Option<String>, repaint: Box<dyn Fn() + Send>) {
+        let base = self.base();
+        self.edited_at = None;
+        match &target {
+            None => self.status.clear(),
+            Some(t) => {
+                self.status.remove(t);
+            }
+        }
+        self.status.retain(|_, st| *st != NodeStatus::Failed);
+        self.status_rev += 1;
+        self.target = target.clone();
         self.maps.truncate(1);
+        self.counts.truncate(1);
         self.tables.clear();
         self.warnings.clear();
         self.error = None;
         self.elapsed = None;
         self.shown = 0;
+        self.layer = None;
+        self.playing = false;
         self.validation.agreement = None;
         self.validation.similarity = None;
         self.started = Some(Instant::now());
-        self.run = Some(Run::start(self.model.clone(), base, repaint));
+        // the data read already, unless the model's inputs changed since
+        let inputs = self.inputs.clone().filter(|_| self.inputs_of == self.model.inputs);
+        self.run = Some(Run::start(self.model.clone(), inputs, base, self.cache.clone(), target, repaint));
     }
 
-    /// Take what the run sent.
+    /// After an edit, run up to the node shown (when the edits paused a moment and nothing runs).
+    pub fn auto_run(&mut self, ctx: &egui::Context) {
+        // a whole run asked for before the data was read (a template)
+        if self.run_when_ready && !self.loading() {
+            self.run_when_ready = false;
+            if self.can_run() {
+                let c = ctx.clone();
+                self.start(Box::new(move || c.request_repaint()));
+                return;
+            }
+        }
+        let Some(at) = self.edited_at else { return };
+        if !self.auto || self.preview.is_none() || !self.can_run_to() {
+            return;
+        }
+        let wait = Duration::from_millis(250);
+        if at.elapsed() < wait {
+            ctx.request_repaint_after(wait - at.elapsed());
+            return;
+        }
+        let target =
+            self.preview.as_ref().map(|(n, _)| n.clone()).filter(|n| self.model.nodes.iter().any(|m| m.id == *n));
+        if target.is_none() {
+            self.edited_at = None;
+            return;
+        }
+        let c = ctx.clone();
+        self.start_to(target, Box::new(move || c.request_repaint()));
+    }
+
+    /// An output in a map tab of its own; the tab. A node has one: asked for again, its tab comes to the front
+    /// (showing the output asked for), and a new one opens only once it is closed.
+    pub fn open_map(&mut self, node: &str, port: &str) -> u64 {
+        if let Some((&id, shown)) = self.map_tabs.iter_mut().find(|(_, t)| t.node == node) {
+            if shown.port != port {
+                shown.port = port.into();
+                shown.band = 0;
+                shown.chosen = false;
+            }
+            self.raised.push(id);
+            return id;
+        }
+        self.next_tab += 1;
+        let shown = crate::builder::Shown { node: node.into(), port: port.into(), ..Default::default() };
+        self.map_tabs.insert(self.next_tab, shown);
+        self.opened.push(self.next_tab);
+        self.next_tab
+    }
+
+    /// Save an output to a file in a thread (a map, a stack, a series or rasters: GeoTIFF, copied in blocks
+    /// whatever its size; a table: CSV; others: JSON); the status bar says when it is done.
+    pub fn save_output(&mut self, node: &str, port: &str, path: &Path) {
+        let Some(value) = self.value_of(node, port) else {
+            self.notice = Some((format!("{node}.{port} has not run: nothing to save"), Instant::now()));
+            return;
+        };
+        let (tx, rx) = std::sync::mpsc::channel();
+        let p = path.to_path_buf();
+        std::thread::spawn(move || {
+            let _ = tx.send(terraflux_exec::write_value(&value, &p, None).map_err(|e| e.to_string()));
+        });
+        self.saving.push((path.to_path_buf(), rx));
+        self.notice = Some((format!("saving {}...", path.display()), Instant::now()));
+    }
+
+    /// Whether outputs are being saved.
+    pub fn saving(&self) -> bool {
+        !self.saving.is_empty()
+    }
+
+    /// The output shown in the viewer.
+    pub fn preview_value(&self) -> Option<Value> {
+        let (node, port) = self.preview.as_ref()?;
+        self.value_of(node, port)
+    }
+
+    /// An output of a node: from the cache while a run goes on, else from the last run.
+    pub fn value_of(&self, node: &str, port: &str) -> Option<Value> {
+        if let Some(v) = self.outputs.get(node).and_then(|o| o.get(port)).filter(|_| !self.running()) {
+            return Some(v.clone());
+        }
+        let kept = self.cache.lock().unwrap().outputs(node).and_then(|o| o.get(port)).cloned();
+        kept.or_else(|| self.outputs.get(node)?.get(port).cloned())
+    }
+
+    /// Take what the data's reading, the savings and the run sent.
     pub fn poll(&mut self) {
+        let mut left = Vec::new();
+        for (path, rx) in self.saving.drain(..) {
+            match rx.try_recv() {
+                Ok(Ok(p)) => self.notice = Some((format!("saved {}", p.display()), Instant::now())),
+                Ok(Err(e)) => self.notice = Some((format!("{} not saved: {e}", path.display()), Instant::now())),
+                Err(TryRecvError::Empty) => left.push((path, rx)),
+                Err(TryRecvError::Disconnected) => {}
+            }
+        }
+        self.saving = left;
+        if let Some(rx) = &self.loading {
+            match rx.try_recv() {
+                Ok(l) => {
+                    self.loading = None;
+                    self.loaded(l);
+                }
+                Err(TryRecvError::Empty) => {}
+                Err(TryRecvError::Disconnected) => {
+                    self.loading = None;
+                    self.load_error = Some("the data could not be read".into());
+                }
+            }
+        }
         let Some(run) = &self.run else { return };
         let mut done = None;
+        let mut plots = Vec::new();
         while let Ok(m) = run.rx.try_recv() {
             match m {
-                Message::Node(at) => self.node = at,
-                Message::Step { at, step, of, values } => {
+                Message::Node(at) => {
+                    let top = at.split('/').next().unwrap_or(&at).to_string();
+                    if self.status.insert(top, NodeStatus::Running) != Some(NodeStatus::Running) {
+                        self.status_rev += 1;
+                    }
+                    self.node = at;
+                }
+                Message::Finished { at, cached } => {
+                    // a plot that ran: its map tab, opened once
+                    let plot = self.model.nodes.iter().any(|n| n.id == at && n.op == "view.plot");
+                    if plot && !self.map_tabs.values().any(|t| t.node == at) && !plots.contains(&at) {
+                        plots.push(at.clone());
+                    }
+                    self.status.insert(at, NodeStatus::Done { cached });
+                    self.status_rev += 1;
+                }
+                Message::Failed(at) => {
+                    self.status.insert(at, NodeStatus::Failed);
+                    self.status_rev += 1;
+                }
+                Message::Step { at, step, of, values, counts } => {
                     if let Some(Value::Map(m)) = values.get("maps") {
+                        self.counts.push(counts.unwrap_or_else(|| class_counts(&m.data)));
                         self.maps.push(m.clone());
                         if self.follow {
                             self.shown = self.maps.len() - 1;
@@ -207,18 +802,83 @@ impl Session {
                 Message::Done(r) => done = Some(r),
             }
         }
+        for p in plots {
+            self.open_map(&p, "shown");
+        }
         if let Some(r) = done {
             self.run = None;
             self.elapsed = self.started.map(|t| t.elapsed());
-            if let Err(e) = r {
-                self.error = Some(e);
+            self.status.retain(|_, st| *st != NodeStatus::Running);
+            self.status_rev += 1;
+            match r {
+                Ok(results) => self.outputs.extend(results.values),
+                Err(e) => self.error = Some(e),
             }
+            self.outputs.retain(|id, _| self.model.nodes.iter().any(|n| n.id == *id));
         }
     }
 
     /// The cells of each class at each step (rows: steps).
-    pub fn areas(&self) -> Vec<Vec<(f64, usize)>> {
-        self.maps.iter().map(|m| class_counts(&m.data)).collect()
+    pub fn areas(&self) -> &[Vec<(f64, usize)>] {
+        &self.counts
+    }
+
+    /// The maps of the layer shown.
+    pub fn frames(&self) -> usize {
+        match self.layer {
+            None => self.maps.len(),
+            Some(i) => self.layers.get(i).map_or(0, |l| l.bands.len()),
+        }
+    }
+
+    /// The map of the layer shown.
+    pub fn frame(&self) -> usize {
+        match self.layer {
+            None => self.shown.min(self.maps.len().saturating_sub(1)),
+            Some(i) => self.layers.get(i).map_or(0, |l| l.shown),
+        }
+    }
+
+    pub fn set_frame(&mut self, k: usize) {
+        let k = k.min(self.frames().saturating_sub(1));
+        match self.layer {
+            None => {
+                self.shown = k;
+                self.follow = k + 1 == self.maps.len();
+            }
+            Some(i) => {
+                if let Some(l) = self.layers.get_mut(i) {
+                    l.shown = k;
+                }
+            }
+        }
+    }
+
+    /// The map shown, its look and its name.
+    pub fn current(&self) -> Option<(Map, Look, String)> {
+        match self.layer {
+            None => {
+                let k = self.frame();
+                let m = self.maps.get(k)?;
+                let name = if k == 0 { "the start".to_string() } else { format!("step {k}") };
+                let coloring = self.coloring.clone().unwrap_or(Coloring::Continuous {
+                    min: 0.0,
+                    max: 1.0,
+                    ramp: Default::default(),
+                });
+                Some((
+                    m.clone(),
+                    Look { coloring, counts: self.counts.get(k).cloned().unwrap_or_default(), mspa: false },
+                    name,
+                ))
+            }
+            Some(i) => {
+                let l = self.layers.get(i)?;
+                let (name, m, look) = l.bands.get(l.shown)?;
+                let name = if l.stack { format!("{} / {name}", l.name) } else { format!("{} ({name})", l.name) };
+                Some((m.clone(), look.clone(), name))
+            }
+        }
     }
 
     pub fn validate(&mut self) {
@@ -259,14 +919,61 @@ impl Session {
 pub struct TerrafluxApp {
     pub session: Option<Session>,
     pub wizard: Option<Wizard>,
-    pub tab: Tab,
+    /// The panes of the main window, and the windows of their own.
+    pub dock: Option<DockState<Pane>>,
+    pub windows: Vec<Detached>,
+    window_count: u64,
+    /// Where each pane in a window of its own was in the main window (to go back there).
+    homes: HashMap<Pane, egui_dock::TabPath>,
+    /// Where the layout is kept, its text kept last and when.
+    layout_file: Option<PathBuf>,
+    layout_text: String,
+    layout_saved: Instant,
     pub message: Option<String>,
-    hover: Option<Hover>,
+    /// The operators, made once.
+    pub registry: Registry,
+    pub library: Library,
+    pub(crate) hover: Option<Hover>,
+    styled: bool,
+}
+
+/// A row of a list: a name, selected or not, and a note on the right.
+fn row(ui: &mut Ui, selected: bool, name: &str, note: &str) -> egui::Response {
+    let note =
+        RichText::new(note).size(11.0).color(if selected { theme::ON_ACCENT } else { ui.visuals().weak_text_color() });
+    ui.add(egui::Button::selectable(selected, name).right_text(note).min_size(Vec2::new(ui.available_width(), 22.0)))
+}
+
+/// A button in the accent when it may be pressed.
+pub(crate) fn accent_button(text: &str, on: bool) -> egui::Button<'_> {
+    if on {
+        egui::Button::new(RichText::new(text).color(theme::ON_ACCENT).strong()).fill(theme::ACCENT)
+    } else {
+        egui::Button::new(text)
+    }
 }
 
 impl TerrafluxApp {
+    /// The application with a model, else with a new model in the builder.
     pub fn new(model: Option<PathBuf>) -> Self {
-        let mut app = TerrafluxApp { session: None, wizard: None, tab: Tab::Map, message: None, hover: None };
+        let registry = Registry::standard();
+        let library = Library::new(&registry);
+        let mut app = TerrafluxApp {
+            session: Some(Session::blank()),
+            wizard: None,
+            dock: Some(default_layout()),
+            windows: Vec::new(),
+            window_count: 0,
+            homes: HashMap::new(),
+            layout_file: None,
+            layout_text: String::new(),
+            layout_saved: Instant::now(),
+            message: None,
+            registry,
+            library,
+            hover: None,
+            styled: false,
+        };
         if let Some(p) = model {
             app.open(&p);
         }
@@ -278,28 +985,114 @@ impl TerrafluxApp {
             Ok(s) => {
                 self.session = Some(s);
                 self.message = None;
-                self.tab = Tab::Map;
+                self.focus(Pane::Model);
             }
             Err(e) => self.message = Some(e),
         }
     }
 
+    /// A template in the builder, its graph arranged, its last node shown, and run (its plots open by themselves).
+    pub fn start_template(&mut self, ctx: &egui::Context, t: &crate::templates::Template) {
+        let mut s = match Session::template(t) {
+            Ok(s) => s,
+            Err(e) => {
+                self.message = Some(e);
+                return;
+            }
+        };
+        crate::builder::arrange(&mut s, &self.registry);
+        if let Some(last) = s.source.nodes.iter().rev().find(|n| n.op != "view.plot").map(|n| n.id.clone()) {
+            crate::builder::select(&mut s, &self.registry, &last);
+        }
+        s.run_when_ready = true;
+        ctx.request_repaint();
+        self.wizard = None;
+        self.session = Some(s);
+        self.message = None;
+        self.focus(Pane::Model);
+    }
+
+    /// Save the model (asking where when it has no file yet).
+    fn save(&mut self, choose: bool) {
+        let Some(s) = &mut self.session else { return };
+        let path = match (&s.path, choose) {
+            (Some(p), false) => Some(p.clone()),
+            _ => rfd::FileDialog::new()
+                .set_title("Save the model")
+                .add_filter("Terraflux model", &["toml", "json"])
+                .set_file_name("model.toml")
+                .save_file(),
+        };
+        if let Some(p) = path
+            && let Err(e) = s.save_as(&p)
+        {
+            s.editor.message = Some(e);
+        }
+    }
+
     fn toolbar(&mut self, ui: &mut Ui) {
+        let mut save = None;
         ui.horizontal(|ui| {
-            ui.heading("Terraflux");
+            ui.label(RichText::new("TERRAFLUX").strong().size(13.0).color(theme::ACCENT));
             ui.separator();
-            if ui.button("New model...").clicked() {
-                self.wizard = Some(Wizard::default());
+            if ui.button("New").on_hover_text("a new model in the builder").clicked() {
+                self.wizard = None;
+                self.session = Some(Session::blank());
+                self.focus(Pane::Model);
             }
             if ui.button("Open...").clicked()
                 && let Some(p) = rfd::FileDialog::new().add_filter("Terraflux model", &["toml", "json"]).pick_file()
             {
+                self.wizard = None;
                 self.open(&p);
             }
-            let ctx = ui.ctx().clone();
-            if let Some(s) = &mut self.session {
+            ui.menu_button("Templates", |ui| {
+                ui.label(RichText::new("Models to start from, run at once").weak().size(11.0));
+                for t in &crate::templates::TEMPLATES {
+                    if ui.button(t.name).on_hover_text(t.about).clicked() {
+                        self.start_template(ui.ctx(), t);
+                        ui.close();
+                    }
+                }
+            });
+            if ui.button("Wizard...").on_hover_text("a land change model from your maps, step by step").clicked() {
+                self.wizard = Some(Wizard::default());
+            }
+            ui.menu_button("View", |ui| {
+                // a pane on or off
+                for p in Pane::ALL {
+                    let mut open = self.is_open(p);
+                    if ui.checkbox(&mut open, p.title()).changed() {
+                        if open {
+                            self.focus(p);
+                        } else {
+                            self.close(p);
+                        }
+                    }
+                }
                 ui.separator();
-                if ui.add_enabled(s.can_run(), egui::Button::new("Run")).clicked() {
+                if ui.button("Reset the layout").clicked() {
+                    self.windows.clear();
+                    self.dock = Some(default_layout());
+                    ui.close();
+                }
+            });
+            let ctx = ui.ctx().clone();
+            if let Some(s) = &mut self.session
+                && self.wizard.is_none()
+            {
+                if ui.add_enabled(s.dirty || s.path.is_none(), egui::Button::new("Save")).clicked() {
+                    save = Some(false);
+                }
+                if ui.button("Save as...").clicked() {
+                    save = Some(true);
+                }
+                ui.separator();
+                if ui
+                    .add_enabled(s.can_run(), accent_button("Run", s.can_run()))
+                    .on_hover_text("run the whole model (F5)")
+                    .clicked()
+                {
                     s.start(Box::new(move || ctx.request_repaint()));
                 }
                 if ui.add_enabled(s.running(), egui::Button::new("Stop")).clicked()
@@ -308,89 +1101,257 @@ impl TerrafluxApp {
                     r.stop();
                 }
                 ui.separator();
-                ui.label(RichText::new(s.model.name.clone().unwrap_or_else(|| s.path.display().to_string())).strong());
+                ui.label(RichText::new(s.title()).strong());
+                if s.loading() {
+                    ui.spinner();
+                    ui.label(RichText::new("reading the data...").weak());
+                }
                 if let Some((at, step, of)) = &s.progress {
                     let frac = *step as f32 / (*of).max(1) as f32;
                     ui.add(
-                        egui::ProgressBar::new(frac).desired_width(160.0).text(format!("{at}: step {step} of {of}")),
+                        egui::ProgressBar::new(frac)
+                            .desired_width(180.0)
+                            .desired_height(14.0)
+                            .fill(theme::ACCENT)
+                            .text(RichText::new(format!("{at}: step {step} of {of}")).color(theme::ON_ACCENT)),
                     );
                 }
                 if s.running() {
                     ui.spinner();
-                    ui.label(&s.node);
+                    ui.label(RichText::new(&s.node).weak());
                 } else if let Some(e) = s.elapsed {
-                    ui.label(format!("done in {:.1} s", e.as_secs_f64()));
+                    ui.label(RichText::new(format!("done in {:.2} s", e.as_secs_f64())).weak());
                 }
             }
         });
+        if let Some(choose) = save {
+            self.save(choose);
+        }
     }
 
-    fn tabs(&mut self, ui: &mut Ui) {
+    /// The bar at the bottom: the cell under the pointer, else how to move around.
+    fn status(&self, ui: &mut Ui) {
         ui.horizontal(|ui| {
-            for (t, name) in [
-                (Tab::Map, "Map"),
-                (Tab::Charts, "Charts"),
-                (Tab::Graph, "Graph"),
-                (Tab::Model, "Model"),
-                (Tab::Validation, "Validation"),
-            ] {
-                ui.selectable_value(&mut self.tab, t, name);
+            let weak = ui.visuals().weak_text_color();
+            match &self.hover {
+                Some(h) => {
+                    let value = if h.value.is_nan() {
+                        "no value".to_string()
+                    } else {
+                        format!("value {}", terraflux_ops::value::class_label(h.value))
+                    };
+                    ui.label(RichText::new(value).strong());
+                    ui.label(
+                        RichText::new(format!("row {}  column {}   x {:.2}  y {:.2}", h.row, h.col, h.x, h.y))
+                            .monospace()
+                            .color(weak),
+                    );
+                }
+                None if self.session.is_some() => {
+                    ui.label(
+                        RichText::new(
+                            "click an operator (or /) to add it    drag: select    right or middle drag: move    double \
+                             click: its map    del: delete    ctrl+L: arrange    F5: run all",
+                        )
+                        .color(weak),
+                    );
+                }
+                None => {}
+            }
+            if let Some(s) = &self.session {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // a word of what was done (a file saved), for a while
+                    if let Some((text, at)) = &s.notice
+                        && at.elapsed() < Duration::from_secs(8)
+                    {
+                        ui.label(RichText::new(text).color(theme::ACCENT));
+                        ui.separator();
+                    }
+                    if s.dirty {
+                        ui.label(RichText::new("not saved").color(ui.visuals().warn_fg_color));
+                    }
+                    if !s.warnings.is_empty() {
+                        ui.label(
+                            RichText::new(format!("{} warnings", s.warnings.len())).color(ui.visuals().warn_fg_color),
+                        );
+                    }
+                });
             }
         });
-        ui.separator();
     }
 
     fn map_tab(&mut self, ui: &mut Ui) {
         let Some(s) = &mut self.session else { return };
-        if s.maps.is_empty() {
-            ui.label("No map to show: the model's inputs could not be read.");
+        if s.loading() {
+            ui.centered_and_justified(|ui| {
+                ui.horizontal_centered(|ui| {
+                    ui.spinner();
+                    ui.label("Reading the data...");
+                });
+            });
             return;
         }
-        egui::Panel::left("map_side").resizable(true).default_size(240.0).show(ui, |ui| {
-            let last = s.maps.len() - 1;
-            ui.label(RichText::new("Step").strong());
-            if ui.add(egui::Slider::new(&mut s.shown, 0..=last)).changed() {
-                s.follow = s.shown == last;
+        if s.maps.is_empty() && s.layers.is_empty() {
+            let text = match &s.load_error {
+                Some(e) => format!("The model's inputs could not be read: {e}"),
+                None => "A model's maps show here: those of its inputs, and those of a loop (control.repeat)                          step by step as it runs."
+                    .to_string(),
+            };
+            ui.label(RichText::new(text).color(ui.visuals().weak_text_color()));
+            return;
+        }
+        if s.layer.is_none() && s.maps.is_empty() {
+            s.layer = Some(0);
+        }
+        // the keyboard and the player go through the maps of the layer
+        let n = s.frames();
+        if n > 1 {
+            let typing = ui.ctx().memory(|m| m.focused().is_some());
+            let (back, next) =
+                ui.input(|i| (i.key_pressed(egui::Key::ArrowLeft), i.key_pressed(egui::Key::ArrowRight)));
+            if !typing && back {
+                s.set_frame(s.frame().saturating_sub(1));
             }
-            ui.checkbox(&mut s.follow, "follow the run");
-            ui.label(if s.shown == 0 {
-                "the map the simulation starts from".to_string()
-            } else {
-                format!("after step {}", s.shown)
-            });
-            ui.separator();
-            if let Some(c) = &s.coloring {
-                let counts = class_counts(&s.maps[s.shown].data);
-                legend(ui, c, &counts, &|v| terraflux_ops::value::class_label(v));
+            if !typing && next {
+                s.set_frame((s.frame() + 1).min(n - 1));
             }
-            ui.separator();
-            match &self.hover {
-                Some(h) => {
-                    ui.label(format!("row {}, column {}", h.row, h.col));
-                    ui.label(format!("x {:.2}, y {:.2}", h.x, h.y));
-                    ui.label(if h.value.is_nan() { "no value".to_string() } else { format!("value {}", h.value) });
+            if s.playing {
+                let period = Duration::from_millis(if s.layer.is_none() { 200 } else { 600 });
+                if s.tick.elapsed() >= period {
+                    s.tick = Instant::now();
+                    s.set_frame((s.frame() + 1) % n);
                 }
-                None => {
-                    ui.label("Wheel: zoom; drag: move; double click: fit.");
-                }
+                ui.ctx().request_repaint_after(period);
             }
-            if !s.warnings.is_empty() {
-                ui.separator();
-                ui.label(RichText::new(format!("{} warnings", s.warnings.len())).color(ui.visuals().warn_fg_color));
-                egui::ScrollArea::vertical().id_salt("warnings").max_height(160.0).show(ui, |ui| {
-                    for w in &s.warnings {
-                        ui.small(w);
+        } else {
+            s.playing = false;
+        }
+        let current = s.current();
+        egui::Panel::left("map_side").resizable(true).default_size(270.0).show(ui, |ui| {
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                theme::section(ui, "Layers");
+                if !s.maps.is_empty() {
+                    let note =
+                        if s.maps.len() == 1 { "the start".to_string() } else { format!("{} steps", s.maps.len() - 1) };
+                    if row(ui, s.layer.is_none(), "Simulation", &note).clicked() {
+                        s.layer = None;
+                        s.playing = false;
                     }
-                });
-            }
-            if let Some(e) = &s.error {
-                ui.colored_label(ui.visuals().error_fg_color, e);
-            }
+                }
+                for i in 0..s.layers.len() {
+                    let l = &s.layers[i];
+                    let note = if l.stack { format!("stack of {}", l.bands.len()) } else { "map".to_string() };
+                    if row(ui, s.layer == Some(i), &l.name, &note).clicked() {
+                        s.layer = Some(i);
+                        s.playing = false;
+                    }
+                }
+                let n = s.frames();
+                if n > 1 {
+                    ui.add_space(6.0);
+                    theme::section(ui, if s.layer.is_none() { "Step" } else { "Map of the stack" });
+                    let mut k = s.frame();
+                    ui.horizontal(|ui| {
+                        if ui.button("<").on_hover_text("previous (left)").clicked() {
+                            k = k.saturating_sub(1);
+                        }
+                        let play = if s.playing { "Pause" } else { "Play" };
+                        if ui.add(egui::Button::selectable(s.playing, play)).clicked() {
+                            s.playing = !s.playing;
+                            s.tick = Instant::now();
+                        }
+                        if ui.button(">").on_hover_text("next (right)").clicked() {
+                            k = (k + 1).min(n - 1);
+                        }
+                    });
+                    ui.spacing_mut().slider_width = ui.available_width() - 8.0;
+                    ui.add(egui::Slider::new(&mut k, 0..=n - 1).show_value(false));
+                    if k != s.frame() {
+                        s.set_frame(k);
+                    }
+                    match s.layer {
+                        None => {
+                            ui.label(if s.frame() == 0 {
+                                "the map the simulation starts from".to_string()
+                            } else {
+                                format!("after step {} of {}", s.frame(), s.maps.len() - 1)
+                            });
+                            ui.checkbox(&mut s.follow, "follow the run");
+                        }
+                        Some(i) => {
+                            let l = &s.layers[i];
+                            ui.label(format!("{}  ({} of {})", l.bands[l.shown].0, l.shown + 1, l.bands.len()));
+                        }
+                    }
+                }
+                // every map of a stack at once, a click shows one
+                if let Some(i) = s.layer
+                    && s.layers[i].stack
+                {
+                    ui.add_space(6.0);
+                    let cols = 2;
+                    let w = (ui.available_width() - 8.0 - (cols - 1) as f32 * 6.0) / cols as f32;
+                    let mut pick = None;
+                    egui::Grid::new("thumbs").spacing([6.0, 6.0]).show(ui, |ui| {
+                        for (b, (name, m, look)) in s.layers[i].bands.iter().enumerate() {
+                            let (id, size) = s.thumbs.get(ui.ctx(), m, &look.coloring);
+                            let size = size * (w / size.x);
+                            let shown = b == s.layers[i].shown;
+                            ui.vertical(|ui| {
+                                let r = ui.add(egui::Image::new((id, size)).sense(egui::Sense::click()));
+                                let stroke = if shown {
+                                    egui::Stroke::new(2.0, theme::ACCENT)
+                                } else {
+                                    egui::Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color)
+                                };
+                                ui.painter().rect_stroke(r.rect, 0.0, stroke, egui::StrokeKind::Outside);
+                                let text = RichText::new(name).size(11.0);
+                                ui.label(if shown { text.color(theme::ACCENT) } else { text });
+                                if r.clicked() {
+                                    pick = Some(b);
+                                }
+                                r.on_hover_text(name);
+                            });
+                            if (b + 1) % cols == 0 {
+                                ui.end_row();
+                            }
+                        }
+                    });
+                    if let Some(b) = pick {
+                        s.layers[i].shown = b;
+                        s.playing = false;
+                    }
+                }
+                if let Some((_, look, _)) = &current {
+                    ui.add_space(6.0);
+                    theme::section(ui, "Legend");
+                    legend(ui, &look.coloring, &look.counts, &|v| terraflux_ops::value::class_label(v));
+                }
+                if !s.warnings.is_empty() {
+                    ui.add_space(6.0);
+                    theme::section(ui, &format!("{} warnings", s.warnings.len()));
+                    egui::ScrollArea::vertical().id_salt("warnings").max_height(160.0).show(ui, |ui| {
+                        for w in &s.warnings {
+                            ui.small(w);
+                        }
+                    });
+                }
+                if let Some(e) = &s.error {
+                    ui.colored_label(ui.visuals().error_fg_color, e);
+                }
+            });
         });
-        egui::CentralPanel::default().show(ui, |ui| {
-            let shown = s.shown.min(s.maps.len() - 1);
-            let coloring = s.coloring.clone().unwrap_or(Coloring::Continuous { min: 0.0, max: 1.0 });
-            self.hover = s.view.show(ui, &s.maps[shown], &coloring, 0);
+        egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::WELL)).show(ui, |ui| {
+            if let Some((map, look, name)) = &current {
+                self.hover = s.view.show(ui, &crate::map_view::Source::from(map), &look.coloring);
+                // what is shown, in the corner
+                let at = ui.max_rect().left_top() + Vec2::new(10.0, 8.0);
+                let galley =
+                    ui.painter().layout_no_wrap(name.clone(), egui::FontId::proportional(13.0), Color32::WHITE);
+                let back = egui::Rect::from_min_size(at, galley.size()).expand2(Vec2::new(6.0, 3.0));
+                ui.painter().rect_filled(back, 2.0, Color32::from_black_alpha(150));
+                ui.painter().galley(at, galley, Color32::WHITE);
+            }
         });
     }
 
@@ -424,102 +1385,24 @@ impl TerrafluxApp {
         });
     }
 
-    fn graph_tab(&mut self, ui: &mut Ui) {
-        let Some(s) = &mut self.session else { return };
-        let r = Registry::standard();
-        egui::Panel::top("editor_bar").show(ui, |ui| {
-            ui.horizontal(|ui| {
-                if ui.selectable_label(s.editor.path.is_empty(), "Top level").clicked() {
-                    s.editor.path.clear();
-                    s.selected = None;
-                }
-                for k in 0..s.editor.path.len() {
-                    ui.label("/");
-                    if ui.selectable_label(k + 1 == s.editor.path.len(), &s.editor.path[k]).clicked() {
-                        s.editor.path.truncate(k + 1);
-                        s.selected = None;
-                    }
-                }
-                ui.separator();
-                let mut names: Vec<String> = r.signatures().into_iter().map(|g| g.name).collect();
-                names.sort();
-                egui::ComboBox::from_id_salt("add_op")
-                    .selected_text(if s.editor.add.is_empty() { "operator..." } else { s.editor.add.as_str() })
-                    .show_ui(ui, |ui| {
-                        for n in names {
-                            ui.selectable_value(&mut s.editor.add, n.clone(), n);
-                        }
-                    });
-                if ui.add_enabled(!s.editor.add.is_empty(), egui::Button::new("Add node")).clicked() {
-                    let op = s.editor.add.clone();
-                    // below the nodes there
-                    let nodes = s.source.scope(&s.editor.path).cloned().unwrap_or_default();
-                    let auto = crate::editor_view::auto_positions(&nodes);
-                    let y = nodes.iter().map(|n| n.pos.unwrap_or(auto[&n.id])[1] + 160.0).fold(0.0f32, f32::max);
-                    match crate::editor::add_node(&mut s.source, &r, &s.editor.path, &op, [0.0, y]) {
-                        Ok(id) => {
-                            s.selected = Some(id);
-                            s.edited();
-                        }
-                        Err(e) => s.editor.message = Some(e),
-                    }
-                }
-                ui.separator();
-                if ui.add_enabled(s.dirty, egui::Button::new("Save")).clicked()
-                    && let Err(e) = s.save()
-                {
-                    s.editor.message = Some(e);
-                }
-                if let Some(m) = &s.editor.message {
-                    ui.colored_label(ui.visuals().warn_fg_color, m);
-                }
-            });
-        });
-        egui::Panel::right("node_side").resizable(true).default_size(320.0).show(ui, |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| node_panel(ui, s, &r));
-        });
-        egui::CentralPanel::default().show(ui, |ui| {
-            let actions = crate::editor_view::show(ui, &s.source, &r, &mut s.editor, s.selected.as_deref());
-            for a in actions {
-                let path = s.editor.path.clone();
-                let result = match a {
-                    Action::Select(id) => {
-                        if s.selected.as_deref() != Some(id.as_str()) {
-                            s.fields.clear();
-                        }
-                        s.selected = Some(id);
-                        Ok(false)
-                    }
-                    Action::Enter(id) => {
-                        s.editor.path.push(id);
-                        s.selected = None;
-                        s.fields.clear();
-                        Ok(false)
-                    }
-                    Action::Move(id, p) => crate::editor::move_node(&mut s.source, &path, &id, p).map(|_| {
-                        s.dirty = true;
-                        false
-                    }),
-                    Action::Connect { reference, node, port } => {
-                        crate::editor::connect(&mut s.source, &r, &path, &reference, &node, &port).map(|_| true)
-                    }
-                };
-                match result {
-                    Ok(true) => {
-                        s.editor.message = None;
-                        s.edited();
-                    }
-                    Ok(false) => {}
-                    Err(e) => s.editor.message = Some(e),
-                }
-            }
-        });
-    }
-
+    /// The model as text, with its problems above: only the lines in view are laid out (a model of many
+    /// thousands of nodes is a long text); the text made when the tab is first shown after an edit.
     fn model_tab(&mut self, ui: &mut Ui) {
-        let Some(s) = &self.session else { return };
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.label(RichText::new(s.path.display().to_string()).monospace());
+        let Some(s) = &mut self.session else { return };
+        if s.toml.is_none() {
+            s.toml = Some(s.model.to_toml().unwrap_or_else(|e| e.to_string()));
+        }
+        let s = &*s;
+        egui::Panel::top("model_problems").frame(egui::Frame::new()).show(ui, |ui| {
+            if let Some(p) = &s.path {
+                ui.label(RichText::new(p.display().to_string()).monospace());
+            }
+            if s.loading() {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label("Reading and checking the data...");
+                });
+            }
             if let Some(e) = &s.load_error {
                 ui.colored_label(ui.visuals().error_fg_color, format!("the inputs could not be read: {e}"));
             }
@@ -532,25 +1415,33 @@ impl TerrafluxApp {
                 })
                 .strong(),
             );
-            for i in &s.issues {
-                let c = if i.severity == Severity::Error {
-                    ui.visuals().error_fg_color
-                } else {
-                    ui.visuals().warn_fg_color
-                };
-                ui.colored_label(c, i.to_string());
-            }
-            for f in &s.findings {
-                let c = match f.level {
-                    Level::Error => ui.visuals().error_fg_color,
-                    Level::Warning => ui.visuals().warn_fg_color,
-                    Level::Info => ui.visuals().text_color(),
-                };
-                ui.colored_label(c, f.to_string());
-            }
+            egui::ScrollArea::vertical().id_salt("problems").max_height(200.0).show(ui, |ui| {
+                for i in &s.issues {
+                    let c = if i.severity == Severity::Error {
+                        ui.visuals().error_fg_color
+                    } else {
+                        ui.visuals().warn_fg_color
+                    };
+                    ui.colored_label(c, i.to_string());
+                }
+                for f in &s.findings {
+                    let c = match f.level {
+                        Level::Error => ui.visuals().error_fg_color,
+                        Level::Warning => ui.visuals().warn_fg_color,
+                        Level::Info => ui.visuals().text_color(),
+                    };
+                    ui.colored_label(c, f.to_string());
+                }
+            });
             ui.separator();
-            let text = s.model.to_toml().unwrap_or_else(|e| e.to_string());
-            ui.label(RichText::new(text).monospace());
+        });
+        let text = s.toml.as_deref().unwrap_or_default();
+        let lines: Vec<&str> = text.lines().collect();
+        let height = ui.text_style_height(&egui::TextStyle::Monospace);
+        egui::ScrollArea::both().auto_shrink([false, false]).show_rows(ui, height, lines.len(), |ui, range| {
+            for l in &lines[range] {
+                ui.label(RichText::new(*l).monospace());
+            }
         });
     }
 
@@ -626,23 +1517,67 @@ impl TerrafluxApp {
         }
     }
 
+    /// The keys of the whole application: F5 runs the model, ctrl+S saves it.
+    fn keys(&mut self, ui: &mut Ui) {
+        let (run, save) = ui.input_mut(|i| {
+            (i.consume_key(egui::Modifiers::NONE, egui::Key::F5), i.consume_key(egui::Modifiers::COMMAND, egui::Key::S))
+        });
+        if save {
+            self.save(false);
+        }
+        if let Some(s) = &mut self.session
+            && run
+            && s.can_run()
+        {
+            let ctx = ui.ctx().clone();
+            s.start(Box::new(move || ctx.request_repaint()));
+        }
+    }
+
     /// One frame of the application.
     pub fn frame(&mut self, ui: &mut Ui) {
+        if !self.styled {
+            theme::apply(ui.ctx());
+            self.styled = true;
+        }
         if let Some(s) = &mut self.session {
             s.poll();
-            if s.running() {
+            s.auto_run(ui.ctx());
+            if s.running() || s.loading() || s.saving() {
                 ui.ctx().request_repaint_after(Duration::from_millis(100));
             }
         }
-        egui::Panel::top("toolbar").show(ui, |ui| self.toolbar(ui));
+        // the cell under the pointer, from the map that has it this frame
+        self.hover = None;
+        if self.wizard.is_none() {
+            self.keys(ui);
+            if let Some(s) = &mut self.session {
+                crate::builder::keys(ui, s, &self.registry);
+                // the operators by name, from the keyboard ("/"), over the panes (its keys taken before theirs)
+                crate::builder::quick_add(ui.ctx(), s, &self.registry, &self.library);
+            }
+        }
+        let bar = egui::Frame::new().fill(theme::BAR).inner_margin(Margin::symmetric(8, 5));
+        egui::Panel::top("toolbar").frame(bar).show(ui, |ui| self.toolbar(ui));
+        egui::Panel::bottom("status").frame(bar.inner_margin(Margin::symmetric(8, 3))).show(ui, |ui| self.status(ui));
         if let Some(w) = &mut self.wizard {
             let mut close = false;
             let mut created = None;
             egui::CentralPanel::default().show(ui, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| match w.show(ui) {
-                    Some(Outcome::Cancel) => close = true,
-                    Some(Outcome::Created(p)) => created = Some(p),
-                    Some(Outcome::Open) | None => {}
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    // a column of reading width in the middle
+                    let width = ui.available_width().min(820.0);
+                    ui.horizontal(|ui| {
+                        ui.add_space(((ui.available_width() - width) / 2.0).max(0.0));
+                        ui.vertical(|ui| {
+                            ui.set_width(width);
+                            match w.show(ui) {
+                                Some(Outcome::Cancel) => close = true,
+                                Some(Outcome::Created(p)) => created = Some(p),
+                                Some(Outcome::Open) | None => {}
+                            }
+                        });
+                    });
                 });
             });
             if close {
@@ -654,31 +1589,282 @@ impl TerrafluxApp {
             }
             return;
         }
-        egui::CentralPanel::default().show(ui, |ui| {
-            if let Some(m) = &self.message {
-                ui.colored_label(ui.visuals().error_fg_color, m);
-            }
-            if self.session.is_none() {
-                ui.vertical_centered(|ui| {
-                    ui.add_space(80.0);
-                    ui.heading("Land use and land cover change models");
-                    ui.label("Create a model from your maps with the wizard, or open a model file.");
-                    ui.add_space(12.0);
-                    if ui.button("New model...").clicked() {
-                        self.wizard = Some(Wizard::default());
-                    }
+        if let Some(m) = self.message.clone() {
+            egui::Panel::top("message")
+                .frame(egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(Margin::symmetric(8, 4)))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.colored_label(ui.visuals().error_fg_color, m);
+                        if ui.small_button("x").clicked() {
+                            self.message = None;
+                        }
+                    });
                 });
+        }
+        egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::BAR)).show(ui, |ui| self.docks(ui));
+        self.keep_layout();
+    }
+
+    /// A pane's content.
+    fn pane(&mut self, ui: &mut Ui, pane: Pane) {
+        let Some(s) = &mut self.session else { return };
+        let (r, lib) = (&self.registry, &self.library);
+        match pane {
+            Pane::Model => crate::builder::model_pane(ui, s, r),
+            Pane::Operators => crate::builder::operators_pane(ui, s, r, lib),
+            Pane::Node => crate::builder::node_pane(ui, s, r),
+            Pane::Viewer => {
+                if let Some(h) = crate::builder::viewer_pane(ui, s, r) {
+                    self.hover = Some(h);
+                }
+            }
+            Pane::Simulation => {
+                egui::Frame::new().inner_margin(Margin::same(6)).show(ui, |ui| self.map_tab(ui));
+            }
+            Pane::Areas => {
+                egui::Frame::new().inner_margin(Margin::same(8)).show(ui, |ui| self.charts_tab(ui));
+            }
+            Pane::Validation => {
+                egui::Frame::new().inner_margin(Margin::same(8)).show(ui, |ui| self.validation_tab(ui));
+            }
+            Pane::Text => {
+                egui::Frame::new().inner_margin(Margin::same(8)).show(ui, |ui| self.model_tab(ui));
+            }
+            Pane::Map(id) => {
+                let Some(mut shown) = s.map_tabs.remove(&id) else {
+                    ui.label(RichText::new("This map's node is gone.").weak());
+                    return;
+                };
+                let hover = crate::builder::output(ui, s, r, &mut shown, &format!("map {id}"));
+                s.map_tabs.insert(id, shown);
+                if hover.is_some() {
+                    self.hover = hover;
+                }
+            }
+        }
+    }
+
+    /// Close a pane wherever it is.
+    pub fn close(&mut self, pane: Pane) {
+        if let Some(d) = &mut self.dock {
+            d.retain_tabs(|t| *t != pane);
+        }
+        for w in &mut self.windows {
+            w.dock.retain_tabs(|t| *t != pane);
+        }
+        self.windows.retain(|w| w.dock.iter_all_tabs().next().is_some());
+    }
+
+    /// The map tabs asked for put in the dock (beside the viewer, else where the focus is); those of nodes no
+    /// longer open taken away.
+    fn place_map_tabs(&mut self) {
+        let (opened, raised, known): (Vec<u64>, Vec<u64>, Vec<u64>) = match &mut self.session {
+            Some(s) => {
+                (std::mem::take(&mut s.opened), std::mem::take(&mut s.raised), s.map_tabs.keys().copied().collect())
+            }
+            None => (Vec::new(), Vec::new(), Vec::new()),
+        };
+        let stale = |t: &mut Pane| !matches!(t, Pane::Map(id) if !known.contains(id));
+        let dock = self.dock.get_or_insert_with(default_layout);
+        dock.retain_tabs(stale);
+        for w in &mut self.windows {
+            w.dock.retain_tabs(stale);
+        }
+        self.windows.retain(|w| w.dock.iter_all_tabs().next().is_some());
+        let dock = self.dock.get_or_insert_with(default_layout);
+        for id in opened {
+            match dock.find_tab(&Pane::Viewer).map(|p| dock.leaf_mut(p.node_path())) {
+                Some(Ok(leaf)) => leaf.append_tab(Pane::Map(id)),
+                _ => dock.push_to_focused_leaf(Pane::Map(id)),
+            }
+        }
+        // (brought to the front where it is, or put back if its window went away)
+        for id in raised {
+            self.focus(Pane::Map(id));
+        }
+    }
+
+    /// Show a pane: its tab brought to the front where it is, or opened in the main window.
+    pub fn focus(&mut self, pane: Pane) {
+        let dock = self.dock.get_or_insert_with(default_layout);
+        if let Some(path) = dock.find_tab(&pane) {
+            let _ = dock.set_active_tab(path);
+            return;
+        }
+        for w in &mut self.windows {
+            if let Some(path) = w.dock.find_tab(&pane) {
+                let _ = w.dock.set_active_tab(path);
                 return;
             }
-            self.tabs(ui);
-            match self.tab {
-                Tab::Map => self.map_tab(ui),
-                Tab::Charts => self.charts_tab(ui),
-                Tab::Graph => self.graph_tab(ui),
-                Tab::Model => self.model_tab(ui),
-                Tab::Validation => self.validation_tab(ui),
+        }
+        // beside the pane it goes with: the maps and results by the viewer, the text by the model
+        let dock = self.dock.get_or_insert_with(default_layout);
+        let near = match pane {
+            Pane::Simulation | Pane::Areas | Pane::Validation | Pane::Map(_) => Some(Pane::Viewer),
+            Pane::Text | Pane::Viewer => Some(Pane::Model),
+            _ => None,
+        };
+        match near.and_then(|n| dock.find_tab(&n)).map(|p| dock.leaf_mut(p.node_path())) {
+            Some(Ok(leaf)) => leaf.append_tab(pane),
+            _ => dock.push_to_focused_leaf(pane),
+        }
+    }
+
+    /// Whether a pane is open somewhere.
+    pub fn is_open(&self, pane: Pane) -> bool {
+        self.dock.as_ref().is_some_and(|d| d.find_tab(&pane).is_some())
+            || self.windows.iter().any(|w| w.dock.find_tab(&pane).is_some())
+    }
+
+    /// The panes in windows of their own.
+    pub fn detached(&self) -> Vec<Pane> {
+        self.windows.iter().flat_map(|w| w.dock.iter_all_tabs().map(|(_, t)| *t).collect::<Vec<_>>()).collect()
+    }
+
+    /// Take a pane to a window of its own.
+    pub fn detach(&mut self, pane: Pane) {
+        let dock = self.dock.get_or_insert_with(default_layout);
+        if let Some(path) = dock.find_tab(&pane) {
+            self.homes.insert(pane, path);
+            dock.remove_tab(path);
+        }
+        self.windows.retain_mut(|w| {
+            if let Some(path) = w.dock.find_tab(&pane) {
+                w.dock.remove_tab(path);
             }
+            w.dock.iter_all_tabs().next().is_some()
         });
+        self.window_count += 1;
+        let id = egui::ViewportId::from_hash_of(("terraflux window", self.window_count));
+        self.windows.push(Detached { id, dock: DockState::new(vec![pane]) });
+    }
+
+    /// Bring a pane back to the main window.
+    pub fn attach(&mut self, pane: Pane) {
+        self.windows.retain_mut(|w| {
+            if let Some(path) = w.dock.find_tab(&pane) {
+                w.dock.remove_tab(path);
+            }
+            w.dock.iter_all_tabs().next().is_some()
+        });
+        self.put_back(pane);
+    }
+
+    /// A pane in the main window again: where it was, if that place is still there.
+    fn put_back(&mut self, pane: Pane) {
+        let dock = self.dock.get_or_insert_with(default_layout);
+        if dock.find_tab(&pane).is_some() {
+            return;
+        }
+        let home = self.homes.remove(&pane);
+        match home.map(|h| (h.tab.0, dock.leaf_mut(h.node_path()))) {
+            Some((at, Ok(leaf))) => {
+                // at its place among the leaf's tabs
+                let at = at.min(leaf.tabs().len());
+                leaf.insert_tab(at, pane);
+                if let Some(path) = dock.find_tab(&pane) {
+                    let _ = dock.set_active_tab(path);
+                }
+            }
+            _ => dock.push_to_first_leaf(pane),
+        }
+    }
+
+    /// Read the layout kept, if any (the panes in windows of their own open again).
+    pub fn restore_layout(&mut self, path: PathBuf) {
+        if let Ok(text) = std::fs::read_to_string(&path)
+            && let Ok(mut l) = serde_json::from_str::<Layout>(&text)
+            && l.version == LAYOUT_VERSION
+        {
+            // the maps of nodes were of the last session
+            l.main.retain_tabs(|t| !matches!(t, Pane::Map(_)));
+            self.dock = Some(l.main);
+            for panes in l.windows {
+                for p in panes.into_iter().filter(|p| !matches!(p, Pane::Map(_))) {
+                    self.detach(p);
+                }
+            }
+        }
+        self.layout_file = Some(path);
+    }
+
+    /// Keep the layout when it changed (once a second at most).
+    fn keep_layout(&mut self) {
+        let Some(path) = &self.layout_file else { return };
+        if self.layout_saved.elapsed() < Duration::from_secs(1) {
+            return;
+        }
+        let Some(main) = &self.dock else { return };
+        let windows: Vec<Vec<Pane>> =
+            self.windows.iter().map(|w| w.dock.iter_all_tabs().map(|(_, t)| *t).collect()).collect();
+        #[derive(serde::Serialize)]
+        struct Out<'a> {
+            version: u32,
+            main: &'a DockState<Pane>,
+            windows: Vec<Vec<Pane>>,
+        }
+        let Ok(text) = serde_json::to_string(&Out { version: LAYOUT_VERSION, main, windows }) else { return };
+        if text != self.layout_text {
+            if let Some(dir) = path.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            let _ = std::fs::write(path, &text);
+            self.layout_text = text;
+        }
+        self.layout_saved = Instant::now();
+    }
+
+    /// The dock of the main window, and the windows of their own.
+    fn docks(&mut self, ui: &mut Ui) {
+        self.place_map_tabs();
+        let mut moves = Moves::default();
+        let mut dock = self.dock.take().unwrap_or_else(default_layout);
+        let style = dock_style(ui);
+        egui_dock::DockArea::new(&mut dock)
+            .id(egui::Id::new("main dock"))
+            .style(style.clone())
+            .show_leaf_collapse_buttons(false)
+            .show_inside(ui, &mut Panes { app: self, moves: &mut moves, detached: false });
+        self.dock = Some(dock);
+        let mut windows = std::mem::take(&mut self.windows);
+        let mut closed = Vec::new();
+        for (k, w) in windows.iter_mut().enumerate() {
+            let title = w.dock.iter_all_tabs().map(|(_, t)| t.title()).collect::<Vec<_>>().join(", ");
+            let builder = egui::ViewportBuilder::default()
+                .with_title(format!("Terraflux - {title}"))
+                .with_inner_size([960.0, 720.0]);
+            let app = &mut *self;
+            let moves = &mut moves;
+            let style = style.clone();
+            let close = ui.ctx().show_viewport_immediate(w.id, builder, |ui, _class| {
+                egui::CentralPanel::default().frame(egui::Frame::new().fill(ui.visuals().panel_fill)).show(ui, |ui| {
+                    egui_dock::DockArea::new(&mut w.dock)
+                        .id(egui::Id::new(("window dock", w.id)))
+                        .style(style.clone())
+                        .show_leaf_collapse_buttons(false)
+                        .show_inside(ui, &mut Panes { app, moves, detached: true });
+                });
+                ui.input(|i| i.viewport().close_requested())
+            });
+            if close || w.dock.iter_all_tabs().next().is_none() {
+                closed.push(k);
+            }
+        }
+        // a window closed: its panes back in the main window
+        for k in closed.into_iter().rev() {
+            let w = windows.remove(k);
+            for (_, t) in w.dock.iter_all_tabs() {
+                self.put_back(*t);
+            }
+        }
+        windows.append(&mut self.windows);
+        self.windows = windows;
+        for p in moves.detach {
+            self.detach(p);
+        }
+        for p in moves.attach {
+            self.attach(p);
+        }
     }
 }
 
@@ -690,7 +1876,7 @@ impl eframe::App for TerrafluxApp {
 
 /// The side panel of the node selected: what it does and why, its id, its inputs and settings, a container's
 /// outputs; every field editable.
-fn node_panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
+pub(crate) fn node_panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
     let path = s.editor.path.clone();
     let Some(id) = s.selected.clone() else {
         ui.label("Click a node to edit it; drag from an output (right) to an input (left) to connect them; double-click a container to edit its body.");
@@ -715,7 +1901,7 @@ fn node_panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
         }
     });
     ui.label(RichText::new(&n.op).monospace());
-    let sig = r.get(&n.op).map(|o| o.signature());
+    let sig = r.sig(&n.op).cloned();
     if let Some(sig) = &sig {
         ui.label(&sig.doc);
     }
@@ -782,6 +1968,13 @@ fn node_panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
         ui.separator();
         ui.label(RichText::new("Settings").strong());
         for (name, doc) in params {
+            // a reclassification's rules: a table of them, from the values of the map it reads
+            if n.op == "raster.reclassify" && name == "rules" {
+                if let Some(c) = crate::builder::reclassify_rules(ui, s, &n, &path) {
+                    change = Some(c);
+                }
+                continue;
+            }
             let init = n
                 .params
                 .get(&name)
@@ -790,13 +1983,38 @@ fn node_panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
                     v => v.to_string(),
                 })
                 .unwrap_or_default();
-            ui.label(&name).on_hover_text(doc);
+            ui.label(&name).on_hover_text(&doc);
             let key = format!("param.{name}");
             let mut text = field(s, &key, init.clone());
-            let resp = ui.add(egui::TextEdit::multiline(&mut text).desired_rows(1).desired_width(f32::INFINITY));
+            let resp = ui
+                .add(egui::TextEdit::multiline(&mut text).desired_rows(1).desired_width(f32::INFINITY).hint_text(&doc));
             s.fields.insert(key, text.clone());
             if resp.lost_focus() && text != init {
                 change = Some(crate::editor::set_param(&mut s.source, &path, &n.id, &name, &text));
+            }
+            // a file: chosen in a dialog
+            if name == "path" && terraflux_graph::FILE_OPS.contains(&n.op.as_str()) && ui.button("Choose...").clicked()
+            {
+                let dialog = match n.op.as_str() {
+                    terraflux_graph::PLUGIN => rfd::FileDialog::new().add_filter("WebAssembly", &["wasm", "wat"]),
+                    _ => rfd::FileDialog::new()
+                        .add_filter("Rasters", &terraflux_ops::files::RASTER_EXTENSIONS)
+                        .add_filter("Every file", &["*"]),
+                };
+                let picked = if n.op == "raster.write" { dialog.save_file() } else { dialog.pick_file() };
+                if let Some(p) = picked {
+                    let p = p.to_string_lossy().into_owned();
+                    change = Some(crate::editor::set_param(&mut s.source, &path, &n.id, &name, &p));
+                }
+            }
+            // a folder: every raster in it, as one stack
+            if name == "path"
+                && n.op == "raster.read"
+                && ui.button("A folder...").on_hover_text("every raster of a folder, as one stack").clicked()
+                && let Some(p) = rfd::FileDialog::new().pick_folder()
+            {
+                let p = p.to_string_lossy().into_owned();
+                change = Some(crate::editor::set_param(&mut s.source, &path, &n.id, &name, &p));
             }
         }
     }

@@ -1,9 +1,11 @@
 //! Checking a model before it runs: every operator known, every reference resolved, every connection of
 //! compatible types, no cycles.
 
-use std::collections::BTreeSet;
+use std::cell::RefCell;
+use std::collections::{BTreeSet, HashMap};
+use std::rc::Rc;
 
-use crate::{Body, Input, Model, Node, OpSignature, Ref, Source, Type, dependencies, order, valid_id};
+use crate::{Body, Input, Model, Node, OpSignature, Ref, Source, Type, dependencies_among, ids, order, valid_id};
 
 /// The operators a model may use (the engine's registry).
 pub trait Catalog {
@@ -42,15 +44,34 @@ struct Scope<'a> {
     nodes: &'a [Node],
     /// the container whose body this scope is
     container: Option<&'a Node>,
+    /// the nodes by id
+    index: Rc<HashMap<&'a str, &'a Node>>,
+}
+
+impl<'a> Scope<'a> {
+    fn new(nodes: &'a [Node], container: Option<&'a Node>) -> Scope<'a> {
+        Scope { nodes, container, index: Rc::new(nodes.iter().map(|n| (n.id.as_str(), n)).collect()) }
+    }
 }
 
 struct Checker<'a> {
     model: &'a Model,
     catalog: &'a dyn Catalog,
     issues: Vec<Issue>,
+    /// the signatures asked of the catalog, once each
+    sigs: RefCell<HashMap<String, Option<Rc<OpSignature>>>>,
 }
 
 impl<'a> Checker<'a> {
+    fn signature(&self, op: &str) -> Option<Rc<OpSignature>> {
+        if let Some(s) = self.sigs.borrow().get(op) {
+            return s.clone();
+        }
+        let s = self.catalog.signature(op).map(Rc::new);
+        self.sigs.borrow_mut().insert(op.to_string(), s.clone());
+        s
+    }
+
     fn error(&mut self, at: &str, message: String) {
         self.issues.push(Issue { severity: Severity::Error, at: at.to_string(), message });
     }
@@ -110,7 +131,7 @@ impl<'a> Checker<'a> {
             }
             Ref::Port { node, port } => {
                 for (depth, s) in scopes.iter().enumerate().rev() {
-                    if let Some(n) = s.nodes.iter().find(|x| &x.id == node) {
+                    if let Some(n) = s.index.get(node.as_str()) {
                         return self.port_type(n, port, &scopes[..=depth]);
                     }
                 }
@@ -131,7 +152,7 @@ impl<'a> Checker<'a> {
     }
 
     fn port_type(&self, n: &'a Node, port: &str, scopes: &[Scope<'a>]) -> Result<Type, String> {
-        let sig = self.catalog.signature(&n.op).ok_or_else(|| format!("unknown operator {:?}", n.op))?;
+        let sig = self.signature(&n.op).ok_or_else(|| format!("unknown operator {:?}", n.op))?;
         if let Some(p) = sig.output_spec(port) {
             return Ok(p.ty);
         }
@@ -145,9 +166,11 @@ impl<'a> Checker<'a> {
                 return self.source_type(n.inputs.get(port), scopes);
             }
             if let Some(r) = b.outputs.get(port) {
-                let mut inner: Vec<Scope<'a>> =
-                    scopes.iter().map(|s| Scope { nodes: s.nodes, container: s.container }).collect();
-                inner.push(Scope { nodes: &b.nodes, container: Some(n) });
+                let mut inner: Vec<Scope<'a>> = scopes
+                    .iter()
+                    .map(|s| Scope { nodes: s.nodes, container: s.container, index: s.index.clone() })
+                    .collect();
+                inner.push(Scope::new(&b.nodes, Some(n)));
                 return Ref::parse(r).map_err(|e| e.to_string()).and_then(|r| self.type_of(&r, &inner));
             }
         }
@@ -178,7 +201,7 @@ impl<'a> Checker<'a> {
             if !seen.insert(n.id.as_str()) {
                 self.error(&at, format!("two nodes are named {:?}", n.id));
             }
-            let Some(sig) = self.catalog.signature(&n.op) else {
+            let Some(sig) = self.signature(&n.op) else {
                 self.error(&at, format!("unknown operator {:?}", n.op));
                 continue;
             };
@@ -222,7 +245,8 @@ impl<'a> Checker<'a> {
                 (None, false) => {}
             }
         }
-        if let Err(e) = order(nodes, |n| dependencies(n, nodes)) {
+        let among = ids(nodes);
+        if let Err(e) = order(nodes, |n| dependencies_among(n, &among)) {
             self.error(prefix, e.to_string());
         }
     }
@@ -236,7 +260,7 @@ impl<'a> Checker<'a> {
                 self.error(at, format!("the carried value @{name} needs a first value: an input {name:?}"));
             }
         }
-        scopes.push(Scope { nodes: &b.nodes, container: Some(n) });
+        scopes.push(Scope::new(&b.nodes, Some(n)));
         self.check_scope(scopes, at);
         for (name, r) in &b.carry {
             self.check_ref(&format!("{at}/carry.{name}"), r, Type::Any, scopes);
@@ -267,13 +291,13 @@ fn literal_type(v: &serde_json::Value) -> Type {
 
 /// The problems of a model: errors stop it from running, warnings do not.
 pub fn check(model: &Model, catalog: &dyn Catalog) -> Vec<Issue> {
-    let mut c = Checker { model, catalog, issues: Vec::new() };
+    let mut c = Checker { model, catalog, issues: Vec::new(), sigs: RefCell::new(HashMap::new()) };
     for name in model.inputs.keys() {
         if !valid_id(name) {
             c.error("", format!("{name:?} is not a valid input name"));
         }
     }
-    let mut scopes = vec![Scope { nodes: &model.nodes, container: None }];
+    let mut scopes = vec![Scope::new(&model.nodes, None)];
     c.check_scope(&mut scopes, "");
     for (name, out) in &model.outputs {
         c.check_ref(&format!("outputs.{name}"), &out.from, Type::Any, &scopes);

@@ -7,12 +7,12 @@
 //!   relative to the outer model's folder, named `node__name`);
 //! - the submodel's outputs (`name -> node.port`) become the group's outputs, `node.name` outside.
 //!
-//! Submodels may use submodels (up to 16 deep, and never themselves). The paths of plugins become absolute
-//! (each relative to the folder of the model that names it).
+//! Submodels may use submodels (up to 16 deep, and never themselves). The paths of plugins and of the rasters
+//! read and written by nodes become absolute (each relative to the folder of the model that names it).
 
 use std::path::{Path, PathBuf};
 
-use crate::{Body, Error, GROUP, Input, Model, Node, PLUGIN, Result, SUBMODEL, Source, relative_path};
+use crate::{Body, Error, FILE_OPS, GROUP, Input, Model, Node, Result, SUBMODEL, Source, relative_path};
 
 const DEPTH: usize = 16;
 
@@ -42,7 +42,7 @@ fn expand_nodes(
     stack: &mut Vec<PathBuf>,
 ) -> Result<()> {
     for n in nodes.iter_mut() {
-        if n.op == PLUGIN
+        if FILE_OPS.contains(&n.op.as_str())
             && let Some(serde_json::Value::String(p)) = n.params.get_mut("path")
             && !p.starts_with("blob:")
             && Path::new(p.as_str()).is_relative()

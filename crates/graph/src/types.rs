@@ -36,6 +36,9 @@ pub enum Type {
     Rng,
     /// A population of agents: attributes by name, a value per agent.
     Agents,
+    /// Rasters on disk, read where and as finely as needed (a file's bands, or the files of a series): a map
+    /// or a stack where one is needed.
+    Raster,
 }
 
 impl Type {
@@ -43,7 +46,11 @@ impl Type {
     /// other: an operator checks at run time that a number it needs whole is one).
     pub fn fits(self, port: Type) -> bool {
         let numeric = |t: Type| matches!(t, Type::Integer | Type::Number);
-        self == port || self == Type::Any || port == Type::Any || (numeric(self) && numeric(port))
+        // rasters on disk feed maps and stacks (read when the node runs); maps, stacks and series of maps feed
+        // what takes rasters
+        let raster = (self == Type::Raster && matches!(port, Type::Map | Type::Stack))
+            || (port == Type::Raster && matches!(self, Type::Map | Type::Stack | Type::Series));
+        self == port || self == Type::Any || port == Type::Any || (numeric(self) && numeric(port)) || raster
     }
 }
 

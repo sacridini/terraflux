@@ -53,6 +53,22 @@ usar, sem ficar simplista. Ele precisa:
 - **ABM:** camada posterior, com espaço reservado na arquitetura.
 - **Interfaces:** o **model builder visual e o Python juntos**, como frentes de um mesmo grafo de modelo.
   O Python fica fora do laço de simulação.
+- **Instalação para o usuário final (registro de 2026-10-11):** quem instala o Terraflux não precisa saber de
+  Rust, C++ ou Python; tudo vem configurado no instalador.
+  - O executável não usa Python. Rust e os kernels C++ do landschaft (compilados com `LANDSCHAFT_PYTHON=OFF`)
+    estão dentro dele.
+  - O GDAL e o PROJ vão na pasta `gdal` ao lado do executável (`tools/bundle-gdal.ps1`), carregados em tempo de
+    execução.
+  - Falta no Windows limpo o runtime do Visual C++ (`MSVCP140`, `VCRUNTIME140`, `VCRUNTIME140_1`) e o do OpenMP
+    (`VCOMP140`): o instalador roda o Visual C++ Redistributable ou leva essas DLLs. Alternativa: compilar com
+    `+crt-static` e levar só o `VCOMP140`.
+  - O Python só aparece no desenvolvimento (referências dos testes de paridade, já guardadas no repositório) e
+    como frente de scripts instalada à parte (`ls.simulate`). Funções do landschaft que só existem em Python são
+    portadas para C++ antes de entrar no aplicativo.
+  - Se um dia houver Python dentro do aplicativo (um nó de script), ele entra como componente opcional e
+    isolado (um Python embutido), nunca no laço da simulação; para estender o aplicativo sem exigir nada do
+    usuário, os plugins WebAssembly.
+  - Instaladores a fazer: Windows (MSI ou NSIS, com o redistribuível), depois macOS e Linux.
 
 ## Princípios de produto
 
@@ -428,6 +444,41 @@ Pendências:
   de uso do solo são populações de atributos numéricos processadas em lote, e a tabela é mais simples, mais
   rápida e se integra ao grafo e à álgebra de mapas sem outra dependência. Os comportamentos usam as
   expressões da álgebra de mapas em vez de Rhai; plugins WebAssembly por agente ficam como extensão.
+
+### Builder como interface do landschaft — começo feito (2026-10-10)
+
+- **Decisão:** o Terraflux vira a interface gráfica do landschaft sem copiar o C++. O landschaft continua a
+  fonte única dos kernels (submódulo), com os testes bit a bit; cada função entra por um shim (`ls-sys`) e um
+  operador. A lógica que só existe em Python é portada para C++ dentro do landschaft. O Python fica fino, não é
+  abandonado: é a frente de scripts e a prova de paridade.
+- **O aplicativo abre no builder:** biblioteca de operadores por assunto, abrir e salvar raster, operadores
+  ligados ao nó selecionado, e o que o nó dá mostrado sob o canvas.
+- **Execução incremental:** cache por nó (impressão digital do nó, das dependências, das entradas e dos
+  arquivos lidos), execução até um nó e de novo depois de cada edição; o que não mudou vem do cache.
+- **Responsividade (meta: 60 fps):** nada demorado roda num frame. Leitura dos dados, legendas e coloração
+  dos mapas em threads; o mapa anterior fica na tela enquanto o próximo é colorido. Com um mapa de
+  2048 x 1728 e o MSPA rodando, os frames ficam abaixo de 4 ms.
+- **Operadores:** `raster.read`, `raster.write` e `landscape.mspa` (bit a bit com o executável do GTB).
+- **Canvas na GPU para diagramas enormes:** a cena (posições, portas, conexões e uma grade espacial) é montada
+  só quando o grafo muda, em tempo linear; caixas, portas e curvas são desenhadas pela GPU com instancing
+  (pipelines wgpu dentro do render pass do egui); a câmera tem pan e zoom; o texto é escrito só nos nós
+  visíveis e legíveis; arrastar um nó move só ele na cena. Com 10 mil nós: frame de 0,1 ms, arrasto de 0,5 ms,
+  edição de cerca de 30 ms. A verificação do modelo e a ordem de execução deixaram de ser quadráticas.
+- **Decisão:** não migrar para Dear ImGui/C++. A lentidão era algorítmica (layout cúbico refeito a cada
+  frame), e o caminho de alto desempenho (GPU, cena em cache) existe dentro do egui.
+- **GDAL embutido (decisão de 2026-10-11):** o Terraflux passa a ser distribuído com o GDAL, como o QGIS, para
+  ter todos os formatos, reprojeção, reamostragem, vetores e mapas de fundo. O GDAL é carregado em tempo de
+  execução (crate `terraflux-gdal`, só as funções da API C usadas): a compilação não depende dele, o instalador
+  leva as DLLs na pasta `gdal` ao lado do executável, e sem ele o GeoTIFF segue pelo leitor nativo (mais rápido
+  e exato). Já feitos: abrir qualquer formato, `raster.reproject`, `raster.match`, `raster.clip`.
+- **Rasters de qualquer tamanho:** abrir lê só o cabeçalho; o visualizador é uma pirâmide de tiles feita em
+  threads. Um raster de 7,3 bilhões de células aparece em 0,4 s. Analisar rasters assim (o MSPA de 44 anos a
+  30 m) pede o processamento por tiles com halo, que é o próximo passo dessa frente.
+- **Interface em painéis** (`egui_dock`), destacáveis em janelas próprias para outro monitor; biblioteca nas
+  categorias do landschaft.
+- **Próximos:** MSPA por tiles para rasters maiores que a memória; mapa de fundo de satélite (GDAL XYZ/WMS);
+  vetores (OGR) para rasterizar e medir distâncias; instaladores com o GDAL; os outros kernels C++ já prontos (reclassificação, zonal, distância, métricas de paisagem,
+  FAD, SPA), depois reprojeção (PROJ embutido e o warp do landschaft) e vetores.
 
 Pendências gerais, depois das fases:
 - regiões e demandas regionais, CLUMondo, FUTURES e MOLUSCE no Terraflux;

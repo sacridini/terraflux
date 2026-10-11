@@ -1,7 +1,7 @@
 //! Landschaft's C++ kernels of land change simulation, for Terraflux.
 //!
 //! [`ffi`] is the cxx bridge to the shim (`shim/shim.cc`) over landschaft's
-//! `simcore`, `lsmcore` and `nlmcore` libraries; the functions of this crate
+//! `simcore`, `lsmcore`, `nlmcore` and `gtbcore` libraries; the functions of this crate
 //! wrap it with Rust types. Maps are row-major `f64` cells with NaN for
 //! missing ones; matrices of cells x classes are row-major (cell `i`, class
 //! `j` at `i * ncode + j`).
@@ -121,6 +121,18 @@ pub mod ffi {
         fn r_sum(x: &[f64]) -> f64;
         fn focal_mean(x: &[f64], ny: i64, nx: i64, w: &[f64], wy: i32, wx: i32) -> Result<Vec<f64>>;
         fn distance_exact(origin: &[u8], ny: i64, nx: i64, res: f64) -> Result<Vec<f64>>;
+        fn nlm_random_cluster(seed: i32, ny: i64, nx: i64, p: f64, ai: &[f64], neighbourhood: i32) -> Result<Vec<f64>>;
+        fn nlm_gaussian_field(
+            seed: i32,
+            ny: i64,
+            nx: i64,
+            autocorr_range: f64,
+            mag_var: f64,
+            nug: f64,
+            mean: f64,
+        ) -> Result<Vec<f64>>;
+        fn nlm_fbm(seed: i32, ny: i64, nx: i64, fract_dim: f64) -> Result<Vec<f64>>;
+        fn mspa(input: &[u8], ny: i64, nx: i64, connectivity: i32, edge_width: i32, internal: bool) -> Result<Vec<u8>>;
 
         fn allow_matrix(x: &[f64], hist: &[i64], classes: &[f64], cd: &[f64], rules: &[i64]) -> Result<Vec<f64>>;
         fn auto_convert(x: &[f64], prob: &[f64], classes: &[f64], mask: &[i64]) -> Result<Vec<f64>>;

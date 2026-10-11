@@ -5,6 +5,9 @@
 //! `run`, from the values of its inputs to the values of its outputs. The
 //! [`Registry`] holds them by name.
 //!
+//! Data comes in and goes out through operators too (`raster.read`, `raster.write`), and landschaft's
+//! landscape analyses (`landscape.mspa`) run on the same maps.
+//!
 //! The land change operators reproduce landschaft's `ls.simulate` step by
 //! step, calling the same C++ kernels (through `terraflux-ls-sys`), so that
 //! a model gives the same maps here as in Python with the same seed.
@@ -15,15 +18,20 @@ pub mod crafty;
 pub mod demand;
 pub mod dinamica;
 pub mod dynamic;
+pub mod files;
 pub mod fitted;
 pub mod glm;
+pub mod landscape;
 pub mod lulcc;
 pub mod markov;
+pub mod nlm;
 pub mod plugin;
 pub mod plus;
+pub mod prepare;
 pub mod presets;
 pub mod validate;
 pub mod value;
+pub mod view;
 pub mod woe;
 
 use std::collections::BTreeMap;
@@ -198,15 +206,16 @@ pub trait Operator: Send + Sync {
     fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs>;
 }
 
-/// The operators by name.
+/// The operators by name, with their signatures made once.
 #[derive(Clone)]
 pub struct Registry {
     ops: BTreeMap<String, Arc<dyn Operator>>,
+    sigs: BTreeMap<String, Arc<OpSignature>>,
 }
 
 impl Registry {
     pub fn empty() -> Self {
-        Registry { ops: BTreeMap::new() }
+        Registry { ops: BTreeMap::new(), sigs: BTreeMap::new() }
     }
 
     /// Every operator of this crate.
@@ -220,21 +229,33 @@ impl Registry {
         algebra::register(&mut r);
         crafty::register(&mut r);
         markov::register(&mut r);
+        nlm::register(&mut r);
         demand::register(&mut r);
         glm::register(&mut r);
         woe::register(&mut r);
         lulcc::register(&mut r);
         dinamica::register(&mut r);
         dynamic::register(&mut r);
+        files::register(&mut r);
         fitted::register(&mut r);
+        landscape::register(&mut r);
         plus::register(&mut r);
+        prepare::register(&mut r);
         plugin::register(&mut r);
         validate::register(&mut r);
+        view::register(&mut r);
         r
     }
 
     pub fn add(&mut self, op: Arc<dyn Operator>) {
-        self.ops.insert(op.signature().name, op);
+        let sig = op.signature();
+        self.ops.insert(sig.name.clone(), op);
+        self.sigs.insert(sig.name.clone(), Arc::new(sig));
+    }
+
+    /// The signature of an operator (made when it was added).
+    pub fn sig(&self, name: &str) -> Option<&Arc<OpSignature>> {
+        self.sigs.get(name)
     }
 
     pub fn get(&self, name: &str) -> Option<&Arc<dyn Operator>> {
@@ -242,13 +263,13 @@ impl Registry {
     }
 
     pub fn signatures(&self) -> Vec<OpSignature> {
-        self.ops.values().map(|o| o.signature()).collect()
+        self.sigs.values().map(|s| (**s).clone()).collect()
     }
 }
 
 impl Catalog for Registry {
     fn signature(&self, op: &str) -> Option<OpSignature> {
-        self.ops.get(op).map(|o| o.signature())
+        self.sigs.get(op).map(|s| (**s).clone())
     }
 }
 
