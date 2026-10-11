@@ -39,6 +39,10 @@ minor versions.
   maximum flows on the linear relaxation, then the MIP with the cuts. With prioritizr's restriction it reaches
   prioritizr's optima (Gurobi's at gap 0) on landschaft's four cases; the exact model finds the best patch of a
   grid by enumeration.
+- Manual bounds for `prioritize.optimize` (prioritizr's add_manual_bounded_constraints and
+  add_manual_locked_constraints): tables of units and their bounds (`bounds`: pu, lower, upper) or statuses
+  (`status`: pu, status), after the locked units; prioritizr's compile() bit for bit and its optima on the 7 cases
+  landschaft keeps.
 - prioritizr's evaluation of a solution (`prioritize.evaluate`): the units selected, their cost and boundary, the
   features' representation, the targets' coverage, Ferrier et al.'s irreplaceability and the rarity-weighted
   richness; prioritizr's numbers bit for bit on the cases landschaft keeps; and on request the replacement

@@ -4,8 +4,8 @@
 landschaft keeps prioritizr 8.0.6's compiled models and optima (extern/landschaft/tests/data/reference/
 optimize) of rasters its tests draw with numpy (tests/optimize_cases.py); this writes them (cost, features,
 locked units, penalty data, solutions; NaN where no value) into tests/data/reference/optimize_inputs.npz, and
-its tables (planning units, features, amounts, boundary, connectivity and adjacency matrices, a solution) as Terraflux's
-tables into optimize_tables.json:
+its tables (planning units, features, amounts, boundary, connectivity and adjacency matrices, a solution,
+manual bounds) as Terraflux's tables into optimize_tables.json:
 
     python tools/make_optimize_inputs.py
 """
@@ -45,7 +45,7 @@ def main() -> None:
     spec = oc.spec_table()[["id"]]
     tables = {"pu_table": table(oc.pu_table()), "spec_table": table(spec), "rij_table": table(oc.rij_table()),
               "sol_table": table(oc.sol_table())}
-    for k in ("bnd_table", "conn_table", "asym_table", "adj_table"):
+    for k in ("bnd_table", "conn_table", "asym_table", "adj_table", "bounds_cells", "status_cells", "bounds_rows"):
         tables[k] = table(getattr(oc, k)())
     path = out.with_name("optimize_tables.json")
     path.write_text(json.dumps(tables) + "\n", encoding="utf-8")

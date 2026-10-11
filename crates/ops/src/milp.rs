@@ -319,6 +319,20 @@ pub struct Problem {
     pub locked_out: Vec<bool>,
     /// penalties and constraints, in the order added (prioritizr applies the penalties, then the constraints)
     pub spatial: Vec<Spatial>,
+    /// add_manual_bounded_constraints and add_manual_locked_constraints, in the order added (after the locked units)
+    pub bounds: Vec<ManualBounds>,
+}
+
+/// Manual bounds of units (prioritizr's add_manual_bounded_constraints, or add_manual_locked_constraints with
+/// lower = upper = status): every unit (cell or row, 1..) and its bounds; the units without a cost are skipped, a
+/// unit listed again keeps its last bounds.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ManualBounds {
+    /// "bounded" or "locked"
+    pub kind: String,
+    pub pu: Vec<f64>,
+    pub lower: Vec<f64>,
+    pub upper: Vec<f64>,
 }
 
 /// The targets as the model's rows: the feature, sense and amount of each, and the total relative targets are
@@ -740,6 +754,45 @@ pub fn compile(p: &Problem) -> Result<(Model, Targets), String> {
             if p.locked_out[i] {
                 b.ub[i] = 0.0;
             }
+        }
+    }
+    // manual bounded and locked constraints, in the order added (after the locked units)
+    let (binary, limit) = match p.decisions {
+        Decisions::Binary => (true, 1.0),
+        Decisions::Proportion => (false, 1.0),
+        Decisions::Semicontinuous(limit) => (false, limit),
+    };
+    let mut pos = vec![usize::MAX; u.size];
+    for (k, &c) in u.cells.iter().enumerate() {
+        pos[c] = k;
+    }
+    for mb in &p.bounds {
+        let what = format!("manual {} constraints", mb.kind);
+        let mut set = Vec::new();
+        for (k, &unit) in mb.pu.iter().enumerate() {
+            if !(unit >= 1.0 && unit.fract() == 0.0) {
+                return Err(format!("{what}: {unit} is no unit"));
+            }
+            if unit > u.size as f64 {
+                return Err(format!("{what}: pu goes up to {unit}, but there are {} units", u.size));
+            }
+            let j = pos[unit as usize - 1];
+            if j != usize::MAX {
+                set.push((j, mb.lower[k], mb.upper[k]));
+            }
+        }
+        if set.iter().any(|&(_, lo, hi)| !(lo >= 0.0 && hi <= limit)) {
+            return Err(format!("{what}: the bounds must lie within the decisions' bounds [0, {limit}]"));
+        }
+        if binary && set.iter().any(|&(_, lo, hi)| !(lo == 0.0 || lo == 1.0) || !(hi == 0.0 || hi == 1.0)) {
+            return Err(format!(
+                "{what}: with binary decisions the bounds must be 0 or 1 (use proportion decisions for shares of units)"
+            ));
+        }
+        // prioritizr's loop: in table order, a unit listed again keeps its last bounds
+        for (j, lo, hi) in set {
+            b.lb[j] = lo;
+            b.ub[j] = hi;
         }
     }
     Ok((b.model(), t))

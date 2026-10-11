@@ -992,3 +992,99 @@ fn contiguity_is_exact() {
     }
     assert!(on.iter().all(|&c| seen[c]), "one patch");
 }
+
+/// The manual bounds cases: name, inputs, settings.
+fn bounds_cases() -> Vec<(&'static str, BTreeMap<String, Value>, serde_json::Value)> {
+    use serde_json::json;
+    let inputs = inputs();
+    let t = tables();
+    let mut na_cost = t["pu_table"].clone();
+    let c = na_cost.columns.iter().position(|c| c == "cost").unwrap();
+    for row in [2, 49, 50, 119] {
+        na_cost.rows[row][c] = f64::NAN;
+    }
+    let raster = |locks: &[&str], extra: &[(&str, &str)]| {
+        let mut ins = args_of(&inputs, locks, None);
+        for (port, name) in extra {
+            ins.insert(port.to_string(), Value::Table(t[*name].clone()));
+        }
+        ins
+    };
+    vec![
+        (
+            "bounds_raster",
+            raster(&["locked_in"], &[("bounds", "bounds_cells")]),
+            json!({"relative_targets": 0.3, "decisions": "proportion"}),
+        ),
+        (
+            "bounds_locked_raster",
+            raster(&["locked_out"], &[("status", "status_cells")]),
+            json!({"relative_targets": 0.3}),
+        ),
+        (
+            "bounds_twice",
+            raster(&[], &[("bounds", "bounds_cells"), ("status", "status_cells")]),
+            json!({"relative_targets": 0.3, "decisions": "proportion"}),
+        ),
+        (
+            "bounds_table_semicontinuous",
+            [("pu".to_string(), Value::Table(na_cost)), ("bounds".to_string(), Value::Table(t["bounds_rows"].clone()))]
+                .into(),
+            json!({"features": ["f1", "f2", "f3", "f4", "f5"], "relative_targets": 0.2, "decisions": "semicontinuous",
+                   "upper_limit": 0.6}),
+        ),
+        (
+            "bounds_max_utility",
+            raster(&[], &[("status", "status_cells")]),
+            json!({"objective": "max_utility", "budget": 2500}),
+        ),
+        (
+            "bounds_boundary",
+            raster(&[], &[("status", "status_cells")]),
+            json!({"relative_targets": 0.3, "boundary_penalty": 0.5}),
+        ),
+        (
+            "bounds_min_penalties",
+            raster(&[], &[("status", "status_cells")]),
+            json!({"objective": "min_penalties", "budget": 4000, "relative_targets": 0.2, "boundary_penalty": 0.5}),
+        ),
+    ]
+}
+
+/// prioritizr's manual bounded and locked constraints (after the locked units, the later winning; units without a
+/// cost skipped): its compile() bit for bit on the 7 cases landschaft keeps.
+#[test]
+fn bounds_compile_is_prioritizrs() {
+    let r = reference("bounds");
+    for (name, ins, params) in bounds_cases() {
+        let args = Args { node: "n", inputs: ins, params: params.as_object().unwrap() };
+        let p = terraflux_ops::prioritize::problem_of(&args).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let (m, _) = terraflux_ops::milp::compile(&p).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_model(name, &m, &r);
+    }
+}
+
+/// The manual bounds cases' optima are prioritizr's (Gurobi's at gap 0; about 90 s: cargo test -- --ignored).
+#[test]
+#[ignore]
+fn bounds_optima_are_prioritizrs() {
+    let r = reference("bounds");
+    let registry = terraflux_ops::Registry::standard();
+    for (name, ins, params) in bounds_cases() {
+        let mut params = params.as_object().unwrap().clone();
+        params.insert("gap".into(), 0.0.into());
+        let maximize = params.get("objective").and_then(|o| o.as_str()).is_some_and(|o| o.starts_with("max"));
+        let args = Args { node: "n", inputs: ins, params: &params };
+        let out = registry
+            .get("prioritize.optimize")
+            .unwrap()
+            .run(&mut terraflux_ops::Ctx::default(), &args)
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
+        let Value::Table(s) = &out["summary"] else { panic!() };
+        let ours = s.column("objective").unwrap()[0];
+        let want = r.floats(&format!("{name}/objective"))[0];
+        let close = (ours - want).abs() <= 1e-9 * want.abs().max(1.0);
+        let better = if maximize { ours > want } else { ours < want };
+        assert!(close || (better && (ours - want).abs() <= 1e-5 * want.abs().max(1.0)), "{name}: {ours} != {want}");
+    }
+}

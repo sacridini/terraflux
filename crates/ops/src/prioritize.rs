@@ -1210,7 +1210,21 @@ pub fn problem_of(args: &Args) -> Result<milp::Problem> {
             k => return Err(err(format!("unknown spatial penalty or constraint {k:?}"))),
         });
     }
-    Ok(milp::Problem { units, objective, targets, weights, decisions, locked_in, locked_out, spatial })
+    // manual bounds: the bounds table, then the status table
+    let mut bounds = Vec::new();
+    for (port, kind, cols) in [("bounds", "bounded", ["lower", "upper"]), ("status", "locked", ["status", "status"])] {
+        if let Some(Value::Table(t)) = args.get(port) {
+            let col =
+                |c: &str| t.column(c).ok_or_else(|| err(format!("{port} needs the columns pu, {}", cols.join(", "))));
+            bounds.push(milp::ManualBounds {
+                kind: kind.into(),
+                pu: col("pu")?,
+                lower: col(cols[0])?,
+                upper: col(cols[1])?,
+            });
+        }
+    }
+    Ok(milp::Problem { units, objective, targets, weights, decisions, locked_in, locked_out, spatial, bounds })
 }
 
 struct Optimize;
@@ -1247,6 +1261,16 @@ impl Operator for Optimize {
             "targets",
             Type::Table,
             "targets by hand: feature (1..), relative (1) or absolute (0), sense (1 >=, -1 <=, 0 =), target",
+        ))
+        .input(PortSpec::optional(
+            "bounds",
+            Type::Table,
+            "manual bounds: pu (the cell or row, 1..), lower and upper (a unit listed again: its last bounds)",
+        ))
+        .input(PortSpec::optional(
+            "status",
+            Type::Table,
+            "manual locked units: pu and status (1 in, 0 out; a share with proportion decisions), after bounds",
         ))
         .input(PortSpec::optional("penalty_data", Type::Map, "linear penalties: a value per cell"))
         .input(PortSpec::optional("constraint_data", Type::Map, "the linear constraint: a value per cell"))
