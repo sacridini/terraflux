@@ -595,6 +595,28 @@ pub mod ffi {
         /// prioritizr's connectivity of a solution (rcpp_connectivity, or rcpp_asym_connectivity with asym): the
         /// units' matrix in compressed columns.
         fn eval_connectivity(start: &[i64], index: &[i64], value: &[f64], solution: &[f64], asym: bool) -> Result<f64>;
+        /// prioritizr's boundary of a solution with zones (rcpp_boundary): edge factors per zone, zones nz x nz
+        /// (row-major), the solution zone after zone.
+        #[allow(clippy::too_many_arguments)]
+        fn eval_boundary_zones(
+            edge_factor: &[f64],
+            zones: &[f64],
+            start: &[i64],
+            index: &[i64],
+            value: &[f64],
+            exposed: &[f64],
+            total: &[f64],
+            solution: &[f64],
+        ) -> Result<f64>;
+        /// prioritizr's connectivity of a solution with zones (asym: the asymmetric one).
+        fn eval_connectivity_zones(
+            start: &[i64],
+            index: &[i64],
+            value: &[f64],
+            zones: &[f64],
+            solution: &[f64],
+            asym: bool,
+        ) -> Result<f64>;
         fn lsm_table(
             values: &[i32],
             na: &[u8],

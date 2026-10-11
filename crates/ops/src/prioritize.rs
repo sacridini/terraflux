@@ -1203,6 +1203,106 @@ fn zone_table_units(args: &Args, pu: &Table, zones: Vec<String>, cost_columns: V
     }
 }
 
+/// A spatial penalty or constraint of a problem with zones: penalties and k one or one per zone, edge factors one or
+/// one per zone, a zones matrix (`zones`: rows the first zone), the linear data a layer per zone
+/// (`zone_penalty_data`, `zone_constraint_data`), one map for every zone, or tables' columns (one or one per zone).
+fn zone_spatial(
+    args: &Args,
+    units: &milp::Units,
+    it: &serde_json::Map<String, serde_json::Value>,
+    kind: &str,
+    pu: Option<&Table>,
+) -> Result<milp::ZoneSpatial> {
+    let node = args.node;
+    let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
+    let nums = |k: &str| -> Result<Option<Vec<f64>>> {
+        match it.get(k) {
+            None | Some(serde_json::Value::Null) => Ok(None),
+            Some(serde_json::Value::Number(x)) => Ok(Some(vec![x.as_f64().unwrap()])),
+            Some(v) => {
+                serde_json::from_value(v.clone()).map(Some).map_err(|e| err(format!("spatial {kind}: {k}: {e}")))
+            }
+        }
+    };
+    let need = |k: &str| nums(k)?.ok_or_else(|| err(format!("spatial: {kind:?} needs {k:?}")));
+    let one = |k: &str| -> Result<f64> {
+        let v = need(k)?;
+        if v.len() != 1 {
+            return Err(err(format!("spatial {kind}: {k} is one number")));
+        }
+        Ok(v[0])
+    };
+    let zones: Option<Vec<Vec<f64>>> = match it.get("zones") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(v) => Some(
+            serde_json::from_value(v.clone())
+                .map_err(|e| err(format!("spatial {kind}: zones: {e} (zones x zones)")))?,
+        ),
+    };
+    // values per zone: a layer per zone, one map, or pu's columns
+    let data = |stack: &str, map: &str| -> Result<Vec<Vec<f64>>> {
+        if let Some(t) = pu {
+            let cols: Vec<String> = match it.get("column") {
+                Some(serde_json::Value::String(c)) => vec![c.clone()],
+                Some(v) => {
+                    serde_json::from_value(v.clone()).map_err(|e| err(format!("spatial {kind}: column: {e}")))?
+                }
+                None => return Err(err(format!("spatial {kind}: tables need the column(s) of the values"))),
+            };
+            return cols.iter().map(|c| t.column(c).ok_or_else(|| err(format!("pu has no column {c:?}")))).collect();
+        }
+        if let Some(Value::Stack(s)) = args.get(stack) {
+            return Ok(s.layers.iter().map(|l| l.to_vec()).collect());
+        }
+        Ok(vec![args.map(map)?.data.to_vec()])
+    };
+    let matrix = |port: &str| matrix_of(args, port, units.size);
+    Ok(match kind {
+        "boundary" => milp::ZoneSpatial::Boundary {
+            penalty: one("penalty")?,
+            edge_factor: nums("edge_factor")?.unwrap_or_else(|| vec![0.5]),
+            data: matrix("boundary_data")?,
+            zones,
+        },
+        "connectivity" => milp::ZoneSpatial::Connectivity {
+            penalty: one("penalty")?,
+            data: matrix("connectivity_data")?
+                .ok_or_else(|| err("connectivity penalties need connectivity_data".into()))?,
+            zones,
+        },
+        "asym_connectivity" => milp::ZoneSpatial::AsymConnectivity {
+            penalty: one("penalty")?,
+            data: matrix("asym_connectivity_data")?
+                .ok_or_else(|| err("asymmetric connectivity penalties need asym_connectivity_data".into()))?,
+            zones,
+        },
+        "linear_penalty" => milp::ZoneSpatial::LinearPenalty {
+            penalty: need("penalty")?,
+            data: data("zone_penalty_data", "penalty_data")?,
+        },
+        "linear_constraint" => {
+            let sense = it.get("sense").and_then(|v| v.as_str()).unwrap_or("<=").to_string();
+            if !matches!(sense.as_str(), ">=" | "<=" | "=") {
+                return Err(err(format!("a linear constraint's sense is >=, <= or =, not {sense:?}")));
+            }
+            milp::ZoneSpatial::LinearConstraint {
+                threshold: one("threshold")?,
+                sense,
+                data: data("zone_constraint_data", "constraint_data")?,
+            }
+        }
+        "neighbors" => milp::ZoneSpatial::Neighbors {
+            k: need("k")?,
+            clamp: it.get("clamp").and_then(|v| v.as_bool()).unwrap_or(true),
+            data: matrix("adjacency_data")?,
+            zones,
+        },
+        "contiguity" => milp::ZoneSpatial::Contiguity { data: matrix("adjacency_data")?, zones },
+        "feature_contiguity" => return Err(err("feature contiguity constraints are not supported with zones".into())),
+        k => return Err(err(format!("unknown spatial penalty or constraint {k:?}"))),
+    })
+}
+
 /// A number as a name (a whole number without decimals).
 fn terraflux_ops_label(v: f64) -> String {
     crate::value::class_label(v)
@@ -1474,13 +1574,19 @@ pub fn problem_of(args: &Args) -> Result<milp::Problem> {
                 l.push(m);
             };
             if args.params.contains_key("boundary_penalty") {
-                put("boundary", &[("boundary_penalty", "penalty"), ("edge_factor", "edge_factor")]);
+                put(
+                    "boundary",
+                    &[("boundary_penalty", "penalty"), ("edge_factor", "edge_factor"), ("boundary_zones", "zones")],
+                );
             }
             if args.params.contains_key("connectivity_penalty") {
-                put("connectivity", &[("connectivity_penalty", "penalty")]);
+                put("connectivity", &[("connectivity_penalty", "penalty"), ("connectivity_zones", "zones")]);
             }
             if args.params.contains_key("asym_connectivity_penalty") {
-                put("asym_connectivity", &[("asym_connectivity_penalty", "penalty")]);
+                put(
+                    "asym_connectivity",
+                    &[("asym_connectivity_penalty", "penalty"), ("asym_connectivity_zones", "zones")],
+                );
             }
             if args.params.contains_key("linear_penalty") {
                 put("linear_penalty", &[("linear_penalty", "penalty"), ("penalty_column", "column")]);
@@ -1492,11 +1598,11 @@ pub fn problem_of(args: &Args) -> Result<milp::Problem> {
                 );
             }
             if args.params.contains_key("neighbors") {
-                put("neighbors", &[("neighbors", "k"), ("clamp", "clamp")]);
+                put("neighbors", &[("neighbors", "k"), ("clamp", "clamp"), ("neighbors_zones", "zones")]);
             }
             for kind in ["contiguity", "feature_contiguity"] {
                 if args.params.get(kind).and_then(|v| v.as_bool()).unwrap_or(false) {
-                    put(kind, &[]);
+                    put(kind, &[("contiguity_zones", "zones")]);
                 }
             }
             l
@@ -1508,6 +1614,10 @@ pub fn problem_of(args: &Args) -> Result<milp::Problem> {
         let need = |k: &str| num(k).ok_or_else(|| err(format!("spatial: {:?} needs {k:?}", it.get("kind"))));
         let column = it.get("column").and_then(|v| v.as_str());
         let kind = it.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+        if zoned {
+            spatial.push(milp::Spatial::Zoned(zone_spatial(args, &units, it, kind, pu)?));
+            continue;
+        }
         spatial.push(match kind {
             "boundary" => milp::Spatial::Boundary {
                 penalty: need("penalty")?,
@@ -1617,6 +1727,8 @@ impl Operator for Optimize {
         .input(PortSpec::optional("contribution_maps", Type::Stack, "zones: a contribution raster per zone, named by it"))
         .input(PortSpec::optional("zone_locked_in", Type::Stack, "zones: the units locked into every zone, a layer each"))
         .input(PortSpec::optional("zone_locked_out", Type::Stack, "zones: the units locked out of every zone"))
+        .input(PortSpec::optional("zone_penalty_data", Type::Stack, "zones: linear penalties, a layer per zone"))
+        .input(PortSpec::optional("zone_constraint_data", Type::Stack, "zones: a linear constraint, a layer per zone"))
         .input(PortSpec::optional(
             "pu",
             Type::Table,
@@ -1695,6 +1807,17 @@ impl Operator for Optimize {
         ))
         .param(PortSpec::optional("feature_names", Type::Any, "zones: the features' names"))
         .param(PortSpec::optional("zones", Type::Any, "tables with zones: the zones' names, or Marxan's [{id, name}, ...]"))
+        .param(PortSpec::optional(
+            "boundary_zones",
+            Type::Any,
+            "zones: how much a boundary counts between two zones (zones x zones; default the identity); likewise \
+             connectivity_zones, asym_connectivity_zones, neighbors_zones (0/1) and contiguity_zones (0/1), or \
+             `zones` in a spatial item",
+        ))
+        .param(PortSpec::optional("connectivity_zones", Type::Any, "zones: as boundary_zones"))
+        .param(PortSpec::optional("asym_connectivity_zones", Type::Any, "zones: as boundary_zones (not symmetric)"))
+        .param(PortSpec::optional("neighbors_zones", Type::Any, "zones: the zones whose units count as neighbours"))
+        .param(PortSpec::optional("contiguity_zones", Type::Any, "zones: the zones whose units form one patch together"))
         .param(PortSpec::optional(
             "mandatory_allocation",
             Type::Bool,
@@ -1923,6 +2046,168 @@ fn portfolio_of(args: &Args) -> Result<Option<milp::Portfolio>> {
     }))
 }
 
+/// A solution's value in every unit and zone, zone after zone (no value: 0): a layer per zone (`zone_solution`),
+/// or the selection (prioritize.optimize's: unit and solution_<zone>; or a column solution_<zone> per zone with a
+/// row per unit of the table or per planning unit).
+fn zone_solution_of(args: &Args, u: &milp::Units) -> Result<Vec<f64>> {
+    let node = args.node;
+    let err = |m: &str| Error::msg(format!("node {node:?}: {m}"));
+    let (nu, nz) = (u.units(), u.nz());
+    let finite = |v: f64| if v.is_finite() { v } else { 0.0 };
+    if let Some(Value::Stack(st)) = args.get("zone_solution") {
+        if st.layers.len() != nz || st.layers.iter().any(|l| l.len() != u.size) {
+            return Err(err(&format!("zone_solution: a layer per zone ({nz}) on the units' grid")));
+        }
+        return Ok((0..nz)
+            .flat_map(|z| u.cells.iter().map(move |&c| (z, c)))
+            .map(|(z, c)| finite(st.layers[z][c]))
+            .collect());
+    }
+    let Some(Value::Table(t)) = args.get("selection") else {
+        return Err(err("the solution with zones: a stack (zone_solution) or a table (selection)"));
+    };
+    let mut out = vec![0.0; nz * nu];
+    for (z, name) in u.zones.iter().enumerate() {
+        let col = [format!("solution_{name}"), format!("solution_1_{name}")]
+            .iter()
+            .find_map(|c| t.column(c))
+            .ok_or_else(|| err(&format!("the selection needs a column solution_{name}")))?;
+        if let Some(unit) = t.column("unit") {
+            let mut at = vec![0.0; u.size];
+            for (&k, &v) in unit.iter().zip(&col) {
+                if !(k >= 1.0 && k <= u.size as f64 && k.fract() == 0.0) {
+                    return Err(err(&format!("the selection's unit {k} is no unit (1-{})", u.size)));
+                }
+                at[k as usize - 1] = finite(v);
+            }
+            for (i, &c) in u.cells.iter().enumerate() {
+                out[z * nu + i] = at[c];
+            }
+        } else if col.len() == u.size {
+            for (i, &c) in u.cells.iter().enumerate() {
+                out[z * nu + i] = finite(col[c]);
+            }
+        } else if col.len() == nu {
+            for (i, &v) in col.iter().enumerate() {
+                out[z * nu + i] = finite(v);
+            }
+        } else {
+            return Err(err(&format!("the selection needs a row per unit ({} or {nu})", u.size)));
+        }
+    }
+    Ok(out)
+}
+
+/// prioritize.evaluate with zones: the summaries overall and per zone (summary 0: overall, 1..: the zones), the
+/// features' representation, the targets' coverage.
+fn evaluate_zoned(ctx: &mut Ctx, args: &Args, p: &milp::Problem) -> Result<Outputs> {
+    let node = args.node;
+    let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
+    let u = &p.units;
+    let (nu, nz, nf) = (u.units(), u.nz(), u.names.len());
+    let s = zone_solution_of(args, u)?;
+    let zones_param = |name: &str| -> Result<Option<Vec<Vec<f64>>>> {
+        match args.params.get(name) {
+            None | Some(serde_json::Value::Null) => Ok(None),
+            Some(v) => serde_json::from_value(v.clone()).map(Some).map_err(|e| err(format!("{name}: {e}"))),
+        }
+    };
+    let edge_factor: Vec<f64> = match args.params.get("edge_factor") {
+        None | Some(serde_json::Value::Null) => vec![0.5],
+        Some(serde_json::Value::Number(x)) => vec![x.as_f64().unwrap()],
+        Some(v) => serde_json::from_value(v.clone()).map_err(|e| err(format!("edge_factor: {e}")))?,
+    };
+    let bm = matrix_of(args, "boundary_data", u.size)?;
+    let e = milp::evaluate_zones(u, &s, &edge_factor, &zones_param("boundary_zones")?, bm.as_ref()).map_err(err)?;
+    let mut columns: Vec<String> = ["summary", "n", "cost", "boundary"].map(String::from).to_vec();
+    let mut cols: Vec<Vec<f64>> = vec![
+        (0..=nz).map(|k| k as f64).collect(),
+        e.n.clone(),
+        e.cost.clone(),
+        e.boundary.clone().unwrap_or_else(|| vec![f64::NAN; nz + 1]),
+    ];
+    for (port, asym, name) in
+        [("connectivity_data", false, "connectivity"), ("asym_connectivity_data", true, "asym_connectivity")]
+    {
+        if let Some(m) = matrix_of(args, port, u.size)? {
+            let (v, symmetric) =
+                milp::connectivity_zones(u, &m, &s, &zones_param(&format!("{name}_zones"))?, asym).map_err(err)?;
+            if symmetric == asym {
+                let (is, other) =
+                    if asym { ("symmetric", "connectivity") } else { ("asymmetric", "asym_connectivity") };
+                ctx.warn(format!("{port} holds {is} values: the {other} summary suits them"));
+            }
+            columns.push(name.into());
+            cols.push(v);
+        }
+    }
+    let mut summary = Table::new(columns);
+    summary.rows = (0..=nz).map(|k| cols.iter().map(|c| c[k]).collect()).collect();
+    let mut rep =
+        Table::new(["summary", "feature", "total_amount", "absolute_held", "relative_held"].map(String::from).to_vec());
+    rep.rows = (0..(nz + 1) * nf)
+        .map(|k| vec![(k / nf) as f64, (k % nf + 1) as f64, e.total[k], e.held[k], e.held[k] / e.total[k]])
+        .collect();
+    let mut out = outputs([("summary", Value::Table(summary)), ("representation", Value::Table(rep))]);
+    if p.targets.is_some() && !p.objective.no_targets() {
+        let (_, t) = milp::compile(p).map_err(err)?;
+        let held = milp::zone_targets_held(u, &t, &s);
+        let mut cov = Table::new(
+            [
+                "feature",
+                "sense",
+                "met",
+                "total_amount",
+                "absolute_target",
+                "absolute_held",
+                "absolute_shortfall",
+                "relative_target",
+                "relative_held",
+                "relative_shortfall",
+            ]
+            .map(String::from)
+            .to_vec(),
+        );
+        for (k, &h) in held.iter().enumerate() {
+            let (target, total) = (t.value[k], t.total[k]);
+            let mut short = (target - h).abs();
+            match t.sense[k].as_str() {
+                ">=" if h >= target => short = 0.0,
+                "=" if h - target < 1e-10 => short = 0.0,
+                "<=" if h <= target => short = 0.0,
+                _ => {}
+            }
+            let rel = |v: f64| if (v / total).is_finite() { v / total } else { 0.0 };
+            let sense = match t.sense[k].as_str() {
+                ">=" => 1.0,
+                "<=" => -1.0,
+                _ => 0.0,
+            };
+            cov.rows.push(vec![
+                (t.feature[k] + 1) as f64,
+                sense,
+                f64::from(u8::from(short < 1e-10)),
+                total,
+                target,
+                h,
+                short,
+                rel(target),
+                rel(h),
+                rel(short),
+            ]);
+        }
+        out.insert("coverage".into(), Value::Table(cov));
+    }
+    let mut columns = vec!["unit".to_string()];
+    columns.extend(u.zones.iter().map(|z| format!("solution_{z}")));
+    let mut units = Table::new(columns);
+    units.rows = (0..nu)
+        .map(|i| std::iter::once((u.cells[i] + 1) as f64).chain((0..nz).map(|z| s[z * nu + i])).collect())
+        .collect();
+    out.insert("units".into(), Value::Table(units));
+    Ok(out)
+}
+
 /// A solution's value per planning unit (no value: 0): the solution map on the cost's grid, or the selection
 /// table (prioritize.optimize's: unit and solution; or a column solution, solution_1 or the only one, with a row
 /// per unit of the table or per planning unit).
@@ -1987,6 +2272,14 @@ impl Operator for Evaluate {
         .input(PortSpec::optional("spec", Type::Table, "Marxan-style: the features (id)"))
         .input(PortSpec::optional("rij", Type::Table, "Marxan-style: the amounts (pu, species, amount)"))
         .input(PortSpec::optional("solution", Type::Map, "the share of each unit selected"))
+        .input(PortSpec::optional("zone_costs", Type::Stack, "zones: as prioritize.optimize's"))
+        .input(PortSpec::optional("zone_features", Type::Stack, "zones: as prioritize.optimize's"))
+        .input(PortSpec::optional("contribution_maps", Type::Stack, "zones: as prioritize.optimize's"))
+        .input(PortSpec::optional(
+            "zone_solution",
+            Type::Stack,
+            "zones: the share of each unit in every zone, a layer per zone (or the selection: solution_<zone>)",
+        ))
         .input(PortSpec::optional(
             "selection",
             Type::Table,
@@ -2024,7 +2317,17 @@ impl Operator for Evaluate {
         .param(PortSpec::optional("relative_targets", Type::Any, "a share of each feature's total (or one for all)"))
         .param(PortSpec::optional("absolute_targets", Type::Any, "an amount per feature"))
         .param(PortSpec::optional("loglinear_targets", Type::Any, "as prioritize.optimize's"))
-        .param(PortSpec::optional("edge_factor", Type::Number, "the boundary: the weight of edges to no unit (0.5)"))
+        .param(PortSpec::optional(
+            "edge_factor",
+            Type::Any,
+            "the boundary: the weight of edges to no unit (0.5; zones: one or one per zone)",
+        ))
+        .param(PortSpec::optional("boundary_zones", Type::Any, "zones: the boundary's zones matrix (default the identity)"))
+        .param(PortSpec::optional("connectivity_zones", Type::Any, "zones: the connectivity's zones matrix"))
+        .param(PortSpec::optional("asym_connectivity_zones", Type::Any, "zones: the asymmetric connectivity's"))
+        .param(PortSpec::optional("manual_targets", Type::Any, "targets by hand with their zones, as prioritize.optimize's"))
+        .param(PortSpec::optional("feature_names", Type::Any, "zones: the features' names"))
+        .param(PortSpec::optional("contribution", Type::Any, "zones: as prioritize.optimize's"))
         .param(PortSpec::optional("rescale", Type::Bool, "the importances rescaled to 0.01-1 (default true)"))
         .param(PortSpec::optional(
             "replacement",
@@ -2044,7 +2347,7 @@ impl Operator for Evaluate {
         let p = problem_of(args)?;
         let u = &p.units;
         if u.zoned() {
-            return Err(err("the evaluation does not support zones yet".into()));
+            return evaluate_zoned(ctx, args, &p);
         }
         let s = solution_of(args, u)?;
         let bm = matrix_of(args, "boundary_data", u.size)?;

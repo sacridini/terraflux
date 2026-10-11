@@ -803,6 +803,27 @@ double eval_connectivity(rust::Slice<const std::int64_t> start, rust::Slice<cons
     return asym ? opt::eval::asym_connectivity(m, to_std(solution)) : opt::eval::connectivity(m, to_std(solution));
 }
 
+double eval_boundary_zones(rust::Slice<const double> edge_factor, rust::Slice<const double> zones,
+                           rust::Slice<const std::int64_t> start, rust::Slice<const std::int64_t> index,
+                           rust::Slice<const double> value, rust::Slice<const double> exposed,
+                           rust::Slice<const double> total, rust::Slice<const double> solution) {
+    const i64 n = static_cast<i64>(start.size()) - 1;
+    const opt::eval::Csc lower = csc_of(start, index, value, n);
+    for (const i64 r : lower.index) check(r >= 0 && r < n, "rows within the units");
+    return opt::eval::boundary_zones(to_std(edge_factor), to_std(zones), lower, to_std(exposed), to_std(total),
+                                     to_std(solution));
+}
+
+double eval_connectivity_zones(rust::Slice<const std::int64_t> start, rust::Slice<const std::int64_t> index,
+                               rust::Slice<const double> value, rust::Slice<const double> zones,
+                               rust::Slice<const double> solution, bool asym) {
+    const i64 n = static_cast<i64>(start.size()) - 1;
+    const opt::eval::Csc m = csc_of(start, index, value, n);
+    for (const i64 r : m.index) check(r >= 0 && r < n, "rows within the units");
+    return asym ? opt::eval::asym_connectivity_zones(m, to_std(zones), to_std(solution))
+                : opt::eval::connectivity_zones(m, to_std(zones), to_std(solution));
+}
+
 CscOut eval_ferrier(rust::Slice<const std::int64_t> start, rust::Slice<const std::int64_t> index,
                     rust::Slice<const double> value, std::int64_t nrow, rust::Slice<const double> targets,
                     rust::Slice<const std::uint8_t> selected) {

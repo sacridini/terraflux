@@ -173,6 +173,14 @@ double eval_accumulate(rust::Slice<const double> x);
 // the connectivity of a solution (rcpp_connectivity, rcpp_asym_connectivity): the units' matrix in compressed columns
 double eval_connectivity(rust::Slice<const std::int64_t> start, rust::Slice<const std::int64_t> index,
                          rust::Slice<const double> value, rust::Slice<const double> solution, bool asym);
+// with management zones: zones nz x nz (row-major), the solution zone after zone (unit i in zone z at z * n + i)
+double eval_boundary_zones(rust::Slice<const double> edge_factor, rust::Slice<const double> zones,
+                           rust::Slice<const std::int64_t> start, rust::Slice<const std::int64_t> index,
+                           rust::Slice<const double> value, rust::Slice<const double> exposed,
+                           rust::Slice<const double> total, rust::Slice<const double> solution);
+double eval_connectivity_zones(rust::Slice<const std::int64_t> start, rust::Slice<const std::int64_t> index,
+                               rust::Slice<const double> value, rust::Slice<const double> zones,
+                               rust::Slice<const double> solution, bool asym);
 
 // landscape metrics (lsm::), as landscapemetrics: classes as 32-bit integers, `na` empty or 1 where a cell is NA
 LsmTable lsm_table(rust::Slice<const std::int32_t> values, rust::Slice<const std::uint8_t> na, std::int64_t ny,

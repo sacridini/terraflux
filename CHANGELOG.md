@@ -60,6 +60,14 @@ minor versions.
   zone; locked units and manual bounds per zone; the solution as the zone of every unit and a layer per zone. The
   models are prioritizr's compile() bit for bit on landschaft's 23 zone cases, solved on landschaft's zones
   engines to prioritizr's optima.
+- Spatial penalties and constraints with zones: boundary penalties (edge factors per zone, a zones matrix of how much
+  a boundary between two zones counts), connectivity and asymmetric connectivity penalties with zones matrices,
+  linear penalties and constraints with data per zone (`zone_penalty_data`, `zone_constraint_data`), neighbour
+  constraints with k per zone, and contiguity per cluster of zones (landschaft's exact formulation). prioritizr's
+  compile() bit for bit on landschaft's 10 cases.
+- `prioritize.evaluate` with zones (`zone_solution`, a layer per zone, or the selection): the units, cost,
+  boundary, connectivity and asymmetric connectivity overall and per zone, the features' representation and the
+  targets' coverage (with lists of zones). prioritizr's numbers bit for bit on landschaft's 4 cases.
 - prioritizr's evaluation of a solution (`prioritize.evaluate`): the units selected, their cost and boundary, the
   features' representation, the targets' coverage, Ferrier et al.'s irreplaceability and the rarity-weighted
   richness; prioritizr's numbers bit for bit on the cases landschaft keeps; and on request the replacement

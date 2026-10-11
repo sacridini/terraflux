@@ -10,7 +10,10 @@ use std::collections::BTreeMap;
 use terraflux_ls_sys::ffi;
 
 mod zones;
-pub use zones::{Contribution, ZoneFeatures, fake_zone_targets, resolve_zone_targets};
+pub use zones::{
+    Contribution, ZoneEvaluation, ZoneFeatures, ZoneSpatial, connectivity_zones, evaluate_zones, fake_zone_targets,
+    resolve_zone_targets, zone_targets_held,
+};
 
 /// The planning units: cells of a raster with a cost, and the features' amounts in them.
 #[derive(Debug, Clone)]
@@ -699,8 +702,12 @@ pub fn compile(p: &Problem) -> Result<(Model, Targets), String> {
     let n = u.n();
     let kind = &p.objective;
     let zoned = u.zoned();
-    if zoned && !p.spatial.is_empty() {
-        return Err("spatial penalties and constraints are not supported with zones yet".into());
+    if p.spatial.iter().any(|s| matches!(s, Spatial::Zoned(_)) != zoned) {
+        return Err(if zoned {
+            "with zones, give the spatial penalties and constraints of zones".into()
+        } else {
+            "spatial penalties and constraints of zones need zones".into()
+        });
     }
     let t = if kind.no_targets() {
         // prioritizr's "fake" targets: one per feature (and zone)
@@ -1707,10 +1714,15 @@ pub enum Spatial {
     Contiguity { data: Option<Matrix> },
     /// add_feature_contiguity_constraints(data): every feature's units (where it counts) form one patch
     FeatureContiguity { data: Option<Matrix> },
+    /// with zones
+    Zoned(ZoneSpatial),
 }
 
 impl Spatial {
     fn is_penalty(&self) -> bool {
+        if let Spatial::Zoned(z) = self {
+            return z.is_penalty();
+        }
         matches!(
             self,
             Spatial::Boundary { .. }
@@ -2087,6 +2099,7 @@ fn add_connected(b: &mut Builder, nodes: &[usize], d: &Csc, tag: &str) {
 fn apply_spatial(b: &mut Builder, u: &Units, s: &Spatial) -> Result<(), String> {
     let n = b.n;
     match s {
+        Spatial::Zoned(z) => zones::apply_zone_spatial(b, u, z)?,
         Spatial::Boundary { penalty, edge_factor, data } => {
             let bm = match data {
                 None if u.raster => u.boundary_matrix(),
