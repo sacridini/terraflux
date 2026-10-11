@@ -72,15 +72,23 @@ model file dropped on it or opened with it; started that way on Windows, it show
   the arrows choose, enter adds it connected to the node selected (which the new node becomes, so a chain is
   built key after key), esc closes the search.
 - **Templates:** models to start from, run as soon as they open: MSPA of a forest (a map drawn by a neutral
-  landscape model, reclassified, MSPA, plotted), MSPA of your map, a forest cut from a surface by ranges, MSPA's
+  landscape model, reclassified, MSPA, plotted), MSPA of your map, a forest cut from a surface by ranges, the
+  fragmentation of a forest (FAD at five scales and FOS), its patterns and objects (SPA and Accounting), MSPA's
   edge width compared, the neutral landscape models side by side.
 - **Reclassifying:** the rules of `raster.reclassify` as a table (the values, what they become), the classes of
   the map it reads with their share beside them (A rule per class fills it), or its range for a continuous map
   (4 equal ranges), and how to write values, ranges (`0..10`), every other value (`*`) and no data (`nan`).
 - **Colours that fit the data,** as landschaft's plot: classes (whole values, few of them) a colour each, other
-  values a ramp, centred on 0 in blue and red when they are on both sides of it; MSPA's classes in
-  GuidosToolbox's colours and names, through the plots that show them and in files named so; elevations, a
+  values a ramp, centred on 0 in blue and red when they are on both sides of it; what GuidosToolbox gives (MSPA,
+  SPA, Accounting, FAD and FOS) in its colours and names, a density's legend in its classes (rare to intact),
+  through the plots that show them and in files named as GTB names them; elevations, a
   hillshade and NDVI by their ramps (by the names of their nodes, files and bands).
+- **GuidosToolbox:** landschaft's port of GTB, the same bits as GTB's own outputs: MSPA (`landscape.mspa`), the
+  simplified pattern analysis (`landscape.spa`, 2 to 6 classes), the objects by size (`landscape.accounting`),
+  the foreground's density (`fragmentation.fad`, at five scales `fragmentation.fad_multiscale`) and the
+  fragmentation at a fixed scale (`fragmentation.fos`, by FAD, FED or FAC, binary maps or % covers), with GTB's
+  reports as tables. They read a map coded as GTB's (0 missing, 1 background, 2 foreground) or any map with the
+  foreground's classes given.
 - **Rasters of any size:** opening a raster reads its header only; the viewer reads the tiles in view at the
   screen's resolution (in threads, the coarser level shown meanwhile), so a raster of billions of cells shows
   in under half a second and zooms smoothly; a folder or a pattern (`forest/*.tif`) is one stack, a layer per

@@ -12,15 +12,15 @@ neutros (`nlm.*`) para testar fluxos sem dados. A ordem sugerida:
 1. **O resto do GuidosToolbox.** O C++ está em `extern/landschaft/src/cpp/gtb` e a biblioteca `gtbcore` já é
    linkada pelo `terraflux-ls-sys`: falta a ponte (shim + operador), como foi com o MSPA. São raster → raster e
    encaixam direto no builder.
-   - FAD e FAD multiescala (`fad.cpp`), FOS (`fos.cpp`): densidade e fragmentação da floresta.
-   - SPA (`spa.cpp`): o MSPA simplificado.
-   - Accounting (`accounting.cpp`): manchas por tamanho (dá um mapa e uma tabela).
+   - **Feito** (Unreleased): FAD e FAD multiescala, FOS, SPA e Accounting, bit a bit com as saídas do GTB, com
+     as paletas e os nomes das classes no viewer.
    - Depois: contagion/PFF e clustering (`contagion.cpp`), entropia espacial (`entropy.cpp`), parcellation e
      contortion (`morphology.cpp`), GTN (`gtn.cpp`), restoration, influence, isochrone, gray spatial
      convolution, mudança (`change.cpp`, `fad_change`).
-   - Cada produto com a sua paleta e os nomes das classes no viewer, como o MSPA (os do landschaft estão em
-     `src/landschaft/_plotting/_palettes.py`: classes do FAD, códigos de densidade, mudança simples e
-     morfológica, a ordem da legenda do GTB).
+   - Cada produto com a sua paleta e os nomes das classes no viewer, como o MSPA e o FAD
+     (`terraflux_ops::landscape::Product`; os do landschaft estão em `src/landschaft/_plotting/_palettes.py`:
+     mudança simples e morfológica, a ordem da legenda do GTB).
+   - O relatório de cada um (FOS, SPA, Accounting) como texto no formato do GTB, além das tabelas.
 2. **Métricas de paisagem** (`lsm`, no estilo do FRAGSTATS/landscapemetrics, em
    `extern/landschaft/src/cpp/lsm`). Devolvem tabelas por mancha, classe e paisagem, e janelas móveis devolvem
    mapas. Antes de valer a pena, o app precisa de um visualizador de tabelas melhor (ordenar, filtrar, exportar)
@@ -41,5 +41,7 @@ neutros (`nlm.*`) para testar fluxos sem dados. A ordem sugerida:
 
 - Navegar pelos nós com o teclado (setas para o nó vizinho, Enter para abrir o mapa), completando o "/" para
   montar um modelo inteiro sem o mouse.
-- Mais templates: um modelo do Dinamica EGO com os dados de exemplo, um CLUE-S, FAD/FOS quando entrarem.
+- Mais templates: um modelo do Dinamica EGO com os dados de exemplo, um CLUE-S. **Feito** (Unreleased): FAD/FOS,
+  SPA e Accounting.
+- Nomes longos de operadores quebram em duas linhas na biblioteca (`accounting`): cortar ou alargar a coluna.
 - Templates do próprio usuário: salvar um modelo como template e vê-lo no menu.

@@ -3843,9 +3843,11 @@ dependencies = [
 name = "terraflux-ops"
 version = "0.7.1"
 dependencies = [
+ "hex",
  "rayon",
  "serde",
  "serde_json",
+ "sha2",
  "terraflux-gdal",
  "terraflux-graph",
  "terraflux-ls-sys",

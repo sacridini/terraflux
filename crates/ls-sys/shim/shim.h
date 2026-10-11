@@ -21,6 +21,10 @@ struct PatchOut;
 struct ObservedPatches;
 struct CarsOut;
 struct SimilarityOut;
+struct FadOut;
+struct FadScalesOut;
+struct SpaOut;
+struct AccountingOut;
 
 // the threads of the kernels (OpenMP) of the calling thread, and their most
 void set_threads(std::int32_t n);
@@ -48,6 +52,19 @@ rust::Vec<double> nlm_fbm(std::int32_t seed, std::int64_t ny, std::int64_t nx, d
 
 rust::Vec<std::uint8_t> mspa(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx,
                              std::int32_t connectivity, std::int32_t edge_width, bool internal);
+// the rest of GuidosToolbox (gtb::): maps coded as for MSPA, with 3 and 4 special backgrounds where GTB takes them
+FadOut fad(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx, std::int32_t window);
+FadScalesOut fad_multiscale(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx,
+                            rust::Slice<const std::int32_t> windows);
+rust::Vec<std::uint8_t> fad_density(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx,
+                                    std::int32_t window, bool gtb_codes);
+rust::Vec<std::uint8_t> clustering_fac(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx,
+                                       std::int32_t window, bool gtb_codes);
+rust::Vec<std::uint8_t> grayspatcon_fos(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx,
+                                        std::int32_t metric, std::int32_t window);
+SpaOut spa(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx, std::int32_t variant);
+AccountingOut accounting(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx,
+                         std::int32_t connectivity, rust::Slice<const std::int64_t> thresholds, bool highlight_largest);
 
 rust::Vec<double> allow_matrix(rust::Slice<const double> x, rust::Slice<const std::int64_t> hist,
                                rust::Slice<const double> classes, rust::Slice<const double> cd,

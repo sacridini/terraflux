@@ -16,7 +16,7 @@ impl Template {
     }
 }
 
-pub const TEMPLATES: [Template; 5] = [
+pub const TEMPLATES: [Template; 7] = [
     Template {
         name: "MSPA of a forest",
         about: "a map of three classes drawn by chance, its forest made MSPA's foreground by a reclassification, \
@@ -133,6 +133,88 @@ op = "view.plot"
 inputs = { value = "mspa.map" }
 params = { title = "MSPA" }
 note = "MSPA's classes in GuidosToolbox's colours."
+"#,
+    },
+    Template {
+        name: "Fragmentation of a forest",
+        about: "one forest map, its density at five scales (FAD-MS) and its connectivity at one (FOS), in                 GuidosToolbox's colours",
+        toml: r#"
+format = "terraflux/1"
+name = "Fragmentation of a forest"
+description = "GuidosToolbox's fragmentation of a forest map: its density at five scales (FAD-MS) and FOS."
+
+[[nodes]]
+id = "landscape"
+op = "nlm.random_cluster"
+params = { rows = 300, columns = 300, p = 0.55, weights = [0.3, 0.15, 0.55], seed = 7 }
+note = "A map of three classes drawn by chance (1 farming, 2 water, 3 forest): in its place, a raster.read of a map of yours."
+
+[[nodes]]
+id = "fad"
+op = "fragmentation.fad_multiscale"
+inputs = { map = "landscape.map" }
+params = { foreground = 3 }
+note = "The forest's share (%) in windows of 7, 13, 27, 81 and 243 cells and their average; scales has each, stats the shares of the classes (rare to intact). The foreground is the forest's class: no reclassification needed."
+
+[[nodes]]
+id = "fos"
+op = "fragmentation.fos"
+inputs = { map = "landscape.map" }
+params = { foreground = 3, window = 27, method = "FAC", classes = 5 }
+note = "The connectivity of the forest at one scale (27 cells), by FAC; summary has GTB's report (ECA, coherence)."
+
+[[nodes]]
+id = "plot_fad"
+op = "view.plot"
+inputs = { value = "fad.map" }
+params = { title = "FAD, the average of five scales" }
+
+[[nodes]]
+id = "plot_fos"
+op = "view.plot"
+inputs = { value = "fos.map" }
+params = { title = "FOS (FAC, 27 cells)" }
+"#,
+    },
+    Template {
+        name: "Patterns and objects",
+        about: "one forest map, its simplified pattern (SPA6) and its objects by size (Accounting)",
+        toml: r#"
+format = "terraflux/1"
+name = "Patterns and objects"
+description = "GuidosToolbox's SPA and Accounting on a forest map: a coarser MSPA, and the forest's objects by size."
+
+[[nodes]]
+id = "landscape"
+op = "nlm.random_cluster"
+params = { rows = 300, columns = 300, p = 0.5, weights = [0.5, 0.5], seed = 5 }
+note = "Two classes drawn by chance: 1 the background, 2 the forest (GuidosToolbox's coding already)."
+
+[[nodes]]
+id = "spa"
+op = "landscape.spa"
+inputs = { map = "landscape.map" }
+params = { variant = 6 }
+note = "Core, islet, edge, perforation and margin: MSPA's main classes at less cost; stats has their areas, porosity the share of core-openings."
+
+[[nodes]]
+id = "objects"
+op = "landscape.accounting"
+inputs = { map = "landscape.map" }
+params = { thresholds = [10, 100, 1000, 5000], highlight_largest = true }
+note = "The forest's objects in five size classes (up to 10 cells, 100, 1000, 5000, larger), the three largest painted apart; stats counts each class."
+
+[[nodes]]
+id = "plot_spa"
+op = "view.plot"
+inputs = { value = "spa.map" }
+params = { title = "SPA6" }
+
+[[nodes]]
+id = "plot_objects"
+op = "view.plot"
+inputs = { value = "objects.map" }
+params = { title = "Objects by size" }
 "#,
     },
     Template {

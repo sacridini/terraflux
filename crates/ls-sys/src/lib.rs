@@ -91,6 +91,45 @@ pub mod ffi {
         last: Vec<i64>,
     }
 
+    /// GuidosToolbox's FAD at one window: the density (0-100 on the foreground, GTB's codes 101 background, 102
+    /// missing, 105 and 106 special backgrounds elsewhere), the same density everywhere, the classes 1 (rare) to
+    /// 6 (intact), the foreground's cells and those of each class, the density summed over the foreground.
+    struct FadOut {
+        density: Vec<u8>,
+        raw: Vec<u8>,
+        classes: Vec<u8>,
+        foreground: i64,
+        class_counts: Vec<i64>,
+        density_sum: i64,
+    }
+
+    /// FAD at several windows: the density at each, one map after the other, their average and its classes;
+    /// rows of the window (0 for the average), the shares of intact, interior, dominant, transitional, patchy
+    /// and rare foreground, and the average density.
+    struct FadScalesOut {
+        maps: Vec<u8>,
+        multiscale: Vec<u8>,
+        classes: Vec<u8>,
+        stats: Vec<f64>,
+    }
+
+    /// SPA's classes and the objects of the foreground, cores, margins, core-openings, edges, perforations, islets
+    /// and contiguous foreground (-1 where the variant has none).
+    struct SpaOut {
+        map: Vec<u8>,
+        counts: Vec<i64>,
+    }
+
+    /// GTB's Accounting: the thresholds used, the size classes in GTB's colour codes, the objects' ids and each
+    /// cell's object's area (0 background, -1 missing, -3 and -4 special backgrounds), the area of each object.
+    struct AccountingOut {
+        thresholds: Vec<i64>,
+        classes: Vec<u8>,
+        ids: Vec<i32>,
+        area: Vec<i32>,
+        object_area: Vec<i64>,
+    }
+
     #[derive(Debug, Clone, Copy, PartialEq)]
     struct ObservedPatches {
         cells: i64,
@@ -133,6 +172,20 @@ pub mod ffi {
         ) -> Result<Vec<f64>>;
         fn nlm_fbm(seed: i32, ny: i64, nx: i64, fract_dim: f64) -> Result<Vec<f64>>;
         fn mspa(input: &[u8], ny: i64, nx: i64, connectivity: i32, edge_width: i32, internal: bool) -> Result<Vec<u8>>;
+        fn fad(input: &[u8], ny: i64, nx: i64, window: i32) -> Result<FadOut>;
+        fn fad_multiscale(input: &[u8], ny: i64, nx: i64, windows: &[i32]) -> Result<FadScalesOut>;
+        fn fad_density(input: &[u8], ny: i64, nx: i64, window: i32, gtb_codes: bool) -> Result<Vec<u8>>;
+        fn clustering_fac(input: &[u8], ny: i64, nx: i64, window: i32, gtb_codes: bool) -> Result<Vec<u8>>;
+        fn grayspatcon_fos(input: &[u8], ny: i64, nx: i64, metric: i32, window: i32) -> Result<Vec<u8>>;
+        fn spa(input: &[u8], ny: i64, nx: i64, variant: i32) -> Result<SpaOut>;
+        fn accounting(
+            input: &[u8],
+            ny: i64,
+            nx: i64,
+            connectivity: i32,
+            thresholds: &[i64],
+            highlight_largest: bool,
+        ) -> Result<AccountingOut>;
 
         fn allow_matrix(x: &[f64], hist: &[i64], classes: &[f64], cd: &[f64], rules: &[i64]) -> Result<Vec<f64>>;
         fn auto_convert(x: &[f64], prob: &[f64], classes: &[f64], mask: &[i64]) -> Result<Vec<f64>>;

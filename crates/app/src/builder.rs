@@ -12,6 +12,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 
 use egui::{Margin, RichText, Ui, Vec2};
 use terraflux_graph::{Node, Type};
+use terraflux_ops::landscape::Product;
 use terraflux_ops::{Map, Registry, Value};
 
 use crate::app::{Look, Session, accent_button, node_panel};
@@ -240,8 +241,9 @@ pub fn quick_add(ctx: &egui::Context, s: &mut Session, r: &Registry, lib: &Libra
 pub enum Palette {
     /// By the values: classes in order, or a ramp (centred on 0 for values on both sides of it).
     Auto,
-    /// MSPA's classes in GuidosToolbox's colours, with their names (when the values are MSPA's classes).
-    Mspa,
+    /// What GuidosToolbox gives (MSPA's classes, FAD's densities...) in its colours, with the names of its values
+    /// (when the values are the product's).
+    Product(Product),
     /// Elevations: a ramp from lowlands to peaks.
     Elevation,
     /// A hillshade: black to white.
@@ -251,15 +253,25 @@ pub enum Palette {
 }
 
 impl Palette {
-    /// The palette of what an operator gives, `names` those of the nodes, files and bands it comes from.
-    pub fn of(op: &str, names: &str) -> Palette {
+    /// The palette of what an operator gives (`made`, when it is a product of GuidosToolbox), `names` those of the
+    /// nodes, files and bands it comes from.
+    pub fn of(made: Option<Product>, names: &str) -> Palette {
         let names = names.to_lowercase();
         // whole words of the names (so that "demand" is no "dem")
         let words: Vec<&str> = names.split(|c: char| !c.is_ascii_alphanumeric()).filter(|w| !w.is_empty()).collect();
         let has = |w: &str| words.contains(&w);
         let starts = |w: &str| words.iter().any(|x| x.starts_with(w));
-        if op == "landscape.mspa" || starts("mspa") {
-            Palette::Mspa
+        if let Some(p) = made {
+            Palette::Product(p)
+        } else if starts("mspa") {
+            Palette::Product(Product::Mspa)
+        // GTB's names of its files: x_fad_27.tif, x_fos_fad_6class.tif, x_spa5.tif, x_acc.tif
+        } else if starts("fad") || has("fos") {
+            Palette::Product(Product::Density { five: has("5class") })
+        } else if has("spa") || ["spa2", "spa3", "spa5", "spa6"].iter().any(|w| has(w)) {
+            Palette::Product(Product::Spa)
+        } else if has("acc") || has("accounting") {
+            Palette::Product(Product::Accounting)
         } else if starts("hillshade") || has("shade") {
             Palette::Shade
         } else if has("dem")
@@ -287,39 +299,34 @@ impl Palette {
             Palette::Elevation => ramp(Ramp::Terrain),
             Palette::Shade => ramp(Ramp::Grey),
             Palette::Vegetation => ramp(Ramp::Vegetation),
-            Palette::Mspa => {
+            Palette::Product(p) => {
                 let counts = class_counts(values);
-                // a file named so that is not MSPA's classes: by its values
-                if counts.is_empty() || counts.iter().any(|(v, _)| terraflux_ops::landscape::mspa_class(*v).is_none()) {
-                    return auto;
+                // a file named so that is not the product's values: by its values
+                let colours: Option<Vec<(f64, egui::Color32)>> = counts
+                    .iter()
+                    .map(|(v, _)| p.colour(*v).map(|[r, g, b]| (*v, egui::Color32::from_rgb(r, g, b))))
+                    .collect();
+                match colours {
+                    Some(c) if !c.is_empty() => Look { coloring: Coloring::Classes(c), counts, product: Some(p) },
+                    _ => auto,
                 }
-                let coloring = Coloring::Classes(
-                    counts
-                        .iter()
-                        .map(|(v, _)| {
-                            let [r, g, b] = terraflux_ops::landscape::mspa_colour(*v as u8);
-                            (*v, egui::Color32::from_rgb(r, g, b))
-                        })
-                        .collect(),
-                );
-                Look { coloring, counts, mspa: true }
             }
         }
     }
 }
 
-/// The name of a value in a legend: its MSPA class, or the value.
+/// The name of a value in a legend: its name in the product shown, or the value.
 pub fn class_name(look: &Look, v: f64) -> String {
-    match look.mspa.then(|| terraflux_ops::landscape::mspa_class(v)).flatten() {
+    match look.product.and_then(|p| p.name(v)) {
         Some(n) => n,
         None => terraflux_ops::value::class_label(v),
     }
 }
 
-/// The operator that made what a node gives, through the plots that show it (they give what they are given);
-/// and the ids of the nodes on the way.
-fn producer(s: &Session, node: &str) -> (String, String) {
-    let mut id = node.to_string();
+/// What a node gives at a port, through the plots that show it (they give what they are given): the product of
+/// GuidosToolbox it is, if one, and the ids of the nodes on the way.
+fn producer(s: &Session, node: &str, port: &str) -> (Option<Product>, String) {
+    let (mut id, mut port) = (node.to_string(), port.to_string());
     let mut names = String::new();
     for _ in 0..32 {
         let Some(n) = s.model.nodes.iter().find(|n| n.id == id) else { break };
@@ -330,11 +337,11 @@ fn producer(s: &Session, node: &str) -> (String, String) {
             _ => None,
         };
         match from {
-            Some(terraflux_graph::Ref::Port { node, .. }) => id = node,
-            _ => return (n.op.clone(), names),
+            Some(terraflux_graph::Ref::Port { node, port: p }) => (id, port) = (node, p),
+            _ => return (Product::of(&n.op, &port, &n.params), names),
         }
     }
-    (String::new(), names)
+    (None, names)
 }
 
 type Worked = (SourceKey, Palette, Look);
@@ -676,7 +683,10 @@ fn library(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library) {
                     continue;
                 }
                 egui::CollapsingHeader::new(RichText::new(*subject).strong())
-                    .default_open(matches!(*subject, "Data & configuration" | "Habitat patterns" | "Visualization"))
+                    .default_open(matches!(
+                        *subject,
+                        "Data & configuration" | "Habitat patterns" | "Fragmentation" | "Visualization"
+                    ))
                     .show(ui, |ui| {
                         // the operators of no group, then each group a level below, closed until opened
                         for e in in_it.iter().filter(|e| e.group.is_none()) {
@@ -1018,7 +1028,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     }
     let k = sh.band.min(maps.len() - 1);
     // the colours by what the values are: the operator that made them, the names they come by
-    let (made_by, mut hint) = producer(s, &node);
+    let (made, mut hint) = producer(s, &node, &port);
     hint.push_str(&port);
     if let Source::Rasters(r, l) = &maps[k] {
         hint.push(' ');
@@ -1026,7 +1036,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         hint.push(' ');
         hint.push_str(&r.images[r.layers[*l].image].path().to_string_lossy());
     }
-    let palette = Palette::of(&made_by, &hint);
+    let palette = Palette::of(made, &hint);
     let look = s.looks.get(ui.ctx(), &maps[k], palette);
     egui::Panel::right(egui::Id::new(("output side", salt)))
         .resizable(true)

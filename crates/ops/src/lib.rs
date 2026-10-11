@@ -6,7 +6,7 @@
 //! [`Registry`] holds them by name.
 //!
 //! Data comes in and goes out through operators too (`raster.read`, `raster.write`), and landschaft's
-//! landscape analyses (`landscape.mspa`) run on the same maps.
+//! landscape analyses (GuidosToolbox's `landscape.mspa`, `fragmentation.fad` and the others) run on the same maps.
 //!
 //! The land change operators reproduce landschaft's `ls.simulate` step by
 //! step, calling the same C++ kernels (through `terraflux-ls-sys`), so that
@@ -20,6 +20,7 @@ pub mod dinamica;
 pub mod dynamic;
 pub mod files;
 pub mod fitted;
+pub mod fragmentation;
 pub mod glm;
 pub mod landscape;
 pub mod lulcc;
@@ -238,6 +239,7 @@ impl Registry {
         dynamic::register(&mut r);
         files::register(&mut r);
         fitted::register(&mut r);
+        fragmentation::register(&mut r);
         landscape::register(&mut r);
         plus::register(&mut r);
         prepare::register(&mut r);

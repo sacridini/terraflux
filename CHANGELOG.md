@@ -7,6 +7,17 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- The rest of GuidosToolbox's main tools, through landschaft's port (its C++, as MSPA), the same bits as GTB's
+  outputs that landschaft keeps (`tools/make_gtb_inputs.py` writes the maps they were made from):
+  `landscape.spa` (SPA2, 3, 5 and 6, the objects counted and the porosity), `landscape.accounting` (the
+  objects in size classes: GTB's batch classes, those given or "auto"; the objects' ids and areas as maps),
+  `fragmentation.fad` and `fragmentation.fad_multiscale` (the density at each window, their average, its
+  classes, AVCON), `fragmentation.fos` (FAD, FED or FAC, 5 or 6 classes, binary maps or % covers, GTB's report:
+  ECA, coherence). Every one takes the foreground's classes or a map in GTB's codes.
+- Their maps in GTB's colours with the names of their values (`terraflux_ops::landscape::Product`), by the
+  operator and port that made them or the names GTB gives its files; the legend of a density (FAD, FOS) in its
+  classes, rare to intact, a line each.
+- Templates: Fragmentation of a forest (FAD-MS and FOS), Patterns and objects (SPA6 and Accounting).
 - `/` searches the operators from the keyboard: the arrows choose, enter adds the one chosen connected to the node
   selected, esc closes the search. The library's search ranks names before descriptions.
 - Templates (the Templates menu): models that run as soon as they open, to see a flow and check it works: MSPA

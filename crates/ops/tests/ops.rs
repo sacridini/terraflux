@@ -178,6 +178,239 @@ fn mspa_is_guidos_toolbox() {
     assert!(run("landscape.mspa", vec![("map", Value::Map(lu))], serde_json::json!({})).is_err(), "not GTB's codes");
 }
 
+/// The cases of GuidosToolbox's outputs that landschaft keeps (digests of GTB's maps and its reports, of the
+/// maps in `tests/data/reference/gtb_inputs.npz`), by tool.
+fn gtb_cases(tool: &str) -> (Vec<serde_json::Value>, std::collections::BTreeMap<String, terraflux_raster::npy::Array>) {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let text = std::fs::read_to_string(root.join("extern/landschaft/tests/data/reference/idl_reference.json")).unwrap();
+    let all: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let inputs = terraflux_raster::npy::read_npz(root.join("tests/data/reference/gtb_inputs.npz")).unwrap();
+    (all[tool].as_array().unwrap().clone(), inputs)
+}
+
+/// The digest of a map's cells as GTB's bytes (`u8`) or its 32-bit integers.
+fn digest(values: &[f64], int32: bool) -> String {
+    use sha2::Digest;
+    let bytes: Vec<u8> = if int32 {
+        values.iter().flat_map(|&v| (v as i32).to_le_bytes()).collect()
+    } else {
+        values.iter().map(|&v| v as u8).collect()
+    };
+    hex::encode(sha2::Sha256::digest(&bytes))
+}
+
+fn gtb_map(
+    case: &serde_json::Value,
+    inputs: &std::collections::BTreeMap<String, terraflux_raster::npy::Array>,
+) -> Value {
+    let a = &inputs[case["input"].as_str().unwrap()];
+    assert_eq!(digest(&a.data, false), case["input_sha256"], "the input of {case}");
+    Value::Map(map(a.shape[0], a.shape[1], &a.data))
+}
+
+fn table(out: &terraflux_ops::Outputs, port: &str) -> terraflux_ops::Table {
+    let Value::Table(t) = &out[port] else { panic!("{port} is no table") };
+    t.clone()
+}
+
+fn number(stats: &serde_json::Value, key: &str) -> f64 {
+    stats[key].as_str().unwrap().trim_end_matches('.').parse().unwrap()
+}
+
+fn close(a: f64, b: f64, rel: f64) -> bool {
+    (a - b).abs() <= rel * b.abs().max(1e-12)
+}
+
+/// SPA gives GTB's maps and object counts on every case kept (2, 3, 5 and 6 classes on six maps).
+#[test]
+fn spa_is_guidos_toolbox() {
+    let (cases, inputs) = gtb_cases("spa");
+    for case in &cases {
+        let variant = case["variant"].as_i64().unwrap();
+        let out = run("landscape.spa", vec![("map", gtb_map(case, &inputs))], serde_json::json!({"variant": variant}))
+            .unwrap();
+        let Value::Map(m) = &out["map"] else { panic!() };
+        assert_eq!(digest(&m.data, false), case["sha256"], "SPA{variant} of {}", case["input"]);
+        let objects = table(&out, "objects");
+        let count = |k: &str| objects.column(k).unwrap()[0];
+        let stats = &case["stats"];
+        let keys: &[(&str, &str)] = if variant == 2 {
+            &[("nr_FG", "foreground"), ("nr_Cores", "contiguous"), ("nr_margin", "small_linear_features")]
+        } else {
+            &[
+                ("nr_FG", "foreground"),
+                ("nr_Cores", "core"),
+                ("nr_margin", "margin"),
+                ("nr_holes", "core_opening"),
+                ("nr_edge", "edge"),
+                ("nr_perf", "perforation"),
+                ("nr_islet", "islet"),
+                ("nr_contiguous", "contiguous"),
+            ]
+        };
+        for (gtb, ours) in keys {
+            if stats.get(*gtb).is_some() {
+                assert_eq!(count(ours), number(stats, gtb), "SPA{variant} of {}: {ours}", case["input"]);
+            }
+        }
+        if variant != 2 {
+            let Value::Number(p) = out["porosity"] else { panic!() };
+            assert!(close(p, number(stats, "porosity"), 1e-12), "porosity {p}");
+        }
+    }
+    assert_eq!(cases.len(), 24);
+}
+
+/// Accounting gives GTB's maps (the size classes, the objects' ids and areas) and its report.
+#[test]
+fn accounting_is_guidos_toolbox() {
+    let (cases, inputs) = gtb_cases("accounting");
+    let mut checked = 0;
+    for case in &cases {
+        // the classes scaled to a map's objects are landschaft's own (GTB's dialog), not an operator's setting
+        if case.get("scaled_classes").is_some() {
+            continue;
+        }
+        let params = serde_json::json!({
+            "connectivity": case["connectivity"],
+            "thresholds": case["thresholds"],
+            "highlight_largest": case["highlight_largest"],
+        });
+        let out = run("landscape.accounting", vec![("map", gtb_map(case, &inputs))], params.clone()).unwrap();
+        let what = format!("{} {params}", case["input"]);
+        for (port, key, int32) in [("map", "classes", false), ("ids", "ids", true), ("area", "area", true)] {
+            let Value::Map(m) = &out[port] else { panic!() };
+            assert_eq!(digest(&m.data, int32), case["sha256"][key], "{port} of {what}");
+        }
+        let stats = table(&out, "stats");
+        let list = |k: &str| -> Vec<f64> {
+            case["stats"][k].as_str().unwrap().split(',').map(|v| v.trim_end_matches('.').parse().unwrap()).collect()
+        };
+        let classes = number(&case["stats"], "nr_cat") as usize + 1;
+        assert_eq!(stats.column("objects").unwrap()[..classes], list("cat_id")[..], "{what}");
+        assert_eq!(stats.column("cells").unwrap()[..classes], list("cat_area")[..], "{what}");
+        let objects = table(&out, "objects");
+        assert_eq!(objects.rows.len() as f64, number(&case["stats"], "tot_ids"), "{what}");
+        checked += 1;
+    }
+    assert_eq!(checked, 35);
+}
+
+/// FAD-MS gives GTB's density at each of its five windows and their average.
+#[test]
+fn fad_multiscale_is_guidos_toolbox() {
+    let (cases, inputs) = gtb_cases("fad_mscale");
+    for case in &cases {
+        let out =
+            run("fragmentation.fad_multiscale", vec![("map", gtb_map(case, &inputs))], serde_json::json!({})).unwrap();
+        let Value::Stack(s) = &out["scales"] else { panic!() };
+        for (k, layer) in s.keys.iter().zip(&s.layers) {
+            assert_eq!(digest(layer, false), case["sha256"][k.to_string()], "FAD {k} of {}", case["input"]);
+        }
+        let Value::Map(m) = &out["map"] else { panic!() };
+        assert_eq!(digest(&m.data, false), case["sha256"]["mscale"], "FAD-MS of {}", case["input"]);
+        // GTB's averages, in single precision
+        let stats = table(&out, "stats");
+        let (av, ru) = (stats.column("average").unwrap(), stats.column("avcon").unwrap());
+        for i in 0..6 {
+            assert!(close(av[i], case["fad_av"][i].as_f64().unwrap(), 1e-6), "{} average {i}", case["input"]);
+            assert!(close(ru[i], case["fadru_av"][i].as_f64().unwrap(), 1e-6), "{} AVCON {i}", case["input"]);
+        }
+    }
+    assert_eq!(cases.len(), 6);
+    // one window: the same map as fragmentation.fad's, with the same classes
+    let (_, inputs) = gtb_cases("fad_mscale");
+    let a = &inputs["gtb_input"];
+    let land = Value::Map(map(a.shape[0], a.shape[1], &a.data));
+    let one = run("fragmentation.fad", vec![("map", land.clone())], serde_json::json!({"window": 27})).unwrap();
+    let ms = run("fragmentation.fad_multiscale", vec![("map", land)], serde_json::json!({"windows": [27]})).unwrap();
+    let (Value::Map(a), Value::Map(b)) = (&one["map"], &ms["map"]) else { panic!() };
+    assert_eq!(a.data, b.data);
+    let stats = table(&one, "stats");
+    assert!(close(stats.column("average").unwrap()[0], 73.543212890625, 1e-6));
+    assert!((stats.rows[0][1..7].iter().sum::<f64>() - 100.0).abs() < 1e-9, "the classes share the foreground");
+}
+
+/// FOS gives GTB's maps and report on every case kept: binary maps (with special backgrounds) by FAD, FED and FAC,
+/// % covers by FAD and FED, in 5 and 6 classes.
+#[test]
+fn fos_is_guidos_toolbox() {
+    let (cases, inputs) = gtb_cases("fos");
+    for case in &cases {
+        let (method, classes) = case["fosclass"].as_str().unwrap().split_once('_').unwrap();
+        let params = serde_json::json!({
+            "window": case["window"],
+            "method": method,
+            "classes": classes[..1].parse::<i64>().unwrap(),
+            "connectivity": case["connectivity"],
+            "gray_threshold": case["gray_threshold"],
+        });
+        let out = run("fragmentation.fos", vec![("map", gtb_map(case, &inputs))], params.clone()).unwrap();
+        let what = format!("{} {params}", case["input"]);
+        let Value::Map(m) = &out["map"] else { panic!() };
+        assert_eq!(digest(&m.data, false), case["sha256"], "FOS of {what}");
+        let stats = &case["stats"];
+        let s = table(&out, "summary");
+        let col = |k: &str| s.column(k).unwrap()[0];
+        assert_eq!(col("foreground"), number(stats, "fgarea"), "{what}");
+        assert_eq!(col("reporting_area"), number(stats, "n_ruarea"), "{what}");
+        assert_eq!(col("patches"), number(stats, "obj_last"), "{what}");
+        for (ours, gtb) in [
+            ("average_patch_size", "aps"),
+            ("eca", "ECA"),
+            ("coherence", "COH"),
+            ("coherence_ru", "COH_ru"),
+            ("foreground_percent", "fareaperc"),
+        ] {
+            assert!(close(col(ours), number(stats, gtb), 1e-12), "{what}: {ours} {} != {}", col(ours), stats[gtb]);
+        }
+        // GTB works these out in single precision
+        assert!(close(col("average"), number(stats, "fad_av"), 1e-6), "{what}: average");
+        assert!(close(col("avcon"), number(stats, "fadru_av"), 1e-6), "{what}: AVCON");
+        let shares: Vec<f64> = stats["classes"].as_str().unwrap().split(',').map(|v| v.parse().unwrap()).collect();
+        let ours = table(&out, "stats").column("percent").unwrap();
+        for (i, p) in ours.iter().enumerate().take(if classes.starts_with('6') { 6 } else { 4 }) {
+            assert!(
+                (p - shares[i]).abs() <= 1e-6 * shares[i].abs() + 1e-9,
+                "{what}: class {}: {p} != {}",
+                i + 1,
+                shares[i]
+            );
+        }
+    }
+    assert_eq!(cases.len(), 13);
+    // a land use map: its forest the foreground; maps that cannot be read so
+    let land = map(
+        30,
+        30,
+        &(0..900)
+            .map(|i| if (5..20).contains(&(i / 30)) && (5..20).contains(&(i % 30)) { 7.0 } else { 3.0 })
+            .collect::<Vec<_>>(),
+    );
+    let out = run(
+        "fragmentation.fos",
+        vec![("map", Value::Map(land.clone()))],
+        serde_json::json!({"window": 5, "foreground": 7}),
+    )
+    .unwrap();
+    let Value::Map(m) = &out["map"] else { panic!() };
+    assert_eq!((m.data[0], m.data[12 * 30 + 12]), (101.0, 100.0));
+    assert!(
+        run(
+            "fragmentation.fos",
+            vec![("map", Value::Map(land.clone()))],
+            serde_json::json!({"window": 5, "foreground": 9})
+        )
+        .is_err(),
+        "no foreground"
+    );
+    assert!(
+        run("fragmentation.fos", vec![("map", Value::Map(land))], serde_json::json!({"window": 31, "foreground": 7}))
+            .is_err(),
+        "too small"
+    );
+}
+
 #[test]
 fn rasters_are_read_and_written() {
     use terraflux_ops::files::{Rasters, as_port};

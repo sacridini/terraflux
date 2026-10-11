@@ -472,7 +472,9 @@ fn templates_run_and_the_keyboard_adds_operators() {
     until(&mut h, "the legend", |a| {
         let s = a.session.as_ref().unwrap();
         let Some(terraflux_ops::Value::Map(m)) = s.value_of("plot", "shown") else { return false };
-        s.looks.peek(&terraflux_app::map_view::Source::from(&m)).is_some_and(|l| l.mspa)
+        s.looks
+            .peek(&terraflux_app::map_view::Source::from(&m))
+            .is_some_and(|l| l.product == Some(terraflux_ops::landscape::Product::Mspa))
     });
     shot(&mut h, "15-template");
     // the reclassification's rules as a table, the classes of the map it reads beside them
@@ -523,6 +525,44 @@ fn templates_run_and_the_keyboard_adds_operators() {
     let s = h.state().session.as_ref().unwrap();
     assert!(s.editor.quick.is_none());
     assert_eq!(s.source.nodes.len(), n);
+}
+
+/// GuidosToolbox's fragmentation in the builder: FAD-MS's average shown in GTB's colours, its legend in the
+/// classes of a density (rare to intact) rather than a line per value; FOS in 5 classes.
+#[test]
+fn fragmentation_is_shown_in_its_classes() {
+    use terraflux_ops::landscape::Product;
+    let mut h = harness(TerrafluxApp::new(None));
+    h.run_steps(2);
+    let ctx = h.ctx.clone();
+    let t = terraflux_app::templates::TEMPLATES.iter().find(|t| t.name == "Fragmentation of a forest").unwrap();
+    h.state_mut().start_template(&ctx, t);
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("plot_fad", "shown").is_some()
+    });
+    fn look(h: &mut Harness<TerrafluxApp>, node: &str) -> terraflux_app::app::Look {
+        let of = |a: &TerrafluxApp| {
+            let s = a.session.as_ref().unwrap();
+            let Some(terraflux_ops::Value::Map(m)) = s.value_of(node, "shown") else { return None };
+            s.looks.peek(&terraflux_app::map_view::Source::from(&m)).filter(|l| l.product.is_some()).cloned()
+        };
+        until(h, "the legend", |a| of(a).is_some());
+        of(h.state()).unwrap()
+    }
+    // the template's two plots open in tabs: FAD's in front
+    h.state_mut().session.as_mut().unwrap().open_map("plot_fad", "shown");
+    let fad = look(&mut h, "plot_fad");
+    assert_eq!(fad.product, Some(Product::Density { five: false }));
+    let terraflux_app::palette::Coloring::Classes(c) = &fad.coloring else { panic!("classes") };
+    let lines = terraflux_app::map_view::legend_lines(c, &fad.counts, &|v| terraflux_app::builder::class_name(&fad, v));
+    assert!(c.len() > 20 && lines.len() <= 8, "{} values in {} lines: {lines:?}", c.len(), lines.len());
+    assert!(lines.iter().any(|(_, n, _)| n == "Background"));
+    shot(&mut h, "18-fragmentation");
+    // FOS's tab: in 5 classes
+    h.state_mut().session.as_mut().unwrap().open_map("plot_fos", "shown");
+    let fos = look(&mut h, "plot_fos");
+    assert_eq!(fos.product, Some(Product::Density { five: true }));
 }
 
 /// Every template that needs no file runs from the command line's engine.

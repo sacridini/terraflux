@@ -786,20 +786,38 @@ impl Thumbs {
     }
 }
 
+/// The lines of a legend of classes: a colour, a name and the cells, the classes in a row of the same colour and
+/// name in one line (the values of a density in its classes: Rare (0-9%)...).
+pub fn legend_lines(
+    classes: &[(f64, Color32)],
+    counts: &[(f64, usize)],
+    names: &dyn Fn(f64) -> String,
+) -> Vec<(Color32, String, usize)> {
+    let mut lines: Vec<(Color32, String, usize)> = Vec::new();
+    for (v, col) in classes {
+        let n = counts.iter().find(|(k, _)| k == v).map_or(0, |(_, n)| *n);
+        let name = names(*v);
+        match lines.last_mut() {
+            Some((c, last, m)) if c == col && *last == name => *m += n,
+            _ => lines.push((*col, name, n)),
+        }
+    }
+    lines
+}
+
 /// The legend of a colouring: a swatch and the name of each class (with its cells), or the range.
 pub fn legend(ui: &mut Ui, coloring: &Coloring, counts: &[(f64, usize)], names: &dyn Fn(f64) -> String) {
     match coloring {
         Coloring::Classes(c) => {
-            for (v, col) in c {
+            for (col, name, n) in legend_lines(c, counts, names) {
                 ui.horizontal(|ui| {
                     let (r, _) = ui.allocate_exact_size(Vec2::splat(12.0), Sense::hover());
-                    ui.painter().rect_filled(r, 2.0, *col);
-                    let n = counts.iter().find(|(k, _)| k == v).map_or(0, |(_, n)| *n);
+                    ui.painter().rect_filled(r, 2.0, col);
                     // the count on the right, the name in what is left (cut short when long)
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(egui::RichText::new(n.to_string()).weak().monospace());
                         ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                            ui.add(egui::Label::new(names(*v)).truncate());
+                            ui.add(egui::Label::new(name).truncate());
                         });
                     });
                 });

@@ -13,7 +13,12 @@
 #endif
 #include <vector>
 
+#include "gtb/accounting.hpp"
+#include "gtb/contagion.hpp"
+#include "gtb/fad.hpp"
+#include "gtb/fos.hpp"
 #include "gtb/mspa.hpp"
+#include "gtb/spa.hpp"
 #include "lsm/rmath.hpp"
 #include "nlm/models.hpp"
 #include "sim/change.hpp"
@@ -59,6 +64,24 @@ sim::MapView view(rust::Slice<const double> values) {
 void check(bool ok, const char* what) {
     if (!ok) throw std::invalid_argument(what);
 }
+
+// a map of bytes (row-major ny x nx) as GTB's image
+gtb::ImageU8 image(rust::Slice<const std::uint8_t> input, i64 ny, i64 nx) {
+    check(ny >= 0 && nx >= 0 && static_cast<i64>(input.size()) == ny * nx, "the map differs in size from ny x nx");
+    gtb::ImageU8 im(nx, ny);
+    if (im.size() > 0) std::copy(input.begin(), input.end(), im.data());
+    return im;
+}
+
+template <class T>
+rust::Vec<T> pixels(const gtb::Image<T>& im) {
+    rust::Vec<T> v;
+    v.reserve(static_cast<std::size_t>(im.size()));
+    for (i64 i = 0; i < im.size(); ++i) v.push_back(im[i]);
+    return v;
+}
+
+void check_window(std::int32_t w) { check(w >= 3 && w % 2 == 1, "the window's side is an odd number of cells, 3 or more"); }
 
 }  // namespace
 
@@ -137,19 +160,90 @@ rust::Vec<double> nlm_fbm(std::int32_t seed, std::int64_t ny, std::int64_t nx, d
 
 rust::Vec<std::uint8_t> mspa(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx,
                              std::int32_t connectivity, std::int32_t edge_width, bool internal) {
-    check(ny >= 0 && nx >= 0 && static_cast<i64>(input.size()) == ny * nx, "the map differs in size from ny x nx");
-    gtb::ImageU8 im(nx, ny);
-    if (im.size() > 0) std::copy(input.begin(), input.end(), im.data());
+    const gtb::ImageU8 im = image(input, ny, nx);
     gtb::MspaParams p;
     p.connectivity = connectivity;
     p.edge_width = edge_width;
     p.internal = internal;
     p.threads = 0;  // the stages in parallel, the kernels with the calling thread's OpenMP threads
-    const gtb::ImageU8 out = gtb::mspa(im, p);
-    rust::Vec<std::uint8_t> v;
-    v.reserve(static_cast<std::size_t>(out.size()));
-    for (i64 i = 0; i < out.size(); ++i) v.push_back(out[i]);
-    return v;
+    return pixels(gtb::mspa(im, p));
+}
+
+FadOut fad(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx, std::int32_t window) {
+    check_window(window);
+    const gtb::FADSingleResultCpp r = gtb::compute_fad(image(input, ny, nx), window);
+    FadOut out;
+    out.density = pixels(r.density);
+    out.raw = pixels(r.raw);
+    out.classes = pixels(r.classes);
+    out.foreground = r.foreground;
+    for (i64 n : r.class_counts) out.class_counts.push_back(n);
+    out.density_sum = r.density_sum;
+    return out;
+}
+
+FadScalesOut fad_multiscale(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx,
+                            rust::Slice<const std::int32_t> windows) {
+    check(!windows.empty(), "give one window or more");
+    for (std::int32_t w : windows) check_window(w);
+    const gtb::FADMultiscaleResultCpp r =
+        gtb::compute_fad_multiscale(image(input, ny, nx), std::vector<int>(windows.begin(), windows.end()));
+    FadScalesOut out;
+    out.maps.reserve(static_cast<std::size_t>(ny * nx) * r.single_scale_maps.size());
+    for (const auto& m : r.single_scale_maps)
+        for (i64 i = 0; i < m.size(); ++i) out.maps.push_back(m[i]);
+    out.multiscale = pixels(r.multiscale_map);
+    out.classes = pixels(r.multiscale_classes);
+    for (const auto& s : r.stats) {
+        for (double v : {double(s.scale), s.intact_pct, s.interior_pct, s.dominant_pct, s.transitional_pct, s.patchy_pct,
+                         s.rare_pct, s.average_fad})
+            out.stats.push_back(v);
+    }
+    return out;
+}
+
+rust::Vec<std::uint8_t> fad_density(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx,
+                                    std::int32_t window, bool gtb_codes) {
+    check_window(window);
+    return pixels(gtb::compute_fad_density(image(input, ny, nx), window, gtb_codes));
+}
+
+rust::Vec<std::uint8_t> clustering_fac(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx,
+                                       std::int32_t window, bool gtb_codes) {
+    check_window(window);
+    return pixels(gtb::compute_clustering_fac(image(input, ny, nx), window, gtb_codes));
+}
+
+rust::Vec<std::uint8_t> grayspatcon_fos(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx,
+                                        std::int32_t metric, std::int32_t window) {
+    check_window(window);
+    check(metric == 1 || metric == 52, "the metric is 1 (the mean) or 52 (clustering)");
+    return pixels(gtb::grayspatcon_fos(image(input, ny, nx), metric, window));
+}
+
+SpaOut spa(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx, std::int32_t variant) {
+    check(variant == 2 || variant == 3 || variant == 5 || variant == 6, "SPA's variant is 2, 3, 5 or 6");
+    const gtb::SPAResult r = gtb::compute_spa(image(input, ny, nx), variant);
+    SpaOut out;
+    out.map = pixels(r.map);
+    for (i64 n : {r.nr_fg, r.nr_cores, r.nr_margin, r.nr_holes, r.nr_edge, r.nr_perf, r.nr_islet, r.nr_contiguous})
+        out.counts.push_back(n);
+    return out;
+}
+
+AccountingOut accounting(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx,
+                         std::int32_t connectivity, rust::Slice<const std::int64_t> thresholds, bool highlight_largest) {
+    check(connectivity == 4 || connectivity == 8, "the connectivity is 4 or 8");
+    const gtb::AccountingResult r = gtb::compute_accounting(
+        image(input, ny, nx), connectivity, std::vector<i64>(thresholds.begin(), thresholds.end()), highlight_largest);
+    AccountingOut out;
+    out.thresholds = to_rust<std::int64_t>(r.thresholds);
+    out.classes = pixels(r.classes);
+    out.ids = pixels(r.ids);
+    out.area = pixels(r.area);
+    // object k's area at k - 1
+    for (std::size_t k = 1; k < r.object_area.size(); ++k) out.object_area.push_back(r.object_area[k]);
+    return out;
 }
 
 rust::Vec<double> allow_matrix(rust::Slice<const double> x, rust::Slice<const std::int64_t> hist,

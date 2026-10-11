@@ -476,6 +476,12 @@ Pendências:
   30 m) pede o processamento por tiles com halo, que é o próximo passo dessa frente.
 - **Interface em painéis** (`egui_dock`), destacáveis em janelas próprias para outro monitor; biblioteca nas
   categorias do landschaft.
+- **O resto do GuidosToolbox (2026-10-11):** `landscape.spa`, `landscape.accounting`, `fragmentation.fad`,
+  `fragmentation.fad_multiscale` e `fragmentation.fos`, pelo mesmo caminho do MSPA (shim e operador, o C++ do
+  landschaft sem cópia). O que o Python do FOS fazia em volta dos kernels (códigos, manchas, ECA, médias em
+  precisão simples como o GTB) foi para o operador em Rust. Testados bit a bit contra as saídas do GTB que o
+  landschaft guarda: SPA em 24 casos, Accounting em 35, FAD-MS em 6 mapas e FOS em 13. O viewer dá a cada produto
+  as cores e os nomes do GTB, e a legenda de uma densidade sai nas suas classes.
 - **Próximos:** MSPA por tiles para rasters maiores que a memória; mapa de fundo de satélite (GDAL XYZ/WMS);
   vetores (OGR) para rasterizar e medir distâncias; instaladores com o GDAL; os outros kernels C++ já prontos (reclassificação, zonal, distância, métricas de paisagem,
   FAD, SPA), depois reprojeção (PROJ embutido e o warp do landschaft) e vetores.

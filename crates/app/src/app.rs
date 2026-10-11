@@ -218,8 +218,8 @@ pub struct Validation {
 pub struct Look {
     pub coloring: Coloring,
     pub counts: Vec<(f64, usize)>,
-    /// Whether the classes are MSPA's (named so in the legend).
-    pub mspa: bool,
+    /// The product of GuidosToolbox the classes are (named so in the legend).
+    pub product: Option<terraflux_ops::landscape::Product>,
 }
 
 impl Look {
@@ -233,7 +233,7 @@ impl Look {
             coloring = coloring.like(b);
         }
         let counts = if matches!(coloring, Coloring::Classes(_)) { class_counts(values) } else { Vec::new() };
-        Look { coloring, counts, mspa: false }
+        Look { coloring, counts, product: None }
     }
 }
 
@@ -868,7 +868,7 @@ impl Session {
                 });
                 Some((
                     m.clone(),
-                    Look { coloring, counts: self.counts.get(k).cloned().unwrap_or_default(), mspa: false },
+                    Look { coloring, counts: self.counts.get(k).cloned().unwrap_or_default(), product: None },
                     name,
                 ))
             }
