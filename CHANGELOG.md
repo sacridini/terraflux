@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-11
+
 ### Added
 - Landscape metrics, landscapemetrics' and FRAGSTATS', through landschaft's C++: `metrics.patch` (a row per
   patch, the map of the patches and of a metric), `metrics.class` (a row per class, the map of a metric),
