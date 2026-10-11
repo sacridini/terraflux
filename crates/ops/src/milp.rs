@@ -17,12 +17,16 @@ pub struct Units {
     /// per feature: what relative targets are shares of
     pub totals: Vec<f64>,
     pub names: Vec<String>,
-    /// raster units: the cell of each unit
+    /// raster units: the cell of each unit; table units: the row of each unit
     pub cells: Vec<usize>,
-    /// the raster's rows and columns and its geotransform
+    /// the raster's rows and columns and its geotransform (raster units)
     pub ny: usize,
     pub nx: usize,
     pub transform: [f64; 6],
+    /// whether the units are a raster's cells (else a table's rows)
+    pub raster: bool,
+    /// the cells of the raster, or the rows of the table, the units come from
+    pub size: usize,
 }
 
 /// A sparse matrix in compressed rows.
@@ -117,6 +121,102 @@ impl Units {
             ny,
             nx,
             transform,
+            raster: true,
+            size: n,
+        })
+    }
+
+    /// Table units: the rows with a finite cost, the amounts of the feature columns (no value 0), their totals R's
+    /// colSums over every row.
+    pub fn table(cost: &[f64], features: &[&[f64]], names: Vec<String>) -> Result<Units, String> {
+        if features.is_empty() {
+            return Err("no features".into());
+        }
+        let n = cost.len();
+        let rows: Vec<usize> = (0..n).filter(|&r| cost[r].is_finite()).collect();
+        let totals: Vec<f64> = features
+            .iter()
+            .map(|f| ffi::r_sum(&f.iter().map(|v| if v.is_nan() { 0.0 } else { *v }).collect::<Vec<_>>()))
+            .collect();
+        let mut rij =
+            Csr { nrow: features.len(), ncol: rows.len(), start: vec![0], index: Vec::new(), value: Vec::new() };
+        for f in features {
+            for (k, &r) in rows.iter().enumerate() {
+                let v = f[r];
+                if !v.is_nan() && v != 0.0 {
+                    rij.index.push(k);
+                    rij.value.push(v);
+                }
+            }
+            rij.start.push(rij.index.len());
+        }
+        Ok(Units {
+            cost: rows.iter().map(|&r| cost[r]).collect(),
+            rij,
+            totals,
+            names,
+            cells: rows,
+            ny: 0,
+            nx: 0,
+            transform: [0.0; 6],
+            raster: false,
+            size: n,
+        })
+    }
+
+    /// Marxan-style table units: the rows of `pu` with a finite cost; the amounts of `rij` (unit id, feature id,
+    /// amount; duplicates added up), the totals Matrix's rowSums over every unit.
+    pub fn rij(
+        ids: &[f64],
+        cost: &[f64],
+        feature_ids: &[f64],
+        names: Vec<String>,
+        rij: (&[f64], &[f64], &[f64]),
+    ) -> Result<Units, String> {
+        let n = cost.len();
+        let unit_of: std::collections::HashMap<u64, usize> =
+            ids.iter().enumerate().map(|(k, v)| (v.to_bits(), k)).collect();
+        let feat_of: std::collections::HashMap<u64, usize> =
+            feature_ids.iter().enumerate().map(|(k, v)| (v.to_bits(), k)).collect();
+        let (pu, sp, amount) = rij;
+        let (mut r, mut c, mut v) = (Vec::new(), Vec::new(), Vec::new());
+        for k in 0..amount.len() {
+            let (Some(&i), Some(&f)) = (unit_of.get(&pu[k].to_bits()), feat_of.get(&sp[k].to_bits())) else {
+                return Err("rij refers to planning units or features that are not in the tables".into());
+            };
+            r.push(f);
+            c.push(i);
+            v.push(amount[k]);
+        }
+        let full = Csr::from_triplets(feature_ids.len(), n, &r, &c, &v);
+        let totals = (0..full.nrow).map(|f| seq_sum(full.row(f).1)).collect();
+        let rows: Vec<usize> = (0..n).filter(|&k| cost[k].is_finite()).collect();
+        let mut pos = vec![usize::MAX; n];
+        for (k, &row) in rows.iter().enumerate() {
+            pos[row] = k;
+        }
+        let mut m = Csr { nrow: full.nrow, ncol: rows.len(), start: vec![0], index: Vec::new(), value: Vec::new() };
+        for f in 0..full.nrow {
+            let (idx, val) = full.row(f);
+            for (i, x) in idx.iter().zip(val) {
+                if pos[*i] != usize::MAX && *x != 0.0 {
+                    m.index.push(pos[*i]);
+                    m.value.push(*x);
+                }
+            }
+            m.start.push(m.index.len());
+        }
+        Ok(Units {
+            cost: rows.iter().map(|&k| cost[k]).collect(),
+            rij: m,
+            totals,
+            names,
+            cells: rows,
+            ny: 0,
+            nx: 0,
+            transform: [0.0; 6],
+            raster: false,
+            size: n,
         })
     }
 
@@ -632,19 +732,53 @@ pub fn solve(m: &Model, n_units: usize, gap: f64, time_limit: f64) -> Result<ffi
 /// prioritizr's spatial penalties and constraints (on raster units).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Spatial {
-    /// add_boundary_penalties(penalty, edge_factor) on the units' boundary matrix
-    Boundary { penalty: f64, edge_factor: f64 },
-    /// add_linear_penalties(penalty, data): a value per cell
+    /// add_boundary_penalties(penalty, edge_factor, data): the raster's boundary matrix, or a matrix of every unit
+    Boundary { penalty: f64, edge_factor: f64, data: Option<Matrix> },
+    /// add_connectivity_penalties(penalty, data): a symmetric matrix of every unit
+    Connectivity { penalty: f64, data: Matrix },
+    /// add_asym_connectivity_penalties(penalty, data): a matrix of every unit
+    AsymConnectivity { penalty: f64, data: Matrix },
+    /// add_linear_penalties(penalty, data): a value per cell or row
     LinearPenalty { penalty: f64, data: Vec<f64> },
-    /// add_linear_constraints(threshold, sense, data): a value per cell
+    /// add_linear_constraints(threshold, sense, data): a value per cell or row
     LinearConstraint { threshold: f64, sense: String, data: Vec<f64> },
-    /// add_neighbors_constraints(k, clamp) on the units' 4-adjacency
-    Neighbors { k: f64, clamp: bool },
+    /// add_neighbors_constraints(k, clamp, data): the raster's 4-adjacency, or a matrix of every unit
+    Neighbors { k: f64, clamp: bool, data: Option<Matrix> },
 }
 
 impl Spatial {
     fn is_penalty(&self) -> bool {
-        matches!(self, Spatial::Boundary { .. } | Spatial::LinearPenalty { .. })
+        matches!(
+            self,
+            Spatial::Boundary { .. }
+                | Spatial::Connectivity { .. }
+                | Spatial::AsymConnectivity { .. }
+                | Spatial::LinearPenalty { .. }
+        )
+    }
+}
+
+/// A square matrix of every unit (every cell or row the units come from), from triplets (R's sparseMatrix: the
+/// duplicates added up).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Matrix {
+    pub n: usize,
+    pub i: Vec<usize>,
+    pub j: Vec<usize>,
+    pub x: Vec<f64>,
+}
+
+impl Matrix {
+    fn csc(&self) -> Csc {
+        Csc::from_triplets(self.n, &self.i, &self.j, &self.x)
+    }
+
+    /// The units' sub-matrix (prioritizr's unit_matrix).
+    fn units(&self, u: &Units, what: &str) -> Result<Csc, String> {
+        if self.n != u.size {
+            return Err(format!("{what}: a {0} x {0} matrix (every unit), not {1} x {1}", u.size, self.n));
+        }
+        Ok(self.csc().cut(&u.cells))
     }
 }
 
@@ -684,6 +818,34 @@ impl Csc {
             out.start.push(out.index.len());
         }
         out
+    }
+
+    fn dropped_zeros(&self) -> Csc {
+        let mut out = Csc { n: self.n, start: vec![0], index: Vec::new(), value: Vec::new() };
+        for j in 0..self.n {
+            for e in self.start[j]..self.start[j + 1] {
+                if self.value[e] != 0.0 {
+                    out.index.push(self.index[e]);
+                    out.value.push(self.value[e]);
+                }
+            }
+            out.start.push(out.index.len());
+        }
+        out
+    }
+
+    /// Whether the matrix equals its transpose.
+    fn symmetric(&self) -> bool {
+        let mut entries: Vec<(usize, usize, u64)> = Vec::with_capacity(self.value.len());
+        for j in 0..self.n {
+            for e in self.start[j]..self.start[j + 1] {
+                entries.push((self.index[e], j, self.value[e].to_bits()));
+            }
+        }
+        let mut t: Vec<(usize, usize, u64)> = entries.iter().map(|&(i, j, v)| (j, i, v)).collect();
+        entries.sort_unstable();
+        t.sort_unstable();
+        entries == t
     }
 
     fn diagonal(&self) -> Vec<f64> {
@@ -847,11 +1009,23 @@ impl Builder {
 fn apply_spatial(b: &mut Builder, u: &Units, s: &Spatial) -> Result<(), String> {
     let n = b.n;
     match s {
-        Spatial::Boundary { penalty, edge_factor } => {
+        Spatial::Boundary { penalty, edge_factor, data } => {
+            let bm = match data {
+                None if u.raster => u.boundary_matrix(),
+                None => return Err("boundary penalties of tables need data: a boundary matrix of every unit".into()),
+                Some(m) => {
+                    let mut bm = m.units(u, "boundary data")?;
+                    bm.value.iter_mut().for_each(|v| *v = r_round(*v, 6));
+                    bm = bm.dropped_zeros();
+                    if !bm.symmetric() {
+                        return Err("the boundary data must be symmetric".into());
+                    }
+                    bm
+                }
+            };
             if penalty.abs().partial_cmp(&1e-50) != Some(std::cmp::Ordering::Greater) {
                 return Ok(());
             }
-            let bm = u.boundary_matrix();
             let total = bm.diagonal();
             let rs = bm.row_sums();
             let p = if b.maximize { -penalty } else { *penalty };
@@ -876,6 +1050,66 @@ fn apply_spatial(b: &mut Builder, u: &Units, s: &Spatial) -> Result<(), String> 
             }
             b.pair_columns(&pi, &pj, &coef, "b");
         }
+        Spatial::Connectivity { penalty, data } => {
+            let m = data.units(u, "connectivity data")?;
+            if !m.symmetric() {
+                return Err("the connectivity data must be symmetric (use asymmetric connectivity penalties)".into());
+            }
+            let mult = if b.maximize { 1.0 } else { -1.0 };
+            // the lower triangle with the diagonal, by column then row
+            let mut unit_pen = vec![0.0; n];
+            let (mut pi, mut pj, mut coef) = (vec![], vec![], vec![]);
+            for j in 0..m.n {
+                for e in m.start[j]..m.start[j + 1] {
+                    let i = m.index[e];
+                    if i < j {
+                        continue;
+                    }
+                    let cv = m.value[e] * (penalty * mult);
+                    if cv.abs() <= 1.0e-15 {
+                        continue;
+                    }
+                    if i == j {
+                        unit_pen[i] += cv;
+                    } else {
+                        pi.push(i);
+                        pj.push(j);
+                        coef.push(cv);
+                    }
+                }
+            }
+            for (o, p) in b.obj[..n].iter_mut().zip(&unit_pen) {
+                *o += p;
+            }
+            b.pair_columns(&pi, &pj, &coef, "c");
+        }
+        Spatial::AsymConnectivity { penalty, data } => {
+            let m = data.units(u, "connectivity data")?;
+            let (mult1, mult2) = if b.maximize { (-1.0, 1.0) } else { (1.0, -1.0) };
+            let mut unit_pen = vec![0.0; n];
+            let (mut pi, mut pj, mut pb) = (vec![], vec![], vec![]);
+            for j in 0..m.n {
+                for e in m.start[j]..m.start[j + 1] {
+                    let i = m.index[e];
+                    let cv = m.value[e] * penalty;
+                    if cv.abs() <= 1.0e-15 {
+                        continue;
+                    }
+                    if i == j {
+                        unit_pen[i] += mult2 * cv;
+                    } else {
+                        pi.push(i);
+                        pj.push(j);
+                        pb.push(mult2 * cv);
+                        unit_pen[i] += mult1 * cv;
+                    }
+                }
+            }
+            for (o, p) in b.obj[..n].iter_mut().zip(&unit_pen) {
+                *o += p;
+            }
+            b.pair_columns(&pi, &pj, &pb, "ac");
+        }
         Spatial::LinearPenalty { penalty, data } => {
             if penalty.abs().partial_cmp(&1e-50) != Some(std::cmp::Ordering::Greater) {
                 return Ok(());
@@ -898,8 +1132,14 @@ fn apply_spatial(b: &mut Builder, u: &Units, s: &Spatial) -> Result<(), String> 
             }
             b.add_rows(&vec![0; c.len()], &c, &v, std::slice::from_ref(sense), &[*threshold], &["lc".to_string()]);
         }
-        Spatial::Neighbors { k, clamp } => {
-            let d = u.adjacency_matrix();
+        Spatial::Neighbors { k, clamp, data } => {
+            let d = match data {
+                None if u.raster => u.adjacency_matrix(),
+                None => {
+                    return Err("constraints on neighbouring units of tables need data: an adjacency matrix".into());
+                }
+                Some(m) => m.units(u, "adjacency data")?,
+            };
             let mut kk = vec![*k; n];
             if *clamp {
                 for (k, rs) in kk.iter_mut().zip(d.row_sums()) {

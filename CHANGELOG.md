@@ -17,6 +17,11 @@ minor versions.
   on the grid, a summary and the targets' coverage. The models are prioritizr 8.0.6's compile(), bit for bit, on
   the 25 raster cases landschaft keeps, and HiGHS reaches their optima (Gurobi's at gap 0)
   (`tools/make_optimize_inputs.py`).
+- Planning units in tables for `prioritize.optimize`: a table of units (a cost column, the features' columns,
+  locked units' columns; units without cost dropped) or Marxan's (pu, spec, rij); boundary, connectivity and
+  asymmetric connectivity matrices and adjacency matrices as tables (i, j, x); linear penalties and constraints of
+  a column; penalties and constraints in the order given (`spatial`); the selection per unit as a table. The
+  models are prioritizr's compile(), bit for bit, on landschaft's 12 table cases.
 - prioritizr's evaluation of a solution (`prioritize.evaluate`): the units selected, their cost and boundary, the
   features' representation, the targets' coverage, Ferrier et al.'s irreplaceability and the rarity-weighted
   richness; prioritizr's numbers bit for bit on the cases landschaft keeps; and on request the replacement

@@ -922,20 +922,96 @@ impl Operator for Proxirr {
     }
 }
 
+/// The planning units of a node's inputs: the cells of a cost map with the features' layers, or the rows of a table
+/// (`pu`) with a cost column and feature columns, or Marxan-style tables (`pu` with id and cost, `spec` with id,
+/// `rij` with pu, species, amount).
+fn units_of(args: &Args) -> Result<milp::Units> {
+    let node = args.node;
+    let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
+    let table = |port: &str| -> Option<&Table> {
+        match args.get(port) {
+            Some(Value::Table(t)) => Some(t),
+            _ => None,
+        }
+    };
+    let Some(pu) = table("pu") else {
+        let features = args.stack("features")?;
+        let cost = args.map("cost")?;
+        if (features.grid.width, features.grid.height) != (cost.grid.width, cost.grid.height) {
+            return Err(err("the features are not on the cost's grid".into()));
+        }
+        let layers: Vec<&[f64]> = features.layers.iter().map(|l| l.as_slice()).collect();
+        let names: Vec<String> = features.keys.iter().map(|k| k.to_string()).collect();
+        return milp::Units::raster(
+            &cost.data,
+            &layers,
+            names,
+            (cost.grid.height, cost.grid.width),
+            cost.grid.transform,
+        )
+        .map_err(err);
+    };
+    let cost_column: String = args.param("cost_column", "cost".to_string())?;
+    let col = |t: &Table, c: &str, what: &str| t.column(c).ok_or_else(|| err(format!("{what} has no column {c:?}")));
+    let cost = col(pu, &cost_column, "pu")?;
+    match (table("spec"), table("rij")) {
+        (Some(spec), Some(rij)) => {
+            let ids = col(spec, "id", "spec")?;
+            let names = ids.iter().map(|v| terraflux_ops_label(*v)).collect();
+            milp::Units::rij(
+                &col(pu, "id", "pu")?,
+                &cost,
+                &ids,
+                names,
+                (&col(rij, "pu", "rij")?, &col(rij, "species", "rij")?, &col(rij, "amount", "rij")?),
+            )
+            .map_err(err)
+        }
+        _ => {
+            let names: Vec<String> = match args.params.get("features") {
+                Some(serde_json::Value::String(s)) => vec![s.clone()],
+                Some(v) => serde_json::from_value(v.clone())
+                    .map_err(|e| err(format!("features: {e} (the names of pu's feature columns)")))?,
+                None => return Err(err("give the names of pu's feature columns (features)".into())),
+            };
+            let cols = names.iter().map(|n| col(pu, n, "pu")).collect::<Result<Vec<_>>>()?;
+            let refs: Vec<&[f64]> = cols.iter().map(|c| c.as_slice()).collect();
+            milp::Units::table(&cost, &refs, names).map_err(err)
+        }
+    }
+}
+
+/// A number as a name (a whole number without decimals).
+fn terraflux_ops_label(v: f64) -> String {
+    crate::value::class_label(v)
+}
+
+/// A square matrix of every unit from a table of triplets (i, j, x; 1-based, R's sparseMatrix).
+fn matrix_of(args: &Args, port: &str, n: usize) -> Result<Option<milp::Matrix>> {
+    let Some(Value::Table(t)) = args.get(port) else { return Ok(None) };
+    let col = |c: &str| {
+        t.column(c).ok_or_else(|| Error::msg(format!("node {:?}: {port} needs the columns i, j, x", args.node)))
+    };
+    let (i, j, x) = (col("i")?, col("j")?, col("x")?);
+    let index = |v: &[f64]| -> Result<Vec<usize>> {
+        v.iter()
+            .map(|&k| {
+                if k >= 1.0 && k <= n as f64 && k.fract() == 0.0 {
+                    Ok(k as usize - 1)
+                } else {
+                    Err(Error::msg(format!("node {:?}: {port}: {k} is no unit (1-{n})", args.node)))
+                }
+            })
+            .collect()
+    };
+    Ok(Some(milp::Matrix { n, i: index(&i)?, j: index(&j)?, x }))
+}
+
 /// A problem of prioritizr from a node's inputs and settings.
 pub fn problem_of(args: &Args) -> Result<milp::Problem> {
     let node = args.node;
     let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
-    let features = args.stack("features")?;
-    let cost = args.map("cost")?;
-    if (features.grid.width, features.grid.height) != (cost.grid.width, cost.grid.height) {
-        return Err(err("the features are not on the cost's grid".into()));
-    }
-    let layers: Vec<&[f64]> = features.layers.iter().map(|l| l.as_slice()).collect();
-    let names: Vec<String> = features.keys.iter().map(|k| k.to_string()).collect();
-    let units =
-        milp::Units::raster(&cost.data, &layers, names, (cost.grid.height, cost.grid.width), cost.grid.transform)
-            .map_err(err)?;
+    let units = units_of(args)?;
     let nf = units.names.len();
     let n = units.n();
     let budget = || -> Result<f64> {
@@ -1014,37 +1090,116 @@ pub fn problem_of(args: &Args) -> Result<milp::Problem> {
         "semicontinuous" => milp::Decisions::Semicontinuous(args.param("upper_limit", 1.0)?),
         d => return Err(err(format!("decisions are binary, proportion or semicontinuous, not {d:?}"))),
     };
-    let locked = |port: &str| -> Result<Vec<bool>> {
-        Ok(match args.opt_map(port)? {
-            Some(m) => units.cells.iter().map(|&c| !m.data[c].is_nan() && m.data[c] != 0.0).collect(),
-            None => vec![false; n],
-        })
+    // a value per cell (a map on the cost's grid) or per row (a column of pu)
+    let pu = match args.get("pu") {
+        Some(Value::Table(t)) => Some(t),
+        _ => None,
     };
-    let (locked_in, locked_out) = (locked("locked_in")?, locked("locked_out")?);
-    // the spatial penalties, then the constraints
-    let mut spatial = Vec::new();
-    if let Some(penalty) = args.opt_param::<f64>("boundary_penalty")? {
-        spatial.push(milp::Spatial::Boundary { penalty, edge_factor: args.param("edge_factor", 0.5)? });
-    }
-    let grid_values = |port: &str| -> Result<Vec<f64>> {
+    let values = |port: &str, column: Option<&str>| -> Result<Vec<f64>> {
+        if let (Some(t), Some(c)) = (pu, column) {
+            return t.column(c).ok_or_else(|| err(format!("pu has no column {c:?}")));
+        }
         let m = args.map(port)?;
-        if (m.grid.width, m.grid.height) != (cost.grid.width, cost.grid.height) {
+        if m.data.len() != units.size {
             return Err(err(format!("{port} is not on the cost's grid")));
         }
         Ok(m.data.to_vec())
     };
-    if let Some(penalty) = args.opt_param::<f64>("linear_penalty")? {
-        spatial.push(milp::Spatial::LinearPenalty { penalty, data: grid_values("penalty_data")? });
-    }
-    if let Some(threshold) = args.opt_param::<f64>("linear_threshold")? {
-        let sense: String = args.param("linear_sense", "<=".to_string())?;
-        if !matches!(sense.as_str(), ">=" | "<=" | "=") {
-            return Err(err(format!("linear_sense is >=, <= or =, not {sense:?}")));
+    let locked = |port: &str| -> Result<Vec<bool>> {
+        let column: Option<String> = args.opt_param(&format!("{port}_column"))?;
+        if pu.is_some() && column.is_none() {
+            return Ok(vec![false; n]);
         }
-        spatial.push(milp::Spatial::LinearConstraint { threshold, sense, data: grid_values("constraint_data")? });
-    }
-    if let Some(k) = args.opt_param::<f64>("neighbors")? {
-        spatial.push(milp::Spatial::Neighbors { k, clamp: args.param("clamp", true)? });
+        if pu.is_none() && args.opt_map(port)?.is_none() {
+            return Ok(vec![false; n]);
+        }
+        let v = values(port, column.as_deref())?;
+        Ok(units.cells.iter().map(|&c| !v[c].is_nan() && v[c] != 0.0).collect())
+    };
+    let (locked_in, locked_out) = (locked("locked_in")?, locked("locked_out")?);
+    // the spatial penalties and constraints: in the order of the list `spatial`, else of the settings
+    let items: Vec<serde_json::Map<String, serde_json::Value>> = match args.params.get("spatial") {
+        Some(v) if !v.is_null() => serde_json::from_value(v.clone())
+            .map_err(|e| err(format!("spatial: {e} (a list of {{kind: ..., ...}})")))?,
+        _ => {
+            let mut l = Vec::new();
+            let mut put = |kind: &str, keys: &[(&str, &str)]| {
+                let mut m = serde_json::Map::new();
+                m.insert("kind".into(), kind.into());
+                for (from, to) in keys {
+                    if let Some(v) = args.params.get(*from) {
+                        m.insert(to.to_string(), v.clone());
+                    }
+                }
+                l.push(m);
+            };
+            if args.params.contains_key("boundary_penalty") {
+                put("boundary", &[("boundary_penalty", "penalty"), ("edge_factor", "edge_factor")]);
+            }
+            if args.params.contains_key("connectivity_penalty") {
+                put("connectivity", &[("connectivity_penalty", "penalty")]);
+            }
+            if args.params.contains_key("asym_connectivity_penalty") {
+                put("asym_connectivity", &[("asym_connectivity_penalty", "penalty")]);
+            }
+            if args.params.contains_key("linear_penalty") {
+                put("linear_penalty", &[("linear_penalty", "penalty"), ("penalty_column", "column")]);
+            }
+            if args.params.contains_key("linear_threshold") {
+                put(
+                    "linear_constraint",
+                    &[("linear_threshold", "threshold"), ("linear_sense", "sense"), ("constraint_column", "column")],
+                );
+            }
+            if args.params.contains_key("neighbors") {
+                put("neighbors", &[("neighbors", "k"), ("clamp", "clamp")]);
+            }
+            l
+        }
+    };
+    let mut spatial = Vec::new();
+    for it in &items {
+        let num = |k: &str| it.get(k).and_then(|v| v.as_f64());
+        let need = |k: &str| num(k).ok_or_else(|| err(format!("spatial: {:?} needs {k:?}", it.get("kind"))));
+        let column = it.get("column").and_then(|v| v.as_str());
+        let kind = it.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+        spatial.push(match kind {
+            "boundary" => milp::Spatial::Boundary {
+                penalty: need("penalty")?,
+                edge_factor: num("edge_factor").unwrap_or(0.5),
+                data: matrix_of(args, "boundary_data", units.size)?,
+            },
+            "connectivity" => milp::Spatial::Connectivity {
+                penalty: need("penalty")?,
+                data: matrix_of(args, "connectivity_data", units.size)?
+                    .ok_or_else(|| err("connectivity penalties need connectivity_data".into()))?,
+            },
+            "asym_connectivity" => milp::Spatial::AsymConnectivity {
+                penalty: need("penalty")?,
+                data: matrix_of(args, "asym_connectivity_data", units.size)?
+                    .ok_or_else(|| err("asymmetric connectivity penalties need asym_connectivity_data".into()))?,
+            },
+            "linear_penalty" => {
+                milp::Spatial::LinearPenalty { penalty: need("penalty")?, data: values("penalty_data", column)? }
+            }
+            "linear_constraint" => {
+                let sense = it.get("sense").and_then(|v| v.as_str()).unwrap_or("<=").to_string();
+                if !matches!(sense.as_str(), ">=" | "<=" | "=") {
+                    return Err(err(format!("a linear constraint's sense is >=, <= or =, not {sense:?}")));
+                }
+                milp::Spatial::LinearConstraint {
+                    threshold: need("threshold")?,
+                    sense,
+                    data: values("constraint_data", column)?,
+                }
+            }
+            "neighbors" => milp::Spatial::Neighbors {
+                k: need("k")?,
+                clamp: it.get("clamp").and_then(|v| v.as_bool()).unwrap_or(true),
+                data: matrix_of(args, "adjacency_data", units.size)?,
+            },
+            k => return Err(err(format!("unknown spatial penalty or constraint {k:?}"))),
+        });
     }
     Ok(milp::Problem { units, objective, targets, weights, decisions, locked_in, locked_out, spatial })
 }
@@ -1064,8 +1219,19 @@ impl Operator for Optimize {
              neighbour constraints.",
             Access::Global,
         )
-        .input(PortSpec::new("features", Type::Stack, "the features' amounts, a layer each"))
-        .input(PortSpec::new("cost", Type::Map, "the cost of each cell (no value: not a planning unit)"))
+        .input(PortSpec::optional("features", Type::Stack, "the features' amounts, a layer each"))
+        .input(PortSpec::optional("cost", Type::Map, "the cost of each cell (no value: not a planning unit)"))
+        .input(PortSpec::optional(
+            "pu",
+            Type::Table,
+            "tables instead of maps: the planning units, a row each (a cost column, the features' columns)",
+        ))
+        .input(PortSpec::optional("spec", Type::Table, "Marxan-style: the features (id)"))
+        .input(PortSpec::optional("rij", Type::Table, "Marxan-style: the amounts (pu, species, amount)"))
+        .input(PortSpec::optional("boundary_data", Type::Table, "a boundary matrix of every unit: i, j, x (1-based)"))
+        .input(PortSpec::optional("connectivity_data", Type::Table, "a symmetric connectivity matrix: i, j, x"))
+        .input(PortSpec::optional("asym_connectivity_data", Type::Table, "a connectivity matrix: i, j, x"))
+        .input(PortSpec::optional("adjacency_data", Type::Table, "an adjacency matrix of every unit: i, j, x"))
         .input(PortSpec::optional("locked_in", Type::Map, "the units that must be selected (not 0)"))
         .input(PortSpec::optional("locked_out", Type::Map, "the units that may not be selected (not 0)"))
         .input(PortSpec::optional(
@@ -1075,7 +1241,8 @@ impl Operator for Optimize {
         ))
         .input(PortSpec::optional("penalty_data", Type::Map, "linear penalties: a value per cell"))
         .input(PortSpec::optional("constraint_data", Type::Map, "the linear constraint: a value per cell"))
-        .output(PortSpec::new("solution", Type::Map, "the share of each unit selected (1 selected)"))
+        .output(PortSpec::new("solution", Type::Map, "maps: the share of each unit selected (1 selected)"))
+        .output(PortSpec::new("selection", Type::Table, "per unit: its cell or row (1..) and the share selected"))
         .output(PortSpec::new(
             "summary",
             Type::Table,
@@ -1113,6 +1280,20 @@ impl Operator for Optimize {
         .param(PortSpec::optional("linear_sense", Type::Text, "the linear constraint's sense: <= (default), >=, ="))
         .param(PortSpec::optional("neighbors", Type::Number, "every selected unit has this many selected neighbours"))
         .param(PortSpec::optional("clamp", Type::Bool, "neighbors: fewer for the units with fewer (default true)"))
+        .param(PortSpec::optional("cost_column", Type::Text, "tables: pu's cost column (default cost)"))
+        .param(PortSpec::optional("features", Type::Any, "tables: pu's feature columns"))
+        .param(PortSpec::optional("locked_in_column", Type::Text, "tables: pu's column of the units locked in"))
+        .param(PortSpec::optional("locked_out_column", Type::Text, "tables: pu's column of the units locked out"))
+        .param(PortSpec::optional("connectivity_penalty", Type::Number, "connectivity penalties' weight"))
+        .param(PortSpec::optional("asym_connectivity_penalty", Type::Number, "asymmetric connectivity's weight"))
+        .param(PortSpec::optional("penalty_column", Type::Text, "tables: pu's column of the linear penalties"))
+        .param(PortSpec::optional("constraint_column", Type::Text, "tables: pu's column of the linear constraint"))
+        .param(PortSpec::optional(
+            "spatial",
+            Type::Any,
+            "penalties and constraints in order: [{kind: boundary|connectivity|asym_connectivity|linear_penalty|\
+             linear_constraint|neighbors, penalty, edge_factor, threshold, sense, column, k, clamp}, ...]",
+        ))
         .param(PortSpec::optional("gap", Type::Number, "the relative optimality gap (default 0.1, as prioritizr)"))
         .param(PortSpec::optional("time_limit", Type::Number, "seconds (default none)"))
     }
@@ -1131,11 +1312,8 @@ impl Operator for Optimize {
         }
         let x = &r.x[..n];
         let cost = &p.units.cost;
-        let grid = args.map("cost")?.grid.clone();
-        let mut solution = vec![f64::NAN; grid.width * grid.height];
-        for (i, &c) in p.units.cells.iter().enumerate() {
-            solution[c] = x[i];
-        }
+        let mut selection = Table::new(vec!["unit".into(), "solution".into()]);
+        selection.rows = p.units.cells.iter().zip(x).map(|(&c, &v)| vec![(c + 1) as f64, v]).collect();
         let spent: f64 = cost.iter().zip(x).map(|(c, x)| c * x).sum();
         let mut summary = Table::new(["objective", "cost", "selected", "gap", "optimal"].map(String::from).to_vec());
         summary.rows.push(vec![
@@ -1158,11 +1336,20 @@ impl Operator for Optimize {
             };
             coverage.rows.push(vec![(f + 1) as f64, held, t.value[k], t.total[k], f64::from(u8::from(met))]);
         }
-        Ok(outputs([
-            ("solution", Value::Map(Map::new(grid, solution))),
+        let mut out = outputs([
+            ("selection", Value::Table(selection)),
             ("summary", Value::Table(summary)),
             ("coverage", Value::Table(coverage)),
-        ]))
+        ]);
+        if p.units.raster {
+            let grid = args.map("cost")?.grid.clone();
+            let mut solution = vec![f64::NAN; grid.width * grid.height];
+            for (i, &c) in p.units.cells.iter().enumerate() {
+                solution[c] = x[i];
+            }
+            out.insert("solution".into(), Value::Map(Map::new(grid, solution)));
+        }
+        Ok(out)
     }
 }
 

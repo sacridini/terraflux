@@ -436,3 +436,176 @@ fn importance_is_prioritizrs() {
     let want = r.floats("eval_rank/rank");
     assert!(ranks.iter().zip(&want).all(|(a, b)| a == b || (a.is_nan() && b.is_nan())), "ranks");
 }
+
+/// The model compared with prioritizr's compile(), bit for bit.
+fn assert_model(name: &str, m: &terraflux_ops::milp::Model, r: &Reference) {
+    let k = |s: &str| format!("{name}/model/{s}");
+    let (ai, aj, ax) = (r.floats(&k("A_i")), r.floats(&k("A_j")), r.floats(&k("A_x")));
+    let mut entries: Vec<(usize, usize, f64)> =
+        (0..ax.len()).filter(|&e| ax[e] != 0.0).map(|e| (ai[e] as usize, aj[e] as usize, ax[e])).collect();
+    entries.sort_by_key(|&(i, j, _)| (i, j));
+    let mut ours = Vec::new();
+    for i in 0..m.a.nrow {
+        let (idx, v) = m.a.row(i);
+        ours.extend(idx.iter().zip(v).map(|(&j, &x)| (i, j, x)));
+    }
+    assert_eq!(ours.len(), entries.len(), "{name}: entries");
+    for (a, b) in ours.iter().zip(&entries) {
+        assert!(a.0 == b.0 && a.1 == b.1 && a.2.to_bits() == b.2.to_bits(), "{name}: {a:?} != {b:?}");
+    }
+    let same = |what: &str, a: &[f64], b: &[f64]| {
+        assert_eq!(a.len(), b.len(), "{name}: {what}");
+        for (i, (x, y)) in a.iter().zip(b).enumerate() {
+            assert!(x.to_bits() == y.to_bits() || (x.is_nan() && y.is_nan()), "{name}: {what}[{i}] {x} != {y}");
+        }
+    };
+    same("obj", &m.obj, &r.floats(&k("obj")));
+    same("lb", &m.lb, &r.floats(&k("lb")));
+    same("ub", &m.ub, &r.floats(&k("ub")));
+    same("rhs", &m.rhs, &r.floats(&k("rhs")));
+    assert_eq!(m.sense, r.texts(&k("sense")), "{name}: sense");
+    assert_eq!(m.vtype.iter().map(|c| c.to_string()).collect::<Vec<_>>(), r.texts(&k("vtype")), "{name}: vtype");
+    assert_eq!(m.row_ids, r.texts(&k("row_ids")), "{name}: row ids");
+    assert_eq!(m.col_ids, r.texts(&k("col_ids")), "{name}: column ids");
+}
+
+fn tables() -> BTreeMap<String, Table> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference/optimize_tables.json");
+    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+/// Table planning units (a table of feature columns, Marxan's rij), boundary, connectivity and adjacency matrices,
+/// penalties and constraints in the order added: prioritizr's compile(), bit for bit.
+#[test]
+fn table_compile_is_prioritizrs() {
+    use serde_json::json;
+    let t = tables();
+    let features = json!(["f1", "f2", "f3", "f4", "f5"]);
+    let abs = json!([1.2, 0.9, 1, 120, 4]);
+    // pu_table with a change: no cost in some rows, f3 less 0.01
+    let pu_with = |f: &dyn Fn(&mut Table)| {
+        let mut p = t["pu_table"].clone();
+        f(&mut p);
+        p
+    };
+    let na_cost = pu_with(&|p: &mut Table| {
+        let c = p.columns.iter().position(|c| c == "cost").unwrap();
+        for r in [2, 49, 50, 119] {
+            p.rows[r][c] = f64::NAN;
+        }
+    });
+    let negative = pu_with(&|p: &mut Table| {
+        let c = p.columns.iter().position(|c| c == "f3").unwrap();
+        p.rows.iter_mut().for_each(|r| r[c] -= 0.01);
+    });
+    let id_cost = pu_with(&|p: &mut Table| {
+        let keep: Vec<usize> = ["id", "cost"].iter().map(|n| p.columns.iter().position(|c| c == n).unwrap()).collect();
+        p.rows = p.rows.iter().map(|r| keep.iter().map(|&k| r[k]).collect()).collect();
+        p.columns = vec!["id".into(), "cost".into()];
+    });
+    let pu = t["pu_table"].clone();
+    type TableCase<'a> = (&'a str, &'a str, serde_json::Value, Table, Vec<(&'a str, &'a str)>);
+    let cases: Vec<TableCase> = vec![
+        (
+            "core",
+            "minset_table",
+            json!({"features": features, "relative_targets": 0.3, "locked_in_column": "locked_in",
+                   "locked_out_column": "locked_out"}),
+            pu.clone(),
+            vec![],
+        ),
+        (
+            "core",
+            "minset_rij",
+            json!({"absolute_targets": abs}),
+            id_cost.clone(),
+            vec![("spec", "spec_table"), ("rij", "rij_table")],
+        ),
+        (
+            "core",
+            "minset_rij_relative",
+            json!({"relative_targets": 0.3}),
+            id_cost,
+            vec![("spec", "spec_table"), ("rij", "rij_table")],
+        ),
+        ("core", "minset_table_na_cost", json!({"features": features, "relative_targets": 0.3}), na_cost, vec![]),
+        (
+            "objectives",
+            "max_utility_negative",
+            json!({"features": features, "objective": "max_utility", "budget": 2500}),
+            negative,
+            vec![],
+        ),
+        (
+            "spatial",
+            "boundary_matrix",
+            json!({"features": features, "relative_targets": 0.3, "boundary_penalty": 3}),
+            pu.clone(),
+            vec![("boundary_data", "bnd_table")],
+        ),
+        (
+            "spatial",
+            "connectivity",
+            json!({"features": features, "relative_targets": 0.3, "connectivity_penalty": 5}),
+            pu.clone(),
+            vec![("connectivity_data", "conn_table")],
+        ),
+        (
+            "spatial",
+            "connectivity_max",
+            json!({"features": features, "objective": "max_features", "budget": 2500, "relative_targets": 0.3,
+                   "connectivity_penalty": 0.01}),
+            pu.clone(),
+            vec![("connectivity_data", "conn_table")],
+        ),
+        (
+            "spatial",
+            "asym_connectivity",
+            json!({"features": features, "relative_targets": 0.3, "asym_connectivity_penalty": 4}),
+            pu.clone(),
+            vec![("asym_connectivity_data", "asym_table")],
+        ),
+        (
+            "spatial",
+            "asym_connectivity_max",
+            json!({"features": features, "objective": "max_utility", "budget": 2500, "asym_connectivity_penalty": 0.05}),
+            pu.clone(),
+            vec![("asym_connectivity_data", "asym_table")],
+        ),
+        (
+            "spatial",
+            "spatial_combined",
+            json!({"features": features, "objective": "min_shortfall", "budget": 2500, "relative_targets": 0.3,
+                   "locked_in_column": "locked_in",
+                   "spatial": [
+                       {"kind": "linear_constraint", "threshold": 30, "sense": ">=", "column": "f4"},
+                       {"kind": "connectivity", "penalty": 0.02},
+                       {"kind": "linear_penalty", "penalty": 0.001, "column": "f1"},
+                       {"kind": "boundary", "penalty": 0.001},
+                       {"kind": "linear_constraint", "threshold": 2, "sense": "<=", "column": "f2"}]}),
+            pu.clone(),
+            vec![("boundary_data", "bnd_table"), ("connectivity_data", "conn_table")],
+        ),
+        (
+            "spatial",
+            "neighbors_matrix",
+            json!({"features": features, "objective": "max_utility", "budget": 2500, "neighbors": 5}),
+            pu.clone(),
+            vec![("adjacency_data", "adj_table")],
+        ),
+    ];
+    let refs: BTreeMap<&str, Reference> =
+        [("core", reference("core")), ("objectives", reference("objectives")), ("spatial", reference("spatial"))]
+            .into();
+    for (group, name, params, pu, extra) in cases {
+        let mut ins: BTreeMap<String, Value> = [("pu".to_string(), Value::Table(pu))].into();
+        for (port, table) in extra {
+            ins.insert(port.into(), Value::Table(t[table].clone()));
+        }
+        let params = params.as_object().unwrap().clone();
+        let args = Args { node: "n", inputs: ins, params: &params };
+        let p = terraflux_ops::prioritize::problem_of(&args).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let (m, _) = terraflux_ops::milp::compile(&p).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_model(name, &m, &refs[group]);
+    }
+}
