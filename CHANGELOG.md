@@ -19,7 +19,9 @@ minor versions.
   (`tools/make_optimize_inputs.py`).
 - prioritizr's evaluation of a solution (`prioritize.evaluate`): the units selected, their cost and boundary, the
   features' representation, the targets' coverage, Ferrier et al.'s irreplaceability and the rarity-weighted
-  richness; prioritizr's numbers bit for bit on the cases landschaft keeps.
+  richness; prioritizr's numbers bit for bit on the cases landschaft keeps; and on request the replacement
+  importance (a solve without each unit selected, in parallel) and the rank importance (incremental solutions
+  over budgets), prioritizr's to 1e-9.
 - Template: Conservation planning (prioritizr).
 - Marxan 4 (`prioritize.marxan`) through landschaft's C++: from Marxan's tables (pu, spec, puvspr, bound) or from
   maps (every cell a planning unit, its shared edges its boundaries), every option of input.dat; every run's

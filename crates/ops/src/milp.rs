@@ -1125,3 +1125,181 @@ pub fn rare_richness(u: &Units, s: &[f64], rescale_it: bool) -> Result<Vec<f64>,
     }
     Ok(out)
 }
+
+/// A model solved with other column bounds, from a solution (empty: none).
+pub fn solve_bounded(
+    m: &Model,
+    n_units: usize,
+    lb: &[f64],
+    ub: &[f64],
+    gap: f64,
+    start: &[f64],
+) -> Result<ffi::SolveOut, String> {
+    let mut b = m.clone();
+    b.lb = lb.to_vec();
+    b.ub = ub.to_vec();
+    let (lo, hi) = row_bounds(&b);
+    let model = ffi::MilpModel {
+        start: b.a.start.iter().map(|&s| s as i64).collect(),
+        index: b.a.index.iter().map(|&s| s as i64).collect(),
+        value: b.a.value.clone(),
+        obj: b.obj.clone(),
+        lb: b.lb.clone(),
+        ub: b.ub.clone(),
+        row_lo: lo,
+        row_hi: hi,
+        integer: b.vtype.iter().map(|&t| u8::from(t == 'B' || t == 'I')).collect(),
+        maximize: b.maximize,
+        offset: 0.0,
+    };
+    let settings = ffi::SolveSettings {
+        gap,
+        time_limit: f64::INFINITY,
+        presolve: "choose".into(),
+        relaxation: false,
+        start: start.to_vec(),
+    };
+    ffi::opt_solve(&model, &settings, method(&b, n_units), n_units as i64).map_err(|e| e.what().to_string())
+}
+
+/// eval_replacement_importance: for every unit selected, how much the objective worsens when the others stay
+/// selected and it may not be (prioritizr's replacement cost), rescaled to [0.01, 1] with `rescale`. The solves
+/// run in parallel, a HiGHS thread each.
+pub fn replacement_importance(p: &Problem, s: &[f64], gap: f64, rescale_it: bool) -> Result<Vec<f64>, String> {
+    use rayon::prelude::*;
+    let n = p.units.n();
+    let sel = selected(s)?;
+    let (m, _) = compile(p)?;
+    let (mut lb, mut ub) = (m.lb.clone(), m.ub.clone());
+    for &i in &sel {
+        lb[i] = 1.0;
+        ub[i] = 1.0;
+    }
+    let base = solve_bounded(&m, n, &lb, &ub, gap, &[])?;
+    if !base.has_solution {
+        return Err("the solution is not feasible for the problem".into());
+    }
+    let objs: Vec<Result<f64, String>> = sel
+        .par_iter()
+        .map(|&i| {
+            ffi::set_threads(1);
+            let (mut lo, mut hi) = (lb.clone(), ub.clone());
+            lo[i] = 0.0;
+            hi[i] = 0.0;
+            let r = solve_bounded(&m, n, &lo, &hi, gap, &[])?;
+            Ok(if r.has_solution { r.objective } else { f64::INFINITY })
+        })
+        .collect();
+    let mut out = Vec::with_capacity(sel.len());
+    for o in objs {
+        let d = o? - base.objective;
+        out.push(if m.maximize { -d } else { d });
+    }
+    if rescale_it {
+        rescale(&mut out);
+    }
+    let mut res = vec![0.0; n];
+    for (k, &i) in sel.iter().enumerate() {
+        res[i] = out[k];
+    }
+    Ok(res)
+}
+
+/// R's seq(lo, hi, length.out = n).
+fn r_seq(lo: f64, hi: f64, n: usize) -> Vec<f64> {
+    if n <= 2 {
+        return [lo, hi][..n].to_vec();
+    }
+    if lo == hi {
+        return vec![lo; n];
+    }
+    let n1 = (n - 1) as f64;
+    let mut v = vec![lo];
+    v.extend((1..n - 1).map(|k| lo + k as f64 * ((hi - lo) / n1)));
+    v.push(hi);
+    v
+}
+
+/// The budgets of a rank importance and the objective reached at each.
+pub type Budgets = Vec<(f64, f64)>;
+
+/// eval_rank_importance: the units selected ranked by the budget at which an incremental solution first takes
+/// them (n budgets from the locked units' cost to the solution's, or those given), rescaled to [0.01, 1] with
+/// `rescale`; and per budget the objective reached.
+pub fn rank_importance(
+    p: &Problem,
+    s: &[f64],
+    n_budgets: Option<usize>,
+    budgets: Option<Vec<f64>>,
+    gap: f64,
+    rescale_it: bool,
+) -> Result<(Vec<f64>, Budgets), String> {
+    let u = &p.units;
+    let n = u.n();
+    let sel = selected(s)?;
+    let budgets = match (n_budgets, budgets) {
+        (Some(k), None) => {
+            if k < 1 {
+                return Err("n must be a whole number >= 1".into());
+            }
+            let total: Vec<f64> = u.cost.iter().zip(s).map(|(c, x)| c * x).collect();
+            let locked: Vec<f64> = u.cost.iter().zip(&p.locked_in).map(|(c, l)| c * f64::from(u8::from(*l))).collect();
+            r_seq(ffi::r_sum(&locked), ffi::r_sum(&total), k + 1)[1..].to_vec()
+        }
+        (None, Some(b)) => b,
+        _ => return Err("give either n or budgets".into()),
+    };
+    let q = Problem {
+        objective: match &p.objective {
+            Objective::MinSet => Objective::MinShortfall(budgets[0]),
+            Objective::MinShortfall(_) => Objective::MinShortfall(budgets[0]),
+            Objective::MinLargestShortfall(_) => Objective::MinLargestShortfall(budgets[0]),
+            Objective::MaxUtility(_) => Objective::MaxUtility(budgets[0]),
+            Objective::MaxFeatures(_) => Objective::MaxFeatures(budgets[0]),
+            Objective::MaxCover(_) => Objective::MaxCover(budgets[0]),
+            Objective::MinPenalties(_) => Objective::MinPenalties(budgets[0]),
+        },
+        ..p.clone()
+    };
+    let (mut m, _) = compile(&q)?;
+    let rows: Vec<usize> = (0..m.row_ids.len()).filter(|&k| m.row_ids[k] == "budget").collect();
+    if rows.len() != 1 {
+        return Err("the compiled problem has no budget row".into());
+    }
+    let (mut lb, mut ub) = (m.lb.clone(), m.ub.clone());
+    for i in (0..n).filter(|i| !sel.contains(i)) {
+        lb[i] = 0.0;
+        ub[i] = 0.0;
+    }
+    let mut ranks = vec![0.0; sel.len()];
+    let mut prev: Vec<f64> = Vec::new();
+    let mut info = Vec::new();
+    for (k, &b) in budgets.iter().enumerate() {
+        m.rhs[rows[0]] = b;
+        for i in 0..n.min(prev.len()) {
+            if prev[i] > 1e-10 {
+                lb[i] = prev[i];
+            }
+        }
+        let r = solve_bounded(&m, n, &lb, &ub, gap, &prev)?;
+        if !r.has_solution {
+            return Err("no solution: the targets, budgets or constraints cannot be met".into());
+        }
+        info.push((b, r.objective));
+        prev = r.x;
+        let rank = (budgets.len() - k) as f64;
+        for (j, &i) in sel.iter().enumerate() {
+            if ranks[j] < 1e-10 && prev[i] > 1e-10 {
+                ranks[j] = rank;
+            }
+        }
+    }
+    if rescale_it {
+        rescale(&mut ranks);
+    }
+    let mut res = vec![0.0; n];
+    for (j, &i) in sel.iter().enumerate() {
+        res[i] = ranks[j];
+    }
+    Ok((res, info))
+}

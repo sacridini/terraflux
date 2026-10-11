@@ -384,3 +384,55 @@ fn evaluation_is_prioritizrs() {
         }
     }
 }
+
+/// prioritizr's replacement importance (a solve without each unit selected) and rank importance (4 budgets) of a
+/// min set problem's optimal solution: its numbers (rtol 1e-9, as landschaft's test) and ranks.
+#[test]
+fn importance_is_prioritizrs() {
+    let inputs = inputs();
+    let r = reference("eval");
+    let registry = terraflux_ops::Registry::standard();
+    let close = |what: &str, a: &[f64], b: &[f64]| {
+        assert_eq!(a.len(), b.len(), "{what}");
+        for (i, (x, y)) in a.iter().zip(b).enumerate() {
+            let ok = (x.is_nan() && y.is_nan()) || (x - y).abs() <= 1e-9 + 1e-9 * y.abs();
+            assert!(ok, "{what}[{i}]: {x} != {y}");
+        }
+    };
+    // the solutions are per planning unit: put on the grid's cells with a cost
+    let cost = &inputs["pu_cost"].data;
+    let on_grid = |v: &[f64]| {
+        let mut out = vec![f64::NAN; cost.len()];
+        for (k, c) in (0..cost.len()).filter(|&c| cost[c].is_finite()).enumerate() {
+            out[c] = v[k];
+        }
+        out
+    };
+    let run = |case: &str, extra: serde_json::Value| {
+        let mut p = serde_json::json!({"relative_targets": 0.3, "gap": 0.0}).as_object().unwrap().clone();
+        p.extend(extra.as_object().unwrap().clone());
+        let mut ins = args_of(&inputs, NONE, None);
+        let g = match &ins["cost"] {
+            Value::Map(m) => m.grid.clone(),
+            _ => unreachable!(),
+        };
+        ins.insert("solution".into(), Value::Map(Map::new(g, on_grid(&r.floats(&format!("{case}/solution"))))));
+        let args = Args { node: "n", inputs: ins, params: &p };
+        registry.get("prioritize.evaluate").unwrap().run(&mut terraflux_ops::Ctx::default(), &args).unwrap()
+    };
+    let map = |out: &terraflux_ops::Outputs, port: &str| match &out[port] {
+        Value::Map(m) => m.data.to_vec(),
+        _ => panic!("{port}"),
+    };
+    let raw = run("eval_replacement", serde_json::json!({"replacement": true, "rescale": false}));
+    close("rc", &map(&raw, "replacement"), &r.floats("eval_replacement/rc"));
+    let scaled = run("eval_replacement", serde_json::json!({"replacement": true}));
+    close("rc scaled", &map(&scaled, "replacement"), &r.floats("eval_replacement/rc_scaled"));
+    let rank = run("eval_rank", serde_json::json!({"rank": 4, "rescale": false}));
+    let Value::Table(info) = &rank["rank_budgets"] else { panic!() };
+    assert_eq!(info.column("budget").unwrap(), r.floats("eval_rank/budgets"), "budgets");
+    close("objective", &info.column("objective").unwrap(), &r.floats("eval_rank/objective"));
+    let ranks = map(&rank, "rank");
+    let want = r.floats("eval_rank/rank");
+    assert!(ranks.iter().zip(&want).all(|(a, b)| a == b || (a.is_nan() && b.is_nan())), "ranks");
+}

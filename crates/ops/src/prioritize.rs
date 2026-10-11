@@ -1192,11 +1192,24 @@ impl Operator for Evaluate {
         ))
         .output(PortSpec::new("ferrier", Type::Stack, "Ferrier's irreplaceability per feature and in total"))
         .output(PortSpec::new("rarity", Type::Map, "the rarity-weighted richness of the units selected"))
+        .output(PortSpec::new("replacement", Type::Map, "replacement: each selected unit's replacement cost"))
+        .output(PortSpec::new("rank", Type::Map, "rank: each selected unit's rank importance"))
+        .output(PortSpec::new("rank_budgets", Type::Table, "rank: the budgets and the objective at each"))
         .param(PortSpec::optional("relative_targets", Type::Any, "a share of each feature's total (or one for all)"))
         .param(PortSpec::optional("absolute_targets", Type::Any, "an amount per feature"))
         .param(PortSpec::optional("loglinear_targets", Type::Any, "as prioritize.optimize's"))
         .param(PortSpec::optional("edge_factor", Type::Number, "the boundary: the weight of edges to no unit (0.5)"))
-        .param(PortSpec::optional("rescale", Type::Bool, "the rarity rescaled to 0.01-1 (default true)"))
+        .param(PortSpec::optional("rescale", Type::Bool, "the importances rescaled to 0.01-1 (default true)"))
+        .param(PortSpec::optional(
+            "replacement",
+            Type::Bool,
+            "the replacement cost of every unit selected (a solve without each)",
+        ))
+        .param(PortSpec::optional("rank", Type::Integer, "the rank importance with this many budgets"))
+        .param(PortSpec::optional("budgets", Type::Any, "the rank importance at these budgets"))
+        .param(PortSpec::optional("objective", Type::Text, "the problem's objective (as prioritize.optimize's)"))
+        .param(PortSpec::optional("budget", Type::Number, "the objective's budget"))
+        .param(PortSpec::optional("gap", Type::Number, "the solves' optimality gap (default 0.1)"))
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
@@ -1230,6 +1243,20 @@ impl Operator for Evaluate {
             ("representation", Value::Table(rep)),
             ("rarity", Value::Map(Map::new(grid.clone(), on_grid(&milp::rare_richness(u, &s, rescale).map_err(err)?)))),
         ]);
+        let gap: f64 = args.param("gap", 0.1)?;
+        if args.param("replacement", false)? {
+            let rc = milp::replacement_importance(&p, &s, gap, rescale).map_err(err)?;
+            out.insert("replacement".into(), Value::Map(Map::new(grid.clone(), on_grid(&rc))));
+        }
+        let n_rank: Option<usize> = args.opt_param("rank")?;
+        let budgets: Option<Vec<f64>> = args.opt_param("budgets")?;
+        if n_rank.is_some() || budgets.is_some() {
+            let (rs, info) = milp::rank_importance(&p, &s, n_rank, budgets, gap, rescale).map_err(err)?;
+            out.insert("rank".into(), Value::Map(Map::new(grid.clone(), on_grid(&rs))));
+            let mut t = Table::new(vec!["budget".into(), "objective".into()]);
+            t.rows = info.into_iter().map(|(b, o)| vec![b, o]).collect();
+            out.insert("rank_budgets".into(), Value::Table(t));
+        }
         if let Some(spec) = &p.targets {
             let t = milp::resolve_targets(spec, &u.totals).map_err(err)?;
             let held = milp::targets_held(u, &t, &s);
