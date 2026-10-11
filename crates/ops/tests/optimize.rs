@@ -688,3 +688,101 @@ fn portfolios_are_prioritizrs() {
         }
     }
 }
+
+/// prioritizr's evaluation of a solution of table units, bit for bit: the units, cost, the boundary, connectivity
+/// and asymmetric connectivity of matrices, the features' representation and manual targets' coverage; and the
+/// replacement importance of a max utility problem with boundary penalties (rtol 1e-9).
+#[test]
+fn table_evaluation_is_prioritizrs() {
+    use serde_json::json;
+    let t = tables();
+    let r = reference("eval");
+    let registry = terraflux_ops::Registry::standard();
+    let bits = |what: &str, a: &[f64], b: &[f64]| {
+        assert_eq!(a.len(), b.len(), "{what}");
+        for (i, (x, y)) in a.iter().zip(b).enumerate() {
+            assert!(x.to_bits() == y.to_bits() || (x.is_nan() && y.is_nan()), "{what}[{i}]: {x} != {y}");
+        }
+    };
+    let run = |ins: BTreeMap<String, Value>, params: serde_json::Value| {
+        let params = params.as_object().unwrap().clone();
+        let args = Args { node: "n", inputs: ins, params: &params };
+        let mut ctx = terraflux_ops::Ctx::default();
+        let out = registry.get("prioritize.evaluate").unwrap().run(&mut ctx, &args).unwrap();
+        (out, ctx.warnings)
+    };
+    let col = |out: &terraflux_ops::Outputs, port: &str, c: &str| {
+        let Value::Table(t) = &out[port] else { panic!("{port}") };
+        t.column(c).unwrap_or_else(|| panic!("{port}.{c}"))
+    };
+    let mut targets = Table::new(["feature", "relative", "sense", "target"].map(String::from).to_vec());
+    targets.rows = vec![
+        vec![1.0, 1.0, 1.0, 0.3],
+        vec![2.0, 0.0, -1.0, 2.0],
+        vec![4.0, 1.0, 0.0, 0.2],
+        vec![4.0, 0.0, -1.0, 120.0],
+        vec![5.0, 1.0, 1.0, 0.25],
+    ];
+    let mut ins: BTreeMap<String, Value> = [
+        ("pu", "pu_table"),
+        ("selection", "sol_table"),
+        ("boundary_data", "bnd_table"),
+        ("connectivity_data", "conn_table"),
+        ("asym_connectivity_data", "asym_table"),
+    ]
+    .into_iter()
+    .map(|(port, name)| (port.to_string(), Value::Table(t[name].clone())))
+    .collect();
+    ins.insert("targets".into(), Value::Table(targets));
+    let (out, warnings) = run(ins.clone(), json!({"features": ["f1", "f2", "f3", "f4", "f5"]}));
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let k = |s: &str| format!("eval_table/{s}");
+    bits("n", &col(&out, "summary", "n"), &r.floats(&k("n/n")));
+    bits("cost", &col(&out, "summary", "cost"), &r.floats(&k("cost/cost")));
+    bits("boundary", &col(&out, "summary", "boundary"), &r.floats(&k("boundary/boundary")));
+    bits("connectivity", &col(&out, "summary", "connectivity"), &r.floats(&k("connectivity/connectivity")));
+    bits("asym", &col(&out, "summary", "asym_connectivity"), &r.floats(&k("asym/asym_connectivity")));
+    for c in ["total_amount", "absolute_held", "relative_held"] {
+        bits(c, &col(&out, "representation", c), &r.floats(&k(&format!("representation/{c}"))));
+    }
+    for c in [
+        "met",
+        "total_amount",
+        "absolute_target",
+        "absolute_held",
+        "absolute_shortfall",
+        "relative_target",
+        "relative_held",
+        "relative_shortfall",
+    ] {
+        bits(c, &col(&out, "coverage", c), &r.floats(&k(&format!("coverage/{c}"))));
+    }
+    assert!(!out.contains_key("rarity") && !out.contains_key("ferrier"), "no maps of tables");
+    assert_eq!(col(&out, "units", "solution"), t["sol_table"].column("solution_1").unwrap());
+    // the matrices swapped: prioritizr's warnings
+    let mut swapped = ins.clone();
+    swapped.insert("connectivity_data".into(), Value::Table(t["asym_table"].clone()));
+    swapped.insert("asym_connectivity_data".into(), Value::Table(t["conn_table"].clone()));
+    let (_, warnings) = run(swapped, json!({"features": ["f1", "f2", "f3", "f4", "f5"]}));
+    assert_eq!(warnings.len(), 2, "{warnings:?}");
+
+    let mut sol = Table::new(vec!["solution".into()]);
+    sol.rows = r.floats("eval_replacement_max/solution").into_iter().map(|v| vec![v]).collect();
+    let ins: BTreeMap<String, Value> = [
+        ("pu".to_string(), Value::Table(t["pu_table"].clone())),
+        ("boundary_data".to_string(), Value::Table(t["bnd_table"].clone())),
+        ("selection".to_string(), Value::Table(sol)),
+    ]
+    .into();
+    let (out, _) = run(
+        ins,
+        json!({"features": ["f1", "f2", "f3", "f4", "f5"], "objective": "max_utility", "budget": 1500,
+               "boundary_penalty": 0.001, "replacement": true, "rescale": false, "gap": 0}),
+    );
+    let ours = col(&out, "units", "replacement");
+    let want = r.floats("eval_replacement_max/rc");
+    assert_eq!(ours.len(), want.len());
+    for (i, (x, y)) in ours.iter().zip(&want).enumerate() {
+        assert!((x.is_nan() && y.is_nan()) || (x - y).abs() <= 1e-9 + 1e-9 * y.abs(), "rc[{i}]: {x} != {y}");
+    }
+}

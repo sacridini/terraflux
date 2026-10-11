@@ -592,6 +592,9 @@ pub mod ffi {
         ) -> Result<CscOut>;
         /// Armadillo's accumulate (two interleaved partial sums).
         fn eval_accumulate(x: &[f64]) -> f64;
+        /// prioritizr's connectivity of a solution (rcpp_connectivity, or rcpp_asym_connectivity with asym): the
+        /// units' matrix in compressed columns.
+        fn eval_connectivity(start: &[i64], index: &[i64], value: &[f64], solution: &[f64], asym: bool) -> Result<f64>;
         fn lsm_table(
             values: &[i32],
             na: &[u8],

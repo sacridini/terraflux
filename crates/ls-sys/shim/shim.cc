@@ -784,6 +784,15 @@ double eval_boundary(double edge_factor, rust::Slice<const std::int64_t> start, 
                                to_std(solution));
 }
 
+double eval_connectivity(rust::Slice<const std::int64_t> start, rust::Slice<const std::int64_t> index,
+                         rust::Slice<const double> value, rust::Slice<const double> solution, bool asym) {
+    const i64 n = static_cast<i64>(start.size()) - 1;
+    check(static_cast<i64>(solution.size()) == n, "a value per unit");
+    const opt::eval::Csc m = csc_of(start, index, value, n);
+    for (const i64 r : m.index) check(r >= 0 && r < n, "rows within the units");
+    return asym ? opt::eval::asym_connectivity(m, to_std(solution)) : opt::eval::connectivity(m, to_std(solution));
+}
+
 CscOut eval_ferrier(rust::Slice<const std::int64_t> start, rust::Slice<const std::int64_t> index,
                     rust::Slice<const double> value, std::int64_t nrow, rust::Slice<const double> targets,
                     rust::Slice<const std::uint8_t> selected) {

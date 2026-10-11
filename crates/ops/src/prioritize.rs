@@ -1445,6 +1445,51 @@ fn portfolio_of(args: &Args) -> Result<Option<milp::Portfolio>> {
     }))
 }
 
+/// A solution's value per planning unit (no value: 0): the solution map on the cost's grid, or the selection
+/// table (prioritize.optimize's: unit and solution; or a column solution, solution_1 or the only one, with a row
+/// per unit of the table or per planning unit).
+fn solution_of(args: &Args, u: &milp::Units) -> Result<Vec<f64>> {
+    let node = args.node;
+    let err = |m: &str| Error::msg(format!("node {node:?}: {m}"));
+    let finite = |v: f64| if v.is_finite() { v } else { 0.0 };
+    if let Some(Value::Table(t)) = args.get("selection") {
+        let name = ["solution", "solution_1"]
+            .into_iter()
+            .find(|c| t.columns.iter().any(|x| x == c))
+            .map(String::from)
+            .or_else(|| {
+                let rest: Vec<&String> = t.columns.iter().filter(|c| *c != "unit").collect();
+                (rest.len() == 1).then(|| rest[0].clone())
+            })
+            .ok_or_else(|| err("the selection needs a column solution"))?;
+        let col = t.column(&name).unwrap();
+        if let Some(unit) = t.column("unit") {
+            let mut at = vec![0.0; u.size];
+            for (&k, &v) in unit.iter().zip(&col) {
+                if !(k >= 1.0 && k <= u.size as f64 && k.fract() == 0.0) {
+                    return Err(err(&format!("the selection's unit {k} is no unit (1-{})", u.size)));
+                }
+                at[k as usize - 1] = finite(v);
+            }
+            return Ok(u.cells.iter().map(|&c| at[c]).collect());
+        }
+        return if col.len() == u.size {
+            Ok(u.cells.iter().map(|&c| finite(col[c])).collect())
+        } else if col.len() == u.n() {
+            Ok(col.iter().map(|&v| finite(v)).collect())
+        } else {
+            Err(err(&format!("the selection needs a row per unit ({} or {}), not {}", u.size, u.n(), col.len())))
+        };
+    }
+    let Some(Value::Map(sol)) = args.get("solution") else {
+        return Err(err("the solution: a map (solution) or a table (selection)"));
+    };
+    if !u.raster || sol.data.len() != u.ny * u.nx {
+        return Err(err("the solution map is not on the cost's grid"));
+    }
+    Ok(u.cells.iter().map(|&c| finite(sol.data[c])).collect())
+}
+
 struct Evaluate;
 
 impl Operator for Evaluate {
@@ -1454,14 +1499,32 @@ impl Operator for Evaluate {
             "prioritizr's evaluation of a solution (eval_*), its numbers bit for bit: the units selected, their \
              cost and boundary; how much of each feature it holds; with targets, their coverage and Ferrier et \
              al.'s irreplaceability of the units selected; the rarity-weighted richness of the units selected. The \
-             problem is given as to prioritize.optimize (features, cost, targets).",
+             problem is given as to prioritize.optimize (maps or tables), the solution as a map or as \
+             prioritize.optimize's selection; the connectivity of the solution with connectivity matrices.",
             Access::Global,
         )
-        .input(PortSpec::new("features", Type::Stack, "the features' amounts, a layer each"))
-        .input(PortSpec::new("cost", Type::Map, "the cost of each cell (no value: not a planning unit)"))
-        .input(PortSpec::new("solution", Type::Map, "the share of each unit selected"))
+        .input(PortSpec::optional("features", Type::Stack, "the features' amounts, a layer each"))
+        .input(PortSpec::optional("cost", Type::Map, "the cost of each cell (no value: not a planning unit)"))
+        .input(PortSpec::optional("pu", Type::Table, "tables instead of maps: as prioritize.optimize's"))
+        .input(PortSpec::optional("spec", Type::Table, "Marxan-style: the features (id)"))
+        .input(PortSpec::optional("rij", Type::Table, "Marxan-style: the amounts (pu, species, amount)"))
+        .input(PortSpec::optional("solution", Type::Map, "the share of each unit selected"))
+        .input(PortSpec::optional(
+            "selection",
+            Type::Table,
+            "the solution as a table: prioritize.optimize's selection (unit, solution), or a column (solution, \
+             solution_1 or the only one) with a row per unit",
+        ))
         .input(PortSpec::optional("targets", Type::Table, "targets by hand, as prioritize.optimize's"))
-        .output(PortSpec::new("summary", Type::Table, "the units selected (n), their cost and boundary"))
+        .input(PortSpec::optional("boundary_data", Type::Table, "a boundary matrix of every unit: i, j, x (1-based)"))
+        .input(PortSpec::optional("connectivity_data", Type::Table, "a symmetric connectivity matrix: i, j, x"))
+        .input(PortSpec::optional("asym_connectivity_data", Type::Table, "a connectivity matrix: i, j, x"))
+        .output(PortSpec::new(
+            "summary",
+            Type::Table,
+            "the units selected (n), their cost and boundary (no value: tables without a boundary matrix), and \
+             with the matrices their connectivity and asym_connectivity",
+        ))
         .output(PortSpec::new("representation", Type::Table, "per feature: its total, the amount held and its share"))
         .output(PortSpec::optional(
             "coverage",
@@ -1469,10 +1532,16 @@ impl Operator for Evaluate {
             "per target: its feature, met (1), the total, the target, the amount held and the shortfall, and \
              these relative to the total",
         ))
-        .output(PortSpec::optional("ferrier", Type::Stack, "Ferrier's irreplaceability per feature and in total"))
-        .output(PortSpec::new("rarity", Type::Map, "the rarity-weighted richness of the units selected"))
-        .output(PortSpec::optional("replacement", Type::Map, "replacement: each selected unit's replacement cost"))
-        .output(PortSpec::optional("rank", Type::Map, "rank: each selected unit's rank importance"))
+        .output(PortSpec::new(
+            "units",
+            Type::Table,
+            "per unit: its cell or row (1..), the solution, the rarity-weighted richness, Ferrier's (ferrier_<feature>, \
+             ferrier_total), the replacement cost and the rank importance when asked",
+        ))
+        .output(PortSpec::optional("ferrier", Type::Stack, "maps: Ferrier's irreplaceability per feature and in total"))
+        .output(PortSpec::optional("rarity", Type::Map, "maps: the rarity-weighted richness of the units selected"))
+        .output(PortSpec::optional("replacement", Type::Map, "maps: each selected unit's replacement cost"))
+        .output(PortSpec::optional("rank", Type::Map, "maps: each selected unit's rank importance"))
         .output(PortSpec::optional("rank_budgets", Type::Table, "rank: the budgets and the objective at each"))
         .param(PortSpec::optional("relative_targets", Type::Any, "a share of each feature's total (or one for all)"))
         .param(PortSpec::optional("absolute_targets", Type::Any, "an amount per feature"))
@@ -1491,51 +1560,55 @@ impl Operator for Evaluate {
         .param(PortSpec::optional("gap", Type::Number, "the solves' optimality gap (default 0.1)"))
     }
 
-    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let node = args.node;
         let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
         let p = problem_of(args)?;
         let u = &p.units;
-        let sol = args.map("solution")?;
-        if sol.data.len() != u.ny * u.nx {
-            return Err(err("the solution is not on the cost's grid".into()));
+        let s = solution_of(args, u)?;
+        let bm = matrix_of(args, "boundary_data", u.size)?;
+        let e = milp::evaluate(u, &s, args.param("edge_factor", 0.5)?, bm.as_ref()).map_err(err)?;
+        let mut columns = vec!["n".to_string(), "cost".into(), "boundary".into()];
+        let mut row = vec![e.n, e.cost, e.boundary.unwrap_or(f64::NAN)];
+        for (port, asym, name) in
+            [("connectivity_data", false, "connectivity"), ("asym_connectivity_data", true, "asym_connectivity")]
+        {
+            if let Some(m) = matrix_of(args, port, u.size)? {
+                let (v, symmetric) = milp::connectivity(u, &m, &s, asym).map_err(err)?;
+                if symmetric == asym {
+                    let (is, other) =
+                        if asym { ("symmetric", "connectivity") } else { ("asymmetric", "asym_connectivity") };
+                    ctx.warn(format!("{port} holds {is} values: the {other} summary suits them"));
+                }
+                columns.push(name.into());
+                row.push(v);
+            }
         }
-        let s: Vec<f64> = u.cells.iter().map(|&c| if sol.data[c].is_finite() { sol.data[c] } else { 0.0 }).collect();
-        let e = milp::evaluate(u, &s, args.param("edge_factor", 0.5)?).map_err(err)?;
-        let mut summary = Table::new(vec!["n".into(), "cost".into(), "boundary".into()]);
-        summary.rows.push(vec![e.n, e.cost, e.boundary]);
+        let mut summary = Table::new(columns);
+        summary.rows.push(row);
         let mut rep =
             Table::new(["feature", "total_amount", "absolute_held", "relative_held"].map(String::from).to_vec());
         rep.rows =
             (0..u.names.len()).map(|f| vec![(f + 1) as f64, u.totals[f], e.held[f], e.held[f] / u.totals[f]]).collect();
-        let grid = args.map("cost")?.grid.clone();
-        let on_grid = |v: &[f64]| {
-            let mut m = vec![f64::NAN; u.ny * u.nx];
-            for (i, &c) in u.cells.iter().enumerate() {
-                m[c] = v[i];
-            }
-            m
-        };
         let rescale: bool = args.param("rescale", true)?;
-        let mut out = outputs([
-            ("summary", Value::Table(summary)),
-            ("representation", Value::Table(rep)),
-            ("rarity", Value::Map(Map::new(grid.clone(), on_grid(&milp::rare_richness(u, &s, rescale).map_err(err)?)))),
-        ]);
+        // per unit: a column each, and with maps a map each
+        let mut per_unit: Vec<(String, Vec<f64>)> =
+            vec![("solution".into(), s.clone()), ("rarity".into(), milp::rare_richness(u, &s, rescale).map_err(err)?)];
+        let mut out = outputs([("summary", Value::Table(summary)), ("representation", Value::Table(rep))]);
         let gap: f64 = args.param("gap", 0.1)?;
         if args.param("replacement", false)? {
-            let rc = milp::replacement_importance(&p, &s, gap, rescale).map_err(err)?;
-            out.insert("replacement".into(), Value::Map(Map::new(grid.clone(), on_grid(&rc))));
+            per_unit.push(("replacement".into(), milp::replacement_importance(&p, &s, gap, rescale).map_err(err)?));
         }
         let n_rank: Option<usize> = args.opt_param("rank")?;
         let budgets: Option<Vec<f64>> = args.opt_param("budgets")?;
         if n_rank.is_some() || budgets.is_some() {
             let (rs, info) = milp::rank_importance(&p, &s, n_rank, budgets, gap, rescale).map_err(err)?;
-            out.insert("rank".into(), Value::Map(Map::new(grid.clone(), on_grid(&rs))));
+            per_unit.push(("rank".into(), rs));
             let mut t = Table::new(vec!["budget".into(), "objective".into()]);
             t.rows = info.into_iter().map(|(b, o)| vec![b, o]).collect();
             out.insert("rank_budgets".into(), Value::Table(t));
         }
+        let mut ferrier = None;
         if let Some(spec) = &p.targets {
             let t = milp::resolve_targets(spec, &u.totals).map_err(err)?;
             let held = milp::targets_held(u, &t, &s);
@@ -1578,6 +1651,34 @@ impl Operator for Evaluate {
             }
             out.insert("coverage".into(), Value::Table(cov));
             if let Ok((scores, totals)) = milp::ferrier(u, &t, &s) {
+                for (name, v) in u.names.iter().zip(&scores) {
+                    per_unit.push((format!("ferrier_{name}"), v.clone()));
+                }
+                per_unit.push(("ferrier_total".into(), totals.clone()));
+                ferrier = Some((scores, totals));
+            }
+        }
+        let mut units =
+            Table::new(std::iter::once("unit".to_string()).chain(per_unit.iter().map(|c| c.0.clone())).collect());
+        units.rows = (0..u.n())
+            .map(|i| std::iter::once((u.cells[i] + 1) as f64).chain(per_unit.iter().map(|c| c.1[i])).collect())
+            .collect();
+        out.insert("units".into(), Value::Table(units));
+        if u.raster {
+            let grid = args.map("cost")?.grid.clone();
+            let on_grid = |v: &[f64]| {
+                let mut m = vec![f64::NAN; u.ny * u.nx];
+                for (i, &c) in u.cells.iter().enumerate() {
+                    m[c] = v[i];
+                }
+                m
+            };
+            for (name, v) in &per_unit {
+                if ["rarity", "replacement", "rank"].contains(&name.as_str()) {
+                    out.insert(name.clone(), Value::Map(Map::new(grid.clone(), on_grid(v))));
+                }
+            }
+            if let Some((scores, totals)) = ferrier {
                 let mut keys: Vec<Key> = u.names.iter().map(|n| Key::Name(n.clone())).collect();
                 keys.push(Key::Name("total".into()));
                 let mut layers: Vec<Arc<Vec<f64>>> = scores.iter().map(|v| Arc::new(on_grid(v))).collect();

@@ -27,6 +27,11 @@ minor versions.
   random orders); a column per solution and the frequency of selection, a row per solution in the summary, and
   with maps a layer per solution and the frequency map. The objectives of prioritizr's (Gurobi's solution pool)
   on the cases landschaft keeps.
+- `prioritize.evaluate` of table units and of `prioritize.optimize`'s selection (a table): the boundary of a
+  boundary matrix, the connectivity and asymmetric connectivity of connectivity matrices (prioritizr's warnings
+  when a matrix does not suit its summary), the per-unit results as a table (`units`: the solution, the rarity,
+  Ferrier's, the replacement and rank importance). prioritizr's numbers bit for bit on landschaft's table case,
+  and its replacement importance of a max utility problem with boundary penalties.
 - prioritizr's evaluation of a solution (`prioritize.evaluate`): the units selected, their cost and boundary, the
   features' representation, the targets' coverage, Ferrier et al.'s irreplaceability and the rarity-weighted
   richness; prioritizr's numbers bit for bit on the cases landschaft keeps; and on request the replacement

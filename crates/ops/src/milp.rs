@@ -1338,8 +1338,8 @@ pub struct Evaluation {
     /// eval_n_summary and eval_cost_summary: R's sums
     pub n: f64,
     pub cost: f64,
-    /// eval_boundary_summary
-    pub boundary: f64,
+    /// eval_boundary_summary (None: table units without a boundary matrix)
+    pub boundary: Option<f64>,
     /// eval_feature_representation_summary: per feature its amount held
     pub held: Vec<f64>,
 }
@@ -1353,14 +1353,30 @@ fn selected(s: &[f64]) -> Result<Vec<usize>, String> {
     Ok(sel)
 }
 
-/// The summaries of a solution (s: a value per unit).
-pub fn evaluate(u: &Units, s: &[f64], edge_factor: f64) -> Result<Evaluation, String> {
+/// The summaries of a solution (s: a value per unit), the boundary of the raster's or of a boundary matrix of
+/// every unit.
+pub fn evaluate(u: &Units, s: &[f64], edge_factor: f64, data: Option<&Matrix>) -> Result<Evaluation, String> {
     if !(0.0..=1.0).contains(&edge_factor) {
         return Err("edge_factor must be between 0 and 1".into());
     }
     let cost: Vec<f64> = u.cost.iter().zip(s).map(|(c, x)| c * x).collect();
+    let held = (0..u.rij.nrow)
+        .map(|f| {
+            let (idx, v) = u.rij.row(f);
+            idx.iter().zip(v).filter(|(i, _)| s[**i] != 0.0).fold(0.0, |a, (i, x)| a + x * s[*i])
+        })
+        .collect();
+    let boundary = match (data, u.raster) {
+        (Some(d), _) => Some(boundary_of(d.units(u, "the boundary matrix")?, s, edge_factor)?),
+        (None, true) => Some(boundary_of(u.boundary_matrix(), s, edge_factor)?),
+        (None, false) => None,
+    };
+    Ok(Evaluation { n: ffi::r_sum(s), cost: ffi::r_sum(&cost), boundary, held })
+}
+
+/// eval_boundary_summary of the units' boundary matrix.
+fn boundary_of(mut bm: Csc, s: &[f64], edge_factor: f64) -> Result<f64, String> {
     // the boundary matrix rounded as prioritizr's eval does
-    let mut bm = u.boundary_matrix();
     bm.value.iter_mut().for_each(|v| *v = r_round(*v, 6));
     let total = bm.diagonal();
     let exposed: Vec<f64> = total.iter().zip(bm.row_sums()).map(|(t, r)| t - (r - t)).collect();
@@ -1374,7 +1390,7 @@ pub fn evaluate(u: &Units, s: &[f64], edge_factor: f64) -> Result<Evaluation, St
         }
         lower.start.push(lower.index.len());
     }
-    let boundary = ffi::eval_boundary(
+    ffi::eval_boundary(
         edge_factor,
         &lower.start.iter().map(|&x| x as i64).collect::<Vec<_>>(),
         &lower.index.iter().map(|&x| x as i64).collect::<Vec<_>>(),
@@ -1383,14 +1399,22 @@ pub fn evaluate(u: &Units, s: &[f64], edge_factor: f64) -> Result<Evaluation, St
         &total,
         s,
     )
+    .map_err(|e| e.what().to_string())
+}
+
+/// eval_connectivity_summary (eval_asym_connectivity_summary with asym) of a matrix of every unit; and whether
+/// the matrix is symmetric (prioritizr warns when it does not suit the summary).
+pub fn connectivity(u: &Units, data: &Matrix, s: &[f64], asym: bool) -> Result<(f64, bool), String> {
+    let m = data.units(u, "the connectivity matrix")?;
+    let v = ffi::eval_connectivity(
+        &m.start.iter().map(|&x| x as i64).collect::<Vec<_>>(),
+        &m.index.iter().map(|&x| x as i64).collect::<Vec<_>>(),
+        &m.value,
+        s,
+        asym,
+    )
     .map_err(|e| e.what().to_string())?;
-    let held = (0..u.rij.nrow)
-        .map(|f| {
-            let (idx, v) = u.rij.row(f);
-            idx.iter().zip(v).filter(|(i, _)| s[**i] != 0.0).fold(0.0, |a, (i, x)| a + x * s[*i])
-        })
-        .collect();
-    Ok(Evaluation { n: ffi::r_sum(s), cost: ffi::r_sum(&cost), boundary, held })
+    Ok((v, m.symmetric()))
 }
 
 /// eval_target_coverage_summary's amounts held of the targets (Armadillo's sums of their non-zero products).
