@@ -1026,6 +1026,16 @@ pub fn problem_of(args: &Args) -> Result<milp::Problem> {
         "max_features" => milp::Objective::MaxFeatures(budget()?),
         "max_cover" => milp::Objective::MaxCover(budget()?),
         "min_penalties" => milp::Objective::MinPenalties(budget()?),
+        "max_phylo_div" | "max_phylo_end" => {
+            let tree: String = args
+                .opt_param("tree")?
+                .ok_or_else(|| err(format!("the {objective} objective needs a tree (Newick text)")))?;
+            if objective == "max_phylo_div" {
+                milp::Objective::MaxPhyloDiv(budget()?, tree)
+            } else {
+                milp::Objective::MaxPhyloEnd(budget()?, tree)
+            }
+        }
         o => return Err(err(format!("unknown objective {o:?}"))),
     };
     let per_feature = |name: &str| -> Result<Option<Vec<f64>>> {
@@ -1236,7 +1246,8 @@ impl Operator for Optimize {
             "Systematic conservation planning as prioritizr 8.0.6 (Hanson et al.): an integer program over the \
              planning units (the cells with a cost) solved to optimality (within the gap) by HiGHS, the model \
              prioritizr compiles. Objectives: min_set (meet every target at the least cost), min_shortfall, \
-             min_largest_shortfall, max_utility, max_features, max_cover, min_penalties (with a budget); \
+             min_largest_shortfall, max_utility, max_features, max_cover, min_penalties, max_phylo_div, \
+             max_phylo_end (with a budget); \
              targets relative, absolute, loglinear or by hand; feature weights; binary, proportion or \
              semicontinuous decisions; locked units; boundary, connectivity and linear penalties, linear \
              constraints, neighbour and contiguity constraints; planning units in maps or tables; portfolios of solutions.",
@@ -1297,9 +1308,15 @@ impl Operator for Optimize {
         .param(PortSpec::optional(
             "objective",
             Type::Text,
-            "min_set (default), min_shortfall, min_largest_shortfall, max_utility, max_features, max_cover, min_penalties",
+            "min_set (default), min_shortfall, min_largest_shortfall, max_utility, max_features, max_cover, \
+             min_penalties, max_phylo_div, max_phylo_end",
         ))
         .param(PortSpec::optional("budget", Type::Number, "the objectives with a budget: the cost they may spend"))
+        .param(PortSpec::optional(
+            "tree",
+            Type::Text,
+            "max_phylo_div, max_phylo_end: the phylogeny in Newick, its tips the features (with branch lengths)",
+        ))
         .param(PortSpec::optional("relative_targets", Type::Any, "a share of each feature's total (or one for all)"))
         .param(PortSpec::optional("absolute_targets", Type::Any, "an amount per feature"))
         .param(PortSpec::optional(

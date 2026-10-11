@@ -43,6 +43,9 @@ minor versions.
   add_manual_locked_constraints): tables of units and their bounds (`bounds`: pu, lower, upper) or statuses
   (`status`: pu, status), after the locked units; prioritizr's compile() bit for bit and its optima on the 7 cases
   landschaft keeps.
+- The phylogenetic objectives of `prioritize.optimize`: max_phylo_div and max_phylo_end (a phylogeny in Newick,
+  its tips the features; the branches met where a target below them is). prioritizr's compile() bit for bit (with
+  its tip-order bug fixed when the tips come in another order) and its optima on landschaft's 4 cases.
 - prioritizr's evaluation of a solution (`prioritize.evaluate`): the units selected, their cost and boundary, the
   features' representation, the targets' coverage, Ferrier et al.'s irreplaceability and the rarity-weighted
   richness; prioritizr's numbers bit for bit on the cases landschaft keeps; and on request the replacement

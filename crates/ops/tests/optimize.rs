@@ -46,6 +46,10 @@ const BOTH: &[&str] = &["locked_in", "locked_out"];
 /// A case: its reference group and name, the node's settings, the locked or data rasters it takes, manual targets.
 type Case = (&'static str, &'static str, serde_json::Value, &'static [&'static str], Option<Table>);
 
+/// The phylogenies of the phylogenetic objectives' cases: the tips in the features' order, and in another.
+const TREE_ORDERED: &str = "(((f1:1.5,f2:0.5):1,f3:2):0.75,(f4:1.25,f5:3):0.5);";
+const TREE_SHUFFLED: &str = "(((f3:1.5,f1:0.5):1,f5:2):0.75,(f2:1.25,f4:3):0.5);";
+
 fn cases() -> Vec<Case> {
     use serde_json::json;
     let abs = json!([1.2, 0.9, 1, 120, 4]);
@@ -150,6 +154,36 @@ fn cases() -> Vec<Case> {
         ),
         ("objectives", "targets_loglinear", json!({"loglinear_targets": [3, 0.6, 300, 0.2]}), NONE, None),
         ("objectives", "targets_loglinear_cap", json!({"loglinear_targets": [3, 0.6, 300, 0.2, 100, 50]}), NONE, None),
+        (
+            "objectives",
+            "max_phylo_div",
+            json!({"objective": "max_phylo_div", "budget": 2500, "tree": TREE_ORDERED, "relative_targets": 0.3}),
+            NONE,
+            None,
+        ),
+        // prioritizr with its tip-order bug fixed
+        (
+            "objectives",
+            "max_phylo_div_shuffled",
+            json!({"objective": "max_phylo_div", "budget": 2500, "tree": TREE_SHUFFLED,
+                   "relative_targets": [0.3, 0.4, 0.5, 0.2, 0.35], "feature_weights": [1, 2, 1, 3, 1]}),
+            NONE,
+            None,
+        ),
+        (
+            "objectives",
+            "max_phylo_end",
+            json!({"objective": "max_phylo_end", "budget": 2500, "tree": TREE_SHUFFLED, "relative_targets": 0.3}),
+            NONE,
+            None,
+        ),
+        (
+            "objectives",
+            "max_phylo_end_ordered",
+            json!({"objective": "max_phylo_end", "budget": 2500, "tree": TREE_ORDERED, "relative_targets": 0.3}),
+            NONE,
+            None,
+        ),
         ("spatial", "boundary_raster", json!({"relative_targets": 0.3, "boundary_penalty": 0.5}), NONE, None),
         (
             "spatial",

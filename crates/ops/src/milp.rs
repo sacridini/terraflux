@@ -237,6 +237,10 @@ pub enum Objective {
     MaxFeatures(f64),
     MaxCover(f64),
     MinPenalties(f64),
+    /// add_max_phylo_div_objective(budget, tree): the tree in Newick, its tips the features
+    MaxPhyloDiv(f64, String),
+    /// add_max_phylo_end_objective(budget, tree)
+    MaxPhyloEnd(f64, String),
 }
 
 impl Objective {
@@ -249,6 +253,8 @@ impl Objective {
             Objective::MaxFeatures(_) => "max_features",
             Objective::MaxCover(_) => "max_cover",
             Objective::MinPenalties(_) => "min_penalties",
+            Objective::MaxPhyloDiv(..) => "max_phylo_div",
+            Objective::MaxPhyloEnd(..) => "max_phylo_end",
         }
     }
 
@@ -260,7 +266,9 @@ impl Objective {
             | Objective::MaxUtility(b)
             | Objective::MaxFeatures(b)
             | Objective::MaxCover(b)
-            | Objective::MinPenalties(b) => Some(*b),
+            | Objective::MinPenalties(b)
+            | Objective::MaxPhyloDiv(b, _)
+            | Objective::MaxPhyloEnd(b, _) => Some(*b),
         }
     }
 
@@ -501,6 +509,141 @@ impl Builder {
     }
 }
 
+/// A phylogeny read from Newick text (ape's read.tree): every node's parent, children (in the order given), name
+/// and branch length.
+struct Tree {
+    parent: Vec<usize>,
+    children: Vec<Vec<usize>>,
+    names: Vec<String>,
+    length: Vec<f64>,
+}
+
+fn read_newick(text: &str) -> Result<Tree, String> {
+    let s: Vec<char> = text.chars().filter(|c| !c.is_whitespace()).collect();
+    let mut t = Tree { parent: Vec::new(), children: Vec::new(), names: Vec::new(), length: Vec::new() };
+    let bad = |at: usize| format!("the tree is no Newick text (at {at})");
+    let mut pos = 0;
+    // depth first, a stack of the nodes open
+    let mut open: Vec<usize> = Vec::new();
+    let new = |t: &mut Tree, parent: Option<usize>| {
+        let id = t.parent.len();
+        t.parent.push(parent.unwrap_or(usize::MAX));
+        t.children.push(Vec::new());
+        t.names.push(String::new());
+        t.length.push(f64::NAN);
+        if let Some(p) = parent {
+            t.children[p].push(id);
+        }
+        id
+    };
+    // a node's label and length, after its children if any
+    let tail = |t: &mut Tree, id: usize, pos: &mut usize| -> Result<(), String> {
+        let stop = |c: char| matches!(c, ',' | '(' | ')' | ':' | ';');
+        if s.get(*pos) == Some(&'\'') {
+            let end = s[*pos + 1..].iter().position(|&c| c == '\'').ok_or_else(|| bad(*pos))?;
+            t.names[id] = s[*pos + 1..*pos + 1 + end].iter().collect();
+            *pos += end + 2;
+        } else {
+            let start = *pos;
+            while *pos < s.len() && !stop(s[*pos]) {
+                *pos += 1;
+            }
+            t.names[id] = s[start..*pos].iter().collect();
+        }
+        if s.get(*pos) == Some(&':') {
+            *pos += 1;
+            let start = *pos;
+            while *pos < s.len() && !stop(s[*pos]) {
+                *pos += 1;
+            }
+            let v: String = s[start..*pos].iter().collect();
+            t.length[id] = v.parse().map_err(|_| format!("the tree's branch length {v:?} is no number"))?;
+        }
+        Ok(())
+    };
+    let mut current = new(&mut t, None);
+    loop {
+        match s.get(pos) {
+            Some('(') => {
+                pos += 1;
+                open.push(current);
+                current = new(&mut t, Some(current));
+            }
+            Some(',') => {
+                pos += 1;
+                let parent = *open.last().ok_or_else(|| bad(pos))?;
+                current = new(&mut t, Some(parent));
+            }
+            Some(')') => {
+                pos += 1;
+                current = open.pop().ok_or_else(|| bad(pos))?;
+                tail(&mut t, current, &mut pos)?;
+            }
+            Some(';') | None => break,
+            Some(_) => tail(&mut t, current, &mut pos)?,
+        }
+    }
+    if !open.is_empty() {
+        return Err(bad(pos));
+    }
+    Ok(t)
+}
+
+/// A phylogeny's branches as ape orders them (read.tree's cladewise order: depth first, children in the order
+/// given; the root's own length left out): the features below every branch (prioritizr's branch_matrix(), in the
+/// features' order) and its length. Its tips must be the features.
+fn tree_branches(text: &str, names: &[String]) -> Result<(Vec<Vec<usize>>, Vec<f64>), String> {
+    let t = read_newick(text)?;
+    let root = 0;
+    let mut order = Vec::new();
+    let mut stack = vec![root];
+    while let Some(v) = stack.pop() {
+        order.push(v);
+        stack.extend(t.children[v].iter().rev());
+    }
+    let mut edge_of = vec![usize::MAX; t.parent.len()];
+    let edges: Vec<usize> = order.iter().copied().filter(|&v| v != root).collect();
+    for (e, &v) in edges.iter().enumerate() {
+        edge_of[v] = e;
+    }
+    let tips: Vec<usize> = order.iter().copied().filter(|&v| t.children[v].is_empty()).collect();
+    let mut labels: Vec<&String> = tips.iter().map(|&v| &t.names[v]).collect();
+    let mut want: Vec<&String> = names.iter().collect();
+    labels.sort();
+    want.sort();
+    if labels != want {
+        return Err("the tree's tips must be the problem's features".into());
+    }
+    let mut below = vec![Vec::new(); edges.len()];
+    for (f, name) in names.iter().enumerate() {
+        let mut v = *tips.iter().find(|&&v| &t.names[v] == name).unwrap();
+        while v != root {
+            below[edge_of[v]].push(f);
+            v = t.parent[v];
+        }
+    }
+    let lengths: Vec<f64> = edges.iter().map(|&v| t.length[v]).collect();
+    if lengths.iter().any(|l| !l.is_finite()) {
+        return Err("the tree needs a length on every branch".into());
+    }
+    Ok((below, lengths))
+}
+
+/// add_max_phylo_end_objective's branch lengths: each divided by the total amount of the features below it
+/// (in feature order), then all scaled up so that the shortest is 1 if it was shorter.
+fn endemism_lengths(below: &[Vec<usize>], lengths: &[f64], totals: &[f64]) -> Vec<f64> {
+    let mut out: Vec<f64> = below
+        .iter()
+        .zip(lengths)
+        .map(|(fs, l)| l * (1.0 / seq_sum(&fs.iter().map(|&f| totals[f]).collect::<Vec<_>>())))
+        .collect();
+    let m = out.iter().cloned().fold(f64::INFINITY, f64::min);
+    if m < 1.0 {
+        out.iter_mut().for_each(|v| *v *= 1.0 / m);
+    }
+    out
+}
+
 /// The model prioritizr's compile() gives for a problem, and its targets.
 pub fn compile(p: &Problem) -> Result<(Model, Targets), String> {
     let u = &p.units;
@@ -651,6 +794,44 @@ pub fn compile(p: &Problem) -> Result<(Model, Targets), String> {
             budget_row(&mut rows, &mut cols, &mut vals, nt);
             nrow_extra = 1;
             ncol_extra = nt;
+            weight_cols = Some(n);
+        }
+        Objective::MaxPhyloDiv(b, tree) | Objective::MaxPhyloEnd(b, tree) => {
+            let (below, mut lengths) = tree_branches(tree, &u.names)?;
+            if matches!(kind, Objective::MaxPhyloEnd(..)) {
+                lengths = endemism_lengths(&below, &lengths, &u.totals);
+            }
+            let ne = lengths.len();
+            let shortest = lengths.iter().cloned().fold(f64::INFINITY, f64::min);
+            let scale = (-0.01 * shortest) / seq_sum(cost);
+            obj = cost.iter().map(|c| c * scale).collect();
+            obj.extend(vec![0.0; nt]);
+            obj.extend_from_slice(&lengths);
+            lb.extend(vec![0.0; nt + ne]);
+            ub.extend(vec![1.0; nt + ne]);
+            vtype.extend(vec!['B'; nt + ne]);
+            rows.extend(0..nt);
+            cols.extend(n..n + nt);
+            vals.extend(t.value.iter().map(|v| -v));
+            budget_row(&mut rows, &mut cols, &mut vals, nt);
+            // a branch is met when a target of a feature below it is: sum of those targets' columns - branch >= 0
+            for (e, fs) in below.iter().enumerate() {
+                for k in (0..nt).filter(|&k| fs.contains(&t.feature[k])) {
+                    rows.push(nt + 1 + e);
+                    cols.push(n + k);
+                    vals.push(1.0);
+                }
+                rows.push(nt + 1 + e);
+                cols.push(n + nt + e);
+                vals.push(-1.0);
+            }
+            sense = [t.sense.clone(), bud_sense(), vec![">=".to_string(); ne]].concat();
+            rhs = [vec![0.0; nt], vec![*b], vec![0.0; ne]].concat();
+            col_ids.extend(vec!["spp_met".to_string(); nt]);
+            col_ids.extend(vec!["branch_met".to_string(); ne]);
+            row_ids = [vec!["spp_target".to_string(); nt], bud_ids(), vec!["branch_target".to_string(); ne]].concat();
+            nrow_extra = 1 + ne;
+            ncol_extra = nt + ne;
             weight_cols = Some(n);
         }
         Objective::MinPenalties(b) => {
@@ -2222,6 +2403,8 @@ pub fn rank_importance(
             Objective::MaxFeatures(_) => Objective::MaxFeatures(budgets[0]),
             Objective::MaxCover(_) => Objective::MaxCover(budgets[0]),
             Objective::MinPenalties(_) => Objective::MinPenalties(budgets[0]),
+            Objective::MaxPhyloDiv(_, t) => Objective::MaxPhyloDiv(budgets[0], t.clone()),
+            Objective::MaxPhyloEnd(_, t) => Objective::MaxPhyloEnd(budgets[0], t.clone()),
         },
         ..p.clone()
     };
