@@ -88,6 +88,11 @@ minor versions.
   conversion, and what restoring a cell gives it; plangea's ec over all the ecoregion's land, the corrected form)
   and `restoration.ecosystem_targets` (a restoration target shared among the ecosystems for the least risk:
   plangea's steps, or the exact optimum). plangea's layers and targets on the cases landschaft keeps.
+- Conservation and conversion plans (`restoration.plan`'s `conservable`, `convertible` and `threat`; plangea's C,
+  D and R + D): conserving keeps the habitat the baseline loses, converting takes it away (the habitat lost per
+  unit of natural land: `sdm.area_of_habitat`'s new `loss`); the area targets of the net change with
+  restoration and conversion; the maps conserved and converted. plangea's units, layers and plans of its steps
+  on the 4 cases landschaft keeps, and their exact plans.
 - prioritizr's evaluation of a solution (`prioritize.evaluate`): the units selected, their cost and boundary, the
   features' representation, the targets' coverage, Ferrier et al.'s irreplaceability and the rarity-weighted
   richness; prioritizr's numbers bit for bit on the cases landschaft keeps; and on request the replacement

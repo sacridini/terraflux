@@ -376,6 +376,11 @@ impl Operator for AreaOfHabitat {
              cells, and whether it counts (1: habitat now and potential, and suitable classes)",
         ))
         .output(PortSpec::new("gain", Type::Stack, "the habitat each species gains per unit of a cell restored"))
+        .output(PortSpec::optional(
+            "loss",
+            Type::Stack,
+            "with loss: the habitat each species loses per unit of a cell's natural land converted",
+        ))
         .param(PortSpec::new("natural", Type::Any, "the natural classes (names of the land cover's layers)"))
         .param(PortSpec::optional(
             "suitability",
@@ -385,6 +390,11 @@ impl Operator for AreaOfHabitat {
         .param(PortSpec::optional("include_unlisted", Type::Bool, "species not in suitability count (default true)"))
         .param(PortSpec::optional("elevation_limits", Type::Any, "[[species, lowest, highest], ...] (null: none)"))
         .param(PortSpec::optional("cell_area", Type::Number, "a cell's area in km² (default: the grid's)"))
+        .param(PortSpec::optional(
+            "loss",
+            Type::Bool,
+            "also the habitat lost per unit of natural land (conservation, conversion)",
+        ))
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
@@ -520,6 +530,31 @@ impl Operator for AreaOfHabitat {
                 .collect();
             let keys = species.iter().map(|s| Key::Name(s.clone())).collect();
             out.insert("gain".into(), Value::Stack(Stack { grid: grid.clone(), keys, layers }));
+        }
+        if args.param("loss", false)? {
+            // plangea's prop_restore of conservation and conversion: the current natural cover, as shares
+            let mut total = vec![0.0; ncell];
+            for j in 0..k {
+                for (t, v) in total.iter_mut().zip(&current[j * ncell..(j + 1) * ncell]) {
+                    *t += v;
+                }
+            }
+            let mix: Vec<f64> = (0..k * ncell)
+                .map(|i| if total[i % ncell] > 0.0 { current[i] / total[i % ncell] } else { 0.0 })
+                .collect();
+            let dom: Vec<u8> = total.iter().map(|t| u8::from(*t > 0.0)).collect();
+            let g = ffi::rest_habitat_gain(&mix, &area, ncell as i64, k as i32, &ptr, &idx, &suit, ns, &dom)?;
+            let layers = (0..species.len())
+                .map(|s| {
+                    let mut m = vec![0.0; ncell];
+                    for i in g.indptr[s] as usize..g.indptr[s + 1] as usize {
+                        m[g.index[i] as usize] = g.gain[i];
+                    }
+                    Arc::new(m)
+                })
+                .collect();
+            let keys = species.iter().map(|s| Key::Name(s.clone())).collect();
+            out.insert("loss".into(), Value::Stack(Stack { grid: grid.clone(), keys, layers }));
         }
         Ok(out)
     }

@@ -473,3 +473,106 @@ fn ecosystem_targets_are_plangeas() {
         assert!((0..3).filter(|&k| a[k] <= least[k] + 1e-9).all(|k| marginal[k] <= lo * (1.0 + 1e-7)), "{name}");
     }
 }
+
+/// plangea's scen loop for conversion (D: x in [-natural, 0]) and conservation (C, corrected: its baseline loses
+/// the natural land not conserved, as an area): the units, the first layer, the plan and the refreshed layers.
+#[test]
+fn conversion_and_conservation_steps_are_plangeas() {
+    let d = data();
+    let spec = &d.meta["bd_cases"]["bd_absent"];
+    let veg = vegetation(&d, &d.meta["oa_cases"][spec["oa"].as_str().unwrap()]);
+    let species = strings(&d.meta["species"]);
+    let classes = strings(&d.meta["classes"]);
+    let aoh = run(
+        "sdm.area_of_habitat",
+        vec![
+            ("ranges", stack(&d.inputs["ranges"], &species)),
+            ("land_cover", stack(&d.inputs["land_cover"], &classes)),
+            ("original", veg["original"].clone()),
+            ("restore", veg["restore"].clone()),
+            ("anthropic", veg["anthropic"].clone()),
+        ],
+        serde_json::json!({"natural": d.meta["natural"], "suitability": d.meta["suitability"], "cell_area": 1.0,
+                           "include_unlisted": spec["include_absent"], "loss": true}),
+    );
+    let (Value::Table(t), Value::Stack(gain), Value::Stack(loss)) = (&aoh["table"], &aoh["gain"], &aoh["loss"]) else {
+        panic!()
+    };
+    let cover = &d.inputs["land_cover"];
+    let (ny, nx) = (cover.shape[1], cover.shape[2]);
+    let n = ny * nx;
+    let mut nat = vec![0.0; n];
+    for c in strings(&d.meta["natural"]) {
+        let k = classes.iter().position(|x| *x == c).unwrap();
+        for (o, v) in nat.iter_mut().zip(&cover.data[k * n..(k + 1) * n]) {
+            *o += if v.is_nan() { 0.0 } else { *v };
+        }
+    }
+    let close = |what: &str, a: &[f64], b: &[f64], rtol: f64, atol: f64| {
+        assert_eq!(a.len(), b.len(), "{what}");
+        for (i, (x, y)) in a.iter().zip(b).enumerate() {
+            assert!((x - y).abs() <= atol + rtol * y.abs(), "{what}[{i}]: {x} != {y}");
+        }
+    };
+    for (name, case) in d.meta["scen_cd_cases"].as_object().unwrap() {
+        let conv = case["type"] == "D";
+        let mut share = nat.clone();
+        if let Some(cols) = case.get("cols").and_then(|c| c.as_u64()) {
+            for (c, v) in share.iter_mut().enumerate() {
+                if (c % nx) as u64 >= cols {
+                    *v = 0.0;
+                }
+            }
+        }
+        let ones = vec![1.0; n];
+        let (cons, convert) = if conv { (None, Some(share.as_slice())) } else { (Some(share.as_slice()), None) };
+        let mut p =
+            terraflux_ops::restoration_plan::Plan::with_actions(None, cons, convert, &ones, &ones, &ones, (ny, nx))
+                .unwrap();
+        let k = t.rows.len();
+        let g: Vec<&[f64]> = gain.layers.iter().map(|l| l.as_slice()).collect();
+        let l: Vec<&[f64]> = loss.layers.iter().map(|l| l.as_slice()).collect();
+        p.add_risk_loss(
+            &t.column("current").unwrap(),
+            &t.column("potential").unwrap(),
+            &t.column("valid").unwrap().iter().map(|v| *v != 0.0).collect::<Vec<_>>(),
+            &g,
+            &l,
+            &vec![0.25; k],
+            &vec![0.0; k],
+            1.0,
+        )
+        .unwrap();
+        assert_eq!(p.index, cells(&d.reference[&format!("{name}/master_n")]), "{name}: the units");
+        // plangea's x of conversion is negative, its layer positive
+        let sign = if conv { -1.0 } else { 1.0 };
+        let signed = |v: Vec<f64>| v.into_iter().map(|x| sign * x).collect::<Vec<_>>();
+        close(
+            &format!("{name} bd_0"),
+            &signed(p.steps_layer(&p.risks[0], &vec![0.0; p.n()])),
+            &d.reference[&format!("{name}/bd_0")].data,
+            1e-7,
+            0.0,
+        );
+        let target = d.reference[&format!("{name}/target")].data[0];
+        p.add_area_target(&[(None, target)], None, if conv { ">=" } else { "<=" }, false).unwrap();
+        let steps = case["steps"].as_u64().unwrap() as usize;
+        let x = p.steps(steps).unwrap();
+        // the exact plan: optimal, no worse than plangea's steps
+        let (ex, bound, status, _) = p.exact(1e-9, f64::INFINITY).unwrap();
+        assert_eq!(status, "optimal", "{name}");
+        let (fe, fs) = (p.objective(&ex), p.objective(&x));
+        assert!(fe >= fs - 1e-12 && bound >= fe - 1e-12, "{name}: exact {fe}, steps {fs}, bound {bound}");
+        close(name, &signed(x), &d.reference[&format!("{name}/x")].data, 0.0, 1e-12);
+        for k in 1..steps {
+            let cum = signed(d.reference[&format!("{name}/cum_{k}")].data.clone());
+            close(
+                &format!("{name} bd_{k}"),
+                &signed(p.steps_layer(&p.risks[0], &cum)),
+                &d.reference[&format!("{name}/bd_{k}")].data,
+                1e-7,
+                0.0,
+            );
+        }
+    }
+}

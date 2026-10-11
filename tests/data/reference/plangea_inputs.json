@@ -198,5 +198,29 @@
     -5.0
    ]
   }
+ },
+ "scen_cd_cases": {
+  "scen_d_1": {
+   "type": "D",
+   "steps": 1,
+   "share": 0.2
+  },
+  "scen_d_3": {
+   "type": "D",
+   "steps": 3,
+   "share": 0.3
+  },
+  "scen_c_1": {
+   "type": "C",
+   "steps": 1,
+   "share": 0.3,
+   "cols": 7
+  },
+  "scen_c_4": {
+   "type": "C",
+   "steps": 4,
+   "share": 0.5,
+   "cols": 7
+  }
  }
 }

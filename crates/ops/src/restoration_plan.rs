@@ -76,6 +76,11 @@ pub struct Plan {
     pub cost: Option<Vec<f64>>,
     pub cost_layer: Option<Vec<f64>>,
     pub budget: Option<f64>,
+    /// per unit: its action (0 restore, 1 conserve, 2 convert; block after block), and for conservation the
+    /// natural share lost without it and the part of it lost (the threat)
+    pub action: Vec<u8>,
+    pub natural: Vec<f64>,
+    pub threat: Vec<f64>,
 }
 
 /// G x, every row in order.
@@ -136,6 +141,7 @@ impl Plan {
         if area.iter().any(|a| !(a.is_finite() && *a > 0.0)) {
             return Err("cell_area: positive on every cell of the planning units".into());
         }
+        let n_units = index.len();
         Ok(Plan {
             shape,
             upper: index.iter().map(|&c| u[c]).collect(),
@@ -147,6 +153,71 @@ impl Plan {
             cost: None,
             cost_layer: None,
             budget: None,
+            action: vec![0; n_units],
+            natural: vec![0.0; n_units],
+            threat: vec![1.0; n_units],
+        })
+    }
+
+    /// The units of every action (block after block: restore, conserve, convert): the cells with land the action
+    /// can take (its share times `limit`, above 0). Conservation keeps natural land that would be lost without it
+    /// (`threat` of it; plangea's C); conversion takes natural land (plangea's D; with restoration, R + D). Not
+    /// conservation and conversion together.
+    pub fn with_actions(
+        restorable: Option<&[f64]>,
+        conservable: Option<&[f64]>,
+        convertible: Option<&[f64]>,
+        limit: &[f64],
+        threat: &[f64],
+        cell_area: &[f64],
+        shape: (usize, usize),
+    ) -> std::result::Result<Plan, String> {
+        if conservable.is_some() && convertible.is_some() {
+            return Err("conservable and convertible: the same natural land is either conserved or converted".into());
+        }
+        let n = shape.0 * shape.1;
+        let zero = |v: f64| if v.is_nan() { 0.0 } else { v };
+        let (mut index, mut upper, mut action, mut natural, mut thr) = (vec![], vec![], vec![], vec![], vec![]);
+        for (code, share) in [restorable, conservable, convertible].into_iter().enumerate() {
+            let Some(share) = share else { continue };
+            if share.len() != n || limit.len() != n || cell_area.len() != n || threat.len() != n {
+                return Err("the shares, the limit, the threat and the cells' area must be on one grid".into());
+            }
+            for c in 0..n {
+                let u = zero(share[c]) * zero(limit[c]);
+                if u > 0.0 {
+                    index.push(c);
+                    upper.push(u);
+                    action.push(code as u8);
+                    natural.push(if code == 1 { zero(share[c]) } else { 0.0 });
+                    thr.push(if code == 1 { zero(threat[c]) } else { 1.0 });
+                }
+            }
+        }
+        if index.is_empty() {
+            return Err("no cell can be acted on".into());
+        }
+        if thr.iter().any(|t| !(0.0..=1.0).contains(t)) {
+            return Err("threat must be in [0, 1]".into());
+        }
+        let area: Vec<f64> = index.iter().map(|&c| cell_area[c]).collect();
+        if area.iter().any(|a| !(a.is_finite() && *a > 0.0)) {
+            return Err("cell_area: positive on every cell of the planning units".into());
+        }
+        Ok(Plan {
+            shape,
+            index,
+            upper,
+            area,
+            risks: Vec::new(),
+            linear: Vec::new(),
+            targets: Vec::new(),
+            cost: None,
+            cost_layer: None,
+            budget: None,
+            action,
+            natural,
+            threat: thr,
         })
     }
 
@@ -168,6 +239,29 @@ impl Plan {
         discount: &[f64],
         weight: f64,
     ) -> std::result::Result<(), String> {
+        self.add_risk_loss(current, potential, valid, gain, &[], z, discount, weight)
+    }
+
+    /// As add_risk with the habitat every species loses per unit of a cell's natural land (sdm.area_of_habitat's
+    /// loss): conserving keeps the habitat the baseline would lose (by the threat), converting takes it away.
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_risk_loss(
+        &mut self,
+        current: &[f64],
+        potential: &[f64],
+        valid: &[bool],
+        gain: &[&[f64]],
+        loss: &[&[f64]],
+        z: &[f64],
+        discount: &[f64],
+        weight: f64,
+    ) -> std::result::Result<(), String> {
+        if self.action.contains(&0) && gain.is_empty() {
+            return Err("restoration needs the gain (area_of_habitat given the original vegetation)".into());
+        }
+        if self.action.iter().any(|a| *a != 0) && loss.is_empty() {
+            return Err("conservation and conversion need the loss (area_of_habitat with loss)".into());
+        }
         if z.iter().any(|z| !(*z > 0.0 && *z < 1.0)) {
             return Err("z must be in (0, 1)".into());
         }
@@ -176,21 +270,38 @@ impl Plan {
         }
         let keep: Vec<usize> = (0..current.len()).filter(|&s| valid[s] && potential[s] > 0.0).collect();
         let mut g = Csr { nrow: keep.len(), ncol: self.n(), start: vec![0], index: Vec::new(), value: Vec::new() };
-        for &s in &keep {
+        let cur: Vec<f64> = keep.iter().map(|&s| current[s]).collect();
+        let mut base = cur.clone();
+        for (k, &s) in keep.iter().enumerate() {
+            // without the plan the conservable land is lost (by the threat): the baseline loses its habitat
+            let mut lost = 0.0;
             for (j, &c) in self.index.iter().enumerate() {
-                let v = gain[s][c];
-                if v != 0.0 && !v.is_nan() {
-                    g.index.push(j);
-                    g.value.push(if discount[s] != 0.0 { v * (1.0 - discount[s]) } else { v });
+                let v = match self.action[j] {
+                    0 => gain[s][c],
+                    _ => loss[s][c],
+                };
+                if v == 0.0 || v.is_nan() {
+                    continue;
                 }
+                let w = match self.action[j] {
+                    0 if discount[s] != 0.0 => v * (1.0 - discount[s]),
+                    0 => v,
+                    1 => {
+                        lost += v * (self.threat[j] * self.natural[j]);
+                        v * self.threat[j]
+                    }
+                    _ => -v,
+                };
+                g.index.push(j);
+                g.value.push(w);
             }
             g.start.push(g.index.len());
+            base[k] -= lost;
         }
-        let cur: Vec<f64> = keep.iter().map(|&s| current[s]).collect();
         self.risks.push(Risk {
             weight,
             species: keep.clone(),
-            base: cur.iter().map(|v| v.max(0.0)).collect(),
+            base: base.iter().map(|v| v.max(0.0)).collect(),
             current: cur,
             potential: keep.iter().map(|&s| potential[s]).collect(),
             gain: g,
@@ -223,10 +334,26 @@ impl Plan {
             return Err("sense: '<=', '>=' or '='".into());
         }
         for &(code, target) in targets {
+            // the area of every action, or with restoration and conversion the net change of natural land
+            let net = self.action.contains(&0) && self.action.contains(&2);
+            let area: Vec<f64> = self
+                .area
+                .iter()
+                .zip(&self.action)
+                .map(|(a, act)| {
+                    if net && *act == 2 {
+                        -a
+                    } else if net && *act == 1 {
+                        0.0
+                    } else {
+                        *a
+                    }
+                })
+                .collect();
             let coef: Vec<f64> = match (code, regions) {
-                (None, _) => self.area.clone(),
+                (None, _) => area,
                 (Some(k), Some(r)) => {
-                    self.index.iter().zip(&self.area).map(|(&c, &a)| if r[c] == k { a } else { 0.0 }).collect()
+                    self.index.iter().zip(&area).map(|(&c, &a)| if r[c] == k { a } else { 0.0 }).collect()
                 }
                 (Some(_), None) => return Err("a target per region needs regions".into()),
             };
@@ -491,6 +618,15 @@ impl Plan {
             .collect();
         let caps: Vec<Vec<f64>> =
             risks.iter().map(|b| b.potential.iter().zip(&b.base).map(|(p, a)| (p - a).max(0.0)).collect()).collect();
+        // the least habitat gained: below 0 for species that conversion takes habitat from
+        let floor_y: Vec<Vec<f64>> = risks
+            .iter()
+            .map(|b| {
+                (0..b.base.len())
+                    .map(|s| if b.gain.row(s).1.iter().any(|v| *v < 0.0) { -b.base[s] } else { 0.0 })
+                    .collect()
+            })
+            .collect();
         let mut lifted: Vec<Vec<bool>> = risks.iter().map(|b| vec![false; b.base.len()]).collect();
         let slopes = |i: usize, y: &[f64], lifted: &[Vec<bool>]| -> Vec<f64> {
             let b = &risks[i];
@@ -515,7 +651,7 @@ impl Plan {
                         g_rows.start.push(g_rows.index.len());
                         g_rows.nrow += 1;
                         obj.push(dy[i][s]);
-                        lb.push(0.0);
+                        lb.push(floor_y[i][s]);
                         ub.push(caps[i][s]);
                     }
                 }
@@ -742,7 +878,19 @@ impl Operator for PlanRestoration {
              the benefits recomputed between them); uniform: every cell by the same share.",
             Access::Global,
         )
-        .input(PortSpec::new("restorable", Type::Map, "the share of every cell that can be restored (anthropic land)"))
+        .input(PortSpec::optional("restorable", Type::Map, "the share of every cell that can be restored (anthropic land)"))
+        .input(PortSpec::optional(
+            "conservable",
+            Type::Map,
+            "the share of every cell's natural land conservation can keep (plangea's C): without the plan, threat of it is lost",
+        ))
+        .input(PortSpec::optional(
+            "convertible",
+            Type::Map,
+            "the share of every cell's natural land that can be converted (plangea's D; with restorable, R + D)",
+        ))
+        .input(PortSpec::optional("threat", Type::Map, "conservation: the share of the conservable land lost without it (1)"))
+        .input(PortSpec::optional("loss", Type::Stack, "sdm.area_of_habitat's loss (conservation, conversion)"))
         .input(PortSpec::optional("table", Type::Table, "sdm.area_of_habitat's table: current, potential, valid"))
         .input(PortSpec::optional(
             "gain",
@@ -757,7 +905,9 @@ impl Operator for PlanRestoration {
             Type::Map,
             "plangea's bound limit: a share per cell multiplying the restorable",
         ))
-        .output(PortSpec::new("restored", Type::Map, "the share of every cell restored"))
+        .output(PortSpec::optional("restored", Type::Map, "the share of every cell restored"))
+        .output(PortSpec::optional("conserved", Type::Map, "the share of every cell's natural land conserved"))
+        .output(PortSpec::optional("converted", Type::Map, "the share of every cell's natural land converted"))
         .output(PortSpec::new(
             "summary",
             Type::Table,
@@ -809,8 +959,14 @@ impl Operator for PlanRestoration {
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let node = args.node;
         let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
-        let restorable = args.map("restorable")?;
-        let grid = restorable.grid.clone();
+        let restorable = args.opt_map("restorable")?;
+        let conservable = args.opt_map("conservable")?;
+        let convertible = args.opt_map("convertible")?;
+        let first = restorable
+            .or(conservable)
+            .or(convertible)
+            .ok_or_else(|| err("give the land that can be restored (restorable), conserved or converted".into()))?;
+        let grid = first.grid.clone();
         let ncell = grid.width * grid.height;
         let area: Vec<f64> = match args.opt_param::<f64>("cell_area")? {
             Some(a) => vec![a; ncell],
@@ -821,7 +977,28 @@ impl Operator for PlanRestoration {
             Some(m) => m.data.to_vec(),
             None => vec![1.0; ncell],
         };
-        let mut p = Plan::new(&restorable.data, &limit, &area, (grid.height, grid.width)).map_err(err)?;
+        let threat = match args.opt_map("threat")? {
+            Some(m) => m.data.to_vec(),
+            None => vec![1.0; ncell],
+        };
+        let data = |m: Option<&Map>| -> Result<Option<Vec<f64>>> {
+            match m {
+                Some(m) if m.data.len() != ncell => Err(err("the shares must be on one grid".into())),
+                Some(m) => Ok(Some(m.data.to_vec())),
+                None => Ok(None),
+            }
+        };
+        let (r, c, v) = (data(restorable)?, data(conservable)?, data(convertible)?);
+        let mut p = Plan::with_actions(
+            r.as_deref(),
+            c.as_deref(),
+            v.as_deref(),
+            &limit,
+            &threat,
+            &area,
+            (grid.height, grid.width),
+        )
+        .map_err(err)?;
         let per_species = |name: &str, default: f64, k: usize| -> Result<Vec<f64>> {
             match args.params.get(name) {
                 None | Some(serde_json::Value::Null) => Ok(vec![default; k]),
@@ -835,19 +1012,28 @@ impl Operator for PlanRestoration {
                 }
             }
         };
-        if let (Some(Value::Table(t)), Some(Value::Stack(g))) = (args.get("table"), args.get("gain")) {
+        if let Some(Value::Table(t)) = args.get("table") {
             let col = |c: &str| t.column(c).ok_or_else(|| err(format!("the table needs a column {c}")));
             let (cur, pot, valid) = (col("current")?, col("potential")?, col("valid")?);
             let nspecies = cur.len();
-            if g.layers.len() != nspecies || g.layers.iter().any(|l| l.len() != ncell) {
-                return Err(err("the gain needs a layer per species of the table, on the restorable's grid".into()));
-            }
-            let layers: Vec<&[f64]> = g.layers.iter().map(|l| l.as_slice()).collect();
-            p.add_risk(
+            let layers_of = |port: &str| -> Result<Vec<&[f64]>> {
+                match args.get(port) {
+                    Some(Value::Stack(g)) => {
+                        if g.layers.len() != nspecies || g.layers.iter().any(|l| l.len() != ncell) {
+                            return Err(err(format!("the {port} needs a layer per species of the table, on the grid")));
+                        }
+                        Ok(g.layers.iter().map(|l| l.as_slice()).collect())
+                    }
+                    _ => Ok(Vec::new()),
+                }
+            };
+            let (layers, loss) = (layers_of("gain")?, layers_of("loss")?);
+            p.add_risk_loss(
                 &cur,
                 &pot,
                 &valid.iter().map(|v| *v != 0.0).collect::<Vec<_>>(),
                 &layers,
+                &loss,
                 &per_species("z", PLANGEA_Z, nspecies)?,
                 &per_species("restoration_discount", 0.0, nspecies)?,
                 args.param("weight", 1.0)?,
@@ -900,10 +1086,21 @@ impl Operator for PlanRestoration {
             }
             m => return Err(err(format!("method: exact, steps or uniform, not {m:?}"))),
         };
-        let mut restored = vec![f64::NAN; ncell];
-        for (i, &c) in p.index.iter().enumerate() {
-            restored[c] = x[i];
-        }
+        // a map per action
+        let maps: Vec<Option<Vec<f64>>> = (0..3u8)
+            .map(|a| {
+                if !p.action.contains(&a) {
+                    return None;
+                }
+                let mut m = vec![f64::NAN; ncell];
+                for (i, &c) in p.index.iter().enumerate() {
+                    if p.action[i] == a {
+                        m[c] = x[i];
+                    }
+                }
+                Some(m)
+            })
+            .collect();
         let values = p.values(&x);
         let weights: Vec<f64> = p.risks.iter().map(|b| b.weight).chain(p.linear.iter().map(|b| b.weight)).collect();
         let mut benefits = Table::new(vec!["value".into(), "weight".into(), "weighted".into()]);
@@ -944,12 +1141,17 @@ impl Operator for PlanRestoration {
             reduction,
             sd,
         ]);
-        Ok(outputs([
-            ("restored", Value::Map(Map::new(grid, restored))),
+        let mut out = outputs([
             ("summary", Value::Table(summary)),
             ("benefits", Value::Table(benefits)),
             ("species", Value::Table(species)),
-        ]))
+        ]);
+        for (name, m) in ["restored", "conserved", "converted"].iter().zip(maps) {
+            if let Some(m) = m {
+                out.insert(name.to_string(), Value::Map(Map::new(grid.clone(), m)));
+            }
+        }
+        Ok(out)
     }
 }
 
