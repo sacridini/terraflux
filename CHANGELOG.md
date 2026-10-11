@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-11
+
 ### Added
 - The rest of GuidosToolbox's main tools, through landschaft's port (its C++, as MSPA), the same bits as GTB's
   outputs that landschaft keeps (`tools/make_gtb_inputs.py` writes the maps they were made from):
