@@ -6,6 +6,26 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- More of GuidosToolbox through landschaft's C++: `fragmentation.contagion` (Pff) and `fragmentation.clustering`
+  (FAC) in a moving window, `fragmentation.entropy` (the map's spatial joint entropy) and
+  `fragmentation.entropy_map`, `fragmentation.landscape_mosaic` (19 or 103 classes, from a map coded so or the
+  classes of agriculture, natural and developed land given), `fragmentation.gray_convolution` (GraySpatCon's ten
+  metrics of a % cover), `landscape.parcellation` (APS, AWAPS, division, PARC per class and of the map),
+  `landscape.contortion` (and GTB's display of it), `distance.euclidean` (signed, with GTB's byte map),
+  `change.simple`, `change.morphological` and `change.fos`.
+- Their tests: the landscape mosaic of 103 classes against GTB's own outputs (the digests landschaft keeps), the
+  others against landschaft's (`tools/make_gtb_reference.py` writes `tests/data/reference/gtb_landschaft.json`):
+  every map bit for bit, the reports' numbers to their last bits.
+- GTB's colour tables and names for them (`tools/make_gtb_palettes.py` writes `terraflux_ops::gtb_palettes` from
+  landschaft): the mosaic's 19 classes, change, FOS change, entropy, distance and contortion; ramps in named bands
+  in the legend (10-19%..., distances in cells, the contortion in fifths).
+- Template: Landscape mosaic (the mosaic of a land cover, the contagion and entropy of its natural land).
+
+### Changed
+- The library shows the operator's name in one line and its prefix beside it (long names broke in two).
+- A legend puts the values of the same name in one line whatever their colours (the bands of a ramp).
+
 ## [0.8.0] - 2026-10-11
 
 ### Added

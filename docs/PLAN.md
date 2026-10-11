@@ -482,6 +482,11 @@ Pendências:
   precisão simples como o GTB) foi para o operador em Rust. Testados bit a bit contra as saídas do GTB que o
   landschaft guarda: SPA em 24 casos, Accounting em 35, FAD-MS em 6 mapas e FOS em 13. O viewer dá a cada produto
   as cores e os nomes do GTB, e a legenda de uma densidade sai nas suas classes.
+- **Mais do GuidosToolbox (2026-10-11):** contagion, clustering, entropia (do mapa e em janela), landscape
+  mosaic, GraySpatCon, parcellation, contortion, distância euclidiana e as mudanças simples, morfológica e do
+  FOS. O mosaico de 103 classes é testado contra as saídas do GTB; os outros contra o landschaft (os mapas bit a
+  bit; os números dos relatórios até o último bit, que muda com as otimizações do compilador). As paletas do
+  GTB vêm do landschaft por um gerador (`tools/make_gtb_palettes.py`).
 - **Próximos:** MSPA por tiles para rasters maiores que a memória; mapa de fundo de satélite (GDAL XYZ/WMS);
   vetores (OGR) para rasterizar e medir distâncias; instaladores com o GDAL; os outros kernels C++ já prontos (reclassificação, zonal, distância, métricas de paisagem,
   FAD, SPA), depois reprojeção (PROJ embutido e o warp do landschaft) e vetores.

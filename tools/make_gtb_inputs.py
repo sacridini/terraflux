@@ -29,14 +29,15 @@ import make_reference_idl as ref  # noqa: E402
 
 def main() -> None:
     maps: dict[str, np.ndarray] = {}
-    for inputs in (ref.accounting_inputs(), ref.spa_inputs(), ref.fad_inputs(), ref.fos_inputs()):
+    for inputs in (ref.accounting_inputs(), ref.spa_inputs(), ref.fad_inputs(), ref.fos_inputs(), ref.lm_inputs()):
         for name, a in inputs.items():
             a = np.ascontiguousarray(a, dtype=np.uint8)
             assert name not in maps or np.array_equal(maps[name], a), name
             maps[name] = a
     # every map a reference case reads, and only those, as the digests say
     cases = json.loads((LS / "tests" / "data" / "reference" / "idl_reference.json").read_text())
-    used = {c["input"]: c["input_sha256"] for k in ("accounting", "spa", "fad_mscale", "fos") for c in cases[k]}
+    tools = ("accounting", "spa", "fad_mscale", "fos", "lm_heatmap")
+    used = {c["input"]: c["input_sha256"] for k in tools for c in cases[k]}
     for name, digest in used.items():
         assert hashlib.sha256(maps[name].tobytes()).hexdigest() == digest, f"{name} is not the map of the digests"
     out = ROOT / "tests" / "data" / "reference" / "gtb_inputs.npz"

@@ -86,8 +86,10 @@ model file dropped on it or opened with it; started that way on Windows, it show
 - **GuidosToolbox:** landschaft's port of GTB, the same bits as GTB's own outputs: MSPA (`landscape.mspa`), the
   simplified pattern analysis (`landscape.spa`, 2 to 6 classes), the objects by size (`landscape.accounting`),
   the foreground's density (`fragmentation.fad`, at five scales `fragmentation.fad_multiscale`) and the
-  fragmentation at a fixed scale (`fragmentation.fos`, by FAD, FED or FAC, binary maps or % covers), with GTB's
-  reports as tables. They read a map coded as GTB's (0 missing, 1 background, 2 foreground) or any map with the
+  fragmentation at a fixed scale (`fragmentation.fos`, by FAD, FED or FAC, binary maps or % covers), contagion and
+  clustering in a window, the spatial entropy, the landscape mosaic, GraySpatCon's metrics of a % cover,
+  parcellation, contortion, the Euclidean distance to the foreground's edge, and the simple, morphological and
+  FOS change between two dates, with GTB's reports as tables. They read a map coded as GTB's (0 missing, 1 background, 2 foreground) or any map with the
   foreground's classes given.
 - **Rasters of any size:** opening a raster reads its header only; the viewer reads the tiles in view at the
   screen's resolution (in threads, the coarser level shown meanwhile), so a raster of billions of cells shows

@@ -1,6 +1,7 @@
 //! Fragmentation from landschaft's port of GuidosToolbox: the foreground's density in a moving window (FAD,
 //! `fragmentation.fad`, and at several windows, `fragmentation.fad_multiscale`) and the fragmentation at a fixed
-//! observation scale (`fragmentation.fos`), the same bits as GTB's.
+//! observation scale (`fragmentation.fos`), the same bits as GTB's; contagion and clustering in a moving window,
+//! the spatial entropy, the landscape mosaic and GraySpatCon's metrics of a % cover.
 //!
 //! The maps give a % (0-100) on the foreground and GTB's codes elsewhere: 101 background, 102 missing, 105 and
 //! 106 special backgrounds (the second not fragmenting).
@@ -17,6 +18,12 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(Fad));
     r.add(Arc::new(FadMultiscale));
     r.add(Arc::new(Fos));
+    r.add(Arc::new(Contagion));
+    r.add(Arc::new(Clustering));
+    r.add(Arc::new(Entropy));
+    r.add(Arc::new(EntropyMap));
+    r.add(Arc::new(LandscapeMosaic));
+    r.add(Arc::new(GrayConvolution));
 }
 
 /// The columns of the shares of FAD's classes, most connected first, as landschaft's tables.
@@ -399,5 +406,287 @@ impl Operator for Fos {
             eca / reporting as f64 * 100.0,
         ]);
         Ok(outputs([("map", map_of(map, im)), ("stats", Value::Table(stats)), ("summary", Value::Table(summary))]))
+    }
+}
+
+/// A kernel of GTB over a window, from a map in its codes to a map of bytes.
+type Windowed = fn(&[u8], i64, i64, i32) -> std::result::Result<Vec<u8>, terraflux_ls_sys::Error>;
+
+/// The map of a kernel over a window, the map coded as GTB's.
+fn windowed(args: &Args, default: i32, f: Windowed) -> Result<Outputs> {
+    let map = args.map("map")?;
+    let w = window(args, default)?;
+    let input = gtb_coded(args, map, false)?;
+    let (ny, nx) = map.shape();
+    Ok(outputs([("map", map_of(map, f(&input, ny as i64, nx as i64, w)?))]))
+}
+
+struct Contagion;
+
+impl Operator for Contagion {
+    fn signature(&self) -> OpSignature {
+        foreground_param(
+            OpSignature::new(
+                "fragmentation.contagion",
+                "Contagion (Pff) in a moving window, as GuidosToolbox (SpatCon's rule 77): the share (%) of the \
+                 foreground's edges in the window that join foreground to foreground; 101 background, 102 missing. \
+                 The foreground is the classes given, or the map is coded 0 missing, 1 background, 2 foreground.",
+                Access::Global,
+            )
+            .input(PortSpec::new("map", Type::Map, "the map"))
+            .output(PortSpec::new("map", Type::Map, "the contagion (%), GTB's codes off the foreground")),
+        )
+        .param(PortSpec::optional("window", Type::Integer, "the window's side in cells, odd (default 7)"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        windowed(args, 7, ffi::contagion_pff)
+    }
+}
+
+struct Clustering;
+
+impl Operator for Clustering {
+    fn signature(&self) -> OpSignature {
+        foreground_param(
+            OpSignature::new(
+                "fragmentation.clustering",
+                "Foreground area clustering (FAC) in a moving window, as GuidosToolbox (SpatCon's rule 76): the \
+                 share (%) of the edges in the window with data that join foreground to foreground; 101 background, \
+                 102 missing. The foreground is the classes given, or the map is coded 0 missing, 1 background, 2 \
+                 foreground.",
+                Access::Global,
+            )
+            .input(PortSpec::new("map", Type::Map, "the map"))
+            .output(PortSpec::new("map", Type::Map, "the clustering (%), GTB's codes off the foreground")),
+        )
+        .param(PortSpec::optional("window", Type::Integer, "the window's side in cells, odd (default 7)"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        windowed(args, 7, |m, ny, nx, w| ffi::clustering_fac(m, ny, nx, w, true))
+    }
+}
+
+struct Entropy;
+
+impl Operator for Entropy {
+    fn signature(&self) -> OpSignature {
+        foreground_param(
+            OpSignature::new(
+                "fragmentation.entropy",
+                "Spatial joint entropy of the whole map, as GuidosToolbox: how mixed the pairs of neighbouring \
+                 cells are, in % of the most they could be (0 one class, 100 as mixed as can be). The foreground is \
+                 the classes given, or the map is coded 0 missing, 1 background, 2 foreground.",
+                Access::Global,
+            )
+            .input(PortSpec::new("map", Type::Map, "the map"))
+            .output(PortSpec::new("index", Type::Number, "the entropy (%)"))
+            .output(PortSpec::new(
+                "pairs",
+                Type::Table,
+                "the code of each kind of pair of neighbours and its count",
+            )),
+        )
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let map = args.map("map")?;
+        let input = gtb_coded(args, map, false)?;
+        let (ny, nx) = map.shape();
+        let out = ffi::spatial_entropy(&input, ny as i64, nx as i64)?;
+        let mut pairs = Table::new(vec!["code".into(), "count".into()]);
+        pairs.rows =
+            out.histogram.iter().enumerate().filter(|(_, n)| **n > 0).map(|(k, &n)| vec![k as f64, n as f64]).collect();
+        Ok(outputs([("index", Value::Number(out.index)), ("pairs", Value::Table(pairs))]))
+    }
+}
+
+struct EntropyMap;
+
+impl Operator for EntropyMap {
+    fn signature(&self) -> OpSignature {
+        foreground_param(
+            OpSignature::new(
+                "fragmentation.entropy_map",
+                "Spatial joint entropy in a moving window, as GuidosToolbox's batch: for each cell the entropy (%) \
+                 of the pairs of neighbours in the window around it. The foreground is the classes given, or the map \
+                 is coded 0 missing, 1 background, 2 foreground.",
+                Access::Global,
+            )
+            .input(PortSpec::new("map", Type::Map, "the map"))
+            .output(PortSpec::new("map", Type::Map, "the entropy (%) around each cell")),
+        )
+        .param(PortSpec::optional(
+            "window",
+            Type::Integer,
+            "the window's side in cells, 3 or more (default 50)",
+        ))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let map = args.map("map")?;
+        let w: i32 = args.param("window", 50)?;
+        let input = gtb_coded(args, map, false)?;
+        let (ny, nx) = map.shape();
+        let out = ffi::spatial_entropy_map(&input, ny as i64, nx as i64, w)?;
+        Ok(outputs([("map", map_of(map, out))]))
+    }
+}
+
+/// The settings of the classes of a land cover that are each of the landscape mosaic's three, and its codes.
+const MOSAIC_CLASSES: [(&str, u8); 3] = [("agriculture", 1), ("natural", 2), ("developed", 3)];
+
+struct LandscapeMosaic;
+
+impl Operator for LandscapeMosaic {
+    fn signature(&self) -> OpSignature {
+        let mut sig = OpSignature::new(
+            "fragmentation.landscape_mosaic",
+            "The landscape mosaic, as GuidosToolbox (SpatCon's rule 7): for each cell the mix of agriculture, \
+             natural land and developed land in a moving window, in 19 classes (dominant, pairs, mosaics, pure) or \
+             103. The map is coded 0 missing, 1 agriculture, 2 natural, 3 developed, or the classes of each are \
+             given (the others missing).",
+            Access::Global,
+        )
+        .input(PortSpec::new("map", Type::Map, "the land cover"))
+        .output(PortSpec::new("map", Type::Map, "the mosaic's classes (0 missing)"))
+        .output(PortSpec::new(
+            "stats",
+            Type::Table,
+            "per class of 103: its cells, % of the cells with data and its class of 19",
+        ));
+        for (name, _) in MOSAIC_CLASSES {
+            sig = sig.param(PortSpec::optional(name, Type::Any, "the land cover's classes of it (a class or a list)"));
+        }
+        sig.param(PortSpec::optional("window", Type::Integer, "the window's side in cells, odd (default 27)"))
+            .param(PortSpec::optional("classes", Type::Integer, "19 (default) or 103"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let map = args.map("map")?;
+        let w = window(args, 27)?;
+        let classes: i32 = args.param("classes", 19)?;
+        let mut given: Vec<(Vec<f64>, u8)> = Vec::new();
+        for (name, code) in MOSAIC_CLASSES {
+            if let Some(c) = classes_param(args, name)? {
+                given.push((c, code));
+            }
+        }
+        let input: Vec<u8> = if given.is_empty() {
+            map.data
+                .iter()
+                .map(|&v| match v {
+                    v if v.is_nan() => Ok(0),
+                    v if v.fract() == 0.0 && (0.0..=3.0).contains(&v) => Ok(v as u8),
+                    v => Err(Error::msg(format!(
+                        "node {:?}: the map has a {v}: give the classes of agriculture, natural and developed land, \
+                         or code it 0 missing, 1 agriculture, 2 natural, 3 developed",
+                        args.node
+                    ))),
+                })
+                .collect::<Result<_>>()?
+        } else {
+            map.data.iter().map(|v| given.iter().find(|(c, _)| c.contains(v)).map_or(0, |(_, k)| *k)).collect()
+        };
+        let (ny, nx) = map.shape();
+        let out = ffi::landscape_mosaic(&input, ny as i64, nx as i64, w, classes)?;
+        let lm103 =
+            if classes == 103 { out.clone() } else { ffi::landscape_mosaic(&input, ny as i64, nx as i64, w, 103)? };
+        let s = ffi::landscape_mosaic_stats(&lm103, ny as i64, nx as i64)?;
+        let mut stats = Table::new(["class", "cells", "percent", "class_19"].map(String::from).to_vec());
+        for i in 0..s.codes.len() {
+            let code = s.codes[i];
+            let to19 = crate::gtb_palettes::RECODE_103_TO_19[code.clamp(0, 255) as usize];
+            stats.rows.push(vec![f64::from(code), s.counts[i] as f64, s.percentages[i], f64::from(to19)]);
+        }
+        Ok(outputs([("map", map_of(map, out)), ("stats", Value::Table(stats))]))
+    }
+}
+
+/// A setting of classes: a class or a list of them.
+pub(crate) fn classes_param(args: &Args, name: &str) -> Result<Option<Vec<f64>>> {
+    match args.params.get(name) {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(serde_json::Value::Number(n)) => Ok(Some(vec![n.as_f64().unwrap()])),
+        Some(v) => serde_json::from_value(v.clone())
+            .map(Some)
+            .map_err(|e| Error::msg(format!("node {:?}: {name}: {e}", args.node))),
+    }
+}
+
+/// GraySpatCon's metrics by the names it takes.
+const GRAY_METRICS: [&str; 10] = [
+    "mean",
+    "median",
+    "majority",
+    "min",
+    "max",
+    "range",
+    "stddev",
+    "shannon_diversity",
+    "shannon_evenness",
+    "diagonal_contagion",
+];
+
+/// GraySpatCon's value of the cells it gives none for.
+pub const GRAY_MISSING: f32 = -0.01;
+
+struct GrayConvolution;
+
+impl Operator for GrayConvolution {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "fragmentation.gray_convolution",
+            "A moving window over a % cover (0-100; above 100 or without a value missing), as GuidosToolbox's \
+             GraySpatCon: the mean, median, majority, min, max, range, standard deviation (stddev), Shannon's \
+             diversity or evenness, or diagonal contagion of the cover around each cell.",
+            Access::Global,
+        )
+        .input(PortSpec::new("map", Type::Map, "the cover (%)"))
+        .output(PortSpec::new("map", Type::Map, "the metric around each cell"))
+        .param(PortSpec::optional("metric", Type::Text, &format!("{} (default mean)", GRAY_METRICS.join(", "))))
+        .param(PortSpec::optional("window", Type::Integer, "the window's side in cells, odd (default 7)"))
+        .param(PortSpec::optional(
+            "mask_missing",
+            Type::Bool,
+            "no value where the cover is missing (default true)",
+        ))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let map = args.map("map")?;
+        let w = window(args, 7)?;
+        let metric: String = args.param::<String>("metric", "mean".into())?.to_lowercase();
+        let metric = match metric.as_str() {
+            "average" => "mean",
+            "mode" => "majority",
+            "minimum" => "min",
+            "maximum" => "max",
+            "std" | "standard_deviation" => "stddev",
+            m if GRAY_METRICS.contains(&m) => m,
+            m => {
+                return Err(Error::msg(format!(
+                    "node {:?}: the metric is one of {}, not {m:?}",
+                    args.node,
+                    GRAY_METRICS.join(", ")
+                )));
+            }
+        };
+        let mask: bool = args.param("mask_missing", true)?;
+        let input: Vec<u8> = map
+            .data
+            .iter()
+            .map(|&v| match v {
+                v if v.is_nan() => Ok(255),
+                v if v.fract() == 0.0 && (0.0..=255.0).contains(&v) => Ok(v as u8),
+                v => Err(Error::msg(format!("node {:?}: a cover holds whole values 0-100, not {v}", args.node))),
+            })
+            .collect::<Result<_>>()?;
+        let (ny, nx) = map.shape();
+        let out = ffi::gray_convolution(&input, ny as i64, nx as i64, metric, w, mask)?;
+        // GraySpatCon's missing: no value
+        let data = out.into_iter().map(|v| if v == GRAY_MISSING { f64::NAN } else { f64::from(v) }).collect();
+        Ok(outputs([("map", Value::Map(crate::Map::new(map.grid.clone(), data)))]))
     }
 }

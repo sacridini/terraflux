@@ -786,8 +786,9 @@ impl Thumbs {
     }
 }
 
-/// The lines of a legend of classes: a colour, a name and the cells, the classes in a row of the same colour and
-/// name in one line (the values of a density in its classes: Rare (0-9%)...).
+/// The lines of a legend of classes: a colour, a name and the cells, the classes in a row of the same name in one
+/// line in the colour of the first (the values of a density in its classes: Rare (0-9%)...; the steps of a ramp
+/// in its bands: 10-19%...).
 pub fn legend_lines(
     classes: &[(f64, Color32)],
     counts: &[(f64, usize)],
@@ -798,7 +799,7 @@ pub fn legend_lines(
         let n = counts.iter().find(|(k, _)| k == v).map_or(0, |(_, n)| *n);
         let name = names(*v);
         match lines.last_mut() {
-            Some((c, last, m)) if c == col && *last == name => *m += n,
+            Some((_, last, m)) if *last == name => *m += n,
             _ => lines.push((*col, name, n)),
         }
     }

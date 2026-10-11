@@ -1,0 +1,644 @@
+{
+ "landschaft": "1.43.0",
+ "contagion": [
+  {
+   "input": "gtb_input",
+   "window": 7,
+   "sha256": "317d35655a308a756447c9e926c652995ff73564ce6cb31c35043987608047c1"
+  },
+  {
+   "input": "gtb_input",
+   "window": 27,
+   "sha256": "a5d5b6494b9f766e23236e25630a5fd0dfa5018d82d4aed276009b46bb46bab8"
+  }
+ ],
+ "clustering": [
+  {
+   "input": "gtb_input",
+   "window": 7,
+   "sha256": "a93472a6589f9cb6c4bf0d7875ef8ebc77f093f05c0c0c28ddb7847082dc1982"
+  },
+  {
+   "input": "gtb_input",
+   "window": 27,
+   "sha256": "258ea759bc4452c99363ae97110180fa4bdc07faadd39204654c1e426bf79834"
+  }
+ ],
+ "entropy": [
+  {
+   "input": "gtb_input",
+   "index": 32.471214411825706,
+   "histogram": [
+    7356694,
+    0,
+    0,
+    1246,
+    320387,
+    0,
+    0,
+    20,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    20,
+    0,
+    0,
+    320387,
+    1246,
+    0,
+    0
+   ]
+  }
+ ],
+ "entropy_map": [
+  {
+   "input": "blobs_101",
+   "window": 5,
+   "sha256": "ba8b557551ac51088e22b060370a6fdbbb7dc459521cb116d152cb405e7b15aa"
+  },
+  {
+   "input": "blobs_101",
+   "window": 21,
+   "sha256": "39a1695bfff5225329ec3f4b40cecf79e48ff5f8dfd1c708723f5c3b1fd88e03"
+  }
+ ],
+ "gray_convolution": [
+  {
+   "input": "gscinput",
+   "metric": "mean",
+   "window": 7,
+   "mask_missing": true,
+   "sha256": "78820da8a58b05ca88d0dec18608f3ea6a7ecc84bcee86e4b5d1b4a240bccfb0"
+  },
+  {
+   "input": "gscinput",
+   "metric": "mean",
+   "window": 13,
+   "mask_missing": false,
+   "sha256": "32fb012b0d88e86be2eb5a265f58d7fb0f4389e3e236bec2b46f7e5f7ced2fc5"
+  },
+  {
+   "input": "gscinput",
+   "metric": "median",
+   "window": 7,
+   "mask_missing": true,
+   "sha256": "35028fb1d0d87c2b7ec17c1a801022d1560cf0d40396e5fd07adbeca6760d889"
+  },
+  {
+   "input": "gscinput",
+   "metric": "median",
+   "window": 13,
+   "mask_missing": false,
+   "sha256": "6ca879369d261ae3896419bd74918c071aeaa7ef0e4a62c72e2efcb1bbd32bc1"
+  },
+  {
+   "input": "gscinput",
+   "metric": "majority",
+   "window": 7,
+   "mask_missing": true,
+   "sha256": "a4c26d542795af8fcd4c527225df94603439a76ec0c03645dceb3916e0d2308d"
+  },
+  {
+   "input": "gscinput",
+   "metric": "majority",
+   "window": 13,
+   "mask_missing": false,
+   "sha256": "41891657d22c763e9c5ffb021f8374bcd550a190c2fae37576852437c7206246"
+  },
+  {
+   "input": "gscinput",
+   "metric": "min",
+   "window": 7,
+   "mask_missing": true,
+   "sha256": "203ab359c166f9be62738756aedda5b7118aad9742e162cdba1cd87d9d8ed8da"
+  },
+  {
+   "input": "gscinput",
+   "metric": "min",
+   "window": 13,
+   "mask_missing": false,
+   "sha256": "77620d5b39521a71a7272ab7cb06397b242bb3294aa7b5c846ca23cf32819654"
+  },
+  {
+   "input": "gscinput",
+   "metric": "max",
+   "window": 7,
+   "mask_missing": true,
+   "sha256": "219e630abd38dc56b4aa2db441803b8b95bfcba832da44d08bae5b563b57dac2"
+  },
+  {
+   "input": "gscinput",
+   "metric": "max",
+   "window": 13,
+   "mask_missing": false,
+   "sha256": "6687bfd42dc8b15d354b01e7f7177aec4fdda90c687595a19c8ec5e29370af5d"
+  },
+  {
+   "input": "gscinput",
+   "metric": "range",
+   "window": 7,
+   "mask_missing": true,
+   "sha256": "1f7120465a029211ce961b55cf1634c32782b09c0f4f9475b3b969dd252a1b3d"
+  },
+  {
+   "input": "gscinput",
+   "metric": "range",
+   "window": 13,
+   "mask_missing": false,
+   "sha256": "c291e799de19f74f7e8d6d001544b786897da96ce9bf60247173f4b23c35dc01"
+  },
+  {
+   "input": "gscinput",
+   "metric": "stddev",
+   "window": 7,
+   "mask_missing": true,
+   "sha256": "5fb9b29070a891c0059de9b565b391819a02ae5d814fb3ad20140ebf5f2390fc"
+  },
+  {
+   "input": "gscinput",
+   "metric": "stddev",
+   "window": 13,
+   "mask_missing": false,
+   "sha256": "2f0138882c3772075b1ce6d85ecf7a69a7611f9e6a138c9dd1bb4027e320ad67"
+  },
+  {
+   "input": "gscinput",
+   "metric": "shannon_diversity",
+   "window": 7,
+   "mask_missing": true,
+   "sha256": "5cf91cd3e35626ccf43dfbcc6bc54aecb72ecba85532398355c6c5e9119f1391"
+  },
+  {
+   "input": "gscinput",
+   "metric": "shannon_diversity",
+   "window": 13,
+   "mask_missing": false,
+   "sha256": "72ce9989085507c70bc0a976c179a68220359a1ed79b6f2604987b1bf21b5bce"
+  },
+  {
+   "input": "gscinput",
+   "metric": "shannon_evenness",
+   "window": 7,
+   "mask_missing": true,
+   "sha256": "b94f27f86018b3a659e161efdf7169786a0fa690287f3da52bdcc59ca3706d2e"
+  },
+  {
+   "input": "gscinput",
+   "metric": "shannon_evenness",
+   "window": 13,
+   "mask_missing": false,
+   "sha256": "945112d2fdbb9632e67eca1c08d27ae8bc74387654db3074b49f91751d46e2b6"
+  },
+  {
+   "input": "gscinput",
+   "metric": "diagonal_contagion",
+   "window": 7,
+   "mask_missing": true,
+   "sha256": "44d30a760f379c4f1b324bd92a183d6b21f9f2b1d89f7dd5a16a5774e7998f89"
+  },
+  {
+   "input": "gscinput",
+   "metric": "diagonal_contagion",
+   "window": 13,
+   "mask_missing": false,
+   "sha256": "d636ac3fa24a4a8c73eafe2b4cc88d006ba39fd5716cdd0a542d1d2827a6807c"
+  }
+ ],
+ "landscape_mosaic_19": [
+  {
+   "input": "random_a",
+   "window": 7,
+   "sha256": "62e1a148276219de8711f30708e32669ecaa844c5c8f46a3aaad1c78b878688f"
+  },
+  {
+   "input": "smooth_a",
+   "window": 27,
+   "sha256": "307d92e52f7346abc793a8a11af594e4f67c9c20ece04ff4a7ae62d965e7cfff"
+  }
+ ],
+ "parcellation": [
+  {
+   "input": "gtb_input",
+   "connectivity": 8,
+   "sha256": "36ca970e934be12ca82b1b6cbb63afb070ba3e4bddf714361ef6a4da6843702e",
+   "global": {
+    "total_parcels": 4020.0,
+    "data_area": 999730.0,
+    "aps": 248.68905472636817,
+    "awaps": 310683.11432686826,
+    "division": 0.6892329785773416,
+    "parc": 8.459417912163534
+   },
+   "counts": [
+    1170,
+    2850
+   ]
+  },
+  {
+   "input": "gtb_input",
+   "connectivity": 4,
+   "sha256": "20be0bdf221b3f2c50a59de1b733d96234ae0f1c685ed2dfa1ed745f15f530e8",
+   "global": {
+    "total_parcels": 7173.0,
+    "data_area": 999730.0,
+    "aps": 139.37404154468143,
+    "awaps": 254300.43293689296,
+    "division": 0.745630887402718,
+    "parc": 9.90892708517857
+   },
+   "counts": [
+    2319,
+    4854
+   ]
+  },
+  {
+   "input": "random_a",
+   "connectivity": 8,
+   "sha256": "f03d66751c91f38ed268f554edbf73ef57b09ef3f503499014b6cc00011e2a40",
+   "global": {
+    "total_parcels": 11229.0,
+    "data_area": 85405.0,
+    "aps": 7.60575296108291,
+    "awaps": 98.10710145776008,
+    "division": 0.9988512721566913,
+    "parc": 48.996380870131404
+   },
+   "counts": [
+    2810,
+    2855,
+    5564
+   ]
+  }
+ ],
+ "contortion": [
+  {
+   "input": "gtb_input",
+   "min_area": 1,
+   "sha256": "5270527683f46166220c22f1b41a8a3c56387f67b65dfa92b3ac286395900d05",
+   "display_sha256": "47ff8bf60acb681d5602e53e6e9b92a60a2e778732f6795ae31677eec05b16da"
+  },
+  {
+   "input": "gtb_input",
+   "min_area": 50,
+   "sha256": "a99b54401aad8e635473b53c338bdfc7d009254fadde7714ad82b60d55396c5e",
+   "display_sha256": "854d81ffb5a8fe2b5e98e5e99eaafa2142945117dde47b49389fa0f38f024a7e"
+  }
+ ],
+ "euclidean_distance": [
+  {
+   "input": "gtb_input",
+   "sha256": "937702b3a33e6b47c3fcdbb5e72c0b6d9c4811f2df754daf67225dff62c78fbb",
+   "display_sha256": "4449953d86c8e9ec108f9a4b4668b8e0b9355a38f38b9e86620633f59a40bc33",
+   "stats": [
+    428490,
+    6.014880431508517,
+    37.0,
+    571240,
+    5.030379395737209,
+    33.54101966249684
+   ]
+  }
+ ],
+ "simple_change": [
+  {
+   "before": "gtb_input",
+   "after": "gtb_input_changed",
+   "sha256": "e3e82f10e7e4292391b5f607d6fdbac34f5dc825b728295ae3d901c252184ee9",
+   "counts": [
+    537594,
+    33116,
+    23525,
+    404595,
+    1170,
+    998830
+   ]
+  }
+ ],
+ "morphological_change": [
+  {
+   "before": "gtb_input",
+   "after": "gtb_input_changed",
+   "sha256": "0b535fa3664c323ab036556b374ef7ffd1b1e2659a69132403c191c34ea7dede",
+   "counts": [
+    428490,
+    437711,
+    9221,
+    536934,
+    403195,
+    33904,
+    20818,
+    3979,
+    1170
+   ],
+   "elasticity": 2.967966832322046
+  }
+ ],
+ "fos_change": [
+  {
+   "before": "gtb_input",
+   "after": "gtb_input_changed",
+   "window": 27,
+   "sha256": "9d93a07aae275950c5211f376f2cd81583e4c52ec5035066d9682f9ab9fa727e",
+   "counts": [
+    33116,
+    23504,
+    537594,
+    404557,
+    384485,
+    20072
+   ],
+   "percent": [
+    90.70346751693901,
+    9.29653248306098
+   ],
+   "matrix": [
+    [
+     4664,
+     74,
+     113,
+     104,
+     50,
+     246
+    ],
+    [
+     116,
+     45143,
+     824,
+     1168,
+     382,
+     873
+    ],
+    [
+     0,
+     478,
+     48655,
+     2640,
+     787,
+     1915
+    ],
+    [
+     0,
+     377,
+     723,
+     119759,
+     2319,
+     4499
+    ],
+    [
+     0,
+     0,
+     9,
+     158,
+     135203,
+     2212
+    ],
+    [
+     0,
+     0,
+     0,
+     0,
+     5,
+     31061
+    ]
+   ]
+  }
+ ]
+}

@@ -565,6 +565,41 @@ fn fragmentation_is_shown_in_its_classes() {
     assert_eq!(fos.product, Some(Product::Density { five: true }));
 }
 
+/// The landscape mosaic shown in GTB's 19 classes by name; the contagion's legend in bands of 10%.
+#[test]
+fn the_mosaic_and_contagion_are_named() {
+    use terraflux_ops::landscape::Product;
+    let mut h = harness(TerrafluxApp::new(None));
+    h.run_steps(2);
+    let ctx = h.ctx.clone();
+    let t = terraflux_app::templates::TEMPLATES.iter().find(|t| t.name == "Landscape mosaic").unwrap();
+    h.state_mut().start_template(&ctx, t);
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("plot_contagion", "shown").is_some()
+    });
+    let lines = |h: &mut Harness<TerrafluxApp>, node: &str| {
+        h.state_mut().session.as_mut().unwrap().open_map(node, "shown");
+        let of = |a: &TerrafluxApp| {
+            let s = a.session.as_ref().unwrap();
+            let Some(terraflux_ops::Value::Map(m)) = s.value_of(node, "shown") else { return None };
+            s.looks.peek(&terraflux_app::map_view::Source::from(&m)).filter(|l| l.product.is_some()).cloned()
+        };
+        until(h, "the legend", |a| of(a).is_some());
+        let look = of(h.state()).unwrap();
+        let terraflux_app::palette::Coloring::Classes(c) = &look.coloring else { panic!("classes") };
+        let names = |v| terraflux_app::builder::class_name(&look, v);
+        (look.product, terraflux_app::map_view::legend_lines(c, &look.counts, &names))
+    };
+    let (product, mosaic) = lines(&mut h, "plot_mosaic");
+    assert_eq!(product, Some(Product::Mosaic { classes: 19 }));
+    assert!(mosaic.iter().any(|(_, n, _)| n.starts_with("Forest") || n.starts_with("Mosaic")), "{mosaic:?}");
+    shot(&mut h, "19-mosaic");
+    let (product, contagion) = lines(&mut h, "plot_contagion");
+    assert_eq!(product, Some(Product::Connectivity));
+    assert!(contagion.len() <= 12 && contagion.iter().any(|(_, n, _)| n == "90-99%" || n == "100%"), "{contagion:?}");
+}
+
 /// Every template that needs no file runs from the command line's engine.
 #[test]
 fn templates_run() {

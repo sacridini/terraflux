@@ -14,6 +14,7 @@
 
 pub mod agents;
 pub mod algebra;
+pub mod change;
 pub mod crafty;
 pub mod demand;
 pub mod dinamica;
@@ -22,6 +23,7 @@ pub mod files;
 pub mod fitted;
 pub mod fragmentation;
 pub mod glm;
+pub mod gtb_palettes;
 pub mod landscape;
 pub mod lulcc;
 pub mod markov;
@@ -228,6 +230,7 @@ impl Registry {
         r.add(Arc::new(RngNew));
         agents::register(&mut r);
         algebra::register(&mut r);
+        change::register(&mut r);
         crafty::register(&mut r);
         markov::register(&mut r);
         nlm::register(&mut r);

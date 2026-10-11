@@ -411,6 +411,234 @@ fn fos_is_guidos_toolbox() {
     );
 }
 
+/// What landschaft gives for the GTB tools it keeps no digests of GTB's outputs for
+/// (`tools/make_gtb_reference.py`), by tool.
+fn landschaft_cases(tool: &str) -> Vec<serde_json::Value> {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let text = std::fs::read_to_string(root.join("tests/data/reference/gtb_landschaft.json")).unwrap();
+    let all: serde_json::Value = serde_json::from_str(&text).unwrap();
+    all[tool].as_array().unwrap().clone()
+}
+
+/// The digest of a map's cells as 32-bit floats (no value: NaN) or unsigned integers.
+fn digest_f32(values: &[f64]) -> String {
+    use sha2::Digest;
+    let bytes: Vec<u8> = values.iter().flat_map(|&v| (v as f32).to_le_bytes()).collect();
+    hex::encode(sha2::Sha256::digest(&bytes))
+}
+
+fn digest_u32(values: &[f64]) -> String {
+    use sha2::Digest;
+    let bytes: Vec<u8> = values.iter().flat_map(|&v| (v as u32).to_le_bytes()).collect();
+    hex::encode(sha2::Sha256::digest(&bytes))
+}
+
+fn input_map(name: &str) -> Value {
+    let (_, inputs) = gtb_cases("spa");
+    let a = &inputs[name];
+    Value::Map(map(a.shape[0], a.shape[1], &a.data))
+}
+
+fn the_map<'a>(out: &'a terraflux_ops::Outputs, port: &str) -> &'a Map {
+    let Value::Map(m) = &out[port] else { panic!("{port} is no map") };
+    m
+}
+
+/// Numbers equal but for the last bits (the C++ built with other optimisations for Python), whole ones exactly.
+fn assert_close(got: &[f64], want: &[f64]) {
+    assert_eq!(got.len(), want.len());
+    for (a, b) in got.iter().zip(want) {
+        assert!(if b.fract() == 0.0 { a == b } else { close(*a, *b, 1e-12) }, "{got:?} != {want:?}");
+    }
+}
+
+fn f(v: &serde_json::Value) -> f64 {
+    v.as_f64().unwrap()
+}
+
+/// Contagion, clustering and the spatial entropy (of the map and in a window) give landschaft's maps.
+#[test]
+fn contagion_and_entropy_are_landschafts() {
+    for (op, tool) in [("fragmentation.contagion", "contagion"), ("fragmentation.clustering", "clustering")] {
+        for case in landschaft_cases(tool) {
+            let out =
+                run(op, vec![("map", input_map("gtb_input"))], serde_json::json!({"window": case["window"]})).unwrap();
+            assert_eq!(digest(&the_map(&out, "map").data, false), case["sha256"], "{op} {}", case["window"]);
+        }
+    }
+    let case = &landschaft_cases("entropy")[0];
+    let out = run("fragmentation.entropy", vec![("map", input_map("gtb_input"))], serde_json::json!({})).unwrap();
+    let Value::Number(index) = out["index"] else { panic!() };
+    assert!(close(index, f(&case["index"]), 1e-12), "{index}");
+    let pairs = table(&out, "pairs");
+    let want: Vec<(f64, f64)> = case["histogram"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| f(n) > 0.0)
+        .map(|(k, n)| (k as f64, f(n)))
+        .collect();
+    assert_eq!(pairs.rows.iter().map(|r| (r[0], r[1])).collect::<Vec<_>>(), want);
+    for case in landschaft_cases("entropy_map") {
+        let out = run(
+            "fragmentation.entropy_map",
+            vec![("map", input_map("blobs_101"))],
+            serde_json::json!({"window": case["window"]}),
+        )
+        .unwrap();
+        assert_eq!(digest_f32(&the_map(&out, "map").data), case["sha256"], "entropy map {}", case["window"]);
+    }
+}
+
+/// The landscape mosaic of 103 classes is GuidosToolbox's (the digests landschaft keeps of GTB's), that of 19
+/// landschaft's; GraySpatCon's ten metrics are landschaft's.
+#[test]
+fn landscape_mosaic_and_gray_spatcon_are_guidos_toolbox() {
+    let (cases, inputs) = gtb_cases("lm_heatmap");
+    for case in &cases {
+        let out = run(
+            "fragmentation.landscape_mosaic",
+            vec![("map", gtb_map(case, &inputs))],
+            serde_json::json!({"window": case["window"], "classes": 103}),
+        )
+        .unwrap();
+        assert_eq!(digest(&the_map(&out, "map").data, false), case["im103_sha256"], "LM103 of {case}");
+        let stats = table(&out, "stats");
+        assert!((stats.column("percent").unwrap().iter().sum::<f64>() - 100.0).abs() < 1e-9);
+    }
+    assert_eq!(cases.len(), 6);
+    for case in landschaft_cases("landscape_mosaic_19") {
+        let name = case["input"].as_str().unwrap();
+        let out = run(
+            "fragmentation.landscape_mosaic",
+            vec![("map", input_map(name))],
+            serde_json::json!({"window": case["window"]}),
+        )
+        .unwrap();
+        assert_eq!(digest(&the_map(&out, "map").data, false), case["sha256"], "LM19 of {name}");
+    }
+    // a land cover of other codes: its classes given
+    let lc = map(3, 3, &[10.0, 10.0, 20.0, 30.0, 10.0, 20.0, 30.0, 30.0, 99.0]);
+    let given = serde_json::json!({"window": 3, "agriculture": 10, "natural": [20], "developed": 30});
+    let coded = map(3, 3, &[1.0, 1.0, 2.0, 3.0, 1.0, 2.0, 3.0, 3.0, 0.0]);
+    let a = run("fragmentation.landscape_mosaic", vec![("map", Value::Map(lc))], given).unwrap();
+    let b = run("fragmentation.landscape_mosaic", vec![("map", Value::Map(coded))], serde_json::json!({"window": 3}))
+        .unwrap();
+    assert_eq!(the_map(&a, "map").data, the_map(&b, "map").data);
+
+    let mut checked = 0;
+    for case in landschaft_cases("gray_convolution") {
+        let params = serde_json::json!({
+            "metric": case["metric"], "window": case["window"], "mask_missing": case["mask_missing"]
+        });
+        let out = run("fragmentation.gray_convolution", vec![("map", input_map("gscinput"))], params.clone()).unwrap();
+        // GraySpatCon's missing value where the map has none
+        let raw: Vec<f64> =
+            the_map(&out, "map").data.iter().map(|&v| if v.is_nan() { -0.01f32 as f64 } else { v }).collect();
+        assert_eq!(digest_f32(&raw), case["sha256"], "{params}");
+        checked += 1;
+    }
+    assert_eq!(checked, 20);
+}
+
+/// Parcellation, contortion and the Euclidean distance give landschaft's maps and numbers.
+#[test]
+fn parcels_contortion_and_distance_are_landschafts() {
+    for case in landschaft_cases("parcellation") {
+        let name = case["input"].as_str().unwrap();
+        let out = run(
+            "landscape.parcellation",
+            vec![("map", input_map(name))],
+            serde_json::json!({"connectivity": case["connectivity"]}),
+        )
+        .unwrap();
+        let what = format!("{name} {}", case["connectivity"]);
+        assert_eq!(digest_u32(&the_map(&out, "parcels").data), case["sha256"], "{what}");
+        let s = table(&out, "summary");
+        let g = &case["global"];
+        for (ours, theirs) in [
+            ("parcels", "total_parcels"),
+            ("cells", "data_area"),
+            ("aps", "aps"),
+            ("awaps", "awaps"),
+            ("division", "division"),
+            ("parc", "parc"),
+        ] {
+            assert!(close(s.column(ours).unwrap()[0], f(&g[theirs]), 1e-12), "{what}: {ours}");
+        }
+        let counts: Vec<f64> = case["counts"].as_array().unwrap().iter().map(f).collect();
+        assert_eq!(table(&out, "stats").column("parcels").unwrap(), counts, "{what}");
+    }
+    for case in landschaft_cases("contortion") {
+        let out = run(
+            "landscape.contortion",
+            vec![("map", input_map("gtb_input"))],
+            serde_json::json!({"min_area": case["min_area"]}),
+        )
+        .unwrap();
+        assert_eq!(digest_u32(&the_map(&out, "map").data), case["sha256"], "contortion {}", case["min_area"]);
+        assert_eq!(
+            digest(&the_map(&out, "display").data, false),
+            case["display_sha256"],
+            "display {}",
+            case["min_area"]
+        );
+    }
+    let case = &landschaft_cases("euclidean_distance")[0];
+    let out = run("distance.euclidean", vec![("map", input_map("gtb_input"))], serde_json::json!({})).unwrap();
+    assert_eq!(digest_f32(&the_map(&out, "map").data), case["sha256"]);
+    assert_eq!(digest(&the_map(&out, "display").data, false), case["display_sha256"]);
+    let s = table(&out, "stats");
+    let want: Vec<f64> = case["stats"].as_array().unwrap().iter().map(f).collect();
+    assert_close(&s.rows[0][1..], &want[..3]);
+    assert_close(&s.rows[1][1..], &want[3..]);
+}
+
+/// The simple, morphological and FOS changes give landschaft's maps and reports.
+#[test]
+fn changes_are_landschafts() {
+    let two = || vec![("before", input_map("gtb_input")), ("after", input_map("gtb_input_changed"))];
+    let case = &landschaft_cases("simple_change")[0];
+    let out = run("change.simple", two(), serde_json::json!({})).unwrap();
+    assert_eq!(digest(&the_map(&out, "map").data, false), case["sha256"]);
+    let counts: Vec<f64> = case["counts"].as_array().unwrap().iter().map(f).collect();
+    assert_eq!(table(&out, "stats").rows[0], counts);
+
+    let case = &landschaft_cases("morphological_change")[0];
+    let out = run("change.morphological", two(), serde_json::json!({})).unwrap();
+    assert_eq!(digest(&the_map(&out, "map").data, false), case["sha256"]);
+    let mut want: Vec<f64> = case["counts"].as_array().unwrap().iter().map(f).collect();
+    want.push(f(&case["elasticity"]));
+    assert_close(&table(&out, "stats").rows[0], &want);
+
+    let case = &landschaft_cases("fos_change")[0];
+    let fos = |name: &str| {
+        let out = run("fragmentation.fos", vec![("map", input_map(name))], serde_json::json!({"window": 27})).unwrap();
+        out["map"].clone()
+    };
+    let out = run(
+        "change.fos",
+        vec![("before", fos("gtb_input")), ("after", fos("gtb_input_changed"))],
+        serde_json::json!({}),
+    )
+    .unwrap();
+    assert_eq!(digest(&the_map(&out, "map").data, false), case["sha256"]);
+    let mut want: Vec<f64> = case["counts"].as_array().unwrap().iter().map(f).collect();
+    want.extend(case["percent"].as_array().unwrap().iter().map(f));
+    assert_close(&table(&out, "stats").rows[0], &want);
+    let matrix: Vec<Vec<f64>> =
+        case["matrix"].as_array().unwrap().iter().map(|r| r.as_array().unwrap().iter().map(f).collect()).collect();
+    let classes = table(&out, "classes");
+    assert_eq!(classes.rows.iter().map(|r| r[1..].to_vec()).collect::<Vec<_>>(), matrix);
+    // maps of different sizes
+    let small = Value::Map(map(2, 2, &[1.0; 4]));
+    assert!(
+        run("change.simple", vec![("before", small), ("after", input_map("gtb_input"))], serde_json::json!({}))
+            .is_err()
+    );
+}
+
 #[test]
 fn rasters_are_read_and_written() {
     use terraflux_ops::files::{Rasters, as_port};

@@ -14,9 +14,11 @@ neutros (`nlm.*`) para testar fluxos sem dados. A ordem sugerida:
    encaixam direto no builder.
    - **Feito** (Unreleased): FAD e FAD multiescala, FOS, SPA e Accounting, bit a bit com as saídas do GTB, com
      as paletas e os nomes das classes no viewer.
-   - Depois: contagion/PFF e clustering (`contagion.cpp`), entropia espacial (`entropy.cpp`), parcellation e
-     contortion (`morphology.cpp`), GTN (`gtn.cpp`), restoration, influence, isochrone, gray spatial
-     convolution, mudança (`change.cpp`, `fad_change`).
+   - **Feito** (Unreleased): contagion e clustering, entropia espacial, landscape mosaic, gray spatial
+     convolution, parcellation e contortion, distância euclidiana, mudança simples, morfológica e do FOS.
+   - Depois: GTN (`gtn.cpp`), restoration, influence e isochrone (têm muita lógica em Python em volta do C++,
+     a portar para o C++ do landschaft antes), a mudança do FAD multiescala (`fad_change`), o heatmap e o delta
+     do landscape mosaic.
    - Cada produto com a sua paleta e os nomes das classes no viewer, como o MSPA e o FAD
      (`terraflux_ops::landscape::Product`; os do landschaft estão em `src/landschaft/_plotting/_palettes.py`:
      mudança simples e morfológica, a ordem da legenda do GTB).
@@ -43,5 +45,4 @@ neutros (`nlm.*`) para testar fluxos sem dados. A ordem sugerida:
   montar um modelo inteiro sem o mouse.
 - Mais templates: um modelo do Dinamica EGO com os dados de exemplo, um CLUE-S. **Feito** (Unreleased): FAD/FOS,
   SPA e Accounting.
-- Nomes longos de operadores quebram em duas linhas na biblioteca (`accounting`): cortar ou alargar a coluna.
 - Templates do próprio usuário: salvar um modelo como template e vê-lo no menu.

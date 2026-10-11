@@ -659,10 +659,12 @@ fn library(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library) {
     let query = s.editor.search.trim().to_lowercase();
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         let entry = |ui: &mut Ui, e: &Entry, chosen: &mut Option<String>| {
-            let short = e.name.split_once('.').map_or(e.name.as_str(), |(_, b)| b);
+            // the name in one line, its prefix beside it (the whole name is both)
+            let (prefix, short) = e.name.split_once('.').unwrap_or(("", e.name.as_str()));
             let resp = ui.add(
                 egui::Button::selectable(false, short)
-                    .right_text(RichText::new(&e.name).size(10.5).color(ui.visuals().weak_text_color()))
+                    .wrap_mode(egui::TextWrapMode::Extend)
+                    .right_text(RichText::new(prefix).size(10.5).color(ui.visuals().weak_text_color()))
                     .min_size(Vec2::new(ui.available_width(), 20.0)),
             );
             if resp.on_hover_text(&e.doc).clicked() {

@@ -25,6 +25,11 @@ struct FadOut;
 struct FadScalesOut;
 struct SpaOut;
 struct AccountingOut;
+struct EntropyOut;
+struct MosaicStatsOut;
+struct ParcellationOut;
+struct ChangeOut;
+struct DistanceOut;
 
 // the threads of the kernels (OpenMP) of the calling thread, and their most
 void set_threads(std::int32_t n);
@@ -65,6 +70,27 @@ rust::Vec<std::uint8_t> grayspatcon_fos(rust::Slice<const std::uint8_t> input, s
 SpaOut spa(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx, std::int32_t variant);
 AccountingOut accounting(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx,
                          std::int32_t connectivity, rust::Slice<const std::int64_t> thresholds, bool highlight_largest);
+rust::Vec<std::uint8_t> contagion_pff(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx,
+                                      std::int32_t window);
+EntropyOut spatial_entropy(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx);
+rust::Vec<float> spatial_entropy_map(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx,
+                                     std::int32_t window);
+rust::Vec<std::uint8_t> landscape_mosaic(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx,
+                                         std::int32_t window, std::int32_t classes);
+MosaicStatsOut landscape_mosaic_stats(rust::Slice<const std::uint8_t> lm103, std::int64_t ny, std::int64_t nx);
+rust::Vec<float> gray_convolution(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx,
+                                  rust::Str metric, std::int32_t window, bool mask_missing);
+ParcellationOut parcellation(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx,
+                             std::int32_t connectivity);
+rust::Vec<std::uint32_t> contortion(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx,
+                                    std::int64_t min_area);
+ChangeOut simple_change(rust::Slice<const std::uint8_t> a, rust::Slice<const std::uint8_t> b, std::int64_t ny,
+                        std::int64_t nx);
+ChangeOut morphological_change(rust::Slice<const std::uint8_t> a, rust::Slice<const std::uint8_t> b, std::int64_t ny,
+                               std::int64_t nx);
+ChangeOut fos_change(rust::Slice<const std::uint8_t> a, rust::Slice<const std::uint8_t> b, std::int64_t ny,
+                     std::int64_t nx);
+DistanceOut euclidean_distance(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx);
 
 rust::Vec<double> allow_matrix(rust::Slice<const double> x, rust::Slice<const std::int64_t> hist,
                                rust::Slice<const double> classes, rust::Slice<const double> cd,

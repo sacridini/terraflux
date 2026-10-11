@@ -7,6 +7,7 @@
 #include "terraflux-ls-sys/shim/shim.h"
 
 #include <stdexcept>
+#include <string>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -14,9 +15,15 @@
 #include <vector>
 
 #include "gtb/accounting.hpp"
+#include "gtb/change.hpp"
 #include "gtb/contagion.hpp"
+#include "gtb/distance.hpp"
+#include "gtb/entropy.hpp"
 #include "gtb/fad.hpp"
 #include "gtb/fos.hpp"
+#include "gtb/grayspatcon.hpp"
+#include "gtb/morphology.hpp"
+#include "gtb/mosaic.hpp"
 #include "gtb/mspa.hpp"
 #include "gtb/spa.hpp"
 #include "lsm/rmath.hpp"
@@ -243,6 +250,116 @@ AccountingOut accounting(rust::Slice<const std::uint8_t> input, std::int64_t ny,
     out.area = pixels(r.area);
     // object k's area at k - 1
     for (std::size_t k = 1; k < r.object_area.size(); ++k) out.object_area.push_back(r.object_area[k]);
+    return out;
+}
+
+rust::Vec<std::uint8_t> contagion_pff(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx,
+                                      std::int32_t window) {
+    check_window(window);
+    return pixels(gtb::compute_contagion_pff(image(input, ny, nx), window, true));
+}
+
+EntropyOut spatial_entropy(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx) {
+    const gtb::SpatialEntropyResultCpp r = gtb::compute_spatial_entropy(image(input, ny, nx));
+    EntropyOut out;
+    out.index = r.entropy_index;
+    out.histogram = to_rust<std::uint64_t>(r.histogram);
+    return out;
+}
+
+rust::Vec<float> spatial_entropy_map(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx,
+                                     std::int32_t window) {
+    check(window >= 3, "the window's side is 3 cells or more");
+    return pixels(gtb::compute_spatial_entropy_map(image(input, ny, nx), window));
+}
+
+rust::Vec<std::uint8_t> landscape_mosaic(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx,
+                                         std::int32_t window, std::int32_t classes) {
+    check_window(window);
+    check(classes == 19 || classes == 103, "the landscape mosaic has 19 or 103 classes");
+    return pixels(gtb::compute_landscape_mosaic(image(input, ny, nx), window, classes));
+}
+
+MosaicStatsOut landscape_mosaic_stats(rust::Slice<const std::uint8_t> lm103, std::int64_t ny, std::int64_t nx) {
+    const gtb::LandscapeMosaicStats r = gtb::compute_landscape_mosaic_stats(image(lm103, ny, nx));
+    MosaicStatsOut out;
+    out.codes = to_rust<std::int32_t>(r.class_codes);
+    out.counts = to_rust<std::uint64_t>(r.pixel_counts);
+    out.percentages = to_rust<double>(r.percentages);
+    return out;
+}
+
+rust::Vec<float> gray_convolution(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx,
+                                  rust::Str metric, std::int32_t window, bool mask_missing) {
+    check_window(window);
+    return pixels(gtb::compute_gray_convolution(image(input, ny, nx), std::string(metric), window, mask_missing, 0));
+}
+
+ParcellationOut parcellation(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx,
+                             std::int32_t connectivity) {
+    check(connectivity == 4 || connectivity == 8, "the connectivity is 4 or 8");
+    const gtb::ParcellationResult r = gtb::compute_parcellation(image(input, ny, nx), connectivity, true);
+    ParcellationOut out;
+    for (const auto& c : r.class_stats) {
+        for (double v : {double(c.class_id), double(c.count), double(c.area), c.aps, c.awaps_rel, c.awaps_data,
+                         c.division, c.parc})
+            out.classes.push_back(v);
+    }
+    const auto& g = r.global_stats;
+    for (double v : {double(g.total_parcels), double(g.data_area), g.aps, g.awaps, g.division, g.parc})
+        out.global.push_back(v);
+    out.labels = pixels(r.parcel_labels);
+    return out;
+}
+
+rust::Vec<std::uint32_t> contortion(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx,
+                                    std::int64_t min_area) {
+    return pixels(gtb::compute_contortion(image(input, ny, nx), min_area));
+}
+
+ChangeOut simple_change(rust::Slice<const std::uint8_t> a, rust::Slice<const std::uint8_t> b, std::int64_t ny,
+                        std::int64_t nx) {
+    const gtb::SimpleChangeResult r = gtb::compute_simple_change(image(a, ny, nx), image(b, ny, nx));
+    ChangeOut out;
+    out.map = pixels(r.change_map);
+    for (i64 n : {r.stable_bg, r.gain, r.loss, r.stable_fg, r.missing, r.total_valid}) out.counts.push_back(n);
+    return out;
+}
+
+ChangeOut morphological_change(rust::Slice<const std::uint8_t> a, rust::Slice<const std::uint8_t> b, std::int64_t ny,
+                               std::int64_t nx) {
+    const gtb::MorphologicalChangeResult r = gtb::compute_morphological_change(image(a, ny, nx), image(b, ny, nx));
+    ChangeOut out;
+    out.map = pixels(r.change_map);
+    for (i64 n : {r.fg_area_t1, r.fg_area_t2, r.net_change, r.stable_bg, r.stable_fg, r.mcd_gain, r.mcd_loss,
+                  r.spurious, r.missing})
+        out.counts.push_back(n);
+    out.values.push_back(r.elasticity);
+    return out;
+}
+
+ChangeOut fos_change(rust::Slice<const std::uint8_t> a, rust::Slice<const std::uint8_t> b, std::int64_t ny,
+                     std::int64_t nx) {
+    const gtb::FOSChangeResult r = gtb::compute_fos_change(image(a, ny, nx), image(b, ny, nx));
+    ChangeOut out;
+    out.map = pixels(r.change_map);
+    for (i64 n : {r.fg_gain, r.fg_loss, r.stable_bg, r.forcom, r.diag_same_class, r.diff_class}) out.counts.push_back(n);
+    out.values.push_back(r.frag_decrease_pct);
+    out.values.push_back(r.frag_increase_pct);
+    for (const auto& row : r.matrix_6x6)
+        for (i64 n : row) out.matrix.push_back(n);
+    return out;
+}
+
+DistanceOut euclidean_distance(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx) {
+    const gtb::EuclideanDistanceResultCpp r = gtb::compute_euclidean_distance(image(input, ny, nx));
+    DistanceOut out;
+    out.distance = to_rust<float>(r.signed_distance);
+    out.bytes = pixels(r.byte_map);
+    const auto& s = r.stats;
+    for (double v : {double(s.fg_pixel_count), s.mean_fg_distance, s.max_fg_distance, double(s.bg_pixel_count),
+                     s.mean_bg_distance, s.max_bg_distance})
+        out.stats.push_back(v);
     return out;
 }
 

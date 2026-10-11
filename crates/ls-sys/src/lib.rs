@@ -130,6 +130,44 @@ pub mod ffi {
         object_area: Vec<i64>,
     }
 
+    /// GTB's spatial joint entropy of a map: the index (% of the most) and the counts of each pair of neighbours.
+    struct EntropyOut {
+        index: f64,
+        histogram: Vec<u64>,
+    }
+
+    /// The cells of each class of a landscape mosaic of 103 classes, and their % of the cells with data.
+    struct MosaicStatsOut {
+        codes: Vec<i32>,
+        counts: Vec<u64>,
+        percentages: Vec<f64>,
+    }
+
+    /// Parcellation: rows of the class, its parcels, cells, APS, AWAPS, AWAPS over the data, division and PARC;
+    /// the whole map's parcels, cells with data, APS, AWAPS, division and PARC; each cell's parcel.
+    struct ParcellationOut {
+        classes: Vec<f64>,
+        global: Vec<f64>,
+        labels: Vec<u32>,
+    }
+
+    /// A change between two maps: its map in GTB's codes, the counts and values of its report (in the order the
+    /// function says), and a matrix of classes where it has one.
+    struct ChangeOut {
+        map: Vec<u8>,
+        counts: Vec<i64>,
+        values: Vec<f64>,
+        matrix: Vec<i64>,
+    }
+
+    /// GTB's Euclidean distance: signed (positive in the foreground), GTB's byte map, and the foreground's cells,
+    /// mean and largest distance, then the background's.
+    struct DistanceOut {
+        distance: Vec<f32>,
+        bytes: Vec<u8>,
+        stats: Vec<f64>,
+    }
+
     #[derive(Debug, Clone, Copy, PartialEq)]
     struct ObservedPatches {
         cells: i64,
@@ -186,6 +224,30 @@ pub mod ffi {
             thresholds: &[i64],
             highlight_largest: bool,
         ) -> Result<AccountingOut>;
+        fn contagion_pff(input: &[u8], ny: i64, nx: i64, window: i32) -> Result<Vec<u8>>;
+        fn spatial_entropy(input: &[u8], ny: i64, nx: i64) -> Result<EntropyOut>;
+        fn spatial_entropy_map(input: &[u8], ny: i64, nx: i64, window: i32) -> Result<Vec<f32>>;
+        fn landscape_mosaic(input: &[u8], ny: i64, nx: i64, window: i32, classes: i32) -> Result<Vec<u8>>;
+        fn landscape_mosaic_stats(lm103: &[u8], ny: i64, nx: i64) -> Result<MosaicStatsOut>;
+        fn gray_convolution(
+            input: &[u8],
+            ny: i64,
+            nx: i64,
+            metric: &str,
+            window: i32,
+            mask_missing: bool,
+        ) -> Result<Vec<f32>>;
+        fn parcellation(input: &[u8], ny: i64, nx: i64, connectivity: i32) -> Result<ParcellationOut>;
+        fn contortion(input: &[u8], ny: i64, nx: i64, min_area: i64) -> Result<Vec<u32>>;
+        /// stable background, gain, loss, stable foreground, missing, cells with data
+        fn simple_change(a: &[u8], b: &[u8], ny: i64, nx: i64) -> Result<ChangeOut>;
+        /// the foreground at 1 and 2, the net change, stable background, stable foreground, gain, loss, spurious
+        /// and missing cells; the elasticity
+        fn morphological_change(a: &[u8], b: &[u8], ny: i64, nx: i64) -> Result<ChangeOut>;
+        /// foreground gained and lost, stable background, common foreground, in the same class and in another;
+        /// the % of fragmentation decreasing and increasing; the 6 x 6 matrix of the classes (rare..intact)
+        fn fos_change(a: &[u8], b: &[u8], ny: i64, nx: i64) -> Result<ChangeOut>;
+        fn euclidean_distance(input: &[u8], ny: i64, nx: i64) -> Result<DistanceOut>;
 
         fn allow_matrix(x: &[f64], hist: &[i64], classes: &[f64], cd: &[f64], rules: &[i64]) -> Result<Vec<f64>>;
         fn auto_convert(x: &[f64], prob: &[f64], classes: &[f64], mask: &[i64]) -> Result<Vec<f64>>;
