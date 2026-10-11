@@ -6,7 +6,7 @@ use std::sync::Arc;
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 use terraflux_ls_sys::ffi;
 
-use crate::{Args, Ctx, Error, Key, Map, Operator, Outputs, Registry, Result, Stack, Value, outputs};
+use crate::{Args, Ctx, Error, Key, Map, Operator, Outputs, Registry, Result, Stack, Table, Value, outputs};
 
 fn classes_param(args: &Args) -> Result<Vec<f64>> {
     match args.params.get("classes") {
@@ -204,7 +204,44 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(ShareOf));
     r.add(Arc::new(Set));
     r.add(Arc::new(Of));
+    r.add(Arc::new(TableOf));
     r.add(Arc::new(Classes));
+}
+
+/// `table.of`: a table written in the settings.
+struct TableOf;
+
+impl Operator for TableOf {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "table.of",
+            "A table written in the settings: its columns' names and its rows of numbers (null: no value), such as              the small tables a planning problem takes.",
+            Access::Local,
+        )
+        .output(PortSpec::new("table", Type::Table, "the table"))
+        .param(PortSpec::new("columns", Type::Any, "the columns' names"))
+        .param(PortSpec::new("rows", Type::Any, "the rows: [[number, ...], ...], as many numbers as columns"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let node = args.node;
+        let columns: Vec<String> = args.param("columns", Vec::new())?;
+        let rows: Vec<Vec<Option<f64>>> = args.param("rows", Vec::new())?;
+        if columns.is_empty() {
+            return Err(Error::msg(format!("node {node:?}: the table has no columns")));
+        }
+        if let Some(k) = rows.iter().position(|r| r.len() != columns.len()) {
+            return Err(Error::msg(format!(
+                "node {node:?}: row {} has {} numbers for {} columns",
+                k + 1,
+                rows[k].len(),
+                columns.len()
+            )));
+        }
+        let mut t = Table::new(columns);
+        t.rows = rows.into_iter().map(|r| r.into_iter().map(|v| v.unwrap_or(f64::NAN)).collect()).collect();
+        Ok(outputs([("table", Value::Table(t))]))
+    }
 }
 
 /// `stack.of`: maps of a grid as one stack.

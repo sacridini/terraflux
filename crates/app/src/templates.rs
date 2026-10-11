@@ -16,7 +16,7 @@ impl Template {
     }
 }
 
-pub const TEMPLATES: [Template; 13] = [
+pub const TEMPLATES: [Template; 15] = [
     Template {
         name: "MSPA of a forest",
         about: "a map of three classes drawn by chance, its forest made MSPA's foreground by a reclassification, \
@@ -554,6 +554,153 @@ id = "plot_solution"
 op = "view.plot"
 inputs = { value = "plan.solution" }
 params = { title = "Selected cells" }
+"#,
+    },
+    Template {
+        name: "Restoration plan (plangea)",
+        about: "a forest and its cropland drawn by chance, three species' ranges: where to restore 100 km² for \
+                the most reduction of their extinction risk, as plangea (an exact plan, a proven bound)",
+        toml: r#"
+format = "terraflux/1"
+name = "Restoration plan (plangea)"
+description = "plangea's restoration problem: the cells to restore for the most reduction of the species' extinction risk."
+
+[[nodes]]
+id = "field"
+op = "nlm.gaussian_field"
+params = { rows = 40, columns = 50, range = 10, seed = 5 }
+note = "A smooth surface from 0 to 1 drawn by chance."
+
+[[nodes]]
+id = "forest"
+op = "map.calc"
+inputs = { f = "field.map" }
+params = { expression = "f * 0.9" }
+note = "The share of forest in each cell (in its place, a raster.read of land cover shares)."
+
+[[nodes]]
+id = "crops"
+op = "map.calc"
+inputs = { f = "field.map" }
+params = { expression = "1 - f * 0.9" }
+note = "The rest is cropland: the land restoration can return to forest."
+
+[[nodes]]
+id = "land_cover"
+op = "stack.of"
+inputs = { forest = "forest.map", crops = "crops.map" }
+
+[[nodes]]
+id = "vegetation"
+op = "restoration.original_vegetation"
+inputs = { land_cover = "land_cover.stack" }
+params = { natural = ["forest"], anthropic = ["crops"] }
+note = "What the converted land was before (plangea): forest here, and the share of anthropic land."
+
+[[nodes]]
+id = "toucan"
+op = "nlm.gaussian_field"
+params = { rows = 40, columns = 50, range = 15, seed = 11 }
+
+[[nodes]]
+id = "jaguar"
+op = "nlm.gaussian_field"
+params = { rows = 40, columns = 50, range = 20, seed = 12 }
+
+[[nodes]]
+id = "frog"
+op = "nlm.gaussian_field"
+params = { rows = 40, columns = 50, range = 6, seed = 13 }
+
+[[nodes]]
+id = "ranges"
+op = "map.calc"
+inputs = { t = "toucan.map" }
+params = { expression = "t > 0.4" }
+note = "A species' range: the cells above 0 (in its place, raster.read of range maps)."
+
+[[nodes]]
+id = "ranges2"
+op = "map.calc"
+inputs = { j = "jaguar.map" }
+params = { expression = "j > 0.5" }
+
+[[nodes]]
+id = "ranges3"
+op = "map.calc"
+inputs = { f = "frog.map" }
+params = { expression = "f > 0.3" }
+
+[[nodes]]
+id = "species"
+op = "stack.of"
+inputs = { toucan = "ranges.map", jaguar = "ranges2.map", frog = "ranges3.map" }
+
+[[nodes]]
+id = "habitat"
+op = "sdm.area_of_habitat"
+inputs = { ranges = "species.stack", land_cover = "land_cover.stack", original = "vegetation.original", restore = "vegetation.restore", anthropic = "vegetation.anthropic" }
+params = { natural = ["forest"], cell_area = 1.0 }
+note = "Every species' habitat now and before conversion (km²), and what restoring a cell gives it."
+
+[[nodes]]
+id = "plan"
+op = "restoration.plan"
+inputs = { restorable = "vegetation.anthropic", table = "habitat.table", gain = "habitat.gain" }
+params = { target = 100, cell_area = 1.0, z_sd = 0.1 }
+note = "The share of every cell to restore, 100 km² in all, for the most reduction of the species' extinction risk (exact within 1e-7; method = steps for plangea's own). Try levels = [0.25, 0.5, 1] for a trade-off curve. summary: the risk reduction and its deviation from z's."
+
+[[nodes]]
+id = "plot_plan"
+op = "view.plot"
+inputs = { value = "plan.restored" }
+params = { title = "Share of each cell restored" }
+"#,
+    },
+    Template {
+        name: "Multi-action planning (prioriactions)",
+        about: "six planning units, two species and a threat: which units to monitor and where to act against \
+                the threat so that both species recover, at the least cost (prioriactions)",
+        toml: r#"
+format = "terraflux/1"
+name = "Multi-action planning (prioriactions)"
+description = "prioriactions's minimizeCosts: the cheapest monitoring and actions that meet the species' recovery targets."
+
+[[nodes]]
+id = "pu"
+op = "table.of"
+params = { columns = ["id", "monitoring_cost"], rows = [[1, 2], [2, 1], [3, 3], [4, 1], [5, 2], [6, 2]] }
+note = "The planning units and what monitoring them costs (in its place, a table read from a file)."
+
+[[nodes]]
+id = "features"
+op = "table.of"
+params = { columns = ["id", "target_recovery"], rows = [[1, 1], [2, 1]] }
+note = "Two species and the recovery each must reach."
+
+[[nodes]]
+id = "dist_features"
+op = "table.of"
+params = { columns = ["pu", "feature", "amount"], rows = [[1, 1, 1], [2, 1, 1], [3, 1, 1], [3, 2, 1], [4, 2, 1], [5, 2, 1], [6, 1, 1]] }
+note = "Where each species lives."
+
+[[nodes]]
+id = "threats"
+op = "table.of"
+params = { columns = ["id"], rows = [[1]] }
+
+[[nodes]]
+id = "dist_threats"
+op = "table.of"
+params = { columns = ["pu", "threat", "amount", "action_cost"], rows = [[1, 1, 1, 1], [2, 1, 1, 4], [3, 1, 1, 2], [4, 1, 1, 1], [5, 1, 1, 2]] }
+note = "Where the threat is, and what acting against it costs there."
+
+[[nodes]]
+id = "plan"
+op = "prioritize.actions"
+inputs = { pu = "pu.table", features = "features.table", dist_features = "dist_features.table", threats = "threats.table", dist_threats = "dist_threats.table" }
+params = { model = "minimizeCosts" }
+note = "prioriactions's model, solved exactly. Try model = maximizeBenefits with a budget. summary: every unit's actions; benefit: what each species gets."
 "#,
     },
     Template {

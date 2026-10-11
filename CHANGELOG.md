@@ -97,6 +97,8 @@ minor versions.
   exact plans nested or on the frontier) with the gradient (the levels acting on every cell), and projected
   changes of natural land per region (`projected_change`; plangea's econometric targets, compensated as
   harmonize_sr_sparable). plangea's plans and spared land on the cases landschaft keeps.
+- `table.of`: a table written in the settings (the small tables of a planning problem).
+- Templates: Restoration plan (plangea) and Multi-action planning (prioriactions).
 - prioritizr's evaluation of a solution (`prioritize.evaluate`): the units selected, their cost and boundary, the
   features' representation, the targets' coverage, Ferrier et al.'s irreplaceability and the rarity-weighted
   richness; prioritizr's numbers bit for bit on the cases landschaft keeps; and on request the replacement
