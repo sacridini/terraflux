@@ -7,6 +7,13 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- Marxan 4 (`prioritize.marxan`) through landschaft's C++: from Marxan's tables (pu, spec, puvspr, bound) or from
+  maps (every cell a planning unit, its shared edges its boundaries), every option of input.dat; every run's
+  reserve, the best, the selection frequency, the summary and the penalties. The same runs as Marxan 4.0.6 on the
+  8 cases landschaft keeps (`tools/make_marxan_inputs.py`).
+- ProxIRR irreplaceability (`prioritize.proxirr`): alpha, beta and gamma from Marxan's tables or maps, R's
+  proxirr 0.5's bits (`tools/make_proxirr_inputs.py`).
+- Template: Marxan and irreplaceability.
 - Zonation 5's priority ranking (`prioritize.zonation`) through landschaft's C++: every rule (CAZ1, CAZ2, CAZMAX,
   ABF, CAZP, CAZPW, RAND, LOAD), weights and weight groups, thresholds, value extraction, the zero modes, 8 or 16
   bits, costs, hierarchic masks, analysis areas, the iterations' settings; the rank map, the performance curves,

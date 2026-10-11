@@ -95,7 +95,9 @@ model file dropped on it or opened with it; started that way on Windows, it show
   landscape and in a moving window (`metrics.patch`, `metrics.class`, `metrics.landscape`, `metrics.window`), the
   same values as R's landscapemetrics; tables sorted, filtered and drawn as bars in the viewer, and the maps of a
   metric per patch or class.
-- **Spatial prioritization:** Zonation 5's ranking (`prioritize.zonation`), the same rank maps as the z5 binary.
+- **Spatial prioritization:** Zonation 5's ranking (`prioritize.zonation`), the same rank maps as the z5 binary;
+  Marxan 4's reserves (`prioritize.marxan`), the same runs as Marxan; ProxIRR's irreplaceability
+  (`prioritize.proxirr`), R's proxirr's bits.
 - **Restoration planning (plangea):** ecological intactness of a human footprint and its gradient as cells are
   restored, the original vegetation of converted land, the area of habitat of species; plangea's bits.
 - **Rasters of any size:** opening a raster reads its header only; the viewer reads the tiles in view at the

@@ -38,6 +38,10 @@ struct GainOut;
 struct PrioStatsOut;
 struct PrioSettings;
 struct PrioRankOut;
+struct MarxanData;
+struct MarxanOptions;
+struct MarxanOut;
+struct ProxirrOut;
 
 // the threads of the kernels (OpenMP) of the calling thread, and their most
 void set_threads(std::int32_t n);
@@ -136,6 +140,15 @@ PrioRankOut prio_rank(rust::Slice<const float> values, std::int32_t layers, std:
                       rust::Slice<const std::uint8_t> area, std::int64_t block_rows, const PrioSettings& settings,
                       rust::Slice<const double> cost, rust::Slice<const double> hmask,
                       rust::Slice<const double> solution);
+
+// Marxan 4 (opt::marxan): simulated annealing and iterative improvement of a reserve
+MarxanOut opt_marxan(const MarxanData& data, const MarxanOptions& options);
+
+// ProxIRR (opt::proxirr): alpha of every entry, then beta and gamma of every unit from its alphas
+// (start[u] .. start[u + 1])
+rust::Vec<double> proxirr_alpha(rust::Slice<const double> local, rust::Slice<const double> global,
+                                rust::Slice<const double> target, bool triage);
+ProxirrOut proxirr_beta_gamma(rust::Slice<const std::int64_t> start, rust::Slice<const double> alphas);
 
 // landscape metrics (lsm::), as landscapemetrics: classes as 32-bit integers, `na` empty or 1 where a cell is NA
 LsmTable lsm_table(rust::Slice<const std::int32_t> values, rust::Slice<const std::uint8_t> na, std::int64_t ny,

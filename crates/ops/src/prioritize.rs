@@ -1,5 +1,6 @@
 //! Spatial prioritization from landschaft's C++: Zonation 5's ranking of the cells (`prioritize.zonation`), the
-//! same rank map as the z5 binary.
+//! same rank map as the z5 binary; Marxan 4's reserves (`prioritize.marxan`), the same runs as the Marxan
+//! program; ProxIRR's irreplaceability (`prioritize.proxirr`), the bits of R's proxirr.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -7,10 +8,12 @@ use std::sync::Arc;
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 use terraflux_ls_sys::ffi;
 
-use crate::{Args, Ctx, Error, Map, Operator, Outputs, Registry, Result, Table, Value, outputs};
+use crate::{Args, Ctx, Error, Map, Operator, Outputs, Registry, Result, Stack, Table, Value, outputs};
 
 pub fn register(r: &mut Registry) {
     r.add(Arc::new(Zonation));
+    r.add(Arc::new(Marxan));
+    r.add(Arc::new(Proxirr));
 }
 
 /// Zonation's marginal loss rules.
@@ -291,5 +294,627 @@ impl Operator for Zonation {
             ("auc", Value::Number(r.auc)),
             ("iterations", Value::Number(f64::from(r.iterations))),
         ]))
+    }
+}
+
+/// A table's column by name (its default when the table has none).
+fn column(t: &Table, name: &str) -> Option<Vec<f64>> {
+    t.column(name)
+}
+
+/// Marxan's problem from its tables: pu (id, cost, status), spec (id, target, prop, spf, targetocc), puvspr
+/// (species, pu, amount) and bound (id1, id2, boundary), as landschaft's ls.prioritize.marxan reads them.
+pub fn marxan_data(
+    pu: &Table,
+    spec: &Table,
+    puvspr: &Table,
+    bound: Option<&Table>,
+) -> std::result::Result<ffi::MarxanData, String> {
+    let need = |t: &Table, cols: &[&str], what: &str| -> std::result::Result<(), String> {
+        let missing: Vec<&&str> = cols.iter().filter(|c| !t.columns.iter().any(|x| x == **c)).collect();
+        if missing.is_empty() { Ok(()) } else { Err(format!("{what} needs the columns {missing:?}")) }
+    };
+    need(pu, &["id", "cost"], "pu")?;
+    need(spec, &["id"], "spec")?;
+    need(puvspr, &["species", "pu", "amount"], "puvspr")?;
+    let ids = column(pu, "id").unwrap();
+    let key = |v: f64| v.to_bits();
+    let mut pu_index = std::collections::HashMap::new();
+    for (i, &id) in ids.iter().enumerate() {
+        if pu_index.insert(key(id), i).is_some() {
+            return Err("planning-unit ids must be unique".into());
+        }
+    }
+    let sp_ids = column(spec, "id").unwrap();
+    let mut sp_index = std::collections::HashMap::new();
+    for (i, &id) in sp_ids.iter().enumerate() {
+        if sp_index.insert(key(id), i).is_some() {
+            return Err("feature ids must be unique".into());
+        }
+    }
+    let npu = ids.len();
+    let (species, units, amount) =
+        (column(puvspr, "species").unwrap(), column(puvspr, "pu").unwrap(), column(puvspr, "amount").unwrap());
+    let mut rows: Vec<(usize, usize, f64)> = Vec::with_capacity(species.len());
+    let mut seen = std::collections::HashSet::new();
+    for i in 0..species.len() {
+        let (Some(&r), Some(&k)) = (pu_index.get(&key(units[i])), sp_index.get(&key(species[i]))) else {
+            return Err("puvspr refers to planning units or features that are not in pu or spec".into());
+        };
+        if !seen.insert((r, k)) {
+            return Err("puvspr has a feature twice in a planning unit".into());
+        }
+        rows.push((r, k, amount[i]));
+    }
+    // by unit, then feature
+    rows.sort_by_key(|&(r, k, _)| (r, k));
+    let mut offset = vec![0i64; npu + 1];
+    for &(r, ..) in &rows {
+        offset[r + 1] += 1;
+    }
+    for i in 0..npu {
+        offset[i + 1] += offset[i];
+    }
+    let (fixed, nb_start, nb, nb_cost) = match bound {
+        Some(b) if !b.rows.is_empty() => {
+            need(b, &["id1", "id2", "boundary"], "bound")?;
+            let (i1, i2, v) = (column(b, "id1").unwrap(), column(b, "id2").unwrap(), column(b, "boundary").unwrap());
+            let mut edges = Vec::with_capacity(i1.len());
+            for j in 0..i1.len() {
+                let (Some(&a), Some(&c)) = (pu_index.get(&key(i1[j])), pu_index.get(&key(i2[j]))) else {
+                    return Err("bound refers to planning units that are not in pu".into());
+                };
+                edges.push((a, c, v[j]));
+            }
+            neighbours(npu, &edges)
+        }
+        _ => (vec![0.0; npu], vec![0i64; npu + 1], Vec::new(), Vec::new()),
+    };
+    let col_or = |t: &Table, name: &str, default: f64| column(t, name).unwrap_or_else(|| vec![default; t.rows.len()]);
+    Ok(ffi::MarxanData {
+        cost: column(pu, "cost").unwrap(),
+        status: col_or(pu, "status", 0.0).into_iter().map(|v| v as i32).collect(),
+        offset,
+        spindex: rows.iter().map(|&(_, k, _)| k as i32).collect(),
+        amount: rows.iter().map(|&(.., a)| a).collect(),
+        target: col_or(spec, "target", 0.0),
+        prop: col_or(spec, "prop", 0.0),
+        spf: col_or(spec, "spf", -1.0),
+        targetocc: col_or(spec, "targetocc", 0.0).into_iter().map(|v| v as i32).collect(),
+        fixedcost: fixed,
+        nb_start,
+        nb,
+        nb_cost,
+    })
+}
+
+/// Marxan's boundaries from edges (unit a, unit b, length) in their order: a unit's edge with itself adds to its
+/// fixed boundary; every other pair is a neighbour of both once (the first length given).
+fn neighbours(npu: usize, edges: &[(usize, usize, f64)]) -> (Vec<f64>, Vec<i64>, Vec<i32>, Vec<f64>) {
+    let mut fixed = vec![0.0; npu];
+    let mut nbrs: Vec<Vec<(usize, f64)>> = vec![Vec::new(); npu];
+    for &(a, c, v) in edges {
+        if a == c {
+            fixed[a] += v;
+            continue;
+        }
+        if nbrs[a].iter().all(|(n, _)| *n != c) {
+            nbrs[a].push((c, v));
+        }
+        if nbrs[c].iter().all(|(n, _)| *n != a) {
+            nbrs[c].push((a, v));
+        }
+    }
+    let mut nb_start = vec![0i64; npu + 1];
+    for i in 0..npu {
+        nb_start[i + 1] = nb_start[i] + nbrs[i].len() as i64;
+    }
+    let nb = nbrs.iter().flat_map(|x| x.iter().map(|(n, _)| *n as i32)).collect();
+    let nb_cost = nbrs.iter().flat_map(|x| x.iter().map(|(_, v)| *v)).collect();
+    (fixed, nb_start, nb, nb_cost)
+}
+
+/// Marxan's problem from maps: every cell with a cost a planning unit (numbered from 1 in the map's order), the
+/// features' layers its amounts, the edges it shares with the units beside it its boundaries (their lengths in
+/// the map's units), its edges to no unit `edge_factor` times their length.
+fn raster_data(
+    features: &Stack,
+    cost: &Map,
+    status: Option<&Map>,
+    edge_factor: f64,
+) -> std::result::Result<(ffi::MarxanData, Vec<usize>), String> {
+    let (ny, nx) = cost.shape();
+    if (features.grid.height, features.grid.width) != (ny, nx) {
+        return Err("the features are not on the cost's grid".into());
+    }
+    let cells: Vec<usize> = (0..ny * nx).filter(|&c| !cost.data[c].is_nan()).collect();
+    let mut unit = vec![usize::MAX; ny * nx];
+    for (i, &c) in cells.iter().enumerate() {
+        unit[c] = i;
+    }
+    let npu = cells.len();
+    let (w, h) = (cost.grid.transform[1].abs(), cost.grid.transform[5].abs());
+    let mut offset = vec![0i64; npu + 1];
+    let (mut spindex, mut amount) = (Vec::new(), Vec::new());
+    for (i, &c) in cells.iter().enumerate() {
+        for (k, layer) in features.layers.iter().enumerate() {
+            let a = layer[c];
+            if !a.is_nan() && a > 0.0 {
+                spindex.push(k as i32);
+                amount.push(a);
+            }
+        }
+        offset[i + 1] = spindex.len() as i64;
+    }
+    // the edges in the map's order: a unit's right and lower neighbour, its edges to no unit
+    let mut edges = Vec::new();
+    for (i, &c) in cells.iter().enumerate() {
+        let (y, x) = (c / nx, c % nx);
+        let mut exposed = 0.0;
+        for (dy, dx, len) in [(0i64, 1i64, h), (1, 0, w), (0, -1, h), (-1, 0, w)] {
+            let (yy, xx) = (y as i64 + dy, x as i64 + dx);
+            let other = (yy >= 0 && yy < ny as i64 && xx >= 0 && xx < nx as i64)
+                .then(|| unit[yy as usize * nx + xx as usize])
+                .filter(|&u| u != usize::MAX);
+            match other {
+                Some(o) if o > i => edges.push((i, o, len)),
+                Some(_) => {}
+                None => exposed += len,
+            }
+        }
+        if edge_factor != 0.0 && exposed > 0.0 {
+            edges.push((i, i, exposed * edge_factor));
+        }
+    }
+    let (fixed, nb_start, nb, nb_cost) = neighbours(npu, &edges);
+    let st: Vec<i32> = match status {
+        Some(s) => cells.iter().map(|&c| if s.data[c].is_nan() { 0 } else { s.data[c] as i32 }).collect(),
+        None => vec![0; npu],
+    };
+    let nsp = features.layers.len();
+    Ok((
+        ffi::MarxanData {
+            cost: cells.iter().map(|&c| cost.data[c]).collect(),
+            status: st,
+            offset,
+            spindex,
+            amount,
+            target: vec![0.0; nsp],
+            prop: vec![0.0; nsp],
+            spf: vec![-1.0; nsp],
+            targetocc: vec![0; nsp],
+            fixedcost: fixed,
+            nb_start,
+            nb,
+            nb_cost,
+        },
+        cells,
+    ))
+}
+
+struct Marxan;
+
+impl Operator for Marxan {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "prioritize.marxan",
+            "Marxan 4: reserves that meet the features' targets at the least cost and boundary, by simulated \
+             annealing and iterative improvement, a number of runs; the same runs as the Marxan program. From \
+             Marxan's tables (pu: id, cost, status; spec: id, target, prop, spf, targetocc; puvspr: species, pu, \
+             amount; bound: id1, id2, boundary), or from maps: every cell with a cost a planning unit, the \
+             features' layers its amounts, its shared edges its boundaries.",
+            Access::Global,
+        )
+        .input(PortSpec::optional("pu", Type::Table, "the planning units: id, cost, status (0-3)"))
+        .input(PortSpec::optional("spec", Type::Table, "the features: id, target, prop, spf, targetocc"))
+        .input(PortSpec::optional("puvspr", Type::Table, "the amounts: species, pu, amount"))
+        .input(PortSpec::optional("bound", Type::Table, "the boundaries: id1, id2, boundary"))
+        .input(PortSpec::optional("features", Type::Stack, "maps instead of tables: the features' amounts"))
+        .input(PortSpec::optional("cost", Type::Map, "maps: the cost of each cell (no value: no unit)"))
+        .input(PortSpec::optional("status", Type::Map, "maps: 0 available, 1 in at first, 2 locked in, 3 out"))
+        .output(PortSpec::new("best", Type::Table, "the best run's reserve: pu, solution (1 in)"))
+        .output(PortSpec::new("solutions", Type::Table, "every run's reserve: pu, then a column per run (1 in)"))
+        .output(PortSpec::new("frequency", Type::Table, "how often each unit was selected: pu, frequency (0-1)"))
+        .output(PortSpec::new(
+            "summary",
+            Type::Table,
+            "per run: its score, cost, units, boundary, penalty, shortfall, features missed, least proportion met \
+             and final score",
+        ))
+        .output(PortSpec::new("penalties", Type::Table, "per feature: its id, target and penalty"))
+        .output(PortSpec::new("map", Type::Map, "maps: the best run's reserve (1 in, 0 out)"))
+        .output(PortSpec::new("frequency_map", Type::Map, "maps: how often each cell was selected"))
+        .param(PortSpec::optional("blm", Type::Number, "the boundary length modifier (default 0)"))
+        .param(PortSpec::optional(
+            "prop",
+            Type::Any,
+            "Marxan's PROP: every feature's target as a share of its total; maps: a list, a share per feature",
+        ))
+        .param(PortSpec::optional("targets", Type::Any, "maps: the features' targets (amounts)"))
+        .param(PortSpec::optional("spf", Type::Any, "maps: the features' penalty factors (default Marxan's)"))
+        .param(PortSpec::optional("edge_factor", Type::Number, "maps: the weight of the edges to no unit (default 1)"))
+        .param(PortSpec::optional("num_reps", Type::Integer, "runs (default 10)"))
+        .param(PortSpec::optional("num_iters", Type::Integer, "annealing's iterations (default 1000000)"))
+        .param(PortSpec::optional("start_temp", Type::Number, "the starting temperature (-1: adaptive, default)"))
+        .param(PortSpec::optional("cool_fac", Type::Number, "the cooling factor (default 0)"))
+        .param(PortSpec::optional("num_temp", Type::Integer, "temperature decreases (default 10000)"))
+        .param(PortSpec::optional("run_mode", Type::Integer, "Marxan's run mode (default 1)"))
+        .param(PortSpec::optional("heur_type", Type::Integer, "the heuristic (default 1)"))
+        .param(PortSpec::optional("itimp_type", Type::Integer, "the iterative improvement (default 0)"))
+        .param(PortSpec::optional("misslevel", Type::Number, "the share of a target that counts as met (1)"))
+        .param(PortSpec::optional("cost_thresh", Type::Number, "the cost threshold (default 0: none)"))
+        .param(PortSpec::optional("thresh_pen1", Type::Number, "the cost threshold's penalty a"))
+        .param(PortSpec::optional("thresh_pen2", Type::Number, "the cost threshold's penalty b"))
+        .param(PortSpec::optional("connectivity_in", Type::Bool, "boundaries within the reserve count"))
+        .param(PortSpec::optional("seed", Type::Integer, "the random seed (default 1)"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let node = args.node;
+        let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
+        let table = |port: &str| -> Result<Option<&Table>> {
+            match args.get(port) {
+                None => Ok(None),
+                Some(Value::Table(t)) => Ok(Some(t)),
+                Some(v) => Err(err(format!("{port} is a {:?}, not a table", v.ty()))),
+            }
+        };
+        let (mut data, ids, cells, grid) = match (table("pu")?, table("spec")?, table("puvspr")?) {
+            (Some(pu), Some(spec), Some(puvspr)) => {
+                let d = marxan_data(pu, spec, puvspr, table("bound")?).map_err(err)?;
+                (d, pu.column("id").unwrap(), None, None)
+            }
+            (None, None, None) => {
+                let features = args
+                    .stack("features")
+                    .map_err(|_| err("give the tables pu, spec and puvspr, or the maps features and cost".into()))?;
+                let cost = args.map("cost")?;
+                let edge_factor: f64 = args.param("edge_factor", 1.0)?;
+                let (mut d, cells) = raster_data(features, cost, args.opt_map("status")?, edge_factor).map_err(err)?;
+                let nsp = features.layers.len();
+                let per = |name: &str, default: f64| -> Result<Vec<f64>> {
+                    match args.params.get(name) {
+                        None | Some(serde_json::Value::Null) => Ok(vec![default; nsp]),
+                        Some(serde_json::Value::Number(n)) => Ok(vec![n.as_f64().unwrap(); nsp]),
+                        Some(v) => {
+                            let l: Vec<f64> =
+                                serde_json::from_value(v.clone()).map_err(|e| err(format!("{name}: {e}")))?;
+                            if l.len() != nsp {
+                                return Err(err(format!("{name}: {} values for {nsp} features", l.len())));
+                            }
+                            Ok(l)
+                        }
+                    }
+                };
+                d.target = per("targets", 0.0)?;
+                // a list of shares per feature (a number is Marxan's PROP, for all)
+                d.prop = match args.params.get("prop") {
+                    Some(serde_json::Value::Array(_)) => per("prop", 0.0)?,
+                    _ => vec![0.0; nsp],
+                };
+                d.spf = per("spf", -1.0)?;
+                let ids = (1..=cells.len()).map(|i| i as f64).collect();
+                (d, ids, Some(cells), Some(cost.grid.clone()))
+            }
+            _ => return Err(err("give the three tables pu, spec and puvspr".into())),
+        };
+        let run_mode: i32 = args.param("run_mode", 1)?;
+        if !(-1..=6).contains(&run_mode) {
+            return Err(err(format!("Marxan's run modes are -1 to 6, not {run_mode}")));
+        }
+        let options = ffi::MarxanOptions {
+            blm: args.param("blm", 0.0)?,
+            prop: match args.params.get("prop") {
+                Some(serde_json::Value::Number(n)) => n.as_f64().unwrap(),
+                _ => 0.0,
+            },
+            iterations: args.param("num_iters", 1_000_000)?,
+            tinit: args.param("start_temp", -1.0)?,
+            tcool: args.param("cool_fac", 0.0)?,
+            titns: args.param("num_temp", 10_000)?,
+            repeats: args.param("num_reps", 10)?,
+            costthresh: args.param("cost_thresh", 0.0)?,
+            tpf1: args.param("thresh_pen1", 0.0)?,
+            tpf2: args.param("thresh_pen2", 0.0)?,
+            misslevel: args.param("misslevel", 1.0)?,
+            runmode: run_mode,
+            heurtype: args.param("heur_type", 1)?,
+            itimptype: args.param("itimp_type", 0)?,
+            connectivity_in: args.param("connectivity_in", false)?,
+            seed: (args.param::<i64>("seed", 1)? & 0xFFFF_FFFF) as u32,
+        };
+        // the spec's proportion targets apply as Marxan's PROP only per feature
+        if data.prop.iter().any(|p| p.is_nan()) {
+            data.prop.iter_mut().for_each(|p| *p = if p.is_nan() { 0.0 } else { *p });
+        }
+        let npu = data.cost.len();
+        let nsp = data.target.len();
+        let out = ffi::opt_marxan(&data, &options)?;
+        let runs = out.score.len();
+        let selected = |r: usize, i: usize| matches!(out.solutions[r * npu + i], 1 | 2);
+        let best = out.best as usize;
+        let mut best_t = Table::new(vec!["pu".into(), "solution".into()]);
+        let mut freq_t = Table::new(vec!["pu".into(), "frequency".into()]);
+        let mut freq = vec![0.0; npu];
+        for i in 0..npu {
+            let n = (0..runs).filter(|&r| selected(r, i)).count();
+            freq[i] = if runs > 0 { n as f64 / runs as f64 } else { 0.0 };
+            best_t.rows.push(vec![ids[i], f64::from(u8::from(runs > 0 && selected(best, i)))]);
+            freq_t.rows.push(vec![ids[i], freq[i]]);
+        }
+        let mut columns = vec!["pu".to_string()];
+        columns.extend((1..=runs).map(|r| format!("run_{r}")));
+        let mut solutions = Table::new(columns);
+        solutions.rows = (0..npu)
+            .map(|i| std::iter::once(ids[i]).chain((0..runs).map(|r| f64::from(u8::from(selected(r, i))))).collect())
+            .collect();
+        let mut summary = Table::new(
+            [
+                "run",
+                "score",
+                "cost",
+                "planning_units",
+                "connectivity",
+                "penalty",
+                "shortfall",
+                "missing",
+                "mpm",
+                "final_score",
+            ]
+            .map(String::from)
+            .to_vec(),
+        );
+        for r in 0..runs {
+            summary.rows.push(vec![
+                (r + 1) as f64,
+                out.incremental_score[r],
+                out.cost[r],
+                out.pus[r] as f64,
+                out.connectivity[r],
+                out.penalty_total[r],
+                out.shortfall[r],
+                out.missing[r] as f64,
+                out.mpm[r],
+                out.score[r],
+            ]);
+        }
+        let mut penalties = Table::new(vec!["feature".into(), "target".into(), "penalty".into()]);
+        let sp_ids =
+            table("spec")?.and_then(|s| s.column("id")).unwrap_or_else(|| (1..=nsp).map(|i| i as f64).collect());
+        penalties.rows =
+            sp_ids.iter().zip(&out.target).zip(&out.penalty).map(|((id, t), p)| vec![*id, *t, *p]).collect();
+        let mut o = outputs([
+            ("best", Value::Table(best_t)),
+            ("solutions", Value::Table(solutions)),
+            ("frequency", Value::Table(freq_t)),
+            ("summary", Value::Table(summary)),
+            ("penalties", Value::Table(penalties)),
+        ]);
+        if let (Some(cells), Some(grid)) = (cells, grid) {
+            let n = grid.width * grid.height;
+            let (mut m, mut f) = (vec![f64::NAN; n], vec![f64::NAN; n]);
+            for (i, &c) in cells.iter().enumerate() {
+                m[c] = f64::from(u8::from(runs > 0 && selected(best, i)));
+                f[c] = freq[i];
+            }
+            o.insert("map".into(), Value::Map(Map::new(grid.clone(), m)));
+            o.insert("frequency_map".into(), Value::Map(Map::new(grid, f)));
+        }
+        Ok(o)
+    }
+}
+
+/// ProxIRR from Marxan's tables (landschaft's eval_proxirr_marxan): per puvspr row its feature's global amount
+/// (R's sum of its rows) and target (spec's prop times it, or its target), its alpha; per unit of pu its beta and
+/// gamma from its rows' alphas in their order.
+pub struct ProxirrTables {
+    pub global: Vec<f64>,
+    pub target: Vec<f64>,
+    pub alpha: Vec<f64>,
+    pub beta: Vec<f64>,
+    pub gamma: Vec<f64>,
+    /// per spec row: its global amount and target
+    pub spec_global: Vec<f64>,
+    pub spec_target: Vec<f64>,
+}
+
+pub fn proxirr_tables(
+    pu: &Table,
+    spec: &Table,
+    puvspr: &Table,
+    triage: bool,
+) -> std::result::Result<ProxirrTables, String> {
+    let need = |t: &Table, cols: &[&str], what: &str| -> std::result::Result<(), String> {
+        let missing: Vec<&&str> = cols.iter().filter(|c| !t.columns.iter().any(|x| x == **c)).collect();
+        if missing.is_empty() { Ok(()) } else { Err(format!("{what} needs the columns {missing:?}")) }
+    };
+    need(pu, &["id"], "pu")?;
+    need(spec, &["id"], "spec")?;
+    need(puvspr, &["species", "pu", "amount"], "puvspr")?;
+    let (prop, target) = (spec.column("prop"), spec.column("target"));
+    if prop.is_none() && target.is_none() {
+        return Err("spec needs a 'prop' or a 'target' column".into());
+    }
+    let sp_ids = spec.column("id").unwrap();
+    let mut sp_pos = std::collections::HashMap::new();
+    for (i, id) in sp_ids.iter().enumerate() {
+        if sp_pos.insert(id.to_bits(), i).is_some() {
+            return Err("feature ids must be unique".into());
+        }
+    }
+    let (species, units, amount) =
+        (puvspr.column("species").unwrap(), puvspr.column("pu").unwrap(), puvspr.column("amount").unwrap());
+    // a feature's global amount: R's sum of its rows, in their order
+    let glob: Vec<f64> = sp_ids
+        .iter()
+        .map(|sid| {
+            let rows: Vec<f64> = species.iter().zip(&amount).filter(|(s, _)| *s == sid).map(|(_, a)| *a).collect();
+            ffi::r_sum(&rows)
+        })
+        .collect();
+    let spec_target: Vec<f64> = match &prop {
+        Some(p) => glob.iter().zip(p).map(|(g, p)| g * p).collect(),
+        None => target.clone().unwrap(),
+    };
+    let (mut g, mut tt) = (vec![f64::NAN; species.len()], vec![f64::NAN; species.len()]);
+    for (i, s) in species.iter().enumerate() {
+        if let Some(&k) = sp_pos.get(&s.to_bits()) {
+            g[i] = glob[k];
+            tt[i] = spec_target[k];
+        }
+    }
+    let alpha = ffi::proxirr_alpha(&amount, &g, &tt, triage).map_err(|e| e.what().to_string())?;
+    let pu_ids = pu.column("id").unwrap();
+    let mut pu_pos = std::collections::HashMap::new();
+    for (i, id) in pu_ids.iter().enumerate() {
+        if pu_pos.insert(id.to_bits(), i).is_some() {
+            return Err("planning-unit ids must be unique".into());
+        }
+    }
+    // the rows of every unit, in their order (the rows of no unit left out)
+    let mut by_unit: Vec<Vec<f64>> = vec![Vec::new(); pu_ids.len()];
+    for (i, u) in units.iter().enumerate() {
+        if let Some(&p) = pu_pos.get(&u.to_bits()) {
+            by_unit[p].push(alpha[i]);
+        }
+    }
+    let mut start = vec![0i64];
+    let mut alphas = Vec::new();
+    for a in &by_unit {
+        alphas.extend(a);
+        start.push(alphas.len() as i64);
+    }
+    let bg = ffi::proxirr_beta_gamma(&start, &alphas).map_err(|e| e.what().to_string())?;
+    Ok(ProxirrTables { global: g, target: tt, alpha, beta: bg.beta, gamma: bg.gamma, spec_global: glob, spec_target })
+}
+
+struct Proxirr;
+
+impl Operator for Proxirr {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "prioritize.proxirr",
+            "ProxIRR irreplaceability (Baisero et al. 2022), the bits of R's proxirr: for every feature in a unit \
+             alpha = min(1, local / (global - target)), and per unit beta = 1 - prod(1 - alpha) (the chance it is \
+             needed for some target) and gamma (the targets it is needed for). From Marxan's tables (pu: id; \
+             spec: id, prop or target; puvspr: species, pu, amount), or from maps: every cell a unit, the \
+             features' layers its amounts.",
+            Access::Global,
+        )
+        .input(PortSpec::optional("pu", Type::Table, "the planning units: id"))
+        .input(PortSpec::optional("spec", Type::Table, "the features: id, prop (a share of the total) or target"))
+        .input(PortSpec::optional("puvspr", Type::Table, "the amounts: species, pu, amount"))
+        .input(PortSpec::optional("features", Type::Stack, "maps instead of tables: the features' amounts"))
+        .output(PortSpec::new("units", Type::Table, "per unit: pu, beta, gamma"))
+        .output(PortSpec::new(
+            "alpha",
+            Type::Table,
+            "per feature in a unit: species, pu, amount, the feature's global amount and target, alpha",
+        ))
+        .output(PortSpec::new("targets", Type::Table, "per feature: its id, global amount and target"))
+        .output(PortSpec::new("beta", Type::Map, "maps: each cell's beta"))
+        .output(PortSpec::new("gamma", Type::Map, "maps: each cell's gamma"))
+        .param(PortSpec::optional("prop", Type::Any, "maps: the targets as a share of each feature's total"))
+        .param(PortSpec::optional("targets", Type::Any, "maps: the features' targets (amounts)"))
+        .param(PortSpec::optional(
+            "triage",
+            Type::Bool,
+            "targets above the global amount count 0 (default false)",
+        ))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let node = args.node;
+        let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
+        let triage: bool = args.param("triage", false)?;
+        let table = |port: &str| -> Option<&Table> {
+            match args.get(port) {
+                Some(Value::Table(t)) => Some(t),
+                _ => None,
+            }
+        };
+        // maps: every cell a unit, its features with an amount above 0 the entries (Marxan's tables made of them)
+        let (pu, spec, puvspr, cells) = match (table("pu"), table("spec"), table("puvspr")) {
+            (Some(pu), Some(spec), Some(puvspr)) => (pu.clone(), spec.clone(), puvspr.clone(), None),
+            _ => {
+                let features = args
+                    .stack("features")
+                    .map_err(|_| err("give the tables pu, spec and puvspr, or the map features".into()))?;
+                let nsp = features.layers.len();
+                let n = features.grid.width * features.grid.height;
+                let cells: Vec<usize> = (0..n).filter(|&c| features.layers.iter().any(|l| !l[c].is_nan())).collect();
+                let mut pu = Table::new(vec!["id".into()]);
+                pu.rows = (1..=cells.len()).map(|i| vec![i as f64]).collect();
+                let mut puvspr = Table::new(vec!["species".into(), "pu".into(), "amount".into()]);
+                for (i, &c) in cells.iter().enumerate() {
+                    for (k, l) in features.layers.iter().enumerate() {
+                        if l[c] > 0.0 {
+                            puvspr.rows.push(vec![(k + 1) as f64, (i + 1) as f64, l[c]]);
+                        }
+                    }
+                }
+                let per = |name: &str| -> Result<Option<Vec<f64>>> {
+                    match args.params.get(name) {
+                        None | Some(serde_json::Value::Null) => Ok(None),
+                        Some(serde_json::Value::Number(x)) => Ok(Some(vec![x.as_f64().unwrap(); nsp])),
+                        Some(v) => {
+                            let l: Vec<f64> =
+                                serde_json::from_value(v.clone()).map_err(|e| err(format!("{name}: {e}")))?;
+                            if l.len() != nsp {
+                                return Err(err(format!("{name}: {} values for {nsp} features", l.len())));
+                            }
+                            Ok(Some(l))
+                        }
+                    }
+                };
+                let mut spec = Table::new(vec!["id".into()]);
+                spec.rows = (1..=nsp).map(|k| vec![k as f64]).collect();
+                match (per("prop")?, per("targets")?) {
+                    (Some(p), _) => {
+                        spec.columns.push("prop".into());
+                        spec.rows.iter_mut().zip(p).for_each(|(r, v)| r.push(v));
+                    }
+                    (None, Some(t)) => {
+                        spec.columns.push("target".into());
+                        spec.rows.iter_mut().zip(t).for_each(|(r, v)| r.push(v));
+                    }
+                    (None, None) => return Err(err("give the targets: prop or targets".into())),
+                }
+                (pu, spec, puvspr, Some((cells, features.grid.clone())))
+            }
+        };
+        let r = proxirr_tables(&pu, &spec, &puvspr, triage).map_err(err)?;
+        let ids = pu.column("id").unwrap();
+        let mut units = Table::new(vec!["pu".into(), "beta".into(), "gamma".into()]);
+        units.rows = (0..ids.len()).map(|i| vec![ids[i], r.beta[i], r.gamma[i]]).collect();
+        let mut alpha = Table::new(["species", "pu", "amount", "global", "target", "alpha"].map(String::from).to_vec());
+        alpha.rows = puvspr
+            .rows
+            .iter()
+            .enumerate()
+            .map(|(i, row)| {
+                let c = |name: &str| row[puvspr.columns.iter().position(|x| x == name).unwrap()];
+                vec![c("species"), c("pu"), c("amount"), r.global[i], r.target[i], r.alpha[i]]
+            })
+            .collect();
+        let mut targets = Table::new(vec!["feature".into(), "global".into(), "target".into()]);
+        let sp_ids = spec.column("id").unwrap();
+        targets.rows = (0..sp_ids.len()).map(|k| vec![sp_ids[k], r.spec_global[k], r.spec_target[k]]).collect();
+        let mut out = outputs([
+            ("units", Value::Table(units)),
+            ("alpha", Value::Table(alpha)),
+            ("targets", Value::Table(targets)),
+        ]);
+        if let Some((cells, grid)) = cells {
+            let n = grid.width * grid.height;
+            let (mut b, mut g) = (vec![f64::NAN; n], vec![f64::NAN; n]);
+            for (i, &c) in cells.iter().enumerate() {
+                b[c] = r.beta[i];
+                g[c] = r.gamma[i];
+            }
+            out.insert("beta".into(), Value::Map(Map::new(grid.clone(), b)));
+            out.insert("gamma".into(), Value::Map(Map::new(grid, g)));
+        }
+        Ok(out)
     }
 }

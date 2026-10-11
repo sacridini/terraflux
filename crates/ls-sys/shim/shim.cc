@@ -31,6 +31,8 @@
 #include "gtb/mspa.hpp"
 #include "gtb/spa.hpp"
 #include "lsm/landscape.hpp"
+#include "opt/marxan.hpp"
+#include "opt/proxirr.hpp"
 #include "prio/prio.hpp"
 #include "rest/habitat.hpp"
 #include "rest/intactness.hpp"
@@ -602,6 +604,88 @@ PrioRankOut prio_rank(rust::Slice<const float> values, std::int32_t layers, std:
     out.curve_interval = r.curve_interval;
     out.orig_abs_sums = to_rust<double>(d.orig_abs_sums);
     out.quantization_errors = to_rust<double>(d.quantization_errors);
+    return out;
+}
+
+MarxanOut opt_marxan(const MarxanData& data, const MarxanOptions& options) {
+    opt::marxan::Data d;
+    d.npu = static_cast<int>(data.cost.size());
+    d.nsp = static_cast<int>(data.target.size());
+    d.cost.assign(data.cost.begin(), data.cost.end());
+    d.status.assign(data.status.begin(), data.status.end());
+    d.offset.assign(data.offset.begin(), data.offset.end());
+    d.spindex.assign(data.spindex.begin(), data.spindex.end());
+    d.amount.assign(data.amount.begin(), data.amount.end());
+    d.target.assign(data.target.begin(), data.target.end());
+    d.prop.assign(data.prop.begin(), data.prop.end());
+    d.spf.assign(data.spf.begin(), data.spf.end());
+    d.targetocc.assign(data.targetocc.begin(), data.targetocc.end());
+    d.fixedcost.assign(data.fixedcost.begin(), data.fixedcost.end());
+    d.nb_start.assign(data.nb_start.begin(), data.nb_start.end());
+    d.nb.assign(data.nb.begin(), data.nb.end());
+    d.nb_cost.assign(data.nb_cost.begin(), data.nb_cost.end());
+    const std::size_t npu = static_cast<std::size_t>(d.npu), nsp = static_cast<std::size_t>(d.nsp);
+    check(d.status.size() == npu && d.offset.size() == npu + 1 && d.fixedcost.size() == npu &&
+              d.nb_start.size() == npu + 1,
+          "inconsistent planning-unit arrays");
+    check(d.prop.size() == nsp && d.spf.size() == nsp && d.targetocc.size() == nsp, "inconsistent feature arrays");
+    check(d.spindex.size() == d.amount.size() && static_cast<std::int64_t>(d.amount.size()) == d.offset[npu],
+          "inconsistent amounts");
+    check(d.nb.size() == d.nb_cost.size() && static_cast<std::int64_t>(d.nb.size()) == d.nb_start[npu],
+          "inconsistent boundaries");
+    opt::marxan::Options o;
+    o.blm = options.blm;
+    o.prop = options.prop;
+    o.iterations = options.iterations;
+    o.tinit = options.tinit;
+    o.tcool = options.tcool;
+    o.titns = static_cast<long>(options.titns);
+    o.repeats = static_cast<long>(options.repeats);
+    o.costthresh = options.costthresh;
+    o.tpf1 = options.tpf1;
+    o.tpf2 = options.tpf2;
+    o.misslevel = options.misslevel;
+    o.runmode = options.runmode;
+    o.heurtype = options.heurtype;
+    o.itimptype = options.itimptype;
+    o.connectivity_in = options.connectivity_in ? 1 : 0;
+    o.seed = options.seed;
+    o.threads = max_threads();
+    const opt::marxan::Result r = opt::marxan::solve(d, o);
+    MarxanOut out;
+    out.penalty = to_rust<double>(r.penalty);
+    out.target = to_rust<double>(r.target);
+    out.unmet = r.unmet;
+    out.best = r.best;
+    for (const auto& run : r.runs) {
+        for (int x : run.R) out.solutions.push_back(x);
+        out.score.push_back(run.score.total);
+        out.cost.push_back(run.incremental.cost);
+        out.penalty_total.push_back(run.incremental.penalty);
+        out.incremental_score.push_back(run.incremental.total);
+        out.pus.push_back(run.score.pus);
+        out.connectivity.push_back(run.connectivity);
+        out.shortfall.push_back(run.shortfall);
+        out.missing.push_back(run.missing);
+        out.mpm.push_back(run.min_prop_met);
+    }
+    return out;
+}
+
+rust::Vec<double> proxirr_alpha(rust::Slice<const double> local, rust::Slice<const double> global,
+                                rust::Slice<const double> target, bool triage) {
+    check(local.size() == global.size() && local.size() == target.size(), "a global amount and a target per entry");
+    return to_rust<double>(opt::proxirr::alpha(to_std(local), to_std(global), to_std(target), triage, max_threads()));
+}
+
+ProxirrOut proxirr_beta_gamma(rust::Slice<const std::int64_t> start, rust::Slice<const double> alphas) {
+    check(!start.empty() && start[0] == 0 && start[start.size() - 1] == static_cast<i64>(alphas.size()),
+          "the units' alphas are offsets into them");
+    std::vector<double> beta, gamma;
+    opt::proxirr::beta_gamma(to_std(start), to_std(alphas), max_threads(), beta, gamma);
+    ProxirrOut out;
+    out.beta = to_rust<double>(beta);
+    out.gamma = to_rust<double>(gamma);
     return out;
 }
 

@@ -275,6 +275,73 @@ pub mod ffi {
         quantization_errors: Vec<f64>,
     }
 
+    /// Marxan's problem: per planning unit its cost and status (0 available, 1 initially in, 2 locked in, 3
+    /// locked out), the features in it (offsets into spindex and amount, by unit), per feature its target,
+    /// proportion target, SPF (below 0: Marxan's default) and occurrence target; per unit its fixed (external)
+    /// boundary and its neighbours with their shared boundary (offsets into nb and nb_cost).
+    struct MarxanData {
+        cost: Vec<f64>,
+        status: Vec<i32>,
+        offset: Vec<i64>,
+        spindex: Vec<i32>,
+        amount: Vec<f64>,
+        target: Vec<f64>,
+        prop: Vec<f64>,
+        spf: Vec<f64>,
+        targetocc: Vec<i32>,
+        fixedcost: Vec<f64>,
+        nb_start: Vec<i64>,
+        nb: Vec<i32>,
+        nb_cost: Vec<f64>,
+    }
+
+    /// Marxan's input.dat settings.
+    struct MarxanOptions {
+        blm: f64,
+        prop: f64,
+        iterations: i64,
+        tinit: f64,
+        tcool: f64,
+        titns: i64,
+        repeats: i64,
+        costthresh: f64,
+        tpf1: f64,
+        tpf2: f64,
+        misslevel: f64,
+        runmode: i32,
+        heurtype: i32,
+        itimptype: i32,
+        connectivity_in: bool,
+        seed: u32,
+    }
+
+    /// Marxan's runs: the reserves (runs x units: 0 out, 1 in, 2 locked in, 3 locked out), the best run, and per
+    /// run the summary's figures (the final score; the cost, penalty and score as updated; the units, the
+    /// boundary length, the shortfall, the features missing and the least proportion met); per feature its
+    /// penalty and target.
+    struct MarxanOut {
+        solutions: Vec<i32>,
+        best: i32,
+        score: Vec<f64>,
+        cost: Vec<f64>,
+        penalty_total: Vec<f64>,
+        incremental_score: Vec<f64>,
+        pus: Vec<i64>,
+        connectivity: Vec<f64>,
+        shortfall: Vec<f64>,
+        missing: Vec<i64>,
+        mpm: Vec<f64>,
+        penalty: Vec<f64>,
+        target: Vec<f64>,
+        unmet: i32,
+    }
+
+    /// ProxIRR's beta and gamma of every unit.
+    struct ProxirrOut {
+        beta: Vec<f64>,
+        gamma: Vec<f64>,
+    }
+
     #[derive(Debug, Clone, Copy, PartialEq)]
     struct ObservedPatches {
         cells: i64,
@@ -443,6 +510,10 @@ pub mod ffi {
             hmask: &[f64],
             solution: &[f64],
         ) -> Result<PrioRankOut>;
+        fn opt_marxan(data: &MarxanData, options: &MarxanOptions) -> Result<MarxanOut>;
+        /// ProxIRR's alpha of every entry (a feature in a unit): its local and global amounts and target.
+        fn proxirr_alpha(local: &[f64], global: &[f64], target: &[f64], triage: bool) -> Result<Vec<f64>>;
+        fn proxirr_beta_gamma(start: &[i64], alphas: &[f64]) -> Result<ProxirrOut>;
         fn lsm_table(
             values: &[i32],
             na: &[u8],
