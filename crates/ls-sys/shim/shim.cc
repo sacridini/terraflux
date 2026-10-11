@@ -6,6 +6,7 @@
 
 #include "terraflux-ls-sys/shim/shim.h"
 
+#include <array>
 #include <stdexcept>
 #include <string>
 
@@ -26,6 +27,7 @@
 #include "gtb/mosaic.hpp"
 #include "gtb/mspa.hpp"
 #include "gtb/spa.hpp"
+#include "lsm/landscape.hpp"
 #include "lsm/rmath.hpp"
 #include "nlm/models.hpp"
 #include "sim/change.hpp"
@@ -349,6 +351,88 @@ ChangeOut fos_change(rust::Slice<const std::uint8_t> a, rust::Slice<const std::u
     for (const auto& row : r.matrix_6x6)
         for (i64 n : row) out.matrix.push_back(n);
     return out;
+}
+
+namespace {
+
+lsm::Options lsm_options(const LsmOptions& o) {
+    lsm::Options opt;
+    check(o.directions == 4 || o.directions == 8, "directions is 4 or 8");
+    check(o.neighbourhood == 4 || o.neighbourhood == 8, "neighbourhood is 4 or 8");
+    check(o.edge_depth >= 0, "edge_depth is 0 or more");
+    opt.directions = o.directions;
+    opt.count_boundary = o.count_boundary;
+    opt.consider_boundary = o.consider_boundary;
+    opt.edge_depth = o.edge_depth;
+    opt.cell_center = o.cell_center;
+    opt.classes_max = o.classes_max;
+    opt.neighbourhood = o.neighbourhood;
+    opt.ordered = o.ordered;
+    opt.base = std::string(o.base);
+    opt.fragstats = o.fragstats;
+    opt.search_radius = o.search_radius;
+    opt.connect_threshold = o.connect_threshold;
+    opt.boundary_contrast = o.boundary_contrast;
+    auto table = [](const rust::Vec<double>& v, std::vector<std::array<double, 3>>& out) {
+        check(v.size() % 3 == 0, "weights come as (class a, class b, weight)");
+        for (std::size_t i = 0; i + 2 < v.size(); i += 3) out.push_back({v[i], v[i + 1], v[i + 2]});
+    };
+    table(o.contrast, opt.contrast);
+    table(o.similarity, opt.similarity);
+    return opt;
+}
+
+std::vector<std::string> strings(rust::Slice<const rust::String> names) {
+    std::vector<std::string> out;
+    for (const auto& n : names) out.emplace_back(n);
+    return out;
+}
+
+const std::uint8_t* na_mask(rust::Slice<const std::uint8_t> na, i64 n) {
+    if (na.empty()) return nullptr;
+    check(static_cast<i64>(na.size()) == n, "the NA mask differs in size from the map");
+    return na.data();
+}
+
+}  // namespace
+
+LsmTable lsm_table(rust::Slice<const std::int32_t> values, rust::Slice<const std::uint8_t> na, std::int64_t ny,
+                   std::int64_t nx, double resx, double resy, const LsmOptions& options,
+                   rust::Slice<const std::int32_t> levels, rust::Slice<const rust::String> names, bool labels) {
+    check(ny >= 0 && nx >= 0 && static_cast<i64>(values.size()) == ny * nx, "the map differs in size from ny x nx");
+    check(levels.size() == names.size(), "a level per metric");
+    std::vector<lsm::MetricSpec> specs;
+    for (std::size_t i = 0; i < levels.size(); ++i) {
+        check(levels[i] >= 0 && levels[i] <= 2, "the level is 0 (patch), 1 (class) or 2 (landscape)");
+        specs.push_back({static_cast<lsm::Level>(levels[i]), std::string(names[i])});
+    }
+    lsm::Landscape l(values.data(), na_mask(na, ny * nx), nx, ny, resx, resy, lsm_options(options));
+    lsm::LongTable t;
+    lsm::append_long_table(l, specs, 0, t);
+    LsmTable out;
+    out.class_values = to_rust<std::int32_t>(l.class_values());
+    out.metric = to_rust<std::int16_t>(t.metric);
+    out.cls = to_rust<std::int32_t>(t.cls);
+    out.cls_na = to_rust<std::uint8_t>(t.cls_na);
+    out.id = to_rust<std::int32_t>(t.id);
+    out.id_na = to_rust<std::uint8_t>(t.id_na);
+    out.value = to_rust<double>(t.value);
+    if (labels) {
+        out.labels = to_rust<std::int32_t>(l.labels());
+        out.patch_class = to_rust<std::int32_t>(l.patches().cls);
+    }
+    return out;
+}
+
+rust::Vec<double> lsm_window(rust::Slice<const std::int32_t> values, rust::Slice<const std::uint8_t> na, std::int64_t ny,
+                             std::int64_t nx, double resx, double resy, rust::Slice<const std::uint8_t> window,
+                             std::int64_t wy, std::int64_t wx, rust::Slice<const rust::String> names,
+                             const LsmOptions& options) {
+    check(ny >= 0 && nx >= 0 && static_cast<i64>(values.size()) == ny * nx, "the map differs in size from ny x nx");
+    check(wy > 0 && wx > 0 && wy % 2 == 1 && wx % 2 == 1 && static_cast<i64>(window.size()) == wy * wx,
+          "the window has odd sides");
+    const lsm::RasterView r{values.data(), na_mask(na, ny * nx), nx, ny, resx, resy};
+    return to_rust<double>(lsm::window_metrics(r, window.data(), wx, wy, strings(names), lsm_options(options)));
 }
 
 DistanceOut euclidean_distance(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx) {

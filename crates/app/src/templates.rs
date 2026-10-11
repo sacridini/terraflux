@@ -16,7 +16,7 @@ impl Template {
     }
 }
 
-pub const TEMPLATES: [Template; 8] = [
+pub const TEMPLATES: [Template; 9] = [
     Template {
         name: "MSPA of a forest",
         about: "a map of three classes drawn by chance, its forest made MSPA's foreground by a reclassification, \
@@ -264,6 +264,55 @@ id = "plot_contagion"
 op = "view.plot"
 inputs = { value = "contagion.map" }
 params = { title = "Contagion of the natural land" }
+"#,
+    },
+    Template {
+        name: "Landscape metrics",
+        about: "a land cover's metrics per class (with the share of each as a map) and of the whole landscape, \
+                and its diversity in a moving window",
+        toml: r#"
+format = "terraflux/1"
+name = "Landscape metrics"
+description = "landscapemetrics' metrics of a land cover: per class, of the landscape, and in a moving window."
+
+[[nodes]]
+id = "cover"
+op = "nlm.random_cluster"
+params = { rows = 200, columns = 200, p = 0.5, weights = [0.4, 0.35, 0.25], seed = 12 }
+note = "A land cover of three classes drawn by chance: in its place, a raster.read of a map of yours (its cells' size gives the areas: hectares for metres)."
+
+[[nodes]]
+id = "classes"
+op = "metrics.class"
+inputs = { map = "cover.map" }
+params = { metrics = ["ca", "pland", "np", "ed", "area_mn", "ai", "cohesion"], show = "pland" }
+note = "A row per class: area, share, patches, edge density, mean patch area, aggregation and cohesion. Click a column to sort, choose one to see as bars; map paints the share of each class."
+
+[[nodes]]
+id = "landscape"
+op = "metrics.landscape"
+inputs = { map = "cover.map" }
+params = { type = "diversity" }
+note = "The diversity of the whole landscape: Shannon's, Simpson's, richness..."
+
+[[nodes]]
+id = "window"
+op = "metrics.window"
+inputs = { map = "cover.map" }
+params = { metrics = ["shdi", "ed"], window = 9 }
+note = "Shannon's diversity and the edge density of the 9 x 9 cells around each cell, a map each."
+
+[[nodes]]
+id = "plot_share"
+op = "view.plot"
+inputs = { value = "classes.map" }
+params = { title = "Share of each class (%)" }
+
+[[nodes]]
+id = "plot_window"
+op = "view.plot"
+inputs = { value = "window.maps" }
+params = { title = "Diversity around each cell" }
 "#,
     },
     Template {

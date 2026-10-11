@@ -487,6 +487,11 @@ Pendências:
   FOS. O mosaico de 103 classes é testado contra as saídas do GTB; os outros contra o landschaft (os mapas bit a
   bit; os números dos relatórios até o último bit, que muda com as otimizações do compilador). As paletas do
   GTB vêm do landschaft por um gerador (`tools/make_gtb_palettes.py`).
+- **Métricas de paisagem (2026-10-11):** `metrics.patch`, `metrics.class`, `metrics.landscape` e
+  `metrics.window`, pelo C++ do landschaft (a mesma `Landscape` que o Python usa). As 256 métricas do catálogo
+  vêm do landschaft por um gerador. Testadas contra o landscapemetrics do R: todos os valores que o landschaft
+  guarda (14 rasters, 5 conjuntos de opções, mais de 100 mil valores) e as janelas móveis. O visualizador de
+  tabelas virou um componente (ordenar, filtrar, barras).
 - **Próximos:** MSPA por tiles para rasters maiores que a memória; mapa de fundo de satélite (GDAL XYZ/WMS);
   vetores (OGR) para rasterizar e medir distâncias; instaladores com o GDAL; os outros kernels C++ já prontos (reclassificação, zonal, distância, métricas de paisagem,
   FAD, SPA), depois reprojeção (PROJ embutido e o warp do landschaft) e vetores.

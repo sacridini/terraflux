@@ -20,5 +20,6 @@ terraflux-ls-sys = { path = "../ls-sys" }
 terraflux-raster = { path = "../raster" }
 
 [dev-dependencies]
+flate2.workspace = true
 hex = "0.4"
 sha2 = "0.11"

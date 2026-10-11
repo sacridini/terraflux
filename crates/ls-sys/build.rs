@@ -21,6 +21,7 @@ fn main() {
     println!("cargo:rerun-if-changed={}", source.join("CMakeLists.txt").display());
     println!("cargo:rerun-if-changed={}", source.join("src").join("cpp").join("sim").display());
     println!("cargo:rerun-if-changed={}", source.join("src").join("cpp").join("gtb").display());
+    println!("cargo:rerun-if-changed={}", source.join("src").join("cpp").join("lsm").display());
 
     let target = std::env::var("TARGET").unwrap();
     if target.contains("msvc") && std::env::var_os("CMAKE").is_none() {

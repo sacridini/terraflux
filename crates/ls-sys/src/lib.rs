@@ -168,6 +168,42 @@ pub mod ffi {
         stats: Vec<f64>,
     }
 
+    /// The options of the landscape metrics, as landschaft's (and landscapemetrics'): NaN for a distance or a
+    /// number not given; contrast and similarity weights as (class a, class b, weight) one after the other.
+    #[derive(Debug, Clone, PartialEq)]
+    struct LsmOptions {
+        directions: i32,
+        count_boundary: bool,
+        consider_boundary: bool,
+        edge_depth: i32,
+        cell_center: bool,
+        classes_max: f64,
+        neighbourhood: i32,
+        ordered: bool,
+        base: String,
+        fragstats: bool,
+        search_radius: f64,
+        connect_threshold: f64,
+        boundary_contrast: f64,
+        contrast: Vec<f64>,
+        similarity: Vec<f64>,
+    }
+
+    /// Landscape metrics as landscapemetrics' calculate_lsm: a row per value, by metric (in the order asked),
+    /// class and patch; the class and the patch flagged when the row has none. The map's classes; with the
+    /// labels asked, each cell's patch (1.., 0 none) and each patch's class (an index into the classes).
+    struct LsmTable {
+        class_values: Vec<i32>,
+        metric: Vec<i16>,
+        cls: Vec<i32>,
+        cls_na: Vec<u8>,
+        id: Vec<i32>,
+        id_na: Vec<u8>,
+        value: Vec<f64>,
+        labels: Vec<i32>,
+        patch_class: Vec<i32>,
+    }
+
     #[derive(Debug, Clone, Copy, PartialEq)]
     struct ObservedPatches {
         cells: i64,
@@ -248,6 +284,33 @@ pub mod ffi {
         /// the % of fragmentation decreasing and increasing; the 6 x 6 matrix of the classes (rare..intact)
         fn fos_change(a: &[u8], b: &[u8], ny: i64, nx: i64) -> Result<ChangeOut>;
         fn euclidean_distance(input: &[u8], ny: i64, nx: i64) -> Result<DistanceOut>;
+        fn lsm_table(
+            values: &[i32],
+            na: &[u8],
+            ny: i64,
+            nx: i64,
+            resx: f64,
+            resy: f64,
+            options: &LsmOptions,
+            levels: &[i32],
+            names: &[String],
+            labels: bool,
+        ) -> Result<LsmTable>;
+        /// Landscape-level metrics in a moving window (wy x wx, odd sides, non-zero cells part of it): the maps
+        /// of the metrics one after the other.
+        fn lsm_window(
+            values: &[i32],
+            na: &[u8],
+            ny: i64,
+            nx: i64,
+            resx: f64,
+            resy: f64,
+            window: &[u8],
+            wy: i64,
+            wx: i64,
+            names: &[String],
+            options: &LsmOptions,
+        ) -> Result<Vec<f64>>;
 
         fn allow_matrix(x: &[f64], hist: &[i64], classes: &[f64], cd: &[f64], rules: &[i64]) -> Result<Vec<f64>>;
         fn auto_convert(x: &[f64], prob: &[f64], classes: &[f64], mask: &[i64]) -> Result<Vec<f64>>;

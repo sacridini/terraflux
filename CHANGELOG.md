@@ -7,6 +7,18 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- Landscape metrics, landscapemetrics' and FRAGSTATS', through landschaft's C++: `metrics.patch` (a row per
+  patch, the map of the patches and of a metric), `metrics.class` (a row per class, the map of a metric),
+  `metrics.landscape` and `metrics.window` (the landscape's metrics in a moving window, square or circular, a map
+  each). The metrics by name (`ca`, `lsm_c_ca`), by type, or every one of the level, FRAGSTATS' extras when asked;
+  every option of landscapemetrics (directions, boundaries, edge depth, complexity) and FRAGSTATS' (convention,
+  search radius, contrast and similarity weights). The catalogue of the 256 metrics comes from landschaft
+  (`tools/make_lsm_catalog.py`).
+- Tested against the R package landscapemetrics: every value landschaft keeps of its calculate_lsm (14 rasters, 5
+  sets of options, more than 100,000 values) and of window_lsm.
+- Tables in the viewer: as many rows as they have (those in view laid out), sorted by a click on a column, filtered
+  by words or a condition (`area > 1`, `np != 1`, `ed = NA`), and a column drawn as bars by class or patch.
+- Template: Landscape metrics (per class with the share as a map, the landscape's diversity, a moving window).
 - More of GuidosToolbox through landschaft's C++: `fragmentation.contagion` (Pff) and `fragmentation.clustering`
   (FAC) in a moving window, `fragmentation.entropy` (the map's spatial joint entropy) and
   `fragmentation.entropy_map`, `fragmentation.landscape_mosaic` (19 or 103 classes, from a map coded so or the

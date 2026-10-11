@@ -25,8 +25,10 @@ pub mod fragmentation;
 pub mod glm;
 pub mod gtb_palettes;
 pub mod landscape;
+pub mod lsm_catalog;
 pub mod lulcc;
 pub mod markov;
+pub mod metrics;
 pub mod nlm;
 pub mod plugin;
 pub mod plus;
@@ -233,6 +235,7 @@ impl Registry {
         change::register(&mut r);
         crafty::register(&mut r);
         markov::register(&mut r);
+        metrics::register(&mut r);
         nlm::register(&mut r);
         demand::register(&mut r);
         glm::register(&mut r);

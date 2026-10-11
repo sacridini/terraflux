@@ -30,6 +30,8 @@ struct MosaicStatsOut;
 struct ParcellationOut;
 struct ChangeOut;
 struct DistanceOut;
+struct LsmOptions;
+struct LsmTable;
 
 // the threads of the kernels (OpenMP) of the calling thread, and their most
 void set_threads(std::int32_t n);
@@ -91,6 +93,15 @@ ChangeOut morphological_change(rust::Slice<const std::uint8_t> a, rust::Slice<co
 ChangeOut fos_change(rust::Slice<const std::uint8_t> a, rust::Slice<const std::uint8_t> b, std::int64_t ny,
                      std::int64_t nx);
 DistanceOut euclidean_distance(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx);
+
+// landscape metrics (lsm::), as landscapemetrics: classes as 32-bit integers, `na` empty or 1 where a cell is NA
+LsmTable lsm_table(rust::Slice<const std::int32_t> values, rust::Slice<const std::uint8_t> na, std::int64_t ny,
+                   std::int64_t nx, double resx, double resy, const LsmOptions& options,
+                   rust::Slice<const std::int32_t> levels, rust::Slice<const rust::String> names, bool labels);
+rust::Vec<double> lsm_window(rust::Slice<const std::int32_t> values, rust::Slice<const std::uint8_t> na, std::int64_t ny,
+                             std::int64_t nx, double resx, double resy, rust::Slice<const std::uint8_t> window,
+                             std::int64_t wy, std::int64_t wx, rust::Slice<const rust::String> names,
+                             const LsmOptions& options);
 
 rust::Vec<double> allow_matrix(rust::Slice<const double> x, rust::Slice<const std::int64_t> hist,
                                rust::Slice<const double> classes, rust::Slice<const double> cd,

@@ -1023,6 +1023,12 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         sh.chosen = true;
     }
     if maps.is_empty() {
+        if let Value::Table(t) = &value {
+            // sorted, filtered and drawn as bars, the rows scrolled within
+            let id = egui::Id::new(("table", salt, &node, &port));
+            egui::Frame::new().inner_margin(Margin::same(8)).show(ui, |ui| crate::table_view::show(ui, t, id));
+            return None;
+        }
         egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
             egui::Frame::new().inner_margin(Margin::same(8)).show(ui, |ui| other(ui, &value));
         });
@@ -1115,23 +1121,6 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
 /// A value that is not a map: a table, a number, a text, or what it is.
 fn other(ui: &mut Ui, v: &Value) {
     match v {
-        Value::Table(t) => {
-            ui.label(RichText::new(format!("{} rows", t.rows.len())).weak());
-            egui::Grid::new("preview_table").striped(true).spacing([14.0, 3.0]).show(ui, |ui| {
-                for c in &t.columns {
-                    ui.label(RichText::new(c).strong());
-                }
-                ui.end_row();
-                for r in t.rows.iter().take(500) {
-                    for x in r {
-                        ui.label(
-                            RichText::new(format!("{x:.6}").trim_end_matches('0').trim_end_matches('.')).monospace(),
-                        );
-                    }
-                    ui.end_row();
-                }
-            });
-        }
         Value::Number(x) => {
             ui.label(RichText::new(format!("{x}")).size(20.0).strong());
         }

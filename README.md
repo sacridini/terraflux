@@ -91,6 +91,10 @@ model file dropped on it or opened with it; started that way on Windows, it show
   parcellation, contortion, the Euclidean distance to the foreground's edge, and the simple, morphological and
   FOS change between two dates, with GTB's reports as tables. They read a map coded as GTB's (0 missing, 1 background, 2 foreground) or any map with the
   foreground's classes given.
+- **Landscape metrics:** landscapemetrics' metrics (and FRAGSTATS' extras) per patch, per class, of the
+  landscape and in a moving window (`metrics.patch`, `metrics.class`, `metrics.landscape`, `metrics.window`), the
+  same values as R's landscapemetrics; tables sorted, filtered and drawn as bars in the viewer, and the maps of a
+  metric per patch or class.
 - **Rasters of any size:** opening a raster reads its header only; the viewer reads the tiles in view at the
   screen's resolution (in threads, the coarser level shown meanwhile), so a raster of billions of cells shows
   in under half a second and zooms smoothly; a folder or a pattern (`forest/*.tif`) is one stack, a layer per

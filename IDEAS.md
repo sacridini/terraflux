@@ -23,10 +23,13 @@ neutros (`nlm.*`) para testar fluxos sem dados. A ordem sugerida:
      (`terraflux_ops::landscape::Product`; os do landschaft estão em `src/landschaft/_plotting/_palettes.py`:
      mudança simples e morfológica, a ordem da legenda do GTB).
    - O relatório de cada um (FOS, SPA, Accounting) como texto no formato do GTB, além das tabelas.
-2. **Métricas de paisagem** (`lsm`, no estilo do FRAGSTATS/landscapemetrics, em
-   `extern/landschaft/src/cpp/lsm`). Devolvem tabelas por mancha, classe e paisagem, e janelas móveis devolvem
-   mapas. Antes de valer a pena, o app precisa de um visualizador de tabelas melhor (ordenar, filtrar, exportar)
-   e de gráficos das métricas por classe.
+2. **Métricas de paisagem** (`lsm`). **Feito** (Unreleased): por mancha, classe, paisagem e em janela móvel,
+   iguais às do landscapemetrics do R; o visualizador de tabelas ordena, filtra e desenha uma coluna em barras.
+   Falta do `lsm` do landschaft:
+   - a análise espaço-temporal e a de assinaturas (PCA, NMF, agrupamentos: `lsm/analysis.py`, em Python);
+   - amostragem por pontos e buffers (`sample_lsm`, `lsm/sampling.py`) e métricas por zonas (`grid_zones`);
+   - paisagens fora da memória (`TiledLandscape`, já em C++), para rasters maiores que a RAM;
+   - a correlação entre métricas (`r_cor`) e gráficos de várias métricas de uma vez.
 
 ## Viewer
 

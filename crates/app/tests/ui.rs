@@ -600,6 +600,42 @@ fn the_mosaic_and_contagion_are_named() {
     assert!(contagion.len() <= 12 && contagion.iter().any(|(_, n, _)| n == "90-99%" || n == "100%"), "{contagion:?}");
 }
 
+/// Landscape metrics in the builder: the table of the classes sorted by a column and drawn as bars, the map of a
+/// metric in the plot's tab.
+#[test]
+fn metrics_show_as_tables_bars_and_maps() {
+    use terraflux_app::table_view::{TableState, rows_shown};
+    let mut h = harness(TerrafluxApp::new(None));
+    h.run_steps(2);
+    let ctx = h.ctx.clone();
+    let t = terraflux_app::templates::TEMPLATES.iter().find(|t| t.name == "Landscape metrics").unwrap();
+    h.state_mut().start_template(&ctx, t);
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("plot_window", "shown").is_some()
+    });
+    let s = h.state().session.as_ref().unwrap();
+    let Some(terraflux_ops::Value::Table(table)) = s.value_of("classes", "table") else { panic!("{:?}", s.error) };
+    assert_eq!(table.rows.len(), 3);
+    assert_eq!(table.columns[..3], ["class", "ca", "pland"]);
+    let pland: f64 = table.rows.iter().map(|r| r[2]).sum();
+    assert!((pland - 100.0).abs() < 1e-9, "the shares add up: {pland}");
+    // sorted by the share, most first, drawn as bars
+    let st = TableState { sort: Some((2, false)), filter: String::new(), chart: Some(2) };
+    let order = rows_shown(&table, &st).unwrap();
+    assert!(table.rows[order[0]][2] >= table.rows[order[2]][2]);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.preview = Some(("classes".into(), "table".into()));
+    }
+    let id = egui::Id::new(("table", "viewer", &"classes".to_string(), &"table".to_string()));
+    h.ctx.data_mut(|d| d.insert_temp(id, st.clone()));
+    h.state_mut().focus(Pane::Viewer);
+    h.run_steps(4);
+    assert_eq!(h.ctx.data(|d| d.get_temp::<TableState>(id)), Some(st), "the viewer keeps the table's state");
+    shot(&mut h, "20-metrics");
+}
+
 /// Every template that needs no file runs from the command line's engine.
 #[test]
 fn templates_run() {
