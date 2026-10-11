@@ -12,6 +12,7 @@
 //! step, calling the same C++ kernels (through `terraflux-ls-sys`), so that
 //! a model gives the same maps here as in Python with the same seed.
 
+pub mod actions;
 pub mod agents;
 pub mod algebra;
 pub mod change;
@@ -253,6 +254,7 @@ impl Registry {
         plus::register(&mut r);
         prepare::register(&mut r);
         prioritize::register(&mut r);
+        actions::register(&mut r);
         restoration::register(&mut r);
         plugin::register(&mut r);
         validate::register(&mut r);

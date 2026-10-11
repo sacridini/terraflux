@@ -31,6 +31,7 @@
 #include "gtb/mspa.hpp"
 #include "gtb/spa.hpp"
 #include "lsm/landscape.hpp"
+#include "opt/actions.hpp"
 #include "opt/cover.hpp"
 #include "opt/eval.hpp"
 #include "opt/features.hpp"
@@ -801,6 +802,125 @@ double eval_connectivity(rust::Slice<const std::int64_t> start, rust::Slice<cons
     const opt::eval::Csc m = csc_of(start, index, value, n);
     for (const i64 r : m.index) check(r >= 0 && r < n, "rows within the units");
     return asym ? opt::eval::asym_connectivity(m, to_std(solution)) : opt::eval::connectivity(m, to_std(solution));
+}
+
+namespace {
+
+template <typename T, typename U>
+std::vector<T> std_of(const rust::Vec<U>& v) {
+    return std::vector<T>(v.begin(), v.end());
+}
+
+opt::actions::Input actions_input(const ActionsInput& in) {
+    opt::actions::Input a;
+    a.n_units = in.n_units;
+    a.n_features = in.n_features;
+    a.n_threats = in.n_threats;
+    a.monitoring_cost = std_of<double>(in.monitoring_cost);
+    a.unit_status = std_of<double>(in.unit_status);
+    a.target_recovery = std_of<double>(in.target_recovery);
+    a.target_conservation = std_of<double>(in.target_conservation);
+    a.df_unit = std_of<i64>(in.df_unit);
+    a.df_feature = std_of<i64>(in.df_feature);
+    a.df_amount = std_of<double>(in.df_amount);
+    a.blm_actions = std_of<double>(in.blm_actions);
+    a.act_unit = std_of<i64>(in.act_unit);
+    a.act_threat = std_of<i64>(in.act_threat);
+    a.act_amount = std_of<double>(in.act_amount);
+    a.act_cost = std_of<double>(in.act_cost);
+    a.act_status = std_of<double>(in.act_status);
+    a.sens_feature = std_of<i64>(in.sens_feature);
+    a.sens_threat = std_of<i64>(in.sens_threat);
+    a.sens_delta = std_of<double>(in.sens_delta);
+    a.has_boundary = in.has_boundary;
+    if (a.has_boundary) {
+        a.bnd_id1 = std_of<i64>(in.bnd_id1);
+        a.bnd_id2 = std_of<i64>(in.bnd_id2);
+        a.bnd_value = std_of<double>(in.bnd_value);
+    }
+    a.check();
+    return a;
+}
+
+opt::actions::Settings actions_settings(const ActionsSettings& s) {
+    opt::actions::Settings o;
+    o.maximize = s.maximize;
+    o.blm = s.blm;
+    o.curve = s.curve;
+    o.segments = s.segments;
+    o.step = s.step;
+    o.budget = s.budget;
+    return o;
+}
+
+}  // namespace
+
+ActionsModel actions_compile(const ActionsInput& input, const ActionsSettings& settings) {
+    const opt::actions::Input in = actions_input(input);
+    const opt::actions::Pairs p = opt::actions::pairs(in);
+    opt::actions::Compiled c = opt::actions::compile(in, p, actions_settings(settings), false, false);
+    ActionsModel out;
+    out.start = to_rust<std::int64_t>(c.model.start);
+    out.index = to_rust<std::int64_t>(c.model.index);
+    out.value = to_rust<double>(c.model.value);
+    out.obj = to_rust<double>(c.model.obj);
+    out.lb = to_rust<double>(c.model.lb);
+    out.ub = to_rust<double>(c.model.ub);
+    out.rhs = to_rust<double>(c.rhs);
+    out.sense = to_rust<std::int32_t>(c.sense);
+    out.integer = to_rust<std::uint8_t>(c.model.integer);
+    return out;
+}
+
+SolveOut actions_solve(const ActionsInput& input, const ActionsSettings& settings, double gap, double time_limit,
+                       rust::Slice<const double> start) {
+    const opt::actions::Input in = actions_input(input);
+    const opt::actions::Pairs p = opt::actions::pairs(in);
+    opt::SolveOptions o;
+    o.gap = gap;
+    o.time_limit = time_limit;
+    o.threads = max_threads();
+    o.start = to_std(start);
+    opt::SolveResult r = opt::actions::solve(in, p, actions_settings(settings), o, true);
+    SolveOut out;
+    out.status = r.status;
+    out.has_solution = r.has_solution;
+    out.x = to_rust<double>(r.x);
+    out.objective = r.objective;
+    out.bound = r.bound;
+    out.gap = r.gap;
+    return out;
+}
+
+ActionsBenefit actions_benefit(const ActionsInput& input, rust::Slice<const double> solution) {
+    const opt::actions::Input in = actions_input(input);
+    const opt::actions::Pairs p = opt::actions::pairs(in);
+    opt::actions::Benefit b = opt::actions::benefit(in, p, to_std(solution));
+    ActionsBenefit out;
+    out.dist = to_rust<double>(b.dist);
+    out.dist_threatened = to_rust<double>(b.dist_threatened);
+    out.conservation = to_rust<double>(b.conservation);
+    out.recovery = to_rust<double>(b.recovery);
+    return out;
+}
+
+rust::Vec<double> actions_costs(const ActionsInput& input, rust::Slice<const double> units,
+                                rust::Slice<const double> actions) {
+    return to_rust<double>(opt::actions::costs(actions_input(input), to_std(units), to_std(actions)));
+}
+
+rust::Vec<double> actions_connectivity(const ActionsInput& input, rust::Slice<const double> units,
+                                       rust::Slice<const double> actions) {
+    return to_rust<double>(opt::actions::connectivity(actions_input(input), to_std(units), to_std(actions)));
+}
+
+ActionsPairs actions_pairs(const ActionsInput& input) {
+    const opt::actions::Pairs p = opt::actions::pairs(actions_input(input));
+    ActionsPairs out;
+    out.feature = to_rust<std::int64_t>(p.feature);
+    out.unit = to_rust<std::int64_t>(p.unit);
+    out.threatened = to_rust<std::uint8_t>(p.threatened);
+    return out;
 }
 
 double eval_boundary_zones(rust::Slice<const double> edge_factor, rust::Slice<const double> zones,

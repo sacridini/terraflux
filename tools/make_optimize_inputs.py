@@ -6,7 +6,8 @@ optimize) of rasters its tests draw with numpy (tests/optimize_cases.py); this w
 locked units, penalty data, solutions; NaN where no value) into tests/data/reference/optimize_inputs.npz, and
 its tables (planning units, features, amounts, boundary, connectivity and adjacency matrices, a solution,
 manual bounds) as Terraflux's tables into optimize_tables.json; the zone problems' rasters into
-optimize_zones.npz and their tables (zones as numbers 1..) into optimize_zone_tables.json:
+optimize_zones.npz and their tables (zones as numbers 1..) into optimize_zone_tables.json; prioriactions's
+tables into optimize_actions_tables.json:
 
     python tools/make_optimize_inputs.py
 """
@@ -81,6 +82,15 @@ def main() -> None:
     zpath = out.with_name("optimize_zone_tables.json")
     zpath.write_text(json.dumps(ztables) + "\n", encoding="utf-8")
     print(zpath, list(ztables))
+
+    # prioriactions's tables (their numbers; the names left out)
+    def numeric(df):
+        return table(df[[c for c in df.columns if c != "name"]])
+
+    atables = {name: numeric(getattr(oc, name)()) for name in oc.PA}
+    apath = out.with_name("optimize_actions_tables.json")
+    apath.write_text(json.dumps(atables) + "\n", encoding="utf-8")
+    print(apath, list(atables))
 
 
 if __name__ == "__main__":

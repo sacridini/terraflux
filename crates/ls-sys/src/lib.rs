@@ -351,6 +351,77 @@ pub mod ffi {
         value: Vec<f64>,
     }
 
+    /// A multi-action problem's inputs as prioriactions's inputData() leaves them (internal ids from 0): the units'
+    /// monitoring cost and status, the features' targets, their amounts (unit, feature, amount), the threats'
+    /// boundary weights, the actions (unit, threat, amount, cost, status), the sensitivity (feature, threat; the
+    /// deltas 4 x rows: delta1 for every row, then delta2...), the boundary (id1, id2, value).
+    struct ActionsInput {
+        n_units: i32,
+        n_features: i32,
+        n_threats: i32,
+        monitoring_cost: Vec<f64>,
+        unit_status: Vec<f64>,
+        target_recovery: Vec<f64>,
+        target_conservation: Vec<f64>,
+        df_unit: Vec<i64>,
+        df_feature: Vec<i64>,
+        df_amount: Vec<f64>,
+        blm_actions: Vec<f64>,
+        act_unit: Vec<i64>,
+        act_threat: Vec<i64>,
+        act_amount: Vec<f64>,
+        act_cost: Vec<f64>,
+        act_status: Vec<f64>,
+        sens_feature: Vec<i64>,
+        sens_threat: Vec<i64>,
+        sens_delta: Vec<f64>,
+        has_boundary: bool,
+        bnd_id1: Vec<i64>,
+        bnd_id2: Vec<i64>,
+        bnd_value: Vec<f64>,
+    }
+
+    /// prioriactions's problem(): maximizeBenefits (else minimizeCosts), the boundary's weight, the response
+    /// curve (1-3), its pieces and their length, the budget.
+    struct ActionsSettings {
+        maximize: bool,
+        blm: f64,
+        curve: i32,
+        segments: i32,
+        step: f64,
+        budget: f64,
+    }
+
+    /// prioriactions's model: rows compressed (start, column, value), the objective, the columns' bounds, the
+    /// right sides and senses (0 <=, 1 >=, 2 =), the integer columns.
+    struct ActionsModel {
+        start: Vec<i64>,
+        index: Vec<i64>,
+        value: Vec<f64>,
+        obj: Vec<f64>,
+        lb: Vec<f64>,
+        ub: Vec<f64>,
+        rhs: Vec<f64>,
+        sense: Vec<i32>,
+        integer: Vec<u8>,
+    }
+
+    /// Every feature's distribution (units, threatened units) and its benefit by conservation and recovery: the
+    /// most the actions can give, or a solution's.
+    struct ActionsBenefit {
+        dist: Vec<f64>,
+        dist_threatened: Vec<f64>,
+        conservation: Vec<f64>,
+        recovery: Vec<f64>,
+    }
+
+    /// Every (feature, unit) pair in prioriactions's order, and whether a threat in the unit harms the feature.
+    struct ActionsPairs {
+        feature: Vec<i64>,
+        unit: Vec<i64>,
+        threatened: Vec<u8>,
+    }
+
     /// A MILP model: its rows compressed (start, column, value), the objective and the columns' bounds, the
     /// rows' bounds (-inf / inf open), the integer columns (1), the sense and a constant.
     struct MilpModel {
@@ -617,6 +688,25 @@ pub mod ffi {
             solution: &[f64],
             asym: bool,
         ) -> Result<f64>;
+        /// prioriactions's model (problem()'s matrices) bit for bit.
+        fn actions_compile(input: &ActionsInput, settings: &ActionsSettings) -> Result<ActionsModel>;
+        /// A multi-action problem solved (landschaft's closure engine, then HiGHS): x the units, the actions, the
+        /// pairs' benefits; start: units then actions (empty: none).
+        fn actions_solve(
+            input: &ActionsInput,
+            settings: &ActionsSettings,
+            gap: f64,
+            time_limit: f64,
+            start: &[f64],
+        ) -> Result<SolveOut>;
+        /// rcpp_stats_benefit: the most benefit (an empty solution) or a solution's (units, then actions).
+        fn actions_benefit(input: &ActionsInput, solution: &[f64]) -> Result<ActionsBenefit>;
+        /// (monitoring, every threat's actions' cost) of a solution.
+        fn actions_costs(input: &ActionsInput, units: &[f64], actions: &[f64]) -> Result<Vec<f64>>;
+        /// (units, every threat's actions' boundary) of a solution.
+        fn actions_connectivity(input: &ActionsInput, units: &[f64], actions: &[f64]) -> Result<Vec<f64>>;
+        /// Every (feature, unit) pair.
+        fn actions_pairs(input: &ActionsInput) -> Result<ActionsPairs>;
         fn lsm_table(
             values: &[i32],
             na: &[u8],

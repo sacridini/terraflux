@@ -68,6 +68,13 @@ minor versions.
 - `prioritize.evaluate` with zones (`zone_solution`, a layer per zone, or the selection): the units, cost,
   boundary, connectivity and asymmetric connectivity overall and per zone, the features' representation and the
   targets' coverage (with lists of zones). prioritizr's numbers bit for bit on landschaft's 4 cases.
+- Multi-action planning as prioriactions 0.5.0 (`prioritize.actions`), through landschaft's C++: which units to
+  monitor and which actions against which threats to take in them, at the least cost for the features' recovery
+  and conservation targets (minimizeCosts) or for the most benefit within a budget (maximizeBenefits); the
+  boundary of the units and of every threat's actions, linear, quadratic or cubic responses; prioriactions's
+  inputData() checks, defaults and warnings; the monitoring, the actions, getActions(), the cost, the benefit
+  (total and per unit), the potential benefit and the connectivity. prioriactions's model bit for bit, its optima
+  and its figures on landschaft's 6 cases (`tools/make_optimize_inputs.py` writes their tables).
 - prioritizr's evaluation of a solution (`prioritize.evaluate`): the units selected, their cost and boundary, the
   features' representation, the targets' coverage, Ferrier et al.'s irreplaceability and the rarity-weighted
   richness; prioritizr's numbers bit for bit on the cases landschaft keeps; and on request the replacement

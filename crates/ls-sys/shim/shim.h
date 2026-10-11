@@ -182,6 +182,22 @@ double eval_connectivity_zones(rust::Slice<const std::int64_t> start, rust::Slic
                                rust::Slice<const double> value, rust::Slice<const double> zones,
                                rust::Slice<const double> solution, bool asym);
 
+// prioriactions (opt::actions)
+struct ActionsInput;
+struct ActionsSettings;
+struct ActionsModel;
+struct ActionsBenefit;
+struct ActionsPairs;
+ActionsModel actions_compile(const ActionsInput& input, const ActionsSettings& settings);
+SolveOut actions_solve(const ActionsInput& input, const ActionsSettings& settings, double gap, double time_limit,
+                       rust::Slice<const double> start);
+ActionsBenefit actions_benefit(const ActionsInput& input, rust::Slice<const double> solution);
+rust::Vec<double> actions_costs(const ActionsInput& input, rust::Slice<const double> units,
+                                rust::Slice<const double> actions);
+rust::Vec<double> actions_connectivity(const ActionsInput& input, rust::Slice<const double> units,
+                                       rust::Slice<const double> actions);
+ActionsPairs actions_pairs(const ActionsInput& input);
+
 // landscape metrics (lsm::), as landscapemetrics: classes as 32-bit integers, `na` empty or 1 where a cell is NA
 LsmTable lsm_table(rust::Slice<const std::int32_t> values, rust::Slice<const std::uint8_t> na, std::int64_t ny,
                    std::int64_t nx, double resx, double resy, const LsmOptions& options,
