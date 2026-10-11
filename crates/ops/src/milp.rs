@@ -848,7 +848,7 @@ fn apply_spatial(b: &mut Builder, u: &Units, s: &Spatial) -> Result<(), String> 
     let n = b.n;
     match s {
         Spatial::Boundary { penalty, edge_factor } => {
-            if !(penalty.abs() > 1e-50) {
+            if penalty.abs().partial_cmp(&1e-50) != Some(std::cmp::Ordering::Greater) {
                 return Ok(());
             }
             let bm = u.boundary_matrix();
@@ -877,7 +877,7 @@ fn apply_spatial(b: &mut Builder, u: &Units, s: &Spatial) -> Result<(), String> 
             b.pair_columns(&pi, &pj, &coef, "b");
         }
         Spatial::LinearPenalty { penalty, data } => {
-            if !(penalty.abs() > 1e-50) {
+            if penalty.abs().partial_cmp(&1e-50) != Some(std::cmp::Ordering::Greater) {
                 return Ok(());
             }
             let p = if b.maximize { -penalty } else { *penalty };
@@ -896,7 +896,7 @@ fn apply_spatial(b: &mut Builder, u: &Units, s: &Spatial) -> Result<(), String> 
                     v.push(x);
                 }
             }
-            b.add_rows(&vec![0; c.len()], &c, &v, &[sense.clone()], &[*threshold], &["lc".to_string()]);
+            b.add_rows(&vec![0; c.len()], &c, &v, std::slice::from_ref(sense), &[*threshold], &["lc".to_string()]);
         }
         Spatial::Neighbors { k, clamp } => {
             let d = u.adjacency_matrix();
@@ -906,7 +906,7 @@ fn apply_spatial(b: &mut Builder, u: &Units, s: &Spatial) -> Result<(), String> 
                     *k = k.min(rs);
                 }
             }
-            if !(kk.iter().cloned().fold(0.0, f64::max) > 0.0) {
+            if kk.iter().cloned().fold(0.0, f64::max).partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
                 return Ok(());
             }
             let (mut r, mut c, mut v): (Vec<usize>, Vec<usize>, Vec<f64>) =

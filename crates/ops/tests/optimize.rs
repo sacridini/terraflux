@@ -43,7 +43,10 @@ const NONE: &[&str] = &[];
 const BOTH: &[&str] = &["locked_in", "locked_out"];
 
 /// The cases of raster units (prioritizr's R calls in landschaft's optimize_cases.py) as the node's settings.
-fn cases() -> Vec<(&'static str, &'static str, serde_json::Value, &'static [&'static str], Option<Table>)> {
+/// A case: its reference group and name, the node's settings, the locked or data rasters it takes, manual targets.
+type Case = (&'static str, &'static str, serde_json::Value, &'static [&'static str], Option<Table>);
+
+fn cases() -> Vec<Case> {
     use serde_json::json;
     let abs = json!([1.2, 0.9, 1, 120, 4]);
     let manual = |rows: Vec<[f64; 4]>| {
