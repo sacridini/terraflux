@@ -98,7 +98,10 @@ model file dropped on it or opened with it; started that way on Windows, it show
 - **Spatial prioritization:** Zonation 5's ranking (`prioritize.zonation`), the same rank maps as the z5 binary;
   Marxan 4's reserves (`prioritize.marxan`), the same runs as Marxan; ProxIRR's irreplaceability
   (`prioritize.proxirr`), R's proxirr's bits; prioritizr's integer programs (`prioritize.optimize`: min set, min
-  shortfall, max utility, max features and more), prioritizr's models bit for bit, solved by HiGHS.
+  shortfall, max utility, max features, phylogenetic diversity and more; boundary, connectivity and linear
+  penalties, neighbour and contiguity constraints; planning units in maps or tables; portfolios), prioritizr's
+  models bit for bit, solved by HiGHS; the evaluation of solutions (`prioritize.evaluate`) and the calibration of
+  trade-offs (`prioritize.calibrate`).
 - **Restoration planning (plangea):** ecological intactness of a human footprint and its gradient as cells are
   restored, the original vegetation of converted land, the area of habitat of species; plangea's bits.
 - **Rasters of any size:** opening a raster reads its header only; the viewer reads the tiles in view at the

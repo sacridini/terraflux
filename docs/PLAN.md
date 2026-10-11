@@ -504,10 +504,14 @@ Pendências:
   `prioritize.optimize` com unidades de raster, os objetivos sem termos espaciais, os alvos, pesos, decisões e
   travas; os modelos bit a bit com o compile() do prioritizr nos 20 casos de raster, e o ótimo do Gurobi alcançado
   pelo HiGHS; D2: penalidades de fronteira e lineares, restrição linear e de vizinhos, os 25 casos de raster bit a
-  bit; `prioritize.evaluate` (eval_*: resumo, representação, cobertura, Ferrier, raridade) bit a bit; faltam a
-  conectividade (precisa de unidades de tabela ou de uma matriz), a contiguidade, as zonas, a filogenia, o risco de extinção, os
-  portfólios, a importância de Ferrier e por substituição, e as unidades de tabela e de polígonos), prioriactions, o planejamento do
-  plangea.
+  bit; `prioritize.evaluate` (eval_*: resumo, representação, cobertura, Ferrier, raridade, importância por
+  substituição e por ranking) bit a bit; D3: unidades de tabela (colunas de feições ou o rij do Marxan), matrizes de
+  fronteira, conectividade (simétrica e assimétrica) e adjacência, a avaliação de tabelas, os portfólios (cuts com o
+  corte do prioritizr corrigido, top, gap, shuffle), a contiguidade e a contiguidade por feição (a formulação exata
+  do landschaft, com cortes por fluxo máximo), os limites manuais, os objetivos filogenéticos e a calibração
+  (`prioritize.calibrate`: blended, hierárquica, Pareto, Cohon, TOPSIS e joelho), tudo bit a bit com o compile() do
+  prioritizr ou com os seus ótimos; faltam as zonas, as unidades de polígonos (precisam de vetores) e o risco de
+  extinção), prioriactions, o planejamento do plangea.
 - **Próximos:** MSPA por tiles para rasters maiores que a memória; mapa de fundo de satélite (GDAL XYZ/WMS);
   vetores (OGR) para rasterizar e medir distâncias; instaladores com o GDAL; os outros kernels C++ já prontos (reclassificação, zonal, distância, métricas de paisagem,
   FAD, SPA), depois reprojeção (PROJ embutido e o warp do landschaft) e vetores.
