@@ -29,6 +29,7 @@ pub mod lsm_catalog;
 pub mod lulcc;
 pub mod markov;
 pub mod metrics;
+pub mod milp;
 pub mod nlm;
 pub mod plugin;
 pub mod plus;

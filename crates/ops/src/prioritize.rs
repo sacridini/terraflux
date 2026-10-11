@@ -8,12 +8,14 @@ use std::sync::Arc;
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 use terraflux_ls_sys::ffi;
 
+use crate::milp;
 use crate::{Args, Ctx, Error, Map, Operator, Outputs, Registry, Result, Stack, Table, Value, outputs};
 
 pub fn register(r: &mut Registry) {
     r.add(Arc::new(Zonation));
     r.add(Arc::new(Marxan));
     r.add(Arc::new(Proxirr));
+    r.add(Arc::new(Optimize));
 }
 
 /// Zonation's marginal loss rules.
@@ -916,5 +918,208 @@ impl Operator for Proxirr {
             out.insert("gamma".into(), Value::Map(Map::new(grid, g)));
         }
         Ok(out)
+    }
+}
+
+/// A problem of prioritizr from a node's inputs and settings.
+pub fn problem_of(args: &Args) -> Result<milp::Problem> {
+    let node = args.node;
+    let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
+    let features = args.stack("features")?;
+    let cost = args.map("cost")?;
+    if (features.grid.width, features.grid.height) != (cost.grid.width, cost.grid.height) {
+        return Err(err("the features are not on the cost's grid".into()));
+    }
+    let layers: Vec<&[f64]> = features.layers.iter().map(|l| l.as_slice()).collect();
+    let names: Vec<String> = features.keys.iter().map(|k| k.to_string()).collect();
+    let units = milp::Units::raster(&cost.data, &layers, names).map_err(err)?;
+    let nf = units.names.len();
+    let n = units.n();
+    let budget = || -> Result<f64> {
+        args.opt_param::<f64>("budget")?.ok_or_else(|| err("this objective needs a budget".into()))
+    };
+    let objective: String = args.param("objective", "min_set".to_string())?;
+    let objective = match objective.as_str() {
+        "min_set" => milp::Objective::MinSet,
+        "min_shortfall" => milp::Objective::MinShortfall(budget()?),
+        "min_largest_shortfall" => milp::Objective::MinLargestShortfall(budget()?),
+        "max_utility" => milp::Objective::MaxUtility(budget()?),
+        "max_features" => milp::Objective::MaxFeatures(budget()?),
+        "max_cover" => milp::Objective::MaxCover(budget()?),
+        "min_penalties" => milp::Objective::MinPenalties(budget()?),
+        o => return Err(err(format!("unknown objective {o:?}"))),
+    };
+    let per_feature = |name: &str| -> Result<Option<Vec<f64>>> {
+        match args.params.get(name) {
+            None | Some(serde_json::Value::Null) => Ok(None),
+            Some(serde_json::Value::Number(x)) => Ok(Some(vec![x.as_f64().unwrap(); nf])),
+            Some(v) => {
+                let l: Vec<f64> = serde_json::from_value(v.clone()).map_err(|e| err(format!("{name}: {e}")))?;
+                if l.len() != nf {
+                    return Err(err(format!("{name}: {} values for {nf} features", l.len())));
+                }
+                Ok(Some(l))
+            }
+        }
+    };
+    let targets = if let Some(r) = per_feature("relative_targets")? {
+        Some(milp::TargetSpec::Relative(r))
+    } else if let Some(a) = per_feature("absolute_targets")? {
+        Some(milp::TargetSpec::Absolute(a))
+    } else if let Some(v) = args.params.get("loglinear_targets").filter(|v| !v.is_null()) {
+        let l: Vec<Option<f64>> = serde_json::from_value(v.clone()).map_err(|e| {
+            err(format!("loglinear_targets: {e} ([lower amount, lower target, upper amount, upper target, cap amount, cap target])"))
+        })?;
+        if l.len() != 4 && l.len() != 6 {
+            return Err(err("loglinear_targets: 4 numbers, or 6 with the cap".into()));
+        }
+        let g = |i: usize| l[i].ok_or_else(|| err("loglinear_targets: the bounds are numbers".into()));
+        Some(milp::TargetSpec::Loglinear {
+            lo_amount: g(0)?,
+            lo_target: g(1)?,
+            hi_amount: g(2)?,
+            hi_target: g(3)?,
+            cap: if l.len() == 6 { l[4].zip(l[5]) } else { None },
+        })
+    } else if let Some(Value::Table(t)) = args.get("targets") {
+        // a table of manual targets: feature (1..), relative (1) or absolute (0), sense (1 >=, -1 <=, 0 =), target
+        let col = |c: &str| t.column(c).ok_or_else(|| err(format!("targets needs a column {c:?}")));
+        let (f, rel, tg) = (col("feature")?, col("relative")?, col("target")?);
+        let sense = t.column("sense").unwrap_or_else(|| vec![1.0; f.len()]);
+        Some(milp::TargetSpec::Manual(
+            (0..f.len())
+                .map(|i| milp::ManualTarget {
+                    feature: (f[i] as usize).saturating_sub(1),
+                    relative: rel[i] != 0.0,
+                    sense: match sense[i] {
+                        s if s > 0.0 => ">=".into(),
+                        s if s < 0.0 => "<=".into(),
+                        _ => "=".into(),
+                    },
+                    target: tg[i],
+                })
+                .collect(),
+        ))
+    } else {
+        None
+    };
+    let weights = per_feature("feature_weights")?;
+    let decisions: String = args.param("decisions", "binary".to_string())?;
+    let decisions = match decisions.as_str() {
+        "binary" => milp::Decisions::Binary,
+        "proportion" => milp::Decisions::Proportion,
+        "semicontinuous" => milp::Decisions::Semicontinuous(args.param("upper_limit", 1.0)?),
+        d => return Err(err(format!("decisions are binary, proportion or semicontinuous, not {d:?}"))),
+    };
+    let locked = |port: &str| -> Result<Vec<bool>> {
+        Ok(match args.opt_map(port)? {
+            Some(m) => units.cells.iter().map(|&c| !m.data[c].is_nan() && m.data[c] != 0.0).collect(),
+            None => vec![false; n],
+        })
+    };
+    let (locked_in, locked_out) = (locked("locked_in")?, locked("locked_out")?);
+    Ok(milp::Problem { units, objective, targets, weights, decisions, locked_in, locked_out })
+}
+
+struct Optimize;
+
+impl Operator for Optimize {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "prioritize.optimize",
+            "Systematic conservation planning as prioritizr 8.0.6 (Hanson et al.): an integer program over the \
+             planning units (the cells with a cost) solved to optimality (within the gap) by HiGHS, the model \
+             prioritizr compiles. Objectives: min_set (meet every target at the least cost), min_shortfall, \
+             min_largest_shortfall, max_utility, max_features, max_cover, min_penalties (with a budget); \
+             targets relative, absolute, loglinear or by hand; feature weights; binary, proportion or \
+             semicontinuous decisions; locked units.",
+            Access::Global,
+        )
+        .input(PortSpec::new("features", Type::Stack, "the features' amounts, a layer each"))
+        .input(PortSpec::new("cost", Type::Map, "the cost of each cell (no value: not a planning unit)"))
+        .input(PortSpec::optional("locked_in", Type::Map, "the units that must be selected (not 0)"))
+        .input(PortSpec::optional("locked_out", Type::Map, "the units that may not be selected (not 0)"))
+        .input(PortSpec::optional(
+            "targets",
+            Type::Table,
+            "targets by hand: feature (1..), relative (1) or absolute (0), sense (1 >=, -1 <=, 0 =), target",
+        ))
+        .output(PortSpec::new("solution", Type::Map, "the share of each unit selected (1 selected)"))
+        .output(PortSpec::new(
+            "summary",
+            Type::Table,
+            "the solution's objective, cost, units selected, the solver's gap and status (1 optimal)",
+        ))
+        .output(PortSpec::new(
+            "coverage",
+            Type::Table,
+            "per target: its feature, the amount held, the target, the feature's total, and whether it is met",
+        ))
+        .param(PortSpec::optional(
+            "objective",
+            Type::Text,
+            "min_set (default), min_shortfall, min_largest_shortfall, max_utility, max_features, max_cover, min_penalties",
+        ))
+        .param(PortSpec::optional("budget", Type::Number, "the objectives with a budget: the cost they may spend"))
+        .param(PortSpec::optional("relative_targets", Type::Any, "a share of each feature's total (or one for all)"))
+        .param(PortSpec::optional("absolute_targets", Type::Any, "an amount per feature"))
+        .param(PortSpec::optional(
+            "loglinear_targets",
+            Type::Any,
+            "[lower amount, lower target, upper amount, upper target(, cap amount, cap target)]",
+        ))
+        .param(PortSpec::optional("feature_weights", Type::Any, "a weight per feature"))
+        .param(PortSpec::optional("decisions", Type::Text, "binary (default), proportion or semicontinuous"))
+        .param(PortSpec::optional("upper_limit", Type::Number, "semicontinuous: the most of a unit selected"))
+        .param(PortSpec::optional("gap", Type::Number, "the relative optimality gap (default 0.1, as prioritizr)"))
+        .param(PortSpec::optional("time_limit", Type::Number, "seconds (default none)"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let node = args.node;
+        let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
+        let p = problem_of(args)?;
+        let (model, t) = milp::compile(&p).map_err(err)?;
+        let gap: f64 = args.param("gap", 0.1)?;
+        let time_limit: f64 = args.opt_param("time_limit")?.unwrap_or(f64::INFINITY);
+        let n = p.units.n();
+        let r = milp::solve(&model, n, gap, time_limit).map_err(err)?;
+        if !r.has_solution {
+            return Err(err(format!("no solution: {}", r.status)));
+        }
+        let x = &r.x[..n];
+        let cost = &p.units.cost;
+        let grid = args.map("cost")?.grid.clone();
+        let mut solution = vec![f64::NAN; grid.width * grid.height];
+        for (i, &c) in p.units.cells.iter().enumerate() {
+            solution[c] = x[i];
+        }
+        let spent: f64 = cost.iter().zip(x).map(|(c, x)| c * x).sum();
+        let mut summary = Table::new(["objective", "cost", "selected", "gap", "optimal"].map(String::from).to_vec());
+        summary.rows.push(vec![
+            r.objective,
+            spent,
+            x.iter().filter(|&&v| v > 0.5).count() as f64,
+            r.gap,
+            f64::from(u8::from(r.status == "optimal")),
+        ]);
+        let mut coverage = Table::new(["feature", "held", "target", "total", "met"].map(String::from).to_vec());
+        for (k, &f) in t.feature.iter().enumerate() {
+            let (idx, v) = p.units.rij.row(f);
+            let held: f64 = idx.iter().zip(v).map(|(&i, a)| a * x[i]).sum();
+            let tol = 1e-6 * t.value[k].abs().max(1.0);
+            let met = match t.sense[k].as_str() {
+                ">=" => held >= t.value[k] - tol,
+                "<=" => held <= t.value[k] + tol,
+                "=" => (held - t.value[k]).abs() <= tol,
+                _ => true,
+            };
+            coverage.rows.push(vec![(f + 1) as f64, held, t.value[k], t.total[k], f64::from(u8::from(met))]);
+        }
+        Ok(outputs([
+            ("solution", Value::Map(Map::new(grid, solution))),
+            ("summary", Value::Table(summary)),
+            ("coverage", Value::Table(coverage)),
+        ]))
     }
 }

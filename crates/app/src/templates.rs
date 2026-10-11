@@ -16,7 +16,7 @@ impl Template {
     }
 }
 
-pub const TEMPLATES: [Template; 12] = [
+pub const TEMPLATES: [Template; 13] = [
     Template {
         name: "MSPA of a forest",
         about: "a map of three classes drawn by chance, its forest made MSPA's foreground by a reclassification, \
@@ -499,6 +499,61 @@ id = "plot_beta"
 op = "view.plot"
 inputs = { value = "irreplaceability.beta" }
 params = { title = "Irreplaceability (beta)" }
+"#,
+    },
+    Template {
+        name: "Conservation planning (prioritizr)",
+        about: "four species and a cost: the cheapest set of cells that holds 30% of each, as prioritizr \
+                solves it (an integer program, HiGHS), and how much of each it holds",
+        toml: r#"
+format = "terraflux/1"
+name = "Conservation planning (prioritizr)"
+description = "prioritizr's minimum set problem: the cheapest cells that meet every species' target, solved exactly."
+
+[[nodes]]
+id = "bird"
+op = "nlm.gaussian_field"
+params = { rows = 30, columns = 40, range = 8, seed = 1 }
+note = "Species' amounts drawn by chance (in their place, raster.read of distribution maps)."
+
+[[nodes]]
+id = "frog"
+op = "nlm.gaussian_field"
+params = { rows = 30, columns = 40, range = 4, seed = 2 }
+
+[[nodes]]
+id = "orchid"
+op = "nlm.gaussian_field"
+params = { rows = 30, columns = 40, range = 12, seed = 3 }
+
+[[nodes]]
+id = "wetland"
+op = "nlm.fbm"
+params = { rows = 30, columns = 40, dimension = 1.4, seed = 4 }
+
+[[nodes]]
+id = "features"
+op = "stack.of"
+inputs = { bird = "bird.map", frog = "frog.map", orchid = "orchid.map", wetland = "wetland.map" }
+
+[[nodes]]
+id = "cost"
+op = "nlm.gaussian_field"
+params = { rows = 30, columns = 40, range = 15, seed = 9 }
+note = "What each cell costs (no value: not a planning unit)."
+
+[[nodes]]
+id = "plan"
+op = "prioritize.optimize"
+inputs = { features = "features.stack", cost = "cost.map" }
+params = { objective = "min_set", relative_targets = 0.3, gap = 0.01 }
+note = "The cheapest cells holding 30% of each species: prioritizr's model, solved by HiGHS within 1% of the optimum. Try objective = max_features with a budget, or decisions = proportion. coverage: what each species gets."
+
+[[nodes]]
+id = "plot_solution"
+op = "view.plot"
+inputs = { value = "plan.solution" }
+params = { title = "Selected cells" }
 "#,
     },
     Template {

@@ -7,6 +7,15 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- prioritizr's systematic conservation planning (`prioritize.optimize`): the planning units of a cost raster and
+  the features' amounts in them, the objectives min set, min shortfall, min largest shortfall, max utility, max
+  features, max cover and min penalties, relative, absolute, loglinear and manual targets, feature weights,
+  binary, proportion and semicontinuous decisions, locked units; the model compiled in Rust (`terraflux_ops::milp`,
+  a port of landschaft's), solved by HiGHS through landschaft's C++ (its covering and wide engines); the solution
+  on the grid, a summary and the targets' coverage. The models are prioritizr 8.0.6's compile(), bit for bit, on
+  the 20 raster cases landschaft keeps, and HiGHS reaches their optima (Gurobi's at gap 0)
+  (`tools/make_optimize_inputs.py`).
+- Template: Conservation planning (prioritizr).
 - Marxan 4 (`prioritize.marxan`) through landschaft's C++: from Marxan's tables (pu, spec, puvspr, bound) or from
   maps (every cell a planning unit, its shared edges its boundaries), every option of input.dat; every run's
   reserve, the best, the selection frequency, the summary and the penalties. The same runs as Marxan 4.0.6 on the

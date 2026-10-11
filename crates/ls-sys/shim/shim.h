@@ -42,6 +42,10 @@ struct MarxanData;
 struct MarxanOptions;
 struct MarxanOut;
 struct ProxirrOut;
+struct FeaturesOut;
+struct MilpModel;
+struct SolveSettings;
+struct SolveOut;
 
 // the threads of the kernels (OpenMP) of the calling thread, and their most
 void set_threads(std::int32_t n);
@@ -149,6 +153,11 @@ MarxanOut opt_marxan(const MarxanData& data, const MarxanOptions& options);
 rust::Vec<double> proxirr_alpha(rust::Slice<const double> local, rust::Slice<const double> global,
                                 rust::Slice<const double> target, bool triage);
 ProxirrOut proxirr_beta_gamma(rust::Slice<const std::int64_t> start, rust::Slice<const double> alphas);
+
+// the MILP prioritization (opt::): the features' amounts in the planning units (values: layers x n, unit: the
+// unit of each cell, -1 none), and a model solved by HiGHS (method: highs, covering or wide)
+FeaturesOut opt_features(rust::Slice<const double> values, std::int64_t layers, rust::Slice<const std::int64_t> unit);
+SolveOut opt_solve(const MilpModel& model, const SolveSettings& settings, rust::Str method, std::int64_t n_units);
 
 // landscape metrics (lsm::), as landscapemetrics: classes as 32-bit integers, `na` empty or 1 where a cell is NA
 LsmTable lsm_table(rust::Slice<const std::int32_t> values, rust::Slice<const std::uint8_t> na, std::int64_t ny,

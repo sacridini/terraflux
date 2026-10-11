@@ -31,8 +31,12 @@
 #include "gtb/mspa.hpp"
 #include "gtb/spa.hpp"
 #include "lsm/landscape.hpp"
+#include "opt/cover.hpp"
+#include "opt/features.hpp"
 #include "opt/marxan.hpp"
+#include "opt/milp.hpp"
 #include "opt/proxirr.hpp"
+#include "opt/wide.hpp"
 #include "prio/prio.hpp"
 #include "rest/habitat.hpp"
 #include "rest/intactness.hpp"
@@ -686,6 +690,67 @@ ProxirrOut proxirr_beta_gamma(rust::Slice<const std::int64_t> start, rust::Slice
     ProxirrOut out;
     out.beta = to_rust<double>(beta);
     out.gamma = to_rust<double>(gamma);
+    return out;
+}
+
+FeaturesOut opt_features(rust::Slice<const double> values, std::int64_t layers, rust::Slice<const std::int64_t> unit) {
+    check(layers > 0 && values.size() == static_cast<std::size_t>(layers) * unit.size(), "the values are layers x cells");
+    opt::FeatureMatrix m(layers);
+    m.add(values.data(), static_cast<i64>(unit.size()), unit.data(), max_threads());
+    std::vector<i64> start, index;
+    std::vector<double> value;
+    m.csr(start, index, value);
+    FeaturesOut out;
+    out.totals = to_rust<double>(m.totals());
+    out.start = to_rust<std::int64_t>(start);
+    out.index = to_rust<std::int64_t>(index);
+    out.value = to_rust<double>(value);
+    return out;
+}
+
+SolveOut opt_solve(const MilpModel& model, const SolveSettings& settings, rust::Str method, std::int64_t n_units) {
+    opt::Model m;
+    m.start.assign(model.start.begin(), model.start.end());
+    m.index.assign(model.index.begin(), model.index.end());
+    m.value.assign(model.value.begin(), model.value.end());
+    m.obj.assign(model.obj.begin(), model.obj.end());
+    m.lb.assign(model.lb.begin(), model.lb.end());
+    m.ub.assign(model.ub.begin(), model.ub.end());
+    m.row_lo.assign(model.row_lo.begin(), model.row_lo.end());
+    m.row_hi.assign(model.row_hi.begin(), model.row_hi.end());
+    m.integer.assign(model.integer.begin(), model.integer.end());
+    m.nrow = static_cast<i64>(m.row_lo.size());
+    m.ncol = static_cast<i64>(m.obj.size());
+    m.maximize = model.maximize;
+    m.offset = model.offset;
+    m.check();
+    opt::SolveOptions o;
+    o.gap = settings.gap;
+    o.time_limit = settings.time_limit;
+    o.threads = max_threads();
+    const std::string p(settings.presolve);
+    o.presolve = p == "off" ? opt::Presolve::off : p == "on" ? opt::Presolve::on : opt::Presolve::choose;
+    o.relaxation = settings.relaxation;
+    o.start.assign(settings.start.begin(), settings.start.end());
+    const std::string how(method);
+    opt::SolveResult r;
+    if (how == "covering") {
+        check(opt::is_covering(m), "not a covering model (a minimisation with only >= rows and finite bounds)");
+        r = opt::solve_covering(m, o);
+    } else if (how == "wide") {
+        check(opt::is_wide(m, n_units), "not a wide model (units with finite bounds, few other columns)");
+        r = opt::solve_wide(m, n_units, o);
+    } else {
+        check(how == "highs", "the method is highs, covering or wide");
+        r = opt::solve_highs(m, o);
+    }
+    SolveOut out;
+    out.status = r.status;
+    out.has_solution = r.has_solution;
+    out.x = to_rust<double>(r.x);
+    out.objective = r.objective;
+    out.bound = r.bound;
+    out.gap = r.gap;
     return out;
 }
 

@@ -342,6 +342,52 @@ pub mod ffi {
         gamma: Vec<f64>,
     }
 
+    /// The features x planning units matrix of raster units: every feature's total (of the whole raster, as
+    /// terra adds it) and its amounts in the units (compressed rows: start, unit, amount).
+    struct FeaturesOut {
+        totals: Vec<f64>,
+        start: Vec<i64>,
+        index: Vec<i64>,
+        value: Vec<f64>,
+    }
+
+    /// A MILP model: its rows compressed (start, column, value), the objective and the columns' bounds, the
+    /// rows' bounds (-inf / inf open), the integer columns (1), the sense and a constant.
+    struct MilpModel {
+        start: Vec<i64>,
+        index: Vec<i64>,
+        value: Vec<f64>,
+        obj: Vec<f64>,
+        lb: Vec<f64>,
+        ub: Vec<f64>,
+        row_lo: Vec<f64>,
+        row_hi: Vec<f64>,
+        integer: Vec<u8>,
+        maximize: bool,
+        offset: f64,
+    }
+
+    /// The solver's settings: the relative gap, a time limit (seconds; inf none), presolve (choose, off, on),
+    /// the LP relaxation only, a solution to start from (empty: none).
+    struct SolveSettings {
+        gap: f64,
+        time_limit: f64,
+        presolve: String,
+        relaxation: bool,
+        start: Vec<f64>,
+    }
+
+    /// The solver's result: its status (optimal, time_limit, infeasible...), the solution, its objective, the
+    /// bound and the gap.
+    struct SolveOut {
+        status: String,
+        has_solution: bool,
+        x: Vec<f64>,
+        objective: f64,
+        bound: f64,
+        gap: f64,
+    }
+
     #[derive(Debug, Clone, Copy, PartialEq)]
     struct ObservedPatches {
         cells: i64,
@@ -514,6 +560,8 @@ pub mod ffi {
         /// ProxIRR's alpha of every entry (a feature in a unit): its local and global amounts and target.
         fn proxirr_alpha(local: &[f64], global: &[f64], target: &[f64], triage: bool) -> Result<Vec<f64>>;
         fn proxirr_beta_gamma(start: &[i64], alphas: &[f64]) -> Result<ProxirrOut>;
+        fn opt_features(values: &[f64], layers: i64, unit: &[i64]) -> Result<FeaturesOut>;
+        fn opt_solve(model: &MilpModel, settings: &SolveSettings, method: &str, n_units: i64) -> Result<SolveOut>;
         fn lsm_table(
             values: &[i32],
             na: &[u8],

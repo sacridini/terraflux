@@ -500,7 +500,11 @@ Pendências:
   resto: Zonation (feito: `prioritize.zonation`, os 41 casos do grupo core bit a bit com o z5; falta a
   conectividade, os impactos, a retenção e o pós-processamento), Marxan e ProxIRR (feitos: `prioritize.marxan`, os 8 casos iguais ao
   Marxan 4.0.6; `prioritize.proxirr`, bit a bit com o proxirr do R; o Ferrier fica com o compilador, pois precisa
-  do problema), o compilador do prioritizr (MILP), prioriactions, o planejamento do
+  do problema), o compilador do prioritizr (MILP; D1 feito:
+  `prioritize.optimize` com unidades de raster, os objetivos sem termos espaciais, os alvos, pesos, decisões e
+  travas; os modelos bit a bit com o compile() do prioritizr nos 20 casos de raster, e o ótimo do Gurobi alcançado
+  pelo HiGHS; faltam as penalidades e restrições espaciais, as zonas, a filogenia, o risco de extinção, os
+  portfólios, a importância de Ferrier e por substituição, e as unidades de tabela e de polígonos), prioriactions, o planejamento do
   plangea.
 - **Próximos:** MSPA por tiles para rasters maiores que a memória; mapa de fundo de satélite (GDAL XYZ/WMS);
   vetores (OGR) para rasterizar e medir distâncias; instaladores com o GDAL; os outros kernels C++ já prontos (reclassificação, zonal, distância, métricas de paisagem,

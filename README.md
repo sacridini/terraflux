@@ -97,7 +97,8 @@ model file dropped on it or opened with it; started that way on Windows, it show
   metric per patch or class.
 - **Spatial prioritization:** Zonation 5's ranking (`prioritize.zonation`), the same rank maps as the z5 binary;
   Marxan 4's reserves (`prioritize.marxan`), the same runs as Marxan; ProxIRR's irreplaceability
-  (`prioritize.proxirr`), R's proxirr's bits.
+  (`prioritize.proxirr`), R's proxirr's bits; prioritizr's integer programs (`prioritize.optimize`: min set, min
+  shortfall, max utility, max features and more), prioritizr's models bit for bit, solved by HiGHS.
 - **Restoration planning (plangea):** ecological intactness of a human footprint and its gradient as cells are
   restored, the original vegetation of converted land, the area of habitat of species; plangea's bits.
 - **Rasters of any size:** opening a raster reads its header only; the viewer reads the tiles in view at the
