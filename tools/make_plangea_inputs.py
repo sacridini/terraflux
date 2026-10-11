@@ -72,6 +72,7 @@ def main() -> None:
         "scen_cases": pc.SCEN_CASES,
         "esys_cases": pc.ESYS_CASES,
         "scen_cd_cases": pc.SCEN_CD_CASES,
+        "tradeoff_cases": pc.TRADEOFF_CASES,
     }
     out = ROOT / "tests" / "data" / "reference"
     np.savez_compressed(out / "plangea_inputs.npz", **{k: np.ascontiguousarray(v, dtype=np.float64)

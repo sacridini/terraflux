@@ -576,3 +576,96 @@ fn conversion_and_conservation_steps_are_plangeas() {
         }
     }
 }
+
+/// scen's gradient steps (the landscape target in levels, each in refresh steps, the habitat refreshed from the
+/// whole plan so far): the plan of every level (units tied in every linear program, the same gains and area,
+/// compared by their sums); the gradient counts the levels that act on a unit. And the exact trade-off: nested
+/// plans contain the previous ones, the frontier's are each the optimum.
+#[test]
+fn tradeoff_steps_is_plangeas() {
+    let d = data();
+    let (_, p0) = plan_inputs(&d);
+    // the units' keys: their gains and area (ties)
+    let g = &p0.risks[0].gain;
+    let mut cols: Vec<Vec<u64>> = vec![Vec::new(); p0.n()];
+    for s in 0..g.nrow {
+        let (idx, v) = g.row(s);
+        for (&j, &x) in idx.iter().zip(v) {
+            cols[j].push(s as u64);
+            cols[j].push(x.to_bits());
+        }
+    }
+    let mut groups: BTreeMap<(Vec<u64>, u64), Vec<usize>> = BTreeMap::new();
+    for (j, c) in cols.iter().enumerate() {
+        groups.entry((c.clone(), p0.area[j].to_bits())).or_default().push(j);
+    }
+    for (name, spec) in d.meta["tradeoff_cases"].as_object().unwrap() {
+        let mut p = p0.clone();
+        let target = d.reference[&format!("{name}/target")].data[0];
+        p.add_area_target(&[(None, target)], None, "<=", false).unwrap();
+        let k = spec["levels"].as_u64().unwrap() as usize;
+        let levels: Vec<f64> = (1..=k).map(|l| l as f64 / k as f64).collect();
+        let steps = spec["steps"].as_u64().unwrap() as usize;
+        let (plans, gradient) = p.tradeoff(&levels, &[true], false, true, steps, 1e-7, 0.0).unwrap();
+        for (l, x) in plans.iter().enumerate() {
+            let theirs = &d.reference[&format!("{name}/x_{}", l + 1)].data;
+            for cols in groups.values() {
+                let (a, b): (f64, f64) = (cols.iter().map(|&j| x[j]).sum(), cols.iter().map(|&j| theirs[j]).sum());
+                assert!((a - b).abs() <= 1e-12, "{name} level {}: {a} != {b}", l + 1);
+            }
+            let area: f64 = p.area.iter().zip(x).map(|(a, x)| a * x).sum();
+            assert!((area - levels[l] * target).abs() <= 1e-9 * target, "{name}: the area");
+        }
+        for j in 0..p.n() {
+            assert_eq!(gradient[j], plans.iter().filter(|x| x[j] > 0.0).count() as f64, "{name}: the gradient");
+        }
+        if steps == 1 {
+            let one = p.steps(1).unwrap();
+            assert!(
+                one.iter().zip(plans.last().unwrap()).all(|(a, b)| (a - b).abs() <= 1e-12),
+                "{name}: the last level"
+            );
+        }
+    }
+    // the exact trade-off: nested and the frontier
+    let mut p = p0.clone();
+    p.add_area_target(&[(None, d.reference["curve_4/target"].data[0])], None, "<=", false).unwrap();
+    let levels = [0.25, 0.5, 1.0];
+    let (nested, _) = p.tradeoff(&levels, &[true], true, true, 1, 1e-9, 0.0).unwrap();
+    let (frontier, _) = p.tradeoff(&levels, &[true], true, false, 1, 1e-9, 0.0).unwrap();
+    for l in 1..levels.len() {
+        assert!(nested[l].iter().zip(&nested[l - 1]).all(|(a, b)| *a >= b - 1e-12), "nested");
+    }
+    for (a, b) in nested.iter().zip(&frontier) {
+        assert!(p.objective(b) >= p.objective(a) - 1e-9 * p.objective(a).abs());
+    }
+}
+
+/// plangea's harmonize_sr_sparable: a plan that only restores takes the land demanded elsewhere from the
+/// restoration (every region with spared land restores its share of the net spared land); without the
+/// compensation, the regions restore what they spare.
+#[test]
+fn projected_change_is_plangeas() {
+    let d = data();
+    let (_, p0) = plan_inputs(&d);
+    let codes = &d.inputs["ecoregion_codes"].data;
+    for (name, spec) in d.meta["esys_cases"].as_object().unwrap() {
+        let change: Vec<(f64, f64)> = spec["change"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .enumerate()
+            .map(|(k, v)| ((k + 1) as f64, v.as_f64().unwrap()))
+            .collect();
+        let mut p = p0.clone();
+        p.add_projected_change(&change, codes, "<=", true, true).unwrap();
+        let want = &d.reference[&format!("{name}/sparable")].data;
+        for (t, w) in p.targets.iter().zip(want) {
+            assert!((t.rhs - w.max(0.0)).abs() <= 1e-15 * w.abs(), "{name}: {} != {w}", t.rhs);
+            assert_eq!(t.sense, "<=");
+        }
+        let mut plain = p0.clone();
+        plain.add_projected_change(&change, codes, "=", true, false).unwrap();
+        assert!(plain.targets.iter().zip(&change).all(|(t, (_, c))| t.rhs == c.max(0.0)), "{name}: plain");
+    }
+}

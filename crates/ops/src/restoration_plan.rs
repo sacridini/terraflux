@@ -76,6 +76,8 @@ pub struct Plan {
     pub cost: Option<Vec<f64>>,
     pub cost_layer: Option<Vec<f64>>,
     pub budget: Option<f64>,
+    /// per unit: the least share (none: 0), for nested trade-offs
+    pub lower: Option<Vec<f64>>,
     /// per unit: its action (0 restore, 1 conserve, 2 convert; block after block), and for conservation the
     /// natural share lost without it and the part of it lost (the threat)
     pub action: Vec<u8>,
@@ -153,6 +155,7 @@ impl Plan {
             cost: None,
             cost_layer: None,
             budget: None,
+            lower: None,
             action: vec![0; n_units],
             natural: vec![0.0; n_units],
             threat: vec![1.0; n_units],
@@ -215,6 +218,7 @@ impl Plan {
             cost: None,
             cost_layer: None,
             budget: None,
+            lower: None,
             action,
             natural,
             threat: thr,
@@ -515,11 +519,27 @@ impl Plan {
     /// cost (each layer scaled by 1 / 10^trunc(log10(max))), the layers recomputed from the plan so far between
     /// the parts.
     pub fn steps(&self, steps: usize) -> std::result::Result<Vec<f64>, String> {
+        let all = vec![true; self.targets.len()];
+        Ok(self.steps_levels(steps, &[1.0], &all)?.pop().unwrap())
+    }
+
+    /// plangea's procedure over the `levels` of a trade-off curve (shares of the `scaled` target rows, plangea's
+    /// gradient steps): the parts follow one another and the plan of every level is kept; the other rows hold for
+    /// the plan so far (every part asks for its share of what is left of the row, plangea's scen_check_sr_targets).
+    pub fn steps_levels(
+        &self,
+        steps: usize,
+        levels: &[f64],
+        scaled: &[bool],
+    ) -> std::result::Result<Vec<Vec<f64>>, String> {
         if steps < 1 {
             return Err("steps must be at least 1".into());
         }
         if self.budget.is_some() {
             return Err("the method steps takes area targets only (plangea's procedure): no budget".into());
+        }
+        if self.lower.as_ref().is_some_and(|l| l.iter().any(|v| *v != 0.0)) {
+            return Err("the method steps takes no least shares".into());
         }
         if self.targets.is_empty() {
             return Err("the method steps needs an area target".into());
@@ -538,41 +558,168 @@ impl Plan {
             }
             None => vec![1.0; n],
         };
-        for k in 0..steps {
-            let rows: Vec<Target> = self
-                .targets
-                .iter()
-                .map(|t| Target { coef: t.coef.clone(), rhs: t.rhs * 1.0 / steps as f64, sense: t.sense.clone() })
-                .collect();
-            let mut b_sum = vec![0.0; n];
-            let mut any = false;
-            for ((b, l), s) in self.risks.iter().zip(&risk_layers).zip(&sf_r) {
-                any = true;
-                for (o, v) in b_sum.iter_mut().zip(l) {
-                    *o += b.weight * s * v;
+        let (mut out, mut prev) = (Vec::new(), 0.0);
+        for (li, &level) in levels.iter().enumerate() {
+            let inc = level - prev;
+            prev = level;
+            for k in 0..steps {
+                let rows: Vec<Target> = self
+                    .targets
+                    .iter()
+                    .zip(scaled)
+                    .map(|(t, &sc)| {
+                        let rhs = if sc {
+                            t.rhs * inc / steps as f64
+                        } else {
+                            let done: f64 = t.coef.iter().zip(&cum).map(|(a, x)| a * x).sum();
+                            (t.rhs / steps as f64).min(t.rhs - done).max(0.0)
+                        };
+                        Target { coef: t.coef.clone(), rhs, sense: t.sense.clone() }
+                    })
+                    .collect();
+                let mut b_sum = vec![0.0; n];
+                let mut any = false;
+                for ((b, l), s) in self.risks.iter().zip(&risk_layers).zip(&sf_r) {
+                    any = true;
+                    for (o, v) in b_sum.iter_mut().zip(l) {
+                        *o += b.weight * s * v;
+                    }
+                }
+                for ((b, l), s) in self.linear.iter().zip(&lin_layers).zip(&sf_l) {
+                    any = true;
+                    for (o, v) in b_sum.iter_mut().zip(l.iter()) {
+                        *o += b.weight * s * v;
+                    }
+                }
+                let obj: Vec<f64> = (0..n).map(|i| if any { b_sum[i] / denom[i] } else { 1.0 / denom[i] }).collect();
+                let (x, _) = Self::lp(&rows, None, &obj, &vec![0.0; n], &ub, f64::INFINITY)
+                    .map_err(|e| format!("step {}: {e}", k + 1))?;
+                for i in 0..n {
+                    let xi = x[i].max(0.0);
+                    if xi > 0.0 {
+                        ub[i] -= xi;
+                    }
+                    cum[i] += xi;
+                }
+                if steps > 1 && !(li + 1 == levels.len() && k + 1 == steps) {
+                    risk_layers = self.risks.iter().map(|b| self.steps_layer(b, &cum)).collect();
                 }
             }
-            for ((b, l), s) in self.linear.iter().zip(&lin_layers).zip(&sf_l) {
-                any = true;
-                for (o, v) in b_sum.iter_mut().zip(l.iter()) {
-                    *o += b.weight * s * v;
-                }
-            }
-            let obj: Vec<f64> = (0..n).map(|i| if any { b_sum[i] / denom[i] } else { 1.0 / denom[i] }).collect();
-            let (x, _) = Self::lp(&rows, None, &obj, &vec![0.0; n], &ub, f64::INFINITY)
-                .map_err(|e| format!("step {}: {e}", k + 1))?;
-            for i in 0..n {
-                let xi = x[i].max(0.0);
-                if xi > 0.0 {
-                    ub[i] -= xi;
-                }
-                cum[i] += xi;
-            }
-            if steps > 1 && k + 1 < steps {
-                risk_layers = self.risks.iter().map(|b| self.steps_layer(b, &cum)).collect();
-            }
+            out.push(cum.iter().zip(&self.upper).map(|(c, u)| c.min(*u)).collect());
         }
-        Ok(cum.iter().zip(&self.upper).map(|(c, u)| c.min(*u)).collect())
+        Ok(out)
+    }
+
+    /// The plans for a growing target (plangea's gradient steps): the landscape targets (`scaled`) at every level;
+    /// exact: nested (every plan contains the previous, the best given it) or the frontier (each the optimum);
+    /// steps: plangea's procedure. With the gradient: per unit the levels whose plan acts on it (above `threshold`;
+    /// for conversion the levels plus one less that).
+    #[allow(clippy::too_many_arguments)]
+    pub fn tradeoff(
+        &self,
+        levels: &[f64],
+        scaled: &[bool],
+        exact: bool,
+        nested: bool,
+        steps: usize,
+        tol: f64,
+        threshold: f64,
+    ) -> std::result::Result<(Vec<Vec<f64>>, Vec<f64>), String> {
+        if levels.is_empty()
+            || levels.iter().any(|l| !(*l > 0.0 && *l <= 1.0))
+            || levels.windows(2).any(|w| w[1] <= w[0])
+        {
+            return Err("levels: increasing shares in (0, 1]".into());
+        }
+        if !scaled.iter().any(|s| *s) {
+            return Err("the trade-off needs a target to grow (a landscape area target)".into());
+        }
+        let plans = if exact {
+            let mut out: Vec<Vec<f64>> = Vec::new();
+            for &level in levels {
+                let mut q = self.clone();
+                for (t, &sc) in q.targets.iter_mut().zip(scaled) {
+                    if sc {
+                        t.rhs *= level;
+                    }
+                }
+                if nested && let Some(prev) = out.last() {
+                    let lb = self.lower.clone().unwrap_or_else(|| vec![0.0; self.n()]);
+                    q.lower = Some(prev.iter().zip(&lb).map(|(a, b)| a.max(*b)).collect());
+                }
+                out.push(q.exact(tol, f64::INFINITY)?.0);
+            }
+            out
+        } else {
+            self.steps_levels(steps, levels, scaled)?
+        };
+        let gradient = (0..self.n())
+            .map(|i| {
+                let count = plans.iter().filter(|x| x[i] > threshold).count() as f64;
+                if self.action[i] == 2 { levels.len() as f64 + 1.0 - count } else { count }
+            })
+            .collect();
+        Ok((plans, gradient))
+    }
+
+    /// Projected changes of natural land per region (plangea's econometric targets): positive, land spared for
+    /// restoration; negative, a demand for land to convert. A plan that restores and converts: the net change, and
+    /// with `restrict` every region acts in the projected direction only. A plan that only restores: with
+    /// `compensate` (plangea's harmonize_sr_sparable) the land demanded elsewhere is taken from the restoration.
+    /// A plan that only converts converts what the regions demand.
+    pub fn add_projected_change(
+        &mut self,
+        change: &[(f64, f64)],
+        regions: &[f64],
+        sense: &str,
+        restrict: bool,
+        compensate: bool,
+    ) -> std::result::Result<(), String> {
+        let (restore, conserve, convert) =
+            (self.action.contains(&0), self.action.contains(&1), self.action.contains(&2));
+        if conserve {
+            return Err("projected changes of natural land are for plans that restore or convert".into());
+        }
+        if change.iter().any(|(_, c)| !c.is_finite()) {
+            return Err("change: NaN or infinite".into());
+        }
+        let code_of: Vec<f64> = self.index.iter().map(|&c| regions[c]).collect();
+        let targets: Vec<(Option<f64>, f64)> = if restore && convert {
+            if restrict {
+                for &(code, c) in change {
+                    for (i, &k) in code_of.iter().enumerate() {
+                        let shut = if c > 0.0 {
+                            self.action[i] == 2
+                        } else if c < 0.0 {
+                            self.action[i] == 0
+                        } else {
+                            true
+                        };
+                        if k == code && shut {
+                            self.upper[i] = 0.0;
+                        }
+                    }
+                }
+            }
+            change.iter().map(|&(k, c)| (Some(k), c)).collect()
+        } else if restore {
+            let spared: f64 = change.iter().filter(|(_, c)| *c > 0.0).map(|(_, c)| c).sum();
+            let net = change.iter().map(|(_, c)| c).sum::<f64>().max(0.0);
+            change
+                .iter()
+                .map(|&(k, c)| {
+                    let t = if c > 0.0 {
+                        if compensate { c * if spared > 0.0 { net / spared } else { 0.0 } } else { c }
+                    } else {
+                        0.0
+                    };
+                    (Some(k), t)
+                })
+                .collect()
+        } else {
+            change.iter().map(|&(k, c)| (Some(k), if c < 0.0 { -c } else { 0.0 })).collect()
+        };
+        self.add_area_target(&targets, Some(regions), sense, false)
     }
 
     /// plangea's uniform scenario: every unit restored by the same share of what it can be, for a total `area`.
@@ -600,7 +747,7 @@ impl Plan {
             }
         }
         let rows = self.feasible_set();
-        let lb_x = vec![0.0; n];
+        let lb_x = self.lower.clone().unwrap_or_else(|| vec![0.0; n]);
         let positive = |g: &Csr| -> Vec<f64> {
             (0..g.nrow)
                 .map(|i| {
@@ -911,7 +1058,17 @@ impl Operator for PlanRestoration {
         .output(PortSpec::new(
             "summary",
             Type::Table,
-            "the weighted benefit, the area (km²), the cost, the bound (exact), optimal (1), the rounds, the              extinction risk's reduction and its standard deviation",
+            "the weighted benefit, the area (km²), the cost, the bound (exact), optimal (1), the rounds, the extinction risk's reduction and its standard deviation",
+        ))
+        .output(PortSpec::optional(
+            "tradeoff",
+            Type::Table,
+            "with levels: per level its share, the landscape target, the area and the weighted benefit",
+        ))
+        .output(PortSpec::optional(
+            "gradient",
+            Type::Map,
+            "with levels: the levels whose plan acts on the cell (conversion: the levels plus one less that)",
         ))
         .output(PortSpec::new(
             "benefits",
@@ -921,9 +1078,24 @@ impl Operator for PlanRestoration {
         .output(PortSpec::new(
             "species",
             Type::Table,
-            "per species counted (its row in the area of habitat's table): the habitat gained, the risk without              and with the plan, the reduction",
+            "per species counted (its row in the area of habitat's table): the habitat gained, the risk without and with the plan, the reduction",
         ))
         .param(PortSpec::optional("method", Type::Text, "exact (default), steps or uniform"))
+        .param(PortSpec::optional(
+            "levels",
+            Type::Any,
+            "a trade-off curve: the landscape target's shares at every level (increasing, in (0, 1])",
+        ))
+        .param(PortSpec::optional("nested", Type::Bool, "exact trade-offs: every level contains the previous (true)"))
+        .param(PortSpec::optional("threshold", Type::Number, "the gradient: a cell counts when its share is above (0)"))
+        .param(PortSpec::optional(
+            "projected_change",
+            Type::Any,
+            "projected changes of natural land per region ({code: km²}; + spared for restoration, - demanded)",
+        ))
+        .param(PortSpec::optional("change_sense", Type::Text, "the projected changes' rows (= default)"))
+        .param(PortSpec::optional("restrict", Type::Bool, "restore and convert: every region in its direction only (true)"))
+        .param(PortSpec::optional("compensate", Type::Bool, "restore only: the land demanded elsewhere taken from it (true)"))
         .param(PortSpec::optional("steps", Type::Integer, "steps: the parts of the target (default 1)"))
         .param(PortSpec::optional(
             "target",
@@ -1071,8 +1243,50 @@ impl Operator for PlanRestoration {
             let cost = args.map("cost")?;
             p.add_budget(b, &cost.data).map_err(err)?;
         }
+        // the landscape's targets grow along a trade-off curve; the regions' hold
+        let landscape: Vec<bool> =
+            p.targets.iter().map(|t| t.coef.iter().zip(&p.area).all(|(c, a)| c.abs() == *a)).collect();
+        if let Some(serde_json::Value::Object(m)) = args.params.get("projected_change") {
+            let regions = args.map("regions")?;
+            let mut change = Vec::new();
+            for (k, v) in m {
+                let code: f64 = k.parse().map_err(|_| err(format!("projected_change: region {k:?} is no number")))?;
+                change.push((code, v.as_f64().ok_or_else(|| err("projected_change: changes are numbers".into()))?));
+            }
+            let sense: String = args.param("change_sense", "=".to_string())?;
+            p.add_projected_change(
+                &change,
+                &regions.data,
+                &sense,
+                args.param("restrict", true)?,
+                args.param("compensate", true)?,
+            )
+            .map_err(err)?;
+        }
+        let scaled: Vec<bool> =
+            landscape.iter().copied().chain(std::iter::repeat(false)).take(p.targets.len()).collect();
         let method: String = args.param("method", "exact".to_string())?;
+        let levels: Option<Vec<f64>> = args.opt_param("levels")?;
+        let mut curve = None;
+        if let Some(levels) = &levels {
+            let (plans, gradient) = p
+                .tradeoff(
+                    levels,
+                    &scaled,
+                    method != "steps",
+                    args.param("nested", true)?,
+                    args.param("steps", 1)?,
+                    args.param("tolerance", 1e-7)?,
+                    args.param("threshold", 0.0)?,
+                )
+                .map_err(err)?;
+            curve = Some((plans, gradient));
+        }
         let (x, bound, status, rounds) = match method.as_str() {
+            _ if curve.is_some() => {
+                let x = curve.as_ref().unwrap().0.last().unwrap().clone();
+                (x, f64::NAN, "tradeoff".into(), levels.as_ref().unwrap().len())
+            }
             "exact" => p
                 .exact(args.param("tolerance", 1e-7)?, args.opt_param("time_limit")?.unwrap_or(f64::INFINITY))
                 .map_err(err)?,
@@ -1150,6 +1364,24 @@ impl Operator for PlanRestoration {
             if let Some(m) = m {
                 out.insert(name.to_string(), Value::Map(Map::new(grid.clone(), m)));
             }
+        }
+        if let (Some((plans, gradient)), Some(levels)) = (curve, levels) {
+            let land = p.targets.iter().zip(&scaled).find(|(_, s)| **s).map(|(t, _)| t.rhs);
+            let mut t = Table::new(["level", "target", "area", "benefit"].map(String::from).to_vec());
+            t.rows = levels
+                .iter()
+                .zip(&plans)
+                .map(|(l, x)| {
+                    let area: f64 = p.area.iter().zip(x).map(|(a, x)| a * x).sum();
+                    vec![*l, land.map_or(f64::NAN, |r| r * l), area, p.objective(x)]
+                })
+                .collect();
+            let mut g = vec![f64::NAN; ncell];
+            for (i, &c) in p.index.iter().enumerate() {
+                g[c] = gradient[i];
+            }
+            out.insert("tradeoff".into(), Value::Table(t));
+            out.insert("gradient".into(), Value::Map(Map::new(grid.clone(), g)));
         }
         Ok(out)
     }

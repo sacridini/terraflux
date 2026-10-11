@@ -93,6 +93,10 @@ minor versions.
   unit of natural land: `sdm.area_of_habitat`'s new `loss`); the area targets of the net change with
   restoration and conversion; the maps conserved and converted. plangea's units, layers and plans of its steps
   on the 4 cases landschaft keeps, and their exact plans.
+- Trade-off curves in `restoration.plan` (`levels`: the landscape target growing; plangea's gradient steps, or
+  exact plans nested or on the frontier) with the gradient (the levels acting on every cell), and projected
+  changes of natural land per region (`projected_change`; plangea's econometric targets, compensated as
+  harmonize_sr_sparable). plangea's plans and spared land on the cases landschaft keeps.
 - prioritizr's evaluation of a solution (`prioritize.evaluate`): the units selected, their cost and boundary, the
   features' representation, the targets' coverage, Ferrier et al.'s irreplaceability and the rarity-weighted
   richness; prioritizr's numbers bit for bit on the cases landschaft keeps; and on request the replacement
