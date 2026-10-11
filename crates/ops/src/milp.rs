@@ -5,6 +5,8 @@
 //! Layout (one zone): the columns are the planning units, then the columns the objective adds; the rows are the
 //! targets (the amounts of their feature in the units), then the rows the objective adds.
 
+use std::collections::BTreeMap;
+
 use terraflux_ls_sys::ffi;
 
 /// The planning units: cells of a raster with a cost, and the features' amounts in them.
@@ -414,6 +416,19 @@ pub struct Model {
     pub maximize: bool,
     pub row_ids: Vec<String>,
     pub col_ids: Vec<String>,
+    /// The node sets that must form one patch (contiguity): the solve separates cuts on them.
+    pub connected: Vec<Connected>,
+}
+
+/// One set of node columns that must form one patch, as compiled by `add_connected`: the first columns of its
+/// roots, arcs (both directions of every edge) and flows, and the arcs' tail and head (positions in `nodes`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Connected {
+    pub nodes: Vec<usize>,
+    pub root: usize,
+    pub arc: usize,
+    pub tail: Vec<usize>,
+    pub head: Vec<usize>,
 }
 
 /// The model being compiled: triplets and vectors that penalties and constraints extend.
@@ -433,6 +448,8 @@ pub struct Builder {
     pub col_ids: Vec<String>,
     pub maximize: bool,
     pub n: usize,
+    pub n_features: usize,
+    pub connected: Vec<Connected>,
 }
 
 impl Builder {
@@ -465,6 +482,7 @@ impl Builder {
             maximize: self.maximize,
             row_ids: self.row_ids,
             col_ids: self.col_ids,
+            connected: self.connected,
         }
     }
 }
@@ -505,11 +523,12 @@ pub fn compile(p: &Problem) -> Result<(Model, Targets), String> {
         cols.extend_from_slice(idx);
         vals.extend_from_slice(v);
     }
+    let target_entries = vals.len();
     let mut obj = vec![0.0; n];
     let mut col_ids = vec!["pu".to_string(); n];
-    let row_ids: Vec<String>;
-    let sense: Vec<String>;
-    let rhs: Vec<f64>;
+    let mut row_ids: Vec<String>;
+    let mut sense: Vec<String>;
+    let mut rhs: Vec<f64>;
     let budget = kind.budget();
     let (mut nrow_extra, mut ncol_extra, mut weight_cols) = (0usize, 0usize, None);
     let bud_sense = || if budget.is_some() { vec!["<=".to_string()] } else { Vec::new() };
@@ -628,8 +647,8 @@ pub fn compile(p: &Problem) -> Result<(Model, Targets), String> {
             nrow_extra = 1;
         }
     }
-    let nrow = nt + nrow_extra;
-    let ncol = n + ncol_extra;
+    let mut nrow = nt + nrow_extra;
+    let mut ncol = n + ncol_extra;
     if let Some(w) = &p.weights
         && !kind.no_weights()
     {
@@ -647,6 +666,43 @@ pub fn compile(p: &Problem) -> Result<(Model, Targets), String> {
         let at = weight_cols.unwrap_or(0);
         obj[at..at + w.len()].copy_from_slice(&w);
     }
+    if p.spatial.iter().any(|s| matches!(s, Spatial::FeatureContiguity { .. })) {
+        // the expanded formulation (rcpp_add_rij_data without compression): a column per feature and unit
+        // (y_fj <= x_j, feature-major) after the units, nf x n rows y_fj - x_j <= 0 first, and the targets on the
+        // y columns; the objective's rows and columns move after them
+        if u.rij.value.iter().any(|&v| v < 0.0) {
+            return Err("the expanded formulation (feature contiguity) needs non-negative feature data".into());
+        }
+        let ny = nf * n;
+        for e in 0..cols.len() {
+            if e < target_entries {
+                cols[e] += n + t.feature[rows[e]] * n;
+            } else if cols[e] >= n {
+                cols[e] += ny;
+            }
+            rows[e] += ny;
+        }
+        let (mut lr, mut lc, mut lv) = (Vec::with_capacity(2 * ny), Vec::with_capacity(2 * ny), Vec::new());
+        for r in 0..ny {
+            lr.extend([r, r]);
+            lc.extend([r % n, n + r]);
+            lv.extend([-1.0, 1.0]);
+        }
+        rows = [lr, rows].concat();
+        cols = [lc, cols].concat();
+        vals = [lv, vals].concat();
+        let expand = |v: &[f64], y: &[f64]| [&v[..n], y, &v[n..]].concat();
+        obj = expand(&obj, &vec![0.0; ny]);
+        lb = expand(&lb, &lb[..n].repeat(nf));
+        ub = expand(&ub, &ub[..n].repeat(nf));
+        vtype = [&vtype[..n], &vtype[..n].repeat(nf), &vtype[n..]].concat();
+        col_ids = [&col_ids[..n], &vec!["pu_ijz".to_string(); ny], &col_ids[n..]].concat();
+        row_ids = [vec!["pu_ijz".to_string(); ny], row_ids].concat();
+        sense = [vec!["<=".to_string(); ny], sense].concat();
+        rhs = [vec![0.0; ny], rhs].concat();
+        nrow += ny;
+        ncol += ny;
+    }
     let mut b = Builder {
         nrow,
         ncol,
@@ -663,6 +719,8 @@ pub fn compile(p: &Problem) -> Result<(Model, Targets), String> {
         col_ids,
         maximize: kind.name().starts_with("max"),
         n,
+        n_features: nf,
+        connected: Vec::new(),
     };
     for sp in p.spatial.iter().filter(|s| s.is_penalty()) {
         apply_spatial(&mut b, u, sp)?;
@@ -710,6 +768,34 @@ pub fn method(m: &Model, n_units: usize) -> &'static str {
 
 /// A model solved: its status, the solution, its objective and gap.
 pub fn solve(m: &Model, n_units: usize, gap: f64, time_limit: f64) -> Result<ffi::SolveOut, String> {
+    solve_from(m, n_units, gap, time_limit, &[])
+}
+
+/// A model solved from a solution (empty: none): HiGHS behind landschaft's engines, or with contiguity a first
+/// patch, cuts, then the MIP (`solve_connected`).
+pub fn solve_from(
+    m: &Model,
+    n_units: usize,
+    gap: f64,
+    time_limit: f64,
+    start: &[f64],
+) -> Result<ffi::SolveOut, String> {
+    if m.connected.is_empty() {
+        highs(m, n_units, gap, time_limit, false, start)
+    } else {
+        solve_connected(m, n_units, gap, time_limit, start)
+    }
+}
+
+/// HiGHS behind landschaft's covering and wide engines (the relaxation: the LP).
+fn highs(
+    m: &Model,
+    n_units: usize,
+    gap: f64,
+    time_limit: f64,
+    relaxation: bool,
+    start: &[f64],
+) -> Result<ffi::SolveOut, String> {
     let (lo, hi) = row_bounds(m);
     let model = ffi::MilpModel {
         start: m.a.start.iter().map(|&s| s as i64).collect(),
@@ -724,9 +810,306 @@ pub fn solve(m: &Model, n_units: usize, gap: f64, time_limit: f64) -> Result<ffi
         maximize: m.maximize,
         offset: 0.0,
     };
-    let settings =
-        ffi::SolveSettings { gap, time_limit, presolve: "choose".into(), relaxation: false, start: Vec::new() };
+    let settings = ffi::SolveSettings { gap, time_limit, presolve: "choose".into(), relaxation, start: start.to_vec() };
     ffi::opt_solve(&model, &settings, method(m, n_units), n_units as i64).map_err(|e| e.what().to_string())
+}
+
+const FLOW_SCALE: f64 = 1.0e7; // integer capacities, as landschaft's (scipy's maximum_flow)
+const MAX_CANDIDATES: usize = 200; // nodes tried per set and round
+const MIN_RISE: f64 = 1.0e-3; // rounds stop when the bound rises less than this (relative) three times running
+const FIRST_PATCH_SECONDS: f64 = 120.0; // the first patch's time without a time limit (the exact MIP goes on)
+
+/// Upper bounds with the arcs from a lower node to a higher one fixed at 0 (prioritizr's restriction).
+pub fn restricted_bounds(m: &Model) -> Vec<f64> {
+    let mut ub = m.ub.clone();
+    for c in &m.connected {
+        for (a, (&t, &h)) in c.tail.iter().zip(&c.head).enumerate() {
+            if t < h {
+                ub[c.arc + a] = 0.0;
+            }
+        }
+    }
+    ub
+}
+
+/// A flow network with integer capacities (Dinic's maximum flow).
+#[derive(Clone)]
+struct Network {
+    adj: Vec<Vec<usize>>,
+    to: Vec<usize>,
+    cap: Vec<i64>,
+}
+
+impl Network {
+    fn new(n: usize) -> Network {
+        Network { adj: vec![Vec::new(); n], to: Vec::new(), cap: Vec::new() }
+    }
+
+    /// An arc a -> b (its reverse the next edge).
+    fn add(&mut self, a: usize, b: usize, cap: i64) {
+        self.adj[a].push(self.to.len());
+        self.to.push(b);
+        self.cap.push(cap);
+        self.adj[b].push(self.to.len());
+        self.to.push(a);
+        self.cap.push(0);
+    }
+
+    /// The maximum flow from s to t; the capacities left are the residual network's.
+    fn max_flow(&mut self, s: usize, t: usize) -> i64 {
+        let n = self.adj.len();
+        let mut total = 0;
+        loop {
+            let mut level = vec![usize::MAX; n];
+            level[s] = 0;
+            let mut queue = std::collections::VecDeque::from([s]);
+            while let Some(v) = queue.pop_front() {
+                for &e in &self.adj[v] {
+                    if self.cap[e] > 0 && level[self.to[e]] == usize::MAX {
+                        level[self.to[e]] = level[v] + 1;
+                        queue.push_back(self.to[e]);
+                    }
+                }
+            }
+            if level[t] == usize::MAX {
+                return total;
+            }
+            let mut it = vec![0usize; n];
+            loop {
+                // a path of the level graph, depth first
+                let mut path: Vec<usize> = Vec::new();
+                let mut v = s;
+                let pushed = loop {
+                    if v == t {
+                        break path.iter().map(|&e| self.cap[e]).min().unwrap_or(0);
+                    }
+                    let mut advanced = false;
+                    while it[v] < self.adj[v].len() {
+                        let e = self.adj[v][it[v]];
+                        let w = self.to[e];
+                        if self.cap[e] > 0 && level[w] == level[v] + 1 {
+                            path.push(e);
+                            v = w;
+                            advanced = true;
+                            break;
+                        }
+                        it[v] += 1;
+                    }
+                    if !advanced {
+                        if v == s {
+                            break 0;
+                        }
+                        level[v] = usize::MAX; // a dead end
+                        let e = path.pop().unwrap();
+                        v = self.to[e ^ 1];
+                        it[v] += 1;
+                    }
+                };
+                if pushed == 0 {
+                    break;
+                }
+                for &e in &path {
+                    self.cap[e] -= pushed;
+                    self.cap[e ^ 1] += pushed;
+                }
+                total += pushed;
+            }
+        }
+    }
+
+    /// The nodes from which t is reached in the residual network.
+    fn reaching(&self, t: usize) -> Vec<bool> {
+        let mut seen = vec![false; self.adj.len()];
+        seen[t] = true;
+        let mut stack = vec![t];
+        while let Some(v) = stack.pop() {
+            for &e in &self.adj[v] {
+                // e ^ 1 runs from to[e] to v
+                let u = self.to[e];
+                if !seen[u] && self.cap[e ^ 1] > 0 {
+                    seen[u] = true;
+                    stack.push(u);
+                }
+            }
+        }
+        seen
+    }
+}
+
+/// A cut row: its columns, values and right-hand side (>=).
+type Cut = (Vec<usize>, Vec<f64>, f64);
+
+/// Violated directed cuts of a fractional solution z: r(W) + y(in(W)) - x_k >= 0 for the sets W of nodes holding
+/// node k that the flow from a super root (arcs to every node, capacity r*; the arcs, capacity y*) cannot cross
+/// with x_k.
+fn directed_cuts(m: &Model, z: &[f64]) -> Vec<Cut> {
+    let scaled = |c: f64| ((c * FLOW_SCALE).round_ties_even().max(1.0)) as i64;
+    let mut out = Vec::new();
+    for c in &m.connected {
+        let n = c.nodes.len();
+        let xv: Vec<f64> = c.nodes.iter().map(|&j| z[j]).collect();
+        let mut g = Network::new(n + 1);
+        for a in 0..c.tail.len() {
+            if z[c.arc + a] > 1.0e-9 {
+                g.add(c.tail[a], c.head[a], scaled(z[c.arc + a]));
+            }
+        }
+        for k in 0..n {
+            if z[c.root + k] > 1.0e-9 {
+                g.add(n, k, scaled(z[c.root + k]));
+            }
+        }
+        let mut order: Vec<usize> = (0..n).collect();
+        order.sort_by(|&a, &b| xv[b].total_cmp(&xv[a]));
+        let mut seen = std::collections::HashSet::new();
+        for &k in order.iter().take(MAX_CANDIDATES) {
+            if xv[k] < 0.05 {
+                break;
+            }
+            let mut f = g.clone();
+            if f.max_flow(n, k) as f64 / FLOW_SCALE >= xv[k] - 1.0e-4 {
+                continue;
+            }
+            let mut inside = f.reaching(k);
+            inside[n] = false;
+            let w: Vec<usize> = (0..n).filter(|&v| inside[v]).collect();
+            if !seen.insert(w.clone()) {
+                continue;
+            }
+            let arcs: Vec<usize> = (0..c.tail.len()).filter(|&a| inside[c.head[a]] && !inside[c.tail[a]]).collect();
+            let mut cols: Vec<usize> = arcs.iter().map(|a| c.arc + a).collect();
+            cols.extend(w.iter().map(|v| c.root + v));
+            cols.push(c.nodes[k]);
+            let mut vals = vec![1.0; arcs.len() + w.len()];
+            vals.push(-1.0);
+            out.push((cols, vals, 0.0));
+        }
+    }
+    out
+}
+
+/// Contiguity on HiGHS (landschaft's solve_connected), in three steps:
+///
+/// 1. a first patch: the model with every arc running from a higher node to a lower one only (prioritizr's
+///    formulation, a restriction), solved to the gap asked (at least 1 %) within 30 % of the time (two minutes
+///    without a time limit);
+/// 2. the bound: the linear relaxation of the exact model with directed cuts (`directed_cuts`), in rounds while
+///    the bound rises;
+/// 3. HiGHS's MIP on the exact model with those cuts, from the first patch.
+///
+/// The cuts are valid for every patch, so the bound proves the gap of the best patch found against the best
+/// patch there is.
+fn solve_connected(
+    m: &Model,
+    n_units: usize,
+    gap: f64,
+    time_limit: f64,
+    start: &[f64],
+) -> Result<ffi::SolveOut, String> {
+    let t0 = std::time::Instant::now();
+    let sign = if m.maximize { -1.0 } else { 1.0 };
+    let left = || time_limit - t0.elapsed().as_secs_f64();
+    let better = |a: f64, b: f64| if m.maximize { a > b } else { a < b };
+    let tighter = |bound: f64, other: f64| {
+        if !bound.is_finite() {
+            other
+        } else if m.maximize {
+            bound.min(other)
+        } else {
+            bound.max(other)
+        }
+    };
+    let mut best_x: Option<Vec<f64>> = None;
+    let mut best = f64::INFINITY * sign;
+    if !start.is_empty() {
+        best = m.obj.iter().zip(start).map(|(a, b)| a * b).sum();
+        best_x = Some(start.to_vec());
+    }
+    // 1. a first patch from the restriction
+    let share = if time_limit.is_finite() { left() * 0.3 } else { FIRST_PATCH_SECONDS };
+    let mut restricted = m.clone();
+    restricted.ub = restricted_bounds(m);
+    let r0 = highs(&restricted, n_units, gap.max(0.01), share, false, best_x.as_deref().unwrap_or(&[]))?;
+    if r0.has_solution && (best_x.is_none() || better(r0.objective, best)) {
+        best = r0.objective;
+        best_x = Some(r0.x);
+    }
+    // 2. the bound: the exact relaxation with directed cuts
+    let mut cm = m.clone();
+    let mut bound = f64::NEG_INFINITY * sign;
+    let mut rises = 0;
+    let budget = if time_limit.is_finite() { left() * 0.4 } else { f64::INFINITY };
+    let tl0 = std::time::Instant::now();
+    let closed = |best_x: &Option<Vec<f64>>, best: f64, bound: f64| {
+        best_x.is_some() && bound.is_finite() && sign * (best - bound) <= gap * best.abs().max(1.0e-10)
+    };
+    for _ in 0..200 {
+        if tl0.elapsed().as_secs_f64() >= budget || left() <= 0.0 {
+            break;
+        }
+        let lp = highs(&cm, n_units, gap, left().max(1.0e-3), true, &[])?;
+        if lp.status != "optimal" {
+            if lp.status == "infeasible" {
+                return Ok(ffi::SolveOut {
+                    status: "infeasible".into(),
+                    has_solution: false,
+                    x: Vec::new(),
+                    objective: f64::NAN,
+                    bound: f64::NAN,
+                    gap: f64::NAN,
+                });
+            }
+            break;
+        }
+        let rise = if bound.is_finite() { sign * (lp.objective - bound) } else { f64::INFINITY };
+        bound = tighter(bound, lp.objective);
+        if closed(&best_x, best, bound) {
+            break;
+        }
+        let new = directed_cuts(m, &lp.x);
+        if new.is_empty() {
+            break;
+        }
+        for (c, v, h) in &new {
+            cm.push_row(c, v, ">=", *h, "cut");
+        }
+        rises = if rise < MIN_RISE * bound.abs().max(1.0) { rises + 1 } else { 0 };
+        if rises >= 3 {
+            break;
+        }
+    }
+    let mut out = ffi::SolveOut {
+        status: String::new(),
+        has_solution: best_x.is_some(),
+        objective: if best_x.is_some() { best } else { f64::NAN },
+        x: best_x.clone().unwrap_or_default(),
+        bound,
+        gap: f64::NAN,
+    };
+    // 3. the exact MIP with the cuts, from the first patch
+    let mut infeasible = false;
+    if !closed(&best_x, best, bound) && left() > 0.0 {
+        let r = highs(&cm, n_units, gap, left(), false, best_x.as_deref().unwrap_or(&[]))?;
+        if r.has_solution && (best_x.is_none() || better(r.objective, best)) {
+            out.has_solution = true;
+            out.objective = r.objective;
+            out.x = r.x;
+        }
+        if r.bound.is_finite() {
+            out.bound = tighter(bound, r.bound);
+        }
+        infeasible = r.status == "infeasible" && !out.has_solution;
+    }
+    if infeasible {
+        out.status = "infeasible".into();
+    } else {
+        if out.has_solution && out.bound.is_finite() {
+            let g = sign * (out.objective - out.bound);
+            out.gap = if g <= 0.0 { 0.0 } else { g / out.objective.abs().max(1.0e-10) };
+        }
+        out.status = if out.has_solution && out.gap <= gap { "optimal" } else { "time_limit" }.into();
+    }
+    Ok(out)
 }
 
 /// prioritizr's portfolios: several solutions of a problem (add_*_portfolio).
@@ -749,6 +1132,13 @@ impl Model {
     /// The model with a row more.
     fn with_row(&self, idx: &[usize], val: &[f64], sense: &str, rhs: f64, id: &str) -> Model {
         let mut m = self.clone();
+        m.push_row(idx, val, sense, rhs, id);
+        m
+    }
+
+    /// A row more.
+    fn push_row(&mut self, idx: &[usize], val: &[f64], sense: &str, rhs: f64, id: &str) {
+        let m = self;
         let mut row: Vec<(usize, f64)> = idx.iter().copied().zip(val.iter().copied()).filter(|e| e.1 != 0.0).collect();
         row.sort_by_key(|e| e.0);
         m.a.index.extend(row.iter().map(|e| e.0));
@@ -758,7 +1148,6 @@ impl Model {
         m.sense.push(sense.into());
         m.rhs.push(rhs);
         m.row_ids.push(id.into());
-        m
     }
 
     /// The model with its columns in the order perm (column k of the new model is column perm[k]).
@@ -786,6 +1175,8 @@ impl Model {
             maximize: self.maximize,
             row_ids: self.row_ids.clone(),
             col_ids: perm.iter().map(|&j| self.col_ids[j].clone()).collect(),
+            // the plain MIP of the exact model (no cuts on the columns moved)
+            connected: Vec::new(),
         }
     }
 }
@@ -897,6 +1288,11 @@ pub enum Spatial {
     LinearConstraint { threshold: f64, sense: String, data: Vec<f64> },
     /// add_neighbors_constraints(k, clamp, data): the raster's 4-adjacency, or a matrix of every unit
     Neighbors { k: f64, clamp: bool, data: Option<Matrix> },
+    /// add_contiguity_constraints(data): the selected units form one patch (landschaft's exact formulation, not
+    /// prioritizr's restriction); the raster's 4-adjacency or a matrix of every unit
+    Contiguity { data: Option<Matrix> },
+    /// add_feature_contiguity_constraints(data): every feature's units (where it counts) form one patch
+    FeatureContiguity { data: Option<Matrix> },
 }
 
 impl Spatial {
@@ -1158,6 +1554,121 @@ impl Builder {
     }
 }
 
+/// The units' adjacency: the raster's (4 directions) or a matrix of every unit.
+fn adjacency(u: &Units, data: Option<&Matrix>) -> Result<Csc, String> {
+    match data {
+        None if u.raster => Ok(u.adjacency_matrix()),
+        None => Err("constraints on neighbouring units of tables need data: an adjacency matrix".into()),
+        Some(m) => m.units(u, "adjacency data"),
+    }
+}
+
+/// The edges (i < j, in order) of an adjacency matrix (either triangle; values > 1e-15).
+fn edges(d: &Csc) -> (Vec<usize>, Vec<usize>) {
+    let mut sum: BTreeMap<(usize, usize), f64> = BTreeMap::new();
+    for j in 0..d.n {
+        for e in d.start[j]..d.start[j + 1] {
+            let i = d.index[e];
+            if i != j {
+                *sum.entry((i.min(j), i.max(j))).or_insert(0.0) += d.value[e];
+            }
+        }
+    }
+    sum.into_iter().filter(|(_, v)| *v > 1.0e-15).map(|(k, _)| k).unzip()
+}
+
+/// The selected `nodes` columns form one patch (or none is selected), exactly: a spanning arborescence of the
+/// selected nodes with a flow that rules out cycles. Columns: one root per node (at most one root), one arc per
+/// direction of every edge (a selected node has exactly one incoming arc unless it is the root; an arc leaves a
+/// selected node; not both directions), and a flow per arc (at most n - 1 where the arc is used; every non-root
+/// selected node keeps at least 1).
+///
+/// prioritizr's formulation (one arc per edge, from the higher index to the lower) is a restriction: it misses the
+/// patches in which a unit has no selected neighbour of a higher index (three units in a line, the middle one
+/// first, have no feasible patch), so its optimum can be worse than the best patch, or a feasible problem
+/// infeasible.
+fn add_connected(b: &mut Builder, nodes: &[usize], d: &Csc, tag: &str) {
+    let n = nodes.len();
+    let (i, j) = edges(d);
+    let tail: Vec<usize> = i.iter().chain(&j).copied().collect();
+    let head: Vec<usize> = j.iter().chain(&i).copied().collect();
+    let (na, ne) = (tail.len(), i.len());
+    let vt = if n > 0 { b.vtype[nodes[0]] } else { 'B' };
+    let root = b.add_columns(&vec![0.0; n], 0.0, 1.0, vt, &format!("{tag}_root"));
+    let arc = b.add_columns(&vec![0.0; na], 0.0, 1.0, vt, &format!("{tag}_arc"));
+    let flow = b.add_columns(&vec![0.0; na], 0.0, (n as f64 - 1.0).max(0.0), 'C', &format!("{tag}_flow"));
+    let (mut r, mut c, mut v, mut sense, mut rhs, mut ids) = (vec![], vec![], vec![], vec![], vec![], vec![]);
+    let mut nrow = 0;
+    let mut block = |rr: Vec<usize>, cc: Vec<usize>, vv: Vec<f64>, s: &str, h: f64, k: usize, rid: &str| {
+        r.extend(rr.into_iter().map(|x| x + nrow));
+        c.extend(cc);
+        v.extend(vv);
+        sense.extend(std::iter::repeat_n(s.to_string(), k));
+        rhs.extend(std::iter::repeat_n(h, k));
+        ids.extend(std::iter::repeat_n(format!("{tag}_{rid}"), k));
+        nrow += k;
+    };
+    let (ar, aa) = (0..n, 0..na);
+    block(vec![0; n], ar.clone().map(|k| root + k).collect(), vec![1.0; n], "<=", 1.0, 1, "root");
+    // incoming arcs + root - node = 0
+    block(
+        head.iter().copied().chain(ar.clone()).chain(ar.clone()).collect(),
+        aa.clone().map(|a| arc + a).chain(ar.clone().map(|k| root + k)).chain(nodes.iter().copied()).collect(),
+        [vec![1.0; na], vec![1.0; n], vec![-1.0; n]].concat(),
+        "=",
+        0.0,
+        n,
+        "in",
+    );
+    // arc - tail <= 0
+    block(
+        aa.clone().flat_map(|a| [a, a]).collect(),
+        aa.clone().flat_map(|a| [arc + a, nodes[tail[a]]]).collect(),
+        aa.clone().flat_map(|_| [1.0, -1.0]).collect(),
+        "<=",
+        0.0,
+        na,
+        "tail",
+    );
+    // both directions <= 1
+    block(
+        aa.clone().map(|a| a % ne.max(1)).collect(),
+        aa.clone().map(|a| arc + a).collect(),
+        vec![1.0; na],
+        "<=",
+        1.0,
+        ne,
+        "pair",
+    );
+    // flow - (n - 1) arc <= 0
+    block(
+        aa.clone().flat_map(|a| [a, a]).collect(),
+        aa.clone().flat_map(|a| [flow + a, arc + a]).collect(),
+        aa.clone().flat_map(|_| [1.0, -(n as f64 - 1.0)]).collect(),
+        "<=",
+        0.0,
+        na,
+        "cap",
+    );
+    // flow in - flow out - node + n root >= 0
+    block(
+        head.iter().chain(&tail).copied().chain(ar.clone()).chain(ar.clone()).collect(),
+        aa.clone()
+            .map(|a| flow + a)
+            .chain(aa.clone().map(|a| flow + a))
+            .chain(nodes.iter().copied())
+            .chain(ar.map(|k| root + k))
+            .collect(),
+        [vec![1.0; na], vec![-1.0; na], vec![-1.0; n], vec![n as f64; n]].concat(),
+        ">=",
+        0.0,
+        n,
+        "flow",
+    );
+    b.add_rows(&r, &c, &v, &sense, &rhs, &ids);
+    b.connected.push(Connected { nodes: nodes.to_vec(), root, arc, tail, head });
+}
+
 /// A spatial penalty or constraint applied to the model being compiled.
 fn apply_spatial(b: &mut Builder, u: &Units, s: &Spatial) -> Result<(), String> {
     let n = b.n;
@@ -1285,14 +1796,18 @@ fn apply_spatial(b: &mut Builder, u: &Units, s: &Spatial) -> Result<(), String> 
             }
             b.add_rows(&vec![0; c.len()], &c, &v, std::slice::from_ref(sense), &[*threshold], &["lc".to_string()]);
         }
+        Spatial::Contiguity { data } => {
+            let d = adjacency(u, data.as_ref())?;
+            add_connected(b, &(0..n).collect::<Vec<_>>(), &d, "c");
+        }
+        Spatial::FeatureContiguity { data } => {
+            let d = adjacency(u, data.as_ref())?;
+            for f in 0..b.n_features {
+                add_connected(b, &(n + f * n..n + (f + 1) * n).collect::<Vec<_>>(), &d, &format!("fc{}", f + 1));
+            }
+        }
         Spatial::Neighbors { k, clamp, data } => {
-            let d = match data {
-                None if u.raster => u.adjacency_matrix(),
-                None => {
-                    return Err("constraints on neighbouring units of tables need data: an adjacency matrix".into());
-                }
-                Some(m) => m.units(u, "adjacency data")?,
-            };
+            let d = adjacency(u, data.as_ref())?;
             let mut kk = vec![*k; n];
             if *clamp {
                 for (k, rs) in kk.iter_mut().zip(d.row_sums()) {
@@ -1555,28 +2070,7 @@ pub fn solve_bounded(
     let mut b = m.clone();
     b.lb = lb.to_vec();
     b.ub = ub.to_vec();
-    let (lo, hi) = row_bounds(&b);
-    let model = ffi::MilpModel {
-        start: b.a.start.iter().map(|&s| s as i64).collect(),
-        index: b.a.index.iter().map(|&s| s as i64).collect(),
-        value: b.a.value.clone(),
-        obj: b.obj.clone(),
-        lb: b.lb.clone(),
-        ub: b.ub.clone(),
-        row_lo: lo,
-        row_hi: hi,
-        integer: b.vtype.iter().map(|&t| u8::from(t == 'B' || t == 'I')).collect(),
-        maximize: b.maximize,
-        offset: 0.0,
-    };
-    let settings = ffi::SolveSettings {
-        gap,
-        time_limit: f64::INFINITY,
-        presolve: "choose".into(),
-        relaxation: false,
-        start: start.to_vec(),
-    };
-    ffi::opt_solve(&model, &settings, method(&b, n_units), n_units as i64).map_err(|e| e.what().to_string())
+    solve_from(&b, n_units, gap, f64::INFINITY, start)
 }
 
 /// eval_replacement_importance: for every unit selected, how much the objective worsens when the others stay

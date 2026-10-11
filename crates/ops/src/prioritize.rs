@@ -1154,6 +1154,11 @@ pub fn problem_of(args: &Args) -> Result<milp::Problem> {
             if args.params.contains_key("neighbors") {
                 put("neighbors", &[("neighbors", "k"), ("clamp", "clamp")]);
             }
+            for kind in ["contiguity", "feature_contiguity"] {
+                if args.params.get(kind).and_then(|v| v.as_bool()).unwrap_or(false) {
+                    put(kind, &[]);
+                }
+            }
             l
         }
     };
@@ -1198,6 +1203,10 @@ pub fn problem_of(args: &Args) -> Result<milp::Problem> {
                 clamp: it.get("clamp").and_then(|v| v.as_bool()).unwrap_or(true),
                 data: matrix_of(args, "adjacency_data", units.size)?,
             },
+            "contiguity" => milp::Spatial::Contiguity { data: matrix_of(args, "adjacency_data", units.size)? },
+            "feature_contiguity" => {
+                milp::Spatial::FeatureContiguity { data: matrix_of(args, "adjacency_data", units.size)? }
+            }
             k => return Err(err(format!("unknown spatial penalty or constraint {k:?}"))),
         });
     }
@@ -1216,7 +1225,7 @@ impl Operator for Optimize {
              min_largest_shortfall, max_utility, max_features, max_cover, min_penalties (with a budget); \
              targets relative, absolute, loglinear or by hand; feature weights; binary, proportion or \
              semicontinuous decisions; locked units; boundary, connectivity and linear penalties, linear \
-             constraints, neighbour constraints; planning units in maps or tables; portfolios of solutions.",
+             constraints, neighbour and contiguity constraints; planning units in maps or tables; portfolios of solutions.",
             Access::Global,
         )
         .input(PortSpec::optional("features", Type::Stack, "the features' amounts, a layer each"))
@@ -1288,6 +1297,12 @@ impl Operator for Optimize {
         .param(PortSpec::optional("linear_sense", Type::Text, "the linear constraint's sense: <= (default), >=, ="))
         .param(PortSpec::optional("neighbors", Type::Number, "every selected unit has this many selected neighbours"))
         .param(PortSpec::optional("clamp", Type::Bool, "neighbors: fewer for the units with fewer (default true)"))
+        .param(PortSpec::optional(
+            "contiguity",
+            Type::Bool,
+            "the selected units form one patch (adjacent: the raster's 4 neighbours, or adjacency_data)",
+        ))
+        .param(PortSpec::optional("feature_contiguity", Type::Bool, "every feature's units form one patch"))
         .param(PortSpec::optional("cost_column", Type::Text, "tables: pu's cost column (default cost)"))
         .param(PortSpec::optional("features", Type::Any, "tables: pu's feature columns"))
         .param(PortSpec::optional("locked_in_column", Type::Text, "tables: pu's column of the units locked in"))
@@ -1300,7 +1315,8 @@ impl Operator for Optimize {
             "spatial",
             Type::Any,
             "penalties and constraints in order: [{kind: boundary|connectivity|asym_connectivity|linear_penalty|\
-             linear_constraint|neighbors, penalty, edge_factor, threshold, sense, column, k, clamp}, ...]",
+             linear_constraint|neighbors|contiguity|feature_contiguity, penalty, edge_factor, threshold, sense, \
+             column, k, clamp}, ...]",
         ))
         .param(PortSpec::optional(
             "portfolio",

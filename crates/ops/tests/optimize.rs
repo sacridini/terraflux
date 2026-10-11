@@ -786,3 +786,209 @@ fn table_evaluation_is_prioritizrs() {
         assert!((x.is_nan() && y.is_nan()) || (x - y).abs() <= 1e-9 + 1e-9 * y.abs(), "rc[{i}]: {x} != {y}");
     }
 }
+
+/// Contiguity: landschaft's exact formulation with the arcs from a lower unit to a higher one fixed at 0 is
+/// prioritizr's, the same optimum (Gurobi's at gap 0) on HiGHS's MIP alone (about 2 minutes: cargo test --
+/// --ignored).
+#[test]
+#[ignore]
+fn contiguity_restriction_is_prioritizrs() {
+    use serde_json::json;
+    use terraflux_ops::milp;
+    let inputs = inputs();
+    let t = tables();
+    let r = reference("spatial");
+    let restricted = |p: &milp::Problem| {
+        let (mut m, _) = milp::compile(p).unwrap();
+        m.ub = milp::restricted_bounds(&m);
+        m.connected.clear();
+        milp::solve(&m, p.units.n(), 0.0, f64::INFINITY).unwrap()
+    };
+    let problem = |ins: BTreeMap<String, Value>, params: serde_json::Value| {
+        let params = params.as_object().unwrap().clone();
+        terraflux_ops::prioritize::problem_of(&Args { node: "n", inputs: ins, params: &params }).unwrap()
+    };
+    let raster = |layers: &[usize]| {
+        let mut ins = args_of(&inputs, NONE, None);
+        if let Value::Stack(s) = ins.get_mut("features").unwrap() {
+            s.keys = layers.iter().map(|&k| s.keys[k].clone()).collect();
+            s.layers = layers.iter().map(|&k| s.layers[k].clone()).collect();
+        }
+        ins
+    };
+    let table = || -> BTreeMap<String, Value> {
+        [("pu", "pu_table"), ("adjacency_data", "adj_table")]
+            .into_iter()
+            .map(|(port, name)| (port.to_string(), Value::Table(t[name].clone())))
+            .collect()
+    };
+    let cases = [
+        ("contiguity_raster", raster(&[0, 1, 2, 3, 4]), json!({"relative_targets": 0.2, "contiguity": true}), false),
+        (
+            "contiguity_matrix",
+            table(),
+            json!({"features": ["f1", "f2", "f3", "f4", "f5"], "relative_targets": 0.2, "contiguity": true}),
+            false,
+        ),
+        (
+            "feature_contiguity_raster",
+            raster(&[1, 2]),
+            json!({"relative_targets": 0.2, "feature_contiguity": true}),
+            false,
+        ),
+        (
+            "feature_contiguity_matrix",
+            table(),
+            json!({"features": ["f2", "f3"], "objective": "max_features", "budget": 800, "relative_targets": 0.15,
+                   "feature_contiguity": true}),
+            true,
+        ),
+    ];
+    for (name, ins, params, maximize) in cases {
+        let p = problem(ins, params);
+        let s = restricted(&p);
+        assert_eq!(s.status, "optimal", "{name}");
+        let want = r.floats(&format!("{name}/objective"))[0];
+        let close = (s.objective - want).abs() <= 1e-9 * want.abs().max(1.0);
+        let better = if maximize { s.objective > want } else { s.objective < want };
+        assert!(
+            close || (better && (s.objective - want).abs() <= 1e-5 * want.abs().max(1.0)),
+            "{name}: {} != {want}",
+            s.objective
+        );
+    }
+}
+
+/// Contiguity is exact: it finds the patches prioritizr's restriction misses (three units in a line, the middle one
+/// first; the best patch of a 4 x 4 grid by enumeration); and the solve (a first patch, cuts, the MIP) gives one
+/// patch.
+#[test]
+fn contiguity_is_exact() {
+    use serde_json::json;
+    use terraflux_ops::milp;
+    let inputs = inputs();
+    let restricted = |p: &milp::Problem| {
+        let (mut m, _) = milp::compile(p).unwrap();
+        m.ub = milp::restricted_bounds(&m);
+        m.connected.clear();
+        milp::solve(&m, p.units.n(), 0.0, f64::INFINITY).unwrap()
+    };
+    let problem = |ins: BTreeMap<String, Value>, params: serde_json::Value| {
+        let params = params.as_object().unwrap().clone();
+        terraflux_ops::prioritize::problem_of(&Args { node: "n", inputs: ins, params: &params }).unwrap()
+    };
+    // three units in a line, the middle one first: prioritizr's formulation has no patch
+    let mut pu = Table::new(["id", "cost", "a", "b", "c"].map(String::from).to_vec());
+    pu.rows = vec![vec![1.0, 1.0, 1.0, 0.0, 0.0], vec![2.0, 1.0, 0.0, 1.0, 0.0], vec![3.0, 1.0, 0.0, 0.0, 1.0]];
+    let mut line = Table::new(["i", "j", "x"].map(String::from).to_vec());
+    line.rows = vec![vec![1.0, 2.0, 1.0], vec![1.0, 3.0, 1.0], vec![2.0, 1.0, 1.0], vec![3.0, 1.0, 1.0]];
+    let ins: BTreeMap<String, Value> =
+        [("pu".to_string(), Value::Table(pu)), ("adjacency_data".to_string(), Value::Table(line))].into();
+    let p = problem(ins, json!({"features": ["a", "b", "c"], "relative_targets": 1.0, "contiguity": true}));
+    let (m, _) = milp::compile(&p).unwrap();
+    let s = milp::solve(&m, 3, 0.0, f64::INFINITY).unwrap();
+    assert_eq!((s.status.as_str(), s.objective), ("optimal", 3.0));
+    assert_eq!(restricted(&p).status, "infeasible");
+
+    // a 4 x 4 grid: the best patch by enumeration
+    let side = 4;
+    let n = side * side;
+    let mut state = 3u64;
+    let mut rand = || {
+        state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        ((z ^ (z >> 31)) >> 11) as f64 / (1u64 << 53) as f64
+    };
+    let cost: Vec<f64> = (0..n).map(|_| 1.0 + 9.0 * rand()).collect();
+    let mut feats = vec![vec![0.0; n]; 3];
+    for f in feats.iter_mut() {
+        for v in f.iter_mut() {
+            *v = if rand() < 0.25 { 1.0 + rand() } else { 0.0 };
+        }
+        // opposite corners: the patch must cross the grid
+        f[0] += 1.0;
+        f[n - 1] += 1.0;
+    }
+    let mut adj = Vec::new();
+    for i in 0..n {
+        let (r, c) = (i / side, i % side);
+        for (rr, cc) in [(r + 1, c), (r, c + 1)] {
+            if rr < side && cc < side {
+                let j = rr * side + cc;
+                adj.push((i, j));
+                adj.push((j, i));
+            }
+        }
+    }
+    let mut pu = Table::new(["id", "cost", "f0", "f1", "f2"].map(String::from).to_vec());
+    pu.rows = (0..n).map(|i| vec![(i + 1) as f64, cost[i], feats[0][i], feats[1][i], feats[2][i]]).collect();
+    let mut am = Table::new(["i", "j", "x"].map(String::from).to_vec());
+    am.rows = adj.iter().map(|&(i, j)| vec![(i + 1) as f64, (j + 1) as f64, 1.0]).collect();
+    let connected = |sel: &[usize]| {
+        let inside: Vec<bool> = (0..n).map(|i| sel.contains(&i)).collect();
+        let mut seen = vec![false; n];
+        let mut stack = vec![sel[0]];
+        seen[sel[0]] = true;
+        while let Some(v) = stack.pop() {
+            for &(a, b) in &adj {
+                if a == v && inside[b] && !seen[b] {
+                    seen[b] = true;
+                    stack.push(b);
+                }
+            }
+        }
+        sel.iter().all(|&i| seen[i])
+    };
+    let need: Vec<f64> = feats.iter().map(|f| 0.5 * f.iter().sum::<f64>()).collect();
+    let mut best = f64::INFINITY;
+    for bits in 1u32..(1 << n) {
+        let sel: Vec<usize> = (0..n).filter(|&i| bits >> i & 1 == 1).collect();
+        let c: f64 = sel.iter().map(|&i| cost[i]).sum();
+        if c >= best || feats.iter().zip(&need).any(|(f, &k)| sel.iter().map(|&i| f[i]).sum::<f64>() < k - 1e-9) {
+            continue;
+        }
+        if connected(&sel) {
+            best = c;
+        }
+    }
+    let ins: BTreeMap<String, Value> =
+        [("pu".to_string(), Value::Table(pu)), ("adjacency_data".to_string(), Value::Table(am))].into();
+    let p = problem(ins, json!({"features": ["f0", "f1", "f2"], "relative_targets": 0.5, "contiguity": true}));
+    let (m, _) = milp::compile(&p).unwrap();
+    let s = milp::solve(&m, n, 0.0, f64::INFINITY).unwrap();
+    assert_eq!(s.status, "optimal");
+    assert!((s.objective - best).abs() <= 1e-9 * best, "{} != {best}", s.objective);
+    assert!(restricted(&p).objective >= best - 1e-9);
+    let sel: Vec<usize> = (0..n).filter(|&i| s.x[i] > 0.5).collect();
+    assert!(connected(&sel));
+
+    // the raster solved: one patch
+    let registry = terraflux_ops::Registry::standard();
+    let params = json!({"relative_targets": 0.2, "contiguity": true, "gap": 0.05});
+    let args = Args { node: "n", inputs: args_of(&inputs, NONE, None), params: params.as_object().unwrap() };
+    let out = registry.get("prioritize.optimize").unwrap().run(&mut terraflux_ops::Ctx::default(), &args).unwrap();
+    let Value::Table(summary) = &out["summary"] else { panic!() };
+    assert_eq!(summary.column("optimal").unwrap()[0], 1.0);
+    let Value::Map(sol) = &out["solution"] else { panic!() };
+    let (ny, nx) = (inputs["pu_cost"].shape[0], inputs["pu_cost"].shape[1]);
+    let on: Vec<usize> = (0..ny * nx).filter(|&c| sol.data[c] > 0.5).collect();
+    let mut seen = vec![false; ny * nx];
+    let mut stack = vec![on[0]];
+    seen[on[0]] = true;
+    while let Some(c) = stack.pop() {
+        let (r, k) = (c / nx, c % nx);
+        let up = (r > 0).then(|| c - nx);
+        let down = (r + 1 < ny).then_some(c + nx);
+        let left = (k > 0).then(|| c - 1);
+        let right = (k + 1 < nx).then_some(c + 1);
+        for d in [up, down, left, right].into_iter().flatten() {
+            if sol.data[d] > 0.5 && !seen[d] {
+                seen[d] = true;
+                stack.push(d);
+            }
+        }
+    }
+    assert!(on.iter().all(|&c| seen[c]), "one patch");
+}

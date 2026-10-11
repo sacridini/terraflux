@@ -32,6 +32,13 @@ minor versions.
   when a matrix does not suit its summary), the per-unit results as a table (`units`: the solution, the rarity,
   Ferrier's, the replacement and rank importance). prioritizr's numbers bit for bit on landschaft's table case,
   and its replacement importance of a max utility problem with boundary penalties.
+- Contiguity constraints for `prioritize.optimize` (`contiguity`, `feature_contiguity`: the selected units, or every
+  feature's units, form one patch; the raster's 4 neighbours or an adjacency matrix): landschaft's exact
+  formulation (a spanning arborescence with flows), not prioritizr's, which misses patches (it can find a worse
+  one, or none); solved in three steps: a first patch from prioritizr's restriction, directed cuts separated by
+  maximum flows on the linear relaxation, then the MIP with the cuts. With prioritizr's restriction it reaches
+  prioritizr's optima (Gurobi's at gap 0) on landschaft's four cases; the exact model finds the best patch of a
+  grid by enumeration.
 - prioritizr's evaluation of a solution (`prioritize.evaluate`): the units selected, their cost and boundary, the
   features' representation, the targets' coverage, Ferrier et al.'s irreplaceability and the rarity-weighted
   richness; prioritizr's numbers bit for bit on the cases landschaft keeps; and on request the replacement
