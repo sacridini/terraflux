@@ -519,6 +519,40 @@ fn landscape_mosaic_and_gray_spatcon_are_guidos_toolbox() {
         .unwrap();
         assert_eq!(digest(&the_map(&out, "map").data, false), case["sha256"], "LM19 of {name}");
     }
+    // the heatmap: every class's share (GTB's single precision), its triangle, GTB's heatmap.csv; and its change
+    let shares = |t: &terraflux_ops::Table, col: &str, want: &[f64]| {
+        let (codes, v) = (t.column("class").unwrap(), t.column(col).unwrap());
+        for (c, x) in codes.iter().zip(&v) {
+            assert_eq!(*x, want[*c as usize], "class {c}");
+        }
+    };
+    for case in landschaft_cases("mosaic_heatmap") {
+        let name = case["input"].as_str().unwrap();
+        let out = run(
+            "fragmentation.landscape_mosaic",
+            vec![("map", input_map(name))],
+            serde_json::json!({"window": case["window"]}),
+        )
+        .unwrap();
+        let want: Vec<f64> = case["values"].as_array().unwrap().iter().map(f).collect();
+        shares(&table(&out, "heatmap"), "percent", &want);
+        let Value::Text(csv) = &out["heatmap_csv"] else { panic!() };
+        assert_eq!(csv, case["csv"].as_str().unwrap(), "heatmap.csv of {name}");
+        let tri = the_map(&out, "triangle");
+        assert_eq!((tri.grid.width, tri.grid.height), (21, 12));
+        assert_eq!(tri.data[11 * 21], want[190]);
+    }
+    let case = &landschaft_cases("mosaic_change")[0];
+    let out = run(
+        "change.mosaic",
+        vec![("before", input_map("random_a")), ("after", input_map("smooth_a"))],
+        serde_json::json!({"window": case["window"]}),
+    )
+    .unwrap();
+    let want: Vec<f64> = case["values"].as_array().unwrap().iter().map(f).collect();
+    shares(&table(&out, "heatmap"), "change", &want);
+    let Value::Text(csv) = &out["heatmap_csv"] else { panic!() };
+    assert_eq!(csv, case["csv"].as_str().unwrap(), "delta_heatmap.csv");
     // a land cover of other codes: its classes given
     let lc = map(3, 3, &[10.0, 10.0, 20.0, 30.0, 10.0, 20.0, 30.0, 30.0, 99.0]);
     let given = serde_json::json!({"window": 3, "agriculture": 10, "natural": [20], "developed": 30});
@@ -632,6 +666,23 @@ fn changes_are_landschafts() {
         case["matrix"].as_array().unwrap().iter().map(|r| r.as_array().unwrap().iter().map(f).collect()).collect();
     let classes = table(&out, "classes");
     assert_eq!(classes.rows.iter().map(|r| r[1..].to_vec()).collect::<Vec<_>>(), matrix);
+    // FAD at several scales: every scale's class matrix and counts, the averages, GTB's report
+    let case = &landschaft_cases("fad_change")[0];
+    let out = run("change.fad", two(), serde_json::json!({"windows": case["windows"]})).unwrap();
+    let (m, s) = (table(&out, "matrix"), table(&out, "stats"));
+    for (k, sc) in case["scales"].as_array().unwrap().iter().enumerate() {
+        let want: Vec<Vec<f64>> =
+            sc["matrix"].as_array().unwrap().iter().map(|r| r.as_array().unwrap().iter().map(f).collect()).collect();
+        let ours: Vec<Vec<f64>> = m.rows[k * 7..(k + 1) * 7].iter().map(|r| r[2..].to_vec()).collect();
+        assert_eq!(ours, want, "scale {k}");
+        let counts: Vec<f64> = ["fg_a", "fg_b", "forcom", "same", "changed"].iter().map(|c| f(&sc[c])).collect();
+        assert_eq!(s.rows[k][1..6], counts, "scale {k}");
+        assert_close(&s.rows[k][6..8], &[f(&sc["decrease"]), f(&sc["increase"])]);
+        let av: Vec<f64> = case["averages"][k].as_array().unwrap().iter().map(f).collect();
+        assert_close(&s.rows[k][8..], &av);
+    }
+    let Value::Text(report) = &out["report"] else { panic!() };
+    assert_eq!(report, case["report"].as_str().unwrap());
     // maps of different sizes
     let small = Value::Map(map(2, 2, &[1.0; 4]));
     assert!(
@@ -839,4 +890,146 @@ fn rasters_are_resampled_converted_joined_and_measured() {
         }
     }
     let _ = std::fs::remove_dir_all(dir);
+}
+
+/// GTB's Influence Zones and Proximity as landschaft's: the classes, objects, zones, the proximity's distance and
+/// connected area gain, the objects' areas and GTB's proximity CSV.
+#[test]
+fn influence_and_proximity_are_landschafts() {
+    let areas = |t: &terraflux_ops::Table| -> Vec<f64> { t.column("area").unwrap() };
+    for case in landschaft_cases("influence_zones") {
+        let params = serde_json::json!({"min_area": case["min_area"], "core_buffer": case["core_buffer"],
+                                        "buffer": case["buffer"]});
+        let out = run("distance.influence_zones", vec![("map", input_map("blobs_a"))], params).unwrap();
+        assert_eq!(digest(&the_map(&out, "map").data, false), case["classes"], "{case}");
+        assert_eq!(digest(&the_map(&out, "ids").data, true), case["ids"], "{case}");
+        assert_eq!(digest(&the_map(&out, "zones").data, true), case["zones"], "{case}");
+        let want: Vec<f64> = case["areas"].as_array().unwrap().iter().map(f).collect();
+        assert_eq!(areas(&table(&out, "objects")), want);
+    }
+    for case in landschaft_cases("proximity") {
+        let params = serde_json::json!({"min_area": case["min_area"], "core_buffer": case["core_buffer"],
+                                        "prox_max": case["prox_max"]});
+        let out = run("distance.objects_proximity", vec![("map", input_map("blobs_a"))], params).unwrap();
+        assert_eq!(digest(&the_map(&out, "map").data, false), case["classes"], "{case}");
+        for port in ["ids", "zones", "distance", "cag"] {
+            assert_eq!(digest(&the_map(&out, port).data, true), case[port], "{port} of {case}");
+        }
+        let want: Vec<f64> = case["areas"].as_array().unwrap().iter().map(f).collect();
+        assert_eq!(areas(&table(&out, "objects")), want);
+        let Value::Text(csv) = &out["csv"] else { panic!() };
+        assert_eq!(csv, case["csv"].as_str().unwrap());
+    }
+}
+
+/// GuidosToolbox's Restoration Planner as landschaft's, on blobs_a and between its two largest objects
+/// (tests/data/reference/gtb_planner.npz): the resistance from the distance, the restoration status, the cost
+/// distance, the least-cost path and the corridor's gain, the isochrone maps from A and between A and B.
+#[test]
+fn restoration_planner_is_landschafts() {
+    let case = &landschaft_cases("planner")[0];
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let marks = terraflux_raster::npy::read_npz(root.join("tests/data/reference/gtb_planner.npz")).unwrap();
+    let blobs = input_map("blobs_a");
+    let Value::Map(bm) = &blobs else { panic!() };
+    let on = |a: &terraflux_raster::npy::Array| Value::Map(Map::new(bm.grid.clone(), a.data.clone()));
+    let (a, b, marker) = (on(&marks["a"]), on(&marks["b"]), on(&marks["marker"]));
+    let out = run("restoration.resistance", vec![("map", blobs.clone())], serde_json::json!({})).unwrap();
+    assert_eq!(digest(&the_map(&out, "map").data, false), case["resistance"]);
+    let resist = out["map"].clone();
+    let want = |k: &str| -> Vec<f64> { case[k].as_array().unwrap().iter().map(f).collect() };
+    let out = run("restoration.status", vec![("map", blobs.clone())], serde_json::json!({})).unwrap();
+    assert_close(&table(&out, "stats").rows[0], &want("status"));
+    let out = run(
+        "restoration.cost_distance",
+        vec![("resistance", resist.clone()), ("sources", a.clone())],
+        serde_json::json!({}),
+    )
+    .unwrap();
+    assert_eq!(digest_f32(&the_map(&out, "map").data), case["cost_distance"]);
+    let three = || vec![("resistance", resist.clone()), ("a", a.clone()), ("b", b.clone())];
+    let out = run("restoration.least_cost_path", three(), serde_json::json!({})).unwrap();
+    assert_eq!(digest_f32(&the_map(&out, "cost").data), case["lcp_cost"]);
+    assert_eq!(digest(&the_map(&out, "path").data, false), case["lcp_path"]);
+    assert_close(&table(&out, "stats").rows[0], &want("lcp"));
+    let mut ins = three();
+    ins.push(("habitat", blobs.clone()));
+    let out = run("restoration.corridor", ins, serde_json::json!({})).unwrap();
+    assert_close(&table(&out, "stats").rows[0], &want("corridor"));
+    // the isochrones: from A (the marker without B), between A and B
+    let Value::Map(mm) = &marker else { panic!() };
+    let only_a =
+        Value::Map(Map::new(mm.grid.clone(), mm.data.iter().map(|&v| if v == 2.0 { 0.0 } else { v }).collect()));
+    for (key, m) in [("isochrone_a", only_a), ("isochrone_ab", marker.clone())] {
+        let out =
+            run("restoration.isochrone", vec![("resistance", resist.clone()), ("marker", m)], serde_json::json!({}))
+                .unwrap();
+        let w = &case[key];
+        assert_eq!(digest(&the_map(&out, "map").data, false), w["map"], "{key}");
+        assert_eq!(digest_f32(&the_map(&out, "cost").data), w["cost"], "{key}");
+        assert_eq!(table(&out, "stats").rows[0], [f(&w["min"]), f(&w["max"])], "{key}");
+        if key == "isochrone_ab" {
+            assert_eq!(digest(&the_map(&out, "path").data, false), w["path"]);
+        }
+    }
+}
+
+/// GuidosToolbox's network analysis (GTN) of the MSPA of gtb_input as landschaft's: the components, their stats,
+/// ECA and coherence and GTB's log; the importance of every link and stepping-stone node (dPC), its maps and report;
+/// Conefor's inputs.
+#[test]
+fn gtn_is_landschafts() {
+    let case = &landschaft_cases("gtn")[0];
+    let ms = run("landscape.mspa", vec![("map", input_map("gtb_input"))], serde_json::json!({})).unwrap();
+    assert_eq!(digest(&the_map(&ms, "map").data, false), case["mspa"]);
+    let mspa = ms["map"].clone();
+    let rows = |k: &str| -> Vec<Vec<f64>> {
+        case[k].as_array().unwrap().iter().map(|r| r.as_array().unwrap().iter().map(f).collect()).collect()
+    };
+    let out = run("networks.gtn_components", vec![("map", mspa.clone())], serde_json::json!({})).unwrap();
+    assert_eq!(digest(&the_map(&out, "map").data, false), case["colored"]);
+    assert_eq!(digest(&the_map(&out, "components").data, true), case["components"]);
+    let stats: Vec<Vec<f64>> = table(&out, "stats").rows.iter().map(|r| r[..4].to_vec()).collect();
+    assert_eq!(stats, rows("stats"));
+    let want: Vec<f64> = case["summary"].as_array().unwrap().iter().map(f).collect();
+    assert_close(&table(&out, "summary").rows[0], &want);
+    let Value::Text(report) = &out["report"] else { panic!() };
+    assert_eq!(report, case["report"].as_str().unwrap());
+    let out = run("networks.gtn_importance", vec![("map", mspa.clone())], serde_json::json!({})).unwrap();
+    assert_eq!(digest(&the_map(&out, "map").data, false), case["importance_colored"]);
+    assert_eq!(digest_f32(&the_map(&out, "importance").data), case["importance"]);
+    assert_eq!(digest(&the_map(&out, "ids").data, true), case["ids"]);
+    let links: Vec<Vec<f64>> = table(&out, "links").rows.iter().map(|r| vec![r[0], r[1], r[2], r[3], r[5]]).collect();
+    assert_eq!(links.len(), rows("links").len());
+    for (a, b) in links.iter().zip(rows("links")) {
+        assert_close(a, &b);
+    }
+    for (a, b) in table(&out, "nodes").rows.iter().zip(rows("nodes")) {
+        assert_close(a, &b);
+    }
+    let Value::Text(report) = &out["report"] else { panic!() };
+    assert_eq!(report, case["importance_report"].as_str().unwrap());
+    let out = run("networks.conefor", vec![("map", mspa)], serde_json::json!({})).unwrap();
+    assert_eq!(table(&out, "nodes").rows, rows("conefor_nodes"));
+    assert_eq!(table(&out, "links").rows, rows("conefor_links"));
+}
+
+#[test]
+fn reports_are_landschafts() {
+    for case in landschaft_cases("reports") {
+        let mut params = case["params"].clone();
+        let tool = match case["tool"].as_str().unwrap() {
+            "fos" => {
+                if let Some(w) = params.as_object_mut().unwrap().remove("window_size") {
+                    params["window"] = w;
+                }
+                "fragmentation.fos"
+            }
+            "spa" => "landscape.spa",
+            _ => "landscape.accounting",
+        };
+        let out = run(tool, vec![("map", input_map(case["input"].as_str().unwrap()))], params.clone()).unwrap();
+        let Value::Text(report) = &out["report"] else { panic!() };
+        assert_eq!(report, case["text"].as_str().unwrap(), "{tool} {params}");
+    }
 }

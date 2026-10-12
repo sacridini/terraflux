@@ -88,9 +88,12 @@ model file dropped on it or opened with it; started that way on Windows, it show
   the foreground's density (`fragmentation.fad`, at five scales `fragmentation.fad_multiscale`) and the
   fragmentation at a fixed scale (`fragmentation.fos`, by FAD, FED or FAC, binary maps or % covers), contagion and
   clustering in a window, the spatial entropy, the landscape mosaic, GraySpatCon's metrics of a % cover,
-  parcellation, contortion, the Euclidean distance to the foreground's edge, and the simple, morphological and
-  FOS change between two dates, with GTB's reports as tables. They read a map coded as GTB's (0 missing, 1 background, 2 foreground) or any map with the
-  foreground's classes given.
+  parcellation, contortion, the Euclidean distance to the foreground's edge, the zones of influence and the
+  proximity of the objects, the habitat network of an MSPA map (GTN's components, the importance of its links
+  and nodes, Conefor's inputs), the Restoration Planner (status, resistance, cost distance, least-cost path and
+  corridor, isochrones), and the simple, morphological, FOS, FAD and mosaic change between two dates, with GTB's
+  reports as tables and as GTB's text. They read a map coded as GTB's (0 missing, 1 background, 2 foreground) or
+  any map with the foreground's classes given.
 - **Landscape metrics:** landscapemetrics' metrics (and FRAGSTATS' extras) per patch, per class, of the
   landscape and in a moving window (`metrics.patch`, `metrics.class`, `metrics.landscape`, `metrics.window`), the
   same values as R's landscapemetrics; tables sorted, filtered and drawn as bars in the viewer, and the maps of a

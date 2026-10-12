@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT / "extern" / "landschaft" / "src"))
 
 from landschaft import _palettes as P  # noqa: E402
 from landschaft._plotting._palettes import _fos_change_names  # noqa: E402
+from landschaft.io import gtn_components_colormap, gtn_importance_colormap  # noqa: E402
 from landschaft.mosaic import LM19_CLASSES, RECODE_103_TO_19  # noqa: E402
 
 TABLES = {
@@ -29,6 +30,10 @@ TABLES = {
     "FOS_CHANGE": ("the change of FOS", P.FOSCHANGE_PALETTE),
     "DIST": ("the Euclidean distance's byte map", P.DIST_PALETTE),
     "CONTORTION": ("contortion", P.CONTORTION_PALETTE),
+    "RESISTANCE": ("a resistance, cost distances and least-cost paths", P.RESISTANCE_PALETTE),
+    "GTN_COMPONENTS": ("the components of a habitat network", [gtn_components_colormap()[i] for i in range(256)]),
+    "GTN_IMPORTANCE": ("the importance of a habitat network's links and nodes",
+                       [gtn_importance_colormap()[i] for i in range(256)]),
 }
 
 

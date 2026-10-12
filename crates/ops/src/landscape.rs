@@ -23,6 +23,8 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(Parcellation));
     r.add(Arc::new(Contortion));
     r.add(Arc::new(EuclideanDistance));
+    r.add(Arc::new(Influence { proximity: false }));
+    r.add(Arc::new(Influence { proximity: true }));
 }
 
 /// The classes of an MSPA map (internal features, inside core-openings, carry 100 more).
@@ -148,6 +150,16 @@ pub enum Product {
     Distance,
     /// Contortion on GTB's display scale: 0 missing, 1 background, 2 neglected, 3-255 the contortion.
     Contortion,
+    /// GTB's Influence Zones and Proximity in its viewport codes.
+    Influence,
+    /// The components of a habitat network (GTN): networks in GTB's colours, isolated cores, missing.
+    GtnComponents,
+    /// The importance of a habitat network's links and nodes: their top 1, 5 and 10 %.
+    GtnImportance,
+    /// An isochrone map: the cost scaled 0-100, markers, missing, the least-cost path, unreachable.
+    Isochrone,
+    /// A resistance (GTB's Restoration Planner): missing 0, habitat 2, the background 3-100.
+    Resistance,
 }
 
 impl Product {
@@ -171,6 +183,11 @@ impl Product {
             ("change.fos", "map") => Product::FosChange,
             ("distance.euclidean", "display") => Product::Distance,
             ("landscape.contortion", "display") => Product::Contortion,
+            ("distance.influence_zones" | "distance.objects_proximity", "map") => Product::Influence,
+            ("networks.gtn_components", "map") => Product::GtnComponents,
+            ("networks.gtn_importance", "map") => Product::GtnImportance,
+            ("restoration.isochrone", "map") => Product::Isochrone,
+            ("restoration.resistance", "map") => Product::Resistance,
             _ => return None,
         })
     }
@@ -242,6 +259,62 @@ impl Product {
                 }
                 _ => return None,
             }),
+            Product::GtnComponents => Some(
+                match b {
+                    0 => "Background",
+                    103 => "Isolated core",
+                    129 => "Missing",
+                    1 | 5 | 9 | 17 | 33 | 65 | 80 | 150 | 176 => "Network",
+                    _ => return None,
+                }
+                .to_string(),
+            ),
+            Product::GtnImportance => Some(
+                match b {
+                    0 => "Background",
+                    103 => "Bridge",
+                    176 => "Core",
+                    129 => "Missing",
+                    192 => "Link: top 1%",
+                    194 => "Link: top 5%",
+                    195 => "Link: top 10%",
+                    208 => "Node: top 1%",
+                    210 => "Node: top 5%",
+                    211 => "Node: top 10%",
+                    _ => return None,
+                }
+                .to_string(),
+            ),
+            Product::Isochrone => Some(match b {
+                0..=99 => format!("Cost {}-{}", b / 10 * 10, b / 10 * 10 + 9),
+                100 => "Cost 100".into(),
+                101 => "Marker objects".into(),
+                102 => "Missing".into(),
+                103 => "Least-cost path".into(),
+                104 => "Unreachable".into(),
+                _ => return None,
+            }),
+            Product::Resistance => Some(match b {
+                0 => "Missing".into(),
+                2 => "Habitat".into(),
+                3..=100 => format!("Resistance {}-{}", (b - 3) / 10 * 10 + 3, ((b - 3) / 10 * 10 + 12).min(100)),
+                _ => return None,
+            }),
+            Product::Influence => Some(
+                match b {
+                    0 => "Zone (background) / hole in an object",
+                    4 => "Watershed line (zone boundary)",
+                    12 | 59 | 5 | 9 | 17 | 33 | 65 | 18 | 56 | 55 | 57 | 58 | 101 => "Object",
+                    80 => "Buffer boundary",
+                    160 => "Buffer",
+                    129 => "Missing",
+                    165 => "Watershed line with proximity <= prox_max",
+                    176 => "Foreground not part of an object",
+                    193 => "Watershed line at the minimum proximity",
+                    _ => return None,
+                }
+                .to_string(),
+            ),
             Product::Contortion => Some(match b {
                 0 => "Missing".into(),
                 1 => "Background".into(),
@@ -259,7 +332,11 @@ impl Product {
         self.name(v)?;
         let b = byte(v)? as usize;
         Some(match self {
-            Product::Mspa | Product::Spa | Product::Accounting => mspa_colour(b as u8),
+            Product::Mspa | Product::Spa | Product::Accounting | Product::Influence => mspa_colour(b as u8),
+            Product::GtnComponents => gtb_palettes::GTN_COMPONENTS[b],
+            Product::GtnImportance => gtb_palettes::GTN_IMPORTANCE[b],
+            Product::Isochrone => gtb_palettes::ENTROPY[b],
+            Product::Resistance => gtb_palettes::RESISTANCE[b],
             Product::FadClasses => FAD_CLASSES.iter().find(|(k, ..)| *k as usize == b)?.2,
             Product::Density { five: false } => gtb_palettes::FAD[b],
             Product::Density { five: true } => gtb_palettes::FAD5[b],
@@ -416,11 +493,8 @@ impl Operator for Spa {
                 Type::Table,
                 "the objects of the foreground and of each class, as GTB counts them",
             ))
-            .output(PortSpec::new(
-                "porosity",
-                Type::Number,
-                "100 - contiguous / (contiguous + core-openings) x 100",
-            )),
+            .output(PortSpec::new("porosity", Type::Number, "100 - contiguous / (contiguous + core-openings) x 100"))
+            .output(PortSpec::new("report", Type::Text, "GTB's report (spaN.txt)")),
         )
         .param(PortSpec::optional("variant", Type::Integer, "2, 3, 5 (default) or 6 classes"))
     }
@@ -457,11 +531,36 @@ impl Operator for Spa {
         let objects = Table { columns, rows: vec![row] };
         let internal = contiguous + holes;
         let porosity = if internal > 0 { 100.0 - contiguous as f64 / internal as f64 * 100.0 } else { f64::NAN };
+        let names: &[&str] = match variant {
+            2 => &["Contiguous", "SLF"],
+            3 => &["Core", "Margin"],
+            5 => &["Core", "Edge", "Perforation", "Margin"],
+            _ => &["Core", "Islet", "Edge", "Perforation", "Margin"],
+        };
+        let rows: Vec<(&str, i64)> = names.iter().zip(spa_rows(variant)).map(|(n, &c)| (*n, h[c as usize])).collect();
+        let areas = [
+            ("image", input.len() as i64),
+            ("missing", missing),
+            ("data", data),
+            ("foreground", foreground),
+            ("background", other + holes),
+            ("core_opening", holes),
+            ("other_background", other),
+            ("contiguous", contiguous),
+        ];
+        let named: Vec<(String, i64)> = objects
+            .columns
+            .iter()
+            .zip(&objects.rows[0])
+            .map(|(k, &v)| (if k == "small_linear_features" { "slf".to_string() } else { k.clone() }, v as i64))
+            .collect();
+        let report = spa_report(variant, &rows, &areas, &named, porosity);
         Ok(outputs([
             ("map", map_of(map, out.map)),
             ("stats", Value::Table(stats)),
             ("objects", Value::Table(objects)),
             ("porosity", Value::Number(porosity)),
+            ("report", Value::Text(report)),
         ]))
     }
 }
@@ -496,7 +595,8 @@ impl Operator for Accounting {
                 Type::Table,
                 "per size class: its bounds in cells, objects, cells, % of the objects and of the foreground",
             ))
-            .output(PortSpec::new("objects", Type::Table, "per object: its number and cells")),
+            .output(PortSpec::new("objects", Type::Table, "per object: its number and cells"))
+            .output(PortSpec::new("report", Type::Text, "GTB's report (acc.txt)")),
         )
         .param(PortSpec::optional("connectivity", Type::Integer, "of the foreground: 8 (default) or 4"))
         .param(PortSpec::optional(
@@ -505,11 +605,8 @@ impl Operator for Accounting {
             "the size classes' upper bounds in cells, 1 to 5 increasing (default 50 250 1000 5000 20000, GTB's \
              batch), or \"auto\" (0.1, 1, 10, 50 and 90% of the range of the objects' areas, as GTB proposes)",
         ))
-        .param(PortSpec::optional(
-            "highlight_largest",
-            Type::Bool,
-            "paint the three largest objects (code 80)",
-        ))
+        .param(PortSpec::optional("highlight_largest", Type::Bool, "paint the three largest objects (code 80)"))
+        .param(PortSpec::optional("pixel_resolution", Type::Number, "the report's cell size in metres (25)"))
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
@@ -569,13 +666,27 @@ impl Operator for Accounting {
         }
         let mut objects = Table::new(vec!["id".into(), "cells".into()]);
         objects.rows = out.object_area.iter().enumerate().map(|(i, &a)| vec![(i + 1) as f64, a as f64]).collect();
-        Ok(outputs([
+        let mut largest = Vec::new();
+        let mut at = 0;
+        while at < out.largest.len() {
+            let k = out.largest[at] as usize;
+            largest.push(out.largest[at + 1..at + 1 + k].to_vec());
+            at += 1 + k;
+        }
+        let mut o = outputs([
             ("map", map_of(map, out.classes)),
             ("ids", map_of(map, out.ids)),
             ("area", map_of(map, out.area)),
             ("stats", Value::Table(stats)),
             ("objects", Value::Table(objects)),
-        ]))
+        ]);
+        if n > 0 {
+            let resolution: f64 = args.param("pixel_resolution", 25.0)?;
+            let report =
+                accounting_report(connectivity, resolution, used, &out.object_area, &largest, highlight && n >= 3);
+            o.insert("report".into(), Value::Text(report));
+        }
+        Ok(o)
     }
 }
 
@@ -723,6 +834,315 @@ impl Operator for EuclideanDistance {
             ("stats", Value::Table(stats)),
         ]))
     }
+}
+
+struct Influence {
+    proximity: bool,
+}
+
+impl Operator for Influence {
+    fn signature(&self) -> OpSignature {
+        let sig = if self.proximity {
+            OpSignature::new(
+                "distance.objects_proximity",
+                "The proximity between neighbouring foreground objects, as GuidosToolbox's Distance -> Proximity \
+                 (landschaft's proximity): the objects (8-connected, holes filled, of min_area cells at least) \
+                 split the map into zones of influence (the watershed of the distance to them); along the zones' \
+                 lines the gap between the objects and their connected area gain. Experimental in landschaft: \
+                 IDL's distance transform is not yet reproduced exactly.",
+                Access::Global,
+            )
+            .output(PortSpec::new(
+                "distance",
+                Type::Map,
+                "round(2 x the distance to the nearest object), the lines' updated",
+            ))
+            .output(PortSpec::new("cag", Type::Map, "the connected area gain on the lines"))
+            .output(PortSpec::new(
+                "lines",
+                Type::Table,
+                "per line cell: its column and row (1-based), the zones it touches, the connector length, the CAG, \
+                 the first two objects and their areas",
+            ))
+            .output(PortSpec::new("csv", Type::Text, "GTB's proximity CSV"))
+            .param(PortSpec::optional(
+                "prox_max",
+                Type::Integer,
+                "lines up to this proximity marked 165 (0)",
+            ))
+        } else {
+            OpSignature::new(
+                "distance.influence_zones",
+                "The zones of influence of the foreground objects, as GuidosToolbox's Distance -> Influence Zones \
+                 (landschaft's influence_zones): the objects (8-connected, holes filled, of min_area cells at least, \
+                 or their cores) and the watershed of the distance to them; a background buffer around them. \
+                 Experimental in landschaft: IDL's distance transform is not yet reproduced exactly.",
+                Access::Global,
+            )
+            .param(PortSpec::optional(
+                "buffer",
+                Type::Integer,
+                "a background buffer this wide around the objects (0)",
+            ))
+        };
+        foreground_param(
+            sig.input(PortSpec::new("map", Type::Map, "the map"))
+                .output(PortSpec::new("map", Type::Map, "GTB's codes: objects, zones, lines, buffer, missing"))
+                .output(PortSpec::new(
+                    "ids",
+                    Type::Map,
+                    "the object of every cell (holes included); 0 zones, -1 holes, -2 foreground of no object, -3 \
+                     lines, -4 missing, -5 the buffer's edge, -6 buffer",
+                ))
+                .output(PortSpec::new("zones", Type::Map, "the zone (watershed basin) of every cell, 0 on the lines"))
+                .output(PortSpec::new(
+                    "objects",
+                    Type::Table,
+                    "per object (1..): its area in cells (holes not counted)",
+                ))
+                .param(PortSpec::optional("min_area", Type::Integer, "the least object, in cells (GTB's 5000)"))
+                .param(PortSpec::optional(
+                    "core_buffer",
+                    Type::Integer,
+                    "the objects reduced to their core first: this many cells of their edge dropped (0)",
+                )),
+        )
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let map = args.map("map")?;
+        let input = gtb_coded(args, map, false)?;
+        let (ny, nx) = map.shape();
+        let min_area: i64 = args.param("min_area", 5000)?;
+        let core: i32 = args.param("core_buffer", 0)?;
+        let extra: i32 = if self.proximity { args.param("prox_max", 0)? } else { args.param("buffer", 0)? };
+        let out = ffi::influence(&input, ny as i64, nx as i64, min_area, core, extra, self.proximity)?;
+        let ints =
+            |v: &[i32]| -> Value { Value::Map(Map::new(map.grid.clone(), v.iter().map(|&x| f64::from(x)).collect())) };
+        let mut objects = Table::new(["object", "area"].map(String::from).to_vec());
+        objects.rows =
+            out.object_area.iter().skip(1).enumerate().map(|(k, &a)| vec![(k + 1) as f64, a as f64]).collect();
+        let mut o = outputs([
+            ("map", map_of(map, out.classes)),
+            ("ids", ints(&out.ids)),
+            ("zones", ints(&out.zones)),
+            ("objects", Value::Table(objects)),
+        ]);
+        if self.proximity {
+            o.insert("distance".into(), ints(&out.distance));
+            let cag = if out.cag.is_empty() { vec![0.0; ny * nx] } else { out.cag.iter().map(|&v| v as f64).collect() };
+            o.insert("cag".into(), Value::Map(Map::new(map.grid.clone(), cag)));
+            let mut lines = Table::new(
+                ["x", "y", "nbr", "clength", "cag", "id_1", "area_1", "id_2", "area_2"].map(String::from).to_vec(),
+            );
+            let mut text_rows = Vec::new();
+            let mut at = 0;
+            while at < out.lines.len() {
+                let l = &out.lines[at..];
+                let k = l[5] as usize;
+                let (ids, areas) = (&l[6..6 + k], &l[6 + k..6 + 2 * k]);
+                let get = |v: &[i64], i: usize| v.get(i).map_or(f64::NAN, |&x| x as f64);
+                lines.rows.push(vec![
+                    l[0] as f64,
+                    l[1] as f64,
+                    l[2] as f64,
+                    l[3] as f64,
+                    l[4] as f64,
+                    get(ids, 0),
+                    get(areas, 0),
+                    get(ids, 1),
+                    get(areas, 1),
+                ]);
+                let pairs: Vec<String> = ids.iter().zip(areas).map(|(i, a)| format!("{i}-{a}")).collect();
+                text_rows.push(format!("{},{},{},{},{},{}", l[0], l[1], l[2], l[3], l[4], pairs.join("  ")));
+                at += 6 + 2 * k;
+            }
+            // GTB's proximity CSV
+            let targets = if core > 0 { " Core-obj." } else { " FG-obj." };
+            let prox_min = if out.prox_min < 0 { "undef.".to_string() } else { out.prox_min.to_string() };
+            let mut title = format!(
+                "Min.{targets} size: {min_area} - {} objects - prox_min: {prox_min}",
+                out.object_area.len() - 1
+            );
+            if core > 0 {
+                title += &format!(" - core-buffer: {core} pixels");
+            }
+            let source: String = args.param("source", String::new())?;
+            let mut csv = vec![format!("{source} - {title}"), "WS-X,WS-Y, #nbr, clength, CAG, IDs(area),".to_string()];
+            csv.extend(text_rows);
+            o.insert("lines".into(), Value::Table(lines));
+            o.insert("csv".into(), Value::Text(csv.join("\n") + "\n"));
+        }
+        Ok(o)
+    }
+}
+
+/// A number as Python's `{v:.6g}` (C's %g) writes it.
+pub(crate) fn g6(x: f64) -> String {
+    if x.is_nan() {
+        return "nan".into();
+    }
+    if x.is_infinite() {
+        return if x > 0.0 { "inf".into() } else { "-inf".into() };
+    }
+    if x == 0.0 {
+        return "0".into();
+    }
+    let trim = |s: String| if s.contains('.') { s.trim_end_matches('0').trim_end_matches('.').to_string() } else { s };
+    let s = format!("{x:.5e}");
+    let (mant, exp) = s.split_once('e').unwrap();
+    let exp: i32 = exp.parse().unwrap();
+    if !(-4..6).contains(&exp) {
+        format!("{}e{}{:02}", trim(mant.to_string()), if exp < 0 { '-' } else { '+' }, exp.abs())
+    } else {
+        trim(format!("{:.*}", (5 - exp) as usize, x))
+    }
+}
+
+/// GTB's SPA report (spaN.txt): the areas and the proportions of the classes, the objects, the porosity.
+#[allow(clippy::too_many_arguments)]
+fn spa_report(
+    variant: i32,
+    rows: &[(&str, i64)],
+    areas: &[(&str, i64)],
+    objects: &[(String, i64)],
+    porosity: f64,
+) -> String {
+    let a = |k: &str| areas.iter().find(|(n, _)| *n == k).unwrap().1;
+    let (line, rule) = ("=".repeat(80), "-".repeat(80));
+    let mut out = vec![
+        format!("SPA{variant}: 8-connected Foreground, summary analysis"),
+        String::new(),
+        line.clone(),
+        "           Category              Area [pixels]: ".to_string(),
+        line.clone(),
+    ];
+    for (i, (name, area)) in rows.iter().enumerate() {
+        let label = format!("{}{name}: ", if i == 0 { "  " } else { "+ " });
+        out.push(format!("{label:>20}{area:>22}"));
+    }
+    if variant == 5 || variant == 6 {
+        out.push(format!("(Contiguous = Core + Edge + Perforation: {})", a("contiguous")));
+    }
+    out.extend([rule.clone(), format!("{:>20}{:>22}", "= Foreground Total: ", a("foreground")), String::new()]);
+    if variant != 2 {
+        out.extend([
+            format!("{:>20}{:>22}", "Core-Opening: ", a("core_opening")),
+            format!("{:>20}{:>22}", "+ Other BG: ", a("other_background")),
+            rule.clone(),
+            format!("{:>20}{:>22}", "= Background Total: ", a("background")),
+            String::new(),
+        ]);
+    }
+    out.extend([
+        format!("{:>20}{:>22}", "Data Area: ", a("data")),
+        format!("{:>20}{:>22}", "+ Missing: ", a("missing")),
+        rule.clone(),
+        format!("{:>20}{:>22}", "= Image Area Total: ", a("image")),
+        String::new(),
+        line.clone(),
+        "           Category    Proportion [%]: ".to_string(),
+        line,
+    ]);
+    let (data, fg) = (a("data"), a("foreground"));
+    for (name, area) in rows {
+        out.push(format!("{:>20}{:11.4}", format!("{name}/Data: "), *area as f64 * 100.0 / data as f64));
+    }
+    out.push(rule);
+    for (name, area) in rows {
+        let p = if fg > 0 { *area as f64 * 100.0 / fg as f64 } else { f64::NAN };
+        out.push(format!(
+            "{:>20}{:>11}",
+            format!("{name}/FG: "),
+            if p.is_nan() { "nan".into() } else { format!("{p:.4}") }
+        ));
+    }
+    out.push(String::new());
+    out.push(format!("Objects: {}", objects.iter().map(|(k, v)| format!("{k} {v}")).collect::<Vec<_>>().join(", ")));
+    if variant != 2 {
+        out.push(format!("Porosity [%]: {porosity:.4}"));
+    }
+    out.join("\n")
+}
+
+/// GTB's colour names of the Accounting's size classes.
+const ACCOUNTING_COLOURS: [&str; 6] = ["black", "red", "yellow", "orange", "brown", "green"];
+
+/// GTB's Accounting report (acc.txt).
+fn accounting_report(
+    connectivity: i32,
+    resolution: f64,
+    used: &[i64],
+    object_area: &[i64],
+    largest: &[Vec<i64>],
+    highlighted: bool,
+) -> String {
+    let n = object_area.len();
+    let total: i64 = object_area.iter().sum();
+    let mut counts = vec![0i64; used.len() + 1];
+    let mut areas = vec![0i64; used.len() + 1];
+    for &a in object_area {
+        let k = used.partition_point(|&t| t < a);
+        counts[k] += 1;
+        areas[k] += a;
+    }
+    let rule = format!("{} ", "-".repeat(93));
+    let header = "          # Objects      Area[pixels]     % of all objects  % of total FGarea";
+    let ha = resolution * resolution / 10000.0;
+    let mut lines = vec![
+        "Accounting size classes result using: landschaft".to_string(),
+        format!("Base settings: {connectivity}-connectivity, pixel resolution: {} [m]", g6(resolution)),
+        format!("Conversion factor: pixel_to_hectare: {}, pixel_to_acres: {}", g6(ha), g6(ha * 2.47105)),
+        rule.clone(),
+    ];
+    for k in 0..=used.len() {
+        if k == used.len() && counts[k] == 0 {
+            continue;
+        }
+        let range = match k {
+            0 => format!("1 - {}", used[0]),
+            k if k < used.len() => format!("{} - {}", used[k - 1] + 1, used[k]),
+            _ => format!("{} -> ", used[used.len() - 1] + 1),
+        };
+        lines.push(format!(" Size class {}: [{range}] pixels; color: {}", k + 1, ACCOUNTING_COLOURS[k]));
+        lines.push(header.to_string());
+        let po = g6(counts[k] as f64 * 100.0 / n as f64);
+        let pa = g6(areas[k] as f64 * 100.0 / total as f64);
+        lines.push(format!("{:>18}{:>18}{po:>18}{pa:>18}", counts[k], areas[k]));
+        lines.push(rule.clone());
+    }
+    let mut sorted = object_area.to_vec();
+    sorted.sort_unstable();
+    let mean = total as f64 / n as f64;
+    let std = if n > 1 {
+        (object_area.iter().map(|&a| (a as f64 - mean).powi(2)).sum::<f64>() / (n - 1) as f64).sqrt()
+    } else {
+        f64::NAN
+    };
+    lines.extend([
+        rule,
+        "Sum of all classes:".to_string(),
+        header.to_string(),
+        format!("{n:>18}{total:>18}{:>18}{:>18}", "100", "100"),
+        " ".to_string(),
+        format!("{:>20}{:>16}", "Median Patch Size: ", sorted[n / 2]),
+        format!("{:>20}{:>16}", "Average Patch Size: ", g6(mean)),
+        format!("{:>20}{:>16}", "Standard Deviation: ", g6(std)),
+        " ".to_string(),
+    ]);
+    if highlighted {
+        lines.push("Three largest object IDs and area[pixels]; color: pink".into());
+        lines.push("These 3 objects overlay objects listed above".into());
+        for (rank, ids) in largest.iter().enumerate() {
+            if let Some(&first) = ids.first() {
+                let joined = ids.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+                lines.push(format!("{}) {joined:>18}{:>18}", rank + 1, object_area[first as usize - 1]));
+            }
+        }
+    } else {
+        lines.push(format!("Largest object:     {}", object_area.iter().max().unwrap()));
+    }
+    lines.join("\n")
 }
 
 #[cfg(test)]

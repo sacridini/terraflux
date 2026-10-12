@@ -6,6 +6,27 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- The rest of GuidosToolbox, by landschaft's C++ of GTB, the same maps and reports as landschaft
+  (`tools/make_gtb_reference.py`):
+  - the habitat network of an MSPA map (`networks.gtn_components`, `networks.gtn_importance`: GTN's components,
+    ECA and coherence, the dPC importance of every link and stepping-stone node; `networks.conefor`: Conefor
+    Sensinode's node and link tables), with GTB's colours and reports;
+  - the Restoration Planner: the habitat's status (`restoration.status`: ECA, coherence, the restoration potential
+    and RAC), a resistance from the distance to the habitat (`restoration.resistance`), the cost distance
+    (`restoration.cost_distance`), the least-cost path and the corridor between two objects with its gain in ECA
+    and coherence (`restoration.least_cost_path`, `restoration.corridor`), the isochrones from one object or
+    between two (`restoration.isochrone`);
+  - the zones of influence of the objects and their proximity (`distance.influence_zones`,
+    `distance.objects_proximity`, experimental as in landschaft);
+  - the change of FAD at several scales between two dates (`change.fad`: the cells moved between the classes at
+    every window, the change of FAD_AV and AVCON);
+  - the landscape mosaic's heatmap and triangle (`fragmentation.landscape_mosaic`'s `heatmap`, `triangle` and
+    `heatmap_csv`) and its change between two dates (`change.mosaic`);
+  - GTB's text reports of FOS (fos.txt), SPA (spaN.txt) and Accounting (acc.txt) as a `report` output, with the
+    cell size the report converts to hectares (`pixel_resolution`); Accounting's three largest objects come from
+    the C++.
+
 ## [0.13.0] - 2026-10-12
 
 ### Added

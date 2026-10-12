@@ -128,6 +128,9 @@ pub mod ffi {
         ids: Vec<i32>,
         area: Vec<i32>,
         object_area: Vec<i64>,
+        /// the ids of the largest, second and third largest objects (ties share a rank): per rank its count, then
+        /// its ids
+        largest: Vec<i64>,
     }
 
     /// GTB's spatial joint entropy of a map: the index (% of the most) and the counts of each pair of neighbours.
@@ -166,6 +169,34 @@ pub mod ffi {
         distance: Vec<f32>,
         bytes: Vec<u8>,
         stats: Vec<f64>,
+    }
+
+    /// GTB's Influence Zones or Proximity: the classes (GTB's viewport codes), the object ids, the zones, the
+    /// proximity distance and connected area gain (proximity), the objects' areas (index 0 the rest), their count;
+    /// the watershed lines (proximity) as x, y, nbr, clength, cag, k, then k ids and k areas; the least proximity
+    /// and its cells (-1 without lines).
+    struct InfluenceOut {
+        classes: Vec<u8>,
+        ids: Vec<i32>,
+        zones: Vec<i32>,
+        distance: Vec<i32>,
+        cag: Vec<i64>,
+        object_area: Vec<i64>,
+        n_objects: i32,
+        lines: Vec<i64>,
+        prox_min: i64,
+        prox_min_count: i64,
+    }
+
+    /// GTB's least-cost path between two markers: the cost from A plus from B, the path (1), its length, its cells
+    /// in the background, their resistance and mean distance (with a distance map).
+    struct LcpOut {
+        cost: Vec<f32>,
+        path: Vec<u8>,
+        path_length: i64,
+        rest_pixels: i64,
+        expense: f64,
+        avg_distance: f64,
     }
 
     /// The secant bound of the total intactness: u0 + sum_i sigma_i t_i.
@@ -582,7 +613,39 @@ pub mod ffi {
         /// foreground gained and lost, stable background, common foreground, in the same class and in another;
         /// the % of fragmentation decreasing and increasing; the 6 x 6 matrix of the classes (rare..intact)
         fn fos_change(a: &[u8], b: &[u8], ny: i64, nx: i64) -> Result<ChangeOut>;
+        /// GTB's Change -> FAD Multiscale counts of one scale between two FAD maps: the 7 x 7 class matrix (background,
+        /// rare .. intact), and the foreground at A and B, in both, the sums of the foreground's FAD at A and B, the
+        /// cells with data at A and B.
+        fn fad_change_counts(a: &[u8], b: &[u8], ny: i64, nx: i64) -> Result<ChangeOut>;
         fn euclidean_distance(input: &[u8], ny: i64, nx: i64) -> Result<DistanceOut>;
+        /// GTB's Restoration Status (RSS) of a map coded 0 missing, 1 background, 2 foreground: data area, objects,
+        /// habitat (eca_max), the largest object, APS, CNOA, ECA, DOC, the restoration potential, RAC.
+        fn restoration_status(input: &[u8], ny: i64, nx: i64) -> Result<Vec<f64>>;
+        /// GTB's cost distance from the sources (> 0) across a resistance (0 impassable), 8 neighbours.
+        fn cost_distance(resistance: &[u8], sources: &[u8], ny: i64, nx: i64) -> Result<Vec<f32>>;
+        /// GTB's least-cost path between markers A and B (> 0), with a distance map (empty: none).
+        fn least_cost_path(resistance: &[u8], a: &[u8], b: &[u8], distance: &[f32], ny: i64, nx: i64)
+        -> Result<LcpOut>;
+        /// GTB's ggeo: the symmetric geodesic time from the cells ref == 1 across the mask (a step p -> q costs
+        /// m[p] + m[q]); ref == 3 and the image's frame not crossed; unreached UINT32_MAX.
+        fn geodesic_time(mask: &[u8], reference: &[u8], ny: i64, nx: i64) -> Result<Vec<u32>>;
+        /// miallib's binOIthin_FIFO: anchored order-independent homotopic thinning of a binary image.
+        fn thin_anchored(input: &[u8], stype: i32, anchor: &[u8], ny: i64, nx: i64) -> Result<Vec<u8>>;
+        /// IDL's MORPH_DISTANCE (NEIGHBOR_SAMPLING=3) as GTB uses it: quasi-Euclidean, of the zero cells to the
+        /// nearest non-zero (background) or of the non-zero to the nearest zero.
+        fn morph_distance(mask: &[u8], ny: i64, nx: i64, background: bool) -> Result<Vec<f32>>;
+        /// GTB's Influence Zones (proximity false; `buffer` the background buffer's width) or Proximity (`buffer`
+        /// the largest proximity marked) of a map coded 0 missing, 1 background, 2 foreground; IDL's quasi-Euclidean
+        /// MORPH_DISTANCE.
+        fn influence(
+            input: &[u8],
+            ny: i64,
+            nx: i64,
+            min_area: i64,
+            core_buffer: i32,
+            buffer: i32,
+            proximity: bool,
+        ) -> Result<InfluenceOut>;
         /// The human footprint after restoring the shares `restored` with `reduction` per unit (at least 0).
         fn rest_footprint(hfi: &[f64], reduction: &[f64], restored: &[f64], ny: i64, nx: i64) -> Result<Vec<f64>>;
         fn rest_intactness(

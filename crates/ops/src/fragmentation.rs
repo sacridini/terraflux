@@ -12,7 +12,7 @@ use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 use terraflux_ls_sys::ffi;
 
 use crate::landscape::{foreground_param, gtb_coded, map_of};
-use crate::{Args, Ctx, Error, Key, Operator, Outputs, Registry, Result, Stack, Table, Value, outputs};
+use crate::{Args, Ctx, Error, Key, Map, Operator, Outputs, Registry, Result, Stack, Table, Value, outputs};
 
 pub fn register(r: &mut Registry) {
     r.add(Arc::new(Fad));
@@ -23,6 +23,7 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(Entropy));
     r.add(Arc::new(EntropyMap));
     r.add(Arc::new(LandscapeMosaic));
+    r.add(Arc::new(MosaicChange));
     r.add(Arc::new(GrayConvolution));
 }
 
@@ -30,7 +31,7 @@ pub fn register(r: &mut Registry) {
 const SHARES: [&str; 6] = ["intact", "interior", "dominant", "transitional", "patchy", "rare"];
 
 /// GTB's observation scales of FAD-MS.
-const SCALES: [i32; 5] = [7, 13, 27, 81, 243];
+pub const SCALES: [i32; 5] = [7, 13, 27, 81, 243];
 
 fn window(args: &Args, default: i32) -> Result<i32> {
     let w: i32 = args.param("window", default)?;
@@ -199,18 +200,16 @@ impl Operator for Fos {
                 "summary",
                 Type::Table,
                 "GTB's report: the average connectivity, AVCON, the foreground and its patches, ECA and coherence",
-            )),
+            ))
+            .output(PortSpec::new("report", Type::Text, "GTB's report (fos.txt)")),
         )
         .param(PortSpec::optional("window", Type::Integer, "the window's side in cells, odd (default 27)"))
         .param(PortSpec::optional("method", Type::Text, "FAD (default), FED or FAC"))
         .param(PortSpec::optional("classes", Type::Integer, "5 or 6 (default: intact apart from interior)"))
         .param(PortSpec::optional("connectivity", Type::Integer, "of the patches: 8 (default) or 4"))
         .param(PortSpec::optional("grayscale", Type::Bool, "a % cover (default: when its largest value passes 4)"))
-        .param(PortSpec::optional(
-            "gray_threshold",
-            Type::Integer,
-            "a % cover's foreground: from this up (default 30)",
-        ))
+        .param(PortSpec::optional("gray_threshold", Type::Integer, "a % cover's foreground: from this up (default 30)"))
+        .param(PortSpec::optional("pixel_resolution", Type::Number, "the report's cell size in metres (25)"))
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
@@ -405,7 +404,74 @@ impl Operator for Fos {
             if eca_max > 0.0 { eca / eca_max * 100.0 } else { f64::NAN },
             eca / reporting as f64 * 100.0,
         ]);
-        Ok(outputs([("map", map_of(map, im)), ("stats", Value::Table(stats)), ("summary", Value::Table(summary))]))
+        // GTB's report (fos.txt)
+        let resolution: f64 = args.param("pixel_resolution", 25.0)?;
+        let scale_ha = (resolution * f64::from(w)).powi(2) / 10000.0;
+        let names: &[&str] = if classes == 6 {
+            &["Rare", "Patchy", "Transitional", "Dominant", "Interior", "Intact"]
+        } else {
+            &["Rare", "Patchy", "Transitional", "Dominant", "Interior"]
+        };
+        let ranges = |n: &str| match n {
+            "Rare" => "[0 - 9]",
+            "Patchy" => "[10 - 39]",
+            "Transitional" => "[40 - 59]",
+            "Dominant" => "[60 - 89]",
+            "Interior" if classes == 6 => "[90 - 99]",
+            "Interior" => "[90 - 100]",
+            _ => ": 100",
+        };
+        let g6 = crate::landscape::g6;
+        let mut lines = vec![
+            "Fragmentation analysis using Fixed Observation Scale (FOS)".to_string(),
+            "(Fragmentation is complementary to Connectivity: Fragmentation = 100% - Connectivity)".to_string(),
+            "Method options: FAD - FG Area Density; FED - FG Edge Density; FAC - FG Area Clustering; ".to_string(),
+            "=".repeat(80),
+            "FOS parameter settings:".to_string(),
+            if grayscale { format!("Grayscale (FG threshold: {threshold})") } else { "Binary".to_string() },
+            format!("Foreground connectivity: {connectivity}-connectivity"),
+            format!("FOS-type selected: {method}_{classes}class"),
+            format!("Pixel resolution [m]: {}", g6(resolution)),
+            format!("Window size [pixels]: {w}"),
+            format!(
+                "Observation scale [(window size * pixel resolution)^2]: {} hectares <-> {} acres",
+                g6(scale_ha),
+                g6(scale_ha * 2.47105)
+            ),
+            "=".repeat(80),
+            "Proportion [%] of foreground area in foreground cover class:".to_string(),
+        ];
+        for (name, row) in names.iter().zip(&stats.rows) {
+            let r = ranges(name);
+            let within = if r.starts_with('[') { " within" } else { "" };
+            let label = format!("{name} ({method}-pixel value{within}: {}): ", r.trim_start_matches([':', ' ']));
+            lines.push(format!("{label:>55}{:11.4}", row[1]));
+        }
+        let s = &summary.rows[0];
+        lines.extend([
+            "=".repeat(80),
+            "A) Image summary:".to_string(),
+            "=".repeat(80),
+            format!("Reporting unit area [pixels]: {reporting}"),
+            format!("Foreground area [pixels]: {fg_area}"),
+            format!("Foreground area [%]: {}", g6(fg_pct)),
+            format!("Number of foreground patches: {n_patches}"),
+            format!("Average foreground patch size [pixels]: {}", g6(aps)),
+            "=".repeat(80),
+            "B) Reporting levels".to_string(),
+            "=".repeat(80),
+            format!("- Average {method} at WS{w} [%]: {}", g6(average)),
+            format!("- ECA (Equivalent Connected Area) [pixels]: {}", g6(eca)),
+            format!("- COH (Coherence = ECA/ECA_max*100) [%]: {}", g6(s[8])),
+            format!("- AVCON (average connectivity) at WS{w} [%]: {}", g6(avcon)),
+            format!("- COH_ru (ECA/Reporting unit area*100) [%]: {}", g6(s[9])),
+        ]);
+        Ok(outputs([
+            ("map", map_of(map, im)),
+            ("stats", Value::Table(stats)),
+            ("summary", Value::Table(summary)),
+            ("report", Value::Text(lines.join("\n"))),
+        ]))
     }
 }
 
@@ -555,7 +621,14 @@ impl Operator for LandscapeMosaic {
             "stats",
             Type::Table,
             "per class of 103: its cells, % of the cells with data and its class of 19",
-        ));
+        ))
+        .output(PortSpec::new(
+            "heatmap",
+            Type::Table,
+            "GTB's heatmap: per class of 103 its share (%, single precision) and class of 19",
+        ))
+        .output(PortSpec::new("triangle", Type::Map, "the heatmap on GTB's triangle (12 x 21 cells)"))
+        .output(PortSpec::new("heatmap_csv", Type::Text, "GTB's heatmap.csv"));
         for (name, _) in MOSAIC_CLASSES {
             sig = sig.param(PortSpec::optional(name, Type::Any, "the land cover's classes of it (a class or a list)"));
         }
@@ -567,28 +640,7 @@ impl Operator for LandscapeMosaic {
         let map = args.map("map")?;
         let w = window(args, 27)?;
         let classes: i32 = args.param("classes", 19)?;
-        let mut given: Vec<(Vec<f64>, u8)> = Vec::new();
-        for (name, code) in MOSAIC_CLASSES {
-            if let Some(c) = classes_param(args, name)? {
-                given.push((c, code));
-            }
-        }
-        let input: Vec<u8> = if given.is_empty() {
-            map.data
-                .iter()
-                .map(|&v| match v {
-                    v if v.is_nan() => Ok(0),
-                    v if v.fract() == 0.0 && (0.0..=3.0).contains(&v) => Ok(v as u8),
-                    v => Err(Error::msg(format!(
-                        "node {:?}: the map has a {v}: give the classes of agriculture, natural and developed land, \
-                         or code it 0 missing, 1 agriculture, 2 natural, 3 developed",
-                        args.node
-                    ))),
-                })
-                .collect::<Result<_>>()?
-        } else {
-            map.data.iter().map(|v| given.iter().find(|(c, _)| c.contains(v)).map_or(0, |(_, k)| *k)).collect()
-        };
+        let input = mosaic_input(args, map)?;
         let (ny, nx) = map.shape();
         let out = ffi::landscape_mosaic(&input, ny as i64, nx as i64, w, classes)?;
         let lm103 =
@@ -600,8 +652,192 @@ impl Operator for LandscapeMosaic {
             let to19 = crate::gtb_palettes::RECODE_103_TO_19[code.clamp(0, 255) as usize];
             stats.rows.push(vec![f64::from(code), s.counts[i] as f64, s.percentages[i], f64::from(to19)]);
         }
-        Ok(outputs([("map", map_of(map, out)), ("stats", Value::Table(stats))]))
+        let heat = heatmap(&lm103)?;
+        let mut out = outputs([("map", map_of(map, out)), ("stats", Value::Table(stats))]);
+        heatmap_outputs(&mut out, &heat, &format!("Landscape Mosaic using Window size ({w}x{w})"));
+        Ok(out)
     }
+}
+
+/// GTB's heatmap of a landscape mosaic of 103 classes (landschaft's landscape_mosaic_heatmap): the share (%, in
+/// single precision as GTB) of every class among the cells with data.
+pub fn heatmap(lm103: &[u8]) -> Result<[f32; 256]> {
+    let mut hist = [0u64; 256];
+    lm103.iter().for_each(|&v| hist[v as usize] += 1);
+    let tot = hist[1..237].iter().sum::<u64>() as f32;
+    if tot == 0.0 {
+        return Err(Error::msg("the landscape mosaic has no cells with data"));
+    }
+    Ok(std::array::from_fn(|c| (hist[c] as f32 / tot) * 100.0))
+}
+
+/// GTB's triangle of the landscape mosaic: per row its first column and the classes in it.
+pub const LM_TRIANGLE: [(usize, &[usize]); 11] = [
+    (10, &[170]),
+    (10, &[171]),
+    (9, &[91, 172, 81]),
+    (8, &[93, 92, 121, 82, 83]),
+    (7, &[95, 94, 124, 122, 123, 84, 85]),
+    (6, &[152, 151, 217, 216, 215, 214, 213, 145, 144]),
+    (5, &[154, 153, 219, 218, 233, 232, 231, 212, 211, 143, 142]),
+    (4, &[65, 155, 221, 220, 235, 234, 236, 230, 229, 210, 209, 141, 55]),
+    (3, &[63, 64, 113, 222, 223, 224, 225, 226, 227, 228, 207, 208, 104, 54, 53]),
+    (2, &[61, 62, 111, 112, 114, 200, 201, 202, 203, 204, 205, 206, 103, 102, 101, 52, 51]),
+    (1, &[191, 192, 71, 72, 73, 74, 75, 131, 132, 133, 134, 135, 45, 44, 43, 42, 41, 182, 181]),
+];
+
+/// The triangle's corners on its last row: (column, class).
+const LM_CORNERS: [(usize, usize); 2] = [(0, 190), (20, 180)];
+
+/// The 103 classes of the triangle, in order.
+fn lm103_codes() -> Vec<usize> {
+    let mut c: Vec<usize> =
+        LM_TRIANGLE.iter().flat_map(|(_, r)| r.iter().copied()).chain(LM_CORNERS.map(|c| c.1)).collect();
+    c.sort_unstable();
+    c
+}
+
+/// GTB's CSV cell: strmid(string(round(v * 1000) / 1000.0), 0, dot + 4) in IDL's single precision.
+fn idl_cell(v: f32) -> String {
+    let scaled = f64::from(v * 1000.0);
+    let rounded = (scaled.abs() + 0.5).floor().copysign(scaled);
+    let x = f64::from(rounded as f32 / 1000.0);
+    // C's %#13.6g
+    let body = if x == 0.0 {
+        "0.00000".to_string()
+    } else {
+        let e = format!("{x:.5e}");
+        let exp: i32 = e.split_once('e').unwrap().1.parse().unwrap();
+        if (-4..6).contains(&exp) {
+            format!("{:.*}", (5 - exp) as usize, x)
+        } else {
+            let (m, _) = e.split_once('e').unwrap();
+            format!("{m}e{}{:02}", if exp < 0 { '-' } else { '+' }, exp.abs())
+        }
+    };
+    let text = format!("{body:>13}");
+    let dot = text.find('.').unwrap_or(text.len());
+    text[..(dot + 4).min(text.len())].to_string()
+}
+
+/// GTB's heatmap.csv (or delta_heatmap.csv) of the values, with its title.
+pub fn heatmap_csv(title: &str, values: &[f32; 256]) -> String {
+    let cells: Vec<String> = values.iter().map(|&v| idl_cell(v)).collect();
+    let mut lines = vec![format!("{title}{},", ", ".repeat(20))];
+    for (y, (_, codes)) in LM_TRIANGLE.iter().enumerate() {
+        let pad = if y < 2 { 10 } else { 11 - y };
+        let row: Vec<&str> = codes.iter().map(|&c| cells[c].as_str()).collect();
+        lines.push(format!("{},{}{},", ", ".repeat(pad), row.join(","), ", ".repeat(pad - 1)));
+    }
+    lines.push(format!(",{}{},{}", cells[190], ", ".repeat(19), cells[180]));
+    lines.join("\n") + "\n"
+}
+
+/// The heatmap's outputs: per class its share and class of 19, the triangle as a map of 12 x 21 cells (no value
+/// outside it), GTB's CSV.
+fn heatmap_outputs(out: &mut Outputs, values: &[f32; 256], title: &str) {
+    let mut t = Table::new(["class", "percent", "class_19"].map(String::from).to_vec());
+    for c in lm103_codes() {
+        t.rows.push(vec![c as f64, f64::from(values[c]), f64::from(crate::gtb_palettes::RECODE_103_TO_19[c])]);
+    }
+    out.insert("heatmap".into(), Value::Table(t));
+    out.insert("triangle".into(), Value::Map(triangle(values)));
+    out.insert("heatmap_csv".into(), Value::Text(heatmap_csv(title, values)));
+}
+
+/// GTB's hmap: the heatmap on a 12 x 21 grid, no value outside the triangle.
+pub fn triangle(values: &[f32; 256]) -> Map {
+    let mut g = vec![f64::NAN; 12 * 21];
+    for (y, (x0, codes)) in LM_TRIANGLE.iter().enumerate() {
+        for (k, &c) in codes.iter().enumerate() {
+            g[y * 21 + x0 + k] = f64::from(values[c]);
+        }
+    }
+    for (x, c) in LM_CORNERS {
+        g[11 * 21 + x] = f64::from(values[c]);
+    }
+    Map::new(Arc::new(terraflux_raster::Grid::new(21, 12)), g)
+}
+
+struct MosaicChange;
+
+impl Operator for MosaicChange {
+    fn signature(&self) -> OpSignature {
+        let mut sig = OpSignature::new(
+            "change.mosaic",
+            "The change of the landscape mosaic's heatmap between two dates, as GuidosToolbox's Change -> \
+             Landscape Mosaic Heatmap (landschaft's landscape_mosaic_change): the share of every class of 103 at \
+             both dates and B - A, the triangle of the change, GTB's delta_heatmap.csv.",
+            Access::Global,
+        )
+        .input(PortSpec::new("before", Type::Map, "the land cover at the first date"))
+        .input(PortSpec::new("after", Type::Map, "the land cover at the second date"))
+        .output(PortSpec::new(
+            "heatmap",
+            Type::Table,
+            "per class of 103: its share at A and B, the change, its class of 19",
+        ))
+        .output(PortSpec::new("triangle", Type::Map, "the change on GTB's triangle (12 x 21)"))
+        .output(PortSpec::new("heatmap_csv", Type::Text, "GTB's delta_heatmap.csv"));
+        for (name, _) in MOSAIC_CLASSES {
+            sig = sig.param(PortSpec::optional(name, Type::Any, "the land cover's classes of it (a class or a list)"));
+        }
+        sig.param(PortSpec::optional("window", Type::Integer, "the window's side in cells, odd (default 27)"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let (a, b) = (args.map("before")?, args.map("after")?);
+        let w = window(args, 27)?;
+        let heat = |m: &Map| -> Result<[f32; 256]> {
+            let (ny, nx) = m.shape();
+            heatmap(&ffi::landscape_mosaic(&mosaic_input(args, m)?, ny as i64, nx as i64, w, 103)?)
+        };
+        let (ha, hb) = (heat(a)?, heat(b)?);
+        let delta: [f32; 256] = std::array::from_fn(|c| hb[c] - ha[c]);
+        let mut t = Table::new(["class", "percent_a", "percent_b", "change", "class_19"].map(String::from).to_vec());
+        for c in lm103_codes() {
+            t.rows.push(vec![
+                c as f64,
+                f64::from(ha[c]),
+                f64::from(hb[c]),
+                f64::from(delta[c]),
+                f64::from(crate::gtb_palettes::RECODE_103_TO_19[c]),
+            ]);
+        }
+        let title = format!("Delta Landscape Mosaic: B(Window size: {w}) - A(Window size: {w})");
+        Ok(outputs([
+            ("heatmap", Value::Table(t)),
+            ("triangle", Value::Map(triangle(&delta))),
+            ("heatmap_csv", Value::Text(heatmap_csv(&title, &delta))),
+        ]))
+    }
+}
+
+/// The land cover as the landscape mosaic takes it: 0 missing, 1 agriculture, 2 natural, 3 developed (or the
+/// classes of each given, the others missing).
+pub(crate) fn mosaic_input(args: &Args, map: &Map) -> Result<Vec<u8>> {
+    let mut given: Vec<(Vec<f64>, u8)> = Vec::new();
+    for (name, code) in MOSAIC_CLASSES {
+        if let Some(c) = classes_param(args, name)? {
+            given.push((c, code));
+        }
+    }
+    Ok(if given.is_empty() {
+        map.data
+            .iter()
+            .map(|&v| match v {
+                v if v.is_nan() => Ok(0),
+                v if v.fract() == 0.0 && (0.0..=3.0).contains(&v) => Ok(v as u8),
+                v => Err(Error::msg(format!(
+                    "node {:?}: the map has a {v}: give the classes of agriculture, natural and developed land, \
+                     or code it 0 missing, 1 agriculture, 2 natural, 3 developed",
+                    args.node
+                ))),
+            })
+            .collect::<Result<_>>()?
+    } else {
+        map.data.iter().map(|v| given.iter().find(|(c, _)| c.contains(v)).map_or(0, |(_, k)| *k)).collect()
+    })
 }
 
 /// A setting of classes: a class or a list of them.

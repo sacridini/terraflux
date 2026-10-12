@@ -16,13 +16,13 @@ neutros (`nlm.*`) para testar fluxos sem dados. A ordem sugerida:
      as paletas e os nomes das classes no viewer.
    - **Feito** (Unreleased): contagion e clustering, entropia espacial, landscape mosaic, gray spatial
      convolution, parcellation e contortion, distância euclidiana, mudança simples, morfológica e do FOS.
-   - Depois: GTN (`gtn.cpp`), restoration, influence e isochrone (têm muita lógica em Python em volta do C++,
-     a portar para o C++ do landschaft antes), a mudança do FAD multiescala (`fad_change`), o heatmap e o delta
-     do landscape mosaic.
+   - **Feito** (0.14.0): GTN (componentes, importância, Conefor), o Restoration Planner (status, resistência,
+     custo, caminho de menor custo, corredor, isócronas), zonas de influência e proximidade, a mudança do FAD
+     multiescala, o heatmap e o delta do landscape mosaic, e os relatórios de texto do FOS, SPA e Accounting no
+     formato do GTB.
    - Cada produto com a sua paleta e os nomes das classes no viewer, como o MSPA e o FAD
      (`terraflux_ops::landscape::Product`; os do landschaft estão em `src/landschaft/_plotting/_palettes.py`:
      mudança simples e morfológica, a ordem da legenda do GTB).
-   - O relatório de cada um (FOS, SPA, Accounting) como texto no formato do GTB, além das tabelas.
 2. **Métricas de paisagem** (`lsm`). **Feito** (Unreleased): por mancha, classe, paisagem e em janela móvel,
    iguais às do landscapemetrics do R; o visualizador de tabelas ordena, filtra e desenha uma coluna em barras.
    Falta do `lsm` do landschaft:

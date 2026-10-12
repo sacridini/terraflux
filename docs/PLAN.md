@@ -534,9 +534,15 @@ Pendências:
   `vector.zonal` e `vector.exact_sum` (a biblioteca `iocore` do landschaft, agora ligada), `vector.distance`;
   unidades de planejamento em polígonos no prioritizr (matrizes de fronteira e adjacência das geometrias); o
   viewer desenha os vetores ao lado dos atributos.
-- **Próximos (2026-10-12):** o resto do GuidosToolbox (GTN, restoration,
-  influence, isochrone, a mudança do FAD multiescala, o heatmap e o delta do mosaico); o resto do `lsm`; MSPA por
-  tiles para rasters maiores que a memória; instaladores com o GDAL (os mapas de fundo já estão no viewer).
+- **O fim do GuidosToolbox (0.14.0, 2026-10-12):** GTN (`networks.gtn_components`, `gtn_importance`,
+  `conefor`; a rotulagem, os contatos e o dPC em Rust), o Restoration Planner (`restoration.status`,
+  `resistance`, `cost_distance`, `least_cost_path`, `corridor`, `isochrone`; o ggeo, o afinamento ancorado e a
+  distância quase euclidiana do IDL pelo C++ do landschaft), `distance.influence_zones` e `objects_proximity`,
+  `change.fad` (as somas do numpy reproduzidas em pares), o heatmap do mosaico e `change.mosaic`, e os
+  relatórios de texto (fos.txt, spaN.txt, acc.txt). Tudo igual ao landschaft: os mapas bit a bit, os relatórios
+  como texto.
+- **Próximos (2026-10-12):** o resto do `lsm`; MSPA por tiles para rasters maiores que a memória; instaladores
+  com o GDAL (os mapas de fundo já estão no viewer).
 
 Pendências gerais, depois das fases:
 - regiões e demandas regionais, CLUMondo, FUTURES e MOLUSCE no Terraflux;

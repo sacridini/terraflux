@@ -31,6 +31,8 @@ struct MosaicStatsOut;
 struct ParcellationOut;
 struct ChangeOut;
 struct DistanceOut;
+struct InfluenceOut;
+struct LcpOut;
 struct SecantOut;
 struct LsmOptions;
 struct LsmTable;
@@ -112,7 +114,22 @@ ChangeOut morphological_change(rust::Slice<const std::uint8_t> a, rust::Slice<co
                                std::int64_t nx);
 ChangeOut fos_change(rust::Slice<const std::uint8_t> a, rust::Slice<const std::uint8_t> b, std::int64_t ny,
                      std::int64_t nx);
+ChangeOut fad_change_counts(rust::Slice<const std::uint8_t> a, rust::Slice<const std::uint8_t> b, std::int64_t ny,
+                            std::int64_t nx);
 DistanceOut euclidean_distance(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx);
+rust::Vec<double> restoration_status(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx);
+rust::Vec<float> cost_distance(rust::Slice<const std::uint8_t> resistance, rust::Slice<const std::uint8_t> sources,
+                               std::int64_t ny, std::int64_t nx);
+LcpOut least_cost_path(rust::Slice<const std::uint8_t> resistance, rust::Slice<const std::uint8_t> a,
+                       rust::Slice<const std::uint8_t> b, rust::Slice<const float> distance, std::int64_t ny,
+                       std::int64_t nx);
+rust::Vec<std::uint32_t> geodesic_time(rust::Slice<const std::uint8_t> mask, rust::Slice<const std::uint8_t> reference,
+                                       std::int64_t ny, std::int64_t nx);
+rust::Vec<std::uint8_t> thin_anchored(rust::Slice<const std::uint8_t> input, std::int32_t stype,
+                                      rust::Slice<const std::uint8_t> anchor, std::int64_t ny, std::int64_t nx);
+rust::Vec<float> morph_distance(rust::Slice<const std::uint8_t> mask, std::int64_t ny, std::int64_t nx, bool background);
+InfluenceOut influence(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx, std::int64_t min_area,
+                       std::int32_t core_buffer, std::int32_t buffer, bool proximity);
 
 // restoration planning's inputs after plangea (rest::); `past`, `ecoregion`, `domain` empty for none
 rust::Vec<double> rest_footprint(rust::Slice<const double> hfi, rust::Slice<const double> reduction,

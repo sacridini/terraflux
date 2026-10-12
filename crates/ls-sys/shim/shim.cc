@@ -25,6 +25,10 @@
 #include "gtb/entropy.hpp"
 #include "gtb/fad.hpp"
 #include "gtb/fos.hpp"
+#include "gtb/influence.hpp"
+#include "gtb/isochrone.hpp"
+#include "gtb/primitives.hpp"
+#include "gtb/restoration.hpp"
 #include "gtb/grayspatcon.hpp"
 #include "gtb/morphology.hpp"
 #include "gtb/mosaic.hpp"
@@ -270,6 +274,10 @@ AccountingOut accounting(rust::Slice<const std::uint8_t> input, std::int64_t ny,
     out.area = pixels(r.area);
     // object k's area at k - 1
     for (std::size_t k = 1; k < r.object_area.size(); ++k) out.object_area.push_back(r.object_area[k]);
+    for (const auto& ids : r.largest) {
+        out.largest.push_back(static_cast<std::int64_t>(ids.size()));
+        for (std::int32_t id : ids) out.largest.push_back(id);
+    }
     return out;
 }
 
@@ -1250,6 +1258,91 @@ rust::Vec<double> lsm_window(rust::Slice<const std::int32_t> values, rust::Slice
           "the window has odd sides");
     const lsm::RasterView r{values.data(), na_mask(na, ny * nx), nx, ny, resx, resy};
     return to_rust<double>(lsm::window_metrics(r, window.data(), wx, wy, strings(names), lsm_options(options)));
+}
+
+ChangeOut fad_change_counts(rust::Slice<const std::uint8_t> a, rust::Slice<const std::uint8_t> b, std::int64_t ny,
+                            std::int64_t nx) {
+    const gtb::FADChangeCounts r = gtb::compute_fad_change_counts(image(a, ny, nx), image(b, ny, nx));
+    ChangeOut out;
+    for (i64 n : r.matrix) out.matrix.push_back(n);
+    for (i64 n : {r.fg_area_a, r.fg_area_b, r.forcom, r.fg_sum_a, r.fg_sum_b, r.ru_area_a, r.ru_area_b})
+        out.counts.push_back(n);
+    return out;
+}
+
+InfluenceOut influence(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx, std::int64_t min_area,
+                       std::int32_t core_buffer, std::int32_t buffer, bool proximity) {
+    check(min_area >= 1 && core_buffer >= 0 && buffer >= 0, "min_area >= 1, core_buffer and buffer >= 0");
+    const gtb::InfluenceResult r = gtb::compute_influence(image(input, ny, nx), min_area, core_buffer, buffer,
+                                                          proximity, gtb::DistanceMetric::QuasiEuclidean);
+    InfluenceOut out;
+    out.classes = pixels(r.classes);
+    for (i64 k = 0; k < r.ids.size(); ++k) out.ids.push_back(r.ids[k]);
+    for (i64 k = 0; k < r.zones.size(); ++k) out.zones.push_back(r.zones[k]);
+    for (i64 k = 0; k < r.distance.size(); ++k) out.distance.push_back(r.distance[k]);
+    for (i64 k = 0; k < r.cag.size(); ++k) out.cag.push_back(r.cag[k]);
+    out.object_area = to_rust<std::int64_t>(r.object_area);
+    out.n_objects = r.n_objects;
+    for (const auto& l : r.lines) {
+        for (i64 v : {l.x, l.y, l.nbr, l.clength, l.cag, static_cast<i64>(l.ids.size())}) out.lines.push_back(v);
+        for (std::int32_t id : l.ids) out.lines.push_back(id);
+        for (i64 a : l.areas) out.lines.push_back(a);
+    }
+    out.prox_min = r.prox_min;
+    out.prox_min_count = r.prox_min_count;
+    return out;
+}
+
+rust::Vec<double> restoration_status(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx) {
+    const gtb::RestorationStatusResult r = gtb::compute_restoration_status(image(input, ny, nx));
+    rust::Vec<double> out;
+    for (double v : {double(r.data_area), double(r.nr_comp), double(r.eca_max), double(r.larg_obj), r.aps, r.cnoa,
+                     r.eca, r.doc, r.rest_pot, r.rac})
+        out.push_back(v);
+    return out;
+}
+
+rust::Vec<float> cost_distance(rust::Slice<const std::uint8_t> resistance, rust::Slice<const std::uint8_t> sources,
+                               std::int64_t ny, std::int64_t nx) {
+    return pixels(gtb::compute_cost_distance(image(resistance, ny, nx), image(sources, ny, nx)));
+}
+
+LcpOut least_cost_path(rust::Slice<const std::uint8_t> resistance, rust::Slice<const std::uint8_t> a,
+                       rust::Slice<const std::uint8_t> b, rust::Slice<const float> distance, std::int64_t ny,
+                       std::int64_t nx) {
+    std::unique_ptr<gtb::Image<float>> d;
+    if (!distance.empty()) {
+        check(static_cast<i64>(distance.size()) == ny * nx, "the distance map differs from ny x nx");
+        d = std::make_unique<gtb::Image<float>>(nx, ny);
+        std::copy(distance.begin(), distance.end(), d->data());
+    }
+    gtb::LeastCostPathResult r =
+        gtb::compute_least_cost_path(image(resistance, ny, nx), image(a, ny, nx), image(b, ny, nx), d.get());
+    LcpOut out;
+    out.cost = pixels(r.combined_cost);
+    out.path = pixels(r.lcp_mask);
+    out.path_length = r.path_length;
+    out.rest_pixels = r.rest_pixels;
+    out.expense = r.expense;
+    out.avg_distance = r.avg_distance;
+    return out;
+}
+
+rust::Vec<std::uint32_t> geodesic_time(rust::Slice<const std::uint8_t> mask, rust::Slice<const std::uint8_t> reference,
+                                       std::int64_t ny, std::int64_t nx) {
+    return pixels(gtb::geodesic_time(image(mask, ny, nx), image(reference, ny, nx)));
+}
+
+rust::Vec<std::uint8_t> thin_anchored(rust::Slice<const std::uint8_t> input, std::int32_t stype,
+                                      rust::Slice<const std::uint8_t> anchor, std::int64_t ny, std::int64_t nx) {
+    gtb::ImageU8 im = image(input, ny, nx);
+    gtb::ImageU8 an = image(anchor, ny, nx);
+    gtb::thin_anchored(im, stype, an);
+    return pixels(im);
+}
+
+rust::Vec<float> morph_distance(rust::Slice<const std::uint8_t> mask, std::int64_t ny, std::int64_t nx, bool background) {
+    return to_rust<float>(gtb::morph_distance(image(mask, ny, nx), background, gtb::DistanceMetric::QuasiEuclidean));
 }
 
 DistanceOut euclidean_distance(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx) {
