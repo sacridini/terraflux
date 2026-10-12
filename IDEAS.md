@@ -35,9 +35,8 @@ neutros (`nlm.*`) para testar fluxos sem dados. A ordem sugerida:
    (`prioritize.actions`) e o planejador do plangea (`restoration.plan`: exato e em passos, conservação e
    conversão, curvas de trade-off, mudanças projetadas, redução do risco de extinção), iguais às referências do
    landschaft. Falta:
-   - no planejador do plangea (`_restoration.py` do landschaft): o benefício de integridade
-     (`add_intactness_benefit`, pelo `restoration.intactness_gradient`), o objetivo de custo mínimo
-     (`_solve_min_cost`, uma bisseção no orçamento) e a comparação de pesos (`compare_weights`);
+   - **Feito** (0.10.0): no planejador do plangea, o benefício de integridade (linearizado ou exato), o
+     objetivo de custo mínimo e a comparação de pesos;
    - os extras do Zonation: conectividade, impactos, retenção e pós-processamento;
    - no prioritizr: unidades de planejamento em polígonos (dependem de vetores no builder) e o risco de
      extinção como objetivo.

@@ -97,6 +97,17 @@ minor versions.
   exact plans nested or on the frontier) with the gradient (the levels acting on every cell), and projected
   changes of natural land per region (`projected_change`; plangea's econometric targets, compensated as
   harmonize_sr_sparable). plangea's plans and spared land on the cases landschaft keeps.
+- The intactness benefit in `restoration.plan` (`hfi`, `reduction`, `increase`; landschaft's
+  add_intactness_benefit): the total ecological intactness a plan gains, for restoration, conservation and
+  conversion. Linearised at the plan of nothing (restoration.intactness_gradient, to the bit; recomputed between
+  plangea's steps) or exact (`intactness_form`: the total intactness itself, not concave: successive concave
+  minorants to a local optimum, bounded by the secants of the pairs through landschaft's C++
+  `intactness_secant`).
+- The cheapest plan for a benefit (`restoration.plan`'s `min_benefit`, landschaft's min-cost objective): regula
+  falsi on the budget, each step the most benefit for it, the cost proven by the budgets that fall short.
+- Sets of weights compared (`restoration.plan`'s `weights`, plangea's post_choose_weights): a plan per set, the
+  benefits and cost rescaled over the sets and ranked by mean over deviation; the table and the best set's plan.
+  landschaft's plans, costs and tables on the bd_absent problem (`tools/make_plangea_plan_reference.py`).
 - `table.of`: a table written in the settings (the small tables of a planning problem).
 - Templates: Restoration plan (plangea) and Multi-action planning (prioriactions).
 - prioritizr's evaluation of a solution (`prioritize.evaluate`): the units selected, their cost and boundary, the

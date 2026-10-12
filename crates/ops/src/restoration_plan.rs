@@ -14,6 +14,8 @@ use std::sync::Arc;
 
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 
+use terraflux_ls_sys::ffi;
+
 use crate::milp::{self, Csr, Model};
 use crate::{Args, Ctx, Error, Map, Operator, Outputs, Registry, Result, Table, Value, outputs};
 
@@ -43,12 +45,93 @@ pub struct Risk {
     pub base: Vec<f64>,
 }
 
-/// A linear benefit: per unit share (`coef`) and plangea's per-km² layer.
+/// A linear benefit: per unit share (`coef`) and plangea's per-km² layer. Intactness is one too, linearised at
+/// the plan of nothing (`exact` false) or its true value (`exact`: the total intactness gained, `t0` the total
+/// without the plan).
 #[derive(Debug, Clone)]
 pub struct Linear {
     pub weight: f64,
     pub coef: Vec<f64>,
     pub layer: Vec<f64>,
+    pub intactness: Option<Footprint>,
+    pub exact: bool,
+    pub t0: f64,
+}
+
+/// What a plan does to the human footprint, for the intactness benefit.
+#[derive(Debug, Clone)]
+pub struct Footprint {
+    /// the footprint without the plan (the grid's cells; conservation's baseline loss added)
+    pub h0: Vec<f64>,
+    /// per unit: the footprint's change per unit share (negative lowers it)
+    pub change: Vec<f64>,
+    pub radius: i32,
+    pub gamma: f64,
+    pub beta: f64,
+    pub z: f64,
+    /// a cell's width and height in km
+    pub cell: (f64, f64),
+}
+
+/// Benefits linear in x plus terms coef_e min(A_e x, cap_e) (concave), for the exact solver: the terms are
+/// lifted, y_e <= A_e x and lo_e <= y_e <= cap_e in its linear programs.
+#[derive(Debug, Clone)]
+pub struct Capped {
+    pub lin: Vec<f64>,
+    pub a: Csr,
+    pub cap: Vec<f64>,
+    pub lo: Vec<f64>,
+    pub coef: Vec<f64>,
+}
+
+impl Capped {
+    fn empty(n: usize) -> Capped {
+        Capped {
+            lin: vec![0.0; n],
+            a: Csr { nrow: 0, ncol: n, start: vec![0], index: Vec::new(), value: Vec::new() },
+            cap: Vec::new(),
+            lo: Vec::new(),
+            coef: Vec::new(),
+        }
+    }
+
+    fn push(&mut self, idx: &[usize], v: &[f64], cap: f64, lo: f64, coef: f64) {
+        self.a.index.extend_from_slice(idx);
+        self.a.value.extend_from_slice(v);
+        self.a.start.push(self.a.index.len());
+        self.a.nrow += 1;
+        self.cap.push(cap);
+        self.lo.push(lo);
+        self.coef.push(coef);
+    }
+
+    /// min(A x, cap) of every term.
+    fn y(&self, x: &[f64]) -> Vec<f64> {
+        mv(&self.a, x).iter().zip(&self.cap).map(|(a, c)| a.min(*c)).collect()
+    }
+
+    fn value(&self, x: &[f64]) -> f64 {
+        dot(&self.lin, x) + dot(&self.coef, &self.y(x))
+    }
+
+    /// The terms of several, one after another.
+    fn combine(parts: Vec<Capped>, n: usize) -> Capped {
+        let mut out = Capped::empty(n);
+        for c in parts {
+            for (o, v) in out.lin.iter_mut().zip(&c.lin) {
+                *o += v;
+            }
+            for e in 0..c.a.nrow {
+                let (idx, v) = c.a.row(e);
+                out.push(idx, v, c.cap[e], c.lo[e], c.coef[e]);
+            }
+        }
+        out
+    }
+}
+
+fn dot(a: &[f64], b: &[f64]) -> f64 {
+    a.iter().zip(b).map(|(a, b)| a * b).sum()
 }
 
 /// A target row: its coefficients per unit share, right side and sense.
@@ -321,8 +404,180 @@ impl Plan {
             return Err("values: NaN or infinite on a planning unit".into());
         }
         let coef = layer.iter().zip(&self.area).map(|(v, a)| v * a).collect();
-        self.linear.push(Linear { weight, coef, layer });
+        self.linear.push(Linear { weight, coef, layer, intactness: None, exact: false, t0: f64::NAN });
         Ok(())
+    }
+
+    /// Ecological intactness (Beyer et al. 2020): restoring a share x of a cell lowers its human footprint by
+    /// `reduction` x, converting it raises the footprint by `increase` x (and natural land lost for want of
+    /// conservation by `increase` times the threat, which conserving spares); the benefit is the total intactness
+    /// gained. `hfi`, `reduction` and `increase` on the grid; the other parameters as restoration.intactness.
+    /// Linearised at the plan of nothing (restoration.intactness_gradient; with the method steps recomputed at
+    /// every step, as plangea does), or `exact`: the total intactness itself, which is not concave (the exact
+    /// method improves the plan by successive concave minorants to a local optimum and bounds the best plan by
+    /// the secants of the pairs).
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_intactness(
+        &mut self,
+        hfi: &[f64],
+        reduction: Option<&[f64]>,
+        increase: Option<&[f64]>,
+        radius: i32,
+        weight: f64,
+        (gamma, beta, z): (f64, f64, f64),
+        cell: (f64, f64),
+        exact: bool,
+    ) -> std::result::Result<(), String> {
+        let ncell = self.shape.0 * self.shape.1;
+        if hfi.len() != ncell {
+            return Err("hfi: not on the problem's grid".into());
+        }
+        if exact && weight < 0.0 {
+            return Err("the exact intactness needs a weight of at least 0".into());
+        }
+        let zero = |v: f64| if v.is_nan() { 0.0 } else { v };
+        let mut change = vec![0.0; self.n()];
+        let mut h0 = hfi.to_vec();
+        if self.action.contains(&0) {
+            let r = reduction.ok_or("restoration needs the reduction of the footprint per unit restored")?;
+            if r.len() != ncell {
+                return Err("reduction: not on the problem's grid".into());
+            }
+            for (j, &c) in self.index.iter().enumerate() {
+                if self.action[j] == 0 {
+                    change[j] = -zero(r[c]);
+                }
+            }
+        }
+        if self.action.iter().any(|a| *a != 0) {
+            let inc =
+                increase.ok_or("conservation and conversion need the increase of the footprint per unit converted")?;
+            if inc.len() != ncell {
+                return Err("increase: not on the problem's grid".into());
+            }
+            for (j, &c) in self.index.iter().enumerate() {
+                match self.action[j] {
+                    2 => change[j] = zero(inc[c]),
+                    1 => {
+                        change[j] = -zero(inc[c]) * self.threat[j];
+                        h0[c] += zero(inc[c]) * self.threat[j] * self.natural[j];
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let fp = Footprint { h0, change, radius, gamma, beta, z, cell };
+        let zeros = vec![0.0; self.n()];
+        let coef = self.intactness_coef(&fp, &zeros)?;
+        let t0 = if exact { self.intactness_total(&fp, &zeros)? } else { f64::NAN };
+        self.linear.push(Linear { weight, layer: coef.clone(), coef, intactness: Some(fp), exact, t0 });
+        Ok(())
+    }
+
+    /// The human footprint (the grid's cells) under the plan x: without it, plus the units' changes, at least 0.
+    fn footprint_at(&self, fp: &Footprint, x: &[f64]) -> Vec<f64> {
+        let mut h = fp.h0.clone();
+        if x.iter().any(|v| *v != 0.0) {
+            let mut d = vec![0.0; h.len()];
+            for (j, &c) in self.index.iter().enumerate() {
+                d[c] += fp.change[j] * x[j];
+            }
+            for (h, d) in h.iter_mut().zip(d) {
+                if !h.is_nan() {
+                    let v = *h + d;
+                    *h = if v < 0.0 { 0.0 } else { v };
+                }
+            }
+        }
+        h
+    }
+
+    /// The total intactness under the plan x.
+    fn intactness_total(&self, fp: &Footprint, x: &[f64]) -> std::result::Result<f64, String> {
+        let h = self.footprint_at(fp, x);
+        let (ny, nx) = (self.shape.0 as i64, self.shape.1 as i64);
+        let q = ffi::rest_intactness(&h, ny, nx, fp.gamma, fp.beta, fp.z, fp.radius, fp.cell.0, fp.cell.1)
+            .map_err(|e| e.to_string())?;
+        Ok(q.iter().filter(|v| !v.is_nan()).sum())
+    }
+
+    /// The derivative of the total intactness at the footprint `h` when every cell's footprint falls by `a` per
+    /// unit (NaN as 0).
+    fn intactness_gradient(&self, fp: &Footprint, h: &[f64], a: &[f64]) -> std::result::Result<Vec<f64>, String> {
+        let (ny, nx) = (self.shape.0 as i64, self.shape.1 as i64);
+        let g = ffi::rest_intactness_gradient(h, a, ny, nx, fp.gamma, fp.beta, fp.z, fp.radius, fp.cell.0, fp.cell.1)
+            .map_err(|e| e.to_string())?;
+        Ok(g.into_iter().map(|v| if v.is_nan() { 0.0 } else { v }).collect())
+    }
+
+    /// The derivative of the total intactness in every unit's share, at the plan x (an action at a time: a cell
+    /// can be a unit of two).
+    fn intactness_coef(&self, fp: &Footprint, x: &[f64]) -> std::result::Result<Vec<f64>, String> {
+        let h = self.footprint_at(fp, x);
+        let mut out = vec![0.0; self.n()];
+        for code in 0..3u8 {
+            if !self.action.contains(&code) {
+                continue;
+            }
+            let mut a = vec![0.0; h.len()];
+            for (j, &c) in self.index.iter().enumerate() {
+                if self.action[j] == code {
+                    a[c] = -fp.change[j];
+                }
+            }
+            let g = self.intactness_gradient(fp, &h, &a)?;
+            for (j, &c) in self.index.iter().enumerate() {
+                if self.action[j] == code {
+                    out[j] = g[c];
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// The footprint's reduction t_i(x) = min(a_i x, h0_i) of every cell with units: the cells, a (cells x units)
+    /// and the bounds of a x over the plans' box.
+    fn reduction_terms(&self, fp: &Footprint) -> (Vec<usize>, Csr, Vec<f64>, Vec<f64>) {
+        let mut cells = self.index.clone();
+        cells.sort_unstable();
+        cells.dedup();
+        let rows: Vec<usize> = self.index.iter().map(|c| cells.binary_search(c).unwrap()).collect();
+        let cols: Vec<usize> = (0..self.n()).collect();
+        let vals: Vec<f64> = fp.change.iter().map(|c| -c).collect();
+        let a = Csr::from_triplets(cells.len(), self.n(), &rows, &cols, &vals);
+        let lb = self.lower.clone().unwrap_or_else(|| vec![0.0; self.n()]);
+        let (mut lo, mut hi) = (vec![0.0; cells.len()], vec![0.0; cells.len()]);
+        for e in 0..cells.len() {
+            let (idx, v) = a.row(e);
+            for (&j, &w) in idx.iter().zip(v) {
+                let (at_hi, at_lo) = if w > 0.0 { (self.upper[j], lb[j]) } else { (lb[j], self.upper[j]) };
+                hi[e] += w * at_hi;
+                lo[e] += w * at_lo;
+            }
+        }
+        (cells, a, lo, hi)
+    }
+
+    /// coef_i t_i(x) over the cells (`coef_cell` per cell of the grid): linear where the footprint cannot reach 0,
+    /// lifted where it can.
+    fn capped_terms(&self, fp: &Footprint, coef_cell: &[f64]) -> Capped {
+        let (cells, a, lo, hi) = self.reduction_terms(fp);
+        let mut out = Capped::empty(self.n());
+        for (e, &c) in cells.iter().enumerate() {
+            let (h0, k) = (fp.h0[c], if coef_cell[c].is_nan() { 0.0 } else { coef_cell[c] });
+            if !h0.is_finite() || k == 0.0 {
+                continue;
+            }
+            let (idx, v) = a.row(e);
+            if hi[e] <= h0 {
+                for (&j, &w) in idx.iter().zip(v) {
+                    out.lin[j] += w * k;
+                }
+            } else {
+                out.push(idx, v, h0, lo[e].min(h0), k);
+            }
+        }
+        out
     }
 
     /// The area restored (km²): in the landscape, or in every region (codes on the grid; a target per code);
@@ -376,13 +631,22 @@ impl Plan {
 
     /// Spend at most `budget`, `cost` per km² restored (on the grid).
     pub fn add_budget(&mut self, budget: f64, cost: &[f64]) -> std::result::Result<(), String> {
+        if !budget.is_finite() {
+            return Err("budget must be finite".into());
+        }
+        self.add_cost(cost)?;
+        self.budget = Some(budget);
+        Ok(())
+    }
+
+    /// The cost per km² acted on (on the grid), without a budget (for the minimum cost).
+    pub fn add_cost(&mut self, cost: &[f64]) -> std::result::Result<(), String> {
         let layer: Vec<f64> = self.index.iter().map(|&c| cost[c]).collect();
-        if layer.iter().any(|v| !v.is_finite()) || !budget.is_finite() {
+        if layer.iter().any(|v| !v.is_finite()) {
             return Err("cost: NaN or infinite on a planning unit".into());
         }
         self.cost = Some(layer.iter().zip(&self.area).map(|(c, a)| c * a).collect());
         self.cost_layer = Some(layer);
-        self.budget = Some(budget);
         Ok(())
     }
 
@@ -398,7 +662,10 @@ impl Plan {
                     .sum()
             })
             .collect();
-        out.extend(self.linear.iter().map(|b| b.coef.iter().zip(x).map(|(c, x)| c * x).sum::<f64>()));
+        out.extend(self.linear.iter().map(|b| match &b.intactness {
+            Some(fp) if b.exact => self.intactness_total(fp, x).map_or(f64::NAN, |t| t - b.t0),
+            _ => dot(&b.coef, x),
+        }));
         out
     }
 
@@ -548,7 +815,7 @@ impl Plan {
         let mut cum = vec![0.0; n];
         let mut ub = self.upper.clone();
         let mut risk_layers: Vec<Vec<f64>> = self.risks.iter().map(|b| self.steps_layer(b, &cum)).collect();
-        let lin_layers: Vec<&Vec<f64>> = self.linear.iter().map(|b| &b.layer).collect();
+        let mut lin_layers: Vec<Vec<f64>> = self.linear.iter().map(|b| b.layer.clone()).collect();
         let sf_r: Vec<f64> = risk_layers.iter().map(|l| scale(l)).collect();
         let sf_l: Vec<f64> = lin_layers.iter().map(|l| scale(l)).collect();
         let denom: Vec<f64> = match &self.cost_layer {
@@ -603,6 +870,13 @@ impl Plan {
                 }
                 if steps > 1 && !(li + 1 == levels.len() && k + 1 == steps) {
                     risk_layers = self.risks.iter().map(|b| self.steps_layer(b, &cum)).collect();
+                    for (l, b) in lin_layers.iter_mut().zip(&self.linear) {
+                        if let Some(fp) = &b.intactness
+                            && cum.iter().any(|v| *v != 0.0)
+                        {
+                            *l = self.intactness_coef(fp, &cum)?;
+                        }
+                    }
                 }
             }
             out.push(cum.iter().zip(&self.upper).map(|(c, u)| c.min(*u)).collect());
@@ -735,17 +1009,35 @@ impl Plan {
     /// search); the bound the Frank-Wolfe one, valid because the benefit is concave. A species that reaches its
     /// potential (a kink in the benefit) is lifted: its habitat gained a variable y <= g x, y <= P - A of its own.
     /// Returns the plan, the bound, the status (optimal within `tol`, time_limit, iteration_limit), the rounds.
+    /// With the exact intactness: successive concave minorants (`mm`).
     pub fn exact(&self, tol: f64, time_limit: f64) -> std::result::Result<(Vec<f64>, f64, String, usize), String> {
+        if self.linear.iter().any(|b| b.exact) { self.mm(tol, time_limit) } else { self.sd(tol, time_limit, None) }
+    }
+
+    /// Simplicial decomposition (`exact`), with `extra` benefits: linear and capped-linear terms (lifted from the
+    /// start) added to the problem's own (the exact intactness's minorants and bounds).
+    fn sd(
+        &self,
+        tol: f64,
+        time_limit: f64,
+        extra: Option<&Capped>,
+    ) -> std::result::Result<(Vec<f64>, f64, String, usize), String> {
         let t0 = std::time::Instant::now();
         let left = || time_limit - t0.elapsed().as_secs_f64();
         let n = self.n();
         let risks = &self.risks;
         let mut lin = vec![0.0; n];
-        for b in &self.linear {
+        for b in self.linear.iter().filter(|b| !b.exact) {
             for (o, c) in lin.iter_mut().zip(&b.coef) {
                 *o += b.weight * c;
             }
         }
+        if let Some(e) = extra {
+            for (o, c) in lin.iter_mut().zip(&e.lin) {
+                *o += c;
+            }
+        }
+        let m_c = extra.map_or(0, |e| e.a.nrow);
         let rows = self.feasible_set();
         let lb_x = self.lower.clone().unwrap_or_else(|| vec![0.0; n]);
         let positive = |g: &Csr| -> Vec<f64> {
@@ -802,6 +1094,19 @@ impl Plan {
                         ub.push(caps[i][s]);
                     }
                 }
+                // y_e - A_e x <= 0 for the capped terms, lo_e <= y_e <= cap_e
+                if let Some(e) = extra {
+                    for k in 0..e.a.nrow {
+                        let (idx, v) = e.a.row(k);
+                        g_rows.index.extend_from_slice(idx);
+                        g_rows.value.extend_from_slice(v);
+                        g_rows.start.push(g_rows.index.len());
+                        g_rows.nrow += 1;
+                    }
+                    obj.extend_from_slice(&e.coef);
+                    lb.extend_from_slice(&e.lo);
+                    ub.extend_from_slice(&e.cap);
+                }
                 let extra = if g_rows.nrow > 0 { Some((&g_rows, n)) } else { None };
                 let (x, ok) = Self::lp(&rows, extra, &obj, &lb, &ub, left().max(1e-3))?;
                 Ok(((0..n).map(|j| x[j].clamp(lb_x[j], self.upper[j])).collect(), ok))
@@ -810,10 +1115,12 @@ impl Plan {
         let mut verts: Vec<Vec<f64>> = Vec::new();
         let mut gv: Vec<Vec<Vec<f64>>> = risks.iter().map(|_| Vec::new()).collect(); // [risk][vertex][species]
         let mut lv: Vec<f64> = Vec::new();
+        let mut yc: Vec<Vec<f64>> = Vec::new(); // the capped terms' y of every vertex: min(A v, cap)
         let add_vertex = |v: Vec<f64>,
                           verts: &mut Vec<Vec<f64>>,
                           gv: &mut Vec<Vec<Vec<f64>>>,
                           lv: &mut Vec<f64>,
+                          yc: &mut Vec<Vec<f64>>,
                           lifted: &mut Vec<Vec<bool>>| {
             for (i, b) in risks.iter().enumerate() {
                 let g = mv(&b.gain, &v);
@@ -824,7 +1131,9 @@ impl Plan {
                 }
                 gv[i].push(g);
             }
-            lv.push(lin.iter().zip(&v).map(|(a, b)| a * b).sum());
+            let y = extra.map_or(Vec::new(), |e| e.y(&v));
+            lv.push(dot(&lin, &v) + extra.map_or(0.0, |e| dot(&e.coef, &y)));
+            yc.push(y);
             verts.push(v);
         };
         // a lifted species counts min(g v, P - A) of a vertex
@@ -840,7 +1149,7 @@ impl Plan {
             }
         }
         let (v0, _) = vertex(&c0, &d0, &lifted)?;
-        add_vertex(v0, &mut verts, &mut gv, &mut lv, &mut lifted);
+        add_vertex(v0, &mut verts, &mut gv, &mut lv, &mut yc, &mut lifted);
         let (mut bound, mut best_x, mut best) = (f64::INFINITY, vec![0.0; n], f64::NEG_INFINITY);
         let mut status = "iteration_limit".to_string();
         let mut lam = vec![1.0];
@@ -888,7 +1197,7 @@ impl Plan {
             for j in 0..n {
                 x[j] = x[j].clamp(lb_x[j], self.upper[j]);
             }
-            let fx = self.objective(&x);
+            let fx = self.objective(&x) + extra.map_or(0.0, |e| e.value(&x));
             if fx > best {
                 best = fx;
                 best_x = x.clone();
@@ -932,7 +1241,13 @@ impl Plan {
                         let g = mv(&b.gain, &v);
                         (0..g.len()).map(|s| lift_val[i][s] * (g[s].min(caps[i][s]) - ysv[i][s])).sum::<f64>()
                     })
-                    .sum();
+                    .sum::<f64>()
+                    + extra.map_or(0.0, |e| {
+                        let y = e.y(&v);
+                        (0..m_c)
+                            .map(|t| e.coef[t] * (y[t] - yc.iter().zip(&lam).map(|(y, l)| y[t] * l).sum::<f64>()))
+                            .sum()
+                    });
                 let dir: f64 = cx.iter().zip(v.iter().zip(&x)).map(|(c, (a, b))| c * (a - b)).sum();
                 bound = bound.min((f_lift + dir + gain_v).max(fx));
             }
@@ -952,14 +1267,241 @@ impl Plan {
                     *g = keep.iter().map(|&j| g[j].clone()).collect();
                 }
                 lv = keep.iter().map(|&j| lv[j]).collect();
+                yc = keep.iter().map(|&j| yc[j].clone()).collect();
                 let total: f64 = keep.iter().map(|&j| lam[j]).sum();
                 lam = keep.iter().map(|&j| lam[j] / total).collect();
             }
-            add_vertex(v, &mut verts, &mut gv, &mut lv, &mut lifted);
+            add_vertex(v, &mut verts, &mut gv, &mut lv, &mut yc, &mut lifted);
             lam.push(0.0);
         }
         Ok((best_x, bound, status, it))
     }
+
+    /// The exact intactness (landschaft's _solve_mm). T(x), the sum over the windows' pairs of c_jk
+    /// exp(gamma z (t_j + t_k)), t the footprint's reduction, is convex in t, and t_i(x) = min(a_i x, h0_i) concave
+    /// in x. At a plan x0 the tangent of the exponentials gives a concave minorant that touches T at x0; each step
+    /// maximises the other benefits plus it exactly (simplicial decomposition), so the benefit never falls; the
+    /// steps stop when it no longer rises. The bound: the secant of every pair over the reductions the plans can
+    /// reach is a concave majorant, and the most of the other benefits plus it bounds the best plan. Optimal when the
+    /// two meet within `tol`, else local.
+    fn mm(&self, tol: f64, time_limit: f64) -> std::result::Result<(Vec<f64>, f64, String, usize), String> {
+        let t0 = std::time::Instant::now();
+        let left = || (time_limit - t0.elapsed().as_secs_f64()).max(1e-3);
+        let n = self.n();
+        let exact: Vec<(&Linear, &Footprint)> =
+            self.linear.iter().filter(|b| b.exact).filter_map(|b| b.intactness.as_ref().map(|fp| (b, fp))).collect();
+        let mut q = self.clone();
+        q.linear.retain(|b| !b.exact);
+        // the derivative of the total intactness in every cell's reduction
+        let t_gradient = |fp: &Footprint, x: &[f64]| -> std::result::Result<Vec<f64>, String> {
+            let h = self.footprint_at(fp, x);
+            let g = self.intactness_gradient(fp, &h, &vec![-1.0; h.len()])?;
+            Ok(g.into_iter().map(|v| -v).collect())
+        };
+        // the first minorant at the plan of nothing (a point of tangency need not be a feasible plan)
+        let lb = self.lower.clone().unwrap_or_else(|| vec![0.0; n]);
+        let mut best_x: Vec<f64> = lb.iter().zip(&self.upper).map(|(l, u)| 0f64.max(*l).min(*u)).collect();
+        let mut best = f64::NEG_INFINITY;
+        let (mut status, mut it) = ("local".to_string(), 0);
+        for round in 1..=100 {
+            it = round;
+            let mut parts = Vec::new();
+            for (b, fp) in &exact {
+                let g: Vec<f64> = t_gradient(fp, &best_x)?.iter().map(|v| b.weight * v).collect();
+                parts.push(self.capped_terms(fp, &g));
+            }
+            let (x1, _, st, _) = q.sd(tol, left(), Some(&Capped::combine(parts, n)))?;
+            let f1 = self.objective(&x1);
+            if st == "time_limit" {
+                if f1 > best {
+                    (best_x, best) = (x1, f1);
+                }
+                status = "time_limit".into();
+                break;
+            }
+            if f1 <= best + tol * best.abs().max(1.0) {
+                if f1 > best {
+                    (best_x, best) = (x1, f1);
+                }
+                break;
+            }
+            (best_x, best) = (x1, f1);
+        }
+        // the bound: the other benefits plus the secants
+        let (ny, nx) = self.shape;
+        let mut parts = Vec::new();
+        let mut constant = 0.0;
+        for (b, fp) in &exact {
+            let (cells, _, lo, hi) = self.reduction_terms(fp);
+            let (mut tlo, mut thi) = (vec![0.0; ny * nx], vec![0.0; ny * nx]);
+            let at_most = |v: f64, h: f64| if h.is_nan() { f64::NAN } else { v.min(h) };
+            for (e, &c) in cells.iter().enumerate() {
+                tlo[c] = at_most(lo[e], fp.h0[c]);
+                thi[c] = at_most(hi[e], fp.h0[c]);
+            }
+            let s = ffi::rest_intactness_secant(
+                &fp.h0, &tlo, &thi, ny as i64, nx as i64, fp.gamma, fp.beta, fp.z, fp.radius, fp.cell.0, fp.cell.1,
+            )
+            .map_err(|e| e.to_string())?;
+            let sigma: Vec<f64> = s.sigma.iter().map(|v| b.weight * v).collect();
+            parts.push(self.capped_terms(fp, &sigma));
+            constant += b.weight * (s.u0 - b.t0);
+        }
+        let (_, ub, ub_status, _) = q.sd(tol, left(), Some(&Capped::combine(parts, n)))?;
+        let bound = if ub_status == "optimal" { ub + constant } else { f64::INFINITY };
+        if status != "time_limit" && bound - best <= tol * bound.abs().max(1.0) {
+            status = "optimal".into();
+        }
+        Ok((best_x, bound.max(best), status, it))
+    }
+
+    /// The cheapest plan whose weighted benefit reaches `target` (landschaft's _solve_min_cost), its cost the
+    /// problem's (add_budget's, or `cost` per unit share): the most benefit for a budget, F(B), is concave and
+    /// increasing in the budget, so a search on the budget, each step the most benefit for it, finds the least
+    /// budget that reaches the benefit; a budget whose bound falls short proves the cost above it (the bound
+    /// returned). The budgets tried: regula falsi between the last budget short of the benefit and the cheapest
+    /// that reaches it, with Illinois' modification, kept off the ends, and the middle when two steps did not halve
+    /// the bracket.
+    pub fn min_cost(
+        &self,
+        target: f64,
+        tol: f64,
+        time_limit: f64,
+    ) -> std::result::Result<(Vec<f64>, f64, String, usize), String> {
+        let cost = self.cost.clone().ok_or("the minimum cost needs a cost")?;
+        let t0 = std::time::Instant::now();
+        let left = || time_limit - t0.elapsed().as_secs_f64();
+        let mut q = self.clone();
+        let mut most = |budget: Option<f64>| -> std::result::Result<Option<(Vec<f64>, f64)>, String> {
+            q.budget = budget;
+            match q.exact(tol, left().max(1e-3)) {
+                Ok((x, bound, _, _)) => Ok(Some((x, bound))),
+                Err(e) if e.contains("infeasible") => Ok(None),
+                Err(e) => Err(e),
+            }
+        };
+        // the most benefit at all (within the problem's own budget)
+        let top = most(self.budget)?
+            .filter(|t| t.1 >= target)
+            .ok_or("the restoration problem is infeasible: the benefit asked for cannot be reached")?;
+        let (mut hi, mut lo, mut proven) = (dot(&cost, &top.0), 0.0, 0.0);
+        let f_hi = self.objective(&top.0);
+        // the best plan found falls short within the tolerance
+        let mut best_x = if f_hi < target { None } else { Some(top.0) };
+        // regula falsi on g(B) = F(B) - benefit with Illinois' modification: g at the end kept twice in a row is
+        // halved, so the steps close in on the root from both sides
+        let (mut g_lo, mut g_hi): (Option<f64>, f64) = (None, f_hi - target);
+        let mut widths: Vec<f64> = Vec::new();
+        let (mut status, mut it, mut kept) = ("time_limit", 1, 0i32);
+        while best_x.is_some() && left() > 0.0 && it < 200 {
+            let width = hi - lo;
+            if width <= tol * hi.abs().max(1.0) {
+                status = "optimal";
+                break;
+            }
+            it += 1;
+            let margin = 0.01 * width;
+            let cand = match g_lo {
+                Some(gl) if g_hi > gl && !(widths.len() >= 2 && width > 0.5 * widths[widths.len() - 2]) => {
+                    (lo - gl * width / (g_hi - gl)).max(lo + margin).min(hi - margin)
+                }
+                _ => 0.5 * (lo + hi),
+            };
+            widths.push(width);
+            let r = most(Some(cand))?;
+            let f = r.as_ref().map_or(f64::NEG_INFINITY, |r| self.objective(&r.0));
+            match r {
+                Some((x, _)) if f >= target => {
+                    hi = cand.min(dot(&cost, &x));
+                    best_x = Some(x);
+                    g_hi = f - target;
+                    kept = if kept < 0 { kept - 1 } else { -1 };
+                    if kept <= -2
+                        && let Some(g) = g_lo.as_mut()
+                    {
+                        *g *= 0.5;
+                    }
+                }
+                _ => {
+                    lo = cand;
+                    g_lo = r.as_ref().map(|_| f - target);
+                    kept = if kept > 0 { kept + 1 } else { 1 };
+                    if kept >= 2 {
+                        g_hi *= 0.5;
+                    }
+                    // proven: no plan within cand reaches the benefit
+                    if r.as_ref().is_none_or(|r| r.1 < target) {
+                        proven = cand;
+                    }
+                }
+            }
+        }
+        if status != "optimal" && left() > 0.0 {
+            status = "iteration_limit";
+        }
+        let best_x = best_x.ok_or_else(|| format!("no plan reaches the benefit within the tolerance ({status})"))?;
+        Ok((best_x, proven, status.into(), it))
+    }
+
+    /// The benefits' weights, the risks then the linear ones.
+    pub fn weights(&self) -> Vec<f64> {
+        self.risks.iter().map(|b| b.weight).chain(self.linear.iter().map(|b| b.weight)).collect()
+    }
+
+    /// The problem with these weights of the benefits (the risks then the linear ones).
+    pub fn with_weights(&self, w: &[f64]) -> Plan {
+        let mut q = self.clone();
+        let nr = q.risks.len();
+        for (b, w) in q.risks.iter_mut().zip(w) {
+            b.weight = *w;
+        }
+        for (b, w) in q.linear.iter_mut().zip(&w[nr.min(w.len())..]) {
+            b.weight = *w;
+        }
+        q
+    }
+}
+
+/// plangea's choice of weights (post_choose_weights, landschaft's mean_sd): every criterion (a column of the rows)
+/// rescaled to 0-1 over the alternatives (a constant one to 1), those smaller-is-better (`minus`) inverted, and
+/// every alternative scored by the mean of its criteria divided by their standard deviation (good on all of them
+/// at once). Returns the mean, the deviation, the score (larger is better) and the rank (1 the best, ties
+/// averaged).
+pub fn mean_sd(rows: &[Vec<f64>], minus: &[bool]) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
+    let nc = minus.len();
+    let col = |c: usize| rows.iter().map(move |r| r[c]);
+    let lo: Vec<f64> = (0..nc).map(|c| col(c).fold(f64::INFINITY, f64::min)).collect();
+    let span: Vec<f64> = (0..nc).map(|c| col(c).fold(f64::NEG_INFINITY, f64::max) - lo[c]).collect();
+    let (mut mean, mut sd, mut score) = (Vec::new(), Vec::new(), Vec::new());
+    for r in rows {
+        let v: Vec<f64> = (0..nc)
+            .map(|c| {
+                let v = if span[c] > 0.0 { (r[c] - lo[c]) / span[c] } else { 1.0 };
+                if minus[c] { 1.0 - v } else { v }
+            })
+            .collect();
+        let m = v.iter().sum::<f64>() / nc as f64;
+        let s = if nc > 1 { (v.iter().map(|x| (x - m) * (x - m)).sum::<f64>() / (nc - 1) as f64).sqrt() } else { 0.0 };
+        mean.push(m);
+        sd.push(s);
+        score.push(if s > 0.0 {
+            m / s
+        } else if m > 0.0 {
+            f64::INFINITY
+        } else {
+            0.0
+        });
+    }
+    // the rank of -score, ties averaged (pandas' rank(method="average"))
+    let rank = score
+        .iter()
+        .map(|s| {
+            let above = score.iter().filter(|o| *o > s).count() as f64;
+            let same = score.iter().filter(|o| *o == s).count() as f64;
+            above + (same + 1.0) / 2.0
+        })
+        .collect();
+    (mean, sd, score, rank)
 }
 
 /// The Euclidean projection of v on the simplex.
@@ -1052,6 +1594,17 @@ impl Operator for PlanRestoration {
             Type::Map,
             "plangea's bound limit: a share per cell multiplying the restorable",
         ))
+        .input(PortSpec::optional("hfi", Type::Map, "the human footprint, for the intactness benefit"))
+        .input(PortSpec::optional(
+            "reduction",
+            Type::Map,
+            "intactness: the footprint a cell loses per unit restored",
+        ))
+        .input(PortSpec::optional(
+            "increase",
+            Type::Map,
+            "intactness: the footprint a cell gains per unit of natural land converted (or lost unconserved)",
+        ))
         .output(PortSpec::optional("restored", Type::Map, "the share of every cell restored"))
         .output(PortSpec::optional("conserved", Type::Map, "the share of every cell's natural land conserved"))
         .output(PortSpec::optional("converted", Type::Map, "the share of every cell's natural land converted"))
@@ -1073,7 +1626,13 @@ impl Operator for PlanRestoration {
         .output(PortSpec::new(
             "benefits",
             Type::Table,
-            "per benefit (the risks, then the linear ones): value, weight, weighted",
+            "per benefit (the risk, the linear ones, intactness): value, weight, weighted",
+        ))
+        .output(PortSpec::optional(
+            "weights",
+            Type::Table,
+            "with weights: per set the weights (w.<benefit>), the benefits, the cost, and plangea's mean, sd, \
+             score and rank",
         ))
         .output(PortSpec::new(
             "species",
@@ -1123,6 +1682,37 @@ impl Operator for PlanRestoration {
             "uncertainty",
             Type::Text,
             "how the species' sensitivities to z add up: correlated (default), independent or linear (plangea's)",
+        ))
+        .param(PortSpec::optional(
+            "intactness_weight",
+            Type::Number,
+            "the intactness benefit's weight (1; with hfi)",
+        ))
+        .param(PortSpec::optional(
+            "intactness_form",
+            Type::Text,
+            "linear (default: its gradient at the plan of nothing, recomputed between steps) or exact (the total \
+             intactness)",
+        ))
+        .param(PortSpec::optional("radius", Type::Integer, "intactness: the neighbourhood's radius in cells (3)"))
+        .param(PortSpec::optional("gamma", Type::Number, "intactness: the footprint's decay of quality (-ln(0.2)/4)"))
+        .param(PortSpec::optional("beta", Type::Number, "intactness: the distance's decay per km (-0.2)"))
+        .param(PortSpec::optional("intactness_z", Type::Number, "intactness: the exponent of the pairs' quality (0.5)"))
+        .param(PortSpec::optional(
+            "cell_size",
+            Type::Any,
+            "intactness: a cell's size in km, or [width, height] (default: the grid's, projected)",
+        ))
+        .param(PortSpec::optional(
+            "min_benefit",
+            Type::Number,
+            "the cheapest plan whose weighted benefit reaches this (with cost; exact)",
+        ))
+        .param(PortSpec::optional(
+            "weights",
+            Type::Any,
+            "sets of weights to compare ([{benefit: weight}]; the benefits extinction_risk, the linear layers' \
+             names, intactness): the plan of the best ranked",
         ))
         .param(PortSpec::optional("tolerance", Type::Number, "exact: the relative gap to the bound (1e-7)"))
         .param(PortSpec::optional("time_limit", Type::Number, "exact: seconds (default none)"))
@@ -1212,14 +1802,55 @@ impl Operator for PlanRestoration {
             )
             .map_err(err)?;
         }
+        // the benefits' names, for the sets of weights
+        let mut names: Vec<String> = Vec::new();
+        if !p.risks.is_empty() {
+            names.push("extinction_risk".into());
+        }
         if let Some(Value::Stack(l)) = args.get("linear") {
             let w: Vec<f64> = args.param("linear_weights", vec![1.0; l.layers.len()])?;
             if w.len() != l.layers.len() {
                 return Err(err("linear_weights: one per linear benefit".into()));
             }
-            for (layer, w) in l.layers.iter().zip(w) {
+            for (k, (layer, w)) in l.layers.iter().zip(w).enumerate() {
                 p.add_linear(layer, w).map_err(err)?;
+                names.push(match l.keys.get(k) {
+                    Some(crate::Key::Name(n)) if !names.contains(n) => n.clone(),
+                    _ => format!("linear_{}", k + 1),
+                });
             }
+        }
+        if let Some(hfi) = args.opt_map("hfi")? {
+            if hfi.data.len() != ncell {
+                return Err(err("hfi: not on the grid of the shares".into()));
+            }
+            let form: String = args.param("intactness_form", "linear".to_string())?;
+            if !matches!(form.as_str(), "linear" | "exact") {
+                return Err(err(format!("intactness_form: linear or exact, not {form:?}")));
+            }
+            let radius: i64 = args.param("radius", 3)?;
+            let radius = i32::try_from(radius)
+                .ok()
+                .filter(|r| *r >= 0)
+                .ok_or_else(|| err("radius: a number of cells, 0 or more".into()))?;
+            let reduction = args.opt_map("reduction")?.map(|m| m.data.to_vec());
+            let increase = args.opt_map("increase")?.map(|m| m.data.to_vec());
+            p.add_intactness(
+                &hfi.data,
+                reduction.as_deref(),
+                increase.as_deref(),
+                radius,
+                args.param("intactness_weight", 1.0)?,
+                (
+                    args.param("gamma", crate::restoration::intactness_gamma())?,
+                    args.param("beta", -0.2)?,
+                    args.param("intactness_z", 0.5)?,
+                ),
+                crate::restoration::cell_km(args, &hfi.grid)?,
+                form == "exact",
+            )
+            .map_err(err)?;
+            names.push("intactness".into());
         }
         let sense: String = args.param("sense", "<=".to_string())?;
         let relative: bool = args.param("relative", false)?;
@@ -1239,9 +1870,13 @@ impl Operator for PlanRestoration {
             }
             Some(_) => return Err(err("target: a number, or {region: area}".into())),
         }
+        let min_benefit: Option<f64> = args.opt_param("min_benefit")?;
         if let Some(b) = args.opt_param::<f64>("budget")? {
             let cost = args.map("cost")?;
             p.add_budget(b, &cost.data).map_err(err)?;
+        } else if min_benefit.is_some() {
+            let cost = args.opt_map("cost")?.ok_or_else(|| err("the minimum cost needs a cost".into()))?;
+            p.add_cost(&cost.data).map_err(err)?;
         }
         // the landscape's targets grow along a trade-off curve; the regions' hold
         let landscape: Vec<bool> =
@@ -1267,6 +1902,30 @@ impl Operator for PlanRestoration {
             landscape.iter().copied().chain(std::iter::repeat(false)).take(p.targets.len()).collect();
         let method: String = args.param("method", "exact".to_string())?;
         let levels: Option<Vec<f64>> = args.opt_param("levels")?;
+        let sets: Option<Vec<serde_json::Map<String, serde_json::Value>>> = args.opt_param("weights")?;
+        if min_benefit.is_some() && (method != "exact" || levels.is_some()) {
+            return Err(err("min_benefit: the minimum cost is solved by the method exact, without levels".into()));
+        }
+        if sets.is_some() && levels.is_some() {
+            return Err(err("weights and levels: one or the other".into()));
+        }
+        let tolerance: f64 = args.param("tolerance", 1e-7)?;
+        let time_limit: f64 = args.opt_param("time_limit")?.unwrap_or(f64::INFINITY);
+        let steps: usize = args.param("steps", 1)?;
+        let solve = |q: &Plan| -> Result<(Vec<f64>, f64, String, usize)> {
+            match method.as_str() {
+                "exact" => match min_benefit {
+                    Some(b) => q.min_cost(b, tolerance, time_limit).map_err(err),
+                    None => q.exact(tolerance, time_limit).map_err(err),
+                },
+                "steps" => Ok((q.steps(steps).map_err(err)?, f64::NAN, "heuristic".into(), steps)),
+                "uniform" => {
+                    let a = q.targets.first().map(|t| t.rhs).ok_or_else(|| err("uniform: give the target".into()))?;
+                    Ok((q.uniform(a), f64::NAN, "uniform".into(), 0))
+                }
+                m => Err(err(format!("method: exact, steps or uniform, not {m:?}"))),
+            }
+        };
         let mut curve = None;
         if let Some(levels) = &levels {
             let (plans, gradient) = p
@@ -1275,30 +1934,61 @@ impl Operator for PlanRestoration {
                     &scaled,
                     method != "steps",
                     args.param("nested", true)?,
-                    args.param("steps", 1)?,
-                    args.param("tolerance", 1e-7)?,
+                    steps,
+                    tolerance,
                     args.param("threshold", 0.0)?,
                 )
                 .map_err(err)?;
             curve = Some((plans, gradient));
         }
-        let (x, bound, status, rounds) = match method.as_str() {
-            _ if curve.is_some() => {
-                let x = curve.as_ref().unwrap().0.last().unwrap().clone();
-                (x, f64::NAN, "tradeoff".into(), levels.as_ref().unwrap().len())
+        // the sets of weights (plangea's post_choose_weights): a plan each, the best ranked kept
+        let mut compared = None;
+        if let Some(sets) = &sets {
+            if sets.is_empty() {
+                return Err(err("weights: no sets".into()));
             }
-            "exact" => p
-                .exact(args.param("tolerance", 1e-7)?, args.opt_param("time_limit")?.unwrap_or(f64::INFINITY))
-                .map_err(err)?,
-            "steps" => {
-                let k: usize = args.param("steps", 1)?;
-                (p.steps(k).map_err(err)?, f64::NAN, "heuristic".into(), k)
+            let own = p.weights();
+            let (mut rows, mut plans) = (Vec::new(), Vec::new());
+            for set in sets {
+                let mut w = own.clone();
+                for (name, v) in set {
+                    let k = names
+                        .iter()
+                        .position(|n| n == name)
+                        .ok_or_else(|| err(format!("weights: no benefit {name:?} (of {})", names.join(", "))))?;
+                    w[k] = v.as_f64().ok_or_else(|| err(format!("weights: the weight of {name} is no number")))?;
+                }
+                let q = p.with_weights(&w);
+                let r = solve(&q)?;
+                let mut row = w.clone();
+                row.extend(q.values(&r.0));
+                row.push(p.cost.as_ref().map_or(f64::NAN, |c| dot(c, &r.0)));
+                rows.push(row);
+                plans.push((w, r));
             }
-            "uniform" => {
-                let a = p.targets.first().map(|t| t.rhs).ok_or_else(|| err("uniform: give the target".into()))?;
-                (p.uniform(a), f64::NAN, "uniform".into(), 0)
+            let nb = names.len();
+            let crit: Vec<Vec<f64>> =
+                rows.iter().map(|r| r[nb..2 * nb + usize::from(p.cost.is_some())].to_vec()).collect();
+            let minus: Vec<bool> = (0..crit[0].len()).map(|c| c >= nb).collect();
+            let (mean, sd, score, rank) = mean_sd(&crit, &minus);
+            let mut cols: Vec<String> = names.iter().map(|n| format!("w.{n}")).collect();
+            cols.extend(names.iter().cloned());
+            cols.extend(["cost", "mean", "sd", "score", "rank"].map(String::from));
+            let mut t = Table::new(cols);
+            for (k, mut r) in rows.into_iter().enumerate() {
+                r.extend([mean[k], sd[k], score[k], rank[k]]);
+                t.rows.push(r);
             }
-            m => return Err(err(format!("method: exact, steps or uniform, not {m:?}"))),
+            let best = (0..rank.len()).min_by(|a, b| rank[*a].total_cmp(&rank[*b])).unwrap();
+            compared = Some((t, plans.swap_remove(best)));
+        }
+        let (x, bound, status, rounds) = match (&curve, compared.as_mut()) {
+            (Some((plans, _)), _) => (plans.last().unwrap().clone(), f64::NAN, "tradeoff".into(), plans.len()),
+            (None, Some((_, (w, r)))) => {
+                p = p.with_weights(w);
+                std::mem::take(r)
+            }
+            (None, None) => solve(&p)?,
         };
         // a map per action
         let maps: Vec<Option<Vec<f64>>> = (0..3u8)
@@ -1316,7 +2006,7 @@ impl Operator for PlanRestoration {
             })
             .collect();
         let values = p.values(&x);
-        let weights: Vec<f64> = p.risks.iter().map(|b| b.weight).chain(p.linear.iter().map(|b| b.weight)).collect();
+        let weights = p.weights();
         let mut benefits = Table::new(vec!["value".into(), "weight".into(), "weighted".into()]);
         benefits.rows = values.iter().zip(&weights).map(|(v, w)| vec![*v, *w, v * w]).collect();
         let total: f64 = values.iter().zip(&weights).map(|(v, w)| v * w).sum();
@@ -1364,6 +2054,9 @@ impl Operator for PlanRestoration {
             if let Some(m) = m {
                 out.insert(name.to_string(), Value::Map(Map::new(grid.clone(), m)));
             }
+        }
+        if let Some((t, _)) = compared {
+            out.insert("weights".into(), Value::Table(t));
         }
         if let (Some((plans, gradient)), Some(levels)) = (curve, levels) {
             let land = p.targets.iter().zip(&scaled).find(|(_, s)| **s).map(|(t, _)| t.rhs);

@@ -28,7 +28,7 @@ pub fn intactness_gamma() -> f64 {
 
 /// A cell's width and height in km: the setting `cell_size` (a size or [width, height]), else the grid's in a
 /// projected CRS.
-fn cell_km(args: &Args, grid: &Grid) -> Result<(f64, f64)> {
+pub(crate) fn cell_km(args: &Args, grid: &Grid) -> Result<(f64, f64)> {
     match args.params.get("cell_size") {
         None | Some(serde_json::Value::Null) => {}
         Some(serde_json::Value::Number(n)) => {

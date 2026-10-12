@@ -168,6 +168,12 @@ pub mod ffi {
         stats: Vec<f64>,
     }
 
+    /// The secant bound of the total intactness: u0 + sum_i sigma_i t_i.
+    struct SecantOut {
+        u0: f64,
+        sigma: Vec<f64>,
+    }
+
     /// The options of the landscape metrics, as landschaft's (and landscapemetrics'): NaN for a distance or a
     /// number not given; contrast and similarity weights as (class a, class b, weight) one after the other.
     #[derive(Debug, Clone, PartialEq)]
@@ -571,6 +577,21 @@ pub mod ffi {
             dx: f64,
             dy: f64,
         ) -> Result<Vec<f64>>;
+        /// A concave upper bound of the total intactness over the plans whose footprint reductions lie in
+        /// [tlo, thi] per cell (the secant of every pair of a window).
+        fn rest_intactness_secant(
+            h0: &[f64],
+            tlo: &[f64],
+            thi: &[f64],
+            ny: i64,
+            nx: i64,
+            gamma: f64,
+            beta: f64,
+            z: f64,
+            radius: i32,
+            dx: f64,
+            dy: f64,
+        ) -> Result<SecantOut>;
         fn rest_original_vegetation(
             natural: &[f64],
             k: i32,

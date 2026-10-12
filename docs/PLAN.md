@@ -519,10 +519,16 @@ Pendências:
   o método exato por decomposição simplicial com o limite de Frank-Wolfe, os passos do plangea, o plano uniforme,
   conservação e conversão, curvas de trade-off com o gradiente, mudanças projetadas; a redução do risco com a
   incerteza de z; `restoration.ecosystem_areas` e `ecosystem_targets`), com os números do plangea nos casos que o
-  landschaft guarda; faltam o benefício de integridade no planejador, o custo mínimo e a comparação de pesos.
-- **Próximos:** MSPA por tiles para rasters maiores que a memória; mapa de fundo de satélite (GDAL XYZ/WMS);
-  vetores (OGR) para rasterizar e medir distâncias; instaladores com o GDAL; os outros kernels C++ já prontos (reclassificação, zonal, distância, métricas de paisagem,
-  FAD, SPA), depois reprojeção (PROJ embutido e o warp do landschaft) e vetores.
+  landschaft guarda. Depois (0.10.0, 2026-10-12): o benefício de integridade no planejador (linearizado, bit a
+  bit com o gradiente do landschaft e refeito entre os passos do plangea; ou exato, por minorantes côncavos
+  sucessivos com o limite das secantes do C++ do landschaft), o custo mínimo (regula falsi no orçamento) e a
+  comparação de pesos (o post_choose_weights do plangea), iguais aos planos do landschaft
+  (`tools/make_plangea_plan_reference.py`).
+- **Próximos (2026-10-12):** os extras do Zonation (conectividade, impactos, retenção, pós-processamento); o
+  risco de extinção como objetivo do prioritizr; vetores (OGR) para rasterizar, medir distâncias e ter unidades
+  de planejamento em polígonos; o resto do GuidosToolbox (GTN, restoration, influence, isochrone, a mudança do
+  FAD multiescala, o heatmap e o delta do mosaico); o resto do `lsm`; MSPA por tiles para rasters maiores que a
+  memória; mapa de fundo de satélite (GDAL XYZ/WMS); instaladores com o GDAL.
 
 Pendências gerais, depois das fases:
 - regiões e demandas regionais, CLUMondo, FUTURES e MOLUSCE no Terraflux;

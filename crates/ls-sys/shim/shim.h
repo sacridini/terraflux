@@ -30,6 +30,7 @@ struct MosaicStatsOut;
 struct ParcellationOut;
 struct ChangeOut;
 struct DistanceOut;
+struct SecantOut;
 struct LsmOptions;
 struct LsmTable;
 struct VegetationOut;
@@ -117,6 +118,9 @@ rust::Vec<double> rest_intactness(rust::Slice<const double> hfi, std::int64_t ny
 rust::Vec<double> rest_intactness_gradient(rust::Slice<const double> hfi, rust::Slice<const double> reduction,
                                            std::int64_t ny, std::int64_t nx, double gamma, double beta, double z,
                                            std::int32_t radius, double dx, double dy);
+SecantOut rest_intactness_secant(rust::Slice<const double> h0, rust::Slice<const double> tlo,
+                                 rust::Slice<const double> thi, std::int64_t ny, std::int64_t nx, double gamma,
+                                 double beta, double z, std::int32_t radius, double dx, double dy);
 VegetationOut rest_original_vegetation(rust::Slice<const double> natural, std::int32_t k,
                                        rust::Slice<const double> anthropic, std::int32_t m, std::int64_t n,
                                        rust::Slice<const double> past, rust::Slice<const double> ecoregion,

@@ -669,3 +669,204 @@ fn projected_change_is_plangeas() {
         assert!(plain.targets.iter().zip(&change).all(|(t, (_, c))| t.rhs == c.max(0.0)), "{name}: plain");
     }
 }
+
+/// landschaft's plans with intactness, the minimum cost and sets of weights on the bd_absent problem
+/// (tests/data/reference/plangea_plan.json, tools/make_plangea_plan_reference.py).
+fn plan_reference() -> serde_json::Value {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    serde_json::from_str(&std::fs::read_to_string(root.join("tests/data/reference/plangea_plan.json")).unwrap())
+        .unwrap()
+}
+
+fn floats(v: &serde_json::Value) -> Vec<f64> {
+    v.as_array().unwrap().iter().map(|x| x.as_f64().unwrap_or(f64::NAN)).collect()
+}
+
+fn layer(v: &serde_json::Value) -> Value {
+    Value::Map(Map::new(grid(9, 11), floats(v)))
+}
+
+fn number(t: &terraflux_ops::Outputs, table: &str, col: &str) -> f64 {
+    let Value::Table(t) = &t[table] else { panic!() };
+    t.column(col).unwrap()[0]
+}
+
+fn near(what: &str, a: f64, b: f64, rtol: f64) {
+    assert!((a - b).abs() <= rtol * b.abs().max(1e-300), "{what}: {a} != {b}");
+}
+
+/// The intactness benefit linearised at the plan of nothing is landschaft's (the derivative of the total
+/// intactness, to the bit); plangea's steps recompute it between the parts; the exact plan reaches landschaft's.
+#[test]
+fn intactness_benefit_is_landschafts() {
+    let d = data();
+    let r = plan_reference();
+    let (mut inputs, mut p) = plan_inputs(&d);
+    let (hfi, red) = (floats(&r["hfi"]), floats(&r["reduction"]));
+    let params = (terraflux_ops::restoration::intactness_gamma(), -0.2, 0.5);
+    p.add_intactness(&hfi, Some(&red), None, 2, 0.01, params, (1.0, 1.0), false).unwrap();
+    let want = floats(&r["it_coef"]);
+    for (i, (a, b)) in p.linear[0].coef.iter().zip(&want).enumerate() {
+        assert!(same(*a, *b), "coef[{i}]: {a} != {b}");
+    }
+    inputs.push(("hfi", layer(&r["hfi"])));
+    inputs.push(("reduction", layer(&r["reduction"])));
+    let base = serde_json::json!({"target": 6.0, "cell_area": 1.0, "cell_size": 1.0, "radius": 2,
+                                  "intactness_weight": 0.01});
+    let with = |extra: serde_json::Value| {
+        let mut o = base.clone();
+        o.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        o
+    };
+    let lin = &r["it_linear"];
+    let out = run("restoration.plan", inputs.clone(), with(serde_json::json!({"method": "steps", "steps": 3})));
+    let Value::Map(restored) = &out["restored"] else { panic!() };
+    for (i, (&c, w)) in p.index.iter().zip(floats(&lin["steps3_x"])).enumerate() {
+        assert!((restored.data[c] - w).abs() <= 1e-12, "steps x[{i}]: {} != {w}", restored.data[c]);
+    }
+    near("steps", number(&out, "summary", "benefit"), lin["steps3_benefit"].as_f64().unwrap(), 1e-12);
+    let out = run("restoration.plan", inputs.clone(), base.clone());
+    assert_eq!(number(&out, "summary", "optimal"), 1.0);
+    near("exact", number(&out, "summary", "benefit"), lin["exact_benefit"].as_f64().unwrap(), 1e-7);
+    let Value::Table(b) = &out["benefits"] else { panic!() };
+    assert_eq!(b.rows.len(), 2, "the risk and intactness");
+}
+
+/// The exact intactness (successive concave minorants, the secants' bound): the plan at least landschaft's local
+/// optimum and the linearised plan's true value, its bound at least the plan's and as tight as landschaft's.
+#[test]
+fn exact_intactness_is_landschafts() {
+    let d = data();
+    let r = plan_reference();
+    let (mut inputs, p) = plan_inputs(&d);
+    inputs.push(("hfi", layer(&r["hfi"])));
+    inputs.push(("reduction", layer(&r["reduction"])));
+    let out = run(
+        "restoration.plan",
+        inputs.clone(),
+        serde_json::json!({"target": 6.0, "cell_area": 1.0, "cell_size": 1.0, "radius": 2, "intactness_weight": 0.01,
+                           "intactness_form": "exact"}),
+    );
+    let e = &r["it_exact"];
+    let (f, bound) = (number(&out, "summary", "benefit"), number(&out, "summary", "bound"));
+    assert!(f >= e["benefit"].as_f64().unwrap() * (1.0 - 1e-6), "{f} < {}", e["benefit"]);
+    assert!(f >= e["linear_x_value"].as_f64().unwrap() - 1e-9);
+    assert!(bound >= f - 1e-12);
+    near("bound", bound, e["bound"].as_f64().unwrap(), 1e-4);
+    // alone, on a footprint that restoration can take to 0 (the capped terms)
+    let a = &r["it_alone"];
+    let restorable = inputs[0].1.clone();
+    let out = run(
+        "restoration.plan",
+        vec![("restorable", restorable), ("hfi", layer(&r["low"])), ("reduction", layer(&r["reduction"]))],
+        serde_json::json!({"target": a["target"], "cell_area": 1.0, "cell_size": 1.0, "radius": 2,
+                           "intactness_form": "exact"}),
+    );
+    let (f, bound) = (number(&out, "summary", "benefit"), number(&out, "summary", "bound"));
+    assert!(f >= a["benefit"].as_f64().unwrap() * (1.0 - 1e-6), "alone: {f} < {}", a["benefit"]);
+    assert!(bound >= f - 1e-12);
+    near("alone: bound", bound, a["bound"].as_f64().unwrap(), 1e-4);
+    let area = number(&out, "summary", "area");
+    assert!(area <= a["target"].as_f64().unwrap() * (1.0 + 1e-9), "{area} for {} units", p.n());
+}
+
+/// The cheapest plan for a benefit: the inverse of the most benefit for a budget, landschaft's cost.
+#[test]
+fn min_cost_is_landschafts() {
+    let d = data();
+    let r = plan_reference();
+    let (mut inputs, _) = plan_inputs(&d);
+    inputs.push(("cost", layer(&r["cost"])));
+    let m = &r["min_cost"];
+    let best = run("restoration.plan", inputs.clone(), serde_json::json!({"budget": m["budget"], "cell_area": 1.0}));
+    near("most benefit", number(&best, "summary", "benefit"), m["best_benefit"].as_f64().unwrap(), 1e-7);
+    let out =
+        run("restoration.plan", inputs.clone(), serde_json::json!({"min_benefit": m["benefit"], "cell_area": 1.0}));
+    assert_eq!(number(&out, "summary", "optimal"), 1.0);
+    let target = m["benefit"].as_f64().unwrap();
+    assert!(number(&out, "summary", "benefit") >= target);
+    near("cost", number(&out, "summary", "cost"), m["cost"].as_f64().unwrap(), 1e-6);
+    assert!(number(&out, "summary", "bound") <= number(&out, "summary", "cost"));
+    near("budget", number(&out, "summary", "cost"), m["budget"].as_f64().unwrap(), 1e-5);
+}
+
+/// plangea's post_choose_weights: a plan per set of weights, the values rescaled over the sets (the cost inverted),
+/// ranked by their mean over their deviation; landschaft's table, and the plan of the best set.
+#[test]
+fn compare_weights_is_landschafts() {
+    let d = data();
+    let r = plan_reference();
+    let (mut inputs, _) = plan_inputs(&d);
+    let w = &r["weights"];
+    inputs.push(("cost", layer(&r["cost"])));
+    let carbon = Value::Stack(Stack {
+        grid: grid(9, 11),
+        keys: vec![Key::Name("carbon".into())],
+        layers: vec![Arc::new(floats(&r["carbon"]))],
+    });
+    inputs.push(("linear", carbon));
+    let out = run(
+        "restoration.plan",
+        inputs,
+        serde_json::json!({"target": 8.0, "budget": 1e9, "cell_area": 1.0, "weights": w["sets"]}),
+    );
+    let Value::Table(t) = &out["weights"] else { panic!() };
+    assert_eq!(serde_json::json!(t.columns), w["columns"]);
+    for (k, (row, want)) in t.rows.iter().zip(w["rows"].as_array().unwrap()).enumerate() {
+        for (c, (a, b)) in row.iter().zip(&floats(want)).enumerate() {
+            let tol = if t.columns[c] == "rank" { 0.0 } else { 1e-5 };
+            assert!((a - b).abs() <= tol * b.abs().max(1.0), "row {k} {}: {a} != {b}", t.columns[c]);
+        }
+    }
+    let best = t.rows.iter().position(|r| *r.last().unwrap() == 1.0).unwrap();
+    near("the best set: its risk", number(&out, "benefits", "value"), t.rows[best][2], 1e-12);
+}
+
+/// The linear intactness benefit of converting (the footprint rises by increase x) and of conserving (the baseline
+/// loses the natural land by increase x threat; conserving spares it) is the derivative of the total intactness,
+/// as landschaft's test_intactness_of_conversion_and_conservation.
+#[test]
+fn intactness_of_conversion_and_conservation() {
+    let (ny, nx) = (7, 8);
+    let mut seed = 9u64;
+    let mut draw = || {
+        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        (seed >> 11) as f64 / (1u64 << 53) as f64
+    };
+    let share: Vec<f64> = (0..ny * nx).map(|_| draw() * 0.8).collect();
+    let hfi: Vec<f64> = (0..ny * nx).map(|_| 2.0 + draw() * 10.0).collect();
+    let inc: Vec<f64> = (0..ny * nx).map(|_| 1.0 + draw() * 3.0).collect();
+    let ones = vec![1.0; ny * nx];
+    let threat = vec![0.6; ny * nx];
+    let params = (terraflux_ops::restoration::intactness_gamma(), -0.2, 0.5);
+    let total = |h: Vec<f64>| -> f64 {
+        let out = run(
+            "restoration.intactness",
+            vec![("footprint", Value::Map(Map::new(grid(ny, nx), h)))],
+            serde_json::json!({"radius": 2, "cell_size": 1.0}),
+        );
+        let Value::Map(q) = &out["map"] else { panic!() };
+        q.data.iter().filter(|v| !v.is_nan()).sum()
+    };
+    for convert in [true, false] {
+        let (cons, conv) = if convert { (None, Some(share.as_slice())) } else { (Some(share.as_slice()), None) };
+        let mut p =
+            terraflux_ops::restoration_plan::Plan::with_actions(None, cons, conv, &ones, &threat, &ones, (ny, nx))
+                .unwrap();
+        p.add_intactness(&hfi, None, Some(&inc), 2, 1.0, params, (1.0, 1.0), false).unwrap();
+        let coef = p.linear[0].coef.clone();
+        let at = |k: usize, e: f64| {
+            let mut h = hfi.clone();
+            for (j, &c) in p.index.iter().enumerate() {
+                let x = if j == k { e } else { 0.0 };
+                h[c] += if convert { inc[c] * x } else { inc[c] * 0.6 * (share[c] - x) };
+            }
+            total(h)
+        };
+        for k in [0, 5, p.n() - 1] {
+            let fd = (at(k, 1e-5) - at(k, -1e-5)) / 2e-5;
+            assert!((coef[k] - fd).abs() <= 1e-5 * fd.abs(), "convert {convert} [{k}]: {} != {fd}", coef[k]);
+        }
+        assert!(coef.iter().all(|c| if convert { *c < 0.0 } else { *c > 0.0 }), "convert {convert}");
+    }
+}

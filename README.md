@@ -104,9 +104,10 @@ model file dropped on it or opened with it; started that way on Windows, it show
   the calibration of trade-offs (`prioritize.calibrate`).
 - **Restoration planning (plangea):** ecological intactness of a human footprint and its gradient as cells are
   restored, the original vegetation of converted land, the area of habitat of species; plangea's bits. The
-  restoration plan (`restoration.plan`): the most reduction of the species' extinction risk (and carbon) within
-  area targets and a budget, exact (a proven bound) or by plangea's steps; conservation and conversion, trade-off
-  curves, projected changes, the ecosystems' risk of collapse and their targets.
+  restoration plan (`restoration.plan`): the most reduction of the species' extinction risk (and carbon, and
+  ecological intactness) within area targets and a budget, exact (a proven bound) or by plangea's steps, or the
+  cheapest plan for a benefit; conservation and conversion, trade-off curves, sets of weights compared, projected
+  changes, the ecosystems' risk of collapse and their targets.
 - **Multi-action planning (prioriactions):** which units to monitor and which actions against which threats to
   take (`prioritize.actions`), prioriactions's model bit for bit.
 - **Rasters of any size:** opening a raster reads its header only; the viewer reads the tiles in view at the

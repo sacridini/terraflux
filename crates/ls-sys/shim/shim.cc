@@ -414,6 +414,19 @@ rust::Vec<double> rest_intactness_gradient(rust::Slice<const double> hfi, rust::
                                                      max_threads()));
 }
 
+SecantOut rest_intactness_secant(rust::Slice<const double> h0, rust::Slice<const double> tlo,
+                                 rust::Slice<const double> thi, std::int64_t ny, std::int64_t nx, double gamma,
+                                 double beta, double z, std::int32_t radius, double dx, double dy) {
+    check(static_cast<i64>(h0.size()) == ny * nx && h0.size() == tlo.size() && h0.size() == thi.size(),
+          "the footprint and the bounds of its reduction differ in size from ny x nx");
+    std::vector<double> sigma;
+    SecantOut out;
+    out.u0 = rest::intactness_secant(h0.data(), tlo.data(), thi.data(), ny, nx,
+                                     intactness_params(gamma, beta, z, radius, dx, dy), max_threads(), sigma);
+    out.sigma = to_rust<double>(sigma);
+    return out;
+}
+
 VegetationOut rest_original_vegetation(rust::Slice<const double> natural, std::int32_t k,
                                        rust::Slice<const double> anthropic, std::int32_t m, std::int64_t n,
                                        rust::Slice<const double> past, rust::Slice<const double> ecoregion,
