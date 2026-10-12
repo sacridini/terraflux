@@ -39,8 +39,8 @@ neutros (`nlm.*`) para testar fluxos sem dados. A ordem sugerida:
      objetivo de custo mínimo e a comparação de pesos;
    - **Feito** (0.11.0): os extras do Zonation (condições, retenção, conectividade, impactos, mapas de
      pré-processamento e pós-processamento), os 65 casos do landschaft;
-   - no prioritizr: unidades de planejamento em polígonos (dependem de vetores no builder) e o risco de
-     extinção como objetivo.
+   - **Feito** (0.12.0): o risco de extinção como objetivo do prioritizr (`min_extinction_risk`);
+   - no prioritizr: unidades de planejamento em polígonos (dependem de vetores no builder).
 
 ## Viewer
 

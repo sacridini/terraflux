@@ -264,6 +264,9 @@ pub enum Objective {
     MaxPhyloDiv(f64, String),
     /// add_max_phylo_end_objective(budget, tree)
     MaxPhyloEnd(f64, String),
+    /// landschaft's add_min_extinction_risk_objective(budget, z, segments): the least sum of the features'
+    /// species-area risk, 1 - (held / total)^z, piecewise linear through segments + 1 points (z one or per feature)
+    MinExtinctionRisk(f64, Vec<f64>, usize),
 }
 
 impl Objective {
@@ -278,6 +281,7 @@ impl Objective {
             Objective::MinPenalties(_) => "min_penalties",
             Objective::MaxPhyloDiv(..) => "max_phylo_div",
             Objective::MaxPhyloEnd(..) => "max_phylo_end",
+            Objective::MinExtinctionRisk(..) => "min_extinction_risk",
         }
     }
 
@@ -291,13 +295,14 @@ impl Objective {
             | Objective::MaxCover(b)
             | Objective::MinPenalties(b)
             | Objective::MaxPhyloDiv(b, _)
-            | Objective::MaxPhyloEnd(b, _) => Some(*b),
+            | Objective::MaxPhyloEnd(b, _)
+            | Objective::MinExtinctionRisk(b, ..) => Some(*b),
         }
     }
 
     /// The objectives whose model has no targets.
     pub fn no_targets(&self) -> bool {
-        matches!(self, Objective::MaxUtility(_) | Objective::MaxCover(_))
+        matches!(self, Objective::MaxUtility(_) | Objective::MaxCover(_) | Objective::MinExtinctionRisk(..))
     }
 
     /// The objectives that ignore the feature weights.
@@ -695,6 +700,32 @@ fn endemism_lengths(below: &[Vec<usize>], lengths: &[f64], totals: &[f64]) -> Ve
     out
 }
 
+/// The species-area exponent by default (Pereira & Daily 2006; plangea's).
+pub const SAR_Z: f64 = 0.25;
+
+/// The chords of g(r) = r^z through r_j = (j / segments)^(1 / z), j = 0..segments (equal steps of g): their
+/// intercepts and slopes. g is concave, so the interpolation is the least of the lines.
+pub fn sar_lines(z: f64, segments: usize) -> (Vec<f64>, Vec<f64>) {
+    let g: Vec<f64> = (0..=segments).map(|j| j as f64 / segments as f64).collect();
+    let r: Vec<f64> = g.iter().map(|g| g.powf(1.0 / z)).collect();
+    let s: Vec<f64> = (0..segments).map(|k| (g[k + 1] - g[k]) / (r[k + 1] - r[k])).collect();
+    ((0..segments).map(|k| g[k] - s[k] * r[k]).collect(), s)
+}
+
+/// Every feature's extinction risk by the species-area relationship, 1 - (held / total)^z (the share held clipped
+/// to [0, 1]; z one or one per feature).
+pub fn extinction_risk(held: &[f64], total: &[f64], z: &[f64]) -> Vec<f64> {
+    held.iter()
+        .zip(total)
+        .enumerate()
+        .map(|(f, (h, t))| {
+            let r = h / t;
+            let r = if r.is_nan() { 0.0 } else { r.clamp(0.0, 1.0) };
+            1.0 - r.powf(if z.len() == 1 { z[0] } else { z[f] })
+        })
+        .collect()
+}
+
 /// The model prioritizr's compile() gives for a problem, and its targets.
 pub fn compile(p: &Problem) -> Result<(Model, Targets), String> {
     let u = &p.units;
@@ -712,7 +743,11 @@ pub fn compile(p: &Problem) -> Result<(Model, Targets), String> {
     let t = if kind.no_targets() {
         // prioritizr's "fake" targets: one per feature (and zone)
         if zoned {
-            fake_zone_targets(u)
+            if matches!(kind, Objective::MinExtinctionRisk(..)) {
+                zones::sum_zone_targets(u)
+            } else {
+                fake_zone_targets(u)
+            }
         } else {
             Targets {
                 feature: (0..nf).collect(),
@@ -886,6 +921,62 @@ pub fn compile(p: &Problem) -> Result<(Model, Targets), String> {
             ncol_extra = nt;
             weight_cols = Some(n);
         }
+        Objective::MinExtinctionRisk(_, z, segments) => {
+            if z.len() != 1 && z.len() != nf {
+                return Err(format!("z: one value or one per feature ({nf})"));
+            }
+            // risk_f >= 1 - (c_k + s_k amount_f / total_f) for every chord k of the species-area curve
+            // (amount_f / total_f)^z: the least risk is 1 - the piecewise-linear r^z (Pereira & Daily 2006); the
+            // amounts as in max utility, then the risks
+            let abund: Vec<f64> = if zoned {
+                zones::positive_abundances(u, &t)
+            } else {
+                (0..nf).map(|f| seq_sum(&u.rij.row(f).1.iter().map(|v| v.max(0.0)).collect::<Vec<_>>())).collect()
+            };
+            let scale = 0.01 / seq_sum(cost);
+            obj = cost.iter().map(|c| c * scale).collect();
+            obj.extend(vec![0.0; nt]);
+            obj.extend(vec![1.0; nt]);
+            lb.extend(vec![0.0; 2 * nt]);
+            ub.extend_from_slice(&abund);
+            ub.extend(vec![1.0; nt]);
+            vtype.extend(vec!['C'; 2 * nt]);
+            rows.extend(0..nt);
+            cols.extend(n..n + nt);
+            vals.extend(vec![-1.0; nt]);
+            let mut sar_rhs = Vec::with_capacity(nt * segments);
+            let mut row = nt;
+            for f in 0..nt {
+                let total = t.total[f];
+                let (c, sl) = sar_lines(if z.len() == 1 { z[0] } else { z[f] }, *segments);
+                for k in 0..*segments {
+                    if total > 0.0 {
+                        rows.extend([row, row]);
+                        cols.extend([n + f, n + nt + f]);
+                        vals.extend([sl[k] / total, 1.0]);
+                        sar_rhs.push(1.0 - c[k]);
+                    } else {
+                        // a feature with nothing: no risk to reduce
+                        rows.push(row);
+                        cols.push(n + nt + f);
+                        vals.push(1.0);
+                        sar_rhs.push(0.0);
+                    }
+                    row += 1;
+                }
+            }
+            budget_row(&mut rows, &mut cols, &mut vals, nt + nt * segments);
+            sense = [vec!["=".to_string(); nt], vec![">=".to_string(); nt * segments], bud_sense()].concat();
+            rhs = [vec![0.0; nt], sar_rhs, budgets.clone()].concat();
+            col_ids.extend(vec!["amount".to_string(); nt]);
+            col_ids.extend(vec!["extinction_risk".to_string(); nt]);
+            row_ids =
+                [vec!["spp_amount".to_string(); nt], vec!["extinction_risk".to_string(); nt * segments], bud_ids()]
+                    .concat();
+            nrow_extra = nt * segments + nb;
+            ncol_extra = 2 * nt;
+            weight_cols = Some(n + nt);
+        }
         Objective::MaxPhyloDiv(_, tree) | Objective::MaxPhyloEnd(_, tree) => {
             let (below, mut lengths) = tree_branches(tree, &u.names)?;
             if matches!(kind, Objective::MaxPhyloEnd(..)) {
@@ -965,7 +1056,11 @@ pub fn compile(p: &Problem) -> Result<(Model, Targets), String> {
             Some((0..u.nz()).flat_map(|z| m.iter().map(move |r| r[z])).collect())
         }
         (Some(_), _) => return Err("weights per feature and zone need an objective without targets".into()),
-        (None, Some(w)) if zoned && kind.no_targets() && w.len() == nf => Some(w.repeat(u.nz())),
+        (None, Some(w))
+            if zoned && kind.no_targets() && w.len() == nf && !matches!(kind, Objective::MinExtinctionRisk(..)) =>
+        {
+            Some(w.repeat(u.nz()))
+        }
         (None, w) => w.clone(),
     };
     if let Some(w) = &weights
@@ -2598,6 +2693,7 @@ pub fn rank_importance(
             Objective::MinPenalties(_) => Objective::MinPenalties(budgets[0]),
             Objective::MaxPhyloDiv(_, t) => Objective::MaxPhyloDiv(budgets[0], t.clone()),
             Objective::MaxPhyloEnd(_, t) => Objective::MaxPhyloEnd(budgets[0], t.clone()),
+            Objective::MinExtinctionRisk(_, z, k) => Objective::MinExtinctionRisk(budgets[0], z.clone(), *k),
         },
         ..p.clone()
     };

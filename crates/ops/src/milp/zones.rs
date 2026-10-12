@@ -416,6 +416,21 @@ pub fn fake_zone_targets(u: &Units) -> Targets {
     }
 }
 
+/// Every feature over all its zones (the extinction risk with zones): its total (the base feature's) as targets
+/// summed over the zones take it.
+pub fn sum_zone_targets(u: &Units) -> Targets {
+    let (nf, nz) = (u.names.len(), u.nz());
+    let every: Vec<usize> = (0..nz).collect();
+    Targets {
+        feature: (0..nf).collect(),
+        sense: vec!["?".into(); nf],
+        value: vec![0.0; nf],
+        total: u.base_totals.clone().unwrap_or_else(|| u.totals.clone()),
+        labels: vec![zone_label(u, &every); nf],
+        zone: vec![every; nf],
+    }
+}
+
 /// The targets' rows over the unit columns: every target's feature in each of its zones (triplets).
 pub fn zone_target_entries(u: &Units, t: &Targets) -> (Vec<usize>, Vec<usize>, Vec<f64>) {
     let (nu, nz) = (u.units(), u.nz());

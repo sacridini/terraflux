@@ -6,6 +6,15 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- The minimum extinction risk objective in `prioritize.optimize` (`min_extinction_risk`, landschaft's extension of
+  prioritizr): within the budget, the least sum of the features' species-area risk 1 - (held / total)^z (`z`
+  one or per feature), piecewise linear through `segments` + 1 points of the curve; feature weights, every
+  decision type, management zones (every feature over all its zones); the risks of the solution
+  (`extinction_risk`). `prioritize.evaluate`'s `extinction_z`: the features' exact risk and their sum. landschaft's
+  models bit for bit, its optima and risks (`tools/make_extinction_reference.py`); the optimum against
+  enumeration.
+
 ## [0.11.0] - 2026-10-12
 
 ### Added

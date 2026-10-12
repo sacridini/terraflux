@@ -803,6 +803,37 @@ fn named_map(args: &Args, port: &str, name: &str, (ny, nx): (usize, usize)) -> s
     Ok(s.layers[k].to_vec())
 }
 
+/// The species-area exponents of a setting (one, or one per feature), in (0, 1].
+fn z_of(args: &Args, name: &str) -> Result<Option<Vec<f64>>> {
+    let bad = |m: String| Error::msg(format!("node {:?}: {name}: {m}", args.node));
+    let z: Vec<f64> = match args.params.get(name) {
+        None | Some(serde_json::Value::Null) => return Ok(None),
+        Some(serde_json::Value::Number(x)) => vec![x.as_f64().unwrap()],
+        Some(v) => serde_json::from_value(v.clone()).map_err(|e| bad(e.to_string()))?,
+    };
+    if z.is_empty() || z.iter().any(|z| !(z.is_finite() && *z > 0.0 && *z <= 1.0)) {
+        return Err(bad("z must be in (0, 1]".into()));
+    }
+    Ok(Some(z))
+}
+
+/// The extinction risk of the features (their amount held and total; z one or per feature): a row per feature
+/// (its number, the share held, z, the risk) and their sum (the expected number of features lost) last.
+fn risk_table(held: &[f64], total: &[f64], z: &[f64]) -> Result<Table> {
+    if z.len() != 1 && z.len() != held.len() {
+        return Err(Error::msg(format!("z: one value or one per feature ({})", held.len())));
+    }
+    let risk = milp::extinction_risk(held, total, z);
+    let mut t = Table::new(["feature", "relative_held", "z", "extinction_risk"].map(String::from).to_vec());
+    for (f, r) in risk.iter().enumerate() {
+        let rel = held[f] / total[f];
+        let rel = if rel.is_nan() { 0.0 } else { rel.clamp(0.0, 1.0) };
+        t.rows.push(vec![(f + 1) as f64, rel, if z.len() == 1 { z[0] } else { z[f] }, *r]);
+    }
+    t.rows.push(vec![f64::NAN, f64::NAN, f64::NAN, risk.iter().sum()]);
+    Ok(t)
+}
+
 /// A table's column by name (its default when the table has none).
 fn column(t: &Table, name: &str) -> Option<Vec<f64>> {
     t.column(name)
@@ -1878,6 +1909,14 @@ pub fn problem_of(args: &Args) -> Result<milp::Problem> {
                 milp::Objective::MaxPhyloEnd(budget()?, tree)
             }
         }
+        "min_extinction_risk" => {
+            let z = z_of(args, "z")?.unwrap_or_else(|| vec![milp::SAR_Z]);
+            let segments: i64 = args.param("segments", 16)?;
+            if segments < 1 {
+                return Err(err("segments must be a whole number >= 1".into()));
+            }
+            milp::Objective::MinExtinctionRisk(budget()?, z, segments as usize)
+        }
         o => return Err(err(format!("unknown objective {o:?}"))),
     };
     let per_feature = |name: &str| -> Result<Option<Vec<f64>>> {
@@ -2286,11 +2325,27 @@ impl Operator for Optimize {
             "per target: its feature, the amount held, the target, the feature's total, and whether it is met \
              (of the first solution)",
         ))
+        .output(PortSpec::optional(
+            "extinction_risk",
+            Type::Table,
+            "min_extinction_risk: per feature its share held, z and species-area risk; their sum last",
+        ))
         .param(PortSpec::optional(
             "objective",
             Type::Text,
             "min_set (default), min_shortfall, min_largest_shortfall, max_utility, max_features, max_cover, \
-             min_penalties, max_phylo_div, max_phylo_end",
+             min_penalties, max_phylo_div, max_phylo_end, min_extinction_risk (landschaft's: the least sum of the \
+             features' species-area risk 1 - (held / total)^z within the budget)",
+        ))
+        .param(PortSpec::optional(
+            "z",
+            Type::Any,
+            "min_extinction_risk: the species-area exponent, one or one per feature, in (0, 1] (0.25)",
+        ))
+        .param(PortSpec::optional(
+            "segments",
+            Type::Integer,
+            "min_extinction_risk: the pieces of the linear risk curve (16; exact at their ends)",
         ))
         .param(PortSpec::optional(
             "budget",
@@ -2465,11 +2520,21 @@ impl Operator for Optimize {
             };
             coverage.rows.push(vec![(f + 1) as f64, held, t.value[k], t.total[k], f64::from(u8::from(met))]);
         }
+        let risk = match &p.objective {
+            milp::Objective::MinExtinctionRisk(_, z, _) => {
+                let held: Vec<f64> = coverage.rows.iter().map(|r| r[1]).collect();
+                Some(risk_table(&held, &t.total, z).map_err(|e| err(e.to_string()))?)
+            }
+            _ => None,
+        };
         let mut out = outputs([
             ("selection", Value::Table(selection)),
             ("summary", Value::Table(summary)),
             ("coverage", Value::Table(coverage)),
         ]);
+        if let Some(r) = risk {
+            out.insert("extinction_risk".into(), Value::Table(r));
+        }
         if u.raster {
             let grid = match args.get("zone_costs") {
                 Some(Value::Stack(s)) => s.grid.clone(),
@@ -2651,6 +2716,12 @@ fn evaluate_zoned(ctx: &mut Ctx, args: &Args, p: &milp::Problem) -> Result<Outpu
         .map(|k| vec![(k / nf) as f64, (k % nf + 1) as f64, e.total[k], e.held[k], e.held[k] / e.total[k]])
         .collect();
     let mut out = outputs([("summary", Value::Table(summary)), ("representation", Value::Table(rep))]);
+    // the extinction risk of every feature over all its zones (the totals: the base features')
+    if let Some(z) = z_of(args, "extinction_z")? {
+        let total: Vec<f64> = u.base_totals.clone().unwrap_or_else(|| e.total[..nf].to_vec());
+        let t = risk_table(&e.held[..nf], &total, &z).map_err(|x| Error::msg(format!("node {:?}: {x}", args.node)))?;
+        out.insert("extinction_risk".into(), Value::Table(t));
+    }
     if p.targets.is_some() && !p.objective.no_targets() {
         let (_, t) = milp::compile(p).map_err(err)?;
         let held = milp::zone_targets_held(u, &t, &s);
@@ -2841,6 +2912,16 @@ impl Operator for Evaluate {
         .param(PortSpec::optional("objective", Type::Text, "the problem's objective (as prioritize.optimize's)"))
         .param(PortSpec::optional("budget", Type::Number, "the objective's budget"))
         .param(PortSpec::optional("gap", Type::Number, "the solves' optimality gap (default 0.1)"))
+        .param(PortSpec::optional(
+            "extinction_z",
+            Type::Any,
+            "the features' extinction risk by the species-area relationship with this z (one or per feature)",
+        ))
+        .output(PortSpec::optional(
+            "extinction_risk",
+            Type::Table,
+            "with extinction_z: per feature its share held, z and risk 1 - share^z; their sum last",
+        ))
     }
 
     fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
@@ -2881,6 +2962,12 @@ impl Operator for Evaluate {
         let mut per_unit: Vec<(String, Vec<f64>)> =
             vec![("solution".into(), s.clone()), ("rarity".into(), milp::rare_richness(u, &s, rescale).map_err(err)?)];
         let mut out = outputs([("summary", Value::Table(summary)), ("representation", Value::Table(rep))]);
+        if let Some(z) = z_of(args, "extinction_z")? {
+            out.insert(
+                "extinction_risk".into(),
+                Value::Table(risk_table(&e.held, &u.totals, &z).map_err(|x| err(x.to_string()))?),
+            );
+        }
         let gap: f64 = args.param("gap", 0.1)?;
         if args.param("replacement", false)? {
             per_unit.push(("replacement".into(), milp::replacement_importance(&p, &s, gap, rescale).map_err(err)?));
