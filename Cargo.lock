@@ -3843,6 +3843,7 @@ dependencies = [
 name = "terraflux-ops"
 version = "0.10.0"
 dependencies = [
+ "cxx",
  "flate2",
  "hex",
  "rayon",

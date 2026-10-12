@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "nlm/rng.hpp"
+#include "prio/prio.hpp"
 #include "rust/cxx.h"
 
 namespace tfx {
@@ -39,6 +40,8 @@ struct GainOut;
 struct PrioStatsOut;
 struct PrioSettings;
 struct PrioRankOut;
+struct PrioDataInfo;
+struct PrioFlexOut;
 struct MarxanData;
 struct MarxanOptions;
 struct MarxanOut;
@@ -140,15 +143,40 @@ GainOut rest_habitat_gain(rust::Slice<const double> restore, rust::Slice<const d
 PrioStatsOut prio_stats(rust::Slice<const float> values, std::int32_t layers, std::int64_t ny, std::int64_t nx,
                         rust::Slice<const float> nodata, rust::Slice<const float> extract,
                         rust::Slice<const float> thresholds, rust::Slice<const std::uint8_t> area);
-// the ranking of the layers given (those with data), with Zonation's settings; cost, hmask and solution are maps
-// (ny x nx, empty for none) gathered at the cells with data as Zonation does
-PrioRankOut prio_rank(rust::Slice<const float> values, std::int32_t layers, std::int64_t ny, std::int64_t nx,
-                      rust::Slice<const float> nodata, rust::Slice<const float> extract,
-                      rust::Slice<const float> thresholds, rust::Slice<const float> max_values,
-                      rust::Slice<const std::uint8_t> keep_zeros, std::int32_t bits,
-                      rust::Slice<const std::uint8_t> area, std::int64_t block_rows, const PrioSettings& settings,
+// Zonation's quantized data (prio::Data) of the layers given (those with data): made, conditioned, filled (and
+// finished) by the layers (layers, ny, nx) with their conditions (conditions, ny, nx; empty for none), then
+// transformed (a layer replaced, retention, levels) before the ranking
+std::unique_ptr<prio::Data> prio_data_new(rust::Slice<const float> nodata, rust::Slice<const float> extract,
+                                          rust::Slice<const float> thresholds, rust::Slice<const float> max_values,
+                                          rust::Slice<const std::uint8_t> keep_zeros, std::int32_t bits);
+void prio_data_set_conditions(prio::Data& data, rust::Slice<const std::int32_t> condition,
+                              rust::Slice<const std::uint8_t> renormalize);
+void prio_data_add(prio::Data& data, rust::Slice<const float> values, std::int64_t ny, std::int64_t nx,
+                   rust::Slice<const std::uint8_t> area, rust::Slice<const float> conditions, std::int64_t block_rows);
+rust::Vec<std::int64_t> prio_data_cells(const prio::Data& data);
+PrioDataInfo prio_data_info(const prio::Data& data);
+rust::Vec<double> prio_data_layer(const prio::Data& data, std::int32_t layer, bool scaled, float missing);
+double prio_data_replace_layer(prio::Data& data, std::int32_t layer, rust::Slice<const float> values, double level);
+std::int64_t prio_data_retain(prio::Data& data, std::int32_t layer, std::int32_t kind, rust::Slice<const float> values,
+                              float fraction);
+rust::Vec<float> prio_data_preprocessing(const prio::Data& data, rust::Slice<const float> mult,
+                                         rust::Slice<const float> weights, bool unscaled);
+void prio_data_scale_level(prio::Data& data, std::int32_t layer, double factor);
+void prio_data_set_layer_values(prio::Data& data, std::int32_t layer, rust::Slice<const float> values);
+// the ranking, with Zonation's settings; cost, hmask and solution are maps (ny x nx, empty for none) gathered at
+// the cells with data as Zonation does
+PrioRankOut prio_rank(const prio::Data& data, const PrioSettings& settings, std::int64_t ny, std::int64_t nx,
                       rust::Slice<const double> cost, rust::Slice<const double> hmask,
                       rust::Slice<const double> solution);
+// Zonation's flexibility map of a ranking (its order and curves)
+PrioFlexOut prio_flexibility(const prio::Data& data, const PrioSettings& settings, std::int64_t ny, std::int64_t nx,
+                             rust::Slice<const double> cost, rust::Slice<const double> hmask,
+                             rust::Slice<const std::uint32_t> order, rust::Slice<const float> curve_rank,
+                             rust::Slice<const float> curve_levels, std::int64_t curve_interval, double max_error,
+                             bool up, bool down);
+// Zonation's (Eigen AVX) sums
+double prio_eigen_sum(rust::Slice<const double> values);
+float prio_eigen_sum_f32(rust::Slice<const float> values, std::int64_t offset);
 
 // Marxan 4 (opt::marxan): simulated annealing and iterative improvement of a reserve
 MarxanOut opt_marxan(const MarxanData& data, const MarxanOptions& options);

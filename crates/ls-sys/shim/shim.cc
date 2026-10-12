@@ -571,24 +571,101 @@ PrioStatsOut prio_stats(rust::Slice<const float> values, std::int32_t layers, st
     return out;
 }
 
-PrioRankOut prio_rank(rust::Slice<const float> values, std::int32_t layers, std::int64_t ny, std::int64_t nx,
-                      rust::Slice<const float> nodata, rust::Slice<const float> extract,
-                      rust::Slice<const float> thresholds, rust::Slice<const float> max_values,
-                      rust::Slice<const std::uint8_t> keep_zeros, std::int32_t bits,
-                      rust::Slice<const std::uint8_t> area, std::int64_t block_rows, const PrioSettings& settings,
-                      rust::Slice<const double> cost, rust::Slice<const double> hmask,
-                      rust::Slice<const double> solution) {
-    prio_check(values, layers, ny, nx, area);
+std::unique_ptr<prio::Data> prio_data_new(rust::Slice<const float> nodata, rust::Slice<const float> extract,
+                                          rust::Slice<const float> thresholds, rust::Slice<const float> max_values,
+                                          rust::Slice<const std::uint8_t> keep_zeros, std::int32_t bits) {
     check(bits == 8 || bits == 16, "bits is 8 or 16");
+    const std::int32_t layers = static_cast<std::int32_t>(nodata.size());
     const std::size_t L = static_cast<std::size_t>(layers);
     check(max_values.size() == L && keep_zeros.size() == L, "a maximum and a zero mode per layer");
+    return std::make_unique<prio::Data>(prio_rules(layers, nodata, extract, thresholds),
+                                        std::vector<float>(max_values.begin(), max_values.end()),
+                                        std::vector<std::uint8_t>(keep_zeros.begin(), keep_zeros.end()), bits);
+}
+
+void prio_data_set_conditions(prio::Data& data, rust::Slice<const std::int32_t> condition,
+                              rust::Slice<const std::uint8_t> renormalize) {
+    const std::size_t L = static_cast<std::size_t>(data.rules.layers);
+    check(condition.size() == L && renormalize.size() == L, "one condition and renormalize flag per layer");
+    data.condition.assign(condition.begin(), condition.end());
+    data.renormalize.assign(renormalize.begin(), renormalize.end());
+}
+
+void prio_data_add(prio::Data& data, rust::Slice<const float> values, std::int64_t ny, std::int64_t nx,
+                   rust::Slice<const std::uint8_t> area, rust::Slice<const float> conditions, std::int64_t block_rows) {
+    prio_check(values, data.rules.layers, ny, nx, area);
+    check(conditions.size() % static_cast<std::size_t>(ny * nx) == 0, "the conditions are (conditions, ny, nx)");
+    data.add_block(values.data(), ny, nx, area.empty() ? nullptr : area.data(),
+                   conditions.empty() ? nullptr : conditions.data(), block_rows > 0 ? block_rows : ny);
+    data.finish();
+    check(data.cells() > 0, "no cells with data");
+}
+
+rust::Vec<std::int64_t> prio_data_cells(const prio::Data& data) {
+    rust::Vec<std::int64_t> out;
+    out.reserve(data.cell_index.size());
+    for (i64 c : data.cell_index) out.push_back(c);
+    return out;
+}
+
+PrioDataInfo prio_data_info(const prio::Data& data) {
+    PrioDataInfo out;
+    out.bits = data.bits;
+    out.max_norm_sums = to_rust<double>(data.max_norm_sums);
+    out.orig_abs_sums = to_rust<double>(data.orig_abs_sums);
+    out.layer_scale = to_rust<double>(data.layer_scale);
+    out.initial_levels = to_rust<double>(data.initial_levels);
+    out.quantization_errors = to_rust<double>(data.quantization_errors);
+    return out;
+}
+
+rust::Vec<double> prio_data_layer(const prio::Data& data, std::int32_t layer, bool scaled, float missing) {
+    check(layer >= 0 && layer < data.rules.layers, "no such layer");
+    std::vector<double> out(static_cast<std::size_t>(data.cells()), static_cast<double>(missing));
+    const double sc = data.layer_scale[static_cast<std::size_t>(layer)];
+#pragma omp parallel for schedule(static)
+    for (i64 c = 0; c < data.cells(); ++c) {
+        const long q = data.value_at(c, layer);
+        if (q >= 0) out[static_cast<std::size_t>(c)] = scaled ? static_cast<double>(q) * sc : static_cast<double>(q);
+    }
+    return to_rust<double>(out);
+}
+
+double prio_data_replace_layer(prio::Data& data, std::int32_t layer, rust::Slice<const float> values, double level) {
+    return data.replace_layer(layer, std::vector<float>(values.begin(), values.end()), level);
+}
+
+std::int64_t prio_data_retain(prio::Data& data, std::int32_t layer, std::int32_t kind, rust::Slice<const float> values,
+                              float fraction) {
+    check(kind == 2 || static_cast<i64>(values.size()) == data.cells(), "retention: one value per data cell");
+    return data.retain(layer, kind, values.empty() ? nullptr : values.data(), fraction);
+}
+
+rust::Vec<float> prio_data_preprocessing(const prio::Data& data, rust::Slice<const float> mult,
+                                         rust::Slice<const float> weights, bool unscaled) {
+    const std::size_t L = static_cast<std::size_t>(data.rules.layers);
+    check(mult.size() == L && (weights.empty() || weights.size() == L), "one multiplier (and weight) per layer");
+    return to_rust<float>(data.preprocessing(mult.data(), weights.empty() ? nullptr : weights.data(), unscaled));
+}
+
+void prio_data_scale_level(prio::Data& data, std::int32_t layer, double factor) {
+    check(layer >= 0 && layer < data.rules.layers, "no such layer");
+    data.initial_levels[static_cast<std::size_t>(layer)] *= factor;
+}
+
+void prio_data_set_layer_values(prio::Data& data, std::int32_t layer, rust::Slice<const float> values) {
+    check(layer >= 0 && layer < data.rules.layers, "no such layer");
+    check(static_cast<i64>(values.size()) == data.cells(), "one value per data cell");
+    const float* v = values.data();
+    data.update_layer(layer, [v](i64 c, unsigned) { return static_cast<unsigned>(static_cast<std::uint16_t>(v[c])); });
+}
+
+namespace {
+
+prio::RankSettings rank_settings(const prio::Data& d, const PrioSettings& settings, rust::Slice<const double> cost,
+                                 rust::Slice<const double> hmask, rust::Slice<const double> solution, i64 n) {
+    const std::size_t L = static_cast<std::size_t>(d.rules.layers);
     check(settings.weights.size() == L && settings.abf_z.size() == L, "a weight and an ABF z per layer");
-    prio::Data d(prio_rules(layers, nodata, extract, thresholds), std::vector<float>(max_values.begin(), max_values.end()),
-                 std::vector<std::uint8_t>(keep_zeros.begin(), keep_zeros.end()), bits);
-    d.add_block(values.data(), ny, nx, area.empty() ? nullptr : area.data(), nullptr, block_rows > 0 ? block_rows : ny);
-    d.finish();
-    check(d.cells() > 0, "no cells with data");
-    const i64 n = ny * nx;
     prio::RankSettings s;
     s.rule = prio_rule(settings.rule);
     s.param = settings.param;
@@ -608,10 +685,17 @@ PrioRankOut prio_rank(rust::Slice<const float> values, std::int32_t layers, std:
     s.smoothing = settings.smoothing;
     s.curves_interval = settings.curves_interval;
     s.seed = settings.seed;
-    const prio::RankResult r = prio::rank(d, s);
+    return s;
+}
+
+}  // namespace
+
+PrioRankOut prio_rank(const prio::Data& d, const PrioSettings& settings, std::int64_t ny, std::int64_t nx,
+                      rust::Slice<const double> cost, rust::Slice<const double> hmask,
+                      rust::Slice<const double> solution) {
+    const prio::RankResult r = prio::rank(d, rank_settings(d, settings, cost, hmask, solution, ny * nx));
     PrioRankOut out;
-    out.cell_index.reserve(d.cell_index.size());
-    for (i64 c : d.cell_index) out.cell_index.push_back(c);
+    out.cell_index = prio_data_cells(d);
     out.rank = to_rust<float>(r.rank);
     out.order = to_rust<std::uint32_t>(r.order);
     out.iterations = r.iterations;
@@ -626,6 +710,36 @@ PrioRankOut prio_rank(rust::Slice<const float> values, std::int32_t layers, std:
     out.orig_abs_sums = to_rust<double>(d.orig_abs_sums);
     out.quantization_errors = to_rust<double>(d.quantization_errors);
     return out;
+}
+
+PrioFlexOut prio_flexibility(const prio::Data& d, const PrioSettings& settings, std::int64_t ny, std::int64_t nx,
+                             rust::Slice<const double> cost, rust::Slice<const double> hmask,
+                             rust::Slice<const std::uint32_t> order, rust::Slice<const float> curve_rank,
+                             rust::Slice<const float> curve_levels, std::int64_t curve_interval, double max_error,
+                             bool up, bool down) {
+    const prio::RankSettings s = rank_settings(d, settings, cost, hmask, {}, ny * nx);
+    prio::RankResult r;
+    r.order.assign(order.begin(), order.end());
+    r.curve_rank.assign(curve_rank.begin(), curve_rank.end());
+    r.curve_levels.assign(curve_levels.begin(), curve_levels.end());
+    r.curve_interval = curve_interval;
+    check(static_cast<i64>(r.order.size()) == d.cells(), "one position per cell");
+    check(r.curve_levels.size() == r.curve_rank.size() * static_cast<std::size_t>(d.rules.layers),
+          "curve levels: (samples, layers)");
+    std::vector<float> pos, neg;
+    prio::flexibility(d, s, r, max_error, up, down, pos, neg);
+    PrioFlexOut out;
+    out.up = to_rust<float>(pos);
+    out.down = to_rust<float>(neg);
+    return out;
+}
+
+double prio_eigen_sum(rust::Slice<const double> values) {
+    return prio::eigen_avx_sum(values.data(), static_cast<i64>(values.size()), 0);
+}
+
+float prio_eigen_sum_f32(rust::Slice<const float> values, std::int64_t offset) {
+    return prio::eigen_avx_sum(values.data(), static_cast<i64>(values.size()), offset);
 }
 
 MarxanOut opt_marxan(const MarxanData& data, const MarxanOptions& options) {

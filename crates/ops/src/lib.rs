@@ -43,6 +43,7 @@ pub mod validate;
 pub mod value;
 pub mod view;
 pub mod woe;
+pub mod zonation;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;

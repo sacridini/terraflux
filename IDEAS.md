@@ -37,7 +37,8 @@ neutros (`nlm.*`) para testar fluxos sem dados. A ordem sugerida:
    landschaft. Falta:
    - **Feito** (0.10.0): no planejador do plangea, o benefício de integridade (linearizado ou exato), o
      objetivo de custo mínimo e a comparação de pesos;
-   - os extras do Zonation: conectividade, impactos, retenção e pós-processamento;
+   - **Feito** (0.11.0): os extras do Zonation (condições, retenção, conectividade, impactos, mapas de
+     pré-processamento e pós-processamento), os 65 casos do landschaft;
    - no prioritizr: unidades de planejamento em polígonos (dependem de vetores no builder) e o risco de
      extinção como objetivo.
 

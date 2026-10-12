@@ -8,8 +8,8 @@ use std::sync::Arc;
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 use terraflux_ls_sys::ffi;
 
-use crate::milp;
 use crate::{Args, Ctx, Error, Key, Map, Operator, Outputs, Registry, Result, Stack, Table, Value, outputs};
+use crate::{milp, zonation};
 
 pub fn register(r: &mut Registry) {
     r.add(Arc::new(Zonation));
@@ -84,6 +84,20 @@ impl Operator for Zonation {
         .input(PortSpec::optional("hierarchic_mask", Type::Map, "levels 0-255: higher levels are removed last"))
         .input(PortSpec::optional("analysis_area", Type::Map, "the cells ranked (not 0, or the area given)"))
         .input(PortSpec::optional("solution", Type::Map, "the ranking LOAD evaluates"))
+        .input(PortSpec::optional(
+            "condition_maps",
+            Type::Stack,
+            "the condition of the features' habitat (0-1), a layer each, named in condition",
+        ))
+        .input(PortSpec::optional("retention_maps", Type::Stack, "the maps of retention, named in retention"))
+        .input(PortSpec::optional("resources", Type::Stack, "the interactions' resources, named in interaction"))
+        .input(PortSpec::optional("areas", Type::Map, "area numbers (0: none), for the statistics of areas"))
+        .input(PortSpec::optional("compare", Type::Map, "another solution, for the comparison"))
+        .input(PortSpec::optional(
+            "impact_maps",
+            Type::Stack,
+            "the impact scenarios' maps (sources, subareas, losses, pressures), named in them",
+        ))
         .output(PortSpec::new("rank", Type::Map, "the priority rank of each cell, 0-1"))
         .output(PortSpec::new(
             "curves",
@@ -98,6 +112,54 @@ impl Operator for Zonation {
         ))
         .output(PortSpec::new("auc", Type::Number, "the area under the curve of the mean remaining share"))
         .output(PortSpec::new("iterations", Type::Number, "the iterations of the ranking"))
+        .output(PortSpec::optional(
+            "preprocessing",
+            Type::Stack,
+            "with preprocessing: richness and range-size rarity of the features of positive, negative and zero \
+             weight and of every group (weighted too with weights)",
+        ))
+        .output(PortSpec::optional("transformed", Type::Stack, "with transformed: the features as ranked"))
+        .output(PortSpec::optional(
+            "area_statistics",
+            Type::Table,
+            "per set of features (weight class 1, -1, 0, or group) and area: size, mean rank, the features' sum \
+             (ds) and weighted (wds), relative to the average (rfd, wfd), cost",
+        ))
+        .output(PortSpec::optional("coverage", Type::Table, "per set and area: the share of every feature in it"))
+        .output(PortSpec::optional("area_mask", Type::Map, "the areas of a range of ranks (1) or its separate areas"))
+        .output(PortSpec::optional(
+            "comparison",
+            Type::Table,
+            "the cells chosen in both solutions, only in this, only in the other, in neither",
+        ))
+        .output(PortSpec::optional(
+            "comparison_map",
+            Type::Map,
+            "1 both, 2 only this, 3 only the other, 4 neither (0 no data)",
+        ))
+        .output(PortSpec::optional(
+            "histogram",
+            Type::Table,
+            "per set of features and bin of coverage: the count of features",
+        ))
+        .output(PortSpec::optional(
+            "impact_zones",
+            Type::Table,
+            "per subarea (0 all), impact group, source, zone (0 the footprint), feature and bin (-1 all): the \
+             feature's distribution in the zone, its loss and cells",
+        ))
+        .output(PortSpec::optional(
+            "impact_cumulative",
+            Type::Table,
+            "per subarea, impact group, phase (1 direct habitat loss, 2 cumulative pressures) and feature: its \
+             distribution, loss and cells",
+        ))
+        .output(PortSpec::optional("impact_maps", Type::Stack, "the impact of every group (ig<g>_zones...)"))
+        .output(PortSpec::optional(
+            "flexibility",
+            Type::Stack,
+            "how far each cell could move up, down and both in the order (shares of the cells)",
+        ))
         .param(PortSpec::optional("rule", Type::Text, "CAZ2 (default), CAZ1, CAZMAX, ABF, CAZP, CAZPW, RAND, LOAD"))
         .param(PortSpec::optional("rule_param", Type::Number, "ABF's z (0.25), CAZP's and CAZPW's p (1)"))
         .param(PortSpec::optional("weights", Type::Any, "a weight per feature (default 1)"))
@@ -122,6 +184,88 @@ impl Operator for Zonation {
         .param(PortSpec::optional("smoothing_factor", Type::Number, "default 0"))
         .param(PortSpec::optional("curves_interval", Type::Number, "the curves' step, a share of the cells"))
         .param(PortSpec::optional("seed", Type::Integer, "RAND's seed (default 0)"))
+        .param(PortSpec::optional(
+            "condition",
+            Type::Any,
+            "per feature: the layer of condition_maps its values are multiplied by (null: none; Zonation's -c)",
+        ))
+        .param(PortSpec::optional(
+            "renormalize",
+            Type::Any,
+            "per feature (or all): a conditioned feature back to level 1",
+        ))
+        .param(PortSpec::optional(
+            "retention",
+            Type::Any,
+            "per feature (-r): null, the fraction retained everywhere, a layer of retention_maps (fractions per \
+             cell) or {absolute: layer} (amounts per cell)",
+        ))
+        .param(PortSpec::optional(
+            "connectivity",
+            Type::Any,
+            "per feature (-d): null or a kernel {shape: uniform, triangular, negexp or gaussian, distance (cells), \
+             cut}: the feature smoothed by it",
+        ))
+        .param(PortSpec::optional(
+            "self_multiply",
+            Type::Any,
+            "per feature (or all): the smoothed feature times itself",
+        ))
+        .param(PortSpec::optional(
+            "interaction",
+            Type::Any,
+            "per feature (-i): null or {kernel, resource (a layer of resources), positive, beta, normalize}",
+        ))
+        .param(PortSpec::optional("interaction2", Type::Any, "per feature (-I): interactions after the matrices"))
+        .param(PortSpec::optional(
+            "matrix_connectivity",
+            Type::Any,
+            "per feature (-m): null or {kernel, matrix}: the features of a matrix smoothed and mixed by it",
+        ))
+        .param(PortSpec::optional(
+            "matrices",
+            Type::Any,
+            "{matrix: rows} (a row per source feature, a column per target, in the features' order)",
+        ))
+        .param(PortSpec::optional("groups", Type::Any, "an output group per feature (-1 none)"))
+        .param(PortSpec::optional("preprocessing", Type::Bool, "Zonation's pre-processing maps (-b)"))
+        .param(PortSpec::optional("impact_groups", Type::Any, "an impact group per feature (-1 none)"))
+        .param(PortSpec::optional(
+            "impact_bins",
+            Type::Any,
+            "per feature: null, 0 (ten bins) or the limits of the value classes its impacts are reported in",
+        ))
+        .param(PortSpec::optional(
+            "impact",
+            Type::Any,
+            "an impact scenario (-s): {sources (a layer of impact_maps), impacts: [{group, source, footprint (%), \
+             buffers: [[radius, %]...]}], subareas}",
+        ))
+        .param(PortSpec::optional(
+            "cumulative_impact",
+            Type::Any,
+            "a cumulative scenario (-e): {direct (sum, product), direct_rasters, direct_matrix, cumulative \
+             (variant1, variant2), pressures: [{raster, normalize, offset, divisor}], cumulative_matrix, \
+             aggregation (add, multiply, max), functions: [{group, pressure, points}], subareas}",
+        ))
+        .param(PortSpec::optional(
+            "area_statistics",
+            Type::Any,
+            "statistics of areas: \"areas\" (the map areas, the default with it), [min_rank, max_rank] or \
+             [min_rank, max_rank, min_size] (its separate 8-connected areas)",
+        ))
+        .param(PortSpec::optional(
+            "comparison",
+            Type::Any,
+            "[min_rank, max_rank, min_value, max_value]: the cells ranked so against those of compare valued so",
+        ))
+        .param(PortSpec::optional("histogram", Type::Any, "[min_rank, max_rank, bins]: the features' coverage"))
+        .param(PortSpec::optional(
+            "flexibility",
+            Type::Number,
+            "the flexibility map's max error (%): how far each cell could move before its loss differs by it",
+        ))
+        .param(PortSpec::optional("transformed", Type::Any, "per feature (or all): the feature as ranked (-f)"))
         .param(PortSpec::optional(
             "block_rows",
             Type::Integer,
@@ -246,20 +390,87 @@ impl Operator for Zonation {
             seed: args.param("seed", 0u64)?,
         };
         let block_rows: i64 = args.param("block_rows", 0)?;
+        let mut data =
+            ffi::prio_data_new(&pick(&nodata), &pick(&extract), &pick(&thresholds), &max_values, &keep_zeros, bits)?;
+        // conditions: a plane per distinct map, its cells without a value 0
+        let condition: Vec<Option<String>> = per_feature(args, "condition", l0)?;
+        let renormalize: Vec<bool> = per_layer(args, "renormalize", l0, false)?;
+        let mut cond_names: Vec<&str> = Vec::new();
+        let mut cond_index = vec![-1i32; l0];
+        for (i, c) in condition.iter().enumerate() {
+            if let Some(c) = c {
+                let at = cond_names.iter().position(|n| n == c).unwrap_or_else(|| {
+                    cond_names.push(c);
+                    cond_names.len() - 1
+                });
+                cond_index[i] = at as i32;
+            }
+        }
+        let mut conditions: Vec<f32> = Vec::new();
+        for c in &cond_names {
+            for v in named_map(args, "condition_maps", c, (ny, nx)).map_err(err)? {
+                let v = if v.is_nan() { 0.0 } else { v as f32 };
+                if !(0.0..=1.0).contains(&v) {
+                    return Err(err("condition maps must have values in [0, 1]".into()));
+                }
+                conditions.push(v);
+            }
+        }
+        if !cond_names.is_empty() {
+            let flags: Vec<u8> = kept.iter().map(|&i| u8::from(renormalize[i])).collect();
+            let index: Vec<i32> = kept.iter().map(|&i| cond_index[i]).collect();
+            ffi::prio_data_set_conditions(data.pin_mut(), &index, &flags)?;
+        }
+        ffi::prio_data_add(data.pin_mut(), &kept_values, ny as i64, nx as i64, &area, &conditions, block_rows)?;
+        let cells = ffi::prio_data_cells(&data);
+        // the connectivity transforms, then retention
+        let conn = zonation::Connectivity {
+            kernel: per_feature(args, "connectivity", l0)?,
+            self_multiply: per_layer(args, "self_multiply", l0, false)?,
+            interaction: per_feature(args, "interaction", l0)?,
+            interaction2: per_feature(args, "interaction2", l0)?,
+            matrix: per_feature(args, "matrix_connectivity", l0)?,
+            matrices: args.param("matrices", BTreeMap::new())?,
+        };
+        conn.check().map_err(err)?;
+        if conn.any() {
+            let resource = |name: &str| named_map(args, "resources", name, (ny, nx));
+            zonation::connect(&mut data, &kept, &cells, (ny, nx), &conn, &resource).map_err(err)?;
+        }
+        let retention: Vec<Option<zonation::Retention>> = per_feature(args, "retention", l0)?;
+        let retained = |name: &str| named_map(args, "retention_maps", name, (ny, nx));
+        zonation::retain(&mut data, &kept, &cells, &retention, &retained).map_err(err)?;
+        // the impact scenarios: the features of the impact groups lose what they take
+        let impact: Option<zonation::ImpactScenario> = args.opt_param("impact")?;
+        let cumulative: Option<zonation::CumulativeScenario> = args.opt_param("cumulative_impact")?;
+        let mut impacts = None;
+        if impact.is_some() || cumulative.is_some() {
+            let groups: Vec<i64> = per_layer(args, "impact_groups", l0, -1i64)?;
+            let bins: Vec<serde_json::Value> = per_feature(args, "impact_bins", l0)?
+                .into_iter()
+                .map(|b: Option<serde_json::Value>| b.unwrap_or(serde_json::Value::Null))
+                .collect();
+            let maps = |name: &str| named_map(args, "impact_maps", name, (ny, nx));
+            impacts = Some(
+                zonation::impacts(
+                    &mut data,
+                    &kept,
+                    &cells,
+                    (ny, nx),
+                    &groups,
+                    &bins,
+                    impact.as_ref(),
+                    cumulative.as_ref(),
+                    &maps,
+                )
+                .map_err(err)?,
+            );
+        }
         let r = ffi::prio_rank(
-            &kept_values,
-            k as i32,
+            &data,
+            &settings,
             ny as i64,
             nx as i64,
-            &pick(&nodata),
-            &pick(&extract),
-            &pick(&thresholds),
-            &max_values,
-            &keep_zeros,
-            bits,
-            &area,
-            block_rows,
-            &settings,
             &map_data("cost")?,
             &map_data("hierarchic_mask")?,
             &map_data("solution")?,
@@ -291,14 +502,305 @@ impl Operator for Zonation {
                 r.quantization_errors[j],
             ]);
         }
-        Ok(outputs([
+        let mut out = outputs([
             ("rank", Value::Map(Map::new(stack.grid.clone(), rank))),
             ("curves", Value::Table(curves)),
             ("features", Value::Table(features)),
             ("auc", Value::Number(r.auc)),
             ("iterations", Value::Number(f64::from(r.iterations))),
-        ]))
+        ]);
+        // the maps per data cell on the grid
+        let on_map = |v: &[f32]| -> Arc<Vec<f64>> {
+            let mut m = vec![f64::NAN; n];
+            for (&c, &x) in cells.iter().zip(v) {
+                m[c as usize] = f64::from(x);
+            }
+            Arc::new(m)
+        };
+        if let Some(imp) = impacts {
+            if impact.is_some() {
+                let mut t = Table::new(
+                    ["area", "group", "source", "zone", "layer", "bin", "distribution", "loss", "cells"]
+                        .map(String::from)
+                        .to_vec(),
+                );
+                t.rows = imp.zones.iter().map(|r| r.to_vec()).collect();
+                out.insert("impact_zones".into(), Value::Table(t));
+            }
+            if cumulative.is_some() {
+                let mut t = Table::new(
+                    ["area", "group", "phase", "layer", "distribution", "loss", "cells"].map(String::from).to_vec(),
+                );
+                t.rows = imp.cumulative.iter().map(|r| r.to_vec()).collect();
+                out.insert("impact_cumulative".into(), Value::Table(t));
+            }
+            if !imp.maps.is_empty() {
+                let layer = |v: &[f32]| Arc::new(v.iter().map(|x| f64::from(*x)).collect::<Vec<_>>());
+                out.insert(
+                    "impact_maps".into(),
+                    Value::Stack(Stack {
+                        grid: stack.grid.clone(),
+                        keys: imp.maps.iter().map(|(k, _)| Key::Name(k.clone())).collect(),
+                        layers: imp.maps.iter().map(|(_, v)| layer(v)).collect(),
+                    }),
+                );
+            }
+        }
+        let weights_on = args.params.get("weights").is_some_and(|v| !v.is_null()) || groups_given;
+        let groups: Option<Vec<i64>> = match args.params.get("groups") {
+            None | Some(serde_json::Value::Null) => None,
+            Some(_) => {
+                let g: Vec<i64> = per_layer(args, "groups", l0, -1i64)?;
+                Some(kept.iter().map(|&i| g[i]).collect())
+            }
+        };
+        if args.param("preprocessing", false)? {
+            let maps = zonation::preprocessing(&data, &w, weights_on, groups.as_deref()).map_err(err)?;
+            out.insert(
+                "preprocessing".into(),
+                Value::Stack(Stack {
+                    grid: stack.grid.clone(),
+                    keys: maps.iter().map(|(k, _)| Key::Name(k.clone())).collect(),
+                    layers: maps.iter().map(|(_, v)| on_map(v)).collect(),
+                }),
+            );
+        }
+        let flags: Vec<bool> = per_layer(args, "transformed", l0, false)?;
+        if flags.iter().any(|f| *f) {
+            let (mut keys, mut layers) = (Vec::new(), Vec::new());
+            for (j, &i) in kept.iter().enumerate() {
+                if flags[i] {
+                    keys.push(stack.keys[i].clone());
+                    layers.push(on_map(&zonation::transformed(&data, j).map_err(err)?));
+                }
+            }
+            out.insert("transformed".into(), Value::Stack(Stack { grid: stack.grid.clone(), keys, layers }));
+        }
+        self.post(
+            args,
+            &PostInput {
+                data: &data,
+                settings: &settings,
+                r: &r,
+                cells: &cells,
+                w: &w,
+                sets: zonation::feature_sets(&w, weights_on, groups.as_deref()),
+                names: &names,
+                grid: &stack.grid,
+                cost: map_data("cost")?,
+                hmask: map_data("hierarchic_mask")?,
+            },
+            &mut out,
+        )?;
+        Ok(out)
     }
+}
+
+/// What the post-processing analyses of a ranking read.
+struct PostInput<'a> {
+    data: &'a ffi::PrioData,
+    settings: &'a ffi::PrioSettings,
+    r: &'a ffi::PrioRankOut,
+    cells: &'a [i64],
+    w: &'a [f32],
+    sets: Vec<(String, Vec<usize>)>,
+    names: &'a [String],
+    grid: &'a Arc<terraflux_raster::Grid>,
+    cost: Vec<f64>,
+    hmask: Vec<f64>,
+}
+
+impl Zonation {
+    /// Zonation's post-processing analyses of the ranking: statistics of areas (external, a range of ranks, the
+    /// separate areas of a range), the comparison with another solution, the histogram of the features' coverage
+    /// and the flexibility map.
+    fn post(&self, args: &Args, p: &PostInput, out: &mut Outputs) -> Result<()> {
+        let node = args.node;
+        let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
+        let (ny, nx) = (p.grid.height, p.grid.width);
+        let n = ny * nx;
+        let rank = &p.r.rank;
+        let l = p.w.len();
+        // a set of features as its weight class (1, -1, 0) or its group
+        let set_cols = |set: &str| -> [f64; 2] {
+            match set {
+                "pos" => [1.0, f64::NAN],
+                "neg" => [-1.0, f64::NAN],
+                "zero" => [0.0, f64::NAN],
+                g => [f64::NAN, g.parse().unwrap_or(f64::NAN)],
+            }
+        };
+        let packed_map = |m: &Map| zonation::gather(&m.data, p.cells);
+        let grid_of = |v: &[f64], fill: f64| -> Vec<f64> {
+            let mut g = vec![fill; n];
+            for (&c, &x) in p.cells.iter().zip(v) {
+                g[c as usize] = x;
+            }
+            g
+        };
+        // statistics of areas
+        let areas_in = args.opt_map("areas")?;
+        let spec: Option<Vec<f64>> = match args.params.get("area_statistics") {
+            None | Some(serde_json::Value::Null) => None,
+            Some(serde_json::Value::String(s)) if s == "areas" => Some(Vec::new()),
+            Some(v) => Some(serde_json::from_value(v.clone()).map_err(|e| err(format!("area_statistics: {e}")))?),
+        };
+        let spec = spec.or_else(|| areas_in.map(|_| Vec::new()));
+        if let Some(spec) = spec {
+            let (mask, map): (Vec<i64>, Option<Vec<f64>>) = match spec.as_slice() {
+                [] => {
+                    let m = areas_in.ok_or_else(|| err("area_statistics: give the areas (a map)".into()))?;
+                    if m.data.len() != n {
+                        return Err(err("areas is not on the features' grid".into()));
+                    }
+                    (packed_map(m).iter().map(|v| v.round_ties_even() as i64).collect(), None)
+                }
+                [lo, hi] => {
+                    let mask = zonation::rank_range_mask(rank, *lo, *hi).map_err(err)?;
+                    let m = grid_of(&mask.iter().map(|v| *v as f64).collect::<Vec<_>>(), 0.0);
+                    (mask, Some(m))
+                }
+                [lo, hi, size] => {
+                    let full = grid_of(&rank.iter().map(|v| f64::from(*v)).collect::<Vec<_>>(), f64::NAN);
+                    let labels = zonation::separate_areas(&full, (ny, nx), *lo, *hi, *size as i64).map_err(err)?;
+                    let mask = p.cells.iter().map(|&c| labels[c as usize]).collect();
+                    (mask, Some(labels.iter().map(|v| *v as f64).collect()))
+                }
+                _ => {
+                    return Err(err(
+                        "area_statistics: \"areas\", [min_rank, max_rank] or [min_rank, max_rank, min_size]".into(),
+                    ));
+                }
+            };
+            let feats = zonation::features_float(p.data, l).map_err(err)?;
+            let cost: Option<Vec<f64>> =
+                (!p.cost.is_empty()).then(|| zonation::gather(&p.cost, p.cells).iter().map(|v| v.max(0.0)).collect());
+            let rows = zonation::area_statistics(&feats, p.w, cost.as_deref(), &p.sets, rank, &mask);
+            let mut stats = Table::new(
+                ["weights", "group", "area", "size", "avgrank", "ds", "wds", "rfd", "wfd", "cost"]
+                    .map(String::from)
+                    .to_vec(),
+            );
+            let mut cols: Vec<String> = ["weights", "group", "area"].map(String::from).to_vec();
+            cols.extend(p.names.iter().cloned());
+            let mut coverage = Table::new(cols);
+            for a in &rows {
+                let [wc, g] = set_cols(&a.set);
+                stats.rows.push(vec![
+                    wc,
+                    g,
+                    a.area as f64,
+                    a.size as f64,
+                    a.avgrank,
+                    a.ds,
+                    a.wds,
+                    a.rfd,
+                    a.wfd,
+                    a.cost,
+                ]);
+                let mut row = vec![wc, g, a.area as f64];
+                row.extend(vec![f64::NAN; l]);
+                for &(i, v) in &a.coverage {
+                    row[3 + i] = v;
+                }
+                coverage.rows.push(row);
+            }
+            out.insert("area_statistics".into(), Value::Table(stats));
+            out.insert("coverage".into(), Value::Table(coverage));
+            if let Some(m) = map {
+                out.insert("area_mask".into(), Value::Map(Map::new(p.grid.clone(), m)));
+            }
+        }
+        // the comparison with another solution
+        if let Some(v) = args.params.get("comparison").filter(|v| !v.is_null()) {
+            let range: [f64; 4] = serde_json::from_value(v.clone())
+                .map_err(|e| err(format!("comparison: {e} ([min_rank, max_rank, min_value, max_value])")))?;
+            let other = args.map("compare")?;
+            if other.data.len() != n {
+                return Err(err("compare is not on the features' grid".into()));
+            }
+            let (codes, counts) = zonation::compare(rank, &packed_map(other), range);
+            let mut t = Table::new(["both", "only_this", "only_other", "neither"].map(String::from).to_vec());
+            t.rows.push(counts.iter().map(|c| *c as f64).collect());
+            out.insert("comparison".into(), Value::Table(t));
+            let codes: Vec<f64> = codes.iter().map(|c| f64::from(*c)).collect();
+            out.insert("comparison_map".into(), Value::Map(Map::new(p.grid.clone(), grid_of(&codes, 0.0))));
+        }
+        // the histogram of the features' coverage
+        if let Some(v) = args.params.get("histogram").filter(|v| !v.is_null()) {
+            let (lo, hi, bins): (f64, f64, usize) = serde_json::from_value(v.clone())
+                .map_err(|e| err(format!("histogram: {e} ([min_rank, max_rank, bins])")))?;
+            let scalar = p.cells.len() as f64 / p.r.curve_interval as f64;
+            let h = zonation::histogram(&p.r.curve_rank, &p.r.curve_levels, l, scalar, &p.sets, (lo, hi, bins))
+                .map_err(err)?;
+            let mut t = Table::new(["weights", "group", "bin", "coverage_level", "count"].map(String::from).to_vec());
+            for (set, counts) in h {
+                let [wc, g] = set_cols(&set);
+                for (b, c) in counts.iter().enumerate() {
+                    t.rows.push(vec![wc, g, b as f64, f64::from(b as f32 / bins as f32), *c as f64]);
+                }
+            }
+            out.insert("histogram".into(), Value::Table(t));
+        }
+        // the flexibility map
+        if let Some(e) = args.opt_param::<f64>("flexibility")? {
+            if !(e > 0.0 && e < 100.0) {
+                return Err(err("flexibility: the max error should be between 0 and 100 (%)".into()));
+            }
+            let f = ffi::prio_flexibility(
+                p.data,
+                p.settings,
+                ny as i64,
+                nx as i64,
+                &p.cost,
+                &p.hmask,
+                &p.r.order,
+                &p.r.curve_rank,
+                &p.r.curve_levels,
+                p.r.curve_interval,
+                e / 100.0,
+                true,
+                true,
+            )?;
+            let both: Vec<f32> = f.up.iter().zip(&f.down).map(|(a, b)| a + b).collect();
+            let layer = |v: &[f32]| Arc::new(grid_of(&v.iter().map(|x| f64::from(*x)).collect::<Vec<_>>(), f64::NAN));
+            out.insert(
+                "flexibility".into(),
+                Value::Stack(Stack {
+                    grid: p.grid.clone(),
+                    keys: ["up", "down", "both"].map(|k| Key::Name(k.into())).to_vec(),
+                    layers: vec![layer(&f.up), layer(&f.down), layer(&both)],
+                }),
+            );
+        }
+        Ok(())
+    }
+}
+
+/// A setting with a value or null per feature (null: none for all).
+fn per_feature<T: serde::de::DeserializeOwned>(args: &Args, name: &str, n: usize) -> Result<Vec<Option<T>>> {
+    let bad = |e: String| Error::msg(format!("node {:?}: {name}: {e}", args.node));
+    match args.params.get(name) {
+        None | Some(serde_json::Value::Null) => Ok((0..n).map(|_| None).collect()),
+        Some(v) => {
+            let list: Vec<Option<T>> = serde_json::from_value(v.clone()).map_err(|e| bad(e.to_string()))?;
+            if list.len() != n {
+                return Err(bad(format!("{} values for {n} features (a list, null for none)", list.len())));
+            }
+            Ok(list)
+        }
+    }
+}
+
+/// A layer of a stack input by its name, on the features' grid.
+fn named_map(args: &Args, port: &str, name: &str, (ny, nx): (usize, usize)) -> std::result::Result<Vec<f64>, String> {
+    let s =
+        args.opt_stack(port).map_err(|e| e.to_string())?.ok_or_else(|| format!("{port}: no maps (for {name:?})"))?;
+    if (s.grid.height, s.grid.width) != (ny, nx) {
+        return Err(format!("{port} is not on the features' grid"));
+    }
+    let k = s.keys.iter().position(|k| k.to_string() == name).ok_or_else(|| format!("{port}: no map {name:?}"))?;
+    Ok(s.layers[k].to_vec())
 }
 
 /// A table's column by name (its default when the table has none).

@@ -497,8 +497,10 @@ Pendências:
   sub-bloco: as entradas do plangea (`restoration.intactness`, `intactness_gradient`, `original_vegetation` e
   `sdm.area_of_habitat`), bit a bit com as saídas do plangea. A causa de diferenças no último bit em testes
   anteriores era o serde_json, que sem `float_roundtrip` lia um decimal no double vizinho; corrigido. A ordem do
-  resto: Zonation (feito: `prioritize.zonation`, os 41 casos do grupo core bit a bit com o z5; falta a
-  conectividade, os impactos, a retenção e o pós-processamento), Marxan e ProxIRR (feitos: `prioritize.marxan`, os 8 casos iguais ao
+  resto: Zonation (feito: `prioritize.zonation`, os 41 casos do grupo core bit a bit com o z5; depois, em 0.11.0,
+  as condições, a retenção, a conectividade (a convolução por FFT em blocos portada para Rust), os impactos e o
+  pós-processamento, com os dados quantizados do C++ mantidos entre os passos: os 65 casos do landschaft),
+  Marxan e ProxIRR (feitos: `prioritize.marxan`, os 8 casos iguais ao
   Marxan 4.0.6; `prioritize.proxirr`, bit a bit com o proxirr do R; o Ferrier fica com o compilador, pois precisa
   do problema), o compilador do prioritizr (MILP; D1 feito:
   `prioritize.optimize` com unidades de raster, os objetivos sem termos espaciais, os alvos, pesos, decisões e
@@ -524,11 +526,10 @@ Pendências:
   sucessivos com o limite das secantes do C++ do landschaft), o custo mínimo (regula falsi no orçamento) e a
   comparação de pesos (o post_choose_weights do plangea), iguais aos planos do landschaft
   (`tools/make_plangea_plan_reference.py`).
-- **Próximos (2026-10-12):** os extras do Zonation (conectividade, impactos, retenção, pós-processamento); o
-  risco de extinção como objetivo do prioritizr; vetores (OGR) para rasterizar, medir distâncias e ter unidades
-  de planejamento em polígonos; o resto do GuidosToolbox (GTN, restoration, influence, isochrone, a mudança do
-  FAD multiescala, o heatmap e o delta do mosaico); o resto do `lsm`; MSPA por tiles para rasters maiores que a
-  memória; mapa de fundo de satélite (GDAL XYZ/WMS); instaladores com o GDAL.
+- **Próximos (2026-10-12):** o risco de extinção como objetivo do prioritizr; vetores (OGR) para rasterizar,
+  medir distâncias e ter unidades de planejamento em polígonos; o resto do GuidosToolbox (GTN, restoration,
+  influence, isochrone, a mudança do FAD multiescala, o heatmap e o delta do mosaico); o resto do `lsm`; MSPA por
+  tiles para rasters maiores que a memória; mapa de fundo de satélite (GDAL XYZ/WMS); instaladores com o GDAL.
 
 Pendências gerais, depois das fases:
 - regiões e demandas regionais, CLUMondo, FUTURES e MOLUSCE no Terraflux;

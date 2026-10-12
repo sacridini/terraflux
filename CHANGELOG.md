@@ -6,6 +6,26 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Zonation's transforms in `prioritize.zonation`, through landschaft's C++ quantized data (now kept between its
+  steps: `prio_data_*` in `terraflux-ls-sys`): conditions (`condition`, `renormalize`, `condition_maps`; -c),
+  retention (a fraction everywhere, fractions or amounts per cell; -r), the pre-processing maps (`preprocessing`:
+  richness and range-size rarity of the weight classes and groups, weighted; -b) and the features as ranked
+  (`transformed`; -f).
+- Zonation's connectivity transforms: single-feature smoothing with a dispersal kernel (uniform, triangular,
+  negexp, gaussian; times itself; -d), interactions with resources, positive or negative, before and after the
+  matrices (-i, -I), connectivity matrices (-m); Zonation's FFT convolution in blocks, in Rust.
+- Zonation's impact assessment: impact sources with footprints and rings (-s) and cumulative impacts (direct
+  habitat loss and pressures through response functions, -e), per subarea, source, zone and value bin; the
+  features lose what the scenarios take before the ranking (`impact_groups`, `impact_bins`, `impact`,
+  `cumulative_impact`, `impact_maps`; the tables `impact_zones` and `impact_cumulative`, the maps of the groups).
+- Zonation's post-processing of the ranking: statistics of areas (external, a range of ranks, its separate
+  8-connected areas) with the coverage of every feature, the comparison with another solution, the histogram of
+  the features' coverage and the flexibility map.
+- All of landschaft's Zonation cases: the 24 of the transform, connectivity, post-processing and impact groups
+  now with the 41 of the core, the ranks bit for bit with the z5 binary, the transformed and pre-processing maps,
+  the impact maps and the post-processing tables (word for word) too (`tools/make_zonation_inputs.py`).
+
 ## [0.10.0] - 2026-10-12
 
 ### Added

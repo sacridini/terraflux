@@ -1,6 +1,7 @@
 {
  "cases": {
   "caz1": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -16,6 +17,7 @@
    }
   },
   "caz2": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -31,6 +33,7 @@
    }
   },
   "cazmax": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -46,6 +49,7 @@
    }
   },
   "abf_025": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -62,6 +66,7 @@
    }
   },
   "abf_06": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -78,6 +83,7 @@
    }
   },
   "cazp_2": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -94,6 +100,7 @@
    }
   },
   "cazp_05": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -110,6 +117,7 @@
    }
   },
   "cazpw_3": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -126,6 +134,7 @@
    }
   },
   "caz2_16bit": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -142,6 +151,7 @@
    }
   },
   "abf_16bit": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -158,6 +168,7 @@
    }
   },
   "caz2_weights": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -182,6 +193,7 @@
    }
   },
   "caz1_negweights": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -207,6 +219,7 @@
    }
   },
   "caz2_negweights": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -232,6 +245,7 @@
    }
   },
   "cazmax_negweights": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -257,6 +271,7 @@
    }
   },
   "abf_025_negweights": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -283,6 +298,7 @@
    }
   },
   "cazpw_2_negweights": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -309,6 +325,7 @@
    }
   },
   "caz2_weightgroups": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -348,6 +365,7 @@
    }
   },
   "caz2_groups": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -382,6 +400,7 @@
    }
   },
   "caz2_threshold": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -406,6 +425,7 @@
    }
   },
   "abf_layer_z": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -432,6 +452,7 @@
    }
   },
   "caz2_zero_none": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -447,6 +468,7 @@
    }
   },
   "caz2_zero_dynamic": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -472,6 +494,7 @@
    }
   },
   "caz2_mixed": {
+   "group": "core",
    "layers": [
     "sp0",
     "pa0",
@@ -483,6 +506,7 @@
    "params": {}
   },
   "abf_mixed": {
+   "group": "core",
    "layers": [
     "sp0",
     "pa0",
@@ -496,6 +520,7 @@
    }
   },
   "caz1_presence": {
+   "group": "core",
    "layers": [
     "pa0",
     "pa1"
@@ -505,6 +530,7 @@
    }
   },
   "caz2_extract": {
+   "group": "core",
    "layers": [
     "landcover",
     "landcover",
@@ -521,6 +547,7 @@
    }
   },
   "caz2_cost_tracked": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -537,6 +564,7 @@
    }
   },
   "caz2_cost": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -552,6 +580,7 @@
    }
   },
   "abf_cost_negweights": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -578,6 +607,7 @@
    }
   },
   "caz2_hmask": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -593,6 +623,7 @@
    }
   },
   "caz2_hmask_cost": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -619,6 +650,7 @@
    }
   },
   "caz2_area_all": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -634,6 +666,7 @@
    }
   },
   "caz2_area_2": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -650,6 +683,7 @@
    }
   },
   "caz2_smoothing": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -665,6 +699,7 @@
    }
   },
   "caz2_maxiter": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -680,6 +715,7 @@
    }
   },
   "caz2_error": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -696,6 +732,7 @@
    }
   },
   "caz2_curves": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -711,6 +748,7 @@
    }
   },
   "load": {
+   "group": "core",
    "layers": [
     "sp0",
     "sp1",
@@ -727,6 +765,7 @@
    }
   },
   "big_caz2": {
+   "group": "core",
    "layers": [
     "big0",
     "big1",
@@ -744,6 +783,7 @@
    "params": {}
   },
   "big_abf": {
+   "group": "core",
    "layers": [
     "big0",
     "big1",
@@ -763,6 +803,7 @@
    }
   },
   "big_caz1_weights": {
+   "group": "core",
    "layers": [
     "big0",
     "big1",
@@ -794,6 +835,1769 @@
      4.0
     ]
    }
+  },
+  "caz2_condition": {
+   "group": "transform",
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "condition": [
+     "cond1",
+     null,
+     "cond2",
+     "cond1",
+     "cond1",
+     null,
+     "cond2",
+     "cond1"
+    ],
+    "renormalize": [
+     false,
+     false,
+     false,
+     false,
+     true,
+     false,
+     false,
+     true
+    ]
+   }
+  },
+  "abf_condition_16bit": {
+   "group": "transform",
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "rule": "ABF",
+    "bits": 16,
+    "condition": [
+     "cond1",
+     null,
+     "cond2",
+     "cond1",
+     "cond1",
+     null,
+     "cond2",
+     "cond1"
+    ],
+    "renormalize": [
+     false,
+     false,
+     false,
+     false,
+     true,
+     false,
+     false,
+     true
+    ]
+   }
+  },
+  "caz2_retention": {
+   "group": "transform",
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "retention": [
+     0.3,
+     null,
+     "retrel",
+     {
+      "absolute": "retabs"
+     },
+     0.75,
+     "retrel",
+     null,
+     {
+      "absolute": "retabs"
+     }
+    ]
+   }
+  },
+  "abf_retention_weights": {
+   "group": "transform",
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "rule": "ABF",
+    "weights": [
+     2.0,
+     1.0,
+     1.0,
+     3.0,
+     0.5,
+     1.0,
+     1.5,
+     1.0
+    ],
+    "retention": [
+     0.3,
+     null,
+     "retrel",
+     {
+      "absolute": "retabs"
+     },
+     0.75,
+     "retrel",
+     null,
+     {
+      "absolute": "retabs"
+     }
+    ]
+   }
+  },
+  "caz1_condition_retention_cost": {
+   "group": "transform",
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "rule": "CAZ1",
+    "weights": [
+     2.0,
+     1.0,
+     1.0,
+     3.0,
+     0.5,
+     1.0,
+     1.5,
+     1.0
+    ],
+    "condition": [
+     "cond1",
+     null,
+     "cond2",
+     "cond1",
+     "cond1",
+     null,
+     "cond2",
+     "cond1"
+    ],
+    "renormalize": [
+     false,
+     false,
+     false,
+     false,
+     true,
+     false,
+     false,
+     true
+    ],
+    "retention": [
+     0.3,
+     null,
+     "retrel",
+     {
+      "absolute": "retabs"
+     },
+     0.75,
+     "retrel",
+     null,
+     {
+      "absolute": "retabs"
+     }
+    ],
+    "cost": "cost"
+   }
+  },
+  "caz2_preprocessing": {
+   "group": "transform",
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "weights": [
+     2.0,
+     1.0,
+     -1.0,
+     3.0,
+     0.0,
+     1.0,
+     -0.5,
+     1.0
+    ],
+    "groups": [
+     1,
+     1,
+     2,
+     2,
+     2,
+     3,
+     3,
+     3
+    ],
+    "preprocessing": true,
+    "transformed": [
+     true,
+     false,
+     true,
+     true,
+     false,
+     false,
+     true,
+     false
+    ]
+   }
+  },
+  "caz2_preprocessing_plain": {
+   "group": "transform",
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "preprocessing": true,
+    "transformed": true
+   }
+  },
+  "caz2_preprocessing_all": {
+   "group": "transform",
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "weights": [
+     2.0,
+     1.0,
+     -1.0,
+     3.0,
+     0.0,
+     1.0,
+     -0.5,
+     1.0
+    ],
+    "groups": [
+     1,
+     1,
+     2,
+     2,
+     2,
+     3,
+     3,
+     3
+    ],
+    "preprocessing": true,
+    "transformed": [
+     true,
+     false,
+     true,
+     true,
+     false,
+     false,
+     true,
+     false
+    ],
+    "condition": [
+     "cond1",
+     null,
+     "cond2",
+     "cond1",
+     "cond1",
+     null,
+     "cond2",
+     "cond1"
+    ],
+    "renormalize": [
+     false,
+     false,
+     false,
+     false,
+     true,
+     false,
+     false,
+     true
+    ],
+    "retention": [
+     0.3,
+     null,
+     "retrel",
+     {
+      "absolute": "retabs"
+     },
+     0.75,
+     "retrel",
+     null,
+     {
+      "absolute": "retabs"
+     }
+    ]
+   }
+  },
+  "big_abf_retention": {
+   "group": "transform",
+   "layers": [
+    "big0",
+    "big1",
+    "big2",
+    "big3",
+    "big4",
+    "big5",
+    "big6",
+    "big7",
+    "big8",
+    "big9",
+    "big10",
+    "big11"
+   ],
+   "params": {
+    "rule": "ABF",
+    "retention": [
+     0.2,
+     null,
+     0.2,
+     null,
+     0.5,
+     null,
+     0.2,
+     null,
+     0.5,
+     null,
+     null,
+     0.2
+    ]
+   }
+  },
+  "conn_sf": {
+   "group": "connectivity",
+   "layers": [
+    "conn0",
+    "conn1",
+    "conn2",
+    "conn3",
+    "conn4"
+   ],
+   "params": {
+    "connectivity": [
+     {
+      "shape": "negexp",
+      "distance": 4.0,
+      "cut": 3.0
+     },
+     {
+      "shape": "gaussian",
+      "distance": 3.0,
+      "cut": 2.0
+     },
+     {
+      "shape": "uniform",
+      "distance": 5.0,
+      "cut": 1.0
+     },
+     {
+      "shape": "triangular",
+      "distance": 6.0,
+      "cut": 1.0
+     },
+     {
+      "shape": "negexp",
+      "distance": 40.0,
+      "cut": 3.0
+     }
+    ],
+    "self_multiply": [
+     false,
+     true,
+     false,
+     true,
+     false
+    ],
+    "transformed": true
+   }
+  },
+  "conn_sf_abf_16bit": {
+   "group": "connectivity",
+   "layers": [
+    "conn0",
+    "conn1",
+    "conn2",
+    "conn3",
+    "conn4"
+   ],
+   "params": {
+    "connectivity": [
+     {
+      "shape": "negexp",
+      "distance": 4.0,
+      "cut": 3.0
+     },
+     {
+      "shape": "gaussian",
+      "distance": 3.0,
+      "cut": 2.0
+     },
+     {
+      "shape": "uniform",
+      "distance": 5.0,
+      "cut": 1.0
+     },
+     {
+      "shape": "triangular",
+      "distance": 6.0,
+      "cut": 1.0
+     },
+     {
+      "shape": "negexp",
+      "distance": 40.0,
+      "cut": 3.0
+     }
+    ],
+    "self_multiply": [
+     false,
+     true,
+     false,
+     true,
+     false
+    ],
+    "transformed": true,
+    "rule": "ABF",
+    "bits": 16
+   }
+  },
+  "conn_sf_small": {
+   "group": "connectivity",
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "connectivity": [
+     {
+      "shape": "gaussian",
+      "distance": 3.0,
+      "cut": 2.0
+     },
+     null,
+     {
+      "shape": "negexp",
+      "distance": 4.0,
+      "cut": 3.0
+     },
+     {
+      "shape": "uniform",
+      "distance": 5.0,
+      "cut": 1.0
+     },
+     null,
+     {
+      "shape": "triangular",
+      "distance": 6.0,
+      "cut": 1.0
+     },
+     {
+      "shape": "negexp",
+      "distance": 4.0,
+      "cut": 3.0
+     },
+     null
+    ],
+    "self_multiply": [
+     true,
+     false,
+     false,
+     false,
+     false,
+     true,
+     false,
+     false
+    ],
+    "transformed": true
+   }
+  },
+  "conn_interaction": {
+   "group": "connectivity",
+   "layers": [
+    "conn0",
+    "conn1",
+    "conn2",
+    "conn3",
+    "conn4"
+   ],
+   "params": {
+    "interaction": [
+     {
+      "kernel": {
+       "shape": "negexp",
+       "distance": 3.0,
+       "cut": 4.0
+      },
+      "resource": "res1",
+      "positive": true,
+      "beta": 1.0,
+      "normalize": true
+     },
+     null,
+     {
+      "kernel": {
+       "shape": "gaussian",
+       "distance": 2.0,
+       "cut": 3.0
+      },
+      "resource": "res2",
+      "positive": false,
+      "beta": 0.8,
+      "normalize": true
+     },
+     {
+      "kernel": {
+       "shape": "negexp",
+       "distance": 5.0,
+       "cut": 2.0
+      },
+      "resource": "res1",
+      "positive": false,
+      "beta": 0.5,
+      "normalize": false
+     },
+     null
+    ],
+    "transformed": true
+   }
+  },
+  "conn_sf_interaction2": {
+   "group": "connectivity",
+   "layers": [
+    "conn0",
+    "conn1",
+    "conn2",
+    "conn3",
+    "conn4"
+   ],
+   "params": {
+    "connectivity": [
+     {
+      "shape": "negexp",
+      "distance": 4.0,
+      "cut": 3.0
+     },
+     {
+      "shape": "gaussian",
+      "distance": 3.0,
+      "cut": 2.0
+     },
+     {
+      "shape": "uniform",
+      "distance": 5.0,
+      "cut": 1.0
+     },
+     {
+      "shape": "triangular",
+      "distance": 6.0,
+      "cut": 1.0
+     },
+     {
+      "shape": "negexp",
+      "distance": 40.0,
+      "cut": 3.0
+     }
+    ],
+    "self_multiply": [
+     false,
+     true,
+     false,
+     true,
+     false
+    ],
+    "transformed": true,
+    "rule": "CAZ1",
+    "interaction2": [
+     null,
+     {
+      "kernel": {
+       "shape": "gaussian",
+       "distance": 2.0,
+       "cut": 3.0
+      },
+      "resource": "res2",
+      "positive": false,
+      "beta": 0.8,
+      "normalize": true
+     },
+     {
+      "kernel": {
+       "shape": "negexp",
+       "distance": 3.0,
+       "cut": 4.0
+      },
+      "resource": "res1",
+      "positive": true,
+      "beta": 1.0,
+      "normalize": true
+     },
+     null,
+     {
+      "kernel": {
+       "shape": "negexp",
+       "distance": 5.0,
+       "cut": 2.0
+      },
+      "resource": "res1",
+      "positive": false,
+      "beta": 0.5,
+      "normalize": false
+     }
+    ]
+   }
+  },
+  "conn_matrix": {
+   "group": "connectivity",
+   "layers": [
+    "conn0",
+    "conn1",
+    "conn2",
+    "conn3",
+    "conn4"
+   ],
+   "params": {
+    "matrix_connectivity": [
+     {
+      "kernel": {
+       "shape": "negexp",
+       "distance": 3.0,
+       "cut": 4.0
+      },
+      "matrix": "M"
+     },
+     {
+      "kernel": {
+       "shape": "negexp",
+       "distance": 3.0,
+       "cut": 4.0
+      },
+      "matrix": "M"
+     },
+     null,
+     {
+      "kernel": {
+       "shape": "gaussian",
+       "distance": 2.0,
+       "cut": 3.0
+      },
+      "matrix": "M"
+     },
+     null
+    ],
+    "matrices": {
+     "M": [
+      [
+       0.8,
+       0.1,
+       0.3
+      ],
+      [
+       0.2,
+       0.7,
+       0.0
+      ],
+      [
+       0.0,
+       0.2,
+       1.0
+      ]
+     ]
+    },
+    "transformed": true
+   }
+  },
+  "post_presence": {
+   "group": "post",
+   "layers": [
+    "pa0",
+    "pa1"
+   ],
+   "params": {
+    "rule": "CAZ1"
+   },
+   "post": [
+    [
+     "area_statistics_external",
+     [
+      "areas.tif",
+      "ext"
+     ]
+    ],
+    [
+     "area_statistics_rank_range",
+     [
+      0.8,
+      1.0,
+      "top"
+     ]
+    ],
+    [
+     "area_statistics_separate_areas",
+     [
+      0.7,
+      1.0,
+      5,
+      "sep"
+     ]
+    ],
+    [
+     "solution_comparison",
+     [
+      0.8,
+      1.0,
+      "sp7.tif",
+      0.5,
+      1.0,
+      "cmp"
+     ]
+    ],
+    [
+     "histogram",
+     [
+      0.8,
+      1.0,
+      10,
+      "h"
+     ]
+    ],
+    [
+     "histogram",
+     [
+      0.0,
+      1.0,
+      7,
+      ""
+     ]
+    ],
+    [
+     "flexibility_map",
+     [
+      2.0,
+      true,
+      true,
+      true,
+      "flex"
+     ]
+    ],
+    [
+     "flexibility_map",
+     [
+      10.0,
+      true,
+      false,
+      false,
+      "wide"
+     ]
+    ]
+   ]
+  },
+  "post_caz2": {
+   "group": "post",
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "weights": [
+     2.0,
+     1.0,
+     -1.0,
+     3.0,
+     0.0,
+     1.0,
+     -0.5,
+     1.0
+    ],
+    "groups": [
+     1,
+     1,
+     2,
+     2,
+     2,
+     3,
+     3,
+     3
+    ]
+   },
+   "post": [
+    [
+     "area_statistics_external",
+     [
+      "areas.tif",
+      "ext"
+     ]
+    ],
+    [
+     "area_statistics_rank_range",
+     [
+      0.8,
+      1.0,
+      "top"
+     ]
+    ],
+    [
+     "area_statistics_separate_areas",
+     [
+      0.7,
+      1.0,
+      5,
+      "sep"
+     ]
+    ],
+    [
+     "solution_comparison",
+     [
+      0.8,
+      1.0,
+      "sp7.tif",
+      0.5,
+      1.0,
+      "cmp"
+     ]
+    ],
+    [
+     "histogram",
+     [
+      0.8,
+      1.0,
+      10,
+      "h"
+     ]
+    ],
+    [
+     "histogram",
+     [
+      0.0,
+      1.0,
+      7,
+      ""
+     ]
+    ],
+    [
+     "flexibility_map",
+     [
+      2.0,
+      true,
+      true,
+      true,
+      "flex"
+     ]
+    ],
+    [
+     "flexibility_map",
+     [
+      10.0,
+      true,
+      false,
+      false,
+      "wide"
+     ]
+    ]
+   ]
+  },
+  "post_abf_cost_hmask": {
+   "group": "post",
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "rule": "ABF",
+    "weights": [
+     2.0,
+     1.0,
+     1.0,
+     3.0,
+     0.5,
+     1.0,
+     1.5,
+     1.0
+    ],
+    "cost": "cost",
+    "hierarchic_mask": "hmask"
+   },
+   "post": [
+    [
+     "area_statistics_external",
+     [
+      "areas.tif",
+      "ext"
+     ]
+    ],
+    [
+     "area_statistics_rank_range",
+     [
+      0.8,
+      1.0,
+      "top"
+     ]
+    ],
+    [
+     "area_statistics_separate_areas",
+     [
+      0.7,
+      1.0,
+      5,
+      "sep"
+     ]
+    ],
+    [
+     "solution_comparison",
+     [
+      0.8,
+      1.0,
+      "sp7.tif",
+      0.5,
+      1.0,
+      "cmp"
+     ]
+    ],
+    [
+     "histogram",
+     [
+      0.8,
+      1.0,
+      10,
+      "h"
+     ]
+    ],
+    [
+     "histogram",
+     [
+      0.0,
+      1.0,
+      7,
+      ""
+     ]
+    ],
+    [
+     "flexibility_map",
+     [
+      2.0,
+      true,
+      true,
+      true,
+      "flex"
+     ]
+    ],
+    [
+     "flexibility_map",
+     [
+      10.0,
+      true,
+      false,
+      false,
+      "wide"
+     ]
+    ]
+   ]
+  },
+  "post_cazp": {
+   "group": "post",
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "rule": "CAZP",
+    "rule_param": 0.5
+   },
+   "post": [
+    [
+     "area_statistics_external",
+     [
+      "areas.tif",
+      "ext"
+     ]
+    ],
+    [
+     "area_statistics_rank_range",
+     [
+      0.8,
+      1.0,
+      "top"
+     ]
+    ],
+    [
+     "area_statistics_separate_areas",
+     [
+      0.7,
+      1.0,
+      5,
+      "sep"
+     ]
+    ],
+    [
+     "solution_comparison",
+     [
+      0.8,
+      1.0,
+      "sp7.tif",
+      0.5,
+      1.0,
+      "cmp"
+     ]
+    ],
+    [
+     "histogram",
+     [
+      0.8,
+      1.0,
+      10,
+      "h"
+     ]
+    ],
+    [
+     "histogram",
+     [
+      0.0,
+      1.0,
+      7,
+      ""
+     ]
+    ],
+    [
+     "flexibility_map",
+     [
+      2.0,
+      true,
+      true,
+      true,
+      "flex"
+     ]
+    ],
+    [
+     "flexibility_map",
+     [
+      10.0,
+      true,
+      false,
+      false,
+      "wide"
+     ]
+    ]
+   ]
+  },
+  "imp_source": {
+   "group": "impact",
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "rule": "CAZ2",
+    "impact_groups": [
+     1,
+     1,
+     2,
+     -1,
+     2,
+     1,
+     -1,
+     2
+    ],
+    "impact_bins": [
+     0,
+     null,
+     [
+      0.1,
+      0.5,
+      1.0
+     ],
+     null,
+     [
+      0.3
+     ],
+     0,
+     null,
+     null
+    ],
+    "impact": {
+     "sources": "isrc",
+     "subareas": "subareas",
+     "name": "scen1",
+     "area_factor": 0.25,
+     "rasters": true,
+     "impacts": [
+      {
+       "group": 1,
+       "source": 1,
+       "footprint": 100.0,
+       "buffers": [
+        [
+         2,
+         50.0
+        ],
+        [
+         5,
+         20.0
+        ]
+       ]
+      },
+      {
+       "group": 1,
+       "source": 2,
+       "footprint": 80.0,
+       "buffers": [
+        [
+         3,
+         30.0
+        ]
+       ]
+      },
+      {
+       "group": 2,
+       "source": 1,
+       "footprint": 60.0,
+       "buffers": [
+        [
+         4,
+         25.0
+        ]
+       ]
+      },
+      {
+       "group": 2,
+       "source": 3,
+       "footprint": 90.0,
+       "buffers": []
+      }
+     ]
+    }
+   }
+  },
+  "imp_source_weights_abf": {
+   "group": "impact",
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "rule": "ABF 0.25",
+    "weights": [
+     2.0,
+     1.0,
+     1.0,
+     3.0,
+     0.5,
+     1.0,
+     1.5,
+     1.0
+    ],
+    "impact_groups": [
+     1,
+     1,
+     2,
+     -1,
+     2,
+     1,
+     -1,
+     2
+    ],
+    "impact_bins": [
+     0,
+     null,
+     [
+      0.1,
+      0.5,
+      1.0
+     ],
+     null,
+     [
+      0.3
+     ],
+     0,
+     null,
+     null
+    ],
+    "impact": {
+     "sources": "isrc",
+     "subareas": "subareas",
+     "name": "scen1",
+     "area_factor": 0.25,
+     "rasters": true,
+     "impacts": [
+      {
+       "group": 1,
+       "source": 1,
+       "footprint": 100.0,
+       "buffers": [
+        [
+         2,
+         50.0
+        ],
+        [
+         5,
+         20.0
+        ]
+       ]
+      },
+      {
+       "group": 1,
+       "source": 2,
+       "footprint": 80.0,
+       "buffers": [
+        [
+         3,
+         30.0
+        ]
+       ]
+      },
+      {
+       "group": 2,
+       "source": 1,
+       "footprint": 60.0,
+       "buffers": [
+        [
+         4,
+         25.0
+        ]
+       ]
+      },
+      {
+       "group": 2,
+       "source": 3,
+       "footprint": 90.0,
+       "buffers": []
+      }
+     ]
+    }
+   }
+  },
+  "imp_cumulative_v1_sum": {
+   "group": "impact",
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "rule": "CAZ2",
+    "impact_groups": [
+     1,
+     1,
+     2,
+     -1,
+     2,
+     1,
+     -1,
+     2
+    ],
+    "impact_bins": [
+     0,
+     null,
+     null,
+     null,
+     null,
+     0,
+     null,
+     null
+    ],
+    "cumulative_impact": {
+     "name": "cum1",
+     "subareas": "subareas",
+     "area_factor": 2.0,
+     "rasters": true,
+     "direct": "sum",
+     "direct_rasters": [
+      "dloss1",
+      "dloss2"
+     ],
+     "direct_matrix": [
+      [
+       1.0,
+       0.5
+      ],
+      [
+       0.0,
+       1.0
+      ]
+     ],
+     "cumulative": "variant1",
+     "pressures": [
+      {
+       "raster": "press1",
+       "normalize": true,
+       "offset": 0.0,
+       "divisor": 1.0
+      },
+      {
+       "raster": "press2",
+       "normalize": false,
+       "offset": 0.1,
+       "divisor": 2.0
+      }
+     ],
+     "cumulative_matrix": [
+      [
+       1.0,
+       0.5
+      ],
+      [
+       0.30000001192092896,
+       1.0
+      ]
+     ],
+     "aggregation": "add",
+     "functions": [
+      {
+       "group": 1,
+       "pressure": null,
+       "points": [
+        [
+         0.0,
+         0.0
+        ],
+        [
+         0.5,
+         0.2
+        ],
+        [
+         1.0,
+         0.6
+        ]
+       ]
+      },
+      {
+       "group": 2,
+       "pressure": null,
+       "points": [
+        [
+         0.1,
+         0.0
+        ],
+        [
+         0.4,
+         0.5
+        ],
+        [
+         0.9,
+         0.9
+        ]
+       ]
+      }
+     ]
+    }
+   }
+  },
+  "imp_cumulative_v2_product_multiply": {
+   "group": "impact",
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "rule": "ABF 0.25",
+    "impact_groups": [
+     1,
+     1,
+     2,
+     -1,
+     2,
+     1,
+     -1,
+     2
+    ],
+    "impact_bins": [
+     0,
+     null,
+     null,
+     null,
+     null,
+     0,
+     null,
+     null
+    ],
+    "cumulative_impact": {
+     "name": "cum1",
+     "subareas": "subareas",
+     "area_factor": 2.0,
+     "rasters": true,
+     "direct": "product",
+     "direct_rasters": [
+      "dloss1",
+      "dloss2"
+     ],
+     "direct_matrix": [
+      [
+       1.0,
+       0.5
+      ],
+      [
+       0.0,
+       1.0
+      ]
+     ],
+     "cumulative": "variant2",
+     "pressures": [
+      {
+       "raster": "press1",
+       "normalize": true,
+       "offset": 0.0,
+       "divisor": 1.0
+      },
+      {
+       "raster": "press2",
+       "normalize": false,
+       "offset": 0.1,
+       "divisor": 2.0
+      }
+     ],
+     "cumulative_matrix": null,
+     "aggregation": "multiply",
+     "functions": [
+      {
+       "group": 1,
+       "pressure": null,
+       "points": [
+        [
+         0.0,
+         0.0
+        ],
+        [
+         0.5,
+         0.2
+        ],
+        [
+         1.0,
+         0.6
+        ]
+       ]
+      },
+      {
+       "group": 1,
+       "pressure": 2,
+       "points": [
+        [
+         0.1,
+         0.0
+        ],
+        [
+         0.4,
+         0.5
+        ],
+        [
+         0.9,
+         0.9
+        ]
+       ]
+      },
+      {
+       "group": 2,
+       "pressure": null,
+       "points": [
+        [
+         0.1,
+         0.0
+        ],
+        [
+         0.4,
+         0.5
+        ],
+        [
+         0.9,
+         0.9
+        ]
+       ]
+      }
+     ]
+    }
+   }
+  },
+  "imp_both_v2_max": {
+   "group": "impact",
+   "layers": [
+    "sp0",
+    "sp1",
+    "sp2",
+    "sp3",
+    "sp4",
+    "sp5",
+    "sp6",
+    "sp7"
+   ],
+   "params": {
+    "rule": "CAZ1",
+    "weights": [
+     2.0,
+     1.0,
+     1.0,
+     3.0,
+     0.5,
+     1.0,
+     1.5,
+     1.0
+    ],
+    "impact_groups": [
+     1,
+     1,
+     2,
+     -1,
+     2,
+     1,
+     -1,
+     2
+    ],
+    "impact_bins": [
+     0,
+     null,
+     [
+      0.1,
+      0.5,
+      1.0
+     ],
+     null,
+     [
+      0.3
+     ],
+     0,
+     null,
+     null
+    ],
+    "impact": {
+     "sources": "isrc",
+     "subareas": "subareas",
+     "name": "scen1",
+     "area_factor": 0.25,
+     "rasters": true,
+     "impacts": [
+      {
+       "group": 1,
+       "source": 1,
+       "footprint": 100.0,
+       "buffers": [
+        [
+         2,
+         50.0
+        ],
+        [
+         5,
+         20.0
+        ]
+       ]
+      },
+      {
+       "group": 1,
+       "source": 2,
+       "footprint": 80.0,
+       "buffers": [
+        [
+         3,
+         30.0
+        ]
+       ]
+      },
+      {
+       "group": 2,
+       "source": 1,
+       "footprint": 60.0,
+       "buffers": [
+        [
+         4,
+         25.0
+        ]
+       ]
+      },
+      {
+       "group": 2,
+       "source": 3,
+       "footprint": 90.0,
+       "buffers": []
+      }
+     ]
+    },
+    "cumulative_impact": {
+     "name": "cum1",
+     "subareas": "subareas",
+     "area_factor": 2.0,
+     "rasters": true,
+     "direct": "sum",
+     "direct_rasters": [
+      "dloss1",
+      "dloss2"
+     ],
+     "direct_matrix": [
+      [
+       1.0,
+       0.5
+      ],
+      [
+       0.0,
+       1.0
+      ]
+     ],
+     "cumulative": "variant2",
+     "pressures": [
+      {
+       "raster": "press1",
+       "normalize": true,
+       "offset": 0.0,
+       "divisor": 1.0
+      },
+      {
+       "raster": "press2",
+       "normalize": false,
+       "offset": 0.1,
+       "divisor": 2.0
+      }
+     ],
+     "cumulative_matrix": null,
+     "aggregation": "max",
+     "functions": [
+      {
+       "group": 1,
+       "pressure": null,
+       "points": [
+        [
+         0.0,
+         0.0
+        ],
+        [
+         0.5,
+         0.2
+        ],
+        [
+         1.0,
+         0.6
+        ]
+       ]
+      },
+      {
+       "group": 1,
+       "pressure": 2,
+       "points": [
+        [
+         0.1,
+         0.0
+        ],
+        [
+         0.4,
+         0.5
+        ],
+        [
+         0.9,
+         0.9
+        ]
+       ]
+      },
+      {
+       "group": 2,
+       "pressure": null,
+       "points": [
+        [
+         0.1,
+         0.0
+        ],
+        [
+         0.4,
+         0.5
+        ],
+        [
+         0.9,
+         0.9
+        ]
+       ]
+      }
+     ]
+    }
+   }
   }
  },
  "nodata": {
@@ -810,13 +2614,29 @@
   "big7": null,
   "big8": null,
   "big9": null,
+  "cond1": null,
+  "cond2": null,
+  "conn0": null,
+  "conn1": null,
+  "conn2": null,
+  "conn3": null,
+  "conn4": null,
   "cost": null,
   "count": -9999.0,
+  "dloss1": null,
+  "dloss2": null,
   "hmask": null,
   "holes": null,
+  "isrc": null,
   "landcover": 0.0,
   "pa0": 255.0,
   "pa1": 255.0,
+  "press1": null,
+  "press2": null,
+  "res1": null,
+  "res2": null,
+  "retabs": null,
+  "retrel": null,
   "sp0": null,
   "sp1": null,
   "sp2": null,
@@ -824,6 +2644,7 @@
   "sp4": null,
   "sp5": null,
   "sp6": null,
-  "sp7": null
+  "sp7": null,
+  "subareas": null
  }
 }

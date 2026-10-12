@@ -281,6 +281,23 @@ pub mod ffi {
         quantization_errors: Vec<f64>,
     }
 
+    /// Zonation's data: its bits; per layer the sums of the normalized and of the input values, the scale of the
+    /// quantized values, the initial levels and the quantization errors (%).
+    struct PrioDataInfo {
+        bits: i32,
+        max_norm_sums: Vec<f64>,
+        orig_abs_sums: Vec<f64>,
+        layer_scale: Vec<f64>,
+        initial_levels: Vec<f64>,
+        quantization_errors: Vec<f64>,
+    }
+
+    /// Zonation's flexibility map per data cell: how far up and down the order a cell could move.
+    struct PrioFlexOut {
+        up: Vec<f32>,
+        down: Vec<f32>,
+    }
+
     /// Marxan's problem: per planning unit its cost and status (0 available, 1 initially in, 2 locked in, 3
     /// locked out), the features in it (offsets into spindex and amount, by unit), per feature its target,
     /// proportion target, SPF (below 0: Marxan's default) and occurrence target; per unit its fixed (external)
@@ -491,6 +508,11 @@ pub mod ffi {
         #[namespace = "nlm"]
         type RRng;
 
+        /// Zonation's quantized feature data.
+        #[namespace = "prio"]
+        #[cxx_name = "Data"]
+        type PrioData;
+
         fn set_threads(n: i32);
         fn max_threads() -> i32;
         fn rrng_new(seed: i32) -> UniquePtr<RRng>;
@@ -637,24 +659,79 @@ pub mod ffi {
             thresholds: &[f32],
             area: &[u8],
         ) -> Result<PrioStatsOut>;
-        fn prio_rank(
-            values: &[f32],
-            layers: i32,
-            ny: i64,
-            nx: i64,
+        /// Zonation's quantized data of the layers given (those with data); filled once (finished), then
+        /// transformed before the ranking.
+        fn prio_data_new(
             nodata: &[f32],
             extract: &[f32],
             thresholds: &[f32],
             max_values: &[f32],
             keep_zeros: &[u8],
             bits: i32,
+        ) -> Result<UniquePtr<PrioData>>;
+        fn prio_data_set_conditions(data: Pin<&mut PrioData>, condition: &[i32], renormalize: &[u8]) -> Result<()>;
+        /// The layers (layers, ny, nx), their conditions (conditions, ny, nx; empty: none), Zonation's blocks of
+        /// rows (0: one); the data finished.
+        fn prio_data_add(
+            data: Pin<&mut PrioData>,
+            values: &[f32],
+            ny: i64,
+            nx: i64,
             area: &[u8],
+            conditions: &[f32],
             block_rows: i64,
+        ) -> Result<()>;
+        /// The cells with data (their index in the map, row-major).
+        fn prio_data_cells(data: &PrioData) -> Vec<i64>;
+        fn prio_data_info(data: &PrioData) -> PrioDataInfo;
+        /// A layer per data cell, quantized or scaled (to the sum-normalized values), `missing` without data.
+        fn prio_data_layer(data: &PrioData, layer: i32, scaled: bool, missing: f32) -> Result<Vec<f64>>;
+        /// A layer replaced by transformed values per data cell, its level becoming `level`; the quantization
+        /// error (%).
+        fn prio_data_replace_layer(data: Pin<&mut PrioData>, layer: i32, values: &[f32], level: f64) -> Result<f64>;
+        /// Zonation's retention (kind 0 absolute values, 1 fractions per data cell, 2 the fraction everywhere); the
+        /// cells clipped.
+        fn prio_data_retain(
+            data: Pin<&mut PrioData>,
+            layer: i32,
+            kind: i32,
+            values: &[f32],
+            fraction: f32,
+        ) -> Result<i64>;
+        /// Zonation's pre-processing map per data cell: the sum of mult (times weights) times the values,
+        /// sum-normalized or scaled back to the inputs.
+        fn prio_data_preprocessing(data: &PrioData, mult: &[f32], weights: &[f32], unscaled: bool) -> Result<Vec<f32>>;
+        fn prio_data_scale_level(data: Pin<&mut PrioData>, layer: i32, factor: f64) -> Result<()>;
+        /// The quantized values of a layer where it has data (truncated to the storage type).
+        fn prio_data_set_layer_values(data: Pin<&mut PrioData>, layer: i32, values: &[f32]) -> Result<()>;
+        fn prio_rank(
+            data: &PrioData,
             settings: &PrioSettings,
+            ny: i64,
+            nx: i64,
             cost: &[f64],
             hmask: &[f64],
             solution: &[f64],
         ) -> Result<PrioRankOut>;
+        #[allow(clippy::too_many_arguments)]
+        fn prio_flexibility(
+            data: &PrioData,
+            settings: &PrioSettings,
+            ny: i64,
+            nx: i64,
+            cost: &[f64],
+            hmask: &[f64],
+            order: &[u32],
+            curve_rank: &[f32],
+            curve_levels: &[f32],
+            curve_interval: i64,
+            max_error: f64,
+            up: bool,
+            down: bool,
+        ) -> Result<PrioFlexOut>;
+        /// Zonation's (Eigen AVX) sum of doubles, and of floats from an offset of the packets.
+        fn prio_eigen_sum(values: &[f64]) -> f64;
+        fn prio_eigen_sum_f32(values: &[f32], offset: i64) -> f32;
         fn opt_marxan(data: &MarxanData, options: &MarxanOptions) -> Result<MarxanOut>;
         /// ProxIRR's alpha of every entry (a feature in a unit): its local and global amounts and target.
         fn proxirr_alpha(local: &[f64], global: &[f64], target: &[f64], triage: bool) -> Result<Vec<f64>>;

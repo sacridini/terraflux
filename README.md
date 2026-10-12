@@ -95,8 +95,8 @@ model file dropped on it or opened with it; started that way on Windows, it show
   landscape and in a moving window (`metrics.patch`, `metrics.class`, `metrics.landscape`, `metrics.window`), the
   same values as R's landscapemetrics; tables sorted, filtered and drawn as bars in the viewer, and the maps of a
   metric per patch or class.
-- **Spatial prioritization:** Zonation 5's ranking (`prioritize.zonation`), the same rank maps as the z5 binary;
-  Marxan 4's reserves (`prioritize.marxan`), the same runs as Marxan; ProxIRR's irreplaceability
+- **Spatial prioritization:** Zonation 5's ranking (`prioritize.zonation`), the same rank maps as the z5 binary,
+  with its conditions, retention, connectivity transforms, impact assessment and post-processing; Marxan 4's reserves (`prioritize.marxan`), the same runs as Marxan; ProxIRR's irreplaceability
   (`prioritize.proxirr`), R's proxirr's bits; prioritizr's integer programs (`prioritize.optimize`: min set, min
   shortfall, max utility, max features, phylogenetic diversity and more; boundary, connectivity and linear
   penalties, neighbour and contiguity constraints; planning units in maps or tables; portfolios), prioritizr's

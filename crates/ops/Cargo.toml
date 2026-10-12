@@ -8,6 +8,7 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
+cxx.workspace = true
 rayon.workspace = true
 wasmi = "0.51"
 wat = "1"
