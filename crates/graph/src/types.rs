@@ -39,6 +39,8 @@ pub enum Type {
     /// Rasters on disk, read where and as finely as needed (a file's bands, or the files of a series): a map
     /// or a stack where one is needed.
     Raster,
+    /// Vector features: geometries (points, lines, polygons) with attributes, in a coordinate system.
+    Vector,
 }
 
 impl Type {

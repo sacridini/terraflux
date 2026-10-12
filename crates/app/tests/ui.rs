@@ -677,3 +677,29 @@ fn templates_run() {
         assert!(r.is_ok(), "{}: {:?}", t.name, r.err());
     }
 }
+
+/// Vector features read in the builder: drawn (polygons, lines, points) beside their attributes.
+#[test]
+fn vectors_are_drawn_with_their_attributes() {
+    if terraflux_gdal::gdal().is_err() {
+        eprintln!("skipped: no GDAL");
+        return;
+    }
+    let mut h = harness(TerrafluxApp::new(None));
+    h.run_steps(2);
+    let r = terraflux_ops::Registry::standard();
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference/vectors/mixed.gpkg");
+        terraflux_app::builder::add(s, &r, "vector.read", &[("path", path.to_string_lossy().into_owned().into())])
+            .unwrap();
+    }
+    until(&mut h, "reading the vectors", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && matches!(s.preview_value(), Some(terraflux_ops::Value::Vector(_)))
+    });
+    let s = h.state().session.as_ref().unwrap();
+    let Some(terraflux_ops::Value::Vector(v)) = s.preview_value() else { panic!("{:?}", s.error) };
+    assert_eq!(v.len(), 6);
+    shot(&mut h, "22-vectors");
+}

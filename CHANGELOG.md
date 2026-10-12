@@ -6,6 +6,27 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Vector features in the model: a value type (`Vector`: geometries in 2-D, attributes as numbers or texts, the
+  coordinate system), read and written by OGR (`vector.read`, `vector.write`; GeoPackage, Shapefile, GeoJSON,
+  FlatGeobuf, KML...; a model's vector outputs written as GeoPackage), reprojected by PROJ where they meet a map
+  of another coordinate system.
+- `vector.rasterize`: features burnt into a map's grid as landschaft's rasterize, the same cells: polygons by
+  landschaft's C++ port of GDAL's rasterizer (centre rule or all touched), lines by GDAL, points by their cell;
+  an attribute or a value, replaced or added up, a fill.
+- `vector.zonal`: a map's (or every layer of a stack's) statistics in every polygon as landschaft's zonal_stats
+  (count, sum, mean, min, max, range, std, var, median, majority, minority, unique, percentiles).
+- `vector.exact_sum`: the coverage-weighted sums over polygons of exactextractr's exact_extract, bit for bit
+  (landschaft's port of exactextract).
+- `vector.distance`: the exact Euclidean distance from every cell to the features.
+- Planning units of polygons in `prioritize.optimize`, `evaluate` and `calibrate` (`polygons`, `cost_column`):
+  the features' amounts exactextractr's sums, the boundary penalties on the polygons' shared paths and the
+  contiguity on the polygons that touch; prioritizr's models bit for bit, its boundary and adjacency matrices of
+  polygons exactly (`tools/make_vector_inputs.py` writes the cases' polygons).
+- The viewer draws vector features (polygons, lines, points; zoom and pan, the feature under the pointer named)
+  beside their attributes, and saves them as GeoPackage, GeoJSON or Shapefile; "Open vectors..." in the builder.
+- The build links landschaft's io library (zones of polygons, exact sums).
+
 ## [0.12.0] - 2026-10-12
 
 ### Added

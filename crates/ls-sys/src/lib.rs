@@ -292,6 +292,15 @@ pub mod ffi {
         quantization_errors: Vec<f64>,
     }
 
+    /// The cells of zones (polygons) as runs of one row, [x0, x1) in row y; zone z owns the runs offsets[z] ..
+    /// offsets[z + 1].
+    struct RunsOut {
+        offsets: Vec<i64>,
+        y: Vec<i32>,
+        x0: Vec<i32>,
+        x1: Vec<i32>,
+    }
+
     /// Zonation's flexibility map per data cell: how far up and down the order a cell could move.
     struct PrioFlexOut {
         up: Vec<f32>,
@@ -729,6 +738,48 @@ pub mod ffi {
             up: bool,
             down: bool,
         ) -> Result<PrioFlexOut>;
+        /// The cells of polygons on an nx x ny grid (GDAL's geotransform `gt`, no rotation) as GDAL's rasterizer burns
+        /// them (centre rule or all touched): geometry g has the rings ring_offsets[geom_rings[g]] ..
+        /// ring_offsets[geom_rings[g + 1]] (even-odd over them), ring r the points ring_offsets[r] ..
+        /// ring_offsets[r + 1] of xy (x, y pairs).
+        fn io_polygon_runs(
+            xy: &[f64],
+            ring_offsets: &[i64],
+            geom_rings: &[i64],
+            gt: &[f64],
+            nx: i32,
+            ny: i32,
+            all_touched: bool,
+        ) -> Result<RunsOut>;
+        /// value[z] burnt into the cells of zone z of out (ny x nx), zone after zone (the later win), or added.
+        fn io_burn_runs(out: &mut [f64], ny: i32, nx: i32, runs: &RunsOut, value: &[f64], add: bool) -> Result<()>;
+        /// Statistics of every zone and band of values (bands, ny, nx; NaN no data): (zones, bands, stats); the
+        /// statistics landschaft's (0 count, 1 nodata, 2 sum, 3 mean, 4 min, 5 max, 6 range, 7 std, 8 var, 9
+        /// median, 10 majority, 11 minority, 12 unique, 13 percentile).
+        fn io_zonal_stats(
+            values: &[f64],
+            bands: i32,
+            ny: i32,
+            nx: i32,
+            runs: &RunsOut,
+            stats: &[i32],
+            percentiles: &[f64],
+        ) -> Result<Vec<f64>>;
+        /// exactextractr's exact_extract(fun = "sum"): the coverage-weighted sums of every layer (layers, ny, nx)
+        /// over every feature (polygons: rings of xy points), features x layers. grid: xmin, ymin, xmax, ymax, dx,
+        /// dy.
+        #[allow(clippy::too_many_arguments)]
+        fn io_exact_sums(
+            values: &[f64],
+            layers: i64,
+            ny: i64,
+            nx: i64,
+            grid: &[f64],
+            xy: &[f64],
+            ring_offsets: &[i64],
+            polygon_offsets: &[i64],
+            feature_offsets: &[i64],
+        ) -> Result<Vec<f64>>;
         /// Zonation's (Eigen AVX) sum of doubles, and of floats from an offset of the packets.
         fn prio_eigen_sum(values: &[f64]) -> f64;
         fn prio_eigen_sum_f32(values: &[f32], offset: i64) -> f32;

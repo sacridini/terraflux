@@ -21,6 +21,7 @@ pub mod image;
 pub mod npy;
 pub mod resample;
 pub mod tiff;
+pub mod vector;
 
 use serde::{Deserialize, Serialize};
 

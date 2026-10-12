@@ -14,6 +14,7 @@ use std::ffi::{CStr, CString, c_char, c_int, c_uint, c_void};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
+use terraflux_raster::vector::{Column, Geometry, Vector};
 use terraflux_raster::{Band, DataType, GeoTags, Grid, Raster};
 
 pub type Result<T> = std::result::Result<T, String>;
@@ -77,6 +78,59 @@ struct Api {
     GDALComputeProximity: unsafe extern "C" fn(H, H, *mut *mut c_char, *const c_void, *mut c_void) -> c_int,
     GDALFillNodata:
         unsafe extern "C" fn(H, H, f64, c_int, c_int, *mut *mut c_char, *const c_void, *mut c_void) -> c_int,
+    GDALDatasetGetLayerCount: unsafe extern "C" fn(H) -> c_int,
+    GDALDatasetGetLayer: unsafe extern "C" fn(H, c_int) -> H,
+    GDALDatasetGetLayerByName: unsafe extern "C" fn(H, *const c_char) -> H,
+    GDALDatasetCreateLayer: unsafe extern "C" fn(H, *const c_char, H, c_int, *mut *mut c_char) -> H,
+    OGR_L_GetName: unsafe extern "C" fn(H) -> *const c_char,
+    OGR_L_ResetReading: unsafe extern "C" fn(H),
+    OGR_L_GetNextFeature: unsafe extern "C" fn(H) -> H,
+    OGR_L_GetLayerDefn: unsafe extern "C" fn(H) -> H,
+    OGR_L_GetSpatialRef: unsafe extern "C" fn(H) -> H,
+    OGR_L_CreateField: unsafe extern "C" fn(H, H, c_int) -> c_int,
+    OGR_L_CreateFeature: unsafe extern "C" fn(H, H) -> c_int,
+    OGR_FD_GetFieldCount: unsafe extern "C" fn(H) -> c_int,
+    OGR_FD_GetFieldDefn: unsafe extern "C" fn(H, c_int) -> H,
+    OGR_Fld_GetNameRef: unsafe extern "C" fn(H) -> *const c_char,
+    OGR_Fld_GetType: unsafe extern "C" fn(H) -> c_int,
+    OGR_Fld_Create: unsafe extern "C" fn(*const c_char, c_int) -> H,
+    OGR_Fld_Destroy: unsafe extern "C" fn(H),
+    OGR_F_Create: unsafe extern "C" fn(H) -> H,
+    OGR_F_Destroy: unsafe extern "C" fn(H),
+    OGR_F_IsFieldSetAndNotNull: unsafe extern "C" fn(H, c_int) -> c_int,
+    OGR_F_GetFieldAsDouble: unsafe extern "C" fn(H, c_int) -> f64,
+    OGR_F_GetFieldAsString: unsafe extern "C" fn(H, c_int) -> *const c_char,
+    OGR_F_SetFieldDouble: unsafe extern "C" fn(H, c_int, f64),
+    OGR_F_SetFieldString: unsafe extern "C" fn(H, c_int, *const c_char),
+    OGR_F_GetGeometryRef: unsafe extern "C" fn(H) -> H,
+    OGR_F_SetGeometryDirectly: unsafe extern "C" fn(H, H) -> c_int,
+    OGR_G_WkbSize: unsafe extern "C" fn(H) -> c_int,
+    OGR_G_ExportToIsoWkb: unsafe extern "C" fn(H, c_int, *mut u8) -> c_int,
+    OGR_G_CreateFromWkb: unsafe extern "C" fn(*const u8, H, *mut H, c_int) -> c_int,
+    OGR_G_DestroyGeometry: unsafe extern "C" fn(H),
+    OGR_G_Transform: unsafe extern "C" fn(H, H) -> c_int,
+    OSRNewSpatialReference: unsafe extern "C" fn(*const c_char) -> H,
+    OSRDestroySpatialReference: unsafe extern "C" fn(H),
+    OSRSetFromUserInput: unsafe extern "C" fn(H, *const c_char) -> c_int,
+    OSRExportToWkt: unsafe extern "C" fn(H, *mut *mut c_char) -> c_int,
+    OSRSetAxisMappingStrategy: unsafe extern "C" fn(H, c_int),
+    OSRIsSame: unsafe extern "C" fn(H, H) -> c_int,
+    OCTNewCoordinateTransformation: unsafe extern "C" fn(H, H) -> H,
+    OCTDestroyCoordinateTransformation: unsafe extern "C" fn(H),
+    VSIFree: unsafe extern "C" fn(*mut c_void),
+    GDALRasterizeGeometries: unsafe extern "C" fn(
+        H,
+        c_int,
+        *const c_int,
+        c_int,
+        *const H,
+        *const c_void,
+        *mut c_void,
+        *const f64,
+        *mut *mut c_char,
+        *const c_void,
+        *mut c_void,
+    ) -> c_int,
     CPLGetLastErrorMsg: unsafe extern "C" fn() -> *const c_char,
     CPLErrorReset: unsafe extern "C" fn(),
     CPLSetConfigOption: unsafe extern "C" fn(*const c_char, *const c_char),
@@ -223,6 +277,47 @@ impl Gdal {
             GDALSetRasterNoDataValue: f!(GDALSetRasterNoDataValue),
             GDALComputeProximity: f!(GDALComputeProximity),
             GDALFillNodata: f!(GDALFillNodata),
+            GDALDatasetGetLayerCount: f!(GDALDatasetGetLayerCount),
+            GDALDatasetGetLayer: f!(GDALDatasetGetLayer),
+            GDALDatasetGetLayerByName: f!(GDALDatasetGetLayerByName),
+            GDALDatasetCreateLayer: f!(GDALDatasetCreateLayer),
+            OGR_L_GetName: f!(OGR_L_GetName),
+            OGR_L_ResetReading: f!(OGR_L_ResetReading),
+            OGR_L_GetNextFeature: f!(OGR_L_GetNextFeature),
+            OGR_L_GetLayerDefn: f!(OGR_L_GetLayerDefn),
+            OGR_L_GetSpatialRef: f!(OGR_L_GetSpatialRef),
+            OGR_L_CreateField: f!(OGR_L_CreateField),
+            OGR_L_CreateFeature: f!(OGR_L_CreateFeature),
+            OGR_FD_GetFieldCount: f!(OGR_FD_GetFieldCount),
+            OGR_FD_GetFieldDefn: f!(OGR_FD_GetFieldDefn),
+            OGR_Fld_GetNameRef: f!(OGR_Fld_GetNameRef),
+            OGR_Fld_GetType: f!(OGR_Fld_GetType),
+            OGR_Fld_Create: f!(OGR_Fld_Create),
+            OGR_Fld_Destroy: f!(OGR_Fld_Destroy),
+            OGR_F_Create: f!(OGR_F_Create),
+            OGR_F_Destroy: f!(OGR_F_Destroy),
+            OGR_F_IsFieldSetAndNotNull: f!(OGR_F_IsFieldSetAndNotNull),
+            OGR_F_GetFieldAsDouble: f!(OGR_F_GetFieldAsDouble),
+            OGR_F_GetFieldAsString: f!(OGR_F_GetFieldAsString),
+            OGR_F_SetFieldDouble: f!(OGR_F_SetFieldDouble),
+            OGR_F_SetFieldString: f!(OGR_F_SetFieldString),
+            OGR_F_GetGeometryRef: f!(OGR_F_GetGeometryRef),
+            OGR_F_SetGeometryDirectly: f!(OGR_F_SetGeometryDirectly),
+            OGR_G_WkbSize: f!(OGR_G_WkbSize),
+            OGR_G_ExportToIsoWkb: f!(OGR_G_ExportToIsoWkb),
+            OGR_G_CreateFromWkb: f!(OGR_G_CreateFromWkb),
+            OGR_G_DestroyGeometry: f!(OGR_G_DestroyGeometry),
+            OGR_G_Transform: f!(OGR_G_Transform),
+            OSRNewSpatialReference: f!(OSRNewSpatialReference),
+            OSRDestroySpatialReference: f!(OSRDestroySpatialReference),
+            OSRSetFromUserInput: f!(OSRSetFromUserInput),
+            OSRExportToWkt: f!(OSRExportToWkt),
+            OSRSetAxisMappingStrategy: f!(OSRSetAxisMappingStrategy),
+            OSRIsSame: f!(OSRIsSame),
+            OCTNewCoordinateTransformation: f!(OCTNewCoordinateTransformation),
+            OCTDestroyCoordinateTransformation: f!(OCTDestroyCoordinateTransformation),
+            VSIFree: f!(VSIFree),
+            GDALRasterizeGeometries: f!(GDALRasterizeGeometries),
             CPLGetLastErrorMsg: f!(CPLGetLastErrorMsg),
             CPLErrorReset: f!(CPLErrorReset),
             CPLSetConfigOption: f!(CPLSetConfigOption),
@@ -734,4 +829,400 @@ pub fn warp_image(source: &str, crs: &str, extent: [f64; 4], width: usize, heigh
     }
     unsafe { (a.GDALClose)(out) };
     r.map(|_| px)
+}
+
+// ---------------------------------------------------------------------------------------------------- vectors
+
+impl Gdal {
+    /// A spatial reference from WKT (or anything OGR takes: EPSG:4326...), its axes in x, y order.
+    fn srs(&self, wkt: &str) -> Result<H> {
+        let h = unsafe { (self.api.OSRNewSpatialReference)(std::ptr::null()) };
+        if h.is_null() {
+            return Err("OGR: no spatial reference".into());
+        }
+        unsafe { (self.api.CPLErrorReset)() };
+        if unsafe { (self.api.OSRSetFromUserInput)(h, cstr(wkt).as_ptr()) } != 0 {
+            unsafe { (self.api.OSRDestroySpatialReference)(h) };
+            return Err(self.last_error("OGR cannot read the coordinate system"));
+        }
+        // OAMS_TRADITIONAL_GIS_ORDER: x (easting, longitude) first
+        unsafe { (self.api.OSRSetAxisMappingStrategy)(h, 0) };
+        Ok(h)
+    }
+
+    fn wkt_of(&self, srs: H) -> Option<String> {
+        if srs.is_null() {
+            return None;
+        }
+        let mut p: *mut c_char = std::ptr::null_mut();
+        unsafe { (self.api.OSRExportToWkt)(srs, &mut p) };
+        let w = text(p);
+        unsafe { (self.api.VSIFree)(p as *mut c_void) };
+        (!w.is_empty()).then_some(w)
+    }
+}
+
+/// The layers of a vector file.
+pub fn vector_layers(path: impl AsRef<Path>) -> Result<Vec<String>> {
+    let g = gdal().map_err(String::from)?;
+    let path = path.as_ref().to_string_lossy().into_owned();
+    let a = &g.api;
+    unsafe { (a.CPLErrorReset)() };
+    // GDAL_OF_VECTOR
+    let ds =
+        unsafe { (a.GDALOpenEx)(cstr(&path).as_ptr(), 0x04, std::ptr::null(), std::ptr::null(), std::ptr::null()) };
+    if ds.is_null() {
+        return Err(g.last_error(&format!("{path}: GDAL cannot open it as vectors")));
+    }
+    let n = unsafe { (a.GDALDatasetGetLayerCount)(ds) };
+    let names = (0..n).map(|i| text(unsafe { (a.OGR_L_GetName)((a.GDALDatasetGetLayer)(ds, i)) })).collect();
+    unsafe { (a.GDALClose)(ds) };
+    Ok(names)
+}
+
+/// The features of a layer of a vector file (the first without a name): every geometry (in 2-D), the attributes
+/// (numbers for OGR's integers and reals, texts for the others), the coordinate system.
+pub fn read_vector(path: impl AsRef<Path>, layer: Option<&str>) -> Result<Vector> {
+    let g = gdal().map_err(String::from)?;
+    let path = path.as_ref().to_string_lossy().into_owned();
+    let a = &g.api;
+    unsafe { (a.CPLErrorReset)() };
+    let ds =
+        unsafe { (a.GDALOpenEx)(cstr(&path).as_ptr(), 0x04, std::ptr::null(), std::ptr::null(), std::ptr::null()) };
+    if ds.is_null() {
+        return Err(g.last_error(&format!("{path}: GDAL cannot open it as vectors")));
+    }
+    let close = |r: Result<Vector>| {
+        unsafe { (a.GDALClose)(ds) };
+        r
+    };
+    let lyr = match layer {
+        Some(name) => unsafe { (a.GDALDatasetGetLayerByName)(ds, cstr(name).as_ptr()) },
+        None => unsafe { (a.GDALDatasetGetLayer)(ds, 0) },
+    };
+    if lyr.is_null() {
+        return close(Err(format!("{path}: no layer {}", layer.unwrap_or("(the file has none)"))));
+    }
+    let defn = unsafe { (a.OGR_L_GetLayerDefn)(lyr) };
+    let nf = unsafe { (a.OGR_FD_GetFieldCount)(defn) };
+    // OFTInteger 0, OFTReal 2, OFTInteger64 12: numbers
+    let fields: Vec<(String, bool)> = (0..nf)
+        .map(|i| {
+            let fd = unsafe { (a.OGR_FD_GetFieldDefn)(defn, i) };
+            let t = unsafe { (a.OGR_Fld_GetType)(fd) };
+            (text(unsafe { (a.OGR_Fld_GetNameRef)(fd) }), matches!(t, 0 | 2 | 12))
+        })
+        .collect();
+    let mut numbers: Vec<Vec<f64>> = fields.iter().map(|_| Vec::new()).collect();
+    let mut texts: Vec<Vec<String>> = fields.iter().map(|_| Vec::new()).collect();
+    let mut geometries = Vec::new();
+    unsafe { (a.OGR_L_ResetReading)(lyr) };
+    loop {
+        let f = unsafe { (a.OGR_L_GetNextFeature)(lyr) };
+        if f.is_null() {
+            break;
+        }
+        for (i, (_, num)) in fields.iter().enumerate() {
+            let set = unsafe { (a.OGR_F_IsFieldSetAndNotNull)(f, i as c_int) } != 0;
+            if *num {
+                numbers[i].push(if set { unsafe { (a.OGR_F_GetFieldAsDouble)(f, i as c_int) } } else { f64::NAN });
+            } else {
+                texts[i].push(if set {
+                    text(unsafe { (a.OGR_F_GetFieldAsString)(f, i as c_int) })
+                } else {
+                    String::new()
+                });
+            }
+        }
+        let gh = unsafe { (a.OGR_F_GetGeometryRef)(f) };
+        let geom = if gh.is_null() {
+            Ok(Geometry::Empty)
+        } else {
+            let n = unsafe { (a.OGR_G_WkbSize)(gh) } as usize;
+            let mut buf = vec![0u8; n];
+            // wkbNDR
+            unsafe { (a.OGR_G_ExportToIsoWkb)(gh, 1, buf.as_mut_ptr()) };
+            Geometry::from_wkb(&buf)
+        };
+        unsafe { (a.OGR_F_Destroy)(f) };
+        match geom {
+            Ok(g) => geometries.push(g),
+            Err(e) => return close(Err(format!("{path}: {e}"))),
+        }
+    }
+    let crs = g.wkt_of(unsafe { (a.OGR_L_GetSpatialRef)(lyr) });
+    let attributes = fields
+        .into_iter()
+        .zip(numbers.into_iter().zip(texts))
+        .map(|((name, num), (n, t))| (name, if num { Column::Numbers(n) } else { Column::Texts(t) }))
+        .collect();
+    close(Ok(Vector { geometries, attributes, crs }))
+}
+
+/// The driver of a vector file by its extension.
+fn vector_driver(path: &Path) -> Result<&'static str> {
+    let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    Ok(match ext.as_str() {
+        "gpkg" => "GPKG",
+        "shp" => "ESRI Shapefile",
+        "geojson" | "json" => "GeoJSON",
+        "fgb" => "FlatGeobuf",
+        "kml" => "KML",
+        "gml" => "GML",
+        "csv" => "CSV",
+        e => {
+            return Err(format!(
+                "{}: no vector format for .{e} (gpkg, shp, geojson, fgb, kml, gml, csv)",
+                path.display()
+            ));
+        }
+    })
+}
+
+/// Features written to a vector file (its format by the extension; replaced if it exists), a layer named
+/// `layer`.
+pub fn write_vector(path: impl AsRef<Path>, layer: &str, v: &Vector) -> Result<()> {
+    let g = gdal().map_err(String::from)?;
+    let path = path.as_ref();
+    let a = &g.api;
+    let driver = unsafe { (a.GDALGetDriverByName)(cstr(vector_driver(path)?).as_ptr()) };
+    if driver.is_null() {
+        return Err(format!("{}: GDAL has no driver for it", path.display()));
+    }
+    if path.exists() {
+        std::fs::remove_file(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    }
+    let name = path.to_string_lossy().into_owned();
+    unsafe { (a.CPLErrorReset)() };
+    let ds = unsafe { (a.GDALCreate)(driver, cstr(&name).as_ptr(), 0, 0, 0, 0, std::ptr::null_mut()) };
+    if ds.is_null() {
+        return Err(g.last_error(&format!("{name}: GDAL cannot create it")));
+    }
+    let result = (|| -> Result<()> {
+        let srs = match &v.crs {
+            Some(w) => g.srs(w)?,
+            None => std::ptr::null_mut(),
+        };
+        // the geometry type: of the first geometry, else unknown (0)
+        let gtype = match v.geometries.iter().find(|g| !matches!(g, Geometry::Empty)) {
+            Some(Geometry::Point(_)) => 1,
+            Some(Geometry::LineString(_)) => 2,
+            Some(Geometry::Polygon(_)) if v.geometries.iter().all(|g| !matches!(g, Geometry::MultiPolygon(_))) => 3,
+            Some(Geometry::MultiPoint(_)) => 4,
+            Some(Geometry::MultiLineString(_)) => 5,
+            Some(Geometry::Polygon(_) | Geometry::MultiPolygon(_)) => 6,
+            _ => 0,
+        };
+        let lyr = unsafe { (a.GDALDatasetCreateLayer)(ds, cstr(layer).as_ptr(), srs, gtype, std::ptr::null_mut()) };
+        if !srs.is_null() {
+            unsafe { (a.OSRDestroySpatialReference)(srs) };
+        }
+        if lyr.is_null() {
+            return Err(g.last_error(&format!("{name}: no layer created")));
+        }
+        for (n, c) in &v.attributes {
+            // OFTReal 2, OFTString 4
+            let fd =
+                unsafe { (a.OGR_Fld_Create)(cstr(n).as_ptr(), if matches!(c, Column::Numbers(_)) { 2 } else { 4 }) };
+            let e = unsafe { (a.OGR_L_CreateField)(lyr, fd, 1) };
+            unsafe { (a.OGR_Fld_Destroy)(fd) };
+            if e != 0 {
+                return Err(g.last_error(&format!("{name}: the field {n} cannot be made")));
+            }
+        }
+        let defn = unsafe { (a.OGR_L_GetLayerDefn)(lyr) };
+        for (k, geom) in v.geometries.iter().enumerate() {
+            let f = unsafe { (a.OGR_F_Create)(defn) };
+            for (i, (_, c)) in v.attributes.iter().enumerate() {
+                match c {
+                    Column::Numbers(x) if x[k].is_finite() => unsafe { (a.OGR_F_SetFieldDouble)(f, i as c_int, x[k]) },
+                    Column::Texts(t) if !t[k].is_empty() => unsafe {
+                        (a.OGR_F_SetFieldString)(f, i as c_int, cstr(&t[k]).as_ptr())
+                    },
+                    _ => {}
+                }
+            }
+            if !matches!(geom, Geometry::Empty) {
+                let wkb = geom.to_wkb();
+                let mut gh: H = std::ptr::null_mut();
+                let e =
+                    unsafe { (a.OGR_G_CreateFromWkb)(wkb.as_ptr(), std::ptr::null_mut(), &mut gh, wkb.len() as c_int) };
+                if e != 0 || gh.is_null() {
+                    unsafe { (a.OGR_F_Destroy)(f) };
+                    return Err(format!("{name}: feature {k}: OGR cannot read its geometry"));
+                }
+                unsafe { (a.OGR_F_SetGeometryDirectly)(f, gh) };
+            }
+            let e = unsafe { (a.OGR_L_CreateFeature)(lyr, f) };
+            unsafe { (a.OGR_F_Destroy)(f) };
+            if e != 0 {
+                return Err(g.last_error(&format!("{name}: feature {k} cannot be written")));
+            }
+        }
+        Ok(())
+    })();
+    unsafe { (a.GDALClose)(ds) };
+    result
+}
+
+/// The features in another coordinate system (WKT, EPSG:...): their geometries transformed by PROJ.
+pub fn reproject_vector(v: &Vector, to: &str) -> Result<Vector> {
+    let g = gdal().map_err(String::from)?;
+    let a = &g.api;
+    let from = v.crs.as_deref().ok_or("the features have no coordinate system")?;
+    let (src, dst) = (g.srs(from)?, g.srs(to)?);
+    let same = unsafe { (a.OSRIsSame)(src, dst) } != 0;
+    let out = (|| -> Result<Vector> {
+        let mut out = v.clone();
+        out.crs = g.wkt_of(dst);
+        if same {
+            return Ok(out);
+        }
+        let ct = unsafe { (a.OCTNewCoordinateTransformation)(src, dst) };
+        if ct.is_null() {
+            return Err(g.last_error("no transformation between the coordinate systems"));
+        }
+        let mut result = Ok(());
+        for geom in out.geometries.iter_mut().filter(|g| !matches!(g, Geometry::Empty)) {
+            let wkb = geom.to_wkb();
+            let mut gh: H = std::ptr::null_mut();
+            let e = unsafe { (a.OGR_G_CreateFromWkb)(wkb.as_ptr(), std::ptr::null_mut(), &mut gh, wkb.len() as c_int) };
+            if e != 0 || gh.is_null() {
+                result = Err("OGR cannot read a geometry".to_string());
+                break;
+            }
+            let e = unsafe { (a.OGR_G_Transform)(gh, ct) };
+            let n = unsafe { (a.OGR_G_WkbSize)(gh) } as usize;
+            let mut buf = vec![0u8; n];
+            unsafe { (a.OGR_G_ExportToIsoWkb)(gh, 1, buf.as_mut_ptr()) };
+            unsafe { (a.OGR_G_DestroyGeometry)(gh) };
+            if e != 0 {
+                result = Err(g.last_error("a geometry cannot be transformed"));
+                break;
+            }
+            *geom = Geometry::from_wkb(&buf)?;
+        }
+        unsafe { (a.OCTDestroyCoordinateTransformation)(ct) };
+        result.map(|_| out)
+    })();
+    unsafe {
+        (a.OSRDestroySpatialReference)(src);
+        (a.OSRDestroySpatialReference)(dst);
+    }
+    out
+}
+
+/// Whether two coordinate systems are the same (by OGR).
+pub fn same_crs(a_wkt: &str, b_wkt: &str) -> Result<bool> {
+    let g = gdal().map_err(String::from)?;
+    let (x, y) = (g.srs(a_wkt)?, g.srs(b_wkt)?);
+    let same = unsafe { (g.api.OSRIsSame)(x, y) } != 0;
+    unsafe {
+        (g.api.OSRDestroySpatialReference)(x);
+        (g.api.OSRDestroySpatialReference)(y);
+    }
+    Ok(same)
+}
+
+/// Geometries burnt into a grid (width x height, GDAL's geotransform) by GDAL's rasterizer, value k for geometry
+/// k, the later ones over the earlier (or added up); cells touched by a line or a polygon's edge with
+/// `all_touched`, else the cells whose centre it takes (polygons) or the line's cells (Bresenham's).
+#[allow(clippy::too_many_arguments)]
+pub fn rasterize(
+    out: &mut [f64],
+    width: usize,
+    height: usize,
+    transform: [f64; 6],
+    geometries: &[Geometry],
+    values: &[f64],
+    all_touched: bool,
+    add: bool,
+) -> Result<()> {
+    let g = gdal().map_err(String::from)?;
+    let a = &g.api;
+    if out.len() != width * height || geometries.len() != values.len() {
+        return Err("rasterize: the grid or the values differ in size".into());
+    }
+    let driver = unsafe { (a.GDALGetDriverByName)(cstr("MEM").as_ptr()) };
+    unsafe { (a.CPLErrorReset)() };
+    // GDT_Float64
+    let ds = unsafe {
+        (a.GDALCreate)(driver, cstr("").as_ptr(), width as c_int, height as c_int, 1, 7, std::ptr::null_mut())
+    };
+    if ds.is_null() {
+        return Err(g.last_error("rasterize: no grid in memory"));
+    }
+    let mut geoms: Vec<H> = Vec::new();
+    let result = (|| -> Result<()> {
+        unsafe { (a.GDALSetGeoTransform)(ds, transform.as_ptr()) };
+        let band = unsafe { (a.GDALGetRasterBand)(ds, 1) };
+        let io = |rw: c_int, buf: *mut f64| unsafe {
+            (a.GDALRasterIO)(
+                band,
+                rw,
+                0,
+                0,
+                width as c_int,
+                height as c_int,
+                buf as *mut c_void,
+                width as c_int,
+                height as c_int,
+                7,
+                0,
+                0,
+            )
+        };
+        if io(1, out.as_mut_ptr()) != 0 {
+            return Err(g.last_error("rasterize: the grid cannot be written"));
+        }
+        let mut burn = Vec::new();
+        for (geom, &v) in geometries.iter().zip(values) {
+            if matches!(geom, Geometry::Empty) {
+                continue;
+            }
+            let wkb = geom.to_wkb();
+            let mut h: H = std::ptr::null_mut();
+            if unsafe { (a.OGR_G_CreateFromWkb)(wkb.as_ptr(), std::ptr::null_mut(), &mut h, wkb.len() as c_int) } != 0 {
+                return Err("rasterize: OGR cannot read a geometry".into());
+            }
+            geoms.push(h);
+            burn.push(v);
+        }
+        let mut opts = Vec::new();
+        if all_touched {
+            opts.push("ALL_TOUCHED=TRUE".to_string());
+        }
+        if add {
+            opts.push("MERGE_ALG=ADD".to_string());
+        }
+        let mut opts = Argv::new(&opts);
+        let bands = [1 as c_int];
+        let e = unsafe {
+            (a.GDALRasterizeGeometries)(
+                ds,
+                1,
+                bands.as_ptr(),
+                geoms.len() as c_int,
+                geoms.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null_mut(),
+                burn.as_ptr(),
+                opts.ptrs.as_mut_ptr(),
+                std::ptr::null(),
+                std::ptr::null_mut(),
+            )
+        };
+        if e >= 3 {
+            return Err(g.last_error("rasterize"));
+        }
+        if io(0, out.as_mut_ptr()) != 0 {
+            return Err(g.last_error("rasterize: the grid cannot be read"));
+        }
+        Ok(())
+    })();
+    for h in geoms {
+        unsafe { (a.OGR_G_DestroyGeometry)(h) };
+    }
+    unsafe { (a.GDALClose)(ds) };
+    result
 }

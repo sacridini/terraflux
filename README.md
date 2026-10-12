@@ -111,6 +111,9 @@ model file dropped on it or opened with it; started that way on Windows, it show
   changes, the ecosystems' risk of collapse and their targets.
 - **Multi-action planning (prioriactions):** which units to monitor and which actions against which threats to
   take (`prioritize.actions`), prioriactions's model bit for bit.
+- **Vector features:** read and written by OGR (GeoPackage, Shapefile, GeoJSON...), drawn beside their
+  attributes; burnt into maps as landschaft's rasterize, the statistics of maps in polygons, exactextractr's sums
+  over polygons, distances to features; planning units of polygons for prioritizr's problems.
 - **Rasters of any size:** opening a raster reads its header only; the viewer reads the tiles in view at the
   screen's resolution (in threads, the coarser level shown meanwhile), so a raster of billions of cells shows
   in under half a second and zooms smoothly; a folder or a pattern (`forest/*.tif`) is one stack, a layer per

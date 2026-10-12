@@ -130,7 +130,7 @@ fn bare(n: &Node) -> Node {
 
 /// The size and time of the files a node reads (in its body too).
 fn files_read(n: &Node, h: &mut impl Hasher) {
-    if n.op == "raster.read"
+    if (n.op == "raster.read" || n.op == "vector.read")
         && let Some(serde_json::Value::String(p)) = n.params.get("path")
     {
         match std::fs::metadata(p) {

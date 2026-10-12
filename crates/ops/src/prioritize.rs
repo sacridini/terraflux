@@ -1468,6 +1468,9 @@ fn units_of(args: &Args) -> Result<milp::Units> {
             _ => None,
         }
     };
+    if let Some(Value::Vector(v)) = args.get("polygons") {
+        return polygon_units(args, v);
+    }
     let Some(pu) = table("pu") else {
         if let Some(Value::Stack(costs)) = args.get("zone_costs") {
             return zone_raster_units(args, costs);
@@ -1843,7 +1846,14 @@ fn terraflux_ops_label(v: f64) -> String {
 
 /// A square matrix of every unit from a table of triplets (i, j, x; 1-based, R's sparseMatrix).
 fn matrix_of(args: &Args, port: &str, n: usize) -> Result<Option<milp::Matrix>> {
-    let Some(Value::Table(t)) = args.get(port) else { return Ok(None) };
+    let Some(Value::Table(t)) = args.get(port) else {
+        // planning units of polygons: their boundaries and adjacency from the geometries
+        return Ok(match (args.get("polygons"), port) {
+            (Some(Value::Vector(v)), "boundary_data") => Some(crate::vector::boundary_matrix(&v.geometries)),
+            (Some(Value::Vector(v)), "adjacency_data") => Some(crate::vector::adjacency_matrix(&v.geometries)),
+            _ => None,
+        });
+    };
     let col = |c: &str| {
         t.column(c).ok_or_else(|| Error::msg(format!("node {:?}: {port} needs the columns i, j, x", args.node)))
     };
@@ -1860,6 +1870,40 @@ fn matrix_of(args: &Args, port: &str, n: usize) -> Result<Option<milp::Matrix>> 
             .collect()
     };
     Ok(Some(milp::Matrix { n, i: index(&i)?, j: index(&j)?, x }))
+}
+
+/// Planning units of polygons (prioritizr's sf units, landschaft's): the cost of a column (no value: not a unit),
+/// the features' amounts exactextract's coverage-weighted sums over every polygon (in the features' coordinate
+/// system; below 1e-10 nothing, prioritizr's fast_extract), the totals over every polygon in their order.
+fn polygon_units(args: &Args, v: &Arc<terraflux_raster::vector::Vector>) -> Result<milp::Units> {
+    let node = args.node;
+    let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
+    let features = args.stack("features")?;
+    let v = crate::vector::on_grid(v, &features.grid)?;
+    if let Some(i) = v.geometries.iter().position(|g| !g.is_polygonal()) {
+        return Err(err(format!("polygons: feature {} is no polygon", i + 1)));
+    }
+    let cost_column: String = args.param("cost_column", "cost".to_string())?;
+    let cost =
+        v.column(&cost_column).ok_or_else(|| err(format!("polygons: no cost column {cost_column:?}")))?.numbers();
+    let geoms: Vec<&terraflux_raster::vector::Geometry> = v.geometries.iter().collect();
+    let sums = crate::vector::exact_sums(&features.grid, &features.layers, &geoms)?;
+    let l = features.layers.len();
+    let (mut pu, mut sp, mut amount) = (Vec::new(), Vec::new(), Vec::new());
+    for f in 0..l {
+        for (u, row) in sums.chunks(l).enumerate() {
+            let a = row[f];
+            if a.abs() >= 1e-10 && a != 0.0 {
+                pu.push((u + 1) as f64);
+                sp.push((f + 1) as f64);
+                amount.push(a);
+            }
+        }
+    }
+    let ids: Vec<f64> = (1..=v.len()).map(|k| k as f64).collect();
+    let feature_ids: Vec<f64> = (1..=l).map(|k| k as f64).collect();
+    let names = features.keys.iter().map(|k| k.to_string()).collect();
+    milp::Units::rij(&ids, &cost, &feature_ids, names, (&pu, &sp, &amount)).map_err(err)
 }
 
 /// A problem of prioritizr from a node's inputs and settings.
@@ -2254,6 +2298,12 @@ impl Operator for Optimize {
         )
         .input(PortSpec::optional("features", Type::Stack, "the features' amounts, a layer each"))
         .input(PortSpec::optional("cost", Type::Map, "the cost of each cell (no value: not a planning unit)"))
+        .input(PortSpec::optional(
+            "polygons",
+            Type::Vector,
+            "planning units of polygons (with cost_column): the features' amounts summed over them exactly \
+             (exactextract), their shared boundaries and adjacency from the geometries",
+        ))
         .input(PortSpec::optional(
             "zone_costs",
             Type::Stack,
@@ -2841,6 +2891,12 @@ impl Operator for Evaluate {
         )
         .input(PortSpec::optional("features", Type::Stack, "the features' amounts, a layer each"))
         .input(PortSpec::optional("cost", Type::Map, "the cost of each cell (no value: not a planning unit)"))
+        .input(PortSpec::optional(
+            "polygons",
+            Type::Vector,
+            "planning units of polygons (with cost_column): the features' amounts summed over them exactly \
+             (exactextract), their shared boundaries and adjacency from the geometries",
+        ))
         .input(PortSpec::optional("pu", Type::Table, "tables instead of maps: as prioritize.optimize's"))
         .input(PortSpec::optional("spec", Type::Table, "Marxan-style: the features (id)"))
         .input(PortSpec::optional("rij", Type::Table, "Marxan-style: the amounts (pu, species, amount)"))
@@ -3186,6 +3242,12 @@ impl Operator for Calibrate {
         )
         .input(PortSpec::optional("features", Type::Stack, "the features' amounts, a layer each"))
         .input(PortSpec::optional("cost", Type::Map, "the cost of each cell (no value: not a planning unit)"))
+        .input(PortSpec::optional(
+            "polygons",
+            Type::Vector,
+            "planning units of polygons (with cost_column): the features' amounts summed over them exactly \
+             (exactextract), their shared boundaries and adjacency from the geometries",
+        ))
         .input(PortSpec::optional("pu", Type::Table, "tables instead of maps: as prioritize.optimize's"))
         .input(PortSpec::optional("spec", Type::Table, "Marxan-style: the features (id)"))
         .input(PortSpec::optional("rij", Type::Table, "Marxan-style: the amounts (pu, species, amount)"))

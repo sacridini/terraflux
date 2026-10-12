@@ -135,7 +135,8 @@ fn json<T: serde::Serialize>(v: &T) -> Result<String> {
 }
 
 /// Write a value to `path` (its extension set from the kind of value): maps and series of maps as GeoTIFF,
-/// tables as CSV, fitted models and numbers as JSON.
+/// tables as CSV, vectors as GeoPackage (or the vector format of the path's extension), fitted models and numbers
+/// as JSON.
 pub fn write_value(value: &Value, path: &Path, dtype: Option<&str>) -> Result<PathBuf> {
     match value {
         Value::Map(m) => write_maps(&m.grid, vec![(None, &m.data)], path, dtype),
@@ -176,6 +177,18 @@ pub fn write_value(value: &Value, path: &Path, dtype: Option<&str>) -> Result<Pa
         Value::Series(_) => Err(Error::Model("a series of mixed values cannot be written".into())),
         Value::Rng(_) => Err(Error::Model("a random generator cannot be written".into())),
         Value::Agents(a) => write_text(path, "csv", &a.to_table().to_csv()),
+        Value::Vector(v) => {
+            // GeoPackage, unless the path names another vector format
+            let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+            let vector = ["gpkg", "shp", "geojson", "json", "fgb", "kml", "gml"].contains(&ext.as_str());
+            let path = if vector { path.to_path_buf() } else { path.with_extension("gpkg") };
+            if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+                std::fs::create_dir_all(dir)?;
+            }
+            let layer = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "features".into());
+            terraflux_gdal::write_vector(&path, &layer, v).map_err(Error::Model)?;
+            Ok(path)
+        }
         Value::Raster(r) => {
             let path = path.with_extension("tif");
             let wanted = match dtype {

@@ -3805,6 +3805,7 @@ version = "0.12.0"
 dependencies = [
  "serde",
  "serde_json",
+ "terraflux-gdal",
  "terraflux-graph",
  "terraflux-ops",
  "terraflux-raster",

@@ -613,6 +613,21 @@ fn library(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library) {
         }
     }
     if ui
+        .add(egui::Button::new("Open vectors...").min_size(wide))
+        .on_hover_text("vector features (GeoPackage, Shapefile, GeoJSON...), read by GDAL")
+        .clicked()
+        && let Some(p) = rfd::FileDialog::new()
+            .set_title("Vector features")
+            .add_filter("Vectors", &["gpkg", "shp", "geojson", "json", "fgb", "kml", "gml"])
+            .add_filter("Every file", &["*"])
+            .pick_file()
+    {
+        let path = p.to_string_lossy().into_owned();
+        if let Err(e) = add(s, r, "vector.read", &[("path", path.into())]) {
+            s.editor.message = Some(e);
+        }
+    }
+    if ui
         .add(egui::Button::new("Open a folder as a stack...").min_size(wide))
         .on_hover_text(
             "every raster of a folder as one stack: a layer per band of each file, by the files' names (of one grid \
@@ -885,10 +900,16 @@ pub struct Shown {
     pub view: crate::map_view::MapView,
 }
 
-/// Where to save an output: a GeoTIFF for maps, else what the value is written as (CSV, JSON).
-fn save_dialog(node: &str, maps: bool) -> Option<PathBuf> {
+/// Where to save an output: a GeoTIFF for maps, a GeoPackage for vectors, else what the value is written as (CSV,
+/// JSON).
+fn save_dialog(node: &str, maps: bool, vector: bool) -> Option<PathBuf> {
     let d = rfd::FileDialog::new().set_title("Save");
-    let d = if maps {
+    let d = if vector {
+        d.add_filter("GeoPackage", &["gpkg"])
+            .add_filter("GeoJSON", &["geojson"])
+            .add_filter("Shapefile", &["shp"])
+            .set_file_name(format!("{node}.gpkg"))
+    } else if maps {
         d.add_filter("GeoTIFF", &["tif"]).set_file_name(format!("{node}.tif"))
     } else {
         d.add_filter("Table or value", &["csv", "json"]).set_file_name(node)
@@ -944,7 +965,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 ui.add_enabled_ui(can, |ui| {
                     ui.menu_button("Save output", |ui| {
                         if ui.button("As a file...").clicked() {
-                            if let Some(p) = save_dialog(&node, maps) {
+                            if let Some(p) = save_dialog(&node, maps, matches!(&value, Some(Value::Vector(_)))) {
                                 s.save_output(&node, &port, &p);
                             }
                             ui.close();
@@ -955,7 +976,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                                 .on_hover_text("the model writes it again at every run")
                                 .clicked()
                         {
-                            if let Some(p) = save_dialog(&node, maps) {
+                            if let Some(p) = save_dialog(&node, maps, matches!(&value, Some(Value::Vector(_)))) {
                                 s.save_output(&node, &port, &p);
                                 if let Err(e) = add_write(s, r, &node, &port, &p) {
                                     s.editor.message = Some(e);
@@ -1028,6 +1049,10 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         sh.chosen = true;
     }
     if maps.is_empty() {
+        if let Value::Vector(v) = &value {
+            crate::vector_view::show(ui, v, egui::Id::new(("vector", salt, &node, &port)));
+            return None;
+        }
         if let Value::Table(t) = &value {
             // sorted, filtered and drawn as bars, the rows scrolled within
             let id = egui::Id::new(("table", salt, &node, &port));

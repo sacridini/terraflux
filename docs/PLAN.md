@@ -515,7 +515,8 @@ Pendências:
   prioritizr ou com os seus ótimos; as zonas de manejo (unidades, alvos, objetivos, orçamentos e pesos por zona,
   travas e limites por zona, alocação obrigatória, termos espaciais com matrizes de zonas, contiguidade por grupo
   de zonas, avaliação geral e por zona; 37 casos bit a bit, com os motores de zonas do landschaft); faltam as
-  unidades de polígonos (precisam de vetores); o risco de extinção como objetivo (`min_extinction_risk`, a
+  unidades de polígonos (entraram em 0.13.0 com os vetores, os modelos bit a bit com o compile() do prioritizr);
+  o risco de extinção como objetivo (`min_extinction_risk`, a
   extensão do landschaft) entrou em 0.12.0, os modelos bit a bit com o compile() do landschaft); E feito: prioriactions (`prioritize.actions`, o
   modelo bit a bit, os ótimos e as figuras dos 6 casos, pelo C++ do landschaft); F feito: o planejamento do plangea
   (`restoration.plan`: risco de extinção e benefícios lineares, metas de área por paisagem ou região, orçamento,
@@ -527,10 +528,15 @@ Pendências:
   sucessivos com o limite das secantes do C++ do landschaft), o custo mínimo (regula falsi no orçamento) e a
   comparação de pesos (o post_choose_weights do plangea), iguais aos planos do landschaft
   (`tools/make_plangea_plan_reference.py`).
-- **Próximos (2026-10-12):** vetores (OGR) para rasterizar,
-  medir distâncias e ter unidades de planejamento em polígonos; o resto do GuidosToolbox (GTN, restoration,
+- **Vetores (0.13.0, 2026-10-12):** um tipo `Vector` no grafo (geometrias em 2-D, atributos, sistema de
+  coordenadas), lidos e escritos pelo OGR do GDAL carregado; `vector.rasterize` (polígonos pelo port em C++ do
+  rasterizador do GDAL que o landschaft tem, as mesmas células; linhas pelo GDAL; pontos pela célula),
+  `vector.zonal` e `vector.exact_sum` (a biblioteca `iocore` do landschaft, agora ligada), `vector.distance`;
+  unidades de planejamento em polígonos no prioritizr (matrizes de fronteira e adjacência das geometrias); o
+  viewer desenha os vetores ao lado dos atributos.
+- **Próximos (2026-10-12):** o resto do GuidosToolbox (GTN, restoration,
   influence, isochrone, a mudança do FAD multiescala, o heatmap e o delta do mosaico); o resto do `lsm`; MSPA por
-  tiles para rasters maiores que a memória; mapa de fundo de satélite (GDAL XYZ/WMS); instaladores com o GDAL.
+  tiles para rasters maiores que a memória; instaladores com o GDAL (os mapas de fundo já estão no viewer).
 
 Pendências gerais, depois das fases:
 - regiões e demandas regionais, CLUMondo, FUTURES e MOLUSCE no Terraflux;

@@ -41,6 +41,8 @@
 #include "opt/wide.hpp"
 #include "opt/zones.hpp"
 #include "opt/zones_wide.hpp"
+#include "io/exact.hpp"
+#include "io/io.hpp"
 #include "prio/prio.hpp"
 #include "rest/habitat.hpp"
 #include "rest/intactness.hpp"
@@ -732,6 +734,85 @@ PrioFlexOut prio_flexibility(const prio::Data& d, const PrioSettings& settings, 
     out.up = to_rust<float>(pos);
     out.down = to_rust<float>(neg);
     return out;
+}
+
+namespace {
+
+lsio::Runs runs_of(const RunsOut& r) {
+    lsio::Runs out;
+    out.offsets.assign(r.offsets.begin(), r.offsets.end());
+    out.y.assign(r.y.begin(), r.y.end());
+    out.x0.assign(r.x0.begin(), r.x0.end());
+    out.x1.assign(r.x1.begin(), r.x1.end());
+    check(!out.offsets.empty() && out.y.size() == out.x0.size() && out.y.size() == out.x1.size() &&
+              static_cast<std::size_t>(out.offsets.back()) == out.y.size(),
+          "inconsistent runs");
+    return out;
+}
+
+}  // namespace
+
+RunsOut io_polygon_runs(rust::Slice<const double> xy, rust::Slice<const std::int64_t> ring_offsets,
+                        rust::Slice<const std::int64_t> geom_rings, rust::Slice<const double> gt, std::int32_t nx,
+                        std::int32_t ny, bool all_touched) {
+    check(gt.size() == 6 && xy.size() % 2 == 0 && !geom_rings.empty() && !ring_offsets.empty(),
+          "polygons: xy pairs, ring and geometry offsets, a geotransform of 6");
+    check(static_cast<std::size_t>(ring_offsets.back()) == xy.size() / 2 &&
+              static_cast<std::size_t>(geom_rings.back()) + 1 == ring_offsets.size(),
+          "polygons: inconsistent offsets");
+    const lsio::Runs r = lsio::polygon_runs(xy.data(), ring_offsets.data(), geom_rings.data(),
+                                            static_cast<i64>(geom_rings.size()) - 1, gt.data(), nx, ny, all_touched);
+    RunsOut out;
+    out.offsets = to_rust<std::int64_t>(r.offsets);
+    out.y = to_rust<std::int32_t>(r.y);
+    out.x0 = to_rust<std::int32_t>(r.x0);
+    out.x1 = to_rust<std::int32_t>(r.x1);
+    return out;
+}
+
+void io_burn_runs(rust::Slice<double> out, std::int32_t ny, std::int32_t nx, const RunsOut& runs,
+                  rust::Slice<const double> value, bool add) {
+    const lsio::Runs r = runs_of(runs);
+    check(static_cast<i64>(out.size()) == i64{ny} * nx, "out differs from ny x nx");
+    check(static_cast<i64>(value.size()) == r.zones(), "one value per zone");
+    for (std::size_t k = 0; k < r.y.size(); ++k) check(r.y[k] < ny && r.x1[k] <= nx, "zones larger than the grid");
+    lsio::burn_runs(out.data(), ny, nx, r, value.data(), add);
+}
+
+rust::Vec<double> io_zonal_stats(rust::Slice<const double> values, std::int32_t bands, std::int32_t ny,
+                                 std::int32_t nx, const RunsOut& runs, rust::Slice<const std::int32_t> stats,
+                                 rust::Slice<const double> percentiles) {
+    const lsio::Runs r = runs_of(runs);
+    check(static_cast<i64>(values.size()) == i64{bands} * ny * nx, "the values are bands x ny x nx");
+    check(percentiles.size() == stats.size(), "one percentile per statistic");
+    for (std::size_t k = 0; k < r.y.size(); ++k) check(r.y[k] < ny && r.x1[k] <= nx, "zones larger than the raster");
+    return to_rust<double>(lsio::zonal_stats(values.data(), bands, ny, nx, false, 0.0, r,
+                                             std::vector<int>(stats.begin(), stats.end()),
+                                             std::vector<double>(percentiles.begin(), percentiles.end())));
+}
+
+rust::Vec<double> io_exact_sums(rust::Slice<const double> values, std::int64_t layers, std::int64_t ny,
+                                std::int64_t nx, rust::Slice<const double> grid, rust::Slice<const double> xy,
+                                rust::Slice<const std::int64_t> ring_offsets,
+                                rust::Slice<const std::int64_t> polygon_offsets,
+                                rust::Slice<const std::int64_t> feature_offsets) {
+    check(static_cast<i64>(values.size()) == layers * ny * nx, "the values are layers x ny x nx");
+    check(grid.size() == 6 && xy.size() % 2 == 0 && !feature_offsets.empty(), "a grid of 6, xy pairs, offsets");
+    const i64 nf = static_cast<i64>(feature_offsets.size()) - 1;
+    std::vector<std::vector<exactextract::Polygon>> features(static_cast<std::size_t>(nf));
+    for (i64 f = 0; f < nf; ++f) {
+        for (i64 p = feature_offsets[f]; p < feature_offsets[f + 1]; ++p) {
+            exactextract::Polygon poly;
+            for (i64 r = polygon_offsets[p]; r < polygon_offsets[p + 1]; ++r) {
+                exactextract::Ring ring;
+                for (i64 k = ring_offsets[r]; k < ring_offsets[r + 1]; ++k) ring.push_back({xy[2 * k], xy[2 * k + 1]});
+                poly.rings.push_back(std::move(ring));
+            }
+            features[static_cast<std::size_t>(f)].push_back(std::move(poly));
+        }
+    }
+    const lsio::ExactGrid g{grid[0], grid[1], grid[2], grid[3], grid[4], grid[5], ny, nx};
+    return to_rust<double>(lsio::exact_sums(values.data(), layers, g, features, 30000000, max_threads()));
 }
 
 double prio_eigen_sum(rust::Slice<const double> values) {

@@ -47,8 +47,18 @@ fn main() {
     let include = dst.join("include");
 
     println!("cargo:rustc-link-search=native={}", dst.join("lib").display());
-    for lib in ["simcore", "lsmcore", "nlmcore", "gtbcore", "priocore", "restcore", "optcore", "highs", "highs_extras"]
-    {
+    for lib in [
+        "simcore",
+        "iocore",
+        "lsmcore",
+        "nlmcore",
+        "gtbcore",
+        "priocore",
+        "restcore",
+        "optcore",
+        "highs",
+        "highs_extras",
+    ] {
         println!("cargo:rustc-link-lib=static={lib}");
     }
     // the OpenMP runtime of the kernels

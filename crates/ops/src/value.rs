@@ -299,6 +299,8 @@ pub enum Value {
     Agents(Arc<crate::agents::Agents>),
     /// Rasters on disk, read when needed.
     Raster(Arc<crate::files::Rasters>),
+    /// Vector features.
+    Vector(Arc<terraflux_raster::vector::Vector>),
 }
 
 impl Value {
@@ -321,6 +323,7 @@ impl Value {
             Value::Rng(_) => Type::Rng,
             Value::Agents(_) => Type::Agents,
             Value::Raster(_) => Type::Raster,
+            Value::Vector(_) => Type::Vector,
         }
     }
 

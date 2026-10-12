@@ -40,7 +40,17 @@ neutros (`nlm.*`) para testar fluxos sem dados. A ordem sugerida:
    - **Feito** (0.11.0): os extras do Zonation (condições, retenção, conectividade, impactos, mapas de
      pré-processamento e pós-processamento), os 65 casos do landschaft;
    - **Feito** (0.12.0): o risco de extinção como objetivo do prioritizr (`min_extinction_risk`);
-   - no prioritizr: unidades de planejamento em polígonos (dependem de vetores no builder).
+   - **Feito** (0.13.0): unidades de planejamento em polígonos no prioritizr (com os vetores no builder). Falta:
+     polígonos com zonas de manejo (o `polygon_zone_units` do landschaft) e as unidades H3 (`h3_units`).
+
+## Vetores
+
+Os vetores entraram em 0.13.0 (leitura e escrita pelo OGR, rasterização, estatísticas zonais, somas exatas,
+distâncias, unidades de planejamento em polígonos, o desenho no viewer). Falta:
+- desenhar vetores sobre um mapa no viewer (hoje cada um no seu painel);
+- extrair valores de mapas em pontos (o `extract` do landschaft, bilinear ou da célula);
+- buffers, recortes e uniões de geometrias (o GEOS pelo GDAL);
+- os vetores no motor por tiles.
 
 ## Viewer
 

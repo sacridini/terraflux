@@ -41,6 +41,7 @@ pub mod restoration;
 pub mod restoration_plan;
 pub mod validate;
 pub mod value;
+pub mod vector;
 pub mod view;
 pub mod woe;
 pub mod zonation;
@@ -259,6 +260,7 @@ impl Registry {
         actions::register(&mut r);
         restoration::register(&mut r);
         restoration_plan::register(&mut r);
+        vector::register(&mut r);
         plugin::register(&mut r);
         validate::register(&mut r);
         view::register(&mut r);

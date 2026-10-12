@@ -11,6 +11,7 @@ repository.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+terraflux-gdal = { path = "../gdal" }
 terraflux-graph = { path = "../graph" }
 terraflux-ops = { path = "../ops" }
 terraflux-raster = { path = "../raster" }

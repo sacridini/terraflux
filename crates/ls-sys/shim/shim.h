@@ -42,6 +42,7 @@ struct PrioSettings;
 struct PrioRankOut;
 struct PrioDataInfo;
 struct PrioFlexOut;
+struct RunsOut;
 struct MarxanData;
 struct MarxanOptions;
 struct MarxanOut;
@@ -174,6 +175,20 @@ PrioFlexOut prio_flexibility(const prio::Data& data, const PrioSettings& setting
                              rust::Slice<const std::uint32_t> order, rust::Slice<const float> curve_rank,
                              rust::Slice<const float> curve_levels, std::int64_t curve_interval, double max_error,
                              bool up, bool down);
+// landschaft's zones of polygons (lsio::): their cells as runs, burnt, their statistics; exactextract's sums
+RunsOut io_polygon_runs(rust::Slice<const double> xy, rust::Slice<const std::int64_t> ring_offsets,
+                        rust::Slice<const std::int64_t> geom_rings, rust::Slice<const double> gt, std::int32_t nx,
+                        std::int32_t ny, bool all_touched);
+void io_burn_runs(rust::Slice<double> out, std::int32_t ny, std::int32_t nx, const RunsOut& runs,
+                  rust::Slice<const double> value, bool add);
+rust::Vec<double> io_zonal_stats(rust::Slice<const double> values, std::int32_t bands, std::int32_t ny,
+                                 std::int32_t nx, const RunsOut& runs, rust::Slice<const std::int32_t> stats,
+                                 rust::Slice<const double> percentiles);
+rust::Vec<double> io_exact_sums(rust::Slice<const double> values, std::int64_t layers, std::int64_t ny,
+                                std::int64_t nx, rust::Slice<const double> grid, rust::Slice<const double> xy,
+                                rust::Slice<const std::int64_t> ring_offsets,
+                                rust::Slice<const std::int64_t> polygon_offsets,
+                                rust::Slice<const std::int64_t> feature_offsets);
 // Zonation's (Eigen AVX) sums
 double prio_eigen_sum(rust::Slice<const double> values);
 float prio_eigen_sum_f32(rust::Slice<const float> values, std::int64_t offset);
