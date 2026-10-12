@@ -127,7 +127,7 @@ fn each_file(
 }
 
 /// A CRS as GDAL takes it: the WKT GDAL read, else the EPSG code of the GeoTIFF keys.
-pub(crate) fn crs_of(g: &Grid) -> Option<String> {
+pub fn crs_of(g: &Grid) -> Option<String> {
     g.geo.wkt.clone().or_else(|| g.geo.epsg().map(|c| format!("EPSG:{c}")))
 }
 

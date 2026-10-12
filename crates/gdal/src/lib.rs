@@ -109,6 +109,9 @@ struct Api {
     OGR_G_CreateFromWkb: unsafe extern "C" fn(*const u8, H, *mut H, c_int) -> c_int,
     OGR_G_DestroyGeometry: unsafe extern "C" fn(H),
     OGR_G_Transform: unsafe extern "C" fn(H, H) -> c_int,
+    OGR_G_AssignSpatialReference: unsafe extern "C" fn(H, H),
+    /// GDAL 3.9 and later
+    OGR_G_GeodesicArea: Option<unsafe extern "C" fn(H) -> f64>,
     OSRNewSpatialReference: unsafe extern "C" fn(*const c_char) -> H,
     OSRDestroySpatialReference: unsafe extern "C" fn(H),
     OSRSetFromUserInput: unsafe extern "C" fn(H, *const c_char) -> c_int,
@@ -308,6 +311,8 @@ impl Gdal {
             OGR_G_CreateFromWkb: f!(OGR_G_CreateFromWkb),
             OGR_G_DestroyGeometry: f!(OGR_G_DestroyGeometry),
             OGR_G_Transform: f!(OGR_G_Transform),
+            OGR_G_AssignSpatialReference: f!(OGR_G_AssignSpatialReference),
+            OGR_G_GeodesicArea: unsafe { lib.get(b"OGR_G_GeodesicArea ") }.ok().map(|s| *s),
             OSRNewSpatialReference: f!(OSRNewSpatialReference),
             OSRDestroySpatialReference: f!(OSRDestroySpatialReference),
             OSRSetFromUserInput: f!(OSRSetFromUserInput),
@@ -1110,6 +1115,43 @@ pub fn reproject_vector(v: &Vector, to: &str) -> Result<Vector> {
         (a.OSRDestroySpatialReference)(dst);
     }
     out
+}
+
+/// The geodesic areas (square metres) of polygons on the WGS84 ellipsoid, their coordinates taken to EPSG:4326 by
+/// PROJ: GeographicLib's areas, as pyproj's Geod and terra's expanse give them (GDAL 3.9 or later). Holes count
+/// against their polygon; other geometries have no area.
+pub fn geodesic_areas(v: &Vector) -> Result<Vec<f64>> {
+    let g = gdal().map_err(String::from)?;
+    let a = &g.api;
+    let area = a.OGR_G_GeodesicArea.ok_or("geodesic areas need GDAL 3.9 or later")?;
+    let ll = reproject_vector(v, "EPSG:4326")?;
+    let srs = g.srs("EPSG:4326")?;
+    let mut out = Vec::with_capacity(ll.len());
+    let mut result = Ok(());
+    for geom in &ll.geometries {
+        if !matches!(geom, Geometry::Polygon(_) | Geometry::MultiPolygon(_)) {
+            out.push(0.0);
+            continue;
+        }
+        let wkb = geom.to_wkb();
+        let mut gh: H = std::ptr::null_mut();
+        let e = unsafe { (a.OGR_G_CreateFromWkb)(wkb.as_ptr(), std::ptr::null_mut(), &mut gh, wkb.len() as c_int) };
+        if e != 0 || gh.is_null() {
+            result = Err("OGR cannot read a geometry".to_string());
+            break;
+        }
+        unsafe { (a.OGR_G_AssignSpatialReference)(gh, srs) };
+        unsafe { (a.CPLErrorReset)() };
+        let s = unsafe { area(gh) };
+        unsafe { (a.OGR_G_DestroyGeometry)(gh) };
+        if s < 0.0 {
+            result = Err(g.last_error("OGR cannot measure a geodesic area"));
+            break;
+        }
+        out.push(s);
+    }
+    unsafe { (a.OSRDestroySpatialReference)(srs) };
+    result.map(|_| out)
 }
 
 /// Whether two coordinate systems are the same (by OGR).

@@ -6,6 +6,24 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- `metrics.sample`: landscape metrics of sample plots, as landscapemetrics' sample_lsm and scale_sample: square or
+  circular buffers (R's 100 vertices, its x87 sines) of one or several sizes around points, or polygons; each plot
+  cut as terra's crop(mask = TRUE) (GDAL's all-touched cells), the share of it inside the map (geodesic areas
+  when the plots' coordinate system is known, by GDAL 3.9's GeographicLib), every class of the map with
+  `all_classes`; the plots as features. The 9 cases of landscapemetrics that landschaft keeps, the same rows and
+  bits.
+- `vector.grid_zones`: square zones tiling a map (landschaft's grid_zones).
+- `metrics.series`: landscape and class metrics along a series of maps (a layer per date) as pylandstats'
+  SpatioTemporalAnalysis in landschaft, of the whole maps, of zones, of buffers or of a grid; absent classes 0 for
+  the counts and areas (`fillna`). The same values as landschaft (`tools/make_lsm_reference.py`).
+- `metrics.correlation`: R's cor (Pearson, Spearman, Kendall) between the metrics of a table, as
+  landscapemetrics' calculate_correlation, to the bit.
+
+### Fixed
+- The EPSG code of a GeoTIFF whose projection is its own (user-defined) was that of its datum (e.g. 4326 for an
+  Albers on WGS 84); it has none now.
+
 ## [0.14.0] - 2026-10-12
 
 ### Added

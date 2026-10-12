@@ -95,9 +95,11 @@ model file dropped on it or opened with it; started that way on Windows, it show
   reports as tables and as GTB's text. They read a map coded as GTB's (0 missing, 1 background, 2 foreground) or
   any map with the foreground's classes given.
 - **Landscape metrics:** landscapemetrics' metrics (and FRAGSTATS' extras) per patch, per class, of the
-  landscape and in a moving window (`metrics.patch`, `metrics.class`, `metrics.landscape`, `metrics.window`), the
-  same values as R's landscapemetrics; tables sorted, filtered and drawn as bars in the viewer, and the maps of a
-  metric per patch or class.
+  landscape and in a moving window (`metrics.patch`, `metrics.class`, `metrics.landscape`, `metrics.window`), of
+  sample plots (buffers around points, polygons; `metrics.sample`) and along a series of maps (`metrics.series`,
+  by zones or a grid of them), with the correlation between them (`metrics.correlation`), the same values as R's
+  landscapemetrics; tables sorted, filtered and drawn as bars in the viewer, and the maps of a metric per patch
+  or class.
 - **Spatial prioritization:** Zonation 5's ranking (`prioritize.zonation`), the same rank maps as the z5 binary,
   with its conditions, retention, connectivity transforms, impact assessment and post-processing; Marxan 4's
   reserves (`prioritize.marxan`), the same runs as Marxan; ProxIRR's irreplaceability (`prioritize.proxirr`), R's

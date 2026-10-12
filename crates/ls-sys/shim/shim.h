@@ -266,6 +266,11 @@ ActionsPairs actions_pairs(const ActionsInput& input);
 LsmTable lsm_table(rust::Slice<const std::int32_t> values, rust::Slice<const std::uint8_t> na, std::int64_t ny,
                    std::int64_t nx, double resx, double resy, const LsmOptions& options,
                    rust::Slice<const std::int32_t> levels, rust::Slice<const rust::String> names, bool labels);
+rust::Vec<std::uint8_t> lsm_rasterize(rust::Slice<const std::int64_t> sizes, rust::Slice<const double> xs,
+                                      rust::Slice<const double> ys, rust::Slice<const double> gt, std::int32_t nx,
+                                      std::int32_t ny);
+rust::Vec<double> lsm_r_sincos(rust::Slice<const double> x);
+rust::Vec<double> lsm_r_cor(rust::Slice<const double> x, std::int64_t n, std::int64_t m, rust::Str method);
 rust::Vec<double> lsm_window(rust::Slice<const std::int32_t> values, rust::Slice<const std::uint8_t> na, std::int64_t ny,
                              std::int64_t nx, double resx, double resy, rust::Slice<const std::uint8_t> window,
                              std::int64_t wy, std::int64_t wx, rust::Slice<const rust::String> names,

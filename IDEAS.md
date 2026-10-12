@@ -26,10 +26,13 @@ neutros (`nlm.*`) para testar fluxos sem dados. A ordem sugerida:
 2. **Métricas de paisagem** (`lsm`). **Feito** (Unreleased): por mancha, classe, paisagem e em janela móvel,
    iguais às do landscapemetrics do R; o visualizador de tabelas ordena, filtra e desenha uma coluna em barras.
    Falta do `lsm` do landschaft:
-   - a análise espaço-temporal e a de assinaturas (PCA, NMF, agrupamentos: `lsm/analysis.py`, em Python);
-   - amostragem por pontos e buffers (`sample_lsm`, `lsm/sampling.py`) e métricas por zonas (`grid_zones`);
+   - **Feito** (0.15.0): a análise espaço-temporal (`metrics.series`), a amostragem por pontos, buffers e
+     polígonos (`metrics.sample`), as zonas em grade (`vector.grid_zones`) e a correlação entre métricas
+     (`metrics.correlation`);
+   - a análise de assinaturas (PCA, NMF, k-means, agrupamentos hierárquicos e clustergram: `lsm/analysis.py`,
+     em Python sobre o numpy);
    - paisagens fora da memória (`TiledLandscape`, já em C++), para rasters maiores que a RAM;
-   - a correlação entre métricas (`r_cor`) e gráficos de várias métricas de uma vez.
+   - gráficos de várias métricas de uma vez.
 3. **Planejamento sistemático de conservação e restauração.** **Feito** (Unreleased): o prioritizr (tabelas,
    portfólios, contiguidade, limites manuais, filogenia, calibração e zonas de manejo), o prioriactions
    (`prioritize.actions`) e o planejador do plangea (`restoration.plan`: exato e em passos, conservação e

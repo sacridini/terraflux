@@ -947,6 +947,14 @@ pub mod ffi {
             options: &LsmOptions,
         ) -> Result<Vec<f64>>;
 
+        /// The cells (wy x wx) of polygon rings (sizes: points per ring, then their xs and ys) burnt as GDAL's
+        /// rasterizer with ALL_TOUCHED=TRUE; gt: GDAL's geotransform of the grid.
+        fn lsm_rasterize(sizes: &[i64], xs: &[f64], ys: &[f64], gt: &[f64], nx: i32, ny: i32) -> Result<Vec<u8>>;
+        /// R's sin(x) and cos(x) (the x87 bits of R on x86-64 Windows): the sines, then the cosines.
+        fn lsm_r_sincos(x: &[f64]) -> Vec<f64>;
+        /// R's cor(x, method = "pearson" | "spearman" | "kendall") of the columns of the n x m column-major x: m x m.
+        fn lsm_r_cor(x: &[f64], n: i64, m: i64, method: &str) -> Result<Vec<f64>>;
+
         fn allow_matrix(x: &[f64], hist: &[i64], classes: &[f64], cd: &[f64], rules: &[i64]) -> Result<Vec<f64>>;
         fn auto_convert(x: &[f64], prob: &[f64], classes: &[f64], mask: &[i64]) -> Result<Vec<f64>>;
         fn neighbourhood_allow(

@@ -541,8 +541,14 @@ Pendências:
   `change.fad` (as somas do numpy reproduzidas em pares), o heatmap do mosaico e `change.mosaic`, e os
   relatórios de texto (fos.txt, spaN.txt, acc.txt). Tudo igual ao landschaft: os mapas bit a bit, os relatórios
   como texto.
-- **Próximos (2026-10-12):** o resto do `lsm`; MSPA por tiles para rasters maiores que a memória; instaladores
-  com o GDAL (os mapas de fundo já estão no viewer).
+- **Amostras, séries e correlação do `lsm` (0.15.0, 2026-10-12):** `metrics.sample` (o sample_lsm e o
+  scale_sample do landscapemetrics: o recorte do terra, as células do rasterizador do GDAL com ALL_TOUCHED, os
+  senos x87 do R nos círculos, a área geodésica pelo GeographicLib do GDAL; os 9 casos do R que o landschaft
+  guarda, bit a bit), `vector.grid_zones`, `metrics.series` (o SpatioTemporalAnalysis, igual ao landschaft) e
+  `metrics.correlation` (o cor do R pelo C++ do landschaft, bit a bit). O código EPSG de um GeoTIFF de projeção
+  própria deixou de ser o do datum.
+- **Próximos (2026-10-12):** as assinaturas do `lsm` (PCA, NMF, agrupamentos); MSPA e métricas por tiles para
+  rasters maiores que a memória; instaladores com o GDAL (os mapas de fundo já estão no viewer).
 
 Pendências gerais, depois das fases:
 - regiões e demandas regionais, CLUMondo, FUTURES e MOLUSCE no Terraflux;

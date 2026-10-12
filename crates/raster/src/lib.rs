@@ -78,6 +78,10 @@ impl GeoTags {
                 found = Some(e[3]);
             }
         }
+        // a projection of its own (user-defined, or no code): the geographic code is only its datum's
+        if self.geokey(1024) == Some(1) && self.geokey(3072).is_none_or(|c| c == 32767) {
+            return None;
+        }
         found
     }
 

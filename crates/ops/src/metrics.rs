@@ -203,7 +203,7 @@ pub fn options(args: &Args) -> Result<ffi::LsmOptions> {
 }
 
 /// The settings every metric operator takes: the metrics chosen and their options.
-fn settings(sig: OpSignature) -> OpSignature {
+pub(crate) fn settings(sig: OpSignature) -> OpSignature {
     sig.param(PortSpec::optional(
         "metrics",
         Type::Any,

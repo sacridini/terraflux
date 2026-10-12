@@ -1260,6 +1260,33 @@ rust::Vec<double> lsm_window(rust::Slice<const std::int32_t> values, rust::Slice
     return to_rust<double>(lsm::window_metrics(r, window.data(), wx, wy, strings(names), lsm_options(options)));
 }
 
+rust::Vec<std::uint8_t> lsm_rasterize(rust::Slice<const std::int64_t> sizes, rust::Slice<const double> xs,
+                                      rust::Slice<const double> ys, rust::Slice<const double> gt, std::int32_t nx,
+                                      std::int32_t ny) {
+    check(xs.size() == ys.size() && gt.size() == 6 && nx > 0 && ny > 0, "rings, a geotransform and a grid");
+    std::vector<std::vector<std::pair<double, double>>> rings;
+    std::size_t at = 0;
+    for (std::int64_t n : sizes) {
+        check(n >= 0 && at + static_cast<std::size_t>(n) <= xs.size(), "the rings' sizes exceed their points");
+        std::vector<std::pair<double, double>> ring;
+        for (std::int64_t k = 0; k < n; ++k, ++at) ring.emplace_back(xs[at], ys[at]);
+        rings.push_back(std::move(ring));
+    }
+    return to_rust<std::uint8_t>(lsm::rasterize_all_touched(rings, gt.data(), nx, ny));
+}
+
+rust::Vec<double> lsm_r_sincos(rust::Slice<const double> x) {
+    rust::Vec<double> out;
+    for (double v : x) out.push_back(lsm::r_sin(v));
+    for (double v : x) out.push_back(lsm::r_cos(v));
+    return out;
+}
+
+rust::Vec<double> lsm_r_cor(rust::Slice<const double> x, std::int64_t n, std::int64_t m, rust::Str method) {
+    check(n >= 0 && m >= 0 && static_cast<i64>(x.size()) == n * m, "x differs in size from n x m");
+    return to_rust<double>(lsm::r_cor(std::vector<double>(x.begin(), x.end()), n, m, std::string(method)));
+}
+
 ChangeOut fad_change_counts(rust::Slice<const std::uint8_t> a, rust::Slice<const std::uint8_t> b, std::int64_t ny,
                             std::int64_t nx) {
     const gtb::FADChangeCounts r = gtb::compute_fad_change_counts(image(a, ny, nx), image(b, ny, nx));

@@ -419,7 +419,7 @@ impl Operator for Fad {
 }
 
 /// numpy's sum of an array: pairwise (8 accumulators in blocks of up to 128, halves above).
-fn numpy_sum(v: &[f64]) -> f64 {
+pub(crate) fn numpy_sum(v: &[f64]) -> f64 {
     fn pairwise(a: &[f64]) -> f64 {
         let n = a.len();
         if n < 8 {

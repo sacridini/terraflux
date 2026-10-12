@@ -41,6 +41,7 @@ pub mod presets;
 pub mod prioritize;
 pub mod restoration;
 pub mod restoration_plan;
+pub mod sampling;
 pub mod validate;
 pub mod value;
 pub mod vector;
@@ -264,6 +265,7 @@ impl Registry {
         restoration_plan::register(&mut r);
         vector::register(&mut r);
         planner::register(&mut r);
+        sampling::register(&mut r);
         gtn::register(&mut r);
         plugin::register(&mut r);
         validate::register(&mut r);
