@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-12
+
 ### Added
 - `metrics.sample`: landscape metrics of sample plots, as landscapemetrics' sample_lsm and scale_sample: square or
   circular buffers (R's 100 vertices, its x87 sines) of one or several sizes around points, or polygons; each plot
