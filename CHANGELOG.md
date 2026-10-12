@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-12
+
 ### Added
 - Vector features in the model: a value type (`Vector`: geometries in 2-D, attributes as numbers or texts, the
   coordinate system), read and written by OGR (`vector.read`, `vector.write`; GeoPackage, Shapefile, GeoJSON,
