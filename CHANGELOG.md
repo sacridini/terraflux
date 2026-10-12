@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-10-12
+
 ### Added
 - Settings of a few values are chosen in a list (the operators' settings say their values, `PortSpec::choices`;
   57 of them), yes-or-no settings too, with their default; the metrics of a landscape metrics node in a list of
