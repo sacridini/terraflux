@@ -133,6 +133,24 @@ pub fn show(ui: &mut Ui, v: &Vector, id: egui::Id) {
             }
         }
     }
+    // the coordinates under the pointer, in the view's corner
+    if let Some(p) = pointer {
+        let (x, y) = (cx + f64::from(p.x - centre.x) / scale, cy - f64::from(p.y - centre.y) / scale);
+        let digits = if w.max(h) < 360.0 && b[0] >= -180.0 && b[2] <= 360.0 { 6 } else { 2 };
+        let corner = rect.left_bottom() + egui::Vec2::new(6.0, -4.0);
+        let galley = painter.layout_no_wrap(
+            format!("x {x:.digits$}   y {y:.digits$}"),
+            egui::FontId::monospace(11.0),
+            Color32::WHITE,
+        );
+        let top = corner - egui::Vec2::new(0.0, galley.size().y);
+        painter.rect_filled(
+            Rect::from_min_size(top, galley.size()).expand2(egui::Vec2::new(4.0, 2.0)),
+            2.0,
+            Color32::from_black_alpha(150),
+        );
+        painter.galley(top, galley, Color32::WHITE);
+    }
     if let Some(k) = hovered {
         let mut text = format!("feature {}", k + 1);
         for (n, c) in &v.attributes {

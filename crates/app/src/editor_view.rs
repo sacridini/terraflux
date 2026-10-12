@@ -2,7 +2,8 @@
 //! what the scope may read on the left (the model's inputs, a container's values), the connections. Drag a
 //! node to move it, drag from an output to an input to connect them, click a node to edit it in the side
 //! panel, double-click a container to edit its body (another node: its map in a tab of its own), click an output
-//! to see it. Drag the background to select the nodes in a box (shift or ctrl and a click add a node or take it
+//! to see it. Drag a connection off an input to take it away (onto another input: moved there), or right-click
+//! the input. Drag the background to select the nodes in a box (shift or ctrl and a click add a node or take it
 //! away, ctrl+A selects all, Esc none): dragging one of them moves them all. Drag with the middle or the right
 //! button to move the view, the wheel zooms around the pointer, Home fits the graph. Each node shows how it did
 //! in the last run: running, done (or taken from the cache), failed.
@@ -64,6 +65,11 @@ pub enum Action {
         node: String,
         port: String,
     },
+    /// A connection taken off an input.
+    Disconnect {
+        node: String,
+        port: String,
+    },
 }
 
 /// Where the view looks: the screen offset of the graph's origin from the canvas's corner, and the points per
@@ -115,6 +121,10 @@ pub struct EditorState {
     /// The nodes selected (of the scope shown), and the scope they are of.
     pub chosen: BTreeSet<String>,
     chosen_in: Vec<String>,
+    /// The model shown as text instead of the canvas.
+    pub text: bool,
+    /// A node being renamed (ctrl+R): its id, the name typed, whether the field was given the focus.
+    pub renaming: Option<(String, String, bool)>,
 }
 
 impl EditorState {
@@ -187,6 +197,11 @@ struct BoxAt {
 }
 
 impl BoxAt {
+    /// What a connection from an output refers to.
+    fn reference(&self, k: usize) -> String {
+        if self.source { self.key.clone() } else { format!("{}.{}", self.key, self.outputs[k].0) }
+    }
+
     fn input_at(&self, i: usize) -> Pos2 {
         Pos2::new(self.rect.left(), self.rect.top() + HEAD + (i as f32 + 0.5) * ROW)
     }
@@ -554,6 +569,11 @@ impl Scene {
     }
 
     /// What is under a point (graph units), ports within `reach`; the boxes drawn last first.
+    /// The output that feeds an input (box, input): its box and output.
+    fn feeding(&self, i: usize, k: usize) -> Option<(usize, usize)> {
+        self.edges.iter().find(|e| e.to == (i, k)).map(|e| e.from)
+    }
+
     fn hit(&self, p: Pos2, reach: f32) -> Option<Hit> {
         let candidates = self.grid.get(&cell(p))?;
         for &i in candidates.iter().rev() {
@@ -680,9 +700,17 @@ pub fn show(
         st.drag = Some(match scene.hit(w, reach(cam)) {
             Some(Hit::Output(i, k)) => {
                 let b = &scene.boxes[i];
-                let reference = if b.source { b.key.clone() } else { format!("{}.{}", b.key, b.outputs[k].0) };
-                Drag::Connect(reference, b.output_at(k))
+                Drag::Connect(b.reference(k), b.output_at(k))
             }
+            // a connection taken off an input, carried by the pointer (dropped on an input: moved there)
+            Some(Hit::Input(i, k)) if scene.boxes[i].inputs[k].connected => match scene.feeding(i, k) {
+                Some((j, o)) => {
+                    let b = &scene.boxes[i];
+                    actions.push(Action::Disconnect { node: b.key.clone(), port: b.inputs[k].name.clone() });
+                    Drag::Connect(scene.boxes[j].reference(o), scene.boxes[j].output_at(o))
+                }
+                None => Drag::Select(w),
+            },
             Some(Hit::Head(i) | Hit::Body(i)) if !scene.boxes[i].source => {
                 let key = &scene.boxes[i].key;
                 if !st.chosen.contains(key) {
@@ -777,6 +805,16 @@ pub fn show(
             None if !adding => st.chosen.clear(),
             _ => {}
         }
+    }
+    // a right click on a connected input takes its connection away
+    if resp.secondary_clicked()
+        && let Some(w) = at
+        && let Some(Hit::Input(i, k)) = scene.hit(w, reach(cam))
+        && scene.boxes[i].inputs[k].connected
+        && !scene.boxes[i].source
+    {
+        let b = &scene.boxes[i];
+        actions.push(Action::Disconnect { node: b.key.clone(), port: b.inputs[k].name.clone() });
     }
     if resp.double_clicked()
         && let Some(w) = at
@@ -901,13 +939,21 @@ pub fn show(
             Stroke::new(2.0, v.selection.bg_fill),
         ));
     }
-    // the note of the node under the pointer
+    // the note of the node under the pointer; how to take a connection off an input
     if st.drag.is_none()
         && let Some(p) = resp.hover_pos()
-        && let Some(Hit::Head(i)) = scene.hit(to_world(p, &cam), reach(&cam))
-        && let Some(note) = &scene.boxes[i].note
     {
-        resp.clone().on_hover_text_at_pointer(note);
+        match scene.hit(to_world(p, &cam), reach(&cam)) {
+            Some(Hit::Head(i)) => {
+                if let Some(note) = &scene.boxes[i].note {
+                    resp.clone().on_hover_text_at_pointer(note);
+                }
+            }
+            Some(Hit::Input(i, k)) if scene.boxes[i].inputs[k].connected => {
+                resp.clone().on_hover_text_at_pointer("drag the connection away, or right-click, to disconnect it");
+            }
+            _ => {}
+        }
     }
     // the zoom, in the corner
     painter.text(

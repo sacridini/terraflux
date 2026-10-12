@@ -78,15 +78,25 @@ pub struct PortSpec {
     pub ty: Type,
     pub required: bool,
     pub doc: String,
+    /// The values a setting takes, when they are a few (offered in a list; the first is the default when the
+    /// setting is optional and its doc says none).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub choices: Vec<String>,
 }
 
 impl PortSpec {
     pub fn new(name: &str, ty: Type, doc: &str) -> Self {
-        PortSpec { name: name.to_string(), ty, required: true, doc: doc.to_string() }
+        PortSpec { name: name.to_string(), ty, required: true, doc: doc.to_string(), choices: Vec::new() }
     }
 
     pub fn optional(name: &str, ty: Type, doc: &str) -> Self {
-        PortSpec { name: name.to_string(), ty, required: false, doc: doc.to_string() }
+        PortSpec { name: name.to_string(), ty, required: false, doc: doc.to_string(), choices: Vec::new() }
+    }
+
+    /// The values the setting takes (texts or numbers, as written in a model).
+    pub fn choices<S: ToString>(mut self, values: impl IntoIterator<Item = S>) -> Self {
+        self.choices = values.into_iter().map(|v| v.to_string()).collect();
+        self
     }
 }
 

@@ -1639,7 +1639,10 @@ impl Operator for PlanRestoration {
             Type::Table,
             "per species counted (its row in the area of habitat's table): the habitat gained, the risk without and with the plan, the reduction",
         ))
-        .param(PortSpec::optional("method", Type::Text, "exact (default), steps or uniform"))
+        .param(
+            PortSpec::optional("method", Type::Text, "exact (default), steps or uniform")
+                .choices(["exact", "steps", "uniform"]),
+        )
         .param(PortSpec::optional(
             "levels",
             Type::Any,
@@ -1652,7 +1655,10 @@ impl Operator for PlanRestoration {
             Type::Any,
             "projected changes of natural land per region ({code: km²}; + spared for restoration, - demanded)",
         ))
-        .param(PortSpec::optional("change_sense", Type::Text, "the projected changes' rows (= default)"))
+        .param(
+            PortSpec::optional("change_sense", Type::Text, "the projected changes' rows (= default)")
+                .choices(["=", "<=", ">="]),
+        )
         .param(PortSpec::optional("restrict", Type::Bool, "restore and convert: every region in its direction only (true)"))
         .param(PortSpec::optional("compensate", Type::Bool, "restore only: the land demanded elsewhere taken from it (true)"))
         .param(PortSpec::optional("steps", Type::Integer, "steps: the parts of the target (default 1)"))
@@ -1661,7 +1667,10 @@ impl Operator for PlanRestoration {
             Type::Any,
             "the area restored (km²): a number for the landscape, or {region code: area} with regions",
         ))
-        .param(PortSpec::optional("sense", Type::Text, "the targets' sense: <= (default, at most), >=, ="))
+        .param(
+            PortSpec::optional("sense", Type::Text, "the targets' sense: <= (default, at most), >=, =")
+                .choices(["<=", ">=", "="]),
+        )
         .param(PortSpec::optional("relative", Type::Bool, "the targets are shares of the area that can be restored"))
         .param(PortSpec::optional("budget", Type::Number, "the most the plan may cost (with cost)"))
         .param(PortSpec::optional("z", Type::Any, "the species-area exponent: a number (0.25) or one per species"))
@@ -1678,22 +1687,28 @@ impl Operator for PlanRestoration {
             Type::Any,
             "the standard deviation of z (plangea: 0.1; one or one per species counted): the risk reduction's",
         ))
-        .param(PortSpec::optional(
-            "uncertainty",
-            Type::Text,
-            "how the species' sensitivities to z add up: correlated (default), independent or linear (plangea's)",
-        ))
+        .param(
+            PortSpec::optional(
+                "uncertainty",
+                Type::Text,
+                "how the species' sensitivities to z add up: correlated (default), independent or linear (plangea's)",
+            )
+            .choices(["correlated", "independent", "linear"]),
+        )
         .param(PortSpec::optional(
             "intactness_weight",
             Type::Number,
             "the intactness benefit's weight (1; with hfi)",
         ))
-        .param(PortSpec::optional(
-            "intactness_form",
-            Type::Text,
-            "linear (default: its gradient at the plan of nothing, recomputed between steps) or exact (the total \
-             intactness)",
-        ))
+        .param(
+            PortSpec::optional(
+                "intactness_form",
+                Type::Text,
+                "linear (default: its gradient at the plan of nothing, recomputed between steps) or exact (the total \
+                 intactness)",
+            )
+            .choices(["linear", "exact"]),
+        )
         .param(PortSpec::optional("radius", Type::Integer, "intactness: the neighbourhood's radius in cells (3)"))
         .param(PortSpec::optional("gamma", Type::Number, "intactness: the footprint's decay of quality (-ln(0.2)/4)"))
         .param(PortSpec::optional("beta", Type::Number, "intactness: the distance's decay per km (-0.2)"))
@@ -2409,7 +2424,7 @@ impl Operator for EcosystemTargetsOp {
         .param(PortSpec::optional("minimum", Type::Number, "every ecosystem's least share, of an equal split (0)"))
         .param(PortSpec::optional("z", Type::Number, "the species-area exponent (0.25)"))
         .param(PortSpec::optional("half_life", Type::Number, "the damping exponent (0: none; below 1 - z)"))
-        .param(PortSpec::optional("method", Type::Text, "exact (default) or steps"))
+        .param(PortSpec::optional("method", Type::Text, "exact (default) or steps").choices(["exact", "steps"]))
         .param(PortSpec::optional("steps", Type::Integer, "steps: the parts of the target (10)"))
     }
 

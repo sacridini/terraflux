@@ -47,24 +47,14 @@ pub enum Pane {
     /// The area of each class along the steps.
     Areas,
     Validation,
-    /// The model as text, and its problems.
-    Text,
     /// A node's output in a tab of its own (opened by a double click on the node; one per node, brought to the
     /// front when it is open already).
     Map(u64),
 }
 
 impl Pane {
-    pub const ALL: [Pane; 8] = [
-        Pane::Model,
-        Pane::Operators,
-        Pane::Node,
-        Pane::Viewer,
-        Pane::Simulation,
-        Pane::Areas,
-        Pane::Validation,
-        Pane::Text,
-    ];
+    pub const ALL: [Pane; 7] =
+        [Pane::Model, Pane::Operators, Pane::Node, Pane::Viewer, Pane::Simulation, Pane::Areas, Pane::Validation];
 
     pub fn title(self) -> &'static str {
         match self {
@@ -75,7 +65,6 @@ impl Pane {
             Pane::Simulation => "Simulation",
             Pane::Areas => "Areas",
             Pane::Validation => "Validation",
-            Pane::Text => "Text",
             Pane::Map(_) => "Map",
         }
     }
@@ -84,7 +73,7 @@ impl Pane {
 /// The panes as they first are: the operators on the left, the model in the middle over the viewer, the node
 /// on the right (the others from the View menu; the maps of nodes open beside the viewer).
 pub fn default_layout() -> DockState<Pane> {
-    let mut d = DockState::new(vec![Pane::Model, Pane::Text]);
+    let mut d = DockState::new(vec![Pane::Model]);
     let s = d.main_surface_mut();
     let [model, _] = s.split_left(NodeIndex::root(), 0.17, vec![Pane::Operators]);
     let [model, _] = s.split_right(model, 0.74, vec![Pane::Node]);
@@ -107,7 +96,7 @@ fn retain_panes(dock: &mut DockState<Pane>, keep: impl FnMut(&mut Pane) -> bool)
 }
 
 /// The version of the layout kept (a layout of another version is let go).
-const LAYOUT_VERSION: u32 = 2;
+const LAYOUT_VERSION: u32 = 3;
 
 /// A window of its own (another screen): its panes in a dock.
 pub struct Detached {
@@ -949,6 +938,10 @@ pub struct TerrafluxApp {
     pub library: Library,
     pub(crate) hover: Option<Hover>,
     styled: bool,
+    /// The pane Tab went to the model from (Tab again goes back to it).
+    tab_back: Option<Pane>,
+    /// Tab was taken this frame: the keyboard's focus it may have given a field is let go at the frame's end.
+    tabbed: bool,
 }
 
 /// A row of a list: a name, selected or not, and a note on the right.
@@ -987,6 +980,8 @@ impl TerrafluxApp {
             library,
             hover: None,
             styled: false,
+            tab_back: None,
+            tabbed: false,
         };
         if let Some(p) = model {
             app.open(&p);
@@ -1165,7 +1160,8 @@ impl TerrafluxApp {
                     ui.label(
                         RichText::new(
                             "click an operator (or /) to add it    drag: select    right or middle drag: move    double \
-                             click: its map    del: delete    ctrl+L: arrange    F5: run all",
+                             click: its map    del: delete    ctrl+R: rename    ctrl+L: arrange    Tab: the model \
+                             and back    ctrl+W: close the tab    F5: run all",
                         )
                         .color(weak),
                     );
@@ -1399,66 +1395,6 @@ impl TerrafluxApp {
         });
     }
 
-    /// The model as text, with its problems above: only the lines in view are laid out (a model of many
-    /// thousands of nodes is a long text); the text made when the tab is first shown after an edit.
-    fn model_tab(&mut self, ui: &mut Ui) {
-        let Some(s) = &mut self.session else { return };
-        if s.toml.is_none() {
-            s.toml = Some(s.model.to_toml().unwrap_or_else(|e| e.to_string()));
-        }
-        let s = &*s;
-        egui::Panel::top("model_problems").frame(egui::Frame::new()).show(ui, |ui| {
-            if let Some(p) = &s.path {
-                ui.label(RichText::new(p.display().to_string()).monospace());
-            }
-            if s.loading() {
-                ui.horizontal(|ui| {
-                    ui.spinner();
-                    ui.label("Reading and checking the data...");
-                });
-            }
-            if let Some(e) = &s.load_error {
-                ui.colored_label(ui.visuals().error_fg_color, format!("the inputs could not be read: {e}"));
-            }
-            let problems = s.issues.len() + s.findings.len();
-            ui.label(
-                RichText::new(if problems == 0 {
-                    "No problem found in the model or its data.".to_string()
-                } else {
-                    format!("{problems} problems found")
-                })
-                .strong(),
-            );
-            egui::ScrollArea::vertical().id_salt("problems").max_height(200.0).show(ui, |ui| {
-                for i in &s.issues {
-                    let c = if i.severity == Severity::Error {
-                        ui.visuals().error_fg_color
-                    } else {
-                        ui.visuals().warn_fg_color
-                    };
-                    ui.colored_label(c, i.to_string());
-                }
-                for f in &s.findings {
-                    let c = match f.level {
-                        Level::Error => ui.visuals().error_fg_color,
-                        Level::Warning => ui.visuals().warn_fg_color,
-                        Level::Info => ui.visuals().text_color(),
-                    };
-                    ui.colored_label(c, f.to_string());
-                }
-            });
-            ui.separator();
-        });
-        let text = s.toml.as_deref().unwrap_or_default();
-        let lines: Vec<&str> = text.lines().collect();
-        let height = ui.text_style_height(&egui::TextStyle::Monospace);
-        egui::ScrollArea::both().auto_shrink([false, false]).show_rows(ui, height, lines.len(), |ui, range| {
-            for l in &lines[range] {
-                ui.label(RichText::new(*l).monospace());
-            }
-        });
-    }
-
     fn validation_tab(&mut self, ui: &mut Ui) {
         let Some(s) = &mut self.session else { return };
         ui.label("Compare the last simulated map with an observed one, both from the same start: cell by cell (the figure of merit) and in neighbourhoods of growing size (Dinamica EGO's fuzzy similarity of the changes).");
@@ -1531,13 +1467,42 @@ impl TerrafluxApp {
         }
     }
 
-    /// The keys of the whole application: F5 runs the model, ctrl+S saves it.
+    /// The keys of the whole application: F5 runs the model, ctrl+S saves it, Tab goes to the model and back to
+    /// the tab it came from, ctrl+W closes the tab in focus.
     fn keys(&mut self, ui: &mut Ui) {
-        let (run, save) = ui.input_mut(|i| {
-            (i.consume_key(egui::Modifiers::NONE, egui::Key::F5), i.consume_key(egui::Modifiers::COMMAND, egui::Key::S))
+        let typing = ui.ctx().memory(|m| m.focused().is_some());
+        let (run, save, tab, close) = ui.input_mut(|i| {
+            (
+                i.consume_key(egui::Modifiers::NONE, egui::Key::F5),
+                i.consume_key(egui::Modifiers::COMMAND, egui::Key::S),
+                !typing && i.consume_key(egui::Modifiers::NONE, egui::Key::Tab),
+                i.consume_key(egui::Modifiers::COMMAND, egui::Key::W),
+            )
         });
         if save {
             self.save(false);
+        }
+        if tab {
+            self.tabbed = true;
+            match self.focused() {
+                Some(Pane::Model) => {
+                    if let Some(back) = self.tab_back.take()
+                        && self.is_open(back)
+                    {
+                        self.focus(back);
+                    }
+                }
+                other => {
+                    self.tab_back = other;
+                    self.focus(Pane::Model);
+                }
+            }
+        }
+        if close && let Some(p) = self.focused() {
+            if let (Pane::Map(id), Some(s)) = (p, &mut self.session) {
+                s.map_tabs.remove(&id);
+            }
+            self.close(p);
         }
         if let Some(s) = &mut self.session
             && run
@@ -1616,6 +1581,14 @@ impl TerrafluxApp {
                 });
         }
         egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::BAR)).show(ui, |ui| self.docks(ui));
+        // Tab is ours: no field keeps the focus egui gave it
+        if std::mem::take(&mut self.tabbed) {
+            ui.ctx().memory_mut(|m| {
+                if let Some(f) = m.focused() {
+                    m.surrender_focus(f);
+                }
+            });
+        }
         self.keep_layout();
     }
 
@@ -1640,9 +1613,6 @@ impl TerrafluxApp {
             }
             Pane::Validation => {
                 egui::Frame::new().inner_margin(Margin::same(8)).show(ui, |ui| self.validation_tab(ui));
-            }
-            Pane::Text => {
-                egui::Frame::new().inner_margin(Margin::same(8)).show(ui, |ui| self.model_tab(ui));
             }
             Pane::Map(id) => {
                 let Some(mut shown) = s.map_tabs.remove(&id) else {
@@ -1698,11 +1668,17 @@ impl TerrafluxApp {
         }
     }
 
-    /// Show a pane: its tab brought to the front where it is, or opened in the main window.
+    /// The pane whose tab has the focus (of the main window).
+    pub fn focused(&mut self) -> Option<Pane> {
+        self.dock.as_mut()?.find_active_focused().map(|(_, t)| *t)
+    }
+
+    /// Show a pane: its tab brought to the front where it is (and given the focus), or opened in the main window.
     pub fn focus(&mut self, pane: Pane) {
         let dock = self.dock.get_or_insert_with(default_layout);
         if let Some(path) = dock.find_tab(&pane) {
             let _ = dock.set_active_tab(path);
+            dock.set_focused_node_and_surface(path.node_path());
             return;
         }
         for w in &mut self.windows {
@@ -1715,7 +1691,7 @@ impl TerrafluxApp {
         let dock = self.dock.get_or_insert_with(default_layout);
         let near = match pane {
             Pane::Simulation | Pane::Areas | Pane::Validation | Pane::Map(_) => Some(Pane::Viewer),
-            Pane::Text | Pane::Viewer => Some(Pane::Model),
+            Pane::Viewer => Some(Pane::Model),
             _ => None,
         };
         match near.and_then(|n| dock.find_tab(&n)).map(|p| dock.leaf_mut(p.node_path())) {
@@ -1971,17 +1947,26 @@ pub(crate) fn node_panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
             }
         });
     }
-    let mut params: Vec<(String, String)> =
-        sig.as_ref().map(|g| g.params.iter().map(|p| (p.name.clone(), p.doc.clone())).collect()).unwrap_or_default();
+    let mut params: Vec<(String, String, Option<terraflux_graph::PortSpec>)> = sig
+        .as_ref()
+        .map(|g| g.params.iter().map(|p| (p.name.clone(), p.doc.clone(), Some(p.clone()))).collect())
+        .unwrap_or_default();
     for k in n.params.keys() {
-        if !params.iter().any(|(p, _)| p == k) {
-            params.push((k.clone(), String::new()));
+        if !params.iter().any(|(p, _, _)| p == k) {
+            params.push((k.clone(), String::new(), None));
         }
     }
     if !params.is_empty() {
         ui.separator();
         ui.label(RichText::new("Settings").strong());
-        for (name, doc) in params {
+        for (name, doc, spec) in params {
+            // the metrics of the landscape metrics: all, by type, or one by one
+            if name == "metrics" && n.op.starts_with("metrics.") {
+                if let Some(c) = crate::builder::metrics_param(ui, s, &n, &path) {
+                    change = Some(c);
+                }
+                continue;
+            }
             // a reclassification's rules: a table of them, from the values of the map it reads
             if n.op == "raster.reclassify" && name == "rules" {
                 if let Some(c) = crate::builder::reclassify_rules(ui, s, &n, &path) {
@@ -1997,6 +1982,13 @@ pub(crate) fn node_panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
                     v => v.to_string(),
                 })
                 .unwrap_or_default();
+            // a few values to choose from (a yes or no among them)
+            if let Some(spec) = spec.as_ref().filter(|p| p.ty == terraflux_graph::Type::Bool || !p.choices.is_empty()) {
+                if let Some(c) = crate::builder::choice_param(ui, s, &n, &path, spec, &init) {
+                    change = Some(c);
+                }
+                continue;
+            }
             ui.label(&name).on_hover_text(&doc);
             let key = format!("param.{name}");
             let mut text = field(s, &key, init.clone());

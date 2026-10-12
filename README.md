@@ -48,11 +48,13 @@ terraflux app                 # or: terraflux app model.toml
 A double click on `terraflux.exe` (or `terraflux` without a command) opens the application too, and so does a
 model file dropped on it or opened with it; started that way on Windows, it shows no console.
 
-- **Panes you arrange:** the model, the operators, the node, the viewer, the simulation's maps, the areas, the
-  validation and the text are tabs to drag, split, close (the View menu turns each on or off) or take to a
-  window of their own on another screen (right click on a tab); the layout is kept between sessions. A double
-  click on a node opens its map in a tab of its own: one per node, brought to the front when it is open already
-  (a new one once it is closed).
+- **Panes you arrange:** the model, the operators, the node, the viewer, the simulation's maps, the areas and
+  the validation are tabs to drag, split, close (ctrl+W; the View menu turns each on or off) or take to a
+  window of their own on another screen (right click on a tab); the layout is kept between sessions. Tab goes
+  to the model and Tab again back to the tab you were in. A double click on a node opens its map in a tab of
+  its own: one per node, brought to the front when it is open already (a new one once it is closed). The
+  model's tab shows its text (TOML) and its problems with a button (Text). The viewer writes the coordinates
+  under the pointer in its corner, with the cell's row, column and value.
 - **Seeing without writing:** `view.plot` shows a map, a stack, a loop's maps or rasters in a tab of its own,
   refreshed at every run (read, reclassify, plot: no file). What a tab or the viewer shows is saved from it
   (Save output: a file only, or a file and a `raster.write` in the model), in the background.
@@ -61,7 +63,12 @@ model file dropped on it or opened with it; started that way on Windows, it show
   shown or hidden, at the opacity chosen.
 - **Editing many nodes:** drag on the canvas to select the nodes in a box (shift or ctrl and a click add or take
   one away, ctrl+A all), drag one to move them all, del deletes them; Arrange (ctrl+L) puts the nodes in tidy
-  columns by what they read, ordered so that connections cross little.
+  columns by what they read, ordered so that connections cross little. ctrl+R renames the node selected. A
+  connection is taken off by dragging it away from its input (dropped on another input: moved there) or by a
+  right click on the input.
+- **Settings in lists:** a setting of a few values (a method, a shape, a connectivity, yes or no) is chosen in
+  a list, its default first; the metrics of the landscape metrics are all of them, those of some types (area
+  and edge, shape, core area...) or some one by one.
 - **Builder** (where the application opens): open a raster, click the operators of the library (by
   landschaft's subjects, with a search) and they come connected to the node selected; what the node selected gives is shown under the
   canvas (a map with its legend, the maps of a stack or of a loop's steps, a table, a value). A run stops at the

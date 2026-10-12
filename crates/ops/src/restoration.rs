@@ -210,11 +210,14 @@ impl Operator for OriginalVegetation {
         .param(PortSpec::new("anthropic", Type::Any, "the anthropic classes"))
         .param(PortSpec::optional("failsafe", Type::Any, "the natural classes the failsafe fills (default all)"))
         .param(PortSpec::optional("threshold", Type::Number, "the share of land a source must explain (default 0.95)"))
-        .param(PortSpec::optional(
-            "restore_to",
-            Type::Text,
-            "original (default) or current: restored land returns to the current natural cover where it has some",
-        ))
+        .param(
+            PortSpec::optional(
+                "restore_to",
+                Type::Text,
+                "original (default) or current: restored land returns to the current natural cover where it has some",
+            )
+            .choices(["original", "current"]),
+        )
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {

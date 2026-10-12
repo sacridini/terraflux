@@ -131,6 +131,25 @@ pub fn crs_of(g: &Grid) -> Option<String> {
     g.geo.wkt.clone().or_else(|| g.geo.epsg().map(|c| format!("EPSG:{c}")))
 }
 
+/// The resampling settings: auto (by the data) and gdalwarp's methods.
+const RESAMPLING: [&str; 15] = [
+    "auto",
+    "near",
+    "bilinear",
+    "cubic",
+    "cubicspline",
+    "lanczos",
+    "average",
+    "rms",
+    "mode",
+    "max",
+    "min",
+    "med",
+    "q1",
+    "q3",
+    "sum",
+];
+
 /// GDAL's resampling: the one given, else by the data: classes (whole numbers) the nearest cell, or the most
 /// common when the cells grow; values the bilinear, or the mean when the cells grow.
 fn resampling(args: &Args, r: &Rasters, coarser: bool) -> Result<String> {
@@ -199,11 +218,14 @@ impl Operator for Reproject {
             "the new CRS: EPSG:4326, a WKT, a PROJ string (default: the same)",
         ))
         .param(PortSpec::optional("resolution", Type::Any, "the new cells' side, or [x, y], in the new CRS's units"))
-        .param(PortSpec::optional(
-            "resampling",
-            Type::Text,
-            "auto (default), near, bilinear, cubic, average, mode, min, max...",
-        ))
+        .param(
+            PortSpec::optional(
+                "resampling",
+                Type::Text,
+                "auto (default), near, bilinear, cubic, average, mode, min, max...",
+            )
+            .choices(RESAMPLING),
+        )
         .param(PortSpec::optional("source_crs", Type::Text, "the rasters' CRS, when their files do not say it"))
         .param(PortSpec::optional("extent", Type::Any, "[xmin, ymin, xmax, ymax] in the new CRS"))
         .param(PortSpec::optional("options", Type::Text, "more of gdalwarp's options, as on its command line"))
@@ -258,7 +280,10 @@ impl Operator for Match {
         .input(PortSpec::new("raster", Type::Raster, "the rasters"))
         .input(PortSpec::new("like", Type::Raster, "the raster whose grid to take"))
         .output(PortSpec::new("raster", Type::Raster, "the rasters on that grid"))
-        .param(PortSpec::optional("resampling", Type::Text, "auto (default), near, bilinear, average, mode..."))
+        .param(
+            PortSpec::optional("resampling", Type::Text, "auto (default), near, bilinear, average, mode...")
+                .choices(RESAMPLING),
+        )
         .param(PortSpec::optional("source_crs", Type::Text, "the rasters' CRS, when their files do not say it"))
         .param(PortSpec::optional("path", Type::Text, "the file (or folder, for a series) made; else a cache"))
     }
@@ -354,7 +379,10 @@ impl Operator for Resample {
         .input(PortSpec::new("raster", Type::Raster, "the rasters"))
         .output(PortSpec::new("raster", Type::Raster, "the rasters resampled"))
         .param(PortSpec::new("resolution", Type::Any, "the new cells' side, or [x, y], in the rasters' units"))
-        .param(PortSpec::optional("resampling", Type::Text, "auto (default), near, bilinear, cubic, average, mode..."))
+        .param(
+            PortSpec::optional("resampling", Type::Text, "auto (default), near, bilinear, cubic, average, mode...")
+                .choices(RESAMPLING),
+        )
         .param(PortSpec::optional("path", Type::Text, "the file (or folder, for a series) made; else a cache"))
     }
 
@@ -401,7 +429,12 @@ impl Operator for Convert {
         .input(PortSpec::new("raster", Type::Raster, "the rasters"))
         .output(PortSpec::new("raster", Type::Raster, "the rasters converted"))
         .param(PortSpec::optional("format", Type::Text, "GDAL's format (default GTiff; COG, HFA, netCDF...)"))
-        .param(PortSpec::optional("type", Type::Text, "the cell type: Byte, Int16, UInt16, Int32, Float32, Float64"))
+        .param(
+            PortSpec::optional("type", Type::Text, "the cell type: Byte, Int16, UInt16, Int32, Float32, Float64")
+                .choices([
+                    "Byte", "Int8", "UInt16", "Int16", "UInt32", "Int32", "UInt64", "Int64", "Float32", "Float64",
+                ]),
+        )
         .param(PortSpec::optional("options", Type::Text, "more of gdal_translate's options, as on its command line"))
         .param(PortSpec::optional("path", Type::Text, "the file (or folder, for a series) made; else a cache"))
     }
@@ -459,7 +492,10 @@ impl Operator for Mosaic {
         .output(PortSpec::new("raster", Type::Raster, "the mosaic"))
         .param(PortSpec::optional("crs", Type::Text, "the CRS of the mosaic (default: the first file's)"))
         .param(PortSpec::optional("resolution", Type::Any, "the side of the mosaic's cells, or [x, y]"))
-        .param(PortSpec::optional("resampling", Type::Text, "auto (default), near, bilinear, average, mode..."))
+        .param(
+            PortSpec::optional("resampling", Type::Text, "auto (default), near, bilinear, average, mode...")
+                .choices(RESAMPLING),
+        )
         .param(PortSpec::optional("path", Type::Text, "the file made; else a cache"))
     }
 
@@ -500,7 +536,10 @@ impl Operator for Terrain {
         )
         .input(PortSpec::new("raster", Type::Raster, "the surface"))
         .output(PortSpec::new("raster", Type::Raster, "the measure"))
-        .param(PortSpec::optional("measure", Type::Text, "slope (default), aspect, hillshade, TRI, TPI, roughness"))
+        .param(
+            PortSpec::optional("measure", Type::Text, "slope (default), aspect, hillshade, TRI, TPI, roughness")
+                .choices(["slope", "aspect", "hillshade", "TRI", "TPI", "roughness"]),
+        )
         .param(PortSpec::optional("options", Type::Text, "more of gdaldem's options, as on its command line"))
         .param(PortSpec::optional("path", Type::Text, "the file (or folder, for a series) made; else a cache"))
     }
@@ -559,7 +598,10 @@ impl Operator for Proximity {
         .input(PortSpec::new("raster", Type::Raster, "the raster (its band chosen)"))
         .output(PortSpec::new("raster", Type::Raster, "the distances"))
         .param(PortSpec::new("values", Type::Any, "the values to measure from: a value or a list"))
-        .param(PortSpec::optional("units", Type::Text, "geo (default: the units of the raster) or cells"))
+        .param(
+            PortSpec::optional("units", Type::Text, "geo (default: the units of the raster) or cells")
+                .choices(["geo", "cells"]),
+        )
         .param(PortSpec::optional("max_distance", Type::Number, "beyond it, no value"))
         .param(PortSpec::optional("path", Type::Text, "the file made; else a cache"))
     }

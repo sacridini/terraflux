@@ -601,10 +601,16 @@ impl Operator for Actions {
             Type::Table,
             "with boundary data: the boundary of the monitored units and of every threat's actions",
         ))
-        .param(PortSpec::optional("model", Type::Text, "minimizeCosts (default) or maximizeBenefits"))
+        .param(
+            PortSpec::optional("model", Type::Text, "minimizeCosts (default) or maximizeBenefits")
+                .choices(["minimizeCosts", "maximizeBenefits"]),
+        )
         .param(PortSpec::optional("budget", Type::Number, "maximizeBenefits: the most the units and actions may cost"))
         .param(PortSpec::optional("blm", Type::Number, "the weight of the monitored units' boundary (0)"))
-        .param(PortSpec::optional("curve", Type::Integer, "the features' response: 1 linear (default), 2, 3"))
+        .param(
+            PortSpec::optional("curve", Type::Integer, "the features' response: 1 linear (default), 2, 3")
+                .choices([1, 2, 3]),
+        )
         .param(PortSpec::optional("segments", Type::Integer, "curve 2, 3: pieces of its linear approximation (3)"))
         .param(PortSpec::optional("gap", Type::Number, "the relative optimality gap (default 0)"))
         .param(PortSpec::optional("time_limit", Type::Number, "seconds (default none)"))

@@ -440,7 +440,7 @@ impl Operator for Mspa {
             .input(PortSpec::new("map", Type::Map, "the map"))
             .output(PortSpec::new("map", Type::Map, "the MSPA classes")),
         )
-        .param(PortSpec::optional("connectivity", Type::Integer, "of the foreground: 8 (default) or 4"))
+        .param(PortSpec::optional("connectivity", Type::Integer, "of the foreground: 8 (default) or 4").choices([8, 4]))
         .param(PortSpec::optional("edge_width", Type::Integer, "the edge's width in cells, 1-255 (default 1)"))
         .param(PortSpec::optional("internal", Type::Bool, "tell internal features apart (default true)"))
     }
@@ -496,7 +496,7 @@ impl Operator for Spa {
             .output(PortSpec::new("porosity", Type::Number, "100 - contiguous / (contiguous + core-openings) x 100"))
             .output(PortSpec::new("report", Type::Text, "GTB's report (spaN.txt)")),
         )
-        .param(PortSpec::optional("variant", Type::Integer, "2, 3, 5 (default) or 6 classes"))
+        .param(PortSpec::optional("variant", Type::Integer, "2, 3, 5 (default) or 6 classes").choices([5, 2, 3, 6]))
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
@@ -598,7 +598,7 @@ impl Operator for Accounting {
             .output(PortSpec::new("objects", Type::Table, "per object: its number and cells"))
             .output(PortSpec::new("report", Type::Text, "GTB's report (acc.txt)")),
         )
-        .param(PortSpec::optional("connectivity", Type::Integer, "of the foreground: 8 (default) or 4"))
+        .param(PortSpec::optional("connectivity", Type::Integer, "of the foreground: 8 (default) or 4").choices([8, 4]))
         .param(PortSpec::optional(
             "thresholds",
             Type::Any,
@@ -714,7 +714,7 @@ impl Operator for Parcellation {
             Type::Table,
             "the whole map: its parcels, cells with data, APS, AWAPS, division and PARC (%)",
         ))
-        .param(PortSpec::optional("connectivity", Type::Integer, "of the parcels: 8 (default) or 4"))
+        .param(PortSpec::optional("connectivity", Type::Integer, "of the parcels: 8 (default) or 4").choices([8, 4]))
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {

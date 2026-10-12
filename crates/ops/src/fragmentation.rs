@@ -204,9 +204,12 @@ impl Operator for Fos {
             .output(PortSpec::new("report", Type::Text, "GTB's report (fos.txt)")),
         )
         .param(PortSpec::optional("window", Type::Integer, "the window's side in cells, odd (default 27)"))
-        .param(PortSpec::optional("method", Type::Text, "FAD (default), FED or FAC"))
-        .param(PortSpec::optional("classes", Type::Integer, "5 or 6 (default: intact apart from interior)"))
-        .param(PortSpec::optional("connectivity", Type::Integer, "of the patches: 8 (default) or 4"))
+        .param(PortSpec::optional("method", Type::Text, "FAD (default), FED or FAC").choices(["FAD", "FED", "FAC"]))
+        .param(
+            PortSpec::optional("classes", Type::Integer, "5 or 6 (default: intact apart from interior)")
+                .choices([6, 5]),
+        )
+        .param(PortSpec::optional("connectivity", Type::Integer, "of the patches: 8 (default) or 4").choices([8, 4]))
         .param(PortSpec::optional("grayscale", Type::Bool, "a % cover (default: when its largest value passes 4)"))
         .param(PortSpec::optional("gray_threshold", Type::Integer, "a % cover's foreground: from this up (default 30)"))
         .param(PortSpec::optional("pixel_resolution", Type::Number, "the report's cell size in metres (25)"))
@@ -633,7 +636,7 @@ impl Operator for LandscapeMosaic {
             sig = sig.param(PortSpec::optional(name, Type::Any, "the land cover's classes of it (a class or a list)"));
         }
         sig.param(PortSpec::optional("window", Type::Integer, "the window's side in cells, odd (default 27)"))
-            .param(PortSpec::optional("classes", Type::Integer, "19 (default) or 103"))
+            .param(PortSpec::optional("classes", Type::Integer, "19 (default) or 103").choices([19, 103]))
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
@@ -881,7 +884,10 @@ impl Operator for GrayConvolution {
         )
         .input(PortSpec::new("map", Type::Map, "the cover (%)"))
         .output(PortSpec::new("map", Type::Map, "the metric around each cell"))
-        .param(PortSpec::optional("metric", Type::Text, &format!("{} (default mean)", GRAY_METRICS.join(", "))))
+        .param(
+            PortSpec::optional("metric", Type::Text, &format!("{} (default mean)", GRAY_METRICS.join(", ")))
+                .choices(GRAY_METRICS),
+        )
         .param(PortSpec::optional("window", Type::Integer, "the window's side in cells, odd (default 7)"))
         .param(PortSpec::optional(
             "mask_missing",

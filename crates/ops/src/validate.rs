@@ -189,7 +189,10 @@ impl Operator for SimilarityOp {
         .input(PortSpec::new("simulated", Type::Map, "the simulated map"))
         .output(PortSpec::new("table", Type::Table, "a row per window"))
         .param(PortSpec::optional("windows", Type::Any, "the window sides, odd ([1, 3, 5, 7, 9, 11])"))
-        .param(PortSpec::optional("decay", Type::Text, "\"exponential\" (default) or \"constant\""))
+        .param(
+            PortSpec::optional("decay", Type::Text, "\"exponential\" (default) or \"constant\"")
+                .choices(["exponential", "constant"]),
+        )
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {

@@ -23,6 +23,23 @@ pub fn register(r: &mut Registry) {
 /// Zonation's marginal loss rules.
 pub const RULES: [&str; 8] = ["CAZ1", "CAZ2", "CAZMAX", "CAZP", "CAZPW", "ABF", "RAND", "LOAD"];
 
+/// The problems' objectives (problem_of), min_set (the default) first.
+const OBJECTIVES: [&str; 10] = [
+    "min_set",
+    "min_shortfall",
+    "min_largest_shortfall",
+    "max_utility",
+    "max_features",
+    "max_cover",
+    "min_penalties",
+    "max_phylo_div",
+    "max_phylo_end",
+    "min_extinction_risk",
+];
+
+/// The problems' decision types, binary (the default) first.
+const DECISIONS: [&str; 3] = ["binary", "proportion", "semicontinuous"];
+
 /// A rule and its parameter ("ABF 0.25", or the rule and `rule_param`), the parameter as Zonation's float.
 pub fn parse_rule(rule: &str, rule_param: Option<f64>) -> std::result::Result<(String, f64), String> {
     let mut parts = rule.split_whitespace();
@@ -160,7 +177,10 @@ impl Operator for Zonation {
             Type::Stack,
             "how far each cell could move up, down and both in the order (shares of the cells)",
         ))
-        .param(PortSpec::optional("rule", Type::Text, "CAZ2 (default), CAZ1, CAZMAX, ABF, CAZP, CAZPW, RAND, LOAD"))
+        .param(
+            PortSpec::optional("rule", Type::Text, "CAZ2 (default), CAZ1, CAZMAX, ABF, CAZP, CAZPW, RAND, LOAD")
+                .choices(["CAZ2", "CAZ1", "CAZMAX", "ABF", "CAZP", "CAZPW", "RAND", "LOAD"]),
+        )
         .param(PortSpec::optional("rule_param", Type::Number, "ABF's z (0.25), CAZP's and CAZPW's p (1)"))
         .param(PortSpec::optional("weights", Type::Any, "a weight per feature (default 1)"))
         .param(PortSpec::optional("abf_z", Type::Any, "ABF's z per feature (null: rule_param)"))
@@ -173,11 +193,16 @@ impl Operator for Zonation {
             Type::Any,
             "per feature: its file's NoData value (null: none), which value extraction tells from no value",
         ))
-        .param(PortSpec::optional("zero_mode", Type::Text, "all (default), none or dynamic: the zeros are data"))
+        .param(
+            PortSpec::optional("zero_mode", Type::Text, "all (default), none or dynamic: the zeros are data")
+                .choices(["all", "none", "dynamic"]),
+        )
         .param(PortSpec::optional("keep_zeros", Type::Any, "dynamic: per feature, whether its zeros are data"))
         .param(PortSpec::optional("cost_in_ranking", Type::Bool, "the cost weighs the removal (default true)"))
         .param(PortSpec::optional("area", Type::Integer, "the analysis area's value ranked (default 0: every one)"))
-        .param(PortSpec::optional("bits", Type::Integer, "8 (default) or 16: the precision of the data"))
+        .param(
+            PortSpec::optional("bits", Type::Integer, "8 (default) or 16: the precision of the data").choices([8, 16]),
+        )
         .param(PortSpec::optional("max_iterations", Type::Integer, "default 500"))
         .param(PortSpec::optional("ranking_error", Type::Number, "the error to stop at, % (default 0.01)"))
         .param(PortSpec::optional("stop_on_plateau", Type::Bool, "stop when the error no longer falls"))
@@ -1075,9 +1100,12 @@ impl Operator for Marxan {
         .param(PortSpec::optional("start_temp", Type::Number, "the starting temperature (-1: adaptive, default)"))
         .param(PortSpec::optional("cool_fac", Type::Number, "the cooling factor (default 0)"))
         .param(PortSpec::optional("num_temp", Type::Integer, "temperature decreases (default 10000)"))
-        .param(PortSpec::optional("run_mode", Type::Integer, "Marxan's run mode (default 1)"))
-        .param(PortSpec::optional("heur_type", Type::Integer, "the heuristic (default 1)"))
-        .param(PortSpec::optional("itimp_type", Type::Integer, "the iterative improvement (default 0)"))
+        .param(PortSpec::optional("run_mode", Type::Integer, "Marxan's run mode (default 1)").choices([1, 0, 2, 6]))
+        .param(PortSpec::optional("heur_type", Type::Integer, "the heuristic (default 1)").choices([1, 0]))
+        .param(
+            PortSpec::optional("itimp_type", Type::Integer, "the iterative improvement (default 0)")
+                .choices([0, 1, 2, 3]),
+        )
         .param(PortSpec::optional("misslevel", Type::Number, "the share of a target that counts as met (1)"))
         .param(PortSpec::optional("cost_thresh", Type::Number, "the cost threshold (default 0: none)"))
         .param(PortSpec::optional("thresh_pen1", Type::Number, "the cost threshold's penalty a"))
@@ -2380,13 +2408,16 @@ impl Operator for Optimize {
             Type::Table,
             "min_extinction_risk: per feature its share held, z and species-area risk; their sum last",
         ))
-        .param(PortSpec::optional(
-            "objective",
-            Type::Text,
-            "min_set (default), min_shortfall, min_largest_shortfall, max_utility, max_features, max_cover, \
-             min_penalties, max_phylo_div, max_phylo_end, min_extinction_risk (landschaft's: the least sum of the \
-             features' species-area risk 1 - (held / total)^z within the budget)",
-        ))
+        .param(
+            PortSpec::optional(
+                "objective",
+                Type::Text,
+                "min_set (default), min_shortfall, min_largest_shortfall, max_utility, max_features, max_cover, \
+                 min_penalties, max_phylo_div, max_phylo_end, min_extinction_risk (landschaft's: the least sum of \
+                 the features' species-area risk 1 - (held / total)^z within the budget)",
+            )
+            .choices(OBJECTIVES),
+        )
         .param(PortSpec::optional(
             "z",
             Type::Any,
@@ -2443,7 +2474,10 @@ impl Operator for Optimize {
             "[lower amount, lower target, upper amount, upper target(, cap amount, cap target)]",
         ))
         .param(PortSpec::optional("feature_weights", Type::Any, "a weight per feature"))
-        .param(PortSpec::optional("decisions", Type::Text, "binary (default), proportion or semicontinuous"))
+        .param(
+            PortSpec::optional("decisions", Type::Text, "binary (default), proportion or semicontinuous")
+                .choices(DECISIONS),
+        )
         .param(PortSpec::optional("upper_limit", Type::Number, "semicontinuous: the most of a unit selected"))
         .param(PortSpec::optional(
             "boundary_penalty",
@@ -2453,7 +2487,10 @@ impl Operator for Optimize {
         .param(PortSpec::optional("edge_factor", Type::Number, "boundary penalties: the weight of edges to no unit (0.5)"))
         .param(PortSpec::optional("linear_penalty", Type::Number, "linear penalties: the weight of penalty_data"))
         .param(PortSpec::optional("linear_threshold", Type::Number, "a linear constraint on constraint_data"))
-        .param(PortSpec::optional("linear_sense", Type::Text, "the linear constraint's sense: <= (default), >=, ="))
+        .param(
+            PortSpec::optional("linear_sense", Type::Text, "the linear constraint's sense: <= (default), >=, =")
+                .choices(["<=", ">=", "="]),
+        )
         .param(PortSpec::optional("neighbors", Type::Number, "every selected unit has this many selected neighbours"))
         .param(PortSpec::optional("clamp", Type::Bool, "neighbors: fewer for the units with fewer (default true)"))
         .param(PortSpec::optional(
@@ -2477,12 +2514,15 @@ impl Operator for Optimize {
              linear_constraint|neighbors|contiguity|feature_contiguity, penalty, edge_factor, threshold, sense, \
              column, k, clamp}, ...]",
         ))
-        .param(PortSpec::optional(
-            "portfolio",
-            Type::Text,
-            "several solutions: cuts (the best distinct ones), top (the best, each to optimality), gap (within \
-             pool_gap of the optimum), shuffle (the columns in random orders)",
-        ))
+        .param(
+            PortSpec::optional(
+                "portfolio",
+                Type::Text,
+                "several solutions: cuts (the best distinct ones), top (the best, each to optimality), gap (within \
+                 pool_gap of the optimum), shuffle (the columns in random orders)",
+            )
+            .choices(["cuts", "top", "gap", "shuffle"]),
+        )
         .param(PortSpec::optional("number_solutions", Type::Number, "a portfolio's solutions (default 10)"))
         .param(PortSpec::optional("pool_gap", Type::Number, "the gap portfolio: how far from the optimum (0.1)"))
         .param(PortSpec::optional("seed", Type::Number, "the shuffle portfolio's random orders (default 0)"))
@@ -2965,7 +3005,10 @@ impl Operator for Evaluate {
         ))
         .param(PortSpec::optional("rank", Type::Integer, "the rank importance with this many budgets"))
         .param(PortSpec::optional("budgets", Type::Any, "the rank importance at these budgets"))
-        .param(PortSpec::optional("objective", Type::Text, "the problem's objective (as prioritize.optimize's)"))
+        .param(
+            PortSpec::optional("objective", Type::Text, "the problem's objective (as prioritize.optimize's)")
+                .choices(OBJECTIVES),
+        )
         .param(PortSpec::optional("budget", Type::Number, "the objective's budget"))
         .param(PortSpec::optional("gap", Type::Number, "the solves' optimality gap (default 0.1)"))
         .param(PortSpec::optional(
@@ -3273,12 +3316,22 @@ impl Operator for Calibrate {
         .output(PortSpec::new("selection", Type::Table, "per unit: its cell or row (1..) and every candidate's share"))
         .output(PortSpec::optional("solutions", Type::Stack, "maps: every candidate, a layer each"))
         .output(PortSpec::optional("best", Type::Map, "maps: the candidate TOPSIS chooses"))
-        .param(PortSpec::optional("approach", Type::Text, "blended (default), hierarchical, pareto or cohon"))
-        .param(PortSpec::optional(
-            "penalty",
-            Type::Text,
-            "the penalty traded off against the cost: boundary (default), connectivity, asym_connectivity, linear",
-        ))
+        .param(
+            PortSpec::optional("approach", Type::Text, "blended (default), hierarchical, pareto or cohon").choices([
+                "blended",
+                "hierarchical",
+                "pareto",
+                "cohon",
+            ]),
+        )
+        .param(
+            PortSpec::optional(
+                "penalty",
+                Type::Text,
+                "the penalty traded off against the cost: boundary (default), connectivity, asym_connectivity, linear",
+            )
+            .choices(["boundary", "connectivity", "asym_connectivity", "linear"]),
+        )
         .param(PortSpec::optional(
             "values",
             Type::Any,
@@ -3290,16 +3343,15 @@ impl Operator for Calibrate {
             Type::Any,
             "hierarchical without values: the thresholds the least cost x (1 + these), rounded up (1e-5 to 4)",
         ))
-        .param(PortSpec::optional(
-            "objective",
-            Type::Text,
-            "the problem's objective (min_set; pareto: any with targets)",
-        ))
+        .param(
+            PortSpec::optional("objective", Type::Text, "the problem's objective (min_set; pareto: any with targets)")
+                .choices(OBJECTIVES),
+        )
         .param(PortSpec::optional("relative_targets", Type::Any, "as prioritize.optimize's"))
         .param(PortSpec::optional("absolute_targets", Type::Any, "as prioritize.optimize's"))
         .param(PortSpec::optional("loglinear_targets", Type::Any, "as prioritize.optimize's"))
         .param(PortSpec::optional("feature_weights", Type::Any, "as prioritize.optimize's"))
-        .param(PortSpec::optional("decisions", Type::Text, "as prioritize.optimize's"))
+        .param(PortSpec::optional("decisions", Type::Text, "as prioritize.optimize's").choices(DECISIONS))
         .param(PortSpec::optional("edge_factor", Type::Number, "the boundary: the weight of edges to no unit (0.5)"))
         .param(PortSpec::optional("cost_column", Type::Text, "tables: as prioritize.optimize's"))
         .param(PortSpec::optional("features", Type::Any, "tables: as prioritize.optimize's"))

@@ -24,8 +24,9 @@ use crate::theme;
 /// The subjects of the library: landschaft's (the sections of its reference, in its order), then the
 /// model's own (map algebra, the flow of a model); with the operators' prefixes in each and, within a subject,
 /// the groups of its operators.
-const SUBJECTS: [(&str, &[&str]); 20] = [
-    ("Data & configuration", &["raster", "vector"]),
+const SUBJECTS: [(&str, &[&str]); 21] = [
+    ("IO", &[]),
+    ("Data preparation", &["raster", "vector"]),
     ("Habitat patterns", &["landscape", "patterns"]),
     ("Fragmentation", &["fragmentation"]),
     ("Landscape metrics", &["metrics"]),
@@ -49,9 +50,15 @@ const SUBJECTS: [(&str, &[&str]); 20] = [
     ),
     ("Uncertainty", &["uncertainty"]),
     ("Map algebra", &["map", "stack"]),
-    ("Visualization", &["view"]),
+    ("Plot", &["view"]),
     ("Model flow", &["control", "rng", "plugin"]),
 ];
+
+/// The operators that read and write files: the subject IO.
+const IO: [&str; 4] = ["raster.read", "raster.write", "vector.read", "vector.write"];
+
+/// The subjects open when the library is first shown (the others closed until opened).
+const OPEN: [&str; 2] = ["IO", "Plot"];
 
 /// The groups of the operators of a subject, by prefix (land change simulation's models).
 fn group(prefix: &str) -> Option<&'static str> {
@@ -86,7 +93,11 @@ impl Library {
             .into_iter()
             .map(|g| {
                 let prefix = g.name.split('.').next().unwrap_or("");
-                let subject = SUBJECTS.iter().find(|(_, p)| p.contains(&prefix)).map_or("Other", |(s, _)| s);
+                let subject = if IO.contains(&g.name.as_str()) {
+                    "IO"
+                } else {
+                    SUBJECTS.iter().find(|(_, p)| p.contains(&prefix)).map_or("Other", |(s, _)| s)
+                };
                 Entry { group: group(prefix), name: g.name, doc: g.doc, subject }
             })
             .collect();
@@ -439,12 +450,135 @@ pub fn node_pane(ui: &mut Ui, s: &mut Session, r: &Registry) {
     });
 }
 
-/// The model's graph: where in it, run up to the node, and the canvas.
+/// The model's graph: where in it, run up to the node, and the canvas (or the model as text).
 pub fn model_pane(ui: &mut Ui, s: &mut Session, r: &Registry) {
     egui::Panel::top("builder_bar")
         .frame(egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(Margin::symmetric(8, 5)))
         .show(ui, |ui| bar(ui, s, r));
-    egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::CANVAS)).show(ui, |ui| canvas(ui, s, r));
+    if s.editor.text {
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(Margin::same(8)))
+            .show(ui, |ui| text_view(ui, s));
+    } else {
+        egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::CANVAS)).show(ui, |ui| canvas(ui, s, r));
+    }
+    rename_box(ui.ctx(), s, r);
+}
+
+/// The model as text, with its problems above: only the lines in view are laid out (a model of many thousands
+/// of nodes is a long text); the text made when it is first shown after an edit.
+fn text_view(ui: &mut Ui, s: &mut Session) {
+    use terraflux_exec::lint::Level;
+    use terraflux_graph::Severity;
+    if s.toml.is_none() {
+        s.toml = Some(s.model.to_toml().unwrap_or_else(|e| e.to_string()));
+    }
+    let s = &*s;
+    egui::Panel::top("model_problems").frame(egui::Frame::new()).show(ui, |ui| {
+        if let Some(p) = &s.path {
+            ui.label(RichText::new(p.display().to_string()).monospace());
+        }
+        if s.loading() {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label("Reading and checking the data...");
+            });
+        }
+        if let Some(e) = &s.load_error {
+            ui.colored_label(ui.visuals().error_fg_color, format!("the inputs could not be read: {e}"));
+        }
+        let problems = s.issues.len() + s.findings.len();
+        ui.label(
+            RichText::new(if problems == 0 {
+                "No problem found in the model or its data.".to_string()
+            } else {
+                format!("{problems} problems found")
+            })
+            .strong(),
+        );
+        egui::ScrollArea::vertical().id_salt("problems").max_height(200.0).show(ui, |ui| {
+            for i in &s.issues {
+                let c = if i.severity == Severity::Error {
+                    ui.visuals().error_fg_color
+                } else {
+                    ui.visuals().warn_fg_color
+                };
+                ui.colored_label(c, i.to_string());
+            }
+            for f in &s.findings {
+                let c = match f.level {
+                    Level::Error => ui.visuals().error_fg_color,
+                    Level::Warning => ui.visuals().warn_fg_color,
+                    Level::Info => ui.visuals().text_color(),
+                };
+                ui.colored_label(c, f.to_string());
+            }
+        });
+        ui.separator();
+    });
+    let text = s.toml.as_deref().unwrap_or_default();
+    let lines: Vec<&str> = text.lines().collect();
+    let height = ui.text_style_height(&egui::TextStyle::Monospace);
+    egui::ScrollArea::both().auto_shrink([false, false]).show_rows(ui, height, lines.len(), |ui, range| {
+        for l in &lines[range] {
+            ui.label(RichText::new(*l).monospace());
+        }
+    });
+}
+
+/// The box to rename the node selected (ctrl+R): enter renames it, escape or a click elsewhere leaves it.
+fn rename_box(ctx: &egui::Context, s: &mut Session, r: &Registry) {
+    let Some((id, mut name, focused)) = s.editor.renaming.take() else { return };
+    let (enter, escape) = ctx.input_mut(|i| {
+        (
+            i.consume_key(egui::Modifiers::NONE, egui::Key::Enter),
+            i.consume_key(egui::Modifiers::NONE, egui::Key::Escape),
+        )
+    });
+    let at = s.editor.screen_of(&id).unwrap_or(ctx.content_rect().center());
+    let area = egui::Area::new(egui::Id::new("rename node"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(at - Vec2::new(120.0, 30.0))
+        .show(ctx, |ui| {
+            egui::Frame::popup(ui.style()).inner_margin(Margin::same(8)).show(ui, |ui| {
+                ui.label(RichText::new(format!("Rename {id}")).strong());
+                let edit = ui.add(egui::TextEdit::singleline(&mut name).desired_width(240.0));
+                if !focused {
+                    edit.request_focus();
+                }
+                ui.label(RichText::new("enter: rename · esc: leave").size(10.5).color(ui.visuals().weak_text_color()));
+            });
+        });
+    let away = ctx.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer();
+    if enter {
+        let path = s.editor.path.clone();
+        let new = name.trim().to_string();
+        if new != id {
+            match crate::editor::rename_node(&mut s.source, &path, &id, &new) {
+                Ok(()) => {
+                    if s.selected.as_deref() == Some(id.as_str()) {
+                        select(s, r, &new);
+                    }
+                    s.fields.clear();
+                    s.editor.message = None;
+                    s.edited();
+                }
+                Err(e) => {
+                    s.editor.message = Some(e);
+                    s.editor.renaming = Some((id, name, true));
+                    return;
+                }
+            }
+        }
+    } else if !escape && !away {
+        s.editor.renaming = Some((id, name, true));
+        return;
+    }
+    ctx.memory_mut(|m| {
+        if let Some(f) = m.focused() {
+            m.surrender_focus(f);
+        }
+    });
 }
 
 /// What the node shown gives; the cell under the pointer.
@@ -463,10 +597,15 @@ fn runnable(s: &Session) -> Option<String> {
     s.selected.clone().filter(|id| s.editor.path.is_empty() && s.model.nodes.iter().any(|n| &n.id == id))
 }
 
-/// ctrl+enter runs up to the node selected, del deletes the nodes selected, ctrl+L arranges the nodes, "/"
-/// searches the operators to add one.
+/// ctrl+enter runs up to the node selected, del deletes the nodes selected, ctrl+L arranges the nodes, ctrl+R
+/// renames the node selected, "/" searches the operators to add one.
 pub fn keys(ui: &Ui, s: &mut Session, r: &Registry) {
     let typing = ui.ctx().memory(|m| m.focused().is_some());
+    let rename = !typing && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::R));
+    if rename && let Some(id) = s.selected.clone() {
+        s.editor.text = false;
+        s.editor.renaming = Some((id.clone(), id, false));
+    }
     let (run, delete, tidy, search) = ui.input_mut(|i| {
         // "/" as typed, whatever the keyboard's layout puts it on (taken away, so that it is not typed in the
         // search it opens)
@@ -705,10 +844,7 @@ fn library(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library) {
                     continue;
                 }
                 egui::CollapsingHeader::new(RichText::new(*subject).strong())
-                    .default_open(matches!(
-                        *subject,
-                        "Data & configuration" | "Habitat patterns" | "Fragmentation" | "Visualization"
-                    ))
+                    .default_open(OPEN.contains(subject))
                     .show(ui, |ui| {
                         // the operators of no group, then each group a level below, closed until opened
                         for e in in_it.iter().filter(|e| e.group.is_none()) {
@@ -794,6 +930,14 @@ fn bar(ui: &mut Ui, s: &mut Session, r: &Registry) {
         }
         ui.checkbox(&mut s.auto, "update after every edit")
             .on_hover_text("run up to the node shown after every change of the model");
+        let label = if s.editor.text { "Diagram" } else { "Text" };
+        if ui
+            .add(egui::Button::new(label).selected(s.editor.text))
+            .on_hover_text("the model as text (TOML), with the problems found in it; again: the diagram")
+            .clicked()
+        {
+            s.editor.text = !s.editor.text;
+        }
         if let Some(m) = &s.editor.message {
             ui.colored_label(ui.visuals().warn_fg_color, m);
         }
@@ -857,6 +1001,9 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
             }),
             Action::Connect { reference, node, port } => {
                 crate::editor::connect(&mut s.source, r, &path, &reference, &node, &port).map(|_| true)
+            }
+            Action::Disconnect { node, port } => {
+                crate::editor::disconnect(&mut s.source, &path, &node, &port).map(|_| true)
             }
         };
         match result {
@@ -1374,4 +1521,127 @@ pub(crate) fn reclassify_rules(ui: &mut Ui, s: &mut Session, n: &Node, path: &[S
     s.fields.insert(key, shown);
     let new = rule_text(&rows);
     (commit && new != committed).then(|| crate::editor::set_param(&mut s.source, path, &n.id, "rules", &new))
+}
+
+/// A setting of a few values in a list: the default (when it may be left out), then its values (yes or no for a
+/// setting of that type).
+pub fn choice_param(
+    ui: &mut Ui,
+    s: &mut Session,
+    n: &Node,
+    path: &[String],
+    spec: &terraflux_graph::PortSpec,
+    current: &str,
+) -> Option<Result<(), String>> {
+    let options: Vec<String> =
+        if spec.choices.is_empty() { vec!["true".into(), "false".into()] } else { spec.choices.clone() };
+    let mut out = None;
+    ui.label(&spec.name).on_hover_text(&spec.doc);
+    let shown = if current.is_empty() { "default".to_string() } else { current.to_string() };
+    egui::ComboBox::from_id_salt(("param", &n.id, &spec.name))
+        .selected_text(shown)
+        .width(ui.available_width() - 8.0)
+        .show_ui(ui, |ui| {
+            if !spec.required
+                && ui.selectable_label(current.is_empty(), "default").on_hover_text(&spec.doc).clicked()
+                && !current.is_empty()
+            {
+                out = Some(crate::editor::set_param(&mut s.source, path, &n.id, &spec.name, ""));
+            }
+            for o in &options {
+                if ui.selectable_label(current == o, o).clicked() && current != o {
+                    out = Some(crate::editor::set_param(&mut s.source, path, &n.id, &spec.name, o));
+                }
+            }
+        })
+        .response
+        .on_hover_text(&spec.doc);
+    out
+}
+
+/// The metrics of a landscape metrics node: all of its level (the default), or some, chosen by type (area and
+/// edge, shape, core area...) or one by one.
+pub fn metrics_param(ui: &mut Ui, s: &mut Session, n: &Node, path: &[String]) -> Option<Result<(), String>> {
+    use terraflux_ops::lsm_catalog::METRICS;
+    let level = match n.op.as_str() {
+        "metrics.patch" => "patch",
+        "metrics.class" => "class",
+        "metrics.sample" | "metrics.series" => n.params.get("level").and_then(|v| v.as_str()).unwrap_or("landscape"),
+        _ => "landscape",
+    };
+    let named: Vec<String> = match n.params.get("metrics") {
+        Some(serde_json::Value::String(m)) => vec![m.clone()],
+        Some(serde_json::Value::Array(a)) => a.iter().filter_map(|v| v.as_str().map(String::from)).collect(),
+        _ => Vec::new(),
+    };
+    // the names as the catalogue has them (lsm_c_ca is ca)
+    let chosen: Vec<&'static str> =
+        named.iter().filter_map(|m| terraflux_ops::metrics::find(level, m).map(|x| x.metric)).collect();
+    let of_level: Vec<_> = METRICS.iter().filter(|m| m.level == level).collect();
+    let mut kinds: Vec<&str> = Vec::new();
+    for m in &of_level {
+        if !kinds.contains(&m.kind) {
+            kinds.push(m.kind);
+        }
+    }
+    let shown = match chosen.len() {
+        0 => "all".to_string(),
+        1..=4 => chosen.join(", "),
+        k => format!("{k} metrics"),
+    };
+    let mut set: Vec<&'static str> = chosen.clone();
+    let mut changed = false;
+    ui.label("metrics").on_hover_text(format!("the {level} metrics measured: all of them, by type or one by one"));
+    egui::ComboBox::from_id_salt(("metrics", &n.id))
+        .selected_text(shown)
+        .width(ui.available_width() - 8.0)
+        .height(460.0)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .show_ui(ui, |ui| {
+            let mut all = set.is_empty();
+            if ui.checkbox(&mut all, RichText::new("all").strong()).on_hover_text("every metric of the level").changed()
+                && all
+            {
+                set.clear();
+                changed = true;
+            }
+            ui.separator();
+            for kind in &kinds {
+                let of: Vec<&'static str> = of_level.iter().filter(|m| m.kind == *kind).map(|m| m.metric).collect();
+                let k = of.iter().filter(|m| set.contains(m)).count();
+                let id = ui.make_persistent_id(("metrics kind", &n.id, kind));
+                egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
+                    .show_header(ui, |ui| {
+                        let mut on = k == of.len();
+                        let label = format!("{} ({k}/{})", kind.trim_end_matches(" metric"), of.len());
+                        if ui.add(egui::Checkbox::new(&mut on, label).indeterminate(k > 0 && k < of.len())).changed() {
+                            set.retain(|m| !of.contains(m));
+                            if on {
+                                set.extend(&of);
+                            }
+                            changed = true;
+                        }
+                    })
+                    .body(|ui| {
+                        for m in of_level.iter().filter(|m| m.kind == *kind) {
+                            let mut on = set.contains(&m.metric);
+                            let extra = if m.extra { " (FRAGSTATS)" } else { "" };
+                            if ui.checkbox(&mut on, format!("{} · {}{extra}", m.metric, m.name)).changed() {
+                                set.retain(|x| *x != m.metric);
+                                if on {
+                                    set.push(m.metric);
+                                }
+                                changed = true;
+                            }
+                        }
+                    });
+            }
+        });
+    if !changed {
+        return None;
+    }
+    // in the catalogue's order
+    let ordered: Vec<&str> = of_level.iter().map(|m| m.metric).filter(|m| set.contains(m)).collect();
+    let text = if ordered.is_empty() { String::new() } else { serde_json::to_string(&ordered).unwrap_or_default() };
+    Some(crate::editor::set_param(&mut s.source, path, &n.id, "metrics", &text))
 }

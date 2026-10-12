@@ -6,6 +6,22 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Settings of a few values are chosen in a list (the operators' settings say their values, `PortSpec::choices`;
+  57 of them), yes-or-no settings too, with their default; the metrics of a landscape metrics node in a list of
+  their own: all (the default), by type, or one by one.
+- Tab goes to the model's tab and Tab again back to the tab it came from; ctrl+W closes the tab in focus; ctrl+R
+  renames the node selected (a box over it).
+- A connection is taken off by dragging it away from its input (onto another input: moved) or by a right click
+  on the input.
+- The viewer writes the coordinates under the pointer in its corner (and the cell's row, column and value), for
+  maps and vector features.
+
+### Changed
+- The library opens with its subjects closed but IO (reading and writing rasters and vectors, a subject of its
+  own) and Plot (formerly Visualization); "Data & configuration" is "Data preparation".
+- The model as text is a button of the model's tab (Text), no longer a tab of its own.
+
 ## [0.15.0] - 2026-10-12
 
 ### Added

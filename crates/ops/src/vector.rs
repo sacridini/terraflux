@@ -245,7 +245,10 @@ impl Operator for Rasterize {
         .param(PortSpec::optional("value", Type::Number, "the value burnt without a field (1)"))
         .param(PortSpec::optional("fill", Type::Number, "the cells no feature takes (0; null: no value)"))
         .param(PortSpec::optional("all_touched", Type::Bool, "every cell a feature touches (false)"))
-        .param(PortSpec::optional("merge", Type::Text, "replace (default: the last feature wins) or add"))
+        .param(
+            PortSpec::optional("merge", Type::Text, "replace (default: the last feature wins) or add")
+                .choices(["replace", "add"]),
+        )
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {

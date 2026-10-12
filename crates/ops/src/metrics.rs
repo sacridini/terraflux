@@ -209,27 +209,41 @@ pub(crate) fn settings(sig: OpSignature) -> OpSignature {
         Type::Any,
         "the metrics (a name or a list: ca, pland, np...; default all of the level)",
     ))
-    .param(PortSpec::optional(
-        "type",
-        Type::Text,
-        "without metrics, those of a type: area and edge, shape, core area, aggregation, diversity, complexity, \
-         contrast",
-    ))
+    .param(
+        PortSpec::optional(
+            "type",
+            Type::Text,
+            "without metrics, those of a type: area and edge, shape, core area, aggregation, diversity, complexity, \
+             contrast",
+        )
+        .choices(["area and edge", "shape", "core area", "aggregation", "diversity", "complexity", "contrast"]),
+    )
     .param(PortSpec::optional("extras", Type::Bool, "without metrics, FRAGSTATS' that landscapemetrics lacks too"))
-    .param(PortSpec::optional("directions", Type::Integer, "the patches' connectivity: 8 (default) or 4"))
+    .param(
+        PortSpec::optional("directions", Type::Integer, "the patches' connectivity: 8 (default) or 4").choices([8, 4]),
+    )
     .param(PortSpec::optional("count_boundary", Type::Bool, "the map's boundary counts as edge (default false)"))
     .param(PortSpec::optional("consider_boundary", Type::Bool, "cells at the boundary can be core (default false)"))
     .param(PortSpec::optional("edge_depth", Type::Integer, "core areas: the edge's depth in cells (default 1)"))
     .param(PortSpec::optional("cell_center", Type::Bool, "gyrate: the centroid on a cell of the patch"))
     .param(PortSpec::optional("classes_max", Type::Number, "rpr: the most classes there could be"))
-    .param(PortSpec::optional("neighbourhood", Type::Integer, "complexity metrics: 4 (default) or 8 neighbours"))
+    .param(
+        PortSpec::optional("neighbourhood", Type::Integer, "complexity metrics: 4 (default) or 8 neighbours")
+            .choices([4, 8]),
+    )
     .param(PortSpec::optional("ordered", Type::Bool, "complexity metrics: ordered pairs (default true)"))
-    .param(PortSpec::optional("base", Type::Text, "complexity metrics' logarithm: log2 (default), log or log10"))
-    .param(PortSpec::optional(
-        "convention",
-        Type::Text,
-        "landscapemetrics (default) or fragstats (physical edge lengths, disjunct cores' sizes)",
-    ))
+    .param(
+        PortSpec::optional("base", Type::Text, "complexity metrics' logarithm: log2 (default), log or log10")
+            .choices(["log2", "log", "log10"]),
+    )
+    .param(
+        PortSpec::optional(
+            "convention",
+            Type::Text,
+            "landscapemetrics (default) or fragstats (physical edge lengths, disjunct cores' sizes)",
+        )
+        .choices(["landscapemetrics", "fragstats"]),
+    )
     .param(PortSpec::optional("search_radius", Type::Number, "prox, simi: the search radius (map units)"))
     .param(PortSpec::optional("connect_threshold", Type::Number, "connect: the distance of a connection"))
     .param(PortSpec::optional("boundary_contrast", Type::Number, "econ, cwed, teci: the weight of edges to NA"))
@@ -406,7 +420,10 @@ impl Operator for Window {
             .output(PortSpec::new("maps", Type::Stack, "a map per metric, by its name")),
         )
         .param(PortSpec::optional("window", Type::Integer, "the window's side in cells, odd (default 5)"))
-        .param(PortSpec::optional("shape", Type::Text, "square (default) or circle (the cells within side/2)"))
+        .param(
+            PortSpec::optional("shape", Type::Text, "square (default) or circle (the cells within side/2)")
+                .choices(["square", "circle"]),
+        )
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {

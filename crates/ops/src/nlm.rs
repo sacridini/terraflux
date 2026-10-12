@@ -72,7 +72,10 @@ impl Operator for RandomCluster {
             Type::Any,
             "the classes' weights, their share of the clusters (default [0.5, 0.5]: two classes)",
         ))
-        .param(PortSpec::optional("neighbourhood", Type::Integer, "of a cluster's cells: 4 (default) or 8"))
+        .param(
+            PortSpec::optional("neighbourhood", Type::Integer, "of a cluster's cells: 4 (default) or 8")
+                .choices([4, 8]),
+        )
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {

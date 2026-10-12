@@ -70,7 +70,10 @@ impl Operator for DistanceTo {
         .input(PortSpec::new("landscape", Type::Map, "the map"))
         .output(PortSpec::new("distance", Type::Map, "the distances (NaN where the map has no value)"))
         .param(PortSpec::new("classes", Type::Any, "a class or a list"))
-        .param(PortSpec::optional("unit", Type::Text, "\"map\" (default; square cells) or \"cells\""))
+        .param(
+            PortSpec::optional("unit", Type::Text, "\"map\" (default; square cells) or \"cells\"")
+                .choices(["map", "cells"]),
+        )
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {

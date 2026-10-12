@@ -443,7 +443,10 @@ impl Operator for Write {
         .input(PortSpec::new("value", Type::Raster, "a map, a stack, a series of maps or rasters"))
         .output(PortSpec::new("path", Type::Text, "the file written"))
         .param(PortSpec::new("path", Type::Text, "the file, relative to the model's folder (.tif)"))
-        .param(PortSpec::optional("type", Type::Text, "the cell type: u8, i16, i32, f32, f64..."))
+        .param(
+            PortSpec::optional("type", Type::Text, "the cell type: u8, i16, i32, f32, f64...")
+                .choices(["u8", "i8", "u16", "i16", "u32", "i32", "u64", "i64", "f32", "f64"]),
+        )
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {

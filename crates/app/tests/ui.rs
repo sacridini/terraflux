@@ -127,11 +127,18 @@ fn a_model_runs_and_every_tab_draws() {
     let s = h.state().session.as_ref().unwrap();
     assert_eq!(s.maps.len(), 15);
     assert!(s.status.values().all(|st| *st == NodeStatus::Done { cached: true }), "{:?}", s.status);
-    for (pane, name) in [(Pane::Areas, "3-charts"), (Pane::Model, "4-graph"), (Pane::Text, "5-model")] {
+    for (pane, name) in [(Pane::Areas, "3-charts"), (Pane::Model, "4-graph")] {
         h.state_mut().focus(pane);
         h.run_steps(3);
         shot(&mut h, name);
     }
+    // the model as text: a button of the model's tab
+    h.get_by_label("Text").click();
+    h.run_steps(3);
+    assert!(h.state().session.as_ref().unwrap().editor.text);
+    shot(&mut h, "5-model");
+    h.get_by_label("Diagram").click();
+    h.run_steps(2);
     // the graph: a node's note when it is selected
     h.state_mut().focus(Pane::Model);
     h.state_mut().session.as_mut().unwrap().selected = Some("markov".into());
@@ -702,4 +709,89 @@ fn vectors_are_drawn_with_their_attributes() {
     let Some(terraflux_ops::Value::Vector(v)) = s.preview_value() else { panic!("{:?}", s.error) };
     assert_eq!(v.len(), 6);
     shot(&mut h, "22-vectors");
+}
+
+/// The keyboard: Tab to the model and back to the tab it came from, ctrl+W closes the tab in focus, ctrl+R
+/// renames the node selected; a right click on a connected input takes its connection away; the text of the
+/// model is a button of the model's tab.
+#[test]
+fn keys_switch_close_rename_and_disconnect() {
+    let mut h = harness(TerrafluxApp::new(None));
+    h.run_steps(2);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let r = terraflux_ops::Registry::standard();
+        terraflux_app::builder::add(s, &r, "nlm.fbm", &[]).unwrap();
+        terraflux_app::builder::add(s, &r, "landscape.mspa", &[]).unwrap();
+        assert!(s.source.node("mspa").unwrap().inputs.contains_key("map"), "connected when added");
+    }
+    h.run_steps(3);
+    // Tab: from the viewer to the model, and back
+    h.state_mut().focus(Pane::Viewer);
+    h.run_steps(2);
+    assert_eq!(h.state_mut().focused(), Some(Pane::Viewer));
+    h.key_press(egui::Key::Tab);
+    h.run_steps(2);
+    assert_eq!(h.state_mut().focused(), Some(Pane::Model));
+    h.key_press(egui::Key::Tab);
+    h.run_steps(2);
+    assert_eq!(h.state_mut().focused(), Some(Pane::Viewer));
+    // ctrl+W closes it
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::W);
+    h.run_steps(2);
+    assert!(!h.state().is_open(Pane::Viewer));
+    // ctrl+R: the node selected renamed
+    h.state_mut().focus(Pane::Model);
+    h.state_mut().session.as_mut().unwrap().selected = Some("mspa".into());
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::R);
+    h.run_steps(2);
+    assert!(h.state().session.as_ref().unwrap().editor.renaming.is_some());
+    shot(&mut h, "12-rename");
+    h.state_mut().session.as_mut().unwrap().editor.renaming = Some(("mspa".into(), "patterns".into(), true));
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        assert!(s.source.node("patterns").is_some() && s.source.node("mspa").is_none());
+        assert_eq!(s.selected.as_deref(), Some("patterns"));
+    }
+    // a right click on the connected input
+    let at = h.state().session.as_ref().unwrap().editor.screen_of_input("patterns", "map").unwrap();
+    h.event(egui::Event::PointerMoved(at));
+    h.run_steps(1);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(1);
+    }
+    h.run_steps(2);
+    assert!(!h.state().session.as_ref().unwrap().source.node("patterns").unwrap().inputs.contains_key("map"));
+    // the model as text, and back to the diagram
+    h.get_by_label("Text").click();
+    h.run_steps(2);
+    assert!(h.query_by_label_contains("problems").is_some() || h.query_by_label_contains("No problem").is_some());
+    h.get_by_label("Diagram").click();
+    h.run_steps(2);
+    assert!(!h.state().session.as_ref().unwrap().editor.text);
+    // the metrics of a level: all, by type or one by one, in a list
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.auto = false;
+        terraflux_app::builder::add(s, &terraflux_ops::Registry::standard(), "metrics.class", &[]).unwrap();
+    }
+    h.run_steps(3);
+    shot(&mut h, "13a-metrics");
+    h.get_by_value("all").click();
+    h.run_steps(2);
+    h.get_by_label_contains("area and edge").click();
+    h.run_steps(2);
+    shot(&mut h, "13-metrics");
+    let s = h.state().session.as_ref().unwrap();
+    let chosen = s.source.node("class").unwrap().params["metrics"].as_array().unwrap().clone();
+    assert!(chosen.iter().any(|m| m == "ca") && chosen.iter().any(|m| m == "pland"), "{chosen:?}");
 }

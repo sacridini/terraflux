@@ -601,7 +601,7 @@ impl Operator for FitOp {
         ))
         .param(PortSpec::optional("categorical", Type::Any, "names of categorical variables"))
         .param(PortSpec::optional("fix_abnormal", Type::Bool, "finite weights for ranges without transitions"))
-        .param(PortSpec::optional("possible", Type::Text, "\"any\" (default) or \"stay\""))
+        .param(PortSpec::optional("possible", Type::Text, "\"any\" (default) or \"stay\"").choices(["any", "stay"]))
         .param(PortSpec::optional("transitions", Type::Any, "[[from, to], ...] (default: the Markov chain's)"))
     }
 

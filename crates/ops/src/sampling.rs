@@ -336,9 +336,16 @@ impl Operator for Sample {
             ))
             .output(PortSpec::new("plots", Type::Vector, "the plots measured, with plot_id (and size)")),
         )
-        .param(PortSpec::optional("level", Type::Text, "landscape (default), class or patch"))
+        .param(PortSpec::optional("level", Type::Text, "landscape (default), class or patch").choices([
+            "landscape",
+            "class",
+            "patch",
+        ]))
         .param(PortSpec::optional("size", Type::Any, "points: the buffer's half side or radius, or a list of them"))
-        .param(PortSpec::optional("shape", Type::Text, "points: square (default) or circle buffers"))
+        .param(
+            PortSpec::optional("shape", Type::Text, "points: square (default) or circle buffers")
+                .choices(["square", "circle"]),
+        )
         .param(PortSpec::optional("id_column", Type::Text, "the plots' identifiers (default 1, 2...)"))
         .param(PortSpec::optional(
             "all_classes",
@@ -529,11 +536,14 @@ impl Operator for Series {
             .input(PortSpec::optional("plots", Type::Vector, "zones (polygons) or points (buffers around them)"))
             .output(PortSpec::new("table", Type::Table, "per (class,) (zone and) date: the metrics")),
         )
-        .param(PortSpec::optional("level", Type::Text, "landscape (default) or class"))
+        .param(PortSpec::optional("level", Type::Text, "landscape (default) or class").choices(["landscape", "class"]))
         .param(PortSpec::optional("dates", Type::Any, "the layers' dates (default: their keys, or 1, 2...)"))
         .param(PortSpec::optional("grid", Type::Number, "zones: squares of this side tiling the maps"))
         .param(PortSpec::optional("size", Type::Number, "points: the buffer's half side or radius"))
-        .param(PortSpec::optional("shape", Type::Text, "points: square (default) or circle buffers"))
+        .param(
+            PortSpec::optional("shape", Type::Text, "points: square (default) or circle buffers")
+                .choices(["square", "circle"]),
+        )
         .param(PortSpec::optional(
             "fillna",
             Type::Bool,
@@ -673,7 +683,10 @@ impl Operator for Correlation {
         )
         .input(PortSpec::new("table", Type::Table, "the metrics, e.g. of metrics.patch or metrics.class"))
         .output(PortSpec::new("table", Type::Table, "the correlation matrix: a row and a column per metric"))
-        .param(PortSpec::optional("method", Type::Text, "pearson (default), spearman or kendall"))
+        .param(
+            PortSpec::optional("method", Type::Text, "pearson (default), spearman or kendall")
+                .choices(["pearson", "spearman", "kendall"]),
+        )
         .param(PortSpec::optional(
             "columns",
             Type::Any,

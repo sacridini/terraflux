@@ -741,11 +741,31 @@ impl MapView {
         }
         let p = response.hover_pos()?;
         let c = self.to_cell(rect, p);
-        if c.x < 0.0 || c.y < 0.0 || c.x >= w as f32 || c.y >= h as f32 {
+        let g = &source.grid().transform;
+        let inside = c.x >= 0.0 && c.y >= 0.0 && c.x < w as f32 && c.y < h as f32;
+        // the coordinates under the pointer, in the view's corner (and the cell's value over the map)
+        {
+            let (px, py) = (f64::from(c.x), f64::from(c.y));
+            let (x, y) = (g[0] + px * g[1] + py * g[2], g[3] + px * g[4] + py * g[5]);
+            // degrees to a hundred-thousandth, metres to a centimetre
+            let digits = if g[1].abs() < 0.01 { 6 } else { 2 };
+            let mut text = format!("x {x:.digits$}   y {y:.digits$}");
+            if inside {
+                let v = self.value_at(source, c.x as usize, c.y as usize);
+                let v = if v.is_nan() { "no value".to_string() } else { terraflux_ops::value::class_label(v) };
+                text.push_str(&format!("   ·   row {}  column {}   ·   {v}", c.y as usize, c.x as usize));
+            }
+            let at = rect.left_bottom() + Vec2::new(6.0, -4.0);
+            let galley = painter.layout_no_wrap(text, egui::FontId::monospace(11.0), Color32::WHITE);
+            let back =
+                Rect::from_min_size(at - Vec2::new(0.0, galley.size().y), galley.size()).expand2(Vec2::new(4.0, 2.0));
+            painter.rect_filled(back, 2.0, Color32::from_black_alpha(150));
+            painter.galley(at - Vec2::new(0.0, galley.size().y), galley, Color32::WHITE);
+        }
+        if !inside {
             return None;
         }
         let (col, row) = (c.x as usize, c.y as usize);
-        let g = &source.grid().transform;
         let (cx, cy) = (col as f64 + 0.5, row as f64 + 0.5);
         Some(Hover {
             row,
