@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-12
+
 ### Added
 - The rest of GuidosToolbox, by landschaft's C++ of GTB, the same maps and reports as landschaft
   (`tools/make_gtb_reference.py`):
