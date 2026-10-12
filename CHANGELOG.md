@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-12
+
 ### Added
 - Zonation's transforms in `prioritize.zonation`, through landschaft's C++ quantized data (now kept between its
   steps: `prio_data_*` in `terraflux-ls-sys`): conditions (`condition`, `renormalize`, `condition_maps`; -c),
