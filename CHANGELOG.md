@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-12
+
 ### Added
 - prioritizr's systematic conservation planning (`prioritize.optimize`): the planning units of a cost raster and
   the features' amounts in them, the objectives min set, min shortfall, min largest shortfall, max utility, max
