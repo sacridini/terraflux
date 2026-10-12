@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-12
+
 ### Added
 - The minimum extinction risk objective in `prioritize.optimize` (`min_extinction_risk`, landschaft's extension of
   prioritizr): within the budget, the least sum of the features' species-area risk 1 - (held / total)^z (`z`
