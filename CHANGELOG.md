@@ -6,6 +6,19 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-10-13
+
+### Added
+- The viewer's Metadata (beside Save output): what rasters, maps or vector features are, in a window: the files
+  and their reader, the layers, the data type and no-data value, the coordinate system (and its WKT), the cells
+  (their number and size), the extent and origin; of features their number, kinds, attributes and bounds; copied
+  as text.
+
+### Changed
+- The Operators menu of the toolbar is a classic menu (as Photoshop's): the favourites by colour, then a submenu
+  per subject, its groups a level below; the drawer at the left edge keeps the search and the collections.
+- ctrl+R selects the node's whole name: what is typed replaces it.
+
 ## [0.23.0] - 2026-10-13
 
 ### Added

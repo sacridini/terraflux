@@ -1080,3 +1080,59 @@ fn settings_themes_and_favourites() {
     terraflux_app::settings::toggle("raster.read", 0);
     assert!(terraflux_app::settings::in_collection(0).is_empty());
 }
+
+/// ctrl+R selects the whole name (what is typed replaces it); the Metadata button shows what the rasters are;
+/// the Operators menu cascades as a classic menu, an operator chosen added after the node selected.
+#[test]
+fn rename_metadata_and_the_operators_menu() {
+    let mut h = harness(TerrafluxApp::new(None));
+    h.run_steps(2);
+    let r = terraflux_ops::Registry::standard();
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let path = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
+        terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into())]).unwrap();
+    }
+    until(&mut h, "the raster read", |a| a.session.as_ref().unwrap().value_of("read", "raster").is_some());
+    h.state_mut().focus(Pane::Model);
+    h.run_steps(2);
+    let canvas = h.state().session.as_ref().unwrap().editor.canvas().expect("the canvas");
+    h.event(egui::Event::PointerMoved(canvas.center()));
+    h.run_steps(1);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::R);
+    h.run_steps(3);
+    h.event(egui::Event::Text("land".into()));
+    h.run_steps(2);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    assert!(
+        s.source.nodes.iter().any(|n| n.id == "land"),
+        "{:?}",
+        s.source.nodes.iter().map(|n| &n.id).collect::<Vec<_>>()
+    );
+    // the metadata of the raster (run again under its new name)
+    until(&mut h, "the raster read again", |a| a.session.as_ref().unwrap().value_of("land", "raster").is_some());
+    h.state_mut().focus(Pane::Viewer);
+    h.run_steps(3);
+    h.get_by_label("Metadata").click();
+    h.run_steps(3);
+    shot(&mut h, "25-metadata");
+    assert!(h.query_by_label("coordinate system").is_some());
+    assert!(h.query_by_label("128 x 108 cells (13824 cells)").is_some());
+    shot(&mut h, "25-metadata");
+    h.get_by_label("Metadata").click();
+    h.run_steps(2);
+    // Operators > Data preparation > reclassify
+    h.get_by_label("Operators").click();
+    h.run_steps(2);
+    shot(&mut h, "26-operators-menu");
+    h.query_by_label_contains("Data preparation").expect("the subject's submenu").click();
+    h.run_steps(2);
+    shot(&mut h, "26-operators-menu");
+    h.query_by_label_contains("reclassify").expect("the submenu's operator").click();
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    let n = s.source.nodes.iter().find(|n| n.op == "raster.reclassify").expect("added");
+    assert_eq!(n.inputs["map"], terraflux_graph::Source::Ref("land.raster".into()));
+}

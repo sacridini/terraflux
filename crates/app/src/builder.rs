@@ -575,9 +575,17 @@ fn rename_box(ctx: &egui::Context, s: &mut Session, r: &Registry) {
         .show(ctx, |ui| {
             egui::Frame::popup(ui.style()).inner_margin(Margin::same(8)).show(ui, |ui| {
                 ui.label(RichText::new(format!("Rename {id}")).strong());
-                let edit = ui.add(egui::TextEdit::singleline(&mut name).desired_width(240.0));
+                let out = egui::TextEdit::singleline(&mut name).desired_width(240.0).show(ui);
+                // at first: the focus, and the whole name selected (typing replaces it)
                 if !focused {
-                    edit.request_focus();
+                    out.response.request_focus();
+                    let mut state = out.state;
+                    let all = egui::text::CCursorRange::two(
+                        egui::text::CCursor::new(0),
+                        egui::text::CCursor::new(name.chars().count()),
+                    );
+                    state.cursor.set_char_range(Some(all));
+                    state.store(ui.ctx(), out.response.id);
                 }
                 ui.label(RichText::new("enter: rename · esc: leave").size(10.5).color(ui.visuals().weak_text_color()));
             });
@@ -821,6 +829,84 @@ pub fn add(s: &mut Session, r: &Registry, op: &str, params: &[(&str, serde_json:
 
 /// The files of vector features the dialogs offer (GDAL reads others too).
 pub const VECTOR_EXTENSIONS: [&str; 8] = ["gpkg", "shp", "geojson", "json", "fgb", "kml", "gml", "parquet"];
+
+/// The operators as a classic menu (as Photoshop's): the favourites by colour, then a submenu per subject, its
+/// groups a level below; an operator chosen is added after the node selected. Whether one was.
+pub fn operators_menu(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library) -> bool {
+    let mut chosen: Option<String> = None;
+    let item = |ui: &mut Ui, e: &Entry, chosen: &mut Option<String>| {
+        let short = e.name.split_once('.').map_or(e.name.as_str(), |(_, b)| b);
+        let colls = crate::settings::collections_of(&e.name);
+        let resp = ui.add(egui::Button::new(short).right_text(RichText::new(" ".repeat(3 * colls.len()))));
+        for (i, c) in colls.iter().rev().enumerate() {
+            let x = resp.rect.right() - 6.0 - i as f32 * 10.0;
+            let sq = egui::Rect::from_center_size(egui::pos2(x - 3.5, resp.rect.center().y), Vec2::splat(7.0));
+            ui.painter().rect_filled(sq, 1.0, crate::settings::COLLECTIONS[*c as usize].1);
+        }
+        if resp.on_hover_text(&e.doc).clicked() {
+            *chosen = Some(e.name.clone());
+            ui.close();
+        }
+    };
+    ui.set_min_width(200.0);
+    if ui.button("Open a raster or vectors...    ctrl+O").clicked() {
+        ui.close();
+        open_data(s, r);
+    }
+    ui.separator();
+    ui.menu_button("Favourites", |ui| {
+        let mut any = false;
+        for (k, (name, colour)) in crate::settings::COLLECTIONS.iter().enumerate() {
+            let ops = crate::settings::in_collection(k as u8);
+            if ops.is_empty() {
+                continue;
+            }
+            any = true;
+            let label = RichText::new(format!("■  {name}")).color(*colour);
+            ui.menu_button(label, |ui| {
+                for e in lib.entries.iter().filter(|e| ops.contains(&e.name)) {
+                    item(ui, e, &mut chosen);
+                }
+            });
+        }
+        if !any {
+            ui.label(RichText::new("none yet: right-click an operator in the drawer").weak().size(11.0));
+        }
+    });
+    ui.separator();
+    for (subject, _) in SUBJECTS.iter().chain([("Other", &[][..])].iter()) {
+        let in_it: Vec<&Entry> = lib.entries.iter().filter(|e| e.subject == *subject).collect();
+        if in_it.is_empty() {
+            continue;
+        }
+        ui.menu_button(*subject, |ui| {
+            for e in in_it.iter().filter(|e| e.group.is_none()) {
+                item(ui, e, &mut chosen);
+            }
+            let mut groups: Vec<&str> = in_it.iter().filter_map(|e| e.group).collect();
+            groups.dedup();
+            if !groups.is_empty() && in_it.iter().any(|e| e.group.is_none()) {
+                ui.separator();
+            }
+            for g in groups {
+                ui.menu_button(g, |ui| {
+                    for e in in_it.iter().filter(|e| e.group == Some(g)) {
+                        item(ui, e, &mut chosen);
+                    }
+                });
+            }
+        });
+    }
+    match chosen {
+        Some(op) => {
+            if let Err(e) = add(s, r, &op, &[]) {
+                s.editor.message = Some(e);
+            }
+            true
+        }
+        None => false,
+    }
+}
 
 /// Open a raster or vector features (ctrl+O): a node that reads the file chosen, after the node selected.
 pub fn open_data(s: &mut Session, r: &Registry) {
@@ -1381,6 +1467,21 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 }
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                // what the rasters or features are (their coordinate system, cells, extent...)
+                let has = value.as_ref().is_some_and(|v| !crate::metadata::facts(v).is_empty());
+                let id = egui::Id::new(("metadata open", salt, &node, &port));
+                let mut open: bool = ui.data(|d| d.get_temp(id)).unwrap_or(false);
+                if ui
+                    .add_enabled(has, egui::Button::new("Metadata").selected(open))
+                    .on_hover_text("the coordinate system, the cells, the extent, the bands...")
+                    .clicked()
+                {
+                    open = !open;
+                }
+                if open && let Some(v) = &value {
+                    crate::metadata::window(ui.ctx(), &format!("{node}.{port}"), &crate::metadata::facts(v), &mut open);
+                }
+                ui.data_mut(|d| d.insert_temp(id, open));
                 // what is shown, saved: a file only, or a file and a node that writes it at every run
                 let maps = matches!(&value, Some(Value::Map(_) | Value::Stack(_) | Value::Raster(_)))
                     || matches!(&value, Some(Value::Series(v)) if v.iter().all(|x| matches!(x, Value::Map(_))));

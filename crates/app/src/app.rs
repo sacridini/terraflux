@@ -1208,13 +1208,7 @@ impl TerrafluxApp {
             });
             if let Some(s) = &mut self.session {
                 ui.menu_button("Operators", |ui| {
-                    ui.set_width(300.0);
-                    ui.set_max_height(560.0);
-                    let before = s.revision;
-                    crate::builder::operators_pane(ui, s, &self.registry, &self.library);
-                    if s.revision != before {
-                        ui.close();
-                    }
+                    crate::builder::operators_menu(ui, s, &self.registry, &self.library);
                 })
                 .response
                 .on_hover_text("add an operator after the node selected (also at the window's left edge, and \"/\")");

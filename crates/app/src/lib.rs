@@ -10,6 +10,7 @@ pub mod charts;
 pub mod editor;
 pub mod editor_view;
 pub mod map_view;
+pub mod metadata;
 pub mod palette;
 pub mod prepare;
 pub mod prepare_view;
