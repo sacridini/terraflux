@@ -667,7 +667,10 @@ Pendências:
 - **Mudança do ECA (0.46.0, 2026-10-13):** `conn.eca_change` (uma série de grafos), bit a bit com o landschaft.
 - **Grafos de vetores (0.47.0, 2026-10-13):** `conn.nodes` e `conn.distances` em feições,
   `conn.graph_from_vector`, `conn.to_vector` e `conn.focal_nodes`, com o GEOS pelo GDAL, bit a bit com o
-  landschaft. Faltam do `conn`: o ProtConn, o SAMC e as grades.
+  landschaft.
+- **ProtConn e grades (0.48.0, 2026-10-13):** `conn.protconn`, `conn.protconn_regions`, `conn.make_grid`,
+  `conn.connectivity_grid` e `conn.eca_change_grid`, bit a bit com o landschaft. Faltam do `conn`: o ProtConn
+  em raster e o SAMC.
 - **Próximos (2026-10-13):** os instaladores de macOS e Linux;
   `vector.exact_sum` e `vector.distance` fora da memória.
 

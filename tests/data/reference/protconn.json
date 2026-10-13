@@ -1,0 +1,564 @@
+{
+ "cases": [
+  {
+   "name": "plain",
+   "op": "conn.protconn",
+   "params": {
+    "distance": [
+     500.0,
+     1000.0
+    ]
+   },
+   "columns": [
+    "distance",
+    "ECA",
+    "PC",
+    "LA",
+    "Protected_surface",
+    "Prot",
+    "ProtConn",
+    "ProtUnconn",
+    "RelConn",
+    "ProtUnconn_Design",
+    "ProtConn_Bound",
+    "Unprotected",
+    "ProtConn_Prot",
+    "ProtConn_Trans",
+    "ProtConn_Unprot",
+    "ProtConn_Within",
+    "ProtConn_Contig",
+    "ProtConn_Within_land",
+    "ProtConn_Contig_land",
+    "ProtConn_Unprot_land",
+    "ProtConn_Trans_land"
+   ]
+  },
+  {
+   "name": "trans_nodes",
+   "op": "conn.protconn",
+   "params": {
+    "distance": 800.0,
+    "transboundary": 400.0,
+    "bound": true
+   },
+   "columns": [
+    "distance",
+    "ECA",
+    "PC",
+    "LA",
+    "Protected_surface",
+    "Prot",
+    "ProtConn",
+    "ProtUnconn",
+    "RelConn",
+    "ProtUnconn_Design",
+    "ProtConn_Bound",
+    "Unprotected",
+    "ProtConn_Prot",
+    "ProtConn_Trans",
+    "ProtConn_Unprot",
+    "ProtConn_Within",
+    "ProtConn_Contig",
+    "ProtConn_Within_land",
+    "ProtConn_Contig_land",
+    "ProtConn_Unprot_land",
+    "ProtConn_Trans_land"
+   ]
+  },
+  {
+   "name": "trans_region",
+   "op": "conn.protconn",
+   "params": {
+    "distance": 800.0,
+    "transboundary": 300.0,
+    "transboundary_type": "region",
+    "area_unit": "ha"
+   },
+   "columns": [
+    "distance",
+    "ECA",
+    "PC",
+    "LA",
+    "Protected_surface",
+    "Prot",
+    "ProtConn",
+    "ProtUnconn",
+    "RelConn",
+    "ProtUnconn_Design",
+    "ProtConn_Bound",
+    "Unprotected",
+    "ProtConn_Prot",
+    "ProtConn_Trans",
+    "ProtConn_Unprot",
+    "ProtConn_Within",
+    "ProtConn_Contig",
+    "ProtConn_Within_land",
+    "ProtConn_Contig_land",
+    "ProtConn_Unprot_land",
+    "ProtConn_Trans_land"
+   ]
+  },
+  {
+   "name": "prob_none",
+   "op": "conn.protconn",
+   "params": {
+    "distance": 600.0,
+    "probability": null,
+    "pij_min": 0.001
+   },
+   "columns": [
+    "distance",
+    "ECA",
+    "PC",
+    "LA",
+    "Protected_surface",
+    "Prot",
+    "ProtConn",
+    "ProtUnconn",
+    "RelConn",
+    "ProtUnconn_Design",
+    "ProtConn_Bound",
+    "Unprotected",
+    "ProtConn_Prot",
+    "ProtConn_Trans",
+    "ProtConn_Unprot",
+    "ProtConn_Within",
+    "ProtConn_Contig",
+    "ProtConn_Within_land",
+    "ProtConn_Contig_land",
+    "ProtConn_Unprot_land",
+    "ProtConn_Trans_land"
+   ]
+  },
+  {
+   "name": "least_cost",
+   "op": "conn.protconn",
+   "params": {
+    "distance": 3000.0,
+    "distance_type": "least-cost"
+   },
+   "columns": [
+    "distance",
+    "ECA",
+    "PC",
+    "LA",
+    "Protected_surface",
+    "Prot",
+    "ProtConn",
+    "ProtUnconn",
+    "RelConn",
+    "ProtUnconn_Design",
+    "ProtConn_Bound",
+    "Unprotected",
+    "ProtConn_Prot",
+    "ProtConn_Trans",
+    "ProtConn_Unprot",
+    "ProtConn_Within",
+    "ProtConn_Contig",
+    "ProtConn_Within_land",
+    "ProtConn_Contig_land",
+    "ProtConn_Unprot_land",
+    "ProtConn_Trans_land"
+   ],
+   "resistance": true
+  },
+  {
+   "name": "single",
+   "op": "conn.protconn",
+   "params": {
+    "distance": 500.0,
+    "only": [
+     16
+    ]
+   },
+   "columns": [
+    "distance",
+    "ECA",
+    "PC",
+    "LA",
+    "Protected_surface",
+    "Prot",
+    "ProtConn",
+    "ProtUnconn",
+    "RelConn",
+    "ProtUnconn_Design",
+    "ProtConn_Bound",
+    "Unprotected",
+    "ProtConn_Prot",
+    "ProtConn_Trans",
+    "ProtConn_Unprot",
+    "ProtConn_Within",
+    "ProtConn_Contig",
+    "ProtConn_Within_land",
+    "ProtConn_Contig_land",
+    "ProtConn_Unprot_land",
+    "ProtConn_Trans_land"
+   ]
+  },
+  {
+   "name": "delta_table",
+   "op": "conn.protconn",
+   "params": {
+    "distance": [
+     600.0
+    ],
+    "transboundary": 300.0,
+    "delta": true
+   },
+   "columns": [
+    "distance",
+    "ECA",
+    "PC",
+    "LA",
+    "Protected_surface",
+    "Prot",
+    "ProtConn",
+    "ProtUnconn",
+    "RelConn",
+    "ProtUnconn_Design",
+    "ProtConn_Bound",
+    "Unprotected",
+    "ProtConn_Prot",
+    "ProtConn_Trans",
+    "ProtConn_Unprot",
+    "ProtConn_Within",
+    "ProtConn_Contig",
+    "ProtConn_Within_land",
+    "ProtConn_Contig_land",
+    "ProtConn_Unprot_land",
+    "ProtConn_Trans_land"
+   ]
+  },
+  {
+   "name": "regions",
+   "op": "conn.protconn_regions",
+   "params": {
+    "distance": 700.0,
+    "id": "rid"
+   },
+   "columns": [
+    "region",
+    "distance",
+    "ECA",
+    "PC",
+    "LA",
+    "Protected_surface",
+    "Prot",
+    "ProtConn",
+    "ProtUnconn",
+    "RelConn",
+    "ProtUnconn_Design",
+    "ProtConn_Bound",
+    "Unprotected",
+    "ProtConn_Prot",
+    "ProtConn_Trans",
+    "ProtConn_Unprot",
+    "ProtConn_Within",
+    "ProtConn_Contig",
+    "ProtConn_Within_land",
+    "ProtConn_Contig_land",
+    "ProtConn_Unprot_land",
+    "ProtConn_Trans_land"
+   ]
+  }
+ ],
+ "grids": [
+  {
+   "name": "hex",
+   "params": {
+    "cell_area": 40000.0
+   }
+  },
+  {
+   "name": "square_clip",
+   "params": {
+    "cell_area": 50000.0,
+    "hexagonal": false,
+    "clip": true
+   }
+  },
+  {
+   "name": "hex_inside",
+   "params": {
+    "cell_area": 30000.0,
+    "grid_boundary": true
+   }
+  }
+ ],
+ "vectors": [
+  {
+   "name": "cgrid_protconn",
+   "op": "conn.connectivity_grid",
+   "params": {
+    "distance": 500.0,
+    "cell_area": 90000.0
+   },
+   "columns": [
+    "OBJECTID",
+    "ECA",
+    "PC",
+    "LA",
+    "Protected_surface",
+    "Prot",
+    "ProtConn",
+    "ProtUnconn",
+    "RelConn",
+    "Unprotected",
+    "ProtConn_Prot",
+    "ProtConn_Trans",
+    "ProtConn_Unprot",
+    "ProtConn_Within",
+    "ProtConn_Contig",
+    "ProtConn_Within_land",
+    "ProtConn_Contig_land",
+    "ProtConn_Unprot_land",
+    "ProtConn_Trans_land"
+   ]
+  },
+  {
+   "name": "cgrid_pc",
+   "op": "conn.connectivity_grid",
+   "params": {
+    "distance": 500.0,
+    "cell_area": 90000.0,
+    "protconn_index": false,
+    "area_unit": "ha"
+   },
+   "columns": [
+    "OBJECTID",
+    "Protected_surface",
+    "LA",
+    "ECA",
+    "ECA_Normalized",
+    "PC"
+   ]
+  },
+  {
+   "name": "dgrid_iic",
+   "op": "conn.eca_change_grid",
+   "params": {
+    "distance": 300.0,
+    "cell_area": 160000.0
+   },
+   "columns": [
+    "OBJECTID",
+    "ECA_i",
+    "ECA_j",
+    "ECAnorm_i",
+    "ECAnorm_j",
+    "dA",
+    "dECA",
+    "rECA"
+   ],
+   "texts": {
+    "time": [
+     "T1.T2",
+     "T1.T2",
+     "T1.T2",
+     "T1.T2",
+     "T1.T2",
+     "T1.T2",
+     "T1.T2",
+     "T1.T2",
+     "T1.T2",
+     "T1.T2",
+     "T1.T2",
+     "T1.T2",
+     "T1.T2",
+     "T1.T2",
+     "T1.T2",
+     "T1.T2",
+     "T2.T3",
+     "T2.T3",
+     "T2.T3",
+     "T2.T3",
+     "T2.T3",
+     "T2.T3",
+     "T2.T3",
+     "T2.T3",
+     "T2.T3",
+     "T2.T3",
+     "T2.T3",
+     "T2.T3",
+     "T2.T3",
+     "T2.T3",
+     "T2.T3",
+     "T2.T3"
+    ],
+    "comparison": [
+     "NA",
+     "NA",
+     "dECA = dA < 0",
+     "dA < dECA < 0",
+     "dECA = dA < 0",
+     "NA",
+     "dA < dECA < 0",
+     "dA < dECA < 0",
+     "dECA = dA < 0",
+     "dA < dECA < 0",
+     "dECA = dA < 0",
+     "dA < dECA < 0",
+     "dA < dECA < 0",
+     "dA < dECA < 0",
+     "dA < dECA < 0",
+     "dECA = dA < 0",
+     "NA",
+     "NA",
+     "dECA or dA gain",
+     "dECA or dA gain",
+     "dECA = dA < 0",
+     "NA",
+     "dA < dECA < 0",
+     "dECA or dA gain",
+     "NA",
+     "dECA or dA gain",
+     "dECA or dA gain",
+     "dECA or dA gain",
+     "dECA or dA gain",
+     "dA < dECA < 0",
+     "dECA or dA gain",
+     "dECA = dA < 0"
+    ],
+    "change": [
+     "NA",
+     "NA",
+     "Equal loss",
+     "+ Habitat loss",
+     "Equal loss",
+     "NA",
+     "+ Habitat loss",
+     "+ Habitat loss",
+     "Equal loss",
+     "+ Habitat loss",
+     "Equal loss",
+     "+ Habitat loss",
+     "+ Habitat loss",
+     "+ Habitat loss",
+     "+ Habitat loss",
+     "Equal loss",
+     "NA",
+     "NA",
+     "Habitat or connectivity gain",
+     "Habitat or connectivity gain",
+     "Equal loss",
+     "NA",
+     "+ Habitat loss",
+     "Habitat or connectivity gain",
+     "NA",
+     "Habitat or connectivity gain",
+     "Habitat or connectivity gain",
+     "Habitat or connectivity gain",
+     "Habitat or connectivity gain",
+     "+ Habitat loss",
+     "Habitat or connectivity gain",
+     "Equal loss"
+    ]
+   }
+  },
+  {
+   "name": "dgrid_pc",
+   "op": "conn.eca_change_grid",
+   "params": {
+    "distance": 400.0,
+    "cell_area": 160000.0,
+    "metric": "PC",
+    "hexagonal": false,
+    "names": [
+     "a",
+     "b",
+     "c"
+    ]
+   },
+   "columns": [
+    "OBJECTID",
+    "ECA_i",
+    "ECA_j",
+    "ECAnorm_i",
+    "ECAnorm_j",
+    "dA",
+    "dECA",
+    "rECA"
+   ],
+   "texts": {
+    "time": [
+     "a.b",
+     "a.b",
+     "a.b",
+     "a.b",
+     "a.b",
+     "a.b",
+     "a.b",
+     "a.b",
+     "a.b",
+     "a.b",
+     "a.b",
+     "a.b",
+     "b.c",
+     "b.c",
+     "b.c",
+     "b.c",
+     "b.c",
+     "b.c",
+     "b.c",
+     "b.c",
+     "b.c",
+     "b.c",
+     "b.c",
+     "b.c"
+    ],
+    "comparison": [
+     "dA < dECA < 0",
+     "dECA = dA < 0",
+     "dA < dECA < 0",
+     "dA < dECA < 0",
+     "dECA = dA < 0",
+     "dA < dECA < 0",
+     "dECA = dA < 0",
+     "dECA = dA < 0",
+     "dECA = dA < 0",
+     "dECA = dA < 0",
+     "dECA = dA < 0",
+     "dECA < dA < 0",
+     "dECA or dA gain",
+     "dECA = dA < 0",
+     "dECA or dA gain",
+     "dECA or dA gain",
+     "dECA or dA gain",
+     "dECA or dA gain",
+     "dECA or dA gain",
+     "dECA or dA gain",
+     "dECA or dA gain",
+     "dECA or dA gain",
+     "dECA or dA gain",
+     "dECA or dA gain"
+    ],
+    "change": [
+     "+ Habitat loss",
+     "Equal loss",
+     "+ Habitat loss",
+     "+ Habitat loss",
+     "Equal loss",
+     "+ Habitat loss",
+     "Equal loss",
+     "Equal loss",
+     "Equal loss",
+     "Equal loss",
+     "Equal loss",
+     "+ Connectivity loss",
+     "Habitat or connectivity gain",
+     "Equal loss",
+     "Habitat or connectivity gain",
+     "Habitat or connectivity gain",
+     "Habitat or connectivity gain",
+     "Habitat or connectivity gain",
+     "Habitat or connectivity gain",
+     "Habitat or connectivity gain",
+     "Habitat or connectivity gain",
+     "Habitat or connectivity gain",
+     "Habitat or connectivity gain",
+     "Habitat or connectivity gain"
+    ]
+   }
+  }
+ ]
+}

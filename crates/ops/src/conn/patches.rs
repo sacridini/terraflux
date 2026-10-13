@@ -20,6 +20,11 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(FromVector));
     r.add(Arc::new(ToVector));
     r.add(Arc::new(FocalNodes));
+    r.add(Arc::new(ProtConn { regions: false }));
+    r.add(Arc::new(ProtConn { regions: true }));
+    r.add(Arc::new(MakeGrid));
+    r.add(Arc::new(ConnectivityGrid));
+    r.add(Arc::new(EcaChangeGrid));
 }
 
 /// The map of patches and how to read it.
@@ -447,5 +452,327 @@ impl Operator for FocalNodes {
         };
         let t = vector::focal_nodes(v, &ids, &attr, &o).map_err(|e| bad(args, e))?;
         Ok(outputs([("table", Value::Table(t))]))
+    }
+}
+
+struct ProtConn {
+    /// One row per region of the regions given.
+    regions: bool,
+}
+
+impl Operator for ProtConn {
+    fn signature(&self) -> OpSignature {
+        let sig = if self.regions {
+            OpSignature::new(
+                "conn.protconn_regions",
+                "ProtConn for every region of several (landschaft's protconn_regions): conn.protconn's indicators \
+                 with a row per region and distance.",
+                Access::Global,
+            )
+            .input(PortSpec::new("regions", Type::Vector, "the regions, one feature each"))
+            .param(PortSpec::optional("id", Type::Text, "the regions' id column (default 1, 2...)"))
+        } else {
+            OpSignature::new(
+                "conn.protconn",
+                "Saura's ProtConn (Makurhini's MK_ProtConn, landschaft's protconn): the share of a region \
+                 protected and connected. The protected areas clipped to the region and dissolved are the nodes \
+                 (and the transboundary ones within a distance of it; the region's parts with `bound`); PC's \
+                 numerator over the most probable paths between them gives ECA, PC, Prot, ProtConn, ProtUnconn, \
+                 RelConn and ProtConn's fractions. With `delta`, every protected area's importance.",
+                Access::Global,
+            )
+            .input(PortSpec::new("region", Type::Vector, "the region (its features dissolved)"))
+            .output(PortSpec::optional(
+                "delta",
+                Type::Vector,
+                "with `delta`: the clipped protected areas, their dProt, dProtConn and varProtConn per distance",
+            ))
+            .param(PortSpec::optional(
+                "delta",
+                Type::Bool,
+                "every protected area's importance too (default false)",
+            ))
+        };
+        sig.input(PortSpec::new("protected", Type::Vector, "the protected areas (polygons)"))
+            .input(PortSpec::optional("resistance", Type::Map, "the resistance of least-cost distances"))
+            .output(PortSpec::new("table", Type::Table, "the indicators per distance"))
+            .param(PortSpec::new("distance", Type::Any, "the median dispersal distance, or several"))
+            .param(PortSpec::optional(
+                "probability",
+                Type::Number,
+                "the probability at that distance (default 0.5; null: exp(-1))",
+            ))
+            .param(PortSpec::optional("transboundary", Type::Number, "the distance of the transboundary nodes"))
+            .param(
+                PortSpec::optional("transboundary_type", Type::Text, "around the nodes (default) or around the region")
+                    .choices(["nodes", "region"]),
+            )
+            .param(PortSpec::optional("bound", Type::Bool, "the region's parts as nodes (ProtConn_Bound)"))
+            .param(PortSpec::optional(
+                "area_unit",
+                Type::Text,
+                "m2 (default), km2, ha, Dam2, inch2, foot2, yard2 or mile2",
+            ))
+            .param(
+                PortSpec::optional("distance_type", Type::Text, "edge (default) or least-cost")
+                    .choices(["edge", "least-cost"]),
+            )
+            .param(PortSpec::optional("transboundary_weight", Type::Number, "the weight of transboundary pairs (1)"))
+            .param(
+                PortSpec::optional("cost_directions", Type::Integer, "of least-cost: 8 (default) or 4").choices([4, 8]),
+            )
+            .param(
+                PortSpec::optional("cost_function", Type::Text, "makurhini (default) or mean")
+                    .choices(["makurhini", "mean"]),
+            )
+            .param(PortSpec::optional("preselect", Type::Bool, "keep only the protected areas near the region (true)"))
+            .param(PortSpec::optional("pij_min", Type::Number, "probabilities below it make no edge (default 0)"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        use super::protconn::{INDICATORS, Settings, protconn};
+        let Some(Value::Vector(pas)) = args.get("protected") else {
+            return Err(bad(args, "connect the protected areas"));
+        };
+        let distances = numbers(args, "distance")?;
+        let probability = match args.params.get("probability") {
+            None => Some(0.5),
+            Some(serde_json::Value::Null) => None,
+            Some(_) => Some(args.param("probability", 0.5)?),
+        };
+        let unit: String = args.param("area_unit", "m2".into())?;
+        let ttype: String = args.param("transboundary_type", "nodes".into())?;
+        let dtype: String = args.param("distance_type", "edge".into())?;
+        let function: String = args.param("cost_function", "makurhini".into())?;
+        let resistance = args.opt_map("resistance")?;
+        let cost = resistance.map(|r| DistanceOptions {
+            distance: "least-cost",
+            max_distance: None,
+            distance_unit: "m",
+            resistance: Some(r),
+            cost_directions: 8,
+            cost_function: &function,
+            unreachable: "euclidean",
+        });
+        let mut cost = cost;
+        if let Some(c) = cost.as_mut() {
+            c.cost_directions = args.param("cost_directions", 8)?;
+        }
+        let s = Settings {
+            distances: &distances,
+            probability,
+            transboundary: args.opt_param("transboundary")?,
+            transboundary_type: &ttype,
+            bound: args.param("bound", false)?,
+            area_unit: &unit,
+            distance_type: &dtype,
+            cost,
+            weight: args.param("transboundary_weight", 1.0)?,
+            preselect: args.param("preselect", true)?,
+            pij_min: args.opt_param("pij_min")?,
+        };
+        let mut columns: Vec<String> = Vec::new();
+        let mut rows: Vec<Vec<f64>> = Vec::new();
+        let mut delta_out = None;
+        if self.regions {
+            let Some(Value::Vector(regions)) = args.get("regions") else {
+                return Err(bad(args, "connect the regions"));
+            };
+            let id: Option<String> = args.opt_param("id")?;
+            let ids = vector::ids_of(regions, id.as_deref()).map_err(|e| bad(args, e))?;
+            columns.push("region".into());
+            for (k, g) in regions.geometries.iter().enumerate() {
+                let (r, _) = protconn(&pas.geometries, std::slice::from_ref(g), &s, false).map_err(|e| bad(args, e))?;
+                rows.extend(r.into_iter().map(|row| std::iter::once(ids[k]).chain(row).collect()));
+            }
+        } else {
+            let Some(Value::Vector(region)) = args.get("region") else { return Err(bad(args, "connect the region")) };
+            let (r, delta) = protconn(&pas.geometries, &region.geometries, &s, args.param("delta", false)?)
+                .map_err(|e| bad(args, e))?;
+            rows = r;
+            if let Some(d) = delta {
+                use terraflux_raster::vector::{Column, Vector};
+                let col = |f: &dyn Fn(&super::protconn::DeltaRow) -> f64| Column::Numbers(d.iter().map(f).collect());
+                let v = Vector {
+                    geometries: d.iter().map(|x| x.0.clone()).collect(),
+                    attributes: vec![
+                        ("attribute".into(), col(&|x| x.1)),
+                        ("distance".into(), col(&|x| x.2)),
+                        ("dProt".into(), col(&|x| x.3)),
+                        ("dProtConn".into(), col(&|x| x.4)),
+                        ("varProtConn".into(), col(&|x| x.5)),
+                    ],
+                    crs: pas.crs.clone(),
+                };
+                delta_out = Some(Value::Vector(Arc::new(v)));
+            }
+        }
+        columns.push("distance".into());
+        columns.extend(INDICATORS.iter().map(|c| c.to_string()));
+        let mut t = crate::Table::new(columns);
+        t.rows = rows;
+        let mut out = outputs([("table", Value::Table(t))]);
+        if let Some(d) = delta_out {
+            out.insert("delta".into(), d);
+        }
+        Ok(out)
+    }
+}
+
+fn vector_input<'a>(args: &'a Args, port: &str) -> Result<&'a Arc<terraflux_raster::vector::Vector>> {
+    match args.get(port) {
+        Some(Value::Vector(v)) => Ok(v),
+        _ => Err(bad(args, format!("connect the {port}"))),
+    }
+}
+
+fn grid_cells(sig: OpSignature) -> OpSignature {
+    sig.param(PortSpec::optional("cell_area", Type::Number, "the cells' area, in the region's units squared"))
+        .param(PortSpec::optional("hexagonal", Type::Bool, "hexagons (default) or squares"))
+}
+
+/// The grid given, or one made over the region.
+fn grid_of(args: &Args, region: &terraflux_raster::vector::Vector) -> Result<Arc<terraflux_raster::vector::Vector>> {
+    if let Some(Value::Vector(g)) = args.get("grid") {
+        return Ok(g.clone());
+    }
+    let area: f64 = args.opt_param("cell_area")?.ok_or_else(|| bad(args, "connect a grid or set cell_area"))?;
+    let cells = super::grid::make_grid(&region.geometries, area, args.param("hexagonal", true)?, false, false)
+        .map_err(|e| bad(args, e))?;
+    Ok(Arc::new(super::grid::grid_vector(cells, region.crs.clone())))
+}
+
+struct MakeGrid;
+
+impl Operator for MakeGrid {
+    fn signature(&self) -> OpSignature {
+        grid_cells(
+            OpSignature::new(
+                "conn.make_grid",
+                "A grid of hexagons (sf's st_make_grid) or squares of a given area over a region (Makurhini's \
+                 make_grid): the cells that meet the region, clipped to it or only those wholly inside.",
+                Access::Global,
+            )
+            .input(PortSpec::new("region", Type::Vector, "the region"))
+            .output(PortSpec::new("grid", Type::Vector, "the cells, OBJECTID 1, 2...")),
+        )
+        .param(PortSpec::optional("clip", Type::Bool, "the cells clipped to the region (default false)"))
+        .param(PortSpec::optional("grid_boundary", Type::Bool, "only the cells wholly inside the region"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let region = vector_input(args, "region")?;
+        let area: f64 = args.opt_param("cell_area")?.ok_or_else(|| bad(args, "set cell_area"))?;
+        let cells = super::grid::make_grid(
+            &region.geometries,
+            area,
+            args.param("hexagonal", true)?,
+            args.param("clip", false)?,
+            args.param("grid_boundary", false)?,
+        )
+        .map_err(|e| bad(args, e))?;
+        let v = super::grid::grid_vector(cells, region.crs.clone());
+        Ok(outputs([("grid", Value::Vector(Arc::new(v)))]))
+    }
+}
+
+struct ConnectivityGrid;
+
+impl Operator for ConnectivityGrid {
+    fn signature(&self) -> OpSignature {
+        grid_cells(
+            OpSignature::new(
+                "conn.connectivity_grid",
+                "Connectivity per cell of a grid over a region (Makurhini's MK_Connect_grid, landschaft's \
+                 connectivity_grid): ProtConn's indicators of the protected areas in each cell, or the PC of \
+                 their dissolved parts (Protected_surface, LA, ECA, ECA_Normalized, PC).",
+                Access::Global,
+            )
+            .input(PortSpec::new("protected", Type::Vector, "the protected areas (polygons)"))
+            .input(PortSpec::new("region", Type::Vector, "the region"))
+            .input(PortSpec::optional("grid", Type::Vector, "the cells (else made with cell_area)"))
+            .output(PortSpec::new("grid", Type::Vector, "the cells with the indicators")),
+        )
+        .param(PortSpec::new("distance", Type::Number, "the median dispersal distance"))
+        .param(PortSpec::optional("protconn_index", Type::Bool, "ProtConn's indicators (default true), else PC"))
+        .param(PortSpec::optional("probability", Type::Number, "the probability at that distance (default 0.5)"))
+        .param(PortSpec::optional("transboundary", Type::Number, "the distance of the transboundary nodes"))
+        .param(PortSpec::optional("area_unit", Type::Text, "m2 (default), km2, ha..."))
+        .param(PortSpec::optional("pij_min", Type::Number, "probabilities below it make no edge"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let pas = vector_input(args, "protected")?;
+        let region = vector_input(args, "region")?;
+        let grid = grid_of(args, region)?;
+        let unit: String = args.param("area_unit", "m2".into())?;
+        let s = super::grid::GridSettings {
+            distance: args.opt_param("distance")?.ok_or_else(|| bad(args, "set the distance"))?,
+            protconn_index: args.param("protconn_index", true)?,
+            probability: args.param("probability", 0.5)?,
+            transboundary: args.opt_param("transboundary")?,
+            area_unit: &unit,
+            pij_min: args.opt_param("pij_min")?,
+        };
+        let v =
+            super::grid::connectivity_grid(&pas.geometries, &region.geometries, &grid, &s).map_err(|e| bad(args, e))?;
+        Ok(outputs([("grid", Value::Vector(Arc::new(v)))]))
+    }
+}
+
+struct EcaChangeGrid;
+
+impl Operator for EcaChangeGrid {
+    fn signature(&self) -> OpSignature {
+        grid_cells(
+            OpSignature::new(
+                "conn.eca_change_grid",
+                "The change of ECA per cell of a grid between consecutive times (Makurhini's MK_dECA_grid, \
+                 landschaft's eca_change_grid): the habitat of each time clipped to the cell, its graph \
+                 (areas, centroid distances), ECA of IIC or PC, their change and how it reads.",
+                Access::Global,
+            )
+            .input(PortSpec::new("times", Type::Any, "the habitat at two or more times (a series of vectors)"))
+            .input(PortSpec::new("region", Type::Vector, "the region"))
+            .input(PortSpec::optional("grid", Type::Vector, "the cells (else made with cell_area)"))
+            .output(PortSpec::new("grid", Type::Vector, "a cell per pair of times, with the changes")),
+        )
+        .param(PortSpec::new("distance", Type::Number, "the link distance"))
+        .param(PortSpec::optional("metric", Type::Text, "IIC (default) or PC").choices(["IIC", "PC"]))
+        .param(PortSpec::optional("probability", Type::Number, "the probability at that distance (PC: 0.5)"))
+        .param(PortSpec::optional("pij_min", Type::Number, "probabilities below it make no edge"))
+        .param(PortSpec::optional("names", Type::Any, "the times' names (default T1, T2...)"))
+        .param(PortSpec::optional("area_unit", Type::Text, "m2 (default), km2, ha..."))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let times: Vec<&terraflux_raster::vector::Vector> = match args.get("times") {
+            Some(Value::Series(items)) => items
+                .iter()
+                .map(|v| match v {
+                    Value::Vector(v) => Ok(&**v),
+                    _ => Err(bad(args, "the times must be vectors")),
+                })
+                .collect::<Result<_>>()?,
+            _ => return Err(bad(args, "connect the times (a series of vectors)")),
+        };
+        let region = vector_input(args, "region")?;
+        let grid = grid_of(args, region)?;
+        let names: Vec<String> = args.param("names", (1..=times.len()).map(|k| format!("T{k}")).collect::<Vec<_>>())?;
+        if names.len() != times.len() {
+            return Err(bad(args, "a name per time"));
+        }
+        let metric: String = args.param("metric", "IIC".into())?;
+        let unit: String = args.param("area_unit", "m2".into())?;
+        let s = super::grid::ChangeSettings {
+            distance: args.opt_param("distance")?.ok_or_else(|| bad(args, "set the distance"))?,
+            metric: &metric,
+            probability: args.opt_param("probability")?,
+            pij_min: args.opt_param("pij_min")?,
+            names: &names,
+            area_unit: &unit,
+        };
+        let v = super::grid::eca_change_grid(&times, &grid, &s).map_err(|e| bad(args, e))?;
+        Ok(outputs([("grid", Value::Vector(Arc::new(v)))]))
     }
 }

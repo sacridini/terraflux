@@ -6,6 +6,16 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Saura's ProtConn (Makurhini's MK_ProtConn, landschaft's protconn): `conn.protconn` (the protected areas
+  clipped to a region and dissolved, transboundary ones around the nodes or the region, the region's parts
+  with `bound`, edge or least-cost distances, a single protected area; ECA, PC, Prot, ProtConn, ProtUnconn,
+  RelConn and ProtConn's fractions; every protected area's dProt, dProtConn and varProtConn with `delta`) and
+  `conn.protconn_regions`. Grids over a region: `conn.make_grid` (sf's st_make_grid hexagons or squares,
+  clipped or wholly inside), `conn.connectivity_grid` (ProtConn or PC per cell, Makurhini's MK_Connect_grid)
+  and `conn.eca_change_grid` (the change of ECA per cell between times, MK_dECA_grid). The same as
+  landschaft's, to the bit.
+
 ## [0.47.0] - 2026-10-13
 
 ### Added

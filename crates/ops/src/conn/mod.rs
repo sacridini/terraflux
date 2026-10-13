@@ -4,7 +4,9 @@
 //! its numpy in the same order (its BLAS dot products and SIMD exponentials to rounding).
 
 pub mod graph;
+pub mod grid;
 mod patches;
+pub mod protconn;
 pub mod raster;
 pub mod vector;
 
