@@ -118,7 +118,8 @@ model file dropped on it or opened with it; started that way on Windows, it show
   reserves (`prioritize.marxan`), the same runs as Marxan; ProxIRR's irreplaceability (`prioritize.proxirr`), R's
   proxirr's bits; prioritizr's integer programs (`prioritize.optimize`: min set, min shortfall, max utility, max
   features, phylogenetic diversity, the species-area extinction risk and more; boundary, connectivity and linear
-  penalties, neighbour and contiguity constraints; planning units in maps or tables; portfolios), prioritizr's
+  penalties, neighbour and contiguity constraints; planning units in maps, tables, polygons or H3 hexagons
+  (`prioritize.h3_units`); portfolios), prioritizr's
   models bit for bit, solved by HiGHS; management zones; the evaluation of solutions (`prioritize.evaluate`) and
   the calibration of trade-offs (`prioritize.calibrate`).
 - **Restoration planning (plangea):** ecological intactness of a human footprint and its gradient as cells are

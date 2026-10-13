@@ -1497,6 +1497,9 @@ fn units_of(args: &Args) -> Result<milp::Units> {
         }
     };
     if let Some(Value::Vector(v)) = args.get("polygons") {
+        if let Some((zones, cost_columns)) = zone_cost_columns(args)? {
+            return polygon_zone_units(args, v, zones, cost_columns);
+        }
         return polygon_units(args, v);
     }
     let Some(pu) = table("pu") else {
@@ -1934,6 +1937,92 @@ fn polygon_units(args: &Args, v: &Arc<terraflux_raster::vector::Vector>) -> Resu
     milp::Units::rij(&ids, &cost, &feature_ids, names, (&pu, &sp, &amount)).map_err(err)
 }
 
+/// The amounts of features in polygons: exactextract's sums (features x polygons), below 1e-10 nothing
+/// (prioritizr's fast_extract).
+fn polygon_amounts(
+    grid: &terraflux_raster::Grid,
+    layers: &[Arc<Vec<f64>>],
+    geoms: &[&terraflux_raster::vector::Geometry],
+) -> Result<Vec<Vec<f64>>> {
+    let sums = crate::vector::exact_sums(grid, layers, geoms)?;
+    let l = layers.len();
+    Ok((0..l).map(|f| sums.chunks(l).map(|row| if row[f].abs() < 1e-10 { 0.0 } else { row[f] }).collect()).collect())
+}
+
+/// The features of polygon units with zones: their grid, every zone's layers, the base layers (with contributions)
+/// and their names.
+type ZoneLayers = (Arc<terraflux_raster::Grid>, Vec<Vec<Arc<Vec<f64>>>>, Option<Vec<Arc<Vec<f64>>>>, Vec<String>);
+
+/// Planning units of polygons with zones (landschaft's polygon_zone_units): a cost column per zone; every zone's
+/// own features (`zone_features`, zone after zone) or the base `features` times every zone's `contribution` (a
+/// number or one per feature, the rasters multiplied before they are summed), summed over every polygon exactly.
+fn polygon_zone_units(
+    args: &Args,
+    v: &Arc<terraflux_raster::vector::Vector>,
+    zones: Vec<String>,
+    cost_columns: Vec<String>,
+) -> Result<milp::Units> {
+    let node = args.node;
+    let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
+    let nz = zones.len();
+    let costs = cost_columns
+        .iter()
+        .map(|c| v.column(c).map(|c| c.numbers()).ok_or_else(|| err(format!("polygons: no cost column {c:?}"))))
+        .collect::<Result<Vec<_>>>()?;
+    let cost_refs: Vec<&[f64]> = costs.iter().map(|c| c.as_slice()).collect();
+    let given_names: Option<Vec<String>> = args.opt_param("feature_names")?;
+    let (grid, stacks, base, names): ZoneLayers = if let Some(Value::Stack(zf)) = args.get("zone_features") {
+        if zf.layers.len() % nz != 0 {
+            return Err(err(format!(
+                "zone_features: every zone needs the same features ({} layers, {nz} zones)",
+                zf.layers.len()
+            )));
+        }
+        let nf = zf.layers.len() / nz;
+        let names = match (given_names, args.get("features")) {
+            (Some(n), _) => n,
+            (None, Some(Value::Stack(f))) if f.layers.len() == nf => f.keys.iter().map(|k| k.to_string()).collect(),
+            _ => zf.keys[..nf].iter().map(|k| k.to_string()).collect(),
+        };
+        let stacks = zf.layers.chunks(nf).map(|c| c.to_vec()).collect();
+        (zf.grid.clone(), stacks, None, names)
+    } else {
+        let features = args.stack("features")?;
+        let nf = features.layers.len();
+        let given: serde_json::Map<String, serde_json::Value> = args.param("contribution", serde_json::Map::new())?;
+        if let Some(z) = given.keys().find(|z| !zones.contains(z)) {
+            return Err(err(format!("contribution: unknown zone {z:?} (zones: {zones:?})")));
+        }
+        let mut stacks = Vec::with_capacity(nz);
+        for z in &zones {
+            let f: Vec<f64> = match given.get(z) {
+                None => vec![1.0; nf],
+                Some(serde_json::Value::Number(x)) => vec![x.as_f64().unwrap(); nf],
+                Some(v) => serde_json::from_value(v.clone()).map_err(|e| err(format!("contribution of {z:?}: {e}")))?,
+            };
+            if f.len() != nf || f.iter().any(|x| !x.is_finite()) {
+                return Err(err(format!("contribution of {z:?}: one number, or one per feature ({nf})")));
+            }
+            stacks.push(
+                features.layers.iter().zip(&f).map(|(l, k)| Arc::new(l.iter().map(|v| v * k).collect())).collect(),
+            );
+        }
+        let names = given_names.unwrap_or_else(|| features.keys.iter().map(|k| k.to_string()).collect());
+        (features.grid.clone(), stacks, Some(features.layers.clone()), names)
+    };
+    let v = crate::vector::on_grid(v, &grid)?;
+    if let Some(i) = v.geometries.iter().position(|g| !g.is_polygonal()) {
+        return Err(err(format!("polygons: feature {} is no polygon", i + 1)));
+    }
+    let geoms: Vec<&terraflux_raster::vector::Geometry> = v.geometries.iter().collect();
+    let amounts = stacks.iter().map(|s| polygon_amounts(&grid, s, &geoms)).collect::<Result<Vec<_>>>()?;
+    if amounts.iter().any(|a| a.len() != names.len()) {
+        return Err(err(format!("feature_names: {} names for {} features", names.len(), amounts[0].len())));
+    }
+    let base = base.map(|b| polygon_amounts(&grid, &b, &geoms)).transpose()?;
+    milp::Units::polygon_zones(&cost_refs, &amounts, base.as_deref(), zones, names).map_err(err)
+}
+
 /// A problem of prioritizr from a node's inputs and settings.
 pub fn problem_of(args: &Args) -> Result<milp::Problem> {
     let node = args.node;
@@ -2329,8 +2418,8 @@ impl Operator for Optimize {
         .input(PortSpec::optional(
             "polygons",
             Type::Vector,
-            "planning units of polygons (with cost_column): the features' amounts summed over them exactly \
-             (exactextract), their shared boundaries and adjacency from the geometries",
+            "planning units of polygons (with cost_column; with zones, one per zone): the features' amounts \
+             summed over them exactly (exactextract), their shared boundaries and adjacency from the geometries",
         ))
         .input(PortSpec::optional(
             "zone_costs",
@@ -2934,8 +3023,8 @@ impl Operator for Evaluate {
         .input(PortSpec::optional(
             "polygons",
             Type::Vector,
-            "planning units of polygons (with cost_column): the features' amounts summed over them exactly \
-             (exactextract), their shared boundaries and adjacency from the geometries",
+            "planning units of polygons (with cost_column; with zones, one per zone): the features' amounts \
+             summed over them exactly (exactextract), their shared boundaries and adjacency from the geometries",
         ))
         .input(PortSpec::optional("pu", Type::Table, "tables instead of maps: as prioritize.optimize's"))
         .input(PortSpec::optional("spec", Type::Table, "Marxan-style: the features (id)"))
@@ -3288,8 +3377,8 @@ impl Operator for Calibrate {
         .input(PortSpec::optional(
             "polygons",
             Type::Vector,
-            "planning units of polygons (with cost_column): the features' amounts summed over them exactly \
-             (exactextract), their shared boundaries and adjacency from the geometries",
+            "planning units of polygons (with cost_column; with zones, one per zone): the features' amounts \
+             summed over them exactly (exactextract), their shared boundaries and adjacency from the geometries",
         ))
         .input(PortSpec::optional("pu", Type::Table, "tables instead of maps: as prioritize.optimize's"))
         .input(PortSpec::optional("spec", Type::Table, "Marxan-style: the features (id)"))

@@ -19,6 +19,8 @@ terraflux-gdal = { path = "../gdal" }
 terraflux-graph = { path = "../graph" }
 terraflux-ls-sys = { path = "../ls-sys" }
 terraflux-raster = { path = "../raster" }
+h3o = { version = "0.11", features = ["geo"] }
+geo = { version = "0.33", default-features = false }
 
 [dev-dependencies]
 flate2.workspace = true

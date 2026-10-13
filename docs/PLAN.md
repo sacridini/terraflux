@@ -567,6 +567,10 @@ Pendências:
 - **Gráficos de tabelas (Unreleased, 2026-10-13):** barras, linhas e pontos de várias colunas de uma vez (um
   painel cada), as linhas por grupo (classe, zona, cluster) numa legenda só; o clustergram das médias do
   `metrics.clustergram`; a matriz de correlação em mapa de calor (`crates/app/src/charts.rs`).
+- **Pendências do prioritizr (Unreleased, 2026-10-13):** unidades em polígonos com zonas de manejo
+  (`polygon_zone_units`: custos por zona, as feições de cada zona ou contribuições, somas exatas; o compile() do
+  prioritizr bit a bit e o ótimo) e as unidades H3 (`prioritize.h3_units`: o h3o, port do H3 em Rust; os mesmos
+  hexágonos e custos do landschaft, bit a bit).
 - **Próximos (2026-10-13):** os instaladores de macOS e Linux; o biplot do PCA e um mapa dos grupos das zonas; as pendências do prioritizr (polígonos com zonas, unidades H3); a ponte do
   ls.simulate (demandas regionais, CLUMondo, FUTURES, MOLUSCE), em andamento num branch próprio.
 

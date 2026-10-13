@@ -26,6 +26,7 @@ pub mod fragmentation;
 pub mod glm;
 pub mod gtb_palettes;
 pub mod gtn;
+pub mod h3;
 pub mod landscape;
 pub mod lsm_catalog;
 pub mod lulcc;
@@ -263,6 +264,7 @@ impl Registry {
         plus::register(&mut r);
         prepare::register(&mut r);
         prioritize::register(&mut r);
+        h3::register(&mut r);
         actions::register(&mut r);
         restoration::register(&mut r);
         restoration_plan::register(&mut r);

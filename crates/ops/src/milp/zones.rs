@@ -221,6 +221,64 @@ impl Units {
         Ok(u.with_zones(zones, blocks, zone_totals, base_totals))
     }
 
+    /// Polygon units with zones (landschaft's polygon_zone_units, prioritizr's sf units with zones()): a cost
+    /// column per zone; every zone's amounts in every polygon (zone x feature x polygon: exactextract's sums, below
+    /// 1e-10 nothing), and the base features' with contributions. The polygons with a cost in any zone; the totals
+    /// Matrix's rowSums over every polygon (added in order).
+    pub fn polygon_zones(
+        costs: &[&[f64]],
+        amounts: &[Vec<Vec<f64>>],
+        base: Option<&[Vec<f64>]>,
+        zones: Vec<String>,
+        names: Vec<String>,
+    ) -> Result<Units, String> {
+        let nz = zones.len();
+        if costs.len() != nz || amounts.len() != nz || nz == 0 {
+            return Err(format!("a cost column per zone ({nz})"));
+        }
+        let size = costs[0].len();
+        let rows: Vec<usize> = (0..size).filter(|&r| costs.iter().any(|c| c[r].is_finite())).collect();
+        if rows.is_empty() {
+            return Err("no polygon has a cost in any zone".into());
+        }
+        let nf = names.len();
+        let zone_totals = (0..nf).map(|f| (0..nz).map(|z| seq_sum(&amounts[z][f])).collect()).collect();
+        let base_totals = base.map(|b| b.iter().map(|f| seq_sum(f)).collect());
+        let blocks = amounts
+            .iter()
+            .map(|a| {
+                let mut m = Csr { nrow: nf, ncol: rows.len(), start: vec![0], index: Vec::new(), value: Vec::new() };
+                for f in a {
+                    for (k, &r) in rows.iter().enumerate() {
+                        if f[r] != 0.0 {
+                            m.index.push(k);
+                            m.value.push(f[r]);
+                        }
+                    }
+                    m.start.push(m.index.len());
+                }
+                m
+            })
+            .collect();
+        let cost = (0..nz).flat_map(|z| rows.iter().map(move |&r| costs[z][r])).collect();
+        let u = Units {
+            cost,
+            rij: Csr::default(),
+            totals: Vec::new(),
+            names,
+            cells: rows,
+            ny: 0,
+            nx: 0,
+            transform: [0.0; 6],
+            raster: false,
+            size,
+            zones: Vec::new(),
+            zone_totals: Vec::new(),
+            base_totals: None,
+        };
+        Ok(u.with_zones(zones, blocks, zone_totals, base_totals))
+    }
+
     /// Marxan-style table units with zones (prioritizr's problem(x, features, rij, zones)): a cost column per zone,
     /// rij's amounts with a zone column (the zones' ids); the totals added in the table's order.
     pub fn rij_zones(

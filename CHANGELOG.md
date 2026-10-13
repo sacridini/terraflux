@@ -38,6 +38,13 @@ minor versions.
   plot_metric and plot_cluster_metrics; the clustergram of `metrics.clustergram`'s means (landschaft's
   plot_clustergram); a correlation matrix (`metrics.correlation`) as a heatmap.
 
+- Planning units of polygons with management zones in `prioritize.optimize` (landschaft's polygon_zone_units): a
+  cost column per zone, every zone's own features or the base ones with contributions, summed over the polygons
+  exactly; prioritizr's compile() of its case to the bit, and its optimum.
+- `prioritize.h3_units`: H3 hexagons as planning units, as landschaft's h3_units (h3o, a port of Uber's H3): the
+  hexagons of a resolution over a cost map, in its coordinate system, with the exact sums of the costs under them;
+  the same hexagons and costs to the bit (`tools/make_h3_reference.py`).
+
 ### Changed
 - A table's chart (formerly the bars of one column) is chosen in the viewer by its kind, its columns, the column
   along x and the one that splits the rows; a series suggests the date along x and the class as groups.

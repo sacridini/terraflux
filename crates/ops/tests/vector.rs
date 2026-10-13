@@ -291,3 +291,48 @@ fn polygon_units_are_prioritizrs() {
     let want = reference("spatial").floats("contiguity_polygons/objective")[0];
     assert!((ours - want).abs() <= 1e-9 * want.abs().max(1.0), "contiguity: {ours} != {want}");
 }
+
+/// Planning units of polygons with management zones (landschaft's polygon_zone_units): prioritizr's compile() of
+/// its case bit for bit (a cost column per zone, two units out of `use`; every zone's own features summed over the
+/// polygons exactly), and its optimum.
+#[test]
+fn polygon_zone_units_are_prioritizrs() {
+    if !gdal() {
+        return;
+    }
+    let (grid, _) = features();
+    let zones = ["protect", "use", "restore"];
+    let d = terraflux_raster::npy::read_npz(root().join("tests/data/reference/optimize_zones.npz")).unwrap();
+    let zf = &d["zone_features"];
+    let n = grid.width * grid.height;
+    let stack = Value::Stack(Stack {
+        grid: grid.clone(),
+        keys: zones.iter().flat_map(|z| (1..=5).map(move |k| Key::Name(format!("{z}_f{k}")))).collect(),
+        layers: zf.data[..3 * 5 * n].chunks(n).map(|c| Arc::new(c.to_vec())).collect(),
+    });
+    // R's matrix(c(...), ncol = 3) as features x zones
+    let m = [0.2, 0.1, 0.15, 0.3, 0.1, 0.1, 0.1, 0.05, 0.2, 0.1, 0.05, 0.0, 0.1, 0.05, 0.05];
+    let targets: Vec<Vec<f64>> = (0..5).map(|f| (0..3).map(|z| m[z * 5 + f]).collect()).collect();
+    let params = json!({
+        "cost_column": zones.map(|z| format!("cost_{z}")),
+        "zones": zones,
+        "feature_names": (1..=5).map(|k| format!("f{k}")).collect::<Vec<_>>(),
+        "relative_targets": targets,
+    });
+    let ins: BTreeMap<String, Value> =
+        [("zone_features".to_string(), stack.clone()), ("polygons".to_string(), Value::Vector(read("zone_polygons")))]
+            .into();
+    let args = Args { node: "n", inputs: ins, params: params.as_object().unwrap() };
+    let p = terraflux_ops::prioritize::problem_of(&args).unwrap_or_else(|e| panic!("{e}"));
+    let (model, _) = terraflux_ops::milp::compile(&p).unwrap();
+    let r = reference("zones");
+    assert_model("zones_polygons", &model, &r);
+    let mut q = params.clone();
+    q["gap"] = 0.0.into();
+    let ins = vec![("zone_features", stack), ("polygons", Value::Vector(read("zone_polygons")))];
+    let out = run("prioritize.optimize", ins, q);
+    let Value::Table(s) = &out["summary"] else { panic!() };
+    let ours = s.column("objective").unwrap()[0];
+    let want = r.floats("zones_polygons/objective")[0];
+    assert!((ours - want).abs() <= 1e-9 * want.abs().max(1.0), "optimum: {ours} != {want}");
+}

@@ -48,8 +48,9 @@ neutros (`nlm.*`) para testar fluxos sem dados. A ordem sugerida:
    - **Feito** (0.11.0): os extras do Zonation (condições, retenção, conectividade, impactos, mapas de
      pré-processamento e pós-processamento), os 65 casos do landschaft;
    - **Feito** (0.12.0): o risco de extinção como objetivo do prioritizr (`min_extinction_risk`);
-   - **Feito** (0.13.0): unidades de planejamento em polígonos no prioritizr (com os vetores no builder). Falta:
-     polígonos com zonas de manejo (o `polygon_zone_units` do landschaft) e as unidades H3 (`h3_units`).
+   - **Feito** (0.13.0): unidades de planejamento em polígonos no prioritizr (com os vetores no builder).
+   - **Feito** (Unreleased): polígonos com zonas de manejo (o `polygon_zone_units` do landschaft, bit a bit com o
+     compile() do prioritizr) e as unidades H3 (`prioritize.h3_units`, pelo h3o; os mesmos hexágonos e custos).
 
 ## Vetores
 
