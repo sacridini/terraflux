@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-10-13
+
 ### Added
 - Randomisations of Biodiverse's analyses (landschaft's bio module): `bio.randomise` runs an analysis, then
   randomises the basedata again and again with Biodiverse's Mersenne Twister (rand_structured and its spatial
