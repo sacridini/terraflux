@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.42.0] - 2026-10-13
+
 ### Added
 - Circuitscape's and Omniscape's INI files (landschaft's circuitscape_ini and omniscape_ini):
   `circuit.circuitscape_ini` runs a Circuitscape configuration on rasters (advanced, pairwise, one-to-all and
