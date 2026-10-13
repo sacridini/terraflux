@@ -6,6 +6,30 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Maps stacked in the viewer: other maps of the run drawn over the one shown ("Maps over it", each as opaque as
+  asked, placed by its coordinates whatever its cells), and in the model: `view.plot` takes `features` (vectors)
+  and `under` (another plot's shown, drawn beneath it), plots stacking as deep as wanted (`builder::plot_stack`).
+- A cell clicked on a stack, a series or rasters of many layers: its values along the layers in a chart beside
+  the map (by the layers' names when they are years), a click on the chart shows that layer.
+- Close in, the cell under the pointer outlined in white; the cell clicked in the accent.
+- The zoom stops out at about the world when the map has a coordinate system (at 32 points across without one).
+- B over a map puts the satellite's imagery under it, or takes it away.
+- A map opened goes in a tab beside the viewer, wherever the viewer is (a window of its own too).
+- Favourites in the operators' library, as Ableton Live's collections: seven colours, an operator put in them by
+  a right click, the squares of its colours beside its name; a colour chosen shows its operators.
+- Settings (in the toolbar): the theme (Default, Immaterial, Riparian, Angst Robot, Twenty Four Carat), the
+  text's size, the interface's zoom, the threads the functions use (from the next start); kept in the user's
+  application data (`settings.json`, or `TERRAFLUX_SETTINGS`).
+
+### Changed
+- A node added after the one selected takes its value in its first input that fits it when it must have none
+  (a plot's map).
+
+### Fixed
+- Texts of some operators had runs of spaces in them (the doc of `view.plot`, `metrics.window`,
+  `metrics.signatures`, `demand.regional`, `table.of`, `submodel`...).
+
 ## [0.22.0] - 2026-10-13
 
 ### Added

@@ -382,6 +382,11 @@ fn report(model: &Model, engine: &Engine) -> bool {
 }
 
 /// Open the application; started from the file explorer, without the console Windows opened for it.
+/// The threads asked for: on the command line, else (without `TERRAFLUX_THREADS`) in the application's settings.
+fn settings_threads(asked: Option<usize>) -> Option<usize> {
+    asked.or_else(|| std::env::var_os("TERRAFLUX_THREADS").is_none().then(terraflux_app::settings::threads).flatten())
+}
+
 fn app(model: Option<PathBuf>) -> Result<()> {
     hide_own_console();
     terraflux_app::run(model).map_err(|e| anyhow::anyhow!("the application: {e}"))
@@ -413,12 +418,14 @@ fn main() -> Result<()> {
         if p.is_file()
             && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("toml") || e.eq_ignore_ascii_case("json"))
         {
-            terraflux_ops::threads::init(None);
+            terraflux_ops::threads::init(settings_threads(None));
             return app(Some(p));
         }
     }
     let cli = Cli::parse();
-    terraflux_ops::threads::init(cli.threads);
+    // the application's settings give the threads when neither the command nor the environment does
+    let threads = if cli.command.is_none() { settings_threads(cli.threads) } else { cli.threads };
+    terraflux_ops::threads::init(threads);
     let Some(command) = cli.command else {
         return app(None);
     };

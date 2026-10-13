@@ -37,7 +37,7 @@ pub struct Style {
 
 impl Default for Style {
     fn default() -> Self {
-        Style { colour: crate::theme::ACCENT, by: None, fill: 0.2, width: 1.2 }
+        Style { colour: crate::theme::accent(), by: None, fill: 0.2, width: 1.2 }
     }
 }
 

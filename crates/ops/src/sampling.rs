@@ -757,7 +757,7 @@ impl Operator for Signatures {
         metric_options(
             OpSignature::new(
                 "metrics.signatures",
-                "Spatial signatures, as pylandstats' SpatialSignatureAnalysis in landschaft: landscapes described                  by their metrics, a row per zone of a map (polygons, buffers around points or a grid of squares)                  or per layer of a stack, a column per landscape metric and per class metric and class                  (pland_11...), in alphabetical order. For metrics.pca, metrics.nmf, metrics.cluster and                  metrics.clustergram.",
+                "Spatial signatures, as pylandstats' SpatialSignatureAnalysis in landschaft: landscapes described by their metrics, a row per zone of a map (polygons, buffers around points or a grid of squares) or per layer of a stack, a column per landscape metric and per class metric and class (pland_11...), in alphabetical order. For metrics.pca, metrics.nmf, metrics.cluster and metrics.clustergram.",
                 Access::Global,
             )
             .input(PortSpec::new(
@@ -781,7 +781,7 @@ impl Operator for Signatures {
         .param(PortSpec::optional(
             "block_rows",
             Type::Integer,
-            "out of core: whole maps read by blocks of this many rows, zones window by window from the rasters on              disk (always beyond 250 million cells), the same metrics",
+            "out of core: whole maps read by blocks of this many rows, zones window by window from the rasters on disk (always beyond 250 million cells), the same metrics",
         ))
     }
 

@@ -287,7 +287,7 @@ impl Operator for TableOf {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "table.of",
-            "A table written in the settings: its columns' names and its rows of numbers (null: no value), such as              the small tables a planning problem takes.",
+            "A table written in the settings: its columns' names and its rows of numbers (null: no value), such as the small tables a planning problem takes.",
             Access::Local,
         )
         .output(PortSpec::new("table", Type::Table, "the table"))

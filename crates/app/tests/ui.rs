@@ -42,6 +42,8 @@ fn shot(h: &mut Harness<TerrafluxApp>, name: &str) {
 /// The application rendered off screen by wgpu, the builder's canvas pipelines installed as the application
 /// does.
 fn harness(app: TerrafluxApp) -> Harness<'static, TerrafluxApp> {
+    // the tests' own settings, not the user's
+    unsafe { std::env::set_var("TERRAFLUX_SETTINGS", tmp("settings.json")) };
     let rs = egui_kittest::wgpu::create_render_state(
         egui_kittest::wgpu::default_wgpu_setup(),
         eframe::egui_wgpu::RendererOptions::PREDICTABLE,
@@ -936,4 +938,145 @@ fn the_operators_drawer_and_windows_of_their_own() {
     h.run_steps(3);
     assert_eq!(h.state().detached(), vec![Pane::Viewer]);
     assert!(h.state().dock.as_ref().unwrap().iter_surfaces_indexed().all(|(i, s)| i.is_main() || s.is_empty()));
+}
+
+/// Maps stacked in the viewer: a plot of the land use with a plot of roads over it (its under), another map over
+/// it chosen in the viewer; B puts the satellite under it; the zoom stops out at the world; a cell clicked in a
+/// stack shows its values along the layers.
+#[test]
+fn maps_stack_and_cells_show_their_series() {
+    let d = tmp("stack");
+    std::fs::create_dir_all(&d).unwrap();
+    let (land, drivers) = (d.join("land.tif"), d.join("drivers.tif"));
+    let srs = ["-a_srs".to_string(), "EPSG:32651".to_string()];
+    terraflux_gdal::translate(&data("sibuyan_landuse.tif"), &land, &srs).unwrap();
+    terraflux_gdal::translate(&data("sibuyan_drivers.tif"), &drivers, &srs).unwrap();
+    let roads = d.join("roads.geojson");
+    let v = terraflux_raster::vector::Vector {
+        geometries: vec![terraflux_raster::vector::Geometry::LineString(vec![
+            [437000.0, 1370000.0],
+            [452000.0, 1375000.0],
+            [467000.0, 1360000.0],
+        ])],
+        attributes: vec![],
+        crs: Some("EPSG:32651".into()),
+    };
+    terraflux_gdal::write_vector(&roads, "roads", &v).unwrap();
+    use terraflux_graph::Node;
+    let mut m = terraflux_graph::Model::new("stack");
+    m.nodes.push(Node::new("land", "raster.read").param("path", land.to_string_lossy()));
+    m.nodes.push(Node::new("drivers", "raster.read").param("path", drivers.to_string_lossy()));
+    m.nodes.push(Node::new("roads", "vector.read").param("path", roads.to_string_lossy()));
+    m.nodes.push(Node::new("base", "view.plot").input("value", "land.raster"));
+    m.nodes.push(Node::new("top", "view.plot").input("features", "roads.vector").input("under", "base.shown"));
+    assert_eq!(
+        terraflux_app::builder::plot_stack(&m, "top"),
+        vec![
+            terraflux_app::builder::PlotLayer::Map("land".into(), "raster".into(), 1.0),
+            terraflux_app::builder::PlotLayer::Features("roads".into(), "vector".into()),
+        ]
+    );
+    let path = d.join("stack.toml");
+    m.save(&path).unwrap();
+    let mut h = harness(TerrafluxApp::new(Some(path)));
+    loaded(&mut h);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.start(Box::new(|| {}));
+    }
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("top", "shown").is_some()
+    });
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        terraflux_app::builder::select(s, &terraflux_ops::Registry::standard(), "top");
+        s.preview_rasters.push(("drivers".into(), "raster".into(), 0.5));
+    }
+    h.state_mut().focus(Pane::Viewer);
+    drawn(&mut h);
+    assert!(h.query_by_label("MAPS OVER IT").is_some());
+    shot(&mut h, "21-stacked");
+    // B over the map: the satellite under it (once the map is drawn: its colours come from a thread)
+    until(&mut h, "the map drawn", |a| a.session.as_ref().unwrap().preview_view.rect().is_some());
+    let rect = h.state().session.as_ref().unwrap().preview_view.rect().unwrap();
+    h.event(egui::Event::PointerMoved(rect.center()));
+    h.run_steps(2);
+    h.key_press(egui::Key::B);
+    h.run_steps(2);
+    assert_eq!(h.state().session.as_ref().unwrap().preview_view.basemap, terraflux_app::map_view::Basemap::EsriImagery);
+    // the wheel out, far: the view stops at about the world
+    for _ in 0..60 {
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -400.0),
+            modifiers: Default::default(),
+            phase: egui::TouchPhase::Move,
+        });
+        h.run_steps(1);
+    }
+    let zoom = h.state().session.as_ref().unwrap().preview_view.zoom();
+    // 250 m cells: the world (40,075 km) is about 160,000 cells; the view about 900 points
+    assert!(zoom > 1e-3 && zoom < 0.05, "{zoom}");
+    // a cell of the drivers' stack clicked: its values along the layers
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.preview_rasters.clear();
+        terraflux_app::builder::select(s, &terraflux_ops::Registry::standard(), "drivers");
+        s.preview_view.picked = Some((50, 60));
+    }
+    drawn(&mut h);
+    assert!(h.query_by_label("ROW 50, COLUMN 60").is_some(), "the series' chart");
+    shot(&mut h, "22-series");
+    let Some(terraflux_ops::Value::Raster(r)) = h.state().session.as_ref().unwrap().value_of("drivers", "raster")
+    else {
+        panic!()
+    };
+    let maps: Vec<_> = (0..r.layers.len()).map(|l| terraflux_app::map_view::Source::Rasters(r.clone(), l)).collect();
+    let values = terraflux_app::builder::series_at(&maps, 50, 60);
+    assert_eq!(values.len(), r.layers.len());
+    for (l, v) in values.iter().enumerate() {
+        let whole = r.read(l).unwrap();
+        let want = whole[50 * r.grid.width + 60];
+        assert!(v.to_bits() == want.to_bits() || (v.is_nan() && want.is_nan()));
+    }
+}
+
+/// The settings: a window from the toolbar, the theme changed at once (each drawn); the favourites: an operator
+/// in the red collection shown when the collection is.
+#[test]
+fn settings_themes_and_favourites() {
+    let mut h = harness(TerrafluxApp::new(None));
+    h.run_steps(2);
+    let ctx = h.ctx.clone();
+    h.state_mut().start_template(&ctx, &terraflux_app::templates::TEMPLATES[0]);
+    h.run_steps(4);
+    // (the toolbar's first of the labels "Settings": the node's settings are another)
+    h.query_all_by_label("Settings").next().unwrap().click();
+    h.run_steps(2);
+    assert!(h.state().settings_open);
+    assert!(h.query_by_label("Theme").is_some() && h.query_by_label("Threads").is_some());
+    for (k, t) in terraflux_app::theme::THEMES.iter().enumerate() {
+        terraflux_app::settings::update(|s| s.theme = t.name.to_string());
+        h.run_steps(3);
+        assert_eq!(terraflux_app::theme::current().name, t.name);
+        let theme = if t.dark { egui::Theme::Dark } else { egui::Theme::Light };
+        assert_eq!(h.ctx.style_of(theme).visuals.panel_fill, t.panel);
+        shot(&mut h, &format!("23-theme-{k}"));
+    }
+    terraflux_app::settings::update(|s| *s = Default::default());
+    h.state_mut().settings_open = false;
+    // red: raster.read
+    terraflux_app::settings::toggle("raster.read", 0);
+    assert_eq!(terraflux_app::settings::collections_of("raster.read"), vec![0]);
+    assert_eq!(terraflux_app::settings::in_collection(0), vec!["raster.read".to_string()]);
+    h.ctx.data_mut(|d| d.insert_temp(egui::Id::new("collection shown"), Some(0u8)));
+    h.event(egui::Event::PointerMoved(egui::pos2(1.0, 300.0)));
+    h.run_steps(3);
+    assert!(h.state().drawer);
+    shot(&mut h, "24-favourites");
+    assert!(h.query_by_label_contains("read").is_some(), "the red collection's operator");
+    assert!(h.query_by_label_contains("reclassify").is_none(), "only the collection's");
+    terraflux_app::settings::toggle("raster.read", 0);
+    assert!(terraflux_app::settings::in_collection(0).is_empty());
 }

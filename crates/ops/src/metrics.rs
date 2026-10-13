@@ -245,7 +245,7 @@ pub(crate) fn block_rows_param(sig: OpSignature) -> OpSignature {
     sig.param(PortSpec::optional(
         "block_rows",
         Type::Integer,
-        "out of core: the map read by blocks of this many rows, the same metrics; rasters on disk of more than 250          million cells always are",
+        "out of core: the map read by blocks of this many rows, the same metrics; rasters on disk of more than 250 million cells always are",
     ))
 }
 
@@ -560,7 +560,7 @@ impl Operator for Metrics {
         let sig = settings(sig).param(PortSpec::optional(
             "block_rows",
             Type::Integer,
-            "out of core: the map read by blocks of this many rows (a multiple of 64), the same metrics; rasters on              disk of more than 250 million cells always are",
+            "out of core: the map read by blocks of this many rows (a multiple of 64), the same metrics; rasters on disk of more than 250 million cells always are",
         ));
         let sig = if self.level == "patch" {
             sig.param(PortSpec::optional(
@@ -740,7 +740,7 @@ impl Operator for Window {
         block_rows_param(settings(
             OpSignature::new(
                 "metrics.window",
-                "Landscape-level metrics in a moving window, as landscapemetrics' window_lsm: for every cell, the                  metrics of the landscape the window centred on it covers (cells outside the map are NA). A map per                  metric, in a stack. Out of core (block_rows, or rasters on disk) by strips of rows with the                  window's half side above and below, the same maps; those of rasters on disk written to a GeoTIFF,                  a band per metric.",
+                "Landscape-level metrics in a moving window, as landscapemetrics' window_lsm: for every cell, the metrics of the landscape the window centred on it covers (cells outside the map are NA). A map per metric, in a stack. Out of core (block_rows, or rasters on disk) by strips of rows with the window's half side above and below, the same maps; those of rasters on disk written to a GeoTIFF, a band per metric.",
                 Access::Global,
             )
             .input(PortSpec::new("map", Type::Raster, "the map of classes (or rasters on disk, by blocks)"))

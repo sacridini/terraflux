@@ -268,7 +268,7 @@ note = "MSPA's classes in GuidosToolbox's colours."
     Template {
         name: "Fragmentation of a forest",
         build: None,
-        about: "one forest map, its density at five scales (FAD-MS) and its connectivity at one (FOS), in                 GuidosToolbox's colours",
+        about: "one forest map, its density at five scales (FAD-MS) and its connectivity at one (FOS), in GuidosToolbox's colours",
         toml: r#"
 format = "terraflux/1"
 name = "Fragmentation of a forest"

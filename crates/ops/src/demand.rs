@@ -224,7 +224,7 @@ impl Operator for RegionalOp {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "demand.regional",
-            "A demand per region (municipalities, biomes, basins...): each region's cells meet its own demand, cells              of no region keep their class. The demand of a region is a table of cells per class and step (CLUE-S,              ordered allocation, CARS) or a Markov chain (Expander and Patcher, CARS).",
+            "A demand per region (municipalities, biomes, basins...): each region's cells meet its own demand, cells of no region keep their class. The demand of a region is a table of cells per class and step (CLUE-S, ordered allocation, CARS) or a Markov chain (Expander and Patcher, CARS).",
             Access::Global,
         )
         .input(PortSpec::new("regions", Type::Map, "the region id of each cell"))

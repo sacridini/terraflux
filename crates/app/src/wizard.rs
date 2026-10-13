@@ -644,7 +644,7 @@ impl Wizard {
                     ui.label(RichText::new("—").weak());
                 }
                 let text = RichText::new(format!("{}  {}", i + 1, st.title()));
-                ui.label(if *st == self.step { text.strong().color(crate::theme::ACCENT) } else { text.weak() });
+                ui.label(if *st == self.step { text.strong().color(crate::theme::accent()) } else { text.weak() });
             }
         });
         ui.separator();
@@ -726,8 +726,8 @@ impl Wizard {
             }
             let accent = |text: &str, on: bool| {
                 if on {
-                    egui::Button::new(RichText::new(text).color(crate::theme::ON_ACCENT).strong())
-                        .fill(crate::theme::ACCENT)
+                    egui::Button::new(RichText::new(text).color(crate::theme::on_accent()).strong())
+                        .fill(crate::theme::accent())
                 } else {
                     egui::Button::new(text)
                 }

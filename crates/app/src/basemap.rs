@@ -419,3 +419,29 @@ fn mesh(vertices: &[[f64; 2]], texture: egui::TextureId, v: &View) -> Mesh {
     }
     m
 }
+
+/// The side of a grid's cell in web Mercator metres at its centre (how many cells the world spans), when its
+/// coordinate system can be carried there; the transformations kept by the thread.
+pub fn cell_metres(crs: &str, transform: [f64; 6], width: usize, height: usize) -> Option<f64> {
+    thread_local! {
+        static TO_WEB: std::cell::RefCell<HashMap<String, Option<terraflux_gdal::Transform>>> =
+            std::cell::RefCell::new(HashMap::new());
+    }
+    TO_WEB.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        let t = cache.entry(crs.to_string()).or_insert_with(|| terraflux_gdal::Transform::new(crs, "EPSG:3857").ok());
+        let t = t.as_ref()?;
+        let (cx, cy) = (width as f64 / 2.0, height as f64 / 2.0);
+        let at = |c: f64, r: f64| (transform[0] + c * transform[1], transform[3] + r * transform[5]);
+        let (a, b) = (at(cx, cy), at(cx + 1.0, cy));
+        let (mut xs, mut ys) = (vec![a.0, b.0], vec![a.1, b.1]);
+        t.points(&mut xs, &mut ys);
+        let d = (xs[1] - xs[0]).hypot(ys[1] - ys[0]);
+        (d.is_finite() && d > 0.0).then_some(d)
+    })
+}
+
+/// The cells the world spans across in web Mercator, for a grid's cell of `metres`.
+pub fn world_cells(metres: f64) -> f64 {
+    2.0 * E / metres
+}

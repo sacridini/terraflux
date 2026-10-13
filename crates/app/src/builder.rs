@@ -8,6 +8,7 @@
 //! coloured in another.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
 use egui::{Margin, RichText, Ui, Vec2};
@@ -492,7 +493,7 @@ pub fn model_pane(ui: &mut Ui, s: &mut Session, r: &Registry) {
             .frame(egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(Margin::same(8)))
             .show(ui, |ui| text_view(ui, s));
     } else {
-        egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::CANVAS)).show(ui, |ui| canvas(ui, s, r));
+        egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::canvas())).show(ui, |ui| canvas(ui, s, r));
     }
     rename_box(ui.ctx(), s, r);
 }
@@ -799,7 +800,14 @@ pub fn add(s: &mut Session, r: &Registry, op: &str, params: &[(&str, serde_json:
         }
         if let Some(f) = &from {
             let outs = crate::editor::output_ports(f, r);
-            if let Some((port, ty, _)) = crate::editor::input_ports(&n, r).into_iter().find(|(_, _, req)| *req)
+            // the first input it must have, else the first a value of the node selected fits
+            let ins = crate::editor::input_ports(&n, r);
+            let target = ins
+                .iter()
+                .find(|(_, _, req)| *req)
+                .or_else(|| ins.iter().find(|(_, ty, _)| outs.iter().any(|(_, t)| t.fits(*ty))))
+                .cloned();
+            if let Some((port, ty, _)) = target
                 && let Some((out, _)) = outs.iter().find(|(_, t)| t.fits(ty))
             {
                 let _ = crate::editor::connect(&mut s.source, r, &path, &format!("{}.{out}", f.id), &id, &port);
@@ -910,6 +918,36 @@ fn library(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library) {
         Err(e) => e.to_string(),
     });
     ui.add_space(6.0);
+    // the collections of favourites, one chosen shows its operators
+    theme::section(ui, "Favourites");
+    let shown_id = egui::Id::new("collection shown");
+    let mut shown: Option<u8> = ui.data(|d| d.get_temp(shown_id)).flatten();
+    ui.horizontal_wrapped(|ui| {
+        for (k, (name, colour)) in crate::settings::COLLECTIONS.iter().enumerate() {
+            let k = k as u8;
+            let count = crate::settings::in_collection(k).len();
+            let (rect, resp) = ui.allocate_exact_size(Vec2::new(26.0, 18.0), egui::Sense::click());
+            let on = shown == Some(k);
+            let fill = if count == 0 && !on { colour.gamma_multiply(0.45) } else { *colour };
+            ui.painter().rect_filled(rect.shrink(2.0), 2.0, fill);
+            if on {
+                ui.painter().rect_stroke(
+                    rect,
+                    2.0,
+                    egui::Stroke::new(1.5, ui.visuals().strong_text_color()),
+                    egui::StrokeKind::Inside,
+                );
+            }
+            if resp
+                .on_hover_text(format!("{name}: {count} operators (right-click an operator to put it here)"))
+                .clicked()
+            {
+                shown = if on { None } else { Some(k) };
+            }
+        }
+    });
+    ui.data_mut(|d| d.insert_temp(shown_id, shown));
+    ui.add_space(4.0);
     theme::section(ui, "Operators");
     ui.add(
         egui::TextEdit::singleline(&mut s.editor.search)
@@ -921,19 +959,52 @@ fn library(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library) {
     let query = s.editor.search.trim().to_lowercase();
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         let entry = |ui: &mut Ui, e: &Entry, chosen: &mut Option<String>| {
-            // the name in one line, its prefix beside it (the whole name is both)
+            // the name in one line, its prefix beside it (the whole name is both), the squares of its collections
+            // at the right
             let (prefix, short) = e.name.split_once('.').unwrap_or(("", e.name.as_str()));
+            let colls = crate::settings::collections_of(&e.name);
+            let room = " ".repeat(3 * colls.len());
             let resp = ui.add(
                 egui::Button::selectable(false, short)
                     .wrap_mode(egui::TextWrapMode::Extend)
-                    .right_text(RichText::new(prefix).size(10.5).color(ui.visuals().weak_text_color()))
+                    .right_text(
+                        RichText::new(format!("{prefix}{room}")).size(10.5).color(ui.visuals().weak_text_color()),
+                    )
                     .min_size(Vec2::new(ui.available_width(), 20.0)),
             );
+            for (i, c) in colls.iter().rev().enumerate() {
+                let x = resp.rect.right() - 6.0 - i as f32 * 10.0;
+                let sq = egui::Rect::from_center_size(egui::pos2(x - 3.5, resp.rect.center().y), Vec2::splat(7.0));
+                ui.painter().rect_filled(sq, 1.0, crate::settings::COLLECTIONS[*c as usize].1);
+            }
+            resp.context_menu(|ui| {
+                ui.label(RichText::new("Favourites").weak().size(11.0));
+                for (k, (name, colour)) in crate::settings::COLLECTIONS.iter().enumerate() {
+                    let mut on = colls.contains(&(k as u8));
+                    ui.horizontal(|ui| {
+                        let (rect, _) = ui.allocate_exact_size(Vec2::splat(10.0), egui::Sense::hover());
+                        ui.painter().rect_filled(rect, 1.0, *colour);
+                        if ui.checkbox(&mut on, *name).changed() {
+                            crate::settings::toggle(&e.name, k as u8);
+                        }
+                    });
+                }
+            });
             if resp.on_hover_text(&e.doc).clicked() {
                 *chosen = Some(e.name.clone());
             }
         };
-        if query.is_empty() {
+        if let (true, Some(k)) = (query.is_empty(), shown) {
+            let ops = crate::settings::in_collection(k);
+            if ops.is_empty() {
+                ui.label(
+                    RichText::new("none yet: right-click an operator to put it in this collection").weak().size(11.0),
+                );
+            }
+            for e in lib.entries.iter().filter(|e| ops.contains(&e.name)) {
+                entry(ui, e, &mut chosen);
+            }
+        } else if query.is_empty() {
             for (subject, _) in SUBJECTS.iter().chain([("Other", &[][..])].iter()) {
                 let in_it: Vec<&Entry> = lib.entries.iter().filter(|e| e.subject == *subject).collect();
                 if in_it.is_empty() {
@@ -1136,6 +1207,7 @@ fn preview(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Hover> {
         chosen: s.preview_chosen,
         view: std::mem::take(&mut s.preview_view),
         overlays: std::mem::take(&mut s.preview_overlays),
+        rasters: std::mem::take(&mut s.preview_rasters),
     };
     let hover = output(ui, s, r, &mut shown, "viewer");
     s.preview = Some((shown.node, shown.port));
@@ -1143,6 +1215,7 @@ fn preview(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Hover> {
     s.preview_chosen = shown.chosen;
     s.preview_view = shown.view;
     s.preview_overlays = shown.overlays;
+    s.preview_rasters = shown.rasters;
     hover
 }
 
@@ -1157,6 +1230,80 @@ pub struct Shown {
     pub view: crate::map_view::MapView,
     /// The vector layers drawn over the map: (node, port, style), the last on top.
     pub overlays: Vec<(String, String, crate::vector_tiles::Style)>,
+    /// Other maps drawn over the map: (node, port, opacity), the last on top.
+    pub rasters: Vec<(String, String, f32)>,
+}
+
+/// A layer a plot stacks: a map (its reference and opacity) or vector features.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PlotLayer {
+    Map(String, String, f32),
+    Features(String, String),
+}
+
+/// The layers of a plot, the lowest first: those of the plots down its `under` chain, then its own map and
+/// features. An `under` fed by another node than a plot is a map at the bottom.
+pub fn plot_stack(m: &terraflux_graph::Model, id: &str) -> Vec<PlotLayer> {
+    let mut out = Vec::new();
+    let mut seen = Vec::new();
+    stack_of(m, id, &mut out, &mut seen);
+    out
+}
+
+fn stack_of(m: &terraflux_graph::Model, id: &str, out: &mut Vec<PlotLayer>, seen: &mut Vec<String>) {
+    if seen.iter().any(|s| s == id) {
+        return;
+    }
+    seen.push(id.to_string());
+    let Some(n) = m.nodes.iter().find(|n| n.id == id && n.op == "view.plot") else { return };
+    let port_of = |name: &str| match n.inputs.get(name) {
+        Some(terraflux_graph::Source::Ref(r)) => match terraflux_graph::Ref::parse(r) {
+            Ok(terraflux_graph::Ref::Port { node, port }) => Some((node, port)),
+            _ => None,
+        },
+        _ => None,
+    };
+    if let Some((node, port)) = port_of("under") {
+        if m.nodes.iter().any(|x| x.id == node && x.op == "view.plot") {
+            stack_of(m, &node, out, seen);
+        } else {
+            out.push(PlotLayer::Map(node, port, 1.0));
+        }
+    }
+    let opacity = n.params.get("opacity").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32;
+    if let Some((node, port)) = port_of("value") {
+        out.push(PlotLayer::Map(node, port, opacity));
+    }
+    if let Some((node, port)) = port_of("features") {
+        out.push(PlotLayer::Features(node, port));
+    }
+}
+
+/// The first map of a value as a source (a stack's first layer, rasters' chosen one).
+fn first_source(v: &Value) -> Option<Source> {
+    match v {
+        Value::Map(m) => Some(Source::from(m)),
+        Value::Stack(st) => st.layers.first().map(|l| Source::Map(Map { grid: st.grid.clone(), data: l.clone() })),
+        Value::Raster(r) => Some(Source::Rasters(r.clone(), r.chosen)),
+        Value::Series(items) => items.iter().find_map(first_source),
+        _ => None,
+    }
+}
+
+/// The map outputs of a session's run but one: (node, port), in the model's order.
+fn map_values(s: &Session, r: &Registry, except: (&str, &str)) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for n in &s.model.nodes {
+        for (p, ty) in crate::editor::output_ports(n, r) {
+            if (n.id.as_str(), p.as_str()) == except || !matches!(ty, Type::Map | Type::Raster | Type::Stack) {
+                continue;
+            }
+            if s.value_of(&n.id, &p).as_ref().and_then(first_source).is_some() {
+                out.push((n.id.clone(), p));
+            }
+        }
+    }
+    out
 }
 
 /// The vector values of a session's run: (node, port, features), in the model's order.
@@ -1221,7 +1368,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         .collect();
     let value = s.value_of(&node, &port);
     // the header: the node, its outputs, how it did
-    egui::Frame::new().fill(theme::BAR).inner_margin(Margin::symmetric(8, 4)).show(ui, |ui| {
+    egui::Frame::new().fill(theme::bar()).inner_margin(Margin::symmetric(8, 4)).show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.label(RichText::new(&node).strong());
             ui.label(RichText::new(&op).monospace().weak());
@@ -1266,7 +1413,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 let weak = ui.visuals().weak_text_color();
                 match s.status.get(&node) {
                     Some(NodeStatus::Running) => {
-                        ui.label(RichText::new("running").color(theme::ACCENT));
+                        ui.label(RichText::new("running").color(theme::accent()));
                         ui.spinner();
                     }
                     Some(NodeStatus::Done { cached: true }) => {
@@ -1298,6 +1445,35 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         });
         return None;
     };
+    // a plot over other plots: the lowest map shown, the others over it, the features over them all
+    let stack = if op == "view.plot" { plot_stack(&s.model, &node) } else { Vec::new() };
+    let mut over: Vec<(Source, f32, String, String)> = Vec::new();
+    let mut plot_vectors: Vec<Arc<terraflux_raster::vector::Vector>> = Vec::new();
+    let mut value = value;
+    if stack.len() > 1 {
+        let mut base = None;
+        for l in &stack {
+            match l {
+                PlotLayer::Map(n, p, o) => match s.value_of(n, p) {
+                    Some(v) if base.is_none() && first_source(&v).is_some() => base = Some(v),
+                    Some(v) => {
+                        if let Some(src) = first_source(&v) {
+                            over.push((src, *o, n.clone(), p.clone()));
+                        }
+                    }
+                    None => {}
+                },
+                PlotLayer::Features(n, p) => {
+                    if let Some(Value::Vector(v)) = s.value_of(n, p) {
+                        plot_vectors.push(v);
+                    }
+                }
+            }
+        }
+        if let Some(b) = base {
+            value = b;
+        }
+    }
     // a map to show, of the maps of a stack, a series or rasters on disk
     let (maps, names): (Vec<Source>, Vec<String>) = match &value {
         Value::Map(m) => (vec![Source::from(m)], vec![]),
@@ -1384,6 +1560,21 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     });
                     ui.spacing_mut().slider_width = ui.available_width() - 8.0;
                     ui.add(egui::Slider::new(&mut b, 0..=maps.len() - 1).show_value(false));
+                    // the cell clicked: its values along the layers (a click on the chart shows that layer)
+                    if let Some((row, col)) = sh.view.picked {
+                        let id = egui::Id::new(("series at", salt, &node, &port, row, col, maps.len()));
+                        let values = match ui.data(|d| d.get_temp::<Arc<Vec<f64>>>(id)) {
+                            Some(v) => v,
+                            None => {
+                                let v = Arc::new(series_at(&maps, row, col));
+                                ui.data_mut(|d| d.insert_temp(id, v.clone()));
+                                v
+                            }
+                        };
+                        if let Some(at) = series_chart(ui, &values, &names, k, row, col, salt) {
+                            b = at;
+                        }
+                    }
                     sh.band = b;
                 }
                 ui.add_space(4.0);
@@ -1454,6 +1645,33 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     ui.add_enabled(show, egui::Slider::new(&mut opacity, 0.0..=1.0).text("opacity"));
                     v.transparency = 1.0 - opacity;
                 }
+                // other maps of the run over this one (placed by their coordinates), each as opaque as asked
+                ui.add_space(8.0);
+                theme::section(ui, "Maps over it");
+                let others = map_values(s, r, (&node, &port));
+                if others.is_empty() {
+                    ui.label(RichText::new("no other map of the run").weak().size(11.0));
+                }
+                for (mn, mp) in &others {
+                    let at = sh.rasters.iter().position(|(a, b, _)| a == mn && b == mp);
+                    let mut on = at.is_some();
+                    let label = format!("{mn}.{mp}");
+                    if ui.checkbox(&mut on, label).changed() {
+                        match at {
+                            Some(i) if !on => {
+                                sh.rasters.remove(i);
+                            }
+                            None if on => sh.rasters.push((mn.clone(), mp.clone(), 0.7)),
+                            _ => {}
+                        }
+                    }
+                    if let Some(i) = sh.rasters.iter().position(|(a, b, _)| a == mn && b == mp) {
+                        ui.indent(("over", mn, mp), |ui| {
+                            ui.spacing_mut().slider_width = (ui.available_width() - 110.0).clamp(40.0, 160.0);
+                            ui.add(egui::Slider::new(&mut sh.rasters[i].2, 0.0..=1.0).text("opacity"));
+                        });
+                    }
+                }
                 // vector layers of the run over the map (reprojected to it), each in its style
                 ui.add_space(8.0);
                 theme::section(ui, "Vectors over the map");
@@ -1487,23 +1705,96 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 }
             });
         });
-    let overlays: Vec<crate::vector_tiles::Overlay> = sh
-        .overlays
-        .iter()
-        .filter_map(|(n, p, style)| match s.value_of(n, p) {
-            Some(Value::Vector(v)) => Some(crate::vector_tiles::Overlay { vector: v, style: style.clone() }),
-            _ => None,
+    let mut overlays: Vec<crate::vector_tiles::Overlay> = plot_vectors
+        .into_iter()
+        .map(|v| crate::vector_tiles::Overlay { vector: v, style: Default::default() })
+        .collect();
+    overlays.extend(sh.overlays.iter().filter_map(|(n, p, style)| match s.value_of(n, p) {
+        Some(Value::Vector(v)) => Some(crate::vector_tiles::Overlay { vector: v, style: style.clone() }),
+        _ => None,
+    }));
+    // the maps over it: the plot's under ones, then those chosen; each in the colours of what it is
+    for (n, p, o) in &sh.rasters {
+        if let Some(src) = s.value_of(n, p).as_ref().and_then(first_source) {
+            over.push((src, *o, n.clone(), p.clone()));
+        }
+    }
+    let rasters: Vec<crate::map_view::RasterLayer> = over
+        .into_iter()
+        .filter_map(|(src, opacity, n, p)| {
+            let (made, mut hint) = producer(s, &n, &p);
+            hint.push_str(&p);
+            let palette = s.palettes.get(&(n.clone(), p.clone())).copied().unwrap_or_else(|| Palette::of(made, &hint));
+            let look = s.looks.get(ui.ctx(), &src, palette)?;
+            Some(crate::map_view::RasterLayer { source: src, coloring: look.coloring, opacity })
         })
         .collect();
     let mut hover = None;
-    egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::WELL)).show(ui, |ui| {
+    egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::well())).show(ui, |ui| {
         if let Some(l) = &look {
-            hover = sh.view.show_layers(ui, &maps[k], &l.coloring, &overlays);
+            hover = sh.view.show_stacked(ui, &maps[k], &l.coloring, &rasters, &overlays);
         } else {
             ui.centered_and_justified(|ui| ui.spinner());
         }
     });
     hover
+}
+
+/// A cell's values along maps (NaN where it has none): of maps in memory at once, of rasters on disk a cell's
+/// window of each layer.
+pub fn series_at(maps: &[Source], row: usize, col: usize) -> Vec<f64> {
+    maps.iter()
+        .map(|m| match m {
+            Source::Map(map) => {
+                let w = map.grid.width;
+                if col < w && row < map.grid.height { map.data[row * w + col] } else { f64::NAN }
+            }
+            Source::Rasters(r, l) => {
+                let win = terraflux_raster::tiff::Window { x0: col as i64, y0: row as i64, width: 1, height: 1 };
+                r.window(*l, win).ok().and_then(|v| v.first().copied()).unwrap_or(f64::NAN)
+            }
+            Source::Blank(_) => f64::NAN,
+        })
+        .collect()
+}
+
+/// The chart of a cell's values along the layers (by their names when they are numbers, as years are; else
+/// their order), the layer shown marked; the layer clicked on it.
+fn series_chart(
+    ui: &mut Ui,
+    values: &[f64],
+    names: &[String],
+    shown: usize,
+    row: usize,
+    col: usize,
+    salt: &str,
+) -> Option<usize> {
+    use egui_plot::{Line, Plot, Points, VLine};
+    ui.add_space(6.0);
+    theme::section(ui, &format!("row {row}, column {col}"));
+    let numbers: Option<Vec<f64>> = names.iter().map(|n| n.trim().parse::<f64>().ok()).collect();
+    let xs: Vec<f64> = match numbers {
+        Some(x) if x.len() == values.len() => x,
+        _ => (0..values.len()).map(|i| i as f64).collect(),
+    };
+    let pts: Vec<[f64; 2]> = xs.iter().zip(values).filter(|(_, v)| !v.is_nan()).map(|(x, v)| [*x, *v]).collect();
+    let mut clicked = None;
+    let weak = ui.visuals().weak_text_color();
+    let resp = Plot::new(("series", salt)).height(150.0).allow_scroll(false).show_background(false).show(ui, |p| {
+        p.line(Line::new("values", pts.clone()).color(theme::accent()).width(1.8));
+        p.points(Points::new("", pts.clone()).color(theme::accent()).radius(2.5));
+        if let Some(x) = xs.get(shown) {
+            p.vline(VLine::new("shown", *x).color(weak));
+        }
+        if p.response().clicked()
+            && let Some(c) = p.pointer_coordinate()
+        {
+            clicked =
+                xs.iter().enumerate().min_by(|a, b| (a.1 - c.x).abs().total_cmp(&(b.1 - c.x).abs())).map(|(i, _)| i);
+        }
+    });
+    resp.response.on_hover_text("the cell's value in every layer; click to show a layer");
+    clicked
 }
 
 /// A value that is not a map: a table, a number, a text, or what it is.
@@ -1593,7 +1884,7 @@ pub(crate) fn reclassify_rules(ui: &mut Ui, s: &mut Session, n: &Node, path: &[S
         _ => None,
     };
     let look = source.as_ref().and_then(|src| s.looks.get(ui.ctx(), src, Palette::Auto));
-    egui::Frame::new().fill(theme::WELL).corner_radius(4.0).inner_margin(Margin::same(6)).show(ui, |ui| {
+    egui::Frame::new().fill(theme::well()).corner_radius(4.0).inner_margin(Margin::same(6)).show(ui, |ui| {
         ui.set_width(ui.available_width());
         match (&source, &look) {
             (None, _) => {

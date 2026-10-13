@@ -288,7 +288,7 @@ struct EdgeAt {
 /// A scope laid out: its boxes, a grid of them, and the shapes the GPU draws (each box's rectangles at
 /// `ranges[box]`, the connections touching each box in `touching[box]`, to move a box alone).
 struct Scene {
-    key: (u64, Vec<String>, u64),
+    key: (u64, Vec<String>, u64, &'static str),
     boxes: Vec<BoxAt>,
     index: HashMap<String, usize>,
     grid: HashMap<(i32, i32), Vec<usize>>,
@@ -562,7 +562,7 @@ impl Scene {
             }
             if let Some(s) = state {
                 let colour = match s {
-                    NodeStatus::Running => crate::theme::ACCENT,
+                    NodeStatus::Running => crate::theme::accent(),
                     NodeStatus::Done { cached: false } => Color32::from_rgb(120, 220, 110),
                     NodeStatus::Done { cached: true } => Color32::from_rgb(80, 150, 75),
                     NodeStatus::Failed => v.error_fg_color,
@@ -573,7 +573,7 @@ impl Scene {
             ranges.push(first..rects.len());
         }
         Scene {
-            key: (0, Vec::new(), 0),
+            key: (0, Vec::new(), 0, ""),
             boxes,
             index,
             grid,
@@ -692,7 +692,8 @@ pub fn show(
         st.path.clear();
         return actions;
     };
-    let key = (revision, st.path.clone(), status_rev);
+    // (built again when the model, the place in it, the nodes' states or the theme change)
+    let key = (revision, st.path.clone(), status_rev, crate::theme::current().name);
     if st.scene.as_ref().is_none_or(|s| s.key != key) {
         let mut scene = Scene::build(model, nodes, r, &st.path, status, ui.visuals());
         st.generation += 1;
@@ -963,7 +964,7 @@ pub fn show(
         && let Some(&i) = scene.index.get(node)
         && let Some(k) = scene.boxes[i].outputs.iter().position(|(p, _)| p == port)
     {
-        painter.circle_filled(screen(scene.boxes[i].output_at(k)), (PORT * cam.zoom).max(2.0), crate::theme::ACCENT);
+        painter.circle_filled(screen(scene.boxes[i].output_at(k)), (PORT * cam.zoom).max(2.0), crate::theme::accent());
     }
     if st.path.is_empty() {
         let running: Vec<&String> = status.iter().filter(|(_, s)| **s == NodeStatus::Running).map(|(k, _)| k).collect();
@@ -973,7 +974,7 @@ pub fn show(
             for id in running {
                 if let Some(&i) = scene.index.get(id.as_str()) {
                     let c = screen(scene.boxes[i].rect.right_top() + Vec2::new(-10.0, 10.0));
-                    let glow = crate::theme::ACCENT.gamma_multiply(0.3 + 0.7 * (t * 6.0).sin().abs());
+                    let glow = crate::theme::accent().gamma_multiply(0.3 + 0.7 * (t * 6.0).sin().abs());
                     painter.circle_filled(c, (6.0 * cam.zoom).max(3.0), glow);
                 }
             }

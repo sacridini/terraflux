@@ -125,7 +125,7 @@ fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) -> Result<(), String> {
             let diff = ref_grid.as_ref().map(|g| compare(grid, g));
             match (&diff, is_reference) {
                 (_, true) => {
-                    ui.label(RichText::new("the reference grid").color(theme::ACCENT));
+                    ui.label(RichText::new("the reference grid").color(theme::accent()));
                 }
                 (Some(d), _) if d.any() => {
                     ui.colored_label(
@@ -134,7 +134,7 @@ fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) -> Result<(), String> {
                     );
                 }
                 (Some(_), _) => {
-                    ui.label(RichText::new("on the reference grid").color(theme::ACCENT));
+                    ui.label(RichText::new("on the reference grid").color(theme::accent()));
                 }
                 (None, _) => {}
             }

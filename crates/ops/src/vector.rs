@@ -343,7 +343,7 @@ impl Operator for Rasterize {
         .param(PortSpec::optional(
             "block_rows",
             Type::Integer,
-            "out of core: burnt by strips of this many rows into a GeoTIFF (path); on the grid of rasters on disk              of more than 250 million cells always",
+            "out of core: burnt by strips of this many rows into a GeoTIFF (path); on the grid of rasters on disk of more than 250 million cells always",
         ))
         .param(PortSpec::optional(
             "path",

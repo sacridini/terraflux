@@ -158,6 +158,10 @@ model file dropped on it or opened with it; started that way on Windows, it show
   window's left edge and in the toolbar. Any tab dragged out of the dock becomes a window of its own, to put on
   another screen. ctrl+O opens a raster or vectors, ctrl+W closes the tab in front, backspace (or delete) deletes
   the node selected.
+- **The viewer:** maps over maps (each as opaque as asked) and vectors over them, chosen beside the map or
+  stacked by plots in the model (a plot's `under`); a cell clicked on a stack shows its values along the layers
+  in a chart; B puts the satellite under the map. **Settings:** themes, the text's size, the zoom, the threads;
+  favourites in coloured collections in the operators' library.
 - **Prepare:** the data of the node selected next to the model's reference grid (the land use map's, suggested
   as soon as one is read): its coordinate system, cells and extent, what differs, and the steps a click away,
   each a node of an operator already there with a note saying why: onto the grid (`raster.match`, resampled by

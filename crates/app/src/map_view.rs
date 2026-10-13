@@ -1,5 +1,5 @@
 //! A map on the screen, of any size: zoom with the wheel around the pointer, pan by dragging, a double click
-//! fits it; the cell under the pointer is read out (row, column, map coordinates, value).
+//! fits it, B puts the satellite's imagery under it (or takes it away); the cell under the pointer is read out (row, column, map coordinates, value).
 //!
 //! The map is drawn from a pyramid of tiles (256 x 256 pixels; at level `L` a pixel is every `2^L`-th cell):
 //! only the tiles in view, at the level of the screen's resolution, are made, by threads, the last asked first
@@ -261,6 +261,38 @@ fn crs_of(g: &terraflux_raster::Grid) -> Option<String> {
     g.geo.wkt.clone().or_else(|| g.geo.epsg().map(|c| format!("EPSG:{c}")))
 }
 
+/// A map drawn over another: its colours and how opaque it is (0 to 1).
+#[derive(Clone)]
+pub struct RasterLayer {
+    pub source: Source,
+    pub coloring: Coloring,
+    pub opacity: f32,
+}
+
+/// Where a source's cells are on the view's grid: a cell (x, y) at `offset + (x, y) * scale` cells of the view.
+#[derive(Clone, Copy)]
+struct Place {
+    offset: Vec2,
+    scale: Vec2,
+}
+
+/// A grid's place on another: by their transforms, when they are of the same coordinate system (or neither has
+/// one) and neither is rotated.
+fn place_on(g: &terraflux_raster::Grid, base: &terraflux_raster::Grid) -> Option<Place> {
+    let (t, b) = (g.transform, base.transform);
+    if t[2] != 0.0 || t[4] != 0.0 || b[2] != 0.0 || b[4] != 0.0 {
+        return None;
+    }
+    match (crs_of(g), crs_of(base)) {
+        (Some(x), Some(y)) if x != y && !terraflux_gdal::same_crs(&x, &y).unwrap_or(false) => return None,
+        (Some(_), None) | (None, Some(_)) => return None,
+        _ => {}
+    }
+    let offset = Vec2::new(((t[0] - b[0]) / b[1]) as f32, ((t[3] - b[3]) / b[5]) as f32);
+    let scale = Vec2::new((t[1] / b[1]) as f32, (t[5] / b[5]) as f32);
+    Some(Place { offset, scale })
+}
+
 /// A tile made: its values, its texture in a colouring, when it was last shown.
 struct Tile {
     values: Arc<Vec<f32>>,
@@ -291,6 +323,12 @@ pub struct MapView {
     base: crate::basemap::Layer,
     /// The vector layers drawn over the map.
     pub vectors: crate::vector_tiles::VectorTiles,
+    /// The grid (its transform's bits and size) and how many of its cells the world spans (none: no CRS).
+    world: Option<(u64, Option<f64>)>,
+    /// The cell clicked (row, column): its values along a stack's layers are shown beside the map.
+    pub picked: Option<(usize, usize)>,
+    /// Where the view was drawn last.
+    rect: Option<Rect>,
 }
 
 impl MapView {
@@ -335,6 +373,11 @@ impl MapView {
     }
 
     /// Screen points per cell.
+    /// Where the view was drawn last, on the screen.
+    pub fn rect(&self) -> Option<Rect> {
+        self.rect
+    }
+
     pub fn zoom(&self) -> f32 {
         self.zoom
     }
@@ -342,6 +385,146 @@ impl MapView {
     /// Whether tiles of the view (of the map or of its vector layers) are being made.
     pub fn busy(&self) -> bool {
         !self.asked.is_empty() || self.vectors.busy()
+    }
+
+    /// How far out the view zooms: the whole world in the view when the grid has a coordinate system, else the
+    /// map 32 points across.
+    fn least_zoom(&mut self, rect: Rect, grid: &terraflux_raster::Grid, w: usize, h: usize) -> f32 {
+        let key = {
+            use std::hash::{Hash, Hasher};
+            let mut k = std::collections::hash_map::DefaultHasher::new();
+            grid.transform.iter().for_each(|v| v.to_bits().hash(&mut k));
+            (w, h).hash(&mut k);
+            crs_of(grid).hash(&mut k);
+            k.finish()
+        };
+        if self.world.is_none_or(|(k, _)| k != key) {
+            let cells = crs_of(grid)
+                .and_then(|c| crate::basemap::cell_metres(&c, grid.transform, w, h))
+                .map(crate::basemap::world_cells);
+            self.world = Some((key, cells));
+        }
+        match self.world.and_then(|(_, c)| c) {
+            Some(cells) => (rect.width().max(rect.height()) as f64 / cells) as f32,
+            None => 32.0 / w.max(h).max(1) as f32,
+        }
+    }
+
+    /// Draw a source's tiles in view, placed on the view's grid (the finest kept over a tile still to come,
+    /// stretched; a few tiles kept in another colouring coloured again); the tiles missing asked for.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_source(
+        &mut self,
+        ctx: &egui::Context,
+        painter: &egui::Painter,
+        rect: Rect,
+        source: &Source,
+        coloring: &Coloring,
+        tint: Color32,
+        place: Place,
+        show: bool,
+        wanted: &mut Vec<(f32, Job)>,
+    ) {
+        let (w, h) = source.size();
+        if w == 0 || h == 0 {
+            return;
+        }
+        let ppp = ctx.pixels_per_point();
+        let top = source.top();
+        // the level: a tile's pixel about a pixel of the screen
+        let cells_per_pixel = 1.0 / (self.zoom * place.scale.x.abs().min(place.scale.y.abs()) * ppp);
+        let level = (cells_per_pixel.max(1.0).log2().floor() as u32).min(top);
+        let src = source.key();
+        let colouring = coloring.key();
+        let (center, zoom) = (self.center, self.zoom);
+        let screen = |level: u32, tx: usize, ty: usize| -> Rect {
+            let span = (TILE << level) as f32;
+            let a = place.offset + Vec2::new(tx as f32 * span * place.scale.x, ty as f32 * span * place.scale.y);
+            let b = a + Vec2::new(span * place.scale.x, span * place.scale.y);
+            Rect::from_two_pos(rect.center() + (a - center) * zoom, rect.center() + (b - center) * zoom)
+        };
+        // the view in the source's cells
+        let to_source =
+            |p: Vec2| Vec2::new((p.x - place.offset.x) / place.scale.x, (p.y - place.offset.y) / place.scale.y);
+        let (pa, pb) = (to_source(self.to_cell(rect, rect.min)), to_source(self.to_cell(rect, rect.max)));
+        let (a, b) = (Vec2::new(pa.x.min(pb.x), pa.y.min(pb.y)), Vec2::new(pa.x.max(pb.x), pa.y.max(pb.y)));
+        let range = |level: u32| {
+            let span = (TILE << level) as f32;
+            let x0 = (a.x / span).floor().max(0.0) as usize;
+            let y0 = (a.y / span).floor().max(0.0) as usize;
+            let x1 = ((b.x / span).floor() as i64).min(w.div_ceil(TILE << level) as i64 - 1);
+            let y1 = ((b.y / span).floor() as i64).min(h.div_ceil(TILE << level) as i64 - 1);
+            (x0, y0, x1, y1)
+        };
+        let (x0, y0, x1, y1) = range(level);
+        let clock = self.clock;
+        let full = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+        let job = |key: TileKey| Job { key, source: source.clone(), coloring: coloring.clone(), colouring };
+        let mut recolour = 8;
+        // the top tiles over the view first: something to show at once
+        let (tx0, ty0, tx1, ty1) = range(top);
+        for ty in ty0..=(ty1.max(0) as usize) {
+            for tx in tx0..=(tx1.max(0) as usize) {
+                let k = (src, top, tx, ty);
+                if self.tiles.get(&k).is_none_or(|t| t.texture.as_ref().is_none_or(|(c, _)| *c != colouring)) {
+                    wanted.push((-1.0, job(k)));
+                }
+            }
+        }
+        if x1 < x0 as i64 || y1 < y0 as i64 {
+            return;
+        }
+        for ty in y0..=y1 as usize {
+            for tx in x0..=x1 as usize {
+                let k = (src, level, tx, ty);
+                let r = screen(level, tx, ty);
+                // a tile kept in another colouring is coloured again here (a few per frame)
+                if let Some(t) = self.tiles.get_mut(&k)
+                    && t.texture.as_ref().is_none_or(|(c, _)| *c != colouring)
+                    && recolour > 0
+                {
+                    recolour -= 1;
+                    let img = image_f32(&t.values, TILE, TILE, coloring);
+                    t.texture = Some((
+                        colouring,
+                        ctx.load_texture(format!("tile-r-{clock}-{tx}-{ty}"), img, TextureOptions::NEAREST),
+                    ));
+                }
+                let drawn = match self.tiles.get_mut(&k) {
+                    Some(t) if t.texture.as_ref().is_some_and(|(c, _)| *c == colouring) => {
+                        t.used = clock;
+                        if show {
+                            painter.image(t.texture.as_ref().unwrap().1.id(), r, full, tint);
+                        }
+                        true
+                    }
+                    _ => false,
+                };
+                if drawn {
+                    continue;
+                }
+                let d = (r.center() - rect.center()).length();
+                wanted.push((d, job(k)));
+                // meanwhile the finest coarser tile kept over it, stretched
+                for up in level + 1..=top {
+                    let shift = up - level;
+                    let (ax, ay) = (tx >> shift, ty >> shift);
+                    if let Some(t) = self.tiles.get_mut(&(src, up, ax, ay))
+                        && let Some((c, tex)) = &t.texture
+                        && *c == colouring
+                    {
+                        t.used = clock;
+                        let f = 1.0 / (1u32 << shift) as f32;
+                        let (u, v) = ((tx - (ax << shift)) as f32 * f, (ty - (ay << shift)) as f32 * f);
+                        let uv = Rect::from_min_size(Pos2::new(u, v), Vec2::splat(f));
+                        if show {
+                            painter.image(tex.id(), r, uv, tint);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     /// The cell under a screen point.
@@ -413,6 +596,19 @@ impl MapView {
         coloring: &Coloring,
         overlays: &[crate::vector_tiles::Overlay],
     ) -> Option<Hover> {
+        self.show_stacked(ui, source, coloring, &[], overlays)
+    }
+
+    /// A map with other maps over it (in their order, each as opaque as asked, placed by its coordinates) and
+    /// vector layers over them all.
+    pub fn show_stacked(
+        &mut self,
+        ui: &mut Ui,
+        source: &Source,
+        coloring: &Coloring,
+        rasters: &[RasterLayer],
+        overlays: &[crate::vector_tiles::Overlay],
+    ) -> Option<Hover> {
         let ctx = ui.ctx().clone();
         let blank = matches!(source, Source::Blank(_));
         if self.workers.is_none() {
@@ -426,6 +622,7 @@ impl MapView {
             self.error = None;
         }
         let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
+        self.rect = Some(rect);
         if w == 0 || h == 0 {
             return None;
         }
@@ -437,6 +634,11 @@ impl MapView {
         if response.dragged() {
             self.center -= response.drag_delta() / self.zoom;
         }
+        // B over the map: the satellite's imagery under it, or none
+        let typing = ui.ctx().memory(|m| m.focused().is_some());
+        if response.hovered() && !typing && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::B)) {
+            self.basemap = if self.basemap == Basemap::None { Basemap::EsriImagery } else { Basemap::None };
+        }
         if let Some(p) = response.hover_pos() {
             let scroll = ui.input(|i| i.smooth_scroll_delta.y);
             let pinch = ui.input(|i| i.zoom_delta());
@@ -444,7 +646,8 @@ impl MapView {
             if factor != 1.0 {
                 // keep the cell under the pointer in place
                 let under = self.to_cell(rect, p);
-                self.zoom = (self.zoom * factor).clamp(1e-6, 64.0);
+                let least = self.least_zoom(rect, source.grid(), w, h);
+                self.zoom = (self.zoom * factor).clamp(least.min(self.zoom), 64.0);
                 self.center = under - (p - rect.center()) / self.zoom;
             }
         }
@@ -456,99 +659,26 @@ impl MapView {
         }
         let tint = Color32::from_white_alpha(((1.0 - self.transparency.clamp(0.0, 1.0)) * 255.0).round() as u8);
         let show_data = !self.hide_data && !blank;
-        // the level: a tile's pixel about a pixel of the screen
         let ppp = ctx.pixels_per_point();
-        let top = source.top();
-        let cells_per_pixel = 1.0 / (self.zoom * ppp);
-        let level = (cells_per_pixel.max(1.0).log2().floor() as u32).min(top);
-        let src = source.key();
-        let colouring = coloring.key();
-        let screen = |level: u32, tx: usize, ty: usize| -> Rect {
-            let span = (TILE << level) as f32;
-            let min = rect.center() + (Vec2::new(tx as f32 * span, ty as f32 * span) - self.center) * self.zoom;
-            Rect::from_min_size(min, Vec2::splat(span * self.zoom))
-        };
-        let (a, b) = (self.to_cell(rect, rect.min), self.to_cell(rect, rect.max));
-        let range = |level: u32| {
-            let span = (TILE << level) as f32;
-            let x0 = (a.x / span).floor().max(0.0) as usize;
-            let y0 = (a.y / span).floor().max(0.0) as usize;
-            let x1 = ((b.x / span).floor() as i64).min(w.div_ceil(TILE << level) as i64 - 1);
-            let y1 = ((b.y / span).floor() as i64).min(h.div_ceil(TILE << level) as i64 - 1);
-            (x0, y0, x1, y1)
-        };
-        let (x0, y0, x1, y1) = range(level);
+        let mut wanted: Vec<(f32, Job)> = Vec::new();
         self.clock += 1;
-        let clock = self.clock;
-        let full = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
-        let mut wanted: Vec<(f32, TileKey)> = Vec::new();
-        let mut recolour = 8;
-        // the top tiles over the view first: something to show at once
-        let (tx0, ty0, tx1, ty1) = range(top);
-        for ty in ty0..=(ty1.max(0) as usize) {
-            for tx in tx0..=(tx1.max(0) as usize) {
-                let k = (src, top, tx, ty);
-                if self.tiles.get(&k).is_none_or(|t| t.texture.as_ref().is_none_or(|(c, _)| *c != colouring)) {
-                    wanted.push((-1.0, k));
-                }
-            }
+        if !blank {
+            let base = Place { offset: Vec2::ZERO, scale: Vec2::splat(1.0) };
+            self.draw_source(&ctx, &painter, rect, source, coloring, tint, base, show_data, &mut wanted);
         }
-        if x1 >= x0 as i64 && y1 >= y0 as i64 {
-            for ty in y0..=y1 as usize {
-                for tx in x0..=x1 as usize {
-                    let k = (src, level, tx, ty);
-                    let r = screen(level, tx, ty);
-                    // a tile kept in another colouring is coloured again here (a few per frame)
-                    if let Some(t) = self.tiles.get_mut(&k)
-                        && t.texture.as_ref().is_none_or(|(c, _)| *c != colouring)
-                        && recolour > 0
-                    {
-                        recolour -= 1;
-                        let img = image_f32(&t.values, TILE, TILE, coloring);
-                        t.texture = Some((
-                            colouring,
-                            ctx.load_texture(format!("tile-r-{clock}-{tx}-{ty}"), img, TextureOptions::NEAREST),
-                        ));
-                    }
-                    let drawn = match self.tiles.get_mut(&k) {
-                        Some(t) if t.texture.as_ref().is_some_and(|(c, _)| *c == colouring) => {
-                            t.used = clock;
-                            if show_data {
-                                painter.image(t.texture.as_ref().unwrap().1.id(), r, full, tint);
-                            }
-                            true
-                        }
-                        _ => false,
-                    };
-                    if drawn {
-                        continue;
-                    }
-                    let d = (r.center() - rect.center()).length();
-                    wanted.push((d, k));
-                    // meanwhile the finest coarser tile kept over it, stretched
-                    for up in level + 1..=top {
-                        let shift = up - level;
-                        let (ax, ay) = (tx >> shift, ty >> shift);
-                        if let Some(t) = self.tiles.get_mut(&(src, up, ax, ay))
-                            && let Some((c, tex)) = &t.texture
-                            && *c == colouring
-                        {
-                            t.used = clock;
-                            let f = 1.0 / (1u32 << shift) as f32;
-                            let (u, v) = ((tx - (ax << shift)) as f32 * f, (ty - (ay << shift)) as f32 * f);
-                            let uv = Rect::from_min_size(Pos2::new(u, v), Vec2::splat(f));
-                            if show_data {
-                                painter.image(tex.id(), r, uv, tint);
-                            }
-                            break;
-                        }
-                    }
+        // the maps over it, placed by their coordinates on its grid (of its coordinate system)
+        let mut layer_errors = Vec::new();
+        for l in rasters {
+            match place_on(l.source.grid(), source.grid()) {
+                Some(place) => {
+                    let tint = Color32::from_white_alpha((l.opacity.clamp(0.0, 1.0) * 255.0).round() as u8);
+                    self.draw_source(&ctx, &painter, rect, &l.source, &l.coloring, tint, place, true, &mut wanted);
                 }
+                None => layer_errors.push(
+                    "a map over it is of another coordinate system or rotated: put it on this \
+                                           map's grid (raster.match)",
+                ),
             }
-        }
-        // a grid alone: no tiles of it
-        if blank {
-            wanted.clear();
         }
         // the workers' queue: what the view needs, the nearest the centre first; the rest let go
         wanted.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -558,14 +688,23 @@ impl MapView {
             let mut q = lock.lock().unwrap();
             q.clear();
             self.asked.retain(|a| started.contains(a));
-            for (_, k) in wanted {
-                if started.contains(&(k, colouring)) {
+            for (_, job) in wanted {
+                if started.contains(&(job.key, job.colouring)) {
                     continue;
                 }
-                q.push_back(Job { key: k, source: source.clone(), coloring: coloring.clone(), colouring });
-                self.asked.insert((k, colouring));
+                self.asked.insert((job.key, job.colouring));
+                q.push_back(job);
             }
             cv.notify_all();
+        }
+        if let Some(e) = layer_errors.first() {
+            painter.text(
+                rect.left_top() + Vec2::new(8.0, 44.0),
+                egui::Align2::LEFT_TOP,
+                e,
+                egui::FontId::proportional(12.0),
+                ui.visuals().error_fg_color,
+            );
         }
         // the vector layers over the map
         let cam = crate::vector_tiles::Camera { center: self.center, zoom: self.zoom, rect, pixels_per_point: ppp };
@@ -597,6 +736,13 @@ impl MapView {
                 ui.visuals().error_fg_color,
             );
         }
+        // the cell clicked, outlined in the accent (its values along the layers beside the map)
+        if let Some((row, col)) = self.picked.filter(|&(r, c)| r < h && c < w && !blank) {
+            let cell = Vec2::new(col as f32, row as f32);
+            let r = Rect::from_min_size(rect.center() + (cell - self.center) * self.zoom, Vec2::splat(self.zoom));
+            let r = if r.width() < 6.0 { Rect::from_center_size(r.center(), Vec2::splat(6.0)) } else { r };
+            painter.rect_stroke(r, 0.0, egui::Stroke::new(2.0, crate::theme::accent()), egui::StrokeKind::Outside);
+        }
         let p = response.hover_pos()?;
         let c = self.to_cell(rect, p);
         let g = &source.grid().transform;
@@ -619,6 +765,21 @@ impl MapView {
                 text.push_str(&format!("\n{n}: {value}"));
             }
             response.clone().on_hover_text_at_pointer(text);
+        }
+        if response.clicked() && !blank {
+            self.picked = inside.then_some((c.y as usize, c.x as usize));
+        }
+        // close enough to see the cells: the one under the pointer outlined
+        if inside && !blank && self.zoom >= 6.0 {
+            let cell = Vec2::new(c.x.floor(), c.y.floor());
+            let r = Rect::from_min_size(rect.center() + (cell - self.center) * self.zoom, Vec2::splat(self.zoom));
+            painter.rect_stroke(
+                r,
+                0.0,
+                egui::Stroke::new(2.5, Color32::from_black_alpha(110)),
+                egui::StrokeKind::Outside,
+            );
+            painter.rect_stroke(r, 0.0, egui::Stroke::new(1.5, Color32::WHITE), egui::StrokeKind::Inside);
         }
         // the coordinates under the pointer, in the view's corner (and the cell's value over the map)
         {

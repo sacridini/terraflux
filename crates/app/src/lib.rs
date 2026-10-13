@@ -14,6 +14,7 @@ pub mod palette;
 pub mod prepare;
 pub mod prepare_view;
 pub mod runner;
+pub mod settings;
 pub mod table_view;
 pub mod templates;
 pub mod theme;

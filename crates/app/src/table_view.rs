@@ -139,7 +139,7 @@ pub fn show(ui: &mut Ui, t: &Table, id: egui::Id) {
                 };
                 // drawn as the cells are, from the left
                 let (rect, b) = ui.allocate_exact_size(Vec2::new(widths[j], row_h + 2.0), egui::Sense::click());
-                let colour = if b.hovered() { crate::theme::ACCENT } else { ui.visuals().strong_text_color() };
+                let colour = if b.hovered() { crate::theme::accent() } else { ui.visuals().strong_text_color() };
                 ui.painter().text(
                     egui::pos2(rect.left() + 4.0, rect.center().y),
                     egui::Align2::LEFT_CENTER,

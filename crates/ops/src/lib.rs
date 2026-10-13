@@ -374,7 +374,7 @@ impl Operator for Submodel {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             terraflux_graph::SUBMODEL,
-            "Another model used as one node: its inputs are the node's inputs of the same names (its value inputs keep their values when not given; its files become inputs of this model), its outputs the node's.              Expanded into a control.group before the model runs.",
+            "Another model used as one node: its inputs are the node's inputs of the same names (its value inputs keep their values when not given; its files become inputs of this model), its outputs the node's. Expanded into a control.group before the model runs.",
             Access::None,
         )
         .extra(Type::Any)

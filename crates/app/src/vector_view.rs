@@ -124,7 +124,7 @@ pub fn show(ui: &mut Ui, v: &Arc<Vector>, view: &mut MapView, id: egui::Id) {
         return;
     };
     let overlays = [Overlay { vector: v.clone(), style }];
-    egui::CentralPanel::default().frame(egui::Frame::new().fill(crate::theme::WELL)).show(ui, |ui| {
+    egui::CentralPanel::default().frame(egui::Frame::new().fill(crate::theme::well())).show(ui, |ui| {
         view.show_layers(ui, &Source::Blank(grid), &Coloring::Classes(Vec::new()), &overlays);
     });
 }

@@ -170,7 +170,7 @@ pub fn clustergram(t: &Table, rows: &[usize]) -> Option<Clustergram> {
 
 /// The colour of the `g`-th group (or the accent for a single series).
 fn colour(g: usize, groups: usize) -> Color32 {
-    if groups <= 1 { crate::theme::ACCENT } else { class_colour(g) }
+    if groups <= 1 { crate::theme::accent() } else { class_colour(g) }
 }
 
 /// A group's name in a legend.
@@ -489,7 +489,7 @@ fn loadings(ui: &mut Ui, t: &Table, [a, b]: [usize; 2], id: egui::Id) {
         return;
     }
     let axis = |r: usize| format!("PC{} ({:.0}%)", r + 1, t.rows[r][1] * 100.0);
-    let colour = crate::theme::ACCENT;
+    let colour = crate::theme::accent();
     let text = ui.visuals().text_color();
     let side = ui.available_width().clamp(240.0, 520.0);
     Plot::new(id.with("loadings"))

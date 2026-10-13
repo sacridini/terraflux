@@ -245,12 +245,12 @@ fn floating_tabs(dock: &mut DockState<Pane>) -> Vec<Vec<Pane>> {
 /// The dock's look: the theme's greys, the tab shown in the panel's grey, the bar a shade darker.
 fn dock_style(ui: &Ui) -> egui_dock::Style {
     let mut st = egui_dock::Style::from_egui(ui.style().as_ref());
-    st.tab_bar.bg_fill = theme::BAR;
-    st.tab_bar.hline_color = theme::BAR;
+    st.tab_bar.bg_fill = theme::bar();
+    st.tab_bar.hline_color = theme::bar();
     st.tab_bar.height = 24.0;
     st.tab.active.bg_fill = ui.visuals().panel_fill;
     st.tab.focused.bg_fill = ui.visuals().panel_fill;
-    st.tab.focused.text_color = theme::ACCENT;
+    st.tab.focused.text_color = theme::accent();
     st.tab.active.text_color = ui.visuals().strong_text_color();
     st.main_surface_border_stroke = egui::Stroke::NONE;
     st
@@ -447,6 +447,8 @@ pub struct Session {
     pub palettes: std::collections::HashMap<(String, String), crate::builder::Palette>,
     /// The vector layers drawn over the maps shown (they stay as other nodes are shown).
     pub preview_overlays: Vec<(String, String, crate::vector_tiles::Style)>,
+    /// The maps drawn over the map shown: (node, port, opacity).
+    pub preview_rasters: Vec<(String, String, f32)>,
     pub looks: Looks,
     /// The outputs shown in map tabs of their own (a double click on a node), by tab; the tabs the dock is still
     /// to show.
@@ -555,6 +557,7 @@ impl Session {
             preview_chosen: false,
             preview_view: MapView::default(),
             preview_overlays: Vec::new(),
+            preview_rasters: Vec::new(),
             palettes: Default::default(),
             looks: Looks::default(),
             auto: true,
@@ -1010,7 +1013,10 @@ pub struct TerrafluxApp {
     pub registry: Registry,
     pub library: Library,
     pub(crate) hover: Option<Hover>,
-    styled: bool,
+    /// The style applied: the theme, the text's size and the zoom it was made for.
+    styled: Option<(String, u32, u32)>,
+    /// The settings' window is open.
+    pub settings_open: bool,
     /// The pane Tab went to the model from (Tab again goes back to it).
     tab_back: Option<Pane>,
     /// Tab was taken this frame: the keyboard's focus it may have given a field is let go at the frame's end.
@@ -1021,15 +1027,18 @@ pub struct TerrafluxApp {
 
 /// A row of a list: a name, selected or not, and a note on the right.
 fn row(ui: &mut Ui, selected: bool, name: &str, note: &str) -> egui::Response {
-    let note =
-        RichText::new(note).size(11.0).color(if selected { theme::ON_ACCENT } else { ui.visuals().weak_text_color() });
+    let note = RichText::new(note).size(11.0).color(if selected {
+        theme::on_accent()
+    } else {
+        ui.visuals().weak_text_color()
+    });
     ui.add(egui::Button::selectable(selected, name).right_text(note).min_size(Vec2::new(ui.available_width(), 22.0)))
 }
 
 /// A button in the accent when it may be pressed.
 pub(crate) fn accent_button(text: &str, on: bool) -> egui::Button<'_> {
     if on {
-        egui::Button::new(RichText::new(text).color(theme::ON_ACCENT).strong()).fill(theme::ACCENT)
+        egui::Button::new(RichText::new(text).color(theme::on_accent()).strong()).fill(theme::accent())
     } else {
         egui::Button::new(text)
     }
@@ -1055,7 +1064,8 @@ impl TerrafluxApp {
             registry,
             library,
             hover: None,
-            styled: false,
+            styled: None,
+            settings_open: false,
             tab_back: None,
             tabbed: false,
             drawer: false,
@@ -1124,7 +1134,7 @@ impl TerrafluxApp {
     fn toolbar(&mut self, ui: &mut Ui) {
         let mut save = None;
         ui.horizontal(|ui| {
-            ui.label(RichText::new("TERRAFLUX").strong().size(13.0).color(theme::ACCENT));
+            ui.label(RichText::new("TERRAFLUX").strong().size(13.0).color(theme::accent()));
             ui.separator();
             if ui.button("New").on_hover_text("a new model in the builder").clicked() {
                 self.wizard = None;
@@ -1200,6 +1210,9 @@ impl TerrafluxApp {
                 .response
                 .on_hover_text("add an operator after the node selected (also at the window's left edge, and \"/\")");
             }
+            if ui.button("Settings").on_hover_text("the theme, the text's size, the threads...").clicked() {
+                self.settings_open = !self.settings_open;
+            }
             if ui.button("Wizard...").on_hover_text("a land change model from your maps, step by step").clicked() {
                 self.wizard = Some(Wizard::default());
             }
@@ -1257,8 +1270,8 @@ impl TerrafluxApp {
                         egui::ProgressBar::new(frac)
                             .desired_width(180.0)
                             .desired_height(14.0)
-                            .fill(theme::ACCENT)
-                            .text(RichText::new(format!("{at}: step {step} of {of}")).color(theme::ON_ACCENT)),
+                            .fill(theme::accent())
+                            .text(RichText::new(format!("{at}: step {step} of {of}")).color(theme::on_accent())),
                     );
                 }
                 if s.running() {
@@ -1272,6 +1285,74 @@ impl TerrafluxApp {
         if let Some(choose) = save {
             self.save(choose);
         }
+    }
+
+    /// The settings, in a window of the application: the theme, the text's size, the interface's zoom, the
+    /// threads the functions use; kept at once, the look changed at once.
+    fn settings_window(&mut self, ctx: &egui::Context) {
+        if !self.settings_open {
+            return;
+        }
+        let mut open = true;
+        let mut st = crate::settings::get();
+        egui::Window::new("Settings").open(&mut open).resizable(false).collapsible(false).show(ctx, |ui| {
+            egui::Grid::new("settings").num_columns(2).spacing([16.0, 8.0]).show(ui, |ui| {
+                ui.label("Theme");
+                egui::ComboBox::from_id_salt("theme").selected_text(st.theme.clone()).width(180.0).show_ui(ui, |ui| {
+                    for t in &theme::THEMES {
+                        ui.horizontal(|ui| {
+                            for c in [t.panel, t.canvas, t.accent] {
+                                let (r, _) = ui.allocate_exact_size(Vec2::new(10.0, 14.0), egui::Sense::hover());
+                                ui.painter().rect_filled(r, 1.0, c);
+                            }
+                            ui.selectable_value(&mut st.theme, t.name.to_string(), t.name);
+                        });
+                    }
+                });
+                ui.end_row();
+                ui.label("Text size");
+                ui.add(
+                    egui::Slider::new(&mut st.text, 0.8..=1.6)
+                        .step_by(0.05)
+                        .custom_formatter(|v, _| format!("{:.0} %", v * 100.0)),
+                );
+                ui.end_row();
+                ui.label("Interface zoom");
+                ui.add(
+                    egui::Slider::new(&mut st.zoom, 0.75..=2.0)
+                        .step_by(0.05)
+                        .custom_formatter(|v, _| format!("{:.0} %", v * 100.0)),
+                );
+                ui.end_row();
+                ui.label("Threads");
+                ui.vertical(|ui| {
+                    let most = terraflux_ops::threads::most();
+                    let mut n = st.threads.unwrap_or(most).clamp(1, most);
+                    let mut auto = st.threads.is_none();
+                    ui.checkbox(&mut auto, format!("all the cores but one ({most})"));
+                    ui.add_enabled_ui(!auto, |ui| {
+                        ui.add(egui::Slider::new(&mut n, 1..=most));
+                    });
+                    st.threads = if auto { None } else { Some(n) };
+                    ui.label(
+                        RichText::new(format!(
+                            "the threads the functions use; from the next start (now {})",
+                            terraflux_ops::threads::ensure()
+                        ))
+                        .weak()
+                        .size(11.0),
+                    );
+                });
+                ui.end_row();
+            });
+            ui.add_space(6.0);
+            if ui.button("Back to the defaults").clicked() {
+                let favourites = std::mem::take(&mut st.favourites);
+                st = crate::settings::Settings { favourites, ..Default::default() };
+            }
+        });
+        crate::settings::update(|s| *s = st);
+        self.settings_open = open;
     }
 
     /// The operators' drawer: out over the panes while the pointer is at the window's left edge or over it, in
@@ -1339,7 +1420,7 @@ impl TerrafluxApp {
                         RichText::new(format!(
                             "click an operator (or /) to add it    drag: select    right or middle drag: move    double \
                              click: its map    {delete}: delete    ctrl+R: rename    ctrl+L: arrange    Tab: the model \
-                             and back    ctrl+W: close the tab    F5: run all"
+                             and back    ctrl+W: close the tab    B: satellite under the map    F5: run all"
                         ))
                         .color(weak),
                     );
@@ -1352,7 +1433,7 @@ impl TerrafluxApp {
                     if let Some((text, at)) = &s.notice
                         && at.elapsed() < Duration::from_secs(8)
                     {
-                        ui.label(RichText::new(text).color(theme::ACCENT));
+                        ui.label(RichText::new(text).color(theme::accent()));
                         ui.separator();
                     }
                     if s.dirty {
@@ -1382,7 +1463,7 @@ impl TerrafluxApp {
         if s.maps.is_empty() && s.layers.is_empty() {
             let text = match &s.load_error {
                 Some(e) => format!("The model's inputs could not be read: {e}"),
-                None => "A model's maps show here: those of its inputs, and those of a loop (control.repeat)                          step by step as it runs."
+                None => "A model's maps show here: those of its inputs, and those of a loop (control.repeat) step by step as it runs."
                     .to_string(),
             };
             ui.label(RichText::new(text).color(ui.visuals().weak_text_color()));
@@ -1488,13 +1569,13 @@ impl TerrafluxApp {
                             ui.vertical(|ui| {
                                 let r = ui.add(egui::Image::new((id, size)).sense(egui::Sense::click()));
                                 let stroke = if shown {
-                                    egui::Stroke::new(2.0, theme::ACCENT)
+                                    egui::Stroke::new(2.0, theme::accent())
                                 } else {
                                     egui::Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color)
                                 };
                                 ui.painter().rect_stroke(r.rect, 0.0, stroke, egui::StrokeKind::Outside);
                                 let text = RichText::new(name).size(11.0);
-                                ui.label(if shown { text.color(theme::ACCENT) } else { text });
+                                ui.label(if shown { text.color(theme::accent()) } else { text });
                                 if r.clicked() {
                                     pick = Some(b);
                                 }
@@ -1529,7 +1610,7 @@ impl TerrafluxApp {
                 }
             });
         });
-        egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::WELL)).show(ui, |ui| {
+        egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::well())).show(ui, |ui| {
             if let Some((map, look, name)) = &current {
                 self.hover = s.view.show(ui, &crate::map_view::Source::from(map), &look.coloring);
                 // what is shown, in the corner
@@ -1698,9 +1779,14 @@ impl TerrafluxApp {
 
     /// One frame of the application.
     pub fn frame(&mut self, ui: &mut Ui) {
-        if !self.styled {
-            theme::apply(ui.ctx());
-            self.styled = true;
+        // the style of the settings (again when they change)
+        let st = crate::settings::get();
+        let key = (st.theme.clone(), st.text.to_bits(), st.zoom.to_bits());
+        if self.styled.as_ref() != Some(&key) {
+            theme::choose(&st.theme);
+            theme::apply_with(ui.ctx(), st.text);
+            ui.ctx().set_zoom_factor(st.zoom.clamp(0.5, 3.0));
+            self.styled = Some(key);
         }
         if let Some(s) = &mut self.session {
             s.poll();
@@ -1724,7 +1810,7 @@ impl TerrafluxApp {
                 self.focus(Pane::Viewer);
             }
         }
-        let bar = egui::Frame::new().fill(theme::BAR).inner_margin(Margin::symmetric(8, 5));
+        let bar = egui::Frame::new().fill(theme::bar()).inner_margin(Margin::symmetric(8, 5));
         egui::Panel::top("toolbar").frame(bar).show(ui, |ui| self.toolbar(ui));
         egui::Panel::bottom("status").frame(bar.inner_margin(Margin::symmetric(8, 3))).show(ui, |ui| self.status(ui));
         if let Some(w) = &mut self.wizard {
@@ -1768,8 +1854,9 @@ impl TerrafluxApp {
                     });
                 });
         }
+        self.settings_window(ui.ctx());
         let area = ui.available_rect_before_wrap();
-        egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::BAR)).show(ui, |ui| self.docks(ui));
+        egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::bar())).show(ui, |ui| self.docks(ui));
         self.drawer(ui.ctx(), area);
         // Tab is ours: no field keeps the focus egui gave it
         if std::mem::take(&mut self.tabbed) {
@@ -1846,17 +1933,33 @@ impl TerrafluxApp {
             retain_panes(&mut w.dock, stale);
         }
         self.windows.retain(|w| w.dock.iter_all_tabs().next().is_some());
-        let dock = self.dock.get_or_insert_with(default_layout);
         for id in opened {
-            match dock.find_tab(&Pane::Viewer).map(|p| dock.leaf_mut(p.node_path())) {
-                Some(Ok(leaf)) => leaf.append_tab(Pane::Map(id)),
-                _ => dock.push_to_focused_leaf(Pane::Map(id)),
-            }
+            self.beside_viewer(Pane::Map(id));
         }
         // (brought to the front where it is, or put back if its window went away)
         for id in raised {
             self.focus(Pane::Map(id));
         }
+    }
+
+    /// A tab put beside the viewer's wherever it is (in the main window or one of its own), else beside the maps
+    /// open, else where the focus is; brought to the front.
+    fn beside_viewer(&mut self, pane: Pane) {
+        let is_map = |t: &Pane| matches!(t, Pane::Map(_));
+        let dock = self.dock.get_or_insert_with(default_layout);
+        for d in std::iter::once(dock).chain(self.windows.iter_mut().map(|w| &mut w.dock)) {
+            let at = d.find_tab(&Pane::Viewer).or_else(|| d.iter_all_tabs().find(|(_, t)| is_map(t)).map(|(p, _)| p));
+            if let Some(path) = at
+                && let Ok(leaf) = d.leaf_mut(path.node_path())
+            {
+                leaf.append_tab(pane);
+                if let Some(p) = d.find_tab(&pane) {
+                    let _ = d.set_active_tab(p);
+                }
+                return;
+            }
+        }
+        self.dock.get_or_insert_with(default_layout).push_to_focused_leaf(pane);
     }
 
     /// The pane whose tab has the focus (of the main window).
