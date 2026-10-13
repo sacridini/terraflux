@@ -15,6 +15,7 @@
 pub mod actions;
 pub mod agents;
 pub mod algebra;
+pub mod bio;
 pub mod change;
 pub mod change_analysis;
 pub mod circuit;
@@ -270,6 +271,7 @@ impl Registry {
         algebra::register(&mut r);
         change::register(&mut r);
         change_analysis::register(&mut r);
+        bio::register(&mut r);
         circuit::register(&mut r);
         cost::register(&mut r);
         surface::register(&mut r);

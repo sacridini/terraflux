@@ -59,6 +59,13 @@ struct RunsOut;
 struct OmniscapeOut;
 struct CircuitOut;
 struct PathsOut;
+struct BioGroups;
+struct BioCall;
+struct BioProgram;
+struct BioCsr;
+struct BioCalcInfo;
+struct BioView;
+struct BioIndexOut;
 struct EdgesOut;
 struct CommuteOut;
 struct PlaneOut;
@@ -512,6 +519,16 @@ rust::Vec<double> cost_path_overlap(rust::Slice<const double> fa, std::int64_t n
                                     rust::Slice<const std::int32_t> functions, bool upper);
 rust::Vec<double> cost_r_cov(rust::Slice<const double> x, std::int64_t n, std::int64_t k);
 double cost_r_mean(rust::Slice<const double> x);
+// Biodiverse (landschaft's bio module)
+BioCsr bio_find_neighbours(const BioGroups& groups, const BioProgram& program, rust::Slice<const std::int32_t> procs,
+                           bool parallel);
+rust::Vec<std::uint8_t> bio_definition_query(const BioGroups& groups, const BioProgram& program, bool parallel);
+rust::Vec<double> bio_side_rotation(rust::Slice<const double> coords, std::int32_t ndim, std::int32_t axis0,
+                                    std::int32_t axis1, double angle);
+rust::Vec<BioCalcInfo> bio_calculations();
+BioIndexOut bio_run_indices(const BioView& view, rust::Slice<const std::int32_t> procs, const BioCsr& set1, bool two,
+                            const BioCsr& set2, const rust::Vec<rust::String>& calcs, bool parallel);
+
 PathsOut cost_paths(rust::Slice<const double> values, rust::Slice<const double> grid, std::int32_t directions,
                     bool symmetric, std::int64_t origin, rust::Slice<const std::int64_t> goals);
 

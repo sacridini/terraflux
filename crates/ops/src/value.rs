@@ -387,6 +387,8 @@ pub enum Value {
     Raster(Arc<crate::files::Rasters>),
     /// Vector features.
     Vector(Arc<terraflux_raster::vector::Vector>),
+    /// Biodiverse's groups x labels sample counts.
+    BaseData(Arc<crate::bio::BaseData>),
 }
 
 impl Value {
@@ -411,6 +413,7 @@ impl Value {
             Value::Agents(_) => Type::Agents,
             Value::Raster(_) => Type::Raster,
             Value::Vector(_) => Type::Vector,
+            Value::BaseData(_) => Type::BaseData,
         }
     }
 

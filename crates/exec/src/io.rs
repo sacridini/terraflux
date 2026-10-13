@@ -196,6 +196,7 @@ pub fn write_value(value: &Value, path: &Path, dtype: Option<&str>) -> Result<Pa
         Value::Series(_) => Err(Error::Model("a series of mixed values cannot be written".into())),
         Value::Rng(_) | Value::NumpyRng(_) => Err(Error::Model("a random generator cannot be written".into())),
         Value::Agents(a) => write_text(path, "csv", &a.to_table().to_csv()),
+        Value::BaseData(b) => write_text(path, "csv", &b.to_csv()),
         Value::Vector(v) => {
             // GeoPackage, unless the path names another vector format
             let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();

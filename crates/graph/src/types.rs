@@ -43,6 +43,8 @@ pub enum Type {
     Raster,
     /// Vector features: geometries (points, lines, polygons) with attributes, in a coordinate system.
     Vector,
+    /// Biodiverse's groups x labels sample counts, with the groups' coordinates.
+    BaseData,
 }
 
 impl Type {

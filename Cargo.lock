@@ -4106,6 +4106,7 @@ dependencies = [
  "h3o",
  "hex",
  "rayon",
+ "regex",
  "serde",
  "serde_json",
  "sha2",

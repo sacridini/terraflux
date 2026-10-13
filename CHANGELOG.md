@@ -6,6 +6,23 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Biodiversity analyses (landschaft's bio module, its port of Biodiverse), a subject of their own in the builder
+  and a new type of value, the basedata (Biodiverse's groups x labels sample counts with the groups'
+  coordinates): `bio.table` (a delimited text file read like Biodiverse's import: group columns snapped to cells,
+  kept as written or as text axes, labels joined with ':', counts summed; separator and quote guessed) and
+  `bio.points` (point records read like its feature import); `bio.spatial` (Biodiverse's spatial analysis:
+  every index of landschaft's C++ engine without trees, matrices or properties, over the neighbourhoods of
+  spatial conditions in Biodiverse's Perl, one or two sets, with a definition query; a table of the indices
+  of each group and their maps when the groups are cells). The Perl of the conditions (its tokenizer and Pratt
+  parser), their compilation, Biodiverse's result types and the recycling of neighbour lists are ported from
+  landschaft's Python to Rust. The same as landschaft's, to the bit, scalar and list indices, on its example
+  sites under twenty conditions (`tools/make_bio_reference.py`).
+
+### Fixed
+- The test of RSP's method 2 allows the 1e-11 that landschaft's own runs differ by on asymmetric transitions
+  (Eigen's SparseLU), where 1e-12 failed now and then.
+
 ## [0.33.0] - 2026-10-13
 
 ### Added

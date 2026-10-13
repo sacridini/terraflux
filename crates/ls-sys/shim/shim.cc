@@ -21,6 +21,8 @@
 #include "circuit/circuitscape.hpp"
 #include "circuit/grid.hpp"
 #include "circuit/omniscape.hpp"
+#include "bio/conditions.hpp"
+#include "bio/indices.hpp"
 #include "cost/randomwalk.hpp"
 #include "cost/rsp.hpp"
 #include "lsm/extended.hpp"
@@ -2671,6 +2673,177 @@ rust::Vec<double> cost_r_cov(rust::Slice<const double> x, std::int64_t n, std::i
 }
 
 double cost_r_mean(rust::Slice<const double> x) { return lsm::r_mean(x.data(), static_cast<std::int64_t>(x.size())); }
+
+namespace {
+template <class T, class R>
+std::vector<T> std_vec(const R& v) {
+    return std::vector<T>(v.begin(), v.end());
+}
+
+bio::Groups bio_groups(const BioGroups& in) {
+    bio::Groups g;
+    g.n = in.n;
+    g.ndim = in.ndim;
+    g.coords = std_vec<double>(in.coords);
+    g.numeric = std_vec<std::uint8_t>(in.numeric);
+    g.axis_str = std_vec<std::int32_t>(in.axis_str);
+    g.name_str = std_vec<std::int32_t>(in.name_str);
+    g.cell_sizes = std_vec<double>(in.cell_sizes);
+    for (const auto& s : in.strings) g.strings.emplace_back(std::string(s));
+    check(static_cast<std::int64_t>(g.coords.size()) == g.n * g.ndim, "coords must be n x ndim");
+    return g;
+}
+
+bio::Csr bio_csr(const BioCsr& in) {
+    bio::Csr c;
+    c.indptr = std_vec<std::int64_t>(in.indptr);
+    c.indices = std_vec<std::int32_t>(in.indices);
+    return c;
+}
+
+bio::Program bio_program(const BioProgram& in, std::int64_t n_groups) {
+    bio::Program p;
+    const std::size_t n = in.ops.size();
+    check(in.abc.size() == 3 * n && in.v.size() == n, "nodes: ops, abc (3 each) and v");
+    p.nodes.resize(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        bio::Node& node = p.nodes[i];
+        node.op = static_cast<bio::Op>(in.ops[i]);
+        node.a = in.abc[3 * i];
+        node.b = in.abc[3 * i + 1];
+        node.c = in.abc[3 * i + 2];
+        node.v = in.v[i];
+    }
+    p.seq = std_vec<std::int32_t>(in.seq);
+    p.root = in.root;
+    p.n_locals = in.n_locals;
+    for (const BioCall& c : in.calls) {
+        bio::Call call;
+        call.kind = static_cast<bio::CallKind>(c.kind);
+        call.p = std_vec<double>(c.p);
+        call.axes = std_vec<std::int32_t>(c.axes);
+        call.sizes = std_vec<double>(c.sizes);
+        call.origin = std_vec<double>(c.origin);
+        call.which = c.which;
+        call.index = c.index;
+        call.text = c.text;
+        call.axis = c.axis;
+        p.calls.push_back(std::move(call));
+    }
+    const auto ng = static_cast<std::size_t>(n_groups);
+    check(in.masks.size() == static_cast<std::size_t>(in.n_masks) * ng, "masks: one value per group each");
+    for (std::int32_t k = 0; k < in.n_masks; ++k)
+        p.masks.emplace_back(in.masks.begin() + k * ng, in.masks.begin() + (k + 1) * ng);
+    check(in.rotations.size() == static_cast<std::size_t>(in.n_rotations) * ng, "rotations: one value per group each");
+    for (std::int32_t k = 0; k < in.n_rotations; ++k)
+        p.rotations.emplace_back(in.rotations.begin() + k * ng, in.rotations.begin() + (k + 1) * ng);
+    check(in.set_indptr_off.size() == in.set_indices_off.size(), "sets: offsets of indptr and indices");
+    for (std::size_t k = 0; k + 1 < in.set_indptr_off.size(); ++k) {
+        bio::Csr c;
+        c.indptr.assign(in.set_indptr.begin() + in.set_indptr_off[k], in.set_indptr.begin() + in.set_indptr_off[k + 1]);
+        c.indices.assign(in.set_indices.begin() + in.set_indices_off[k],
+                         in.set_indices.begin() + in.set_indices_off[k + 1]);
+        p.sets.push_back(std::move(c));
+    }
+    p.use_euc = in.use_euc;
+    p.use_cell = in.use_cell;
+    p.cell_lists = in.cell_lists;
+    p.iter_axes = std_vec<std::int32_t>(in.iter_axes);
+    p.bounds = std_vec<double>(in.bounds);
+    p.self_only = in.self_only;
+    p.always_true = in.always_true;
+    p.always_false = in.always_false;
+    return p;
+}
+}  // namespace
+
+BioCsr bio_find_neighbours(const BioGroups& groups, const BioProgram& program, rust::Slice<const std::int32_t> procs,
+                           bool parallel) {
+    const bio::Groups g = bio_groups(groups);
+    const bio::Program p = bio_program(program, g.n);
+    const bio::Csr c = bio::find_neighbours(g, p, std::vector<std::int32_t>(procs.begin(), procs.end()), nullptr,
+                                            parallel);
+    BioCsr out;
+    out.indptr = to_rust<std::int64_t>(c.indptr);
+    out.indices = to_rust<std::int32_t>(c.indices);
+    return out;
+}
+
+rust::Vec<std::uint8_t> bio_definition_query(const BioGroups& groups, const BioProgram& program, bool parallel) {
+    const bio::Groups g = bio_groups(groups);
+    const bio::Program p = bio_program(program, g.n);
+    return to_rust<std::uint8_t>(bio::definition_query(g, p, parallel));
+}
+
+rust::Vec<double> bio_side_rotation(rust::Slice<const double> coords, std::int32_t ndim, std::int32_t axis0,
+                                    std::int32_t axis1, double angle) {
+    check(ndim > 0 && coords.size() % static_cast<std::size_t>(ndim) == 0, "coords must be n x ndim");
+    bio::Groups g;
+    g.ndim = ndim;
+    g.n = static_cast<std::int64_t>(coords.size()) / ndim;
+    g.coords.assign(coords.begin(), coords.end());
+    return to_rust<double>(bio::side_rotation(g, axis0, axis1, angle));
+}
+
+rust::Vec<BioCalcInfo> bio_calculations() {
+    rust::Vec<BioCalcInfo> out;
+    for (const bio::CalcInfo& c : bio::calculation_registry()) {
+        BioCalcInfo i;
+        i.name = c.name;
+        for (const auto& s : c.scalars) i.scalars.push_back(rust::String(s));
+        for (const auto& l : c.lists) {
+            i.list_names.push_back(rust::String(l.first));
+            i.list_kinds.push_back(static_cast<std::int32_t>(l.second));
+        }
+        i.uses_nbr_lists = c.uses_nbr_lists;
+        i.uses_processing_element = c.uses_processing_element;
+        i.uses_tree = c.uses_tree;
+        out.push_back(std::move(i));
+    }
+    return out;
+}
+
+BioIndexOut bio_run_indices(const BioView& view, rust::Slice<const std::int32_t> procs, const BioCsr& set1, bool two,
+                            const BioCsr& set2, const rust::Vec<rust::String>& calcs, bool parallel) {
+    bio::BaseDataView b;
+    b.n_groups = view.n_groups;
+    b.n_labels = view.n_labels;
+    b.indptr = std_vec<std::int64_t>(view.indptr);
+    b.indices = std_vec<std::int32_t>(view.indices);
+    b.counts = std_vec<double>(view.counts);
+    b.label_range = std_vec<double>(view.label_range);
+    b.label_abundance = std_vec<double>(view.label_abundance);
+    b.label_sample_count = std_vec<double>(view.label_sample_count);
+    b.abc_any_variant = view.abc_any_variant;
+    b.n_label_levels = view.n_label_levels;
+    b.label_prefix = std_vec<std::int32_t>(view.label_prefix);
+    for (const auto& s : view.prefix_names) b.prefix_names.emplace_back(std::string(s));
+    b.labels_numeric = view.labels_numeric;
+    b.label_values = std_vec<double>(view.label_values);
+    b.exec_order = std_vec<std::int32_t>(view.exec_order);
+    std::vector<std::string> names;
+    for (const auto& c : calcs) names.emplace_back(std::string(c));
+    const bio::Csr s1 = bio_csr(set1);
+    const bio::Csr s2 = bio_csr(set2);
+    bio::IndexResult r = bio::run_indices(b, std::vector<std::int32_t>(procs.begin(), procs.end()), s1,
+                                          two ? &s2 : nullptr, names, parallel, nullptr);
+    BioIndexOut out;
+    for (const auto& s : r.scalar_names) out.scalar_names.push_back(rust::String(s));
+    out.scalars = to_rust<double>(r.scalars);
+    out.list_indptr_off.push_back(0);
+    out.list_entry_off.push_back(0);
+    for (std::size_t k = 0; k < r.lists.size(); ++k) {
+        out.list_names.push_back(rust::String(r.list_names[k]));
+        out.list_kinds.push_back(static_cast<std::int32_t>(r.list_kinds[k]));
+        for (const std::int64_t v : r.lists[k].indptr) out.list_indptr.push_back(v);
+        for (const double v : r.lists[k].keys) out.list_keys.push_back(v);
+        for (const double v : r.lists[k].values) out.list_values.push_back(v);
+        out.list_indptr_off.push_back(static_cast<std::int64_t>(out.list_indptr.size()));
+        out.list_entry_off.push_back(static_cast<std::int64_t>(out.list_keys.size()));
+    }
+    for (const auto& s : r.texts) out.texts.push_back(rust::String(s));
+    return out;
+}
 
 PathsOut cost_paths(rust::Slice<const double> values, rust::Slice<const double> grid, std::int32_t directions,
                     bool symmetric, std::int64_t origin, rust::Slice<const std::int64_t> goals) {

@@ -388,6 +388,114 @@ pub mod ffi {
         value: Vec<f64>,
     }
 
+    /// Biodiverse's groups for the spatial conditions: coordinates (n x ndim, text axes their rank), which axes
+    /// are numeric, the string id of each text value and group name, the cell sizes and the string table.
+    struct BioGroups {
+        n: i64,
+        ndim: i32,
+        coords: Vec<f64>,
+        numeric: Vec<u8>,
+        axis_str: Vec<i32>,
+        name_str: Vec<i32>,
+        cell_sizes: Vec<f64>,
+        strings: Vec<String>,
+    }
+
+    /// A call of a compiled spatial condition (landschaft's bio::Call).
+    #[derive(Clone)]
+    struct BioCall {
+        kind: i32,
+        p: Vec<f64>,
+        axes: Vec<i32>,
+        sizes: Vec<f64>,
+        origin: Vec<f64>,
+        which: i32,
+        index: i32,
+        text: i32,
+        axis: i32,
+    }
+
+    /// A spatial condition compiled for the C++ evaluator (landschaft's bio::Program): nodes (op, a, b, c, v),
+    /// masks and rotations of n_groups values each, one after the other, and sets (CSR over the groups) with
+    /// their offsets.
+    struct BioProgram {
+        ops: Vec<i32>,
+        abc: Vec<i32>,
+        v: Vec<f64>,
+        seq: Vec<i32>,
+        root: i32,
+        n_locals: i32,
+        calls: Vec<BioCall>,
+        masks: Vec<u8>,
+        n_masks: i32,
+        set_indptr: Vec<i64>,
+        set_indptr_off: Vec<i64>,
+        set_indices: Vec<i32>,
+        set_indices_off: Vec<i64>,
+        rotations: Vec<f64>,
+        n_rotations: i32,
+        use_euc: bool,
+        use_cell: bool,
+        cell_lists: bool,
+        iter_axes: Vec<i32>,
+        bounds: Vec<f64>,
+        self_only: bool,
+        always_true: bool,
+        always_false: bool,
+    }
+
+    /// Neighbour lists: a row per processing group, group indices ascending.
+    struct BioCsr {
+        indptr: Vec<i64>,
+        indices: Vec<i32>,
+    }
+
+    /// A calculation of the index engine: its scalar and list indices, the neighbour sets it needs.
+    struct BioCalcInfo {
+        name: String,
+        scalars: Vec<String>,
+        list_names: Vec<String>,
+        list_kinds: Vec<i32>,
+        uses_nbr_lists: i32,
+        uses_processing_element: bool,
+        uses_tree: bool,
+    }
+
+    /// A basedata as the index engine reads it (landschaft's bio::BaseDataView, without properties, matrix and
+    /// tree yet).
+    struct BioView {
+        n_groups: i64,
+        n_labels: i64,
+        indptr: Vec<i64>,
+        indices: Vec<i32>,
+        counts: Vec<f64>,
+        label_range: Vec<f64>,
+        label_abundance: Vec<f64>,
+        label_sample_count: Vec<f64>,
+        abc_any_variant: i32,
+        n_label_levels: i32,
+        label_prefix: Vec<i32>,
+        prefix_names: Vec<String>,
+        labels_numeric: bool,
+        label_values: Vec<f64>,
+        exec_order: Vec<i32>,
+    }
+
+    /// The indices of the processing groups: scalars (n x names) and lists (per list its rows' entries, offsets
+    /// into the concatenation), the text keys.
+    struct BioIndexOut {
+        scalar_names: Vec<String>,
+        scalars: Vec<f64>,
+        list_names: Vec<String>,
+        list_kinds: Vec<i32>,
+        list_indptr: Vec<i64>,
+        list_indptr_off: Vec<i64>,
+        list_keys: Vec<f64>,
+        list_values: Vec<f64>,
+        list_entry_off: Vec<i64>,
+        texts: Vec<String>,
+    }
+
     /// Least-cost paths: their cells, one after the other (offsets into them).
     struct PathsOut {
         cells: Vec<i64>,
@@ -1706,6 +1814,30 @@ pub mod ffi {
         fn cost_r_cov(x: &[f64], n: i64, k: i64) -> Result<Vec<f64>>;
         /// R's mean() (long double, two passes).
         fn cost_r_mean(x: &[f64]) -> f64;
+        /// Neighbour lists of the processing groups under a compiled spatial condition (Biodiverse's).
+        fn bio_find_neighbours(
+            groups: &BioGroups,
+            program: &BioProgram,
+            procs: &[i32],
+            parallel: bool,
+        ) -> Result<BioCsr>;
+        /// The groups passing a compiled definition query.
+        fn bio_definition_query(groups: &BioGroups, program: &BioProgram, parallel: bool) -> Result<Vec<u8>>;
+        /// Rotated, scaled x coordinates of the groups (Biodiverse's sidedness conditions).
+        fn bio_side_rotation(coords: &[f64], ndim: i32, axis0: i32, axis1: i32, angle: f64) -> Result<Vec<f64>>;
+        /// The calculations of the index engine.
+        fn bio_calculations() -> Vec<BioCalcInfo>;
+        /// Biodiverse's indices of the processing groups over their neighbour sets (set 2 when `two`).
+        #[allow(clippy::too_many_arguments)]
+        fn bio_run_indices(
+            view: &BioView,
+            procs: &[i32],
+            set1: &BioCsr,
+            two: bool,
+            set2: &BioCsr,
+            calcs: &Vec<String>,
+            parallel: bool,
+        ) -> Result<BioIndexOut>;
         /// The cells of the least-cost paths from origin to each goal (igraph's ties).
         fn cost_paths(
             values: &[f64],

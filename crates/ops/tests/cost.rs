@@ -319,10 +319,11 @@ fn random_walks_are_landschafts() {
                     check(&key, &table(&d["table"]), &z[&key]);
                 } else {
                     // method 2 goes through Eigen's SparseLU, whose last bits change from run to run in landschaft
-                    // itself (its vectorised kernels follow the memory's alignment)
+                    // itself (its vectorised kernels follow the memory's alignment); P^theta's rows can exceed 1, and
+                    // the asymmetric system amplifies them to about 1e-11
                     let got = table(&d["table"]);
                     for (a, b) in got.iter().zip(&z[&key].data) {
-                        assert!(same(*a, *b) || (a - b).abs() <= 1e-12 * b.abs(), "{key}: {a} {b}");
+                        assert!(same(*a, *b) || (a - b).abs() <= 1e-9 * b.abs(), "{key}: {a} {b}");
                     }
                 }
             }

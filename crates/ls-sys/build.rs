@@ -61,6 +61,7 @@ fn main() {
         "surfcore",
         "simcore",
         "costcore",
+        "biocore",
         "circuitcore",
         "iocore",
         "lsmcore",
