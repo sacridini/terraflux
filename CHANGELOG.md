@@ -6,6 +6,15 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Partitions of records for cross-validation (landschaft's folds, after ENMeval and blockCV), as a fold column
+  added to the records: `sdm.random_folds`, `sdm.jackknife_folds`, `sdm.quadrant_folds` (the four
+  orientations), `sdm.checkerboard_folds` (one or two aggregations of the predictors' cells),
+  `sdm.spatial_blocks` (hexagons pointy or flat, squares of a size or of rows and columns; random, systematic
+  or checkerboard assignment), `sdm.spatial_clusters` (R's kmeans of the coordinates or of the predictors) and
+  `sdm.buffer_folds` (buffered leave-one-out). R's generator and long double arithmetic; the same as
+  landschaft's, to the bit (with a seed: landschaft draws one when none is given, Terraflux defaults to 1).
+
 ## [0.53.0] - 2026-10-13
 
 ### Added

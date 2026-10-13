@@ -1169,6 +1169,21 @@ pub mod ffi {
         fn rrng_runif(rng: Pin<&mut RRng>, n: usize) -> Vec<f64>;
         /// R's sample.int(n, size, replace, prob) (1-based; no prob when empty).
         fn rrng_sample_int(rng: Pin<&mut RRng>, n: i64, size: i64, replace: bool, prob: &[f64]) -> Result<Vec<i64>>;
+        /// R's stats::kmeans of an m x p table (row-major) with k centres drawn by R's generator (algorithm 1
+        /// Hartigan-Wong, 2 Lloyd, 3 MacQueen): every row's cluster (1-based).
+        #[allow(clippy::too_many_arguments)]
+        fn sdm_kmeans(
+            rng: Pin<&mut RRng>,
+            x: &[f64],
+            m: i64,
+            p: i64,
+            k: i32,
+            iter_max: i32,
+            nstart: i32,
+            algorithm: i32,
+        ) -> Result<Vec<i32>>;
+        /// R's sd (80-bit mean and sum of squares).
+        fn sdm_r_sd(x: &[f64]) -> f64;
         /// spThin's thin.algorithm on lon/lat records (great-circle distances of fields::rdist.earth), after
         /// set.seed(seed).
         fn sdm_thin_spthin(lon: &[f64], lat: &[f64], max_km: f64, reps: i32, seed: i32) -> Result<ThinOut>;

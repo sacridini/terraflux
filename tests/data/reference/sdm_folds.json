@@ -1,0 +1,240 @@
+{
+ "cases": [
+  {
+   "name": "random",
+   "op": "sdm.random_folds",
+   "params": {
+    "k": 5,
+    "seed": 3
+   },
+   "projected": false,
+   "env": false
+  },
+  {
+   "name": "jackknife",
+   "op": "sdm.jackknife_folds",
+   "params": {},
+   "projected": false,
+   "env": false
+  },
+  {
+   "name": "quadrant_lat_lon",
+   "op": "sdm.quadrant_folds",
+   "params": {
+    "orientation": "lat_lon"
+   },
+   "projected": false,
+   "env": false
+  },
+  {
+   "name": "quadrant_lon_lat",
+   "op": "sdm.quadrant_folds",
+   "params": {
+    "orientation": "lon_lat"
+   },
+   "projected": false,
+   "env": false
+  },
+  {
+   "name": "quadrant_lon_lon",
+   "op": "sdm.quadrant_folds",
+   "params": {
+    "orientation": "lon_lon"
+   },
+   "projected": false,
+   "env": false
+  },
+  {
+   "name": "quadrant_lat_lat",
+   "op": "sdm.quadrant_folds",
+   "params": {
+    "orientation": "lat_lat"
+   },
+   "projected": false,
+   "env": false
+  },
+  {
+   "name": "checker",
+   "op": "sdm.checkerboard_folds",
+   "params": {
+    "aggregation": 4
+   },
+   "projected": false,
+   "env": true
+  },
+  {
+   "name": "checker2",
+   "op": "sdm.checkerboard_folds",
+   "params": {
+    "aggregation": [
+     2,
+     3
+    ]
+   },
+   "projected": false,
+   "env": true
+  },
+  {
+   "name": "blocks_hex",
+   "op": "sdm.spatial_blocks",
+   "params": {
+    "size": 150000.0,
+    "k": 4,
+    "seed": 5
+   },
+   "projected": false,
+   "env": false
+  },
+  {
+   "name": "blocks_hex_flat",
+   "op": "sdm.spatial_blocks",
+   "params": {
+    "size": 120000.0,
+    "k": 3,
+    "flat_top": true,
+    "seed": 6,
+    "offset": [
+     0.3,
+     0.1
+    ]
+   },
+   "projected": false,
+   "env": false
+  },
+  {
+   "name": "blocks_hex_systematic",
+   "op": "sdm.spatial_blocks",
+   "params": {
+    "size": 150000.0,
+    "k": 4,
+    "selection": "systematic",
+    "seed": 11
+   },
+   "projected": false,
+   "env": false
+  },
+  {
+   "name": "blocks_squares",
+   "op": "sdm.spatial_blocks",
+   "params": {
+    "size": 200000.0,
+    "k": 4,
+    "hexagon": false,
+    "seed": 8,
+    "iteration": 50
+   },
+   "projected": false,
+   "env": false
+  },
+  {
+   "name": "blocks_squares_rc",
+   "op": "sdm.spatial_blocks",
+   "params": {
+    "rows_cols": [
+     6,
+     5
+    ],
+    "k": 3,
+    "hexagon": false,
+    "seed": 9,
+    "extend": 2.0
+   },
+   "projected": false,
+   "env": false
+  },
+  {
+   "name": "blocks_squares_checker",
+   "op": "sdm.spatial_blocks",
+   "params": {
+    "size": 150000.0,
+    "hexagon": false,
+    "selection": "checkerboard",
+    "seed": 12
+   },
+   "projected": false,
+   "env": false
+  },
+  {
+   "name": "blocks_hex_rows",
+   "op": "sdm.spatial_blocks",
+   "params": {
+    "rows_cols": [
+     7,
+     7
+    ],
+    "k": 3,
+    "seed": 10
+   },
+   "projected": false,
+   "env": false
+  },
+  {
+   "name": "clusters",
+   "op": "sdm.spatial_clusters",
+   "params": {
+    "k": 4,
+    "seed": 7
+   },
+   "projected": false,
+   "env": false
+  },
+  {
+   "name": "clusters_env",
+   "op": "sdm.spatial_clusters",
+   "params": {
+    "k": 3,
+    "seed": 8
+   },
+   "projected": false,
+   "env": true
+  },
+  {
+   "name": "clusters_lloyd",
+   "op": "sdm.spatial_clusters",
+   "params": {
+    "k": 3,
+    "seed": 9,
+    "algorithm": "Lloyd"
+   },
+   "projected": true,
+   "env": false
+  },
+  {
+   "name": "buffer",
+   "op": "sdm.buffer_folds",
+   "params": {
+    "size": 150000.0
+   },
+   "projected": false,
+   "env": false
+  },
+  {
+   "name": "buffer_bg",
+   "op": "sdm.buffer_folds",
+   "params": {
+    "size": 150000.0,
+    "add_background": true
+   },
+   "projected": false,
+   "env": false
+  },
+  {
+   "name": "buffer_planar",
+   "op": "sdm.buffer_folds",
+   "params": {
+    "size": 100000.0,
+    "presence_background": false
+   },
+   "projected": true,
+   "env": false
+  }
+ ],
+ "transform": [
+  -60.5,
+  0.25,
+  0.0,
+  -11.5,
+  0.0,
+  -0.25
+ ]
+}

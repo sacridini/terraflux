@@ -4,6 +4,7 @@
 
 pub mod evaluate;
 pub mod extrapolation;
+pub mod folds;
 pub mod maxnet;
 pub mod points;
 
@@ -28,6 +29,9 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(Thin));
     r.add(Arc::new(OnePerCell));
     r.add(Arc::new(Background));
+    for kind in ["random", "jackknife", "quadrant", "checkerboard", "blocks", "clusters", "buffer"] {
+        r.add(Arc::new(Folds { kind }));
+    }
 }
 
 fn bad(args: &Args, m: impl std::fmt::Display) -> Error {
@@ -712,5 +716,233 @@ impl Operator for Background {
             ctx.warn(format!("node {:?}: {w}", args.node));
         }
         Ok(outputs([("points", Value::Vector(Arc::new(points::cell_points(&grid, &cells))))]))
+    }
+}
+
+/// The records of a partition: their coordinates, lon/lat or not, their classes (a presence column) and the
+/// records themselves.
+struct Partitioned {
+    occ: points::Occurrences,
+    x: Vec<f64>,
+    y: Vec<f64>,
+    lonlat: bool,
+    classes: Option<Vec<f64>>,
+}
+
+fn partitioned(args: &Args) -> Result<Partitioned> {
+    let occ = occurrences(args, "records")?;
+    let xc: Option<String> = args.opt_param("x")?;
+    let yc: Option<String> = args.opt_param("y")?;
+    let (x, y, crs) = occ.coordinates(xc.as_deref(), yc.as_deref()).map_err(|e| bad(args, e))?;
+    let presence: String = args.param("presence", "presence".into())?;
+    let classes = match &occ {
+        points::Occurrences::Vector(v) => v.attributes.iter().find(|(n, _)| *n == presence).map(|(_, c)| c.numbers()),
+        points::Occurrences::Table(t) => t.column(&presence),
+    };
+    let lonlat = folds::is_lonlat(crs.as_deref(), &x, &y);
+    Ok(Partitioned { occ, x, y, lonlat, classes })
+}
+
+/// The records with their fold.
+fn with_folds(occ: points::Occurrences, folds: &[i64]) -> Value {
+    let f: Vec<f64> = folds.iter().map(|&k| k as f64).collect();
+    match occ {
+        points::Occurrences::Vector(v) => {
+            let mut v = (*v).clone();
+            v.attributes.retain(|(n, _)| n != "fold");
+            v.attributes.push(("fold".into(), terraflux_raster::vector::Column::Numbers(f)));
+            Value::Vector(Arc::new(v))
+        }
+        points::Occurrences::Table(mut t) => {
+            if let Some(k) = t.columns.iter().position(|c| c == "fold") {
+                t.columns.remove(k);
+                t.rows.iter_mut().for_each(|r| {
+                    r.remove(k);
+                });
+            }
+            t.columns.push("fold".into());
+            for (r, v) in t.rows.iter_mut().zip(f) {
+                r.push(v);
+            }
+            Value::Table(t)
+        }
+    }
+}
+
+struct Folds {
+    kind: &'static str,
+}
+
+impl Operator for Folds {
+    fn signature(&self) -> OpSignature {
+        let (name, doc) = match self.kind {
+            "random" => (
+                "sdm.random_folds",
+                "Random folds of the presences (landschaft's random_folds, ENMeval's randomkfold): k groups of \
+                 near-equal size drawn with R's generator; background 0.",
+            ),
+            "jackknife" => {
+                ("sdm.jackknife_folds", "Jackknife folds (ENMeval's): every presence its own fold; background 0.")
+            }
+            "quadrant" => (
+                "sdm.quadrant_folds",
+                "The four quadrants of the presences (ENMeval's block partition): near-equal counts split along \
+                 the orientation's axes, the background by the same lines.",
+            ),
+            "checkerboard" => (
+                "sdm.checkerboard_folds",
+                "A checkerboard of the predictors' cells aggregated by a factor (ENMeval's checkerboard1) or two \
+                 (checkerboard2, four folds).",
+            ),
+            "blocks" => (
+                "sdm.spatial_blocks",
+                "Spatial blocks (blockCV's cv_spatial): the records in hexagons or squares of a size (or rows and \
+                 columns), the blocks assigned to k folds at random (the most balanced of the iterations), \
+                 systematically or as a checkerboard.",
+            ),
+            "clusters" => (
+                "sdm.spatial_clusters",
+                "Spatial or environmental clusters (blockCV's cv_cluster): R's kmeans of the records' coordinates, \
+                 or of the predictors at the records (scaled as terra).",
+            ),
+            _ => (
+                "sdm.buffer_folds",
+                "Buffered leave-one-out folds (blockCV's cv_buffer): for every presence (or record) the records \
+                 farther than the size to train on and the record (with the background within the size) to test.",
+            ),
+        };
+        let mut sig = OpSignature::new(name, doc, Access::Global)
+            .input(PortSpec::new("records", Type::Any, "the records: points, or a table of coordinates"))
+            .param(PortSpec::optional("presence", Type::Text, "their presence column, 1 or 0 (default presence)"))
+            .param(PortSpec::optional("x", Type::Text, "the table's x column"))
+            .param(PortSpec::optional("y", Type::Text, "the table's y column"));
+        sig = if self.kind == "buffer" {
+            sig.output(PortSpec::new("folds", Type::Any, "per fold the records (0-based) to train and to test on"))
+        } else {
+            sig.output(PortSpec::new("records", Type::Any, "the records with their fold"))
+        };
+        match self.kind {
+            "random" => sig
+                .param(PortSpec::optional("k", Type::Integer, "the folds (default 5)"))
+                .param(PortSpec::optional("seed", Type::Integer, "the seed of R's generator (default 1)")),
+            "quadrant" => sig.param(
+                PortSpec::optional("orientation", Type::Text, "lat_lon (default), lon_lat, lon_lon or lat_lat")
+                    .choices(["lat_lon", "lon_lat", "lon_lon", "lat_lat"]),
+            ),
+            "checkerboard" => sig
+                .input(PortSpec::new("env", Type::Any, "the predictors: a map or a stack (their grid)"))
+                .param(PortSpec::optional("aggregation", Type::Any, "the factor (default 2), or two")),
+            "blocks" => sig
+                .param(PortSpec::optional("size", Type::Number, "the blocks' size (metres on lon/lat records)"))
+                .param(PortSpec::optional("rows_cols", Type::Any, "else their rows and columns (default [10, 10])"))
+                .param(PortSpec::optional("k", Type::Integer, "the folds (default 5)"))
+                .param(PortSpec::optional("hexagon", Type::Bool, "hexagons (default) or squares"))
+                .param(PortSpec::optional("flat_top", Type::Bool, "flat-topped hexagons (default false)"))
+                .param(
+                    PortSpec::optional("selection", Type::Text, "random (default), systematic or checkerboard")
+                        .choices(["random", "systematic", "checkerboard"]),
+                )
+                .param(PortSpec::optional("iteration", Type::Integer, "the random assignments tried (default 100)"))
+                .param(PortSpec::optional("offset", Type::Any, "the blocks' offset, [x, y] shares of a block"))
+                .param(PortSpec::optional("extend", Type::Number, "squares: the extent grown by this percentage"))
+                .param(PortSpec::optional("deg_to_metre", Type::Number, "metres per degree on lon/lat (111325)"))
+                .param(PortSpec::optional("seed", Type::Integer, "the seed of R's generator (default 1)")),
+            "clusters" => sig
+                .input(PortSpec::optional("env", Type::Any, "the predictors: environmental clusters"))
+                .param(PortSpec::optional("k", Type::Integer, "the clusters (default 5)"))
+                .param(PortSpec::optional("scale", Type::Bool, "scale the predictors (default true)"))
+                .param(
+                    PortSpec::optional("algorithm", Type::Text, "Hartigan-Wong (default), Lloyd, Forgy or MacQueen")
+                        .choices(["Hartigan-Wong", "Lloyd", "Forgy", "MacQueen"]),
+                )
+                .param(PortSpec::optional("seed", Type::Integer, "the seed of R's generator (default 1)")),
+            "buffer" => sig
+                .param(PortSpec::new("size", Type::Number, "the buffer's radius (metres on lon/lat records)"))
+                .param(PortSpec::optional("presence_background", Type::Bool, "test on presences (default true)"))
+                .param(PortSpec::optional(
+                    "add_background",
+                    Type::Bool,
+                    "and the background near them (default false)",
+                )),
+            _ => sig,
+        }
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let p = partitioned(args)?;
+        let r = folds::Records { x: &p.x, y: &p.y, lonlat: p.lonlat, classes: p.classes.as_deref() };
+        let need = |c: &Option<Vec<f64>>| -> Result<()> {
+            if c.is_none() { Err(bad(args, "the records need a presence column (1 or 0)")) } else { Ok(()) }
+        };
+        let f: Vec<i64> = match self.kind {
+            "random" => {
+                folds::random_folds(p.x.len(), p.classes.as_deref(), args.param("k", 5)?, args.param("seed", 1)?)
+                    .map_err(|e| bad(args, e))?
+            }
+            "jackknife" => {
+                need(&p.classes)?;
+                folds::jackknife_folds(p.classes.as_deref().unwrap())
+            }
+            "quadrant" => folds::quadrant_folds(&r, &args.param::<String>("orientation", "lat_lon".into())?)
+                .map_err(|e| bad(args, e))?,
+            "checkerboard" => {
+                let (grid, _) = layers_of(args, "env")?;
+                let aggregation: Vec<usize> = match args.params.get("aggregation") {
+                    Some(serde_json::Value::Array(_)) => args.param("aggregation", vec![])?,
+                    _ => vec![args.param("aggregation", 2)?],
+                };
+                folds::checkerboard_folds(&r, &grid, &aggregation).map_err(|e| bad(args, e))?
+            }
+            "blocks" => {
+                let rc: Vec<usize> = args.param("rows_cols", vec![10, 10])?;
+                let off: Vec<f64> = args.param("offset", vec![0.0, 0.0])?;
+                let selection: String = args.param("selection", "random".into())?;
+                let b = folds::Blocks {
+                    size: args.opt_param("size")?,
+                    rows_cols: (rc.first().copied().unwrap_or(10), rc.get(1).copied().unwrap_or(10)),
+                    k: args.param("k", 5)?,
+                    hexagon: args.param("hexagon", true)?,
+                    flat_top: args.param("flat_top", false)?,
+                    selection: &selection,
+                    iteration: args.param("iteration", 100)?,
+                    offset: (off.first().copied().unwrap_or(0.0), off.get(1).copied().unwrap_or(0.0)),
+                    extend: args.param("extend", 0.0)?,
+                    deg_to_metre: args.param("deg_to_metre", 111_325.0)?,
+                    seed: args.param("seed", 1)?,
+                };
+                folds::spatial_blocks(&r, &b).map_err(|e| bad(args, e))?
+            }
+            "clusters" => {
+                let env = match args.get("env") {
+                    Some(_) => Some(layers_of(args, "env")?),
+                    None => None,
+                };
+                let refs: Option<Vec<&[f64]>> = env.as_ref().map(|(_, l)| l.iter().map(|v| &v[..]).collect());
+                let algorithm: String = args.param("algorithm", "Hartigan-Wong".into())?;
+                folds::spatial_clusters(
+                    &r,
+                    args.param("k", 5)?,
+                    env.as_ref().map(|(g, _)| (&**g, refs.as_deref().unwrap())),
+                    args.param("scale", true)?,
+                    &algorithm,
+                    args.param("seed", 1)?,
+                )
+                .map_err(|e| bad(args, e))?
+            }
+            _ => {
+                let size: f64 = args.opt_param("size")?.ok_or_else(|| bad(args, "set the size"))?;
+                let pairs = folds::buffer_folds(
+                    &r,
+                    size,
+                    args.param("presence_background", true)?,
+                    args.param("add_background", false)?,
+                )
+                .map_err(|e| bad(args, e))?;
+                let json: Vec<serde_json::Value> =
+                    pairs.iter().map(|(train, test)| serde_json::json!({"train": train, "test": test})).collect();
+                return Ok(outputs([("folds", Value::Json(serde_json::Value::Array(json)))]));
+            }
+        };
+        Ok(outputs([("records", with_folds(p.occ, &f))]))
     }
 }

@@ -78,6 +78,7 @@
 #include "sdm/maxnet.hpp"
 #include "sdm/rstats.hpp"
 #include "sdm/thin.hpp"
+#include "sdm/kmeans.hpp"
 #include "cost/geodesic.hpp"
 #include "conn/graph.hpp"
 #include "conn/nodes.hpp"
@@ -177,6 +178,25 @@ rust::Vec<std::int64_t> rrng_sample_int(nlm::RRng& rng, std::int64_t n, std::int
     check(prob.empty() || prob.size() == static_cast<std::size_t>(n), "a probability per element");
     const std::vector<double> p = to_std(prob);
     return to_rust<std::int64_t>(rng.sample_int(n, size, replace, prob.empty() ? nullptr : &p));
+}
+
+rust::Vec<std::int32_t> sdm_kmeans(nlm::RRng& rng, rust::Slice<const double> x, std::int64_t m, std::int64_t p,
+                                   std::int32_t k, std::int32_t iter_max, std::int32_t nstart, std::int32_t algorithm) {
+    check(m > 0 && p > 0 && x.size() == static_cast<std::size_t>(m * p), "expected an m x p table");
+    check(algorithm >= 1 && algorithm <= 3, "the algorithm is 1 Hartigan-Wong, 2 Lloyd or 3 MacQueen");
+    std::vector<double> col(static_cast<std::size_t>(m * p));  // column-major, as R
+    for (std::int64_t i = 0; i < m; ++i)
+        for (std::int64_t j = 0; j < p; ++j) col[static_cast<std::size_t>(j * m + i)] = x[static_cast<std::size_t>(i * p + j)];
+    const sdm::KmeansResult r =
+        sdm::kmeans(col.data(), m, p, k, iter_max, nstart, static_cast<sdm::KmeansAlgorithm>(algorithm), rng);
+    rust::Vec<std::int32_t> out;
+    for (const int c : r.cluster) out.push_back(c);
+    return out;
+}
+
+double sdm_r_sd(rust::Slice<const double> x) {
+    const auto n = static_cast<std::int64_t>(x.size());
+    return lsm::r_sd(x.data(), n, lsm::r_mean(x.data(), n));
 }
 
 ThinOut sdm_thin_spthin(rust::Slice<const double> lon, rust::Slice<const double> lat, double max_km, std::int32_t reps,
