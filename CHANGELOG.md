@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.54.0] - 2026-10-13
+
 ### Added
 - Partitions of records for cross-validation (landschaft's folds, after ENMeval and blockCV), as a fold column
   added to the records: `sdm.random_folds`, `sdm.jackknife_folds`, `sdm.quadrant_folds` (the four
