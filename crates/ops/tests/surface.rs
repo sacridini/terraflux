@@ -67,3 +67,67 @@ fn surface_metrics_are_landschafts() {
         }
     }
 }
+
+/// The terrain of a surface against landschaft's (tests/data/reference/surface_terrain.npz): every function with
+/// some options on orelevation, the HLI of its slope and aspect, the planes and residuals, the peaks and
+/// valleys, the bearing area curve and normforest's autocorrelation, to the bit (the sines and cosines landschaft
+/// takes from numpy for VRM, the spherical standard deviation, TRASP and HLI too).
+#[test]
+fn the_terrain_is_landschafts() {
+    let z = terraflux_raster::npy::read_npz(root().join("tests/data/reference/surface_terrain.npz")).unwrap();
+    let cases: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root().join("tests/data/reference/surface_terrain.json")).unwrap(),
+    )
+    .unwrap();
+    let elevation = example("orelevation");
+    let close = |a: &[f64], b: &[f64], _exact: bool, what: &str| {
+        assert_eq!(a.len(), b.len(), "{what}");
+        for (i, (x, y)) in a.iter().zip(b).enumerate() {
+            let ok = same(*x, *y);
+            assert!(ok, "{what}: {i}: {x} {y}");
+        }
+    };
+    let map_of = |out: &Outputs, port: &str| -> Vec<f64> {
+        let Value::Map(m) = &out[port] else { panic!("{port}") };
+        m.data.as_ref().clone()
+    };
+    for case in cases["terrain"].as_array().unwrap() {
+        let (key, op) = (case[0].as_str().unwrap(), case[1].as_str().unwrap());
+        let out = run(&format!("surface.{op}"), elevation.clone(), case[2].clone());
+        let exact = !["vrm", "spherical_sd", "trasp"].contains(&op);
+        close(&map_of(&out, "map"), &z[key].data, exact, key);
+    }
+    // the heat load index of the slope and the aspect
+    let slope = map_of(&run("surface.terrain", elevation.clone(), serde_json::json!({"v": "slope"})), "map");
+    let aspect = map_of(&run("surface.terrain", elevation.clone(), serde_json::json!({"v": "aspect"})), "map");
+    for (k, kw) in cases["hli"].as_array().unwrap().iter().enumerate() {
+        let r = Registry::standard();
+        let params = kw.as_object().cloned().unwrap_or_default();
+        let m = |v: &Vec<f64>| Value::Map(Map::new(elevation.grid.clone(), v.clone()));
+        let args = Args {
+            node: "n",
+            inputs: [("aspect".to_string(), m(&aspect)), ("slope".to_string(), m(&slope))].into_iter().collect(),
+            params: &params,
+        };
+        let out = r.get("surface.hli").unwrap().run(&mut Ctx::default(), &args).unwrap();
+        close(&map_of(&out, "map"), &z[&format!("hli_{k}")].data, false, &format!("hli {k}"));
+    }
+    for order in ["0", "2", "5"] {
+        let out =
+            run("surface.fit_plane", elevation.clone(), serde_json::json!({"order": order.parse::<i32>().unwrap()}));
+        close(&map_of(&out, "plane"), &z[&format!("plane_{order}")].data, true, &format!("plane {order}"));
+    }
+    let out = run("surface.fit_plane", elevation.clone(), serde_json::json!({}));
+    close(&map_of(&out, "plane"), &z["plane_best"].data, true, "best plane");
+    close(&map_of(&out, "residuals"), &z["residuals_best"].data, true, "residuals");
+    for (which, valleys) in [("peaks", false), ("valleys", true)] {
+        let out = run("surface.peaks", elevation.clone(), serde_json::json!({"valleys": valleys}));
+        let Value::Table(t) = &out["table"] else { panic!() };
+        close(&t.rows.iter().flatten().copied().collect::<Vec<_>>(), &z[which].data, true, which);
+    }
+    let out = run("surface.bearing", elevation.clone(), serde_json::json!({}));
+    let Value::Table(t) = &out["table"] else { panic!() };
+    close(&t.rows.iter().flatten().copied().collect::<Vec<_>>(), &z["bearing"].data, true, "bearing");
+    let out = run("surface.aacf", example("normforest"), serde_json::json!({}));
+    close(&map_of(&out, "map"), &z["aacf"].data, true, "aacf");
+}

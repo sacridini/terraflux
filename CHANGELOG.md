@@ -6,6 +6,18 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-10-13
+
+### Added
+- The terrain of surfaces (landschaft's surface module: spatialEco's, terra's and geodiv's numbers through its
+  C++): `surface.terrain` (slope and aspect, 8 or 4 neighbours), `surface.tpi` (a rectangle of cells or a circle of
+  a radius, normalised or not), `surface.tri`, `surface.vrm`, `surface.srr`, `surface.dissection`,
+  `surface.curvature` (planform, profile, total, McNab's, Bolstad's), `surface.spherical_sd`, `surface.hsp`,
+  `surface.trasp`, `surface.hli` (McCune & Keon's three equations, the latitude of the map's centre), and geodiv's
+  `surface.fit_plane` (a polynomial trend of order 0-6 or the best, and the surface without it), `surface.peaks`
+  (peaks or valleys), `surface.bearing` (the Abbott-Firestone curve) and `surface.aacf` (the areal
+  autocorrelation). The same as landschaft's, to the bit, on its example surfaces.
+
 ## [0.29.0] - 2026-10-13
 
 ### Added

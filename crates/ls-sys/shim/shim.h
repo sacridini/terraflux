@@ -58,6 +58,9 @@ struct PrioFlexOut;
 struct RunsOut;
 struct OmniscapeOut;
 struct CircuitOut;
+struct PlaneOut;
+struct BearingOut;
+struct AacfOut;
 struct PairwiseOut;
 struct MultiOut;
 struct MarxanData;
@@ -443,6 +446,33 @@ rust::Vec<double> surf_metrics(rust::Slice<const double> z, std::int32_t nx, std
 rust::Vec<double> surf_window(rust::Slice<const double> z, std::int32_t nx, std::int32_t ny,
                               rust::Slice<const double> extent, bool lonlat, std::int32_t size, bool circle,
                               rust::Slice<const std::int32_t> ids);
+
+rust::Vec<double> surf_terrain(rust::Slice<const double> z, std::int32_t nx, std::int32_t ny,
+                               rust::Slice<const double> extent, bool lonlat, std::int32_t neighbors, bool degrees,
+                               bool aspect);
+rust::Vec<double> surf_focal(rust::Slice<const double> z, std::int32_t nx, std::int32_t ny,
+                             rust::Slice<const double> extent, std::int32_t wr, std::int32_t wc,
+                             rust::Slice<const std::uint8_t> mask, std::int32_t stat);
+rust::Vec<double> surf_tri(rust::Slice<const double> z, std::int32_t nx, std::int32_t ny,
+                           rust::Slice<const double> extent, std::int32_t wr, std::int32_t wc);
+rust::Vec<double> surf_curvature(rust::Slice<const double> z, std::int32_t nx, std::int32_t ny,
+                                 rust::Slice<const double> extent, std::int32_t kind);
+rust::Vec<double> surf_tpi(rust::Slice<const double> z, std::int32_t nx, std::int32_t ny,
+                           rust::Slice<const double> extent, std::int32_t wr, std::int32_t wc,
+                           rust::Slice<const std::uint8_t> mask, bool normalize);
+rust::Vec<double> surf_hsp(rust::Slice<const double> z, std::int32_t nx, std::int32_t ny,
+                           rust::Slice<const double> extent, rust::Slice<const std::int32_t> rows,
+                           rust::Slice<const std::int32_t> cols, rust::Slice<const std::uint8_t> masks,
+                           bool normalize);
+PlaneOut surf_fit_plane(rust::Slice<const double> z, std::int32_t nx, std::int32_t ny,
+                        rust::Slice<const double> extent, std::int32_t order);
+PlaneOut surf_best_fit_plane(rust::Slice<const double> z, std::int32_t nx, std::int32_t ny,
+                             rust::Slice<const double> extent);
+rust::Vec<std::int64_t> surf_peaks(rust::Slice<const double> z, std::int32_t nx, std::int32_t ny,
+                                   rust::Slice<const double> extent, bool valleys);
+BearingOut surf_bearing(rust::Slice<const double> z, rust::Slice<const double> probs);
+AacfOut surf_aacf(rust::Slice<const double> z, std::int32_t nx, std::int32_t ny, rust::Slice<const double> extent,
+                  bool lonlat);
 
 // the values of maps at points (landschaft's extract, lsio::extract): bands x ny x nx, NaN no data
 rust::Vec<double> io_extract(rust::Slice<const double> values, std::int32_t bands, std::int32_t ny, std::int32_t nx,

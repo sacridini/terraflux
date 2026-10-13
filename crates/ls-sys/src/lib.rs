@@ -351,6 +351,27 @@ pub mod ffi {
         active_offsets: Vec<i64>,
     }
 
+    /// A surface fitted (a polynomial trend): its values, and spatial's failure code or the order chosen.
+    struct PlaneOut {
+        values: Vec<f64>,
+        code: i32,
+    }
+
+    /// The bearing area curve of a surface: its bearings and heights, and the heights at the bearings asked.
+    struct BearingOut {
+        bearing: Vec<f64>,
+        height: Vec<f64>,
+        heights: Vec<f64>,
+    }
+
+    /// geodiv's areal autocorrelation image: its values (ny x nx) and extent [xmin, xmax, ymin, ymax].
+    struct AacfOut {
+        values: Vec<f64>,
+        nx: i32,
+        ny: i32,
+        extent: Vec<f64>,
+    }
+
     /// Circuitscape's advanced mode on a raster: node currents and voltages of every cell.
     struct CircuitOut {
         current: Vec<f64>,
@@ -1479,6 +1500,68 @@ pub mod ffi {
             circle: bool,
             ids: &[i32],
         ) -> Result<Vec<f64>>;
+        /// Slope or aspect as terra::terrain (radians or degrees; Horn's 8 or 4 neighbours).
+        #[allow(clippy::too_many_arguments)]
+        fn surf_terrain(
+            z: &[f64],
+            nx: i32,
+            ny: i32,
+            extent: &[f64],
+            lonlat: bool,
+            neighbors: i32,
+            degrees: bool,
+            aspect: bool,
+        ) -> Result<Vec<f64>>;
+        /// A statistic (0 mean, 1 sum, 2 min, 3 max, 4 sd) of a wr x wc window mask around every cell.
+        #[allow(clippy::too_many_arguments)]
+        fn surf_focal(
+            z: &[f64],
+            nx: i32,
+            ny: i32,
+            extent: &[f64],
+            wr: i32,
+            wc: i32,
+            mask: &[u8],
+            stat: i32,
+        ) -> Result<Vec<f64>>;
+        /// spatialEco's tri.
+        fn surf_tri(z: &[f64], nx: i32, ny: i32, extent: &[f64], wr: i32, wc: i32) -> Result<Vec<f64>>;
+        /// spatialEco's curvature (0 planform, 1 profile, 2 total, 3 mcnab, 4 bolstad).
+        fn surf_curvature(z: &[f64], nx: i32, ny: i32, extent: &[f64], kind: i32) -> Result<Vec<f64>>;
+        /// spatialEco's tpi over a window mask.
+        #[allow(clippy::too_many_arguments)]
+        fn surf_tpi(
+            z: &[f64],
+            nx: i32,
+            ny: i32,
+            extent: &[f64],
+            wr: i32,
+            wc: i32,
+            mask: &[u8],
+            normalize: bool,
+        ) -> Result<Vec<f64>>;
+        /// spatialEco's hsp over the scales' window masks (concatenated).
+        #[allow(clippy::too_many_arguments)]
+        fn surf_hsp(
+            z: &[f64],
+            nx: i32,
+            ny: i32,
+            extent: &[f64],
+            rows: &[i32],
+            cols: &[i32],
+            masks: &[u8],
+            normalize: bool,
+        ) -> Result<Vec<f64>>;
+        /// geodiv's fitplane of an order (0-6): the surface, and spatial's failure code.
+        fn surf_fit_plane(z: &[f64], nx: i32, ny: i32, extent: &[f64], order: i32) -> Result<PlaneOut>;
+        /// geodiv's bestfitplane: the surface of order 0-3 of the smallest residuals, and its order.
+        fn surf_best_fit_plane(z: &[f64], nx: i32, ny: i32, extent: &[f64]) -> Result<PlaneOut>;
+        /// geodiv's findpeaks (or the valleys): their cells, row order.
+        fn surf_peaks(z: &[f64], nx: i32, ny: i32, extent: &[f64], valleys: bool) -> Result<Vec<i64>>;
+        /// The bearing area curve, and the heights at the bearings `probs`.
+        fn surf_bearing(z: &[f64], probs: &[f64]) -> Result<BearingOut>;
+        /// geodiv's aacf image.
+        fn surf_aacf(z: &[f64], nx: i32, ny: i32, extent: &[f64], lonlat: bool) -> Result<AacfOut>;
         #[allow(clippy::too_many_arguments)]
         fn io_extract(
             values: &[f64],

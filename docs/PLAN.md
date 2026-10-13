@@ -609,8 +609,10 @@ Pendências:
   all-to-one), bit a bit com o landschaft.
 - **Superfícies — métricas (0.29.0, 2026-10-13):** `surface.metrics` (as 27 do geodiv) e `surface.window`, bit
   a bit com o landschaft.
-- **Próximos (2026-10-13):** o terreno das superfícies (planos, TPI, TRI, VRM, curvaturas, HSP, HLI...); o resto
-  dos circuitos (redes, pares incluídos, os arquivos .ini); depois métricas de superfície, distâncias na grade, biodiversidade, incerteza e lotes; os instaladores de macOS e Linux;
+- **Superfícies — terreno (0.30.0, 2026-10-13):** terrain, TPI, TRI, VRM, SRR, dissecção, curvaturas, desvio
+  esférico, HSP, TRASP, HLI, planos, picos e vales, curva de Abbott-Firestone e AACF, bit a bit com o landschaft.
+- **Próximos (2026-10-13):** distâncias na grade (`cost`), biodiversidade (`bio`), incerteza, lotes; o resto dos
+  circuitos (redes, pares incluídos, os arquivos .ini); depois métricas de superfície, distâncias na grade, biodiversidade, incerteza e lotes; os instaladores de macOS e Linux;
   `vector.exact_sum` e `vector.distance` fora da memória.
 
 - **A ponte do ls.simulate completa (branch `simulate-bridge`, 2026-10-13):** todo modelo do `ls.simulate` vai pelo

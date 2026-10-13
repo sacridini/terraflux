@@ -2303,6 +2303,107 @@ rust::Vec<double> surf_window(rust::Slice<const double> z, std::int32_t nx, std:
     return out;
 }
 
+namespace {
+std::vector<char> chars(rust::Slice<const std::uint8_t> m) { return std::vector<char>(m.begin(), m.end()); }
+}  // namespace
+
+rust::Vec<double> surf_terrain(rust::Slice<const double> z, std::int32_t nx, std::int32_t ny,
+                               rust::Slice<const double> extent, bool lonlat, std::int32_t neighbors, bool degrees,
+                               bool aspect) {
+    check(neighbors == 4 || neighbors == 8, "neighbors: 4 or 8");
+    return to_rust<double>(surf::terrain(surf_grid(z, nx, ny, extent), lonlat, neighbors, degrees, aspect));
+}
+
+rust::Vec<double> surf_focal(rust::Slice<const double> z, std::int32_t nx, std::int32_t ny,
+                             rust::Slice<const double> extent, std::int32_t wr, std::int32_t wc,
+                             rust::Slice<const std::uint8_t> mask, std::int32_t stat) {
+    check(stat >= 0 && stat <= 4 && mask.size() == static_cast<std::size_t>(wr) * wc, "a statistic 0-4 and a mask");
+    return to_rust<double>(
+        surf::focal(surf_grid(z, nx, ny, extent), wr, wc, chars(mask), static_cast<surf::FocalStat>(stat)));
+}
+
+rust::Vec<double> surf_tri(rust::Slice<const double> z, std::int32_t nx, std::int32_t ny,
+                           rust::Slice<const double> extent, std::int32_t wr, std::int32_t wc) {
+    return to_rust<double>(surf::tri(surf_grid(z, nx, ny, extent), wr, wc));
+}
+
+rust::Vec<double> surf_curvature(rust::Slice<const double> z, std::int32_t nx, std::int32_t ny,
+                                 rust::Slice<const double> extent, std::int32_t kind) {
+    check(kind >= 0 && kind <= 4, "a curvature 0-4");
+    return to_rust<double>(surf::curvature(surf_grid(z, nx, ny, extent), kind));
+}
+
+rust::Vec<double> surf_tpi(rust::Slice<const double> z, std::int32_t nx, std::int32_t ny,
+                           rust::Slice<const double> extent, std::int32_t wr, std::int32_t wc,
+                           rust::Slice<const std::uint8_t> mask, bool normalize) {
+    check(mask.size() == static_cast<std::size_t>(wr) * wc, "a mask of wr x wc");
+    return to_rust<double>(surf::tpi(surf_grid(z, nx, ny, extent), wr, wc, chars(mask), normalize));
+}
+
+rust::Vec<double> surf_hsp(rust::Slice<const double> z, std::int32_t nx, std::int32_t ny,
+                           rust::Slice<const double> extent, rust::Slice<const std::int32_t> rows,
+                           rust::Slice<const std::int32_t> cols, rust::Slice<const std::uint8_t> masks,
+                           bool normalize) {
+    check(rows.size() == cols.size(), "a row and a column count per scale");
+    std::vector<std::vector<char>> m;
+    std::size_t at = 0;
+    for (std::size_t k = 0; k < rows.size(); ++k) {
+        const auto n = static_cast<std::size_t>(rows[k]) * cols[k];
+        check(at + n <= masks.size(), "the masks of the scales");
+        m.emplace_back(masks.begin() + at, masks.begin() + at + n);
+        at += n;
+    }
+    return to_rust<double>(surf::hsp(surf_grid(z, nx, ny, extent), std::vector<int>(rows.begin(), rows.end()),
+                                     std::vector<int>(cols.begin(), cols.end()), m, normalize));
+}
+
+PlaneOut surf_fit_plane(rust::Slice<const double> z, std::int32_t nx, std::int32_t ny,
+                        rust::Slice<const double> extent, std::int32_t order) {
+    check(order >= 0 && order <= 6, "an order 0-6");
+    int ifail = 0;
+    std::vector<double> v = surf::fit_plane(surf_grid(z, nx, ny, extent), order, &ifail);
+    PlaneOut out;
+    out.values = to_rust<double>(std::move(v));
+    out.code = ifail;
+    return out;
+}
+
+PlaneOut surf_best_fit_plane(rust::Slice<const double> z, std::int32_t nx, std::int32_t ny,
+                             rust::Slice<const double> extent) {
+    int order = 0;
+    std::vector<double> v = surf::best_fit_plane(surf_grid(z, nx, ny, extent), &order);
+    PlaneOut out;
+    out.values = to_rust<double>(std::move(v));
+    out.code = order;
+    return out;
+}
+
+rust::Vec<std::int64_t> surf_peaks(rust::Slice<const double> z, std::int32_t nx, std::int32_t ny,
+                                   rust::Slice<const double> extent, bool valleys) {
+    const surf::Grid g = surf_grid(z, nx, ny, extent);
+    return to_rust<std::int64_t>(valleys ? surf::find_valleys(g) : surf::find_peaks(g));
+}
+
+BearingOut surf_bearing(rust::Slice<const double> z, rust::Slice<const double> probs) {
+    const surf::Bearing b = surf::bearing_curve(z.data(), static_cast<surf::i64>(z.size()));
+    BearingOut out;
+    out.bearing = to_rust<double>(b.bearing);
+    out.height = to_rust<double>(b.heights);
+    for (double p : probs) out.heights.push_back(b.height(p));
+    return out;
+}
+
+AacfOut surf_aacf(rust::Slice<const double> z, std::int32_t nx, std::int32_t ny, rust::Slice<const double> extent,
+                  bool lonlat) {
+    surf::Raster r = surf::aacf_image(surf_grid(z, nx, ny, extent), lonlat);
+    AacfOut out;
+    out.values = to_rust<double>(std::move(r.v));
+    out.nx = r.nx;
+    out.ny = r.ny;
+    for (double v : {r.xmin, r.xmax, r.ymin, r.ymax}) out.extent.push_back(v);
+    return out;
+}
+
 rust::Vec<double> io_extract(rust::Slice<const double> values, std::int32_t bands, std::int32_t ny, std::int32_t nx,
                              rust::Slice<const double> gt, rust::Slice<const double> x, rust::Slice<const double> y,
                              bool bilinear, std::int32_t row0, std::int32_t ny_total) {
