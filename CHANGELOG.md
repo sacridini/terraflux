@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.43.0] - 2026-10-13
+
 ### Added
 - The rest of landschaft's neutral landscape models (its port of NLMR): `nlm.random`, `nlm.percolation`,
   `nlm.planar_gradient` and `nlm.edge_gradient` (a direction drawn with the seed when none is given),
