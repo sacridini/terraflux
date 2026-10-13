@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.44.0] - 2026-10-13
+
 ### Added
 - Habitat graphs (landschaft's HabitatGraph, a new `HabitatGraph` type): `conn.graph` from a table of nodes
   and a table of pairs or an n x n matrix (distances, probabilities or links; Makurhini's conventions or
