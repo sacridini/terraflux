@@ -7,6 +7,7 @@ pub mod conditions;
 pub mod names;
 pub mod perl;
 pub mod spatial;
+pub mod tree;
 
 use std::sync::Arc;
 
@@ -25,6 +26,7 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(FromTable));
     r.add(Arc::new(FromPoints));
     r.add(Arc::new(Spatial));
+    r.add(Arc::new(ReadTree));
 }
 
 impl BaseData {
@@ -264,11 +266,18 @@ impl Operator for Spatial {
             Access::None,
         )
         .input(PortSpec::new("basedata", Type::BaseData, "groups x labels sample counts"))
+        .input(PortSpec::optional("tree", Type::Tree, "a phylogeny for the phylogenetic indices (bio.tree)"))
         .output(PortSpec::new("table", Type::Table, "a row per processed group: its coordinates, then each index"))
         .output(PortSpec::new("maps", Type::Stack, "an index per layer (groups that are cells of two axes)"))
+        .output(PortSpec::new("lists", Type::Any, "the list indices: per list and group, its keys and values (JSON)"))
         .param(PortSpec::new("conditions", Type::Any, "one or two spatial conditions"))
         .param(PortSpec::new("calculations", Type::Any, "[\"richness\", \"endemism_whole\", ...]"))
         .param(PortSpec::optional("definition_query", Type::Text, "only the groups passing it are processed"))
+        .param(PortSpec::optional(
+            "seed",
+            Type::Integer,
+            "Biodiverse's prng_seed: the random tips of the expected NTI (trees not ultrametric) and the net VPD              (default 0)",
+        ))
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
@@ -283,8 +292,22 @@ impl Operator for Spatial {
             .map(|q| Condition::new(&q))
             .transpose()
             .map_err(fail)?;
-        let r = spatial::spatial_analysis(&bd, &conditions, &calcs, query.as_ref(), rayon::current_num_threads() > 1)
-            .map_err(fail)?;
+        let tree = match args.get("tree") {
+            Some(Value::Tree(t)) => Some(t.clone()),
+            Some(_) => return Err(fail(Error::msg("tree: connect a tree (bio.tree)"))),
+            None => None,
+        };
+        let seed: i64 = args.param("seed", 0)?;
+        let r = spatial::spatial_analysis(
+            &bd,
+            &conditions,
+            &calcs,
+            query.as_ref(),
+            tree.as_deref(),
+            seed as u64,
+            rayon::current_num_threads() > 1,
+        )
+        .map_err(fail)?;
         let n_axes = bd.n_axes();
         let mut table = Table::new(
             ["group".to_string()]
@@ -302,7 +325,7 @@ impl Operator for Spatial {
                     .collect(),
             );
         }
-        let mut out = vec![("table", Value::Table(table))];
+        let mut out = vec![("table", Value::Table(table)), ("lists", Value::Json(list_json(&bd, &r)))];
         if let Some((grid, cells)) = group_grid(&bd) {
             let n = grid.cells();
             let layers = (0..r.names.len())
@@ -325,4 +348,85 @@ impl Operator for Spatial {
         }
         Ok(out.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
     }
+}
+
+struct ReadTree;
+
+impl Operator for ReadTree {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "bio.tree",
+            "A phylogenetic tree of a Newick or Nexus file read as Biodiverse reads it (landschaft's read_tree):              unnamed nodes 0___, 1___..., duplicated names __dup1..., the Nexus Translate table applied, all-zero              lengths made 1, a forest given a new root.",
+            Access::None,
+        )
+        .output(PortSpec::new("tree", Type::Tree, "the tree"))
+        .param(PortSpec::new("path", Type::Text, "the file (or the Newick text itself)"))
+        .param(PortSpec::optional("format", Type::Text, "nexus or newick (default: from the text)").choices(["nexus", "newick"]))
+        .param(PortSpec::optional("index", Type::Any, "the tree's number (0, default) or name"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let fail = |e: Error| Error::msg(format!("node {:?}: {e}", args.node));
+        let path: String = args.param("path", String::new())?;
+        let text = if !path.contains('(') && std::path::Path::new(&path).exists() {
+            String::from_utf8_lossy(&std::fs::read(&path).map_err(|e| fail(Error::msg(format!("{path}: {e}"))))?)
+                .into_owned()
+        } else {
+            path.clone()
+        };
+        let format = args.opt_param::<String>("format")?.filter(|f| !f.is_empty());
+        let trees = tree::read_trees(&text, format.as_deref()).map_err(fail)?;
+        let t = match args.params.get("index") {
+            Some(serde_json::Value::String(name)) => trees.into_iter().find(|t| t.name == *name),
+            Some(v) => trees.into_iter().nth(v.as_u64().unwrap_or(0) as usize),
+            None => trees.into_iter().next(),
+        }
+        .ok_or_else(|| fail(Error::msg("no such tree")))?;
+        Ok(outputs([("tree", Value::Tree(Arc::new(t)))]))
+    }
+}
+
+/// The list indices as Biodiverse shows them: per list and processing group, its keys (labels, groups, texts,
+/// numbers, tree nodes) and values, or the keys in order (arrays).
+fn list_json(bd: &BaseData, r: &spatial::SpatialResult) -> serde_json::Value {
+    let key = |kind: i32, k: f64| -> serde_json::Value {
+        let s = |v: &Vec<String>| v.get(k as usize).cloned().unwrap_or_default();
+        match kind {
+            0 => s(&bd.labels).into(),
+            1 | 4 => s(&bd.groups).into(),
+            2 => s(&r.texts).into(),
+            5 => s(&r.nodes).into(),
+            6 => serde_json::json!(k),
+            _ => perl_number(k).into(),
+        }
+    };
+    let lists = r
+        .lists
+        .iter()
+        .map(|l| {
+            let groups = r
+                .groups
+                .iter()
+                .zip(&l.rows)
+                .map(|(&g, row)| {
+                    let v = if l.kind == 4 || l.kind == 6 {
+                        serde_json::Value::Array(row.iter().map(|e| key(l.kind, e.0)).collect())
+                    } else {
+                        let mut m = serde_json::Map::new();
+                        for e in row {
+                            let k = match key(l.kind, e.0) {
+                                serde_json::Value::String(s) => s,
+                                v => v.to_string(),
+                            };
+                            m.insert(k, serde_json::json!(e.1));
+                        }
+                        serde_json::Value::Object(m)
+                    };
+                    (bd.groups[g as usize].clone(), v)
+                })
+                .collect::<serde_json::Map<_, _>>();
+            (l.name.clone(), serde_json::Value::Object(groups))
+        })
+        .collect::<serde_json::Map<_, _>>();
+    serde_json::Value::Object(lists)
 }

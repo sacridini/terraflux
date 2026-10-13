@@ -23,6 +23,7 @@
 #include "circuit/omniscape.hpp"
 #include "bio/conditions.hpp"
 #include "bio/indices.hpp"
+#include "bio/phylocom.hpp"
 #include "cost/randomwalk.hpp"
 #include "cost/rsp.hpp"
 #include "lsm/extended.hpp"
@@ -2803,8 +2804,49 @@ rust::Vec<BioCalcInfo> bio_calculations() {
     return out;
 }
 
+namespace {
+bio::TreeView bio_tree(const BioTree& in) {
+    bio::TreeView t;
+    t.n = in.n;
+    t.parent = std_vec<std::int32_t>(in.parent);
+    t.length = std_vec<double>(in.length);
+    t.child_ptr = std_vec<std::int64_t>(in.child_ptr);
+    t.child_idx = std_vec<std::int32_t>(in.child_idx);
+    t.depth = std_vec<std::int32_t>(in.depth);
+    t.terminal = std_vec<std::uint8_t>(in.terminal);
+    t.in_trimmed = std_vec<std::uint8_t>(in.in_trimmed);
+    t.trimmed_child_count = std_vec<std::int32_t>(in.trimmed_child_count);
+    t.total_length = in.total_length;
+    t.trimmed_total_length = in.trimmed_total_length;
+    t.root = in.root;
+    t.label_node = std_vec<std::int32_t>(in.label_node);
+    t.node_label = std_vec<std::int32_t>(in.node_label);
+    t.n_terminals = in.n_terminals;
+    t.n_trimmed_terminals = in.n_trimmed_terminals;
+    t.zero_length_count = in.zero_length_count;
+    t.eq_full_total = in.eq_full_total;
+    t.eq_trimmed_total = in.eq_trimmed_total;
+    t.eq_trimmed_length = in.eq_trimmed_length;
+    t.default_eq_len = in.default_eq_len;
+    t.pc_steps = std_vec<std::int32_t>(in.pc_steps);
+    t.pc_vpd = in.pc_vpd;
+    t.pc_seed = in.pc_seed;
+    return t;
+}
+}  // namespace
+
+rust::Vec<std::uint8_t> bio_ultrametric(const BioTree& tree) {
+    const bio::TreeView tv = bio_tree(tree);
+    bio::PhyloCom pc(tv, false, 0);
+    rust::Vec<std::uint8_t> out;
+    out.push_back(pc.ultrametric ? 1 : 0);
+    out.push_back(pc.multifurcating ? 1 : 0);
+    return out;
+}
+
 BioIndexOut bio_run_indices(const BioView& view, rust::Slice<const std::int32_t> procs, const BioCsr& set1, bool two,
-                            const BioCsr& set2, const rust::Vec<rust::String>& calcs, bool parallel) {
+                            const BioCsr& set2, const rust::Vec<rust::String>& calcs, bool parallel, bool with_tree,
+                            const BioTree& tree) {
     bio::BaseDataView b;
     b.n_groups = view.n_groups;
     b.n_labels = view.n_labels;
@@ -2825,8 +2867,10 @@ BioIndexOut bio_run_indices(const BioView& view, rust::Slice<const std::int32_t>
     for (const auto& c : calcs) names.emplace_back(std::string(c));
     const bio::Csr s1 = bio_csr(set1);
     const bio::Csr s2 = bio_csr(set2);
+    bio::TreeView tv;
+    if (with_tree) tv = bio_tree(tree);
     bio::IndexResult r = bio::run_indices(b, std::vector<std::int32_t>(procs.begin(), procs.end()), s1,
-                                          two ? &s2 : nullptr, names, parallel, nullptr);
+                                          two ? &s2 : nullptr, names, parallel, with_tree ? &tv : nullptr);
     BioIndexOut out;
     for (const auto& s : r.scalar_names) out.scalar_names.push_back(rust::String(s));
     out.scalars = to_rust<double>(r.scalars);

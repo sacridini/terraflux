@@ -626,8 +626,11 @@ Pendências:
   `bio.points` e `bio.spatial` (o Perl das condições espaciais, sua compilação, os tipos de resultado e a
   reciclagem das vizinhanças portados do Python do landschaft para Rust; o motor de índices em C++), bit a bit
   com o landschaft, índices escalares e em lista.
-- **Próximos (2026-10-13):** o resto do `bio` (árvores e índices filogenéticos, randomizações, agrupamentos e
-  region grower, propriedades e matrizes, listas de índices como tabelas), incerteza, lotes; o resto
+- **Biodiversidade — árvores (0.35.0, 2026-10-13):** o tipo árvore, `bio.tree` (o leitor de Newick e Nexus de
+  Biodiverse portado), os índices filogenéticos no `bio.spatial` (a poda da árvore e os totais portados) e as
+  listas de índices em JSON, bit a bit com o landschaft.
+- **Próximos (2026-10-13):** o resto do `bio` (randomizações, agrupamentos e region grower, propriedades e
+  matrizes), incerteza, lotes; o resto
   dos circuitos (redes, pares incluídos, os arquivos .ini); os instaladores de macOS e Linux;
   `vector.exact_sum` e `vector.distance` fora da memória.
 

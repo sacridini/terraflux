@@ -178,6 +178,23 @@ pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     parts(a).cmp(&parts(b))
 }
 
+/// Python's repr of a float.
+pub fn py_float(v: f64) -> String {
+    if v.is_nan() {
+        return "nan".into();
+    }
+    if v.is_infinite() {
+        return if v > 0.0 { "inf".into() } else { "-inf".into() };
+    }
+    let s = format!("{v:?}");
+    // Rust writes 1e20 as 1e20, Python as 1e+20
+    if let Some((m, e)) = s.split_once('e') {
+        let (sign, digits) = if let Some(d) = e.strip_prefix('-') { ('-', d) } else { ('+', e) };
+        return format!("{m}e{sign}{digits:0>2}");
+    }
+    s
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

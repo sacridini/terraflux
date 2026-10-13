@@ -481,6 +481,35 @@ pub mod ffi {
         exec_order: Vec<i32>,
     }
 
+    /// A tree as the index engine takes it (landschaft's bio::TreeView): nodes in name order, Biodiverse's
+    /// trimming to the labels, the totals and PhyloCom's steps.
+    struct BioTree {
+        n: i32,
+        parent: Vec<i32>,
+        length: Vec<f64>,
+        child_ptr: Vec<i64>,
+        child_idx: Vec<i32>,
+        depth: Vec<i32>,
+        terminal: Vec<u8>,
+        in_trimmed: Vec<u8>,
+        trimmed_child_count: Vec<i32>,
+        total_length: f64,
+        trimmed_total_length: f64,
+        root: i32,
+        label_node: Vec<i32>,
+        node_label: Vec<i32>,
+        n_terminals: i32,
+        n_trimmed_terminals: i32,
+        zero_length_count: i32,
+        eq_full_total: f64,
+        eq_trimmed_total: f64,
+        eq_trimmed_length: f64,
+        default_eq_len: f64,
+        pc_steps: Vec<i32>,
+        pc_vpd: bool,
+        pc_seed: u64,
+    }
+
     /// The indices of the processing groups: scalars (n x names) and lists (per list its rows' entries, offsets
     /// into the concatenation), the text keys.
     struct BioIndexOut {
@@ -1827,7 +1856,8 @@ pub mod ffi {
         fn bio_side_rotation(coords: &[f64], ndim: i32, axis0: i32, axis1: i32, angle: f64) -> Result<Vec<f64>>;
         /// The calculations of the index engine.
         fn bio_calculations() -> Vec<BioCalcInfo>;
-        /// Biodiverse's indices of the processing groups over their neighbour sets (set 2 when `two`).
+        /// Biodiverse's indices of the processing groups over their neighbour sets (set 2 when `two`; the tree
+        /// when `with_tree`).
         #[allow(clippy::too_many_arguments)]
         fn bio_run_indices(
             view: &BioView,
@@ -1837,7 +1867,11 @@ pub mod ffi {
             set2: &BioCsr,
             calcs: &Vec<String>,
             parallel: bool,
+            with_tree: bool,
+            tree: &BioTree,
         ) -> Result<BioIndexOut>;
+        /// Biodiverse's is_ultrametric of a tree, and whether a node has more than two children.
+        fn bio_ultrametric(tree: &BioTree) -> Result<Vec<u8>>;
         /// The cells of the least-cost paths from origin to each goal (igraph's ties).
         fn cost_paths(
             values: &[f64],

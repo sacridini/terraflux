@@ -45,6 +45,8 @@ pub enum Type {
     Vector,
     /// Biodiverse's groups x labels sample counts, with the groups' coordinates.
     BaseData,
+    /// A rooted phylogenetic tree.
+    Tree,
 }
 
 impl Type {

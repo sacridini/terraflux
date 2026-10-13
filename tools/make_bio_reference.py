@@ -111,5 +111,54 @@ def main() -> None:
     print(REF / "bio.json", len(arrays))
 
 
+TREES = ["Example_tree.nex", "Example_tree_with_colours.nex", "tree_nu.nex", "tree_polytomy.nex", "tree_species.nex",
+         "tree_trim.nex", "tree_with_nonmatching_names.nex"]
+NEWICKS = ["((a:1,b:2):1,c:3);", "((a,a),'b c');", "(x:1,(y:2,z:0.5e1)w:1.5)r:0;(p,q);", "((a:0,b:0):0,c:0);"]
+TREE_CASES = [
+    ("Example_tree.nex", ["sp_circle (radius => 200000)"]),
+    ("tree_trim.nex", ["sp_circle (radius => 300000)"]),
+    ("tree_polytomy.nex", ["sp_self_only()", "sp_circle (radius => 300000)"]),
+    ("tree_with_nonmatching_names.nex", ["sp_block (size => 400000)"]),
+    ("tree_nu.nex", ["sp_circle (radius => 150000)", "sp_select_all()"]),
+]
+
+
+def trees() -> None:
+    """Trees read as Biodiverse reads them, and the phylogenetic indices (bio_trees.json, bio_phylo.npz)."""
+    data = ROOT / "extern" / "landschaft" / "tests" / "data" / "bio"
+    out: dict = {"files": {}, "newicks": [], "phylo": []}
+
+    def dump(t):
+        return {"name": t.name, "names": t.names, "parent": t.parent.tolist(), "length": t.length.tolist(),
+                "children": t.children}
+
+    for f in TREES:
+        out["files"][f] = [dump(t) for t in B.read_trees(data / f)]
+    for nwk in NEWICKS:
+        out["newicks"].append([nwk, [dump(t) for t in B.read_trees(nwk)]])
+    bd = B.BaseData.from_table(B.example_data(), **BASEDATA["cells"])
+    reg = B._spatial._registry()
+    calcs = sorted(k.removeprefix("calc_") for k, v in reg.items() if v["uses_tree"])
+    out["calculations"] = calcs
+    arrays: dict[str, np.ndarray] = {}
+    for k, (f, conds) in enumerate(TREE_CASES):
+        tree = B.read_tree(data / f)
+        res = B.spatial_analysis(bd, conds, calcs, tree=tree, prng_seed=12345, n_threads=4)
+        case = {"tree": f, "conditions": conds, "groups": list(res.table.index), "columns": list(res.table.columns),
+                "lists": [], "texts": list(res.lists._texts), "nodes": list(res.lists._node_names)}
+        arrays[f"ph/{k}/table"] = res.table.to_numpy(dtype=np.float64)
+        for name in res.lists:
+            kind, ip, keys, values = res.lists.raw(name)
+            case["lists"].append([name, int(kind)])
+            arrays[f"ph/{k}/list/{name}/indptr"] = np.asarray(ip, dtype=np.float64)
+            arrays[f"ph/{k}/list/{name}/keys"] = np.asarray(keys, dtype=np.float64)
+            arrays[f"ph/{k}/list/{name}/values"] = np.asarray(values, dtype=np.float64)
+        out["phylo"].append(case)
+    (REF / "bio_trees.json").write_text(json.dumps(out) + "\n", encoding="utf-8")
+    np.savez_compressed(REF / "bio_phylo.npz", **arrays)
+    print(REF / "bio_trees.json", len(arrays))
+
+
 if __name__ == "__main__":
     main()
+    trees()

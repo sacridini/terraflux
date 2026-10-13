@@ -66,6 +66,7 @@ struct BioCsr;
 struct BioCalcInfo;
 struct BioView;
 struct BioIndexOut;
+struct BioTree;
 struct EdgesOut;
 struct CommuteOut;
 struct PlaneOut;
@@ -527,7 +528,9 @@ rust::Vec<double> bio_side_rotation(rust::Slice<const double> coords, std::int32
                                     std::int32_t axis1, double angle);
 rust::Vec<BioCalcInfo> bio_calculations();
 BioIndexOut bio_run_indices(const BioView& view, rust::Slice<const std::int32_t> procs, const BioCsr& set1, bool two,
-                            const BioCsr& set2, const rust::Vec<rust::String>& calcs, bool parallel);
+                            const BioCsr& set2, const rust::Vec<rust::String>& calcs, bool parallel, bool with_tree,
+                            const BioTree& tree);
+rust::Vec<std::uint8_t> bio_ultrametric(const BioTree& tree);
 
 PathsOut cost_paths(rust::Slice<const double> values, rust::Slice<const double> grid, std::int32_t directions,
                     bool symmetric, std::int64_t origin, rust::Slice<const std::int64_t> goals);

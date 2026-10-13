@@ -6,6 +6,15 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Phylogenetic trees and indices (landschaft's bio module): a new type of value, the tree, and `bio.tree` (a
+  Newick or Nexus file read as Biodiverse reads it: unnamed nodes `0___`..., `__dup` names, the Translate table,
+  all-zero lengths made 1, a forest given a root; the reader ported from landschaft's Python); `bio.spatial`
+  takes a tree for the phylogenetic indices (PD, PE, phylo ABC, Sorenson and Jaccard, RPD and RPE, AED, NRI and
+  NTI, VPD, the clade contributions and losses...: Biodiverse's trimming to the labels and the totals ported
+  too, PhyloCom's random tips from a seed) and gives the list indices as JSON. The same as landschaft's, to the
+  bit, on its test trees (trimmed, polytomies, names that do not match).
+
 ## [0.34.0] - 2026-10-13
 
 ### Added

@@ -389,6 +389,8 @@ pub enum Value {
     Vector(Arc<terraflux_raster::vector::Vector>),
     /// Biodiverse's groups x labels sample counts.
     BaseData(Arc<crate::bio::BaseData>),
+    /// A rooted phylogenetic tree.
+    Tree(Arc<crate::bio::tree::Tree>),
 }
 
 impl Value {
@@ -414,6 +416,7 @@ impl Value {
             Value::Raster(_) => Type::Raster,
             Value::Vector(_) => Type::Vector,
             Value::BaseData(_) => Type::BaseData,
+            Value::Tree(_) => Type::Tree,
         }
     }
 

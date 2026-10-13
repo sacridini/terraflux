@@ -9,6 +9,7 @@ use terraflux_ls_sys::ffi;
 use super::basedata::BaseData;
 use super::conditions::{Condition, Csr, Neighbourhoods, neighbours};
 use super::names::{dequote_element, join_element, looks_like_number, numify, split_element};
+use super::tree::{Tree, tree_view};
 use crate::{Error, Result};
 
 /// Biodiverse's pre_calc dependencies of every calculation (dumped from Biodiverse by landschaft).
@@ -179,6 +180,37 @@ pub struct SpatialResult {
     pub texts: Vec<String>,
     /// The calculations run (without `calc_`).
     pub calculations: Vec<String>,
+    /// The tree's node names in name order (the keys of node lists).
+    pub nodes: Vec<String>,
+}
+
+fn no_tree() -> ffi::BioTree {
+    ffi::BioTree {
+        n: 0,
+        parent: Vec::new(),
+        length: Vec::new(),
+        child_ptr: vec![0],
+        child_idx: Vec::new(),
+        depth: Vec::new(),
+        terminal: Vec::new(),
+        in_trimmed: Vec::new(),
+        trimmed_child_count: Vec::new(),
+        total_length: 0.0,
+        trimmed_total_length: 0.0,
+        root: -1,
+        label_node: Vec::new(),
+        node_label: Vec::new(),
+        n_terminals: 0,
+        n_trimmed_terminals: 0,
+        zero_length_count: 0,
+        eq_full_total: 0.0,
+        eq_trimmed_total: 0.0,
+        eq_trimmed_length: 0.0,
+        default_eq_len: 0.0,
+        pc_steps: Vec::new(),
+        pc_vpd: false,
+        pc_seed: 0,
+    }
 }
 
 fn take_rows(c: &Csr, rows: &[usize]) -> Csr {
@@ -192,12 +224,15 @@ fn take_rows(c: &Csr, rows: &[usize]) -> Csr {
 }
 
 /// Biodiverse's spatial analysis: indices over the neighbourhood of every group (landschaft's
-/// spatial_analysis, without trees, matrices and properties).
+/// spatial_analysis, without matrices and properties). `seed`: Biodiverse's prng_seed, of the random tips of the
+/// expected NTI on trees that are not ultrametric and of the net VPD.
 pub fn spatial_analysis(
     bd: &BaseData,
     conditions: &[Condition],
     calculations: &[String],
     query: Option<&Condition>,
+    tree: Option<&Tree>,
+    seed: u64,
     parallel: bool,
 ) -> Result<SpatialResult> {
     let mut calcs: Vec<String> = Vec::new();
@@ -214,7 +249,7 @@ pub fn spatial_analysis(
     let mut valid: Vec<String> =
         calcs.into_iter().filter(|c| calculation(c).unwrap().uses_nbr_lists as usize <= n_sets).collect();
     let needs: Vec<&String> = valid.iter().filter(|c| calculation(c).unwrap().uses_tree).collect();
-    if !needs.is_empty() {
+    if !needs.is_empty() && tree.is_none() {
         return Err(Error::msg(format!(
             "these calculations need a tree: {}",
             needs.iter().map(|n| n.trim_start_matches("calc_")).collect::<Vec<_>>().join(", ")
@@ -243,9 +278,26 @@ pub fn spatial_analysis(
         neighbours(bd, conditions, query, parallel, true, if uses_proc { Some(false) } else { None })?;
     let (mut set1, mut set2) = (nbrs.sets[0].clone(), nbrs.sets.get(1).cloned());
     let mut procs = nbrs.groups.clone();
-    // groups with the same neighbour sets get the same results: compute each once
+    // PhyloCom: expected values drawn from one random stream, and (ultrametric trees) path lengths cached as
+    // groups are processed
+    let order = precalc_order(&valid);
+    let pc_steps: Vec<i32> = order
+        .iter()
+        .filter(|c| *c == "_calc_nri_nti_expected_values" || c.starts_with("calc_phylo_mpd_mntd"))
+        .map(|c| if c == "_calc_nri_nti_expected_values" { 0 } else { c[c.len() - 1..].parse().unwrap_or(0) })
+        .collect();
+    let pc_vpd = valid.iter().any(|c| c == "calc_net_vpd" || c == "calc_vpd_expected_values");
+    let mut order_sensitive = false;
+    if let Some(t) = tree
+        && !pc_steps.is_empty()
+    {
+        let u = ffi::bio_ultrametric(&tree_view(t, bd).0)?;
+        order_sensitive = pc_vpd || (u[0] != 0 && u[1] != 0);
+    }
+    // groups with the same neighbour sets get the same results: compute each once (not where results depend
+    // on the groups processed before, unless Biodiverse copies them too)
     let mut expand: Option<Vec<usize>> = None;
-    if !uses_proc && procs.len() > 1 {
+    if !uses_proc && procs.len() > 1 && (!order_sensitive || nbrs.results_recyclable) {
         let mut seen: HashMap<(Vec<i32>, Vec<i32>), usize> = HashMap::new();
         let mut rep = Vec::new();
         let inverse: Vec<usize> = (0..procs.len())
@@ -271,8 +323,30 @@ pub fn spatial_analysis(
     let csr = |c: &Csr| ffi::BioCsr { indptr: c.0.clone(), indices: c.1.clone() };
     let empty = ffi::BioCsr { indptr: vec![0; procs.len() + 1], indices: Vec::new() };
     let s2 = set2.as_ref().map(csr);
-    let out =
-        ffi::bio_run_indices(&v, &procs, &csr(&set1), s2.is_some(), s2.as_ref().unwrap_or(&empty), &valid, parallel)?;
+    let (tview, nodes) = match tree {
+        Some(t) if valid.iter().any(|c| calculation(c).unwrap().uses_tree) => {
+            let (mut tv, names) = tree_view(t, bd);
+            if !pc_steps.is_empty() {
+                tv.pc_steps = pc_steps;
+                tv.pc_vpd = pc_vpd;
+                tv.pc_seed = seed;
+            }
+            (Some(tv), names)
+        }
+        _ => (None, Vec::new()),
+    };
+    let none = no_tree();
+    let out = ffi::bio_run_indices(
+        &v,
+        &procs,
+        &csr(&set1),
+        s2.is_some(),
+        s2.as_ref().unwrap_or(&empty),
+        &valid,
+        parallel,
+        tview.is_some(),
+        tview.as_ref().unwrap_or(&none),
+    )?;
     let k = out.scalar_names.len();
     let mut rows: Vec<Vec<f64>> = out.scalars.chunks(k.max(1)).take(procs.len()).map(<[f64]>::to_vec).collect();
     if k == 0 {
@@ -317,5 +391,6 @@ pub fn spatial_analysis(
         lists: lists.into_iter().filter(|l| !clear.contains(&l.name)).collect(),
         texts: out.texts.clone(),
         calculations: valid.iter().map(|c| c.trim_start_matches("calc_").to_string()).collect(),
+        nodes,
     })
 }
