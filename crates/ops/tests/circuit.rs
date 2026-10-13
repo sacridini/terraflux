@@ -120,3 +120,60 @@ fn one_amp_across_a_small_grid() {
     assert_eq!(r(c.data[5]), 1.0);
     assert_eq!(r(c.data[9]), 1.0);
 }
+
+/// Circuitscape's pairwise and one-to-all (all-to-one) modes against landschaft's, on rasters made by
+/// tools/make_circuit_reference.py (focal regions, short-circuit polygons, a mask, strengths): the resistances and
+/// the cumulative and largest currents, to the bit (batches of 4 problems, as landschaft on one thread).
+#[test]
+fn circuitscape_modes_are_landschafts() {
+    let z = terraflux_raster::npy::read_npz(root().join("tests/data/reference/circuitscape_landschaft.npz")).unwrap();
+    let table = |v: &Value| -> Vec<f64> {
+        let Value::Table(t) = v else { panic!() };
+        t.rows.iter().flatten().copied().collect()
+    };
+    let bits = |a: &[f64], b: &[f64], what: &str| {
+        assert_eq!(a.len(), b.len(), "{what}");
+        for (i, (x, y)) in a.iter().zip(b).enumerate() {
+            assert!(x.to_bits() == y.to_bits() || (x.is_nan() && y.is_nan()), "{what}: {i}: {x} {y}");
+        }
+    };
+    for name in ["plain", "regions", "polygons"] {
+        let a = |k: &str| map(&z[&format!("{name}/{k}")]);
+        let mut inputs = vec![("habitat", a("habitat")), ("points", a("points"))];
+        for k in ["polygons", "mask"] {
+            if z.contains_key(&format!("{name}/{k}")) {
+                inputs.push((k, a(k)));
+            }
+        }
+        let out = run("circuit.pairwise", inputs.clone(), serde_json::json!({"cum_map": true, "max_map": true}));
+        // the reference: ids in the first row and column; ours a row per id, its id first
+        let want = &z[&format!("{name}/pairwise/resistances")];
+        let n = want.shape[0];
+        let ours: Vec<f64> = (1..n).flat_map(|i| want.data[i * n..(i + 1) * n].to_vec()).collect();
+        bits(&table(&out["resistances"]), &ours, &format!("{name} pairwise resistances"));
+        same(&out["cum"], &z[&format!("{name}/pairwise/cum")], &format!("{name} pairwise cum"));
+        same(&out["max"], &z[&format!("{name}/pairwise/max")], &format!("{name} pairwise max"));
+        let strengths: Vec<[f64; 2]> = z[&format!("{name}/strengths")].data.chunks(2).map(|c| [c[0], c[1]]).collect();
+        for (mode, all_to_one) in [("one_to_all", false), ("all_to_one", true)] {
+            for with in [false, true] {
+                let key = format!("{name}/{mode}") + if with { "_strengths" } else { "" };
+                if !z.contains_key(&format!("{key}/resistances")) {
+                    continue;
+                }
+                let mut p = serde_json::json!({"all_to_one": all_to_one, "cum_map": true, "max_map": true,
+                                               "focal_zero": true, "batch": 4});
+                if with {
+                    p["strengths"] = serde_json::json!(strengths);
+                }
+                let out = run("circuit.one_to_all", inputs.clone(), p);
+                bits(
+                    &table(&out["resistances"]),
+                    &z[&format!("{key}/resistances")].data,
+                    &format!("{key} resistances"),
+                );
+                same(&out["cum"], &z[&format!("{key}/cum")], &format!("{key} cum"));
+                same(&out["max"], &z[&format!("{key}/max")], &format!("{key} max"));
+            }
+        }
+    }
+}

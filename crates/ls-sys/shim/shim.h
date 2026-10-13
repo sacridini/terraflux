@@ -58,6 +58,8 @@ struct PrioFlexOut;
 struct RunsOut;
 struct OmniscapeOut;
 struct CircuitOut;
+struct PairwiseOut;
+struct MultiOut;
 struct MarxanData;
 struct MarxanOptions;
 struct MarxanOut;
@@ -424,6 +426,16 @@ OmniscapeOut circuit_omniscape(rust::Slice<const double> resistance, rust::Slice
                                double memory_limit);
 CircuitOut circuit_advanced(rust::Slice<const double> conductance, rust::Slice<const double> source,
                             rust::Slice<const double> ground, std::int64_t nx, std::int64_t ny, bool four_neighbors);
+PairwiseOut circuit_pairwise(rust::Slice<const double> gmap, rust::Slice<const std::int64_t> polymap, std::int64_t nx,
+                             std::int64_t ny, rust::Slice<const std::int64_t> point_cells,
+                             rust::Slice<const std::int64_t> region_ids, rust::Slice<const std::uint8_t> excluded,
+                             bool avg_resistances, bool four_neighbors, rust::Slice<const std::uint8_t> flags);
+MultiOut circuit_multi_advanced(rust::Slice<const double> gmap, rust::Slice<const std::int64_t> polymap, std::int64_t nx,
+                                std::int64_t ny, bool avg_resistances, bool four_neighbors,
+                                rust::Slice<const std::int64_t> src_cells, rust::Slice<const double> src_vals,
+                                rust::Slice<const std::int64_t> src_offsets, rust::Slice<const std::int64_t> gnd_cells,
+                                rust::Slice<const double> gnd_vals, rust::Slice<const std::int64_t> gnd_offsets,
+                                rust::Slice<const std::int64_t> checks, std::int32_t policy);
 
 // the values of maps at points (landschaft's extract, lsio::extract): bands x ny x nx, NaN no data
 rust::Vec<double> io_extract(rust::Slice<const double> values, std::int32_t bands, std::int32_t ny, std::int32_t nx,

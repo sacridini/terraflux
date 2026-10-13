@@ -605,8 +605,9 @@ Pendências:
   variável, intervalos juntados ou divididos e pesos à mão (`ranges` por transição e `weights` no `woe.fit`).
 - **Circuitos — começo (0.27.0, 2026-10-13):** `circuit.omniscape` e `circuit.advanced`, bit a bit com o C++ do
   landschaft (a construção sem AVX2), nos casos das referências dele.
-- **Próximos (2026-10-13):** o resto dos circuitos (os modos pairwise e one-to-all do Circuitscape, redes, os
-  arquivos .ini); depois métricas de superfície, distâncias na grade, biodiversidade, incerteza e lotes; os instaladores de macOS e Linux;
+- **Circuitscape com pontos focais (0.28.0, 2026-10-13):** `circuit.pairwise` e `circuit.one_to_all` (e
+  all-to-one), bit a bit com o landschaft.
+- **Próximos (2026-10-13):** o resto dos circuitos (redes, pares incluídos, os arquivos .ini); depois métricas de superfície, distâncias na grade, biodiversidade, incerteza e lotes; os instaladores de macOS e Linux;
   `vector.exact_sum` e `vector.distance` fora da memória.
 
 - **A ponte do ls.simulate completa (branch `simulate-bridge`, 2026-10-13):** todo modelo do `ls.simulate` vai pelo

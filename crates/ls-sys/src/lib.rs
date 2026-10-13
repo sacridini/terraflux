@@ -331,6 +331,26 @@ pub mod ffi {
         threads: i32,
     }
 
+    /// Circuitscape's pairwise mode on a raster: the resistances (n x n) and the cumulative and largest currents
+    /// (empty unless asked for).
+    struct PairwiseOut {
+        resistances: Vec<f64>,
+        cum: Vec<f64>,
+        max: Vec<f64>,
+    }
+
+    /// Advanced-mode solves of many problems on one raster graph: the cells' nodes, and per problem (offsets
+    /// into the concatenated lists) its voltages and currents by node, whether it was solved, its active nodes.
+    struct MultiOut {
+        nodemap: Vec<i32>,
+        voltage: Vec<f64>,
+        current: Vec<f64>,
+        node_offsets: Vec<i64>,
+        solved: Vec<u8>,
+        active: Vec<i32>,
+        active_offsets: Vec<i64>,
+    }
+
     /// Circuitscape's advanced mode on a raster: node currents and voltages of every cell.
     struct CircuitOut {
         current: Vec<f64>,
@@ -1405,6 +1425,43 @@ pub mod ffi {
             ny: i64,
             four_neighbors: bool,
         ) -> Result<CircuitOut>;
+        /// Circuitscape's pairwise mode on a raster (landschaft's circuitscape_pairwise): the conductances, the
+        /// short-circuit regions (empty: none), the focal points' cells, their ids when they make regions (empty:
+        /// none), the pairs excluded (n x n), and [cum, max, focal_zero, null_currents, null_voltages,
+        /// log_transform].
+        #[allow(clippy::too_many_arguments)]
+        fn circuit_pairwise(
+            gmap: &[f64],
+            polymap: &[i64],
+            nx: i64,
+            ny: i64,
+            point_cells: &[i64],
+            region_ids: &[i64],
+            excluded: &[u8],
+            avg_resistances: bool,
+            four_neighbors: bool,
+            flags: &[u8],
+        ) -> Result<PairwiseOut>;
+        /// Advanced-mode solves of many problems on one raster graph (landschaft's circuitscape_multi_advanced):
+        /// per problem its source and ground cells and values (offsets into the lists) and the cell whose
+        /// component alone is solved (-1: every component); policy 0 keepall, 1 rmvsrc, 2 rmvgnd, 3 rmvall.
+        #[allow(clippy::too_many_arguments)]
+        fn circuit_multi_advanced(
+            gmap: &[f64],
+            polymap: &[i64],
+            nx: i64,
+            ny: i64,
+            avg_resistances: bool,
+            four_neighbors: bool,
+            src_cells: &[i64],
+            src_vals: &[f64],
+            src_offsets: &[i64],
+            gnd_cells: &[i64],
+            gnd_vals: &[f64],
+            gnd_offsets: &[i64],
+            checks: &[i64],
+            policy: i32,
+        ) -> Result<MultiOut>;
         #[allow(clippy::too_many_arguments)]
         fn io_extract(
             values: &[f64],

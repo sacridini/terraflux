@@ -6,6 +6,16 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-10-13
+
+### Added
+- Circuitscape's raster modes with focal points: `circuit.pairwise` (the effective resistance between every pair
+  of focal points, focal regions of an id's cells, the cumulative and largest current maps) and
+  `circuit.one_to_all` (one-to-all and all-to-one: the voltage over the strength at each point, strengths by
+  position as Circuitscape, the cumulative and largest currents, the focal nodes' currents at 0), with
+  short-circuit polygons, a mask, averaged resistances and a reclassification; the same as landschaft's, to the
+  bit (`tools/make_circuit_reference.py`).
+
 ## [0.27.0] - 2026-10-13
 
 ### Added

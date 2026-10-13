@@ -74,3 +74,63 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+def circuitscape_cases() -> None:
+    """Circuitscape's pairwise and one-to-all (all-to-one) modes on rasters made here (lognormal resistances,
+    focal points with a region of two cells, short-circuit polygons, a mask), with landschaft one thread (batches
+    of 4 problems), written to tests/data/reference/circuitscape_landschaft.npz."""
+    rng = np.random.default_rng(11)
+    out: dict[str, np.ndarray] = {}
+    cases = {}
+    for name, shape, regions, polygons, mask in [("plain", (30, 40), False, False, False),
+                                                  ("regions", (25, 35), True, False, False),
+                                                  ("polygons", (30, 30), False, True, True)]:
+        r = np.exp(rng.normal(0.5, 0.8, shape))
+        r[rng.random(shape) < 0.04] = np.nan
+        pts = np.zeros(shape)
+        ny, nx = shape
+        for k, (y, x) in enumerate([(2, 3), (ny - 3, 4), (ny // 2, nx - 3), (3, nx - 4), (ny - 2, nx // 2), (ny // 2, nx // 2)]):
+            pts[y, x] = k + 1
+            r[y, x] = 1.0
+        if regions:
+            pts[3, 3] = 1
+            r[3, 3] = 1.0
+        poly = None
+        if polygons:
+            poly = np.zeros(shape)
+            poly[10:13, 10:14] = 1
+            poly[20:22, 5:7] = 2
+        m = None
+        if mask:
+            m = np.ones(shape)
+            m[:, 0] = 0
+        out[f"{name}/habitat"] = r
+        out[f"{name}/points"] = pts
+        if poly is not None:
+            out[f"{name}/polygons"] = poly
+        if m is not None:
+            out[f"{name}/mask"] = m
+        kw = {"polygons": poly, "mask": m, "n_threads": 1}
+        p = ls.circuit.circuitscape_pairwise(r, pts, cum_map=True, max_map=True, **kw)
+        out[f"{name}/pairwise/resistances"] = p.resistances
+        out[f"{name}/pairwise/cum"] = p.cum_current
+        out[f"{name}/pairwise/max"] = p.max_current
+        strengths = np.array([[k + 1, 1.0 + 0.5 * k] for k in range(6)])
+        for mode, all_to_one in (("one_to_all", False), ("all_to_one", True)):
+            # (strengths go by position: not with focal regions, where landschaft, as Circuitscape, fails)
+            for st in (None,) if regions else (None, strengths):
+                key = f"{name}/{mode}" + ("_strengths" if st is not None else "")
+                o = ls.circuit.circuitscape_one_to_all(r, pts, all_to_one=all_to_one, strengths=st, cum_map=True,
+                                                       max_map=True, set_focal_node_currents_to_zero=True, **kw)
+                out[f"{key}/resistances"] = o.resistances
+                out[f"{key}/cum"] = o.cum_current
+                out[f"{key}/max"] = o.max_current
+        out[f"{name}/strengths"] = strengths
+        cases[name] = {"polygons": poly is not None, "mask": m is not None}
+    np.savez(REF / "circuitscape_landschaft.npz", **out)
+    print(REF / "circuitscape_landschaft.npz", len(out))
+
+
+if __name__ == "__main__":
+    circuitscape_cases()

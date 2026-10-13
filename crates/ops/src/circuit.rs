@@ -14,6 +14,8 @@ use crate::{Args, Ctx, Error, Map, Operator, Outputs, Registry, Result, Value};
 pub fn register(r: &mut Registry) {
     r.add(Arc::new(Omniscape));
     r.add(Arc::new(Advanced));
+    r.add(Arc::new(Pairwise));
+    r.add(Arc::new(OneToAll));
 }
 
 /// Omniscape's Int64(round(parse(Float64, value))): halves to even.
@@ -470,5 +472,468 @@ impl Operator for Advanced {
         .map_err(|e| Error::msg(format!("node {:?}: {e}", args.node)))?;
         let map = |v: Vec<f64>| Value::Map(Map::new(g.grid.clone(), v));
         Ok(crate::outputs([("current", map(out.current)), ("voltage", map(out.voltage))]))
+    }
+}
+
+/// Circuitscape's no-data value (its ASCII grids'): the cells without a value of its rasters.
+const NODATA: f64 = -9999.0;
+
+/// A raster as Circuitscape reads it: no value as -9999.
+fn cells_of(v: &[f64]) -> Vec<f64> {
+    v.iter().map(|x| if x.is_nan() { NODATA } else { *x }).collect()
+}
+
+/// Circuitscape's read_cellmap: reclassified (a lookup on the values read), then 1 / resistance (or the
+/// conductance), the -9999 cells at 0.
+pub fn habitat_conductance(cells: &[f64], is_resistance: bool, reclass: Option<&[(f64, f64)]>) -> Result<Vec<f64>> {
+    let mut c = cells.to_vec();
+    if let Some(t) = reclass {
+        for v in c.iter_mut() {
+            if let Some((_, new)) = t.iter().find(|(old, _)| old == v) {
+                *v = *new;
+            }
+        }
+    }
+    if is_resistance && c.contains(&0.0) {
+        return Err(Error::msg(
+            "zero resistance values are not supported for habitat maps; use a short-circuit region file instead",
+        ));
+    }
+    Ok(c.iter()
+        .map(|&v| {
+            if v == NODATA {
+                0.0
+            } else if is_resistance {
+                1.0 / v
+            } else {
+                v
+            }
+        })
+        .collect())
+}
+
+/// Focal points as Circuitscape reads a raster of ids: the cells in column-major order with an id of 0 or more,
+/// sorted by id (stably): their 0-based rows, columns and ids.
+pub struct FocalPoints {
+    pub rows: Vec<usize>,
+    pub cols: Vec<usize>,
+    pub ids: Vec<i64>,
+}
+
+impl FocalPoints {
+    pub fn of(map: &[f64], nx: usize, ny: usize) -> FocalPoints {
+        let pm: Vec<f64> = cells_of(map).into_iter().map(|v| if v == NODATA { 0.0 } else { v }).collect();
+        let mut found: Vec<(usize, usize, f64)> = Vec::new();
+        for j in 0..nx {
+            for i in 0..ny {
+                let v = pm[i * nx + j];
+                if v > 0.0 {
+                    found.push((i, j, v));
+                }
+            }
+        }
+        found.sort_by(|a, b| a.2.total_cmp(&b.2));
+        FocalPoints {
+            rows: found.iter().map(|f| f.0).collect(),
+            cols: found.iter().map(|f| f.1).collect(),
+            ids: found.iter().map(|f| f.2 as i64).collect(),
+        }
+    }
+
+    /// The ids, once each, increasing.
+    pub fn unique(&self) -> Vec<i64> {
+        let mut u = self.ids.clone();
+        u.sort_unstable();
+        u.dedup();
+        u
+    }
+
+    /// Whether an id covers several cells (focal regions).
+    pub fn has_regions(&self) -> bool {
+        self.unique().len() != self.ids.len()
+    }
+}
+
+/// The inputs of Circuitscape's raster modes: the conductances, the short-circuit regions (empty: none), the
+/// focal points.
+struct Circuit {
+    g: Vec<f64>,
+    poly: Vec<i64>,
+    points: FocalPoints,
+    nx: usize,
+    ny: usize,
+}
+
+impl Circuit {
+    fn of(args: &Args) -> Result<(Circuit, Arc<terraflux_raster::Grid>)> {
+        let fail = |e: String| Error::msg(format!("node {:?}: {e}", args.node));
+        let h = args.map("habitat")?;
+        let (ny, nx) = h.shape();
+        let shaped = |m: &Map, name: &str| -> Result<Vec<f64>> {
+            if m.data.len() != h.data.len() {
+                return Err(fail(format!("the {name} must have the habitat's shape")));
+            }
+            Ok(cells_of(&m.data).into_iter().map(|v| if v == NODATA { 0.0 } else { v }).collect())
+        };
+        let mut g = habitat_conductance(
+            &cells_of(&h.data),
+            args.param("habitat_is_resistance", true)?,
+            table_of(args)?.as_deref(),
+        )
+        .map_err(|e| fail(e.to_string()))?;
+        let poly: Vec<i64> = match args.opt_map("polygons")? {
+            Some(p) => {
+                let p = shaped(p, "polygons")?;
+                if p.iter().any(|v| *v != v.round()) {
+                    return Err(fail("the polygon raster must hold integer ids".into()));
+                }
+                p.into_iter().map(|v| v as i64).collect()
+            }
+            None => Vec::new(),
+        };
+        if let Some(m) = args.opt_map("mask")? {
+            let m = shaped(m, "mask")?;
+            for (x, k) in g.iter_mut().zip(&m) {
+                *x *= if *k > 0.0 { 1.0 } else { 0.0 };
+            }
+            if g.iter().sum::<f64>() == 0.0 {
+                return Err(fail("Mask file deleted everything!".into()));
+            }
+        }
+        let points = FocalPoints::of(&args.map("points")?.data, nx, ny);
+        if points.unique().len() < 2 {
+            return Err(fail("less than two focal points".into()));
+        }
+        Ok((Circuit { g, poly, points, nx, ny }, h.grid.clone()))
+    }
+}
+
+/// The settings of the raster modes shared by pairwise and one-to-all.
+fn raster_mode(sig: OpSignature) -> OpSignature {
+    sig.input(PortSpec::new("habitat", Type::Map, "the resistance (or conductance); no value: no node"))
+        .input(PortSpec::new(
+            "points",
+            Type::Map,
+            "the focal points' ids (0 or no value elsewhere; cells of one id: a region)",
+        ))
+        .input(PortSpec::optional("polygons", Type::Map, "short-circuit regions: ids > 0, their cells one node"))
+        .input(PortSpec::optional("mask", Type::Map, "cells where it is not positive (or has no value) removed"))
+        .output(PortSpec::new("resistances", Type::Table, "the effective resistances"))
+        .output(PortSpec::new("cum", Type::Map, "the cumulative current (cum_map)"))
+        .output(PortSpec::new("max", Type::Map, "the largest current of the pairs (max_map)"))
+        .param(PortSpec::optional("habitat_is_resistance", Type::Bool, "resistances (default) or conductances"))
+        .param(PortSpec::optional("four_neighbors", Type::Bool, "the four orthogonal neighbours only"))
+        .param(PortSpec::optional("avg_resistances", Type::Bool, "neighbours joined by their resistances' average"))
+        .param(PortSpec::optional("cum_map", Type::Bool, "the cumulative current"))
+        .param(PortSpec::optional("max_map", Type::Bool, "the largest current"))
+        .param(PortSpec::optional("focal_zero", Type::Bool, "current 0 on the focal nodes in the maps"))
+        .param(PortSpec::optional("reclass_table", Type::Any, "[[value, new value], ...] applied to the habitat first"))
+}
+
+fn map_of(grid: &Arc<terraflux_raster::Grid>, v: Vec<f64>) -> Value {
+    Value::Map(Map::new(grid.clone(), v))
+}
+
+struct Pairwise;
+
+impl Operator for Pairwise {
+    fn signature(&self) -> OpSignature {
+        raster_mode(OpSignature::new(
+            "circuit.pairwise",
+            "Circuitscape's pairwise mode on rasters (landschaft's circuitscape_pairwise): the effective resistance \
+             between every pair of focal points (-1: not connected), every component factorised once and its \
+             pairs solved together; the cumulative and the largest current maps when asked.",
+            Access::Global,
+        ))
+        .param(PortSpec::optional("null_currents", Type::Bool, "no value instead of 0 where no current (in the maps)"))
+        .param(PortSpec::optional("log_transform", Type::Bool, "log10 of the current maps"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let (c, grid) = Circuit::of(args)?;
+        let cells: Vec<i64> = c.points.rows.iter().zip(&c.points.cols).map(|(r, k)| (r * c.nx + k) as i64).collect();
+        let regions = c.points.has_regions();
+        let ids = if regions { c.points.unique() } else { c.points.ids.clone() };
+        let n = ids.len();
+        let (cum, max): (bool, bool) = (args.param("cum_map", false)?, args.param("max_map", false)?);
+        let flags = [
+            u8::from(cum),
+            u8::from(max),
+            u8::from(args.param("focal_zero", false)?),
+            u8::from(args.param("null_currents", false)?),
+            0,
+            u8::from(args.param("log_transform", false)?),
+        ];
+        let out = ffi::circuit_pairwise(
+            &c.g,
+            &c.poly,
+            c.nx as i64,
+            c.ny as i64,
+            &cells,
+            if regions { &c.points.ids } else { &[] },
+            &vec![0u8; n * n],
+            args.param("avg_resistances", false)?,
+            args.param("four_neighbors", false)?,
+            &flags,
+        )?;
+        let mut t =
+            crate::Table::new(std::iter::once("id".to_string()).chain(ids.iter().map(|i| i.to_string())).collect());
+        for (a, id) in ids.iter().enumerate() {
+            t.rows
+                .push(std::iter::once(*id as f64).chain(out.resistances[a * n..(a + 1) * n].iter().copied()).collect());
+        }
+        let mut o = Outputs::new();
+        o.insert("resistances".into(), Value::Table(t));
+        if cum {
+            o.insert("cum".into(), map_of(&grid, out.cum));
+        }
+        if max {
+            o.insert("max".into(), map_of(&grid, out.max));
+        }
+        Ok(o)
+    }
+}
+
+/// create_new_polymap with a point map: the focal points and regions become short-circuit regions.
+fn point_polymap(poly: &[i64], point_map: &[i64], ids: &[i64], nx: usize, ny: usize) -> Vec<i64> {
+    if poly.is_empty() {
+        return point_map.to_vec();
+    }
+    let mut newpoly = poly.to_vec();
+    let mut u = ids.to_vec();
+    u.sort_unstable();
+    u.dedup();
+    let no_regions = u.len() == ids.len();
+    // the cells of the point map in column-major order
+    let cells: Vec<usize> =
+        (0..nx).flat_map(|j| (0..ny).map(move |i| i * nx + j)).filter(|&k| point_map[k] != 0).collect();
+    if no_regions {
+        let k = *poly.iter().max().unwrap();
+        for c in cells {
+            if poly[c] == 0 {
+                newpoly[c] = point_map[c] + k;
+            }
+        }
+        return newpoly;
+    }
+    let k = (*poly.iter().max().unwrap()).max(*point_map.iter().max().unwrap());
+    for c in cells {
+        let (v1, v2) = (point_map[c], newpoly[c]);
+        if v2 == 0 {
+            newpoly[c] = k + v1;
+            continue;
+        }
+        if v1 != v2 {
+            for x in newpoly.iter_mut() {
+                if *x == v2 {
+                    *x = v1;
+                }
+            }
+        }
+    }
+    newpoly
+}
+
+/// One problem of one-to-all: its sources, grounds (cells row-major, values) and the cell checked.
+struct Problem {
+    src: (Vec<i64>, Vec<f64>),
+    gnd: (Vec<i64>, Vec<f64>),
+    check: i64,
+    strength: f64,
+    n: i64,
+}
+
+struct OneToAll;
+
+impl Operator for OneToAll {
+    fn signature(&self) -> OpSignature {
+        raster_mode(OpSignature::new(
+            "circuit.one_to_all",
+            "Circuitscape's one-to-all (or all-to-one) mode on rasters (landschaft's circuitscape_one_to_all): \
+             for every focal point in turn, 1 A (or its strength) injected there with every other point a direct \
+             ground (one-to-all), or the point grounded and the others injecting (all-to-one); the voltage over \
+             the strength at each point (one-to-all), the cumulative and largest current maps when asked. \
+             Circuitscape's quirks kept (strengths by position).",
+            Access::Global,
+        ))
+        .param(PortSpec::optional("all_to_one", Type::Bool, "all-to-one instead of one-to-all"))
+        .param(PortSpec::optional("strengths", Type::Any, "[[id, strength], ...], by position as Circuitscape"))
+        .param(PortSpec::optional(
+            "batch",
+            Type::Integer,
+            "the problems solved together (default 4 x the threads; the last bits depend on it)",
+        ))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let fail = |e: String| Error::msg(format!("node {:?}: {e}", args.node));
+        let (c, grid) = Circuit::of(args)?;
+        let (nx, ny) = (c.nx, c.ny);
+        let one_to_all = !args.param("all_to_one", false)?;
+        let strengths: Option<Vec<(f64, f64)>> = match args.params.get("strengths") {
+            None | Some(serde_json::Value::Null) => None,
+            Some(v) => {
+                let rows: Vec<[f64; 2]> =
+                    serde_json::from_value(v.clone()).map_err(|e| fail(format!("strengths: {e}")))?;
+                Some(rows.into_iter().map(|r| (r[0], r[1])).collect())
+            }
+        };
+        let (cum_on, max_on, focal_zero): (bool, bool, bool) =
+            (args.param("cum_map", false)?, args.param("max_map", false)?, args.param("focal_zero", false)?);
+        let p = &c.points;
+        let cells: Vec<usize> = p.rows.iter().zip(&p.cols).map(|(r, k)| r * nx + k).collect();
+        let mut point_map = vec![0i64; nx * ny];
+        for (k, &cell) in cells.iter().enumerate() {
+            point_map[cell] = p.ids[k];
+        }
+        let unique = p.unique();
+        // the first cell of each id
+        let mut unique_map = vec![0i64; nx * ny];
+        for &u in &unique {
+            let first = p.ids.iter().position(|&i| i == u).unwrap();
+            unique_map[cells[first]] = u;
+        }
+        let base_poly = point_polymap(&c.poly, &point_map, &p.ids, nx, ny);
+        let mut res = vec![0.0; unique.len()];
+        let mut cum = vec![0.0; nx * ny];
+        let mut mx = vec![NODATA; nx * ny];
+        let policy = if one_to_all { 2 } else { 1 };
+        let pm_sum: i64 = point_map.iter().sum();
+        let problem = |i: usize| -> Option<Problem> {
+            let n = unique[i];
+            if let Some(st) = &strengths
+                && i >= st.len()
+            {
+                return None;
+            }
+            let strength = strengths.as_ref().map_or(1.0, |s| s[i].1);
+            if pm_sum == n {
+                return None;
+            }
+            let smap: Option<Vec<f64>> = strengths.as_ref().map(|st| {
+                let mut m = vec![0.0; nx * ny];
+                for (k, &cell) in cells.iter().enumerate() {
+                    if k < st.len() {
+                        m[cell] = if point_map[cell] == 0 { 1.0 } else { st[k].1 };
+                    }
+                }
+                m
+            });
+            let (src, gnd): (Vec<f64>, Vec<f64>) = if one_to_all {
+                (
+                    unique_map.iter().map(|&u| if u == n { strength } else { 0.0 }).collect(),
+                    point_map.iter().map(|&v| if v == n || v == 0 { 0.0 } else { f64::INFINITY }).collect(),
+                )
+            } else {
+                let src = match &smap {
+                    Some(m) => unique_map.iter().zip(m).map(|(&u, &v)| if u == n { 0.0 } else { v }).collect(),
+                    None => unique_map
+                        .iter()
+                        .zip(&point_map)
+                        .map(|(&u, &v)| {
+                            if v == n {
+                                0.0
+                            } else if u != 0 {
+                                1.0
+                            } else {
+                                0.0
+                            }
+                        })
+                        .collect(),
+                };
+                (src, point_map.iter().map(|&v| if v == n { f64::INFINITY } else { 0.0 }).collect())
+            };
+            let nonzero = |v: &[f64]| -> (Vec<i64>, Vec<f64>) {
+                v.iter().enumerate().filter(|(_, x)| **x != 0.0).map(|(k, x)| (k as i64, *x)).unzip()
+            };
+            let check = cells[p.ids.iter().position(|&x| x == n).unwrap()] as i64;
+            Some(Problem { src: nonzero(&src), gnd: nonzero(&gnd), check, strength, n })
+        };
+        let threads = crate::threads::ensure();
+        let batch: usize = args.opt_param::<usize>("batch")?.unwrap_or(4 * threads).max(1);
+        let mut b0 = 0;
+        while b0 < unique.len() {
+            let range = b0..(b0 + batch).min(unique.len());
+            let probs: Vec<(usize, Option<Problem>)> = range.clone().map(|i| (i, problem(i))).collect();
+            for (i, q) in &probs {
+                if q.is_none() {
+                    res[*i] = -1.0;
+                }
+            }
+            let todo: Vec<(usize, &Problem)> = probs.iter().filter_map(|(i, q)| q.as_ref().map(|q| (*i, q))).collect();
+            if !todo.is_empty() {
+                let mut lists = [Vec::new(), Vec::new(), vec![0i64], Vec::new(), Vec::new(), vec![0i64]];
+                let (mut sc, mut sv, mut gc, mut gv) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+                let mut checks = Vec::new();
+                for (_, q) in &todo {
+                    sc.extend(&q.src.0);
+                    sv.extend(&q.src.1);
+                    lists[2].push(sc.len() as i64);
+                    gc.extend(&q.gnd.0);
+                    gv.extend(&q.gnd.1);
+                    lists[5].push(gc.len() as i64);
+                    checks.push(q.check);
+                }
+                let out = ffi::circuit_multi_advanced(
+                    &c.g,
+                    &base_poly,
+                    nx as i64,
+                    ny as i64,
+                    args.param("avg_resistances", false)?,
+                    args.param("four_neighbors", false)?,
+                    &sc,
+                    &sv,
+                    &lists[2],
+                    &gc,
+                    &gv,
+                    &lists[5],
+                    &checks,
+                    policy,
+                )?;
+                let nm = &out.nodemap;
+                for (k, (i, q)) in todo.iter().enumerate() {
+                    let (a, b) = (out.node_offsets[k] as usize, out.node_offsets[k + 1] as usize);
+                    let (volt, curr) = (&out.voltage[a..b], &out.current[a..b]);
+                    let active = &out.active[out.active_offsets[k] as usize..out.active_offsets[k + 1] as usize];
+                    res[*i] = if out.solved[k] == 0 {
+                        -1.0
+                    } else if !one_to_all {
+                        0.0
+                    } else {
+                        let cell = unique_map.iter().position(|&u| u == q.n).unwrap();
+                        let node = nm[cell];
+                        let val = if node < 0 { 0.0 } else { volt[node as usize] / q.strength };
+                        if val == 0.0 { -1.0 } else { val }
+                    };
+                    for (cell, &node) in nm.iter().enumerate() {
+                        let mut cur = if node >= 0 { curr[node as usize] } else { 0.0 };
+                        if focal_zero && active.contains(&node) {
+                            cur = 0.0;
+                        }
+                        cum[cell] += cur;
+                        if cur > mx[cell] {
+                            mx[cell] = cur;
+                        }
+                    }
+                }
+            }
+            b0 = range.end;
+        }
+        for v in cum.iter_mut().chain(mx.iter_mut()) {
+            if *v < NODATA {
+                *v = NODATA;
+            }
+        }
+        let mut t = crate::Table::new(vec!["id".into(), if one_to_all { "resistance".into() } else { "value".into() }]);
+        t.rows = unique.iter().zip(&res).map(|(u, r)| vec![*u as f64, *r]).collect();
+        let mut o = Outputs::new();
+        o.insert("resistances".into(), Value::Table(t));
+        if cum_on {
+            o.insert("cum".into(), map_of(&grid, cum));
+        }
+        if max_on {
+            o.insert("max".into(), map_of(&grid, mx));
+        }
+        Ok(o)
     }
 }
