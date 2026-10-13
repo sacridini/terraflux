@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-10-13
+
 ### Added
 - The Prepare pane (beside the node's): the model's reference grid (the land use map's suggested, or the node
   selected), the data of the node selected next to it (coordinate system, cells, extent and what differs; classes,
