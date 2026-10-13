@@ -1607,3 +1607,95 @@ ObservedPatches observed_patches(rust::Slice<const double> a, rust::Slice<const 
 }
 
 }  // namespace tfx
+
+// out-of-core landscapes (tiles)
+
+namespace tfx {
+
+namespace {
+
+void check_block(const lsm::TiledLandscape& t, rust::Slice<const std::int32_t> values,
+                 rust::Slice<const std::uint8_t> na, std::int64_t rows, std::int64_t above, std::int64_t below) {
+    const i64 cells = (rows + above + below) * t.nx();
+    check(rows >= 0 && above >= 0 && below >= 0 && static_cast<i64>(values.size()) == cells && na.size() == values.size(),
+          "a block differs in size from its rows x the map's width, or has no NA mask");
+}
+
+}  // namespace
+
+std::unique_ptr<lsm::TiledLandscape> lsm_tiled_new(std::int64_t nx, std::int64_t ny, double resx, double resy,
+                                                   const LsmOptions& options,
+                                                   rust::Slice<const std::int32_t> class_values) {
+    check(nx > 0 && ny > 0 && resx > 0 && resy > 0, "a map of cells");
+    return std::make_unique<lsm::TiledLandscape>(nx, ny, resx, resy, lsm_options(options),
+                                                 std::vector<std::int32_t>(class_values.begin(), class_values.end()));
+}
+
+rust::Vec<std::int32_t> lsm_unique_values(rust::Slice<const std::int32_t> values, rust::Slice<const std::uint8_t> na) {
+    return to_rust<std::int32_t>(
+        lsm::unique_values(values.data(), na_mask(na, static_cast<i64>(values.size())), static_cast<i64>(values.size())));
+}
+
+void lsm_tiled_add(lsm::TiledLandscape& t, rust::Slice<const std::int32_t> values, rust::Slice<const std::uint8_t> na,
+                   std::int64_t y0, std::int64_t rows, std::int64_t above, std::int64_t below) {
+    check_block(t, values, na, rows, above, below);
+    t.add_block(values.data(), na.data(), y0, rows, above, below);
+}
+
+void lsm_tiled_finish(lsm::TiledLandscape& t) { t.finish(); }
+
+std::int64_t lsm_tiled_detail_halo(const lsm::TiledLandscape& t, bool core, bool enn) {
+    return t.detail_halo(core, enn);
+}
+
+void lsm_tiled_begin_detail(lsm::TiledLandscape& t, bool core, bool gyrate, bool circle, bool enn) {
+    t.begin_detail(core, gyrate, circle, enn);
+}
+
+void lsm_tiled_detail(lsm::TiledLandscape& t, rust::Slice<const std::int32_t> values,
+                      rust::Slice<const std::uint8_t> na, std::int64_t y0, std::int64_t rows, std::int64_t above,
+                      std::int64_t below) {
+    check_block(t, values, na, rows, above, below);
+    t.detail_block(values.data(), na.data(), y0, rows, above, below);
+}
+
+bool lsm_tiled_end_detail(lsm::TiledLandscape& t) { return t.end_detail(); }
+
+void lsm_tiled_tie(lsm::TiledLandscape& t, rust::Slice<const std::int32_t> values, rust::Slice<const std::uint8_t> na,
+                   std::int64_t y0, std::int64_t rows, std::int64_t above, std::int64_t below) {
+    check_block(t, values, na, rows, above, below);
+    t.tie_block(values.data(), na.data(), y0, rows, above, below);
+}
+
+void lsm_tiled_end_ties(lsm::TiledLandscape& t) { t.end_ties(); }
+
+LsmTable lsm_tiled_table(lsm::TiledLandscape& t, rust::Slice<const std::int32_t> levels,
+                         rust::Slice<const rust::String> names) {
+    check(levels.size() == names.size(), "a level per metric");
+    std::vector<lsm::MetricSpec> specs;
+    for (std::size_t i = 0; i < levels.size(); ++i) {
+        check(levels[i] >= 0 && levels[i] <= 2, "the level is 0 (patch), 1 (class) or 2 (landscape)");
+        specs.push_back({static_cast<lsm::Level>(levels[i]), std::string(names[i])});
+    }
+    lsm::Landscape& l = t.landscape();
+    lsm::LongTable table;
+    lsm::append_long_table(l, specs, 0, table);
+    LsmTable out;
+    out.class_values = to_rust<std::int32_t>(l.class_values());
+    out.metric = to_rust<std::int16_t>(table.metric);
+    out.cls = to_rust<std::int32_t>(table.cls);
+    out.cls_na = to_rust<std::uint8_t>(table.cls_na);
+    out.id = to_rust<std::int32_t>(table.id);
+    out.id_na = to_rust<std::uint8_t>(table.id_na);
+    out.value = to_rust<double>(table.value);
+    out.patch_class = to_rust<std::int32_t>(l.patches().cls);
+    return out;
+}
+
+rust::Vec<std::int32_t> lsm_tiled_labels(const lsm::TiledLandscape& t, rust::Slice<const std::int32_t> values,
+                                         rust::Slice<const std::uint8_t> na, std::int64_t y0, std::int64_t rows) {
+    check_block(t, values, na, rows, 0, 0);
+    return to_rust<std::int32_t>(t.block_labels(values.data(), na.data(), y0, rows, 0, 0));
+}
+
+}  // namespace tfx

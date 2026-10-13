@@ -1,0 +1,46 @@
+{
+ "landschaft": "1.43.0",
+ "cases": [
+  {
+   "tile_size": 600,
+   "overlap": 200,
+   "map": "input",
+   "digest": "40ad1b722c832d0a72c91fd26f720f53c1515c8770dc7167a4b00da2d8f723c5"
+  },
+  {
+   "tile_size": 400,
+   "overlap": 100,
+   "connectivity": 4,
+   "map": "input",
+   "digest": "a00595043389502d4ee8d0db30d3d9f3cece32524e434d427c1123903ffc158c"
+  },
+  {
+   "tile_size": 300,
+   "overlap": 120,
+   "edge_width": 3,
+   "internal": false,
+   "map": "input",
+   "digest": "6a615fc24623c78d8b676602785e1f7e32db75a4e8b3c6297715757c812de84c"
+  },
+  {
+   "tile_size": 2000,
+   "overlap": 200,
+   "map": "input",
+   "digest": "f933ae9972c85b7f396a6ca6c6a14d34aaae30a123a49b41725b88bce0601243"
+  },
+  {
+   "tile_size": 120,
+   "overlap": 40,
+   "map": "shortcuts",
+   "digest": "34a9508fe383ba02b12b8c826f8fa42066bcea2c96593386164cbf4c7680ef79"
+  },
+  {
+   "tile_size": 90,
+   "overlap": 30,
+   "connectivity": 4,
+   "map": "shortcuts",
+   "digest": "45b177af15f2a5cfdd7a69acd2998786baab284bba16e0c28758e3f3eec0a268"
+  }
+ ],
+ "whole": "f933ae9972c85b7f396a6ca6c6a14d34aaae30a123a49b41725b88bce0601243"
+}

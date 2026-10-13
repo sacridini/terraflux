@@ -11,6 +11,10 @@ use std::sync::Arc;
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 use terraflux_ls_sys::ffi;
 
+use terraflux_raster::Grid;
+use terraflux_raster::tiff::Window as Cells;
+
+use crate::files::Rasters;
 use crate::lsm_catalog::{METRICS, Metric};
 use crate::{Args, Ctx, Error, Key, Map, Operator, Outputs, Registry, Result, Stack, Table, Value, outputs};
 
@@ -68,13 +72,13 @@ pub fn default_options() -> ffi::LsmOptions {
 }
 
 /// A map's classes as 32-bit integers (truncated) and its NA mask (empty when it has none).
-fn classes_of(map: &Map) -> Result<(Vec<i32>, Vec<u8>)> {
+fn classes_of(data: &[f64]) -> Result<(Vec<i32>, Vec<u8>)> {
     let mut na = Vec::new();
-    let mut values = Vec::with_capacity(map.data.len());
-    for (i, &v) in map.data.iter().enumerate() {
+    let mut values = Vec::with_capacity(data.len());
+    for (i, &v) in data.iter().enumerate() {
         if v.is_nan() {
             if na.is_empty() {
-                na = vec![0u8; map.data.len()];
+                na = vec![0u8; data.len()];
             }
             na[i] = 1;
             values.push(0);
@@ -97,7 +101,7 @@ fn resolution(map: &Map) -> (f64, f64) {
 
 /// The metrics `specs` (level, metric) of a map, and its patches when `labels`.
 pub fn measure(map: &Map, options: &ffi::LsmOptions, specs: &[(&'static str, &str)], labels: bool) -> Result<Measured> {
-    let (values, na) = classes_of(map)?;
+    let (values, na) = classes_of(&map.data)?;
     let (ny, nx) = map.shape();
     let (resx, resy) = resolution(map);
     let levels: Vec<i32> = specs.iter().map(|(l, _)| LEVELS.iter().position(|x| x == l).unwrap() as i32).collect();
@@ -116,6 +120,149 @@ pub fn measure(map: &Map, options: &ffi::LsmOptions, specs: &[(&'static str, &st
         })
         .collect();
     Ok(Measured { rows, classes: t.class_values, labels: t.labels, patch_class: t.patch_class })
+}
+
+/// Where the rows of an out-of-core landscape come from: a map in memory, or rasters on disk (the layer chosen),
+/// read by windows.
+pub enum Rows<'a> {
+    Memory(&'a Map),
+    Disk(&'a Rasters),
+}
+
+impl Rows<'_> {
+    fn grid(&self) -> &Grid {
+        match self {
+            Rows::Memory(m) => &m.grid,
+            Rows::Disk(r) => r.grid_of(r.chosen),
+        }
+    }
+
+    /// Rows [y0, y1) as classes and their NA mask (always given).
+    fn read(&self, y0: usize, y1: usize) -> Result<(Vec<i32>, Vec<u8>)> {
+        let nx = self.grid().width;
+        let data: Vec<f64> = match self {
+            Rows::Memory(m) => m.data[y0 * nx..y1 * nx].to_vec(),
+            Rows::Disk(r) => r.window(r.chosen, Cells { x0: 0, y0: y0 as i64, width: nx, height: y1 - y0 })?,
+        };
+        let (values, mut na) = classes_of(&data)?;
+        if na.is_empty() {
+            na = vec![0; values.len()];
+        }
+        Ok((values, na))
+    }
+}
+
+/// The rows of a block of an out-of-core landscape: a multiple of 64 (the strips the C++ labels the map in, so
+/// that the sums are made in the same order as in memory), by default one strip of 64 rows but at least 32,768
+/// cells (landschaft's "auto").
+pub fn block_rows(rows: Option<usize>, width: usize) -> usize {
+    let rows = rows.unwrap_or((1 << 15) / width.max(1));
+    rows.div_ceil(64).max(1) * 64
+}
+
+/// Rasters on disk of more cells than this are read by blocks for their metrics (as f64 they would take 2 GB).
+const TILED_CELLS: usize = 250_000_000;
+
+/// What is done with a block of an out-of-core landscape: its classes, NA mask, first row, rows, rows of context
+/// above and below.
+type BlockFn<'a> = dyn FnMut(&[i32], &[u8], usize, usize, usize, usize) -> Result<()> + 'a;
+
+/// Metrics an out-of-core landscape cannot give (they need the whole raster, as in landschaft).
+const RASTER_ONLY: [&str; 4] = ["prox", "simi", "econ", "connect"];
+
+/// Whether a metric can be measured block by block (prox, simi, econ, connect and FRAGSTATS' dcore cannot).
+pub fn by_blocks(metric: &str, fragstats: bool) -> bool {
+    let family = metric.split('_').next().unwrap_or(metric);
+    !RASTER_ONLY.contains(&family) && !(fragstats && family == "dcore")
+}
+
+/// The metrics `specs` of a map read block by block of rows (landschaft's out-of-core landscape, `block_rows`):
+/// the same values as [`measure`], with only a few blocks in memory at a time. The file (or map) is read twice,
+/// three times for core areas, gyrate, circle and enn (four for gyrate with cell_center). With `labels`, every
+/// cell's patch too (the map is in memory then anyway).
+pub fn measure_tiled(
+    source: Rows,
+    options: &ffi::LsmOptions,
+    specs: &[(&'static str, &str)],
+    rows: Option<usize>,
+    labels: bool,
+) -> Result<Measured> {
+    let grid = source.grid().clone();
+    let (nx, ny) = (grid.width, grid.height);
+    let (resx, resy) = (grid.transform[1].abs(), grid.transform[5].abs());
+    let families: Vec<&str> = specs.iter().map(|(_, m)| m.split('_').next().unwrap_or(m)).collect();
+    if let Some((_, m)) = specs.iter().find(|(_, m)| !by_blocks(m, options.fragstats)) {
+        return Err(Error::msg(format!("{m} needs the whole map in memory (not by blocks)")));
+    }
+    let step = block_rows(rows, nx);
+    let blocks: Vec<(usize, usize)> = (0..ny).step_by(step).map(|y0| (y0, step.min(ny - y0))).collect();
+    // every block with `halo` rows of context above and below
+    let each = |halo: usize, f: &mut BlockFn| {
+        for &(y0, n) in &blocks {
+            let (above, below) = (halo.min(y0), halo.min(ny - y0 - n));
+            let (values, na) = source.read(y0 - above, y0 + n + below)?;
+            f(&values, &na, y0, n, above, below)?;
+        }
+        Ok::<(), Error>(())
+    };
+    // pass 0: the classes
+    let mut classes: Vec<i32> = Vec::new();
+    each(0, &mut |v, na, _, _, _, _| {
+        classes.extend(ffi::lsm_unique_values(v, na));
+        Ok(())
+    })?;
+    classes.sort_unstable();
+    classes.dedup();
+    let mut engine = ffi::lsm_tiled_new(nx as i64, ny as i64, resx, resy, options, &classes)?;
+    // pass 1: the patches and the classes' adjacencies
+    each(1, &mut |v, na, y0, n, above, below| {
+        ffi::lsm_tiled_add(engine.pin_mut(), v, na, y0 as i64, n as i64, above as i64, below as i64)?;
+        Ok(())
+    })?;
+    ffi::lsm_tiled_finish(engine.pin_mut())?;
+    // the detail pass, for the metrics that need it
+    const CORE: [&str; 7] = ["core", "ncore", "cai", "tca", "cpland", "ndca", "dcad"];
+    let core = families.iter().any(|f| CORE.contains(f));
+    let (gyrate, circle, enn) = (families.contains(&"gyrate"), families.contains(&"circle"), families.contains(&"enn"));
+    if core || gyrate || circle || enn {
+        ffi::lsm_tiled_begin_detail(engine.pin_mut(), core, gyrate, circle, enn)?;
+        let halo = ffi::lsm_tiled_detail_halo(&engine, core, enn) as usize;
+        each(halo, &mut |v, na, y0, n, above, below| {
+            ffi::lsm_tiled_detail(engine.pin_mut(), v, na, y0 as i64, n as i64, above as i64, below as i64)?;
+            Ok(())
+        })?;
+        if ffi::lsm_tiled_end_detail(engine.pin_mut())? {
+            each(0, &mut |v, na, y0, n, above, below| {
+                ffi::lsm_tiled_tie(engine.pin_mut(), v, na, y0 as i64, n as i64, above as i64, below as i64)?;
+                Ok(())
+            })?;
+            ffi::lsm_tiled_end_ties(engine.pin_mut())?;
+        }
+    }
+    let levels: Vec<i32> = specs.iter().map(|(l, _)| LEVELS.iter().position(|x| x == l).unwrap() as i32).collect();
+    let names: Vec<String> = specs.iter().map(|(_, m)| m.to_string()).collect();
+    let t = ffi::lsm_tiled_table(engine.pin_mut(), &levels, &names)?;
+    let mut cells = Vec::new();
+    if labels {
+        cells.reserve(nx * ny);
+        each(0, &mut |v, na, y0, n, _, _| {
+            cells.extend(ffi::lsm_tiled_labels(&engine, v, na, y0 as i64, n as i64)?);
+            Ok(())
+        })?;
+    }
+    let rows = (0..t.value.len())
+        .map(|i| {
+            let (level, metric) = specs[t.metric[i] as usize];
+            Row {
+                level,
+                class: (t.cls_na[i] == 0).then_some(t.cls[i]),
+                id: (t.id_na[i] == 0).then_some(t.id[i]),
+                metric: metric.to_string(),
+                value: t.value[i],
+            }
+        })
+        .collect();
+    Ok(Measured { rows, classes: t.class_values, labels: cells, patch_class: t.patch_class })
 }
 
 /// The metrics of a level chosen by a node's settings: those named in `metrics` (a name or a list), else every
@@ -271,7 +418,7 @@ impl Operator for Metrics {
                  one metric if asked for.",
                 Access::Global,
             )
-            .input(PortSpec::new("map", Type::Map, "the map of classes"))
+            .input(PortSpec::new("map", Type::Raster, "the map of classes (or rasters on disk, by blocks)"))
             .output(PortSpec::new("table", Type::Table, "per patch: its class, its number and the metrics"))
             .output(PortSpec::new("patches", Type::Map, "each cell's patch, by number"))
             .output(PortSpec::new("map", Type::Map, "the metric shown (show) on each patch")),
@@ -282,7 +429,7 @@ impl Operator for Metrics {
                  of a row per class, and the map of one metric if asked for.",
                 Access::Global,
             )
-            .input(PortSpec::new("map", Type::Map, "the map of classes"))
+            .input(PortSpec::new("map", Type::Raster, "the map of classes (or rasters on disk, by blocks)"))
             .output(PortSpec::new("table", Type::Table, "per class: the class and the metrics"))
             .output(PortSpec::new("map", Type::Map, "the metric shown (show) on each class")),
             _ => OpSignature::new(
@@ -291,10 +438,14 @@ impl Operator for Metrics {
                  contagion, edge density, aggregation, the patches' metrics summarised... A table of one row.",
                 Access::Global,
             )
-            .input(PortSpec::new("map", Type::Map, "the map of classes"))
+            .input(PortSpec::new("map", Type::Raster, "the map of classes (or rasters on disk, by blocks)"))
             .output(PortSpec::new("table", Type::Table, "the metrics")),
         };
-        let sig = settings(sig);
+        let sig = settings(sig).param(PortSpec::optional(
+            "block_rows",
+            Type::Integer,
+            "out of core: the map read by blocks of this many rows (a multiple of 64), the same metrics; rasters on              disk of more than 250 million cells always are",
+        ));
         if self.level == "landscape" {
             sig
         } else {
@@ -303,8 +454,28 @@ impl Operator for Metrics {
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
-        let map = args.map("map")?;
+        let rows: Option<usize> = match args.opt_param::<f64>("block_rows")? {
+            Some(r) if r >= 1.0 && r.fract() == 0.0 => Some(r as usize),
+            Some(r) => {
+                return Err(Error::msg(format!("node {:?}: block_rows: a whole number ≥ 1, not {r}", args.node)));
+            }
+            None => None,
+        };
+        // the map in memory, or rasters on disk read by blocks (when large, or asked to)
+        let (in_memory, disk) = match args.get("map") {
+            Some(Value::Raster(r)) if rows.is_some() || r.cells() > TILED_CELLS => (None, Some(r.clone())),
+            Some(Value::Raster(r)) => (Some(r.map()?), None),
+            Some(Value::Map(m)) => (Some(m.clone()), None),
+            Some(v) => return Err(Error::msg(format!("node {:?}: map: a map, not a {:?}", args.node, v.ty()))),
+            None => return Err(Error::msg(format!("node {:?}: connect a map", args.node))),
+        };
+        let tiled = rows.is_some() || disk.is_some();
         let mut metrics = chosen(args, self.level)?;
+        // by blocks, the metrics chosen by default or by type but those that need the whole map
+        if tiled && args.params.get("metrics").is_none_or(|v| v.is_null()) {
+            let fragstats = options(args)?.fragstats;
+            metrics.retain(|m| by_blocks(m.metric, fragstats));
+        }
         let show =
             match args.opt_param::<String>("show")? {
                 Some(s) => Some(find(self.level, &s).ok_or_else(|| {
@@ -321,8 +492,15 @@ impl Operator for Metrics {
         let show = show.map(|m| m.metric);
         let specs: Vec<(&'static str, &str)> = metrics.iter().map(|m| (self.level, m.metric)).collect();
         let patch = self.level == "patch";
-        let m = measure(map, &options(args)?, &specs, patch)
-            .map_err(|e| Error::msg(format!("node {:?}: {e}", args.node)))?;
+        let m = match (&in_memory, &disk) {
+            (Some(map), _) if !tiled => measure(map, &options(args)?, &specs, patch),
+            (Some(map), _) => measure_tiled(Rows::Memory(map), &options(args)?, &specs, rows, patch),
+            (None, Some(r)) => measure_tiled(Rows::Disk(r), &options(args)?, &specs, rows, false),
+            (None, None) => unreachable!(),
+        }
+        .map_err(|e| Error::msg(format!("node {:?}: {e}", args.node)))?;
+        // the maps of patches and metrics only of a map in memory
+        let map = in_memory.as_ref();
         let column = |name: &str| metrics.iter().position(|x| x.metric == name);
         match self.level {
             "patch" => {
@@ -344,12 +522,19 @@ impl Operator for Metrics {
                         rows[id as usize - 1][j + 2] = row.value;
                     }
                 }
-                let patches: Vec<f64> = m.labels.iter().map(|&l| if l > 0 { f64::from(l) } else { f64::NAN }).collect();
-                let mut out = outputs([("patches", Value::Map(Map::new(map.grid.clone(), patches)))]);
-                if let Some(j) = show.and_then(column) {
-                    let painted =
-                        m.labels.iter().map(|&l| if l > 0 { rows[l as usize - 1][j + 2] } else { f64::NAN }).collect();
-                    out.insert("map".into(), Value::Map(Map::new(map.grid.clone(), painted)));
+                let mut out = Outputs::new();
+                if let Some(map) = map {
+                    let patches: Vec<f64> =
+                        m.labels.iter().map(|&l| if l > 0 { f64::from(l) } else { f64::NAN }).collect();
+                    out.insert("patches".into(), Value::Map(Map::new(map.grid.clone(), patches)));
+                    if let Some(j) = show.and_then(column) {
+                        let painted = m
+                            .labels
+                            .iter()
+                            .map(|&l| if l > 0 { rows[l as usize - 1][j + 2] } else { f64::NAN })
+                            .collect();
+                        out.insert("map".into(), Value::Map(Map::new(map.grid.clone(), painted)));
+                    }
                 }
                 out.insert("table".into(), Value::Table(Table { columns, rows }));
                 Ok(out)
@@ -376,8 +561,8 @@ impl Operator for Metrics {
                     }
                 }
                 let mut out = Outputs::new();
-                if let Some(j) = show.and_then(column) {
-                    let (values, _) = classes_of(map)?;
+                if let (Some(j), Some(map)) = (show.and_then(column), map) {
+                    let (values, _) = classes_of(&map.data)?;
                     let painted = map
                         .data
                         .iter()
@@ -449,7 +634,7 @@ impl Operator for Window {
                 .collect(),
             s => return Err(Error::msg(format!("node {:?}: the shape is square or circle, not {s:?}", args.node))),
         };
-        let (values, na) = classes_of(map)?;
+        let (values, na) = classes_of(&map.data)?;
         let (ny, nx) = map.shape();
         let (resx, resy) = resolution(map);
         let names: Vec<String> = metrics.iter().map(|m| m.metric.to_string()).collect();

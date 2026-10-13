@@ -91,7 +91,8 @@ model file dropped on it or opened with it; started that way on Windows, it show
   through the plots that show them and in files named as GTB names them; elevations, a
   hillshade and NDVI by their ramps (by the names of their nodes, files and bands).
 - **GuidosToolbox:** landschaft's port of GTB, the same bits as GTB's own outputs: MSPA (`landscape.mspa`), the
-  simplified pattern analysis (`landscape.spa`, 2 to 6 classes), the objects by size (`landscape.accounting`),
+  MSPA of maps larger than memory by GTB's tiles (`landscape.mspa_tiled`), the simplified pattern analysis
+  (`landscape.spa`, 2 to 6 classes), the objects by size (`landscape.accounting`),
   the foreground's density (`fragmentation.fad`, at five scales `fragmentation.fad_multiscale`) and the
   fragmentation at a fixed scale (`fragmentation.fos`, by FAD, FED or FAC, binary maps or % covers), contagion and
   clustering in a window, the spatial entropy, the landscape mosaic, GraySpatCon's metrics of a % cover,
@@ -102,7 +103,8 @@ model file dropped on it or opened with it; started that way on Windows, it show
   reports as tables and as GTB's text. They read a map coded as GTB's (0 missing, 1 background, 2 foreground) or
   any map with the foreground's classes given.
 - **Landscape metrics:** landscapemetrics' metrics (and FRAGSTATS' extras) per patch, per class, of the
-  landscape and in a moving window (`metrics.patch`, `metrics.class`, `metrics.landscape`, `metrics.window`), of
+  landscape and in a moving window (`metrics.patch`, `metrics.class`, `metrics.landscape`, `metrics.window`; of
+  maps larger than memory by blocks of rows, the same values), of
   sample plots (buffers around points, polygons; `metrics.sample`) and along a series of maps (`metrics.series`,
   by zones or a grid of them), with the correlation between them (`metrics.correlation`), the same values as R's
   landscapemetrics; spatial signatures of zones or landscapes (`metrics.signatures`) with their principal

@@ -19,6 +19,18 @@ minor versions.
     label; the components, factors and means within 1e-11 of numpy's LAPACK.
 - The landscape and class metrics of a signatures node are chosen in the metrics' list, as those of the other
   metric nodes.
+- Landscape metrics of maps larger than memory: `metrics.patch`, `metrics.class` and `metrics.landscape` read a
+  map by blocks of rows (`block_rows`, a multiple of 64) through landschaft's out-of-core landscape (its C++
+  `TiledLandscape`: the patches joined across the seams), the same tables to the bit as the map in memory; rasters
+  on disk of more than 250 million cells always are. prox, simi, econ, connect (and dcore by FRAGSTATS' convention)
+  need the whole map, as in landschaft; chosen by default or by type they are left out.
+- `landscape.mspa_tiled`: GuidosToolbox's MSPA Tiling, as landschaft's mspa_tiled, the same maps
+  (`tools/make_mspa_tiled_reference.py`): MSPA by overlapping tiles with GTB's shortcuts, of a map in memory, or of
+  rasters on disk read by windows and written tile by tile to a GeoTIFF (GTB's name next to the input by default).
+
+### Changed
+- The map input of `metrics.patch`, `metrics.class` and `metrics.landscape` takes rasters on disk as they are
+  (read by blocks when large or asked to); the maps of patches and metrics are given for maps in memory only.
 
 ## [0.16.0] - 2026-10-12
 

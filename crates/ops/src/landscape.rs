@@ -167,7 +167,7 @@ impl Product {
     pub fn of(op: &str, port: &str, params: &serde_json::Map<String, serde_json::Value>) -> Option<Product> {
         let int = |k: &str| params.get(k).and_then(|c| c.as_i64());
         Some(match (op, port) {
-            ("landscape.mspa", _) => Product::Mspa,
+            ("landscape.mspa" | "landscape.mspa_tiled", _) => Product::Mspa,
             ("landscape.spa", "map") => Product::Spa,
             ("landscape.accounting", "map") => Product::Accounting,
             ("fragmentation.fad" | "fragmentation.fad_multiscale", "classes") => Product::FadClasses,
@@ -378,17 +378,24 @@ pub(crate) fn foreground_param(sig: OpSignature) -> OpSignature {
 /// value 0; without it, the map's own values, which must be GTB's codes: 0 missing, 1 background, 2 foreground,
 /// and the special backgrounds 3 and 4 when `specials`. Cells without a value are missing either way.
 pub(crate) fn gtb_coded(args: &Args, map: &Map, specials: bool) -> Result<Vec<u8>> {
-    let foreground: Option<Vec<f64>> = match args.params.get("foreground") {
-        None | Some(serde_json::Value::Null) => None,
-        Some(serde_json::Value::Number(n)) => Some(vec![n.as_f64().unwrap()]),
-        Some(v) => Some(
-            serde_json::from_value(v.clone())
-                .map_err(|e| Error::msg(format!("node {:?}: foreground: {e}", args.node)))?,
-        ),
-    };
-    match &foreground {
-        Some(classes) => Ok(map
-            .data
+    gtb_code(args, &foreground_of(args)?, &map.data, specials)
+}
+
+/// The foreground's classes of a node (the setting `foreground`), if given.
+pub(crate) fn foreground_of(args: &Args) -> Result<Option<Vec<f64>>> {
+    match args.params.get("foreground") {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(serde_json::Value::Number(n)) => Ok(Some(vec![n.as_f64().unwrap()])),
+        Some(v) => serde_json::from_value(v.clone())
+            .map(Some)
+            .map_err(|e| Error::msg(format!("node {:?}: foreground: {e}", args.node))),
+    }
+}
+
+/// Values in GTB's coding, the foreground's classes given or not (see [`gtb_coded`]).
+pub(crate) fn gtb_code(args: &Args, foreground: &Option<Vec<f64>>, data: &[f64], specials: bool) -> Result<Vec<u8>> {
+    match foreground {
+        Some(classes) => Ok(data
             .iter()
             .map(|v| {
                 if v.is_nan() {
@@ -402,8 +409,7 @@ pub(crate) fn gtb_coded(args: &Args, map: &Map, specials: bool) -> Result<Vec<u8
             .collect()),
         None => {
             let top = if specials { 4.0 } else { 2.0 };
-            map.data
-                .iter()
+            data.iter()
                 .map(|&v| match v {
                     v if v.is_nan() => Ok(0),
                     v if v.fract() == 0.0 && (0.0..=top).contains(&v) => Ok(v as u8),

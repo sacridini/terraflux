@@ -32,6 +32,7 @@ pub mod lulcc;
 pub mod markov;
 pub mod metrics;
 pub mod milp;
+pub mod mspa_tiled;
 pub mod nlm;
 pub mod planner;
 pub mod plugin;
@@ -258,6 +259,7 @@ impl Registry {
         fitted::register(&mut r);
         fragmentation::register(&mut r);
         landscape::register(&mut r);
+        mspa_tiled::register(&mut r);
         plus::register(&mut r);
         prepare::register(&mut r);
         prioritize::register(&mut r);

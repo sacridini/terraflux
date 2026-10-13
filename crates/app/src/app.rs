@@ -2009,7 +2009,8 @@ pub(crate) fn node_panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
                         .add_filter("Rasters", &terraflux_ops::files::RASTER_EXTENSIONS)
                         .add_filter("Every file", &["*"]),
                 };
-                let picked = if n.op == "raster.write" { dialog.save_file() } else { dialog.pick_file() };
+                let writes = ["raster.write", "landscape.mspa_tiled"].contains(&n.op.as_str());
+                let picked = if writes { dialog.save_file() } else { dialog.pick_file() };
                 if let Some(p) = picked {
                     let p = p.to_string_lossy().into_owned();
                     change = Some(crate::editor::set_param(&mut s.source, &path, &n.id, &name, &p));

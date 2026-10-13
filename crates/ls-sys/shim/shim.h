@@ -332,3 +332,31 @@ ObservedPatches observed_patches(rust::Slice<const double> a, rust::Slice<const 
                                  std::int64_t nx, double from, double to);
 
 }  // namespace tfx
+
+// out-of-core landscapes (tiles): landschaft's lsm::TiledLandscape, a raster labelled block by block of rows
+#include "lsm/landscape.hpp"
+
+namespace tfx {
+
+std::unique_ptr<lsm::TiledLandscape> lsm_tiled_new(std::int64_t nx, std::int64_t ny, double resx, double resy,
+                                                   const LsmOptions& options,
+                                                   rust::Slice<const std::int32_t> class_values);
+rust::Vec<std::int32_t> lsm_unique_values(rust::Slice<const std::int32_t> values, rust::Slice<const std::uint8_t> na);
+void lsm_tiled_add(lsm::TiledLandscape& t, rust::Slice<const std::int32_t> values, rust::Slice<const std::uint8_t> na,
+                   std::int64_t y0, std::int64_t rows, std::int64_t above, std::int64_t below);
+void lsm_tiled_finish(lsm::TiledLandscape& t);
+std::int64_t lsm_tiled_detail_halo(const lsm::TiledLandscape& t, bool core, bool enn);
+void lsm_tiled_begin_detail(lsm::TiledLandscape& t, bool core, bool gyrate, bool circle, bool enn);
+void lsm_tiled_detail(lsm::TiledLandscape& t, rust::Slice<const std::int32_t> values,
+                      rust::Slice<const std::uint8_t> na, std::int64_t y0, std::int64_t rows, std::int64_t above,
+                      std::int64_t below);
+bool lsm_tiled_end_detail(lsm::TiledLandscape& t);
+void lsm_tiled_tie(lsm::TiledLandscape& t, rust::Slice<const std::int32_t> values, rust::Slice<const std::uint8_t> na,
+                   std::int64_t y0, std::int64_t rows, std::int64_t above, std::int64_t below);
+void lsm_tiled_end_ties(lsm::TiledLandscape& t);
+LsmTable lsm_tiled_table(lsm::TiledLandscape& t, rust::Slice<const std::int32_t> levels,
+                         rust::Slice<const rust::String> names);
+rust::Vec<std::int32_t> lsm_tiled_labels(const lsm::TiledLandscape& t, rust::Slice<const std::int32_t> values,
+                                         rust::Slice<const std::uint8_t> na, std::int64_t y0, std::int64_t rows);
+
+}  // namespace tfx

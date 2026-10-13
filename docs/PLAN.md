@@ -553,8 +553,12 @@ Pendências:
   mesmos números), as ligações são as do scipy (cadeia de vizinhos, árvore geradora mínima, o algoritmo genérico
   para centroide e mediana, o corte maxclust); a SVD é de Jacobi, a 1e-11 da do LAPACK. Os mesmos grupos do
   landschaft (`tools/make_signature_reference.py`).
-- **Próximos (2026-10-13):** MSPA e métricas por tiles para rasters maiores que a memória; instaladores com o
-  GDAL (os mapas de fundo já estão no viewer).
+- **Rasters maiores que a memória (Unreleased, 2026-10-13):** as métricas por blocos de linhas
+  (`block_rows` em `metrics.patch`, `metrics.class` e `metrics.landscape`: o `lsm::TiledLandscape` do landschaft
+  pela ponte do ls-sys; as mesmas tabelas da memória bit a bit, de mapas e de rasters em disco) e o MSPA Tiling do
+  GTB (`landscape.mspa_tiled`: janelas lidas e tiles TIFF gravados por linha de tiles; os mesmos mapas do
+  landschaft, `tools/make_mspa_tiled_reference.py`).
+- **Próximos (2026-10-13):** instaladores com o GDAL (os mapas de fundo já estão no viewer).
 
 Pendências gerais, depois das fases:
 - regiões e demandas regionais, CLUMondo, FUTURES e MOLUSCE no Terraflux;

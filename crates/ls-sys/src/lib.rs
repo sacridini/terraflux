@@ -1061,6 +1061,72 @@ pub mod ffi {
         ) -> Result<CarsOut>;
         fn similarity(a: &[i32], b: &[i32], ny: i64, nx: i64, window: i32, exponential: bool) -> Result<SimilarityOut>;
         fn observed_patches(a: &[f64], b: &[f64], ny: i64, nx: i64, from: f64, to: f64) -> Result<ObservedPatches>;
+
+        // out-of-core landscapes (tiles)
+
+        /// landschaft's out-of-core landscape: a raster labelled block by block of rows (a multiple of 64), the
+        /// pieces of the patches joined across the seams; the same metrics as the map in memory.
+        #[namespace = "lsm"]
+        #[cxx_name = "TiledLandscape"]
+        type LsmTiled;
+
+        /// An out-of-core landscape of nx x ny cells and the map's classes (those of every block).
+        fn lsm_tiled_new(
+            nx: i64,
+            ny: i64,
+            resx: f64,
+            resy: f64,
+            options: &LsmOptions,
+            class_values: &[i32],
+        ) -> Result<UniquePtr<LsmTiled>>;
+        /// The classes of a block (landscapemetrics' get_unique_values), increasing.
+        fn lsm_unique_values(values: &[i32], na: &[u8]) -> Vec<i32>;
+        /// The first pass: a block of `rows` rows from row `y0`, with `above` and `below` rows of context.
+        fn lsm_tiled_add(
+            t: Pin<&mut LsmTiled>,
+            values: &[i32],
+            na: &[u8],
+            y0: i64,
+            rows: i64,
+            above: i64,
+            below: i64,
+        ) -> Result<()>;
+        fn lsm_tiled_finish(t: Pin<&mut LsmTiled>) -> Result<()>;
+        /// The rows of context the detail pass's blocks need (core areas, enn).
+        fn lsm_tiled_detail_halo(t: &LsmTiled, core: bool, enn: bool) -> i64;
+        fn lsm_tiled_begin_detail(
+            t: Pin<&mut LsmTiled>,
+            core: bool,
+            gyrate: bool,
+            circle: bool,
+            enn: bool,
+        ) -> Result<()>;
+        /// The detail pass (core areas, gyrate, circle, enn): the blocks again, with their context.
+        fn lsm_tiled_detail(
+            t: Pin<&mut LsmTiled>,
+            values: &[i32],
+            na: &[u8],
+            y0: i64,
+            rows: i64,
+            above: i64,
+            below: i64,
+        ) -> Result<()>;
+        /// The end of the detail pass: whether gyrate with cell_center needs the pass of ties.
+        fn lsm_tiled_end_detail(t: Pin<&mut LsmTiled>) -> Result<bool>;
+        fn lsm_tiled_tie(
+            t: Pin<&mut LsmTiled>,
+            values: &[i32],
+            na: &[u8],
+            y0: i64,
+            rows: i64,
+            above: i64,
+            below: i64,
+        ) -> Result<()>;
+        fn lsm_tiled_end_ties(t: Pin<&mut LsmTiled>) -> Result<()>;
+        /// The metrics, as lsm_table (the patches' classes too).
+        fn lsm_tiled_table(t: Pin<&mut LsmTiled>, levels: &[i32], names: &[String]) -> Result<LsmTable>;
+        /// The patch of every cell of a block of the first pass (1.., 0 NA), read again without context.
+        fn lsm_tiled_labels(t: &LsmTiled, values: &[i32], na: &[u8], y0: i64, rows: i64) -> Result<Vec<i32>>;
     }
 }
 
