@@ -1,9 +1,11 @@
 //! Habitat connectivity from landschaft's conn module: habitat graphs (Conefor Sensinode's and Makurhini's
-//! indices overall, per node, per link, for links that change and for nodes to restore; the centralities). The
-//! graph's paths are landschaft's C++; the rest follows its numpy in the same order (its BLAS dot products and
-//! SIMD exponentials to rounding).
+//! indices overall, per node, per link, for links that change and for nodes to restore; the centralities), and
+//! their nodes and distances from rasters of patches. The graph's paths are landschaft's C++; the rest follows
+//! its numpy in the same order (its BLAS dot products and SIMD exponentials to rounding).
 
 pub mod graph;
+mod patches;
+pub mod raster;
 
 use std::sync::Arc;
 
@@ -22,14 +24,15 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(LinkChange));
     r.add(Arc::new(Components));
     r.add(Arc::new(Centrality));
+    patches::register(r);
 }
 
-fn bad(args: &Args, m: impl std::fmt::Display) -> Error {
+pub(super) fn bad(args: &Args, m: impl std::fmt::Display) -> Error {
     Error::msg(format!("node {:?}: {m}", args.node))
 }
 
 /// The settings of the graph every constructor has.
-fn graph_settings(sig: OpSignature) -> OpSignature {
+pub(super) fn graph_settings(sig: OpSignature) -> OpSignature {
     sig.param(
         PortSpec::optional(
             "kind",
@@ -49,7 +52,7 @@ fn graph_settings(sig: OpSignature) -> OpSignature {
     ))
 }
 
-fn settings(args: &Args) -> Result<(Kind, bool, Option<f64>)> {
+pub(super) fn settings(args: &Args) -> Result<(Kind, bool, Option<f64>)> {
     let kind = Kind::parse(&args.param::<String>("kind", "distance".into())?).map_err(|e| bad(args, e))?;
     let convention: String = args.param("convention", "makurhini".into())?;
     let conefor = match convention.as_str() {
@@ -76,11 +79,11 @@ fn connections(t: &Table, n: usize, names: [&str; 3]) -> std::result::Result<Con
     Ok(Connections::Pairs(t.rows.iter().map(|r| [r[f], r[to], r[v]]).collect()))
 }
 
-fn graph_out(g: HabitatGraph) -> Outputs {
+pub(super) fn graph_out(g: HabitatGraph) -> Outputs {
     outputs([("graph", Value::HabitatGraph(Arc::new(g)))])
 }
 
-fn the_graph<'a>(args: &'a Args) -> Result<&'a HabitatGraph> {
+pub(super) fn the_graph<'a>(args: &'a Args) -> Result<&'a HabitatGraph> {
     match args.get("graph") {
         Some(Value::HabitatGraph(g)) => Ok(g),
         _ => Err(bad(args, "connect a habitat graph (conn.graph)")),

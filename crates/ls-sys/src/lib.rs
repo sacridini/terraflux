@@ -132,6 +132,38 @@ pub mod ffi {
         edge_pc: Vec<f64>,
     }
 
+    /// The nodes of a raster of patch ids: the ids (increasing), their cells, their centroids (when asked) and
+    /// every cell's node (-1 none).
+    struct ConnRasterNodes {
+        ids: Vec<i32>,
+        cells: Vec<i64>,
+        cx: Vec<f64>,
+        cy: Vec<f64>,
+        node: Vec<i32>,
+    }
+
+    /// Pairs of nodes i < j (sorted) and their distance.
+    struct ConnPairs {
+        i: Vec<i32>,
+        j: Vec<i32>,
+        distance: Vec<f64>,
+    }
+
+    /// samc's transient part Q: the raster cell of every state and the steps between states.
+    struct ConnSamc {
+        cell: Vec<i64>,
+        from: Vec<i32>,
+        to: Vec<i32>,
+        q: Vec<f64>,
+    }
+
+    /// gdistance's conductance graph: neighbouring cells a < b and their conductance.
+    struct ConnConductance {
+        a: Vec<i64>,
+        b: Vec<i64>,
+        conductance: Vec<f64>,
+    }
+
     /// The gains of the connectivity numerator and of H when a node or an edge is added.
     struct ConnGains {
         num: Vec<f64>,
@@ -1182,6 +1214,70 @@ pub mod ffi {
             elen: &[f64],
             hops: bool,
         ) -> Result<ConnGains>;
+        /// The nodes of a raster of patch ids (ny x nx; na 1 outside, or empty), Makurhini's nodesfile.
+        #[allow(clippy::too_many_arguments)]
+        fn conn_raster_nodes(
+            values: &[i32],
+            na: &[u8],
+            ny: i64,
+            nx: i64,
+            extent: [f64; 4],
+            centroids: bool,
+            keep_index: bool,
+        ) -> Result<ConnRasterNodes>;
+        /// The distances between points (GEOS's sqrt(dx dx + dy dy)), the pairs up to max_distance.
+        fn conn_point_distances(x: &[f64], y: &[f64], max_distance: f64) -> Result<ConnPairs>;
+        /// The edge-to-edge distances between the patches of a node raster (cells resx x resy).
+        fn conn_raster_edge_distances(
+            node: &[i32],
+            n_nodes: i32,
+            ny: i64,
+            nx: i64,
+            resx: f64,
+            resy: f64,
+            max_distance: f64,
+        ) -> Result<ConnPairs>;
+        /// GDAL's areas of polygons (closed rings [ring_start[r], ring_start[r + 1]), the rings of each polygon,
+        /// the polygons of each geometry).
+        fn conn_gdal_areas(
+            x: &[f64],
+            y: &[f64],
+            ring_start: &[i64],
+            poly_start: &[i64],
+            geom_start: &[i64],
+        ) -> Result<Vec<f64>>;
+        /// gdistance's least-cost distances between nodes in cells (-1 outside) over a resistance (extent xmin,
+        /// xmax, ymin, ymax; function 0 Makurhini's 1 / destination, 1 the mean), up to max_cost.
+        #[allow(clippy::too_many_arguments)]
+        fn conn_least_cost(
+            resistance: &[f64],
+            ny: i64,
+            nx: i64,
+            extent: [f64; 4],
+            node_cell: &[i64],
+            directions: i32,
+            function: i32,
+            max_cost: f64,
+            max_threads: i32,
+        ) -> Result<ConnPairs>;
+        /// gdistance's conductance graph of a resistance (function as conn_least_cost).
+        fn conn_conductance(
+            resistance: &[f64],
+            ny: i64,
+            nx: i64,
+            extent: [f64; 4],
+            directions: i32,
+            function: i32,
+        ) -> Result<ConnConductance>;
+        /// samc's transient part of a resistance and an absorption raster (function as conn_least_cost).
+        fn conn_samc_transitions(
+            resistance: &[f64],
+            absorption: &[f64],
+            ny: i64,
+            nx: i64,
+            directions: i32,
+            function: i32,
+        ) -> Result<ConnSamc>;
         /// igraph's betweenness and the closeness sums on edges of the given lengths (`unit`: every edge 1).
         fn conn_centrality(pi: &[i32], pj: &[i32], length: &[f64], n: i32, unit: bool) -> Result<ConnCentrality>;
         /// NLMR's util_rescale (a copy): (x - min) / (max - min), 0 when min and max are all.equal.

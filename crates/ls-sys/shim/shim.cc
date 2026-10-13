@@ -70,7 +70,9 @@
 #include "rest/intactness.hpp"
 #include "lsm/rmath.hpp"
 #include "nlm/models.hpp"
+#include "conn/cost.hpp"
 #include "conn/graph.hpp"
+#include "conn/nodes.hpp"
 #include "sim/change.hpp"
 #include "sim/clues.hpp"
 #include "sim/demand.hpp"
@@ -342,6 +344,118 @@ ConnGains conn_edge_gains(rust::Slice<const double> d, rust::Slice<const double>
     const std::vector<double> dv = to_std(d);
     return gains_out(conn::edge_gains(dv, n, area.data(), ea.data(), eb.data(), elen.data(),
                                       static_cast<std::int32_t>(ea.size()), hops));
+}
+
+namespace {
+
+ConnPairs pairs_out(conn::PairList&& p) {
+    ConnPairs out;
+    out.i = to_rust<std::int32_t>(p.i);
+    out.j = to_rust<std::int32_t>(p.j);
+    out.distance = to_rust<double>(p.distance);
+    return out;
+}
+
+conn::CostFunction cost_function(std::int32_t f) {
+    check(f == 0 || f == 1, "the cost function is 0 (1 / destination) or 1 (the mean)");
+    return f == 0 ? conn::CostFunction::Destination : conn::CostFunction::Mean;
+}
+
+conn::CostGrid cost_grid(std::int64_t ny, std::int64_t nx, const std::array<double, 4>& extent, std::int32_t directions,
+                         std::int32_t function) {
+    check(ny > 0 && nx > 0, "the raster needs rows and columns");
+    check(directions == 4 || directions == 8, "the directions are 4 or 8");
+    conn::CostGrid g;
+    g.ny = ny;
+    g.nx = nx;
+    g.xmin = extent[0];
+    g.xmax = extent[1];
+    g.ymin = extent[2];
+    g.ymax = extent[3];
+    g.directions = directions;
+    g.function = cost_function(function);
+    return g;
+}
+
+}  // namespace
+
+ConnRasterNodes conn_raster_nodes(rust::Slice<const std::int32_t> values, rust::Slice<const std::uint8_t> na,
+                                  std::int64_t ny, std::int64_t nx, std::array<double, 4> extent, bool centroids,
+                                  bool keep_index) {
+    const auto n = static_cast<std::size_t>(ny * nx);
+    check(ny > 0 && nx > 0 && values.size() == n, "the raster must be ny x nx");
+    check(na.empty() || na.size() == n, "the mask does not match the raster");
+    conn::RasterGrid grid;
+    grid.ny = ny;
+    grid.nx = nx;
+    grid.xmin = extent[0];
+    grid.xmax = extent[1];
+    grid.ymin = extent[2];
+    grid.ymax = extent[3];
+    conn::RasterNodes r = conn::raster_nodes(values.data(), na.empty() ? nullptr : na.data(), grid, centroids, keep_index);
+    ConnRasterNodes out;
+    out.ids = to_rust<std::int32_t>(r.ids);
+    out.cells = to_rust<std::int64_t>(r.cells);
+    out.cx = to_rust<double>(r.cx);
+    out.cy = to_rust<double>(r.cy);
+    out.node = to_rust<std::int32_t>(r.node);
+    return out;
+}
+
+ConnPairs conn_point_distances(rust::Slice<const double> x, rust::Slice<const double> y, double max_distance) {
+    check(x.size() == y.size(), "x and y differ in length");
+    return pairs_out(conn::point_distances(x.data(), y.data(), static_cast<std::int32_t>(x.size()), max_distance));
+}
+
+ConnPairs conn_raster_edge_distances(rust::Slice<const std::int32_t> node, std::int32_t n_nodes, std::int64_t ny,
+                                     std::int64_t nx, double resx, double resy, double max_distance) {
+    check(ny > 0 && nx > 0 && node.size() == static_cast<std::size_t>(ny * nx), "the node raster must be ny x nx");
+    return pairs_out(conn::raster_edge_distances(node.data(), n_nodes, nx, ny, resx, resy, max_distance));
+}
+
+rust::Vec<double> conn_gdal_areas(rust::Slice<const double> x, rust::Slice<const double> y,
+                                  rust::Slice<const std::int64_t> ring_start, rust::Slice<const std::int64_t> poly_start,
+                                  rust::Slice<const std::int64_t> geom_start) {
+    check(x.size() == y.size() && !geom_start.empty() && !poly_start.empty() && !ring_start.empty(),
+          "malformed geometries");
+    return to_rust<double>(conn::gdal_areas(x.data(), y.data(), ring_start.data(), poly_start.data(), geom_start.data(),
+                                            static_cast<std::int64_t>(geom_start.size()) - 1));
+}
+
+ConnPairs conn_least_cost(rust::Slice<const double> resistance, std::int64_t ny, std::int64_t nx,
+                          std::array<double, 4> extent, rust::Slice<const std::int64_t> node_cell, std::int32_t directions,
+                          std::int32_t function, double max_cost, std::int32_t max_threads) {
+    const conn::CostGrid g = cost_grid(ny, nx, extent, directions, function);
+    check(resistance.size() == static_cast<std::size_t>(ny * nx), "the resistance must be ny x nx");
+    return pairs_out(conn::least_cost_distances(resistance.data(), g, node_cell.data(),
+                                                static_cast<std::int32_t>(node_cell.size()), max_cost, max_threads));
+}
+
+ConnConductance conn_conductance(rust::Slice<const double> resistance, std::int64_t ny, std::int64_t nx,
+                                 std::array<double, 4> extent, std::int32_t directions, std::int32_t function) {
+    const conn::CostGrid g = cost_grid(ny, nx, extent, directions, function);
+    check(resistance.size() == static_cast<std::size_t>(ny * nx), "the resistance must be ny x nx");
+    conn::ConductanceEdges e = conn::conductance_edges(resistance.data(), g);
+    ConnConductance out;
+    out.a = to_rust<std::int64_t>(e.a);
+    out.b = to_rust<std::int64_t>(e.b);
+    out.conductance = to_rust<double>(e.conductance);
+    return out;
+}
+
+ConnSamc conn_samc_transitions(rust::Slice<const double> resistance, rust::Slice<const double> absorption,
+                               std::int64_t ny, std::int64_t nx, std::int32_t directions, std::int32_t function) {
+    const auto n = static_cast<std::size_t>(ny * nx);
+    check(ny > 0 && nx > 0 && resistance.size() == n && absorption.size() == n,
+          "expected a resistance and an absorption raster of the same shape");
+    conn::SamcTransitions t =
+        conn::samc_transitions(resistance.data(), absorption.data(), nx, ny, directions, cost_function(function));
+    ConnSamc out;
+    out.cell = to_rust<std::int64_t>(t.cell);
+    out.from = to_rust<std::int32_t>(t.from);
+    out.to = to_rust<std::int32_t>(t.to);
+    out.q = to_rust<double>(t.q);
+    return out;
 }
 
 ConnCentrality conn_centrality(rust::Slice<const std::int32_t> pi, rust::Slice<const std::int32_t> pj,

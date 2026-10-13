@@ -20,6 +20,10 @@ struct CluesOut;
 struct NlmMosaicOut;
 struct ConnAnalysis;
 struct ConnGains;
+struct ConnRasterNodes;
+struct ConnPairs;
+struct ConnSamc;
+struct ConnConductance;
 struct ConnCentrality;
 struct NlmGermsOut;
 struct OrderedOut;
@@ -136,6 +140,22 @@ ConnGains conn_addition_gains(rust::Slice<const double> d, rust::Slice<const dou
 ConnGains conn_edge_gains(rust::Slice<const double> d, rust::Slice<const double> area,
                           rust::Slice<const std::int32_t> ea, rust::Slice<const std::int32_t> eb,
                           rust::Slice<const double> elen, bool hops);
+ConnRasterNodes conn_raster_nodes(rust::Slice<const std::int32_t> values, rust::Slice<const std::uint8_t> na,
+                                  std::int64_t ny, std::int64_t nx, std::array<double, 4> extent, bool centroids,
+                                  bool keep_index);
+ConnPairs conn_point_distances(rust::Slice<const double> x, rust::Slice<const double> y, double max_distance);
+ConnPairs conn_raster_edge_distances(rust::Slice<const std::int32_t> node, std::int32_t n_nodes, std::int64_t ny,
+                                     std::int64_t nx, double resx, double resy, double max_distance);
+rust::Vec<double> conn_gdal_areas(rust::Slice<const double> x, rust::Slice<const double> y,
+                                  rust::Slice<const std::int64_t> ring_start, rust::Slice<const std::int64_t> poly_start,
+                                  rust::Slice<const std::int64_t> geom_start);
+ConnPairs conn_least_cost(rust::Slice<const double> resistance, std::int64_t ny, std::int64_t nx,
+                          std::array<double, 4> extent, rust::Slice<const std::int64_t> node_cell, std::int32_t directions,
+                          std::int32_t function, double max_cost, std::int32_t max_threads);
+ConnConductance conn_conductance(rust::Slice<const double> resistance, std::int64_t ny, std::int64_t nx,
+                                 std::array<double, 4> extent, std::int32_t directions, std::int32_t function);
+ConnSamc conn_samc_transitions(rust::Slice<const double> resistance, rust::Slice<const double> absorption,
+                               std::int64_t ny, std::int64_t nx, std::int32_t directions, std::int32_t function);
 ConnCentrality conn_centrality(rust::Slice<const std::int32_t> pi, rust::Slice<const std::int32_t> pj,
                                rust::Slice<const double> length, std::int32_t n, bool unit);
 rust::Vec<double> nlm_rescale(rust::Slice<const double> x);

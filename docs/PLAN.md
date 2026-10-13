@@ -661,8 +661,10 @@ Pendências:
   `conn.read_conefor`, `conn.write_conefor`, `conn.overall`, `conn.node_importance` (com restauração e
   betweenness), `conn.link_importance`, `conn.link_change`, `conn.components` e `conn.centrality` —, bit a bit
   com o landschaft, menos o que ele calcula com o BLAS, as exponenciais SIMD ou o LAPACK do numpy (a rounding).
-  Faltam do `conn`: os nós e distâncias de rasters e vetores (`node_table`, `distance_table`, os grafos de
-  patches), o ProtConn, o SAMC, `focal_nodes`, as grades e `eca_change`.
+- **Grafos de patches em raster (0.45.0, 2026-10-13):** `conn.nodes`, `conn.distances` (centróides, bordas,
+  menor custo e tempo de comutação), `conn.graph_from_raster` e `conn.to_map`, bit a bit com o landschaft.
+  Faltam do `conn`: os nós e distâncias de vetores, o ProtConn, o SAMC, `focal_nodes`, as grades e
+  `eca_change`.
 - **Próximos (2026-10-13):** os instaladores de macOS e Linux;
   `vector.exact_sum` e `vector.distance` fora da memória.
 

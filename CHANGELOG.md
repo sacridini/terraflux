@@ -6,6 +6,15 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Habitat graphs of raster patches (landschaft's node_table, distance_table and HabitatGraph.from_raster, as
+  Makurhini's nodesfile and distancefile): `conn.nodes` (each patch's area in a unit, or an attribute, weighted
+  or not; the patches of habitat classes with 8 or 4 neighbours, or a raster of patch ids), `conn.distances`
+  (between centroids, edges, least-cost over a resistance as gdistance with Makurhini's or the mean
+  conductance, or commute times; the straight distance for the pairs a resistance does not join),
+  `conn.graph_from_raster` and `conn.to_map` (a node table's column back on the patches). The same as
+  landschaft's, to the bit.
+
 ## [0.44.0] - 2026-10-13
 
 ### Added

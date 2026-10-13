@@ -131,6 +131,9 @@ pub struct HabitatGraph {
     pub pi: Vec<i32>,
     pub pj: Vec<i32>,
     pub value: Vec<f64>,
+    /// The nodes' cells, of graphs made from a raster.
+    #[serde(skip)]
+    pub patches: Option<std::sync::Arc<super::raster::NodeRaster>>,
 }
 
 /// A table from its columns.
@@ -196,6 +199,7 @@ impl HabitatGraph {
             pi: Vec::new(),
             pj: Vec::new(),
             value: Vec::new(),
+            patches: None,
         };
         match connections {
             Connections::Matrix(m) => {
@@ -354,7 +358,10 @@ impl HabitatGraph {
         }
         let expand = if self.conefor && pij_min > 0.0 { -pij_min.ln() } else { f64::INFINITY };
         let threshold = distance.unwrap_or(f64::NAN);
-        if any_of(metrics, &PROBABILITY_METRICS) && self.kind == Kind::Distance && (threshold.is_nan() || threshold <= 0.0) {
+        if any_of(metrics, &PROBABILITY_METRICS)
+            && self.kind == Kind::Distance
+            && (threshold.is_nan() || threshold <= 0.0)
+        {
             return Err("the distance of the probability must be positive".into());
         }
         Ok(Scenario { distance, threshold, probability, pij_min, expand })
@@ -663,6 +670,7 @@ impl HabitatGraph {
             pi: both.iter().map(|&k| index[self.pi[k] as usize]).collect(),
             pj: both.iter().map(|&k| index[self.pj[k] as usize]).collect(),
             value: both.iter().map(|&k| self.value[k]).collect(),
+            patches: None,
         }
     }
 

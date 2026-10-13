@@ -72,7 +72,7 @@ pub fn default_options() -> ffi::LsmOptions {
 }
 
 /// A map's classes as 32-bit integers (truncated) and its NA mask (empty when it has none).
-fn classes_of(data: &[f64]) -> Result<(Vec<i32>, Vec<u8>)> {
+pub(crate) fn classes_of(data: &[f64]) -> Result<(Vec<i32>, Vec<u8>)> {
     let mut na = Vec::new();
     let mut values = Vec::with_capacity(data.len());
     for (i, &v) in data.iter().enumerate() {
