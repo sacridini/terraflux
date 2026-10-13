@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.51.0] - 2026-10-13
+
 ### Added
 - The evaluation of species distribution models (landschaft's evaluate, boyce, threshold and omission_rate):
   `sdm.evaluate` (AUC, the point-biserial correlation and its p-value, prevalence, the largest TSS and Boyce's
