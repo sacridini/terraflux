@@ -6,6 +6,16 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Propagation of uncertainty (landschaft's uncertainty module, the tools plangea uses), a subject of its own
+  in the builder: `uncertainty.sum_sd` (the standard deviation of a total of uncertain values: quadratic,
+  linear, or with a correlation), `uncertainty.product_sd` (Goodman's variance of a product, cell by cell or of
+  the total), `uncertainty.interval` (the normal confidence interval, cephes' ndtri as scipy's norm.ppf),
+  `uncertainty.delta` (the delta method over an expression of maps, numbers and uncertain parameters, map.calc's
+  expressions; central or forward differences) and `uncertainty.monte_carlo` (draws of the parameters with
+  numpy's generator: its ziggurat normal, PCG64 and seed; the mean, standard deviation and quantiles as numpy
+  computes them). The same as landschaft's, to the bit (`tools/make_uncertainty_reference.py`).
+
 ## [0.38.0] - 2026-10-13
 
 ### Added

@@ -54,12 +54,14 @@ pub mod restoration_plan;
 pub mod sampling;
 pub mod signatures;
 pub mod surface;
+pub mod uncertainty;
 pub mod validate;
 pub mod value;
 pub mod vector;
 pub mod vector_tiled;
 pub mod view;
 pub mod woe;
+mod ziggurat;
 pub mod zonation;
 
 use std::collections::BTreeMap;
@@ -273,6 +275,7 @@ impl Registry {
         change_analysis::register(&mut r);
         bio::register(&mut r);
         circuit::register(&mut r);
+        uncertainty::register(&mut r);
         cost::register(&mut r);
         surface::register(&mut r);
         legend::register(&mut r);

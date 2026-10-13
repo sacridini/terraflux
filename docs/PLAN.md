@@ -639,7 +639,10 @@ Pendências:
   matriz de rótulos), os índices de propriedades e de matriz, as propriedades de grupo nas randomizações, bit a
   bit com o landschaft. O módulo `bio` está no Terraflux, menos as importações de rasters, hexágonos e H3, as
   condições de shapefiles e os callables do Python.
-- **Próximos (2026-10-13):** incerteza, lotes; o resto
+- **Incerteza (0.39.0, 2026-10-13):** `uncertainty.sum_sd`, `uncertainty.product_sd`, `uncertainty.interval`,
+  `uncertainty.delta` e `uncertainty.monte_carlo` (as expressões do map.calc; o ziggurat normal do numpy, o
+  ndtri do cephes, as somas e quantis do numpy), bit a bit com o landschaft.
+- **Próximos (2026-10-13):** lotes; o resto
   dos circuitos (redes, pares incluídos, os arquivos .ini); os instaladores de macOS e Linux;
   `vector.exact_sum` e `vector.distance` fora da memória.
 
