@@ -30,9 +30,13 @@ minor versions.
   as that product whatever their name (`product` sets it by hand); MSPA by tiles writes it too. The dataset's
   metadata items are read and written with the GeoTIFF (`GeoTags::metadata`).
 
-- The builder without the mouse: with the model's canvas in focus the arrows go to the node beside the one
-  selected (the first, top left, when none is; the view follows), enter shows its output in the viewer; with "/"
-  to add operators, a model is built from the keyboard.
+- The builder without the mouse: with the model's canvas in focus and the pointer over it the arrows go to the node
+  beside the one selected (the first, top left, when none is; the view follows), enter shows its output in the
+  viewer; with "/" to add operators, a model is built from the keyboard.
+- Templates of Dinamica EGO's classic model and of CLUE-S (lulcc's), on two dates of land use drawn by chance,
+  calibrated and run three steps ahead as soon as they open.
+- Templates of one's own: a model saved as a template (Templates, "Save this model as a template"; its files'
+  paths made absolute) and listed under Yours, opened as a new model, removed with its x.
 
 ### Changed
 - A continuous map's ramp spans its values' 2nd to 98th percentiles (98th of the absolute values centred on 0),

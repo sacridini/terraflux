@@ -177,6 +177,11 @@ impl EditorState {
             .map(|(_, k)| k)
     }
 
+    /// Where the canvas was drawn last.
+    pub fn canvas(&self) -> Option<Rect> {
+        self.rect
+    }
+
     /// Keep a node in view: the camera moved just enough that its box is on the canvas (with a margin).
     pub fn reveal(&mut self, node: &str) {
         let (Some(s), Some(rect)) = (self.scene.as_ref(), self.rect) else { return };

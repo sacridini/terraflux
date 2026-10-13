@@ -630,12 +630,15 @@ fn runnable(s: &Session) -> Option<String> {
 }
 
 /// ctrl+enter runs up to the node selected, del deletes the nodes selected, ctrl+L arranges the nodes, ctrl+R
-/// renames the node selected, "/" searches the operators to add one; with the model's canvas in focus the arrows
-/// go to the node beside the one selected (kept in view) and enter shows its output: whether to show the viewer.
+/// renames the node selected, "/" searches the operators to add one; with the model's canvas in focus and the
+/// pointer over it the arrows go to the node beside the one selected (kept in view) and enter shows its output:
+/// whether to show the viewer.
 pub fn keys(ui: &Ui, s: &mut Session, r: &Registry, canvas: bool) -> bool {
     let typing = ui.ctx().memory(|m| m.focused().is_some());
     let mut show = false;
-    if canvas && !typing && s.editor.quick.is_none() && s.editor.renaming.is_none() && !s.editor.text {
+    // (the pointer over the canvas: elsewhere the arrows go through the maps shown)
+    let over = ui.input(|i| i.pointer.latest_pos()).is_some_and(|p| s.editor.canvas().is_some_and(|r| r.contains(p)));
+    if canvas && over && !typing && s.editor.quick.is_none() && s.editor.renaming.is_none() && !s.editor.text {
         let (left, right, up, down, enter) = ui.input_mut(|i| {
             let none = egui::Modifiers::NONE;
             (

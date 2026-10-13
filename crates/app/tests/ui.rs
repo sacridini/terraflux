@@ -809,6 +809,10 @@ fn nodes_are_gone_through_with_the_keyboard() {
     h.run_steps(4);
     h.state_mut().focus(Pane::Model);
     h.run_steps(2);
+    // the pointer over the canvas
+    let canvas = h.state().session.as_ref().unwrap().editor.canvas().expect("the canvas drawn");
+    h.event(egui::Event::PointerMoved(canvas.center()));
+    h.run_steps(2);
     let selected = |h: &Harness<TerrafluxApp>| h.state().session.as_ref().unwrap().selected.clone();
     // to the first node of the chain, leftwards
     let mut last = None;

@@ -429,7 +429,12 @@ impl Session {
 
     /// A model to start from, not saved yet.
     pub fn template(t: &crate::templates::Template) -> Result<Session, String> {
-        let mut s = Session::new(t.model(), None)?;
+        Session::from_model(t.model())
+    }
+
+    /// A session of a model not saved yet (a template's).
+    pub fn from_model(m: Model) -> Result<Session, String> {
+        let mut s = Session::new(m, None)?;
         s.dirty = true;
         Ok(s)
     }
@@ -940,6 +945,8 @@ pub struct TerrafluxApp {
     layout_text: String,
     layout_saved: Instant,
     pub message: Option<String>,
+    /// The name typed for a template of the user's.
+    pub template_name: String,
     /// The operators, made once.
     pub registry: Registry,
     pub library: Library,
@@ -973,6 +980,7 @@ impl TerrafluxApp {
         let registry = Registry::standard();
         let library = Library::new(&registry);
         let mut app = TerrafluxApp {
+            template_name: String::new(),
             session: Some(Session::blank()),
             wizard: None,
             dock: Some(default_layout()),
@@ -1009,7 +1017,12 @@ impl TerrafluxApp {
 
     /// A template in the builder, its graph arranged, its last node shown, and run (its plots open by themselves).
     pub fn start_template(&mut self, ctx: &egui::Context, t: &crate::templates::Template) {
-        let mut s = match Session::template(t) {
+        self.start_model(ctx, t.model());
+    }
+
+    /// A model to start from in the builder (a template's), its graph arranged, its last node shown, and run.
+    pub fn start_model(&mut self, ctx: &egui::Context, model: Model) {
+        let mut s = match Session::from_model(model) {
             Ok(s) => s,
             Err(e) => {
                 self.message = Some(e);
@@ -1069,6 +1082,47 @@ impl TerrafluxApp {
                         self.start_template(ui.ctx(), t);
                         ui.close();
                     }
+                }
+                // the user's own: a model saved as a template, opened as a new model
+                ui.separator();
+                ui.label(RichText::new("Yours").weak().size(11.0));
+                let mut remove = None;
+                for (name, path) in crate::templates::user_templates() {
+                    ui.horizontal(|ui| {
+                        if ui.button(&name).on_hover_text(path.display().to_string()).clicked() {
+                            match terraflux_graph::Model::load(&path) {
+                                Ok(m) => self.start_model(ui.ctx(), m),
+                                Err(e) => self.message = Some(format!("{}: {e}", path.display())),
+                            }
+                            ui.close();
+                        }
+                        if ui.small_button("x").on_hover_text("remove this template").clicked() {
+                            remove = Some(path.clone());
+                        }
+                    });
+                }
+                if let Some(p) = remove {
+                    let _ = std::fs::remove_file(p);
+                }
+                if let Some(s) = &self.session {
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.template_name).hint_text("name").desired_width(140.0),
+                        );
+                        let base = s.path.as_deref().and_then(Path::parent);
+                        if ui.button("Save this model as a template").clicked() {
+                            let name = if self.template_name.trim().is_empty() {
+                                s.source.name.clone().unwrap_or_else(|| "model".into())
+                            } else {
+                                self.template_name.clone()
+                            };
+                            match crate::templates::save_user_template(&s.source, base, &name) {
+                                Ok(p) => self.message = Some(format!("saved the template {}", p.display())),
+                                Err(e) => self.message = Some(e),
+                            }
+                            self.template_name.clear();
+                        }
+                    });
                 }
             });
             if ui.button("Wizard...").on_hover_text("a land change model from your maps, step by step").clicked() {

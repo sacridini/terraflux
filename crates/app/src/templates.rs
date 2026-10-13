@@ -1,24 +1,152 @@
 //! Models to start from: small graphs that run as they are (their data drawn by neutral landscape models) or
 //! once a file is chosen, to see how a flow is built and to check that it works.
 
-use terraflux_graph::Model;
+use terraflux_graph::{Model, Node, Source};
+use terraflux_ops::presets;
 
-/// A model to start from: its name, what it shows, and the model.
+/// A model to start from: its name, what it shows, and the model (written, or built from a preset).
 pub struct Template {
     pub name: &'static str,
     pub about: &'static str,
     toml: &'static str,
+    build: Option<fn() -> Model>,
 }
 
 impl Template {
     pub fn model(&self) -> Model {
-        Model::from_toml(self.toml).expect("a template is a model")
+        match self.build {
+            Some(f) => f(),
+            None => Model::from_toml(self.toml).expect("a template is a model"),
+        }
     }
 }
 
-pub const TEMPLATES: [Template; 15] = [
+/// Two dates of land use drawn for the land change templates: classes 1 (forest), 2 (farming) and 3 (water) by a
+/// random cluster, and ten years later farming grown into the forest beside it where a suitability is high; the
+/// suitability and a roughness, the drivers of the change. Nodes `land_2000`, `land_2010`, `drivers`.
+fn land_change_data(m: &mut Model) {
+    m.nodes.push(
+        Node::new("land_2000", "nlm.random_cluster")
+            .param("rows", 160)
+            .param("columns", 160)
+            .param("p", 0.5)
+            .param("weights", serde_json::json!([0.55, 0.35, 0.10]))
+            .param("seed", 11)
+            .note("Land use drawn by chance: 1 forest, 2 farming, 3 water. In its place, a raster.read of a map of yours."),
+    );
+    m.nodes.push(
+        Node::new("aptitude", "nlm.gaussian_field")
+            .param("rows", 160)
+            .param("columns", 160)
+            .param("range", 25)
+            .param("seed", 12)
+            .note("A driver: how suited each cell is to farming (0 to 1)."),
+    );
+    m.nodes.push(
+        Node::new("roughness", "nlm.fbm")
+            .param("rows", 160)
+            .param("columns", 160)
+            .param("dimension", 1.4)
+            .param("seed", 13)
+            .note("A driver of no effect on the change, as real models have some."),
+    );
+    m.nodes.push(
+        Node::new("land_2010", "map.calc")
+            .input("t0", "land_2000.map")
+            .input("suit", "aptitude.map")
+            .param("expression", "if t0 == 1 and nbcount(t0 == 2, 1) >= 2 and suit > 0.45 then 2 else t0")
+            .note("Ten years later: farming grown into the forest beside it, where it is suited."),
+    );
+    m.nodes.push(
+        Node::new("drivers", "stack.of")
+            .input("aptitude", "aptitude.map")
+            .input("roughness", "roughness.map")
+            .note("The drivers of the change, a layer each."),
+    );
+}
+
+/// The references to inputs (`$name`) of nodes (and of their bodies) replaced by references to nodes, the seed by
+/// a number.
+fn rewire(nodes: &mut [Node], to: &[(&str, &str)]) {
+    for n in nodes {
+        for src in n.inputs.values_mut() {
+            if let Source::Ref(r) = src {
+                if r == "$seed" {
+                    *src = Source::Literal(7.into());
+                } else if let Some((_, by)) = to.iter().find(|(from, _)| *from == r.as_str()) {
+                    *r = by.to_string();
+                }
+            }
+        }
+        if let Some(b) = &mut n.body {
+            rewire(&mut b.nodes, to);
+        }
+    }
+}
+
+/// Dinamica EGO's classic model on the data drawn: Markov rates, weights of evidence, Expander and Patcher.
+fn dinamica() -> Model {
+    let mut m = Model::new("Dinamica EGO");
+    m.description = Some(
+        "Dinamica EGO's classic model, calibrated on two dates of land use drawn by chance (2000 and 2010) and \
+         run 3 steps of 10 years from 2010."
+            .into(),
+    );
+    land_change_data(&mut m);
+    presets::dinamica(&mut m, &presets::Dinamica { start: "t1".into(), steps: 1, simulate: 3, ..Default::default() });
+    rewire(&mut m.nodes, &[("$t0", "land_2000.map"), ("$t1", "land_2010.map"), ("$drivers", "drivers.stack")]);
+    m.nodes.push(Node::new("plot", "view.plot").input("value", "simulation.maps").param("title", "Simulated land use"));
+    m
+}
+
+/// CLUE-S (lulcc's CluesModel) on the data drawn: logistic regressions, a linear demand, CLUE's allocation.
+fn clue_s() -> Model {
+    let mut m = Model::new("CLUE-S");
+    m.description = Some(
+        "CLUE-S as lulcc's CluesModel: the regressions of every class on the drivers, the demand extended from \
+         two dates of land use drawn by chance (2000 and 2010), the allocation of three steps of 10 years."
+            .into(),
+    );
+    land_change_data(&mut m);
+    m.nodes.push(
+        Node::new("observed", "stack.of")
+            .input("t2000", "land_2000.map")
+            .input("t2010", "land_2010.map")
+            .note("The observed maps, a layer per date, for the demand."),
+    );
+    presets::lulcc(
+        &mut m,
+        &presets::Lulcc {
+            observed: "observed".into(),
+            drivers: "drivers".into(),
+            seed: "seed".into(),
+            start: "start".into(),
+            restrictions: None,
+            history: None,
+            times: vec![2000.0, 2010.0],
+            formulas: None,
+            allocation: serde_json::json!({"method": "clue"}),
+            elasticity: Some(serde_json::json!([0.5, 0.2, 1.0])),
+            allowed: None,
+            neighbourhood: None,
+        },
+    );
+    rewire(
+        &mut m.nodes,
+        &[("$observed", "observed.stack"), ("$start", "land_2010.map"), ("$drivers", "drivers.stack")],
+    );
+    // three steps of ten years from 2010
+    if let Some(d) = m.nodes.iter_mut().find(|n| n.id == "demand") {
+        d.params.insert("out_times".into(), serde_json::json!([2010, 2020, 2030, 2040]));
+    }
+    m.nodes.push(Node::new("plot", "view.plot").input("value", "simulation.maps").param("title", "Simulated land use"));
+    m
+}
+
+pub const TEMPLATES: [Template; 17] = [
     Template {
         name: "MSPA of a forest",
+        build: None,
         about: "a map of three classes drawn by chance, its forest made MSPA's foreground by a reclassification, \
                 MSPA, and its map in a tab",
         toml: r#"
@@ -56,6 +184,7 @@ note = "Its map in a tab of its own, in GuidosToolbox's colours, refreshed at ev
     },
     Template {
         name: "MSPA of your map",
+        build: None,
         about: "the same flow on a raster of yours: choose its file in the node read, and in the reclassification \
                 the classes of its forest",
         toml: r#"
@@ -93,6 +222,7 @@ note = "Its map in a tab of its own, refreshed at every run."
     },
     Template {
         name: "Forest from a surface",
+        build: None,
         about: "a smooth surface drawn by chance cut at a threshold into forest and the rest (a reclassification \
                 by ranges), then MSPA",
         toml: r#"
@@ -137,6 +267,7 @@ note = "MSPA's classes in GuidosToolbox's colours."
     },
     Template {
         name: "Fragmentation of a forest",
+        build: None,
         about: "one forest map, its density at five scales (FAD-MS) and its connectivity at one (FOS), in                 GuidosToolbox's colours",
         toml: r#"
 format = "terraflux/1"
@@ -178,6 +309,7 @@ params = { title = "FOS (FAC, 27 cells)" }
     },
     Template {
         name: "Patterns and objects",
+        build: None,
         about: "one forest map, its simplified pattern (SPA6) and its objects by size (Accounting)",
         toml: r#"
 format = "terraflux/1"
@@ -219,6 +351,7 @@ params = { title = "Objects by size" }
     },
     Template {
         name: "Landscape mosaic",
+        build: None,
         about: "a land cover of agriculture, natural and developed land, its landscape mosaic, and the natural \
                 land's contagion and entropy",
         toml: r#"
@@ -268,6 +401,7 @@ params = { title = "Contagion of the natural land" }
     },
     Template {
         name: "Landscape metrics",
+        build: None,
         about: "a land cover's metrics per class (with the share of each as a map) and of the whole landscape, \
                 and its diversity in a moving window",
         toml: r#"
@@ -317,6 +451,7 @@ params = { title = "Diversity around each cell" }
     },
     Template {
         name: "Ecological intactness",
+        build: None,
         about: "a human footprint drawn by chance, the ecological intactness it leaves (Beyer et al., as plangea), \
                 and where restoring would raise it most",
         toml: r#"
@@ -373,6 +508,7 @@ params = { title = "Where restoring raises it most" }
     },
     Template {
         name: "Zonation",
+        build: None,
         about: "four species' distributions drawn by chance and a cost, Zonation's priority rank of the cells and \
                 its performance curves",
         toml: r#"
@@ -429,6 +565,7 @@ params = { title = "Priority rank" }
     },
     Template {
         name: "Marxan and irreplaceability",
+        build: None,
         about: "four species and a cost: Marxan's reserves for a third of each, how often each cell was chosen, \
                 and ProxIRR's irreplaceability of the cells",
         toml: r#"
@@ -503,6 +640,7 @@ params = { title = "Irreplaceability (beta)" }
     },
     Template {
         name: "Conservation planning (prioritizr)",
+        build: None,
         about: "four species and a cost: the cheapest set of cells that holds 30% of each, as prioritizr \
                 solves it (an integer program, HiGHS), and how much of each it holds",
         toml: r#"
@@ -558,6 +696,7 @@ params = { title = "Selected cells" }
     },
     Template {
         name: "Restoration plan (plangea)",
+        build: None,
         about: "a forest and its cropland drawn by chance, three species' ranges: where to restore 100 km² for \
                 the most reduction of their extinction risk, as plangea (an exact plan, a proven bound)",
         toml: r#"
@@ -659,6 +798,7 @@ params = { title = "Share of each cell restored" }
     },
     Template {
         name: "Multi-action planning (prioriactions)",
+        build: None,
         about: "six planning units, two species and a threat: which units to monitor and where to act against \
                 the threat so that both species recover, at the least cost (prioriactions)",
         toml: r#"
@@ -705,6 +845,7 @@ note = "prioriactions's model, solved exactly. Try model = maximizeBenefits with
     },
     Template {
         name: "MSPA's edge width",
+        build: None,
         about: "one forest map, MSPA with edges of 1 and of 4 cells side by side",
         toml: r#"
 format = "terraflux/1"
@@ -744,6 +885,7 @@ params = { title = "Edge of 4 cells" }
     },
     Template {
         name: "Neutral landscapes",
+        build: None,
         about: "the three neutral landscape models side by side: patches of classes, a smooth surface, a fractal \
                 one (the viewer colours each as what it is)",
         toml: r#"
@@ -787,7 +929,90 @@ inputs = { value = "fractal.map" }
 params = { title = "Fractal" }
 "#,
     },
+    Template {
+        name: "Dinamica EGO",
+        about: "Dinamica EGO's classic model (Markov rates, weights of evidence, Expander and Patcher) on two dates \
+                of land use drawn by chance, run three steps ahead",
+        toml: "",
+        build: Some(dinamica),
+    },
+    Template {
+        name: "CLUE-S",
+        about: "CLUE-S as lulcc's (logistic regressions, a linear demand, CLUE's allocation) on two dates of land use \
+                drawn by chance, run three steps ahead",
+        toml: "",
+        build: Some(clue_s),
+    },
 ];
+
+/// Where the user's own templates are kept (the user's application data): a model file each, named as shown.
+pub fn user_dir() -> Option<std::path::PathBuf> {
+    crate::app::layout_file().and_then(|f| f.parent().map(|d| d.join("templates")))
+}
+
+/// The user's own templates: (name, file), by name.
+pub fn user_templates() -> Vec<(String, std::path::PathBuf)> {
+    let Some(dir) = user_dir() else { return Vec::new() };
+    let Ok(entries) = std::fs::read_dir(&dir) else { return Vec::new() };
+    let mut out: Vec<(String, std::path::PathBuf)> = entries
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("toml")))
+        .map(|p| (p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default(), p))
+        .collect();
+    out.sort_by_key(|a| a.0.to_lowercase());
+    out
+}
+
+/// The paths of a model's files (of the nodes that read and write them, and of its inputs) made absolute from the
+/// folder `base` they were relative to, so that the model opens the same files from anywhere.
+pub fn absolute_paths(m: &mut Model, base: &std::path::Path) {
+    fn nodes(ns: &mut [Node], base: &std::path::Path) {
+        for n in ns {
+            if terraflux_graph::FILE_OPS.contains(&n.op.as_str())
+                && let Some(serde_json::Value::String(p)) = n.params.get_mut("path")
+                && !p.starts_with("blob:")
+                && !p.is_empty()
+                && std::path::Path::new(p.as_str()).is_relative()
+            {
+                *p = base.join(p.as_str()).to_string_lossy().into_owned();
+            }
+            if let Some(b) = &mut n.body {
+                nodes(&mut b.nodes, base);
+            }
+        }
+    }
+    nodes(&mut m.nodes, base);
+    for input in m.inputs.values_mut() {
+        if let terraflux_graph::Input::Map { path, .. } | terraflux_graph::Input::Stack { path, .. } = input
+            && std::path::Path::new(path.as_str()).is_relative()
+        {
+            *path = base.join(path.as_str()).to_string_lossy().into_owned();
+        }
+    }
+}
+
+/// A model saved as a template of the user's, named `name` (characters a file name cannot hold replaced); its
+/// files' paths made absolute from `base`. The file written.
+pub fn save_user_template(
+    model: &Model,
+    base: Option<&std::path::Path>,
+    name: &str,
+) -> Result<std::path::PathBuf, String> {
+    let dir = user_dir().ok_or("no folder for the application's data")?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let clean: String = name.trim().chars().map(|c| if "\\/:*?\"<>|".contains(c) { '_' } else { c }).collect();
+    if clean.is_empty() {
+        return Err("a template needs a name".into());
+    }
+    let mut m = model.clone();
+    m.name = Some(clean.clone());
+    if let Some(b) = base {
+        absolute_paths(&mut m, b);
+    }
+    let path = dir.join(format!("{clean}.toml"));
+    m.save(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(path)
+}
 
 #[cfg(test)]
 mod tests {
@@ -802,6 +1027,46 @@ mod tests {
             let errors: Vec<_> = issues.iter().filter(|i| i.severity == terraflux_graph::Severity::Error).collect();
             // (the one for a file to choose excepted)
             assert!(errors.iter().all(|i| i.message.contains("path")), "{}: {errors:?}", t.name);
+        }
+    }
+
+    #[test]
+    fn paths_made_absolute() {
+        let mut m = Model::new("t");
+        m.nodes.push(Node::new("read", "raster.read").param("path", "data/land.tif"));
+        m.nodes.push(Node::new("other", "nlm.fbm").param("path", "keep"));
+        m.inputs.insert(
+            "x".into(),
+            terraflux_graph::Input::Map { path: "x.tif".into(), band: None, nodata: None, note: None },
+        );
+        let base = std::env::temp_dir();
+        absolute_paths(&mut m, &base);
+        assert_eq!(m.nodes[0].params["path"], base.join("data/land.tif").to_string_lossy().as_ref());
+        assert_eq!(m.nodes[1].params["path"], "keep");
+        assert!(
+            matches!(&m.inputs["x"], terraflux_graph::Input::Map { path, .. } if path == &base.join("x.tif").to_string_lossy())
+        );
+    }
+
+    /// The land change templates run: three steps simulated, farming grown.
+    #[test]
+    fn land_change_templates_run() {
+        struct Quiet;
+        impl terraflux_exec::Observer for Quiet {}
+        for name in ["Dinamica EGO", "CLUE-S"] {
+            let m = TEMPLATES.iter().find(|t| t.name == name).unwrap().model();
+            let out = terraflux_exec::Engine::default()
+                .run(&m, &Default::default(), &mut Quiet)
+                .unwrap_or_else(|e| panic!("{name}: {e}"));
+            let Some(terraflux_ops::Value::Series(maps)) = out.get("simulation.maps") else {
+                panic!("{name}: no maps")
+            };
+            assert_eq!(maps.len(), 3, "{name}");
+            let farming = |v: &terraflux_ops::Value| match v {
+                terraflux_ops::Value::Map(m) => m.data.iter().filter(|&&x| x == 2.0).count(),
+                _ => 0,
+            };
+            assert!(farming(&maps[2]) > farming(&maps[0]), "{name}: farming grows");
         }
     }
 }
