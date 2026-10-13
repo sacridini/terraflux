@@ -28,6 +28,11 @@ minor versions.
   (`tools/make_mspa_tiled_reference.py`): MSPA by overlapping tiles with GTB's shortcuts, of a map in memory, or of
   rasters on disk read by windows and written tile by tile to a GeoTIFF (GTB's name next to the input by default).
 
+- The Windows installer and a portable zip (`tools/make-installer.ps1`, in `target/installer`): Terraflux in
+  Program Files with a Start menu shortcut and the PATH, GDAL in the folder `gdal`, the Visual C++ and OpenMP
+  runtimes next to the program (a clean Windows has neither). The MSI is built by WiX 5, a .NET tool of the
+  repository (`.config/dotnet-tools.json`).
+
 ### Changed
 - The map input of `metrics.patch`, `metrics.class` and `metrics.landscape` takes rasters on disk as they are
   (read by blocks when large or asked to); the maps of patches and metrics are given for maps in memory only.

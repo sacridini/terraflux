@@ -68,7 +68,10 @@ usar, sem ficar simplista. Ele precisa:
   - Se um dia houver Python dentro do aplicativo (um nó de script), ele entra como componente opcional e
     isolado (um Python embutido), nunca no laço da simulação; para estender o aplicativo sem exigir nada do
     usuário, os plugins WebAssembly.
-  - Instaladores a fazer: Windows (MSI ou NSIS, com o redistribuível), depois macOS e Linux.
+  - Instalador do Windows feito (2026-10-13, `tools/make-installer.ps1`): um MSI do WiX 5 (ferramenta .NET do
+    repositório) e um zip portátil, com o GDAL na pasta `gdal` e as DLLs do runtime do Visual C++ e do OpenMP ao
+    lado do executável (a implantação local que a Microsoft permite, sem rodar o redistribuível). Faltam macOS e
+    Linux, a assinatura do instalador e um ícone.
 
 ## Princípios de produto
 
@@ -558,7 +561,12 @@ Pendências:
   pela ponte do ls-sys; as mesmas tabelas da memória bit a bit, de mapas e de rasters em disco) e o MSPA Tiling do
   GTB (`landscape.mspa_tiled`: janelas lidas e tiles TIFF gravados por linha de tiles; os mesmos mapas do
   landschaft, `tools/make_mspa_tiled_reference.py`).
-- **Próximos (2026-10-13):** instaladores com o GDAL (os mapas de fundo já estão no viewer).
+- **Instalador do Windows (Unreleased, 2026-10-13):** `tools/make-installer.ps1` gera o MSI (WiX 5) e o zip
+  com o executável, o GDAL e os runtimes do Visual C++ e do OpenMP; o MSI extraído roda um modelo que lê um
+  `.asc` pelo GDAL embutido com o PATH só do Windows.
+- **Próximos (2026-10-13):** os instaladores de macOS e Linux; o que falta do `lsm` (gráficos de várias métricas,
+  o clustergram e o biplot no viewer); as pendências do prioritizr (polígonos com zonas, unidades H3); a ponte do
+  ls.simulate (demandas regionais, CLUMondo, FUTURES, MOLUSCE), em andamento num branch próprio.
 
 Pendências gerais, depois das fases:
 - regiões e demandas regionais, CLUMondo, FUTURES e MOLUSCE no Terraflux;

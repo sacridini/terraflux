@@ -1,0 +1,61 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!--
+  Terraflux's Windows installer (WiX 5): terraflux.exe, the Visual C++ and OpenMP runtimes next to it, and GDAL in
+  the folder `gdal`, in Program Files\Terraflux; a shortcut in the Start menu and the folder on the PATH (for
+  `terraflux run`). Built by tools\make-installer.ps1, which stages the files and gives Version and Stage.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+      Name="Terraflux"
+      Manufacturer="Terraflux"
+      Version="$(var.Version)"
+      UpgradeCode="0f5378cc-a4a4-4353-9708-bf645d60075e"
+      Scope="perMachine"
+      Compressed="yes">
+    <SummaryInformation Description="Terraflux $(var.Version): land use and land cover change modelling" />
+    <MajorUpgrade DowngradeErrorMessage="A newer Terraflux is installed already." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/sacridini/terraflux" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Terraflux" />
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="Terraflux" Level="1">
+      <ComponentGroupRef Id="Files" />
+      <ComponentRef Id="StartMenu" />
+      <ComponentRef Id="OnPath" />
+    </Feature>
+  </Package>
+
+  <Fragment>
+    <!-- every file staged: terraflux.exe, the runtimes, gdal\ (its libraries, data and plugins) -->
+    <ComponentGroup Id="Files" Directory="INSTALLFOLDER">
+      <Files Include="$(var.Stage)\**" />
+    </ComponentGroup>
+  </Fragment>
+
+  <Fragment>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenu">
+        <Shortcut
+            Id="TerrafluxShortcut"
+            Name="Terraflux"
+            Description="Land use and land cover change modelling"
+            Target="[INSTALLFOLDER]terraflux.exe"
+            WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKLM" Key="Software\Terraflux" Name="StartMenu" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+  </Fragment>
+
+  <Fragment>
+    <Component Id="OnPath" Directory="INSTALLFOLDER" Guid="f5cb610b-88a3-4424-bd7c-6660b99bb948">
+      <Environment Id="TerrafluxPath" Name="PATH" Value="[INSTALLFOLDER]" Part="last" Action="set" System="yes"
+                   Permanent="no" />
+      <RegistryValue Root="HKLM" Key="Software\Terraflux" Name="OnPath" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+  </Fragment>
+</Wix>

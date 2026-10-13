@@ -249,6 +249,11 @@ On many machines, the tiles go to a coordinator's workers, the maps and the laye
 terraflux run model.toml --tiled --disk /shared/layers --coordinator http://coordinator-host:7700
 ```
 
+Landscape metrics read a map larger than memory by blocks of rows (`block_rows` on `metrics.patch`,
+`metrics.class` and `metrics.landscape`, and always for rasters on disk of more than 250 million cells), the same
+values as in memory; MSPA by GuidosToolbox's overlapping tiles (`landscape.mspa_tiled`) reads and writes a raster
+on disk tile by tile.
+
 No command takes every core: Rust's tasks, landschaft's OpenMP kernels and the workers of a local cluster share
 all the cores but one, unless `--threads` (or `TERRAFLUX_THREADS`) says otherwise.
 
@@ -321,6 +326,20 @@ collect = { maps = "allocate.landscape" }
 [outputs.maps]
 from = "simulation.maps"
 ```
+
+## Installing
+
+On Windows, the installer (`terraflux-<version>-x64.msi`) puts Terraflux in Program Files with a shortcut in the
+Start menu and the folder on the PATH (for `terraflux run`); the zip (`terraflux-<version>-windows-x64.zip`) holds
+the same files, to unpack anywhere. Both bring GDAL (the folder `gdal`) and the Visual C++ and OpenMP runtimes:
+nothing else is needed, neither Python nor a GDAL of one's own. They are made by
+
+```powershell
+tools\make-installer.ps1      # target\installer: the MSI (WiX 5, a .NET tool of the repository) and the zip
+```
+
+from the release build, the GDAL of `C:\Program Files\GDAL` (`-Gdal` another) and the runtimes of the newest
+Visual Studio.
 
 ## Building
 
