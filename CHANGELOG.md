@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-10-13
+
 ### Added
 - `vector.join`: a table's columns as attributes of features, by a key (the feature's number or an attribute):
   the clusters of zones (metrics.cluster) on their squares (vector.grid_zones), burnt into a map of the groups by
