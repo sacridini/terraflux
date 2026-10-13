@@ -611,6 +611,7 @@ fn the_mosaic_and_contagion_are_named() {
 /// metric in the plot's tab.
 #[test]
 fn metrics_show_as_tables_bars_and_maps() {
+    use terraflux_app::charts::{Chart, Kind};
     use terraflux_app::table_view::{TableState, rows_shown};
     let mut h = harness(TerrafluxApp::new(None));
     h.run_steps(2);
@@ -628,7 +629,8 @@ fn metrics_show_as_tables_bars_and_maps() {
     let pland: f64 = table.rows.iter().map(|r| r[2]).sum();
     assert!((pland - 100.0).abs() < 1e-9, "the shares add up: {pland}");
     // sorted by the share, most first, drawn as bars
-    let st = TableState { sort: Some((2, false)), filter: String::new(), chart: Some(2) };
+    let chart = Chart { kind: Kind::Bars, columns: vec![2], x: Some(0), by: None };
+    let st = TableState { sort: Some((2, false)), filter: String::new(), chart };
     let order = rows_shown(&table, &st).unwrap();
     assert!(table.rows[order[0]][2] >= table.rows[order[2]][2]);
     {

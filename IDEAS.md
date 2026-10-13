@@ -30,12 +30,14 @@ neutros (`nlm.*`) para testar fluxos sem dados. A ordem sugerida:
      polígonos (`metrics.sample`), as zonas em grade (`vector.grid_zones`) e a correlação entre métricas
      (`metrics.correlation`);
    - **Feito** (Unreleased): a análise de assinaturas (`metrics.signatures`, `metrics.pca`, `metrics.nmf`,
-     `metrics.cluster`, `metrics.clustergram`), os mesmos grupos do landschaft. Falta desenhar o clustergram e o
-     biplot do PCA no viewer, e levar os grupos de volta às zonas (um mapa dos grupos);
+     `metrics.cluster`, `metrics.clustergram`), os mesmos grupos do landschaft, com o clustergram no viewer.
+     Falta levar os grupos de volta às zonas (um mapa dos grupos);
    - **Feito** (Unreleased): paisagens fora da memória (`block_rows` nos nós de métricas, o `TiledLandscape`
      do C++), e o MSPA por tiles do GTB (`landscape.mspa_tiled`). Falta: o mapa das manchas de um raster em
      disco (gravado bloco a bloco) e as outras métricas por blocos (janela móvel, amostras, séries);
-   - gráficos de várias métricas de uma vez.
+   - **Feito** (Unreleased): gráficos de várias métricas de uma vez (barras, linhas e pontos por grupo, o
+     clustergram, a matriz de correlação). Falta: as setas das cargas do PCA sobre os pontos (o biplot) e os
+     box plots por cluster.
 3. **Planejamento sistemático de conservação e restauração.** **Feito** (Unreleased): o prioritizr (tabelas,
    portfólios, contiguidade, limites manuais, filogenia, calibração e zonas de manejo), o prioriactions
    (`prioritize.actions`) e o planejador do plangea (`restoration.plan`: exato e em passos, conservação e

@@ -1,17 +1,18 @@
 //! Tables as the viewer shows them: their rows filtered (by text, or a condition on a column such as
-//! `area > 1`) and sorted by a column, as many as they are (only those in view are laid out), and a column drawn
-//! as bars against the first (the metrics of each class or patch).
+//! `area > 1`) and sorted by a column, as many as they are (only those in view are laid out), and drawn as charts
+//! of several columns at once ([`crate::charts`]).
 
 use egui::{RichText, Ui, Vec2};
-use egui_plot::{Bar, BarChart, Plot};
 use terraflux_ops::Table;
 
-/// How a table is shown: its sort (a column, ascending), its filter, and the column drawn as bars.
+use crate::charts::Chart;
+
+/// How a table is shown: its sort (a column, ascending), its filter, and its chart.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TableState {
     pub sort: Option<(usize, bool)>,
     pub filter: String,
-    pub chart: Option<usize>,
+    pub chart: Chart,
 }
 
 /// A number as a table shows it: up to 6 decimals without trailing zeros, NA for none.
@@ -113,20 +114,9 @@ pub fn show(ui: &mut Ui, t: &Table, id: egui::Id) {
             Ok(r) => ui.label(RichText::new(format!("{} of {} rows", r.len(), t.rows.len())).weak()),
             Err(e) => ui.label(RichText::new(e).color(ui.visuals().error_fg_color)),
         };
-        if t.columns.len() > 1 {
-            let name = st.chart.and_then(|j| t.columns.get(j)).map_or("none".to_string(), |c| c.clone());
-            egui::ComboBox::from_id_salt(id.with("chart")).selected_text(format!("bars: {name}")).show_ui(ui, |ui| {
-                ui.selectable_value(&mut st.chart, None, "none");
-                for (j, c) in t.columns.iter().enumerate().skip(1) {
-                    ui.selectable_value(&mut st.chart, Some(j), c);
-                }
-            });
-        }
     });
     let rows = shown.unwrap_or_default();
-    if let Some(j) = st.chart.filter(|&j| j < t.columns.len()) {
-        chart(ui, t, &rows, j, id);
-    }
+    crate::charts::show(ui, t, &rows, &mut st.chart, id.with("chart"));
     // the columns as wide as their header and the values of the first rows
     let mono = egui::TextStyle::Monospace.resolve(ui.style());
     let char_w = ui.fonts_mut(|f| f.glyph_width(&mono, '0'));
@@ -196,32 +186,6 @@ pub fn show(ui: &mut Ui, t: &Table, id: egui::Id) {
     ui.data_mut(|d| d.insert_temp(id, st));
 }
 
-/// A column as bars against the first column's values (a class, a patch), in the rows' order.
-fn chart(ui: &mut Ui, t: &Table, rows: &[usize], j: usize, id: egui::Id) {
-    let bars: Vec<Bar> = rows
-        .iter()
-        .enumerate()
-        .filter(|(_, i)| !t.rows[**i][j].is_nan())
-        .map(|(k, &i)| Bar::new(k as f64, t.rows[i][j]).name(cell(t.rows[i][0])).width(0.8))
-        .collect();
-    let labels: Vec<String> = rows.iter().map(|&i| cell(t.rows[i][0])).collect();
-    let first = t.columns[0].clone();
-    Plot::new(id.with("bars"))
-        .height(180.0)
-        .allow_scroll(false)
-        .x_axis_label(first)
-        .y_axis_label(t.columns[j].clone())
-        .x_axis_formatter(move |m, _| {
-            let k = m.value.round();
-            if (m.value - k).abs() < 1e-6 && k >= 0.0 {
-                labels.get(k as usize).cloned().unwrap_or_default()
-            } else {
-                String::new()
-            }
-        })
-        .show(ui, |p| p.bar_chart(BarChart::new(t.columns[j].clone(), bars).color(crate::theme::ACCENT)));
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -236,7 +200,7 @@ mod tests {
     #[test]
     fn filtered_and_sorted() {
         let t = table();
-        let st = |filter: &str, sort| TableState { filter: filter.into(), sort, chart: None };
+        let st = |filter: &str, sort| TableState { filter: filter.into(), sort, chart: Default::default() };
         assert_eq!(rows_shown(&t, &st("", None)).unwrap(), [0, 1, 2]);
         assert_eq!(rows_shown(&t, &st("area > 1", None)).unwrap(), [0]);
         assert_eq!(rows_shown(&t, &st("AREA <= 2.5", None)).unwrap(), [0, 2]);

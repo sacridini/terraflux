@@ -109,7 +109,9 @@ model file dropped on it or opened with it; started that way on Windows, it show
   by zones or a grid of them), with the correlation between them (`metrics.correlation`), the same values as R's
   landscapemetrics; spatial signatures of zones or landscapes (`metrics.signatures`) with their principal
   components, non-negative factors, clusters and clustergrams (`metrics.pca`, `metrics.nmf`, `metrics.cluster`,
-  `metrics.clustergram`), the same clusters as landschaft; tables sorted, filtered and drawn as bars in the viewer, and the maps of a metric per patch
+  `metrics.clustergram`), the same clusters as landschaft; tables sorted, filtered and drawn in the viewer (bars,
+  lines or points of several metrics at once, by class, zone or cluster; clustergrams; correlation matrices), and
+  the maps of a metric per patch
   or class.
 - **Spatial prioritization:** Zonation 5's ranking (`prioritize.zonation`), the same rank maps as the z5 binary,
   with its conditions, retention, connectivity transforms, impact assessment and post-processing; Marxan 4's

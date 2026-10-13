@@ -564,8 +564,10 @@ Pendências:
 - **Instalador do Windows (Unreleased, 2026-10-13):** `tools/make-installer.ps1` gera o MSI (WiX 5) e o zip
   com o executável, o GDAL e os runtimes do Visual C++ e do OpenMP; o MSI extraído roda um modelo que lê um
   `.asc` pelo GDAL embutido com o PATH só do Windows.
-- **Próximos (2026-10-13):** os instaladores de macOS e Linux; o que falta do `lsm` (gráficos de várias métricas,
-  o clustergram e o biplot no viewer); as pendências do prioritizr (polígonos com zonas, unidades H3); a ponte do
+- **Gráficos de tabelas (Unreleased, 2026-10-13):** barras, linhas e pontos de várias colunas de uma vez (um
+  painel cada), as linhas por grupo (classe, zona, cluster) numa legenda só; o clustergram das médias do
+  `metrics.clustergram`; a matriz de correlação em mapa de calor (`crates/app/src/charts.rs`).
+- **Próximos (2026-10-13):** os instaladores de macOS e Linux; o biplot do PCA e um mapa dos grupos das zonas; as pendências do prioritizr (polígonos com zonas, unidades H3); a ponte do
   ls.simulate (demandas regionais, CLUMondo, FUTURES, MOLUSCE), em andamento num branch próprio.
 
 Pendências gerais, depois das fases:

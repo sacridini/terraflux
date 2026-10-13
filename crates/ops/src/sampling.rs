@@ -814,7 +814,7 @@ impl Operator for Signatures {
 }
 
 /// The columns of a table that are keys, not metrics.
-pub(crate) const KEYS: [&str; 11] =
+pub const KEYS: [&str; 11] =
     ["class", "patch", "id", "plot_id", "size", "zone", "date", "layer", "percentage_inside", "landscape", "cluster"];
 
 struct Correlation;

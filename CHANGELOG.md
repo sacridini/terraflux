@@ -33,7 +33,14 @@ minor versions.
   runtimes next to the program (a clean Windows has neither). The MSI is built by WiX 5, a .NET tool of the
   repository (`.config/dotnet-tools.json`).
 
+- Tables drawn as charts of several metrics at once in the viewer: bars, lines or points of some columns (a panel
+  each) along another, the rows split by a column (a class, a zone, a cluster) in colours, as landschaft's
+  plot_metric and plot_cluster_metrics; the clustergram of `metrics.clustergram`'s means (landschaft's
+  plot_clustergram); a correlation matrix (`metrics.correlation`) as a heatmap.
+
 ### Changed
+- A table's chart (formerly the bars of one column) is chosen in the viewer by its kind, its columns, the column
+  along x and the one that splits the rows; a series suggests the date along x and the class as groups.
 - The map input of `metrics.patch`, `metrics.class` and `metrics.landscape` takes rasters on disk as they are
   (read by blocks when large or asked to); the maps of patches and metrics are given for maps in memory only.
 
