@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.52.0] - 2026-10-13
+
 ### Added
 - MaxNet species distribution models (landschaft's MaxNet, the maxnet package; a new `SdmModel` type):
   `sdm.maxnet` (from a table with a presence column, or tables of presences and background points; the
