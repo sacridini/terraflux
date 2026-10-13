@@ -206,6 +206,87 @@ fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) -> Result<(), String> {
                 }
             });
             s.fields.insert("prepare.crs".into(), crs);
+            // a series of maps of classes: the analysis of its changes
+            if *layers > 1 && kind == Kind::Classes {
+                ui.add_space(8.0);
+                theme::section(ui, "Changes along the dates");
+                let value = s.value_of(&id, &port);
+                let key = egui::Id::new(("suggested changes", &id, &port, s.revision));
+                let suggested: Option<Result<terraflux_ops::Table, String>> = match ui.data(|d| d.get_temp(key)) {
+                    Some(t) => t,
+                    None => {
+                        let t = value.as_ref().and_then(crate::prepare::suggested_changes);
+                        ui.data_mut(|d| d.insert_temp(key, t.clone()));
+                        t
+                    }
+                };
+                let label = |c: f64| terraflux_ops::value::class_label(c);
+                let (mut gain0, mut loss0) = (f64::NAN, f64::NAN);
+                match &suggested {
+                    Some(Ok(t)) => {
+                        if let Some(top) = t.rows.first() {
+                            (loss0, gain0) = (top[0], top[1]);
+                        }
+                        ui.label(RichText::new("the transitions worth modelling:").size(11.5));
+                        for r in t.rows.iter().filter(|r| r[6] == 1.0).take(8) {
+                            ui.label(
+                                RichText::new(format!(
+                                    "{} -> {}: {:.1} % of the change ({:.1} % of {})",
+                                    label(r[0]),
+                                    label(r[1]),
+                                    r[4],
+                                    r[5],
+                                    label(r[0])
+                                ))
+                                .size(11.5),
+                            );
+                        }
+                        let small = t.rows.iter().filter(|r| r[6] == 0.0).count();
+                        if small > 0 {
+                            let others = if small == 1 { "1 other".to_string() } else { format!("{small} others") };
+                            ui.label(
+                                RichText::new(format!("{others} under 1 % of the change: too small to model"))
+                                    .weak()
+                                    .size(11.0),
+                            );
+                        }
+                    }
+                    Some(Err(e)) => {
+                        ui.colored_label(ui.visuals().warn_fg_color, e);
+                    }
+                    None => {
+                        ui.label(RichText::new("large: the nodes work it out when run").weak().size(11.0));
+                    }
+                }
+                let init = |v: f64| if v.is_nan() { String::new() } else { crate::prepare::number_text(v) };
+                let mut gain = s.fields.entry("prepare.gain".into()).or_insert_with(|| init(gain0)).clone();
+                let mut loss = s.fields.entry("prepare.loss".into()).or_insert_with(|| init(loss0)).clone();
+                ui.horizontal(|ui| {
+                    ui.label("gains of");
+                    ui.add(egui::TextEdit::singleline(&mut gain).desired_width(40.0));
+                    ui.label("losses of");
+                    ui.add(egui::TextEdit::singleline(&mut loss).desired_width(40.0));
+                });
+                let (g, l) = (gain.trim().parse::<f64>(), loss.trim().parse::<f64>());
+                s.fields.insert("prepare.gain".into(), gain);
+                s.fields.insert("prepare.loss".into(), loss);
+                let ok = g.is_ok() && l.is_ok();
+                if ui
+                    .add_enabled(ok, accent_button("Analyse the changes", ok))
+                    .on_hover_text(
+                        "the transitions, those worth modelling, the intensity analysis (the gains and losses of the \
+                         classes above), the components of the difference, the changes of each cell: a node each",
+                    )
+                    .clicked()
+                {
+                    let pos = crate::builder::beside(&s.source.nodes, Some(&id));
+                    let ids =
+                        crate::prepare::analyse_changes(&mut s.source, r, (&id, &port), g.unwrap(), l.unwrap(), pos)?;
+                    s.edited();
+                    crate::builder::select(s, r, &ids[0]);
+                    return Ok(());
+                }
+            }
         }
         Data::Vector { crs, features, polygons, lines, points, numbers } => {
             let kinds: Vec<&str> = [(*polygons, "polygons"), (*lines, "lines"), (*points, "points")]

@@ -596,8 +596,11 @@ Pendências:
   distância à classe; dos vetores, a distância, rasterizar e estatísticas zonais; todos os rasters fora da grade
   de uma vez. Cada passo é um nó de um operador que já existia, com a nota do porquê
   (`crates/app/src/prepare.rs`, `prepare_view.rs`; testes em `crates/app/tests/prepare.rs` e `ui.rs`).
-- **Próximos (2026-10-13):** o editor de legenda, os gráficos editáveis do WoE e o assistente de análise das
-  mudanças; os instaladores de macOS e Linux;
+- **Análise das mudanças (0.25.0, 2026-10-13):** `change.crosstab`, `change.transitions`, `change.intensity`
+  (Aldwaik & Pontius, com a estacionariedade), `change.components` (quantidade, troca e deslocamento),
+  `change.count` e `change.suggest` (as transições a modelar, com o motivo), bit a bit com o landschaft; o
+  assistente no painel Prepare.
+- **Próximos (2026-10-13):** o editor de legenda e os gráficos editáveis do WoE; os instaladores de macOS e Linux;
   `vector.exact_sum` e `vector.distance` fora da memória.
 
 - **A ponte do ls.simulate completa (branch `simulate-bridge`, 2026-10-13):** todo modelo do `ls.simulate` vai pelo

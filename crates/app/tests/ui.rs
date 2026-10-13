@@ -1136,3 +1136,35 @@ fn rename_metadata_and_the_operators_menu() {
     let n = s.source.nodes.iter().find(|n| n.op == "raster.reclassify").expect("added");
     assert_eq!(n.inputs["map"], terraflux_graph::Source::Ref("land.raster".into()));
 }
+
+/// A series of land use maps selected: the Prepare pane suggests the transitions worth modelling and analyses
+/// the changes in a click (a node per analysis).
+#[test]
+fn the_changes_are_analysed_from_the_prepare_pane() {
+    let d = tmp("changes");
+    std::fs::create_dir_all(&d).unwrap();
+    let mut m = terraflux_graph::Model::new("changes");
+    m.nodes.push(
+        terraflux_graph::Node::new("land", "raster.read").param("path", data("pie_landuse.tif").to_string_lossy()),
+    );
+    let path = d.join("changes.toml");
+    m.save(&path).unwrap();
+    let mut h = harness(TerrafluxApp::new(Some(path)));
+    loaded(&mut h);
+    h.state_mut().focus(Pane::Prepare);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        terraflux_app::builder::select(s, &terraflux_ops::Registry::standard(), "land");
+        s.start_to(Some("land".into()), Box::new(|| {}));
+    }
+    until(&mut h, "the run", |a| a.session.as_ref().unwrap().value_of("land", "raster").is_some());
+    h.run_steps(3);
+    assert!(h.query_all_by_label_contains("% of the change").count() >= 2, "the transitions suggested");
+    shot(&mut h, "27-changes");
+    h.get_by_label("Analyse the changes").click();
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    for op in ["change.transitions", "change.suggest", "change.intensity", "change.components", "change.count"] {
+        assert!(s.source.nodes.iter().any(|n| n.op == op), "{op}");
+    }
+}

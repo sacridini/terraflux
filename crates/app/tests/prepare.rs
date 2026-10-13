@@ -183,3 +183,29 @@ fn steps_put_data_on_the_reference_grid() {
     assert!(matches!(res.get(&format!("{slope}.raster")), Some(Value::Raster(_))));
     std::fs::remove_dir_all(&d).ok();
 }
+
+/// The analysis of the changes of a series of land use maps: the transitions suggested (the largest first), and
+/// the nodes the assistant adds (each with its note) run on it.
+#[test]
+fn the_changes_of_a_series_are_analysed() {
+    let r = Registry::standard();
+    let mut m = Model::new("changes");
+    m.nodes.push(read("land", &data("pie_landuse.tif")));
+    let res = run(&m);
+    let v = res.get("land.raster").unwrap().clone();
+    let t = prepare::suggested_changes(&v).unwrap().unwrap();
+    assert!(t.rows.windows(2).all(|w| w[0][2] >= w[1][2]));
+    let (loss, gain) = (t.rows[0][0], t.rows[0][1]);
+    let ids = prepare::analyse_changes(&mut m, &r, ("land", "raster"), gain, loss, [0.0, 0.0]).unwrap();
+    assert_eq!(ids.len(), 5);
+    for id in &ids {
+        assert!(m.nodes.iter().find(|n| &n.id == id).unwrap().note.is_some());
+    }
+    assert!(terraflux_graph::check(&m, &r).is_empty());
+    let res = run(&m);
+    let Some(Value::Table(interval)) = res.get("intensity.interval") else { panic!() };
+    assert_eq!(interval.rows.len(), 2, "two periods");
+    let Some(Value::Table(c)) = res.get("components.table") else { panic!() };
+    assert_eq!(c.columns[1], "Gain");
+    assert!(matches!(res.get("count.map"), Some(Value::Map(_))));
+}

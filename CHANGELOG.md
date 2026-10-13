@@ -6,6 +6,20 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-10-13
+
+### Added
+- The analysis of land change, landschaft's `changes` (OpenLand's and diffeR's numbers, to the bit):
+  `change.crosstab` (the transition matrix of two maps), `change.transitions` (between consecutive dates and from
+  the first to the last, the area of each class at each date, the matrix), `change.intensity` (Aldwaik & Pontius's
+  intensity analysis at the interval, category and transition levels, with its stationarity; km2 or cells),
+  `change.components` (gain, persistence and loss, and the quantity, exchange and shift components of each class
+  and overall, diffeR's diffTablej and overallDiff), `change.count` (how many times each cell changed) and
+  `change.suggest` (the transitions worth modelling: the largest first, those of 1 % of the change at least).
+  Tested against landschaft on Pie (three dates) and Sibuyan (`tools/make_change_reference.py`).
+- The assistant of the analysis of changes: in the Prepare pane, a series of maps of classes shows the
+  transitions worth modelling with their shares, and one click adds the analysis (a node each, with a note).
+
 ## [0.24.0] - 2026-10-13
 
 ### Added

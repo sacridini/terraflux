@@ -441,3 +441,82 @@ pub fn apply(
 pub fn read_rasters<'a>(m: &'a Model, except: &str) -> Vec<&'a Node> {
     m.nodes.iter().filter(|n| n.op == "raster.read" && n.id != except).collect()
 }
+
+/// The transitions of a series of maps of classes worth modelling (`change.suggest`'s table, 1 % of the change
+/// at least), when it is small enough to work out at once (50 million cells over its layers).
+pub fn suggested_changes(v: &Value) -> Option<Result<terraflux_ops::Table, String>> {
+    let cells = match v {
+        Value::Raster(r) => r.cells() * r.layers.len(),
+        Value::Stack(st) => st.layers.len() * st.grid.width * st.grid.height,
+        _ => return None,
+    };
+    if cells > 50_000_000 {
+        return None;
+    }
+    let s = terraflux_ops::change_analysis::Series::from_value(v, None, None);
+    Some(s.and_then(|s| terraflux_ops::change_analysis::suggest(&s, 1.0)).map_err(|e| e.to_string()))
+}
+
+/// The analysis of the changes of a series of maps of classes `from` (node, port), added to the top level of a
+/// model from `pos` down, each node with a note: the transitions, those worth modelling, the intensity
+/// analysis (the gains of `gain`, the losses of `loss`), the components of the difference from the first date to
+/// the last, the changes of each cell. The nodes' ids.
+pub fn analyse_changes(
+    m: &mut Model,
+    r: &Registry,
+    from: (&str, &str),
+    gain: f64,
+    loss: f64,
+    pos: [f32; 2],
+) -> Result<Vec<String>, String> {
+    let top: &[String] = &[];
+    let data = format!("{}.{}", from.0, from.1);
+    // (the operator, why, its settings)
+    type Step<'a> = (&'a str, &'a str, Vec<(&'a str, String)>);
+    let steps: [Step; 5] = [
+        (
+            "change.transitions",
+            "The transitions between consecutive dates (and from the first to the last), the area of each class at \
+             each date and the transition matrix.",
+            vec![],
+        ),
+        (
+            "change.suggest",
+            "The transitions worth modelling: the largest first, suggested those that make 1 % of the change at \
+             least (the others are too small to fit a model to).",
+            vec![("least", "1".into())],
+        ),
+        (
+            "change.intensity",
+            "The intensity analysis (Aldwaik & Pontius 2012): how fast each period changed against a uniform rate, \
+             which classes gain and lose actively, which classes the gains of `gain` take and which take the losses \
+             of `loss` (targeted or avoided).",
+            vec![("gain", number_text(gain)), ("loss", number_text(loss))],
+        ),
+        (
+            "change.components",
+            "The difference from the first date to the last split into quantity (more of a class), exchange \
+             (classes swapping places) and shift.",
+            vec![],
+        ),
+        ("change.count", "How many times each cell changed along the dates.", vec![]),
+    ];
+    let mut ids = Vec::new();
+    for (k, (op, why, params)) in steps.into_iter().enumerate() {
+        let id = crate::editor::add_node(m, r, top, op, [pos[0], pos[1] + 120.0 * k as f32])?;
+        crate::editor::connect(m, r, top, &data, &id, "maps")?;
+        for (name, value) in params {
+            crate::editor::set_param(m, top, &id, name, &value)?;
+        }
+        if let Some(n) = m.nodes.iter_mut().find(|n| n.id == id) {
+            n.note = Some(why.to_string());
+        }
+        ids.push(id);
+    }
+    Ok(ids)
+}
+
+/// A number as a setting's text (a whole number without decimals).
+pub fn number_text(v: f64) -> String {
+    if v == v.trunc() && v.abs() < 1e15 { format!("{}", v as i64) } else { format!("{v}") }
+}
