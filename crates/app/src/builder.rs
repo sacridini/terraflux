@@ -619,7 +619,7 @@ pub fn viewer_pane(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Hover> 
 }
 
 /// Run up to a node (none: the whole model).
-fn run_to(ui: &Ui, s: &mut Session, target: Option<String>) {
+pub(crate) fn run_to(ui: &Ui, s: &mut Session, target: Option<String>) {
     let ctx = ui.ctx().clone();
     s.start_to(target, Box::new(move || ctx.request_repaint()));
 }
@@ -726,7 +726,7 @@ pub fn keys(ui: &Ui, s: &mut Session, r: &Registry, canvas: bool) -> bool {
 }
 
 /// The output of a node to show first: a map, a stack or a series, else the first.
-fn first_output(n: &Node, r: &Registry) -> Option<String> {
+pub(crate) fn first_output(n: &Node, r: &Registry) -> Option<String> {
     let outs = crate::editor::output_ports(n, r);
     outs.iter()
         .find(|(_, t)| matches!(t, Type::Raster | Type::Map | Type::Stack | Type::Series))
@@ -752,15 +752,11 @@ pub fn select(s: &mut Session, r: &Registry, id: &str) {
     }
 }
 
-/// Add a node of an operator next to the one selected, its first input fed by the selected node's first output
-/// that fits; it becomes the node selected.
-pub fn add(s: &mut Session, r: &Registry, op: &str, params: &[(&str, serde_json::Value)]) -> Result<String, String> {
-    let path = s.editor.path.clone();
-    let nodes = s.source.scope(&path).cloned().unwrap_or_default();
-    let auto = crate::editor_view::auto_positions(&nodes);
+/// Where a new node goes: to the right of the node `from` (below what is there already), else below every node.
+pub fn beside(nodes: &[Node], from: Option<&str>) -> [f32; 2] {
+    let auto = crate::editor_view::auto_positions(nodes);
     let at = |n: &Node| n.pos.unwrap_or(auto[&n.id]);
-    let from = s.selected.as_ref().and_then(|id| nodes.iter().find(|n| &n.id == id)).cloned();
-    let pos = match &from {
+    match from.and_then(|id| nodes.iter().find(|n| n.id == id)) {
         Some(n) => {
             let p = at(n);
             let right = [p[0] + crate::editor_view::WIDTH + 70.0, p[1]];
@@ -774,7 +770,16 @@ pub fn add(s: &mut Session, r: &Registry, op: &str, params: &[(&str, serde_json:
             q
         }
         None => [0.0, nodes.iter().map(|n| at(n)[1] + 130.0).fold(0.0, f32::max)],
-    };
+    }
+}
+
+/// Add a node of an operator next to the one selected, its first input fed by the selected node's first output
+/// that fits; it becomes the node selected.
+pub fn add(s: &mut Session, r: &Registry, op: &str, params: &[(&str, serde_json::Value)]) -> Result<String, String> {
+    let path = s.editor.path.clone();
+    let nodes = s.source.scope(&path).cloned().unwrap_or_default();
+    let from = s.selected.as_ref().and_then(|id| nodes.iter().find(|n| &n.id == id)).cloned();
+    let pos = beside(&nodes, from.as_ref().map(|n| n.id.as_str()));
     let id = crate::editor::add_node(&mut s.source, r, &path, op, pos)?;
     if let Some(n) = s.source.scope(&path).and_then(|v| v.iter().find(|n| n.id == id)).cloned() {
         for (k, v) in params {

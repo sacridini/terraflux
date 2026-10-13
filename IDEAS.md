@@ -74,6 +74,10 @@ distâncias, unidades de planejamento em polígonos, o desenho no viewer).
 
 ## Builder
 
+- **Feito** (Unreleased): reprojeção, vetores e distâncias com um clique: o painel Prepare compara o dado do nó
+  com a grade de referência e oferece os passos (para a grade, reprojetar, declividade, distância à classe; dos
+  vetores, distância, rasterizar, estatísticas zonais), cada um um nó com a nota do porquê.
+
 - **Feito** (Unreleased): navegar pelos nós com o teclado (setas com o ponteiro sobre o canvas, Enter abre a
   saída); templates do Dinamica EGO e do CLUE-S (dados desenhados por modelos neutros); templates do próprio
   usuário (salvar o modelo como template, vê-lo e removê-lo no menu).

@@ -6,6 +6,16 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- The Prepare pane (beside the node's): the model's reference grid (the land use map's suggested, or the node
+  selected), the data of the node selected next to it (coordinate system, cells, extent and what differs; classes,
+  values or counts) and the steps a click away, each a node of an operator already there with a note saying why:
+  onto the grid (`raster.match`, resampled by what the values are), reprojected (`raster.reproject`), the slope
+  (`raster.terrain`), the distance to a class (`dynamic.distance_to`); of vectors the distance to them
+  (`vector.distance`), burnt into the grid (`vector.rasterize`, by an attribute or not), the statistics of the
+  grid's map in each polygon (`vector.zonal`); every raster read off the grid put on it at once. The reference
+  grid of a model opened is the one its steps put maps on (`terraflux_app::prepare`).
+
 ## [0.20.0] - 2026-10-13
 
 ### Added

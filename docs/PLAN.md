@@ -589,8 +589,15 @@ Pendências:
   `vector.rasterize` num GeoTIFF faixa a faixa. Tudo igual à memória, bit a bit (`crates/ops/tests/
   tiled_metrics.rs`, `vector_tiled.rs`); a exceção são as linhas do GDAL com `all_touched` que passam pelos cantos
   das células, que dependem de onde a faixa começa, como nos swaths do próprio GDAL.
-- **Próximos (2026-10-13):** o fluxo guiado de reprojeção, vetores e distâncias com um clique; depois o editor de
-  legenda, os gráficos editáveis do WoE e o assistente de análise das mudanças; os instaladores de macOS e Linux;
+- **Preparação com um clique (Unreleased, 2026-10-13):** o painel Prepare, ao lado do do nó: a grade de referência
+  do modelo (a do uso do solo sugerida, ou a do nó selecionado; ao abrir um modelo, a que os passos dele usam), o
+  dado do nó selecionado ao lado dela (sistema de coordenadas, células, extensão e o que difere; classes, valores
+  ou contagens, que decidem a reamostragem) e os passos: para a grade (`raster.match`), reprojetar, declividade,
+  distância à classe; dos vetores, a distância, rasterizar e estatísticas zonais; todos os rasters fora da grade
+  de uma vez. Cada passo é um nó de um operador que já existia, com a nota do porquê
+  (`crates/app/src/prepare.rs`, `prepare_view.rs`; testes em `crates/app/tests/prepare.rs` e `ui.rs`).
+- **Próximos (2026-10-13):** o editor de legenda, os gráficos editáveis do WoE e o assistente de análise das
+  mudanças; os instaladores de macOS e Linux;
   `vector.exact_sum` e `vector.distance` fora da memória.
 
 - **A ponte do ls.simulate completa (branch `simulate-bridge`, 2026-10-13):** todo modelo do `ls.simulate` vai pelo
@@ -603,7 +610,7 @@ Pendências:
   `tests/data/bridge` saem do `tools/make_reference.py bridge`.
 
 Pendências gerais, depois das fases:
-- reprojeção (PROJ), vetores e distâncias com um clique;
+- reprojeção (PROJ), vetores e distâncias com um clique (feito: o painel Prepare);
 - editor de legenda, gráficos editáveis do WoE e assistente de análise das mudanças;
 - motor por tiles para os outros modelos, variáveis dinâmicas, álgebra de mapas e agentes, além de Zarr/COG;
 - plugins WebAssembly para o comportamento de agentes;

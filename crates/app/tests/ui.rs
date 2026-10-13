@@ -838,3 +838,55 @@ fn nodes_are_gone_through_with_the_keyboard() {
     let s = h.state().session.as_ref().unwrap();
     assert_eq!(s.preview.as_ref().map(|(n, _)| n), Some(&first));
 }
+
+/// The preparation pane: the land use suggested as the reference grid and chosen in a click, the drivers (in
+/// another coordinate system) put on it in another, a raster.match with its note added after them.
+#[test]
+fn data_is_put_on_the_reference_grid_in_a_click() {
+    let d = tmp("prepare");
+    std::fs::create_dir_all(&d).unwrap();
+    let (land, utm, geo) = (d.join("land.tif"), d.join("drivers_utm.tif"), d.join("drivers_geo.tif"));
+    let srs = ["-a_srs".to_string(), "EPSG:32651".to_string()];
+    terraflux_gdal::translate(&data("sibuyan_landuse.tif"), &land, &srs).unwrap();
+    terraflux_gdal::translate(&data("sibuyan_drivers.tif"), &utm, &srs).unwrap();
+    terraflux_gdal::warp(&[&utm], &geo, &["-t_srs".into(), "EPSG:4326".into()]).unwrap();
+    let mut m = terraflux_graph::Model::new("prepare");
+    for (id, p) in [("land", &land), ("drivers", &geo)] {
+        m.nodes.push(terraflux_graph::Node::new(id, "raster.read").param("path", p.to_string_lossy()));
+    }
+    let path = d.join("prepare.toml");
+    m.save(&path).unwrap();
+    let mut h = harness(TerrafluxApp::new(Some(path)));
+    loaded(&mut h);
+    h.state_mut().focus(Pane::Prepare);
+    let r = terraflux_ops::Registry::standard();
+    for id in ["drivers", "land"] {
+        let s = h.state_mut().session.as_mut().unwrap();
+        terraflux_app::builder::select(s, &r, id);
+        s.start_to(Some(id.into()), Box::new(|| {}));
+        until(&mut h, "the run", |a| {
+            let s = a.session.as_ref().unwrap();
+            !s.running() && s.value_of(id, "raster").is_some()
+        });
+    }
+    h.run_steps(3);
+    shot(&mut h, "18-prepare-reference");
+    h.get_by_label("Use land (classes)").click();
+    h.run_steps(2);
+    assert_eq!(h.state().session.as_ref().unwrap().reference, Some(("land".into(), "raster".into())));
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        terraflux_app::builder::select(s, &r, "drivers");
+    }
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("another coordinate system").is_some(), "what differs from the grid");
+    shot(&mut h, "19-prepare-drivers");
+    h.get_by_label("Put on the reference grid").click();
+    h.run_steps(2);
+    let s = h.state().session.as_ref().unwrap();
+    let n = s.source.nodes.iter().find(|n| n.op == "raster.match").expect("raster.match added");
+    assert_eq!(n.inputs["raster"], terraflux_graph::Source::Ref("drivers.raster".into()));
+    assert_eq!(n.inputs["like"], terraflux_graph::Source::Ref("land.raster".into()));
+    assert!(n.note.as_ref().is_some_and(|t| t.contains("Resampling")), "{:?}", n.note);
+    assert_eq!(s.selected.as_deref(), Some(n.id.as_str()));
+}

@@ -40,6 +40,8 @@ pub enum Pane {
     Operators,
     /// The node selected.
     Node,
+    /// The data of the node selected put on the reference grid, or made drivers, in a click.
+    Prepare,
     /// What the node selected gives.
     Viewer,
     /// The run's maps, step by step, and the inputs' maps.
@@ -53,14 +55,23 @@ pub enum Pane {
 }
 
 impl Pane {
-    pub const ALL: [Pane; 7] =
-        [Pane::Model, Pane::Operators, Pane::Node, Pane::Viewer, Pane::Simulation, Pane::Areas, Pane::Validation];
+    pub const ALL: [Pane; 8] = [
+        Pane::Model,
+        Pane::Operators,
+        Pane::Node,
+        Pane::Prepare,
+        Pane::Viewer,
+        Pane::Simulation,
+        Pane::Areas,
+        Pane::Validation,
+    ];
 
     pub fn title(self) -> &'static str {
         match self {
             Pane::Model => "Model",
             Pane::Operators => "Operators",
             Pane::Node => "Node",
+            Pane::Prepare => "Prepare",
             Pane::Viewer => "Viewer",
             Pane::Simulation => "Simulation",
             Pane::Areas => "Areas",
@@ -71,12 +82,13 @@ impl Pane {
 }
 
 /// The panes as they first are: the operators on the left, the model in the middle over the viewer, the node
-/// on the right (the others from the View menu; the maps of nodes open beside the viewer).
+/// and the preparation of its data on the right (the others from the View menu; the maps of nodes open beside the
+/// viewer).
 pub fn default_layout() -> DockState<Pane> {
     let mut d = DockState::new(vec![Pane::Model]);
     let s = d.main_surface_mut();
     let [model, _] = s.split_left(NodeIndex::root(), 0.17, vec![Pane::Operators]);
-    let [model, _] = s.split_right(model, 0.74, vec![Pane::Node]);
+    let [model, _] = s.split_right(model, 0.74, vec![Pane::Node, Pane::Prepare]);
     let [_, _] = s.split_below(model, 0.5, vec![Pane::Viewer]);
     d
 }
@@ -96,7 +108,7 @@ fn retain_panes(dock: &mut DockState<Pane>, keep: impl FnMut(&mut Pane) -> bool)
 }
 
 /// The version of the layout kept (a layout of another version is let go).
-const LAYOUT_VERSION: u32 = 3;
+const LAYOUT_VERSION: u32 = 4;
 
 /// A window of its own (another screen): its panes in a dock.
 pub struct Detached {
@@ -411,6 +423,10 @@ pub struct Session {
     /// Run the whole model once its data is read.
     pub run_when_ready: bool,
     edited_at: Option<Instant>,
+    /// The output whose grid the model's maps are put on (node, port).
+    pub reference: Option<(String, String)>,
+    /// What the values of nodes' rasters are, as chosen in the preparation (else guessed from their type).
+    pub kinds: BTreeMap<String, crate::prepare::Kind>,
 }
 
 impl Session {
@@ -450,8 +466,11 @@ impl Session {
         std::thread::spawn(move || {
             let _ = tx.send(Loaded::read(&m, &base));
         });
+        let reference = crate::prepare::reference_of(&source);
         Ok(Session {
             toml: None,
+            reference,
+            kinds: BTreeMap::new(),
             source,
             model,
             editor: EditorState::default(),
@@ -1666,6 +1685,7 @@ impl TerrafluxApp {
             Pane::Model => crate::builder::model_pane(ui, s, r),
             Pane::Operators => crate::builder::operators_pane(ui, s, r, lib),
             Pane::Node => crate::builder::node_pane(ui, s, r),
+            Pane::Prepare => crate::prepare_view::pane(ui, s, r),
             Pane::Viewer => {
                 if let Some(h) = crate::builder::viewer_pane(ui, s, r) {
                     self.hover = Some(h);

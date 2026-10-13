@@ -154,6 +154,12 @@ model file dropped on it or opened with it; started that way on Windows, it show
   maps and the drivers (the dates and steps from the band names), checks the data as soon as it is chosen
   (grids, classes, missing values, constant or collinear drivers) and offers to fix what it can (resampling a
   driver to the land use map's grid), then writes the model with a note on every choice.
+- **Prepare:** the data of the node selected next to the model's reference grid (the land use map's, suggested
+  as soon as one is read): its coordinate system, cells and extent, what differs, and the steps a click away,
+  each a node of an operator already there with a note saying why: onto the grid (`raster.match`, resampled by
+  what the values are: classes the nearest cell or the most common one, values interpolated or averaged, counts
+  summed), reprojected, the slope of a surface, the distance to a class; for vectors the distance to them, burnt
+  into the grid, the statistics of the grid's map in each polygon; every raster off the grid put on it at once.
 - **The node editor:** connect ports (each connection checked), type values and settings, edit the bodies of
   loops and groups; the note of every node says why it is there.
 - **Map:** the maps of the run as they come, step by step, and the maps of the inputs: a stack's one after the
