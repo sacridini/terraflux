@@ -663,8 +663,8 @@ Pendências:
   com o landschaft, menos o que ele calcula com o BLAS, as exponenciais SIMD ou o LAPACK do numpy (a rounding).
 - **Grafos de patches em raster (0.45.0, 2026-10-13):** `conn.nodes`, `conn.distances` (centróides, bordas,
   menor custo e tempo de comutação), `conn.graph_from_raster` e `conn.to_map`, bit a bit com o landschaft.
-  Faltam do `conn`: os nós e distâncias de vetores, o ProtConn, o SAMC, `focal_nodes`, as grades e
-  `eca_change`.
+  Faltam do `conn`: os nós e distâncias de vetores, o ProtConn, o SAMC, `focal_nodes` e as grades.
+- **Mudança do ECA (0.46.0, 2026-10-13):** `conn.eca_change` (uma série de grafos), bit a bit com o landschaft.
 - **Próximos (2026-10-13):** os instaladores de macOS e Linux;
   `vector.exact_sum` e `vector.distance` fora da memória.
 

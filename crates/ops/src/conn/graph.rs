@@ -1376,3 +1376,87 @@ fn concat(frames: Vec<Vec<(String, Vec<f64>)>>) -> Table {
     }
     t
 }
+
+/// How a change of ECA reads against the change of habitat (Makurhini's MK_dECA): the comparison and its
+/// meaning.
+pub fn comparison(deca: f64, da: f64) -> (&'static str, &'static str) {
+    if deca < da && da < 0.0 {
+        ("dECA < dA < 0", "+ Connectivity loss")
+    } else if da < deca && deca < 0.0 {
+        ("dA < dECA < 0", "+ Habitat loss")
+    } else if deca == da && da < 0.0 {
+        ("dECA = dA < 0", "Equal loss")
+    } else if deca == da && da == 0.0 {
+        ("dECA = dA = 0", "Habitat or connectivity maintained")
+    } else {
+        ("dECA or dA gain", "Habitat or connectivity gain")
+    }
+}
+
+/// The change of the equivalent connected area from graph to graph (Makurhini's MK_dECA, landschaft's
+/// eca_change): per distance and graph, the habitat area, ECA and their changes (%, the first against the
+/// landscape's area), ECA / dA and how they compare.
+pub fn eca_change(
+    graphs: &[&HabitatGraph],
+    metric: &str,
+    distances: &[Option<f64>],
+    landscape_area: f64,
+    probability: Option<f64>,
+    pij_min: Option<f64>,
+) -> Result<(Table, Vec<(&'static str, &'static str)>), String> {
+    let metric = metric.to_uppercase();
+    if metric != "PC" && metric != "IIC" {
+        return Err("the metric is PC or IIC".into());
+    }
+    if graphs.is_empty() {
+        return Err("give at least one graph".into());
+    }
+    let la = landscape_area;
+    let n = graphs.len();
+    let areas: Vec<f64> = graphs.iter().map(|g| g.habitat_area.unwrap_or_else(|| ffi::r_sum(&g.attributes))).collect();
+    let mut cols: Vec<(String, Vec<f64>)> =
+        ["time", "LA", "area", "distance", "ECA", "ECA_LA", "ECA_area", "dA", "dECA", "rECA"]
+            .iter()
+            .map(|c| (c.to_string(), Vec::new()))
+            .collect();
+    let mut readings = Vec::new();
+    for &d in distances {
+        let mut eca = Vec::with_capacity(n);
+        for g in graphs {
+            let mut capped = (*g).clone();
+            capped.landscape_area = Some(la);
+            capped.restoration = None;
+            let t = capped.overall(Some(std::slice::from_ref(&metric)), &[d], probability, pij_min)?;
+            let k = t.columns.iter().position(|c| *c == format!("EC({metric})")).unwrap();
+            eca.push(t.rows[0][k]);
+        }
+        let mut da = vec![0.0; n];
+        let mut deca = vec![0.0; n];
+        da[0] = (areas[0] - la) / la * 100.0;
+        deca[0] = (eca[0] - la) / la * 100.0;
+        for k in 1..n {
+            da[k] = (areas[k] - areas[k - 1]) / areas[k - 1] * 100.0;
+            deca[k] = (eca[k] - eca[k - 1]) / eca[k - 1] * 100.0;
+        }
+        for k in 0..n {
+            let area_pct = areas[k] * 100.0 / la;
+            let row = [
+                (k + 1) as f64,
+                la,
+                areas[k],
+                d.unwrap_or(f64::NAN),
+                eca[k],
+                eca[k] * area_pct / areas[k],
+                eca[k] * 100.0 / areas[k],
+                da[k],
+                deca[k],
+                deca[k] / da[k],
+            ];
+            for (c, v) in cols.iter_mut().zip(row) {
+                c.1.push(v);
+            }
+            readings.push(comparison(deca[k], da[k]));
+        }
+    }
+    Ok((table(cols), readings))
+}

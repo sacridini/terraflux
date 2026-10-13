@@ -6,6 +6,11 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- `conn.eca_change`: the change of the equivalent connected area from habitat graph to habitat graph (a series
+  of them, e.g. years; Makurhini's MK_dECA, landschaft's eca_change): the habitat's area and ECA of PC or IIC
+  per distance, their changes, their ratio and how they compare. The same as landschaft's, to the bit.
+
 ## [0.45.0] - 2026-10-13
 
 ### Added

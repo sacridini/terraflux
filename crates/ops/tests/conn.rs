@@ -57,6 +57,38 @@ fn habitat_graphs_are_landschafts() {
     let mut rounded: Vec<String> = Vec::new();
     for c in meta["cases"].as_array().unwrap() {
         let name = c["name"].as_str().unwrap();
+        if let Some(names) = c.get("graphs") {
+            let series: Vec<Value> = names
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|g| {
+                    let g = &meta["graphs"][g.as_str().unwrap()];
+                    let ids = numbers(&g["nodes"]["id"]);
+                    let attr = numbers(&g["nodes"]["attribute"]);
+                    let nodes = table(&["id", "attribute"], (0..ids.len()).map(|k| vec![ids[k], attr[k]]).collect());
+                    let names: Vec<String> = ids.iter().map(|i| i.to_string()).collect();
+                    let pairs = table(
+                        &names.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                        g["matrix"].as_array().unwrap().iter().map(numbers).collect(),
+                    );
+                    run("conn.graph", vec![("nodes", nodes), ("pairs", pairs)], serde_json::json!({}))
+                        .remove("graph")
+                        .unwrap()
+                })
+                .collect();
+            let out = run("conn.eca_change", vec![("graphs", Value::Series(series))], c["params"].clone());
+            let Value::Table(t) = &out["table"] else { panic!() };
+            let got: Vec<f64> = t.rows.iter().flat_map(|r| r[1..].to_vec()).collect();
+            let want = &z[name];
+            assert_eq!(got.len(), want.data.len(), "{name}");
+            for (k, (a, b)) in got.iter().zip(&want.data).enumerate() {
+                assert!(a.to_bits() == b.to_bits() || (a.is_nan() && b.is_nan()), "{name} at {k}: {a} {b}");
+            }
+            let Value::Json(r) = &out["readings"] else { panic!() };
+            assert_eq!(r, &c["readings"], "{name}: readings");
+            continue;
+        }
         let g = &meta["graphs"][c["graph"].as_str().unwrap()];
         let ids = numbers(&g["nodes"]["id"]);
         let attr = numbers(&g["nodes"]["attribute"]);

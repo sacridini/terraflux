@@ -24,6 +24,7 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(LinkChange));
     r.add(Arc::new(Components));
     r.add(Arc::new(Centrality));
+    r.add(Arc::new(EcaChange));
     patches::register(r);
 }
 
@@ -449,5 +450,58 @@ impl Operator for Centrality {
             .centrality(&distances(args)?, args.opt_param("probability")?, args.param("binary", true)?)
             .map_err(|e| bad(args, e))?;
         Ok(table_out("table", t))
+    }
+}
+
+struct EcaChange;
+
+impl Operator for EcaChange {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "conn.eca_change",
+            "The change of the equivalent connected area (ECA) from graph to graph, e.g. the habitat of several              years (Makurhini's MK_dECA): per distance and graph the habitat's area, ECA (of PC or IIC), ECA              against the landscape's area and the habitat's, the changes of area and ECA (%; the first against              the landscape's area) and their ratio, and how they compare (dECA < dA < 0: connectivity loss...).",
+            Access::Global,
+        )
+        .input(PortSpec::new("graphs", Type::Any, "habitat graphs in time order (a series), or one"))
+        .output(PortSpec::new("table", Type::Table, "time (1, 2...), LA, area, distance, ECA, ECA_LA, ECA_area, dA, dECA, rECA"))
+        .output(PortSpec::new("readings", Type::Any, "per row, the comparison and its reading"))
+        .param(PortSpec::new("landscape_area", Type::Number, "the landscape's area"))
+        .param(PortSpec::optional("metric", Type::Text, "PC (default) or IIC").choices(["PC", "IIC"]))
+        .param(PortSpec::optional(
+            "distance",
+            Type::Any,
+            "the link distance, or several (default: Makurhini's median of the distances)",
+        ))
+        .param(PortSpec::optional("probability", Type::Number, "the probability at that distance (default 0.5)"))
+        .param(PortSpec::optional("pij_min", Type::Number, "probabilities below it make no edge"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let graphs: Vec<&HabitatGraph> = match args.get("graphs") {
+            Some(Value::HabitatGraph(g)) => vec![&**g],
+            Some(Value::Series(items)) => items
+                .iter()
+                .map(|v| match v {
+                    Value::HabitatGraph(g) => Ok(&**g),
+                    _ => Err(bad(args, "the series must hold habitat graphs")),
+                })
+                .collect::<Result<_>>()?,
+            _ => return Err(bad(args, "connect habitat graphs (a series of them)")),
+        };
+        let la: f64 = args.opt_param("landscape_area")?.ok_or_else(|| bad(args, "set the landscape's area"))?;
+        let metric: String = args.param("metric", "PC".into())?;
+        let (t, readings) = graph::eca_change(
+            &graphs,
+            &metric,
+            &distances(args)?,
+            la,
+            args.opt_param("probability")?,
+            args.opt_param("pij_min")?,
+        )
+        .map_err(|e| bad(args, e))?;
+        let readings = serde_json::Value::Array(
+            readings.iter().map(|(c, r)| serde_json::json!({"comparison": c, "change": r})).collect(),
+        );
+        Ok(outputs([("table", Value::Table(t)), ("readings", Value::Json(readings))]))
     }
 }

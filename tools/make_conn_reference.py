@@ -109,6 +109,20 @@ def main() -> None:
     case("centrality_strength", "matrix", {}, "conn.centrality", {"distance": 300.0, "binary": False},
          g.centrality(distance=300.0, binary=False))
 
+    # the change of ECA over three graphs: all the nodes, some lost, some smaller
+    keep = np.array([k not in (2, 7, 9) for k in range(n)])
+    shrunk = np.where(np.arange(n) % 3 == 0, area * 0.6, area)
+    for name, (k, a) in {"eca1": (np.ones(n, bool), area), "eca2": (keep, area), "eca3": (keep, shrunk)}.items():
+        graphs[name] = {"nodes": {"id": ids[k].tolist(), "attribute": a[k].tolist()}, "matrix": d[np.ix_(k, k)].tolist()}
+    series = [HG(np.asarray(graphs[g]["nodes"]["attribute"]), np.asarray(graphs[g]["matrix"]),
+                 ids=np.asarray(graphs[g]["nodes"]["id"])) for g in ("eca1", "eca2", "eca3")]
+    for metric in ("PC", "IIC"):
+        t = ls.conn.eca_change(series, metric, distance=[300.0, 500.0], landscape_area=2e3)
+        out[f"eca_{metric}"] = t.drop(columns=["time", "comparison", "change"]).to_numpy(dtype=np.float64)
+        cases.append({"name": f"eca_{metric}", "graph": None, "op": "conn.eca_change", "graphs": ["eca1", "eca2", "eca3"],
+                      "params": {"metric": metric, "distance": [300.0, 500.0], "landscape_area": 2e3},
+                      "readings": [{"comparison": c, "change": h} for c, h in zip(t["comparison"], t["change"])]})
+
     # Conefor's files: landschaft's, read back
     g = make("near", convention="conefor", landscape_area=1e6)
     g.to_conefor(REF / "conn_nodes.txt", REF / "conn_connections.txt")
