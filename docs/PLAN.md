@@ -575,8 +575,14 @@ Pendências:
 - **Restos dos blocos de 0.17.0 (2026-10-13):** `vector.join` (os grupos das zonas como atributos, e por
   `vector.rasterize` um mapa deles), box plots por grupo e o círculo de correlações do PCA nos gráficos, e as
   manchas de um raster em disco gravadas bloco a bloco (`patches_path`, o `RowsWriter`).
-- **Próximos (2026-10-13):** vetores sobre os mapas no viewer (rápido para camadas grandes), extract, buffers,
-  recortes e uniões; as pendências do viewer e do builder no IDEAS.md; os instaladores de macOS e Linux; as pendências do prioritizr (polígonos com zonas, unidades H3).
+- **Vetores, viewer e builder (Unreleased, 2026-10-13):** vetores sobre os mapas e sozinhos em tiles feitos por
+  threads de um R-tree (250 mil polígonos indexados em 60 ms, a camada inteira desenhada em 90 ms fora da thread da
+  tela), `vector.extract`, `vector.buffer`, `vector.clip`, `vector.dissolve` e `vector.join`; a rampa pelos
+  percentis 2–98, a escala logarítmica, a paleta à mão por saída, o produto gravado com o mapa
+  (`landschaft_product`); o builder pelo teclado, templates do Dinamica EGO e do CLUE-S e os do usuário. A ponte
+  do ls.simulate (o branch da outra sessão) integrada.
+- **Próximos (2026-10-13):** os instaladores de macOS e Linux; os vetores e as outras métricas (janela móvel,
+  amostras, séries) no motor por tiles.
 
 - **A ponte do ls.simulate completa (branch `simulate-bridge`, 2026-10-13):** todo modelo do `ls.simulate` vai pelo
   `Model.save` e roda no Terraflux com os mesmos bits. Estimadores e outros potenciais sem forma fechada como

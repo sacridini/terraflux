@@ -54,27 +54,22 @@ neutros (`nlm.*`) para testar fluxos sem dados. A ordem sugerida:
 ## Vetores
 
 Os vetores entraram em 0.13.0 (leitura e escrita pelo OGR, rasterização, estatísticas zonais, somas exatas,
-distâncias, unidades de planejamento em polígonos, o desenho no viewer). Falta:
-- desenhar vetores sobre um mapa no viewer (hoje cada um no seu painel);
-- extrair valores de mapas em pontos (o `extract` do landschaft, bilinear ou da célula);
-- buffers, recortes e uniões de geometrias (o GEOS pelo GDAL);
-- os vetores no motor por tiles.
+distâncias, unidades de planejamento em polígonos, o desenho no viewer).
+- **Feito** (Unreleased): vetores sobre os mapas no viewer, e sozinhos, desenhados em tiles por threads a partir
+  de um R-tree (camadas de milhões de feições sem travar), coloridos por atributo; `vector.extract` (o do
+  landschaft, bit a bit), `vector.buffer`, `vector.clip` e `vector.dissolve` (o GEOS pelo GDAL), `vector.join`.
+- Falta: os vetores no motor por tiles.
 
 ## Viewer
 
 - O viewer escolhe as cores pelo tipo do dado (classes, rampa, divergente em torno de 0, terreno, hillshade,
-  NDVI, MSPA), pelo operador que fez o valor e pelos nomes de nós, arquivos e bandas. Falta:
-  - o produto viajar com o valor (um atributo como o `landschaft_product`, gravado também no GeoTIFF), em vez de
-    adivinhar pelo nome do arquivo;
-  - escala logarítmica para correntes de circuito e contagens muito assimétricas (o `choose_cmap` do
-    landschaft);
-  - a faixa da rampa pelos percentis 2–98 em vez de mínimo e máximo;
-  - trocar a paleta à mão no painel do mapa, e lembrar a escolha por nó.
+  NDVI, MSPA), pelo operador que fez o valor e pelos nomes de nós, arquivos e bandas.
+- **Feito** (Unreleased): o produto gravado com o mapa (`landschaft_product` no GeoTIFF) e lido de volta; a
+  escala logarítmica (correntes de circuito, e à mão); a rampa pelos percentis 2–98; a paleta trocada à mão no
+  painel e lembrada por saída.
 
 ## Builder
 
-- Navegar pelos nós com o teclado (setas para o nó vizinho, Enter para abrir o mapa), completando o "/" para
-  montar um modelo inteiro sem o mouse.
-- Mais templates: um modelo do Dinamica EGO com os dados de exemplo, um CLUE-S. **Feito** (Unreleased): FAD/FOS,
-  SPA e Accounting.
-- Templates do próprio usuário: salvar um modelo como template e vê-lo no menu.
+- **Feito** (Unreleased): navegar pelos nós com o teclado (setas com o ponteiro sobre o canvas, Enter abre a
+  saída); templates do Dinamica EGO e do CLUE-S (dados desenhados por modelos neutros); templates do próprio
+  usuário (salvar o modelo como template, vê-lo e removê-lo no menu).
