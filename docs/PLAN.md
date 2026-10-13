@@ -679,9 +679,10 @@ Pendências:
 - **SDM — registros e background (0.53.0, 2026-10-13):** `sdm.thin`, `sdm.one_per_cell` e `sdm.background`,
   bit a bit.
 - **SDM — partições (0.54.0, 2026-10-13):** `sdm.random_folds`, `sdm.jackknife_folds`, `sdm.quadrant_folds`,
-  `sdm.checkerboard_folds`, `sdm.spatial_blocks`, `sdm.spatial_clusters` e `sdm.buffer_folds`, bit a bit. O
-  resto do `sdm` (limpeza de registros, área acessível, o fluxo fit/predict com validação cruzada, VIF,
-  autocorrelação) vem em blocos.
+  `sdm.checkerboard_folds`, `sdm.spatial_blocks`, `sdm.spatial_clusters` e `sdm.buffer_folds`, bit a bit.
+- **SDM — fluxo de modelagem (0.55.0, 2026-10-13):** `sdm.dataset`, `sdm.fit` (validação cruzada),
+  `sdm.response_curves` e `sdm.importance`, bit a bit. O resto do `sdm` (limpeza de registros, área acessível,
+  VIF e seleção de preditores, autocorrelação, `prepare`) vem em blocos.
 - **Próximos (2026-10-13):** os instaladores de macOS e Linux;
   `vector.exact_sum` e `vector.distance` fora da memória.
 

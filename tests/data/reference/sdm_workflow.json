@@ -1,0 +1,12 @@
+{
+ "cases": [
+  "random",
+  "blocks"
+ ],
+ "importance": [
+  "prec",
+  "cover",
+  "temp",
+  "soil"
+ ]
+}

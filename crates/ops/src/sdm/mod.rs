@@ -7,6 +7,7 @@ pub mod extrapolation;
 pub mod folds;
 pub mod maxnet;
 pub mod points;
+pub mod workflow;
 
 use std::sync::Arc;
 
@@ -32,6 +33,10 @@ pub fn register(r: &mut Registry) {
     for kind in ["random", "jackknife", "quadrant", "checkerboard", "blocks", "clusters", "buffer"] {
         r.add(Arc::new(Folds { kind }));
     }
+    r.add(Arc::new(Dataset));
+    r.add(Arc::new(Fit));
+    r.add(Arc::new(Responses));
+    r.add(Arc::new(Importance));
 }
 
 fn bad(args: &Args, m: impl std::fmt::Display) -> Error {
@@ -944,5 +949,299 @@ impl Operator for Folds {
             }
         };
         Ok(outputs([("records", with_folds(p.occ, &f))]))
+    }
+}
+
+/// The columns of records that are not predictors.
+const NOT_PREDICTORS: [&str; 11] =
+    ["x", "y", "lon", "lat", "longitude", "latitude", "presence", "fold", "weight", "cell", "y_coord"];
+
+/// Records as columns: a table's, or a vector's numeric attributes.
+fn record_columns(args: &Args, port: &str) -> Result<Frame> {
+    match args.get(port) {
+        Some(Value::Table(t)) => Ok(table_frame(t)),
+        Some(Value::Vector(v)) => Ok(Frame {
+            names: v.attributes.iter().map(|(n, _)| n.clone()).collect(),
+            columns: v.attributes.iter().map(|(_, c)| c.numbers()).collect(),
+        }),
+        _ => Err(bad(args, format!("connect {port}: records (sdm.dataset) as a table or points"))),
+    }
+}
+
+/// The predictors (the `predictors` given, else every column but coordinates, presence, fold...), the presences
+/// and the folds of records.
+fn records_xy(args: &Args) -> Result<(Frame, Vec<f64>, Option<Vec<f64>>)> {
+    let f = record_columns(args, "records")?;
+    let presence: String = args.param("presence", "presence".into())?;
+    let col = |name: &str| f.names.iter().position(|n| n == name).map(|k| f.columns[k].clone());
+    let y = col(&presence).ok_or_else(|| bad(args, format!("the records have no column {presence:?}")))?;
+    let fold: String = args.param("fold", "fold".into())?;
+    let folds = col(&fold);
+    let predictors: Vec<String> = match args.opt_param::<Vec<String>>("predictors")? {
+        Some(p) => p,
+        None => f
+            .names
+            .iter()
+            .filter(|n| !NOT_PREDICTORS.contains(&n.to_lowercase().as_str()) && **n != presence && **n != fold)
+            .cloned()
+            .collect(),
+    };
+    let x = f.select(&predictors).map_err(|e| bad(args, e))?;
+    Ok((x, y, folds))
+}
+
+fn maxnet_settings(sig: OpSignature) -> OpSignature {
+    sig.param(PortSpec::optional("categorical", Type::Any, "the predictors that are categories (classes)"))
+        .param(PortSpec::optional("classes", Type::Text, "the feature classes: default, or letters of l, q, p, h, t"))
+        .param(PortSpec::optional("regmult", Type::Number, "the regularisation multiplier (default 1)"))
+        .param(PortSpec::optional(
+            "add_samples_to_background",
+            Type::Bool,
+            "add the presences to the background (true)",
+        ))
+        .param(
+            PortSpec::optional("type", Type::Text, "the output: cloglog (default), logistic")
+                .choices(["cloglog", "logistic"]),
+        )
+        .param(PortSpec::optional("clamp", Type::Bool, "clamp to the training ranges (default true)"))
+}
+
+struct Dataset;
+
+impl Operator for Dataset {
+    fn signature(&self) -> OpSignature {
+        coordinate_settings(
+            OpSignature::new(
+                "sdm.dataset",
+                "The records of a species distribution model (landschaft's dataset): presences (or a table with a \
+                 y, presence or pa column of 1 and 0) and background points with the predictors' values at their \
+                 cells, those without a value in some predictor left out.",
+                Access::Global,
+            )
+            .input(PortSpec::new("presences", Type::Any, "the presences: points or a table of coordinates"))
+            .input(PortSpec::optional("background", Type::Any, "the background points (sdm.background)"))
+            .input(PortSpec::new("env", Type::Any, "the predictors: a stack (by name) or a map"))
+            .output(PortSpec::new("records", Type::Table, "x, y, presence and the predictors")),
+        )
+    }
+
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let (grid, layers) = layers_of(args, "env")?;
+        let names: Vec<String> = match args.get("env") {
+            Some(Value::Stack(s)) => s.keys.iter().map(key_name).collect(),
+            _ => vec!["layer".into()],
+        };
+        let xc: Option<String> = args.opt_param("x")?;
+        let yc: Option<String> = args.opt_param("y")?;
+        let crs = points::grid_crs(&grid);
+        let mut xs = Vec::new();
+        let mut ys = Vec::new();
+        let mut cls = Vec::new();
+        let pres = occurrences(args, "presences")?;
+        let (mut px, mut py, pcrs) = pres.coordinates(xc.as_deref(), yc.as_deref()).map_err(|e| bad(args, e))?;
+        points::to_crs(&mut px, &mut py, pcrs.as_deref(), crs.as_deref()).map_err(|e| bad(args, e))?;
+        let label = match &pres {
+            points::Occurrences::Table(t) => ["y", "presence", "pa"].iter().find_map(|c| {
+                // the coordinate column y is not a label
+                let k = t.columns.iter().position(|n| n == c)?;
+                (Some(*c) != yc.as_deref() && !(*c == "y" && xc.is_none() && t.columns.iter().any(|n| n == "x")))
+                    .then(|| t.rows.iter().map(|r| r[k]).collect::<Vec<f64>>())
+            }),
+            _ => None,
+        };
+        cls.extend(label.unwrap_or_else(|| vec![1.0; px.len()]));
+        xs.extend(px);
+        ys.extend(py);
+        if args.get("background").is_some() {
+            let bg = occurrences(args, "background")?;
+            let (mut bx, mut by, bcrs) = bg.coordinates(xc.as_deref(), yc.as_deref()).map_err(|e| bad(args, e))?;
+            points::to_crs(&mut bx, &mut by, bcrs.as_deref(), crs.as_deref()).map_err(|e| bad(args, e))?;
+            cls.extend(std::iter::repeat_n(0.0, bx.len()));
+            xs.extend(bx);
+            ys.extend(by);
+        }
+        let refs: Vec<&[f64]> = layers.iter().map(|l| &l[..]).collect();
+        let values = workflow::values_at(&grid, &refs, &xs, &ys).map_err(|e| bad(args, e))?;
+        let ok: Vec<usize> = (0..xs.len())
+            .filter(|&i| {
+                values.iter().all(|c| !c[i].is_nan()) && cls[i].is_finite() && xs[i].is_finite() && ys[i].is_finite()
+            })
+            .collect();
+        if ok.len() < xs.len() {
+            ctx.warn(format!(
+                "node {:?}: {} records without a value in some predictor left out",
+                args.node,
+                xs.len() - ok.len()
+            ));
+        }
+        let mut t = Table::new(["x", "y", "presence"].iter().map(|s| s.to_string()).chain(names).collect());
+        t.rows = ok
+            .iter()
+            .map(|&i| [xs[i], ys[i], cls[i]].into_iter().chain(values.iter().map(|c| c[i])).collect())
+            .collect();
+        Ok(outputs([("records", Value::Table(t))]))
+    }
+}
+
+fn settings_of<'a>(
+    args: &Args,
+    categorical: &'a [String],
+    classes: &'a str,
+    output: &'a str,
+) -> Result<maxnet::Settings<'a>> {
+    Ok(maxnet::Settings {
+        categorical,
+        classes,
+        regmult: args.param("regmult", 1.0)?,
+        add_samples_to_background: args.param("add_samples_to_background", true)?,
+        output,
+        clamp: args.param("clamp", true)?,
+    })
+}
+
+fn categorical_of(args: &Args) -> Result<Vec<String>> {
+    Ok(match args.params.get("categorical") {
+        None | Some(serde_json::Value::Null) => Vec::new(),
+        Some(serde_json::Value::String(c)) => vec![c.clone()],
+        Some(_) => args.param("categorical", vec![])?,
+    })
+}
+
+fn records_settings(sig: OpSignature) -> OpSignature {
+    sig.input(PortSpec::new("records", Type::Any, "the records: predictors, presence (1 or 0) and fold columns"))
+        .param(PortSpec::optional("predictors", Type::Any, "the predictor columns (default every other column)"))
+        .param(PortSpec::optional("presence", Type::Text, "the presence column (default presence)"))
+        .param(PortSpec::optional("fold", Type::Text, "the fold column (default fold)"))
+}
+
+struct Fit;
+
+impl Operator for Fit {
+    fn signature(&self) -> OpSignature {
+        maxnet_settings(records_settings(
+            OpSignature::new(
+                "sdm.fit",
+                "A MaxNet species distribution model with cross-validation (landschaft's fit): one fit per fold \
+                 of the records (AUC of the training and test records and their difference, the largest TSS, \
+                 Boyce's index, the omission rates at the minimum and 10th percentile training presence), their \
+                 means and standard deviations, and the model on every record with its threshold of maximum \
+                 sensitivity plus specificity.",
+                Access::Global,
+            )
+            .output(PortSpec::new("model", Type::SdmModel, "the model on every record"))
+            .output(PortSpec::new(
+                "metrics",
+                Type::Table,
+                "per fold: fold, auc_train, auc_test, auc_diff, tss, boyce, or_mtp, or_10p, n_test",
+            ))
+            .output(PortSpec::new("summary", Type::Table, "the metrics' means and standard deviations"))
+            .output(PortSpec::new(
+                "threshold",
+                Type::Number,
+                "the threshold of maximum sensitivity plus specificity",
+            )),
+        ))
+        .param(PortSpec::optional("cv", Type::Bool, "cross-validate over the folds (default true)"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let (x, y, folds) = records_xy(args)?;
+        let categorical = categorical_of(args)?;
+        let classes: String = args.param("classes", "default".into())?;
+        let output: String = args.param("type", "cloglog".into())?;
+        let s = settings_of(args, &categorical, &classes, &output)?;
+        let f = workflow::fit(&x, &y, folds.as_deref(), &s, args.param("cv", true)?).map_err(|e| bad(args, e))?;
+        let mut metrics = Table::new(
+            std::iter::once("fold".to_string()).chain(workflow::METRICS.iter().map(|m| m.to_string())).collect(),
+        );
+        metrics.rows = f.metrics;
+        let mut summary =
+            Table::new(workflow::METRICS[..7].iter().flat_map(|m| [format!("{m}_mean"), format!("{m}_sd")]).collect());
+        if !f.summary.is_empty() {
+            summary.rows = vec![f.summary];
+        }
+        Ok(outputs([
+            ("model", Value::SdmModel(Arc::new(f.model))),
+            ("metrics", Value::Table(metrics)),
+            ("summary", Value::Table(summary)),
+            ("threshold", Value::Number(f.threshold)),
+        ]))
+    }
+}
+
+struct Responses;
+
+impl Operator for Responses {
+    fn signature(&self) -> OpSignature {
+        records_settings(
+            OpSignature::new(
+                "sdm.response_curves",
+                "A model's response curves (landschaft's response_curves): each predictor over its range in the \
+                 records, the others at their mean or median; a column of values and one of suitability per \
+                 predictor.",
+                Access::Global,
+            )
+            .input(PortSpec::new("model", Type::SdmModel, "a fitted model"))
+            .output(PortSpec::new(
+                "curves",
+                Type::Table,
+                "<predictor> and <predictor>_suitability columns",
+            )),
+        )
+        .param(PortSpec::optional("of", Type::Any, "the predictors to draw (default all)"))
+        .param(PortSpec::optional("n", Type::Integer, "the steps (default 100)"))
+        .param(
+            PortSpec::optional("fixed", Type::Text, "the others at their mean (default) or median")
+                .choices(["mean", "median"]),
+        )
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let Some(Value::SdmModel(m)) = args.get("model") else { return Err(bad(args, "connect a fitted model")) };
+        let (x, _, _) = records_xy(args)?;
+        let of: Vec<String> = match args.params.get("of") {
+            None | Some(serde_json::Value::Null) => x.names.clone(),
+            Some(serde_json::Value::String(p)) => vec![p.clone()],
+            Some(_) => args.param("of", vec![])?,
+        };
+        let fixed: String = args.param("fixed", "mean".into())?;
+        let f = workflow::response_curves(m, &x, &of, args.param("n", 100)?, &fixed).map_err(|e| bad(args, e))?;
+        Ok(frame_out(f, None).into_values().map(|v| ("curves".to_string(), v)).collect())
+    }
+}
+
+struct Importance;
+
+impl Operator for Importance {
+    fn signature(&self) -> OpSignature {
+        records_settings(
+            OpSignature::new(
+                "sdm.importance",
+                "The permutation importance of a model's predictors (landschaft's importance): the mean drop of AUC \
+                 over the records when each predictor is shuffled (numpy's generator), and its standard \
+                 deviation; the most important first.",
+                Access::Global,
+            )
+            .input(PortSpec::new("model", Type::SdmModel, "a fitted model"))
+            .output(PortSpec::new(
+                "importance",
+                Type::Table,
+                "importance and sd per predictor, the most important first",
+            ))
+            .output(PortSpec::new("predictors", Type::Any, "the predictors, most important first")),
+        )
+        .param(PortSpec::optional("n_repeats", Type::Integer, "the shuffles per predictor (default 5)"))
+        .param(PortSpec::optional("seed", Type::Integer, "numpy's seed (default 1)"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let Some(Value::SdmModel(m)) = args.get("model") else { return Err(bad(args, "connect a fitted model")) };
+        let (x, y, _) = records_xy(args)?;
+        let rows = workflow::importance(m, &x, &y, args.param("n_repeats", 5)?, args.param("seed", 1)?)
+            .map_err(|e| bad(args, e))?;
+        let mut t = Table::new(vec!["importance".into(), "sd".into()]);
+        t.rows = rows.iter().map(|r| vec![r.1, r.2]).collect();
+        let names: Vec<&String> = rows.iter().map(|r| &r.0).collect();
+        Ok(outputs([("importance", Value::Table(t)), ("predictors", Value::Json(serde_json::json!(names)))]))
     }
 }

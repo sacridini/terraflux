@@ -164,6 +164,31 @@ impl NumpyRng {
         }
     }
 
+    /// numpy's random_interval: a whole number in [0, max] by masked rejection.
+    pub fn interval(&mut self, max: u64) -> u64 {
+        if max == 0 {
+            return 0;
+        }
+        let mut mask = max;
+        for s in [1, 2, 4, 8, 16, 32] {
+            mask |= mask >> s;
+        }
+        loop {
+            let v = if max <= 0xFFFF_FFFF { u64::from(self.next_u32()) & mask } else { self.next_u64() & mask };
+            if v <= max {
+                return v;
+            }
+        }
+    }
+
+    /// `shuffle` of a 1-D array (and `permutation` of a copy): Fisher-Yates from the end.
+    pub fn shuffle<T>(&mut self, v: &mut [T]) {
+        for i in (1..v.len()).rev() {
+            let j = self.interval(i as u64) as usize;
+            v.swap(i, j);
+        }
+    }
+
     /// `random()`: a double in [0, 1).
     pub fn random(&mut self) -> f64 {
         (self.next_u64() >> 11) as f64 * (1.0 / 9007199254740992.0)

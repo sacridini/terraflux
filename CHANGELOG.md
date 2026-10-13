@@ -6,6 +6,15 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- The species distribution modelling workflow with MaxNet (landschaft's dataset, fit, response_curves and
+  importance): `sdm.dataset` (presences, or a table of 1 and 0, and background points with the predictors'
+  values at their cells), `sdm.fit` (one fit per fold of the records with AUC of training and test, their
+  difference, the largest TSS, Boyce's index and the omission rates; their means and standard deviations as
+  pandas computes them; the model on every record and its threshold), `sdm.response_curves` (each predictor
+  over its range, the others at their mean or median) and `sdm.importance` (the drop of AUC when a predictor
+  is shuffled, numpy's generator). The same as landschaft's, to the bit.
+
 ## [0.54.0] - 2026-10-13
 
 ### Added
