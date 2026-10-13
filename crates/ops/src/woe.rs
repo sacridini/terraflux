@@ -134,9 +134,13 @@ impl WoeModel {
 #[serde(deny_unknown_fields)]
 pub struct Settings {
     /// Per variable: "categorical", an increment, a list of limits, or { increment, min_delta, max_delta,
-    /// tolerance, breaks, categorical }.
+    /// tolerance, breaks, categorical }; and per transition ("from->to", as landschaft's (from, to) keys) the
+    /// same of its variables, over those of every transition.
     #[serde(default)]
     pub ranges: BTreeMap<String, serde_json::Value>,
+    /// W+ set by hand: per transition ("from->to") and variable, a weight per range (null: the one fitted).
+    #[serde(default)]
+    pub weights: BTreeMap<String, BTreeMap<String, Vec<Option<f64>>>>,
     #[serde(default = "auto")]
     pub increment: serde_json::Value,
     #[serde(default = "one")]
@@ -380,7 +384,9 @@ pub fn variable_specs(variables: &[String], s: &Settings) -> Result<Vec<VarSpec>
     if s.possible != "any" && s.possible != "stay" {
         return Err(Error::msg("possible must be \"any\" or \"stay\""));
     }
-    let mut common = s.ranges.clone();
+    // (the transitions' own settings apart)
+    let mut common: BTreeMap<String, serde_json::Value> =
+        s.ranges.iter().filter(|(k, _)| transition_key(k).is_none()).map(|(k, v)| (k.clone(), v.clone())).collect();
     for name in &s.categorical {
         common.insert(name.clone(), "categorical".into());
     }
@@ -388,6 +394,60 @@ pub fn variable_specs(variables: &[String], s: &Settings) -> Result<Vec<VarSpec>
         return Err(Error::msg(format!("no driver named {unknown:?}")));
     }
     variables.iter().map(|name| spec(name, common.get(name), s)).collect()
+}
+
+/// The transition a key of `ranges` or `weights` names: "from->to".
+pub fn transition_key(k: &str) -> Option<(f64, f64)> {
+    let (a, b) = k.split_once("->")?;
+    Some((a.trim().parse().ok()?, b.trim().parse().ok()?))
+}
+
+/// The key of a transition in `ranges` and `weights`.
+pub fn key_of(f: f64, t: f64) -> String {
+    format!("{}->{}", crate::value::class_label(f), crate::value::class_label(t))
+}
+
+/// A variable's settings for a transition: its own in `ranges["from->to"]`, else those of every transition.
+fn spec_for(f: f64, t: f64, name: &str, common: &VarSpec, s: &Settings) -> Result<VarSpec> {
+    let own = s.ranges.iter().find(|(k, _)| transition_key(k) == Some((f, t))).and_then(|(_, v)| v.get(name));
+    match own {
+        Some(v) => {
+            let categorical = s.categorical.iter().any(|c| c == name);
+            let v = if categorical { serde_json::Value::String("categorical".into()) } else { v.clone() };
+            spec(name, Some(&v), s)
+        }
+        None => Ok(common.clone()),
+    }
+}
+
+/// The weights set by hand over those fitted: of every entry with some, its ranges' W+ (and the report's).
+pub fn set_weights(entries: &mut [Entry], rows: &mut [Row], s: &Settings) -> Result<()> {
+    for (k, by_var) in &s.weights {
+        let (f, t) =
+            transition_key(k).ok_or_else(|| Error::msg(format!("weights: {k:?} is no transition (from->to)")))?;
+        for (name, w) in by_var {
+            let e = entries
+                .iter_mut()
+                .find(|e| e.from == f && e.to == t && &e.variable == name)
+                .ok_or_else(|| Error::msg(format!("weights: no {name:?} for the transition {k}")))?;
+            if w.len() != e.weights.len() {
+                return Err(Error::msg(format!(
+                    "weights of {k} {name}: {} for {} ranges (refit the ranges, or give one a range)",
+                    w.len(),
+                    e.weights.len()
+                )));
+            }
+            let mine: Vec<&mut Row> =
+                rows.iter_mut().filter(|r| r.from == f && r.to == t && &r.variable == name).collect();
+            for ((x, given), row) in e.weights.iter_mut().zip(w).zip(mine) {
+                if let Some(g) = given {
+                    *x = *g;
+                    row.weight = *g;
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// The transitions observed in a matrix of counts (classes x classes), rows then columns.
@@ -499,7 +559,9 @@ pub fn fit(
     let mut entries = Vec::new();
     let mut rows = Vec::new();
     for &(f, t) in &transitions {
-        for (name, v) in variables.iter().zip(&specs) {
+        for (name, common) in variables.iter().zip(&specs) {
+            let own = spec_for(f, t, name, common, s)?;
+            let v = &own;
             let values = drivers.by_name(name).unwrap();
             let sig = format!("{f}|{name}|{}|{:?}|{:?}", v.categorical, v.increment, v.breaks);
             if !cache.contains_key(&sig) {
@@ -514,6 +576,7 @@ pub fn fit(
             rows.extend(r);
         }
     }
+    set_weights(&mut entries, &mut rows, s)?;
     Ok(WoeModel { transitions, entries, rows, fix_abnormal: s.fix_abnormal })
 }
 
@@ -597,7 +660,12 @@ impl Operator for FitOp {
         .param(PortSpec::optional(
             "ranges",
             Type::Any,
-            "per variable: \"categorical\", an increment, limits or options",
+            "per variable: \"categorical\", an increment, limits or options; per transition (\"1->2\") its own",
+        ))
+        .param(PortSpec::optional(
+            "weights",
+            Type::Any,
+            "W+ set by hand: {\"1->2\": {variable: [a weight per range, or null]}} (the viewer's WoE editor)",
         ))
         .param(PortSpec::optional("categorical", Type::Any, "names of categorical variables"))
         .param(PortSpec::optional("fix_abnormal", Type::Bool, "finite weights for ranges without transitions"))

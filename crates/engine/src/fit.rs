@@ -154,6 +154,11 @@ pub fn woe(
     order.sort_by(|&a, &b| drivers[a].0.cmp(&drivers[b].0));
     let variables: Vec<String> = order.iter().map(|&i| drivers[i].0.clone()).collect();
     let specs = variable_specs(&variables, s)?;
+    if let Some(k) = s.ranges.keys().find(|k| terraflux_ops::woe::transition_key(k).is_some()) {
+        return Err(Error::Msg(format!(
+            "ranges of a transition ({k}): the tiled engine takes ranges of every transition only (run it exact)"
+        )));
+    }
     let transitions = match transitions.or_else(|| s.transitions.clone()) {
         Some(t) => t,
         None => {
@@ -205,6 +210,7 @@ pub fn woe(
             rows.extend(r);
         }
     }
+    terraflux_ops::woe::set_weights(&mut entries, &mut rows, s)?;
     Ok(WoeModel { transitions, entries, rows, fix_abnormal: s.fix_abnormal })
 }
 

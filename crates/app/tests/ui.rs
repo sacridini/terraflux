@@ -1168,3 +1168,103 @@ fn the_changes_are_analysed_from_the_prepare_pane() {
         assert!(s.source.nodes.iter().any(|n| n.op == op), "{op}");
     }
 }
+
+/// The weights of evidence in the viewer: bars of a transition's variable, two ranges merged in a click (the
+/// fit's ranges of that transition), the fit run again with one range less.
+#[test]
+fn weights_of_evidence_are_edited_in_the_viewer() {
+    let d = tmp("woe");
+    std::fs::create_dir_all(&d).unwrap();
+    use terraflux_graph::Node;
+    let mut m = terraflux_graph::Model::new("woe");
+    let lu = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
+    m.nodes.push(Node::new("t0", "raster.read").param("path", lu.clone()).param("band", "0"));
+    m.nodes.push(Node::new("t1", "raster.read").param("path", lu).param("band", "1"));
+    m.nodes.push(Node::new("drivers", "raster.read").param("path", data("sibuyan_drivers.tif").to_string_lossy()));
+    m.nodes.push(
+        Node::new("fit", "woe.fit").input("t0", "t0.map").input("t1", "t1.map").input("drivers", "drivers.stack"),
+    );
+    let path = d.join("woe.toml");
+    m.save(&path).unwrap();
+    let mut h = harness(TerrafluxApp::new(Some(path)));
+    loaded(&mut h);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        terraflux_app::builder::select(s, &terraflux_ops::Registry::standard(), "fit");
+        s.start_to(Some("fit".into()), Box::new(|| {}));
+    }
+    until(&mut h, "the fit", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("fit", "model").is_some()
+    });
+    h.state_mut().focus(Pane::Viewer);
+    h.run_steps(3);
+    let ranges = |h: &Harness<TerrafluxApp>| {
+        let Some(terraflux_ops::Value::Woe(w)) = h.state().session.as_ref().unwrap().value_of("fit", "model") else {
+            panic!()
+        };
+        let (f, t) = w.transitions[0];
+        let e = w.entries.iter().find(|e| e.from == f && e.to == t).unwrap().clone();
+        (w.rows.iter().filter(|r| r.from == f && r.to == t && r.variable == e.variable).count(), e.layout.categorical)
+    };
+    let (before, categorical) = ranges(&h);
+    assert!(!categorical && before > 1);
+    shot(&mut h, "28-woe");
+    h.query_all_by_label("merge next").next().expect("a range to merge").click();
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    let n = s.source.nodes.iter().find(|n| n.id == "fit").unwrap();
+    assert!(n.params.get("ranges").is_some_and(|r| r.as_object().is_some_and(|o| !o.is_empty())), "{:?}", n.params);
+    let t = Instant::now();
+    while ranges(&h).0 == before {
+        h.step();
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(t.elapsed() < Duration::from_secs(60), "the fit again: too long");
+    }
+    assert_eq!(ranges(&h).0, before - 1);
+}
+
+/// The legend edited in the viewer: a class named, applied as a raster.legend node after the node shown, its
+/// name in the legend then.
+#[test]
+fn the_legend_is_edited_in_the_viewer() {
+    let mut h = harness(TerrafluxApp::new(None));
+    h.run_steps(2);
+    let r = terraflux_ops::Registry::standard();
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let path = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
+        terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into())]).unwrap();
+    }
+    until(&mut h, "the raster read", |a| a.session.as_ref().unwrap().value_of("read", "raster").is_some());
+    h.state_mut().focus(Pane::Viewer);
+    drawn(&mut h);
+    h.run_steps(5);
+    h.get_by_label("Edit the legend").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("4723").is_none(), "the editor in the legend's place");
+    // the first class's name field (the first text field of the editor): "1" replaced by "forest"
+    let field = h.query_all_by_value("1").last().expect("the name of class 1");
+    field.click();
+    h.run_steps(1);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.event(egui::Event::Text("forest".into()));
+    h.run_steps(2);
+    shot(&mut h, "29-legend-editor");
+    h.get_by_label("Apply").click();
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    let n = s.source.nodes.iter().find(|n| n.op == "raster.legend").expect("raster.legend added");
+    assert_eq!(n.inputs["map"], terraflux_graph::Source::Ref("read.raster".into()));
+    let classes = terraflux_ops::legend::parse(&n.params["classes"]).unwrap();
+    assert_eq!(classes[0].name, "forest");
+    assert_eq!(s.selected.as_deref(), Some(n.id.as_str()));
+    until(&mut h, "the legend's node run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("legend", "map").is_some()
+    });
+    drawn(&mut h);
+    h.run_steps(5);
+    assert!(h.query_by_label("forest").is_some(), "the name in the legend");
+    shot(&mut h, "30-legend");
+}

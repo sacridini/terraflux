@@ -713,7 +713,9 @@ impl Operator for Reclassify {
                 rest.unwrap_or(v)
             })
             .collect();
-        Ok(outputs([("map", Value::Map(Map::new(m.grid.clone(), data)))]))
+        // other classes: the legend of the map's is left behind
+        let grid = Arc::new(crate::legend::with_legend(&m.grid, None));
+        Ok(outputs([("map", Value::Map(Map::new(grid, data)))]))
     }
 }
 

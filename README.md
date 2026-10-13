@@ -163,6 +163,9 @@ no console.
   stacked by plots in the model (a plot's `under`); a cell clicked on a stack shows its values along the layers
   in a chart; B puts the satellite under the map. **Settings:** themes, the text's size, the zoom, the threads;
   favourites in coloured collections in the operators' library.
+- **Legends and weights of evidence:** the classes' names and colours edited in the viewer (a `raster.legend`
+  node, carried with the map to the GeoTIFF); the weights of evidence of a fit in bars, its ranges merged or
+  split and its weights set by hand, the fit run again.
 - **Prepare:** the data of the node selected next to the model's reference grid (the land use map's, suggested
   as soon as one is read): its coordinate system, cells and extent, what differs, and the steps a click away,
   each a node of an operator already there with a note saying why: onto the grid (`raster.match`, resampled by

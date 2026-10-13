@@ -6,6 +6,25 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-10-13
+
+### Added
+- The weights of evidence in the viewer, editable as in Dinamica EGO: a transition and a variable chosen, the W+
+  of its ranges in bars (the significant in the accent) and the ranges in a table (cells, changed, W+, contrast):
+  two ranges merged or one split, a weight set by hand (or back to the fitted one), the fit run again. `woe.fit`
+  takes `ranges` per transition (`"1->2": {variable: limits}`, as landschaft's (from, to) keys) and `weights`
+  set by hand (`{"1->2": {variable: [W+ or null per range]}}`), in the probabilities too; the tiled engine takes
+  the weights and refuses ranges of one transition.
+- Legends: `raster.legend` gives the names and colours of a map's classes, carried with the map in its grid's
+  metadata (`terraflux_legend`) to the maps made from it with its classes and to the GeoTIFF it is written to;
+  `raster.reclassify` leaves them behind. The viewer colours and names the classes so, and edits them ("Edit the
+  legend": a colour and a name per class, applied as a `raster.legend` node after the node shown, or that node
+  changed).
+
+### Fixed
+- A node selected by what the viewer shows (the legend's node, the WoE's...) is shown at once (the viewer no
+  longer put back the node it had shown).
+
 ## [0.25.0] - 2026-10-13
 
 ### Added

@@ -1295,10 +1295,14 @@ fn preview(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Hover> {
         overlays: std::mem::take(&mut s.preview_overlays),
         rasters: std::mem::take(&mut s.preview_rasters),
     };
+    let before = s.preview.clone();
     let hover = output(ui, s, r, &mut shown, "viewer");
-    s.preview = Some((shown.node, shown.port));
-    s.preview_band = shown.band;
-    s.preview_chosen = shown.chosen;
+    // (a node selected meanwhile, by what the viewer shows: that node's output shown now)
+    if s.preview == before {
+        s.preview = Some((shown.node, shown.port));
+        s.preview_band = shown.band;
+        s.preview_chosen = shown.chosen;
+    }
     s.preview_view = shown.view;
     s.preview_overlays = shown.overlays;
     s.preview_rasters = shown.rasters;
@@ -1606,6 +1610,13 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
             crate::vector_view::show(ui, v, &mut sh.view, egui::Id::new(("vector", salt, &node, &port)));
             return None;
         }
+        if let Value::Woe(m) = &value {
+            let m = m.clone();
+            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                crate::woe_view::show(ui, s, &node, &m, salt);
+            });
+            return None;
+        }
         if let Value::Table(t) = &value {
             // sorted, filtered and drawn as bars, the rows scrolled within
             let id = egui::Id::new(("table", salt, &node, &port));
@@ -1636,6 +1647,12 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     // a palette chosen by hand for this output, else by what it is
     let palette = s.palettes.get(&(node.clone(), port.clone())).copied().unwrap_or_else(|| Palette::of(made, &hint));
     let look = s.looks.get(ui.ctx(), &maps[k], palette);
+    // the names and colours of the classes the model or the map gives
+    let legend_classes = crate::legend_view::legend_of(s, &node, &port, &maps[k]);
+    let look = match (&look, &legend_classes) {
+        (Some(l), Some(c)) => Some(crate::legend_view::apply(l, c)),
+        _ => look,
+    };
     egui::Panel::right(egui::Id::new(("output side", salt)))
         .resizable(true)
         .default_size(260.0)
@@ -1680,7 +1697,14 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 }
                 ui.add_space(4.0);
                 match &look {
-                    Some(l) => legend(ui, &l.coloring, &l.counts, &|v| class_name(l, v)),
+                    Some(l) => {
+                        let named = legend_classes.as_deref();
+                        // (the editor in the legend's place while it is open)
+                        if !crate::legend_view::editing(ui, &node, &port) {
+                            legend(ui, &l.coloring, &l.counts, &|v| crate::legend_view::name(l, named, v));
+                        }
+                        crate::legend_view::editor(ui, s, r, &node, &port, l, named);
+                    }
                     None => {
                         ui.horizontal(|ui| {
                             ui.spinner();

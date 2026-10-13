@@ -9,6 +9,7 @@ pub mod canvas_gpu;
 pub mod charts;
 pub mod editor;
 pub mod editor_view;
+pub mod legend_view;
 pub mod map_view;
 pub mod metadata;
 pub mod palette;
@@ -22,6 +23,7 @@ pub mod theme;
 pub mod vector_tiles;
 pub mod vector_view;
 pub mod wizard;
+pub mod woe_view;
 
 use std::path::PathBuf;
 

@@ -600,7 +600,10 @@ Pendências:
   (Aldwaik & Pontius, com a estacionariedade), `change.components` (quantidade, troca e deslocamento),
   `change.count` e `change.suggest` (as transições a modelar, com o motivo), bit a bit com o landschaft; o
   assistente no painel Prepare.
-- **Próximos (2026-10-13):** o editor de legenda e os gráficos editáveis do WoE; os instaladores de macOS e Linux;
+- **Editor de legenda e WoE editável (0.26.0, 2026-10-13):** `raster.legend` (nomes e cores das classes,
+  levados com o mapa nos metadados da grade e no GeoTIFF), o editor no viewer; o WoE em barras por transição e
+  variável, intervalos juntados ou divididos e pesos à mão (`ranges` por transição e `weights` no `woe.fit`).
+- **Próximos (2026-10-13):** os módulos do landschaft que faltam no builder, um após o outro; os instaladores de macOS e Linux;
   `vector.exact_sum` e `vector.distance` fora da memória.
 
 - **A ponte do ls.simulate completa (branch `simulate-bridge`, 2026-10-13):** todo modelo do `ls.simulate` vai pelo

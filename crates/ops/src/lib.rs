@@ -31,6 +31,7 @@ pub mod gtb_palettes;
 pub mod gtn;
 pub mod h3;
 pub mod landscape;
+pub mod legend;
 pub mod lsm_catalog;
 pub mod lulcc;
 pub mod markov;
@@ -266,6 +267,7 @@ impl Registry {
         algebra::register(&mut r);
         change::register(&mut r);
         change_analysis::register(&mut r);
+        legend::register(&mut r);
         clumondo::register(&mut r);
         crafty::register(&mut r);
         markov::register(&mut r);
