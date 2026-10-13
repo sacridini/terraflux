@@ -10,9 +10,9 @@ use std::sync::Arc;
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 use terraflux_ls_sys::ffi;
 use terraflux_raster::DataType;
-use terraflux_raster::tiff::{TiledWriter, Window};
+use terraflux_raster::tiff::Window;
 
-use crate::files::Rasters;
+use crate::files::{Rasters, RowsWriter};
 use crate::landscape::{foreground_of, foreground_param, gtb_code, map_of};
 use crate::{Args, Ctx, Error, Operator, Outputs, Registry, Result, Value, outputs};
 
@@ -195,7 +195,7 @@ impl Operator for MspaTiled {
 }
 
 /// MSPA by GTB's tiles of rasters on disk into a GeoTIFF: a row of tiles at a time (read by windows), the rows
-/// kept written by TIFF tiles of 512 x 512 as they are complete; in memory a row of tiles and 512 rows.
+/// kept written as they come ([`RowsWriter`]); in memory a row of tiles and 512 rows.
 fn to_file(
     r: &Rasters,
     path: &Path,
@@ -204,37 +204,12 @@ fn to_file(
     overlap: usize,
     read: &dyn Fn(usize, usize, usize, usize) -> Result<Vec<u8>>,
 ) -> Result<()> {
-    const TILE: usize = 512;
     let grid = r.grid_of(r.chosen).clone();
     let (ny, nx) = (grid.height, grid.width);
     let (rows, cols) = tiles_of(ny, nx, tile_size, overlap)?;
-    let err = |e: terraflux_raster::Error| Error::msg(format!("{}: {e}", path.display()));
-    let mut out =
-        TiledWriter::create(path, &grid, vec![Some("mspa".into())], DataType::U8, None, TILE, Some(6)).map_err(err)?;
-    // the rows kept and not yet written, from row `done`
-    let mut pending: Vec<u8> = Vec::new();
-    let mut done = 0;
-    for (k, &row) in rows.iter().enumerate() {
-        pending.extend(tile_row(row, &cols, nx, s, read)?);
-        let last = k == rows.len() - 1;
-        while pending.len() >= TILE * nx || (last && !pending.is_empty()) {
-            let h = TILE.min(ny - done);
-            for col in 0..nx.div_ceil(TILE) {
-                let (x0, w) = (col * TILE, TILE.min(nx - col * TILE));
-                let t: Vec<f64> =
-                    (0..h).flat_map(|y| pending[y * nx + x0..y * nx + x0 + w].iter().map(|&v| f64::from(v))).collect();
-                out.write_tile(col, done / TILE, &[&t]).map_err(err)?;
-            }
-            pending.drain(..h * nx);
-            done += h;
-        }
+    let mut out = RowsWriter::create(path, &grid, "mspa", DataType::U8, None)?;
+    for &row in &rows {
+        out.push(tile_row(row, &cols, nx, s, read)?.into_iter().map(f64::from))?;
     }
-    out.finish().map_err(err)?;
-    // a CRS GDAL read (no GeoTIFF keys) given to the file by GDAL
-    if grid.geo.geokeys.is_none()
-        && let Some(wkt) = &grid.geo.wkt
-    {
-        terraflux_gdal::set_crs(path, wkt).map_err(Error::msg)?;
-    }
-    Ok(())
+    out.finish()
 }

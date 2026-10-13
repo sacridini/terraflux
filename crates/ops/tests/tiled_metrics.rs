@@ -174,6 +174,20 @@ fn rasters_on_disk_by_blocks() {
         // the maps of patches only of a map in memory
         assert!(!out.contains_key("patches"));
     }
+    // the patches written block by block, the same as in memory
+    let patches = dir.join("patches.tif");
+    let q = serde_json::json!({"metrics": ["area"], "block_rows": 64, "patches_path": patches.to_string_lossy()});
+    let out = run("metrics.patch", disk.clone(), q);
+    assert!(matches!(out["patches"], Value::Raster(_)));
+    let back = Raster::read(&patches).unwrap();
+    let back = back.bands[0].masked(back.nodata);
+    let Value::Map(memory) =
+        &run("metrics.patch", Value::Map(map.clone()), serde_json::json!({"metrics": ["area"]}))["patches"]
+    else {
+        panic!()
+    };
+    assert_eq!(back.len(), memory.data.len());
+    assert!(back.iter().zip(memory.data.iter()).all(|(a, b)| a == b || (a.is_nan() && b.is_nan())), "patches on disk");
     // by default, the metrics by blocks only
     let out = run("metrics.class", disk.clone(), serde_json::json!({"extras": true, "block_rows": 64}));
     assert!(!table(&out).columns.iter().any(|c| c.starts_with("prox") || c.starts_with("econ")));

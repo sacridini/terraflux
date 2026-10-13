@@ -571,7 +571,11 @@ Pendências:
   (`polygon_zone_units`: custos por zona, as feições de cada zona ou contribuições, somas exatas; o compile() do
   prioritizr bit a bit e o ótimo) e as unidades H3 (`prioritize.h3_units`: o h3o, port do H3 em Rust; os mesmos
   hexágonos e custos do landschaft, bit a bit).
-- **Próximos (2026-10-13):** os instaladores de macOS e Linux; o biplot do PCA e um mapa dos grupos das zonas; as pendências do prioritizr (polígonos com zonas, unidades H3); a ponte do
+- **Restos dos blocos de 0.17.0 (2026-10-13):** `vector.join` (os grupos das zonas como atributos, e por
+  `vector.rasterize` um mapa deles), box plots por grupo e o círculo de correlações do PCA nos gráficos, e as
+  manchas de um raster em disco gravadas bloco a bloco (`patches_path`, o `RowsWriter`).
+- **Próximos (2026-10-13):** vetores sobre os mapas no viewer (rápido para camadas grandes), extract, buffers,
+  recortes e uniões; as pendências do viewer e do builder no IDEAS.md; os instaladores de macOS e Linux; as pendências do prioritizr (polígonos com zonas, unidades H3); a ponte do
   ls.simulate (demandas regionais, CLUMondo, FUTURES, MOLUSCE), em andamento num branch próprio.
 
 Pendências gerais, depois das fases:

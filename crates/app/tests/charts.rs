@@ -72,8 +72,13 @@ fn charts_of_signatures() {
     let s = signatures();
     let col = |t: &Table, c: &str| t.columns.iter().position(|x| x == c).unwrap();
     // several metrics at once, as bars by zone
-    let bars =
-        Chart { kind: Kind::Bars, columns: vec![col(&s, "shdi"), col(&s, "ed"), col(&s, "np")], x: Some(0), by: None };
+    let bars = Chart {
+        kind: Kind::Bars,
+        columns: vec![col(&s, "shdi"), col(&s, "ed"), col(&s, "np")],
+        x: Some(0),
+        by: None,
+        ..Default::default()
+    };
     draw(s.clone(), bars, "bars");
     // the zones' metrics against each other, coloured by their cluster
     let clusters = table(&run("metrics.cluster", &s, serde_json::json!({"k": 4})), "table");
@@ -82,8 +87,21 @@ fn charts_of_signatures() {
         columns: vec![col(&clusters, "ed"), col(&clusters, "pland_41")],
         x: Some(col(&clusters, "shdi")),
         by: Some(col(&clusters, "cluster")),
+        ..Default::default()
     };
-    draw(clusters, points, "points");
+    draw(clusters.clone(), points, "points");
+    // the metrics' box plots by cluster
+    let boxes = Chart {
+        kind: Kind::Boxes,
+        columns: vec![col(&clusters, "shdi"), col(&clusters, "ed")],
+        by: Some(col(&clusters, "cluster")),
+        ..Default::default()
+    };
+    draw(clusters, boxes, "boxes");
+    // the loadings of the first two components
+    let loadings = table(&run("metrics.pca", &s, serde_json::json!({})), "loadings");
+    assert!(Kind::of(&loadings).contains(&Kind::Loadings));
+    draw(loadings.clone(), Chart::suggested(&loadings, Kind::Loadings), "loadings");
     // the clustergram of the k-means' means
     let means = table(&run("metrics.clustergram", &s, serde_json::json!({"k_max": 6})), "means");
     assert!(Kind::of(&means).contains(&Kind::Clustergram));

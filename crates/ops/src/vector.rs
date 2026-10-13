@@ -19,6 +19,78 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(Zonal));
     r.add(Arc::new(ExactSum));
     r.add(Arc::new(Distance));
+    r.add(Arc::new(Join));
+}
+
+/// The rows of a table joined to features: for every feature, the row whose `key` equals its `on` (its number 1..
+/// when `on` is none), if any.
+pub fn join_rows(
+    v: &Vector,
+    t: &Table,
+    on: Option<&str>,
+    key: usize,
+) -> std::result::Result<Vec<Option<usize>>, String> {
+    let of_feature: Vec<f64> = match on {
+        None => (1..=v.len()).map(|i| i as f64).collect(),
+        Some(name) => match v.column(name) {
+            Some(Column::Numbers(x)) => x.clone(),
+            Some(Column::Texts(x)) => x.iter().map(|s| s.trim().parse().unwrap_or(f64::NAN)).collect(),
+            None => return Err(format!("the features have no attribute {name:?}")),
+        },
+    };
+    let mut index = std::collections::HashMap::new();
+    for (r, row) in t.rows.iter().enumerate() {
+        index.entry(row[key].to_bits()).or_insert(r);
+    }
+    Ok(of_feature.iter().map(|k| if k.is_nan() { None } else { index.get(&k.to_bits()).copied() }).collect())
+}
+
+struct Join;
+
+impl Operator for Join {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "vector.join",
+            "A table's columns as attributes of features: every feature takes the row whose key column equals its \
+             attribute `on` (its number 1.. by default), e.g. the cluster of every zone of metrics.cluster on \
+             vector.grid_zones' squares (key zone); no value where no row matches. Attributes of the same name are \
+             replaced.",
+            Access::None,
+        )
+        .input(PortSpec::new("vector", Type::Vector, "the features"))
+        .input(PortSpec::new("table", Type::Table, "the table"))
+        .output(PortSpec::new("vector", Type::Vector, "the features with the table's columns"))
+        .param(PortSpec::optional("on", Type::Text, "the features' attribute (default their number, 1..)"))
+        .param(PortSpec::optional(
+            "key",
+            Type::Text,
+            "the table's column (default zone, feature, plot_id or id if it has one, else its first)",
+        ))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let fail = |e: String| Error::msg(format!("node {:?}: {e}", args.node));
+        let v = vector_of(args, "vector")?;
+        let Some(Value::Table(t)) = args.get("table") else { return Err(fail("connect a table".into())) };
+        let key = match args.opt_param::<String>("key")?.filter(|k| !k.is_empty()) {
+            Some(k) => t.columns.iter().position(|c| *c == k).ok_or_else(|| fail(format!("the table has no {k:?}")))?,
+            None => ["zone", "feature", "plot_id", "id"]
+                .iter()
+                .find_map(|k| t.columns.iter().position(|c| c == k))
+                .unwrap_or(0),
+        };
+        let on: Option<String> = args.opt_param::<String>("on")?.filter(|o| !o.is_empty());
+        let rows = join_rows(v, t, on.as_deref(), key).map_err(fail)?;
+        let mut out = (**v).clone();
+        for (j, name) in t.columns.iter().enumerate().filter(|(j, _)| *j != key) {
+            let values = rows.iter().map(|r| r.map_or(f64::NAN, |r| t.rows[r][j])).collect();
+            match out.attributes.iter_mut().find(|(n, _)| n == name) {
+                Some((_, c)) => *c = Column::Numbers(values),
+                None => out.attributes.push((name.clone(), Column::Numbers(values))),
+            }
+        }
+        Ok(outputs([("vector", Value::Vector(Arc::new(out)))]))
+    }
 }
 
 /// A vector input of a node.

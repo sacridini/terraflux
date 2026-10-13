@@ -499,6 +499,70 @@ impl Operator for Write {
     }
 }
 
+/// A GeoTIFF of one band written row by row, in order, never whole in memory: the rows are kept until they make a
+/// row of TIFF tiles (512 x 512), which is then written; at most 512 rows and those of a push are held.
+pub struct RowsWriter {
+    out: TiledWriter,
+    grid: Grid,
+    path: PathBuf,
+    pending: Vec<f64>,
+    done: usize,
+}
+
+impl RowsWriter {
+    const TILE: usize = 512;
+
+    pub fn create(path: &Path, grid: &Grid, name: &str, dtype: DataType, nodata: Option<f64>) -> Result<RowsWriter> {
+        let out = TiledWriter::create(path, grid, vec![Some(name.into())], dtype, nodata, Self::TILE, Some(6))
+            .map_err(|e| Error::msg(format!("{}: {e}", path.display())))?;
+        Ok(RowsWriter { out, grid: grid.clone(), path: path.to_path_buf(), pending: Vec::new(), done: 0 })
+    }
+
+    /// The next rows (a multiple of the width).
+    pub fn push(&mut self, rows: impl IntoIterator<Item = f64>) -> Result<()> {
+        self.pending.extend(rows);
+        self.flush(false)
+    }
+
+    fn flush(&mut self, last: bool) -> Result<()> {
+        let (nx, ny, t) = (self.grid.width, self.grid.height, Self::TILE);
+        while self.pending.len() >= t * nx || (last && !self.pending.is_empty()) {
+            let h = t.min(ny - self.done);
+            if self.pending.len() < h * nx {
+                return Err(Error::msg(format!("{}: rows missing", self.path.display())));
+            }
+            for col in 0..nx.div_ceil(t) {
+                let (x0, w) = (col * t, t.min(nx - col * t));
+                let tile: Vec<f64> =
+                    (0..h).flat_map(|y| self.pending[y * nx + x0..y * nx + x0 + w].iter().copied()).collect();
+                self.out
+                    .write_tile(col, self.done / t, &[&tile])
+                    .map_err(|e| Error::msg(format!("{}: {e}", self.path.display())))?;
+            }
+            self.pending.drain(..h * nx);
+            self.done += h;
+        }
+        Ok(())
+    }
+
+    /// The last rows written and the file closed (with the grid's coordinate system).
+    pub fn finish(mut self) -> Result<()> {
+        self.flush(true)?;
+        if self.done != self.grid.height {
+            return Err(Error::msg(format!("{}: {} of {} rows", self.path.display(), self.done, self.grid.height)));
+        }
+        let err = |e: terraflux_raster::Error| Error::msg(format!("{}: {e}", self.path.display()));
+        self.out.finish().map_err(err)?;
+        // a CRS GDAL read (no GeoTIFF keys) given to the file by GDAL
+        if self.grid.geo.geokeys.is_none()
+            && let Some(wkt) = &self.grid.geo.wkt
+        {
+            terraflux_gdal::set_crs(&self.path, wkt).map_err(Error::msg)?;
+        }
+        Ok(())
+    }
+}
+
 /// Copy rasters on disk to a tiled GeoTIFF, a band per layer, a band of blocks at a time (whatever their size);
 /// in their type unless one is given.
 pub fn copy(r: &Rasters, path: &Path, wanted: Option<DataType>) -> Result<()> {

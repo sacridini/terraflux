@@ -11,8 +11,8 @@ use std::sync::Arc;
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 use terraflux_ls_sys::ffi;
 
-use terraflux_raster::Grid;
 use terraflux_raster::tiff::Window as Cells;
+use terraflux_raster::{DataType, Grid};
 
 use crate::files::Rasters;
 use crate::lsm_catalog::{METRICS, Metric};
@@ -176,16 +176,24 @@ pub fn by_blocks(metric: &str, fragstats: bool) -> bool {
     !RASTER_ONLY.contains(&family) && !(fragstats && family == "dcore")
 }
 
+/// What becomes of the patches of an out-of-core landscape: nothing, every cell's patch in memory, or a GeoTIFF
+/// written block by block.
+pub enum Labels<'a> {
+    None,
+    Memory,
+    File(&'a std::path::Path),
+}
+
 /// The metrics `specs` of a map read block by block of rows (landschaft's out-of-core landscape, `block_rows`):
 /// the same values as [`measure`], with only a few blocks in memory at a time. The file (or map) is read twice,
-/// three times for core areas, gyrate, circle and enn (four for gyrate with cell_center). With `labels`, every
-/// cell's patch too (the map is in memory then anyway).
+/// three times for core areas, gyrate, circle and enn (four for gyrate with cell_center), once more for the
+/// patches (`labels`: in memory, or to a file block by block).
 pub fn measure_tiled(
     source: Rows,
     options: &ffi::LsmOptions,
     specs: &[(&'static str, &str)],
     rows: Option<usize>,
-    labels: bool,
+    labels: Labels,
 ) -> Result<Measured> {
     let grid = source.grid().clone();
     let (nx, ny) = (grid.width, grid.height);
@@ -243,12 +251,23 @@ pub fn measure_tiled(
     let names: Vec<String> = specs.iter().map(|(_, m)| m.to_string()).collect();
     let t = ffi::lsm_tiled_table(engine.pin_mut(), &levels, &names)?;
     let mut cells = Vec::new();
-    if labels {
-        cells.reserve(nx * ny);
-        each(0, &mut |v, na, y0, n, _, _| {
-            cells.extend(ffi::lsm_tiled_labels(&engine, v, na, y0 as i64, n as i64)?);
-            Ok(())
-        })?;
+    match labels {
+        Labels::None => {}
+        Labels::Memory => {
+            cells.reserve(nx * ny);
+            each(0, &mut |v, na, y0, n, _, _| {
+                cells.extend(ffi::lsm_tiled_labels(&engine, v, na, y0 as i64, n as i64)?);
+                Ok(())
+            })?;
+        }
+        Labels::File(path) => {
+            let mut out = crate::files::RowsWriter::create(path, &grid, "patches", DataType::I32, Some(0.0))?;
+            each(0, &mut |v, na, y0, n, _, _| {
+                let ids = ffi::lsm_tiled_labels(&engine, v, na, y0 as i64, n as i64)?;
+                out.push(ids.into_iter().map(f64::from))
+            })?;
+            out.finish()?;
+        }
     }
     let rows = (0..t.value.len())
         .map(|i| {
@@ -446,6 +465,15 @@ impl Operator for Metrics {
             Type::Integer,
             "out of core: the map read by blocks of this many rows (a multiple of 64), the same metrics; rasters on              disk of more than 250 million cells always are",
         ));
+        let sig = if self.level == "patch" {
+            sig.param(PortSpec::optional(
+                "patches_path",
+                Type::Text,
+                "rasters on disk by blocks: the GeoTIFF the patches are written to, block by block",
+            ))
+        } else {
+            sig
+        };
         if self.level == "landscape" {
             sig
         } else {
@@ -470,6 +498,17 @@ impl Operator for Metrics {
             None => return Err(Error::msg(format!("node {:?}: connect a map", args.node))),
         };
         let tiled = rows.is_some() || disk.is_some();
+        // the patches of rasters on disk to a file, written block by block
+        let patches_path: Option<std::path::PathBuf> = match (self.level, &disk) {
+            ("patch", Some(_)) => args
+                .opt_param::<String>("patches_path")?
+                .filter(|p| !p.is_empty())
+                .map(|p| std::path::PathBuf::from(p).with_extension("tif")),
+            _ => None,
+        };
+        if let Some(dir) = patches_path.as_ref().and_then(|p| p.parent()).filter(|d| !d.as_os_str().is_empty()) {
+            std::fs::create_dir_all(dir).map_err(|e| Error::msg(format!("{}: {e}", dir.display())))?;
+        }
         let mut metrics = chosen(args, self.level)?;
         // by blocks, the metrics chosen by default or by type but those that need the whole map
         if tiled && args.params.get("metrics").is_none_or(|v| v.is_null()) {
@@ -494,8 +533,14 @@ impl Operator for Metrics {
         let patch = self.level == "patch";
         let m = match (&in_memory, &disk) {
             (Some(map), _) if !tiled => measure(map, &options(args)?, &specs, patch),
-            (Some(map), _) => measure_tiled(Rows::Memory(map), &options(args)?, &specs, rows, patch),
-            (None, Some(r)) => measure_tiled(Rows::Disk(r), &options(args)?, &specs, rows, false),
+            (Some(map), _) => {
+                let labels = if patch { Labels::Memory } else { Labels::None };
+                measure_tiled(Rows::Memory(map), &options(args)?, &specs, rows, labels)
+            }
+            (None, Some(r)) => {
+                let labels = patches_path.as_deref().map_or(Labels::None, Labels::File);
+                measure_tiled(Rows::Disk(r), &options(args)?, &specs, rows, labels)
+            }
             (None, None) => unreachable!(),
         }
         .map_err(|e| Error::msg(format!("node {:?}: {e}", args.node)))?;
@@ -523,6 +568,10 @@ impl Operator for Metrics {
                     }
                 }
                 let mut out = Outputs::new();
+                if let Some(path) = &patches_path {
+                    let written = Rasters::open(&path.to_string_lossy(), None, None)?;
+                    out.insert("patches".into(), Value::Raster(Arc::new(written)));
+                }
                 if let Some(map) = map {
                     let patches: Vec<f64> =
                         m.labels.iter().map(|&l| if l > 0 { f64::from(l) } else { f64::NAN }).collect();

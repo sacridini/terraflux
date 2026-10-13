@@ -172,3 +172,37 @@ fn clustergrams_are_landschafts() {
         assert_close(&values(&table(&out, "means"), 1), &matrix(&case["means"]), 1e-10, 1e-12, &p.to_string());
     }
 }
+
+/// The map of the clusters of zones: the zones' squares (vector.grid_zones) take their cluster (vector.join on the
+/// zone), burnt into the map's grid; every cell of a zone has its zone's cluster.
+#[test]
+fn clusters_of_zones_as_a_map() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extern/landschaft/tests/data/lsm/augusta.tif");
+    let raster = terraflux_raster::Raster::read(&path).unwrap();
+    let map = Map::new(Arc::new(raster.grid.clone()), raster.bands[0].masked(raster.nodata));
+    let zones = run("vector.grid_zones", vec![("map", Value::Map(map.clone()))], serde_json::json!({"size": 600}));
+    let clusters = table(
+        &run("metrics.cluster", vec![("table", Value::Table(signatures()))], serde_json::json!({"k": 3})),
+        "table",
+    );
+    let joined = run(
+        "vector.join",
+        vec![("vector", zones["zones"].clone()), ("table", Value::Table(clusters.clone()))],
+        serde_json::json!({"on": "zone"}),
+    );
+    let burnt = run(
+        "vector.rasterize",
+        vec![("vector", joined["vector"].clone()), ("like", Value::Map(map.clone()))],
+        serde_json::json!({"field": "cluster", "fill": null}),
+    );
+    let Value::Map(groups) = &burnt["map"] else { panic!() };
+    // the zones are squares of 20 x 20 cells (600 m of 30 m cells), row by row
+    let nx = map.grid.width;
+    let across = nx.div_ceil(20);
+    let k = clusters.columns.iter().position(|c| c == "cluster").unwrap();
+    for (i, &g) in groups.data.iter().enumerate() {
+        let zone = (i / nx / 20) * across + (i % nx) / 20 + 1;
+        let row = clusters.rows.iter().find(|r| r[0] == zone as f64).unwrap();
+        assert_eq!(g, row[k], "cell {i} of zone {zone}");
+    }
+}

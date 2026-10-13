@@ -6,6 +6,18 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- `vector.join`: a table's columns as attributes of features, by a key (the feature's number or an attribute):
+  the clusters of zones (metrics.cluster) on their squares (vector.grid_zones), burnt into a map of the groups by
+  vector.rasterize.
+- Charts of tables: box plots of the columns by group (landschaft's plot_cluster_metrics), and metrics.pca's
+  loadings as the circle of correlations (every metric an arrow to its correlations with two components).
+- `metrics.patch` of rasters on disk by blocks writes the patches to a GeoTIFF block by block (`patches_path`),
+  never whole in memory; the same patches as the map in memory.
+
+### Changed
+- MSPA by tiles writes its GeoTIFF through the same writer of rows in order (`files::RowsWriter`).
+
 ## [0.17.0] - 2026-10-13
 
 ### Added

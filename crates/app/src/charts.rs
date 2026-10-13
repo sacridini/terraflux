@@ -1,10 +1,12 @@
 //! Tables drawn as charts in the viewer, several metrics at once: bars, lines or points of some columns (a panel
 //! each) against a column, the rows split by another (a class, a zone, a cluster: a colour each), as landschaft's
 //! plot_metric and plot_cluster_metrics; the clustergram of metrics.clustergram's means (landschaft's
-//! plot_clustergram); and a correlation matrix (metrics.correlation) as a heatmap, as show_correlation.
+//! plot_clustergram); box plots of the columns by group (plot_cluster_metrics); the loadings of principal
+//! components as arrows in the circle of correlations (metrics.pca's loadings); and a correlation matrix
+//! (metrics.correlation) as a heatmap, as show_correlation.
 
 use egui::{Color32, Ui, Vec2};
-use egui_plot::{Bar, BarChart, Heatmap, Line, Plot, PlotPoint, Points};
+use egui_plot::{Arrows, Bar, BarChart, BoxElem, BoxPlot, BoxSpread, Heatmap, Line, Plot, PlotPoint, Points, Text};
 use terraflux_ops::Table;
 
 use crate::palette::{Ramp, class_colour};
@@ -21,8 +23,12 @@ pub enum Kind {
     Lines,
     /// The columns against another, a point per row coloured by its group.
     Points,
+    /// Box plots of the columns, a box per group.
+    Boxes,
     /// The clustergram of a table of cluster means by k (columns k1, k2...).
     Clustergram,
+    /// metrics.pca's loadings (a row per component): every metric an arrow in the circle of correlations.
+    Loadings,
     /// A square table (a correlation matrix) as a heatmap.
     Matrix,
 }
@@ -34,7 +40,9 @@ impl Kind {
             Kind::Bars => "bars",
             Kind::Lines => "lines",
             Kind::Points => "points",
+            Kind::Boxes => "box plots",
             Kind::Clustergram => "clustergram",
+            Kind::Loadings => "loadings",
             Kind::Matrix => "matrix",
         }
     }
@@ -43,7 +51,10 @@ impl Kind {
     pub fn of(t: &Table) -> Vec<Kind> {
         let mut v = vec![Kind::None];
         if t.columns.len() > 1 {
-            v.extend([Kind::Bars, Kind::Lines, Kind::Points]);
+            v.extend([Kind::Bars, Kind::Lines, Kind::Points, Kind::Boxes]);
+        }
+        if is_loadings(t) {
+            v.push(Kind::Loadings);
         }
         if !ks(t).is_empty() {
             v.push(Kind::Clustergram);
@@ -65,6 +76,33 @@ pub fn ks(t: &Table) -> Vec<(usize, usize)> {
         .collect();
     v.sort_unstable();
     v
+}
+
+/// Whether a table is metrics.pca's loadings: a row per component (columns component and explained, then the
+/// metrics), two at least.
+pub fn is_loadings(t: &Table) -> bool {
+    t.columns.len() > 2 && t.columns[0] == "component" && t.columns[1] == "explained" && t.rows.len() >= 2
+}
+
+/// A box plot's numbers of some values (NaN left out), as matplotlib's: the quartiles by linear interpolation, the
+/// whiskers at the furthest values within 1.5 times the box's height, and the values beyond them.
+pub fn box_stats(values: &[f64]) -> Option<([f64; 5], Vec<f64>)> {
+    let mut v: Vec<f64> = values.iter().copied().filter(|x| !x.is_nan()).collect();
+    if v.is_empty() {
+        return None;
+    }
+    v.sort_by(f64::total_cmp);
+    let q = |p: f64| {
+        let h = p * (v.len() - 1) as f64;
+        let (lo, hi) = (h.floor() as usize, h.ceil() as usize);
+        v[lo] + (h - lo as f64) * (v[hi] - v[lo])
+    };
+    let (q1, median, q3) = (q(0.25), q(0.5), q(0.75));
+    let (low, high) = (q1 - 1.5 * (q3 - q1), q3 + 1.5 * (q3 - q1));
+    let lo = v.iter().copied().find(|&x| x >= low).unwrap_or(q1);
+    let hi = v.iter().rev().copied().find(|&x| x <= high).unwrap_or(q3);
+    let out = v.iter().copied().filter(|&x| x < lo || x > hi).collect();
+    Some(([lo, q1, median, q3, hi], out))
 }
 
 /// Whether a table is a matrix: as many rows as columns (a correlation).
@@ -143,13 +181,15 @@ fn group_name(t: &Table, by: Option<usize>, g: Option<f64>) -> String {
     }
 }
 
-/// The settings of a chart: its kind, the columns drawn, the column along x and the one that splits the rows.
+/// The settings of a chart: its kind, the columns drawn, the column along x and the one that splits the rows; for
+/// loadings the two components (rows) drawn.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Chart {
     pub kind: Kind,
     pub columns: Vec<usize>,
     pub x: Option<usize>,
     pub by: Option<usize>,
+    pub components: [usize; 2],
 }
 
 impl Chart {
@@ -161,17 +201,28 @@ impl Chart {
         let metrics: Vec<usize> = (0..t.columns.len()).filter(|&j| !keys.contains(&t.columns[j].as_str())).collect();
         let first = metrics.first().copied().unwrap_or(1.min(t.columns.len().saturating_sub(1)));
         match kind {
-            Kind::Bars => Chart { kind, columns: vec![first], x: Some(0), by: None },
+            Kind::Bars => Chart { kind, columns: vec![first], x: Some(0), ..Chart::default() },
             Kind::Lines => Chart {
                 kind,
                 columns: vec![first],
                 x: find(&["date", "layer"]).or(Some(0)),
                 by: find(&["class", "zone", "cluster"]),
+                ..Chart::default()
             },
             Kind::Points => {
                 let second = metrics.get(1).copied().unwrap_or(first);
-                Chart { kind, columns: vec![second], x: Some(first), by: find(&["cluster", "class"]) }
+                Chart {
+                    kind,
+                    columns: vec![second],
+                    x: Some(first),
+                    by: find(&["cluster", "class"]),
+                    ..Chart::default()
+                }
             }
+            Kind::Boxes => {
+                Chart { kind, columns: vec![first], by: find(&["cluster", "class", "zone"]), ..Chart::default() }
+            }
+            Kind::Loadings => Chart { kind, components: [0, 1], ..Chart::default() },
             _ => Chart { kind, ..Chart::default() },
         }
     }
@@ -191,7 +242,19 @@ pub fn show(ui: &mut Ui, t: &Table, rows: &[usize], chart: &mut Chart, id: egui:
                 }
             },
         );
-        if !matches!(chart.kind, Kind::Bars | Kind::Lines | Kind::Points) {
+        if chart.kind == Kind::Loadings {
+            for (k, label) in ["x", "y"].iter().enumerate() {
+                let c = &mut chart.components[k];
+                egui::ComboBox::from_id_salt(id.with(("component", k)))
+                    .selected_text(format!("{label}: PC{}", *c + 1))
+                    .show_ui(ui, |ui| {
+                        for r in 0..t.rows.len() {
+                            ui.selectable_value(c, r, format!("PC{}", r + 1));
+                        }
+                    });
+            }
+        }
+        if !matches!(chart.kind, Kind::Bars | Kind::Lines | Kind::Points | Kind::Boxes) {
             return;
         }
         let shown = match chart.columns.len() {
@@ -226,21 +289,24 @@ pub fn show(ui: &mut Ui, t: &Table, rows: &[usize], chart: &mut Chart, id: egui:
                 }
             });
         };
-        let label = if chart.kind == Kind::Bars { "labels" } else { "along" };
-        pick(ui, label, "x", &mut chart.x, false);
+        if chart.kind != Kind::Boxes {
+            let label = if chart.kind == Kind::Bars { "labels" } else { "along" };
+            pick(ui, label, "x", &mut chart.x, false);
+        }
         if chart.kind != Kind::Bars {
             pick(ui, "by", "by", &mut chart.by, true);
         }
     });
     match chart.kind {
         Kind::None => {}
-        Kind::Bars | Kind::Lines | Kind::Points => panels(ui, t, rows, chart, id),
+        Kind::Bars | Kind::Lines | Kind::Points | Kind::Boxes => panels(ui, t, rows, chart, id),
         Kind::Clustergram => {
             if let Some(cg) = clustergram(t, rows) {
                 draw_clustergram(ui, &cg, rows.len(), id);
             }
         }
         Kind::Matrix => matrix(ui, t, id),
+        Kind::Loadings => loadings(ui, t, chart.components, id),
     }
 }
 
@@ -301,6 +367,35 @@ fn panels(ui: &mut Ui, t: &Table, rows: &[usize], chart: &Chart, id: egui::Id) {
                                 }
                             })
                             .show(ui, |p| p.bar_chart(BarChart::new(t.columns[j].clone(), bars)));
+                    }
+                    Kind::Boxes => {
+                        let names: Vec<String> = split.iter().map(|(g, _)| group_name(t, chart.by, *g)).collect();
+                        let label = chart.by.map_or(String::new(), |b| t.columns[b].clone());
+                        plot.x_axis_label(label)
+                            .x_axis_formatter(move |m, _| {
+                                let k = m.value.round();
+                                if (m.value - k).abs() < 1e-6 && k >= 0.0 {
+                                    names.get(k as usize).cloned().unwrap_or_default()
+                                } else {
+                                    String::new()
+                                }
+                            })
+                            .show(ui, |p| {
+                                for (g, (value, members)) in split.iter().enumerate() {
+                                    let values: Vec<f64> = members.iter().map(|&i| t.rows[i][j]).collect();
+                                    let Some((s, out)) = box_stats(&values) else { continue };
+                                    let c = colour(g, many);
+                                    let b = BoxElem::new(g as f64, BoxSpread::new(s[0], s[1], s[2], s[3], s[4]))
+                                        .name(group_name(t, chart.by, *value))
+                                        .box_width(0.6)
+                                        .whisker_width(0.3)
+                                        .fill(c.gamma_multiply(0.4))
+                                        .stroke(egui::Stroke::new(1.5, c));
+                                    p.box_plot(BoxPlot::new(t.columns[j].clone(), vec![b]));
+                                    let pts: Vec<[f64; 2]> = out.iter().map(|&v| [g as f64, v]).collect();
+                                    p.points(Points::new("", pts).color(c).radius(2.5));
+                                }
+                            });
                     }
                     Kind::Lines => {
                         plot.x_axis_label(t.columns[x].clone()).show(ui, |p| {
@@ -363,6 +458,49 @@ fn draw_clustergram(ui: &mut Ui, cg: &Clustergram, n: usize, id: egui::Id) {
                         .radius((c as f32 / n).sqrt() * 18.0 + 2.0)
                         .filled(true),
                 );
+            }
+        });
+}
+
+/// metrics.pca's loadings as the circle of correlations: every metric an arrow from the centre to its correlations
+/// with two components.
+fn loadings(ui: &mut Ui, t: &Table, [a, b]: [usize; 2], id: egui::Id) {
+    if a >= t.rows.len() || b >= t.rows.len() {
+        return;
+    }
+    let axis = |r: usize| format!("PC{} ({:.0}%)", r + 1, t.rows[r][1] * 100.0);
+    let colour = crate::theme::ACCENT;
+    let text = ui.visuals().text_color();
+    let side = ui.available_width().clamp(240.0, 520.0);
+    Plot::new(id.with("loadings"))
+        .width(side)
+        .height(side)
+        .data_aspect(1.0)
+        .allow_scroll(false)
+        .x_axis_label(axis(a))
+        .y_axis_label(axis(b))
+        .include_x(-1.1)
+        .include_x(1.1)
+        .include_y(-1.1)
+        .include_y(1.1)
+        .show(ui, |p| {
+            let circle: Vec<[f64; 2]> = (0..=96)
+                .map(|k| {
+                    let t = k as f64 / 96.0 * std::f64::consts::TAU;
+                    [t.cos(), t.sin()]
+                })
+                .collect();
+            p.line(Line::new("", circle).color(text.gamma_multiply(0.4)).width(1.0));
+            let metrics: Vec<usize> = (2..t.columns.len()).collect();
+            // the correlation of a metric with a component: its loading times the component's deviation (the share
+            // of the variance times the metrics, each of variance 1 as z-scores)
+            let m = metrics.len() as f64;
+            let (sa, sb) = ((t.rows[a][1] * m).sqrt(), (t.rows[b][1] * m).sqrt());
+            let tips: Vec<[f64; 2]> = metrics.iter().map(|&j| [t.rows[a][j] * sa, t.rows[b][j] * sb]).collect();
+            let origins = vec![[0.0, 0.0]; tips.len()];
+            p.arrows(Arrows::new("loadings", origins, tips.clone()).color(colour).tip_length(8.0));
+            for (&j, tip) in metrics.iter().zip(&tips) {
+                p.text(Text::new("", PlotPoint::new(tip[0] * 1.08, tip[1] * 1.08), t.columns[j].clone()).color(text));
             }
         });
 }
@@ -449,6 +587,21 @@ mod tests {
                 (2.0, 1.0, 1.0, 1)
             ]
         );
+    }
+
+    #[test]
+    fn box_numbers_and_loadings() {
+        // matplotlib's: quartiles 2.25, 4.5, 6.75; whiskers within 1.5 boxes; 40 beyond them
+        let (s, out) = box_stats(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 40.0, f64::NAN]).unwrap();
+        assert_eq!(s, [1.0, 2.75, 4.5, 6.25, 7.0]);
+        assert_eq!(out, [40.0]);
+        assert!(box_stats(&[f64::NAN]).is_none());
+        let t = Table {
+            columns: vec!["component".into(), "explained".into(), "shdi".into(), "ed".into()],
+            rows: vec![vec![1.0, 0.6, 0.7, 0.71], vec![2.0, 0.4, 0.71, -0.7]],
+        };
+        assert!(Kind::of(&t).contains(&Kind::Loadings));
+        assert_eq!(Chart::suggested(&t, Kind::Loadings).components, [0, 1]);
     }
 
     #[test]
