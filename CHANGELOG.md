@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-10-13
+
 ### Added
 - Biodiversity analyses (landschaft's bio module, its port of Biodiverse), a subject of their own in the builder
   and a new type of value, the basedata (Biodiverse's groups x labels sample counts with the groups'
