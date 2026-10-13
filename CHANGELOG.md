@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-10-13
+
 ### Added
 - Grid distances (landschaft's cost module, the R package gdistance through its C++), a subject of their own in
   the builder: `cost.transition` (the connections of every cell with its 4, 8 or 16 neighbours, a built-in
