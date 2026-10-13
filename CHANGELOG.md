@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.39.0] - 2026-10-13
+
 ### Added
 - Propagation of uncertainty (landschaft's uncertainty module, the tools plangea uses), a subject of its own
   in the builder: `uncertainty.sum_sd` (the standard deviation of a total of uncertain values: quadratic,
