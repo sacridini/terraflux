@@ -75,6 +75,7 @@
 
 #include "conn/cost.hpp"
 #include "sdm/extrapolation.hpp"
+#include "sdm/rstats.hpp"
 #include "conn/graph.hpp"
 #include "conn/nodes.hpp"
 #include "sim/change.hpp"
@@ -514,6 +515,11 @@ rust::Vec<double> sdm_knn_mean_distance(rust::Slice<const double> m, std::int64_
           "expected two tables with the same columns");
     check(k >= 1, "k must be at least 1");
     return to_rust<double>(sdm::knn_mean_distance(m.data(), nm, g.data(), ng, p, k, squared));
+}
+
+double sdm_r_cor2(rust::Slice<const double> x, rust::Slice<const double> y, bool kendall) {
+    check(x.size() == y.size(), "x and y differ in length");
+    return sdm::r_cor2(x.data(), y.data(), static_cast<std::int64_t>(x.size()), kendall);
 }
 
 rust::Vec<double> sdm_r_colmeans(rust::Slice<const double> x, std::int64_t n, std::int64_t p) {

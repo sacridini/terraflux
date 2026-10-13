@@ -1294,6 +1294,8 @@ pub mod ffi {
             k: i64,
             squared: bool,
         ) -> Result<Vec<f64>>;
+        /// R's cor(x, y) of two vectors (Pearson's, or Kendall's tau).
+        fn sdm_r_cor2(x: &[f64], y: &[f64], kendall: bool) -> Result<f64>;
         /// R's colMeans of an n x p table (row-major): one 80-bit pass, divided in 80 bits.
         fn sdm_r_colmeans(x: &[f64], n: i64, p: i64) -> Result<Vec<f64>>;
         /// NLMR's util_rescale (a copy): (x - min) / (max - min), 0 when min and max are all.equal.

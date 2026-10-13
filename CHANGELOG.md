@@ -6,6 +6,14 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- The evaluation of species distribution models (landschaft's evaluate, boyce, threshold and omission_rate):
+  `sdm.evaluate` (AUC, the point-biserial correlation and its p-value, prevalence, the largest TSS and Boyce's
+  index; dismo's confusion table at every threshold and the optimal thresholds), `sdm.boyce` (ecospat's
+  continuous Boyce index in a moving window, classes or breaks), `sdm.threshold` and `sdm.omission_rate`
+  (ENMeval's mtp and p10). The same as landschaft's, to the bit, but for the p-value of the correlation
+  (Student's t) to rounding.
+
 ## [0.50.0] - 2026-10-13
 
 ### Added

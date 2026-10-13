@@ -163,6 +163,7 @@ ConnCentrality conn_centrality(rust::Slice<const std::int32_t> pi, rust::Slice<c
                                rust::Slice<const double> length, std::int32_t n, bool unit);
 rust::Vec<double> sdm_knn_mean_distance(rust::Slice<const double> m, std::int64_t nm, rust::Slice<const double> g,
                                         std::int64_t ng, std::int64_t p, std::int64_t k, bool squared);
+double sdm_r_cor2(rust::Slice<const double> x, rust::Slice<const double> y, bool kendall);
 rust::Vec<double> sdm_r_colmeans(rust::Slice<const double> x, std::int64_t n, std::int64_t p);
 rust::Vec<double> nlm_rescale(rust::Slice<const double> x);
 rust::Vec<double> nlm_random(std::int32_t seed, std::int64_t ny, std::int64_t nx);
