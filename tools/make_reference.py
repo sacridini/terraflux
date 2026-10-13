@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import sys
 import warnings
 from pathlib import Path
 
@@ -138,9 +139,19 @@ def bridge():
     model = S.Model(S.LogisticRegression().fit(lu[0], dr), S.Markov.from_maps(lu[0], lu[1], steps=14),
                     S.CARS(steps=3, step_size=20, max_iter=500))
     write("cars", model, drv_path, dr, 7)
+    # a scikit-learn estimator, written as its predictions on the start
+    from sklearn.linear_model import LogisticRegression as SkLogit
+
+    est = S.Estimator(SkLogit(max_iter=500), sample=4000, seed=1).fit(lu[0], dr)
+    model = S.Model(est, S.AreaDemand.from_maps(lu, times=[0, 14]), S.CLUE(max_diff=20, mean_diff=10),
+                    S.Rules(elasticity=0.3))
+    write("estimator", model, drv_path, dr, 9)
 
 
 def main():
+    if sys.argv[1:] == ["bridge"]:  # only the models saved by landschaft
+        bridge()
+        return
     copy_inputs()
     dinamica()
     lulcc("clues_pie", S.CLUE(**VIGNETTE), 1, elasticity=[0.2, 0.2, 0.2])

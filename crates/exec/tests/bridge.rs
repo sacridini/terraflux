@@ -40,3 +40,8 @@ fn clue_with_a_dynamic_variable_saved_by_landschaft() {
 fn cars_saved_by_landschaft() {
     case("cars");
 }
+
+#[test]
+fn estimator_saved_by_landschaft_as_its_predictions() {
+    case("estimator");
+}
