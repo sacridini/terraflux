@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.40.0] - 2026-10-13
+
 ### Added
 - Batch processing (landschaft's batch, GuidosToolbox's Batch Process): `batch.run` runs any operator on the
   rasters of a folder, a glob pattern or a list, in parallel, one raster per worker, and writes what it gives
