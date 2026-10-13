@@ -45,8 +45,9 @@ the same model on one machine or distributed across many headless workers.
 terraflux app                 # or: terraflux app model.toml
 ```
 
-A double click on `terraflux.exe` (or `terraflux` without a command) opens the application too, and so does a
-model file dropped on it or opened with it; started that way on Windows, it shows no console.
+A double click on `terraflux.exe` or `Terraflux.app` (or `terraflux` without a command) opens the application
+too, and so does a model file dropped on it or opened with it (on Windows); started that way on Windows, it shows
+no console.
 
 - **Panes you arrange:** the model, the operators, the node, the viewer, the simulation's maps, the areas and
   the validation are tabs to drag, split, close (ctrl+W; the View menu turns each on or off) or take to a
@@ -183,7 +184,7 @@ model file dropped on it or opened with it; started that way on Windows, it show
 
 If the window stutters when it is moved or resized, how frames reach the screen can be changed:
 `TERRAFLUX_PRESENT=novsync` (frames as soon as they are drawn), `TERRAFLUX_LATENCY=2` (frames queued; 1 by
-default) and `WGPU_BACKEND=dx12`, `vulkan` or `gl` (the graphics interface).
+default) and `WGPU_BACKEND=dx12`, `vulkan`, `metal` or `gl` (the graphics interface).
 
 ## Quick start
 
@@ -361,10 +362,28 @@ tools\make-installer.ps1      # target\installer: the MSI (WiX 5, a .NET tool of
 from the release build, the GDAL of `C:\Program Files\GDAL` (`-Gdal` another) and the runtimes of the newest
 Visual Studio.
 
+On macOS, the disk image (`terraflux-<version>-macos-arm64.dmg`) holds `Terraflux.app`, to drag to Applications;
+the zip (`terraflux-<version>-macos-arm64.zip`) the same application. It brings GDAL (its libraries in
+`Contents/Frameworks/gdal`, GDAL's and PROJ's data in `Contents/Resources`, PROJ's grids of datums left out) and
+OpenMP is linked into `terraflux`: nothing else is needed. The command is the application's own
+(`ln -s /Applications/Terraflux.app/Contents/MacOS/terraflux /usr/local/bin/terraflux`, for `terraflux run`).
+The application is signed ad hoc, not notarized: downloaded, it is opened the first time by a right click and
+Open. They are made by
+
+```bash
+python3 tools/make-macos-app.py   # target/macos: Terraflux.app, the dmg and the zip
+```
+
+from the release build and Homebrew's GDAL (`brew install gdal`; `--gdal` another prefix, `--no-gdal` none:
+then an installed GDAL is used). The application asks for the macOS that the GDAL brought was built for
+(Homebrew's: the macOS it was installed on).
+
 ## Building
 
 Terraflux needs Rust (1.85 or later), CMake and a C++17 compiler (Visual Studio on Windows; on Windows the
-CMake of the newest Visual Studio is used). Landschaft's C++ kernels come from the submodule:
+CMake of the newest Visual Studio is used; on macOS Apple's clang, with the Command Line Tools, and Homebrew's
+OpenMP runtime: `brew install cmake libomp`, or `OpenMP_ROOT` another libomp). Landschaft's C++ kernels come from
+the submodule:
 
 ```bash
 git clone --recurse-submodules git@github.com:sacridini/terraflux.git
@@ -375,7 +394,10 @@ cargo test --release           # parity with landschaft included
 
 On Windows keep the build folder's path short (`CARGO_TARGET_DIR`): MSBuild fails on paths over 260
 characters. `LANDSCHAFT_DIR` points the build at another landschaft checkout, `LANDSCHAFT_EIGEN_DIR` at a local copy of
-Eigen 3.4. `tools/make_reference.py` writes the reference outputs of the parity tests with landschaft.
+Eigen 3.4. `tools/make_reference.py` writes the reference outputs of the parity tests with landschaft. They were
+written on Windows: on macOS, whose maths library rounds some functions (`exp`, `log`, `pow`) otherwise in the last
+bit, the parity tests of the logistic regressions (CLUE-S, ordered), of Dinamica EGO's model on Sibuyan and of
+plangea's intactness differ from them in the last bit.
 
 | Crate | What it holds |
 |---|---|

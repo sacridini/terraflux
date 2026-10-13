@@ -126,11 +126,20 @@ struct Layout {
     windows: Vec<Vec<Pane>>,
 }
 
-/// Where the layout is kept (the user's application data).
+/// Where the layout is kept (the user's application data; on macOS `~/Library/Application Support`).
 pub fn layout_file() -> Option<PathBuf> {
     std::env::var_os("APPDATA")
         .or_else(|| std::env::var_os("XDG_CONFIG_HOME"))
-        .map(|d| PathBuf::from(d).join("Terraflux").join("layout.json"))
+        .map(PathBuf::from)
+        .or_else(|| {
+            let home = PathBuf::from(std::env::var_os("HOME")?);
+            Some(if cfg!(target_os = "macos") {
+                home.join("Library").join("Application Support")
+            } else {
+                home.join(".config")
+            })
+        })
+        .map(|d| d.join("Terraflux").join("layout.json"))
 }
 
 /// The application's keys pressed in a window.

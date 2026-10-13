@@ -113,9 +113,15 @@ fn next(s: &mut State) -> Option<WebKey> {
     None
 }
 
-/// Where a service's tiles are kept on disk.
+/// Where a service's tiles are kept on disk (on macOS `~/Library/Caches`).
 fn cache_dir(b: Basemap) -> PathBuf {
-    let root = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+    let root = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .or_else(|| {
+            let home = std::env::var_os("HOME").filter(|_| cfg!(target_os = "macos"))?;
+            Some(PathBuf::from(home).join("Library").join("Caches"))
+        })
+        .unwrap_or_else(std::env::temp_dir);
     root.join("Terraflux").join("web-tiles").join(format!("{b:?}"))
 }
 
