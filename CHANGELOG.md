@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-10-13
+
 ### Added
 - Maps stacked in the viewer: other maps of the run drawn over the one shown ("Maps over it", each as opaque as
   asked, placed by its coordinates whatever its cells), and in the model: `view.plot` takes `features` (vectors)
