@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.47.0] - 2026-10-13
+
 ### Added
 - Habitat graphs of vector features (landschaft's node_table, distance_table and HabitatGraph.from_vector):
   `conn.nodes` and `conn.distances` take features too (GDAL's areas of the polygons, an attribute column or
