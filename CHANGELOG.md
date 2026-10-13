@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.56.0] - 2026-10-13
+
 ### Added
 - The choice of predictors and their range of autocorrelation (landschaft's vif, select_predictors and
   autocorrelation_range, after usdm and blockCV): `sdm.vif` (R's lm over the complete cells, usdm's sample of
