@@ -1559,17 +1559,30 @@ pub fn choice_param(
     out
 }
 
-/// The metrics of a landscape metrics node: all of its level (the default), or some, chosen by type (area and
-/// edge, shape, core area...) or one by one.
-pub fn metrics_param(ui: &mut Ui, s: &mut Session, n: &Node, path: &[String]) -> Option<Result<(), String>> {
+/// The metrics of a landscape metrics node (its setting `param`): all of its level (the default), or some, chosen
+/// by type (area and edge, shape, core area...) or one by one. The signatures' lists of landscape and class
+/// metrics are none by default.
+pub fn metrics_param(
+    ui: &mut Ui,
+    s: &mut Session,
+    n: &Node,
+    path: &[String],
+    param: &str,
+) -> Option<Result<(), String>> {
     use terraflux_ops::lsm_catalog::METRICS;
-    let level = match n.op.as_str() {
-        "metrics.patch" => "patch",
-        "metrics.class" => "class",
-        "metrics.sample" | "metrics.series" => n.params.get("level").and_then(|v| v.as_str()).unwrap_or("landscape"),
+    let level = match (n.op.as_str(), param) {
+        (_, "landscape_metrics") => "landscape",
+        (_, "class_metrics") => "class",
+        ("metrics.patch", _) => "patch",
+        ("metrics.class", _) => "class",
+        ("metrics.sample" | "metrics.series", _) => {
+            n.params.get("level").and_then(|v| v.as_str()).unwrap_or("landscape")
+        }
         _ => "landscape",
     };
-    let named: Vec<String> = match n.params.get("metrics") {
+    // "all" when none is chosen, but for the signatures' lists
+    let empty = if param == "metrics" { "all" } else { "none" };
+    let named: Vec<String> = match n.params.get(param) {
         Some(serde_json::Value::String(m)) => vec![m.clone()],
         Some(serde_json::Value::Array(a)) => a.iter().filter_map(|v| v.as_str().map(String::from)).collect(),
         _ => Vec::new(),
@@ -1585,23 +1598,22 @@ pub fn metrics_param(ui: &mut Ui, s: &mut Session, n: &Node, path: &[String]) ->
         }
     }
     let shown = match chosen.len() {
-        0 => "all".to_string(),
+        0 => empty.to_string(),
         1..=4 => chosen.join(", "),
         k => format!("{k} metrics"),
     };
     let mut set: Vec<&'static str> = chosen.clone();
     let mut changed = false;
-    ui.label("metrics").on_hover_text(format!("the {level} metrics measured: all of them, by type or one by one"));
-    egui::ComboBox::from_id_salt(("metrics", &n.id))
+    ui.label(param).on_hover_text(format!("the {level} metrics measured: {empty} by default, by type or one by one"));
+    egui::ComboBox::from_id_salt((param, &n.id))
         .selected_text(shown)
         .width(ui.available_width() - 8.0)
         .height(460.0)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .show_ui(ui, |ui| {
             let mut all = set.is_empty();
-            if ui.checkbox(&mut all, RichText::new("all").strong()).on_hover_text("every metric of the level").changed()
-                && all
-            {
+            let hint = if param == "metrics" { "every metric of the level" } else { "no metric of the level" };
+            if ui.checkbox(&mut all, RichText::new(empty).strong()).on_hover_text(hint).changed() && all {
                 set.clear();
                 changed = true;
             }
@@ -1609,7 +1621,7 @@ pub fn metrics_param(ui: &mut Ui, s: &mut Session, n: &Node, path: &[String]) ->
             for kind in &kinds {
                 let of: Vec<&'static str> = of_level.iter().filter(|m| m.kind == *kind).map(|m| m.metric).collect();
                 let k = of.iter().filter(|m| set.contains(m)).count();
-                let id = ui.make_persistent_id(("metrics kind", &n.id, kind));
+                let id = ui.make_persistent_id(("metrics kind", &n.id, param, kind));
                 egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
                     .show_header(ui, |ui| {
                         let mut on = k == of.len();
@@ -1643,5 +1655,5 @@ pub fn metrics_param(ui: &mut Ui, s: &mut Session, n: &Node, path: &[String]) ->
     // in the catalogue's order
     let ordered: Vec<&str> = of_level.iter().map(|m| m.metric).filter(|m| set.contains(m)).collect();
     let text = if ordered.is_empty() { String::new() } else { serde_json::to_string(&ordered).unwrap_or_default() };
-    Some(crate::editor::set_param(&mut s.source, path, &n.id, "metrics", &text))
+    Some(crate::editor::set_param(&mut s.source, path, &n.id, param, &text))
 }

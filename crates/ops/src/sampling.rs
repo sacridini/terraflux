@@ -11,8 +11,8 @@ use terraflux_raster::Grid;
 use terraflux_raster::vector::{Column, Geometry, Vector, Xy};
 
 use crate::change::numpy_sum;
-use crate::metrics::{Row, chosen, measure, options, settings};
-use crate::value::Key;
+use crate::metrics::{Row, chosen, find, measure, metric_options, options, settings};
+use crate::value::{Key, Stack};
 use crate::vector::{on_grid, vector_of};
 use crate::{
     Access, Args, Ctx, Error, Map, OpSignature, Operator, Outputs, PortSpec, Registry, Result, Table, Value, outputs,
@@ -22,6 +22,7 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(Sample));
     r.add(Arc::new(GridZones));
     r.add(Arc::new(Series));
+    r.add(Arc::new(Signatures));
     r.add(Arc::new(Correlation));
 }
 
@@ -515,6 +516,49 @@ impl Operator for GridZones {
     }
 }
 
+/// The zones of a node over a grid and their areas: polygons or buffers around points (`plots`), or squares
+/// tiling it (`grid`); none for whole maps.
+fn zones_of(args: &Args, grid: &Arc<Grid>) -> Result<Option<(Vec<Plot>, Vec<f64>)>> {
+    let fail = |e: Error| Error::msg(format!("node {:?}: {e}", args.node));
+    match (args.get("plots"), side(args, "grid")?) {
+        (Some(_), Some(_)) => Err(Error::msg(format!("node {:?}: zones (plots) or a grid, not both", args.node))),
+        (Some(_), None) => {
+            let v = on_grid(vector_of(args, "plots")?, grid)?;
+            let p = plots_of(&v, args.opt_param("size")?, circle_of(args)?.as_ref()).map_err(fail)?;
+            let areas = areas_of(&p, &v.crs).map_err(fail)?;
+            Ok(Some((p, areas)))
+        }
+        (None, Some(s)) => {
+            let p = grid_zones(grid, s);
+            let areas = p.iter().map(planar_area).collect();
+            Ok(Some((p, areas)))
+        }
+        (None, None) => Ok(None),
+    }
+}
+
+/// The rows measured of every zone (0 for whole maps) of every layer: (zone, layer, rows).
+fn measure_layers(
+    stack: &Stack,
+    plots: Option<&(Vec<Plot>, Vec<f64>)>,
+    opt: &ffi::LsmOptions,
+    specs: &[(&'static str, &str)],
+) -> Result<Vec<(usize, usize, Vec<Row>)>> {
+    let mut measured = Vec::new();
+    for (d, layer) in stack.layers.iter().enumerate() {
+        let map = Map::new(stack.grid.clone(), layer.as_ref().clone());
+        match plots {
+            Some((p, areas)) => {
+                for (z, s) in sample_map(&map, p, areas, opt, specs)?.into_iter().enumerate() {
+                    measured.push((z, d, s.rows));
+                }
+            }
+            None => measured.push((0, d, measure(&map, opt, specs, false)?.rows)),
+        }
+    }
+    Ok(measured)
+}
+
 /// Class metrics that are 0 (not NA) for a class absent from a landscape (pylandstats).
 const ZERO_WHEN_ABSENT: [&str; 11] = ["ca", "pland", "np", "pd", "lpi", "te", "ed", "tca", "cpland", "ndca", "dcad"];
 
@@ -574,38 +618,9 @@ impl Operator for Series {
                 })
                 .collect(),
         };
-        // the zones, if any, and their areas
-        let plots: Option<(Vec<Plot>, Vec<f64>)> = match (args.get("plots"), side(args, "grid")?) {
-            (Some(_), Some(_)) => {
-                return Err(Error::msg(format!("node {:?}: zones (plots) or a grid, not both", args.node)));
-            }
-            (Some(_), None) => {
-                let v = on_grid(vector_of(args, "plots")?, &stack.grid)?;
-                let p = plots_of(&v, args.opt_param("size")?, circle_of(args)?.as_ref()).map_err(fail)?;
-                let areas = areas_of(&p, &v.crs).map_err(fail)?;
-                Some((p, areas))
-            }
-            (None, Some(s)) => {
-                let p = grid_zones(&stack.grid, s);
-                let areas = p.iter().map(planar_area).collect();
-                Some((p, areas))
-            }
-            (None, None) => None,
-        };
+        let plots = zones_of(args, &stack.grid)?;
         let zonal = plots.is_some();
-        // (zone, date, the rows measured)
-        let mut measured: Vec<(usize, usize, Vec<Row>)> = Vec::new();
-        for (d, layer) in stack.layers.iter().enumerate() {
-            let map = Map::new(stack.grid.clone(), layer.as_ref().clone());
-            match &plots {
-                Some((p, areas)) => {
-                    for (z, s) in sample_map(&map, p, areas, &opt, &specs).map_err(fail)?.into_iter().enumerate() {
-                        measured.push((z, d, s.rows));
-                    }
-                }
-                None => measured.push((0, d, measure(&map, &opt, &specs, false).map_err(fail)?.rows)),
-            }
-        }
+        let mut measured = measure_layers(stack, plots.as_ref(), &opt, &specs).map_err(fail)?;
         let mut columns = Vec::new();
         if level == "class" {
             columns.push("class".to_string());
@@ -667,8 +682,140 @@ impl Operator for Series {
     }
 }
 
+/// The metrics of a level named in a setting (a name or a list; none when not given).
+fn metric_list(args: &Args, name: &str, level: &str) -> Result<Vec<&'static str>> {
+    let names: Vec<String> = match args.params.get(name) {
+        None | Some(serde_json::Value::Null) => Vec::new(),
+        Some(serde_json::Value::String(s)) if s.trim().is_empty() => Vec::new(),
+        Some(serde_json::Value::String(s)) => vec![s.clone()],
+        Some(v) => serde_json::from_value(v.clone())
+            .map_err(|e| Error::msg(format!("node {:?}: {name}: {e} (a name or a list)", args.node)))?,
+    };
+    names
+        .iter()
+        .map(|n| {
+            find(level, n)
+                .map(|m| m.metric)
+                .ok_or_else(|| Error::msg(format!("node {:?}: {name}: {n:?} is no {level} metric", args.node)))
+        })
+        .collect()
+}
+
+/// A zone's (or layer's) landscape metrics and its classes' metrics.
+type ZoneRow = (Vec<f64>, BTreeMap<i32, Vec<f64>>);
+
+struct Signatures;
+
+impl Operator for Signatures {
+    fn signature(&self) -> OpSignature {
+        metric_options(
+            OpSignature::new(
+                "metrics.signatures",
+                "Spatial signatures, as pylandstats' SpatialSignatureAnalysis in landschaft: landscapes described                  by their metrics, a row per zone of a map (polygons, buffers around points or a grid of squares)                  or per layer of a stack, a column per landscape metric and per class metric and class                  (pland_11...), in alphabetical order. For metrics.pca, metrics.nmf, metrics.cluster and                  metrics.clustergram.",
+                Access::Global,
+            )
+            .input(PortSpec::new("maps", Type::Any, "a map of classes (its zones) or a stack (a row per layer)"))
+            .input(PortSpec::optional("plots", Type::Vector, "zones (polygons) or points (buffers around them)"))
+            .output(PortSpec::new("table", Type::Table, "per zone (or landscape): the metrics")),
+        )
+        .param(PortSpec::optional("landscape_metrics", Type::Any, "landscape metrics (a name or a list: shdi, ed...)"))
+        .param(PortSpec::optional("class_metrics", Type::Any, "class metrics, a column per class (pland...)"))
+        .param(PortSpec::optional("classes", Type::Any, "the classes of the class metrics (default all)"))
+        .param(PortSpec::optional("grid", Type::Number, "zones: squares of this side tiling the map"))
+        .param(PortSpec::optional("size", Type::Number, "points: the buffer's half side or radius"))
+        .param(
+            PortSpec::optional("shape", Type::Text, "points: square (default) or circle buffers")
+                .choices(["square", "circle"]),
+        )
+        .param(PortSpec::optional("fillna", Type::Bool, "0 for absent classes' counts and areas (default true)"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let fail = |e: Error| Error::msg(format!("node {:?}: {e}", args.node));
+        let stack = match args.get("maps") {
+            Some(Value::Stack(s)) => s.clone(),
+            _ => {
+                let m = args.map("maps")?;
+                Stack { grid: m.grid.clone(), keys: vec![Key::Name("1".into())], layers: vec![m.data.clone()] }
+            }
+        };
+        let mut land = metric_list(args, "landscape_metrics", "landscape")?;
+        let mut class = metric_list(args, "class_metrics", "class")?;
+        if land.is_empty() && class.is_empty() {
+            return Err(Error::msg(format!("node {:?}: choose landscape_metrics and/or class_metrics", args.node)));
+        }
+        // the columns in alphabetical order, as pandas' pivot leaves them
+        land.sort_unstable();
+        land.dedup();
+        class.sort_unstable();
+        class.dedup();
+        let wanted: Option<Vec<i32>> =
+            args.opt_param::<Vec<f64>>("classes")?.map(|c| c.into_iter().map(|v| v as i32).collect::<Vec<_>>());
+        let fillna: bool = args.param("fillna", true)?;
+        let plots = zones_of(args, &stack.grid)?;
+        let zonal = plots.is_some();
+        if zonal && stack.layers.len() > 1 {
+            return Err(Error::msg(format!("node {:?}: zones of one map, not of a stack", args.node)));
+        }
+        let specs: Vec<(&'static str, &str)> =
+            land.iter().map(|m| ("landscape", *m)).chain(class.iter().map(|m| ("class", *m))).collect();
+        let measured = measure_layers(&stack, plots.as_ref(), &options(args)?, &specs).map_err(fail)?;
+        // a row per zone or layer: its landscape metrics and those of its classes
+        let mut rows: BTreeMap<usize, ZoneRow> = BTreeMap::new();
+        for (z, d, r) in &measured {
+            let values = if land.is_empty() { Vec::new() } else { level_rows("landscape", r, &land, &[]).remove(0).2 };
+            let mut by_class = BTreeMap::new();
+            if !class.is_empty() {
+                for (c, _, v) in level_rows("class", r, &class, &[]) {
+                    if let Some(c) = c {
+                        by_class.insert(c, v);
+                    }
+                }
+            }
+            rows.insert(if zonal { *z } else { *d }, (values, by_class));
+        }
+        let classes: Vec<i32> = match &wanted {
+            Some(w) => {
+                let mut w = w.clone();
+                w.sort_unstable();
+                w.dedup();
+                w
+            }
+            None => {
+                let mut c: Vec<i32> = rows.values().flat_map(|(_, b)| b.keys().copied()).collect();
+                c.sort_unstable();
+                c.dedup();
+                c
+            }
+        };
+        let mut columns = vec![if zonal { "zone" } else { "landscape" }.to_string()];
+        columns.extend(land.iter().map(|m| m.to_string()));
+        for m in &class {
+            columns.extend(classes.iter().map(|c| format!("{m}_{c}")));
+        }
+        let mut table = Table::new(columns);
+        for (i, (values, by_class)) in rows {
+            // a zone without classes has no class metrics in landschaft's table
+            if land.is_empty() && by_class.is_empty() {
+                continue;
+            }
+            let mut row = vec![(i + 1) as f64];
+            row.extend(values);
+            for (j, m) in class.iter().enumerate() {
+                for c in &classes {
+                    let v = by_class.get(c).map_or(f64::NAN, |v| v[j]);
+                    row.push(if v.is_nan() && fillna && ZERO_WHEN_ABSENT.contains(m) { 0.0 } else { v });
+                }
+            }
+            table.rows.push(row);
+        }
+        Ok(outputs([("table", Value::Table(table))]))
+    }
+}
+
 /// The columns of a table that are keys, not metrics.
-const KEYS: [&str; 9] = ["class", "patch", "id", "plot_id", "size", "zone", "date", "layer", "percentage_inside"];
+pub(crate) const KEYS: [&str; 11] =
+    ["class", "patch", "id", "plot_id", "size", "zone", "date", "layer", "percentage_inside", "landscape", "cluster"];
 
 struct Correlation;
 

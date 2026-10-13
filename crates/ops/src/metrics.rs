@@ -204,7 +204,7 @@ pub fn options(args: &Args) -> Result<ffi::LsmOptions> {
 
 /// The settings every metric operator takes: the metrics chosen and their options.
 pub(crate) fn settings(sig: OpSignature) -> OpSignature {
-    sig.param(PortSpec::optional(
+    metric_options(sig.param(PortSpec::optional(
         "metrics",
         Type::Any,
         "the metrics (a name or a list: ca, pland, np...; default all of the level)",
@@ -218,8 +218,12 @@ pub(crate) fn settings(sig: OpSignature) -> OpSignature {
         )
         .choices(["area and edge", "shape", "core area", "aggregation", "diversity", "complexity", "contrast"]),
     )
-    .param(PortSpec::optional("extras", Type::Bool, "without metrics, FRAGSTATS' that landscapemetrics lacks too"))
-    .param(
+    .param(PortSpec::optional("extras", Type::Bool, "without metrics, FRAGSTATS' that landscapemetrics lacks too")))
+}
+
+/// The options of the metrics (landscapemetrics' arguments) as settings of a node.
+pub(crate) fn metric_options(sig: OpSignature) -> OpSignature {
+    sig.param(
         PortSpec::optional("directions", Type::Integer, "the patches' connectivity: 8 (default) or 4").choices([8, 4]),
     )
     .param(PortSpec::optional("count_boundary", Type::Bool, "the map's boundary counts as edge (default false)"))

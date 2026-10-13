@@ -547,8 +547,14 @@ Pendências:
   guarda, bit a bit), `vector.grid_zones`, `metrics.series` (o SpatioTemporalAnalysis, igual ao landschaft) e
   `metrics.correlation` (o cor do R pelo C++ do landschaft, bit a bit). O código EPSG de um GeoTIFF de projeção
   própria deixou de ser o do datum.
-- **Próximos (2026-10-12):** as assinaturas do `lsm` (PCA, NMF, agrupamentos); MSPA e métricas por tiles para
-  rasters maiores que a memória; instaladores com o GDAL (os mapas de fundo já estão no viewer).
+- **Assinaturas do `lsm` (Unreleased, 2026-10-13):** `metrics.signatures` (a tabela do SpatialSignatureAnalysis:
+  zonas ou camadas por métricas de paisagem e de classe, bit a bit), `metrics.pca`, `metrics.nmf`,
+  `metrics.cluster` e `metrics.clustergram`. O k-means sorteia do gerador do numpy (PCG64 e SeedSequence, os
+  mesmos números), as ligações são as do scipy (cadeia de vizinhos, árvore geradora mínima, o algoritmo genérico
+  para centroide e mediana, o corte maxclust); a SVD é de Jacobi, a 1e-11 da do LAPACK. Os mesmos grupos do
+  landschaft (`tools/make_signature_reference.py`).
+- **Próximos (2026-10-13):** MSPA e métricas por tiles para rasters maiores que a memória; instaladores com o
+  GDAL (os mapas de fundo já estão no viewer).
 
 Pendências gerais, depois das fases:
 - regiões e demandas regionais, CLUMondo, FUTURES e MOLUSCE no Terraflux;

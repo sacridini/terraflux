@@ -29,8 +29,9 @@ neutros (`nlm.*`) para testar fluxos sem dados. A ordem sugerida:
    - **Feito** (0.15.0): a análise espaço-temporal (`metrics.series`), a amostragem por pontos, buffers e
      polígonos (`metrics.sample`), as zonas em grade (`vector.grid_zones`) e a correlação entre métricas
      (`metrics.correlation`);
-   - a análise de assinaturas (PCA, NMF, k-means, agrupamentos hierárquicos e clustergram: `lsm/analysis.py`,
-     em Python sobre o numpy);
+   - **Feito** (Unreleased): a análise de assinaturas (`metrics.signatures`, `metrics.pca`, `metrics.nmf`,
+     `metrics.cluster`, `metrics.clustergram`), os mesmos grupos do landschaft. Falta desenhar o clustergram e o
+     biplot do PCA no viewer, e levar os grupos de volta às zonas (um mapa dos grupos);
    - paisagens fora da memória (`TiledLandscape`, já em C++), para rasters maiores que a RAM;
    - gráficos de várias métricas de uma vez.
 3. **Planejamento sistemático de conservação e restauração.** **Feito** (Unreleased): o prioritizr (tabelas,

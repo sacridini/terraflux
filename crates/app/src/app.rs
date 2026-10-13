@@ -1961,8 +1961,10 @@ pub(crate) fn node_panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
         ui.label(RichText::new("Settings").strong());
         for (name, doc, spec) in params {
             // the metrics of the landscape metrics: all, by type, or one by one
-            if name == "metrics" && n.op.starts_with("metrics.") {
-                if let Some(c) = crate::builder::metrics_param(ui, s, &n, &path) {
+            if ["metrics", "landscape_metrics", "class_metrics"].contains(&name.as_str())
+                && n.op.starts_with("metrics.")
+            {
+                if let Some(c) = crate::builder::metrics_param(ui, s, &n, &path, &name) {
                     change = Some(c);
                 }
                 continue;

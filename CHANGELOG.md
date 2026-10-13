@@ -6,6 +6,20 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Spatial signatures, as pylandstats' SpatialSignatureAnalysis in landschaft (`tools/make_signature_reference.py`):
+  - `metrics.signatures`: the table of landscapes described by their metrics, a row per zone of a map (polygons,
+    buffers around points, a grid of squares) or per layer of a stack, a column per landscape metric and per
+    class metric and class (`pland_11`...), to the bit;
+  - `metrics.pca` (the principal components of the z-scores: scores, loadings and the share of the variance),
+    `metrics.nmf` (non-negative factors: NNDSVDa start, HALS sweeps), `metrics.cluster` (k-means from numpy's
+    generator, PCG64 and its SeedSequence, so the same starts; or scipy's linkages: ward, average, complete,
+    single, centroid, median, weighted, cut as fcluster's maxclust) and `metrics.clustergram` (the clusters for a
+    range of k and their means, on the first principal axis or not). The same clusters as landschaft, label by
+    label; the components, factors and means within 1e-11 of numpy's LAPACK.
+- The landscape and class metrics of a signatures node are chosen in the metrics' list, as those of the other
+  metric nodes.
+
 ## [0.16.0] - 2026-10-12
 
 ### Added
