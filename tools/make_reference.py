@@ -199,6 +199,17 @@ def bridge():
                     S.CLUMondo(sup, max_deviation=1.0, mean_deviation=0.5, neighbourhood=nb),
                     S.Rules(elasticity=[0.5] * len(systems), history=5))
     write("clumondo", model, drv_path, dr, 18, land)
+    # FUTURES: development (class 4) grown in patches, two subregions, a potential on two drivers
+    developed = land.copy(data=np.where(np.isnan(land.values), np.nan, (land.values == 4).astype(float)))
+    halves = land.copy(data=np.where(np.arange(land.shape[1])[None, :] < land.shape[1] // 2, 1.0, 2.0)
+                       * np.ones(land.shape))
+    pot = S.DevelopmentPotential(pd.DataFrame({"intercept": [-3.0, -2.5], "devpressure": [0.05, 0.08],
+                                               "slope": [-0.02, -0.03], "elevation": [-0.001, -0.002]},
+                                              index=pd.Index([1, 2], name="subregion")))
+    demand = S.DevelopmentDemand({1: [30, 25, 40], 2: [20, 35, 15]})
+    alloc = S.PatchGrowing({1: [1, 3, 5, 8, 2], 2: [2, 4, 1, 9]}, subregions=halves, neighborhood=6,
+                           compactness_mean=0.5, compactness_range=0.2)
+    write("futures", S.Model(pot, demand, alloc), drv_path, dr, 19, developed)
 
 
 def main():

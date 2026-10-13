@@ -29,6 +29,9 @@ struct MolusceFactor;
 struct ClumondoSettingsIn;
 struct ClumondoYearOut;
 struct ClumondoNbIn;
+struct FuturesIn;
+struct FuturesClimateIn;
+struct FuturesOut;
 struct SimilarityOut;
 struct FadOut;
 struct FadScalesOut;
@@ -374,6 +377,12 @@ rust::Vec<float> clumondo_add_neighbourhood(rust::Slice<const float> suit, std::
 rust::Vec<float> clumondo_add_preference(rust::Slice<const float> row, rust::Slice<const std::int32_t> region,
                                          rust::Slice<const float> values, float weight);
 rust::Vec<std::int32_t> clumondo_random_age(std::int64_t ncell, std::int32_t max_age, std::uint32_t seed);
+
+// FUTURES (landschaft's sim/futures.hpp): every step in one run
+FuturesOut futures_run(const FuturesIn& in, const FuturesClimateIn& climate, rust::Slice<const std::int32_t> developed,
+                       rust::Slice<const std::int32_t> region, rust::Slice<const std::int32_t> pot_region,
+                       rust::Slice<const float> devpressure, rust::Slice<const float> aggregated,
+                       rust::Slice<const float> weight, rust::Slice<const std::int32_t> zone);
 
 }  // namespace tfx
 

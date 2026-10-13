@@ -600,6 +600,82 @@ pub mod ffi {
         dem_elas: Vec<f32>,
     }
 
+    /// FUTURES' settings (landschaft's `FuturesSettings`); the patch libraries flat, `patch_offsets` where each
+    /// starts (and the end).
+    #[derive(Debug, Clone, PartialEq, Default)]
+    struct FuturesIn {
+        rows: i64,
+        cols: i64,
+        nregions: i32,
+        npot: i32,
+        intercept: Vec<f64>,
+        devpressure_coef: Vec<f64>,
+        neighborhood: i32,
+        approach: i32,
+        gamma: f32,
+        scaling: f32,
+        patch_sizes: Vec<i32>,
+        patch_offsets: Vec<i32>,
+        single_column: bool,
+        compactness_mean: f32,
+        compactness_range: f32,
+        num_neighbors: i32,
+        seed_probability: bool,
+        incentive: Vec<f32>,
+        user_effects: bool,
+        zone_ids: Vec<i32>,
+        zone_regions: Vec<i32>,
+        zone_effects: Vec<f32>,
+        stringency: Vec<f32>,
+        demand: Vec<f32>,
+        nsteps: i32,
+        seed: i64,
+    }
+
+    /// FUTURES' flood submodel (landschaft's `FuturesClimate`), maps flat (`present` false: none).
+    #[derive(Debug, Clone, PartialEq, Default)]
+    struct FuturesClimateIn {
+        present: bool,
+        depth_mode: bool,
+        huc: Vec<i32>,
+        nhuc: i32,
+        huc_ids: Vec<i32>,
+        flood_steps: Vec<i32>,
+        probabilities: Vec<f32>,
+        depths: Vec<f32>,
+        flood_probability: Vec<f32>,
+        hand: Vec<f32>,
+        percentile: f32,
+        adaptive_capacity: Vec<f32>,
+        adaptation: Vec<i32>,
+        levels: Vec<f64>,
+        damage: Vec<f64>,
+        ddf_region: Vec<i32>,
+        response: Vec<f32>,
+        stddev: f32,
+        has_matrix: bool,
+        from_ids: Vec<i32>,
+        to_ids: Vec<i32>,
+        matrix: Vec<f32>,
+        population: Vec<f32>,
+        region_ids: Vec<i32>,
+    }
+
+    /// A FUTURES run: the developed codes after each step (flat), cells per step and region, the floods.
+    #[derive(Debug, Clone, PartialEq, Default)]
+    struct FuturesOut {
+        series: Vec<i32>,
+        converted: Vec<i64>,
+        overflow: Vec<i64>,
+        warnings: Vec<i32>,
+        adaptation: Vec<i32>,
+        flood_steps: Vec<i32>,
+        flood_hucs: Vec<i32>,
+        flood_probabilities: Vec<f32>,
+        moved: Vec<f32>,
+        demand: Vec<f32>,
+    }
+
     /// A neighbourhood function of CLUMondo (landschaft's `ClumondoNeighbourhood`).
     #[derive(Debug, Clone, PartialEq)]
     struct ClumondoNbIn {
@@ -1200,6 +1276,19 @@ pub mod ffi {
         ) -> Result<Vec<f32>>;
         fn clumondo_add_preference(row: &[f32], region: &[i32], values: &[f32], weight: f32) -> Result<Vec<f32>>;
         fn clumondo_random_age(ncell: i64, max_age: i32, seed: u32) -> Result<Vec<i32>>;
+        #[allow(clippy::too_many_arguments)]
+        fn futures_run(
+            s: &FuturesIn,
+            climate: &FuturesClimateIn,
+            developed: &[i32],
+            region: &[i32],
+            pot_region: &[i32],
+            devpressure: &[f32],
+            aggregated: &[f32],
+            weight: &[f32],
+            zone: &[i32],
+        ) -> Result<FuturesOut>;
+
 
 
         // out-of-core landscapes (tiles)
@@ -1284,9 +1373,9 @@ pub mod ffi {
 }
 
 pub use ffi::{
-    CarsOut, CluesOut, ClumondoNbIn, ClumondoSettingsIn, ClumondoYearOut, GlmFit, MolusceChange, MolusceFactor,
-    MolusceForecastOut, MolusceStepOut, NbRule, ObservedPatches, OrderedOut, PatchOut, PatchSpec, SimilarityOut,
-    WoeWeights,
+    CarsOut, CluesOut, ClumondoNbIn, ClumondoSettingsIn, ClumondoYearOut, FuturesClimateIn, FuturesIn, FuturesOut,
+    GlmFit, MolusceChange, MolusceFactor, MolusceForecastOut, MolusceStepOut, NbRule, ObservedPatches, OrderedOut,
+    PatchOut, PatchSpec, SimilarityOut, WoeWeights,
 };
 
 /// The threads Terraflux uses: never every core of the machine (all but one by default).

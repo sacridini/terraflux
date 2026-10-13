@@ -85,3 +85,8 @@ fn molusce_with_a_regression_saved_by_landschaft() {
 fn clumondo_saved_by_landschaft() {
     case("clumondo");
 }
+
+#[test]
+fn futures_saved_by_landschaft() {
+    case("futures");
+}

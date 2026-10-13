@@ -20,6 +20,7 @@
 
 #include "cost/shortest.hpp"
 #include "sim/clumondo.hpp"
+#include "sim/futures.hpp"
 #include "cost/transition.hpp"
 #include "gtb/accounting.hpp"
 #include "gtb/change.hpp"
@@ -1810,6 +1811,139 @@ rust::Vec<float> clumondo_add_preference(rust::Slice<const float> row, rust::Sli
 
 rust::Vec<std::int32_t> clumondo_random_age(std::int64_t ncell, std::int32_t max_age, std::uint32_t seed) {
     return to_rust<std::int32_t>(sim::clumondo_random_age(ncell, max_age, seed));
+}
+
+namespace {
+
+template <typename T, typename U>
+std::vector<T> to_std(const rust::Vec<U>& v) {
+    return std::vector<T>(v.begin(), v.end());
+}
+
+// k maps of n cells from a flat vector
+std::vector<std::vector<float>> split_maps(const rust::Vec<float>& v, std::size_t n) {
+    std::vector<std::vector<float>> out;
+    for (std::size_t i = 0; n && i + n <= v.size(); i += n) out.emplace_back(v.begin() + i, v.begin() + i + n);
+    return out;
+}
+
+}  // namespace
+
+FuturesOut futures_run(const FuturesIn& in, const FuturesClimateIn& c, rust::Slice<const std::int32_t> developed,
+                       rust::Slice<const std::int32_t> region, rust::Slice<const std::int32_t> pot_region,
+                       rust::Slice<const float> devpressure, rust::Slice<const float> aggregated,
+                       rust::Slice<const float> weight, rust::Slice<const std::int32_t> zone) {
+    const std::int64_t n = in.rows * in.cols;
+    const auto un = static_cast<std::size_t>(n);
+    check(n > 0 && developed.size() == un && region.size() == un && devpressure.size() == un &&
+              aggregated.size() == un,
+          "the maps differ in size from rows x cols");
+    check(pot_region.empty() || pot_region.size() == un, "the potential subregions differ in size");
+    check(weight.empty() || weight.size() == un, "the weight differs in size");
+    check(zone.empty() || zone.size() == un, "the zoning differs in size");
+    check(!in.patch_offsets.empty() && in.patch_offsets.back() == static_cast<std::int32_t>(in.patch_sizes.size()),
+          "the patch offsets must end at the number of patch sizes");
+    sim::FuturesSettings s;
+    s.rows = in.rows;
+    s.cols = in.cols;
+    s.nregions = in.nregions;
+    s.npot = in.npot;
+    s.intercept = to_std<double>(in.intercept);
+    s.devpressure_coef = to_std<double>(in.devpressure_coef);
+    s.neighborhood = in.neighborhood;
+    s.approach = in.approach;
+    s.gamma = in.gamma;
+    s.scaling = in.scaling;
+    for (std::size_t k = 0; k + 1 < in.patch_offsets.size(); ++k)
+        s.patch_sizes.emplace_back(in.patch_sizes.begin() + in.patch_offsets[k],
+                                   in.patch_sizes.begin() + in.patch_offsets[k + 1]);
+    s.single_column = in.single_column;
+    s.max_patch_size = 1;
+    for (const auto& v : s.patch_sizes)
+        for (int x : v) s.max_patch_size = std::max(s.max_patch_size, x);
+    s.compactness_mean = in.compactness_mean;
+    s.compactness_range = in.compactness_range;
+    s.num_neighbors = in.num_neighbors;
+    s.seed_probability = in.seed_probability;
+    s.incentive = to_std<float>(in.incentive);
+    s.use_zone = !zone.empty();
+    s.user_effects = in.user_effects;
+    s.zone_ids = to_std<int>(in.zone_ids);
+    s.zone_regions = to_std<int>(in.zone_regions);
+    s.zone_effects = to_std<float>(in.zone_effects);
+    s.stringency = to_std<float>(in.stringency);
+    s.use_weight = !weight.empty();
+    s.demand = to_std<float>(in.demand);
+    s.nsteps = in.nsteps;
+    s.seed = in.seed;
+    sim::FuturesClimate cl;
+    if (c.present) {
+        cl.depth_mode = c.depth_mode;
+        cl.huc = to_std<int>(c.huc);
+        cl.nhuc = c.nhuc;
+        cl.huc_ids = to_std<int>(c.huc_ids);
+        cl.flood_steps = to_std<int>(c.flood_steps);
+        if (cl.depth_mode) {
+            cl.probabilities = to_std<float>(c.probabilities);
+            const std::size_t per = cl.probabilities.size() * un;
+            check(per > 0 && c.depths.size() == per * cl.flood_steps.size(), "depths: steps x probabilities x cells");
+            for (std::size_t k = 0; k < cl.flood_steps.size(); ++k) {
+                rust::Vec<float> part;
+                for (std::size_t i = k * per; i < (k + 1) * per; ++i) part.push_back(c.depths[i]);
+                cl.depths.push_back(split_maps(part, un));
+            }
+        } else {
+            cl.flood_probability = split_maps(c.flood_probability, un);
+            cl.hand = to_std<float>(c.hand);
+            cl.percentile = c.percentile;
+        }
+        cl.adaptive_capacity = to_std<float>(c.adaptive_capacity);
+        cl.adaptation = to_std<int>(c.adaptation);
+        cl.levels = to_std<double>(c.levels);
+        const std::size_t nl = cl.levels.size();
+        check(nl > 0 && c.damage.size() % nl == 0, "damage: regions x levels");
+        for (std::size_t i = 0; i < c.damage.size(); i += nl)
+            cl.damage.emplace_back(c.damage.begin() + i, c.damage.begin() + i + nl);
+        cl.ddf_region = to_std<int>(c.ddf_region);
+        check(c.response.size() == 4, "the response is four numbers");
+        cl.vulnerability_a = c.response[0];
+        cl.vulnerability_b = c.response[1];
+        cl.resilience_a = c.response[2];
+        cl.resilience_b = c.response[3];
+        cl.stddev = c.stddev;
+        cl.has_matrix = c.has_matrix;
+        if (cl.has_matrix) {
+            cl.from_ids = to_std<int>(c.from_ids);
+            cl.to_ids = to_std<int>(c.to_ids);
+            const std::size_t nt = cl.to_ids.size();
+            check(c.matrix.size() == cl.from_ids.size() * nt, "the redistribution matrix: from x to");
+            for (std::size_t i = 0; i < cl.from_ids.size(); ++i)
+                cl.matrix.emplace_back(c.matrix.begin() + i * nt, c.matrix.begin() + (i + 1) * nt);
+            cl.population = to_std<float>(c.population);
+        }
+        cl.region_ids = to_std<int>(c.region_ids);
+        check(cl.huc.size() == un && cl.ddf_region.size() == un && cl.adaptive_capacity.size() == un,
+              "the climate maps differ in size");
+        s.climate = &cl;
+    }
+    const auto r = sim::futures_run(s, developed.data(), region.data(), pot_region.empty() ? nullptr : pot_region.data(),
+                                    devpressure.data(), aggregated.data(), weight.empty() ? nullptr : weight.data(),
+                                    zone.empty() ? nullptr : zone.data());
+    FuturesOut out;
+    for (const auto& m : r.series)
+        for (const int x : m) out.series.push_back(x);
+    for (const auto& m : r.adaptation)
+        for (const int x : m) out.adaptation.push_back(x);
+    out.converted = to_rust<std::int64_t>(r.converted);
+    out.overflow = to_rust<std::int64_t>(r.overflow);
+    out.warnings = to_rust<std::int32_t>(r.warnings);
+    out.flood_steps = to_rust<std::int32_t>(r.flood_steps);
+    out.flood_hucs = to_rust<std::int32_t>(r.flood_hucs);
+    out.flood_probabilities = to_rust<float>(r.flood_probabilities);
+    for (const auto& m : r.moved)
+        for (const float x : m) out.moved.push_back(x);
+    out.demand = to_rust<float>(r.demand);
+    return out;
 }
 
 }  // namespace tfx

@@ -24,6 +24,7 @@ pub mod dynamic;
 pub mod files;
 pub mod fitted;
 pub mod fragmentation;
+pub mod futures;
 pub mod glm;
 pub mod gtb_palettes;
 pub mod gtn;
@@ -277,6 +278,7 @@ impl Registry {
         files::register(&mut r);
         fitted::register(&mut r);
         fragmentation::register(&mut r);
+        futures::register(&mut r);
         landscape::register(&mut r);
         mspa_tiled::register(&mut r);
         plus::register(&mut r);
