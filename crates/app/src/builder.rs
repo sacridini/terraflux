@@ -681,7 +681,10 @@ pub fn keys(ui: &Ui, s: &mut Session, r: &Registry, canvas: bool) -> bool {
         }
         (
             i.consume_key(egui::Modifiers::COMMAND, egui::Key::Enter),
-            !typing && i.consume_key(egui::Modifiers::NONE, egui::Key::Delete),
+            // delete, or backspace (the key macOS deletes with)
+            !typing
+                && (i.consume_key(egui::Modifiers::NONE, egui::Key::Delete)
+                    || i.consume_key(egui::Modifiers::NONE, egui::Key::Backspace)),
             !typing && i.consume_key(egui::Modifiers::COMMAND, egui::Key::L),
             slash,
         )
@@ -808,6 +811,34 @@ pub fn add(s: &mut Session, r: &Registry, op: &str, params: &[(&str, serde_json:
     Ok(id)
 }
 
+/// The files of vector features the dialogs offer (GDAL reads others too).
+pub const VECTOR_EXTENSIONS: [&str; 8] = ["gpkg", "shp", "geojson", "json", "fgb", "kml", "gml", "parquet"];
+
+/// Open a raster or vector features (ctrl+O): a node that reads the file chosen, after the node selected.
+pub fn open_data(s: &mut Session, r: &Registry) {
+    let mut both: Vec<&str> = terraflux_ops::files::RASTER_EXTENSIONS.to_vec();
+    both.extend(VECTOR_EXTENSIONS);
+    let Some(p) = rfd::FileDialog::new()
+        .set_title("A raster or vector features")
+        .add_filter("Rasters and vectors", &both)
+        .add_filter("Rasters", &terraflux_ops::files::RASTER_EXTENSIONS)
+        .add_filter("Vectors", &VECTOR_EXTENSIONS)
+        .add_filter("Every file", &["*"])
+        .pick_file()
+    else {
+        return;
+    };
+    let op = if is_vector(&p) { "vector.read" } else { "raster.read" };
+    if let Err(e) = add(s, r, op, &[("path", p.to_string_lossy().into_owned().into())]) {
+        s.editor.message = Some(e);
+    }
+}
+
+/// Whether a file is of vector features, by its extension.
+pub fn is_vector(p: &std::path::Path) -> bool {
+    p.extension().is_some_and(|e| VECTOR_EXTENSIONS.contains(&e.to_string_lossy().to_lowercase().as_str()))
+}
+
 fn library(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library) {
     theme::section(ui, "Data");
     let wide = Vec2::new(ui.available_width(), 24.0);
@@ -829,7 +860,7 @@ fn library(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library) {
         .clicked()
         && let Some(p) = rfd::FileDialog::new()
             .set_title("Vector features")
-            .add_filter("Vectors", &["gpkg", "shp", "geojson", "json", "fgb", "kml", "gml"])
+            .add_filter("Vectors", &VECTOR_EXTENSIONS)
             .add_filter("Every file", &["*"])
             .pick_file()
     {

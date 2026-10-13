@@ -6,6 +6,26 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Basemaps fetched and drawn anew: the web tiles of the service fetched by a pool of twelve threads shared by
+  every view (each tile once, kept on disk and decoded in memory), and drawn by the GPU as textures on meshes whose
+  vertices are carried to the map's coordinate system once per tile: nothing is warped on the processor, a tile
+  shows as it comes, two levels coarser first, the coarser ones kept under those still to come. GDAL's HTTP
+  (`terraflux_gdal::fetch`), image decoding (`decode_image`, palettes too) and coordinate transformations
+  (`Transform`).
+- The operators in a drawer at the window's left edge (out while the pointer is at the edge or over it) and in
+  the toolbar (Operators); the node's and the Prepare panes at the left.
+- Tabs dragged out of the dock become windows of their own (on another screen too); ctrl+W closes the tab in
+  front of the window it is pressed in, and each window takes its own keys (F5, ctrl+S, ctrl+O).
+- ctrl+O opens a raster or vector features (a node that reads the file, by its extension); vector.read and
+  vector.write choose their file in a dialog, and their paths are kept relative to the model as the rasters'.
+- Backspace deletes the node selected (as delete; the key macOS deletes with).
+- The vector layers' line width (the points' size) beside their fill.
+- Charts zoom with the wheel around the point under the pointer, as maps.
+
+### Changed
+- The attributes' table of vectors is only the node's table output (no longer repeated beside the features).
+
 ## [0.21.0] - 2026-10-13
 
 ### Added

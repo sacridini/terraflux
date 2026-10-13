@@ -3,6 +3,7 @@
 //! the validation against an observed map.
 
 pub mod app;
+pub mod basemap;
 pub mod builder;
 pub mod canvas_gpu;
 pub mod charts;

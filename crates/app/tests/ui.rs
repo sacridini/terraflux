@@ -890,3 +890,50 @@ fn data_is_put_on_the_reference_grid_in_a_click() {
     assert!(n.note.as_ref().is_some_and(|t| t.contains("Resampling")), "{:?}", n.note);
     assert_eq!(s.selected.as_deref(), Some(n.id.as_str()));
 }
+
+/// The panes' places: the node's at the left, the operators in a drawer the pointer opens at the window's left
+/// edge (and closes leaving it) and in the toolbar; backspace deletes the node selected; a tab dragged out of the
+/// dock (egui_dock's floating window) becomes a window of its own.
+#[test]
+fn the_operators_drawer_and_windows_of_their_own() {
+    let mut h = harness(TerrafluxApp::new(None));
+    h.run_steps(2);
+    let ctx = h.ctx.clone();
+    h.state_mut().start_template(&ctx, &terraflux_app::templates::TEMPLATES[0]);
+    h.run_steps(4);
+    assert!(!h.state().is_open(Pane::Operators), "no operators' pane at first");
+    assert!(h.state().is_open(Pane::Node) && h.state().is_open(Pane::Prepare));
+    assert!(h.query_by_label("Operators").is_some(), "the toolbar's menu");
+    assert!(h.query_by_label("Open a raster...").is_none());
+    // the pointer at the left edge: the drawer
+    h.event(egui::Event::PointerMoved(egui::pos2(1.0, 300.0)));
+    h.run_steps(3);
+    assert!(h.state().drawer);
+    assert!(h.query_by_label("Open a raster...").is_some(), "the operators in the drawer");
+    shot(&mut h, "20-drawer");
+    h.event(egui::Event::PointerMoved(egui::pos2(700.0, 300.0)));
+    h.run_steps(3);
+    assert!(!h.state().drawer, "away from it, it goes in");
+    // backspace deletes
+    let n = h.state().session.as_ref().unwrap().source.nodes.len();
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let id = s.source.nodes.last().unwrap().id.clone();
+        terraflux_app::builder::select(s, &terraflux_ops::Registry::standard(), &id);
+    }
+    h.run_steps(2);
+    h.key_press(egui::Key::Backspace);
+    h.run_steps(2);
+    assert_eq!(h.state().session.as_ref().unwrap().source.nodes.len(), n - 1, "backspace deletes the node");
+    // a floating window of the dock: a window of its own
+    {
+        let a = h.state_mut();
+        let dock = a.dock.as_mut().unwrap();
+        let path = dock.find_tab(&Pane::Viewer).unwrap();
+        dock.remove_tab(path);
+        dock.add_window(vec![Pane::Viewer]);
+    }
+    h.run_steps(3);
+    assert_eq!(h.state().detached(), vec![Pane::Viewer]);
+    assert!(h.state().dock.as_ref().unwrap().iter_surfaces_indexed().all(|(i, s)| i.is_main() || s.is_empty()));
+}

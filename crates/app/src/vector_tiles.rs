@@ -30,6 +30,8 @@ pub struct Style {
     pub by: Option<String>,
     /// The polygons' fill, 0 (none) to 1.
     pub fill: f32,
+    /// The lines' and the polygons' outlines' width, pixels (0: polygons without outline); points are a circle of
+    /// 2 + width pixels across.
     pub width: f32,
 }
 
@@ -228,7 +230,7 @@ pub fn rasterize(
     let px = 2f64.powi(-level); // pixels per cell
     let (ox, oy) = (tx as f64 * s, ty as f64 * s);
     // the features near, a few pixels around for the strokes and dots
-    let margin = 4.0 / px;
+    let margin = (4.0 + 2.0 * style.width as f64) / px;
     let env = AABB::from_corners([ox - margin, oy - margin], [ox + s + margin, oy + s + margin]);
     let mut found: Vec<u32> = layer.tree.locate_in_envelope_intersecting(&env).map(|g| g.data).collect();
     if found.is_empty() {
@@ -268,7 +270,7 @@ pub fn rasterize(
             }
             if f.kind == Kind::Point {
                 let (x, y) = at(&pts[0]);
-                pb.push_circle(x, y, 3.0);
+                pb.push_circle(x, y, 2.0 + style.width);
                 continue;
             }
             // the vertices a pixel apart at least
@@ -294,6 +296,9 @@ pub fn rasterize(
                 pixmap.stroke_path(&path, &paint(Color32::from_black_alpha(160), 1.0), &ring, id, None);
             }
             Kind::Line => pixmap.stroke_path(&path, &paint(c, 1.0), &stroke, id, None),
+            Kind::Polygon if style.width <= 0.0 => {
+                pixmap.fill_path(&path, &paint(c, style.fill), tiny_skia::FillRule::EvenOdd, id, None);
+            }
             Kind::Polygon => {
                 if style.fill > 0.0 {
                     pixmap.fill_path(&path, &paint(c, style.fill), tiny_skia::FillRule::EvenOdd, id, None);

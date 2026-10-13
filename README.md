@@ -154,6 +154,10 @@ model file dropped on it or opened with it; started that way on Windows, it show
   maps and the drivers (the dates and steps from the band names), checks the data as soon as it is chosen
   (grids, classes, missing values, constant or collinear drivers) and offers to fix what it can (resampling a
   driver to the land use map's grid), then writes the model with a note on every choice.
+- **Panes:** the node's and Prepare at the left, the model over the viewer; the operators in a drawer at the
+  window's left edge and in the toolbar. Any tab dragged out of the dock becomes a window of its own, to put on
+  another screen. ctrl+O opens a raster or vectors, ctrl+W closes the tab in front, backspace (or delete) deletes
+  the node selected.
 - **Prepare:** the data of the node selected next to the model's reference grid (the land use map's, suggested
   as soon as one is read): its coordinate system, cells and extent, what differs, and the steps a click away,
   each a node of an operator already there with a note saying why: onto the grid (`raster.match`, resampled by

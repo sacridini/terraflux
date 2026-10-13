@@ -193,7 +193,7 @@ impl Workers {
     }
 }
 
-/// A map of the world under the data (web tiles, warped by GDAL onto the data's grid): free services.
+/// A map of the world under the data (web tiles drawn on the data's grid, see [`crate::basemap`]): free services.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Basemap {
     #[default]
@@ -227,7 +227,7 @@ impl Basemap {
     }
 
     /// The tiles' address, with `${z}`, `${x}` and `${y}`; the deepest zoom level.
-    fn url(self) -> Option<(&'static str, u32)> {
+    pub(crate) fn url(self) -> Option<(&'static str, u32)> {
         Some(match self {
             Basemap::None => return None,
             Basemap::EsriImagery => {
@@ -254,88 +254,11 @@ impl Basemap {
             Basemap::CartoLight => "© OpenStreetMap contributors © CARTO",
         }
     }
-
-    /// The service as GDAL opens it, its tiles kept in the user's cache.
-    fn service(self) -> Option<String> {
-        let (url, levels) = self.url()?;
-        let root = std::env::var_os("LOCALAPPDATA").map(std::path::PathBuf::from).unwrap_or_else(std::env::temp_dir);
-        let cache = root.join("Terraflux").join("tiles").join(format!("{self:?}"));
-        Some(terraflux_gdal::tile_service(url, levels, &cache))
-    }
 }
 
 /// The CRS of a grid as GDAL takes it: the WKT GDAL read, else the EPSG code of the GeoTIFF keys.
 fn crs_of(g: &terraflux_raster::Grid) -> Option<String> {
     g.geo.wkt.clone().or_else(|| g.geo.epsg().map(|c| format!("EPSG:{c}")))
-}
-
-/// A tile of a basemap: the service, the grid it is warped onto (a hash of its CRS and transform), the level
-/// (a tile spans 256 x 2^level cells; below 0, finer than the cells) and its place.
-type BaseKey = (Basemap, u64, i32, i64, i64);
-
-struct BaseJob {
-    key: BaseKey,
-    service: Arc<String>,
-    crs: Arc<String>,
-    extent: [f64; 4],
-}
-
-struct BaseMade {
-    key: BaseKey,
-    image: Result<egui::ColorImage, String>,
-}
-
-/// The threads that fetch and warp basemap tiles (the web is slow: never in the data's threads).
-struct BaseWorkers {
-    queue: Arc<(Mutex<VecDeque<BaseJob>>, Condvar)>,
-    started: Arc<Mutex<HashSet<BaseKey>>>,
-    done: Receiver<BaseMade>,
-}
-
-impl BaseWorkers {
-    fn new(ctx: egui::Context) -> BaseWorkers {
-        let queue: Arc<(Mutex<VecDeque<BaseJob>>, Condvar)> = Arc::new((Mutex::new(VecDeque::new()), Condvar::new()));
-        let started: Arc<Mutex<HashSet<BaseKey>>> = Arc::new(Mutex::new(HashSet::new()));
-        let (tx, done) = channel();
-        for k in 0..4 {
-            let (queue, started, tx, ctx) = (queue.clone(), started.clone(), tx.clone(), ctx.clone());
-            let _ = std::thread::Builder::new().name(format!("terraflux-basemap-{k}")).spawn(move || {
-                loop {
-                    let job: BaseJob = {
-                        let (lock, cv) = &*queue;
-                        let mut q = lock.lock().unwrap();
-                        loop {
-                            if let Some(j) = q.pop_front() {
-                                break j;
-                            }
-                            q = cv.wait(q).unwrap();
-                        }
-                    };
-                    started.lock().unwrap().insert(job.key);
-                    let image = terraflux_gdal::warp_image(&job.service, &job.crs, job.extent, TILE, TILE).map(|px| {
-                        let pixels =
-                            px.into_iter().map(|[r, g, b, a]| Color32::from_rgba_unmultiplied(r, g, b, a)).collect();
-                        egui::ColorImage::new([TILE, TILE], pixels)
-                    });
-                    started.lock().unwrap().remove(&job.key);
-                    if tx.send(BaseMade { key: job.key, image }).is_err() {
-                        return;
-                    }
-                    ctx.request_repaint();
-                }
-            });
-        }
-        BaseWorkers { queue, started, done }
-    }
-}
-
-/// The basemap under the data and how the data shows over it.
-#[derive(Default)]
-struct Base {
-    tiles: HashMap<BaseKey, (TextureHandle, u64)>,
-    workers: Option<BaseWorkers>,
-    asked: HashSet<BaseKey>,
-    error: Option<String>,
 }
 
 /// A tile made: its values, its texture in a colouring, when it was last shown.
@@ -365,7 +288,7 @@ pub struct MapView {
     pub basemap: Basemap,
     pub transparency: f32,
     pub hide_data: bool,
-    base: Base,
+    base: crate::basemap::Layer,
     /// The vector layers drawn over the map.
     pub vectors: crate::vector_tiles::VectorTiles,
 }
@@ -381,134 +304,34 @@ impl MapView {
         self.tiles.len()
     }
 
-    /// Draw the basemap tiles over the view (the finest kept over a tile still to come, stretched), asking the
-    /// missing ones of its threads; nothing when the grid has no CRS.
+    /// Draw the basemap under the view (web tiles drawn as meshes by the GPU, see [`crate::basemap`]); nothing
+    /// when the grid has no CRS.
     fn draw_base(&mut self, ctx: &egui::Context, painter: &egui::Painter, rect: Rect, grid: &terraflux_raster::Grid) {
-        let Some(service) = self.basemap.service() else { return };
+        if self.basemap == Basemap::None {
+            return;
+        }
         let Some(crs) = crs_of(grid) else {
             self.base.error = Some("the map has no CRS: no basemap".into());
             return;
         };
-        let workers = self.base.workers.get_or_insert_with(|| BaseWorkers::new(ctx.clone()));
-        for m in workers.done.try_iter().collect::<Vec<_>>() {
-            self.base.asked.remove(&m.key);
-            match m.image {
-                Ok(img) => {
-                    self.clock += 1;
-                    let t = ctx.load_texture(format!("base-{}", self.clock), img, TextureOptions::LINEAR);
-                    self.base.tiles.insert(m.key, (t, self.clock));
-                }
-                // a tile the service has not (beyond its projection's bounds): none there
-                Err(e) => {
-                    if self.base.tiles.is_empty() {
-                        self.base.error = Some(e);
-                    }
-                }
-            }
-        }
-        let gkey = {
-            use std::hash::{Hash, Hasher};
-            let mut h = std::collections::hash_map::DefaultHasher::new();
-            crs.hash(&mut h);
-            grid.transform.iter().for_each(|v| v.to_bits().hash(&mut h));
-            h.finish()
+        let view = crate::basemap::View {
+            transform: grid.transform,
+            rect,
+            center: self.center,
+            zoom: self.zoom,
+            pixels_per_point: ctx.pixels_per_point(),
         };
-        let (w, hgt) = (grid.width as f64, grid.height as f64);
-        let mut top = 0;
-        while ((TILE as f64) * 2f64.powi(top)) < w.max(hgt) {
-            top += 1;
-        }
-        let ppp = ctx.pixels_per_point();
-        let cells_per_pixel = 1.0 / (self.zoom as f64 * ppp as f64);
-        let level = (cells_per_pixel.log2().floor() as i32).clamp(-6, top);
-        let span = |l: i32| TILE as f64 * 2f64.powi(l);
-        let (a, b) = (self.to_cell(rect, rect.min), self.to_cell(rect, rect.max));
-        let s = span(level);
-        // the whole view, around the data too (a few hundred tiles at most)
-        let (x0, y0) = ((a.x as f64 / s).floor() as i64, (a.y as f64 / s).floor() as i64);
-        let (x1, y1) = ((b.x as f64 / s).floor() as i64, (b.y as f64 / s).floor() as i64);
-        if (x1 - x0 + 1) * (y1 - y0 + 1) > 400 {
-            return;
-        }
-        let t = grid.transform;
-        let screen = |l: i32, tx: i64, ty: i64| -> Rect {
-            let sp = span(l) as f32;
-            let min = rect.center() + (Vec2::new(tx as f32 * sp, ty as f32 * sp) - self.center) * self.zoom;
-            Rect::from_min_size(min, Vec2::splat(sp * self.zoom))
-        };
-        let full = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
-        self.clock += 1;
-        let clock = self.clock;
-        let mut wanted: Vec<(f32, BaseJob)> = Vec::new();
-        let (service, crs) = (Arc::new(service), Arc::new(crs));
-        for ty in y0..=y1.max(y0 - 1) {
-            for tx in x0..=x1.max(x0 - 1) {
-                let key = (self.basemap, gkey, level, tx, ty);
-                let r = screen(level, tx, ty);
-                if let Some((tex, used)) = self.base.tiles.get_mut(&key) {
-                    *used = clock;
-                    painter.image(tex.id(), r, full, Color32::WHITE);
-                    continue;
-                }
-                // the cells the tile spans, in the grid's coordinates (a north-up grid)
-                let (cx0, cy0) = (tx as f64 * s, ty as f64 * s);
-                let (xa, xb) = (t[0] + cx0 * t[1], t[0] + (cx0 + s) * t[1]);
-                let (ya, yb) = (t[3] + cy0 * t[5], t[3] + (cy0 + s) * t[5]);
-                let extent = [xa.min(xb), ya.min(yb), xa.max(xb), ya.max(yb)];
-                wanted.push((
-                    (r.center() - rect.center()).length(),
-                    BaseJob { key, service: service.clone(), crs: crs.clone(), extent },
-                ));
-                for up in level + 1..=top {
-                    let shift = (up - level) as u32;
-                    let (ax, ay) = (tx >> shift, ty >> shift);
-                    if let Some((tex, used)) = self.base.tiles.get_mut(&(self.basemap, gkey, up, ax, ay)) {
-                        *used = clock;
-                        let f = 1.0 / (1u32 << shift) as f32;
-                        let (u, v) = ((tx - (ax << shift)) as f32 * f, (ty - (ay << shift)) as f32 * f);
-                        painter.image(
-                            tex.id(),
-                            r,
-                            Rect::from_min_size(Pos2::new(u, v), Vec2::splat(f)),
-                            Color32::WHITE,
-                        );
-                        break;
-                    }
-                }
-            }
-        }
-        wanted.sort_by(|a, b| a.0.total_cmp(&b.0));
-        let workers = self.base.workers.as_ref().unwrap();
-        let started = workers.started.lock().unwrap().clone();
-        let (lock, cv) = &*workers.queue;
-        let mut q = lock.lock().unwrap();
-        q.clear();
-        self.base.asked.retain(|k| started.contains(k));
-        for (_, j) in wanted {
-            if !started.contains(&j.key) {
-                self.base.asked.insert(j.key);
-                q.push_back(j);
-            }
-        }
-        cv.notify_all();
-        drop(q);
-        if self.base.tiles.len() > KEPT {
-            let mut by_age: Vec<(u64, BaseKey)> = self.base.tiles.iter().map(|(k, (_, u))| (*u, *k)).collect();
-            by_age.sort_unstable_by_key(|(u, _)| *u);
-            for (_, k) in by_age.into_iter().take(self.base.tiles.len() - KEPT) {
-                self.base.tiles.remove(&k);
-            }
-        }
+        self.base.draw(ctx, painter, self.basemap, &crs, &view);
     }
 
     /// The basemap tiles kept; why there is no basemap, if so.
     pub fn base_tiles(&self) -> (usize, Option<String>) {
-        (self.base.tiles.len(), self.base.error.clone())
+        self.base.tiles()
     }
 
     /// Whether basemap tiles are being fetched.
     pub fn base_busy(&self) -> bool {
-        !self.base.asked.is_empty()
+        self.base.busy()
     }
 
     /// Screen points per cell.
@@ -628,9 +451,6 @@ impl MapView {
         let painter = ui.painter_at(rect);
         painter.rect_filled(rect, 0.0, ui.visuals().extreme_bg_color);
         // the world under the data, then the data over it as transparent as asked
-        if self.base.tiles.values().len() > 0 {
-            self.base.error = None;
-        }
         if self.basemap != Basemap::None {
             self.draw_base(&ctx, &painter, rect, source.grid());
         }
