@@ -70,6 +70,7 @@
 #include "rest/intactness.hpp"
 #include "lsm/rmath.hpp"
 #include "nlm/models.hpp"
+#include "conn/graph.hpp"
 #include "sim/change.hpp"
 #include "sim/clues.hpp"
 #include "sim/demand.hpp"
@@ -205,6 +206,154 @@ rust::Vec<double> nlm_fbm(std::int32_t seed, std::int64_t ny, std::int64_t nx, d
     check(fract_dim > 0.0 && fract_dim <= 2.0, "the fractal dimension is in (0, 2]");
     nlm::RRng rng(seed);
     return to_rust<double>(nlm::fbm(rng, ny, nx, fract_dim));
+}
+
+namespace {
+
+conn::Scenario conn_scenario(std::int32_t kind, double threshold, double probability, double pij_min, bool conefor) {
+    check(kind >= 0 && kind <= 2, "the kind is 0 distance, 1 probability or 2 link");
+    conn::Scenario s;
+    s.kind = kind == 0 ? conn::Kind::Distance : kind == 1 ? conn::Kind::Probability : conn::Kind::Link;
+    s.threshold = threshold;
+    s.probability = probability;
+    s.pij_min = pij_min;
+    s.conefor = conefor;
+    return s;
+}
+
+conn::Pairs conn_pairs(rust::Slice<const std::int32_t> pi, rust::Slice<const std::int32_t> pj,
+                       rust::Slice<const double> value, std::int32_t n) {
+    check(pi.size() == pj.size() && pi.size() == value.size(), "pi, pj and value differ in length");
+    for (std::size_t k = 0; k < pi.size(); ++k)
+        check(pi[k] >= 0 && pi[k] < n && pj[k] >= 0 && pj[k] < n && pi[k] != pj[k], "a pair joins no two nodes");
+    conn::Pairs p;
+    p.i = to_std(pi);
+    p.j = to_std(pj);
+    p.value = to_std(value);
+    return p;
+}
+
+ConnGains gains_out(conn::Gains&& g) {
+    ConnGains out;
+    out.num = to_rust<double>(g.num);
+    out.h = to_rust<double>(g.h);
+    return out;
+}
+
+}  // namespace
+
+ConnAnalysis conn_analyse(rust::Slice<const std::int32_t> pi, rust::Slice<const std::int32_t> pj,
+                          rust::Slice<const double> value, rust::Slice<const double> area, std::int32_t kind,
+                          double threshold, double probability, double pij_min, double expand_limit, bool conefor,
+                          bool links, bool probabilities, bool importance, bool edges, bool betweenness) {
+    const auto n = static_cast<std::int32_t>(area.size());
+    const conn::Pairs pairs = conn_pairs(pi, pj, value, n);
+    const conn::Scenario s = conn_scenario(kind, threshold, probability, pij_min, conefor);
+    const std::vector<double> a = to_std(area);
+    ConnAnalysis out{};
+    if (links) {
+        const conn::Csr g = conn::make_link_graph(n, pairs, s);
+        conn::LinkResult r = conn::analyse_links(g, a.data(), importance, edges, betweenness);
+        out.nl = r.nl;
+        out.nc = r.nc;
+        out.h = r.h;
+        out.iic_reach = r.iic_reach;
+        out.iic_direct = r.iic_direct;
+        out.unreach_aa = r.unreach_aa;
+        out.comp_sq = r.comp_sq;
+        out.component = to_rust<std::int32_t>(r.component);
+        out.iic_row = to_rust<double>(r.iic_row);
+        out.unreach_a = to_rust<double>(r.unreach_a);
+        out.h_row = to_rust<double>(r.h_row);
+        out.iic_conn = to_rust<double>(r.iic_conn);
+        out.h_conn = to_rust<double>(r.h_conn);
+        out.degree = to_rust<std::int64_t>(r.degree);
+        out.pieces = to_rust<std::int32_t>(r.pieces);
+        out.pieces_sq = to_rust<double>(r.pieces_sq);
+        out.bc = to_rust<double>(r.bc);
+        out.bc_iic = to_rust<double>(r.bc_iic);
+        if (edges) {
+            out.link_i = to_rust<std::int32_t>(g.eu);
+            out.link_j = to_rust<std::int32_t>(g.ev);
+        }
+        out.edge_iic = to_rust<double>(r.edge_iic);
+        out.edge_h = to_rust<double>(r.edge_h);
+    }
+    if (probabilities) {
+        std::vector<double> f_row, awf_row;
+        const conn::Csr g = conn::make_prob_graph(n, pairs, s, a.data(), &f_row, &awf_row);
+        conn::ProbResult r = conn::analyse_probabilities(g, a.data(), expand_limit, importance, edges, betweenness);
+        out.pc_num = r.pc_num;
+        out.pc_direct = r.pc_direct;
+        out.f_row = to_rust<double>(f_row);
+        out.awf_row = to_rust<double>(awf_row);
+        out.pc_row = to_rust<double>(r.pc_row);
+        out.pc_conn = to_rust<double>(r.pc_conn);
+        out.bc_pc = to_rust<double>(r.bc_pc);
+        if (edges) {
+            out.edge_i = to_rust<std::int32_t>(g.eu);
+            out.edge_j = to_rust<std::int32_t>(g.ev);
+        }
+        out.edge_pc = to_rust<double>(r.edge_pc);
+    }
+    return out;
+}
+
+rust::Vec<double> conn_all_pairs(rust::Slice<const std::int32_t> pi, rust::Slice<const std::int32_t> pj,
+                                 rust::Slice<const double> value, std::int32_t n, std::int32_t kind, double threshold,
+                                 double probability, double pij_min, double expand_limit, bool conefor, bool links) {
+    check(n > 0 && static_cast<double>(n) * n <= 4e8, "all-pairs lengths of so many nodes do not fit in memory");
+    const conn::Pairs pairs = conn_pairs(pi, pj, value, n);
+    const conn::Scenario s = conn_scenario(kind, threshold, probability, pij_min, conefor);
+    std::vector<double> zero(static_cast<std::size_t>(n), 0.0);
+    const conn::Csr g = links ? conn::make_link_graph(n, pairs, s)
+                              : conn::make_prob_graph(n, pairs, s, zero.data(), nullptr, nullptr);
+    return to_rust<double>(conn::all_pairs(g, links, expand_limit));
+}
+
+rust::Vec<double> conn_pair_lengths(rust::Slice<const double> value, std::int32_t kind, double threshold,
+                                    double probability, double pij_min, bool conefor, bool links, bool cut) {
+    const conn::Scenario s = conn_scenario(kind, threshold, probability, pij_min, conefor);
+    rust::Vec<double> out;
+    out.reserve(value.size());
+    for (const double v : value) out.push_back(conn::pair_length(v, s, links, cut));
+    return out;
+}
+
+ConnGains conn_addition_gains(rust::Slice<const double> d, rust::Slice<const double> area,
+                              rust::Slice<const std::int64_t> cand_start, rust::Slice<const std::int32_t> cand_node,
+                              rust::Slice<const double> cand_len, rust::Slice<const double> cand_area, bool hops) {
+    const auto n = static_cast<std::int32_t>(area.size());
+    check(d.size() == static_cast<std::size_t>(n) * n, "D must be n x n");
+    const auto nc = static_cast<std::int32_t>(cand_area.size());
+    check(cand_start.size() == static_cast<std::size_t>(nc) + 1 && cand_node.size() == cand_len.size(),
+          "the candidates' edges do not match");
+    const std::vector<double> dv = to_std(d);
+    return gains_out(conn::addition_gains(dv, n, area.data(), cand_start.data(), cand_node.data(), cand_len.data(), nc,
+                                          cand_area.data(), hops));
+}
+
+ConnGains conn_edge_gains(rust::Slice<const double> d, rust::Slice<const double> area,
+                          rust::Slice<const std::int32_t> ea, rust::Slice<const std::int32_t> eb,
+                          rust::Slice<const double> elen, bool hops) {
+    const auto n = static_cast<std::int32_t>(area.size());
+    check(d.size() == static_cast<std::size_t>(n) * n, "D must be n x n");
+    check(ea.size() == eb.size() && ea.size() == elen.size(), "ea, eb and elen differ in length");
+    const std::vector<double> dv = to_std(d);
+    return gains_out(conn::edge_gains(dv, n, area.data(), ea.data(), eb.data(), elen.data(),
+                                      static_cast<std::int32_t>(ea.size()), hops));
+}
+
+ConnCentrality conn_centrality(rust::Slice<const std::int32_t> pi, rust::Slice<const std::int32_t> pj,
+                               rust::Slice<const double> length, std::int32_t n, bool unit) {
+    check(pi.size() == pj.size() && pi.size() == length.size(), "pi, pj and length differ in length");
+    const conn::Csr g = conn::make_length_graph(n, to_std(pi), to_std(pj), to_std(length));
+    conn::Centrality c = conn::centrality(g, unit);
+    ConnCentrality out;
+    out.betweenness = to_rust<double>(c.betweenness);
+    out.closeness_sum = to_rust<double>(c.closeness_sum);
+    out.reached = to_rust<std::int32_t>(c.reached);
+    return out;
 }
 
 rust::Vec<double> nlm_rescale(rust::Slice<const double> x) {

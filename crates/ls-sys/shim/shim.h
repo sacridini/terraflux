@@ -18,6 +18,9 @@ namespace tfx {
 
 struct CluesOut;
 struct NlmMosaicOut;
+struct ConnAnalysis;
+struct ConnGains;
+struct ConnCentrality;
 struct NlmGermsOut;
 struct OrderedOut;
 struct NbRule;
@@ -118,6 +121,23 @@ rust::Vec<double> nlm_random_cluster(std::int32_t seed, std::int64_t ny, std::in
 rust::Vec<double> nlm_gaussian_field(std::int32_t seed, std::int64_t ny, std::int64_t nx, double autocorr_range,
                                      double mag_var, double nug, double mean);
 rust::Vec<double> nlm_fbm(std::int32_t seed, std::int64_t ny, std::int64_t nx, double fract_dim);
+ConnAnalysis conn_analyse(rust::Slice<const std::int32_t> pi, rust::Slice<const std::int32_t> pj,
+                          rust::Slice<const double> value, rust::Slice<const double> area, std::int32_t kind,
+                          double threshold, double probability, double pij_min, double expand_limit, bool conefor,
+                          bool links, bool probabilities, bool importance, bool edges, bool betweenness);
+rust::Vec<double> conn_all_pairs(rust::Slice<const std::int32_t> pi, rust::Slice<const std::int32_t> pj,
+                                 rust::Slice<const double> value, std::int32_t n, std::int32_t kind, double threshold,
+                                 double probability, double pij_min, double expand_limit, bool conefor, bool links);
+rust::Vec<double> conn_pair_lengths(rust::Slice<const double> value, std::int32_t kind, double threshold,
+                                    double probability, double pij_min, bool conefor, bool links, bool cut);
+ConnGains conn_addition_gains(rust::Slice<const double> d, rust::Slice<const double> area,
+                              rust::Slice<const std::int64_t> cand_start, rust::Slice<const std::int32_t> cand_node,
+                              rust::Slice<const double> cand_len, rust::Slice<const double> cand_area, bool hops);
+ConnGains conn_edge_gains(rust::Slice<const double> d, rust::Slice<const double> area,
+                          rust::Slice<const std::int32_t> ea, rust::Slice<const std::int32_t> eb,
+                          rust::Slice<const double> elen, bool hops);
+ConnCentrality conn_centrality(rust::Slice<const std::int32_t> pi, rust::Slice<const std::int32_t> pj,
+                               rust::Slice<const double> length, std::int32_t n, bool unit);
 rust::Vec<double> nlm_rescale(rust::Slice<const double> x);
 rust::Vec<double> nlm_random(std::int32_t seed, std::int64_t ny, std::int64_t nx);
 rust::Vec<double> nlm_percolation(std::int32_t seed, std::int64_t ny, std::int64_t nx, double prob);

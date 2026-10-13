@@ -31,7 +31,7 @@ const SUBJECTS: [(&str, &[&str]); 21] = [
     ("Habitat patterns", &["landscape", "patterns"]),
     ("Fragmentation", &["fragmentation"]),
     ("Landscape metrics", &["metrics"]),
-    ("Habitat networks", &["networks"]),
+    ("Habitat networks", &["networks", "conn"]),
     ("Circuit connectivity", &["circuit"]),
     ("Surface metrics", &["surface"]),
     ("Grid distances", &["cost"]),

@@ -657,6 +657,12 @@ Pendências:
   `nlm.classify`, `nlm.binarize`, `nlm.merge` e `nlm.rescale` —, bit a bit com o landschaft. Os mosaicos de
   Voronoi dão a cada germe o seu valor (o `nlmr_compat=False` do landschaft): a ordem das células do GEOS que o
   NLMR segue não está portada.
+- **Grafos de habitat (0.44.0, 2026-10-13):** o `HabitatGraph` do `conn` (tipo novo) — `conn.graph`,
+  `conn.read_conefor`, `conn.write_conefor`, `conn.overall`, `conn.node_importance` (com restauração e
+  betweenness), `conn.link_importance`, `conn.link_change`, `conn.components` e `conn.centrality` —, bit a bit
+  com o landschaft, menos o que ele calcula com o BLAS, as exponenciais SIMD ou o LAPACK do numpy (a rounding).
+  Faltam do `conn`: os nós e distâncias de rasters e vetores (`node_table`, `distance_table`, os grafos de
+  patches), o ProtConn, o SAMC, `focal_nodes`, as grades e `eca_change`.
 - **Próximos (2026-10-13):** os instaladores de macOS e Linux;
   `vector.exact_sum` e `vector.distance` fora da memória.
 

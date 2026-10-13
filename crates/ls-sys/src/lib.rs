@@ -94,6 +94,57 @@ pub mod ffi {
     /// GuidosToolbox's FAD at one window: the density (0-100 on the foreground, GTB's codes 101 background, 102
     /// missing, 105 and 106 special backgrounds elsewhere), the same density everywhere, the classes 1 (rare) to
     /// 6 (intact), the foreground's cells and those of each class, the density summed over the foreground.
+    /// One scenario of a habitat graph (landschaft's conn_analyse): the link analysis (Conefor's NC, NL, H,
+    /// IIC...) and/or the probabilistic one (F, AWF, PC); per node with `importance`, per edge with `edges`, the
+    /// betweenness with `betweenness` (empty what was not asked for).
+    struct ConnAnalysis {
+        nl: i64,
+        nc: i32,
+        h: f64,
+        iic_reach: f64,
+        iic_direct: f64,
+        unreach_aa: f64,
+        comp_sq: f64,
+        component: Vec<i32>,
+        iic_row: Vec<f64>,
+        unreach_a: Vec<f64>,
+        h_row: Vec<f64>,
+        iic_conn: Vec<f64>,
+        h_conn: Vec<f64>,
+        degree: Vec<i64>,
+        pieces: Vec<i32>,
+        pieces_sq: Vec<f64>,
+        bc: Vec<f64>,
+        bc_iic: Vec<f64>,
+        link_i: Vec<i32>,
+        link_j: Vec<i32>,
+        edge_iic: Vec<f64>,
+        edge_h: Vec<f64>,
+        pc_num: f64,
+        pc_direct: f64,
+        f_row: Vec<f64>,
+        awf_row: Vec<f64>,
+        pc_row: Vec<f64>,
+        pc_conn: Vec<f64>,
+        bc_pc: Vec<f64>,
+        edge_i: Vec<i32>,
+        edge_j: Vec<i32>,
+        edge_pc: Vec<f64>,
+    }
+
+    /// The gains of the connectivity numerator and of H when a node or an edge is added.
+    struct ConnGains {
+        num: Vec<f64>,
+        h: Vec<f64>,
+    }
+
+    /// igraph's betweenness, the sums of the shortest path lengths and the nodes reached from each node.
+    struct ConnCentrality {
+        betweenness: Vec<f64>,
+        closeness_sum: Vec<f64>,
+        reached: Vec<i32>,
+    }
+
     /// NLMR's nlm_mosaicfield before rescaling: the sum (empty without steps), each step's sum one after the
     /// other (`collect`), the infinite field (`infinit`, else empty).
     struct NlmMosaicOut {
@@ -1064,6 +1115,75 @@ pub mod ffi {
             mean: f64,
         ) -> Result<Vec<f64>>;
         fn nlm_fbm(seed: i32, ny: i64, nx: i64, fract_dim: f64) -> Result<Vec<f64>>;
+        /// A scenario of a habitat graph of pairs pi < pj with values (kind 0 distance, 1 probability, 2 link):
+        /// landschaft's conn_analyse.
+        #[allow(clippy::too_many_arguments)]
+        fn conn_analyse(
+            pi: &[i32],
+            pj: &[i32],
+            value: &[f64],
+            area: &[f64],
+            kind: i32,
+            threshold: f64,
+            probability: f64,
+            pij_min: f64,
+            expand_limit: f64,
+            conefor: bool,
+            links: bool,
+            probabilities: bool,
+            importance: bool,
+            edges: bool,
+            betweenness: bool,
+        ) -> Result<ConnAnalysis>;
+        /// The shortest path lengths between all nodes of a scenario (hops, or -log p*), n x n.
+        #[allow(clippy::too_many_arguments)]
+        fn conn_all_pairs(
+            pi: &[i32],
+            pj: &[i32],
+            value: &[f64],
+            n: i32,
+            kind: i32,
+            threshold: f64,
+            probability: f64,
+            pij_min: f64,
+            expand_limit: f64,
+            conefor: bool,
+            links: bool,
+        ) -> Result<Vec<f64>>;
+        /// The length of the edge each pair makes (1 for a link, -log p), NaN for none.
+        #[allow(clippy::too_many_arguments)]
+        fn conn_pair_lengths(
+            value: &[f64],
+            kind: i32,
+            threshold: f64,
+            probability: f64,
+            pij_min: f64,
+            conefor: bool,
+            links: bool,
+            cut: bool,
+        ) -> Result<Vec<f64>>;
+        /// The gains when candidate k joins the nodes cand_node[cand_start[k]..cand_start[k + 1]].
+        #[allow(clippy::too_many_arguments)]
+        fn conn_addition_gains(
+            d: &[f64],
+            area: &[f64],
+            cand_start: &[i64],
+            cand_node: &[i32],
+            cand_len: &[f64],
+            cand_area: &[f64],
+            hops: bool,
+        ) -> Result<ConnGains>;
+        /// The gains when an edge ea[k] - eb[k] of length elen[k] is added.
+        fn conn_edge_gains(
+            d: &[f64],
+            area: &[f64],
+            ea: &[i32],
+            eb: &[i32],
+            elen: &[f64],
+            hops: bool,
+        ) -> Result<ConnGains>;
+        /// igraph's betweenness and the closeness sums on edges of the given lengths (`unit`: every edge 1).
+        fn conn_centrality(pi: &[i32], pj: &[i32], length: &[f64], n: i32, unit: bool) -> Result<ConnCentrality>;
         /// NLMR's util_rescale (a copy): (x - min) / (max - min), 0 when min and max are all.equal.
         fn nlm_rescale(x: &[f64]) -> Vec<f64>;
         /// nlm_random before rescaling: runif by column.

@@ -66,6 +66,7 @@ fn main() {
         "iocore",
         "lsmcore",
         "nlmcore",
+        "conncore",
         "gtbcore",
         "priocore",
         "restcore",

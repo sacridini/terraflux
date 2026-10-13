@@ -22,6 +22,7 @@ pub mod change_analysis;
 pub mod circuit;
 pub mod circuit_ini;
 pub mod clumondo;
+pub mod conn;
 pub mod cost;
 pub mod crafty;
 pub mod demand;
@@ -289,6 +290,7 @@ impl Registry {
         metrics::register(&mut r);
         molusce::register(&mut r);
         nlm::register(&mut r);
+        conn::register(&mut r);
         demand::register(&mut r);
         glm::register(&mut r);
         woe::register(&mut r);

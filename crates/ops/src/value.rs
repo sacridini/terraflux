@@ -393,6 +393,8 @@ pub enum Value {
     Tree(Arc<crate::bio::tree::Tree>),
     /// Values between labels (Biodiverse's label matrix).
     LabelMatrix(Arc<crate::bio::properties::LabelMatrix>),
+    /// A habitat connectivity graph.
+    HabitatGraph(Arc<crate::conn::HabitatGraph>),
 }
 
 impl Value {
@@ -420,6 +422,7 @@ impl Value {
             Value::BaseData(_) => Type::BaseData,
             Value::Tree(_) => Type::Tree,
             Value::LabelMatrix(_) => Type::LabelMatrix,
+            Value::HabitatGraph(_) => Type::HabitatGraph,
         }
     }
 

@@ -6,6 +6,18 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Habitat graphs (landschaft's HabitatGraph, a new `HabitatGraph` type): `conn.graph` from a table of nodes
+  and a table of pairs or an n x n matrix (distances, probabilities or links; Makurhini's conventions or
+  Conefor's; nodes to restore), `conn.read_conefor` and `conn.write_conefor` (Conefor Sensinode's files),
+  `conn.overall` (NC, NL, H, CCP, LCP, IIC, F, AWF, PC, their equivalent connectivity and fractions),
+  `conn.node_importance` (dI and its intra, flux and connector fractions, BC, BC(IIC), BC(PC); the gain of each
+  node to restore, Makurhini's dIICres/dPCres or Conefor's d*add), `conn.link_importance`, `conn.link_change`,
+  `conn.components` and `conn.centrality` (Makurhini's MK_RMCentrality, without igraph's walktrap
+  communities). The same as landschaft's, to the bit, but for what it computes with numpy's BLAS, SIMD
+  exponentials or LAPACK (the eigenvector centrality, the strengths on probabilities, the gains of nodes
+  to restore): those to rounding.
+
 ## [0.43.0] - 2026-10-13
 
 ### Added

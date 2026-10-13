@@ -49,6 +49,9 @@ pub enum Type {
     Tree,
     /// Values between labels (Biodiverse's label matrix).
     LabelMatrix,
+    /// A habitat connectivity graph: the nodes' attributes and the distances, probabilities or links between
+    /// them (Conefor's and Makurhini's).
+    HabitatGraph,
 }
 
 impl Type {
