@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "cost/shortest.hpp"
+#include "sim/clumondo.hpp"
 #include "cost/transition.hpp"
 #include "gtb/accounting.hpp"
 #include "gtb/change.hpp"
@@ -1697,6 +1698,118 @@ MolusceStepOut molusce_ca_step(rust::Slice<const double> state, rust::Slice<cons
     MolusceStepOut out{to_rust<double>(r.state), {}};
     for (const auto& x : r.changed) out.changed.push_back(MolusceChange{x.from, x.to, x.cells});
     return out;
+}
+
+ClumondoYearOut clumondo_year(const ClumondoSettingsIn& in, rust::Slice<const std::int32_t> oldco,
+                              rust::Slice<const std::int32_t> region, rust::Slice<const std::int32_t> age,
+                              rust::Slice<const float> suit, rust::Slice<const float> allow_maps,
+                              rust::Slice<const double> demand, rust::Slice<const float> dem_elas) {
+    const auto ncell = static_cast<std::int64_t>(oldco.size());
+    const int nsys = in.nsys, ndem = in.ndem;
+    const auto ns = static_cast<std::size_t>(nsys), nd = static_cast<std::size_t>(ndem);
+    check(nsys > 0 && ndem > 0, "no land systems or no demands");
+    check(region.size() == oldco.size() && age.size() == oldco.size(), "region and age must match the map");
+    check(static_cast<std::int64_t>(suit.size()) == std::int64_t{nsys} * ncell, "suit must be systems x cells");
+    check(in.allowed.size() == ns * ns, "allowed must be systems x systems");
+    check(in.lusconv.size() == ns * nd && in.lusmatrix.size() == ns * nd, "lusconv and lusmatrix: systems x demands");
+    check(in.weight.size() == nd && in.resistance.size() == ns, "a weight per demand and a resistance per system");
+    check(demand.size() == nd && dem_elas.size() == nd, "one demand per demand type");
+    check(ncell == 0 || allow_maps.size() % static_cast<std::size_t>(ncell) == 0, "allow maps: maps x cells");
+    sim::ClumondoSettings st;
+    st.nsys = nsys;
+    st.ndem = ndem;
+    st.allowed.assign(in.allowed.begin(), in.allowed.end());
+    st.lusconv.assign(in.lusconv.begin(), in.lusconv.end());
+    st.lusmatrix.assign(in.lusmatrix.begin(), in.lusmatrix.end());
+    st.weight.assign(in.weight.begin(), in.weight.end());
+    st.resistance.assign(in.resistance.begin(), in.resistance.end());
+    st.itermode = in.itermode;
+    st.mean_dev = in.mean_dev;
+    st.max_dev = in.max_dev;
+    st.speed = in.speed;
+    st.max_loops = in.max_loops;
+    if (!in.kind.empty()) {
+        check(in.kind.size() == nd, "one demand type per demand");
+        st.kind.assign(in.kind.begin(), in.kind.end());
+    }
+    if (!in.dev_limit.empty()) {
+        check(in.dev_limit.size() == nd, "one deviation per demand");
+        st.dev_limit.assign(in.dev_limit.begin(), in.dev_limit.end());
+    }
+    st.nx = in.nx;
+    if (!in.patch_radius.empty()) {
+        check(in.patch_radius.size() == ns && in.patch_threshold.size() == ns && in.patch_min.size() == ns,
+              "patch settings: one per land system");
+        st.patch_radius.assign(in.patch_radius.begin(), in.patch_radius.end());
+        st.patch_threshold.assign(in.patch_threshold.begin(), in.patch_threshold.end());
+        st.patch_min.assign(in.patch_min.begin(), in.patch_min.end());
+    }
+    if (!in.pair_resistance.empty()) {
+        check(in.pair_resistance.size() == ns * ns, "pair_resistance must be systems x systems");
+        st.pair_resistance.assign(in.pair_resistance.begin(), in.pair_resistance.end());
+    }
+    check(in.cap_pairs.size() == in.cap_cells.size() * ns * ns, "cap_pairs must be caps x systems x systems");
+    for (std::size_t k = 0; k < in.cap_cells.size(); ++k) {
+        st.cap_pairs.emplace_back(in.cap_pairs.begin() + static_cast<std::ptrdiff_t>(k * ns * ns),
+                                  in.cap_pairs.begin() + static_cast<std::ptrdiff_t>((k + 1) * ns * ns));
+        st.cap_cells.push_back(in.cap_cells[k]);
+    }
+    std::vector<float> elas(dem_elas.begin(), dem_elas.end());
+    const int nmap = ncell ? static_cast<int>(allow_maps.size() / static_cast<std::size_t>(ncell)) : 0;
+    const auto r = sim::clumondo_year(st, ncell, oldco.data(), region.data(), age.data(), suit.data(),
+                                      allow_maps.data(), nmap, demand.data(), elas.data());
+    return ClumondoYearOut{to_rust<std::int32_t>(r.newco), to_rust<std::int32_t>(r.age), to_rust<double>(r.supply),
+                           to_rust<std::int64_t>(r.cells), r.loops, r.converged, r.max_diff, r.mean_diff,
+                           to_rust<float>(elas)};
+}
+
+rust::Vec<float> clumondo_logit(rust::Slice<const std::int32_t> region, rust::Slice<const float> x, double constant,
+                                rust::Slice<const float> coef) {
+    const auto ncell = static_cast<std::int64_t>(region.size());
+    check(static_cast<std::int64_t>(x.size()) == static_cast<std::int64_t>(coef.size()) * ncell,
+          "x must be drivers x cells");
+    return to_rust<float>(sim::clumondo_logit(ncell, region.data(), x.data(), static_cast<int>(coef.size()),
+                                              constant, coef.data()));
+}
+
+rust::Vec<float> clumondo_add_neighbourhood(rust::Slice<const float> suit, std::int64_t ny, std::int64_t nx,
+                                            rust::Slice<const std::int32_t> oldco,
+                                            rust::Slice<const std::int32_t> region,
+                                            rust::Slice<const ClumondoNbIn> parts) {
+    const std::int64_t ncell = ny * nx;
+    check(static_cast<std::int64_t>(oldco.size()) == ncell && region.size() == oldco.size(),
+          "oldco and region must be ny x nx");
+    check(ncell > 0 && static_cast<std::int64_t>(suit.size()) % ncell == 0, "suit must be systems x cells");
+    const int nsys = static_cast<int>(static_cast<std::int64_t>(suit.size()) / ncell);
+    std::vector<sim::ClumondoNeighbourhood> nb;
+    for (const auto& p : parts) {
+        check(p.coef_systems.size() == p.coef_values.size(), "a coefficient per system");
+        sim::ClumondoNeighbourhood x;
+        x.system = p.system;
+        x.weight = p.weight;
+        x.kernel.assign(p.kernel.begin(), p.kernel.end());
+        x.radius = p.radius;
+        x.from.assign(p.from.begin(), p.from.end());
+        x.constant = p.constant;
+        for (std::size_t k = 0; k < p.coef_systems.size(); ++k) x.coefficients.emplace_back(p.coef_systems[k], p.coef_values[k]);
+        nb.push_back(std::move(x));
+    }
+    std::vector<float> out(suit.begin(), suit.end());
+    sim::clumondo_add_neighbourhood(out.data(), nsys, ny, nx, oldco.data(), region.data(), nb);
+    return to_rust<float>(out);
+}
+
+rust::Vec<float> clumondo_add_preference(rust::Slice<const float> row, rust::Slice<const std::int32_t> region,
+                                         rust::Slice<const float> values, float weight) {
+    check(region.size() == row.size() && values.size() == row.size(), "the preference differs in size from the map");
+    std::vector<float> out(row.begin(), row.end());
+    sim::clumondo_add_preference(out.data(), static_cast<std::int64_t>(out.size()), region.data(), values.data(),
+                                 weight);
+    return to_rust<float>(out);
+}
+
+rust::Vec<std::int32_t> clumondo_random_age(std::int64_t ncell, std::int32_t max_age, std::uint32_t seed) {
+    return to_rust<std::int32_t>(sim::clumondo_random_age(ncell, max_age, seed));
 }
 
 }  // namespace tfx

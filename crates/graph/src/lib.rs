@@ -266,6 +266,11 @@ pub struct Body {
     /// Output name -> the reference giving it (a group's outputs).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub outputs: BTreeMap<String, String>,
+    /// A loop's end (control.repeat): a reference to a yes-or-no value; when it is true at the end of a step, the
+    /// loop ends there, that step neither collected nor carried (a model that stops, as CLUMondo when a year has
+    /// no solution).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until: Option<String>,
 }
 
 /// A value the model writes.

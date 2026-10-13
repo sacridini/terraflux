@@ -561,6 +561,58 @@ pub mod ffi {
         changed: Vec<MolusceChange>,
     }
 
+    /// CLUMondo's settings of a run (landschaft's `ClumondoSettings`; empty vectors for the extensions not used).
+    #[derive(Debug, Clone, PartialEq, Default)]
+    struct ClumondoSettingsIn {
+        nsys: i32,
+        ndem: i32,
+        allowed: Vec<i32>,
+        lusconv: Vec<i32>,
+        lusmatrix: Vec<f32>,
+        weight: Vec<f32>,
+        resistance: Vec<f32>,
+        itermode: i32,
+        mean_dev: f32,
+        max_dev: f32,
+        speed: f32,
+        max_loops: i32,
+        kind: Vec<i32>,
+        dev_limit: Vec<f32>,
+        nx: i64,
+        patch_radius: Vec<i32>,
+        patch_threshold: Vec<f32>,
+        patch_min: Vec<i32>,
+        pair_resistance: Vec<f32>,
+        cap_pairs: Vec<u8>,
+        cap_cells: Vec<i64>,
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct ClumondoYearOut {
+        newco: Vec<i32>,
+        age: Vec<i32>,
+        supply: Vec<f64>,
+        cells: Vec<i64>,
+        loops: i32,
+        converged: bool,
+        max_diff: f32,
+        mean_diff: f32,
+        dem_elas: Vec<f32>,
+    }
+
+    /// A neighbourhood function of CLUMondo (landschaft's `ClumondoNeighbourhood`).
+    #[derive(Debug, Clone, PartialEq)]
+    struct ClumondoNbIn {
+        system: i32,
+        weight: f32,
+        kernel: Vec<f32>,
+        radius: i32,
+        from: Vec<u8>,
+        constant: f32,
+        coef_systems: Vec<i32>,
+        coef_values: Vec<f32>,
+    }
+
     /// The weights of one transition code for one factor (MOLUSCE's weights of evidence).
     #[derive(Debug, Clone, PartialEq)]
     struct MolusceFactor {
@@ -1126,6 +1178,29 @@ pub mod ffi {
             counts: &[MolusceChange],
             rng: Pin<&mut NumpyRandomState>,
         ) -> Result<MolusceStepOut>;
+        #[allow(clippy::too_many_arguments)]
+        fn clumondo_year(
+            s: &ClumondoSettingsIn,
+            oldco: &[i32],
+            region: &[i32],
+            age: &[i32],
+            suit: &[f32],
+            allow_maps: &[f32],
+            demand: &[f64],
+            dem_elas: &[f32],
+        ) -> Result<ClumondoYearOut>;
+        fn clumondo_logit(region: &[i32], x: &[f32], constant: f64, coef: &[f32]) -> Result<Vec<f32>>;
+        fn clumondo_add_neighbourhood(
+            suit: &[f32],
+            ny: i64,
+            nx: i64,
+            oldco: &[i32],
+            region: &[i32],
+            parts: &[ClumondoNbIn],
+        ) -> Result<Vec<f32>>;
+        fn clumondo_add_preference(row: &[f32], region: &[i32], values: &[f32], weight: f32) -> Result<Vec<f32>>;
+        fn clumondo_random_age(ncell: i64, max_age: i32, seed: u32) -> Result<Vec<i32>>;
+
 
         // out-of-core landscapes (tiles)
 
@@ -1209,8 +1284,9 @@ pub mod ffi {
 }
 
 pub use ffi::{
-    CarsOut, CluesOut, GlmFit, MolusceChange, MolusceFactor, MolusceForecastOut, MolusceStepOut, NbRule,
-    ObservedPatches, OrderedOut, PatchOut, PatchSpec, SimilarityOut, WoeWeights,
+    CarsOut, CluesOut, ClumondoNbIn, ClumondoSettingsIn, ClumondoYearOut, GlmFit, MolusceChange, MolusceFactor,
+    MolusceForecastOut, MolusceStepOut, NbRule, ObservedPatches, OrderedOut, PatchOut, PatchSpec, SimilarityOut,
+    WoeWeights,
 };
 
 /// The threads Terraflux uses: never every core of the machine (all but one by default).

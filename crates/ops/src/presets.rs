@@ -106,7 +106,7 @@ pub fn dinamica(m: &mut Model, p: &Dinamica) {
             ("info".to_string(), "allocate.info".to_string()),
         ]
         .into(),
-        outputs: Default::default(),
+        ..Default::default()
     };
     m.nodes.push(
         Node::new("simulation", "control.repeat")
@@ -216,7 +216,7 @@ pub fn lulcc(m: &mut Model, p: &Lulcc) {
                     ("info".to_string(), "allocate.info".to_string()),
                 ]
                 .into(),
-                outputs: Default::default(),
+                ..Default::default()
             }),
     );
     m.outputs.insert("maps".into(), Output { from: "simulation.maps".into(), path: None, dtype: None });

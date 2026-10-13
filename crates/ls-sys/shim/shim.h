@@ -26,6 +26,9 @@ struct MolusceForecastOut;
 struct MolusceChange;
 struct MolusceStepOut;
 struct MolusceFactor;
+struct ClumondoSettingsIn;
+struct ClumondoYearOut;
+struct ClumondoNbIn;
 struct SimilarityOut;
 struct FadOut;
 struct FadScalesOut;
@@ -357,6 +360,20 @@ MolusceForecastOut molusce_prediction_classes(rust::Slice<const double> state, r
 MolusceStepOut molusce_ca_step(rust::Slice<const double> state, rust::Slice<const double> prediction,
                                rust::Slice<const double> confidence, rust::Slice<const MolusceChange> counts,
                                sim::NumpyRandomState& rng);
+
+// CLUMondo (landschaft's sim/clumondo.hpp)
+ClumondoYearOut clumondo_year(const ClumondoSettingsIn& s, rust::Slice<const std::int32_t> oldco,
+                              rust::Slice<const std::int32_t> region, rust::Slice<const std::int32_t> age,
+                              rust::Slice<const float> suit, rust::Slice<const float> allow_maps,
+                              rust::Slice<const double> demand, rust::Slice<const float> dem_elas);
+rust::Vec<float> clumondo_logit(rust::Slice<const std::int32_t> region, rust::Slice<const float> x, double constant,
+                                rust::Slice<const float> coef);
+rust::Vec<float> clumondo_add_neighbourhood(rust::Slice<const float> suit, std::int64_t ny, std::int64_t nx,
+                                            rust::Slice<const std::int32_t> oldco,
+                                            rust::Slice<const std::int32_t> region, rust::Slice<const ClumondoNbIn> parts);
+rust::Vec<float> clumondo_add_preference(rust::Slice<const float> row, rust::Slice<const std::int32_t> region,
+                                         rust::Slice<const float> values, float weight);
+rust::Vec<std::int32_t> clumondo_random_age(std::int64_t ncell, std::int32_t max_age, std::uint32_t seed);
 
 }  // namespace tfx
 

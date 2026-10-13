@@ -80,3 +80,8 @@ fn molusce_with_a_moving_driver_saved_by_landschaft() {
 fn molusce_with_a_regression_saved_by_landschaft() {
     case("molusce_glm");
 }
+
+#[test]
+fn clumondo_saved_by_landschaft() {
+    case("clumondo");
+}

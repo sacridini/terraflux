@@ -16,6 +16,7 @@ pub mod actions;
 pub mod agents;
 pub mod algebra;
 pub mod change;
+pub mod clumondo;
 pub mod crafty;
 pub mod demand;
 pub mod dinamica;
@@ -261,6 +262,7 @@ impl Registry {
         agents::register(&mut r);
         algebra::register(&mut r);
         change::register(&mut r);
+        clumondo::register(&mut r);
         crafty::register(&mut r);
         markov::register(&mut r);
         metrics::register(&mut r);

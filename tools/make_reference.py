@@ -116,14 +116,14 @@ def bridge():
     drivers = {n: dr[k] for k, n in enumerate(names)}
     land_path, drv_path = "../../inputs/sibuyan_landuse.tif", "../../inputs/sibuyan_drivers.tif"
 
-    def write(case, model, drv_for_save, run_drivers, seed):
+    def write(case, model, drv_for_save, run_drivers, seed, land=None):
         d = ROOT / "bridge" / case
         shutil.rmtree(d, ignore_errors=True)
         d.mkdir(parents=True)
-        model.save(d / "model.json", land_path, drv_for_save, seed=seed)
+        model.save(d / "model.json", land_path if land is None else land, drv_for_save, seed=seed)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            maps = model.run(lu[0], run_drivers, seed=seed).maps.values[1:]
+            maps = model.run(lu[0] if land is None else land, run_drivers, seed=seed).maps.values[1:]
         profile = {"driver": "GTiff", "count": maps.shape[0], "height": maps.shape[1], "width": maps.shape[2],
                    "dtype": "uint8", "nodata": 255, "compress": "deflate"}
         with rasterio.open(d / "expected.tif", "w", **profile) as dst:
@@ -182,6 +182,23 @@ def bridge():
     write("molusce_dynamic", dyn, drv_path, dr, 16)
     lr = S.LogisticRegression().fit(lu[0], dr)
     write("molusce_glm", S.Model(lr, counts, S.MolusceCA(iterations=2)), drv_path, dr, 17)
+    # CLUMondo: two goods from the land systems, regressions, a neighbourhood function, random ages
+    import pandas as pd
+
+    land = lu[0].where(lu[0] != 255)  # 255: no class
+    systems = sorted({int(v) for v in np.unique(land.values[~np.isnan(land.values)])})
+    food = {1: 0.0, 2: 0.2, 3: 1.0, 4: 2.0, 5: 0.0}
+    wood = {1: 1.0, 2: 0.3, 3: 0.0, 4: 0.0, 5: 0.0}
+    sup = S.Supply(pd.DataFrame({"food": [food.get(c, 0.0) for c in systems],
+                                 "wood": [wood.get(c, 0.0) for c in systems]}, index=systems))
+    start = sup.of(land)
+    t = np.arange(7)
+    demand = S.ServiceDemand(pd.DataFrame({"food": start["food"] * 1.02 ** t, "wood": start["wood"] * 0.99 ** t}))
+    nb = S.NeighbourhoodEffect({4: {"weight": 0.5, "kernel": 1, "constant": 0.1, "coefficients": {4: 0.8}}})
+    model = S.Model(S.LogisticRegression().fit(land, dr), demand,
+                    S.CLUMondo(sup, max_deviation=1.0, mean_deviation=0.5, neighbourhood=nb),
+                    S.Rules(elasticity=[0.5] * len(systems), history=5))
+    write("clumondo", model, drv_path, dr, 18, land)
 
 
 def main():
