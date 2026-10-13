@@ -51,6 +51,7 @@ pub mod restoration;
 pub mod restoration_plan;
 pub mod sampling;
 pub mod signatures;
+pub mod surface;
 pub mod validate;
 pub mod value;
 pub mod vector;
@@ -269,6 +270,7 @@ impl Registry {
         change::register(&mut r);
         change_analysis::register(&mut r);
         circuit::register(&mut r);
+        surface::register(&mut r);
         legend::register(&mut r);
         clumondo::register(&mut r);
         crafty::register(&mut r);

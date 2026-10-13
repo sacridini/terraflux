@@ -22,6 +22,7 @@
 #include "circuit/grid.hpp"
 #include "circuit/omniscape.hpp"
 #include "cost/shortest.hpp"
+#include "surf/surface.hpp"
 #include "sim/clumondo.hpp"
 #include "sim/futures.hpp"
 #include "cost/transition.hpp"
@@ -2213,6 +2214,92 @@ MultiOut circuit_multi_advanced(rust::Slice<const double> gmap, rust::Slice<cons
         for (std::int32_t a : sol.active) out.active.push_back(a);
         out.active_offsets.push_back(static_cast<std::int64_t>(out.active.size()));
     }
+    return out;
+}
+
+namespace {
+surf::Grid surf_grid(rust::Slice<const double> z, std::int32_t nx, std::int32_t ny, rust::Slice<const double> extent) {
+    check(nx > 0 && ny > 0 && z.size() == static_cast<std::size_t>(nx) * ny, "the values differ in size from nx x ny");
+    check(extent.size() == 4, "an extent: xmin, xmax, ymin, ymax");
+    surf::Grid g;
+    g.z = z.data();
+    g.nx = nx;
+    g.ny = ny;
+    g.xmin = extent[0];
+    g.xmax = extent[1];
+    g.ymin = extent[2];
+    g.ymax = extent[3];
+    return g;
+}
+}  // namespace
+
+rust::Vec<double> surf_metrics(rust::Slice<const double> z, std::int32_t nx, std::int32_t ny,
+                               rust::Slice<const double> extent, bool lonlat, rust::Slice<const std::int32_t> ids) {
+    const surf::Grid g = surf_grid(z, nx, ny, extent);
+    const surf::i64 n = g.size();
+    auto wants = [&](int lo, int hi) {
+        for (std::int32_t id : ids)
+            if (id >= lo && id <= hi) return true;
+        return false;
+    };
+    for (std::int32_t id : ids) check(id >= 0 && id <= surf::kWSfd, "an unknown surface metric");
+    std::vector<double> v(static_cast<std::size_t>(surf::kWSfd) + 1, std::nan(""));
+    // as landschaft's groups: each computation once
+    if (wants(surf::kWSa, surf::kWSmean)) {
+        const surf::Amplitude a = surf::amplitude(z.data(), n);
+        const double av[] = {a.sa, a.sq, a.ssk, a.sku, a.sv, a.sph, a.smean};
+        for (int k = 0; k < 7; ++k) v[static_cast<std::size_t>(surf::kWSa + k)] = av[k];
+    }
+    if (wants(surf::kWSdq, surf::kWSdr)) {
+        v[surf::kWSdq] = surf::sdq(g);
+        v[surf::kWSdq6] = surf::sdq6(g);
+        const double area = surf::surface_area(g), flat = surf::flat_area(g);
+        v[surf::kWSdr] = ((area - flat) / flat) * 100;
+    }
+    if (wants(surf::kWSds, surf::kWS10z)) {
+        v[surf::kWSds] = surf::sds(g);
+        v[surf::kWSsc] = surf::ssc(g);
+        v[surf::kWS10z] = surf::s10z(g);
+    }
+    if (wants(surf::kWSbi, surf::kWSvk)) {
+        const double sq = surf::amplitude(z.data(), n, 2).sq;
+        const surf::BearingParameters p = surf::bearing_parameters(surf::bearing_curve(z.data(), n), sq);
+        v[surf::kWSbi] = p.sbi;
+        v[surf::kWSci] = p.sci;
+        v[surf::kWSvi] = p.svi;
+        v[surf::kWSk] = p.sk;
+        v[surf::kWSpk] = p.spk;
+        v[surf::kWSvk] = p.svk;
+    }
+    if (wants(surf::kWSal, surf::kWSfd)) {
+        const std::vector<double> l = surf::scl(g, lonlat, {0.2, 1 / std::exp(1.0)});
+        v[surf::kWSal] = l[0];
+        v[surf::kWStr] = l[0] / l[2];
+        const std::vector<double> d = surf::texture_direction(g, lonlat);
+        v[surf::kWStd] = d[0];
+        v[surf::kWStdi] = d[1];
+        const std::vector<double> w = surf::radial_wavelength(g, lonlat);
+        v[surf::kWSrw] = w[0];
+        v[surf::kWSrwi] = w[1];
+        v[surf::kWShw] = w[2];
+        v[surf::kWSfd] = surf::sfd(g);
+    }
+    rust::Vec<double> out;
+    for (std::int32_t id : ids) out.push_back(v[static_cast<std::size_t>(id)]);
+    return out;
+}
+
+rust::Vec<double> surf_window(rust::Slice<const double> z, std::int32_t nx, std::int32_t ny,
+                              rust::Slice<const double> extent, bool lonlat, std::int32_t size, bool circle,
+                              rust::Slice<const std::int32_t> ids) {
+    const surf::Grid g = surf_grid(z, nx, ny, extent);
+    check(size >= 3 && size % 2 == 1, "the window is an odd number of cells, 3 or more");
+    std::vector<int> want(ids.begin(), ids.end());
+    for (int id : want) check(id >= 0 && id <= surf::kWSfd, "an unknown surface metric");
+    const std::vector<std::vector<double>> maps = surf::window_metrics(g, lonlat, size, circle, want);
+    rust::Vec<double> out;
+    for (const auto& m : maps)
+        for (double x : m) out.push_back(x);
     return out;
 }
 

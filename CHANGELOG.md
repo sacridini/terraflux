@@ -6,6 +6,16 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-10-13
+
+### Added
+- Surface metrics (landschaft's surface module, ISO 25178 as the R package geodiv computes them, geodiv's bits),
+  a subject of their own in the builder: `surface.metrics` (the 27 metrics of a surface: amplitude, hybrid,
+  local features, the bearing area curve, spatial and fractal; a table) and `surface.window` (the metrics in a
+  square or circular moving window around every cell; a map each), geographic grids measured as such
+  (`terraflux_gdal::is_geographic`). The same as landschaft's, to the bit, on its example surfaces
+  (`tools/make_surface_reference.py`).
+
 ## [0.28.0] - 2026-10-13
 
 ### Added

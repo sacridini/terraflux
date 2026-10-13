@@ -1462,6 +1462,23 @@ pub mod ffi {
             checks: &[i64],
             policy: i32,
         ) -> Result<MultiOut>;
+        /// Surface metrics of a raster (landschaft's surface module, geodiv's numbers): the metrics `ids` (in the
+        /// order of surf::WindowMetric: sa, sq, ssk, sku, sv, sph, smean, sdq, sdq6, sdr, sds, ssc, s10z, sbi, sci,
+        /// svi, sk, spk, svk, sal, str, std, stdi, srw, srwi, shw, sfd) of the values (ny x nx, NaN NA) on an
+        /// extent [xmin, xmax, ymin, ymax], as landschaft's surface.metrics computes them.
+        fn surf_metrics(z: &[f64], nx: i32, ny: i32, extent: &[f64], lonlat: bool, ids: &[i32]) -> Result<Vec<f64>>;
+        /// The metrics `ids` in a size x size window around every cell (a map each, concatenated).
+        #[allow(clippy::too_many_arguments)]
+        fn surf_window(
+            z: &[f64],
+            nx: i32,
+            ny: i32,
+            extent: &[f64],
+            lonlat: bool,
+            size: i32,
+            circle: bool,
+            ids: &[i32],
+        ) -> Result<Vec<f64>>;
         #[allow(clippy::too_many_arguments)]
         fn io_extract(
             values: &[f64],

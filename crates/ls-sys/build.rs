@@ -58,6 +58,7 @@ fn main() {
 
     println!("cargo:rustc-link-search=native={}", dst.join("lib").display());
     for lib in [
+        "surfcore",
         "simcore",
         "costcore",
         "circuitcore",

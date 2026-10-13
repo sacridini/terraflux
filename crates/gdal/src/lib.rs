@@ -125,6 +125,7 @@ struct Api {
     OSRExportToWkt: unsafe extern "C" fn(H, *mut *mut c_char) -> c_int,
     OSRSetAxisMappingStrategy: unsafe extern "C" fn(H, c_int),
     OSRIsSame: unsafe extern "C" fn(H, H) -> c_int,
+    OSRIsGeographic: unsafe extern "C" fn(H) -> c_int,
     OCTNewCoordinateTransformation: unsafe extern "C" fn(H, H) -> H,
     OCTDestroyCoordinateTransformation: unsafe extern "C" fn(H),
     OCTTransformEx: unsafe extern "C" fn(H, c_int, *mut f64, *mut f64, *mut f64, *mut c_int) -> c_int,
@@ -360,6 +361,7 @@ impl Gdal {
             OSRExportToWkt: f!(OSRExportToWkt),
             OSRSetAxisMappingStrategy: f!(OSRSetAxisMappingStrategy),
             OSRIsSame: f!(OSRIsSame),
+            OSRIsGeographic: f!(OSRIsGeographic),
             OCTNewCoordinateTransformation: f!(OCTNewCoordinateTransformation),
             OCTDestroyCoordinateTransformation: f!(OCTDestroyCoordinateTransformation),
             OCTTransformEx: f!(OCTTransformEx),
@@ -1588,4 +1590,13 @@ pub fn decode_image(bytes: &[u8]) -> Result<(usize, usize, Vec<[u8; 4]>)> {
     unsafe { (a.VSIUnlink)(cstr(&name).as_ptr()) };
     drop(data);
     out
+}
+
+/// Whether a coordinate system is geographic (longitude and latitude in degrees).
+pub fn is_geographic(crs: &str) -> Result<bool> {
+    let g = gdal().map_err(String::from)?;
+    let h = g.srs(crs)?;
+    let geo = unsafe { (g.api.OSRIsGeographic)(h) } != 0;
+    unsafe { (g.api.OSRDestroySpatialReference)(h) };
+    Ok(geo)
 }

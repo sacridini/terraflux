@@ -437,6 +437,13 @@ MultiOut circuit_multi_advanced(rust::Slice<const double> gmap, rust::Slice<cons
                                 rust::Slice<const double> gnd_vals, rust::Slice<const std::int64_t> gnd_offsets,
                                 rust::Slice<const std::int64_t> checks, std::int32_t policy);
 
+// surface metrics (landschaft's surface module)
+rust::Vec<double> surf_metrics(rust::Slice<const double> z, std::int32_t nx, std::int32_t ny,
+                               rust::Slice<const double> extent, bool lonlat, rust::Slice<const std::int32_t> ids);
+rust::Vec<double> surf_window(rust::Slice<const double> z, std::int32_t nx, std::int32_t ny,
+                              rust::Slice<const double> extent, bool lonlat, std::int32_t size, bool circle,
+                              rust::Slice<const std::int32_t> ids);
+
 // the values of maps at points (landschaft's extract, lsio::extract): bands x ny x nx, NaN no data
 rust::Vec<double> io_extract(rust::Slice<const double> values, std::int32_t bands, std::int32_t ny, std::int32_t nx,
                              rust::Slice<const double> gt, rust::Slice<const double> x, rust::Slice<const double> y,
