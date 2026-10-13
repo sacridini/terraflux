@@ -5,7 +5,7 @@ use std::sync::Arc;
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 use terraflux_ls_sys::{PatchSpec, ffi};
 
-use crate::value::{PatchTransition, class_label};
+use crate::value::{PatchTransition, Regional, class_label};
 use crate::{
     Args, Ctx, Error, Key, Map, Markov, Operator, Outputs, PatchParams, Registry, Result, Stack, Table, Value, outputs,
 };
@@ -45,14 +45,26 @@ pub fn patch_params(
     })
 }
 
-/// One step of the Expander and Patcher (landschaft's `ExpanderPatcher.simulate`, without regions): each
-/// transition with a rate changes `round(rate x cells of its origin class)` cells, a share by the Expander.
+/// A region of a step: its cells (all when `None`), its chain and its id.
+type RegionPlan<'a> = (Option<Vec<bool>>, &'a Markov, Option<f64>);
+
+/// The rates of a step: one Markov chain for the map, or one per region.
+#[derive(Clone, Copy)]
+pub enum Rates<'a> {
+    One(&'a Markov),
+    Regional(&'a Regional),
+}
+
+/// One step of the Expander and Patcher (landschaft's `ExpanderPatcher.simulate`): each transition with a rate
+/// changes `round(rate x cells of its origin class)` cells, a share by the Expander. With regions, each region
+/// in the order of its id with its own rates, its cells only and a seed of its own (Dinamica's
+/// regionalization), the map carried from one region to the next.
 #[allow(clippy::too_many_arguments)]
 pub fn step(
     ctx: &mut Ctx,
     landscape: &Map,
     probability: &Stack,
-    rates: &Markov,
+    rates: Rates<'_>,
     patches: &PatchParams,
     step: usize,
     seed: i64,
@@ -71,60 +83,107 @@ pub fn step(
             current.push(v as i32);
         }
     }
-    let transitions = rates.transitions();
+    // the plan: per region, its cells, its chain and its transitions
+    let plan: Vec<RegionPlan<'_>> = match rates {
+        Rates::One(m) => vec![(None, m, None)],
+        Rates::Regional(r) => (0..r.parts.len())
+            .map(|k| {
+                let inside = r.index.iter().map(|&x| x == k as i32).collect();
+                Ok((Some(inside), r.markov(k)?.as_ref(), Some(r.ids[k])))
+            })
+            .collect::<Result<_>>()?,
+    };
+    let mut transitions: Vec<(f64, f64)> = Vec::new();
+    for (_, m, _) in &plan {
+        for tr in m.transitions() {
+            if !transitions.contains(&tr) {
+                transitions.push(tr);
+            }
+        }
+    }
     if transitions.is_empty() {
         return Err(Error::msg("the demand has no transitions"));
     }
-    let mut specs = Vec::with_capacity(transitions.len());
+    let mut probs = Vec::with_capacity(transitions.len());
     for &(f, t) in &transitions {
-        let rate = rates.rate(f, t).unwrap();
-        let count = current.iter().filter(|&&c| c == f as i32).count() as f64;
-        let n = (rate * count + 0.5).floor() as i64;
-        let p = patches
-            .get(f, t)
-            .ok_or_else(|| Error::msg(format!("no patch settings for {} -> {}", class_label(f), class_label(t))))?;
-        let ne = (n as f64 * p.expansion + 0.5).floor() as i64;
         let prob = probability.get(&Key::Transition(f, t)).ok_or_else(|| {
             Error::msg(format!("the potential gives no probability for {} -> {}", class_label(f), class_label(t)))
         })?;
-        specs.push(PatchSpec {
-            from: f as i32,
-            to: t as i32,
-            probability: prob.iter().map(|&v| if v.is_nan() { 0.0 } else { v.clamp(f64::MIN, f64::MAX) }).collect(),
-            expand: ne,
-            patch: n - ne,
-            e_mean: p.expander[0],
-            e_var: p.expander[1],
-            e_iso: p.expander[2],
-            p_mean: p.patcher[0],
-            p_var: p.patcher[1],
-            p_iso: p.patcher[2],
-        });
+        probs
+            .push(prob.iter().map(|&v| if v.is_nan() { 0.0 } else { v.clamp(f64::MIN, f64::MAX) }).collect::<Vec<_>>());
     }
-    let sub = (seed as u64).wrapping_add((step as u64).wrapping_mul(0x9E3779B9));
-    let r = ffi::allocate_patches(ny as i64, nx as i64, &current, &specs, prune_factor, window.0, window.1, sub)?;
+    let mut counts = vec![[0i64; 4]; transitions.len()];
+    let regional = matches!(rates, Rates::Regional(_));
+    for (k, (inside, m, region)) in plan.iter().enumerate() {
+        let trs = m.transitions();
+        if trs.is_empty() {
+            continue;
+        }
+        let mut specs = Vec::with_capacity(trs.len());
+        for &(f, t) in &trs {
+            let rate = m.rate(f, t).unwrap();
+            let count = current
+                .iter()
+                .enumerate()
+                .filter(|&(i, &c)| c == f as i32 && inside.as_ref().is_none_or(|m| m[i]))
+                .count() as f64;
+            let n = (rate * count + 0.5).floor() as i64;
+            let p = patches
+                .get(f, t)
+                .ok_or_else(|| Error::msg(format!("no patch settings for {} -> {}", class_label(f), class_label(t))))?;
+            let ne = (n as f64 * p.expansion + 0.5).floor() as i64;
+            let j = transitions.iter().position(|&x| x == (f, t)).unwrap();
+            let probability = match inside {
+                None => probs[j].clone(),
+                Some(m) => probs[j].iter().zip(m).map(|(&v, &a)| if a { v } else { 0.0 }).collect(),
+            };
+            specs.push(PatchSpec {
+                from: f as i32,
+                to: t as i32,
+                probability,
+                expand: ne,
+                patch: n - ne,
+                e_mean: p.expander[0],
+                e_var: p.expander[1],
+                e_iso: p.expander[2],
+                p_mean: p.patcher[0],
+                p_var: p.patcher[1],
+                p_iso: p.patcher[2],
+            });
+        }
+        let base = (seed as u64).wrapping_add((step as u64).wrapping_mul(0x9E3779B9));
+        let sub = if regional { base.wrapping_add((k as u64).wrapping_mul(0x632BE59BD9B4E019)) } else { base };
+        let r = ffi::allocate_patches(ny as i64, nx as i64, &current, &specs, prune_factor, window.0, window.1, sub)?;
+        current = r.landscape.clone();
+        let place = region.map_or(String::new(), |id| format!(" in region {}", class_label(id)));
+        for (s, (&e, (&p, &np))) in specs.iter().zip(r.expanded.iter().zip(r.patched.iter().zip(&r.patches))) {
+            let j = transitions.iter().position(|&x| x == (s.from as f64, s.to as f64)).unwrap();
+            let req = s.expand + s.patch;
+            counts[j][0] += req;
+            counts[j][1] += e;
+            counts[j][2] += p;
+            counts[j][3] += np;
+            if e + p < req {
+                ctx.warn(format!(
+                    "step {step}: {} -> {} made {} of {req} changes{place} (too few cells with probability)",
+                    class_label(s.from as f64),
+                    class_label(s.to as f64),
+                    e + p
+                ));
+            }
+        }
+    }
     let mut columns = vec!["step".to_string()];
     let mut row = vec![step as f64];
-    for (j, s) in specs.iter().enumerate() {
-        let tag = format!("{}_{}", class_label(s.from as f64), class_label(s.to as f64));
-        let req = s.expand + s.patch;
-        let done = r.expanded[j] + r.patched[j];
-        for (k, v) in
-            [("requested", req), ("expanded", r.expanded[j]), ("patched", r.patched[j]), ("patches", r.patches[j])]
-        {
+    for (&(f, t), c) in transitions.iter().zip(&counts) {
+        let tag = format!("{}_{}", class_label(f), class_label(t));
+        for (k, v) in ["requested", "expanded", "patched", "patches"].iter().zip(c) {
             columns.push(format!("{k}_{tag}"));
-            row.push(v as f64);
-        }
-        if done < req {
-            ctx.warn(format!(
-                "step {step}: {} -> {} made {done} of {req} changes (too few cells with probability)",
-                class_label(s.from as f64),
-                class_label(s.to as f64)
-            ));
+            row.push(*v as f64);
         }
     }
     let out: Vec<f64> =
-        values.iter().zip(&r.landscape).map(|(&v, &c)| if v.is_nan() { f64::NAN } else { c as f64 }).collect();
+        values.iter().zip(&current).map(|(&v, &c)| if v.is_nan() { f64::NAN } else { c as f64 }).collect();
     Ok((Map::new(landscape.grid.clone(), out), Table { columns, rows: vec![row] }))
 }
 
@@ -173,7 +232,8 @@ impl Operator for StepOp {
         )
         .input(PortSpec::new("landscape", Type::Map, "the map at the start of the step"))
         .input(PortSpec::new("probability", Type::Stack, "a layer per transition (e.g. woe.probability)"))
-        .input(PortSpec::new("rates", Type::Markov, "the rates per step"))
+        .input(PortSpec::optional("rates", Type::Markov, "the rates per step"))
+        .input(PortSpec::optional("regional", Type::Regional, "or the rates of each region (Markov chains)"))
         .input(PortSpec::new("patches", Type::Patches, "the Expander and Patcher settings"))
         .input(PortSpec::new("step", Type::Integer, "the step (1, 2...)"))
         .input(PortSpec::new("seed", Type::Integer, "the seed of the simulation"))
@@ -196,7 +256,11 @@ impl Operator for StepOp {
             ctx,
             args.map("landscape")?,
             args.stack("probability")?,
-            args.markov("rates")?,
+            match (args.get("rates"), args.get("regional")) {
+                (Some(_), None) => Rates::One(args.markov("rates")?.as_ref()),
+                (None, Some(_)) => Rates::Regional(args.regional("regional")?.as_ref()),
+                _ => return Err(Error::msg(format!("node {:?}: give the rates or a regional demand", args.node))),
+            },
             args.patches("patches")?,
             args.integer("step")? as usize,
             args.integer("seed")?,

@@ -8,6 +8,7 @@
 
 #include "nlm/rng.hpp"
 #include "prio/prio.hpp"
+#include "sim/molusce.hpp"
 #include "rust/cxx.h"
 
 namespace tfx {
@@ -21,6 +22,16 @@ struct PatchSpec;
 struct PatchOut;
 struct ObservedPatches;
 struct CarsOut;
+struct MolusceForecastOut;
+struct MolusceChange;
+struct MolusceStepOut;
+struct MolusceFactor;
+struct ClumondoSettingsIn;
+struct ClumondoYearOut;
+struct ClumondoNbIn;
+struct FuturesIn;
+struct FuturesClimateIn;
+struct FuturesOut;
 struct SimilarityOut;
 struct FadOut;
 struct FadScalesOut;
@@ -330,6 +341,48 @@ SimilarityOut similarity(rust::Slice<const std::int32_t> a, rust::Slice<const st
                          std::int64_t nx, std::int32_t window, bool exponential);
 ObservedPatches observed_patches(rust::Slice<const double> a, rust::Slice<const double> b, std::int64_t ny,
                                  std::int64_t nx, double from, double to);
+
+// simulate bridge (landschaft-bb)
+
+// gdistance's accCost (landschaft's ls.cost.acc_cost): the accumulated cost from the nearest source cell over a
+// transition of conductances (values: directions x cells, as ls.cost.Transition.values); inf where unreachable.
+rust::Vec<double> cost_accumulated(rust::Slice<const double> values, std::int64_t ny, std::int64_t nx, double xmin,
+                                   double xmax, double ymin, double ymax, bool wrap, std::int32_t directions,
+                                   bool symmetric, rust::Slice<const std::int64_t> sources);
+
+// MOLUSCE's simulator (landschaft's sim/molusce.hpp) and numpy's legacy generator
+std::unique_ptr<sim::NumpyRandomState> numpy_rng_new(std::uint32_t seed);
+rust::Vec<double> numpy_rng_random_sample(sim::NumpyRandomState& rng, std::size_t n);
+rust::Vec<double> molusce_categories(rust::Slice<const double> values, rust::Slice<const double> bounds);
+rust::Vec<double> molusce_total(rust::Slice<const double> factors, std::int32_t nf, std::int64_t n,
+                                rust::Slice<const MolusceFactor> weights);
+MolusceForecastOut molusce_prediction_woe(rust::Slice<const double> state, rust::Slice<const double> classes,
+                                          rust::Slice<const std::int64_t> codes, rust::Slice<const double> totals);
+MolusceForecastOut molusce_prediction_classes(rust::Slice<const double> state, rust::Slice<const double> layers,
+                                              rust::Slice<const double> classes);
+MolusceStepOut molusce_ca_step(rust::Slice<const double> state, rust::Slice<const double> prediction,
+                               rust::Slice<const double> confidence, rust::Slice<const MolusceChange> counts,
+                               sim::NumpyRandomState& rng);
+
+// CLUMondo (landschaft's sim/clumondo.hpp)
+ClumondoYearOut clumondo_year(const ClumondoSettingsIn& s, rust::Slice<const std::int32_t> oldco,
+                              rust::Slice<const std::int32_t> region, rust::Slice<const std::int32_t> age,
+                              rust::Slice<const float> suit, rust::Slice<const float> allow_maps,
+                              rust::Slice<const double> demand, rust::Slice<const float> dem_elas);
+rust::Vec<float> clumondo_logit(rust::Slice<const std::int32_t> region, rust::Slice<const float> x, double constant,
+                                rust::Slice<const float> coef);
+rust::Vec<float> clumondo_add_neighbourhood(rust::Slice<const float> suit, std::int64_t ny, std::int64_t nx,
+                                            rust::Slice<const std::int32_t> oldco,
+                                            rust::Slice<const std::int32_t> region, rust::Slice<const ClumondoNbIn> parts);
+rust::Vec<float> clumondo_add_preference(rust::Slice<const float> row, rust::Slice<const std::int32_t> region,
+                                         rust::Slice<const float> values, float weight);
+rust::Vec<std::int32_t> clumondo_random_age(std::int64_t ncell, std::int32_t max_age, std::uint32_t seed);
+
+// FUTURES (landschaft's sim/futures.hpp): every step in one run
+FuturesOut futures_run(const FuturesIn& in, const FuturesClimateIn& climate, rust::Slice<const std::int32_t> developed,
+                       rust::Slice<const std::int32_t> region, rust::Slice<const std::int32_t> pot_region,
+                       rust::Slice<const float> devpressure, rust::Slice<const float> aggregated,
+                       rust::Slice<const float> weight, rust::Slice<const std::int32_t> zone);
 
 }  // namespace tfx
 

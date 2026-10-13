@@ -29,6 +29,33 @@ minor versions.
   `landschaft_product` in the GeoTIFF's metadata, as landschaft does, and rasters on disk that say so are shown
   as that product whatever their name (`product` sets it by hand); MSPA by tiles writes it too. The dataset's
   metadata items are read and written with the GeoTIFF (`GeoTags::metadata`).
+- Models saved by landschaft with a potential Terraflux has no form for (a scikit-learn estimator, a
+  multi-criteria evaluation, MOLUSCE's weights) run as `ls.simulate` runs them: landschaft writes their
+  predictions on the starting map (`stack.classes`). A test case of the bridge (`tests/data/bridge/estimator`).
+- Regional demands (`demand.regional`, a new type `Regional`): the map of region ids and each region's demand
+  (cells per class and step, or a Markov chain). `lulcc.step` allocates region by region in the order of their
+  ids with the one generator, `plus.demand` makes CARS's table of each region from its own cells and `cars.step`
+  meets them all, `dinamica.step` runs each region with its own rates, its cells only and a seed of its own;
+  cells of no region keep their class. As landschaft's `Regional`, bit for bit (three test cases of the bridge).
+- `dynamic.distance_to` takes a transition of conductances (`cost`, a layer per direction, and its `layout`):
+  the accumulated cost from the nearest cell of the classes (gdistance's accCost, through landschaft's
+  `costcore`, now linked), as landschaft's `distance_to(..., cost=...)`.
+- MOLUSCE's simulator: `rng.numpy` (numpy's legacy generator, as MOLUSCE draws), `molusce.total` (the total
+  weight of each transition from MOLUSCE's weights of evidence and the drivers' categories) and `molusce.step`
+  (the transition of largest weight, or the class of largest potential, with its confidence; the cells of each
+  observed transition with the highest confidence change), through landschaft's C++ (`sim/molusce.cpp`). Models
+  saved by landschaft with MOLUSCE run bit for bit (three test cases of the bridge).
+- CLUMondo: `clumondo.ages` (the ages at the start: a map, or CLUMondo's random ages from the seed) and
+  `clumondo.step` (one year: the suitability from logistic regressions in floats or given maps, neighbourhood
+  functions, location preferences, then the allocation on the demand for goods and services, through
+  landschaft's C++ of CLUMondo, with the 2017 executable's extensions and the land system roles' caps and pair
+  resistances). Its `stop` ends the loop at a year without solution, as CLUMondo.
+- FUTURES: `futures.simulation` runs r.futures.simulation as landschaft's `PatchGrowing` (subregions, potential
+  subregions, patch libraries, development pressure, weights, zoning and its effects, incentives, restrictions)
+  with its flood submodel (depths or flood probabilities and HAND, damage curves, response, adaptation,
+  redistribution), every step in one run of landschaft's C++. A test case of the bridge.
+- `control.repeat` takes `until` in its body: a reference to a yes-or-no value; when it is true at the end of a
+  step the loop ends there, that step neither collected nor carried.
 
 - The builder without the mouse: with the model's canvas in focus and the pointer over it the arrows go to the node
   beside the one selected (the first, top left, when none is; the view follows), enter shows its output in the
@@ -43,6 +70,9 @@ minor versions.
   as landschaft's plot, no longer their least and most: a few outliers no longer wash it out.
 - `vector.zonal`'s statistics are worked out by a function the extraction in buffers shares.
 - The vector panel works out a layer's table, counts and grid once, not at every frame.
+- `dinamica::step` takes `Rates::One(&markov)` or `Rates::Regional(&regional)`; `lulcc::step` takes
+  `Demands::One` or `Demands::Regional`, `plus::step` `CarsDemand::One` or `CarsDemand::Regional`. The `demand`
+  inputs of `lulcc.step` and `cars.step` and `rates` of `dinamica.step` are optional (or `regional`).
 
 ## [0.18.0] - 2026-10-13
 

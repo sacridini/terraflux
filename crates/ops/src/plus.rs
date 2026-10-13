@@ -7,7 +7,7 @@ use std::sync::Arc;
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 use terraflux_ls_sys::ffi;
 
-use crate::value::class_label;
+use crate::value::{RegionDemand, Regional, class_label};
 use crate::{
     Args, Ctx, Demand, Error, Key, Map, Markov, Operator, Outputs, Registry, Result, Stack, Table, Value, outputs,
 };
@@ -44,6 +44,9 @@ fn class_index(land: &Map, classes: &[f64]) -> Result<Vec<i32>> {
 /// from the cells of the starting map (rounded to whole cells adding up to the map's), or an area demand
 /// (whole cells that add up to the map's at every step).
 pub fn demand(start: &Map, markov: Option<&Markov>, area: Option<&Demand>, steps: Option<usize>) -> Result<Demand> {
+    if let (Some(m), None) = (markov, area) {
+        return demand_in(start, None, &m.classes, markov, area, steps);
+    }
     match (markov, area) {
         (Some(m), None) => {
             let classes = m.classes.clone();
@@ -88,6 +91,100 @@ pub fn demand(start: &Map, markov: Option<&Markov>, area: Option<&Demand>, steps
     }
 }
 
+/// The demand of the cells of one region (`inside`; all with a class when `None`) over `classes` (the classes
+/// of every region): landschaft's `CARS._demand` with the region's counts. A Markov chain is projected over
+/// its own classes and rounded over `classes`.
+pub fn demand_in(
+    start: &Map,
+    inside: Option<&[bool]>,
+    classes: &[f64],
+    markov: Option<&Markov>,
+    area: Option<&Demand>,
+    steps: Option<usize>,
+) -> Result<Demand> {
+    let idx = class_index(start, classes)?;
+    let k = classes.len();
+    let mut counts = vec![0.0; k];
+    let mut ncell = 0i64;
+    for (i, &c) in idx.iter().enumerate() {
+        if c >= 0 && inside.is_none_or(|m| m[i]) {
+            counts[c as usize] += 1.0;
+            ncell += 1;
+        }
+    }
+    match (markov, area) {
+        (Some(m), None) => {
+            let extra: Vec<String> = classes
+                .iter()
+                .enumerate()
+                .filter(|&(j, c)| !m.classes.contains(c) && counts[j] > 0.0)
+                .map(|(_, &c)| class_label(c))
+                .collect();
+            if !extra.is_empty() {
+                return Err(Error::msg(format!("the Markov chain has no rows for classes {extra:?}")));
+            }
+            let km = m.k();
+            let start_m: Vec<f64> =
+                m.classes.iter().map(|c| classes.iter().position(|x| x == c).map_or(0.0, |j| counts[j])).collect();
+            let n = steps.unwrap_or(m.steps);
+            let proj = ffi::markov_project(&start_m, &m.multi, km as i32, n as i32)?;
+            let mut table = vec![0.0; n * k];
+            for s in 0..n {
+                for (jm, c) in m.classes.iter().enumerate() {
+                    if let Some(j) = classes.iter().position(|x| x == c) {
+                        table[s * k + j] = proj[(s + 1) * km + jm];
+                    }
+                }
+            }
+            let rounded = ffi::round_sum(&table, n as i64, k as i64, ncell)?;
+            let mut rows = vec![counts];
+            rows.extend(rounded.chunks(k).map(|r| r.to_vec()));
+            Ok(Demand { classes: classes.to_vec(), times: (0..=n).map(|t| t as f64).collect(), table: rows })
+        }
+        (None, Some(d)) => {
+            let n = steps.unwrap_or(d.steps());
+            if n > d.steps() {
+                return Err(Error::msg(format!("the demand has {} steps, not {n}", d.steps())));
+            }
+            let table: Vec<Vec<f64>> = (0..=n).map(|s| d.at(s, classes)).collect::<Result<_>>()?;
+            for (s, row) in table.iter().enumerate() {
+                if row.iter().any(|v| v.fract() != 0.0 || *v < 0.0) {
+                    return Err(Error::msg("the demand must be whole, non-negative numbers of cells"));
+                }
+                let sum: f64 = row.iter().sum();
+                if s > 0 && sum != ncell as f64 {
+                    return Err(Error::msg(format!(
+                        "the demand of step {s} adds up to {sum} cells, the map has {ncell}"
+                    )));
+                }
+            }
+            Ok(Demand { classes: classes.to_vec(), times: d.times[..=n].to_vec(), table })
+        }
+        _ => Err(Error::msg("give a Markov chain or an area demand, one of them")),
+    }
+}
+
+/// CARS's demand of each region (landschaft's `CARS.simulate` with a `Regional`): the classes of all the
+/// regions, each region's table from its own cells.
+pub fn regional_demand(start: &Map, regional: &Regional, steps: Option<usize>) -> Result<Regional> {
+    let classes = regional.classes();
+    let mut parts = Vec::with_capacity(regional.parts.len());
+    for (k, part) in regional.parts.iter().enumerate() {
+        let inside: Vec<bool> = regional.index.iter().map(|&r| r == k as i32).collect();
+        let (m, a) = match part {
+            RegionDemand::Markov(m) => (Some(m.as_ref()), None),
+            RegionDemand::Demand(d) => (None, Some(d.as_ref())),
+        };
+        let d = demand_in(start, Some(&inside), &classes, m, a, steps)
+            .map_err(|e| Error::msg(format!("region {}: {e}", class_label(regional.ids[k]))))?;
+        parts.push(RegionDemand::Demand(Arc::new(d)));
+    }
+    if parts.windows(2).any(|w| w[0].steps() != w[1].steps()) {
+        return Err(Error::msg("the regions' demands have different numbers of steps"));
+    }
+    Ok(Regional { ids: regional.ids.clone(), index: regional.index.clone(), parts })
+}
+
 fn per_class(v: Option<&serde_json::Value>, classes: &[f64], what: &str, default: f64) -> Result<Vec<f64>> {
     match v {
         None | Some(serde_json::Value::Null) => Ok(vec![default; classes.len()]),
@@ -107,24 +204,43 @@ fn per_class(v: Option<&serde_json::Value>, classes: &[f64], what: &str, default
     }
 }
 
+/// The demand of a CARS step: one table, or one per region (`plus.demand` of a regional demand).
+#[derive(Clone, Copy)]
+pub enum CarsDemand<'a> {
+    One(&'a Demand),
+    Regional(&'a Regional),
+}
+
 /// One step of CARS from the map at the start of the step.
 #[allow(clippy::too_many_arguments)]
 pub fn step(
     ctx: &mut Ctx,
     land: &Map,
     probability: &Stack,
-    demand: &Demand,
+    demand: CarsDemand<'_>,
     step: usize,
     seed: i64,
     restrictions: Option<&Map>,
     params: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<(Map, Table)> {
-    let classes = &demand.classes;
+    let tables: Vec<&Demand> = match demand {
+        CarsDemand::One(d) => vec![d],
+        CarsDemand::Regional(r) => {
+            (0..r.parts.len()).map(|k| r.demand(k).map(|d| d.as_ref())).collect::<Result<_>>()?
+        }
+    };
+    let classes = &tables[0].classes;
     let k = classes.len();
     let (ny, nx) = land.shape();
     let n = ny * nx;
     let idx = class_index(land, classes)?;
-    let row = demand.table.get(step).ok_or_else(|| Error::msg(format!("the demand has no step {step}")))?;
+    let mut row: Vec<f64> = Vec::with_capacity(tables.len() * k);
+    for d in &tables {
+        if d.classes != *classes {
+            return Err(Error::msg("the regions' demands must have the same classes (plus.demand)"));
+        }
+        row.extend(d.table.get(step).ok_or_else(|| Error::msg(format!("the demand has no step {step}")))?);
+    }
     let mut prob = vec![0.0; k * n];
     let mut missing = Vec::new();
     for (j, &c) in classes.iter().enumerate() {
@@ -139,7 +255,7 @@ pub fn step(
                 }
             }
             None => {
-                if demand.table.windows(2).any(|w| w[1][j] > w[0][j]) {
+                if tables.iter().any(|d| d.table.windows(2).any(|w| w[1][j] > w[0][j])) {
                     missing.push(class_label(c));
                 }
             }
@@ -191,14 +307,18 @@ pub fn step(
     }
     let target: Vec<i64> = row.iter().map(|&v| v as i64).collect();
     let sub = (seed as u64).wrapping_add((step as u64).wrapping_mul(0x9E3779B97F4A7C15));
+    let region: &[i32] = match demand {
+        CarsDemand::One(_) => &[],
+        CarsDemand::Regional(r) => &r.index,
+    };
     let r = ffi::cars(
         ny as i64,
         nx as i64,
         k as i32,
         &idx,
         &fixed,
-        &[],
-        1,
+        region,
+        tables.len() as i32,
         &prob,
         &weights,
         &seeds,
@@ -242,12 +362,22 @@ impl Operator for DemandOp {
         .input(PortSpec::new("start", Type::Map, "the map the simulation starts from"))
         .input(PortSpec::optional("markov", Type::Markov, "a Markov chain"))
         .input(PortSpec::optional("demand", Type::Demand, "or an area demand"))
-        .output(PortSpec::new("demand", Type::Demand, "cells per class and step"))
+        .input(PortSpec::optional("regional", Type::Regional, "or a demand per region (Markov chains or areas)"))
+        .output(PortSpec::optional("demand", Type::Demand, "cells per class and step"))
+        .output(PortSpec::optional("regional", Type::Regional, "or per region and class, for a regional demand"))
         .output(PortSpec::new("steps", Type::Integer, "its steps"))
         .param(PortSpec::optional("steps", Type::Integer, "steps (default: the chain's or the demand's)"))
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        if args.get("regional").is_some() {
+            if args.get("markov").is_some() || args.get("demand").is_some() {
+                return Err(Error::msg("give a Markov chain, an area demand or a regional demand, one of them"));
+            }
+            let r = regional_demand(args.map("start")?, args.regional("regional")?, args.opt_param("steps")?)?;
+            let steps = r.steps() as i64;
+            return Ok(outputs([("regional", Value::Regional(Arc::new(r))), ("steps", Value::Integer(steps))]));
+        }
         let markov = match args.get("markov") {
             Some(_) => Some(args.markov("markov")?.as_ref()),
             None => None,
@@ -276,7 +406,8 @@ impl Operator for StepOp {
         )
         .input(PortSpec::new("landscape", Type::Map, "the map at the start of the step"))
         .input(PortSpec::new("probability", Type::Stack, "the growth probability of each class (0-1)"))
-        .input(PortSpec::new("demand", Type::Demand, "the cells of each class at each step (plus.demand)"))
+        .input(PortSpec::optional("demand", Type::Demand, "the cells of each class at each step (plus.demand)"))
+        .input(PortSpec::optional("regional", Type::Regional, "or per region (plus.demand of a regional demand)"))
         .input(PortSpec::new("step", Type::Integer, "the step (1, 2...)"))
         .input(PortSpec::new("seed", Type::Integer, "the seed of the simulation"))
         .input(PortSpec::optional("restrictions", Type::Map, "cells that keep their class (non-zero)"))
@@ -300,7 +431,11 @@ impl Operator for StepOp {
             ctx,
             args.map("landscape")?,
             args.stack("probability")?,
-            args.demand("demand")?,
+            match (args.get("demand"), args.get("regional")) {
+                (Some(_), None) => CarsDemand::One(args.demand("demand")?.as_ref()),
+                (None, Some(_)) => CarsDemand::Regional(args.regional("regional")?.as_ref()),
+                _ => return Err(Error::msg(format!("node {:?}: give a demand or a regional one", args.node))),
+            },
             k as usize,
             args.integer("seed")?,
             args.opt_map("restrictions")?,

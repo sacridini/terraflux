@@ -1,0 +1,218 @@
+{
+  "format": "terraflux/1",
+  "name": "landschaft MolusceCA model",
+  "description": "Written by landschaft's Model.save.",
+  "inputs": {
+    "start": {
+      "kind": "map",
+      "path": "../../inputs/sibuyan_landuse.tif",
+      "note": "the map the simulation starts from"
+    },
+    "seed": {
+      "kind": "value",
+      "value": 15,
+      "note": "the seed of the simulation"
+    },
+    "drivers": {
+      "kind": "stack",
+      "path": "../../inputs/sibuyan_drivers.tif",
+      "note": "the explanatory variables"
+    },
+    "potential": {
+      "kind": "stack",
+      "path": "model_data/potential.tif",
+      "note": "the total weight of each transition, as fitted (MOLUSCE's maps)"
+    }
+  },
+  "nodes": [
+    {
+      "id": "potential",
+      "op": "stack.classes",
+      "inputs": {
+        "stack": "$potential"
+      },
+      "note": "MOLUSCE's weights of evidence fitted with landschaft, as their maps."
+    },
+    {
+      "id": "rng",
+      "op": "rng.numpy",
+      "inputs": {
+        "seed": "$seed"
+      },
+      "note": "numpy's legacy generator after numpy.random.seed(seed), as MOLUSCE draws."
+    },
+    {
+      "id": "simulation",
+      "op": "control.repeat",
+      "inputs": {
+        "times": 3,
+        "landscape": "$start"
+      },
+      "body": {
+        "nodes": [
+          {
+            "id": "allocate",
+            "op": "molusce.step",
+            "inputs": {
+              "landscape": "@landscape",
+              "total": "potential.stack",
+              "rng": "rng.rng",
+              "step": "@step"
+            },
+            "params": {
+              "classes": [
+                1,
+                2,
+                3,
+                4,
+                5
+              ],
+              "counts": [
+                {
+                  "from": 1,
+                  "to": 1,
+                  "cells": 4160
+                },
+                {
+                  "from": 1,
+                  "to": 2,
+                  "cells": 126
+                },
+                {
+                  "from": 1,
+                  "to": 3,
+                  "cells": 320
+                },
+                {
+                  "from": 1,
+                  "to": 4,
+                  "cells": 116
+                },
+                {
+                  "from": 1,
+                  "to": 5,
+                  "cells": 1
+                },
+                {
+                  "from": 2,
+                  "to": 1,
+                  "cells": 0
+                },
+                {
+                  "from": 2,
+                  "to": 2,
+                  "cells": 1140
+                },
+                {
+                  "from": 2,
+                  "to": 3,
+                  "cells": 18
+                },
+                {
+                  "from": 2,
+                  "to": 4,
+                  "cells": 0
+                },
+                {
+                  "from": 2,
+                  "to": 5,
+                  "cells": 0
+                },
+                {
+                  "from": 3,
+                  "to": 1,
+                  "cells": 0
+                },
+                {
+                  "from": 3,
+                  "to": 2,
+                  "cells": 77
+                },
+                {
+                  "from": 3,
+                  "to": 3,
+                  "cells": 745
+                },
+                {
+                  "from": 3,
+                  "to": 4,
+                  "cells": 16
+                },
+                {
+                  "from": 3,
+                  "to": 5,
+                  "cells": 1
+                },
+                {
+                  "from": 4,
+                  "to": 1,
+                  "cells": 0
+                },
+                {
+                  "from": 4,
+                  "to": 2,
+                  "cells": 61
+                },
+                {
+                  "from": 4,
+                  "to": 3,
+                  "cells": 7
+                },
+                {
+                  "from": 4,
+                  "to": 4,
+                  "cells": 156
+                },
+                {
+                  "from": 4,
+                  "to": 5,
+                  "cells": 0
+                },
+                {
+                  "from": 5,
+                  "to": 1,
+                  "cells": 0
+                },
+                {
+                  "from": 5,
+                  "to": 2,
+                  "cells": 0
+                },
+                {
+                  "from": 5,
+                  "to": 3,
+                  "cells": 0
+                },
+                {
+                  "from": 5,
+                  "to": 4,
+                  "cells": 0
+                },
+                {
+                  "from": 5,
+                  "to": 5,
+                  "cells": 282
+                }
+              ]
+            }
+          }
+        ],
+        "carry": {
+          "landscape": "allocate.landscape"
+        },
+        "collect": {
+          "maps": "allocate.landscape",
+          "info": "allocate.info"
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "maps": {
+      "from": "simulation.maps"
+    },
+    "steps": {
+      "from": "simulation.info"
+    }
+  }
+}

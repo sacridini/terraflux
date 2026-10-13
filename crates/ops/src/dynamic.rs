@@ -35,6 +35,55 @@ pub fn distance_to(land: &Map, classes: &[f64], res: f64) -> Result<Map> {
     Ok(Map::new(land.grid.clone(), out))
 }
 
+/// A transition of conductances on the map's grid (landschaft's `ls.cost.Transition`): the value of the
+/// connection from each cell in each direction of gdistance's layout.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CostLayout {
+    /// 4, 8 or 16.
+    pub directions: i32,
+    /// Whether the transition keeps one value per pair of cells (the directions after (0, 0) only).
+    pub symmetric: bool,
+    /// The grid's extent (xmin, xmax, ymin, ymax) as the transition was made.
+    pub extent: [f64; 4],
+    /// Whether the columns wrap around (global longitude/latitude).
+    #[serde(default)]
+    pub wrap: bool,
+}
+
+/// The accumulated cost from the nearest cell of some classes over a transition of conductances (gdistance's
+/// accCost; landschaft's `distance_to(..., cost=...)`): inf where no such cell can be reached, or everywhere
+/// when the map has none; NaN where the map has no value.
+pub fn cost_to(land: &Map, classes: &[f64], values: &[f64], layout: &CostLayout) -> Result<Map> {
+    let (ny, nx) = land.shape();
+    let sources: Vec<i64> =
+        land.data.iter().enumerate().filter(|(_, v)| classes.contains(v)).map(|(i, _)| i as i64).collect();
+    let mut out = if sources.is_empty() {
+        vec![f64::INFINITY; ny * nx]
+    } else {
+        let [xmin, xmax, ymin, ymax] = layout.extent;
+        ffi::cost_accumulated(
+            values,
+            ny as i64,
+            nx as i64,
+            xmin,
+            xmax,
+            ymin,
+            ymax,
+            layout.wrap,
+            layout.directions,
+            layout.symmetric,
+            &sources,
+        )?
+    };
+    for (o, v) in out.iter_mut().zip(land.data.iter()) {
+        if v.is_nan() {
+            *o = f64::NAN;
+        }
+    }
+    Ok(Map::new(land.grid.clone(), out))
+}
+
 /// The share of the cells around each cell (weights of the window, the cells without a value left out) that
 /// hold some classes; NaN where the map has no value.
 pub fn share_of(land: &Map, classes: &[f64], window: &[Vec<f64>]) -> Result<Map> {
@@ -68,17 +117,37 @@ impl Operator for DistanceTo {
             Access::Global,
         )
         .input(PortSpec::new("landscape", Type::Map, "the map"))
+        .input(PortSpec::optional(
+            "cost",
+            Type::Stack,
+            "a transition of conductances, a layer per direction (the accumulated cost instead of the distance)",
+        ))
         .output(PortSpec::new("distance", Type::Map, "the distances (NaN where the map has no value)"))
         .param(PortSpec::new("classes", Type::Any, "a class or a list"))
         .param(
             PortSpec::optional("unit", Type::Text, "\"map\" (default; square cells) or \"cells\"")
                 .choices(["map", "cells"]),
         )
+        .param(PortSpec::optional(
+            "layout",
+            Type::Any,
+            "the transition's { directions, symmetric, extent, wrap } (with `cost`)",
+        ))
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let land = args.map("landscape")?;
         let classes = classes_param(args)?;
+        if let Some(cost) = args.opt_stack("cost")? {
+            let layout: CostLayout = args
+                .opt_param("layout")?
+                .ok_or_else(|| Error::msg(format!("node {:?}: a cost needs its layout", args.node)))?;
+            if (cost.grid.height, cost.grid.width) != (land.grid.height, land.grid.width) {
+                return Err(Error::msg("the cost transition differs in shape from the map"));
+            }
+            let values: Vec<f64> = cost.layers.iter().flat_map(|l| l.iter().copied()).collect();
+            return Ok(outputs([("distance", Value::Map(cost_to(land, &classes, &values, &layout)?))]));
+        }
         let unit: String = args.param("unit", "map".to_string())?;
         let res = match unit.as_str() {
             "cells" => 1.0,

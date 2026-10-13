@@ -1,0 +1,141 @@
+{
+  "format": "terraflux/1",
+  "name": "landschaft PatchGrowing model",
+  "description": "Written by landschaft's Model.save.",
+  "inputs": {
+    "start": {
+      "kind": "map",
+      "path": "model_data/start.tif",
+      "note": "the map the simulation starts from"
+    },
+    "seed": {
+      "kind": "value",
+      "value": 19,
+      "note": "the seed of the simulation"
+    },
+    "drivers": {
+      "kind": "stack",
+      "path": "../../inputs/sibuyan_drivers.tif",
+      "note": "the explanatory variables"
+    },
+    "subregions": {
+      "kind": "map",
+      "path": "model_data/subregions.tif",
+      "note": "PatchGrowing's subregions"
+    },
+    "pressure": {
+      "kind": "map",
+      "path": "model_data/pressure.tif",
+      "note": "the development pressure at the start"
+    }
+  },
+  "nodes": [
+    {
+      "id": "simulation",
+      "op": "futures.simulation",
+      "inputs": {
+        "landscape": "$start",
+        "seed": "$seed",
+        "drivers": "$drivers",
+        "subregions": "$subregions",
+        "pressure": "$pressure"
+      },
+      "params": {
+        "potential": {
+          "ids": [
+            1,
+            2
+          ],
+          "intercept": [
+            -3.0,
+            -2.5
+          ],
+          "devpressure": [
+            0.05,
+            0.08
+          ],
+          "predictors": [
+            "slope",
+            "elevation"
+          ],
+          "coefficients": [
+            [
+              -0.02,
+              -0.001
+            ],
+            [
+              -0.03,
+              -0.002
+            ]
+          ]
+        },
+        "demand": {
+          "subregions": [
+            1,
+            2
+          ],
+          "rows": [
+            [
+              30.0,
+              20.0
+            ],
+            [
+              25.0,
+              35.0
+            ],
+            [
+              40.0,
+              15.0
+            ]
+          ],
+          "years": [
+            0.0,
+            1.0,
+            2.0
+          ],
+          "population": null
+        },
+        "neighborhood": 6,
+        "approach": "gravity",
+        "gamma": 1.5,
+        "scaling_factor": 1.0,
+        "discount_factor": 1.0,
+        "compactness_mean": 0.5,
+        "compactness_range": 0.2,
+        "num_neighbors": 4,
+        "seed_search": "probability",
+        "incentive_power": 1.0,
+        "patch_sizes": {
+          "ids": [
+            1,
+            2
+          ],
+          "lists": [
+            [
+              1.0,
+              3.0,
+              5.0,
+              8.0,
+              2.0
+            ],
+            [
+              2.0,
+              4.0,
+              1.0,
+              9.0
+            ]
+          ]
+        }
+      },
+      "note": "FUTURES' patch growing (r.futures.simulation), every step in one run."
+    }
+  ],
+  "outputs": {
+    "maps": {
+      "from": "simulation.maps"
+    },
+    "steps": {
+      "from": "simulation.info"
+    }
+  }
+}

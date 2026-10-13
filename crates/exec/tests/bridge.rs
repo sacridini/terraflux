@@ -40,3 +40,53 @@ fn clue_with_a_dynamic_variable_saved_by_landschaft() {
 fn cars_saved_by_landschaft() {
     case("cars");
 }
+
+#[test]
+fn estimator_saved_by_landschaft_as_its_predictions() {
+    case("estimator");
+}
+
+#[test]
+fn regional_clue_saved_by_landschaft() {
+    case("clue_regional");
+}
+
+#[test]
+fn regional_cars_saved_by_landschaft() {
+    case("cars_regional");
+}
+
+#[test]
+fn regional_dinamica_saved_by_landschaft() {
+    case("dinamica_regional");
+}
+
+#[test]
+fn cost_distance_saved_by_landschaft() {
+    case("clue_cost");
+}
+
+#[test]
+fn molusce_saved_by_landschaft() {
+    case("molusce");
+}
+
+#[test]
+fn molusce_with_a_moving_driver_saved_by_landschaft() {
+    case("molusce_dynamic");
+}
+
+#[test]
+fn molusce_with_a_regression_saved_by_landschaft() {
+    case("molusce_glm");
+}
+
+#[test]
+fn clumondo_saved_by_landschaft() {
+    case("clumondo");
+}
+
+#[test]
+fn futures_saved_by_landschaft() {
+    case("futures");
+}

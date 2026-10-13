@@ -24,6 +24,8 @@ pub enum Type {
     Markov,
     /// Cells of each class at each step.
     Demand,
+    /// A demand per region: a map of region ids and each region's demand (cells per class or a Markov chain).
+    Regional,
     /// Fitted logistic regressions (one per class).
     Glm,
     /// Fitted weights of evidence (one set per transition).

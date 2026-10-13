@@ -1,0 +1,555 @@
+{
+  "format": "terraflux/1",
+  "name": "landschaft CLUMondo model",
+  "description": "Written by landschaft's Model.save.",
+  "inputs": {
+    "start": {
+      "kind": "map",
+      "path": "model_data/start.tif",
+      "note": "the map the simulation starts from"
+    },
+    "seed": {
+      "kind": "value",
+      "value": 18,
+      "note": "the seed of the simulation"
+    },
+    "drivers": {
+      "kind": "stack",
+      "path": "../../inputs/sibuyan_drivers.tif",
+      "note": "the explanatory variables"
+    }
+  },
+  "nodes": [
+    {
+      "id": "potential",
+      "op": "glm.coefficients",
+      "params": {
+        "fits": [
+          {
+            "class": 1,
+            "drivers": [
+              "aspect",
+              "diorite",
+              "dist_roads",
+              "dist_sea",
+              "dist_streams",
+              "dist_urban",
+              "elevation",
+              "moderate_erosion",
+              "no_erosion",
+              "pop_density",
+              "sediments",
+              "slope",
+              "ultramafic"
+            ],
+            "coefficients": [
+              -2.456155264701505,
+              0.0033169139221067615,
+              1.9047078004134543,
+              1.4408107899402715e-06,
+              0.0003920327812085582,
+              -7.520313101561694e-05,
+              0.00011768432867522135,
+              0.002807310653098402,
+              -2.1859706549805002,
+              -1.1974942113333633,
+              -0.00028940851469528987,
+              0.6993015945180429,
+              -0.0014176477013781174,
+              2.698519814282393
+            ],
+            "pivot": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14
+            ],
+            "rank": 14,
+            "iterations": 7,
+            "converged": true,
+            "deviance": 4502.613705533748,
+            "null_deviance": 9324.169934451844,
+            "cells": 7226
+          },
+          {
+            "class": 2,
+            "drivers": [
+              "aspect",
+              "diorite",
+              "dist_roads",
+              "dist_sea",
+              "dist_streams",
+              "dist_urban",
+              "elevation",
+              "moderate_erosion",
+              "no_erosion",
+              "pop_density",
+              "sediments",
+              "slope",
+              "ultramafic"
+            ],
+            "coefficients": [
+              0.38236093342276495,
+              -0.0027785469449317576,
+              0.9631754723446998,
+              -0.0003351980255567441,
+              -0.0007259321666922828,
+              7.963957250319681e-05,
+              -0.0001605349861173201,
+              -0.002526354665528141,
+              1.5158371519070517,
+              -0.17476896393585964,
+              -9.816678232216456e-05,
+              0.8198061807632941,
+              0.04825197108221129,
+              -0.5320521781616896
+            ],
+            "pivot": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14
+            ],
+            "rank": 14,
+            "iterations": 8,
+            "converged": true,
+            "deviance": 3728.929430940647,
+            "null_deviance": 6360.207891837355,
+            "cells": 7226
+          },
+          {
+            "class": 3,
+            "drivers": [
+              "aspect",
+              "diorite",
+              "dist_roads",
+              "dist_sea",
+              "dist_streams",
+              "dist_urban",
+              "elevation",
+              "moderate_erosion",
+              "no_erosion",
+              "pop_density",
+              "sediments",
+              "slope",
+              "ultramafic"
+            ],
+            "coefficients": [
+              -1.0149988983491658,
+              -0.0007256755251568113,
+              -14.174296076050052,
+              -0.0004858496292382469,
+              0.0003599294528855718,
+              -0.0008036433518440806,
+              -4.270149979924953e-05,
+              -0.0007562903451847266,
+              1.4188235196613914,
+              0.29405001914195045,
+              -6.811409443169816e-05,
+              -1.1162455848590604,
+              0.0245513813249842,
+              -3.333072259514551
+            ],
+            "pivot": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14
+            ],
+            "rank": 14,
+            "iterations": 15,
+            "converged": true,
+            "deviance": 4002.237162716734,
+            "null_deviance": 5189.699603750314,
+            "cells": 7226
+          },
+          {
+            "class": 4,
+            "drivers": [
+              "aspect",
+              "diorite",
+              "dist_roads",
+              "dist_sea",
+              "dist_streams",
+              "dist_urban",
+              "elevation",
+              "moderate_erosion",
+              "no_erosion",
+              "pop_density",
+              "sediments",
+              "slope",
+              "ultramafic"
+            ],
+            "coefficients": [
+              -16.721587932176615,
+              -0.0025356950473866676,
+              2.8195285931318645,
+              0.0005861573773443964,
+              0.00016319296958299895,
+              0.00018391985550152533,
+              5.018438748343838e-05,
+              -0.02606256348599685,
+              -0.25316601261918287,
+              -0.08261857990562607,
+              0.00036939439514738903,
+              15.13012063781088,
+              -0.11861411533366745,
+              14.235127678790173
+            ],
+            "pivot": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14
+            ],
+            "rank": 14,
+            "iterations": 20,
+            "converged": true,
+            "deviance": 1320.1732310755413,
+            "null_deviance": 1997.2433991563557,
+            "cells": 7226
+          },
+          {
+            "class": 5,
+            "drivers": [
+              "aspect",
+              "diorite",
+              "dist_roads",
+              "dist_sea",
+              "dist_streams",
+              "dist_urban",
+              "elevation",
+              "moderate_erosion",
+              "no_erosion",
+              "pop_density",
+              "sediments",
+              "slope",
+              "ultramafic"
+            ],
+            "coefficients": [
+              -13.720371475190738,
+              0.0017053521117736561,
+              2.529867931343959,
+              0.000778270128821404,
+              -0.0036182793416734914,
+              -0.00023905703285824785,
+              5.150173793125086e-05,
+              -0.011829790132386083,
+              -2.225015070659917,
+              -0.3041658988092952,
+              -0.00022819452231927356,
+              13.898603664069592,
+              -0.05731547272825416,
+              -2.8085680226837373
+            ],
+            "pivot": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14
+            ],
+            "rank": 14,
+            "iterations": 21,
+            "converged": true,
+            "deviance": 1075.4595712430933,
+            "null_deviance": 2382.2018039364248,
+            "cells": 7226
+          }
+        ]
+      },
+      "note": "CLUMondo's logistic regressions fitted with landschaft (computed in floats)."
+    },
+    {
+      "id": "ages",
+      "op": "clumondo.ages",
+      "inputs": {
+        "landscape": "$start",
+        "seed": "$seed"
+      },
+      "params": {
+        "max_age": 5
+      }
+    },
+    {
+      "id": "simulation",
+      "op": "control.repeat",
+      "inputs": {
+        "times": 6,
+        "landscape": "$start",
+        "age": "ages.age",
+        "elasticity": [
+          0.0,
+          0.0
+        ]
+      },
+      "body": {
+        "nodes": [
+          {
+            "id": "allocate",
+            "op": "clumondo.step",
+            "inputs": {
+              "landscape": "@landscape",
+              "age": "@age",
+              "elasticity": "@elasticity",
+              "step": "@step",
+              "model": "potential.model",
+              "drivers": "$drivers"
+            },
+            "params": {
+              "settings": {
+                "systems": [
+                  1,
+                  2,
+                  3,
+                  4,
+                  5
+                ],
+                "services": [
+                  "food",
+                  "wood"
+                ],
+                "supply": [
+                  {
+                    "step": 1,
+                    "rows": [
+                      [
+                        0.0,
+                        1.0
+                      ],
+                      [
+                        0.2,
+                        0.3
+                      ],
+                      [
+                        1.0,
+                        0.0
+                      ],
+                      [
+                        2.0,
+                        0.0
+                      ],
+                      [
+                        0.0,
+                        0.0
+                      ]
+                    ]
+                  }
+                ],
+                "demand": [
+                  [
+                    1518.6,
+                    5070.4
+                  ],
+                  [
+                    1548.972,
+                    5019.696
+                  ],
+                  [
+                    1579.9514399999998,
+                    4969.49904
+                  ],
+                  [
+                    1611.5504688,
+                    4919.804049599999
+                  ],
+                  [
+                    1643.7814781759998,
+                    4870.606009103999
+                  ],
+                  [
+                    1676.65710773952,
+                    4821.899949012959
+                  ],
+                  [
+                    1710.1902498943105,
+                    4773.68094952283
+                  ]
+                ],
+                "order": [
+                  [
+                    0,
+                    2
+                  ],
+                  [
+                    1,
+                    1
+                  ],
+                  [
+                    2,
+                    0
+                  ],
+                  [
+                    3,
+                    0
+                  ],
+                  [
+                    0,
+                    0
+                  ]
+                ],
+                "weights": [
+                  1.0,
+                  1.0
+                ],
+                "resistance": [
+                  0.5,
+                  0.5,
+                  0.5,
+                  0.5,
+                  0.5
+                ],
+                "allowed": [
+                  [
+                    1,
+                    1,
+                    1,
+                    1,
+                    1
+                  ],
+                  [
+                    1,
+                    1,
+                    1,
+                    1,
+                    1
+                  ],
+                  [
+                    1,
+                    1,
+                    1,
+                    1,
+                    1
+                  ],
+                  [
+                    1,
+                    1,
+                    1,
+                    1,
+                    1
+                  ],
+                  [
+                    1,
+                    1,
+                    1,
+                    1,
+                    1
+                  ]
+                ],
+                "deviation": "percent",
+                "mean_deviation": 0.5,
+                "max_deviation": 1.0,
+                "speed": 0.05000000074505806,
+                "max_loops": 20000,
+                "neighbourhood": [
+                  {
+                    "system": 3,
+                    "weight": 0.5,
+                    "kernel": [
+                      [
+                        1.0,
+                        1.0,
+                        1.0
+                      ],
+                      [
+                        1.0,
+                        1.0,
+                        1.0
+                      ],
+                      [
+                        1.0,
+                        1.0,
+                        1.0
+                      ]
+                    ],
+                    "from": [
+                      true,
+                      true,
+                      true,
+                      true,
+                      true
+                    ],
+                    "constant": 0.10000000149011612,
+                    "coefficients": [
+                      [
+                        3,
+                        0.800000011920929
+                      ]
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "carry": {
+          "landscape": "allocate.landscape",
+          "age": "allocate.age",
+          "elasticity": "allocate.elasticity"
+        },
+        "collect": {
+          "maps": "allocate.landscape",
+          "info": "allocate.info"
+        },
+        "until": "allocate.stop"
+      }
+    }
+  ],
+  "outputs": {
+    "maps": {
+      "from": "simulation.maps"
+    },
+    "steps": {
+      "from": "simulation.info"
+    }
+  }
+}

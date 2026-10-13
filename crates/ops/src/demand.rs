@@ -7,7 +7,8 @@ use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 use terraflux_ls_sys::ffi;
 
 use crate::markov::{classes_of, crosstab};
-use crate::{Args, Ctx, Demand, Error, Key, Map, Operator, Outputs, Registry, Result, Stack, Value, outputs};
+use crate::value::{RegionDemand, Regional};
+use crate::{Args, Ctx, Demand, Error, Key, Map, Markov, Operator, Outputs, Registry, Result, Stack, Value, outputs};
 
 /// The times of the maps of a series: given, else the band names when they are all numbers, else 0, 1, 2...
 pub fn series_times(stack: &Stack, times: Option<Vec<f64>>) -> Result<Vec<f64>> {
@@ -139,7 +140,118 @@ impl Operator for FromTable {
     }
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MarkovSpec {
+    classes: Vec<f64>,
+    single: Vec<Vec<f64>>,
+    #[serde(default)]
+    multi: Option<Vec<Vec<f64>>>,
+    #[serde(default = "one")]
+    steps: usize,
+}
+
+fn one() -> usize {
+    1
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+enum PartSpec {
+    Table(TableSpec),
+    Markov(MarkovSpec),
+}
+
+fn part(spec: PartSpec) -> Result<RegionDemand> {
+    Ok(match spec {
+        PartSpec::Table(t) => {
+            if t.rows.len() < 2 || t.rows.iter().any(|r| r.len() != t.classes.len()) {
+                return Err(Error::msg("a demand needs the start and one step, each a value per class"));
+            }
+            let times = t.times.unwrap_or_else(|| (0..t.rows.len()).map(|i| i as f64).collect());
+            RegionDemand::Demand(Arc::new(Demand { classes: t.classes, times, table: t.rows }))
+        }
+        PartSpec::Markov(m) => {
+            let k = m.classes.len();
+            if m.single.len() != k || m.single.iter().any(|r| r.len() != k) {
+                return Err(Error::msg("the transition matrix must be square, a row and column per class"));
+            }
+            if m.steps < 1 {
+                return Err(Error::msg("steps must be >= 1"));
+            }
+            let single = m.single.concat();
+            let multi = match m.multi {
+                Some(x) if x.len() == k && x.iter().all(|r| r.len() == k) => x.concat(),
+                Some(_) => return Err(Error::msg("multi must be square, a row and column per class")),
+                None => ffi::markov_root(&single, k as i32, m.steps as i32)?,
+            };
+            RegionDemand::Markov(Arc::new(Markov { classes: m.classes, single, multi, steps: m.steps }))
+        }
+    })
+}
+
+/// A demand per region from the map of region ids and each region's demand (in the order of `ids`).
+pub fn regional(regions: &Map, ids: Vec<f64>, parts: Vec<RegionDemand>) -> Result<Regional> {
+    if ids.is_empty() || ids.len() != parts.len() {
+        return Err(Error::msg("give a demand per region, one per id"));
+    }
+    if ids.iter().any(|v| v.fract() != 0.0) {
+        return Err(Error::msg("the region ids must be integers"));
+    }
+    let mut order: Vec<usize> = (0..ids.len()).collect();
+    order.sort_by(|&a, &b| ids[a].partial_cmp(&ids[b]).unwrap());
+    if order.windows(2).any(|w| ids[w[0]] == ids[w[1]]) {
+        return Err(Error::msg("the region ids must be distinct"));
+    }
+    let ids: Vec<f64> = order.iter().map(|&k| ids[k]).collect();
+    let parts: Vec<RegionDemand> = order.iter().map(|&k| parts[k].clone()).collect();
+    if parts.windows(2).any(|w| w[0].steps() != w[1].steps()) {
+        let mut steps: Vec<usize> = parts.iter().map(RegionDemand::steps).collect();
+        steps.sort_unstable();
+        steps.dedup();
+        return Err(Error::msg(format!("the regions' demands have different numbers of steps: {steps:?}")));
+    }
+    if regions.data.iter().any(|v| !v.is_nan() && v.fract() != 0.0) {
+        return Err(Error::msg("the region ids must be integers"));
+    }
+    let index = regions.data.iter().map(|v| ids.iter().position(|id| id == v).map_or(-1, |k| k as i32)).collect();
+    Ok(Regional { ids, index, parts })
+}
+
+struct RegionalOp;
+
+impl Operator for RegionalOp {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "demand.regional",
+            "A demand per region (municipalities, biomes, basins...): each region's cells meet its own demand, cells              of no region keep their class. The demand of a region is a table of cells per class and step (CLUE-S,              ordered allocation, CARS) or a Markov chain (Expander and Patcher, CARS).",
+            Access::Global,
+        )
+        .input(PortSpec::new("regions", Type::Map, "the region id of each cell"))
+        .output(PortSpec::new("regional", Type::Regional, "the demand of each region"))
+        .output(PortSpec::new("steps", Type::Integer, "their steps"))
+        .param(PortSpec::new("ids", Type::Any, "the region ids"))
+        .param(PortSpec::new(
+            "demands",
+            Type::Any,
+            "per id: { table = { classes, rows, times } } or { markov = { classes, single, multi, steps } }",
+        ))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let ids: Vec<f64> =
+            args.opt_param("ids")?.ok_or_else(|| Error::msg(format!("node {:?}: give the ids", args.node)))?;
+        let specs: Vec<PartSpec> =
+            args.opt_param("demands")?.ok_or_else(|| Error::msg(format!("node {:?}: give the demands", args.node)))?;
+        let parts = specs.into_iter().map(part).collect::<Result<Vec<_>>>()?;
+        let r = regional(args.map("regions")?, ids, parts)?;
+        let steps = r.steps() as i64;
+        Ok(outputs([("regional", Value::Regional(Arc::new(r))), ("steps", Value::Integer(steps))]))
+    }
+}
+
 pub fn register(r: &mut Registry) {
     r.add(Arc::new(FromMaps));
     r.add(Arc::new(FromTable));
+    r.add(Arc::new(RegionalOp));
 }

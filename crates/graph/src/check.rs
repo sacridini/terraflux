@@ -271,6 +271,9 @@ impl<'a> Checker<'a> {
         for (name, r) in &b.outputs {
             self.check_ref(&format!("{at}/outputs.{name}"), r, Type::Any, scopes);
         }
+        if let Some(r) = &b.until {
+            self.check_ref(&format!("{at}/until"), r, Type::Bool, scopes);
+        }
         scopes.pop();
     }
 }

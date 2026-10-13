@@ -198,6 +198,79 @@ impl Demand {
     }
 }
 
+/// The demand of one region: cells per class and step, or a Markov chain (the rates of the Expander and Patcher,
+/// or projected from the region's cells by CARS).
+#[derive(Debug, Clone)]
+pub enum RegionDemand {
+    Demand(Arc<Demand>),
+    Markov(Arc<Markov>),
+}
+
+impl RegionDemand {
+    /// The classes the demand names.
+    pub fn classes(&self) -> &[f64] {
+        match self {
+            RegionDemand::Demand(d) => &d.classes,
+            RegionDemand::Markov(m) => &m.classes,
+        }
+    }
+
+    pub fn steps(&self) -> usize {
+        match self {
+            RegionDemand::Demand(d) => d.steps(),
+            RegionDemand::Markov(m) => m.steps,
+        }
+    }
+}
+
+/// A demand per region (landschaft's `Regional`): the cells of the regions keep their own demand; cells of no
+/// region keep their class.
+#[derive(Debug, Clone)]
+pub struct Regional {
+    /// The region ids, sorted.
+    pub ids: Vec<f64>,
+    /// The region of each cell: its position in `ids`, -1 outside them.
+    pub index: Vec<i32>,
+    pub parts: Vec<RegionDemand>,
+}
+
+impl Regional {
+    /// The classes of all the regions' demands, sorted.
+    pub fn classes(&self) -> Vec<f64> {
+        let mut all: Vec<f64> = self.parts.iter().flat_map(|p| p.classes().iter().copied()).collect();
+        all.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        all.dedup();
+        all
+    }
+
+    /// The steps of the demands (all the same).
+    pub fn steps(&self) -> usize {
+        self.parts.first().map_or(0, RegionDemand::steps)
+    }
+
+    /// The area demand of region `k` (an error for a Markov chain).
+    pub fn demand(&self, k: usize) -> Result<&Arc<Demand>> {
+        match &self.parts[k] {
+            RegionDemand::Demand(d) => Ok(d),
+            RegionDemand::Markov(_) => Err(Error::msg(format!(
+                "region {}: this allocation takes the cells of each class at each step, not a Markov chain",
+                class_label(self.ids[k])
+            ))),
+        }
+    }
+
+    /// The Markov chain of region `k` (an error for an area demand).
+    pub fn markov(&self, k: usize) -> Result<&Arc<Markov>> {
+        match &self.parts[k] {
+            RegionDemand::Markov(m) => Ok(m),
+            RegionDemand::Demand(_) => Err(Error::msg(format!(
+                "region {}: this allocation takes a Markov chain, not cells per class",
+                class_label(self.ids[k])
+            ))),
+        }
+    }
+}
+
 /// A logistic regression fitted for one class.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GlmClass {
@@ -277,6 +350,16 @@ impl std::fmt::Debug for Rng {
     }
 }
 
+/// numpy's legacy generator shared along a loop (MOLUSCE's).
+#[derive(Clone)]
+pub struct NumpyRng(pub Arc<Mutex<terraflux_ls_sys::NumpyRng>>);
+
+impl std::fmt::Debug for NumpyRng {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "NumpyRng")
+    }
+}
+
 /// A value of the graph.
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -292,10 +375,13 @@ pub enum Value {
     Table(Table),
     Markov(Arc<Markov>),
     Demand(Arc<Demand>),
+    Regional(Arc<Regional>),
     Glm(Arc<GlmModel>),
     Woe(Arc<crate::woe::WoeModel>),
     Patches(Arc<PatchParams>),
     Rng(Rng),
+    /// numpy's generator (a random generator too).
+    NumpyRng(NumpyRng),
     Agents(Arc<crate::agents::Agents>),
     /// Rasters on disk, read when needed.
     Raster(Arc<crate::files::Rasters>),
@@ -317,10 +403,11 @@ impl Value {
             Value::Table(_) => Type::Table,
             Value::Markov(_) => Type::Markov,
             Value::Demand(_) => Type::Demand,
+            Value::Regional(_) => Type::Regional,
             Value::Glm(_) => Type::Glm,
             Value::Woe(_) => Type::Woe,
             Value::Patches(_) => Type::Patches,
-            Value::Rng(_) => Type::Rng,
+            Value::Rng(_) | Value::NumpyRng(_) => Type::Rng,
             Value::Agents(_) => Type::Agents,
             Value::Raster(_) => Type::Raster,
             Value::Vector(_) => Type::Vector,

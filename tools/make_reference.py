@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import sys
 import warnings
 from pathlib import Path
 
@@ -115,14 +116,14 @@ def bridge():
     drivers = {n: dr[k] for k, n in enumerate(names)}
     land_path, drv_path = "../../inputs/sibuyan_landuse.tif", "../../inputs/sibuyan_drivers.tif"
 
-    def write(case, model, drv_for_save, run_drivers, seed):
+    def write(case, model, drv_for_save, run_drivers, seed, land=None):
         d = ROOT / "bridge" / case
         shutil.rmtree(d, ignore_errors=True)
         d.mkdir(parents=True)
-        model.save(d / "model.json", land_path, drv_for_save, seed=seed)
+        model.save(d / "model.json", land_path if land is None else land, drv_for_save, seed=seed)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            maps = model.run(lu[0], run_drivers, seed=seed).maps.values[1:]
+            maps = model.run(lu[0] if land is None else land, run_drivers, seed=seed).maps.values[1:]
         profile = {"driver": "GTiff", "count": maps.shape[0], "height": maps.shape[1], "width": maps.shape[2],
                    "dtype": "uint8", "nodata": 255, "compress": "deflate"}
         with rasterio.open(d / "expected.tif", "w", **profile) as dst:
@@ -138,9 +139,83 @@ def bridge():
     model = S.Model(S.LogisticRegression().fit(lu[0], dr), S.Markov.from_maps(lu[0], lu[1], steps=14),
                     S.CARS(steps=3, step_size=20, max_iter=500))
     write("cars", model, drv_path, dr, 7)
+    # a scikit-learn estimator, written as its predictions on the start
+    from sklearn.linear_model import LogisticRegression as SkLogit
+
+    est = S.Estimator(SkLogit(max_iter=500), sample=4000, seed=1).fit(lu[0], dr)
+    model = S.Model(est, S.AreaDemand.from_maps(lu, times=[0, 14]), S.CLUE(max_diff=20, mean_diff=10),
+                    S.Rules(elasticity=0.3))
+    write("estimator", model, drv_path, dr, 9)
+    # regional demands: three regions in vertical bands, a corner of the map in none
+    shape = lu[0].shape
+    r = np.ones(shape)
+    r[:, shape[1] // 3:] = 2
+    r[:, 2 * shape[1] // 3:] = 3
+    r[: shape[0] // 4, 2 * shape[1] // 3:] = np.nan
+    regions = lu[0].copy(data=r)
+    lr = S.LogisticRegression().fit(lu[0], dr)
+    model = S.Model(lr, S.Regional.from_maps(regions, lu, times=[0, 14]), S.CLUE(max_diff=20, mean_diff=10),
+                    S.Rules(elasticity=0.3))
+    write("clue_regional", model, drv_path, dr, 11)
+    model = S.Model(lr, S.Regional.markov(regions, lu[0], lu[1], steps=14), S.CARS(steps=3, step_size=20,
+                                                                                  max_iter=500))
+    write("cars_regional", model, drv_path, dr, 12)
+    dyn = S.presets.dinamica(lu[0], lu[1], dr, steps=14, woe=250)
+    rates = {1: {(1, 2): 0.01, (3, 2): 0.02}, 2: {(1, 2): 0.03, (1, 3): 0.01}, 3: {(3, 4): 0.02, (4, 3): 0.01}}
+    alloc = S.ExpanderPatcher(expansion=0.5, expander=(4, 2, 1.5), patcher=(6, 4, 1.5), steps=5)
+    write("dinamica_regional", S.Model(dyn.potential, S.Regional(regions, rates), alloc), drv_path, dr, 13)
+    # the accumulated cost from built land over the slope, a dynamic variable
+    tr = ls.cost.geo_correction(1 / ls.cost.transition(dr.sel(band="slope").fillna(0) + 1, "mean", 8))
+    cost = S.distance_to(2, cost=tr)
+    lr = S.LogisticRegression().fit(lu[0], {**drivers, "cost_built": cost(lu[0])})
+    model = S.Model(lr, S.AreaDemand.from_maps(lu, times=[0, 14]), S.CLUE(max_diff=20, mean_diff=10),
+                    S.Rules(elasticity=0.3), dynamic={"cost_built": cost})
+    write("clue_cost", model, drv_path, dr, 14)
+    # MOLUSCE: its weights of evidence (the fitted maps; the weights on a distance that moves) and a regression
+    near = S.distance_to(2, unit="cells")
+    factors = {"elevation": drivers["elevation"], "slope": drivers["slope"], "near": near(lu[0])}
+    bins = {n: sorted({float(q) for q in np.nanpercentile(v.values, [20, 40, 60, 80])}) for n, v in factors.items()}
+    woe = S.MolusceWoE(bins=bins).fit(lu[0], lu[1], factors)
+    counts = S.crosstab(lu[0], lu[1])
+    write("molusce", S.Model(woe, counts, S.MolusceCA(iterations=3)), drv_path, dr, 15)
+    dyn = S.Model(woe, counts, S.MolusceCA(iterations=3), dynamic={"near": near})
+    write("molusce_dynamic", dyn, drv_path, dr, 16)
+    lr = S.LogisticRegression().fit(lu[0], dr)
+    write("molusce_glm", S.Model(lr, counts, S.MolusceCA(iterations=2)), drv_path, dr, 17)
+    # CLUMondo: two goods from the land systems, regressions, a neighbourhood function, random ages
+    import pandas as pd
+
+    land = lu[0].where(lu[0] != 255)  # 255: no class
+    systems = sorted({int(v) for v in np.unique(land.values[~np.isnan(land.values)])})
+    food = {1: 0.0, 2: 0.2, 3: 1.0, 4: 2.0, 5: 0.0}
+    wood = {1: 1.0, 2: 0.3, 3: 0.0, 4: 0.0, 5: 0.0}
+    sup = S.Supply(pd.DataFrame({"food": [food.get(c, 0.0) for c in systems],
+                                 "wood": [wood.get(c, 0.0) for c in systems]}, index=systems))
+    start = sup.of(land)
+    t = np.arange(7)
+    demand = S.ServiceDemand(pd.DataFrame({"food": start["food"] * 1.02 ** t, "wood": start["wood"] * 0.99 ** t}))
+    nb = S.NeighbourhoodEffect({4: {"weight": 0.5, "kernel": 1, "constant": 0.1, "coefficients": {4: 0.8}}})
+    model = S.Model(S.LogisticRegression().fit(land, dr), demand,
+                    S.CLUMondo(sup, max_deviation=1.0, mean_deviation=0.5, neighbourhood=nb),
+                    S.Rules(elasticity=[0.5] * len(systems), history=5))
+    write("clumondo", model, drv_path, dr, 18, land)
+    # FUTURES: development (class 4) grown in patches, two subregions, a potential on two drivers
+    developed = land.copy(data=np.where(np.isnan(land.values), np.nan, (land.values == 4).astype(float)))
+    halves = land.copy(data=np.where(np.arange(land.shape[1])[None, :] < land.shape[1] // 2, 1.0, 2.0)
+                       * np.ones(land.shape))
+    pot = S.DevelopmentPotential(pd.DataFrame({"intercept": [-3.0, -2.5], "devpressure": [0.05, 0.08],
+                                               "slope": [-0.02, -0.03], "elevation": [-0.001, -0.002]},
+                                              index=pd.Index([1, 2], name="subregion")))
+    demand = S.DevelopmentDemand({1: [30, 25, 40], 2: [20, 35, 15]})
+    alloc = S.PatchGrowing({1: [1, 3, 5, 8, 2], 2: [2, 4, 1, 9]}, subregions=halves, neighborhood=6,
+                           compactness_mean=0.5, compactness_range=0.2)
+    write("futures", S.Model(pot, demand, alloc), drv_path, dr, 19, developed)
 
 
 def main():
+    if sys.argv[1:] == ["bridge"]:  # only the models saved by landschaft
+        bridge()
+        return
     copy_inputs()
     dinamica()
     lulcc("clues_pie", S.CLUE(**VIGNETTE), 1, elasticity=[0.2, 0.2, 0.2])

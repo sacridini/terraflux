@@ -111,7 +111,7 @@ impl Cache {
 /// Whether a value holds a random generator, whose state changes as it is used (not to be kept).
 fn holds_rng(v: &Value) -> bool {
     match v {
-        Value::Rng(_) => true,
+        Value::Rng(_) | Value::NumpyRng(_) => true,
         Value::Series(s) => s.iter().any(holds_rng),
         _ => false,
     }
@@ -500,6 +500,19 @@ impl Engine {
             c.insert("step".into(), Value::Integer(step as i64));
             let mut child = Env { parent: Some(env), results: BTreeMap::new(), carried: c };
             self.run_scope(&body.nodes, &mut child, inputs, at, obs, warnings)?;
+            if let Some(r) = &body.until {
+                let stop = self.resolve(&Source::Ref(r.clone()), &child, inputs, &format!("{at}/until"))?;
+                match stop {
+                    Value::Bool(true) => break,
+                    Value::Bool(false) => {}
+                    v => {
+                        return Err(Error::Node {
+                            at: at.into(),
+                            message: format!("until must be a yes or no, not a {:?}", v.ty()),
+                        });
+                    }
+                }
+            }
             let mut now = BTreeMap::new();
             for (name, r) in &body.collect {
                 let v = self.resolve(&Source::Ref(r.clone()), &child, inputs, &format!("{at}/collect.{name}"))?;
@@ -573,10 +586,46 @@ mod tests {
         }
     }
 
+    /// `test.over`: x > limit.
+    struct Over;
+
+    impl Operator for Over {
+        fn signature(&self) -> OpSignature {
+            OpSignature::new("test.over", "", Access::None)
+                .input(PortSpec::new("x", Type::Number, ""))
+                .input(PortSpec::new("limit", Type::Number, ""))
+                .output(PortSpec::new("over", Type::Bool, ""))
+        }
+        fn run(&self, _ctx: &mut Ctx, a: &Args) -> OpResult<Outputs> {
+            Ok([("over".to_string(), Value::Bool(a.number("x")? > a.number("limit")?))].into())
+        }
+    }
+
     fn engine() -> Engine {
         let mut r = Registry::standard();
         r.add(Arc::new(Add));
+        r.add(Arc::new(Over));
         Engine { registry: r }
+    }
+
+    #[test]
+    fn a_loop_ends_where_until_is_true() {
+        // total = sum of steps, ending at the step that would take it over 5: steps 1 and 2 kept (3), step 3 not
+        let mut m = Model::new("t");
+        m.nodes.push(Node::new("loop", "control.repeat").literal("times", 10).literal("total", 0).body(Body {
+            nodes: vec![
+                Node::new("acc", "test.add").input("x", "@total").input("y", "@step"),
+                Node::new("stop", "test.over").input("x", "acc.sum").literal("limit", 5),
+            ],
+            carry: [("total".to_string(), "acc.sum".to_string())].into(),
+            collect: [("each".to_string(), "acc.sum".to_string())].into(),
+            until: Some("stop.over".into()),
+            ..Default::default()
+        }));
+        let r = engine().run(&m, &BTreeMap::new(), &mut Quiet).unwrap();
+        assert_eq!(r.get("loop.total").unwrap().as_number(), Some(3.0));
+        let Value::Series(s) = r.get("loop.each").unwrap() else { panic!() };
+        assert_eq!(s.len(), 2);
     }
 
     #[test]

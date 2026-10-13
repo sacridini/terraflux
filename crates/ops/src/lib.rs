@@ -16,6 +16,7 @@ pub mod actions;
 pub mod agents;
 pub mod algebra;
 pub mod change;
+pub mod clumondo;
 pub mod crafty;
 pub mod demand;
 pub mod dinamica;
@@ -23,6 +24,7 @@ pub mod dynamic;
 pub mod files;
 pub mod fitted;
 pub mod fragmentation;
+pub mod futures;
 pub mod glm;
 pub mod gtb_palettes;
 pub mod gtn;
@@ -33,6 +35,7 @@ pub mod lulcc;
 pub mod markov;
 pub mod metrics;
 pub mod milp;
+pub mod molusce;
 pub mod mspa_tiled;
 pub mod nlm;
 pub mod planner;
@@ -169,6 +172,13 @@ impl Args<'_> {
         }
     }
 
+    pub fn regional(&self, port: &str) -> Result<&Arc<value::Regional>> {
+        match self.get(port).ok_or_else(|| self.missing(port))? {
+            Value::Regional(m) => Ok(m),
+            v => Err(self.wrong(port, "regional demand", v)),
+        }
+    }
+
     pub fn glm(&self, port: &str) -> Result<&Arc<GlmModel>> {
         match self.get(port).ok_or_else(|| self.missing(port))? {
             Value::Glm(m) => Ok(m),
@@ -194,6 +204,13 @@ impl Args<'_> {
         match self.get(port).ok_or_else(|| self.missing(port))? {
             Value::Rng(r) => Ok(r),
             v => Err(self.wrong(port, "random generator", v)),
+        }
+    }
+
+    pub fn numpy_rng(&self, port: &str) -> Result<&value::NumpyRng> {
+        match self.get(port).ok_or_else(|| self.missing(port))? {
+            Value::NumpyRng(r) => Ok(r),
+            v => Err(self.wrong(port, "numpy generator (rng.numpy)", v)),
         }
     }
 
@@ -246,9 +263,11 @@ impl Registry {
         agents::register(&mut r);
         algebra::register(&mut r);
         change::register(&mut r);
+        clumondo::register(&mut r);
         crafty::register(&mut r);
         markov::register(&mut r);
         metrics::register(&mut r);
+        molusce::register(&mut r);
         nlm::register(&mut r);
         demand::register(&mut r);
         glm::register(&mut r);
@@ -259,6 +278,7 @@ impl Registry {
         files::register(&mut r);
         fitted::register(&mut r);
         fragmentation::register(&mut r);
+        futures::register(&mut r);
         landscape::register(&mut r);
         mspa_tiled::register(&mut r);
         plus::register(&mut r);

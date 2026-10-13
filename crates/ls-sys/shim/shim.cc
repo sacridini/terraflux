@@ -18,6 +18,10 @@
 #endif
 #include <vector>
 
+#include "cost/shortest.hpp"
+#include "sim/clumondo.hpp"
+#include "sim/futures.hpp"
+#include "cost/transition.hpp"
 #include "gtb/accounting.hpp"
 #include "gtb/change.hpp"
 #include "gtb/contagion.hpp"
@@ -1604,6 +1608,342 @@ ObservedPatches observed_patches(rust::Slice<const double> a, rust::Slice<const 
     const auto r = sim::observed_patches(a.data(), b.data(), ny, nx, from, to);
     return ObservedPatches{r.cells, r.expansion, r.expansion_patches, r.expansion_mean, r.expansion_variance,
                            r.new_patches, r.new_mean, r.new_variance};
+}
+
+// simulate bridge (landschaft-bb)
+
+rust::Vec<double> cost_accumulated(rust::Slice<const double> values, std::int64_t ny, std::int64_t nx, double xmin,
+                                   double xmax, double ymin, double ymax, bool wrap, std::int32_t directions,
+                                   bool symmetric, rust::Slice<const std::int64_t> sources) {
+    check(directions == 4 || directions == 8 || directions == 16, "directions must be 4, 8 or 16");
+    check(ny > 0 && nx > 0, "the grid is empty");
+    cost::Grid g;
+    g.ny = ny;
+    g.nx = nx;
+    g.xmin = xmin;
+    g.xmax = xmax;
+    g.ymin = ymin;
+    g.ymax = ymax;
+    g.wrap = wrap;
+    const auto n_dirs = static_cast<std::int64_t>(cost::offsets(directions, symmetric).size());
+    check(static_cast<std::int64_t>(values.size()) == n_dirs * g.ncell(),
+          "the transition's values do not match the grid and directions");
+    std::vector<std::int64_t> src(sources.begin(), sources.end());
+    for (const auto c : src) check(c >= 0 && c < g.ncell(), "a source cell is outside the grid");
+    const cost::Layout t{&g, directions, symmetric, values.data()};
+    return to_rust<double>(cost::accumulated_cost(t, src));
+}
+
+std::unique_ptr<sim::NumpyRandomState> numpy_rng_new(std::uint32_t seed) {
+    return std::make_unique<sim::NumpyRandomState>(seed);
+}
+
+rust::Vec<double> numpy_rng_random_sample(sim::NumpyRandomState& rng, std::size_t n) {
+    rust::Vec<double> out;
+    out.reserve(n);
+    for (std::size_t i = 0; i < n; ++i) out.push_back(rng.random_sample());
+    return out;
+}
+
+rust::Vec<double> molusce_categories(rust::Slice<const double> values, rust::Slice<const double> bounds) {
+    std::vector<double> b(bounds.begin(), bounds.end());
+    check(std::is_sorted(b.begin(), b.end()), "the bounds must be sorted");
+    return to_rust<double>(sim::molusce_categories(values.data(), static_cast<std::int64_t>(values.size()), b));
+}
+
+rust::Vec<double> molusce_total(rust::Slice<const double> factors, std::int32_t nf, std::int64_t n,
+                                rust::Slice<const MolusceFactor> weights) {
+    check(nf > 0 && n >= 0 && static_cast<std::int64_t>(factors.size()) == std::int64_t{nf} * n,
+          "the factors must be factors x cells");
+    check(weights.size() % static_cast<std::size_t>(nf) == 0, "the weights must be codes x factors");
+    std::vector<std::vector<sim::MolusceFactorWeights>> w(weights.size() / static_cast<std::size_t>(nf));
+    for (std::size_t k = 0; k < weights.size(); ++k) {
+        const auto& x = weights[k];
+        check(x.categories.size() == x.weights.size(), "one weight per category");
+        w[k / static_cast<std::size_t>(nf)].push_back(
+            {std::vector<double>(x.categories.begin(), x.categories.end()),
+             std::vector<double>(x.weights.begin(), x.weights.end())});
+    }
+    return to_rust<double>(sim::molusce_total(factors.data(), nf, n, w));
+}
+
+MolusceForecastOut molusce_prediction_woe(rust::Slice<const double> state, rust::Slice<const double> classes,
+                                          rust::Slice<const std::int64_t> codes, rust::Slice<const double> totals) {
+    const auto n = static_cast<std::int64_t>(state.size());
+    check(static_cast<std::int64_t>(totals.size()) == static_cast<std::int64_t>(codes.size()) * n,
+          "the totals must be codes x cells");
+    const auto f = sim::molusce_prediction_woe(state.data(), n, std::vector<double>(classes.begin(), classes.end()),
+                                               std::vector<std::int64_t>(codes.begin(), codes.end()), totals.data());
+    return MolusceForecastOut{to_rust<double>(f.prediction), to_rust<double>(f.confidence)};
+}
+
+MolusceForecastOut molusce_prediction_classes(rust::Slice<const double> state, rust::Slice<const double> layers,
+                                              rust::Slice<const double> classes) {
+    const auto n = static_cast<std::int64_t>(state.size());
+    const auto m = static_cast<int>(classes.size());
+    check(static_cast<std::int64_t>(layers.size()) == std::int64_t{m} * n, "the layers must be classes x cells");
+    const auto f = sim::molusce_prediction_classes(state.data(), n, m, layers.data(),
+                                                   std::vector<double>(classes.begin(), classes.end()));
+    return MolusceForecastOut{to_rust<double>(f.prediction), to_rust<double>(f.confidence)};
+}
+
+MolusceStepOut molusce_ca_step(rust::Slice<const double> state, rust::Slice<const double> prediction,
+                               rust::Slice<const double> confidence, rust::Slice<const MolusceChange> counts,
+                               sim::NumpyRandomState& rng) {
+    check(prediction.size() == state.size() && confidence.size() == state.size(),
+          "the prediction and confidence differ in size from the state");
+    std::vector<sim::MolusceTransition> c;
+    for (const auto& x : counts) c.push_back({x.from, x.to, x.cells});
+    const auto r = sim::molusce_ca_step(state.data(), static_cast<std::int64_t>(state.size()), prediction.data(),
+                                        confidence.data(), c, rng);
+    MolusceStepOut out{to_rust<double>(r.state), {}};
+    for (const auto& x : r.changed) out.changed.push_back(MolusceChange{x.from, x.to, x.cells});
+    return out;
+}
+
+ClumondoYearOut clumondo_year(const ClumondoSettingsIn& in, rust::Slice<const std::int32_t> oldco,
+                              rust::Slice<const std::int32_t> region, rust::Slice<const std::int32_t> age,
+                              rust::Slice<const float> suit, rust::Slice<const float> allow_maps,
+                              rust::Slice<const double> demand, rust::Slice<const float> dem_elas) {
+    const auto ncell = static_cast<std::int64_t>(oldco.size());
+    const int nsys = in.nsys, ndem = in.ndem;
+    const auto ns = static_cast<std::size_t>(nsys), nd = static_cast<std::size_t>(ndem);
+    check(nsys > 0 && ndem > 0, "no land systems or no demands");
+    check(region.size() == oldco.size() && age.size() == oldco.size(), "region and age must match the map");
+    check(static_cast<std::int64_t>(suit.size()) == std::int64_t{nsys} * ncell, "suit must be systems x cells");
+    check(in.allowed.size() == ns * ns, "allowed must be systems x systems");
+    check(in.lusconv.size() == ns * nd && in.lusmatrix.size() == ns * nd, "lusconv and lusmatrix: systems x demands");
+    check(in.weight.size() == nd && in.resistance.size() == ns, "a weight per demand and a resistance per system");
+    check(demand.size() == nd && dem_elas.size() == nd, "one demand per demand type");
+    check(ncell == 0 || allow_maps.size() % static_cast<std::size_t>(ncell) == 0, "allow maps: maps x cells");
+    sim::ClumondoSettings st;
+    st.nsys = nsys;
+    st.ndem = ndem;
+    st.allowed.assign(in.allowed.begin(), in.allowed.end());
+    st.lusconv.assign(in.lusconv.begin(), in.lusconv.end());
+    st.lusmatrix.assign(in.lusmatrix.begin(), in.lusmatrix.end());
+    st.weight.assign(in.weight.begin(), in.weight.end());
+    st.resistance.assign(in.resistance.begin(), in.resistance.end());
+    st.itermode = in.itermode;
+    st.mean_dev = in.mean_dev;
+    st.max_dev = in.max_dev;
+    st.speed = in.speed;
+    st.max_loops = in.max_loops;
+    if (!in.kind.empty()) {
+        check(in.kind.size() == nd, "one demand type per demand");
+        st.kind.assign(in.kind.begin(), in.kind.end());
+    }
+    if (!in.dev_limit.empty()) {
+        check(in.dev_limit.size() == nd, "one deviation per demand");
+        st.dev_limit.assign(in.dev_limit.begin(), in.dev_limit.end());
+    }
+    st.nx = in.nx;
+    if (!in.patch_radius.empty()) {
+        check(in.patch_radius.size() == ns && in.patch_threshold.size() == ns && in.patch_min.size() == ns,
+              "patch settings: one per land system");
+        st.patch_radius.assign(in.patch_radius.begin(), in.patch_radius.end());
+        st.patch_threshold.assign(in.patch_threshold.begin(), in.patch_threshold.end());
+        st.patch_min.assign(in.patch_min.begin(), in.patch_min.end());
+    }
+    if (!in.pair_resistance.empty()) {
+        check(in.pair_resistance.size() == ns * ns, "pair_resistance must be systems x systems");
+        st.pair_resistance.assign(in.pair_resistance.begin(), in.pair_resistance.end());
+    }
+    check(in.cap_pairs.size() == in.cap_cells.size() * ns * ns, "cap_pairs must be caps x systems x systems");
+    for (std::size_t k = 0; k < in.cap_cells.size(); ++k) {
+        st.cap_pairs.emplace_back(in.cap_pairs.begin() + static_cast<std::ptrdiff_t>(k * ns * ns),
+                                  in.cap_pairs.begin() + static_cast<std::ptrdiff_t>((k + 1) * ns * ns));
+        st.cap_cells.push_back(in.cap_cells[k]);
+    }
+    std::vector<float> elas(dem_elas.begin(), dem_elas.end());
+    const int nmap = ncell ? static_cast<int>(allow_maps.size() / static_cast<std::size_t>(ncell)) : 0;
+    const auto r = sim::clumondo_year(st, ncell, oldco.data(), region.data(), age.data(), suit.data(),
+                                      allow_maps.data(), nmap, demand.data(), elas.data());
+    return ClumondoYearOut{to_rust<std::int32_t>(r.newco), to_rust<std::int32_t>(r.age), to_rust<double>(r.supply),
+                           to_rust<std::int64_t>(r.cells), r.loops, r.converged, r.max_diff, r.mean_diff,
+                           to_rust<float>(elas)};
+}
+
+rust::Vec<float> clumondo_logit(rust::Slice<const std::int32_t> region, rust::Slice<const float> x, double constant,
+                                rust::Slice<const float> coef) {
+    const auto ncell = static_cast<std::int64_t>(region.size());
+    check(static_cast<std::int64_t>(x.size()) == static_cast<std::int64_t>(coef.size()) * ncell,
+          "x must be drivers x cells");
+    return to_rust<float>(sim::clumondo_logit(ncell, region.data(), x.data(), static_cast<int>(coef.size()),
+                                              constant, coef.data()));
+}
+
+rust::Vec<float> clumondo_add_neighbourhood(rust::Slice<const float> suit, std::int64_t ny, std::int64_t nx,
+                                            rust::Slice<const std::int32_t> oldco,
+                                            rust::Slice<const std::int32_t> region,
+                                            rust::Slice<const ClumondoNbIn> parts) {
+    const std::int64_t ncell = ny * nx;
+    check(static_cast<std::int64_t>(oldco.size()) == ncell && region.size() == oldco.size(),
+          "oldco and region must be ny x nx");
+    check(ncell > 0 && static_cast<std::int64_t>(suit.size()) % ncell == 0, "suit must be systems x cells");
+    const int nsys = static_cast<int>(static_cast<std::int64_t>(suit.size()) / ncell);
+    std::vector<sim::ClumondoNeighbourhood> nb;
+    for (const auto& p : parts) {
+        check(p.coef_systems.size() == p.coef_values.size(), "a coefficient per system");
+        sim::ClumondoNeighbourhood x;
+        x.system = p.system;
+        x.weight = p.weight;
+        x.kernel.assign(p.kernel.begin(), p.kernel.end());
+        x.radius = p.radius;
+        x.from.assign(p.from.begin(), p.from.end());
+        x.constant = p.constant;
+        for (std::size_t k = 0; k < p.coef_systems.size(); ++k) x.coefficients.emplace_back(p.coef_systems[k], p.coef_values[k]);
+        nb.push_back(std::move(x));
+    }
+    std::vector<float> out(suit.begin(), suit.end());
+    sim::clumondo_add_neighbourhood(out.data(), nsys, ny, nx, oldco.data(), region.data(), nb);
+    return to_rust<float>(out);
+}
+
+rust::Vec<float> clumondo_add_preference(rust::Slice<const float> row, rust::Slice<const std::int32_t> region,
+                                         rust::Slice<const float> values, float weight) {
+    check(region.size() == row.size() && values.size() == row.size(), "the preference differs in size from the map");
+    std::vector<float> out(row.begin(), row.end());
+    sim::clumondo_add_preference(out.data(), static_cast<std::int64_t>(out.size()), region.data(), values.data(),
+                                 weight);
+    return to_rust<float>(out);
+}
+
+rust::Vec<std::int32_t> clumondo_random_age(std::int64_t ncell, std::int32_t max_age, std::uint32_t seed) {
+    return to_rust<std::int32_t>(sim::clumondo_random_age(ncell, max_age, seed));
+}
+
+namespace {
+
+template <typename T, typename U>
+std::vector<T> to_std(const rust::Vec<U>& v) {
+    return std::vector<T>(v.begin(), v.end());
+}
+
+// k maps of n cells from a flat vector
+std::vector<std::vector<float>> split_maps(const rust::Vec<float>& v, std::size_t n) {
+    std::vector<std::vector<float>> out;
+    for (std::size_t i = 0; n && i + n <= v.size(); i += n) out.emplace_back(v.begin() + i, v.begin() + i + n);
+    return out;
+}
+
+}  // namespace
+
+FuturesOut futures_run(const FuturesIn& in, const FuturesClimateIn& c, rust::Slice<const std::int32_t> developed,
+                       rust::Slice<const std::int32_t> region, rust::Slice<const std::int32_t> pot_region,
+                       rust::Slice<const float> devpressure, rust::Slice<const float> aggregated,
+                       rust::Slice<const float> weight, rust::Slice<const std::int32_t> zone) {
+    const std::int64_t n = in.rows * in.cols;
+    const auto un = static_cast<std::size_t>(n);
+    check(n > 0 && developed.size() == un && region.size() == un && devpressure.size() == un &&
+              aggregated.size() == un,
+          "the maps differ in size from rows x cols");
+    check(pot_region.empty() || pot_region.size() == un, "the potential subregions differ in size");
+    check(weight.empty() || weight.size() == un, "the weight differs in size");
+    check(zone.empty() || zone.size() == un, "the zoning differs in size");
+    check(!in.patch_offsets.empty() && in.patch_offsets.back() == static_cast<std::int32_t>(in.patch_sizes.size()),
+          "the patch offsets must end at the number of patch sizes");
+    sim::FuturesSettings s;
+    s.rows = in.rows;
+    s.cols = in.cols;
+    s.nregions = in.nregions;
+    s.npot = in.npot;
+    s.intercept = to_std<double>(in.intercept);
+    s.devpressure_coef = to_std<double>(in.devpressure_coef);
+    s.neighborhood = in.neighborhood;
+    s.approach = in.approach;
+    s.gamma = in.gamma;
+    s.scaling = in.scaling;
+    for (std::size_t k = 0; k + 1 < in.patch_offsets.size(); ++k)
+        s.patch_sizes.emplace_back(in.patch_sizes.begin() + in.patch_offsets[k],
+                                   in.patch_sizes.begin() + in.patch_offsets[k + 1]);
+    s.single_column = in.single_column;
+    s.max_patch_size = 1;
+    for (const auto& v : s.patch_sizes)
+        for (int x : v) s.max_patch_size = std::max(s.max_patch_size, x);
+    s.compactness_mean = in.compactness_mean;
+    s.compactness_range = in.compactness_range;
+    s.num_neighbors = in.num_neighbors;
+    s.seed_probability = in.seed_probability;
+    s.incentive = to_std<float>(in.incentive);
+    s.use_zone = !zone.empty();
+    s.user_effects = in.user_effects;
+    s.zone_ids = to_std<int>(in.zone_ids);
+    s.zone_regions = to_std<int>(in.zone_regions);
+    s.zone_effects = to_std<float>(in.zone_effects);
+    s.stringency = to_std<float>(in.stringency);
+    s.use_weight = !weight.empty();
+    s.demand = to_std<float>(in.demand);
+    s.nsteps = in.nsteps;
+    s.seed = in.seed;
+    sim::FuturesClimate cl;
+    if (c.present) {
+        cl.depth_mode = c.depth_mode;
+        cl.huc = to_std<int>(c.huc);
+        cl.nhuc = c.nhuc;
+        cl.huc_ids = to_std<int>(c.huc_ids);
+        cl.flood_steps = to_std<int>(c.flood_steps);
+        if (cl.depth_mode) {
+            cl.probabilities = to_std<float>(c.probabilities);
+            const std::size_t per = cl.probabilities.size() * un;
+            check(per > 0 && c.depths.size() == per * cl.flood_steps.size(), "depths: steps x probabilities x cells");
+            for (std::size_t k = 0; k < cl.flood_steps.size(); ++k) {
+                rust::Vec<float> part;
+                for (std::size_t i = k * per; i < (k + 1) * per; ++i) part.push_back(c.depths[i]);
+                cl.depths.push_back(split_maps(part, un));
+            }
+        } else {
+            cl.flood_probability = split_maps(c.flood_probability, un);
+            cl.hand = to_std<float>(c.hand);
+            cl.percentile = c.percentile;
+        }
+        cl.adaptive_capacity = to_std<float>(c.adaptive_capacity);
+        cl.adaptation = to_std<int>(c.adaptation);
+        cl.levels = to_std<double>(c.levels);
+        const std::size_t nl = cl.levels.size();
+        check(nl > 0 && c.damage.size() % nl == 0, "damage: regions x levels");
+        for (std::size_t i = 0; i < c.damage.size(); i += nl)
+            cl.damage.emplace_back(c.damage.begin() + i, c.damage.begin() + i + nl);
+        cl.ddf_region = to_std<int>(c.ddf_region);
+        check(c.response.size() == 4, "the response is four numbers");
+        cl.vulnerability_a = c.response[0];
+        cl.vulnerability_b = c.response[1];
+        cl.resilience_a = c.response[2];
+        cl.resilience_b = c.response[3];
+        cl.stddev = c.stddev;
+        cl.has_matrix = c.has_matrix;
+        if (cl.has_matrix) {
+            cl.from_ids = to_std<int>(c.from_ids);
+            cl.to_ids = to_std<int>(c.to_ids);
+            const std::size_t nt = cl.to_ids.size();
+            check(c.matrix.size() == cl.from_ids.size() * nt, "the redistribution matrix: from x to");
+            for (std::size_t i = 0; i < cl.from_ids.size(); ++i)
+                cl.matrix.emplace_back(c.matrix.begin() + i * nt, c.matrix.begin() + (i + 1) * nt);
+            cl.population = to_std<float>(c.population);
+        }
+        cl.region_ids = to_std<int>(c.region_ids);
+        check(cl.huc.size() == un && cl.ddf_region.size() == un && cl.adaptive_capacity.size() == un,
+              "the climate maps differ in size");
+        s.climate = &cl;
+    }
+    const auto r = sim::futures_run(s, developed.data(), region.data(), pot_region.empty() ? nullptr : pot_region.data(),
+                                    devpressure.data(), aggregated.data(), weight.empty() ? nullptr : weight.data(),
+                                    zone.empty() ? nullptr : zone.data());
+    FuturesOut out;
+    for (const auto& m : r.series)
+        for (const int x : m) out.series.push_back(x);
+    for (const auto& m : r.adaptation)
+        for (const int x : m) out.adaptation.push_back(x);
+    out.converted = to_rust<std::int64_t>(r.converted);
+    out.overflow = to_rust<std::int64_t>(r.overflow);
+    out.warnings = to_rust<std::int32_t>(r.warnings);
+    out.flood_steps = to_rust<std::int32_t>(r.flood_steps);
+    out.flood_hucs = to_rust<std::int32_t>(r.flood_hucs);
+    out.flood_probabilities = to_rust<float>(r.flood_probabilities);
+    for (const auto& m : r.moved)
+        for (const float x : m) out.moved.push_back(x);
+    out.demand = to_rust<float>(r.demand);
+    return out;
 }
 
 }  // namespace tfx

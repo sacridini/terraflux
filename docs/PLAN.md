@@ -304,7 +304,8 @@ Desvios do plano:
   - no Terraflux, modelos gravados pelo landschaft batem com os mapas dele.
 
 Pendências movidas para depois da fase 3: demandas regionais, CLUMondo, FUTURES, MOLUSCE, distâncias de custo,
-e o potencial de estimadores do scikit-learn (hoje exportado como raster de previsões).
+e o potencial de estimadores do scikit-learn (hoje exportado como raster de previsões). Feitas no branch
+`simulate-bridge` (ver "A ponte do ls.simulate completa").
 
 ### Fase 3 — feita (Terraflux 0.3.0, 2026-10-10)
 
@@ -575,11 +576,18 @@ Pendências:
   `vector.rasterize` um mapa deles), box plots por grupo e o círculo de correlações do PCA nos gráficos, e as
   manchas de um raster em disco gravadas bloco a bloco (`patches_path`, o `RowsWriter`).
 - **Próximos (2026-10-13):** vetores sobre os mapas no viewer (rápido para camadas grandes), extract, buffers,
-  recortes e uniões; as pendências do viewer e do builder no IDEAS.md; os instaladores de macOS e Linux; as pendências do prioritizr (polígonos com zonas, unidades H3); a ponte do
-  ls.simulate (demandas regionais, CLUMondo, FUTURES, MOLUSCE), em andamento num branch próprio.
+  recortes e uniões; as pendências do viewer e do builder no IDEAS.md; os instaladores de macOS e Linux; as pendências do prioritizr (polígonos com zonas, unidades H3).
+
+- **A ponte do ls.simulate completa (branch `simulate-bridge`, 2026-10-13):** todo modelo do `ls.simulate` vai pelo
+  `Model.save` e roda no Terraflux com os mesmos bits. Estimadores e outros potenciais sem forma fechada como
+  previsões (`stack.classes`); demandas regionais (`demand.regional`, tipo `Regional`, nos passos do CLUE-S,
+  ordenado, CARS e Expander/Patcher); `distance_to` com custo (o `accCost` do `costcore`); MOLUSCE (`rng.numpy`,
+  `molusce.total`, `molusce.step`); CLUMondo (`clumondo.ages`, `clumondo.step`; o ano sem solução encerra o laço
+  pelo `until` novo do `control.repeat`); FUTURES com enchentes (`futures.simulation`). O que era numpy no
+  landschaft foi para o C++ dele (`sim/molusce.cpp`, a vizinhança e as preferências do CLUMondo). Os casos de
+  `tests/data/bridge` saem do `tools/make_reference.py bridge`.
 
 Pendências gerais, depois das fases:
-- regiões e demandas regionais, CLUMondo, FUTURES e MOLUSCE no Terraflux;
 - reprojeção (PROJ), vetores e distâncias com um clique;
 - editor de legenda, gráficos editáveis do WoE e assistente de análise das mudanças;
 - motor por tiles para os outros modelos, variáveis dinâmicas, álgebra de mapas e agentes, além de Zarr/COG;

@@ -541,6 +541,161 @@ pub mod ffi {
         new_variance: f64,
     }
 
+    // simulate bridge (landschaft-bb): MOLUSCE
+    #[derive(Debug, Clone, PartialEq)]
+    struct MolusceForecastOut {
+        prediction: Vec<f64>,
+        confidence: Vec<f64>,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    struct MolusceChange {
+        from: f64,
+        to: f64,
+        cells: i64,
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct MolusceStepOut {
+        state: Vec<f64>,
+        changed: Vec<MolusceChange>,
+    }
+
+    /// CLUMondo's settings of a run (landschaft's `ClumondoSettings`; empty vectors for the extensions not used).
+    #[derive(Debug, Clone, PartialEq, Default)]
+    struct ClumondoSettingsIn {
+        nsys: i32,
+        ndem: i32,
+        allowed: Vec<i32>,
+        lusconv: Vec<i32>,
+        lusmatrix: Vec<f32>,
+        weight: Vec<f32>,
+        resistance: Vec<f32>,
+        itermode: i32,
+        mean_dev: f32,
+        max_dev: f32,
+        speed: f32,
+        max_loops: i32,
+        kind: Vec<i32>,
+        dev_limit: Vec<f32>,
+        nx: i64,
+        patch_radius: Vec<i32>,
+        patch_threshold: Vec<f32>,
+        patch_min: Vec<i32>,
+        pair_resistance: Vec<f32>,
+        cap_pairs: Vec<u8>,
+        cap_cells: Vec<i64>,
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct ClumondoYearOut {
+        newco: Vec<i32>,
+        age: Vec<i32>,
+        supply: Vec<f64>,
+        cells: Vec<i64>,
+        loops: i32,
+        converged: bool,
+        max_diff: f32,
+        mean_diff: f32,
+        dem_elas: Vec<f32>,
+    }
+
+    /// FUTURES' settings (landschaft's `FuturesSettings`); the patch libraries flat, `patch_offsets` where each
+    /// starts (and the end).
+    #[derive(Debug, Clone, PartialEq, Default)]
+    struct FuturesIn {
+        rows: i64,
+        cols: i64,
+        nregions: i32,
+        npot: i32,
+        intercept: Vec<f64>,
+        devpressure_coef: Vec<f64>,
+        neighborhood: i32,
+        approach: i32,
+        gamma: f32,
+        scaling: f32,
+        patch_sizes: Vec<i32>,
+        patch_offsets: Vec<i32>,
+        single_column: bool,
+        compactness_mean: f32,
+        compactness_range: f32,
+        num_neighbors: i32,
+        seed_probability: bool,
+        incentive: Vec<f32>,
+        user_effects: bool,
+        zone_ids: Vec<i32>,
+        zone_regions: Vec<i32>,
+        zone_effects: Vec<f32>,
+        stringency: Vec<f32>,
+        demand: Vec<f32>,
+        nsteps: i32,
+        seed: i64,
+    }
+
+    /// FUTURES' flood submodel (landschaft's `FuturesClimate`), maps flat (`present` false: none).
+    #[derive(Debug, Clone, PartialEq, Default)]
+    struct FuturesClimateIn {
+        present: bool,
+        depth_mode: bool,
+        huc: Vec<i32>,
+        nhuc: i32,
+        huc_ids: Vec<i32>,
+        flood_steps: Vec<i32>,
+        probabilities: Vec<f32>,
+        depths: Vec<f32>,
+        flood_probability: Vec<f32>,
+        hand: Vec<f32>,
+        percentile: f32,
+        adaptive_capacity: Vec<f32>,
+        adaptation: Vec<i32>,
+        levels: Vec<f64>,
+        damage: Vec<f64>,
+        ddf_region: Vec<i32>,
+        response: Vec<f32>,
+        stddev: f32,
+        has_matrix: bool,
+        from_ids: Vec<i32>,
+        to_ids: Vec<i32>,
+        matrix: Vec<f32>,
+        population: Vec<f32>,
+        region_ids: Vec<i32>,
+    }
+
+    /// A FUTURES run: the developed codes after each step (flat), cells per step and region, the floods.
+    #[derive(Debug, Clone, PartialEq, Default)]
+    struct FuturesOut {
+        series: Vec<i32>,
+        converted: Vec<i64>,
+        overflow: Vec<i64>,
+        warnings: Vec<i32>,
+        adaptation: Vec<i32>,
+        flood_steps: Vec<i32>,
+        flood_hucs: Vec<i32>,
+        flood_probabilities: Vec<f32>,
+        moved: Vec<f32>,
+        demand: Vec<f32>,
+    }
+
+    /// A neighbourhood function of CLUMondo (landschaft's `ClumondoNeighbourhood`).
+    #[derive(Debug, Clone, PartialEq)]
+    struct ClumondoNbIn {
+        system: i32,
+        weight: f32,
+        kernel: Vec<f32>,
+        radius: i32,
+        from: Vec<u8>,
+        constant: f32,
+        coef_systems: Vec<i32>,
+        coef_values: Vec<f32>,
+    }
+
+    /// The weights of one transition code for one factor (MOLUSCE's weights of evidence).
+    #[derive(Debug, Clone, PartialEq)]
+    struct MolusceFactor {
+        categories: Vec<f64>,
+        weights: Vec<f64>,
+    }
+
     unsafe extern "C++" {
         include!("terraflux-ls-sys/shim/shim.h");
 
@@ -1062,6 +1217,78 @@ pub mod ffi {
         fn similarity(a: &[i32], b: &[i32], ny: i64, nx: i64, window: i32, exponential: bool) -> Result<SimilarityOut>;
         fn observed_patches(a: &[f64], b: &[f64], ny: i64, nx: i64, from: f64, to: f64) -> Result<ObservedPatches>;
 
+        // simulate bridge (landschaft-bb)
+        #[allow(clippy::too_many_arguments)]
+        fn cost_accumulated(
+            values: &[f64],
+            ny: i64,
+            nx: i64,
+            xmin: f64,
+            xmax: f64,
+            ymin: f64,
+            ymax: f64,
+            wrap: bool,
+            directions: i32,
+            symmetric: bool,
+            sources: &[i64],
+        ) -> Result<Vec<f64>>;
+
+        /// numpy's legacy RandomState seeded with an integer (MOLUSCE's numpy.random.seed).
+        #[namespace = "sim"]
+        type NumpyRandomState;
+        fn numpy_rng_new(seed: u32) -> UniquePtr<NumpyRandomState>;
+        fn numpy_rng_random_sample(rng: Pin<&mut NumpyRandomState>, n: usize) -> Vec<f64>;
+        fn molusce_categories(values: &[f64], bounds: &[f64]) -> Result<Vec<f64>>;
+        fn molusce_total(factors: &[f64], nf: i32, n: i64, weights: &[MolusceFactor]) -> Result<Vec<f64>>;
+        fn molusce_prediction_woe(
+            state: &[f64],
+            classes: &[f64],
+            codes: &[i64],
+            totals: &[f64],
+        ) -> Result<MolusceForecastOut>;
+        fn molusce_prediction_classes(state: &[f64], layers: &[f64], classes: &[f64]) -> Result<MolusceForecastOut>;
+        fn molusce_ca_step(
+            state: &[f64],
+            prediction: &[f64],
+            confidence: &[f64],
+            counts: &[MolusceChange],
+            rng: Pin<&mut NumpyRandomState>,
+        ) -> Result<MolusceStepOut>;
+        #[allow(clippy::too_many_arguments)]
+        fn clumondo_year(
+            s: &ClumondoSettingsIn,
+            oldco: &[i32],
+            region: &[i32],
+            age: &[i32],
+            suit: &[f32],
+            allow_maps: &[f32],
+            demand: &[f64],
+            dem_elas: &[f32],
+        ) -> Result<ClumondoYearOut>;
+        fn clumondo_logit(region: &[i32], x: &[f32], constant: f64, coef: &[f32]) -> Result<Vec<f32>>;
+        fn clumondo_add_neighbourhood(
+            suit: &[f32],
+            ny: i64,
+            nx: i64,
+            oldco: &[i32],
+            region: &[i32],
+            parts: &[ClumondoNbIn],
+        ) -> Result<Vec<f32>>;
+        fn clumondo_add_preference(row: &[f32], region: &[i32], values: &[f32], weight: f32) -> Result<Vec<f32>>;
+        fn clumondo_random_age(ncell: i64, max_age: i32, seed: u32) -> Result<Vec<i32>>;
+        #[allow(clippy::too_many_arguments)]
+        fn futures_run(
+            s: &FuturesIn,
+            climate: &FuturesClimateIn,
+            developed: &[i32],
+            region: &[i32],
+            pot_region: &[i32],
+            devpressure: &[f32],
+            aggregated: &[f32],
+            weight: &[f32],
+            zone: &[i32],
+        ) -> Result<FuturesOut>;
+
         // out-of-core landscapes (tiles)
 
         /// landschaft's out-of-core landscape: a raster labelled block by block of rows (a multiple of 64), the
@@ -1144,7 +1371,9 @@ pub mod ffi {
 }
 
 pub use ffi::{
-    CarsOut, CluesOut, GlmFit, NbRule, ObservedPatches, OrderedOut, PatchOut, PatchSpec, SimilarityOut, WoeWeights,
+    CarsOut, CluesOut, ClumondoNbIn, ClumondoSettingsIn, ClumondoYearOut, FuturesClimateIn, FuturesIn, FuturesOut,
+    GlmFit, MolusceChange, MolusceFactor, MolusceForecastOut, MolusceStepOut, NbRule, ObservedPatches, OrderedOut,
+    PatchOut, PatchSpec, SimilarityOut, WoeWeights,
 };
 
 /// The threads Terraflux uses: never every core of the machine (all but one by default).
@@ -1198,6 +1427,27 @@ pub mod threads {
         crate::ffi::set_threads(n.clamp(1, most()) as i32);
     }
 }
+
+/// numpy's legacy generator after `numpy.random.seed(seed)` (MOLUSCE's).
+pub struct NumpyRng(cxx::UniquePtr<ffi::NumpyRandomState>);
+
+impl NumpyRng {
+    pub fn new(seed: u32) -> Self {
+        NumpyRng(ffi::numpy_rng_new(seed))
+    }
+
+    /// `random_sample(n)`: numbers in [0, 1).
+    pub fn random_sample(&mut self, n: usize) -> Vec<f64> {
+        ffi::numpy_rng_random_sample(self.0.pin_mut(), n)
+    }
+
+    pub fn pin_mut(&mut self) -> std::pin::Pin<&mut ffi::NumpyRandomState> {
+        self.0.pin_mut()
+    }
+}
+
+// SAFETY: the generator is plain state, used by one thread at a time (behind a lock)
+unsafe impl Send for NumpyRng {}
 
 /// R's generator after `set.seed(seed)`.
 pub struct RRng(cxx::UniquePtr<ffi::RRng>);
