@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-10-13
+
 ### Added
 - Biodiverse's cluster analysis and region grower (landschaft's bio module): `bio.cluster` (groups joined by
   the dissimilarity of their labels: Sorenson, Jaccard and S2 directly, Bray-Curtis, the phylogenetic ones and
