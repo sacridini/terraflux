@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-10-13
+
 ### Added
 - Vector layers over the maps in the viewer ("Vectors over the map": any vector of the run, reprojected to the
   map, in a colour or coloured by an attribute, polygons filled as asked), and vectors alone drawn the same way
