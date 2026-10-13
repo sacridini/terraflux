@@ -1289,8 +1289,6 @@ pub mod ffi {
             zone: &[i32],
         ) -> Result<FuturesOut>;
 
-
-
         // out-of-core landscapes (tiles)
 
         /// landschaft's out-of-core landscape: a raster labelled block by block of rows (a multiple of 64), the
