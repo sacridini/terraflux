@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.49.0] - 2026-10-13
+
 ### Added
 - Settlement probabilities from a spatial absorbing Markov chain (the samc package's model, landschaft's
   settlement_probabilities and HabitatGraph.from_samc): `conn.settlement_probabilities` (a random walk over a
