@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-10-13
+
 ### Added
 - Basemaps fetched and drawn anew: the web tiles of the service fetched by a pool of twelve threads shared by
   every view (each tile once, kept on disk and decoded in memory), and drawn by the GPU as textures on meshes whose
