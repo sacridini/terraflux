@@ -134,6 +134,9 @@ pub struct HabitatGraph {
     /// The nodes' cells, of graphs made from a raster.
     #[serde(skip)]
     pub patches: Option<std::sync::Arc<super::raster::NodeRaster>>,
+    /// The features of graphs made from them.
+    #[serde(skip)]
+    pub features: Option<std::sync::Arc<terraflux_raster::vector::Vector>>,
 }
 
 /// A table from its columns.
@@ -200,6 +203,7 @@ impl HabitatGraph {
             pj: Vec::new(),
             value: Vec::new(),
             patches: None,
+            features: None,
         };
         match connections {
             Connections::Matrix(m) => {
@@ -671,6 +675,7 @@ impl HabitatGraph {
             pj: both.iter().map(|&k| index[self.pj[k] as usize]).collect(),
             value: both.iter().map(|&k| self.value[k]).collect(),
             patches: None,
+            features: None,
         }
     }
 
@@ -1377,6 +1382,9 @@ fn concat(frames: Vec<Vec<(String, Vec<f64>)>>) -> Table {
     t
 }
 
+/// Per row of eca_change, the comparison and its reading.
+pub type Readings = Vec<(&'static str, &'static str)>;
+
 /// How a change of ECA reads against the change of habitat (Makurhini's MK_dECA): the comparison and its
 /// meaning.
 pub fn comparison(deca: f64, da: f64) -> (&'static str, &'static str) {
@@ -1403,7 +1411,7 @@ pub fn eca_change(
     landscape_area: f64,
     probability: Option<f64>,
     pij_min: Option<f64>,
-) -> Result<(Table, Vec<(&'static str, &'static str)>), String> {
+) -> Result<(Table, Readings), String> {
     let metric = metric.to_uppercase();
     if metric != "PC" && metric != "IIC" {
         return Err("the metric is PC or IIC".into());

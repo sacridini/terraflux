@@ -6,6 +6,7 @@
 pub mod graph;
 mod patches;
 pub mod raster;
+pub mod vector;
 
 use std::sync::Arc;
 

@@ -1,0 +1,153 @@
+[
+ {
+  "name": "nodes_area",
+  "op": "conn.nodes",
+  "params": {
+   "id": "pid",
+   "area_unit": "ha"
+  },
+  "columns": [
+   "id",
+   "attribute"
+  ]
+ },
+ {
+  "name": "nodes_quality",
+  "op": "conn.nodes",
+  "params": {
+   "attribute": "quality",
+   "weighted": true
+  },
+  "columns": [
+   "id",
+   "attribute"
+  ]
+ },
+ {
+  "name": "dist_centroid",
+  "op": "conn.distances",
+  "params": {
+   "id": "pid"
+  },
+  "columns": [
+   "from",
+   "to",
+   "distance"
+  ]
+ },
+ {
+  "name": "dist_edge",
+  "op": "conn.distances",
+  "params": {
+   "distance": "edge",
+   "max_distance": 400.0
+  },
+  "columns": [
+   "from",
+   "to",
+   "distance"
+  ]
+ },
+ {
+  "name": "dist_edge_all",
+  "op": "conn.distances",
+  "params": {
+   "distance": "edge",
+   "distance_unit": "km"
+  },
+  "columns": [
+   "from",
+   "to",
+   "distance"
+  ]
+ },
+ {
+  "name": "dist_lc",
+  "op": "conn.distances",
+  "params": {
+   "distance": "least-cost",
+   "id": "pid"
+  },
+  "columns": [
+   "from",
+   "to",
+   "distance"
+  ]
+ },
+ {
+  "name": "graph_nodes",
+  "op": "conn.node_importance",
+  "params": {
+   "distance": 250.0,
+   "metrics": [
+    "PC",
+    "IIC"
+   ]
+  },
+  "columns": [
+   "id",
+   "distance",
+   "dIIC",
+   "dIICintra",
+   "dIICflux",
+   "dIICconnector",
+   "dPC",
+   "dPCintra",
+   "dPCflux",
+   "dPCconnector",
+   "varPC"
+  ]
+ },
+ {
+  "name": "focal_iic",
+  "op": "conn.focal_nodes",
+  "params": {
+   "distance": [
+    150.0,
+    300.0
+   ],
+   "search_buffer": [
+    200.0,
+    400.0
+   ],
+   "id": "pid"
+  },
+  "columns": [
+   "id",
+   "distance",
+   "attribute",
+   "n_nodes",
+   "EC(IIC)",
+   "IIC",
+   "dIIC",
+   "dIICintra",
+   "dIICflux",
+   "dIICconnector",
+   "IComp"
+  ]
+ },
+ {
+  "name": "focal_pc",
+  "op": "conn.focal_nodes",
+  "params": {
+   "distance": 250.0,
+   "search_buffer": 300.0,
+   "metric": "PC",
+   "attribute": "quality",
+   "threshold": 600.0
+  },
+  "columns": [
+   "id",
+   "distance",
+   "attribute",
+   "n_nodes",
+   "EC(PC)",
+   "PC",
+   "dPC",
+   "dPCintra",
+   "dPCflux",
+   "dPCconnector",
+   "IComp"
+  ]
+ }
+]

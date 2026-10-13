@@ -6,6 +6,19 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Habitat graphs of vector features (landschaft's node_table, distance_table and HabitatGraph.from_vector):
+  `conn.nodes` and `conn.distances` take features too (GDAL's areas of the polygons, an attribute column or
+  values, weighted or not; the distances between centroids, the largest part's or GEOS's point on the surface
+  when it falls outside, between edges with GEOS's distance, or least-cost and commute times over a
+  resistance), `conn.graph_from_vector`, `conn.to_vector` (a node table joined onto the features) and
+  `conn.focal_nodes` (Makurhini's MK_Focal_nodes: each node's importance in the graph of the nodes within a
+  search buffer of it). GEOS through GDAL (`terraflux_gdal::Geos`, `difference`, `make_valid`). The same as
+  landschaft's, to the bit.
+
+### Fixed
+- A lint of 0.46.0 (`conn::graph::Readings`).
+
 ## [0.46.0] - 2026-10-13
 
 ### Added

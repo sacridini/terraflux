@@ -146,7 +146,9 @@ pub fn distance_table(p: &Patches, o: &DistanceOptions) -> Result<PairTable, Str
         return Err(format!("distance must be centroid, edge, least-cost or commute-time, got {:?}", o.distance));
     }
     if o.distance == "least-cost" || o.distance == "commute-time" {
-        return least_cost_table(p, o);
+        let nd = p.nodes(true, false)?;
+        let ids: Vec<f64> = nd.ids.iter().map(|&i| f64::from(i)).collect();
+        return least_cost_table(&ids, &nd.cx, &nd.cy, o);
     }
     let f = factor(&DISTANCE_UNITS, o.distance_unit, "distance")?;
     let limit = o.max_distance.map_or(f64::INFINITY, |m| m / f * (1.0 + 1e-12));
@@ -233,7 +235,9 @@ fn components(v: &[f64], ny: usize, nx: usize, directions: i32) -> Vec<i64> {
     label
 }
 
-fn least_cost_table(p: &Patches, o: &DistanceOptions) -> Result<PairTable, String> {
+/// Least-cost or commute-time distances between the nodes at points (x, y), with the straight distance for the
+/// pairs the resistance does not join (`unreachable` euclidean).
+pub fn least_cost_table(ids: &[f64], cx: &[f64], cy: &[f64], o: &DistanceOptions) -> Result<PairTable, String> {
     let Some(res) = o.resistance else { return Err(format!("{} distances need a resistance raster", o.distance)) };
     let function = match o.cost_function {
         "makurhini" => 0,
@@ -246,8 +250,6 @@ fn least_cost_table(p: &Patches, o: &DistanceOptions) -> Result<PairTable, Strin
     if o.unreachable != "euclidean" && o.unreachable != "drop" {
         return Err("unreachable must be euclidean or drop".into());
     }
-    let nd = p.nodes(true, false)?;
-    let ids: Vec<f64> = nd.ids.iter().map(|&i| f64::from(i)).collect();
     let n = ids.len();
     let values = &res.data[..];
     let finite: Vec<f64> = values.iter().copied().filter(|v| v.is_finite()).collect();
@@ -256,7 +258,7 @@ fn least_cost_table(p: &Patches, o: &DistanceOptions) -> Result<PairTable, Strin
     }
     let (ny, nx) = res.shape();
     let e = extent(&res.grid);
-    let cells = cells_of(&nd.cx, &nd.cy, ny, nx, e);
+    let cells = cells_of(cx, cy, ny, nx, e);
     let limit = o.max_distance.unwrap_or(f64::INFINITY);
     let mut table: Vec<(i64, i64, f64)> = Vec::new();
     let mut on_graph = vec![true; n];
@@ -292,7 +294,7 @@ fn least_cost_table(p: &Patches, o: &DistanceOptions) -> Result<PairTable, Strin
     if o.unreachable == "euclidean" {
         let labels = components(values, ny, nx, o.cost_directions);
         let component: Vec<i64> = cells.iter().map(|&c| if c >= 0 { labels[c as usize] } else { 0 }).collect();
-        let ed = ffi::conn_point_distances(&nd.cx, &nd.cy, limit).map_err(|e| e.to_string())?;
+        let ed = ffi::conn_point_distances(cx, cy, limit).map_err(|e| e.to_string())?;
         let found: std::collections::HashSet<(i64, i64)> = table.iter().map(|t| (t.0, t.1)).collect();
         let mut added = false;
         for k in 0..ed.i.len() {

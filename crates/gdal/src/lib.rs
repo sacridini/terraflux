@@ -117,6 +117,16 @@ struct Api {
     /// GDAL 3.7 and later
     OGR_G_UnaryUnion: Option<unsafe extern "C" fn(H) -> H>,
     OGR_G_IsEmpty: unsafe extern "C" fn(H) -> c_int,
+    OGR_G_Distance: unsafe extern "C" fn(H, H) -> f64,
+    OGR_G_CreateGeometry: unsafe extern "C" fn(c_int) -> H,
+    OGR_G_Centroid: unsafe extern "C" fn(H, H) -> c_int,
+    OGR_G_GetX: unsafe extern "C" fn(H, c_int) -> f64,
+    OGR_G_GetY: unsafe extern "C" fn(H, c_int) -> f64,
+    OGR_G_PointOnSurface: unsafe extern "C" fn(H) -> H,
+    OGR_G_Within: unsafe extern "C" fn(H, H) -> c_int,
+    OGR_G_Intersects: unsafe extern "C" fn(H, H) -> c_int,
+    OGR_G_Difference: unsafe extern "C" fn(H, H) -> H,
+    OGR_G_MakeValid: unsafe extern "C" fn(H) -> H,
     /// GDAL 3.9 and later
     OGR_G_GeodesicArea: Option<unsafe extern "C" fn(H) -> f64>,
     OSRNewSpatialReference: unsafe extern "C" fn(*const c_char) -> H,
@@ -354,6 +364,16 @@ impl Gdal {
             OGR_G_UnionCascaded: f!(OGR_G_UnionCascaded),
             OGR_G_UnaryUnion: unsafe { lib.get(b"OGR_G_UnaryUnion") }.ok().map(|s| *s),
             OGR_G_IsEmpty: f!(OGR_G_IsEmpty),
+            OGR_G_Distance: f!(OGR_G_Distance),
+            OGR_G_CreateGeometry: f!(OGR_G_CreateGeometry),
+            OGR_G_Centroid: f!(OGR_G_Centroid),
+            OGR_G_GetX: f!(OGR_G_GetX),
+            OGR_G_GetY: f!(OGR_G_GetY),
+            OGR_G_PointOnSurface: f!(OGR_G_PointOnSurface),
+            OGR_G_Within: f!(OGR_G_Within),
+            OGR_G_Intersects: f!(OGR_G_Intersects),
+            OGR_G_Difference: f!(OGR_G_Difference),
+            OGR_G_MakeValid: f!(OGR_G_MakeValid),
             OGR_G_GeodesicArea: unsafe { lib.get(b"OGR_G_GeodesicArea ") }.ok().map(|s| *s),
             OSRNewSpatialReference: f!(OSRNewSpatialReference),
             OSRDestroySpatialReference: f!(OSRDestroySpatialReference),
@@ -1281,6 +1301,128 @@ pub fn union(geoms: &[&Geometry]) -> Result<Geometry> {
     };
     unsafe { (g.api.OGR_G_DestroyGeometry)(h) };
     from_ogr(g, u, "union")
+}
+
+/// GEOS's operations on geometries through GDAL, the geometries held by OGR while it runs (destroyed after).
+pub struct Geos {
+    g: &'static Gdal,
+    handles: Vec<H>,
+}
+
+impl Geos {
+    /// The geometries, read once by OGR.
+    pub fn new(geoms: &[Geometry]) -> Result<Geos> {
+        let g = gdal().map_err(String::from)?;
+        let mut out = Geos { g, handles: Vec::with_capacity(geoms.len()) };
+        for geom in geoms {
+            let h = if matches!(geom, Geometry::Empty) {
+                ogr_geometry(g, &Geometry::MultiPolygon(Vec::new()))?
+            } else {
+                ogr_geometry(g, geom)?
+            };
+            out.handles.push(h);
+        }
+        Ok(out)
+    }
+
+    pub fn len(&self) -> usize {
+        self.handles.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.handles.is_empty()
+    }
+
+    /// The distance between geometries i and j (GEOS's, 0 when they meet).
+    pub fn distance(&self, i: usize, j: usize) -> f64 {
+        unsafe { (self.g.api.OGR_G_Distance)(self.handles[i], self.handles[j]) }
+    }
+
+    /// The centroid of geometry i (GEOS's).
+    pub fn centroid(&self, i: usize) -> Result<[f64; 2]> {
+        let a = &self.g.api;
+        let p = unsafe { (a.OGR_G_CreateGeometry)(1) };
+        let e = unsafe { (a.OGR_G_Centroid)(self.handles[i], p) };
+        let xy = unsafe { [(a.OGR_G_GetX)(p, 0), (a.OGR_G_GetY)(p, 0)] };
+        unsafe { (a.OGR_G_DestroyGeometry)(p) };
+        if e != 0 { Err(self.g.last_error("GEOS: no centroid")) } else { Ok(xy) }
+    }
+
+    /// A point on the surface of geometry i (GEOS's interior point).
+    pub fn point_on_surface(&self, i: usize) -> Result<[f64; 2]> {
+        let a = &self.g.api;
+        let p = unsafe { (a.OGR_G_PointOnSurface)(self.handles[i]) };
+        if p.is_null() {
+            return Err(self.g.last_error("GEOS: no point on the surface"));
+        }
+        let xy = unsafe { [(a.OGR_G_GetX)(p, 0), (a.OGR_G_GetY)(p, 0)] };
+        unsafe { (a.OGR_G_DestroyGeometry)(p) };
+        Ok(xy)
+    }
+
+    /// Whether the point lies within geometry i (GEOS's predicate).
+    pub fn contains_point(&self, i: usize, xy: [f64; 2]) -> Result<bool> {
+        let p = ogr_geometry(self.g, &Geometry::Point(xy))?;
+        let r = unsafe { (self.g.api.OGR_G_Within)(p, self.handles[i]) } != 0;
+        unsafe { (self.g.api.OGR_G_DestroyGeometry)(p) };
+        Ok(r)
+    }
+
+    /// Whether geometries i and j intersect.
+    pub fn intersects(&self, i: usize, j: usize) -> bool {
+        unsafe { (self.g.api.OGR_G_Intersects)(self.handles[i], self.handles[j]) != 0 }
+    }
+
+    /// Whether geometry i intersects geometry j of another set.
+    pub fn intersects_other(&self, i: usize, other: &Geos, j: usize) -> bool {
+        unsafe { (self.g.api.OGR_G_Intersects)(self.handles[i], other.handles[j]) != 0 }
+    }
+
+    /// Whether geometry i intersects another geometry.
+    pub fn intersects_with(&self, i: usize, other: &Geometry) -> Result<bool> {
+        let h = ogr_geometry(self.g, other)?;
+        let r = unsafe { (self.g.api.OGR_G_Intersects)(self.handles[i], h) } != 0;
+        unsafe { (self.g.api.OGR_G_DestroyGeometry)(h) };
+        Ok(r)
+    }
+}
+
+impl Drop for Geos {
+    fn drop(&mut self) {
+        for &h in &self.handles {
+            unsafe { (self.g.api.OGR_G_DestroyGeometry)(h) };
+        }
+    }
+}
+
+/// Geometry a less geometry b (GEOS's difference through GDAL).
+pub fn difference(a: &Geometry, b: &Geometry) -> Result<Geometry> {
+    let g = gdal().map_err(String::from)?;
+    if matches!(a, Geometry::Empty) {
+        return Ok(Geometry::Empty);
+    }
+    if matches!(b, Geometry::Empty) {
+        return Ok(a.clone());
+    }
+    let (ha, hb) = (ogr_geometry(g, a)?, ogr_geometry(g, b)?);
+    let d = unsafe { (g.api.OGR_G_Difference)(ha, hb) };
+    unsafe {
+        (g.api.OGR_G_DestroyGeometry)(ha);
+        (g.api.OGR_G_DestroyGeometry)(hb);
+    }
+    from_ogr(g, d, "difference")
+}
+
+/// A valid geometry (GEOS's MakeValid through GDAL, its linework method as shapely's make_valid).
+pub fn make_valid(a: &Geometry) -> Result<Geometry> {
+    let g = gdal().map_err(String::from)?;
+    if matches!(a, Geometry::Empty) {
+        return Ok(Geometry::Empty);
+    }
+    let h = ogr_geometry(g, a)?;
+    let v = unsafe { (g.api.OGR_G_MakeValid)(h) };
+    unsafe { (g.api.OGR_G_DestroyGeometry)(h) };
+    from_ogr(g, v, "valid geometry")
 }
 
 /// The geodesic areas (square metres) of polygons on the WGS84 ellipsoid, their coordinates taken to EPSG:4326 by
