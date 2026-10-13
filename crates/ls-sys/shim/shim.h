@@ -359,4 +359,9 @@ LsmTable lsm_tiled_table(lsm::TiledLandscape& t, rust::Slice<const std::int32_t>
 rust::Vec<std::int32_t> lsm_tiled_labels(const lsm::TiledLandscape& t, rust::Slice<const std::int32_t> values,
                                          rust::Slice<const std::uint8_t> na, std::int64_t y0, std::int64_t rows);
 
+// the values of maps at points (landschaft's extract, lsio::extract): bands x ny x nx, NaN no data
+rust::Vec<double> io_extract(rust::Slice<const double> values, std::int32_t bands, std::int32_t ny, std::int32_t nx,
+                             rust::Slice<const double> gt, rust::Slice<const double> x, rust::Slice<const double> y,
+                             bool bilinear);
+
 }  // namespace tfx

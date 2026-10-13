@@ -20,6 +20,10 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(ExactSum));
     r.add(Arc::new(Distance));
     r.add(Arc::new(Join));
+    r.add(Arc::new(Extract));
+    r.add(Arc::new(Buffer));
+    r.add(Arc::new(Clip));
+    r.add(Arc::new(Dissolve));
 }
 
 /// The rows of a table joined to features: for every feature, the row whose `key` equals its `on` (its number 1..
@@ -397,33 +401,280 @@ impl Operator for Zonal {
         if let Some(i) = v.geometries.iter().position(|g| !g.is_polygonal() && !matches!(g, Geometry::Empty)) {
             return Err(err(format!("feature {}: zones are polygons (buffer points or lines first)", i + 1)));
         }
-        let stats: Vec<String> = match args.params.get("stats") {
-            None | Some(serde_json::Value::Null) => ["count", "mean", "min", "max", "std"].map(String::from).to_vec(),
-            Some(serde_json::Value::String(s)) => vec![s.clone()],
-            Some(v) => serde_json::from_value(v.clone()).map_err(|e| err(format!("stats: {e}")))?,
-        };
-        let codes: Vec<(i32, f64)> = stats
-            .iter()
-            .map(|s| stat_code(s).ok_or_else(|| err(format!("unknown statistic {s:?}"))))
-            .collect::<Result<_>>()?;
+        let stats = stats_of(args)?;
         let geoms: Vec<&Geometry> = v.geometries.iter().collect();
-        let r = runs(&geoms, &grid, args.param("all_touched", false)?)?;
-        let values: Vec<f64> = layers.iter().flat_map(|l| l.iter().copied()).collect();
-        let (c, p): (Vec<i32>, Vec<f64>) = codes.iter().copied().unzip();
-        let out = ffi::io_zonal_stats(&values, layers.len() as i32, grid.height as i32, grid.width as i32, &r, &c, &p)?;
-        let multi = layers.len() > 1;
-        let mut cols = vec!["feature".to_string()];
-        for b in &names {
-            for s in &stats {
-                cols.push(if multi { format!("{b}_{s}") } else { s.clone() });
+        let t = zonal_table(&geoms, &grid, &names, &layers, &stats, args.param("all_touched", false)?)
+            .map_err(|e| err(e.to_string()))?;
+        Ok(outputs([("table", Value::Table(t))]))
+    }
+}
+
+/// The statistics a node asks for (`stats`: a name or a list; count, mean, min, max and std by default).
+fn stats_of(args: &Args) -> Result<Vec<String>> {
+    let stats: Vec<String> = match args.params.get("stats") {
+        None | Some(serde_json::Value::Null) => ["count", "mean", "min", "max", "std"].map(String::from).to_vec(),
+        Some(serde_json::Value::String(s)) => vec![s.clone()],
+        Some(v) => {
+            serde_json::from_value(v.clone()).map_err(|e| Error::msg(format!("node {:?}: stats: {e}", args.node)))?
+        }
+    };
+    if let Some(s) = stats.iter().find(|s| stat_code(s).is_none()) {
+        return Err(Error::msg(format!("node {:?}: unknown statistic {s:?}", args.node)));
+    }
+    Ok(stats)
+}
+
+/// landschaft's zonal_stats of layers in polygons: a row per feature (1..), a column per statistic (of every
+/// layer: <layer>_<statistic> when there are several).
+fn zonal_table(
+    geoms: &[&Geometry],
+    grid: &Grid,
+    names: &[String],
+    layers: &[Arc<Vec<f64>>],
+    stats: &[String],
+    all_touched: bool,
+) -> Result<Table> {
+    let codes: Vec<(i32, f64)> = stats.iter().filter_map(|s| stat_code(s)).collect();
+    let r = runs(geoms, grid, all_touched)?;
+    let values: Vec<f64> = layers.iter().flat_map(|l| l.iter().copied()).collect();
+    let (c, p): (Vec<i32>, Vec<f64>) = codes.iter().copied().unzip();
+    let out = ffi::io_zonal_stats(&values, layers.len() as i32, grid.height as i32, grid.width as i32, &r, &c, &p)?;
+    let multi = layers.len() > 1;
+    let mut cols = vec!["feature".to_string()];
+    for b in names {
+        for s in stats {
+            cols.push(if multi { format!("{b}_{s}") } else { s.clone() });
+        }
+    }
+    let mut t = Table::new(cols);
+    let per = layers.len() * stats.len();
+    t.rows = (0..geoms.len())
+        .map(|z| std::iter::once((z + 1) as f64).chain(out[z * per..(z + 1) * per].iter().copied()).collect())
+        .collect();
+    Ok(t)
+}
+
+/// Columns added to features (replacing those of the same name), and their attributes as a table.
+fn with_columns(v: &Vector, columns: Vec<(String, Vec<f64>)>) -> (Vector, Table) {
+    let mut out = v.clone();
+    for (name, values) in columns {
+        match out.attributes.iter_mut().find(|(n, _)| *n == name) {
+            Some((_, c)) => *c = Column::Numbers(values),
+            None => out.attributes.push((name, Column::Numbers(values))),
+        }
+    }
+    let t = attribute_table(&out);
+    (out, t)
+}
+
+struct Extract;
+
+impl Operator for Extract {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "vector.extract",
+            "The values of a map (or of every layer of a stack) at points, landschaft's extract: the cell holding \
+             each point (nearest) or interpolated from the four nearest cell centres (bilinear, the weights over \
+             those with a value); with a buffer, the statistics of the cells within that radius of each point \
+             (zonal_stats of GEOS's circles). The points are reprojected to the map. No value outside it.",
+            Access::Global,
+        )
+        .input(PortSpec::new("vector", Type::Vector, "the points"))
+        .input(PortSpec::new("map", Type::Any, "a map or a stack"))
+        .output(PortSpec::new("vector", Type::Vector, "the points with a column per layer (or statistic)"))
+        .output(PortSpec::new("table", Type::Table, "per point (feature 1..): its attributes and the values"))
+        .param(
+            PortSpec::optional("method", Type::Text, "nearest (default) or bilinear").choices(["nearest", "bilinear"]),
+        )
+        .param(PortSpec::optional("buffer", Type::Number, "a radius (map units): statistics of the cells around"))
+        .param(PortSpec::optional("stats", Type::Any, "with a buffer: the statistics, as vector.zonal's"))
+        .param(PortSpec::optional("all_touched", Type::Bool, "with a buffer: every cell the circle touches"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let err = |m: String| Error::msg(format!("node {:?}: {m}", args.node));
+        let (grid, names, layers) = layers_of(args, "map")?;
+        let original = vector_of(args, "vector")?;
+        let v = on_grid(original, &grid)?;
+        let mut xy = Vec::with_capacity(v.len());
+        for (i, g) in v.geometries.iter().enumerate() {
+            match g {
+                Geometry::Point(p) => xy.push(*p),
+                Geometry::Empty => xy.push([f64::NAN, f64::NAN]),
+                _ => return Err(err(format!("feature {}: the values are taken at points", i + 1))),
             }
         }
-        let mut t = Table::new(cols);
-        let per = layers.len() * stats.len();
-        t.rows = (0..v.len())
-            .map(|z| std::iter::once((z + 1) as f64).chain(out[z * per..(z + 1) * per].iter().copied()).collect())
-            .collect();
-        Ok(outputs([("table", Value::Table(t))]))
+        let label = |b: &String| if names.len() == 1 { "value".to_string() } else { b.clone() };
+        let columns: Vec<(String, Vec<f64>)> = match args.opt_param::<f64>("buffer")? {
+            Some(radius) => {
+                if radius.is_nan() || radius <= 0.0 {
+                    return Err(err("buffer: a radius > 0".into()));
+                }
+                let circles = terraflux_gdal::buffer(&v.geometries, radius, 16).map_err(err)?;
+                let geoms: Vec<&Geometry> = circles.iter().collect();
+                let stats = stats_of(args)?;
+                let t = zonal_table(&geoms, &grid, &names, &layers, &stats, args.param("all_touched", false)?)?;
+                (1..t.columns.len()).map(|j| (t.columns[j].clone(), t.rows.iter().map(|r| r[j]).collect())).collect()
+            }
+            None => {
+                let method: String = args.param("method", "nearest".to_string())?;
+                if method != "nearest" && method != "bilinear" {
+                    return Err(err("method: nearest or bilinear".into()));
+                }
+                let values: Vec<f64> = layers.iter().flat_map(|l| l.iter().copied()).collect();
+                let (x, y): (Vec<f64>, Vec<f64>) = xy.iter().map(|p| (p[0], p[1])).unzip();
+                let nb = layers.len();
+                let out = ffi::io_extract(
+                    &values,
+                    nb as i32,
+                    grid.height as i32,
+                    grid.width as i32,
+                    &grid.transform,
+                    &x,
+                    &y,
+                    method == "bilinear",
+                )?;
+                names
+                    .iter()
+                    .enumerate()
+                    .map(|(b, n)| (label(n), (0..xy.len()).map(|i| out[i * nb + b]).collect()))
+                    .collect()
+            }
+        };
+        let (out, t) = with_columns(original, columns);
+        Ok(outputs([("vector", Value::Vector(Arc::new(out))), ("table", Value::Table(t))]))
+    }
+}
+
+struct Buffer;
+
+impl Operator for Buffer {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "vector.buffer",
+            "The area within a distance of every feature (GEOS through GDAL, as shapely's buffer): circles around \
+             points, corridors along lines, polygons grown (or shrunk, with a negative distance); the features' \
+             attributes kept, or every buffer merged into one (dissolve).",
+            Access::None,
+        )
+        .input(PortSpec::new("vector", Type::Vector, "the features"))
+        .output(PortSpec::new("vector", Type::Vector, "the buffers"))
+        .param(PortSpec::new("distance", Type::Number, "the distance, in the features' units"))
+        .param(PortSpec::optional("segments", Type::Integer, "segments of a quarter circle (16)"))
+        .param(PortSpec::optional("dissolve", Type::Bool, "merge the buffers into one feature (false)"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let err = |m: String| Error::msg(format!("node {:?}: {m}", args.node));
+        let v = vector_of(args, "vector")?;
+        let distance: f64 = args.opt_param("distance")?.ok_or_else(|| err("distance: how far".into()))?;
+        let segments: i32 = args.param("segments", 16)?;
+        if segments < 1 || !distance.is_finite() {
+            return Err(err("a finite distance and segments >= 1".into()));
+        }
+        let geometries = terraflux_gdal::buffer(&v.geometries, distance, segments).map_err(err)?;
+        let out = if args.param("dissolve", false)? {
+            let all: Vec<&Geometry> = geometries.iter().collect();
+            let u = terraflux_gdal::union(&all).map_err(err)?;
+            Vector { geometries: vec![u], attributes: Vec::new(), crs: v.crs.clone() }
+        } else {
+            Vector { geometries, attributes: v.attributes.clone(), crs: v.crs.clone() }
+        };
+        Ok(outputs([("vector", Value::Vector(Arc::new(out)))]))
+    }
+}
+
+struct Clip;
+
+impl Operator for Clip {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "vector.clip",
+            "Features cut to the area of a mask (the union of its polygons; GEOS through GDAL, as geopandas' clip): \
+             each feature's part inside it, those outside it left out, their attributes kept.",
+            Access::None,
+        )
+        .input(PortSpec::new("vector", Type::Vector, "the features"))
+        .input(PortSpec::new("mask", Type::Vector, "the polygons they are cut to (reprojected to them)"))
+        .output(PortSpec::new("vector", Type::Vector, "the features' parts inside the mask"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let err = |m: String| Error::msg(format!("node {:?}: {m}", args.node));
+        let v = vector_of(args, "vector")?;
+        let mask = vector_of(args, "mask")?;
+        let mask = match (&mask.crs, &v.crs) {
+            (Some(a), Some(b)) if !terraflux_gdal::same_crs(a, b).unwrap_or(true) => {
+                Arc::new(terraflux_gdal::reproject_vector(mask, b).map_err(err)?)
+            }
+            _ => mask.clone(),
+        };
+        if mask.geometries.iter().any(|g| !g.is_polygonal() && !matches!(g, Geometry::Empty)) {
+            return Err(err("the mask is polygons".into()));
+        }
+        let all: Vec<&Geometry> = mask.geometries.iter().collect();
+        let area = terraflux_gdal::union(&all).map_err(err)?;
+        let cut = terraflux_gdal::intersection(&v.geometries, &area).map_err(err)?;
+        let keep: Vec<usize> = (0..cut.len()).filter(|&i| !matches!(cut[i], Geometry::Empty)).collect();
+        let mut out = v.select(&keep);
+        out.geometries = keep.iter().map(|&i| cut[i].clone()).collect();
+        Ok(outputs([("vector", Value::Vector(Arc::new(out)))]))
+    }
+}
+
+struct Dissolve;
+
+impl Operator for Dissolve {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "vector.dissolve",
+            "Features merged (GEOS's union through GDAL, as geopandas' dissolve): all into one, or one per value \
+             of an attribute (`by`), with that value and the features merged (count).",
+            Access::None,
+        )
+        .input(PortSpec::new("vector", Type::Vector, "the features (of one kind: points, lines or polygons)"))
+        .output(PortSpec::new("vector", Type::Vector, "the features merged"))
+        .param(PortSpec::optional("by", Type::Text, "the attribute whose values are merged apart (none: all)"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let err = |m: String| Error::msg(format!("node {:?}: {m}", args.node));
+        let v = vector_of(args, "vector")?;
+        let by: Option<String> = args.opt_param::<String>("by")?.filter(|b| !b.is_empty());
+        // the groups, in the order of their first feature: their value (as text and number) and features
+        let keys: Vec<String> = match &by {
+            None => vec![String::new(); v.len()],
+            Some(b) => match v.column(b) {
+                Some(Column::Numbers(x)) => x.iter().map(|x| format!("{:?}", x.to_bits())).collect(),
+                Some(Column::Texts(t)) => t.clone(),
+                None => return Err(err(format!("the features have no attribute {b:?}"))),
+            },
+        };
+        let mut groups: Vec<(String, Vec<usize>)> = Vec::new();
+        for (i, k) in keys.iter().enumerate() {
+            match groups.iter_mut().find(|(g, _)| g == k) {
+                Some((_, m)) => m.push(i),
+                None => groups.push((k.clone(), vec![i])),
+            }
+        }
+        let geometries = groups
+            .iter()
+            .map(|(_, m)| {
+                let geoms: Vec<&Geometry> = m.iter().map(|&i| &v.geometries[i]).collect();
+                terraflux_gdal::union(&geoms).map_err(err)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let mut attributes = Vec::new();
+        if let Some(b) = &by {
+            let first: Vec<usize> = groups.iter().map(|(_, m)| m[0]).collect();
+            let col = match v.column(b).unwrap() {
+                Column::Numbers(x) => Column::Numbers(first.iter().map(|&i| x[i]).collect()),
+                Column::Texts(t) => Column::Texts(first.iter().map(|&i| t[i].clone()).collect()),
+            };
+            attributes.push((b.clone(), col));
+        }
+        attributes.push(("count".into(), Column::Numbers(groups.iter().map(|(_, m)| m.len() as f64).collect())));
+        Ok(outputs([("vector", Value::Vector(Arc::new(Vector { geometries, attributes, crs: v.crs.clone() })))]))
     }
 }
 

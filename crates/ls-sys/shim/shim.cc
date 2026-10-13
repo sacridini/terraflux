@@ -1698,4 +1698,14 @@ rust::Vec<std::int32_t> lsm_tiled_labels(const lsm::TiledLandscape& t, rust::Sli
     return to_rust<std::int32_t>(t.block_labels(values.data(), na.data(), y0, rows, 0, 0));
 }
 
+rust::Vec<double> io_extract(rust::Slice<const double> values, std::int32_t bands, std::int32_t ny, std::int32_t nx,
+                             rust::Slice<const double> gt, rust::Slice<const double> x, rust::Slice<const double> y,
+                             bool bilinear) {
+    check(bands > 0 && ny > 0 && nx > 0 && values.size() == static_cast<std::size_t>(bands) * ny * nx,
+          "the values differ in size from bands x ny x nx");
+    check(gt.size() == 6 && x.size() == y.size(), "a geotransform and the points' x and y");
+    return to_rust<double>(lsio::extract(values.data(), bands, ny, nx, false, 0.0, gt.data(), x.data(), y.data(),
+                                         static_cast<i64>(x.size()), bilinear, 0, ny));
+}
+
 }  // namespace tfx

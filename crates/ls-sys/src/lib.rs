@@ -1127,6 +1127,19 @@ pub mod ffi {
         fn lsm_tiled_table(t: Pin<&mut LsmTiled>, levels: &[i32], names: &[String]) -> Result<LsmTable>;
         /// The patch of every cell of a block of the first pass (1.., 0 NA), read again without context.
         fn lsm_tiled_labels(t: &LsmTiled, values: &[i32], na: &[u8], y0: i64, rows: i64) -> Result<Vec<i32>>;
+        /// The values of every band (bands x ny x nx, NaN no data) at points: (points x bands); NaN outside the
+        /// grid or on no data; bilinear from the four cell centres around, the weights over those with data
+        /// (landschaft's extract).
+        fn io_extract(
+            values: &[f64],
+            bands: i32,
+            ny: i32,
+            nx: i32,
+            gt: &[f64],
+            x: &[f64],
+            y: &[f64],
+            bilinear: bool,
+        ) -> Result<Vec<f64>>;
     }
 }
 

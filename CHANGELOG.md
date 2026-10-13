@@ -16,7 +16,14 @@ minor versions.
   the whole drawn in 90 ms, off the screen's thread). The feature under the pointer is found by the tree and
   named with its attributes.
 
+- `vector.extract`: the values of a map or a stack at points, as landschaft's extract (the cell or bilinear, to
+  the bit), or the statistics of the cells within a radius of them.
+- `vector.buffer`, `vector.clip` and `vector.dissolve`: buffers of features (or one of them all), features cut to a
+  mask's polygons, features merged all or by an attribute, by GEOS through GDAL; the same features and areas as
+  geopandas (`tools/make_vector_ops_reference.py`).
+
 ### Changed
+- `vector.zonal`'s statistics are worked out by a function the extraction in buffers shares.
 - The vector panel works out a layer's table, counts and grid once, not at every frame.
 
 ## [0.18.0] - 2026-10-13

@@ -110,6 +110,12 @@ struct Api {
     OGR_G_DestroyGeometry: unsafe extern "C" fn(H),
     OGR_G_Transform: unsafe extern "C" fn(H, H) -> c_int,
     OGR_G_AssignSpatialReference: unsafe extern "C" fn(H, H),
+    OGR_G_Buffer: unsafe extern "C" fn(H, f64, c_int) -> H,
+    OGR_G_Intersection: unsafe extern "C" fn(H, H) -> H,
+    OGR_G_UnionCascaded: unsafe extern "C" fn(H) -> H,
+    /// GDAL 3.7 and later
+    OGR_G_UnaryUnion: Option<unsafe extern "C" fn(H) -> H>,
+    OGR_G_IsEmpty: unsafe extern "C" fn(H) -> c_int,
     /// GDAL 3.9 and later
     OGR_G_GeodesicArea: Option<unsafe extern "C" fn(H) -> f64>,
     OSRNewSpatialReference: unsafe extern "C" fn(*const c_char) -> H,
@@ -312,6 +318,11 @@ impl Gdal {
             OGR_G_DestroyGeometry: f!(OGR_G_DestroyGeometry),
             OGR_G_Transform: f!(OGR_G_Transform),
             OGR_G_AssignSpatialReference: f!(OGR_G_AssignSpatialReference),
+            OGR_G_Buffer: f!(OGR_G_Buffer),
+            OGR_G_Intersection: f!(OGR_G_Intersection),
+            OGR_G_UnionCascaded: f!(OGR_G_UnionCascaded),
+            OGR_G_UnaryUnion: unsafe { lib.get(b"OGR_G_UnaryUnion") }.ok().map(|s| *s),
+            OGR_G_IsEmpty: f!(OGR_G_IsEmpty),
             OGR_G_GeodesicArea: unsafe { lib.get(b"OGR_G_GeodesicArea ") }.ok().map(|s| *s),
             OSRNewSpatialReference: f!(OSRNewSpatialReference),
             OSRDestroySpatialReference: f!(OSRDestroySpatialReference),
@@ -1115,6 +1126,115 @@ pub fn reproject_vector(v: &Vector, to: &str) -> Result<Vector> {
         (a.OSRDestroySpatialReference)(dst);
     }
     out
+}
+
+/// A geometry as OGR holds it (to be destroyed).
+fn ogr_geometry(g: &Gdal, geom: &Geometry) -> Result<H> {
+    let wkb = geom.to_wkb();
+    let mut h: H = std::ptr::null_mut();
+    let e = unsafe { (g.api.OGR_G_CreateFromWkb)(wkb.as_ptr(), std::ptr::null_mut(), &mut h, wkb.len() as c_int) };
+    if e != 0 || h.is_null() {
+        return Err("OGR cannot read a geometry".into());
+    }
+    Ok(h)
+}
+
+/// The geometry of an OGR handle, which is destroyed (an empty one for none).
+fn from_ogr(g: &Gdal, h: H, what: &str) -> Result<Geometry> {
+    if h.is_null() {
+        return Err(g.last_error(&format!("GEOS: no {what}")));
+    }
+    let out = if unsafe { (g.api.OGR_G_IsEmpty)(h) } != 0 {
+        Ok(Geometry::Empty)
+    } else {
+        let n = unsafe { (g.api.OGR_G_WkbSize)(h) } as usize;
+        let mut buf = vec![0u8; n];
+        unsafe { (g.api.OGR_G_ExportToIsoWkb)(h, 1, buf.as_mut_ptr()) };
+        Geometry::from_wkb(&buf)
+    };
+    unsafe { (g.api.OGR_G_DestroyGeometry)(h) };
+    out
+}
+
+/// The buffers of geometries (GEOS through GDAL): `distance` around each (in their units; inside polygons when
+/// negative), a quarter of a circle in `segments` segments (16 as shapely's).
+pub fn buffer(geoms: &[Geometry], distance: f64, segments: i32) -> Result<Vec<Geometry>> {
+    let g = gdal().map_err(String::from)?;
+    geoms
+        .iter()
+        .map(|geom| {
+            if matches!(geom, Geometry::Empty) {
+                return Ok(Geometry::Empty);
+            }
+            let h = ogr_geometry(g, geom)?;
+            let b = unsafe { (g.api.OGR_G_Buffer)(h, distance, segments) };
+            unsafe { (g.api.OGR_G_DestroyGeometry)(h) };
+            from_ogr(g, b, "buffer")
+        })
+        .collect()
+}
+
+/// Every geometry's intersection with a mask (GEOS through GDAL); empty where they do not meet.
+pub fn intersection(geoms: &[Geometry], mask: &Geometry) -> Result<Vec<Geometry>> {
+    let g = gdal().map_err(String::from)?;
+    let m = ogr_geometry(g, mask)?;
+    let out = geoms
+        .iter()
+        .map(|geom| {
+            if matches!(geom, Geometry::Empty) {
+                return Ok(Geometry::Empty);
+            }
+            let h = ogr_geometry(g, geom)?;
+            let i = unsafe { (g.api.OGR_G_Intersection)(h, m) };
+            unsafe { (g.api.OGR_G_DestroyGeometry)(h) };
+            from_ogr(g, i, "intersection")
+        })
+        .collect();
+    unsafe { (g.api.OGR_G_DestroyGeometry)(m) };
+    out
+}
+
+/// The union of geometries of one kind (GEOS's unary union through GDAL; its cascaded union of polygons before
+/// GDAL 3.7).
+pub fn union(geoms: &[&Geometry]) -> Result<Geometry> {
+    let g = gdal().map_err(String::from)?;
+    let (mut pts, mut lines, mut polys) = (Vec::new(), Vec::new(), Vec::new());
+    for geom in geoms {
+        match geom {
+            Geometry::Empty => {}
+            Geometry::Point(p) => pts.push(*p),
+            Geometry::MultiPoint(v) => pts.extend(v.iter().copied()),
+            Geometry::LineString(l) => lines.push(l.clone()),
+            Geometry::MultiLineString(v) => lines.extend(v.iter().cloned()),
+            Geometry::Polygon(r) => polys.push(r.clone()),
+            Geometry::MultiPolygon(v) => polys.extend(v.iter().cloned()),
+        }
+    }
+    let kinds = usize::from(!pts.is_empty()) + usize::from(!lines.is_empty()) + usize::from(!polys.is_empty());
+    if kinds > 1 {
+        return Err("a union of geometries of one kind (points, lines or polygons)".into());
+    }
+    let all = if !polys.is_empty() {
+        Geometry::MultiPolygon(polys)
+    } else if !lines.is_empty() {
+        Geometry::MultiLineString(lines)
+    } else if !pts.is_empty() {
+        Geometry::MultiPoint(pts)
+    } else {
+        return Ok(Geometry::Empty);
+    };
+    let polygonal = matches!(all, Geometry::MultiPolygon(_));
+    let h = ogr_geometry(g, &all)?;
+    let u = match g.api.OGR_G_UnaryUnion {
+        Some(f) => unsafe { f(h) },
+        None if polygonal => unsafe { (g.api.OGR_G_UnionCascaded)(h) },
+        None => {
+            unsafe { (g.api.OGR_G_DestroyGeometry)(h) };
+            return Err("the union of lines or points needs GDAL 3.7 or later".into());
+        }
+    };
+    unsafe { (g.api.OGR_G_DestroyGeometry)(h) };
+    from_ogr(g, u, "union")
 }
 
 /// The geodesic areas (square metres) of polygons on the WGS84 ellipsoid, their coordinates taken to EPSG:4326 by
