@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-10-13
+
 ### Added
 - Out of core, the rest of the landscape metrics: `metrics.window` by strips of rows with the window's half side
   above and below (every cell's window whole, so the same maps to the bit), of rasters on disk into a GeoTIFF of a
