@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.50.0] - 2026-10-13
+
 ### Added
 - Extrapolation of species distribution models (landschaft's mess, mop and exdet): `sdm.mess` (Elith's MESS,
   per predictor and the least), `sdm.mop` (the mop package's MOP: basic, simple or detailed ranges, Euclidean
