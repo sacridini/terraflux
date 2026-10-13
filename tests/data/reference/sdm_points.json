@@ -1,0 +1,56 @@
+{
+ "background": {
+  "bg": {
+   "n": 300,
+   "seed": 4
+  },
+  "bg_band": {
+   "n": 150,
+   "seed": 5,
+   "occ": true,
+   "distance": [
+    50000.0,
+    400000.0
+   ]
+  },
+  "bg_envelope": {
+   "n": 120,
+   "seed": 6,
+   "occ": true,
+   "envelope": 0.1
+  },
+  "bg_bias": {
+   "n": 200,
+   "seed": 7,
+   "bias": true,
+   "occ": true
+  },
+  "bg_area": {
+   "n": 100,
+   "seed": 8,
+   "area": true,
+   "tryf": 2
+  },
+  "bg_proj": {
+   "n": 250,
+   "seed": 9,
+   "projected": true
+  }
+ },
+ "geo": [
+  -60.0,
+  0.25,
+  0.0,
+  -10.0,
+  0.0,
+  -0.25
+ ],
+ "proj": [
+  500000.0,
+  1000.0,
+  0.0,
+  8000000.0,
+  0.0,
+  -1000.0
+ ]
+}

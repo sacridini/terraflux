@@ -77,6 +77,8 @@
 #include "sdm/extrapolation.hpp"
 #include "sdm/maxnet.hpp"
 #include "sdm/rstats.hpp"
+#include "sdm/thin.hpp"
+#include "cost/geodesic.hpp"
 #include "conn/graph.hpp"
 #include "conn/nodes.hpp"
 #include "sim/change.hpp"
@@ -167,6 +169,36 @@ rust::Vec<double> rrng_runif(nlm::RRng& rng, std::size_t n) {
     std::vector<double> v(n);
     rng.runif(v.data(), static_cast<i64>(n));
     return to_rust<double>(v);
+}
+
+rust::Vec<std::int64_t> rrng_sample_int(nlm::RRng& rng, std::int64_t n, std::int64_t size, bool replace,
+                                        rust::Slice<const double> prob) {
+    check(n >= 0 && size >= 0 && (replace || size <= n), "cannot take a sample larger than the population");
+    check(prob.empty() || prob.size() == static_cast<std::size_t>(n), "a probability per element");
+    const std::vector<double> p = to_std(prob);
+    return to_rust<std::int64_t>(rng.sample_int(n, size, replace, prob.empty() ? nullptr : &p));
+}
+
+ThinOut sdm_thin_spthin(rust::Slice<const double> lon, rust::Slice<const double> lat, double max_km, std::int32_t reps,
+                        std::int32_t seed) {
+    check(lon.size() == lat.size(), "lon and lat differ in length");
+    check(reps >= 1, "reps must be >= 1");
+    sdm::ThinResult r = sdm::thin_spthin(lon.data(), lat.data(), static_cast<std::int64_t>(lon.size()), max_km, reps, seed);
+    ThinOut out;
+    out.keep = to_rust<std::uint8_t>(r.keep);
+    out.kept = to_rust<std::int64_t>(r.kept);
+    return out;
+}
+
+rust::Vec<double> cost_geodesic(rust::Slice<const double> lon1, rust::Slice<const double> lat1,
+                                rust::Slice<const double> lon2, rust::Slice<const double> lat2) {
+    const std::size_t n = lon1.size();
+    check(lat1.size() == n && lon2.size() == n && lat2.size() == n, "coordinates of different lengths");
+    const cost::Geodesic geod;
+    rust::Vec<double> out;
+    out.reserve(n);
+    for (std::size_t k = 0; k < n; ++k) out.push_back(geod.distance(lon1[k], lat1[k], lon2[k], lat2[k]));
+    return out;
 }
 
 rust::Vec<double> map_classes(rust::Slice<const double> values) { return to_rust<double>(sim::map_classes(view(values))); }

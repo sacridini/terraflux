@@ -208,6 +208,12 @@ pub mod ffi {
         n_rows: i64,
     }
 
+    /// spThin's thin.algorithm: every repetition's records kept (reps x n, 1 kept) and how many.
+    struct ThinOut {
+        keep: Vec<u8>,
+        kept: Vec<i64>,
+    }
+
     /// NLMR's nlm_mosaicfield before rescaling: the sum (empty without steps), each step's sum one after the
     /// other (`collect`), the infinite field (`infinit`, else empty).
     struct NlmMosaicOut {
@@ -1161,6 +1167,13 @@ pub mod ffi {
         fn rrng_new(seed: i32) -> UniquePtr<RRng>;
         fn rrng_unif_rand(rng: Pin<&mut RRng>) -> f64;
         fn rrng_runif(rng: Pin<&mut RRng>, n: usize) -> Vec<f64>;
+        /// R's sample.int(n, size, replace, prob) (1-based; no prob when empty).
+        fn rrng_sample_int(rng: Pin<&mut RRng>, n: i64, size: i64, replace: bool, prob: &[f64]) -> Result<Vec<i64>>;
+        /// spThin's thin.algorithm on lon/lat records (great-circle distances of fields::rdist.earth), after
+        /// set.seed(seed).
+        fn sdm_thin_spthin(lon: &[f64], lat: &[f64], max_km: f64, reps: i32, seed: i32) -> Result<ThinOut>;
+        /// Geodesic distances on WGS84 (GeographicLib's inverse, as the R package raster computes them).
+        fn cost_geodesic(lon1: &[f64], lat1: &[f64], lon2: &[f64], lat2: &[f64]) -> Result<Vec<f64>>;
 
         fn map_classes(values: &[f64]) -> Vec<f64>;
         fn crosstab(a: &[f64], b: &[f64], classes_a: &[f64], classes_b: &[f64]) -> Result<Vec<i64>>;

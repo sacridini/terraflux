@@ -5,6 +5,7 @@
 pub mod evaluate;
 pub mod extrapolation;
 pub mod maxnet;
+pub mod points;
 
 use std::sync::Arc;
 
@@ -24,6 +25,9 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(OmissionRate));
     r.add(Arc::new(FitMaxNet));
     r.add(Arc::new(PredictMaxNet));
+    r.add(Arc::new(Thin));
+    r.add(Arc::new(OnePerCell));
+    r.add(Arc::new(Background));
 }
 
 fn bad(args: &Args, m: impl std::fmt::Display) -> Error {
@@ -522,5 +526,191 @@ impl Operator for PredictMaxNet {
             }
         };
         Ok(outputs([("prediction", v)]))
+    }
+}
+
+/// Occurrence records: points or a table with coordinate columns.
+fn occurrences(args: &Args, port: &str) -> Result<points::Occurrences> {
+    match args.get(port) {
+        Some(Value::Vector(v)) => Ok(points::Occurrences::Vector(v.clone())),
+        Some(Value::Table(t)) => Ok(points::Occurrences::Table(t.clone())),
+        _ => Err(bad(args, format!("connect {port}: points or a table of coordinates"))),
+    }
+}
+
+fn occurrences_out(o: points::Occurrences) -> Value {
+    match o {
+        points::Occurrences::Vector(v) => Value::Vector(v),
+        points::Occurrences::Table(t) => Value::Table(t),
+    }
+}
+
+/// A grid and its layers.
+type Layers = (Arc<Grid>, Vec<Arc<Vec<f64>>>);
+
+/// A stack's or a map's grid and layers.
+fn layers_of(args: &Args, port: &str) -> Result<Layers> {
+    match args.get(port) {
+        Some(Value::Stack(s)) => Ok((s.grid.clone(), s.layers.clone())),
+        Some(Value::Map(m)) => Ok((m.grid.clone(), vec![m.data.clone()])),
+        _ => Err(bad(args, format!("connect {port}: a stack or a map"))),
+    }
+}
+
+fn coordinate_settings(sig: OpSignature) -> OpSignature {
+    sig.param(PortSpec::optional("x", Type::Text, "the table's x column (default x, lon, longitude...)"))
+        .param(PortSpec::optional("y", Type::Text, "the table's y column (default y, lat, latitude...)"))
+}
+
+struct Thin;
+
+impl Operator for Thin {
+    fn signature(&self) -> OpSignature {
+        coordinate_settings(
+            OpSignature::new(
+                "sdm.thin",
+                "Occurrence records thinned (landschaft's thin, spThin's thin.algorithm): records dropped at random \
+                 until none is closer than the distance to another (great-circle, on lon/lat), the repetition \
+                 that keeps the most.",
+                Access::Global,
+            )
+            .input(PortSpec::new("occurrences", Type::Any, "points, or a table with coordinate columns"))
+            .output(PortSpec::new("occurrences", Type::Any, "the records kept"))
+            .output(PortSpec::new("kept", Type::Any, "how many each repetition kept, most first")),
+        )
+        .param(PortSpec::new("distance", Type::Number, "the least distance between records, in metres"))
+        .param(PortSpec::optional("reps", Type::Integer, "the repetitions (default 10)"))
+        .param(PortSpec::optional("seed", Type::Integer, "the seed of R's generator (default 1)"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let occ = occurrences(args, "occurrences")?;
+        let distance: f64 = args.opt_param("distance")?.ok_or_else(|| bad(args, "set the distance"))?;
+        let x: Option<String> = args.opt_param("x")?;
+        let y: Option<String> = args.opt_param("y")?;
+        let (kept, counts) =
+            points::thin(&occ, distance, args.param("reps", 10)?, args.param("seed", 1)?, x.as_deref(), y.as_deref())
+                .map_err(|e| bad(args, e))?;
+        Ok(outputs([("occurrences", occurrences_out(kept)), ("kept", Value::Json(serde_json::json!(counts)))]))
+    }
+}
+
+struct OnePerCell;
+
+impl Operator for OnePerCell {
+    fn signature(&self) -> OpSignature {
+        coordinate_settings(
+            OpSignature::new(
+                "sdm.one_per_cell",
+                "A record per cell of a raster (landschaft's one_per_cell): the first in each cell, those outside \
+                 the raster left out (and with drop_missing those on cells without a value in any layer).",
+                Access::Global,
+            )
+            .input(PortSpec::new("occurrences", Type::Any, "points, or a table with coordinate columns"))
+            .input(PortSpec::new("raster", Type::Any, "a map or a stack: its grid"))
+            .output(PortSpec::new("occurrences", Type::Any, "the records kept")),
+        )
+        .param(PortSpec::optional(
+            "drop_missing",
+            Type::Bool,
+            "drop records on cells without values (default false)",
+        ))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let occ = occurrences(args, "occurrences")?;
+        let (grid, layers) = layers_of(args, "raster")?;
+        let refs: Vec<&[f64]> = layers.iter().map(|l| &l[..]).collect();
+        let x: Option<String> = args.opt_param("x")?;
+        let y: Option<String> = args.opt_param("y")?;
+        let kept =
+            points::one_per_cell(&occ, &grid, &refs, args.param("drop_missing", false)?, x.as_deref(), y.as_deref())
+                .map_err(|e| bad(args, e))?;
+        Ok(outputs([("occurrences", occurrences_out(kept))]))
+    }
+}
+
+struct Background;
+
+impl Operator for Background {
+    fn signature(&self) -> OpSignature {
+        coordinate_settings(
+            OpSignature::new(
+                "sdm.background",
+                "Background points for a species distribution model (landschaft's background, dismo's \
+                 randomPoints): cells with values in every predictor drawn with R's sampling (weighted by the \
+                 cells' widths on lon/lat grids, or by a bias), within an area, a band of distances from the \
+                 records or outside their environmental envelope, the records' cells left out.",
+                Access::Global,
+            )
+            .input(PortSpec::new("env", Type::Any, "the predictors: a stack or a map"))
+            .input(PortSpec::optional("occurrences", Type::Any, "the records (points or a table)"))
+            .input(PortSpec::optional("area", Type::Vector, "the area to draw within"))
+            .input(PortSpec::optional("bias", Type::Map, "a weight per cell"))
+            .output(PortSpec::new(
+                "points",
+                Type::Vector,
+                "the points at the cells' centres, with their cell",
+            )),
+        )
+        .param(PortSpec::optional("n", Type::Integer, "the points (default 10000)"))
+        .param(PortSpec::optional("distance", Type::Any, "the largest distance from the records, or [from, to]"))
+        .param(PortSpec::optional(
+            "envelope",
+            Type::Number,
+            "outside the records' quantiles [q, 1 - q] of every predictor",
+        ))
+        .param(PortSpec::optional("exclude_occurrences", Type::Bool, "leave the records' cells out (default true)"))
+        .param(PortSpec::optional("tryf", Type::Number, "the candidates drawn per point (default 3)"))
+        .param(PortSpec::optional(
+            "lonlat_correction",
+            Type::Bool,
+            "weight lon/lat cells by their width (default true)",
+        ))
+        .param(PortSpec::optional("seed", Type::Integer, "the seed of R's generator (default 1)"))
+    }
+
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let (grid, layers) = layers_of(args, "env")?;
+        let refs: Vec<&[f64]> = layers.iter().map(|l| &l[..]).collect();
+        let occ = match args.get("occurrences") {
+            Some(_) => Some(occurrences(args, "occurrences")?),
+            None => None,
+        };
+        let x: Option<String> = args.opt_param("x")?;
+        let y: Option<String> = args.opt_param("y")?;
+        let area = match args.get("area") {
+            Some(Value::Vector(v)) => Some(v.clone()),
+            _ => None,
+        };
+        let bias = args.opt_map("bias")?;
+        let distance = match args.params.get("distance") {
+            None | Some(serde_json::Value::Null) => None,
+            Some(serde_json::Value::Array(_)) => {
+                let d: Vec<Option<f64>> = args.param("distance", vec![])?;
+                if d.len() != 2 {
+                    return Err(bad(args, "distance: a number or [from, to]"));
+                }
+                Some((d[0].unwrap_or(0.0), d[1].unwrap_or(f64::INFINITY)))
+            }
+            Some(_) => Some((0.0, args.param("distance", 0.0)?)),
+        };
+        let s = points::Background {
+            n: args.param("n", 10_000)?,
+            occurrences: occ.as_ref().map(|o| (o, x.as_deref(), y.as_deref())),
+            area: area.as_deref(),
+            bias: bias.map(|b| &b.data[..]),
+            distance,
+            envelope: args.opt_param("envelope")?,
+            exclude_occurrences: args.param("exclude_occurrences", true)?,
+            tryf: args.param("tryf", 3.0)?,
+            lonlat_correction: args.param("lonlat_correction", true)?,
+            seed: args.param("seed", 1)?,
+        };
+        let (cells, warnings) = points::background(&grid, &refs, &s).map_err(|e| bad(args, e))?;
+        for w in warnings {
+            ctx.warn(format!("node {:?}: {w}", args.node));
+        }
+        Ok(outputs([("points", Value::Vector(Arc::new(points::cell_points(&grid, &cells))))]))
     }
 }

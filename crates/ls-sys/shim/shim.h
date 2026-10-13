@@ -19,6 +19,7 @@ namespace tfx {
 struct CluesOut;
 struct NlmMosaicOut;
 struct MaxnetFit;
+struct ThinOut;
 struct ConnAnalysis;
 struct ConnGains;
 struct ConnRasterNodes;
@@ -110,6 +111,12 @@ std::int32_t max_threads();
 std::unique_ptr<nlm::RRng> rrng_new(std::int32_t seed);
 double rrng_unif_rand(nlm::RRng& rng);
 rust::Vec<double> rrng_runif(nlm::RRng& rng, std::size_t n);
+rust::Vec<std::int64_t> rrng_sample_int(nlm::RRng& rng, std::int64_t n, std::int64_t size, bool replace,
+                                        rust::Slice<const double> prob);
+ThinOut sdm_thin_spthin(rust::Slice<const double> lon, rust::Slice<const double> lat, double max_km, std::int32_t reps,
+                        std::int32_t seed);
+rust::Vec<double> cost_geodesic(rust::Slice<const double> lon1, rust::Slice<const double> lat1,
+                                rust::Slice<const double> lon2, rust::Slice<const double> lat2);
 
 rust::Vec<double> map_classes(rust::Slice<const double> values);
 rust::Vec<std::int64_t> crosstab(rust::Slice<const double> a, rust::Slice<const double> b,

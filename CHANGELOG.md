@@ -6,6 +6,14 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Occurrence records and background points for species distribution models (landschaft's thin, one_per_cell
+  and background): `sdm.thin` (spThin's thinning, the repetition that keeps the most), `sdm.one_per_cell` (the
+  first record per cell, those on missing cells left out or not) and `sdm.background` (dismo's randomPoints with
+  R's sampling: the cells' widths on lon/lat grids, a bias, an area, a band of distances from the records,
+  outside their environmental envelope). Records as points or tables of coordinates (lon/lat columns
+  recognised; PROJ through GDAL between coordinate systems). The same as landschaft's, to the bit.
+
 ## [0.52.0] - 2026-10-13
 
 ### Added
