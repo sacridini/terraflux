@@ -395,6 +395,8 @@ pub enum Value {
     LabelMatrix(Arc<crate::bio::properties::LabelMatrix>),
     /// A habitat connectivity graph.
     HabitatGraph(Arc<crate::conn::HabitatGraph>),
+    /// A fitted species distribution model.
+    SdmModel(Arc<crate::sdm::maxnet::MaxNet>),
 }
 
 impl Value {
@@ -423,6 +425,7 @@ impl Value {
             Value::Tree(_) => Type::Tree,
             Value::LabelMatrix(_) => Type::LabelMatrix,
             Value::HabitatGraph(_) => Type::HabitatGraph,
+            Value::SdmModel(_) => Type::SdmModel,
         }
     }
 

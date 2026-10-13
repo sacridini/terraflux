@@ -4,6 +4,7 @@
 
 pub mod evaluate;
 pub mod extrapolation;
+pub mod maxnet;
 
 use std::sync::Arc;
 
@@ -21,6 +22,8 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(BoyceIndex));
     r.add(Arc::new(Threshold));
     r.add(Arc::new(OmissionRate));
+    r.add(Arc::new(FitMaxNet));
+    r.add(Arc::new(PredictMaxNet));
 }
 
 fn bad(args: &Args, m: impl std::fmt::Display) -> Error {
@@ -375,5 +378,149 @@ impl Operator for OmissionRate {
         let t: String = args.param("threshold", "p10".into())?;
         let r = evaluate::omission_rate(&train, &test, &t).map_err(|e| bad(args, e))?;
         Ok(outputs([("rate", Value::Number(r))]))
+    }
+}
+
+/// The rows of a table as a frame.
+fn table_frame(t: &Table) -> Frame {
+    Frame {
+        names: t.columns.clone(),
+        columns: (0..t.columns.len()).map(|c| t.rows.iter().map(|r| r[c]).collect()).collect(),
+    }
+}
+
+/// The predictors and the presences (1) and background (0): a table with a presence column, or a table of
+/// presences and one of background points.
+fn training(args: &Args) -> Result<(Frame, Vec<f64>)> {
+    if let Some(Value::Table(t)) = args.get("data") {
+        let presence: String = args.param("presence", "presence".into())?;
+        let mut f = table_frame(t);
+        let k =
+            f.names.iter().position(|n| *n == presence).ok_or_else(|| bad(args, format!("no column {presence:?}")))?;
+        f.names.remove(k);
+        let y = f.columns.remove(k);
+        return Ok((f, y));
+    }
+    let (Some(Value::Table(p)), Some(Value::Table(b))) = (args.get("presences"), args.get("background")) else {
+        return Err(bad(args, "connect a table with a presence column, or tables of presences and background"));
+    };
+    if p.columns != b.columns {
+        return Err(bad(args, "the presences and the background must have the same columns"));
+    }
+    let (fp, fb) = (table_frame(p), table_frame(b));
+    let f = Frame {
+        names: fp.names.clone(),
+        columns: fp.columns.iter().zip(&fb.columns).map(|(a, b)| a.iter().chain(b).copied().collect()).collect(),
+    };
+    let y = std::iter::repeat_n(1.0, p.rows.len()).chain(std::iter::repeat_n(0.0, b.rows.len())).collect();
+    Ok((f, y))
+}
+
+struct FitMaxNet;
+
+impl Operator for FitMaxNet {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "sdm.maxnet",
+            "A MaxNet species distribution model (landschaft's MaxNet, the maxnet package): Maxent as a lasso \
+             logistic regression of presences against background points over linear, quadratic, product, hinge, \
+             threshold and categorical features of the predictors (glmnet's path, maxnet's regularisation).",
+            Access::Global,
+        )
+        .input(PortSpec::optional(
+            "data",
+            Type::Table,
+            "the predictors and a presence column (1 presence, 0 background)",
+        ))
+        .input(PortSpec::optional("presences", Type::Table, "or the predictors at the presences"))
+        .input(PortSpec::optional("background", Type::Table, "and at the background points"))
+        .output(PortSpec::new("model", Type::SdmModel, "the fitted model"))
+        .output(PortSpec::new(
+            "coefficients",
+            Type::Any,
+            "every feature with a nonzero coefficient and its coefficient",
+        ))
+        .param(PortSpec::optional("presence", Type::Text, "the presence column of data (default presence)"))
+        .param(PortSpec::optional("categorical", Type::Any, "the predictors that are categories (classes)"))
+        .param(PortSpec::optional("classes", Type::Text, "the feature classes: default, or letters of l, q, p, h, t"))
+        .param(PortSpec::optional("regmult", Type::Number, "the regularisation multiplier (default 1)"))
+        .param(PortSpec::optional(
+            "add_samples_to_background",
+            Type::Bool,
+            "add the presences to the background (default true)",
+        ))
+        .param(
+            PortSpec::optional(
+                "type",
+                Type::Text,
+                "the predictions' output: cloglog (default), logistic, exponential or link",
+            )
+            .choices(maxnet::OUTPUTS),
+        )
+        .param(PortSpec::optional(
+            "clamp",
+            Type::Bool,
+            "clamp the predictors to the training ranges (default true)",
+        ))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let (frame, y) = training(args)?;
+        let categorical: Vec<String> = match args.params.get("categorical") {
+            None | Some(serde_json::Value::Null) => Vec::new(),
+            Some(serde_json::Value::String(c)) => vec![c.clone()],
+            Some(_) => args.param("categorical", vec![])?,
+        };
+        let classes: String = args.param("classes", "default".into())?;
+        let output: String = args.param("type", "cloglog".into())?;
+        let s = maxnet::Settings {
+            categorical: &categorical,
+            classes: &classes,
+            regmult: args.param("regmult", 1.0)?,
+            add_samples_to_background: args.param("add_samples_to_background", true)?,
+            output: &output,
+            clamp: args.param("clamp", true)?,
+        };
+        let m = maxnet::fit(&frame, &y, &s).map_err(|e| bad(args, e))?;
+        let coefficients: serde_json::Map<String, serde_json::Value> =
+            m.names.iter().zip(&m.betas).map(|(n, b)| (n.clone(), serde_json::json!(b))).collect();
+        Ok(outputs([
+            ("model", Value::SdmModel(Arc::new(m))),
+            ("coefficients", Value::Json(serde_json::Value::Object(coefficients))),
+        ]))
+    }
+}
+
+struct PredictMaxNet;
+
+impl Operator for PredictMaxNet {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "sdm.maxnet_predict",
+            "A MaxNet's predictions (maxnet's predict): the suitability of every cell of a stack of the \
+             predictors (by name), or of every row of a table; cloglog, logistic, exponential or the link.",
+            Access::Global,
+        )
+        .input(PortSpec::new("model", Type::SdmModel, "a fitted model (sdm.maxnet)"))
+        .input(PortSpec::new("env", Type::Any, "a stack of the predictors (by name), or a table"))
+        .output(PortSpec::new("prediction", Type::Any, "a map on the stack's grid, or a table"))
+        .param(PortSpec::optional("type", Type::Text, "the output (default the model's)").choices(maxnet::OUTPUTS))
+        .param(PortSpec::optional("clamp", Type::Bool, "clamp to the training ranges (default the model's)"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let Some(Value::SdmModel(m)) = args.get("model") else { return Err(bad(args, "connect a fitted model")) };
+        let (frame, grid) = frame_of(args, "env")?;
+        let output: Option<String> = args.opt_param("type")?;
+        let p = m.predict(&frame, output.as_deref(), args.opt_param("clamp")?).map_err(|e| bad(args, e))?;
+        let v = match grid {
+            Some(grid) => Value::Map(crate::Map::new(grid, p)),
+            None => {
+                let mut t = Table::new(vec!["prediction".into()]);
+                t.rows = p.into_iter().map(|x| vec![x]).collect();
+                Value::Table(t)
+            }
+        };
+        Ok(outputs([("prediction", v)]))
     }
 }

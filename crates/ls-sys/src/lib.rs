@@ -177,6 +177,37 @@ pub mod ffi {
         reached: Vec<i32>,
     }
 
+    /// A fitted maxnet (landschaft's port of the maxnet package): every column of the model matrix (its kind 0
+    /// linear, 1 quadratic, 2 hinge, 3 threshold, 4 categorical, 5 product; variables, knots and the knots' names
+    /// as R writes them), the regularisation, glmnet's path, the nonzero coefficients, alpha and entropy.
+    struct MaxnetFit {
+        classes: String,
+        kind: Vec<i32>,
+        var: Vec<i32>,
+        var2: Vec<i32>,
+        k1: Vec<f64>,
+        k2: Vec<f64>,
+        pk1: Vec<f64>,
+        pk2: Vec<f64>,
+        s1: Vec<String>,
+        s2: Vec<String>,
+        penalty: Vec<f64>,
+        lambda: Vec<f64>,
+        feature_min: Vec<f64>,
+        feature_max: Vec<f64>,
+        var_min: Vec<f64>,
+        var_max: Vec<f64>,
+        sample_means: Vec<f64>,
+        majority: Vec<i32>,
+        beta_index: Vec<i32>,
+        betas: Vec<f64>,
+        alpha: f64,
+        entropy: f64,
+        n_passes: i64,
+        n_added: i64,
+        n_rows: i64,
+    }
+
     /// NLMR's nlm_mosaicfield before rescaling: the sum (empty without steps), each step's sum one after the
     /// other (`collect`), the infinite field (`infinit`, else empty).
     struct NlmMosaicOut {
@@ -1294,6 +1325,44 @@ pub mod ffi {
             k: i64,
             squared: bool,
         ) -> Result<Vec<f64>>;
+        /// maxnet's maxnet on n rows: the continuous variables column after column (cont), the factors' level
+        /// codes column after column (cat: 0.., -1 missing), their levels, p 1 presence or 0 background.
+        #[allow(clippy::too_many_arguments)]
+        fn sdm_maxnet_fit(
+            cont: &[f64],
+            cat: &[i32],
+            n: i64,
+            n_levels: &[i32],
+            p: &[f64],
+            classes: &str,
+            regmult: f64,
+            add_samples_to_background: bool,
+        ) -> Result<MaxnetFit>;
+        /// maxnet's predict of the features with a nonzero coefficient (type 0 link, 1 exponential, 2 cloglog,
+        /// 3 logistic), the data as for sdm_maxnet_fit (cat -2 a level unseen in training).
+        #[allow(clippy::too_many_arguments)]
+        fn sdm_maxnet_predict(
+            kind: &[i32],
+            var: &[i32],
+            var2: &[i32],
+            pk1: &[f64],
+            pk2: &[f64],
+            betas: &[f64],
+            feature_min: &[f64],
+            feature_max: &[f64],
+            var_min: &[f64],
+            var_max: &[f64],
+            alpha: f64,
+            entropy: f64,
+            cont: &[f64],
+            cat: &[i32],
+            n: i64,
+            n_levels: &[i32],
+            clamp: bool,
+            output: i32,
+        ) -> Result<Vec<f64>>;
+        /// R's as.character of a double (15 significant digits).
+        fn sdm_r_as_character(x: f64) -> String;
         /// R's cor(x, y) of two vectors (Pearson's, or Kendall's tau).
         fn sdm_r_cor2(x: &[f64], y: &[f64], kendall: bool) -> Result<f64>;
         /// R's colMeans of an n x p table (row-major): one 80-bit pass, divided in 80 bits.

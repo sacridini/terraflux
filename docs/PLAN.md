@@ -675,7 +675,9 @@ Pendências:
   está todo no Terraflux.
 - **SDM — extrapolação (0.50.0, 2026-10-13):** `sdm.mess`, `sdm.mop` e `sdm.exdet`.
 - **SDM — avaliação (0.51.0, 2026-10-13):** `sdm.evaluate`, `sdm.boyce`, `sdm.threshold` e `sdm.omission_rate`.
-  O resto do `sdm` (limpeza, thinning, background, folds, MaxNet, VIF) vem em blocos.
+- **SDM — MaxNet (0.52.0, 2026-10-13):** `sdm.maxnet` e `sdm.maxnet_predict` (tipo `SdmModel`), bit a bit.
+  O resto do `sdm` (limpeza, thinning, background, folds, o fluxo fit/predict com validação cruzada, VIF) vem
+  em blocos.
 - **Próximos (2026-10-13):** os instaladores de macOS e Linux;
   `vector.exact_sum` e `vector.distance` fora da memória.
 

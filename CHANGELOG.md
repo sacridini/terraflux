@@ -6,6 +6,14 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- MaxNet species distribution models (landschaft's MaxNet, the maxnet package; a new `SdmModel` type):
+  `sdm.maxnet` (from a table with a presence column, or tables of presences and background points; the
+  default classes or any of l, q, p, h, t; categorical predictors; the regularisation multiplier; the presences
+  added to the background or not) with its coefficients by feature name, and `sdm.maxnet_predict` (on a stack
+  of the predictors or a table; cloglog, logistic, exponential or the link; clamped or not). The same as
+  landschaft's, to the bit.
+
 ## [0.51.0] - 2026-10-13
 
 ### Added

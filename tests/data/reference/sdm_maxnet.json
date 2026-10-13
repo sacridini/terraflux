@@ -1,0 +1,129 @@
+[
+ {
+  "name": "default",
+  "params": {
+   "categorical": [
+    "cover"
+   ]
+  },
+  "names": [
+   "soil",
+   "I(temp^2)",
+   "I(prec^2)",
+   "hinge(temp):5.93628571428571:10",
+   "hinge(temp):7.78342857142857:10",
+   "hinge(temp):0.949:1.13371428571429",
+   "hinge(temp):0.949:2.242",
+   "hinge(temp):0.949:4.828",
+   "hinge(prec):10.0135510204082:14.802",
+   "hinge(prec):11.1402448979592:14.802",
+   "hinge(prec):11.4219183673469:14.802",
+   "hinge(prec):1:5.22510204081633",
+   "hinge(prec):1:5.50677551020408",
+   "hinge(soil):18.1983469387755:21.359",
+   "hinge(soil):18.5934285714286:21.359",
+   "categorical(cover):2",
+   "categorical(cover):4"
+  ],
+  "classes": "lqph",
+  "with_cover": true
+ },
+ {
+  "name": "lq",
+  "params": {
+   "classes": "lq",
+   "categorical": [
+    "cover"
+   ]
+  },
+  "names": [
+   "prec",
+   "soil",
+   "I(temp^2)",
+   "I(prec^2)",
+   "categorical(cover):2",
+   "categorical(cover):4"
+  ],
+  "classes": "lq",
+  "with_cover": true
+ },
+ {
+  "name": "lqp",
+  "params": {
+   "classes": "lqp",
+   "regmult": 2.0
+  },
+  "names": [
+   "prec",
+   "I(temp^2)",
+   "I(prec^2)"
+  ],
+  "classes": "lqp",
+  "with_cover": false
+ },
+ {
+  "name": "ht",
+  "params": {
+   "classes": "ht",
+   "regmult": 0.5,
+   "categorical": [
+    "cover"
+   ]
+  },
+  "names": [
+   "hinge(temp):7.78342857142857:10",
+   "hinge(temp):9.44585714285714:10",
+   "hinge(temp):9.63057142857143:10",
+   "hinge(temp):9.81528571428571:10",
+   "hinge(temp):0.949:2.242",
+   "hinge(temp):0.949:2.42671428571429",
+   "hinge(prec):8.88685714285714:14.802",
+   "hinge(prec):14.5203265306122:14.802",
+   "hinge(prec):1:5.22510204081633",
+   "hinge(prec):1:5.50677551020408",
+   "hinge(soil):18.1983469387755:21.359",
+   "hinge(soil):18.5934285714286:21.359",
+   "hinge(soil):2:5.16065306122449",
+   "thresholds(temp):3.07864705882353",
+   "thresholds(temp):3.25611764705882",
+   "thresholds(temp):3.78852941176471",
+   "thresholds(temp):3.966",
+   "thresholds(temp):6.27311764705882",
+   "thresholds(temp):6.80552941176471",
+   "thresholds(temp):7.33794117647059",
+   "thresholds(prec):1.81188235294118",
+   "thresholds(prec):4.24752941176471",
+   "thresholds(prec):4.5181568627451",
+   "thresholds(prec):4.78878431372549",
+   "thresholds(prec):11.5544705882353",
+   "thresholds(prec):11.8250980392157",
+   "thresholds(prec):12.6369803921569",
+   "thresholds(prec):14.2607450980392",
+   "thresholds(soil):7.31423529411765",
+   "thresholds(soil):8.83258823529412",
+   "thresholds(soil):12.2488823529412",
+   "thresholds(soil):13.3876470588235",
+   "thresholds(soil):17.9427058823529",
+   "categorical(cover):2",
+   "categorical(cover):3",
+   "categorical(cover):4"
+  ],
+  "classes": "ht",
+  "with_cover": true
+ },
+ {
+  "name": "nosamples",
+  "params": {
+   "classes": "lq",
+   "add_samples_to_background": false
+  },
+  "names": [
+   "prec",
+   "soil",
+   "I(temp^2)",
+   "I(prec^2)"
+  ],
+  "classes": "lq",
+  "with_cover": false
+ }
+]

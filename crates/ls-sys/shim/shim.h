@@ -18,6 +18,7 @@ namespace tfx {
 
 struct CluesOut;
 struct NlmMosaicOut;
+struct MaxnetFit;
 struct ConnAnalysis;
 struct ConnGains;
 struct ConnRasterNodes;
@@ -163,6 +164,18 @@ ConnCentrality conn_centrality(rust::Slice<const std::int32_t> pi, rust::Slice<c
                                rust::Slice<const double> length, std::int32_t n, bool unit);
 rust::Vec<double> sdm_knn_mean_distance(rust::Slice<const double> m, std::int64_t nm, rust::Slice<const double> g,
                                         std::int64_t ng, std::int64_t p, std::int64_t k, bool squared);
+MaxnetFit sdm_maxnet_fit(rust::Slice<const double> cont, rust::Slice<const std::int32_t> cat, std::int64_t n,
+                         rust::Slice<const std::int32_t> n_levels, rust::Slice<const double> p, rust::Str classes,
+                         double regmult, bool add_samples_to_background);
+rust::Vec<double> sdm_maxnet_predict(rust::Slice<const std::int32_t> kind, rust::Slice<const std::int32_t> var,
+                                     rust::Slice<const std::int32_t> var2, rust::Slice<const double> pk1,
+                                     rust::Slice<const double> pk2, rust::Slice<const double> betas,
+                                     rust::Slice<const double> feature_min, rust::Slice<const double> feature_max,
+                                     rust::Slice<const double> var_min, rust::Slice<const double> var_max, double alpha,
+                                     double entropy, rust::Slice<const double> cont, rust::Slice<const std::int32_t> cat,
+                                     std::int64_t n, rust::Slice<const std::int32_t> n_levels, bool clamp,
+                                     std::int32_t output);
+rust::String sdm_r_as_character(double x);
 double sdm_r_cor2(rust::Slice<const double> x, rust::Slice<const double> y, bool kendall);
 rust::Vec<double> sdm_r_colmeans(rust::Slice<const double> x, std::int64_t n, std::int64_t p);
 rust::Vec<double> nlm_rescale(rust::Slice<const double> x);

@@ -52,6 +52,8 @@ pub enum Type {
     /// A habitat connectivity graph: the nodes' attributes and the distances, probabilities or links between
     /// them (Conefor's and Makurhini's).
     HabitatGraph,
+    /// A fitted species distribution model (MaxNet).
+    SdmModel,
 }
 
 impl Type {

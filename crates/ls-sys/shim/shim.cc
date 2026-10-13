@@ -75,6 +75,7 @@
 
 #include "conn/cost.hpp"
 #include "sdm/extrapolation.hpp"
+#include "sdm/maxnet.hpp"
 #include "sdm/rstats.hpp"
 #include "conn/graph.hpp"
 #include "conn/nodes.hpp"
@@ -516,6 +517,109 @@ rust::Vec<double> sdm_knn_mean_distance(rust::Slice<const double> m, std::int64_
     check(k >= 1, "k must be at least 1");
     return to_rust<double>(sdm::knn_mean_distance(m.data(), nm, g.data(), ng, p, k, squared));
 }
+
+namespace {
+
+sdm::maxnet::Table maxnet_table(rust::Slice<const double> cont, rust::Slice<const std::int32_t> cat, std::int64_t n,
+                                rust::Slice<const std::int32_t> n_levels) {
+    check(n > 0, "no rows");
+    check(cont.size() % static_cast<std::size_t>(n) == 0 && cat.size() % static_cast<std::size_t>(n) == 0,
+          "cont and cat must have n rows");
+    sdm::maxnet::Table t;
+    t.n = n;
+    t.n_cont = static_cast<std::int32_t>(cont.size() / static_cast<std::size_t>(n));
+    t.n_cat = static_cast<std::int32_t>(cat.size() / static_cast<std::size_t>(n));
+    t.cont = cont.data();
+    t.cat = cat.data();
+    t.n_levels.assign(n_levels.begin(), n_levels.end());
+    check(static_cast<std::int32_t>(t.n_levels.size()) == t.n_cat, "one n_levels per factor");
+    return t;
+}
+
+}  // namespace
+
+MaxnetFit sdm_maxnet_fit(rust::Slice<const double> cont, rust::Slice<const std::int32_t> cat, std::int64_t n,
+                         rust::Slice<const std::int32_t> n_levels, rust::Slice<const double> p, rust::Str classes,
+                         double regmult, bool add_samples_to_background) {
+    const sdm::maxnet::Table t = maxnet_table(cont, cat, n, n_levels);
+    check(p.size() == static_cast<std::size_t>(n), "p must have one value per row");
+    sdm::maxnet::Settings s;
+    s.classes = std::string(classes);
+    s.regmult = regmult;
+    s.add_samples_to_background = add_samples_to_background;
+    const sdm::maxnet::Model m = sdm::maxnet::fit(t, p.data(), s);
+    MaxnetFit out;
+    out.classes = m.classes;
+    for (const sdm::maxnet::Feature& f : m.features) {
+        out.kind.push_back(static_cast<std::int32_t>(f.kind));
+        out.var.push_back(f.var);
+        out.var2.push_back(f.var2);
+        out.k1.push_back(f.k1);
+        out.k2.push_back(f.k2);
+        out.pk1.push_back(f.pk1);
+        out.pk2.push_back(f.pk2);
+        out.s1.push_back(f.s1);
+        out.s2.push_back(f.s2);
+    }
+    out.penalty = to_rust<double>(m.penalty);
+    out.lambda = to_rust<double>(m.lambda);
+    out.feature_min = to_rust<double>(m.feature_min);
+    out.feature_max = to_rust<double>(m.feature_max);
+    out.var_min = to_rust<double>(m.var_min);
+    out.var_max = to_rust<double>(m.var_max);
+    out.sample_means = to_rust<double>(m.sample_means);
+    out.majority = to_rust<std::int32_t>(m.majority);
+    out.beta_index = to_rust<std::int32_t>(m.beta_index);
+    out.betas = to_rust<double>(m.betas);
+    out.alpha = m.alpha;
+    out.entropy = m.entropy;
+    out.n_passes = m.n_passes;
+    out.n_added = m.n_added;
+    out.n_rows = m.n_rows;
+    return out;
+}
+
+rust::Vec<double> sdm_maxnet_predict(rust::Slice<const std::int32_t> kind, rust::Slice<const std::int32_t> var,
+                                     rust::Slice<const std::int32_t> var2, rust::Slice<const double> pk1,
+                                     rust::Slice<const double> pk2, rust::Slice<const double> betas,
+                                     rust::Slice<const double> feature_min, rust::Slice<const double> feature_max,
+                                     rust::Slice<const double> var_min, rust::Slice<const double> var_max, double alpha,
+                                     double entropy, rust::Slice<const double> cont, rust::Slice<const std::int32_t> cat,
+                                     std::int64_t n, rust::Slice<const std::int32_t> n_levels, bool clamp,
+                                     std::int32_t output) {
+    const std::size_t nb = betas.size();
+    check(kind.size() == nb && var.size() == nb && var2.size() == nb && pk1.size() == nb && pk2.size() == nb &&
+              feature_min.size() == nb && feature_max.size() == nb,
+          "one value per coefficient expected");
+    check(output >= 0 && output <= 3, "the output is 0 link, 1 exponential, 2 cloglog or 3 logistic");
+    const sdm::maxnet::Table t = maxnet_table(cont, cat, n, n_levels);
+    sdm::maxnet::Predictor m;
+    for (std::size_t j = 0; j < nb; ++j) {
+        sdm::maxnet::Feature f;
+        f.kind = static_cast<sdm::maxnet::Kind>(kind[j]);
+        f.var = var[j];
+        f.var2 = var2[j];
+        f.pk1 = pk1[j];
+        f.pk2 = pk2[j];
+        const bool categorical = f.kind == sdm::maxnet::Kind::Categorical;
+        check(f.var >= 0 && f.var < (categorical ? t.n_cat : t.n_cont) &&
+                  (f.kind != sdm::maxnet::Kind::Product || (f.var2 >= 0 && f.var2 < t.n_cont)),
+              "a feature refers to a variable that is not in the data");
+        m.features.push_back(f);
+    }
+    m.betas = to_std(betas);
+    m.feature_min = to_std(feature_min);
+    m.feature_max = to_std(feature_max);
+    m.var_min = to_std(var_min);
+    m.var_max = to_std(var_max);
+    m.alpha = alpha;
+    m.entropy = entropy;
+    std::vector<double> out(static_cast<std::size_t>(n));
+    sdm::maxnet::predict(m, t, clamp, static_cast<sdm::maxnet::Output>(output), out.data());
+    return to_rust<double>(out);
+}
+
+rust::String sdm_r_as_character(double x) { return rust::String(sdm::maxnet::r_as_character(x)); }
 
 double sdm_r_cor2(rust::Slice<const double> x, rust::Slice<const double> y, bool kendall) {
     check(x.size() == y.size(), "x and y differ in length");
