@@ -6,6 +6,20 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- The rest of landschaft's neutral landscape models (its port of NLMR): `nlm.random`, `nlm.percolation`,
+  `nlm.planar_gradient` and `nlm.edge_gradient` (a direction drawn with the seed when none is given),
+  `nlm.distance_gradient` (terra's haversine or GDAL's proximity as NLMR, or exact distances), `nlm.curds`
+  (wheyed too), `nlm.mpd` (NLMR's grid or the size asked for, on a torus too), `nlm.neigh`,
+  `nlm.random_rectangular_cluster`, `nlm.mosaic_field` (every step's sum and the infinite field too),
+  `nlm.mosaic_tess` and `nlm.mosaic_gibbs` (each germ with its own value: NLMR's order of GEOS's Voronoi cells is
+  not reproduced), and the utilities `nlm.classify` (by weights, a real landscape's shares or Jenks's natural
+  breaks), `nlm.binarize`, `nlm.merge` and `nlm.rescale`. The same as landschaft's, to the bit.
+
+### Changed
+- `nlm.gaussian_field` and `nlm.fbm` rescale with NLMR's util_rescale (all 0 when the minimum and maximum are
+  all.equal), as landschaft.
+
 ## [0.42.1] - 2026-10-13
 
 ### Fixed

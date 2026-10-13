@@ -207,6 +207,149 @@ rust::Vec<double> nlm_fbm(std::int32_t seed, std::int64_t ny, std::int64_t nx, d
     return to_rust<double>(nlm::fbm(rng, ny, nx, fract_dim));
 }
 
+rust::Vec<double> nlm_rescale(rust::Slice<const double> x) {
+    std::vector<double> v = to_std(x);
+    nlm::rescale(v.data(), static_cast<std::int64_t>(v.size()));
+    return to_rust<double>(v);
+}
+
+rust::Vec<double> nlm_random(std::int32_t seed, std::int64_t ny, std::int64_t nx) {
+    check(ny > 0 && nx > 0, "the map needs rows and columns");
+    nlm::RRng rng(seed);
+    return to_rust<double>(nlm::random_field(rng, ny, nx));
+}
+
+rust::Vec<double> nlm_percolation(std::int32_t seed, std::int64_t ny, std::int64_t nx, double prob) {
+    check(ny > 0 && nx > 0, "the map needs rows and columns");
+    check(prob >= 0.0 && prob <= 1.0, "the probability is in [0, 1]");
+    nlm::RRng rng(seed);
+    return to_rust<double>(nlm::percolation(rng, ny, nx, prob));
+}
+
+rust::Vec<double> nlm_planar_gradient(std::int64_t ny, std::int64_t nx, double direction, bool rescale, bool edge) {
+    check(ny > 0 && nx > 0, "the map needs rows and columns");
+    std::vector<double> g = nlm::planar_gradient(ny, nx, direction);
+    const std::int64_t n = ny * nx;
+    if (edge) {
+        // nlm_edgegradient(): a rescaled planar gradient folded around 0.5
+        nlm::rescale(g.data(), n);
+        nlm::edge_from_planar(g.data(), n);
+    }
+    if (rescale) nlm::rescale(g.data(), n);
+    return to_rust<double>(g);
+}
+
+rust::Vec<double> nlm_distance(rust::Slice<const std::uint8_t> origin, std::int64_t ny, std::int64_t nx,
+                               std::int32_t method, double res, double xmin, double ymax, double xres, double yres) {
+    check(ny > 0 && nx > 0 && origin.size() == static_cast<std::size_t>(ny * nx), "the origin must be ny x nx");
+    const std::vector<std::uint8_t> o(origin.begin(), origin.end());
+    switch (method) {
+        case 0: return to_rust<double>(nlm::distance_gdal(o, ny, nx, res));
+        case 1: return to_rust<double>(nlm::distance_haversine(o, ny, nx, xmin, ymax, xres, yres));
+        case 2: return to_rust<double>(nlm::distance_exact(o, ny, nx, res));
+        default: throw std::invalid_argument("the distance method is 0 to 2");
+    }
+}
+
+rust::Vec<double> nlm_r_cumsum(rust::Slice<const double> x) {
+    rust::Vec<double> out;
+    out.reserve(x.size());
+    lsm::Extended s = 0.0;
+    for (const double v : x) {
+        s += v;
+        out.push_back(static_cast<double>(s));
+    }
+    return out;
+}
+
+rust::Vec<double> nlm_cut(rust::Slice<const double> x, rust::Slice<const double> breaks) {
+    std::vector<double> out(x.size());
+    nlm::cut_include_lowest(x.data(), static_cast<std::int64_t>(x.size()), to_std(breaks), out.data());
+    return to_rust<double>(out);
+}
+
+rust::Vec<double> nlm_jenks_breaks(rust::Slice<const double> sorted, std::int32_t k) {
+    check(k >= 1, "k must be >= 1");
+    return to_rust<double>(nlm::jenks_breaks(to_std(sorted), k));
+}
+
+rust::Vec<double> nlm_curds(std::int32_t seed, rust::Slice<const double> curds, rust::Slice<const std::int64_t> steps,
+                            rust::Slice<const double> wheyes, bool with_wheyes) {
+    check(curds.size() == steps.size() && (!with_wheyes || wheyes.size() == steps.size()),
+          "curds, recursion_steps and wheyes must have the same length");
+    const std::vector<double> p = to_std(curds), w = to_std(wheyes);
+    const std::vector<std::int64_t> s = to_std(steps);
+    nlm::RRng rng(seed);
+    std::int64_t size = 0;
+    return to_rust<double>(nlm::curds(rng, p, s, with_wheyes ? &w : nullptr, size));
+}
+
+rust::Vec<double> nlm_mpd(std::int64_t size, rust::Slice<const double> rand_dev, std::uint32_t seed, bool torus) {
+    check(size >= 3, "the map's side is 3 or more");
+    return to_rust<double>(nlm::mpd_square(size, to_std(rand_dev), seed, torus));
+}
+
+rust::Vec<double> nlm_neigh(std::int64_t ny, std::int64_t nx, std::int32_t n_categories,
+                            rust::Slice<const std::int64_t> cells_per_cat, std::int32_t neighbourhood, float p_neigh,
+                            float p_empty, std::uint32_t seed) {
+    check(ny > 0 && nx > 0, "the map needs rows and columns");
+    check(static_cast<std::int64_t>(cells_per_cat.size()) == n_categories + 1,
+          "cells_per_cat must have n_categories + 1 values");
+    return to_rust<double>(nlm::neigh(ny, nx, n_categories, to_std(cells_per_cat), neighbourhood, p_neigh, p_empty, seed));
+}
+
+rust::Vec<double> nlm_random_rectangular_cluster(std::int64_t ny, std::int64_t nx, std::int32_t minl, std::int32_t maxl,
+                                                 std::uint32_t seed) {
+    check(ny > 0 && nx > 0, "the map needs rows and columns");
+    return to_rust<double>(nlm::random_rectangular_cluster(ny, nx, minl, maxl, seed));
+}
+
+NlmMosaicOut nlm_mosaic_field(std::int32_t seed, std::int64_t ny, std::int64_t nx, std::int32_t n, bool nlmr_compat,
+                              double mean, double sd, bool collect, bool infinit) {
+    check(ny > 0 && nx > 0, "the map needs rows and columns");
+    nlm::RRng rng(seed);
+    nlm::MosaicFieldResult r = nlm::mosaic_field(rng, ny, nx, n, nlmr_compat, mean, sd, collect, infinit);
+    NlmMosaicOut out;
+    out.sum = to_rust<double>(r.sum);
+    out.n_steps = static_cast<std::int64_t>(r.steps.size());
+    for (const auto& s : r.steps)
+        for (const double v : s) out.steps.push_back(v);
+    out.infinit = to_rust<double>(r.inf);
+    return out;
+}
+
+namespace {
+
+NlmGermsOut germs_out(nlm::GermDraws&& g) {
+    NlmGermsOut out;
+    out.x = to_rust<double>(g.x);
+    out.y = to_rust<double>(g.y);
+    out.v = to_rust<double>(g.v);
+    return out;
+}
+
+}  // namespace
+
+NlmGermsOut nlm_tess_germs(std::int32_t seed, std::int64_t germs, double width, double height) {
+    check(germs >= 1, "germs must be a positive integer");
+    nlm::RRng rng(seed);
+    return germs_out(nlm::tess_germs(rng, germs, width, height));
+}
+
+NlmGermsOut nlm_gibbs_germs(std::int32_t seed, std::int64_t germs, double r, std::int32_t patch_classes, double width,
+                            double height, std::int32_t giveup) {
+    check(germs >= 1 && patch_classes >= 1, "germs and patch_classes must be positive integers");
+    nlm::RRng rng(seed);
+    return germs_out(nlm::gibbs_germs(rng, germs, r, patch_classes, width, height, giveup));
+}
+
+rust::Vec<double> nlm_nearest_germ_raster(rust::Slice<const double> x, rust::Slice<const double> y,
+                                          rust::Slice<const double> v, std::int64_t ny, std::int64_t nx) {
+    check(x.size() == y.size() && x.size() == v.size(), "x, y and values differ in length");
+    check(ny > 0 && nx > 0, "the map needs rows and columns");
+    return to_rust<double>(nlm::nearest_germ_raster(to_std(x), to_std(y), to_std(v), ny, nx));
+}
+
 rust::Vec<std::uint8_t> mspa(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx,
                              std::int32_t connectivity, std::int32_t edge_width, bool internal) {
     const gtb::ImageU8 im = image(input, ny, nx);

@@ -651,6 +651,12 @@ Pendências:
   (os leitores do Circuitscape e do Omniscape portados; as saídas escritas como eles as nomeiam), bit a bit com
   o landschaft nos 51 casos de teste do Circuitscape em raster e nos INI do Omniscape; os arquivos byte a byte.
   O módulo de circuitos está todo no Terraflux.
+- **Modelos neutros (0.43.0, 2026-10-13):** os outros 16 do `nlm` — `nlm.random`, `nlm.percolation`,
+  `nlm.planar_gradient`, `nlm.edge_gradient`, `nlm.distance_gradient`, `nlm.curds`, `nlm.mpd`, `nlm.neigh`,
+  `nlm.random_rectangular_cluster`, `nlm.mosaic_field`, `nlm.mosaic_tess`, `nlm.mosaic_gibbs` e os utilitários
+  `nlm.classify`, `nlm.binarize`, `nlm.merge` e `nlm.rescale` —, bit a bit com o landschaft. Os mosaicos de
+  Voronoi dão a cada germe o seu valor (o `nlmr_compat=False` do landschaft): a ordem das células do GEOS que o
+  NLMR segue não está portada.
 - **Próximos (2026-10-13):** os instaladores de macOS e Linux;
   `vector.exact_sum` e `vector.distance` fora da memória.
 

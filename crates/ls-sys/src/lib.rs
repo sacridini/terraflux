@@ -94,6 +94,22 @@ pub mod ffi {
     /// GuidosToolbox's FAD at one window: the density (0-100 on the foreground, GTB's codes 101 background, 102
     /// missing, 105 and 106 special backgrounds elsewhere), the same density everywhere, the classes 1 (rare) to
     /// 6 (intact), the foreground's cells and those of each class, the density summed over the foreground.
+    /// NLMR's nlm_mosaicfield before rescaling: the sum (empty without steps), each step's sum one after the
+    /// other (`collect`), the infinite field (`infinit`, else empty).
+    struct NlmMosaicOut {
+        sum: Vec<f64>,
+        steps: Vec<f64>,
+        n_steps: i64,
+        infinit: Vec<f64>,
+    }
+
+    /// Germs of a Voronoi mosaic and their values, in the order drawn.
+    struct NlmGermsOut {
+        x: Vec<f64>,
+        y: Vec<f64>,
+        v: Vec<f64>,
+    }
+
     struct FadOut {
         density: Vec<u8>,
         raw: Vec<u8>,
@@ -1048,6 +1064,80 @@ pub mod ffi {
             mean: f64,
         ) -> Result<Vec<f64>>;
         fn nlm_fbm(seed: i32, ny: i64, nx: i64, fract_dim: f64) -> Result<Vec<f64>>;
+        /// NLMR's util_rescale (a copy): (x - min) / (max - min), 0 when min and max are all.equal.
+        fn nlm_rescale(x: &[f64]) -> Vec<f64>;
+        /// nlm_random before rescaling: runif by column.
+        fn nlm_random(seed: i32, ny: i64, nx: i64) -> Result<Vec<f64>>;
+        /// nlm_percolation: 1 where runif < prob (by column), else 0.
+        fn nlm_percolation(seed: i32, ny: i64, nx: i64, prob: f64) -> Result<Vec<f64>>;
+        /// nlm_planargradient (`edge` false) or nlm_edgegradient (true), rescaled or not.
+        fn nlm_planar_gradient(ny: i64, nx: i64, direction: f64, rescale: bool, edge: bool) -> Result<Vec<f64>>;
+        /// The distance of every cell to the nearest with origin != 0: method 0 GDAL's proximity (cells times
+        /// res, float32), 1 terra's haversine on a lon/lat grid, 2 exact Euclidean times res.
+        #[allow(clippy::too_many_arguments)]
+        fn nlm_distance(
+            origin: &[u8],
+            ny: i64,
+            nx: i64,
+            method: i32,
+            res: f64,
+            xmin: f64,
+            ymax: f64,
+            xres: f64,
+            yres: f64,
+        ) -> Result<Vec<f64>>;
+        /// R's cumsum of doubles (80-bit accumulation).
+        fn nlm_r_cumsum(x: &[f64]) -> Vec<f64>;
+        /// base::cut(x, breaks, include.lowest = TRUE, labels = FALSE) (breaks sorted, unique): NaN outside.
+        fn nlm_cut(x: &[f64], breaks: &[f64]) -> Vec<f64>;
+        /// NLMR's rcpp_get_jenksbreaks on sorted values: k + 1 breaks.
+        fn nlm_jenks_breaks(sorted: &[f64], k: i32) -> Result<Vec<f64>>;
+        /// nlm_curds: 1 curds, 0 matrix on a size x size grid (size the product of the steps); no wheyes when
+        /// `with_wheyes` is false.
+        fn nlm_curds(seed: i32, curds: &[f64], steps: &[i64], wheyes: &[f64], with_wheyes: bool) -> Result<Vec<f64>>;
+        /// NLMR's rcpp_mpd on a size x size map, with each step's deviation.
+        fn nlm_mpd(size: i64, rand_dev: &[f64], seed: u32, torus: bool) -> Result<Vec<f64>>;
+        /// NLMR's rcpp_neigh: categories 0..n_categories.
+        #[allow(clippy::too_many_arguments)]
+        fn nlm_neigh(
+            ny: i64,
+            nx: i64,
+            n_categories: i32,
+            cells_per_cat: &[i64],
+            neighbourhood: i32,
+            p_neigh: f32,
+            p_empty: f32,
+            seed: u32,
+        ) -> Result<Vec<f64>>;
+        /// NLMR's rcpp_randomrectangularcluster.
+        fn nlm_random_rectangular_cluster(ny: i64, nx: i64, minl: i32, maxl: i32, seed: u32) -> Result<Vec<f64>>;
+        /// nlm_mosaicfield before rescaling (n 0: only the infinite field).
+        #[allow(clippy::too_many_arguments)]
+        fn nlm_mosaic_field(
+            seed: i32,
+            ny: i64,
+            nx: i64,
+            n: i32,
+            nlmr_compat: bool,
+            mean: f64,
+            sd: f64,
+            collect: bool,
+            infinit: bool,
+        ) -> Result<NlmMosaicOut>;
+        /// nlm_mosaictess's germs (sf::st_sample) and their values (runif).
+        fn nlm_tess_germs(seed: i32, germs: i64, width: f64, height: f64) -> Result<NlmGermsOut>;
+        /// nlm_mosaicgibbs's germs (spatstat's rSSI, giving up after `giveup` attempts) and shuffled classes.
+        fn nlm_gibbs_germs(
+            seed: i32,
+            germs: i64,
+            r: f64,
+            patch_classes: i32,
+            width: f64,
+            height: f64,
+            giveup: i32,
+        ) -> Result<NlmGermsOut>;
+        /// The value of the nearest germ at every cell centre (cells of side 1 from (0, 0), first row on top).
+        fn nlm_nearest_germ_raster(x: &[f64], y: &[f64], v: &[f64], ny: i64, nx: i64) -> Result<Vec<f64>>;
         fn mspa(input: &[u8], ny: i64, nx: i64, connectivity: i32, edge_width: i32, internal: bool) -> Result<Vec<u8>>;
         fn fad(input: &[u8], ny: i64, nx: i64, window: i32) -> Result<FadOut>;
         fn fad_multiscale(input: &[u8], ny: i64, nx: i64, windows: &[i32]) -> Result<FadScalesOut>;

@@ -17,6 +17,8 @@
 namespace tfx {
 
 struct CluesOut;
+struct NlmMosaicOut;
+struct NlmGermsOut;
 struct OrderedOut;
 struct NbRule;
 struct GlmFit;
@@ -116,6 +118,30 @@ rust::Vec<double> nlm_random_cluster(std::int32_t seed, std::int64_t ny, std::in
 rust::Vec<double> nlm_gaussian_field(std::int32_t seed, std::int64_t ny, std::int64_t nx, double autocorr_range,
                                      double mag_var, double nug, double mean);
 rust::Vec<double> nlm_fbm(std::int32_t seed, std::int64_t ny, std::int64_t nx, double fract_dim);
+rust::Vec<double> nlm_rescale(rust::Slice<const double> x);
+rust::Vec<double> nlm_random(std::int32_t seed, std::int64_t ny, std::int64_t nx);
+rust::Vec<double> nlm_percolation(std::int32_t seed, std::int64_t ny, std::int64_t nx, double prob);
+rust::Vec<double> nlm_planar_gradient(std::int64_t ny, std::int64_t nx, double direction, bool rescale, bool edge);
+rust::Vec<double> nlm_distance(rust::Slice<const std::uint8_t> origin, std::int64_t ny, std::int64_t nx,
+                               std::int32_t method, double res, double xmin, double ymax, double xres, double yres);
+rust::Vec<double> nlm_r_cumsum(rust::Slice<const double> x);
+rust::Vec<double> nlm_cut(rust::Slice<const double> x, rust::Slice<const double> breaks);
+rust::Vec<double> nlm_jenks_breaks(rust::Slice<const double> sorted, std::int32_t k);
+rust::Vec<double> nlm_curds(std::int32_t seed, rust::Slice<const double> curds, rust::Slice<const std::int64_t> steps,
+                            rust::Slice<const double> wheyes, bool with_wheyes);
+rust::Vec<double> nlm_mpd(std::int64_t size, rust::Slice<const double> rand_dev, std::uint32_t seed, bool torus);
+rust::Vec<double> nlm_neigh(std::int64_t ny, std::int64_t nx, std::int32_t n_categories,
+                            rust::Slice<const std::int64_t> cells_per_cat, std::int32_t neighbourhood, float p_neigh,
+                            float p_empty, std::uint32_t seed);
+rust::Vec<double> nlm_random_rectangular_cluster(std::int64_t ny, std::int64_t nx, std::int32_t minl, std::int32_t maxl,
+                                                 std::uint32_t seed);
+NlmMosaicOut nlm_mosaic_field(std::int32_t seed, std::int64_t ny, std::int64_t nx, std::int32_t n, bool nlmr_compat,
+                              double mean, double sd, bool collect, bool infinit);
+NlmGermsOut nlm_tess_germs(std::int32_t seed, std::int64_t germs, double width, double height);
+NlmGermsOut nlm_gibbs_germs(std::int32_t seed, std::int64_t germs, double r, std::int32_t patch_classes, double width,
+                            double height, std::int32_t giveup);
+rust::Vec<double> nlm_nearest_germ_raster(rust::Slice<const double> x, rust::Slice<const double> y,
+                                          rust::Slice<const double> v, std::int64_t ny, std::int64_t nx);
 
 rust::Vec<std::uint8_t> mspa(rust::Slice<const std::uint8_t> input, std::int64_t ny, std::int64_t nx,
                              std::int32_t connectivity, std::int32_t edge_width, bool internal);
