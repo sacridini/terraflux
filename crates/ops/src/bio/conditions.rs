@@ -1317,6 +1317,9 @@ pub struct Neighbourhoods {
     pub sets: Vec<Csr>,
     /// Whether Biodiverse copies results between groups with these neighbourhoods.
     pub results_recyclable: bool,
+    /// The lists as Biodiverse leaves them stored after its analysis (recycling can overwrite lists of groups
+    /// processed before), rows as `groups`.
+    pub stored: Vec<Csr>,
 }
 
 /// The neighbour sets of every group as Biodiverse's spatial analysis finds them (landschaft's neighbours).
@@ -1397,10 +1400,11 @@ pub fn neighbours(
             }
             sets.push(cur);
         }
-        return Ok(Neighbourhoods { groups: procs, sets, results_recyclable });
+        return Ok(Neighbourhoods { groups: procs, stored: sets.clone(), sets, results_recyclable });
     }
     let n_sets = conditions.len();
     let mut recycled: Vec<HashMap<i32, Vec<i32>>> = vec![HashMap::new(); n_sets];
+    let mut stored: Vec<HashMap<i32, Vec<i32>>> = vec![HashMap::new(); n_sets];
     let mut used: HashMap<i32, Vec<Vec<i32>>> = HashMap::new();
     let mut has_lists = vec![false; n];
     let mut results_same = vec![-1i64; n];
@@ -1424,6 +1428,7 @@ pub fn neighbours(
             if i != n_sets - 1 {
                 excl.extend(&lst);
             }
+            stored[i].insert(g, lst.clone());
             lists.push(lst);
         }
         has_lists[g as usize] = true;
@@ -1440,6 +1445,7 @@ pub fn neighbours(
                     }
                     for &t in &targets {
                         recycled[i].insert(t, lists[i].clone());
+                        stored[i].insert(t, lists[i].clone());
                     }
                 }
                 for &t in &targets {
@@ -1459,7 +1465,10 @@ pub fn neighbours(
     }
     let sets =
         (0..n_sets).map(|i| rows_to_csr(&procs.iter().map(|g| used[g][i].clone()).collect::<Vec<_>>())).collect();
-    Ok(Neighbourhoods { groups: procs, sets, results_recyclable })
+    let stored = (0..n_sets)
+        .map(|i| rows_to_csr(&procs.iter().map(|g| stored[i].get(g).cloned().unwrap_or_default()).collect::<Vec<_>>()))
+        .collect();
+    Ok(Neighbourhoods { groups: procs, sets, results_recyclable, stored })
 }
 
 #[cfg(test)]

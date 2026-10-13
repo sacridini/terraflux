@@ -23,7 +23,9 @@
 #include "circuit/omniscape.hpp"
 #include "bio/conditions.hpp"
 #include "bio/indices.hpp"
+#include "bio/perlmath.hpp"
 #include "bio/phylocom.hpp"
+#include "bio/randomise.hpp"
 #include "cost/randomwalk.hpp"
 #include "cost/rsp.hpp"
 #include "lsm/extended.hpp"
@@ -2841,6 +2843,94 @@ rust::Vec<std::uint8_t> bio_ultrametric(const BioTree& tree) {
     rust::Vec<std::uint8_t> out;
     out.push_back(pc.ultrametric ? 1 : 0);
     out.push_back(pc.multifurcating ? 1 : 0);
+    return out;
+}
+
+std::unique_ptr<BioRng> bio_rng_new(std::uint64_t seed) { return std::make_unique<BioRng>(seed); }
+
+rust::Vec<std::int64_t> bio_rng_shuffle(BioRng& rng, std::int64_t n) {
+    std::vector<std::int64_t> v(static_cast<std::size_t>(std::max<std::int64_t>(n, 0)));
+    for (std::int64_t i = 0; i < n; ++i) v[static_cast<std::size_t>(i)] = i;
+    rng.mt.shuffle(v);
+    return to_rust<std::int64_t>(v);
+}
+
+std::unique_ptr<BioAlloc> bio_alloc_none() { return std::make_unique<BioAlloc>(); }
+
+std::unique_ptr<BioAlloc> bio_alloc_new(rust::Str order, rust::Str backtracking, double reseed_prob, std::int64_t n_groups,
+                                        std::int32_t n_sets, rust::Slice<const std::int64_t> nbr_ptr,
+                                        rust::Slice<const std::int32_t> nbr_idx, bool same,
+                                        rust::Slice<const double> coords, std::int32_t ndim, bool have_seeds,
+                                        rust::Slice<const std::int32_t> seeds) {
+    check(static_cast<std::int64_t>(nbr_ptr.size()) == n_groups * n_sets + 1, "nbr_ptr: a row per group and set");
+    check(static_cast<std::int64_t>(coords.size()) == n_groups * ndim, "coords: n_groups x ndim");
+    std::vector<std::vector<std::vector<std::int32_t>>> nbrs(static_cast<std::size_t>(n_groups));
+    std::vector<std::vector<double>> xy(static_cast<std::size_t>(n_groups));
+    for (std::int64_t g = 0; g < n_groups; ++g) {
+        for (std::int32_t s = 0; s < n_sets; ++s) {
+            const std::int64_t r = g * n_sets + s;
+            nbrs[g].emplace_back(nbr_idx.begin() + nbr_ptr[r], nbr_idx.begin() + nbr_ptr[r + 1]);
+        }
+        xy[g].assign(coords.begin() + g * ndim, coords.begin() + (g + 1) * ndim);
+    }
+    auto out = std::make_unique<BioAlloc>();
+    out->a = std::make_unique<bio::SpatialAlloc>(std::string(order), std::string(backtracking), reseed_prob,
+                                                 std::move(nbrs), same, std::move(xy), have_seeds,
+                                                 std::vector<std::int32_t>(seeds.begin(), seeds.end()));
+    return out;
+}
+
+namespace {
+bio::CountsCsr counts_csr(rust::Slice<const std::int64_t> indptr, rust::Slice<const std::int32_t> indices,
+                          rust::Slice<const double> counts, std::int64_t n_groups, std::int64_t n_labels) {
+    bio::CountsCsr bd;
+    bd.n_groups = n_groups;
+    bd.n_labels = n_labels;
+    bd.indptr.assign(indptr.begin(), indptr.end());
+    bd.indices.assign(indices.begin(), indices.end());
+    bd.counts.assign(counts.begin(), counts.end());
+    check(static_cast<std::int64_t>(bd.indptr.size()) == n_groups + 1 && bd.indices.size() == bd.counts.size(),
+          "counts: a groups x labels CSR");
+    return bd;
+}
+
+BioCounts bio_counts(const bio::CountsCsr& c) {
+    BioCounts out;
+    out.indptr = to_rust<std::int64_t>(c.indptr);
+    out.indices = to_rust<std::int32_t>(c.indices);
+    out.counts = to_rust<double>(c.counts);
+    return out;
+}
+}  // namespace
+
+BioCounts bio_rand_structured(rust::Slice<const std::int64_t> indptr, rust::Slice<const std::int32_t> indices,
+                              rust::Slice<const double> counts, std::int64_t n_groups, std::int64_t n_labels,
+                              BioRng& rng, double multiplier, double addition, BioAlloc& alloc) {
+    const bio::CountsCsr bd = counts_csr(indptr, indices, counts, n_groups, n_labels);
+    return bio_counts(bio::rand_structured(bd, rng.mt, multiplier, addition, alloc.a.get()));
+}
+
+BioCounts bio_rand_swaps(rust::Slice<const std::int64_t> indptr, rust::Slice<const std::int32_t> indices,
+                         rust::Slice<const double> counts, std::int64_t n_groups, std::int64_t n_labels, BioRng& rng,
+                         rust::Slice<const double> label_range, rust::Str kind, std::int64_t swap_count,
+                         std::int64_t max_swap_attempts, bool stop_on_all_swapped, bool use_max_swap) {
+    const bio::CountsCsr bd = counts_csr(indptr, indices, counts, n_groups, n_labels);
+    const std::vector<double> ranges(label_range.begin(), label_range.end());
+    bio::SwapOptions opt;
+    opt.swap_count = swap_count;
+    opt.max_swap_attempts = max_swap_attempts;
+    opt.stop_on_all_swapped = stop_on_all_swapped;
+    opt.use_max_swap = use_max_swap;
+    const std::string k(kind);
+    if (k == "curveball") return bio_counts(bio::rand_curveball(bd, rng.mt, opt));
+    if (k == "independent_swaps") return bio_counts(bio::rand_independent_swaps(bd, rng.mt, ranges, opt, false));
+    if (k == "independent_swaps_modified") return bio_counts(bio::rand_independent_swaps(bd, rng.mt, ranges, opt, true));
+    throw std::invalid_argument("unknown swap randomisation " + k);
+}
+
+rust::Vec<double> bio_perl_sqrt(rust::Slice<const double> x) {
+    rust::Vec<double> out;
+    for (const double v : x) out.push_back(bio::perl_sqrt(v));
     return out;
 }
 

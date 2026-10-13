@@ -159,6 +159,51 @@ def trees() -> None:
     print(REF / "bio_trees.json", len(arrays))
 
 
+RAND_CALCS = ["richness", "endemism_central", "endemism_whole", "pd", "pe", "phylo_rpe2", "phylo_rpd2", "rarity_central_lists",
+              "redundancy"]
+RAND_CASES = [
+    ("rand_nochange", {}),
+    ("rand_csr_by_group", {}),
+    ("rand_structured", {}),
+    ("rand_structured", {"richness_multiplier": 1.5, "richness_addition": 1}),
+    ("rand_spatially_structured", {}),
+    ("rand_diffusion", {"spatial_conditions_for_label_allocation": "sp_circle (radius => 300000)"}),
+    ("rand_random_walk", {"spatial_conditions_for_seed_location": "$x > 3000000"}),
+    ("rand_independent_swaps", {"swap_count": 300}),
+    ("rand_independent_swaps_modified", {}),
+    ("rand_curveball", {"use_max_swap": True}),
+    ("rand_structured", {"spatial_conditions_for_subset": "sp_block (size => 1000000)"}),
+    ("rand_csr_by_group", {"definition_query": "$y > 1000000"}),
+    ("rand_structured", {"labels_not_to_randomise": ["Genus:sp1", "Genus:sp5"]}),
+    ("rand_csr_by_group", {"randomise_trees_by": "shuffle_terminal_names"}),
+]
+
+
+def randomisations() -> None:
+    """Randomisations of an analysis with a tree (bio_rand.json, bio_rand.npz)."""
+    bd = B.BaseData.from_table(B.example_data(), **BASEDATA["cells"])
+    tree = B.read_tree(B.example_data("tree"))
+    res = B.spatial_analysis(bd, "sp_circle (radius => 200000)", RAND_CALCS, tree=tree, prng_seed=1, n_threads=4)
+    out: dict = {"calculations": RAND_CALCS, "columns": list(res.table.columns), "cases": []}
+    arrays: dict[str, np.ndarray] = {}
+    for k, (fn, kw) in enumerate(RAND_CASES):
+        rnd = B.randomise(res, fn, iterations=5, seed=100 + k, n_threads=4, **kw)
+        case = {"function": fn, "args": kw, "seed": 100 + k, "lists": []}
+        arrays[f"r/{k}/comparison"] = rnd.comparison().to_numpy(dtype=np.float64)
+        arrays[f"r/{k}/p_rank"] = rnd.p_rank().to_numpy(dtype=np.float64)
+        arrays[f"r/{k}/z"] = rnd.z_scores().to_numpy(dtype=np.float64)
+        arrays[f"r/{k}/canape"] = rnd.canape()["CANAPE_CODE"].to_numpy(dtype=np.float64)
+        for lname in rnd._lists:
+            df = rnd.comparison(lname)
+            case["lists"].append([lname, df["group"].tolist(), df["key"].astype(str).tolist()])
+            arrays[f"r/{k}/list/{lname}"] = df[["C", "Q", "T", "SUMX", "SUMXX"]].to_numpy(dtype=np.float64)
+        out["cases"].append(case)
+    (REF / "bio_rand.json").write_text(json.dumps(out) + "\n", encoding="utf-8")
+    np.savez_compressed(REF / "bio_rand.npz", **arrays)
+    print(REF / "bio_rand.json", len(arrays))
+
+
 if __name__ == "__main__":
     main()
     trees()
+    randomisations()

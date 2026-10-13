@@ -223,6 +223,25 @@ fn take_rows(c: &Csr, rows: &[usize]) -> Csr {
     (indptr, indices)
 }
 
+/// What an analysis needs to run again on other counts (the randomisations): the calculations, the
+/// neighbourhoods and the rows the engine computes.
+#[derive(Debug, Clone)]
+pub struct Run {
+    pub valid: Vec<String>,
+    pub nbrs: Neighbourhoods,
+    pub set1: Csr,
+    pub set2: Option<Csr>,
+    /// The groups the engine computes (representatives of identical neighbourhoods).
+    pub procs: Vec<i32>,
+    /// Each processing group's row among `procs`.
+    pub expand: Option<Vec<usize>>,
+    pub tree: Option<Tree>,
+    pub pc_steps: Vec<i32>,
+    pub pc_vpd: bool,
+    pub seed: u64,
+    pub parallel: bool,
+}
+
 /// Biodiverse's spatial analysis: indices over the neighbourhood of every group (landschaft's
 /// spatial_analysis, without matrices and properties). `seed`: Biodiverse's prng_seed, of the random tips of the
 /// expected NTI on trees that are not ultrametric and of the net VPD.
@@ -235,6 +254,20 @@ pub fn spatial_analysis(
     seed: u64,
     parallel: bool,
 ) -> Result<SpatialResult> {
+    let run = prepare(bd, conditions, calculations, query, tree, seed, parallel)?;
+    evaluate(bd, &run, None)
+}
+
+/// The calculations that can run, the neighbourhoods and the rows to compute.
+pub fn prepare(
+    bd: &BaseData,
+    conditions: &[Condition],
+    calculations: &[String],
+    query: Option<&Condition>,
+    tree: Option<&Tree>,
+    seed: u64,
+    parallel: bool,
+) -> Result<Run> {
     let mut calcs: Vec<String> = Vec::new();
     for c in calculations {
         let name = calc_name(c);
@@ -319,17 +352,26 @@ pub fn spatial_analysis(
             expand = Some(inverse);
         }
     }
-    let v = view(bd, &valid);
+    Ok(Run { valid, nbrs, set1, set2, procs, expand, tree: tree.cloned(), pc_steps, pc_vpd, seed, parallel })
+}
+
+/// The calculations of an analysis on a basedata with the same groups (its neighbourhoods), with its tree or
+/// another (landschaft's _evaluate).
+pub fn evaluate(bd: &BaseData, run: &Run, tree: Option<&Tree>) -> Result<SpatialResult> {
+    let tree = tree.or(run.tree.as_ref());
+    let valid = &run.valid;
+    let procs = &run.procs;
+    let v = view(bd, valid);
     let csr = |c: &Csr| ffi::BioCsr { indptr: c.0.clone(), indices: c.1.clone() };
     let empty = ffi::BioCsr { indptr: vec![0; procs.len() + 1], indices: Vec::new() };
-    let s2 = set2.as_ref().map(csr);
+    let s2 = run.set2.as_ref().map(csr);
     let (tview, nodes) = match tree {
         Some(t) if valid.iter().any(|c| calculation(c).unwrap().uses_tree) => {
             let (mut tv, names) = tree_view(t, bd);
-            if !pc_steps.is_empty() {
-                tv.pc_steps = pc_steps;
-                tv.pc_vpd = pc_vpd;
-                tv.pc_seed = seed;
+            if !run.pc_steps.is_empty() {
+                tv.pc_steps = run.pc_steps.clone();
+                tv.pc_vpd = run.pc_vpd;
+                tv.pc_seed = run.seed;
             }
             (Some(tv), names)
         }
@@ -338,12 +380,12 @@ pub fn spatial_analysis(
     let none = no_tree();
     let out = ffi::bio_run_indices(
         &v,
-        &procs,
-        &csr(&set1),
+        procs,
+        &csr(&run.set1),
         s2.is_some(),
         s2.as_ref().unwrap_or(&empty),
-        &valid,
-        parallel,
+        valid,
+        run.parallel,
         tview.is_some(),
         tview.as_ref().unwrap_or(&none),
     )?;
@@ -370,14 +412,14 @@ pub fn spatial_analysis(
             }
         })
         .collect();
-    if let Some(inv) = &expand {
+    if let Some(inv) = &run.expand {
         rows = inv.iter().map(|&r| rows[r].clone()).collect();
         for l in &mut lists {
             l.rows = inv.iter().map(|&r| l.rows[r].clone()).collect();
         }
     }
     // indices needing more neighbour sets than given are not reported (Biodiverse's indices_to_clear)
-    let n_sets = if set2.is_none() { 1 } else { 2 };
+    let n_sets = if run.set2.is_none() { 1 } else { 2 };
     let clear: HashSet<String> = valid
         .iter()
         .filter_map(|c| DEPS.get(c)?.get("index_uses_nbr_lists")?.as_object())
@@ -385,7 +427,7 @@ pub fn spatial_analysis(
         .collect();
     let keep: Vec<usize> = (0..k).filter(|&j| !clear.contains(&out.scalar_names[j])).collect();
     Ok(SpatialResult {
-        groups: nbrs.groups,
+        groups: run.nbrs.groups.clone(),
         names: keep.iter().map(|&j| out.scalar_names[j].clone()).collect(),
         rows: rows.iter().map(|r| keep.iter().map(|&j| r[j]).collect()).collect(),
         lists: lists.into_iter().filter(|l| !clear.contains(&l.name)).collect(),

@@ -525,6 +525,13 @@ pub mod ffi {
         texts: Vec<String>,
     }
 
+    /// Groups x labels counts (CSR) of a randomised basedata.
+    struct BioCounts {
+        indptr: Vec<i64>,
+        indices: Vec<i32>,
+        counts: Vec<f64>,
+    }
+
     /// Least-cost paths: their cells, one after the other (offsets into them).
     struct PathsOut {
         cells: Vec<i64>,
@@ -1870,6 +1877,63 @@ pub mod ffi {
             with_tree: bool,
             tree: &BioTree,
         ) -> Result<BioIndexOut>;
+        /// Biodiverse's random generator (Math::Random::MT::Auto, the 64-bit Mersenne Twister).
+        type BioRng;
+        /// The spatial allocation state of rand_structured (caches kept across iterations), or none.
+        type BioAlloc;
+        fn bio_rng_new(seed: u64) -> UniquePtr<BioRng>;
+        /// A shuffle of 0..n-1 (the permutation Math::Random::MT::Auto's shuffle applies to n items).
+        fn bio_rng_shuffle(rng: Pin<&mut BioRng>, n: i64) -> Vec<i64>;
+        fn bio_alloc_none() -> UniquePtr<BioAlloc>;
+        /// The allocation state: `nbrs` the stored neighbour lists of each group and set (rows group * n_sets +
+        /// set), `coords` the group names as numbers (n_groups x ndim), `seeds` the groups passing the seed
+        /// condition.
+        #[allow(clippy::too_many_arguments)]
+        fn bio_alloc_new(
+            order: &str,
+            backtracking: &str,
+            reseed_prob: f64,
+            n_groups: i64,
+            n_sets: i32,
+            nbr_ptr: &[i64],
+            nbr_idx: &[i32],
+            same: bool,
+            coords: &[f64],
+            ndim: i32,
+            have_seeds: bool,
+            seeds: &[i32],
+        ) -> Result<UniquePtr<BioAlloc>>;
+        /// Biodiverse's rand_structured on a groups x labels CSR (the generator advances).
+        #[allow(clippy::too_many_arguments)]
+        fn bio_rand_structured(
+            indptr: &[i64],
+            indices: &[i32],
+            counts: &[f64],
+            n_groups: i64,
+            n_labels: i64,
+            rng: Pin<&mut BioRng>,
+            multiplier: f64,
+            addition: f64,
+            alloc: Pin<&mut BioAlloc>,
+        ) -> Result<BioCounts>;
+        /// Biodiverse's swap randomisations (independent_swaps, independent_swaps_modified, curveball).
+        #[allow(clippy::too_many_arguments)]
+        fn bio_rand_swaps(
+            indptr: &[i64],
+            indices: &[i32],
+            counts: &[f64],
+            n_groups: i64,
+            n_labels: i64,
+            rng: Pin<&mut BioRng>,
+            label_range: &[f64],
+            kind: &str,
+            swap_count: i64,
+            max_swap_attempts: i64,
+            stop_on_all_swapped: bool,
+            use_max_swap: bool,
+        ) -> Result<BioCounts>;
+        /// Perl's sqrt (mingw's x87) of each value.
+        fn bio_perl_sqrt(x: &[f64]) -> Vec<f64>;
         /// Biodiverse's is_ultrametric of a tree, and whether a node has more than two children.
         fn bio_ultrametric(tree: &BioTree) -> Result<Vec<u8>>;
         /// The cells of the least-cost paths from origin to each goal (igraph's ties).

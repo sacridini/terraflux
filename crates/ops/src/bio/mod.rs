@@ -6,6 +6,7 @@ pub mod basedata;
 pub mod conditions;
 pub mod names;
 pub mod perl;
+pub mod rand;
 pub mod spatial;
 pub mod tree;
 
@@ -27,6 +28,7 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(FromPoints));
     r.add(Arc::new(Spatial));
     r.add(Arc::new(ReadTree));
+    r.add(Arc::new(Randomise));
 }
 
 impl BaseData {
@@ -276,7 +278,7 @@ impl Operator for Spatial {
         .param(PortSpec::optional(
             "seed",
             Type::Integer,
-            "Biodiverse's prng_seed: the random tips of the expected NTI (trees not ultrametric) and the net VPD              (default 0)",
+            "Biodiverse's prng_seed: the random tips of the expected NTI (trees not ultrametric) and the net VPD (default 0)",
         ))
     }
 
@@ -308,46 +310,57 @@ impl Operator for Spatial {
             rayon::current_num_threads() > 1,
         )
         .map_err(fail)?;
-        let n_axes = bd.n_axes();
-        let mut table = Table::new(
-            ["group".to_string()]
-                .into_iter()
-                .chain((0..n_axes).map(|k| ["x", "y", "z"].get(k).map_or(format!("axis_{k}"), |s| s.to_string())))
-                .chain(r.names.iter().cloned())
-                .collect(),
-        );
-        for (row, &g) in r.rows.iter().zip(&r.groups) {
-            let g = g as usize;
-            table.rows.push(
-                std::iter::once((g + 1) as f64)
-                    .chain(bd.coords[g * n_axes..(g + 1) * n_axes].iter().copied())
-                    .chain(row.iter().copied())
-                    .collect(),
-            );
-        }
-        let mut out = vec![("table", Value::Table(table)), ("lists", Value::Json(list_json(&bd, &r)))];
-        if let Some((grid, cells)) = group_grid(&bd) {
-            let n = grid.cells();
-            let layers = (0..r.names.len())
-                .map(|j| {
-                    let mut m = vec![f64::NAN; n];
-                    for (row, &g) in r.rows.iter().zip(&r.groups) {
-                        m[cells[g as usize]] = row[j];
-                    }
-                    Arc::new(m)
-                })
-                .collect();
-            out.push((
-                "maps",
-                Value::Stack(Stack {
-                    grid: Arc::new(grid),
-                    keys: r.names.iter().map(|n| Key::Name(n.clone())).collect(),
-                    layers,
-                }),
-            ));
+        let mut out = vec![
+            ("table", Value::Table(index_table(&bd, &r.groups, &r.names, &r.rows))),
+            ("lists", Value::Json(list_json(&bd, &r))),
+        ];
+        if let Some(maps) = index_maps(&bd, &r.groups, &r.names, &r.rows) {
+            out.push(("maps", maps));
         }
         Ok(out.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
     }
+}
+
+/// A table of indices: a row per group (its number and coordinates), a column per index.
+fn index_table(bd: &BaseData, groups: &[i32], names: &[String], rows: &[Vec<f64>]) -> Table {
+    let n_axes = bd.n_axes();
+    let mut table = Table::new(
+        ["group".to_string()]
+            .into_iter()
+            .chain((0..n_axes).map(|k| ["x", "y", "z"].get(k).map_or(format!("axis_{k}"), |s| s.to_string())))
+            .chain(names.iter().cloned())
+            .collect(),
+    );
+    for (row, &g) in rows.iter().zip(groups) {
+        let g = g as usize;
+        table.rows.push(
+            std::iter::once((g + 1) as f64)
+                .chain(bd.coords[g * n_axes..(g + 1) * n_axes].iter().copied())
+                .chain(row.iter().copied())
+                .collect(),
+        );
+    }
+    table
+}
+
+/// Maps of indices, when the groups are cells of two axes: a layer per index.
+fn index_maps(bd: &BaseData, groups: &[i32], names: &[String], rows: &[Vec<f64>]) -> Option<Value> {
+    let (grid, cells) = group_grid(bd)?;
+    let n = grid.cells();
+    let layers = (0..names.len())
+        .map(|j| {
+            let mut m = vec![f64::NAN; n];
+            for (row, &g) in rows.iter().zip(groups) {
+                m[cells[g as usize]] = row[j];
+            }
+            Arc::new(m)
+        })
+        .collect();
+    Some(Value::Stack(Stack {
+        grid: Arc::new(grid),
+        keys: names.iter().map(|n| Key::Name(n.clone())).collect(),
+        layers,
+    }))
 }
 
 struct ReadTree;
@@ -356,12 +369,17 @@ impl Operator for ReadTree {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "bio.tree",
-            "A phylogenetic tree of a Newick or Nexus file read as Biodiverse reads it (landschaft's read_tree):              unnamed nodes 0___, 1___..., duplicated names __dup1..., the Nexus Translate table applied, all-zero              lengths made 1, a forest given a new root.",
+            "A phylogenetic tree of a Newick or Nexus file read as Biodiverse reads it (landschaft's read_tree): \
+             unnamed nodes 0___, 1___..., duplicated names __dup1..., the Nexus Translate table applied, all-zero \
+             lengths made 1, a forest given a new root.",
             Access::None,
         )
         .output(PortSpec::new("tree", Type::Tree, "the tree"))
         .param(PortSpec::new("path", Type::Text, "the file (or the Newick text itself)"))
-        .param(PortSpec::optional("format", Type::Text, "nexus or newick (default: from the text)").choices(["nexus", "newick"]))
+        .param(
+            PortSpec::optional("format", Type::Text, "nexus or newick (default: from the text)")
+                .choices(["nexus", "newick"]),
+        )
         .param(PortSpec::optional("index", Type::Any, "the tree's number (0, default) or name"))
     }
 
@@ -429,4 +447,147 @@ fn list_json(bd: &BaseData, r: &spatial::SpatialResult) -> serde_json::Value {
         })
         .collect::<serde_json::Map<_, _>>();
     serde_json::Value::Object(lists)
+}
+
+struct Randomise;
+
+impl Operator for Randomise {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "bio.randomise",
+            "Randomisations of a spatial analysis (landschaft's randomise, Biodiverse's): each iteration \
+             randomises the basedata (rand_structured, Biodiverse's default; its spatial forms \
+             rand_spatially_structured, rand_diffusion, rand_random_walk; the swaps rand_independent_swaps, \
+             rand_independent_swaps_modified, rand_curveball; rand_csr_by_group; rand_nochange), runs the \
+             analysis again with the same neighbourhoods and counts how often each observed index exceeds, ties \
+             and is compared with the randomised one. The p-ranks, z-scores, the counters (C, P, Q, SUMX, SUMXX, \
+             T) and, with pe and phylo_rpe2, CANAPE (0 not significant, 1 neo, 2 palaeo, 3 mixed, 4 super). \
+             Biodiverse's Mersenne Twister: the same seed gives its randomisations.",
+            Access::None,
+        )
+        .input(PortSpec::new("basedata", Type::BaseData, "groups x labels sample counts"))
+        .input(PortSpec::optional("tree", Type::Tree, "a phylogeny for the phylogenetic indices (bio.tree)"))
+        .output(PortSpec::new("table", Type::Table, "the observed indices"))
+        .output(PortSpec::new("p_rank", Type::Table, "the p-rank of each index"))
+        .output(PortSpec::new("z_scores", Type::Table, "the z-score of each index"))
+        .output(PortSpec::new("comparison", Type::Table, "the counters: C_, P_, Q_, SUMX_, SUMXX_, T_ of each index"))
+        .output(PortSpec::new("canape", Type::Table, "CANAPE (with pe and phylo_rpe2)"))
+        .output(PortSpec::new("maps", Type::Stack, "the p-ranks, and CANAPE (groups that are cells of two axes)"))
+        .param(PortSpec::new("conditions", Type::Any, "one or two spatial conditions (bio.spatial)"))
+        .param(PortSpec::new("calculations", Type::Any, "[\"richness\", \"pe\", \"phylo_rpe2\", ...]"))
+        .param(PortSpec::optional("definition_query", Type::Text, "of the analysis: only the groups passing it"))
+        .param(PortSpec::optional("seed", Type::Integer, "of the analysis (Biodiverse's prng_seed; default 0)"))
+        .param(PortSpec::optional("function", Type::Text, "rand_structured (default)...").choices(rand::FUNCTIONS))
+        .param(PortSpec::optional("iterations", Type::Integer, "99 (default)"))
+        .param(PortSpec::optional("rand_seed", Type::Integer, "of the randomisations (default 0)"))
+        .param(PortSpec::optional("richness_multiplier", Type::Number, "rand_structured: richness targets x (1)"))
+        .param(PortSpec::optional("richness_addition", Type::Number, "rand_structured: richness targets + (0)"))
+        .param(PortSpec::optional(
+            "spatial_conditions_for_label_allocation",
+            Type::Text,
+            "rand_structured: occurrences around seed groups (sp_select_all() for its spatial forms)",
+        ))
+        .param(PortSpec::optional("spatial_allocation_order", Type::Text, "diffusion, random_walk, random, proximity"))
+        .param(PortSpec::optional("label_allocation_backtracking", Type::Text, "from_end, from_start, random"))
+        .param(PortSpec::optional("spatial_allocation_reseed_prob", Type::Number, "0 to 1"))
+        .param(PortSpec::optional("spatial_conditions_for_seed_location", Type::Text, "the seed groups"))
+        .param(PortSpec::optional("swap_count", Type::Integer, "swaps (default twice the non-zero cells)"))
+        .param(PortSpec::optional("max_swap_attempts", Type::Integer, "(default 100 times the swaps)"))
+        .param(PortSpec::optional("stop_on_all_swapped", Type::Bool, "swaps: stop when every cell was swapped"))
+        .param(PortSpec::optional("use_max_swap", Type::Bool, "curveball"))
+        .param(PortSpec::optional("spatial_conditions_for_subset", Type::Text, "randomise within subsets of groups"))
+        .param(PortSpec::optional("subset_definition_query", Type::Text, "groups randomised (others kept)"))
+        .param(PortSpec::optional("labels_not_to_randomise", Type::Any, "labels kept in place"))
+        .param(
+            PortSpec::optional("randomise_trees_by", Type::Text, "shuffle_terminal_names")
+                .choices(["shuffle_no_change", "shuffle_terminal_names"]),
+        )
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let fail = |e: Error| Error::msg(format!("node {:?}: {e}", args.node));
+        let bd = basedata_of(args)?;
+        let conditions: Vec<Condition> =
+            texts(args, "conditions")?.iter().map(|c| Condition::new(c)).collect::<Result<_>>().map_err(fail)?;
+        let calcs = texts(args, "calculations")?;
+        let text = |name: &str| -> Result<Option<String>> {
+            Ok(args.opt_param::<String>(name)?.filter(|t| !t.trim().is_empty()))
+        };
+        let query = text("definition_query")?.map(|q| Condition::new(&q)).transpose().map_err(fail)?;
+        let tree = match args.get("tree") {
+            Some(Value::Tree(t)) => Some(t.clone()),
+            Some(_) => return Err(fail(Error::msg("tree: connect a tree (bio.tree)"))),
+            None => None,
+        };
+        let seed: i64 = args.param("seed", 0)?;
+        let parallel = rayon::current_num_threads() > 1;
+        let run = spatial::prepare(&bd, &conditions, &calcs, query.as_ref(), tree.as_deref(), seed as u64, parallel)
+            .map_err(fail)?;
+        let o = rand::Options {
+            richness_multiplier: args.opt_param("richness_multiplier")?,
+            richness_addition: args.opt_param("richness_addition")?,
+            spatial_conditions_for_label_allocation: text("spatial_conditions_for_label_allocation")?,
+            spatial_allocation_order: text("spatial_allocation_order")?,
+            label_allocation_backtracking: text("label_allocation_backtracking")?,
+            spatial_allocation_reseed_prob: args.opt_param("spatial_allocation_reseed_prob")?,
+            spatial_conditions_for_seed_location: text("spatial_conditions_for_seed_location")?,
+            swap_count: args.opt_param("swap_count")?,
+            max_swap_attempts: args.opt_param("max_swap_attempts")?,
+            stop_on_all_swapped: args.param("stop_on_all_swapped", false)?,
+            use_max_swap: args.param("use_max_swap", false)?,
+            spatial_conditions_for_subset: text("spatial_conditions_for_subset")?,
+            definition_query: text("subset_definition_query")?,
+            labels_not_to_randomise: texts(args, "labels_not_to_randomise")?,
+            randomise_trees_by: text("randomise_trees_by")?,
+        };
+        let function: String = args.param("function", "rand_structured".to_string())?;
+        let rand_seed: i64 = args.param("rand_seed", 0)?;
+        let mut rnd = rand::Randomisation::new(&bd, run, &function, rand_seed as u64, o).map_err(fail)?;
+        let iterations: i64 = args.param("iterations", 99)?;
+        rnd.run(iterations.max(0) as usize).map_err(fail)?;
+        let r = &rnd.result;
+        let k = r.names.len();
+        let rows = |v: &[f64]| -> Vec<Vec<f64>> { v.chunks(k.max(1)).map(<[f64]>::to_vec).collect() };
+        let s = &rnd.scalars;
+        let p_rank = s.p_rank();
+        let p = s.p();
+        let mut comp_names = Vec::new();
+        for part in ["C", "P", "Q", "SUMX", "SUMXX", "T"] {
+            comp_names.extend(r.names.iter().map(|n| format!("{part}_{n}")));
+        }
+        let comp_rows: Vec<Vec<f64>> = (0..r.groups.len())
+            .map(|g| {
+                [&s.c, &p, &s.q, &s.sumx, &s.sumxx, &s.t].iter().flat_map(|v| v[g * k..(g + 1) * k].to_vec()).collect()
+            })
+            .collect();
+        let mut out = vec![
+            ("table", Value::Table(index_table(&bd, &r.groups, &r.names, &r.rows))),
+            ("p_rank", Value::Table(index_table(&bd, &r.groups, &r.names, &rows(&p_rank)))),
+            ("z_scores", Value::Table(index_table(&bd, &r.groups, &r.names, &rows(&s.z_scores())))),
+            ("comparison", Value::Table(index_table(&bd, &r.groups, &comp_names, &comp_rows))),
+        ];
+        let mut map_names: Vec<String> = r.names.iter().map(|n| format!("P_RANK_{n}")).collect();
+        let mut map_rows = rows(&p_rank);
+        if let Some(code) = rnd.canape(false, false) {
+            let names: Vec<String> =
+                ["CANAPE_CODE", "NEO", "PALAEO", "MIXED", "SUPER"].iter().map(|s| s.to_string()).collect();
+            let crow: Vec<Vec<f64>> = code
+                .iter()
+                .map(|&c| {
+                    std::iter::once(c)
+                        .chain((1..=4).map(|k| if c.is_nan() { f64::NAN } else { f64::from(u8::from(c == k as f64)) }))
+                        .collect()
+                })
+                .collect();
+            out.push(("canape", Value::Table(index_table(&bd, &r.groups, &names, &crow))));
+            map_names.push("CANAPE_CODE".into());
+            for (row, c) in map_rows.iter_mut().zip(&code) {
+                row.push(*c);
+            }
+        }
+        if let Some(maps) = index_maps(&bd, &r.groups, &map_names, &map_rows) {
+            out.push(("maps", maps));
+        }
+        Ok(out.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
+    }
 }

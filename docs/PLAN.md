@@ -629,8 +629,11 @@ Pendências:
 - **Biodiversidade — árvores (0.35.0, 2026-10-13):** o tipo árvore, `bio.tree` (o leitor de Newick e Nexus de
   Biodiverse portado), os índices filogenéticos no `bio.spatial` (a poda da árvore e os totais portados) e as
   listas de índices em JSON, bit a bit com o landschaft.
-- **Próximos (2026-10-13):** o resto do `bio` (randomizações, agrupamentos e region grower, propriedades e
-  matrizes), incerteza, lotes; o resto
+- **Biodiversidade — randomizações (0.36.0, 2026-10-13):** `bio.randomise` (todas as funções do Biodiverse,
+  subconjuntos, rótulos fixos, árvores embaralhadas; contadores, p-ranks, z-scores e CANAPE), bit a bit com o
+  landschaft.
+- **Próximos (2026-10-13):** o resto do `bio` (agrupamentos e region grower, propriedades e matrizes),
+  incerteza, lotes; o resto
   dos circuitos (redes, pares incluídos, os arquivos .ini); os instaladores de macOS e Linux;
   `vector.exact_sum` e `vector.distance` fora da memória.
 

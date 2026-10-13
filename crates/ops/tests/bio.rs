@@ -270,3 +270,109 @@ fn the_tree_operator_feeds_the_analysis() {
     let Value::Json(lists) = &out["lists"] else { panic!() };
     assert!(lists["PD_INCLUDED_NODE_LIST"]["1950000:1350000"].as_object().is_some_and(|m| !m.is_empty()));
 }
+
+/// Randomisations of an analysis with a tree against landschaft's (tests/data/reference/bio_rand.json and
+/// bio_rand.npz): every function, with their options, subsets, definition queries, labels kept in place and
+/// shuffled trees; the counters, p-ranks, z-scores and CANAPE, scalar and list indices, to the bit.
+#[test]
+fn randomisations_are_landschafts() {
+    use terraflux_ops::bio::rand::{Options, Randomisation};
+    use terraflux_ops::bio::spatial::prepare;
+    use terraflux_ops::bio::tree::read_trees;
+    let reference: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root().join("tests/data/reference/bio_rand.json")).unwrap())
+            .unwrap();
+    let z = terraflux_raster::npy::read_npz(root().join("tests/data/reference/bio_rand.npz")).unwrap();
+    let bd_ref: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root().join("tests/data/reference/bio.json")).unwrap()).unwrap();
+    let text = std::fs::read_to_string(sites()).unwrap();
+    let bd = BaseData::from_table(&text, &import(&bd_ref["basedata"]["cells"]["options"])).unwrap();
+    let nex = root().join("extern/landschaft/src/landschaft/bio/data/example_tree.nex");
+    let tree = read_trees(&std::fs::read_to_string(nex).unwrap(), None).unwrap().remove(0);
+    let calcs = strings(&reference["calculations"]);
+    let conds = [Condition::new("sp_circle (radius => 200000)").unwrap()];
+    for (k, case) in reference["cases"].as_array().unwrap().iter().enumerate() {
+        let a = &case["args"];
+        let o = Options {
+            richness_multiplier: a["richness_multiplier"].as_f64(),
+            richness_addition: a["richness_addition"].as_f64(),
+            spatial_conditions_for_label_allocation: a["spatial_conditions_for_label_allocation"]
+                .as_str()
+                .map(String::from),
+            spatial_conditions_for_seed_location: a["spatial_conditions_for_seed_location"].as_str().map(String::from),
+            swap_count: a["swap_count"].as_i64(),
+            use_max_swap: a["use_max_swap"].as_bool().unwrap_or(false),
+            spatial_conditions_for_subset: a["spatial_conditions_for_subset"].as_str().map(String::from),
+            definition_query: a["definition_query"].as_str().map(String::from),
+            labels_not_to_randomise: strings(&a["labels_not_to_randomise"]),
+            randomise_trees_by: a["randomise_trees_by"].as_str().map(String::from),
+            ..Options::default()
+        };
+        let function = case["function"].as_str().unwrap();
+        let what = format!("case {k} {function} {a}");
+        let run = prepare(&bd, &conds, &calcs, None, Some(&tree), 1, true).unwrap();
+        let mut rnd = Randomisation::new(&bd, run, function, case["seed"].as_u64().unwrap(), o).unwrap();
+        rnd.run(5).unwrap_or_else(|e| panic!("{what}: {e}"));
+        assert_eq!(rnd.result.names, strings(&reference["columns"]), "{what}: columns");
+        let (n, kk) = (rnd.result.groups.len(), rnd.result.names.len());
+        let s = &rnd.scalars;
+        let p = s.p();
+        let mut comparison = Vec::new();
+        for g in 0..n {
+            for part in [&s.c, &p, &s.q, &s.sumx, &s.sumxx, &s.t] {
+                comparison.extend_from_slice(&part[g * kk..(g + 1) * kk]);
+            }
+        }
+        check(&format!("{what}: comparison"), &comparison, &z[&format!("r/{k}/comparison")].data);
+        check(&format!("{what}: p_rank"), &s.p_rank(), &z[&format!("r/{k}/p_rank")].data);
+        check(&format!("{what}: z"), &s.z_scores(), &z[&format!("r/{k}/z")].data);
+        check(&format!("{what}: canape"), &rnd.canape(false, false).unwrap(), &z[&format!("r/{k}/canape")].data);
+        let lists = case["lists"].as_array().unwrap();
+        assert_eq!(rnd.lists.len(), lists.len(), "{what}: lists");
+        for l in lists {
+            let name = l[0].as_str().unwrap();
+            let (_, keys, c) = rnd.lists.iter().find(|x| x.0 == name).unwrap_or_else(|| panic!("{what}: no {name}"));
+            let want_keys: Vec<(String, String)> = strings(&l[1]).into_iter().zip(strings(&l[2])).collect();
+            assert_eq!(keys, &want_keys, "{what}: {name}: keys");
+            let mut got = Vec::new();
+            for i in 0..keys.len() {
+                got.extend([c.c[i], c.q[i], c.t[i], c.sumx[i], c.sumxx[i]]);
+            }
+            check(&format!("{what}: {name}"), &got, &z[&format!("r/{k}/list/{name}")].data);
+        }
+    }
+}
+
+/// bio.randomise: p-ranks, z-scores, the counters and CANAPE as tables and maps.
+#[test]
+fn the_randomise_operator_gives_tables_and_maps() {
+    let r = Registry::standard();
+    let run = |op: &str, inputs: Vec<(&str, Value)>, params: serde_json::Value| {
+        let params = params.as_object().unwrap().clone();
+        let args =
+            Args { node: "n", inputs: inputs.into_iter().map(|(k, v)| (k.to_string(), v)).collect(), params: &params };
+        r.get(op).unwrap().run(&mut Ctx::default(), &args).unwrap()
+    };
+    let nex = root().join("extern/landschaft/src/landschaft/bio/data/example_tree.nex");
+    let tree = run("bio.tree", vec![], serde_json::json!({"path": nex.to_str().unwrap()})).remove("tree").unwrap();
+    let bd = run(
+        "bio.table",
+        vec![],
+        serde_json::json!({"path": sites().to_str().unwrap(), "group_columns": ["x", "y"],
+        "label_columns": ["genus", "species"], "cell_sizes": [100000, 100000]}),
+    )
+    .remove("basedata")
+    .unwrap();
+    let out = run(
+        "bio.randomise",
+        vec![("basedata", bd), ("tree", tree)],
+        serde_json::json!({"conditions": "sp_circle (radius => 200000)", "calculations": ["pe", "phylo_rpe2"],
+            "iterations": 9, "rand_seed": 3}),
+    );
+    for t in ["table", "p_rank", "z_scores", "comparison", "canape"] {
+        let Value::Table(t) = &out[t] else { panic!("{t}") };
+        assert_eq!(t.rows.len(), 127);
+    }
+    let Value::Stack(s) = &out["maps"] else { panic!() };
+    assert!(s.keys.iter().any(|k| k.to_string() == "CANAPE_CODE"));
+}

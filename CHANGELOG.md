@@ -6,6 +6,16 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Randomisations of Biodiverse's analyses (landschaft's bio module): `bio.randomise` runs an analysis, then
+  randomises the basedata again and again with Biodiverse's Mersenne Twister (rand_structured and its spatial
+  forms with their allocation orders, backtracking and seed groups; the independent swaps, modified, and
+  curveball; rand_csr_by_group; rand_nochange), within subsets of groups or a definition query, with labels kept
+  in place and tree terminal names shuffled, and compares each index: the counters (C, P, Q, SUMX, SUMXX, T),
+  p-ranks, z-scores and CANAPE, as tables and maps. The subsets, the labels kept in place, the merging, the tree
+  shuffle and the counters are ported from landschaft's Python; the algorithms are its C++. The same as
+  landschaft's, to the bit, in fourteen cases, scalar and list indices.
+
 ## [0.35.0] - 2026-10-13
 
 ### Added

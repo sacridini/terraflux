@@ -11,6 +11,9 @@
 #include "sim/molusce.hpp"
 #include "rust/cxx.h"
 
+#include "bio/phylocom.hpp"
+#include "bio/randomise.hpp"
+
 namespace tfx {
 
 struct CluesOut;
@@ -67,6 +70,7 @@ struct BioCalcInfo;
 struct BioView;
 struct BioIndexOut;
 struct BioTree;
+struct BioCounts;
 struct EdgesOut;
 struct CommuteOut;
 struct PlaneOut;
@@ -531,6 +535,30 @@ BioIndexOut bio_run_indices(const BioView& view, rust::Slice<const std::int32_t>
                             const BioCsr& set2, const rust::Vec<rust::String>& calcs, bool parallel, bool with_tree,
                             const BioTree& tree);
 rust::Vec<std::uint8_t> bio_ultrametric(const BioTree& tree);
+
+struct BioRng {
+    bio::MT64 mt;
+    explicit BioRng(std::uint64_t seed) : mt({seed}) {}
+};
+struct BioAlloc {
+    std::unique_ptr<bio::SpatialAlloc> a;
+};
+std::unique_ptr<BioRng> bio_rng_new(std::uint64_t seed);
+rust::Vec<std::int64_t> bio_rng_shuffle(BioRng& rng, std::int64_t n);
+std::unique_ptr<BioAlloc> bio_alloc_none();
+std::unique_ptr<BioAlloc> bio_alloc_new(rust::Str order, rust::Str backtracking, double reseed_prob, std::int64_t n_groups,
+                                        std::int32_t n_sets, rust::Slice<const std::int64_t> nbr_ptr,
+                                        rust::Slice<const std::int32_t> nbr_idx, bool same,
+                                        rust::Slice<const double> coords, std::int32_t ndim, bool have_seeds,
+                                        rust::Slice<const std::int32_t> seeds);
+BioCounts bio_rand_structured(rust::Slice<const std::int64_t> indptr, rust::Slice<const std::int32_t> indices,
+                              rust::Slice<const double> counts, std::int64_t n_groups, std::int64_t n_labels,
+                              BioRng& rng, double multiplier, double addition, BioAlloc& alloc);
+BioCounts bio_rand_swaps(rust::Slice<const std::int64_t> indptr, rust::Slice<const std::int32_t> indices,
+                         rust::Slice<const double> counts, std::int64_t n_groups, std::int64_t n_labels, BioRng& rng,
+                         rust::Slice<const double> label_range, rust::Str kind, std::int64_t swap_count,
+                         std::int64_t max_swap_attempts, bool stop_on_all_swapped, bool use_max_swap);
+rust::Vec<double> bio_perl_sqrt(rust::Slice<const double> x);
 
 PathsOut cost_paths(rust::Slice<const double> values, rust::Slice<const double> grid, std::int32_t directions,
                     bool symmetric, std::int64_t origin, rust::Slice<const std::int64_t> goals);
