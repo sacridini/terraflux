@@ -6,6 +6,17 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-10-13
+
+### Added
+- Connectivity by circuits (landschaft's C++ of Circuitscape 6.1 and Omniscape 0.7), a subject of its own in the
+  builder: `circuit.omniscape` (Omniscape's moving-window circuits: the cumulative current, the flow potential and
+  the normalised current; sources from the resistance or given, their threshold and cutoff, a reclassification,
+  conditional connectivity with future conditions, single precision, the no-data mask) and `circuit.advanced`
+  (Circuitscape's advanced mode on a raster: currents and voltages from sources and grounds). The same maps as
+  landschaft's, to the bit, on the cases of its references (themselves checked against Omniscape.jl and
+  Circuitscape.jl) (`tools/make_circuit_reference.py`).
+
 ## [0.26.0] - 2026-10-13
 
 ### Added

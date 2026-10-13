@@ -56,6 +56,8 @@ struct PrioRankOut;
 struct PrioDataInfo;
 struct PrioFlexOut;
 struct RunsOut;
+struct OmniscapeOut;
+struct CircuitOut;
 struct MarxanData;
 struct MarxanOptions;
 struct MarxanOut;
@@ -411,6 +413,17 @@ LsmTable lsm_tiled_table(lsm::TiledLandscape& t, rust::Slice<const std::int32_t>
                          rust::Slice<const rust::String> names);
 rust::Vec<std::int32_t> lsm_tiled_labels(const lsm::TiledLandscape& t, rust::Slice<const std::int32_t> values,
                                          rust::Slice<const std::uint8_t> na, std::int64_t y0, std::int64_t rows);
+
+// Omniscape's moving-window circuits and Circuitscape's advanced mode on a raster (landschaft's circuit module)
+OmniscapeOut circuit_omniscape(rust::Slice<const double> resistance, rust::Slice<const double> source, std::int64_t nx,
+                               std::int64_t ny, std::int32_t radius, std::int32_t buffer, std::int32_t block_size,
+                               bool four_neighbors, bool resistance_is_conductance, bool correct_artifacts,
+                               bool flow_potential, rust::Slice<const double> condition1,
+                               rust::Slice<const double> condition1_future, rust::Slice<const double> condition2,
+                               rust::Slice<const double> condition2_future, rust::Slice<const double> comparisons,
+                               double memory_limit);
+CircuitOut circuit_advanced(rust::Slice<const double> conductance, rust::Slice<const double> source,
+                            rust::Slice<const double> ground, std::int64_t nx, std::int64_t ny, bool four_neighbors);
 
 // the values of maps at points (landschaft's extract, lsio::extract): bands x ny x nx, NaN no data
 rust::Vec<double> io_extract(rust::Slice<const double> values, std::int32_t bands, std::int32_t ny, std::int32_t nx,

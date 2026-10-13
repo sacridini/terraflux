@@ -323,6 +323,20 @@ pub mod ffi {
         quantization_errors: Vec<f64>,
     }
 
+    /// Omniscape's cumulative current (and flow potential when asked), the targets solved and the threads used.
+    struct OmniscapeOut {
+        current: Vec<f64>,
+        flow_potential: Vec<f64>,
+        n_targets: i64,
+        threads: i32,
+    }
+
+    /// Circuitscape's advanced mode on a raster: node currents and voltages of every cell.
+    struct CircuitOut {
+        current: Vec<f64>,
+        voltage: Vec<f64>,
+    }
+
     /// The cells of zones (polygons) as runs of one row, [x0, x1) in row y; zone z owns the runs offsets[z] ..
     /// offsets[z + 1].
     struct RunsOut {
@@ -1358,6 +1372,39 @@ pub mod ffi {
         /// grid or on no data; bilinear from the four cell centres around, the weights over those with data
         /// (landschaft's extract). The values are the rows [row0, row0 + ny) of a grid of ny_total rows (gt the
         /// grid's): the points in those rows (with one row around for bilinear) get the whole grid's values.
+        /// Omniscape 0.7's moving-window circuits (landschaft's circuit::omniscape): resistance (NaN no data, > 0)
+        /// and source strengths (ny x nx); the conditions' present and future values (empty: none), and per
+        /// condition [equal (1) or within (0), lower, upper].
+        #[allow(clippy::too_many_arguments)]
+        fn circuit_omniscape(
+            resistance: &[f64],
+            source: &[f64],
+            nx: i64,
+            ny: i64,
+            radius: i32,
+            buffer: i32,
+            block_size: i32,
+            four_neighbors: bool,
+            resistance_is_conductance: bool,
+            correct_artifacts: bool,
+            flow_potential: bool,
+            condition1: &[f64],
+            condition1_future: &[f64],
+            condition2: &[f64],
+            condition2_future: &[f64],
+            comparisons: &[f64],
+            memory_limit: f64,
+        ) -> Result<OmniscapeOut>;
+        /// Circuitscape's advanced mode on a raster (landschaft's circuit::advanced): conductance, source (amps)
+        /// and ground (conductance to ground, +Inf direct), ny x nx.
+        fn circuit_advanced(
+            conductance: &[f64],
+            source: &[f64],
+            ground: &[f64],
+            nx: i64,
+            ny: i64,
+            four_neighbors: bool,
+        ) -> Result<CircuitOut>;
         #[allow(clippy::too_many_arguments)]
         fn io_extract(
             values: &[f64],

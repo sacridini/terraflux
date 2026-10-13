@@ -17,6 +17,7 @@ pub mod agents;
 pub mod algebra;
 pub mod change;
 pub mod change_analysis;
+pub mod circuit;
 pub mod clumondo;
 pub mod crafty;
 pub mod demand;
@@ -267,6 +268,7 @@ impl Registry {
         algebra::register(&mut r);
         change::register(&mut r);
         change_analysis::register(&mut r);
+        circuit::register(&mut r);
         legend::register(&mut r);
         clumondo::register(&mut r);
         crafty::register(&mut r);

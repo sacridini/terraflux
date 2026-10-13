@@ -18,6 +18,8 @@
 #endif
 #include <vector>
 
+#include "circuit/grid.hpp"
+#include "circuit/omniscape.hpp"
 #include "cost/shortest.hpp"
 #include "sim/clumondo.hpp"
 #include "sim/futures.hpp"
@@ -2036,6 +2038,72 @@ rust::Vec<std::int32_t> lsm_tiled_labels(const lsm::TiledLandscape& t, rust::Sli
                                          rust::Slice<const std::uint8_t> na, std::int64_t y0, std::int64_t rows) {
     check_block(t, values, na, rows, 0, 0);
     return to_rust<std::int32_t>(t.block_labels(values.data(), na.data(), y0, rows, 0, 0));
+}
+
+OmniscapeOut circuit_omniscape(rust::Slice<const double> resistance, rust::Slice<const double> source, std::int64_t nx,
+                               std::int64_t ny, std::int32_t radius, std::int32_t buffer, std::int32_t block_size,
+                               bool four_neighbors, bool resistance_is_conductance, bool correct_artifacts,
+                               bool flow_potential, rust::Slice<const double> condition1,
+                               rust::Slice<const double> condition1_future, rust::Slice<const double> condition2,
+                               rust::Slice<const double> condition2_future, rust::Slice<const double> comparisons,
+                               double memory_limit) {
+    const auto n = static_cast<std::size_t>(nx * ny);
+    check(nx > 0 && ny > 0 && resistance.size() == n && source.size() == n,
+          "the resistance and the source differ in size from nx x ny");
+    for (auto c : {condition1, condition1_future, condition2, condition2_future})
+        check(c.empty() || c.size() == n, "a condition differs in size from the resistance");
+    check(comparisons.size() == 6, "two comparisons: equal, lower, upper");
+    check(radius >= 0 && buffer >= 0 && block_size >= 1 && block_size % 2 == 1,
+          "radius and buffer >= 0, block_size odd and >= 1");
+    circuit::OmniscapeParams p;
+    p.radius = radius;
+    p.buffer = buffer;
+    p.block_size = block_size;
+    p.four_neighbors = four_neighbors;
+    p.resistance_is_conductance = resistance_is_conductance;
+    p.correct_artifacts = correct_artifacts;
+    p.flow_potential = flow_potential;
+    p.memory_limit = memory_limit;
+    auto condition = [&](rust::Slice<const double> present, rust::Slice<const double> future, std::size_t k) {
+        circuit::OmniscapeCondition c;
+        if (present.empty()) return c;
+        c.present = present.data();
+        c.future = future.empty() ? nullptr : future.data();
+        c.equal = comparisons[3 * k] != 0.0;
+        c.lower = comparisons[3 * k + 1];
+        c.upper = comparisons[3 * k + 2];
+        return c;
+    };
+    p.condition1 = condition(condition1, condition1_future, 0);
+    p.condition2 = condition(condition2, condition2_future, 1);
+    int threads = 1;
+#if defined(_OPENMP)
+    threads = omp_get_max_threads();
+#endif
+    circuit::OmniscapeResult r = circuit::omniscape(resistance.data(), source.data(), nx, ny, p, threads);
+    OmniscapeOut out;
+    out.current = to_rust<double>(std::move(r.current));
+    out.flow_potential = to_rust<double>(std::move(r.flow_potential));
+    out.n_targets = r.n_targets;
+    out.threads = r.threads;
+    return out;
+}
+
+CircuitOut circuit_advanced(rust::Slice<const double> conductance, rust::Slice<const double> source,
+                            rust::Slice<const double> ground, std::int64_t nx, std::int64_t ny, bool four_neighbors) {
+    const auto n = static_cast<std::size_t>(nx * ny);
+    check(nx > 0 && ny > 0 && conductance.size() == n && source.size() == n && ground.size() == n,
+          "the conductance, source and ground differ in size from nx x ny");
+    int threads = 1;
+#if defined(_OPENMP)
+    threads = omp_get_max_threads();
+#endif
+    circuit::AdvancedResult r =
+        circuit::advanced(conductance.data(), source.data(), ground.data(), nx, ny, four_neighbors, threads);
+    CircuitOut out;
+    out.current = to_rust<double>(std::move(r.current));
+    out.voltage = to_rust<double>(std::move(r.voltage));
+    return out;
 }
 
 rust::Vec<double> io_extract(rust::Slice<const double> values, std::int32_t bands, std::int32_t ny, std::int32_t nx,
