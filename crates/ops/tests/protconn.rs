@@ -48,8 +48,33 @@ fn protconn_is_landschafts() {
     g.transform = [0.0, 30.0, 0.0, r.shape[0] as f64 * 30.0, 0.0, -30.0];
     let resistance = Value::Map(Map::new(Arc::new(g), r.data.clone()));
     let mut rounded = Vec::new();
+    let raster = |name: &str| {
+        let a = &z[name];
+        let mut g = Grid::new(a.shape[1], a.shape[0]);
+        g.transform = [0.0, 30.0, 0.0, a.shape[0] as f64 * 30.0, 0.0, -30.0];
+        Value::Map(Map::new(Arc::new(g), a.data.clone()))
+    };
     for c in cases["cases"].as_array().unwrap() {
         let name = c["name"].as_str().unwrap();
+        if c["op"] == "conn.protconn_raster" {
+            let mut inputs = vec![("protected", raster("in/pa_raster"))];
+            if c.get("region_map").is_some() {
+                inputs.push(("region_map", raster("in/region_raster")));
+            } else {
+                inputs.push(("region", Value::Vector(Arc::new(layer("raster_region")))));
+            }
+            let out = run("conn.protconn_raster", inputs, c["params"].clone());
+            let Value::Table(t) = &out["table"] else { panic!("{name}: no table") };
+            let cols: Vec<String> =
+                c["columns"].as_array().unwrap().iter().map(|s| s.as_str().unwrap().into()).collect();
+            assert_eq!(t.columns, cols, "{name}: columns");
+            let got: Vec<f64> = t.rows.iter().flatten().copied().collect();
+            let n = close(name, &got, &z[name].data);
+            if n > 0 {
+                rounded.push(format!("{name}: {n}"));
+            }
+            continue;
+        }
         let mut params = c["params"].clone();
         let protected = match params.get("only") {
             Some(only) => {

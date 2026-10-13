@@ -70,6 +70,9 @@
 #include "rest/intactness.hpp"
 #include "lsm/rmath.hpp"
 #include "nlm/models.hpp"
+#include <Eigen/SparseCore>
+#include <Eigen/SparseLU>
+
 #include "conn/cost.hpp"
 #include "conn/graph.hpp"
 #include "conn/nodes.hpp"
@@ -455,6 +458,40 @@ ConnSamc conn_samc_transitions(rust::Slice<const double> resistance, rust::Slice
     out.from = to_rust<std::int32_t>(t.from);
     out.to = to_rust<std::int32_t>(t.to);
     out.q = to_rust<double>(t.q);
+    return out;
+}
+
+rust::Vec<double> samc_inverse_block(std::int64_t m, rust::Slice<const std::int32_t> from,
+                                     rust::Slice<const std::int32_t> to, rust::Slice<const double> q,
+                                     rust::Slice<const std::int64_t> targets) {
+    check(m > 0 && from.size() == to.size() && from.size() == q.size(), "from, to and q differ in length");
+    using Sparse = Eigen::SparseMatrix<double, Eigen::ColMajor, int>;
+    std::vector<Eigen::Triplet<double, int>> t;
+    t.reserve(from.size() + static_cast<std::size_t>(m));
+    for (std::int64_t k = 0; k < m; ++k) t.emplace_back(static_cast<int>(k), static_cast<int>(k), 1.0);
+    for (std::size_t k = 0; k < from.size(); ++k) {
+        check(from[k] >= 0 && from[k] < m && to[k] >= 0 && to[k] < m, "a state outside the chain");
+        t.emplace_back(from[k], to[k], -q[k]);
+    }
+    Sparse a(static_cast<int>(m), static_cast<int>(m));
+    a.setFromTriplets(t.begin(), t.end());
+    a.makeCompressed();
+    Eigen::SparseLU<Sparse, Eigen::COLAMDOrdering<int>> lu;
+    lu.compute(a);
+    check(lu.info() == Eigen::Success, "the chain's matrix cannot be factorised");
+    const auto k = static_cast<std::int64_t>(targets.size());
+    rust::Vec<double> out;
+    out.reserve(static_cast<std::size_t>(k * k));
+    for (std::int64_t i = 0; i < k * k; ++i) out.push_back(0.0);
+    const std::int64_t block = 64;
+    for (std::int64_t s = 0; s < k; s += block) {
+        const std::int64_t w = std::min(block, k - s);
+        Eigen::MatrixXd rhs = Eigen::MatrixXd::Zero(m, w);
+        for (std::int64_t c = 0; c < w; ++c) rhs(targets[s + c], c) = 1.0;
+        const Eigen::MatrixXd x = lu.solve(rhs);
+        for (std::int64_t r = 0; r < k; ++r)
+            for (std::int64_t c = 0; c < w; ++c) out[static_cast<std::size_t>(r * k + s + c)] = x(targets[r], c);
+    }
     return out;
 }
 

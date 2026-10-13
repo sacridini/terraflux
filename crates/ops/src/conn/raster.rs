@@ -202,7 +202,7 @@ fn cells_of(x: &[f64], y: &[f64], ny: usize, nx: usize, e: [f64; 4]) -> Vec<i64>
 }
 
 /// scipy's ndimage.label of the cells with a finite value (4 or 8 neighbours): 0 none, else a component.
-fn components(v: &[f64], ny: usize, nx: usize, directions: i32) -> Vec<i64> {
+pub(crate) fn components(v: &[f64], ny: usize, nx: usize, directions: i32) -> Vec<i64> {
     let mut label = vec![0i64; v.len()];
     let mut next = 0;
     for s in 0..v.len() {

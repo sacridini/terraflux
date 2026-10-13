@@ -25,6 +25,9 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(MakeGrid));
     r.add(Arc::new(ConnectivityGrid));
     r.add(Arc::new(EcaChangeGrid));
+    r.add(Arc::new(Settlement { graph: false }));
+    r.add(Arc::new(Settlement { graph: true }));
+    r.add(Arc::new(ProtConnRaster));
 }
 
 /// The map of patches and how to read it.
@@ -774,5 +777,175 @@ impl Operator for EcaChangeGrid {
         };
         let v = super::grid::eca_change_grid(&times, &grid, &s).map_err(|e| bad(args, e))?;
         Ok(outputs([("grid", Value::Vector(Arc::new(v)))]))
+    }
+}
+
+struct Settlement {
+    /// A habitat graph of the probabilities (else the matrix).
+    graph: bool,
+}
+
+impl Operator for Settlement {
+    fn signature(&self) -> OpSignature {
+        let sig = if self.graph {
+            graph_settings(node_settings(
+                OpSignature::new(
+                    "conn.graph_from_samc",
+                    "A habitat graph of settlement probabilities (landschaft's HabitatGraph.from_samc, Makurhini's \
+                     MK_dPCIIC with samc): the nodes' attributes and, between them, the probability that a walker \
+                     leaving one settles in the other (conn.settlement_probabilities).",
+                    Access::Global,
+                )
+                .output(PortSpec::new("graph", Type::HabitatGraph, "a graph of probabilities")),
+            ))
+        } else {
+            OpSignature::new(
+                "conn.settlement_probabilities",
+                "The probabilities of settling between habitat nodes (landschaft's settlement_probabilities, the \
+                 samc package's model): a random walk over a resistance (to a neighbour with the probability of \
+                 its conductance, 1 / the mean resistance by default), absorbed at each cell with a probability \
+                 (an absorption raster, or none inside the nodes and exp(-1.247 - 1.788 log(dispersal distance / \
+                 cell)) elsewhere); the probability that a walker leaving one node settles in another, over the \
+                 cells of their boundary vertices.",
+                Access::Global,
+            )
+            .output(PortSpec::new(
+                "table",
+                Type::Table,
+                "id and a column per node: the probabilities (1 on the diagonal)",
+            ))
+        };
+        sig.input(PortSpec::new("vector", Type::Vector, "the nodes (polygons)"))
+            .input(PortSpec::new("resistance", Type::Map, "the resistance"))
+            .input(PortSpec::optional("absorption", Type::Map, "every cell's absorption, 0 to 1"))
+            .param(PortSpec::optional("dispersal_distance", Type::Number, "else the absorption from it"))
+            .param(PortSpec::optional("directions", Type::Integer, "4 or 8 (default)").choices([4, 8]))
+            .param(
+                PortSpec::optional("cost_function", Type::Text, "mean (default) or makurhini")
+                    .choices(["mean", "makurhini"]),
+            )
+            .param(PortSpec::optional("vertices", Type::Integer, "boundary vertices per node (default 10)"))
+            .param(PortSpec::optional("vertex_fraction", Type::Number, "or their share of the node's vertices"))
+            .param(
+                PortSpec::optional("settle", Type::Text, "sum (default) or mean over the cells")
+                    .choices(["sum", "mean"]),
+            )
+            .param(PortSpec::optional("id", Type::Text, "the features' id column (default 1, 2...)"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let v = vector_input(args, "vector")?;
+        let resistance = args.map("resistance")?;
+        let function: String = args.param("cost_function", "mean".into())?;
+        let settle: String = args.param("settle", "sum".into())?;
+        let vertices: Option<i64> = match args.params.get("vertices") {
+            None => Some(10),
+            Some(serde_json::Value::Null) => None,
+            Some(_) => Some(args.param("vertices", 10)?),
+        };
+        let s = super::samc::Samc {
+            absorption: args.opt_map("absorption")?,
+            dispersal_distance: args.opt_param("dispersal_distance")?,
+            directions: args.param("directions", 8)?,
+            cost_function: &function,
+            vertices,
+            vertex_fraction: args.opt_param("vertex_fraction")?,
+            settle: &settle,
+        };
+        let id: Option<String> = args.opt_param("id")?;
+        let ids = vector::ids_of(v, id.as_deref()).map_err(|e| bad(args, e))?;
+        let mut p = super::samc::settlement_probabilities(&v.geometries, resistance, &s).map_err(|e| bad(args, e))?;
+        let n = ids.len();
+        if !self.graph {
+            let name = |i: f64| if i.fract() == 0.0 { format!("{}", i as i64) } else { i.to_string() };
+            let mut t =
+                crate::Table::new(std::iter::once("id".to_string()).chain(ids.iter().map(|&i| name(i))).collect());
+            t.rows = (0..n)
+                .map(|r| std::iter::once(ids[r]).chain(p[r * n..(r + 1) * n].iter().copied()).collect())
+                .collect();
+            return Ok(outputs([("table", Value::Table(t))]));
+        }
+        (0..n).for_each(|k| p[k * n + k] = 0.0);
+        let (_, attr) = node_table(args, &Source::Vector(v.clone()))?;
+        let (_, conefor, area) = settings(args)?;
+        let restoration: Option<Vec<f64>> = args.opt_param("restoration")?;
+        let mut g = HabitatGraph::new(
+            attr,
+            Connections::Matrix(p),
+            Some(ids),
+            super::Kind::Probability,
+            area,
+            conefor,
+            restoration,
+        )
+        .map_err(|e| bad(args, e))?;
+        g.features = Some(v.clone());
+        Ok(graph_out(g))
+    }
+}
+
+struct ProtConnRaster;
+
+impl Operator for ProtConnRaster {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "conn.protconn_raster",
+            "ProtConn of a raster of protected areas (landschaft's protconn_raster): its patches inside the \
+             region (the region's features rasterized on its grid, or a raster of the region) are the nodes, \
+             at their centroids; transboundary patches within a distance of them or of the region, and the \
+             region's parts with `bound`.",
+            Access::Global,
+        )
+        .input(PortSpec::new("protected", Type::Map, "the protected areas: a patch id per cell"))
+        .input(PortSpec::optional("region", Type::Vector, "the region as features"))
+        .input(PortSpec::optional("region_map", Type::Map, "or as a raster (its cells with a value)"))
+        .output(PortSpec::new("table", Type::Table, "the indicators per distance"))
+        .param(PortSpec::new("distance", Type::Any, "the median dispersal distance, or several"))
+        .param(PortSpec::optional(
+            "probability",
+            Type::Number,
+            "the probability at that distance (default 0.5; null: exp(-1))",
+        ))
+        .param(PortSpec::optional("transboundary", Type::Number, "the distance of the transboundary nodes"))
+        .param(
+            PortSpec::optional("transboundary_type", Type::Text, "around the nodes (default) or the region")
+                .choices(["nodes", "region"]),
+        )
+        .param(PortSpec::optional("bound", Type::Bool, "the region's parts as nodes"))
+        .param(PortSpec::optional("area_unit", Type::Text, "m2 (default), km2, ha..."))
+        .param(PortSpec::optional("pij_min", Type::Number, "probabilities below it make no edge (default 0)"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        use super::protconn::{INDICATORS, RasterRegion, RasterSettings, protconn_raster};
+        let protected = args.map("protected")?;
+        let region = match (args.get("region"), args.get("region_map")) {
+            (Some(Value::Vector(v)), None) => RasterRegion::Vector(&v.geometries),
+            (None, Some(Value::Map(m))) => RasterRegion::Map(m),
+            _ => return Err(bad(args, "connect the region as features or as a raster (one of them)")),
+        };
+        let distances = numbers(args, "distance")?;
+        let probability = match args.params.get("probability") {
+            None => Some(0.5),
+            Some(serde_json::Value::Null) => None,
+            Some(_) => Some(args.param("probability", 0.5)?),
+        };
+        let unit: String = args.param("area_unit", "m2".into())?;
+        let ttype: String = args.param("transboundary_type", "nodes".into())?;
+        let s = RasterSettings {
+            distances: &distances,
+            probability,
+            transboundary: args.opt_param("transboundary")?,
+            transboundary_type: &ttype,
+            bound: args.param("bound", false)?,
+            area_unit: &unit,
+            pij_min: args.opt_param("pij_min")?,
+        };
+        let rows = protconn_raster(protected, region, &s).map_err(|e| bad(args, e))?;
+        let mut t = crate::Table::new(
+            std::iter::once("distance".to_string()).chain(INDICATORS.iter().map(|c| c.to_string())).collect(),
+        );
+        t.rows = rows;
+        Ok(outputs([("table", Value::Table(t))]))
     }
 }

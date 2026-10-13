@@ -8,6 +8,7 @@ pub mod grid;
 mod patches;
 pub mod protconn;
 pub mod raster;
+pub mod samc;
 pub mod vector;
 
 use std::sync::Arc;

@@ -109,6 +109,33 @@ def main() -> None:
         vector_cases.append({"name": name, "op": "conn.eca_change_grid", "params": kw, "columns": num,
                              "texts": {c: g[c].tolist() for c in ("time", "comparison", "change")}})
 
+    # ProtConn on a raster of protected areas
+    classes = ls.nlm.random_cluster(50, 40, p=0.3, ai=[0.75, 0.25], resolution=30.0, seed=21, rescale=False)
+    pa_ids = np.asarray(ls.Landscape(np.ma.masked_array((classes.values == 2).astype(np.int32),
+                                                        mask=classes.values != 2), res=(30.0, 30.0)).labels(),
+                        dtype=np.float64)
+    pa_ids[pa_ids == 0] = np.nan
+    pa_raster = classes.astype(np.float64).copy(data=pa_ids)
+    out["in/pa_raster"] = pa_ids
+    small = gpd.GeoDataFrame(geometry=[shapely.Polygon([(150, 120), (1300, 150), (1350, 1050), (200, 1100)])],
+                             crs="EPSG:32722")
+    small.to_file(path, layer="raster_region", driver="GPKG")
+    small = gpd.read_file(path, layer="raster_region")
+    reg = np.where(np.add.outer(np.arange(40), np.arange(50)) % 37 < 30, 1.0, np.nan)
+    reg[:, :8] = np.nan
+    out["in/region_raster"] = reg
+    for name, kw in {"praster": {"distance": [300.0, 900.0]},
+                     "praster_trans": {"distance": 600.0, "transboundary": 120.0, "bound": True},
+                     "praster_region": {"distance": 600.0, "transboundary": 90.0, "transboundary_type": "region",
+                                        "probability": None, "area_unit": "ha"}}.items():
+        t = C.protconn_raster(pa_raster, small, **kw)
+        out[name] = t.to_numpy(dtype=np.float64)
+        cases.append({"name": name, "op": "conn.protconn_raster", "params": kw, "columns": list(t.columns)})
+    t = C.protconn_raster(pa_raster, classes.copy(data=reg), distance=500.0)
+    out["praster_map"] = t.to_numpy(dtype=np.float64)
+    cases.append({"name": "praster_map", "op": "conn.protconn_raster", "params": {"distance": 500.0},
+                  "columns": list(t.columns), "region_map": True})
+
     np.savez_compressed(REF / "protconn.npz", **out)
     (REF / "protconn.json").write_text(json.dumps({"cases": cases, "grids": grids, "vectors": vector_cases},
                                                   indent=1) + "\n", encoding="utf-8")

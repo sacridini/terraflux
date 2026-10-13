@@ -156,6 +156,9 @@ ConnConductance conn_conductance(rust::Slice<const double> resistance, std::int6
                                  std::array<double, 4> extent, std::int32_t directions, std::int32_t function);
 ConnSamc conn_samc_transitions(rust::Slice<const double> resistance, rust::Slice<const double> absorption,
                                std::int64_t ny, std::int64_t nx, std::int32_t directions, std::int32_t function);
+rust::Vec<double> samc_inverse_block(std::int64_t m, rust::Slice<const std::int32_t> from,
+                                     rust::Slice<const std::int32_t> to, rust::Slice<const double> q,
+                                     rust::Slice<const std::int64_t> targets);
 ConnCentrality conn_centrality(rust::Slice<const std::int32_t> pi, rust::Slice<const std::int32_t> pj,
                                rust::Slice<const double> length, std::int32_t n, bool unit);
 rust::Vec<double> nlm_rescale(rust::Slice<const double> x);

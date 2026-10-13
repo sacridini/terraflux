@@ -86,8 +86,13 @@ fn main() {
         println!("cargo:rustc-link-lib=dylib=gomp");
     }
 
+    // Eigen's headers, as landschaft's build fetched them (the sparse solves of the shim)
+    let eigen = std::env::var_os("LANDSCHAFT_EIGEN_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| dst.join("build").join("_deps").join("eigen-src"));
     let mut bridge = cxx_build::bridge("src/lib.rs");
-    bridge.file("shim/shim.cc").include(&include).include(&manifest).std("c++17");
+    bridge.file("shim/shim.cc").include(&include).include(&manifest).include(&eigen).std("c++17");
+    bridge.define("EIGEN_MPL2_ONLY", None).define("EIGEN_DONT_PARALLELIZE", None);
     if target.contains("msvc") {
         bridge.flag("/fp:precise").flag("/EHsc").flag("/permissive-").flag("/openmp");
     } else if let Some(root) = &openmp {

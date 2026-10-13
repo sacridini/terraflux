@@ -519,3 +519,190 @@ fn protconn_delta(prep: &Nodes, s: &Settings) -> Result<Delta, String> {
     }
     Ok(out)
 }
+
+/// The region of ProtConn on a raster: features (rasterized on the protected areas' grid) or a raster whose
+/// cells with a value are the region (its patches of 4 neighbours the regions).
+pub enum RasterRegion<'a> {
+    Vector(&'a [Geometry]),
+    Map(&'a crate::Map),
+}
+
+/// The nodes of a raster: their attributes (areas) and centroids.
+type RasterNodes = (Vec<f64>, Vec<f64>, Vec<f64>);
+
+/// The settings of protconn_raster.
+pub struct RasterSettings<'a> {
+    pub distances: &'a [f64],
+    pub probability: Option<f64>,
+    pub transboundary: Option<f64>,
+    pub transboundary_type: &'a str,
+    pub bound: bool,
+    pub area_unit: &'a str,
+    pub pij_min: Option<f64>,
+}
+
+/// The union of the cells of a mask as polygons (rasterio's shapes, dissolved).
+fn cell_polygons(mask: &[bool], ny: usize, nx: usize, transform: [f64; 6]) -> Result<Option<Geometry>, String> {
+    let x = |col: usize| transform[1] * col as f64 + transform[0];
+    let y = |row: usize| transform[5] * row as f64 + transform[3];
+    let mut rects = Vec::new();
+    for r in 0..ny {
+        let mut c = 0;
+        while c < nx {
+            if !mask[r * nx + c] {
+                c += 1;
+                continue;
+            }
+            let c0 = c;
+            while c < nx && mask[r * nx + c] {
+                c += 1;
+            }
+            let (x0, x1, y0, y1) = (x(c0), x(c), y(r + 1), y(r));
+            rects.push(Geometry::Polygon(vec![vec![[x0, y1], [x1, y1], [x1, y0], [x0, y0], [x0, y1]]]));
+        }
+    }
+    if rects.is_empty() {
+        return Ok(None);
+    }
+    let refs: Vec<&Geometry> = rects.iter().collect();
+    Ok(Some(terraflux_gdal::union(&refs)?))
+}
+
+/// Geometries burnt into the grid (value k for geometry k, the later over the earlier; 0 none).
+fn rasterize(
+    geoms: &[Geometry],
+    values: &[f64],
+    ny: usize,
+    nx: usize,
+    transform: [f64; 6],
+) -> Result<Vec<f64>, String> {
+    let mut out = vec![0.0; ny * nx];
+    let keep: Vec<usize> = (0..geoms.len()).filter(|&k| !is_empty(&geoms[k])).collect();
+    if keep.is_empty() {
+        return Ok(out);
+    }
+    let g: Vec<Geometry> = keep.iter().map(|&k| geoms[k].clone()).collect();
+    let v: Vec<f64> = keep.iter().map(|&k| values[k]).collect();
+    terraflux_gdal::rasterize(&mut out, nx, ny, transform, &g, &v, false, false)?;
+    Ok(out)
+}
+
+/// landschaft's protconn_raster: ProtConn of the patches of a raster of protected areas (their centroids and
+/// cells), the region rasterized on its grid. A row per distance: the distance and INDICATORS.
+pub fn protconn_raster(protected: &crate::Map, region: RasterRegion, s: &RasterSettings) -> Result<Rows, String> {
+    if s.transboundary_type != "nodes" && s.transboundary_type != "region" {
+        return Err("transboundary_type must be nodes or region".into());
+    }
+    let p = super::raster::read_patches(protected, None, 8)?;
+    let (ny, nx) = protected.shape();
+    let e = super::raster::extent(&protected.grid);
+    let [xmin, xmax, ymin, ymax] = e;
+    let transform = [xmin, (xmax - xmin) / nx as f64, 0.0, ymax, 0.0, -(ymax - ymin) / ny as f64];
+    let res_x = (xmax - xmin) / nx as f64;
+    let cell_area = res_x * res_x * factor(&AREA_UNITS, s.area_unit, "area")?;
+    let region_ids: Vec<i64> = match region {
+        RasterRegion::Vector(geoms) => {
+            let v = if s.bound {
+                let parts: Vec<Geometry> = geoms.iter().flat_map(explode).collect();
+                let values: Vec<f64> = (1..=parts.len()).map(|k| k as f64).collect();
+                rasterize(&parts, &values, ny, nx, transform)?
+            } else {
+                rasterize(geoms, &vec![1.0; geoms.len()], ny, nx, transform)?
+            };
+            v.iter().map(|&x| x as i64).collect()
+        }
+        RasterRegion::Map(m) => {
+            if m.shape() != (ny, nx) {
+                return Err("the region raster must have the protected areas' grid".into());
+            }
+            let inside: Vec<f64> = m.data.iter().map(|v| if v.is_nan() { f64::NAN } else { 1.0 }).collect();
+            super::raster::components(&inside, ny, nx, 4)
+        }
+    };
+    let in_region: Vec<bool> = region_ids.iter().map(|&r| r > 0).collect();
+    let pa: Vec<bool> = (0..ny * nx).map(|k| p.na.is_empty() || p.na[k] == 0).collect();
+    let nodes_of = |cells: &[bool]| -> Result<RasterNodes, String> {
+        let v: Vec<i32> = (0..ny * nx).map(|k| if cells[k] { p.values[k] } else { 0 }).collect();
+        let m: Vec<u8> = cells.iter().map(|&c| u8::from(!c)).collect();
+        let r = ffi::conn_raster_nodes(&v, &m, ny as i64, nx as i64, e, true, false).map_err(|e| e.to_string())?;
+        Ok((r.cells.iter().map(|&c| c as f64 * cell_area).collect(), r.cx.to_vec(), r.cy.to_vec()))
+    };
+    let both: Vec<bool> = (0..ny * nx).map(|k| pa[k] && in_region[k]).collect();
+    let non = nodes_of(&both)?;
+    let max_id = region_ids.iter().copied().max().unwrap_or(0).max(0) as usize;
+    let mut counts = vec![0.0; max_id + 1];
+    for &r in &region_ids {
+        if r > 0 {
+            counts[r as usize] += 1.0;
+        }
+    }
+    let region_areas: Vec<f64> = counts[1..].iter().map(|c| c * cell_area).collect();
+    let la = ffi::r_sum(&region_areas);
+    let mut rows = Vec::new();
+    if non.0.is_empty() {
+        for &d in s.distances {
+            let mut row = vec![f64::NAN; INDICATORS.len()];
+            row[at("LA")] = la;
+            row[at("Protected_surface")] = 0.0;
+            row[at("Prot")] = 0.0;
+            row[at("Unprotected")] = 100.0;
+            rows.push(std::iter::once(d).chain(row).collect());
+        }
+        return Ok(rows);
+    }
+    if non.0.len() == 1 {
+        for &d in s.distances {
+            rows.push(std::iter::once(d).chain(single_node(py_min(non.0[0], la), la)).collect());
+        }
+        return Ok(rows);
+    }
+    let mut types = vec![NodeType::NonTransboundary; non.0.len()];
+    let (mut attr, mut x, mut y) = non;
+    if let Some(t) = s.transboundary.filter(|t| *t != 0.0) {
+        let reference: Vec<bool> = if s.transboundary_type == "nodes" { both.clone() } else { in_region.clone() };
+        if let Some(poly) = cell_polygons(&reference, ny, nx, transform)? {
+            let clean = terraflux_gdal::buffer(&[poly], 0.0, 8)?.remove(0);
+            let zone_geom = terraflux_gdal::buffer(&[clean], t, QUAD_SEGS)?;
+            let zone = rasterize(&zone_geom, &[1.0], ny, nx, transform)?;
+            let cells: Vec<bool> = (0..ny * nx).map(|k| pa[k] && !in_region[k] && zone[k] > 0.0).collect();
+            let trans = nodes_of(&cells)?;
+            if trans.0.len() > 1 {
+                types.extend(std::iter::repeat_n(NodeType::Transboundary, trans.0.len()));
+                attr.extend(trans.0);
+                x.extend(trans.1);
+                y.extend(trans.2);
+                if s.bound {
+                    let ids: Vec<i32> = region_ids.iter().map(|&r| r as i32).collect();
+                    let m: Vec<u8> = in_region.iter().map(|&c| u8::from(!c)).collect();
+                    let r = ffi::conn_raster_nodes(&ids, &m, ny as i64, nx as i64, e, true, false)
+                        .map_err(|e| e.to_string())?;
+                    types.extend(std::iter::repeat_n(NodeType::Region, region_areas.len()));
+                    attr.extend(region_areas.iter().copied());
+                    x.extend(r.cx.iter().copied());
+                    y.extend(r.cy.iter().copied());
+                }
+            }
+        }
+    }
+    let n = attr.len();
+    let ed = ffi::conn_point_distances(&x, &y, f64::INFINITY).map_err(|e| e.to_string())?;
+    let mut m = vec![0.0; n * n];
+    for k in 0..ed.i.len() {
+        let (i, j) = (ed.i[k] as usize, ed.j[k] as usize);
+        m[i * n + j] = ed.distance[k];
+        m[j * n + i] = ed.distance[k];
+    }
+    let region_nodes: Vec<usize> = (0..n).filter(|&k| types[k] == NodeType::Region).collect();
+    if region_nodes.len() == 1 {
+        let r = region_nodes[0];
+        for o in (0..n).filter(|&k| types[k] != NodeType::NonTransboundary) {
+            m[r * n + o] = 0.0;
+            m[o * n + r] = 0.0;
+        }
+    }
+    for &d in s.distances {
+        let row = indicators(&types, &attr, &m, d, la, Some(&attr), s.probability, 1.0, s.pij_min)?;
+        rows.push(std::iter::once(d).chain(row).collect());
+    }
+    Ok(rows)
+}

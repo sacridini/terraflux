@@ -85,6 +85,24 @@ def main() -> None:
          C.focal_nodes(nodes, distance=250.0, search_buffer=300.0, metric="PC", attribute="quality",
                        threshold=600.0))
 
+    # settlement probabilities (SAMC)
+    absorption = resistance.copy(data=np.where(resistance.values > 6, 0.002, 0.0005))
+    out["in/absorption"] = absorption.values
+    for name, kw in {"samc": {"dispersal_distance": 200.0},
+                     "samc_mean": {"dispersal_distance": 150.0, "settle": "mean", "vertex_fraction": 0.5,
+                                   "directions": 4, "cost_function": "makurhini"},
+                     "samc_absorb": {"absorption": True, "vertices": 6, "id": "pid"}}.items():
+        args = dict(kw)
+        if args.pop("absorption", False):
+            args["absorption"] = absorption
+        ids, P = C.settlement_probabilities(nodes, resistance, **args)
+        out[name] = np.column_stack([np.asarray(ids, dtype=np.float64), P])
+        cases.append({"name": name, "op": "conn.settlement_probabilities", "params": kw,
+                      "columns": ["id"] + [str(i) for i in ids]})
+    g = C.HabitatGraph.from_samc(nodes, resistance, dispersal_distance=200.0, area_unit="ha")
+    case("samc_graph", "conn.overall", {"distance": 0.001, "metrics": ["PC", "F", "AWF"]},
+         g.overall(["PC", "F", "AWF"], distance=0.001))
+
     np.savez_compressed(REF / "conn_vector.npz", **out)
     (REF / "conn_vector.json").write_text(json.dumps(cases, indent=1) + "\n", encoding="utf-8")
     print(REF / "conn_vector.npz", len(out))

@@ -37,8 +37,49 @@ fn vector_graphs_are_landschafts() {
     let mut g = Grid::new(r.shape[1], r.shape[0]);
     g.transform = [0.0, 30.0, 0.0, r.shape[0] as f64 * 30.0, 0.0, -30.0];
     let resistance = Value::Map(Map::new(Arc::new(g), r.data.clone()));
+    let resistance_grid = |ny: usize, nx: usize| {
+        let mut g = Grid::new(nx, ny);
+        g.transform = [0.0, 30.0, 0.0, ny as f64 * 30.0, 0.0, -30.0];
+        Arc::new(g)
+    };
+    let a = &z["in/absorption"];
+    let absorption = Value::Map(Map::new(resistance_grid(r.shape[0], r.shape[1]), a.data.clone()));
     for c in cases.as_array().unwrap() {
         let name = c["name"].as_str().unwrap();
+        if c["op"] == "conn.settlement_probabilities" || name == "samc_graph" {
+            // Eigen's sparse LU against scipy's SuperLU: to rounding
+            let out = if name == "samc_graph" {
+                let graph = run(
+                    "conn.graph_from_samc",
+                    vec![("vector", features.clone()), ("resistance", resistance.clone())],
+                    serde_json::json!({"dispersal_distance": 200.0, "area_unit": "ha"}),
+                )
+                .remove("graph")
+                .unwrap();
+                run("conn.overall", vec![("graph", graph)], c["params"].clone())
+            } else {
+                let mut params = c["params"].clone();
+                let mut inputs = vec![("vector", features.clone()), ("resistance", resistance.clone())];
+                if params.as_object_mut().unwrap().remove("absorption").is_some() {
+                    inputs.push(("absorption", absorption.clone()));
+                }
+                run("conn.settlement_probabilities", inputs, params)
+            };
+            let Value::Table(t) = &out["table"] else { panic!("{name}: no table") };
+            let cols: Vec<String> =
+                c["columns"].as_array().unwrap().iter().map(|s| s.as_str().unwrap().into()).collect();
+            assert_eq!(t.columns, cols, "{name}: columns");
+            let got: Vec<f64> = t.rows.iter().flatten().copied().collect();
+            let want = &z[name].data;
+            assert_eq!(got.len(), want.len(), "{name}");
+            for (k, (a, b)) in got.iter().zip(want).enumerate() {
+                assert!(
+                    a.to_bits() == b.to_bits() || (a - b).abs() <= 1e-10 * a.abs().max(b.abs()),
+                    "{name} at {k}: {a} {b}"
+                );
+            }
+            continue;
+        }
         let out = if c["op"] == "conn.node_importance" {
             let graph = run(
                 "conn.graph_from_vector",

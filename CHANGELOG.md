@@ -6,6 +6,16 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Settlement probabilities from a spatial absorbing Markov chain (the samc package's model, landschaft's
+  settlement_probabilities and HabitatGraph.from_samc): `conn.settlement_probabilities` (a random walk over a
+  resistance, absorbed by an absorption raster or from the dispersal distance; the probability of settling
+  between nodes over their boundary vertices, summed or averaged) and `conn.graph_from_samc`. landschaft's C++
+  for the chain, Eigen's sparse LU for its inverse (scipy's SuperLU in landschaft: the same to rounding).
+- `conn.protconn_raster`: ProtConn of a raster of protected areas (its patches at their centroids; the
+  region's features rasterized or a raster of the region; transboundary patches, the region's parts). The same
+  as landschaft's, to the bit. The `conn` module is all in Terraflux.
+
 ## [0.48.0] - 2026-10-13
 
 ### Added

@@ -669,8 +669,10 @@ Pendências:
   `conn.graph_from_vector`, `conn.to_vector` e `conn.focal_nodes`, com o GEOS pelo GDAL, bit a bit com o
   landschaft.
 - **ProtConn e grades (0.48.0, 2026-10-13):** `conn.protconn`, `conn.protconn_regions`, `conn.make_grid`,
-  `conn.connectivity_grid` e `conn.eca_change_grid`, bit a bit com o landschaft. Faltam do `conn`: o ProtConn
-  em raster e o SAMC.
+  `conn.connectivity_grid` e `conn.eca_change_grid`, bit a bit com o landschaft.
+- **SAMC e ProtConn em raster (0.49.0, 2026-10-13):** `conn.settlement_probabilities`, `conn.graph_from_samc`
+  (o LU esparso do Eigen no lugar do SuperLU: a rounding) e `conn.protconn_raster` (bit a bit). O módulo `conn`
+  está todo no Terraflux.
 - **Próximos (2026-10-13):** os instaladores de macOS e Linux;
   `vector.exact_sum` e `vector.distance` fora da memória.
 

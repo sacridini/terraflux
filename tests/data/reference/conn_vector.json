@@ -149,5 +149,106 @@
    "dPCconnector",
    "IComp"
   ]
+ },
+ {
+  "name": "samc",
+  "op": "conn.settlement_probabilities",
+  "params": {
+   "dispersal_distance": 200.0
+  },
+  "columns": [
+   "id",
+   "1",
+   "2",
+   "3",
+   "4",
+   "5",
+   "6",
+   "7",
+   "8",
+   "9",
+   "10",
+   "11",
+   "12",
+   "13",
+   "14"
+  ]
+ },
+ {
+  "name": "samc_mean",
+  "op": "conn.settlement_probabilities",
+  "params": {
+   "dispersal_distance": 150.0,
+   "settle": "mean",
+   "vertex_fraction": 0.5,
+   "directions": 4,
+   "cost_function": "makurhini"
+  },
+  "columns": [
+   "id",
+   "1",
+   "2",
+   "3",
+   "4",
+   "5",
+   "6",
+   "7",
+   "8",
+   "9",
+   "10",
+   "11",
+   "12",
+   "13",
+   "14"
+  ]
+ },
+ {
+  "name": "samc_absorb",
+  "op": "conn.settlement_probabilities",
+  "params": {
+   "absorption": true,
+   "vertices": 6,
+   "id": "pid"
+  },
+  "columns": [
+   "id",
+   "101",
+   "102",
+   "103",
+   "104",
+   "105",
+   "106",
+   "107",
+   "108",
+   "109",
+   "110",
+   "111",
+   "112",
+   "113",
+   "114"
+  ]
+ },
+ {
+  "name": "samc_graph",
+  "op": "conn.overall",
+  "params": {
+   "distance": 0.001,
+   "metrics": [
+    "PC",
+    "F",
+    "AWF"
+   ]
+  },
+  "columns": [
+   "distance",
+   "F",
+   "AWF",
+   "PC",
+   "PCnum",
+   "EC(PC)",
+   "PCintra(%)",
+   "PCdirect(%)",
+   "PCstep(%)"
+  ]
  }
 ]

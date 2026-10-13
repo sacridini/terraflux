@@ -260,6 +260,136 @@
     "ProtConn_Unprot_land",
     "ProtConn_Trans_land"
    ]
+  },
+  {
+   "name": "praster",
+   "op": "conn.protconn_raster",
+   "params": {
+    "distance": [
+     300.0,
+     900.0
+    ]
+   },
+   "columns": [
+    "distance",
+    "ECA",
+    "PC",
+    "LA",
+    "Protected_surface",
+    "Prot",
+    "ProtConn",
+    "ProtUnconn",
+    "RelConn",
+    "ProtUnconn_Design",
+    "ProtConn_Bound",
+    "Unprotected",
+    "ProtConn_Prot",
+    "ProtConn_Trans",
+    "ProtConn_Unprot",
+    "ProtConn_Within",
+    "ProtConn_Contig",
+    "ProtConn_Within_land",
+    "ProtConn_Contig_land",
+    "ProtConn_Unprot_land",
+    "ProtConn_Trans_land"
+   ]
+  },
+  {
+   "name": "praster_trans",
+   "op": "conn.protconn_raster",
+   "params": {
+    "distance": 600.0,
+    "transboundary": 120.0,
+    "bound": true
+   },
+   "columns": [
+    "distance",
+    "ECA",
+    "PC",
+    "LA",
+    "Protected_surface",
+    "Prot",
+    "ProtConn",
+    "ProtUnconn",
+    "RelConn",
+    "ProtUnconn_Design",
+    "ProtConn_Bound",
+    "Unprotected",
+    "ProtConn_Prot",
+    "ProtConn_Trans",
+    "ProtConn_Unprot",
+    "ProtConn_Within",
+    "ProtConn_Contig",
+    "ProtConn_Within_land",
+    "ProtConn_Contig_land",
+    "ProtConn_Unprot_land",
+    "ProtConn_Trans_land"
+   ]
+  },
+  {
+   "name": "praster_region",
+   "op": "conn.protconn_raster",
+   "params": {
+    "distance": 600.0,
+    "transboundary": 90.0,
+    "transboundary_type": "region",
+    "probability": null,
+    "area_unit": "ha"
+   },
+   "columns": [
+    "distance",
+    "ECA",
+    "PC",
+    "LA",
+    "Protected_surface",
+    "Prot",
+    "ProtConn",
+    "ProtUnconn",
+    "RelConn",
+    "ProtUnconn_Design",
+    "ProtConn_Bound",
+    "Unprotected",
+    "ProtConn_Prot",
+    "ProtConn_Trans",
+    "ProtConn_Unprot",
+    "ProtConn_Within",
+    "ProtConn_Contig",
+    "ProtConn_Within_land",
+    "ProtConn_Contig_land",
+    "ProtConn_Unprot_land",
+    "ProtConn_Trans_land"
+   ]
+  },
+  {
+   "name": "praster_map",
+   "op": "conn.protconn_raster",
+   "params": {
+    "distance": 500.0
+   },
+   "columns": [
+    "distance",
+    "ECA",
+    "PC",
+    "LA",
+    "Protected_surface",
+    "Prot",
+    "ProtConn",
+    "ProtUnconn",
+    "RelConn",
+    "ProtUnconn_Design",
+    "ProtConn_Bound",
+    "Unprotected",
+    "ProtConn_Prot",
+    "ProtConn_Trans",
+    "ProtConn_Unprot",
+    "ProtConn_Within",
+    "ProtConn_Contig",
+    "ProtConn_Within_land",
+    "ProtConn_Contig_land",
+    "ProtConn_Unprot_land",
+    "ProtConn_Trans_land"
+   ],
+   "region_map": true
   }
  ],
  "grids": [

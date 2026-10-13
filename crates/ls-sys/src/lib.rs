@@ -1278,6 +1278,9 @@ pub mod ffi {
             directions: i32,
             function: i32,
         ) -> Result<ConnSamc>;
+        /// The rows and columns `targets` of (I - Q)^-1, Q the m x m matrix of the entries (from, to, q) summed
+        /// (Eigen's sparse LU with COLAMD ordering): k x k, row-major.
+        fn samc_inverse_block(m: i64, from: &[i32], to: &[i32], q: &[f64], targets: &[i64]) -> Result<Vec<f64>>;
         /// igraph's betweenness and the closeness sums on edges of the given lengths (`unit`: every edge 1).
         fn conn_centrality(pi: &[i32], pj: &[i32], length: &[f64], n: i32, unit: bool) -> Result<ConnCentrality>;
         /// NLMR's util_rescale (a copy): (x - min) / (max - min), 0 when min and max are all.equal.
