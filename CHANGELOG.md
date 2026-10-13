@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-10-13
+
 ### Added
 - Spatial signatures, as pylandstats' SpatialSignatureAnalysis in landschaft (`tools/make_signature_reference.py`):
   - `metrics.signatures`: the table of landscapes described by their metrics, a row per zone of a map (polygons,
