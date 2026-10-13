@@ -376,3 +376,101 @@ fn the_randomise_operator_gives_tables_and_maps() {
     let Value::Stack(s) = &out["maps"] else { panic!() };
     assert!(s.keys.iter().any(|k| k.to_string() == "CANAPE_CODE"));
 }
+
+/// Clusterings and region growers against landschaft's (tests/data/reference/bio_cluster.json and .npz): every
+/// linkage, direct and pairwise indices, phylogenetic ones, link_recalculate, several conditions, a definition
+/// query, the calculations of each node, tie breakers, singletons; the dendrogram, its node values and its cuts,
+/// to the bit.
+#[test]
+fn clusters_are_landschafts() {
+    use terraflux_ops::bio::cluster::{ClusterOptions, cluster};
+    use terraflux_ops::bio::tree::read_trees;
+    let reference: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root().join("tests/data/reference/bio_cluster.json")).unwrap())
+            .unwrap();
+    let z = terraflux_raster::npy::read_npz(root().join("tests/data/reference/bio_cluster.npz")).unwrap();
+    let bd_ref: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root().join("tests/data/reference/bio.json")).unwrap()).unwrap();
+    let text = std::fs::read_to_string(sites()).unwrap();
+    let bd = BaseData::from_table(&text, &import(&bd_ref["basedata"]["cells"]["options"])).unwrap();
+    let nex = root().join("extern/landschaft/src/landschaft/bio/data/example_tree.nex");
+    let tree = read_trees(&std::fs::read_to_string(nex).unwrap(), None).unwrap().remove(0);
+    for (k, entry) in reference["cases"].as_array().unwrap().iter().enumerate() {
+        let c = &entry["case"];
+        let rg = c["region_grower"].as_bool().unwrap_or(false);
+        let o = ClusterOptions {
+            index: c["index"].as_str().unwrap_or(if rg { "RICHNESS_ALL" } else { "SORENSON" }).to_string(),
+            linkage: c["linkage"].as_str().unwrap_or(if rg { "link_recalculate" } else { "link_average" }).to_string(),
+            conditions: strings(&c["conditions"]),
+            definition_query: c["definition_query"].as_str().map(String::from),
+            calculations: strings(&c["calculations"]),
+            seed: 7 + k as u64,
+            tie_breaker: strings(&c["tie_breaker"]),
+            clear_singletons: c["clear_singletons"].as_bool().unwrap_or(false),
+            region_grower: rg,
+        };
+        let what = format!("case {k} {c}");
+        let t = c["tree"].as_bool().unwrap_or(false).then_some(&tree);
+        let r = cluster(&bd, t, &o, true).unwrap_or_else(|e| panic!("{what}: {e}"));
+        assert_eq!(r.tree.names, strings(&entry["names"]), "{what}: names");
+        let parent: Vec<i64> = entry["parent"].as_array().unwrap().iter().map(|v| v.as_i64().unwrap()).collect();
+        assert_eq!(r.tree.parent, parent, "{what}: parent");
+        let children: Vec<Vec<usize>> = serde_json::from_value(entry["children"].clone()).unwrap();
+        assert_eq!(r.tree.children, children, "{what}: children");
+        check(&format!("{what}: lengths"), &r.tree.length, &z[&format!("c/{k}/length")].data);
+        let values: Vec<f64> = r.nodes.iter().flat_map(|n| n.values.map(|v| v.unwrap_or(f64::NAN))).collect();
+        check(&format!("{what}: values"), &values, &z[&format!("c/{k}/values")].data);
+        if let Some(cols) = entry.get("columns") {
+            let t = r.table.as_ref().unwrap();
+            assert_eq!(t.names, strings(cols), "{what}: columns");
+            check(&format!("{what}: table"), &t.rows.concat(), &z[&format!("c/{k}/table")].data);
+        }
+        for (kk, want) in entry["cut"].as_object().unwrap() {
+            let got = r.cut(kk.parse().unwrap()).unwrap();
+            let want: Vec<(String, usize)> =
+                want.as_object().unwrap().iter().map(|(g, v)| (g.clone(), v.as_u64().unwrap() as usize)).collect();
+            let mut want = want;
+            want.sort();
+            assert_eq!(got, want, "{what}: cut {kk}");
+        }
+    }
+}
+
+/// bio.cluster and bio.region_grower: the dendrogram, its nodes, a node's calculations and k clusters as a map.
+#[test]
+fn the_cluster_operators_cut_maps() {
+    let r = Registry::standard();
+    let run = |op: &str, inputs: Vec<(&str, Value)>, params: serde_json::Value| {
+        let params = params.as_object().unwrap().clone();
+        let args =
+            Args { node: "n", inputs: inputs.into_iter().map(|(k, v)| (k.to_string(), v)).collect(), params: &params };
+        r.get(op).unwrap().run(&mut Ctx::default(), &args).unwrap()
+    };
+    let bd = run(
+        "bio.table",
+        vec![],
+        serde_json::json!({"path": sites().to_str().unwrap(), "group_columns": ["x", "y"],
+        "label_columns": ["genus", "species"], "cell_sizes": [100000, 100000]}),
+    )
+    .remove("basedata")
+    .unwrap();
+    for op in ["bio.cluster", "bio.region_grower"] {
+        let out = run(op, vec![("basedata", bd.clone())], serde_json::json!({"k": 6, "calculations": ["richness"]}));
+        let Value::Tree(t) = &out["tree"] else { panic!() };
+        assert_eq!(t.terminal_names().len(), 127, "{op}");
+        let Value::Table(n) = &out["nodes"] else { panic!() };
+        assert_eq!(n.rows.len(), t.n_nodes(), "{op}");
+        let Value::Map(m) = &out["map"] else { panic!() };
+        let mut ks: Vec<i64> = m.data.iter().filter(|v| !v.is_nan()).map(|v| *v as i64).collect();
+        ks.sort_unstable();
+        ks.dedup();
+        if op == "bio.cluster" {
+            assert_eq!(ks, (1..=6).collect::<Vec<_>>(), "{op}");
+        } else {
+            // the region grower stops once a region holds every label: the regions left join under one root,
+            // and undoing that join gives them all
+            assert!(ks.len() >= 6 && ks[0] == 1, "{op}");
+        }
+        assert!(matches!(&out["table"], Value::Table(t) if t.columns.contains(&"RICHNESS_ALL".to_string())));
+    }
+}

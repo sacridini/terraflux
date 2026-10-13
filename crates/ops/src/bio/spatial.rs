@@ -151,6 +151,12 @@ fn view(bd: &BaseData, valid: &[String]) -> ffi::BioView {
         labels_numeric: numeric,
         label_values: bd.labels.iter().map(|l| if numeric { numify(l) } else { f64::NAN }).collect(),
         exec_order: exec,
+        pairwise_mode: false,
+        has_row_labels: false,
+        row_indptr: Vec::new(),
+        row_labels: Vec::new(),
+        row_counts: Vec::new(),
+        row_samples: Vec::new(),
     }
 }
 
@@ -358,10 +364,67 @@ pub fn prepare(
 /// The calculations of an analysis on a basedata with the same groups (its neighbourhoods), with its tree or
 /// another (landschaft's _evaluate).
 pub fn evaluate(bd: &BaseData, run: &Run, tree: Option<&Tree>) -> Result<SpatialResult> {
+    evaluate_with(bd, run, tree, false, None)
+}
+
+/// Per-row labels of neighbour set 1 (indptr, labels, group counts, samples) used instead of the groups'.
+pub type RowLabels = (Vec<i64>, Vec<i32>, Vec<f64>, Vec<f64>);
+
+/// Calculations on given neighbour sets (rows of group indices), one row per set (landschaft's _run_sets):
+/// `pairwise` the cluster matrices' mode, `row_labels` the hierarchical mode of cluster nodes.
+#[allow(clippy::too_many_arguments)]
+pub fn run_sets(
+    bd: &BaseData,
+    procs: Vec<i32>,
+    set1: Csr,
+    set2: Option<Csr>,
+    calcs: &[String],
+    tree: Option<&Tree>,
+    pairwise: bool,
+    row_labels: Option<RowLabels>,
+    parallel: bool,
+) -> Result<SpatialResult> {
+    let nbrs = Neighbourhoods {
+        groups: procs.clone(),
+        sets: vec![set1.clone()],
+        results_recyclable: false,
+        stored: Vec::new(),
+    };
+    let run = Run {
+        valid: calcs.iter().map(|c| calc_name(c)).collect(),
+        nbrs,
+        set1,
+        set2,
+        procs,
+        expand: None,
+        tree: tree.cloned(),
+        pc_steps: Vec::new(),
+        pc_vpd: false,
+        seed: 0,
+        parallel,
+    };
+    evaluate_with(bd, &run, None, pairwise, row_labels)
+}
+
+fn evaluate_with(
+    bd: &BaseData,
+    run: &Run,
+    tree: Option<&Tree>,
+    pairwise: bool,
+    row_labels: Option<RowLabels>,
+) -> Result<SpatialResult> {
     let tree = tree.or(run.tree.as_ref());
     let valid = &run.valid;
     let procs = &run.procs;
-    let v = view(bd, valid);
+    let mut v = view(bd, valid);
+    v.pairwise_mode = pairwise;
+    if let Some((ip, labels, counts, samples)) = row_labels {
+        v.has_row_labels = true;
+        v.row_indptr = ip;
+        v.row_labels = labels;
+        v.row_counts = counts;
+        v.row_samples = samples;
+    }
     let csr = |c: &Csr| ffi::BioCsr { indptr: c.0.clone(), indices: c.1.clone() };
     let empty = ffi::BioCsr { indptr: vec![0; procs.len() + 1], indices: Vec::new() };
     let s2 = run.set2.as_ref().map(csr);

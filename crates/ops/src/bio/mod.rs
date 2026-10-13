@@ -3,6 +3,7 @@
 //! and its indices over the neighbourhood of every group, computed by landschaft's C++.
 
 pub mod basedata;
+pub mod cluster;
 pub mod conditions;
 pub mod names;
 pub mod perl;
@@ -29,6 +30,8 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(Spatial));
     r.add(Arc::new(ReadTree));
     r.add(Arc::new(Randomise));
+    r.add(Arc::new(Cluster { region_grower: false }));
+    r.add(Arc::new(Cluster { region_grower: true }));
 }
 
 impl BaseData {
@@ -587,6 +590,137 @@ impl Operator for Randomise {
         }
         if let Some(maps) = index_maps(&bd, &r.groups, &map_names, &map_rows) {
             out.push(("maps", maps));
+        }
+        Ok(out.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
+    }
+}
+
+struct Cluster {
+    region_grower: bool,
+}
+
+impl Operator for Cluster {
+    fn signature(&self) -> OpSignature {
+        let sig =
+            if self.region_grower {
+                OpSignature::new(
+                "bio.region_grower",
+                "Biodiverse's region grower (landschaft's region_grower): pairs of groups joined in decreasing order \
+                 of an index of the pair's groups together (RICHNESS_ALL, PE_WE...), recomputed for each merged \
+                 region; with one condition selecting every group, joining stops once a region reaches the value \
+                 of all the groups. The dendrogram, its nodes, the calculations of each node and, with k, k \
+                 regions.",
+                Access::None,
+            )
+            .param(PortSpec::optional("index", Type::Text, "the index to maximise (RICHNESS_ALL, default)"))
+            } else {
+                OpSignature::new(
+                    "bio.cluster",
+                    "Biodiverse's cluster analysis (landschaft's cluster): groups joined pair by pair by the \
+                 dissimilarity of their labels (SORENSON, JACCARD, S2, BRAY_CURTIS, PHYLO_SORENSON...; the linkage \
+                 giving cluster to cluster values), within the first spatial condition first. Ties broken by \
+                 Biodiverse's Mersenne Twister. The dendrogram, its nodes (Biodiverse's values), the calculations \
+                 of each node's groups and, with k, k clusters.",
+                    Access::None,
+                )
+                .param(PortSpec::optional("index", Type::Text, "the dissimilarity (SORENSON, default)"))
+                .param(
+                    PortSpec::optional("linkage", Type::Text, "link_average (default)...").choices(cluster::LINKAGES),
+                )
+            };
+        sig.input(PortSpec::new("basedata", Type::BaseData, "groups x labels sample counts"))
+            .input(PortSpec::optional("tree", Type::Tree, "a phylogeny for phylogenetic indices (bio.tree)"))
+            .output(PortSpec::new("tree", Type::Tree, "the dendrogram: groups at the tips, joins named 0___..."))
+            .output(PortSpec::new(
+                "nodes",
+                Type::Table,
+                "a row per node (name order): its parent, length, Biodiverse's values, its group",
+            ))
+            .output(PortSpec::new("table", Type::Table, "the calculations of each node's groups"))
+            .output(PortSpec::new("clusters", Type::Table, "with k: each group's cluster"))
+            .output(PortSpec::new("map", Type::Map, "with k: the clusters (groups that are cells of two axes)"))
+            .param(PortSpec::optional(
+                "conditions",
+                Type::Any,
+                "spatial conditions limiting the pairs (sp_select_all())",
+            ))
+            .param(PortSpec::optional("definition_query", Type::Text, "only the groups passing it"))
+            .param(PortSpec::optional("calculations", Type::Any, "indices of each node's groups"))
+            .param(PortSpec::optional("seed", Type::Integer, "Biodiverse's prng_seed, of the ties (default 1)"))
+            .param(PortSpec::optional(
+                "tie_breaker",
+                Type::Any,
+                "[\"random\", \"maximise\"] (default: random shuffles)",
+            ))
+            .param(PortSpec::optional("clear_singletons", Type::Bool, "leave out groups that joined nothing"))
+            .param(PortSpec::optional("k", Type::Integer, "cut the dendrogram into k clusters"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let fail = |e: Error| Error::msg(format!("node {:?}: {e}", args.node));
+        let bd = basedata_of(args)?;
+        let tree = match args.get("tree") {
+            Some(Value::Tree(t)) => Some(t.clone()),
+            Some(_) => return Err(fail(Error::msg("tree: connect a tree (bio.tree)"))),
+            None => None,
+        };
+        let rg = self.region_grower;
+        let o = cluster::ClusterOptions {
+            index: args.param("index", if rg { "RICHNESS_ALL".to_string() } else { "SORENSON".to_string() })?,
+            linkage: if rg { "link_recalculate".into() } else { args.param("linkage", "link_average".to_string())? },
+            conditions: texts(args, "conditions")?,
+            definition_query: args.opt_param::<String>("definition_query")?.filter(|q| !q.trim().is_empty()),
+            calculations: texts(args, "calculations")?,
+            seed: args.param::<i64>("seed", 1)? as u64,
+            tie_breaker: texts(args, "tie_breaker")?,
+            clear_singletons: args.param("clear_singletons", false)?,
+            region_grower: rg,
+        };
+        let r = cluster::cluster(&bd, tree.as_deref(), &o, rayon::current_num_threads() > 1).map_err(fail)?;
+        let mut nodes = Table::new(
+            ["node", "parent", "length"]
+                .iter()
+                .map(|s| s.to_string())
+                .chain(cluster::VALUES.iter().map(|s| s.to_string()))
+                .chain(["group".to_string()])
+                .collect(),
+        );
+        let index: std::collections::HashMap<&str, usize> =
+            r.nodes.iter().enumerate().map(|(i, n)| (n.name.as_str(), i)).collect();
+        for (i, n) in r.nodes.iter().enumerate() {
+            let group = if n.children.is_empty() {
+                bd.group_index(&n.name).map_or(f64::NAN, |g| (g + 1) as f64)
+            } else {
+                f64::NAN
+            };
+            nodes.rows.push(
+                [(i + 1) as f64, n.parent.as_deref().map_or(f64::NAN, |p| (index[p] + 1) as f64), n.length]
+                    .into_iter()
+                    .chain(n.values.iter().map(|v| v.unwrap_or(f64::NAN)))
+                    .chain([group])
+                    .collect(),
+            );
+        }
+        let mut out = vec![("tree", Value::Tree(Arc::new(r.tree.clone()))), ("nodes", Value::Table(nodes))];
+        if let Some(t) = &r.table {
+            let mut table = Table::new(std::iter::once("node".to_string()).chain(t.names.iter().cloned()).collect());
+            table.rows = t
+                .rows
+                .iter()
+                .enumerate()
+                .map(|(i, row)| std::iter::once((i + 1) as f64).chain(row.iter().copied()).collect())
+                .collect();
+            out.push(("table", Value::Table(table)));
+        }
+        if let Some(k) = args.opt_param::<i64>("k")? {
+            let cut = r.cut(k.max(0) as usize).map_err(fail)?;
+            let groups: Vec<i32> = cut.iter().map(|(g, _)| bd.group_index(g).unwrap() as i32).collect();
+            let rows: Vec<Vec<f64>> = cut.iter().map(|(_, c)| vec![*c as f64]).collect();
+            let names = vec!["cluster".to_string()];
+            out.push(("clusters", Value::Table(index_table(&bd, &groups, &names, &rows))));
+            if let Some(Value::Stack(s)) = index_maps(&bd, &groups, &names, &rows) {
+                out.push(("map", Value::Map(crate::Map::new(s.grid.clone(), (*s.layers[0]).clone()))));
+            }
         }
         Ok(out.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
     }

@@ -479,6 +479,35 @@ pub mod ffi {
         labels_numeric: bool,
         label_values: Vec<f64>,
         exec_order: Vec<i32>,
+        /// Pairwise mode (cluster matrices): phylo B and C as totals minus A.
+        pairwise_mode: bool,
+        /// Per-row labels of neighbour set 1, their group counts and samples, used instead of the groups'
+        /// (the hierarchical mode of cluster nodes).
+        has_row_labels: bool,
+        row_indptr: Vec<i64>,
+        row_labels: Vec<i32>,
+        row_counts: Vec<f64>,
+        row_samples: Vec<f64>,
+    }
+
+    /// A join of Biodiverse's clustering: its number, the new node and its two children, the value and the
+    /// matrix it came from.
+    struct BioJoin {
+        join_number: i32,
+        name: String,
+        child1: String,
+        child2: String,
+        value: f64,
+        matrix_iter: i32,
+    }
+
+    /// Biodiverse's clustering: the elements of the matrix used for the nodes, the joins, the last join number
+    /// and the root's value.
+    struct BioClusterOut {
+        terminals: Vec<String>,
+        joins: Vec<BioJoin>,
+        join_number: i32,
+        min_value: f64,
     }
 
     /// A tree as the index engine takes it (landschaft's bio::TreeView): nodes in name order, Biodiverse's
@@ -915,6 +944,12 @@ pub mod ffi {
     struct MolusceFactor {
         categories: Vec<f64>,
         weights: Vec<f64>,
+    }
+
+    extern "Rust" {
+        /// The index of two merged nodes against others (link_recalculate), called by the clustering.
+        type ClusterRecalc;
+        fn bio_recalculate(r: &mut ClusterRecalc, a: &str, b: &str, new_name: &str, checks: &Vec<String>) -> Vec<f64>;
     }
 
     unsafe extern "C++" {
@@ -1932,6 +1967,33 @@ pub mod ffi {
             stop_on_all_swapped: bool,
             use_max_swap: bool,
         ) -> Result<BioCounts>;
+        /// Biodiverse's agglomerative clustering (the matrix and the joins): `nbrs` per condition each element's
+        /// neighbours (rows set * n + element), `labels` per element its labels (direct indices), `pair_keys` e1 *
+        /// n + e2 with their values otherwise; `recalc` gives link_recalculate's values when `use_recalc`.
+        #[allow(clippy::too_many_arguments)]
+        fn bio_cluster(
+            names: &Vec<String>,
+            n_sets: i32,
+            nbr_ptr: &[i64],
+            nbr_idx: &[i32],
+            trim_processed: bool,
+            direct: &str,
+            label_ptr: &[i64],
+            label_idx: &[i32],
+            pair_keys: &[i64],
+            pair_values: &[f64],
+            linkage: &str,
+            can_lump_zeroes: bool,
+            min_poss: f64,
+            have_tie_breaker: bool,
+            breaker_keys: &Vec<String>,
+            breaker_minmax: &Vec<String>,
+            objective_max: bool,
+            max_poss: f64,
+            rng: Pin<&mut BioRng>,
+            use_recalc: bool,
+            recalc: &mut ClusterRecalc,
+        ) -> Result<BioClusterOut>;
         /// Perl's sqrt (mingw's x87) of each value.
         fn bio_perl_sqrt(x: &[f64]) -> Vec<f64>;
         /// Biodiverse's is_ultrametric of a tree, and whether a node has more than two children.
@@ -2068,3 +2130,16 @@ unsafe impl Send for RRng {}
 
 /// An error raised by a kernel (its message).
 pub type Error = cxx::Exception;
+
+/// The index of two merged nodes against others (link_recalculate): (node 1, node 2, the new node, the nodes to
+/// check) to a value per node to check.
+pub struct ClusterRecalc(pub Box<Recalculate>);
+
+/// (node 1, node 2, the new node, the nodes to check) to a value per node to check.
+pub type Recalculate = dyn FnMut(&str, &str, &str, &[String]) -> Vec<f64>;
+
+// cxx passes the checks as a Vec
+#[allow(clippy::ptr_arg)]
+fn bio_recalculate(r: &mut ClusterRecalc, a: &str, b: &str, new_name: &str, checks: &Vec<String>) -> Vec<f64> {
+    (r.0)(a, b, new_name, checks)
+}

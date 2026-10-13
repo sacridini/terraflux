@@ -6,6 +6,17 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Biodiverse's cluster analysis and region grower (landschaft's bio module): `bio.cluster` (groups joined by
+  the dissimilarity of their labels: Sorenson, Jaccard and S2 directly, Bray-Curtis, the phylogenetic ones and
+  the rest pair by pair; every linkage, link_recalculate through a callback from landschaft's C++ to Rust;
+  several conditions, a definition query, tie breakers, singletons) and `bio.region_grower` (regions grown by
+  an index of the merged groups). The dendrogram as a tree, its nodes with Biodiverse's values, the
+  calculations of each node in Biodiverse's hierarchical mode and, with k, the dendrogram cut into k clusters as
+  a table and a map. The tree's finishing (lengths, zero-length branches raised, roots joined, ladderised,
+  terminals numbered) and the cut are ported from landschaft's Python. The same as landschaft's, to the bit, in
+  thirteen cases.
+
 ## [0.36.0] - 2026-10-13
 
 ### Added

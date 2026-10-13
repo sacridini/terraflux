@@ -203,7 +203,53 @@ def randomisations() -> None:
     print(REF / "bio_rand.json", len(arrays))
 
 
+CLUSTER_CASES = [
+    {},
+    {"index": "JACCARD", "linkage": "link_minimum"},
+    {"index": "S2", "linkage": "link_maximum"},
+    {"index": "BRAY_CURTIS", "linkage": "link_average_unweighted"},
+    {"index": "PHYLO_SORENSON", "tree": True},
+    {"linkage": "link_recalculate"},
+    {"conditions": ["sp_circle (radius => 500000)", "sp_select_all()"]},
+    {"definition_query": "$y > 1000000"},
+    {"calculations": ["richness", "endemism_whole", "pd"], "tree": True},
+    {"tie_breaker": ["random", "maximise"]},
+    {"conditions": ["sp_circle (radius => 150000)"], "clear_singletons": True},
+    {"region_grower": True},
+    {"region_grower": True, "index": "PE_WE", "tree": True, "conditions": ["sp_circle (radius => 300000)"]},
+]
+
+
+def clusters() -> None:
+    """Clusterings and region growers (bio_cluster.json, bio_cluster.npz)."""
+    bd = B.BaseData.from_table(B.example_data(), **BASEDATA["cells"])
+    tree = B.read_tree(B.example_data("tree"))
+    cols = ["TOTAL_LENGTH", "JOIN_NUMBER", "MATRIX_ITER_USED", "TERMINAL_NODE_FIRST", "TERMINAL_NODE_LAST",
+            "JOIN_NOT_METRIC"]
+    out: dict = {"cases": []}
+    arrays: dict[str, np.ndarray] = {}
+    for k, case in enumerate(CLUSTER_CASES):
+        kw = {key: v for key, v in case.items() if key not in ("tree", "region_grower")}
+        if case.get("tree"):
+            kw["tree"] = tree
+        fn = B.region_grower if case.get("region_grower") else B.cluster
+        res = fn(bd, prng_seed=7 + k, n_threads=4, **kw)
+        t = res.tree
+        entry = {"case": case, "names": t.names, "parent": t.parent.tolist(), "children": t.children,
+                 "cut": {str(c): {str(g): int(v) for g, v in res.cut(c).items()} for c in (1, 2, 5)}}
+        arrays[f"c/{k}/length"] = t.length.astype(np.float64)
+        arrays[f"c/{k}/values"] = res.nodes[cols].astype(float).to_numpy(dtype=np.float64)
+        if len(res.table.columns):
+            entry["columns"] = list(res.table.columns)
+            arrays[f"c/{k}/table"] = res.table.to_numpy(dtype=np.float64)
+        out["cases"].append(entry)
+    (REF / "bio_cluster.json").write_text(json.dumps(out) + "\n", encoding="utf-8")
+    np.savez_compressed(REF / "bio_cluster.npz", **arrays)
+    print(REF / "bio_cluster.json", len(arrays))
+
+
 if __name__ == "__main__":
     main()
     trees()
     randomisations()
+    clusters()

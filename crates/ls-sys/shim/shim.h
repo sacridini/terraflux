@@ -71,6 +71,9 @@ struct BioView;
 struct BioIndexOut;
 struct BioTree;
 struct BioCounts;
+struct BioJoin;
+struct BioClusterOut;
+struct ClusterRecalc;
 struct EdgesOut;
 struct CommuteOut;
 struct PlaneOut;
@@ -559,6 +562,13 @@ BioCounts bio_rand_swaps(rust::Slice<const std::int64_t> indptr, rust::Slice<con
                          rust::Slice<const double> label_range, rust::Str kind, std::int64_t swap_count,
                          std::int64_t max_swap_attempts, bool stop_on_all_swapped, bool use_max_swap);
 rust::Vec<double> bio_perl_sqrt(rust::Slice<const double> x);
+BioClusterOut bio_cluster(const rust::Vec<rust::String>& names, std::int32_t n_sets, rust::Slice<const std::int64_t> nbr_ptr,
+                          rust::Slice<const std::int32_t> nbr_idx, bool trim_processed, rust::Str direct,
+                          rust::Slice<const std::int64_t> label_ptr, rust::Slice<const std::int32_t> label_idx,
+                          rust::Slice<const std::int64_t> pair_keys, rust::Slice<const double> pair_values,
+                          rust::Str linkage, bool can_lump_zeroes, double min_poss, bool have_tie_breaker,
+                          const rust::Vec<rust::String>& breaker_keys, const rust::Vec<rust::String>& breaker_minmax,
+                          bool objective_max, double max_poss, BioRng& rng, bool use_recalc, ClusterRecalc& recalc);
 
 PathsOut cost_paths(rust::Slice<const double> values, rust::Slice<const double> grid, std::int32_t directions,
                     bool symmetric, std::int64_t origin, rust::Slice<const std::int64_t> goals);

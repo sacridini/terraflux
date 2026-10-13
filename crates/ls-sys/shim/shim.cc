@@ -21,6 +21,7 @@
 #include "circuit/circuitscape.hpp"
 #include "circuit/grid.hpp"
 #include "circuit/omniscape.hpp"
+#include "bio/cluster.hpp"
 #include "bio/conditions.hpp"
 #include "bio/indices.hpp"
 #include "bio/perlmath.hpp"
@@ -2928,6 +2929,70 @@ BioCounts bio_rand_swaps(rust::Slice<const std::int64_t> indptr, rust::Slice<con
     throw std::invalid_argument("unknown swap randomisation " + k);
 }
 
+BioClusterOut bio_cluster(const rust::Vec<rust::String>& names, std::int32_t n_sets, rust::Slice<const std::int64_t> nbr_ptr,
+                          rust::Slice<const std::int32_t> nbr_idx, bool trim_processed, rust::Str direct,
+                          rust::Slice<const std::int64_t> label_ptr, rust::Slice<const std::int32_t> label_idx,
+                          rust::Slice<const std::int64_t> pair_keys, rust::Slice<const double> pair_values,
+                          rust::Str linkage, bool can_lump_zeroes, double min_poss, bool have_tie_breaker,
+                          const rust::Vec<rust::String>& breaker_keys, const rust::Vec<rust::String>& breaker_minmax,
+                          bool objective_max, double max_poss, BioRng& rng, bool use_recalc, ClusterRecalc& recalc) {
+    bio::ClusterInput in;
+    for (const auto& s : names) in.names.emplace_back(std::string(s));
+    const auto n = static_cast<std::int64_t>(in.names.size());
+    check(static_cast<std::int64_t>(nbr_ptr.size()) == n_sets * n + 1, "nbr_ptr: a row per condition and element");
+    for (std::int32_t k = 0; k < n_sets; ++k) {
+        std::vector<std::vector<std::int32_t>> per;
+        for (std::int64_t e = 0; e < n; ++e) {
+            const std::int64_t r = k * n + e;
+            per.emplace_back(nbr_idx.begin() + nbr_ptr[r], nbr_idx.begin() + nbr_ptr[r + 1]);
+        }
+        in.nbrs.push_back(std::move(per));
+    }
+    in.trim_processed = trim_processed;
+    in.direct = std::string(direct);
+    if (!in.direct.empty()) {
+        check(static_cast<std::int64_t>(label_ptr.size()) == n + 1, "label_ptr: a row per element");
+        for (std::int64_t e = 0; e < n; ++e)
+            in.labels.emplace_back(label_idx.begin() + label_ptr[e], label_idx.begin() + label_ptr[e + 1]);
+    }
+    in.pair_keys.assign(pair_keys.begin(), pair_keys.end());
+    in.pair_values.assign(pair_values.begin(), pair_values.end());
+    in.linkage = std::string(linkage);
+    in.can_lump_zeroes = can_lump_zeroes;
+    in.min_poss = min_poss;
+    in.have_tie_breaker = have_tie_breaker;
+    for (const auto& s : breaker_keys) in.breaker_keys.emplace_back(std::string(s));
+    for (const auto& s : breaker_minmax) in.breaker_minmax.emplace_back(std::string(s));
+    in.objective_max = objective_max;
+    in.max_poss = max_poss;
+    if (use_recalc) {
+        ClusterRecalc* r = &recalc;
+        in.recalculate = [r](const std::string& a, const std::string& b, const std::string& nn,
+                             const std::vector<std::string>& checks) {
+            rust::Vec<rust::String> c;
+            for (const auto& s : checks) c.push_back(rust::String(s));
+            const rust::Vec<double> v = bio_recalculate(*r, rust::Str(a), rust::Str(b), rust::Str(nn), c);
+            return std::vector<double>(v.begin(), v.end());
+        };
+    }
+    const bio::ClusterOutput out = bio::cluster_groups(in, rng.mt);
+    BioClusterOut res;
+    for (const auto& t : out.terminals) res.terminals.push_back(rust::String(t));
+    for (const auto& j : out.joins) {
+        BioJoin bj;
+        bj.join_number = j.join_number;
+        bj.name = rust::String(j.name);
+        bj.child1 = rust::String(j.child1);
+        bj.child2 = rust::String(j.child2);
+        bj.value = j.value;
+        bj.matrix_iter = j.matrix_iter;
+        res.joins.push_back(std::move(bj));
+    }
+    res.join_number = out.join_number;
+    res.min_value = out.min_value;
+    return res;
+}
+
 rust::Vec<double> bio_perl_sqrt(rust::Slice<const double> x) {
     rust::Vec<double> out;
     for (const double v : x) out.push_back(bio::perl_sqrt(v));
@@ -2953,6 +3018,14 @@ BioIndexOut bio_run_indices(const BioView& view, rust::Slice<const std::int32_t>
     b.labels_numeric = view.labels_numeric;
     b.label_values = std_vec<double>(view.label_values);
     b.exec_order = std_vec<std::int32_t>(view.exec_order);
+    b.pairwise_mode = view.pairwise_mode;
+    if (view.has_row_labels) {
+        b.has_row_labels = true;
+        b.row_indptr = std_vec<std::int64_t>(view.row_indptr);
+        b.row_labels = std_vec<std::int32_t>(view.row_labels);
+        b.row_counts = std_vec<double>(view.row_counts);
+        b.row_samples = std_vec<double>(view.row_samples);
+    }
     std::vector<std::string> names;
     for (const auto& c : calcs) names.emplace_back(std::string(c));
     const bio::Csr s1 = bio_csr(set1);
