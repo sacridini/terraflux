@@ -16,6 +16,7 @@
 #ifdef _OPENMP
 #include <omp.h>
 #endif
+#include <mutex>
 #include <vector>
 
 #include "circuit/circuitscape.hpp"
@@ -2159,6 +2160,122 @@ PairwiseOut circuit_pairwise(rust::Slice<const double> gmap, rust::Slice<const s
     out.resistances = to_rust<double>(std::move(r.resistances));
     out.cum = to_rust<double>(std::move(r.cum));
     out.max = to_rust<double>(std::move(r.max));
+    return out;
+}
+
+namespace {
+circuit::RasterGraph network_of(rust::Slice<const std::int32_t> a, rust::Slice<const std::int32_t> b,
+                                rust::Slice<const double> w, std::int32_t m) {
+    check(a.size() == b.size() && a.size() == w.size(), "edge arrays of different lengths");
+    return circuit::network_graph(std::vector<std::int32_t>(a.begin(), a.end()), std::vector<std::int32_t>(b.begin(), b.end()),
+                                  std::vector<double>(w.begin(), w.end()), m);
+}
+
+// the node of the adjacency list holding each entry
+std::vector<std::int32_t> entry_owner(const circuit::RasterGraph& g) {
+    std::vector<std::int32_t> owner(g.adj.size());
+    for (std::int32_t c = 0; c < g.n_nodes; ++c)
+        for (std::int64_t e = g.ptr[c]; e < g.ptr[c + 1]; ++e) owner[static_cast<std::size_t>(e)] = c;
+    return owner;
+}
+
+void push_branches(const circuit::RasterGraph& g, const std::vector<std::int32_t>& owner,
+                   const std::vector<std::pair<std::int64_t, double>>& branch, rust::Vec<std::int32_t>& r,
+                   rust::Vec<std::int32_t>& c, rust::Vec<double>& v) {
+    for (const auto& [e, val] : branch) {
+        r.push_back(g.adj[static_cast<std::size_t>(e)]);
+        c.push_back(owner[static_cast<std::size_t>(e)]);
+        v.push_back(val);
+    }
+}
+
+int network_threads() {
+#if defined(_OPENMP)
+    return omp_get_max_threads();
+#else
+    return 1;
+#endif
+}
+}  // namespace
+
+NetworkOut circuit_network_advanced(rust::Slice<const std::int32_t> a, rust::Slice<const std::int32_t> b,
+                                    rust::Slice<const double> w, std::int32_t m, rust::Slice<const double> source,
+                                    rust::Slice<const double> ground, std::int32_t policy) {
+    check(static_cast<std::int32_t>(source.size()) == m && static_cast<std::int32_t>(ground.size()) == m,
+          "sources and grounds must have one value per node");
+    check(policy >= 0 && policy <= 3, "the policy is 0 to 3");
+    const circuit::RasterGraph g = network_of(a, b, w, m);
+    std::vector<double> src(source.begin(), source.end()), gnd(ground.begin(), ground.end());
+    std::vector<double> finite(static_cast<std::size_t>(m), 0.0);
+    bool any_finite = false;
+    for (std::int32_t v = 0; v < m; ++v) {
+        finite[v] = gnd[v] < std::numeric_limits<double>::infinity() ? gnd[v] : 0.0;
+        any_finite = any_finite || finite[v] != 0;
+    }
+    circuit::NodeSolution sol = circuit::raster_advanced(g, std::move(src), std::move(gnd),
+                                                         static_cast<circuit::ConflictPolicy>(policy), network_threads());
+    std::vector<std::int32_t> all(static_cast<std::size_t>(m));
+    for (std::int32_t v = 0; v < m; ++v) all[v] = v;
+    std::vector<double> current(static_cast<std::size_t>(m), 0.0);
+    std::vector<std::pair<std::int64_t, double>> branch;
+    circuit::network_currents(g, all.data(), m, sol.voltage.data(), any_finite ? finite.data() : nullptr, current.data(),
+                              branch);
+    NetworkOut out;
+    out.voltage = to_rust<double>(std::move(sol.voltage));
+    out.current = to_rust<double>(std::move(current));
+    push_branches(g, entry_owner(g), branch, out.branch_r, out.branch_c, out.branch_v);
+    out.solved = sol.solved;
+    out.n_components = g.n_comp;
+    return out;
+}
+
+NetworkOut circuit_network_pairwise(rust::Slice<const std::int32_t> a, rust::Slice<const std::int32_t> b,
+                                    rust::Slice<const double> w, std::int32_t m, rust::Slice<const std::int32_t> points,
+                                    rust::Slice<const std::uint8_t> excluded, bool volt_maps, bool cur_maps, bool cum) {
+    check(excluded.size() == points.size() * points.size(), "excluded: n x n");
+    circuit::PairwiseOptions o;
+    o.volt_maps = volt_maps;
+    o.cur_maps = cur_maps;
+    o.cum = cum;
+    o.network = true;
+    std::vector<std::uint8_t> ex(excluded.begin(), excluded.end());
+    std::vector<std::int32_t> pts(points.begin(), points.end());
+    for (std::int32_t& v : pts)
+        if (v < 0 || v >= m) v = -1;
+    const circuit::RasterGraph g = network_of(a, b, w, m);
+    const std::vector<std::int32_t> owner = entry_owner(g);
+    std::mutex lock;
+    std::vector<circuit::PairMaps> pairs;
+    std::function<void(circuit::PairMaps&&)> keep = [&](circuit::PairMaps&& pm) {
+        std::lock_guard<std::mutex> guard(lock);
+        pairs.push_back(std::move(pm));
+    };
+    circuit::PairwiseResult r = circuit::raster_pairwise(g, nullptr, pts, ex, o, keep, network_threads());
+    std::sort(pairs.begin(), pairs.end(),
+              [](const circuit::PairMaps& x, const circuit::PairMaps& y) { return std::pair(x.ci, x.cj) < std::pair(y.ci, y.cj); });
+    NetworkOut out;
+    out.resistances = to_rust<double>(std::move(r.resistances));
+    out.cum = to_rust<double>(std::move(r.cum));
+    if (!r.cum_branch.empty()) {
+        std::vector<std::pair<std::int64_t, double>> cb;
+        for (std::int32_t c = 0; c < g.n_nodes; ++c)
+            for (std::int64_t e = g.ptr[c]; e < g.ptr[c + 1]; ++e)
+                if (g.adj[static_cast<std::size_t>(e)] < c) cb.emplace_back(e, r.cum_branch[static_cast<std::size_t>(e)]);
+        push_branches(g, owner, cb, out.cum_r, out.cum_c, out.cum_v);
+    }
+    out.n_components = g.n_comp;
+    out.pair_node_off.push_back(0);
+    out.pair_branch_off.push_back(0);
+    for (const circuit::PairMaps& pm : pairs) {
+        out.pair_ci.push_back(pm.ci);
+        out.pair_cj.push_back(pm.cj);
+        for (const std::int32_t v : pm.nodes) out.pair_nodes.push_back(v);
+        for (const double v : pm.voltage) out.pair_voltage.push_back(v);
+        for (const double v : pm.current) out.pair_current.push_back(v);
+        out.pair_node_off.push_back(static_cast<std::int64_t>(out.pair_nodes.size()));
+        push_branches(g, owner, pm.branch, out.pair_branch_r, out.pair_branch_c, out.pair_branch_v);
+        out.pair_branch_off.push_back(static_cast<std::int64_t>(out.pair_branch_r.size()));
+    }
     return out;
 }
 

@@ -74,6 +74,7 @@ struct BioCounts;
 struct BioJoin;
 struct BioClusterOut;
 struct ClusterRecalc;
+struct NetworkOut;
 struct EdgesOut;
 struct CommuteOut;
 struct PlaneOut;
@@ -562,6 +563,12 @@ BioCounts bio_rand_swaps(rust::Slice<const std::int64_t> indptr, rust::Slice<con
                          rust::Slice<const double> label_range, rust::Str kind, std::int64_t swap_count,
                          std::int64_t max_swap_attempts, bool stop_on_all_swapped, bool use_max_swap);
 rust::Vec<double> bio_perl_sqrt(rust::Slice<const double> x);
+NetworkOut circuit_network_advanced(rust::Slice<const std::int32_t> a, rust::Slice<const std::int32_t> b,
+                                    rust::Slice<const double> w, std::int32_t m, rust::Slice<const double> source,
+                                    rust::Slice<const double> ground, std::int32_t policy);
+NetworkOut circuit_network_pairwise(rust::Slice<const std::int32_t> a, rust::Slice<const std::int32_t> b,
+                                    rust::Slice<const double> w, std::int32_t m, rust::Slice<const std::int32_t> points,
+                                    rust::Slice<const std::uint8_t> excluded, bool volt_maps, bool cur_maps, bool cum);
 BioClusterOut bio_cluster(const rust::Vec<rust::String>& names, std::int32_t n_sets, rust::Slice<const std::int64_t> nbr_ptr,
                           rust::Slice<const std::int32_t> nbr_idx, bool trim_processed, rust::Str direct,
                           rust::Slice<const std::int64_t> label_ptr, rust::Slice<const std::int32_t> label_idx,

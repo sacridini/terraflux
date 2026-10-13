@@ -132,5 +132,78 @@ def circuitscape_cases() -> None:
     print(REF / "circuitscape_landschaft.npz", len(out))
 
 
+PAIRS = {
+    "include_list": "mode include\n1 2\n1 3\n2 5\n4 6\n1 6\n",
+    "exclude_list": "mode exclude\n1 2\n3 4\n",
+    "include_matrix": "min 1\nmax 5\n0 1 2 3 4 5 6\n1 0 1 0 2 9 1\n2 1 0 3 0 0 0\n3 0 3 0 1 0 0\n"
+                      "4 2 0 1 0 0 1\n5 9 0 0 0 0 1\n6 1 0 0 1 1 0\n",
+}
+
+
+def pairs_and_networks() -> None:
+    """Included pairs on rasters (pairwise, one-to-all and all-to-one, with and without focal regions) and
+    Circuitscape's network test cases (landschaft's tests/data/reference/circuit/circuitscape/input/network*),
+    written to tests/data/reference/circuit_networks.npz and .json (and the pairs files)."""
+    from landschaft.circuit.ini import parse_ini
+
+    z = np.load(REF / "circuitscape_landschaft.npz")
+    out: dict[str, np.ndarray] = {}
+    meta: dict = {"pairs": {}, "networks": []}
+    for key, text in PAIRS.items():
+        path = REF / f"circuit_pairs_{key}.txt"
+        path.write_text(text, encoding="utf-8")
+        for name in ("plain", "regions"):
+            r, pts = z[f"{name}/habitat"], z[f"{name}/points"]
+            p = ls.circuit.circuitscape_pairwise(r, pts, cum_map=True, included_pairs=str(path), n_threads=1)
+            out[f"{key}/{name}/pairwise/resistances"] = p.resistances
+            out[f"{key}/{name}/pairwise/cum"] = p.cum_current
+            for mode, all_to_one in (("one_to_all", False), ("all_to_one", True)):
+                o = ls.circuit.circuitscape_one_to_all(r, pts, all_to_one=all_to_one, cum_map=True, max_map=True,
+                                                       included_pairs=str(path), n_threads=1)
+                out[f"{key}/{name}/{mode}/resistances"] = o.resistances
+                out[f"{key}/{name}/{mode}/cum"] = o.cum_current
+                out[f"{key}/{name}/{mode}/max"] = o.max_current
+    cs = LS / "circuitscape"
+    for ini in sorted(p for d in ("network", "network_extra") for p in (cs / "input" / d).glob("*.ini")):
+        c = parse_ini(ini)
+        rel = lambda k: None if c.get(k) in (None, "None", "") or str(c.get(k)).startswith("(") else c[k]
+        f = lambda k: None if rel(k) is None else str(cs / rel(k))
+        t = lambda k: str(c.get(k)).lower() == "true"
+        name = ini.stem
+        case = {"name": name, "scenario": c["scenario"], "graph": rel("habitat_file"),
+                "graph_is_resistance": t("habitat_map_is_resistances")}
+        if c["scenario"] == "advanced":
+            case.update(sources=rel("source_file"), grounds=rel("ground_file"),
+                        ground_is_resistance=t("ground_file_is_resistances"), policy=c.get("remove_src_or_gnd", "keepall"))
+            r = ls.circuit.circuitscape_network_advanced(f("habitat_file"), f("source_file"), f("ground_file"),
+                                                         graph_is_resistance=case["graph_is_resistance"],
+                                                         ground_is_resistance=case["ground_is_resistance"],
+                                                         remove_src_or_gnd=case["policy"], n_threads=1)
+            out[f"net/{name}/voltages"] = r.voltages
+            out[f"net/{name}/node_currents"] = r.node_currents
+            out[f"net/{name}/branch_currents"] = r.branch_currents
+        else:
+            pairs = f("included_pairs_file") if t("use_included_pairs") else None
+            case.update(points=rel("point_file"), included_pairs=rel("included_pairs_file") if pairs else None,
+                        voltage_maps=t("write_volt_maps"),
+                        current_maps=t("write_cur_maps"))
+            r = ls.circuit.circuitscape_network_pairwise(f("habitat_file"), f("point_file"),
+                                                         graph_is_resistance=case["graph_is_resistance"],
+                                                         included_pairs=pairs, voltage_maps=case["voltage_maps"],
+                                                         current_maps=case["current_maps"], n_threads=1)
+            out[f"net/{name}/resistances"] = r.resistances
+            if r.cum_node_currents is not None:
+                out[f"net/{name}/cum_node_currents"] = r.cum_node_currents
+                out[f"net/{name}/cum_branch_currents"] = r.cum_branch_currents
+            case["maps"] = sorted("/".join(map(str, k)) for k in r.maps)
+            for k, v in r.maps.items():
+                out[f"net/{name}/maps/" + "/".join(map(str, k))] = v
+        meta["networks"].append(case)
+    np.savez_compressed(REF / "circuit_networks.npz", **out)
+    (REF / "circuit_networks.json").write_text(json.dumps(meta, indent=1) + "\n", encoding="utf-8")
+    print(REF / "circuit_networks.npz", len(out))
+
+
 if __name__ == "__main__":
     circuitscape_cases()
+    pairs_and_networks()

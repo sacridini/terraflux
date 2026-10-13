@@ -644,8 +644,10 @@ Pendências:
   ndtri do cephes, as somas e quantis do numpy), bit a bit com o landschaft.
 - **Lotes (0.40.0, 2026-10-13):** `batch.run` (qualquer operador em muitos rasters, em paralelo, com os nomes
   do landschaft e do GTB e um JSON por entrada).
-- **Próximos (2026-10-13):** o resto
-  dos circuitos (redes, pares incluídos, os arquivos .ini); os instaladores de macOS e Linux;
+- **Circuitos — redes e pares incluídos (0.41.0, 2026-10-13):** `circuit.network_advanced`,
+  `circuit.network_pairwise` e os arquivos de pares incluídos/excluídos do Circuitscape nos modos em raster e de
+  rede, bit a bit com o landschaft.
+- **Próximos (2026-10-13):** os arquivos .ini do Circuitscape e do Omniscape; os instaladores de macOS e Linux;
   `vector.exact_sum` e `vector.distance` fora da memória.
 
 - **A ponte do ls.simulate completa (branch `simulate-bridge`, 2026-10-13):** todo modelo do `ls.simulate` vai pelo

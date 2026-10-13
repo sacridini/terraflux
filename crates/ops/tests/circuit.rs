@@ -177,3 +177,121 @@ fn circuitscape_modes_are_landschafts() {
         }
     }
 }
+
+/// Included and excluded pairs (Circuitscape's list and matrix files) on rasters, pairwise, one-to-all and
+/// all-to-one, with and without focal regions, and Circuitscape's network test cases (advanced and pairwise,
+/// included pairs, the pairs' maps), against landschaft's (tests/data/reference/circuit_networks.npz and .json),
+/// to the bit.
+#[test]
+fn included_pairs_and_networks_are_landschafts() {
+    let z = terraflux_raster::npy::read_npz(root().join("tests/data/reference/circuitscape_landschaft.npz")).unwrap();
+    let w = terraflux_raster::npy::read_npz(root().join("tests/data/reference/circuit_networks.npz")).unwrap();
+    let meta: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root().join("tests/data/reference/circuit_networks.json")).unwrap(),
+    )
+    .unwrap();
+    let table = |v: &Value| -> Vec<f64> {
+        let Value::Table(t) = v else { panic!() };
+        t.rows.iter().flatten().copied().collect()
+    };
+    let bits = |a: &[f64], b: &[f64], what: &str| {
+        assert_eq!(a.len(), b.len(), "{what}: length");
+        for (i, (x, y)) in a.iter().zip(b).enumerate() {
+            assert!(x.to_bits() == y.to_bits() || (x.is_nan() && y.is_nan()), "{what}: {i}: {x} {y}");
+        }
+    };
+    let without_header = |a: &terraflux_raster::npy::Array| -> Vec<f64> {
+        let n = a.shape[1];
+        (1..a.shape[0]).flat_map(|i| a.data[i * n..(i + 1) * n].to_vec()).collect()
+    };
+    for key in ["include_list", "exclude_list", "include_matrix"] {
+        let path = root().join(format!("tests/data/reference/circuit_pairs_{key}.txt"));
+        for name in ["plain", "regions"] {
+            let inputs =
+                vec![("habitat", map(&z[&format!("{name}/habitat")])), ("points", map(&z[&format!("{name}/points")]))];
+            let what = format!("{key} {name}");
+            let out = run(
+                "circuit.pairwise",
+                inputs.clone(),
+                serde_json::json!({"cum_map": true, "included_pairs": path.to_str().unwrap()}),
+            );
+            bits(
+                &table(&out["resistances"]),
+                &without_header(&w[&format!("{key}/{name}/pairwise/resistances")]),
+                &format!("{what} pairwise"),
+            );
+            same(&out["cum"], &w[&format!("{key}/{name}/pairwise/cum")], &format!("{what} pairwise cum"));
+            for (mode, all_to_one) in [("one_to_all", false), ("all_to_one", true)] {
+                let out = run(
+                    "circuit.one_to_all",
+                    inputs.clone(),
+                    serde_json::json!({"all_to_one": all_to_one, "cum_map": true, "max_map": true, "batch": 4,
+                        "included_pairs": path.to_str().unwrap()}),
+                );
+                let k = format!("{key}/{name}/{mode}");
+                bits(&table(&out["resistances"]), &w[&format!("{k}/resistances")].data, &format!("{what} {mode}"));
+                same(&out["cum"], &w[&format!("{k}/cum")], &format!("{what} {mode} cum"));
+                same(&out["max"], &w[&format!("{k}/max")], &format!("{what} {mode} max"));
+            }
+        }
+    }
+    let cs = root().join("extern/landschaft/tests/data/reference/circuit/circuitscape");
+    let path = |v: &serde_json::Value| v.as_str().map(|p| cs.join(p).to_str().unwrap().to_string());
+    for case in meta["networks"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        if case["scenario"] == "advanced" {
+            let out = run(
+                "circuit.network_advanced",
+                vec![],
+                serde_json::json!({"graph_file": path(&case["graph"]), "sources_file": path(&case["sources"]),
+                    "grounds_file": path(&case["grounds"]), "graph_is_resistance": case["graph_is_resistance"],
+                    "ground_is_resistance": case["ground_is_resistance"], "remove_src_or_gnd": case["policy"]}),
+            );
+            for k in ["voltages", "node_currents", "branch_currents"] {
+                bits(&table(&out[k]), &w[&format!("net/{name}/{k}")].data, &format!("{name} {k}"));
+            }
+        } else {
+            let mut p = serde_json::json!({"graph_file": path(&case["graph"]), "focal_nodes": path(&case["points"]),
+                "graph_is_resistance": case["graph_is_resistance"], "voltage_maps": case["voltage_maps"],
+                "current_maps": case["current_maps"]});
+            if let Some(pairs) = path(&case["included_pairs"]) {
+                p["included_pairs"] = serde_json::json!(pairs);
+            }
+            let out = run("circuit.network_pairwise", vec![], p);
+            bits(
+                &table(&out["resistances"]),
+                &without_header(&w[&format!("net/{name}/resistances")]),
+                &format!("{name} resistances"),
+            );
+            for k in ["cum_node_currents", "cum_branch_currents"] {
+                if let Some(want) = w.get(&format!("net/{name}/{k}")) {
+                    bits(&table(&out[k]), &want.data, &format!("{name} {k}"));
+                }
+            }
+            for m in case["maps"].as_array().unwrap() {
+                let m = m.as_str().unwrap();
+                let parts: Vec<&str> = m.split('/').collect();
+                let Value::Json(maps) = &out["maps"] else { panic!("{name}: no maps") };
+                let entry = &maps[format!("{}_{}", parts[1], parts[2])];
+                let got: Vec<f64> = match parts[0] {
+                    "branch_currents" => entry["branch_currents"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .flat_map(|r| r.as_array().unwrap().iter().map(|v| v.as_f64().unwrap()))
+                        .collect(),
+                    k => {
+                        let nodes = entry["nodes"].as_array().unwrap();
+                        let vals = entry[k].as_array().unwrap();
+                        nodes
+                            .iter()
+                            .zip(vals)
+                            .flat_map(|(n, v)| [n.as_f64().unwrap(), v.as_f64().unwrap_or(f64::NAN)])
+                            .collect()
+                    }
+                };
+                bits(&got, &w[&format!("net/{name}/maps/{m}")].data, &format!("{name} {m}"));
+            }
+        }
+    }
+}

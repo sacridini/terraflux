@@ -16,6 +16,8 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(Advanced));
     r.add(Arc::new(Pairwise));
     r.add(Arc::new(OneToAll));
+    r.add(Arc::new(NetworkAdvanced));
+    r.add(Arc::new(NetworkPairwise));
 }
 
 /// Omniscape's Int64(round(parse(Float64, value))): halves to even.
@@ -540,6 +542,15 @@ impl FocalPoints {
         }
     }
 
+    /// Only the focal points of the given ids.
+    pub fn retain(&mut self, ids: &[i64]) {
+        let keep: Vec<bool> = self.ids.iter().map(|i| ids.contains(i)).collect();
+        let pick = |v: &[usize]| v.iter().zip(&keep).filter(|(_, k)| **k).map(|(x, _)| *x).collect::<Vec<_>>();
+        self.rows = pick(&self.rows);
+        self.cols = pick(&self.cols);
+        self.ids = self.ids.iter().zip(&keep).filter(|(_, k)| **k).map(|(x, _)| *x).collect();
+    }
+
     /// The ids, once each, increasing.
     pub fn unique(&self) -> Vec<i64> {
         let mut u = self.ids.clone();
@@ -650,11 +661,22 @@ impl Operator for Pairwise {
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
-        let (c, grid) = Circuit::of(args)?;
+        let (mut c, grid) = Circuit::of(args)?;
+        let pairs = included_pairs_of(args, false)?;
+        let excluded = match &pairs {
+            Some(p) => {
+                if p.mode == "include" {
+                    c.points.retain(&p.ids);
+                }
+                p.excluded()
+            }
+            None => Default::default(),
+        };
         let cells: Vec<i64> = c.points.rows.iter().zip(&c.points.cols).map(|(r, k)| (r * c.nx + k) as i64).collect();
         let regions = c.points.has_regions();
         let ids = if regions { c.points.unique() } else { c.points.ids.clone() };
         let n = ids.len();
+        let ex: Vec<u8> = (0..n * n).map(|k| u8::from(excluded.contains(&(ids[k / n], ids[k % n])))).collect();
         let (cum, max): (bool, bool) = (args.param("cum_map", false)?, args.param("max_map", false)?);
         let flags = [
             u8::from(cum),
@@ -671,7 +693,7 @@ impl Operator for Pairwise {
             c.ny as i64,
             &cells,
             if regions { &c.points.ids } else { &[] },
-            &vec![0u8; n * n],
+            &ex,
             args.param("avg_resistances", false)?,
             args.param("four_neighbors", false)?,
             &flags,
@@ -741,6 +763,8 @@ struct Problem {
     check: i64,
     strength: f64,
     n: i64,
+    /// Its own short-circuit regions (focal regions with included pairs), else the shared ones.
+    poly: Option<Vec<i64>>,
 }
 
 struct OneToAll;
@@ -767,10 +791,10 @@ impl Operator for OneToAll {
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let fail = |e: String| Error::msg(format!("node {:?}: {e}", args.node));
-        let (c, grid) = Circuit::of(args)?;
+        let (mut c, grid) = Circuit::of(args)?;
         let (nx, ny) = (c.nx, c.ny);
         let one_to_all = !args.param("all_to_one", false)?;
-        let strengths: Option<Vec<(f64, f64)>> = match args.params.get("strengths") {
+        let mut strengths: Option<Vec<(f64, f64)>> = match args.params.get("strengths") {
             None | Some(serde_json::Value::Null) => None,
             Some(v) => {
                 let rows: Vec<[f64; 2]> =
@@ -778,6 +802,15 @@ impl Operator for OneToAll {
                 Some(rows.into_iter().map(|r| (r[0], r[1])).collect())
             }
         };
+        let pairs = included_pairs_of(args, false)?;
+        if let Some(p) = &pairs {
+            c.points.retain(&p.ids);
+            if let Some(st) = &mut strengths {
+                st.retain(|(id, _)| p.ids.contains(&(*id as i64)));
+            }
+        }
+        // include mode: the pairs not marked; exclude mode: the marked ones
+        let mode = if pairs.as_ref().is_some_and(|p| p.mode == "include") { 0 } else { 1 };
         let (cum_on, max_on, focal_zero): (bool, bool, bool) =
             (args.param("cum_map", false)?, args.param("max_map", false)?, args.param("focal_zero", false)?);
         let p = &c.points;
@@ -794,11 +827,11 @@ impl Operator for OneToAll {
             unique_map[cells[first]] = u;
         }
         let base_poly = point_polymap(&c.poly, &point_map, &p.ids, nx, ny);
+        let no_regions = p.ids.len() == p.unique().len();
         let mut res = vec![0.0; unique.len()];
         let mut cum = vec![0.0; nx * ny];
         let mut mx = vec![NODATA; nx * ny];
         let policy = if one_to_all { 2 } else { 1 };
-        let pm_sum: i64 = point_map.iter().sum();
         let problem = |i: usize| -> Option<Problem> {
             let n = unique[i];
             if let Some(st) = &strengths
@@ -807,14 +840,30 @@ impl Operator for OneToAll {
                 return None;
             }
             let strength = strengths.as_ref().map_or(1.0, |s| s[i].1);
-            if pm_sum == n {
+            // the focal points this one is not paired with leave the point map
+            let mut pm = point_map.clone();
+            let mut poly = None;
+            if let Some(pr) = &pairs {
+                let k = pr.ids.len();
+                let row = pr.ids.iter().position(|&x| x == n)?;
+                for j in 0..k {
+                    if j != row && pr.matrix[row * k + j] == mode {
+                        let gone = pr.ids[j];
+                        pm.iter_mut().filter(|v| **v == gone).for_each(|v| *v = 0);
+                    }
+                }
+                if !no_regions {
+                    poly = Some(point_polymap(&c.poly, &pm, &p.ids, nx, ny));
+                }
+            }
+            if pm.iter().sum::<i64>() == n {
                 return None;
             }
             let smap: Option<Vec<f64>> = strengths.as_ref().map(|st| {
                 let mut m = vec![0.0; nx * ny];
                 for (k, &cell) in cells.iter().enumerate() {
                     if k < st.len() {
-                        m[cell] = if point_map[cell] == 0 { 1.0 } else { st[k].1 };
+                        m[cell] = if pm[cell] == 0 { 1.0 } else { st[k].1 };
                     }
                 }
                 m
@@ -822,14 +871,14 @@ impl Operator for OneToAll {
             let (src, gnd): (Vec<f64>, Vec<f64>) = if one_to_all {
                 (
                     unique_map.iter().map(|&u| if u == n { strength } else { 0.0 }).collect(),
-                    point_map.iter().map(|&v| if v == n || v == 0 { 0.0 } else { f64::INFINITY }).collect(),
+                    pm.iter().map(|&v| if v == n || v == 0 { 0.0 } else { f64::INFINITY }).collect(),
                 )
             } else {
                 let src = match &smap {
                     Some(m) => unique_map.iter().zip(m).map(|(&u, &v)| if u == n { 0.0 } else { v }).collect(),
                     None => unique_map
                         .iter()
-                        .zip(&point_map)
+                        .zip(&pm)
                         .map(|(&u, &v)| {
                             if v == n {
                                 0.0
@@ -841,13 +890,13 @@ impl Operator for OneToAll {
                         })
                         .collect(),
                 };
-                (src, point_map.iter().map(|&v| if v == n { f64::INFINITY } else { 0.0 }).collect())
+                (src, pm.iter().map(|&v| if v == n { f64::INFINITY } else { 0.0 }).collect())
             };
             let nonzero = |v: &[f64]| -> (Vec<i64>, Vec<f64>) {
                 v.iter().enumerate().filter(|(_, x)| **x != 0.0).map(|(k, x)| (k as i64, *x)).unzip()
             };
             let check = cells[p.ids.iter().position(|&x| x == n).unwrap()] as i64;
-            Some(Problem { src: nonzero(&src), gnd: nonzero(&gnd), check, strength, n })
+            Some(Problem { src: nonzero(&src), gnd: nonzero(&gnd), check, strength, n, poly })
         };
         let threads = crate::threads::ensure();
         let batch: usize = args.opt_param::<usize>("batch")?.unwrap_or(4 * threads).max(1);
@@ -861,58 +910,69 @@ impl Operator for OneToAll {
                 }
             }
             let todo: Vec<(usize, &Problem)> = probs.iter().filter_map(|(i, q)| q.as_ref().map(|q| (*i, q))).collect();
-            if !todo.is_empty() {
-                let mut lists = [Vec::new(), Vec::new(), vec![0i64], Vec::new(), Vec::new(), vec![0i64]];
-                let (mut sc, mut sv, mut gc, mut gv) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
-                let mut checks = Vec::new();
-                for (_, q) in &todo {
-                    sc.extend(&q.src.0);
-                    sv.extend(&q.src.1);
-                    lists[2].push(sc.len() as i64);
-                    gc.extend(&q.gnd.0);
-                    gv.extend(&q.gnd.1);
-                    lists[5].push(gc.len() as i64);
-                    checks.push(q.check);
+            // one call per graph (focal regions with included pairs rebuild it per point)
+            let mut groups: Vec<Vec<(usize, &Problem)>> = Vec::new();
+            for (i, q) in todo {
+                match groups.last_mut() {
+                    Some(g) if q.poly.is_none() && g[0].1.poly.is_none() => g.push((i, q)),
+                    _ => groups.push(vec![(i, q)]),
                 }
-                let out = ffi::circuit_multi_advanced(
-                    &c.g,
-                    &base_poly,
-                    nx as i64,
-                    ny as i64,
-                    args.param("avg_resistances", false)?,
-                    args.param("four_neighbors", false)?,
-                    &sc,
-                    &sv,
-                    &lists[2],
-                    &gc,
-                    &gv,
-                    &lists[5],
-                    &checks,
-                    policy,
-                )?;
-                let nm = &out.nodemap;
-                for (k, (i, q)) in todo.iter().enumerate() {
-                    let (a, b) = (out.node_offsets[k] as usize, out.node_offsets[k + 1] as usize);
-                    let (volt, curr) = (&out.voltage[a..b], &out.current[a..b]);
-                    let active = &out.active[out.active_offsets[k] as usize..out.active_offsets[k + 1] as usize];
-                    res[*i] = if out.solved[k] == 0 {
-                        -1.0
-                    } else if !one_to_all {
-                        0.0
-                    } else {
-                        let cell = unique_map.iter().position(|&u| u == q.n).unwrap();
-                        let node = nm[cell];
-                        let val = if node < 0 { 0.0 } else { volt[node as usize] / q.strength };
-                        if val == 0.0 { -1.0 } else { val }
-                    };
-                    for (cell, &node) in nm.iter().enumerate() {
-                        let mut cur = if node >= 0 { curr[node as usize] } else { 0.0 };
-                        if focal_zero && active.contains(&node) {
-                            cur = 0.0;
-                        }
-                        cum[cell] += cur;
-                        if cur > mx[cell] {
-                            mx[cell] = cur;
+            }
+            for todo in groups {
+                let poly = todo[0].1.poly.as_ref().unwrap_or(&base_poly);
+                if !todo.is_empty() {
+                    let mut lists = [Vec::new(), Vec::new(), vec![0i64], Vec::new(), Vec::new(), vec![0i64]];
+                    let (mut sc, mut sv, mut gc, mut gv) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+                    let mut checks = Vec::new();
+                    for (_, q) in &todo {
+                        sc.extend(&q.src.0);
+                        sv.extend(&q.src.1);
+                        lists[2].push(sc.len() as i64);
+                        gc.extend(&q.gnd.0);
+                        gv.extend(&q.gnd.1);
+                        lists[5].push(gc.len() as i64);
+                        checks.push(q.check);
+                    }
+                    let out = ffi::circuit_multi_advanced(
+                        &c.g,
+                        poly,
+                        nx as i64,
+                        ny as i64,
+                        args.param("avg_resistances", false)?,
+                        args.param("four_neighbors", false)?,
+                        &sc,
+                        &sv,
+                        &lists[2],
+                        &gc,
+                        &gv,
+                        &lists[5],
+                        &checks,
+                        policy,
+                    )?;
+                    let nm = &out.nodemap;
+                    for (k, (i, q)) in todo.iter().enumerate() {
+                        let (a, b) = (out.node_offsets[k] as usize, out.node_offsets[k + 1] as usize);
+                        let (volt, curr) = (&out.voltage[a..b], &out.current[a..b]);
+                        let active = &out.active[out.active_offsets[k] as usize..out.active_offsets[k + 1] as usize];
+                        res[*i] = if out.solved[k] == 0 {
+                            -1.0
+                        } else if !one_to_all {
+                            0.0
+                        } else {
+                            let cell = unique_map.iter().position(|&u| u == q.n).unwrap();
+                            let node = nm[cell];
+                            let val = if node < 0 { 0.0 } else { volt[node as usize] / q.strength };
+                            if val == 0.0 { -1.0 } else { val }
+                        };
+                        for (cell, &node) in nm.iter().enumerate() {
+                            let mut cur = if node >= 0 { curr[node as usize] } else { 0.0 };
+                            if focal_zero && active.contains(&node) {
+                                cur = 0.0;
+                            }
+                            cum[cell] += cur;
+                            if cur > mx[cell] {
+                                mx[cell] = cur;
+                            }
                         }
                     }
                 }
@@ -935,5 +995,386 @@ impl Operator for OneToAll {
             o.insert("max".into(), map_of(&grid, mx));
         }
         Ok(o)
+    }
+}
+
+/// Circuitscape's include / exclude pairs: the mode, the focal ids and the n x n 0/1 matrix marking the pairs.
+#[derive(Debug, Clone)]
+pub struct IncludedPairs {
+    pub mode: String,
+    pub ids: Vec<i64>,
+    pub matrix: Vec<i64>,
+}
+
+impl IncludedPairs {
+    /// The pairs of ids not solved (include mode: the unmarked ones; exclude mode: the marked ones).
+    pub fn excluded(&self) -> std::collections::HashSet<(i64, i64)> {
+        let target = if self.mode == "include" { 0 } else { 1 };
+        let n = self.ids.len();
+        let mut out = std::collections::HashSet::new();
+        for j in 0..n {
+            for i in 0..n {
+                if self.matrix[i * n + j] == target && self.matrix[j * n + i] == target {
+                    out.insert((self.ids[i], self.ids[j]));
+                }
+            }
+        }
+        out
+    }
+}
+
+/// Circuitscape's read_included_pairs: a min/max matrix or a mode list of pairs (`starts_from_zero`: ids of a
+/// network numbered from 0, shifted by 1).
+pub fn read_included_pairs(text: &str, starts_from_zero: bool) -> Result<IncludedPairs> {
+    let lines: Vec<&str> = text.lines().collect();
+    let first = lines.first().copied().unwrap_or("");
+    let nums = |l: &str| -> Result<Vec<f64>> {
+        l.split_whitespace().map(|t| t.parse::<f64>().map_err(|_| Error::msg(format!("not a number: {t:?}")))).collect()
+    };
+    let shift = i64::from(starts_from_zero);
+    if first.starts_with("min") {
+        let word = |l: &str| l.split_whitespace().nth(1).and_then(|t| t.parse::<f64>().ok());
+        let (minval, maxval) = (word(first).unwrap_or(0.0), word(lines.get(1).copied().unwrap_or("")).unwrap_or(0.0));
+        let rows: Vec<Vec<f64>> = lines[2.min(lines.len())..]
+            .iter()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| nums(l))
+            .collect::<Result<_>>()?;
+        let ids: Vec<i64> = rows.first().map_or(Vec::new(), |r| r[1..].iter().map(|v| *v as i64 + shift).collect());
+        let n = ids.len();
+        let mut matrix = vec![0i64; n * n];
+        for (i, r) in rows.iter().skip(1).enumerate().take(n) {
+            for j in 0..n {
+                let v = r.get(j + 1).copied().unwrap_or(0.0);
+                let v = if v > maxval { 0.0 } else { v };
+                matrix[i * n + j] = i64::from(v >= minval);
+            }
+        }
+        return Ok(IncludedPairs { mode: "include".into(), ids, matrix });
+    }
+    if first.starts_with("mode") {
+        let mode = first.split_whitespace().nth(1).unwrap_or("").to_string();
+        let flat: Vec<f64> =
+            lines[1..].iter().filter(|l| !l.trim().is_empty()).map(|l| nums(l)).collect::<Result<Vec<_>>>()?.concat();
+        let pairs: Vec<(i64, i64)> =
+            flat.chunks(2).filter(|c| c.len() == 2).map(|c| (c[0] as i64 + shift, c[1] as i64 + shift)).collect();
+        let mut ids: Vec<i64> = pairs.iter().flat_map(|&(a, b)| [a, b]).filter(|&v| v != 0).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        let n = ids.len();
+        let mut matrix = vec![0i64; n * n];
+        for (a, b) in pairs {
+            if let (Ok(i), Ok(j)) = (ids.binary_search(&a), ids.binary_search(&b)) {
+                matrix[i * n + j] = 1;
+                matrix[j * n + i] = 1;
+            }
+        }
+        return Ok(IncludedPairs { mode, ids, matrix });
+    }
+    Err(Error::msg("Error reading focal node include/exclude pairs file."))
+}
+
+/// A text file, gzipped or not.
+pub fn read_text(path: &str) -> Result<String> {
+    let bytes = std::fs::read(path).map_err(|e| Error::msg(format!("{path}: {e}")))?;
+    if path.to_lowercase().ends_with("gz") {
+        use std::io::Read;
+        let mut s = String::new();
+        flate2::read::GzDecoder::new(&bytes[..])
+            .read_to_string(&mut s)
+            .map_err(|e| Error::msg(format!("{path}: {e}")))?;
+        return Ok(s);
+    }
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// The included pairs of a node's `included_pairs` parameter (the path of Circuitscape's file).
+fn included_pairs_of(args: &Args, starts_from_zero: bool) -> Result<Option<IncludedPairs>> {
+    match args.opt_param::<String>("included_pairs")?.filter(|p| !p.is_empty()) {
+        None => Ok(None),
+        Some(path) => read_included_pairs(&read_text(&path)?, starts_from_zero)
+            .map(Some)
+            .map_err(|e| Error::msg(format!("node {:?}: included_pairs: {e}", args.node))),
+    }
+}
+
+/// The rows of a Circuitscape text table (values split by spaces or commas).
+fn read_table(text: &str) -> Result<Vec<Vec<f64>>> {
+    text.lines()
+        .map(|l| l.replace(',', " "))
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| {
+            l.split_whitespace()
+                .map(|t| t.parse::<f64>().map_err(|_| Error::msg(format!("not a number: {t:?}"))))
+                .collect()
+        })
+        .collect()
+}
+
+/// A table of `ncol` columns from a node's input (a table) or its file parameter.
+fn rows_of(args: &Args, port: &str, file: &str, ncol: usize) -> Result<Option<Vec<Vec<f64>>>> {
+    let fail = |m: String| Error::msg(format!("node {:?}: {port}: {m}", args.node));
+    let rows = match args.get(port) {
+        Some(Value::Table(t)) => t.rows.clone(),
+        Some(_) => return Err(fail("a table".into())),
+        None => match args.opt_param::<String>(file)?.filter(|p| !p.is_empty()) {
+            Some(path) => read_table(&read_text(&path)?).map_err(|e| fail(e.to_string()))?,
+            None => return Ok(None),
+        },
+    };
+    if rows.iter().any(|r| r.len() != ncol) {
+        return Err(fail(format!("expected {ncol} columns on every line")));
+    }
+    Ok(Some(rows))
+}
+
+/// A Circuitscape edge list as its load_graph reads it: nodes from 1 (shifted when they start at 0), values.
+/// An edge list: from, to (nodes from 1), values, and whether the nodes were numbered from 0.
+type Graph = (Vec<i64>, Vec<i64>, Vec<f64>, bool);
+
+fn read_graph(args: &Args) -> Result<Graph> {
+    let fail = |m: &str| Error::msg(format!("node {:?}: {m}", args.node));
+    let t = rows_of(args, "graph", "graph_file", 3)?
+        .ok_or_else(|| fail("connect a graph (node, node, value) or give graph_file"))?;
+    if t.is_empty() {
+        return Err(fail("the graph has no edges"));
+    }
+    let (mut i, mut j): (Vec<i64>, Vec<i64>) = t.iter().map(|r| (r[0] as i64, r[1] as i64)).unzip();
+    let low = i.iter().chain(&j).copied().min().unwrap();
+    if low > 1 {
+        return Err(fail(&format!("the graph numbers its nodes from {low}; Circuitscape counts from 1 (or 0)")));
+    }
+    if low < 0 {
+        return Err(fail("negative node numbers"));
+    }
+    let zero = low == 0;
+    if zero {
+        i.iter_mut().chain(j.iter_mut()).for_each(|v| *v += 1);
+    }
+    Ok((i, j, t.iter().map(|r| r[2]).collect(), zero))
+}
+
+/// The edges for the solver: 0-based nodes, conductances, the number of nodes.
+fn edges(i: &[i64], j: &[i64], w: &[f64], is_resistance: bool) -> (Vec<i32>, Vec<i32>, Vec<f64>, i32) {
+    let w = w.iter().map(|v| if is_resistance { 1.0 / v } else { *v }).collect();
+    let m = i.iter().chain(j).copied().max().unwrap_or(0) as i32;
+    (i.iter().map(|v| (*v - 1) as i32).collect(), j.iter().map(|v| (*v - 1) as i32).collect(), w, m)
+}
+
+/// Not within 1e-6 of 0 (NaN too).
+fn not_zero(v: f64) -> bool {
+    v.abs().partial_cmp(&1e-6) != Some(std::cmp::Ordering::Less)
+        && v.abs().partial_cmp(&1e-6) != Some(std::cmp::Ordering::Equal)
+}
+
+/// write_currents: the branches whose current is not within 1e-6 of 0 (nodes from 1).
+fn branch_table(r: &[i32], c: &[i32], v: &[f64]) -> crate::Table {
+    let mut t = crate::Table::new(vec!["from".into(), "to".into(), "current".into()]);
+    t.rows = (0..r.len())
+        .filter(|&k| not_zero(v[k]))
+        .map(|k| vec![f64::from(r[k] + 1), f64::from(c[k] + 1), v[k]])
+        .collect();
+    t
+}
+
+fn node_table(values: &[f64], name: &str) -> crate::Table {
+    let mut t = crate::Table::new(vec!["node".into(), name.into()]);
+    t.rows = values.iter().enumerate().map(|(k, v)| vec![(k + 1) as f64, *v]).collect();
+    t
+}
+
+fn network_params(sig: OpSignature) -> OpSignature {
+    sig.input(PortSpec::optional("graph", Type::Table, "the edges: node, node, resistance (or conductance)"))
+        .param(PortSpec::optional("graph_file", Type::Text, "or Circuitscape's edge list file"))
+        .param(PortSpec::optional("graph_is_resistance", Type::Bool, "the edge values are resistances (default true)"))
+}
+
+struct NetworkAdvanced;
+
+impl Operator for NetworkAdvanced {
+    fn signature(&self) -> OpSignature {
+        network_params(OpSignature::new(
+            "circuit.network_advanced",
+            "Circuitscape's advanced mode on a network (data_type = network; landschaft's \
+             circuitscape_network_advanced): currents injected at nodes and grounds (a resistance of 0 a direct \
+             ground) on a graph of edges numbered from 1 (or 0, then every number shifted, as Circuitscape.jl). \
+             Duplicate edges add up. Every component with a source and a ground is solved.",
+            Access::None,
+        ))
+        .input(PortSpec::optional("sources", Type::Table, "node, current"))
+        .input(PortSpec::optional("grounds", Type::Table, "node, resistance (or conductance) to ground"))
+        .output(PortSpec::new("voltages", Type::Table, "node, voltage (0 where not solved)"))
+        .output(PortSpec::new("node_currents", Type::Table, "node, current"))
+        .output(PortSpec::new("branch_currents", Type::Table, "from, to, current"))
+        .param(PortSpec::optional("sources_file", Type::Text, "or Circuitscape's source file"))
+        .param(PortSpec::optional("grounds_file", Type::Text, "or Circuitscape's ground file"))
+        .param(PortSpec::optional(
+            "ground_is_resistance",
+            Type::Bool,
+            "the ground values are resistances (default true)",
+        ))
+        .param(
+            PortSpec::optional("remove_src_or_gnd", Type::Text, "nodes that are both: keepall (default)...")
+                .choices(["keepall", "rmvsrc", "rmvgnd", "rmvall"]),
+        )
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let fail = |m: String| Error::msg(format!("node {:?}: {m}", args.node));
+        let policy = match args.param("remove_src_or_gnd", "keepall".to_string())?.as_str() {
+            "keepall" => 0,
+            "rmvsrc" => 1,
+            "rmvgnd" => 2,
+            "rmvall" => 3,
+            p => return Err(fail(format!("remove_src_or_gnd must be keepall, rmvsrc, rmvgnd or rmvall, not {p:?}"))),
+        };
+        let (i, j, w, zero) = read_graph(args)?;
+        let (a, b, w, m) = edges(&i, &j, &w, args.param("graph_is_resistance", true)?);
+        let strengths = |port: &str, file: &str| -> Result<Vec<Vec<f64>>> {
+            let mut t =
+                rows_of(args, port, file, 2)?.ok_or_else(|| fail(format!("connect the {port} or give {file}")))?;
+            if t.iter().any(|r| r[0] == 0.0) || zero {
+                t.iter_mut().for_each(|r| r[0] += 1.0);
+            }
+            Ok(t)
+        };
+        let src_t = strengths("sources", "sources_file")?;
+        let mut gnd_t = strengths("grounds", "grounds_file")?;
+        if args.param("ground_is_resistance", true)? {
+            gnd_t.iter_mut().for_each(|r| r[1] = 1.0 / r[1]);
+        }
+        let (mut src, mut gnd) = (vec![0.0; m as usize], vec![0.0; m as usize]);
+        for (table, target, name) in [(&src_t, &mut src, "source"), (&gnd_t, &mut gnd, "ground")] {
+            for r in table {
+                let id = r[0] as i64;
+                if id < 1 || id > i64::from(m) {
+                    return Err(fail(format!("a {name} node is not in the graph (nodes 1..{m})")));
+                }
+                target[(id - 1) as usize] = r[1];
+            }
+        }
+        let r = ffi::circuit_network_advanced(&a, &b, &w, m, &src, &gnd, policy)?;
+        Ok([
+            ("voltages".to_string(), Value::Table(node_table(&r.voltage, "voltage"))),
+            ("node_currents".to_string(), Value::Table(node_table(&r.current, "current"))),
+            ("branch_currents".to_string(), Value::Table(branch_table(&r.branch_r, &r.branch_c, &r.branch_v))),
+        ]
+        .into())
+    }
+}
+
+struct NetworkPairwise;
+
+impl Operator for NetworkPairwise {
+    fn signature(&self) -> OpSignature {
+        network_params(OpSignature::new(
+            "circuit.network_pairwise",
+            "Circuitscape's pairwise mode on a network (landschaft's circuitscape_network_pairwise): the effective \
+             resistance between every pair of focal nodes (-1: not connected), every component factorised once; \
+             included or excluded pairs from Circuitscape's file; with the map options every pair's node voltages, \
+             node and branch currents (JSON), and the currents summed over the pairs.",
+            Access::None,
+        ))
+        .output(PortSpec::new("resistances", Type::Table, "a row per focal node: its id, then its resistances"))
+        .output(PortSpec::new(
+            "cum_node_currents",
+            Type::Table,
+            "with current_maps: node, current summed over the pairs",
+        ))
+        .output(PortSpec::new("cum_branch_currents", Type::Table, "with current_maps: from, to, current"))
+        .output(PortSpec::new("maps", Type::Any, "with the map options: each pair's values (JSON)"))
+        .param(PortSpec::new("focal_nodes", Type::Any, "the focal node numbers, or the path of Circuitscape's file"))
+        .param(PortSpec::optional("included_pairs", Type::Text, "Circuitscape's include / exclude pairs file"))
+        .param(PortSpec::optional("voltage_maps", Type::Bool, "every pair's node voltages"))
+        .param(PortSpec::optional("current_maps", Type::Bool, "every pair's currents, and their sums"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let fail = |m: String| Error::msg(format!("node {:?}: {m}", args.node));
+        let (i, j, w, zero) = read_graph(args)?;
+        let (a, b, w, m) = edges(&i, &j, &w, args.param("graph_is_resistance", true)?);
+        // read_focal_points: every number of the file, column by column; from 0 shifted to 1
+        let mut fp: Vec<i64> = match args.params.get("focal_nodes") {
+            Some(serde_json::Value::String(path)) => {
+                let rows = read_table(&read_text(path)?).map_err(|e| fail(e.to_string()))?;
+                if !rows.is_empty() && rows.iter().all(|r| r.len() == rows[0].len()) {
+                    (0..rows[0].len()).flat_map(|c| rows.iter().map(move |r| r[c] as i64)).collect()
+                } else {
+                    rows.iter().flatten().map(|v| *v as i64).collect()
+                }
+            }
+            Some(v) => serde_json::from_value::<Vec<f64>>(v.clone())
+                .map_err(|e| fail(format!("focal_nodes: {e}")))?
+                .into_iter()
+                .map(|x| x as i64)
+                .collect(),
+            None => return Err(fail("give the focal nodes".into())),
+        };
+        if fp.iter().min() == Some(&0) {
+            fp.iter_mut().for_each(|v| *v += 1);
+        }
+        let pairs = included_pairs_of(args, zero)?;
+        let mut excluded = std::collections::HashSet::new();
+        if let Some(p) = &pairs {
+            if p.mode == "include" {
+                fp.retain(|v| p.ids.contains(v));
+            }
+            excluded = p.excluded();
+        }
+        let n = fp.len();
+        let ex: Vec<u8> = (0..n * n).map(|k| u8::from(excluded.contains(&(fp[k / n], fp[k % n])))).collect();
+        let (volt, cur): (bool, bool) = (args.param("voltage_maps", false)?, args.param("current_maps", false)?);
+        let points: Vec<i32> =
+            fp.iter().map(|&v| if v >= 1 && v <= i64::from(m) { (v - 1) as i32 } else { -1 }).collect();
+        let r = ffi::circuit_network_pairwise(&a, &b, &w, m, &points, &ex, volt, cur, cur)?;
+        let mut t =
+            crate::Table::new(std::iter::once("id".to_string()).chain(fp.iter().map(|v| v.to_string())).collect());
+        for (p, id) in fp.iter().enumerate() {
+            t.rows.push(std::iter::once(*id as f64).chain(r.resistances[p * n..(p + 1) * n].iter().copied()).collect());
+        }
+        let mut out = Outputs::new();
+        out.insert("resistances".into(), Value::Table(t));
+        if !r.cum.is_empty() {
+            out.insert("cum_node_currents".into(), Value::Table(node_table(&r.cum, "current")));
+            // one slot per input edge: the first line of a node pair (either way round) takes its summed current
+            let total: std::collections::HashMap<(i64, i64), f64> = (0..r.cum_r.len())
+                .map(|k| ((i64::from(r.cum_r[k]) + 1, i64::from(r.cum_c[k]) + 1), r.cum_v[k]))
+                .collect();
+            let mut seen = std::collections::HashSet::new();
+            let mut ct = crate::Table::new(vec!["from".into(), "to".into(), "current".into()]);
+            for (&p, &q) in i.iter().zip(&j) {
+                let key = (p.min(q), p.max(q));
+                if !seen.insert(key) {
+                    continue;
+                }
+                let v = total.get(&key).copied().unwrap_or(0.0);
+                if not_zero(v) {
+                    ct.rows.push(vec![p as f64, q as f64, v]);
+                }
+            }
+            out.insert("cum_branch_currents".into(), Value::Table(ct));
+        }
+        if volt || cur {
+            let mut maps = serde_json::Map::new();
+            for k in 0..r.pair_ci.len() {
+                let key = format!("{}_{}", fp[r.pair_ci[k] as usize], fp[r.pair_cj[k] as usize]);
+                let (a0, a1) = (r.pair_node_off[k] as usize, r.pair_node_off[k + 1] as usize);
+                let nodes: Vec<f64> = r.pair_nodes[a0..a1].iter().map(|v| f64::from(*v) + 1.0).collect();
+                let (b0, b1) = (r.pair_branch_off[k] as usize, r.pair_branch_off[k + 1] as usize);
+                let branches =
+                    branch_table(&r.pair_branch_r[b0..b1], &r.pair_branch_c[b0..b1], &r.pair_branch_v[b0..b1]);
+                let mut entry = serde_json::json!({
+                    "nodes": nodes,
+                    "node_currents": r.pair_current[a0..a1].to_vec(),
+                    "branch_currents": branches.rows,
+                });
+                if volt {
+                    entry["voltages"] = serde_json::json!(r.pair_voltage[a0..a1].to_vec());
+                }
+                maps.insert(key, entry);
+            }
+            out.insert("maps".into(), Value::Json(serde_json::Value::Object(maps)));
+        }
+        Ok(out)
     }
 }

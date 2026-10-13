@@ -6,6 +6,15 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Circuitscape's network mode and included pairs (landschaft's circuit module): `circuit.network_advanced`
+  (currents and grounds on a graph of edges: node voltages, node and branch currents) and
+  `circuit.network_pairwise` (the effective resistances between focal nodes, with each pair's voltages and
+  currents and their sums), the graphs, focal nodes and values read as Circuitscape reads its text files; and
+  Circuitscape's include / exclude pairs files (lists and min/max matrices) for `circuit.pairwise`,
+  `circuit.one_to_all` and the networks, focal regions with included pairs rebuilding the graph per point. The
+  same as landschaft's, to the bit, on Circuitscape's network test cases and the pairs cases made here.
+
 ## [0.40.0] - 2026-10-13
 
 ### Added

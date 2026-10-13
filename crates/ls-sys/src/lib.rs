@@ -339,6 +339,35 @@ pub mod ffi {
         max: Vec<f64>,
     }
 
+    /// Circuitscape's network modes: node voltages and currents, branch currents (node r < c, value; 0-based),
+    /// the components; pairwise: the resistances (n x n), the summed node and branch currents, and per pair its
+    /// focal indices, the component's nodes (offsets), their voltages (when asked) and currents and its branch
+    /// currents (offsets).
+    struct NetworkOut {
+        voltage: Vec<f64>,
+        current: Vec<f64>,
+        branch_r: Vec<i32>,
+        branch_c: Vec<i32>,
+        branch_v: Vec<f64>,
+        solved: bool,
+        n_components: i32,
+        resistances: Vec<f64>,
+        cum: Vec<f64>,
+        cum_r: Vec<i32>,
+        cum_c: Vec<i32>,
+        cum_v: Vec<f64>,
+        pair_ci: Vec<i32>,
+        pair_cj: Vec<i32>,
+        pair_node_off: Vec<i64>,
+        pair_nodes: Vec<i32>,
+        pair_voltage: Vec<f64>,
+        pair_current: Vec<f64>,
+        pair_branch_off: Vec<i64>,
+        pair_branch_r: Vec<i32>,
+        pair_branch_c: Vec<i32>,
+        pair_branch_v: Vec<f64>,
+    }
+
     /// Advanced-mode solves of many problems on one raster graph: the cells' nodes, and per problem (offsets
     /// into the concatenated lists) its voltages and currents by node, whether it was solved, its active nodes.
     struct MultiOut {
@@ -1682,6 +1711,34 @@ pub mod ffi {
             four_neighbors: bool,
             flags: &[u8],
         ) -> Result<PairwiseOut>;
+        /// Circuitscape's advanced mode on a network (0-based nodes 0..m-1; edges a, b of conductance w): sources
+        /// and grounds by node (grounds as conductances, +Inf direct); policy 0 keepall, 1 rmvsrc, 2 rmvgnd, 3
+        /// rmvall.
+        #[allow(clippy::too_many_arguments)]
+        fn circuit_network_advanced(
+            a: &[i32],
+            b: &[i32],
+            w: &[f64],
+            m: i32,
+            source: &[f64],
+            ground: &[f64],
+            policy: i32,
+        ) -> Result<NetworkOut>;
+        /// Circuitscape's pairwise mode on a network: `points` the focal nodes (-1: not in the graph), `excluded`
+        /// n x n pairs not solved; with `volt_maps`/`cur_maps` every pair's node values, with `cum` the summed
+        /// currents.
+        #[allow(clippy::too_many_arguments)]
+        fn circuit_network_pairwise(
+            a: &[i32],
+            b: &[i32],
+            w: &[f64],
+            m: i32,
+            points: &[i32],
+            excluded: &[u8],
+            volt_maps: bool,
+            cur_maps: bool,
+            cum: bool,
+        ) -> Result<NetworkOut>;
         /// Advanced-mode solves of many problems on one raster graph (landschaft's circuitscape_multi_advanced):
         /// per problem its source and ground cells and values (offsets into the lists) and the cell whose
         /// component alone is solved (-1: every component); policy 0 keepall, 1 rmvsrc, 2 rmvgnd, 3 rmvall.
