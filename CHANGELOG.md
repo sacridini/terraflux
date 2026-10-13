@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.55.0] - 2026-10-13
+
 ### Added
 - The species distribution modelling workflow with MaxNet (landschaft's dataset, fit, response_curves and
   importance): `sdm.dataset` (presences, or a table of 1 and 0, and background points with the predictors'
