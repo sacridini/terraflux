@@ -581,8 +581,17 @@ Pendências:
   percentis 2–98, a escala logarítmica, a paleta à mão por saída, o produto gravado com o mapa
   (`landschaft_product`); o builder pelo teclado, templates do Dinamica EGO e do CLUE-S e os do usuário. A ponte
   do ls.simulate (o branch da outra sessão) integrada.
-- **Próximos (2026-10-13):** os instaladores de macOS e Linux; os vetores e as outras métricas (janela móvel,
-  amostras, séries) no motor por tiles.
+- **Métricas e vetores fora da memória (Unreleased, 2026-10-13):** `metrics.window` por faixas com o meio lado
+  da janela em volta (os mesmos mapas bit a bit; de rasters em disco, um GeoTIFF de uma banda por métrica),
+  `metrics.sample` janela a janela, `metrics.series` e `metrics.signatures` de rasters em disco; `vector.zonal` por
+  faixas (as zonas que cabem numa faixa pelo C++ do landschaft nela, uma zona maior corrida por corrida, somada
+  como o C++ soma), `vector.extract` pelas faixas que têm pontos (o extract por blocos do landschaft) e
+  `vector.rasterize` num GeoTIFF faixa a faixa. Tudo igual à memória, bit a bit (`crates/ops/tests/
+  tiled_metrics.rs`, `vector_tiled.rs`); a exceção são as linhas do GDAL com `all_touched` que passam pelos cantos
+  das células, que dependem de onde a faixa começa, como nos swaths do próprio GDAL.
+- **Próximos (2026-10-13):** o fluxo guiado de reprojeção, vetores e distâncias com um clique; depois o editor de
+  legenda, os gráficos editáveis do WoE e o assistente de análise das mudanças; os instaladores de macOS e Linux;
+  `vector.exact_sum` e `vector.distance` fora da memória.
 
 - **A ponte do ls.simulate completa (branch `simulate-bridge`, 2026-10-13):** todo modelo do `ls.simulate` vai pelo
   `Model.save` e roda no Terraflux com os mesmos bits. Estimadores e outros potenciais sem forma fechada como

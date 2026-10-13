@@ -51,6 +51,7 @@ pub mod signatures;
 pub mod validate;
 pub mod value;
 pub mod vector;
+pub mod vector_tiled;
 pub mod view;
 pub mod woe;
 pub mod zonation;

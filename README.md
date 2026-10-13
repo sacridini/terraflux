@@ -253,9 +253,12 @@ terraflux run model.toml --tiled --disk /shared/layers --coordinator http://coor
 ```
 
 Landscape metrics read a map larger than memory by blocks of rows (`block_rows` on `metrics.patch`,
-`metrics.class` and `metrics.landscape`, and always for rasters on disk of more than 250 million cells), the same
-values as in memory; MSPA by GuidosToolbox's overlapping tiles (`landscape.mspa_tiled`) reads and writes a raster
-on disk tile by tile.
+`metrics.class`, `metrics.landscape`, `metrics.window`, `metrics.sample`, `metrics.series` and
+`metrics.signatures`, and always for rasters on disk of more than 250 million cells), the same values as in
+memory: the moving window by strips with the window's half side around them (its maps written to a GeoTIFF, a
+band per metric), samples and zones window by window. So do the vectors over rasters: `vector.zonal` by strips of
+rows, `vector.extract` from the strips that hold points, `vector.rasterize` into a GeoTIFF strip by strip. MSPA
+by GuidosToolbox's overlapping tiles (`landscape.mspa_tiled`) reads and writes a raster on disk tile by tile.
 
 No command takes every core: Rust's tasks, landschaft's OpenMP kernels and the workers of a local cluster share
 all the cores but one, unless `--threads` (or `TERRAFLUX_THREADS`) says otherwise.

@@ -11,8 +11,8 @@ use terraflux_raster::Grid;
 use terraflux_raster::vector::{Column, Geometry, Vector, Xy};
 
 use crate::change::numpy_sum;
-use crate::metrics::{Row, chosen, find, measure, metric_options, options, settings};
-use crate::value::{Key, Stack};
+use crate::metrics::{Row, Rows, Source, by_blocks, chosen, find, measure, metric_options, options, settings};
+use crate::value::Key;
 use crate::vector::{on_grid, vector_of};
 use crate::{
     Access, Args, Ctx, Error, Map, OpSignature, Operator, Outputs, PortSpec, Registry, Result, Table, Value, outputs,
@@ -189,34 +189,35 @@ struct Sampled {
     percentage_inside: f64,
 }
 
+/// The metrics of every plot, its window of the map read alone (from memory, or from rasters on disk).
 fn sample_map(
-    map: &Map,
+    map: &Rows,
     plots: &[Plot],
     areas: &[f64],
     opt: &ffi::LsmOptions,
     specs: &[(&'static str, &str)],
 ) -> Result<Vec<Sampled>> {
-    let grid = &map.grid;
-    let (nx, t) = (grid.width, grid.transform);
+    let grid = map.grid();
+    let t = grid.transform;
     let (rx, ry) = (t[1].abs(), t[5].abs());
     let mut out = Vec::with_capacity(plots.len());
     for (plot, &area) in plots.iter().zip(areas) {
         let Some((rows, cols, inside)) = crop(plot, grid)? else {
-            let mut g = (**grid).clone();
+            let mut g = grid.clone();
             (g.width, g.height) = (1, 1);
             let empty = Map::new(Arc::new(g), vec![f64::NAN]);
             out.push(Sampled { rows: measure(&empty, opt, specs, false)?.rows, percentage_inside: 0.0 });
             continue;
         };
         let wx = cols.len();
-        let mut data = Vec::with_capacity(rows.len() * wx);
-        for (i, r) in rows.clone().enumerate() {
-            for (j, c) in cols.clone().enumerate() {
-                data.push(if inside[i * wx + j] != 0 { map.data[r * nx + c] } else { f64::NAN });
+        let mut data = map.cells(rows.start, rows.end, cols.start, cols.end)?;
+        for (v, &k) in data.iter_mut().zip(&inside) {
+            if k == 0 {
+                *v = f64::NAN;
             }
         }
         let cells = data.iter().filter(|v| !v.is_nan()).count();
-        let mut g = (**grid).clone();
+        let mut g = grid.clone();
         g.transform[0] = t[0] + cols.start as f64 * t[1];
         g.transform[3] = t[3] + rows.start as f64 * t[5];
         (g.width, g.height) = (wx, rows.len());
@@ -328,7 +329,7 @@ impl Operator for Sample {
                  when the plots' coordinate system is known, as landscapemetrics).",
                 Access::Global,
             )
-            .input(PortSpec::new("map", Type::Map, "the map of classes"))
+            .input(PortSpec::new("map", Type::Raster, "the map of classes (or rasters on disk, read plot by plot)"))
             .input(PortSpec::new("plots", Type::Vector, "points (buffers around them) or polygons"))
             .output(PortSpec::new(
                 "table",
@@ -353,11 +354,18 @@ impl Operator for Sample {
             Type::Bool,
             "class level: a row (NA) for every class of the map that a plot lacks, and for NA when the map has it",
         ))
+        .param(PortSpec::optional(
+            "block_rows",
+            Type::Integer,
+            "out of core: each plot's window read alone from the rasters on disk (always beyond 250 million cells), \
+             the map's classes by blocks of this many rows",
+        ))
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
-        let map = args.map("map")?;
-        let v = on_grid(vector_of(args, "plots")?, &map.grid)?;
+        let source = Source::of(args, "map")?;
+        let map = source.rows();
+        let v = on_grid(vector_of(args, "plots")?, map.grid())?;
         let level = level_of(args, &["landscape", "class", "patch"])?;
         let metrics = chosen(args, level)?;
         let names: Vec<&str> = metrics.iter().map(|m| m.metric).collect();
@@ -370,11 +378,9 @@ impl Operator for Sample {
         // the map's classes, for all_classes
         let mut classes: Vec<Option<i32>> = Vec::new();
         if all_classes && level == "class" {
-            let mut c: Vec<i32> = map.data.iter().filter(|v| !v.is_nan()).map(|v| v.trunc() as i32).collect();
-            c.sort_unstable();
-            c.dedup();
+            let (c, na) = map.classes(source.block_rows()).map_err(fail)?;
             classes = c.into_iter().map(Some).collect();
-            if map.data.iter().any(|v| v.is_nan()) {
+            if na {
                 classes.push(None);
             }
         }
@@ -421,7 +427,7 @@ impl Operator for Sample {
                 rank[k] = r;
             }
             let areas = areas_of(&plots, &v.crs).map_err(fail)?;
-            let sampled = sample_map(map, &plots, &areas, &opt, &specs).map_err(fail)?;
+            let sampled = sample_map(&map, &plots, &areas, &opt, &specs).map_err(fail)?;
             for (k, sm) in sampled.iter().enumerate() {
                 for (c, id, values) in level_rows(level, &sm.rows, &names, &classes) {
                     let mut row = vec![ids[k]];
@@ -497,20 +503,26 @@ impl Operator for GridZones {
              metrics.series by zones.",
             Access::Global,
         )
-        .input(PortSpec::new("map", Type::Map, "the map tiled"))
+        .input(PortSpec::new("map", Type::Raster, "the map tiled (only its grid is read)"))
         .output(PortSpec::new("zones", Type::Vector, "the squares, numbered (zone)"))
         .param(PortSpec::new("size", Type::Number, "the squares' side, in map units"))
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
-        let map = args.map("map")?;
+        let grid = match args.get("map") {
+            Some(Value::Map(m)) => m.grid.clone(),
+            Some(Value::Stack(s)) => s.grid.clone(),
+            Some(Value::Raster(r)) => Arc::new(r.grid_of(r.chosen).clone()),
+            Some(v) => return Err(Error::msg(format!("node {:?}: map: a map, not a {:?}", args.node, v.ty()))),
+            None => return Err(Error::msg(format!("node {:?}: connect a map", args.node))),
+        };
         let size =
             side(args, "size")?.ok_or_else(|| Error::msg(format!("node {:?}: size: the squares' side", args.node)))?;
-        let zones = grid_zones(&map.grid, size);
+        let zones = grid_zones(&grid, size);
         let v = Vector {
             geometries: zones.iter().map(Plot::geometry).collect(),
             attributes: vec![("zone".into(), Column::Numbers((1..=zones.len()).map(|i| i as f64).collect()))],
-            crs: crate::prepare::crs_of(&map.grid),
+            crs: crate::prepare::crs_of(&grid),
         };
         Ok(outputs([("zones", Value::Vector(Arc::new(v)))]))
     }
@@ -539,24 +551,53 @@ fn zones_of(args: &Args, grid: &Arc<Grid>) -> Result<Option<(Vec<Plot>, Vec<f64>
 
 /// The rows measured of every zone (0 for whole maps) of every layer: (zone, layer, rows).
 fn measure_layers(
-    stack: &Stack,
+    layers: &[Source],
     plots: Option<&(Vec<Plot>, Vec<f64>)>,
     opt: &ffi::LsmOptions,
     specs: &[(&'static str, &str)],
 ) -> Result<Vec<(usize, usize, Vec<Row>)>> {
     let mut measured = Vec::new();
-    for (d, layer) in stack.layers.iter().enumerate() {
-        let map = Map::new(stack.grid.clone(), layer.as_ref().clone());
+    for (d, layer) in layers.iter().enumerate() {
         match plots {
             Some((p, areas)) => {
-                for (z, s) in sample_map(&map, p, areas, opt, specs)?.into_iter().enumerate() {
+                for (z, s) in sample_map(&layer.rows(), p, areas, opt, specs)?.into_iter().enumerate() {
                     measured.push((z, d, s.rows));
                 }
             }
-            None => measured.push((0, d, measure(&map, opt, specs, false)?.rows)),
+            None => measured.push((0, d, layer.measure(opt, specs)?.rows)),
         }
     }
     Ok(measured)
+}
+
+/// The layers of a node's maps, each a source of its own (by blocks with `block_rows`, or rasters on disk of more
+/// than 250 million cells), their grid and keys.
+fn layers_of(args: &Args, port: &str) -> Result<(Vec<Source>, Arc<Grid>, Vec<Key>)> {
+    let rows = crate::metrics::rows_param(args)?;
+    let source = |m: Map| if rows.is_some() { Source::Memory(m, rows) } else { Source::Whole(m) };
+    match args.get(port) {
+        Some(Value::Stack(s)) => Ok((
+            s.layers.iter().map(|l| source(Map::new(s.grid.clone(), l.as_ref().clone()))).collect(),
+            s.grid.clone(),
+            s.keys.clone(),
+        )),
+        Some(Value::Map(m)) => Ok((vec![source(m.clone())], m.grid.clone(), vec![Key::Name("1".into())])),
+        Some(Value::Raster(r)) => {
+            if r.mixed {
+                return Err(Error::msg(format!("node {:?}: {port}: the files are of different grids", args.node)));
+            }
+            let tiled = rows.is_some() || r.cells() > crate::metrics::TILED_CELLS;
+            let layers = (0..r.layers.len())
+                .map(|i| {
+                    let one = Arc::new(r.choose(i));
+                    Ok(if tiled { Source::Disk(one, rows) } else { Source::Whole(one.map()?) })
+                })
+                .collect::<Result<_>>()?;
+            Ok((layers, r.grid.clone(), r.layers.iter().map(|l| Key::Name(l.name.clone())).collect()))
+        }
+        Some(v) => Err(Error::msg(format!("node {:?}: {port}: maps, not a {:?}", args.node, v.ty()))),
+        None => Err(Error::msg(format!("node {:?}: connect the maps", args.node))),
+    }
 }
 
 /// Class metrics that are 0 (not NA) for a class absent from a landscape (pylandstats).
@@ -576,7 +617,7 @@ impl Operator for Series {
                  the area, edge and count metrics of a class absent (fillna).",
                 Access::Global,
             )
-            .input(PortSpec::new("maps", Type::Stack, "the maps of classes, a layer per date"))
+            .input(PortSpec::new("maps", Type::Raster, "the maps of classes, a layer per date (or rasters on disk)"))
             .input(PortSpec::optional("plots", Type::Vector, "zones (polygons) or points (buffers around them)"))
             .output(PortSpec::new("table", Type::Table, "per (class,) (zone and) date: the metrics")),
         )
@@ -588,27 +629,32 @@ impl Operator for Series {
             PortSpec::optional("shape", Type::Text, "points: square (default) or circle buffers")
                 .choices(["square", "circle"]),
         )
+        .param(PortSpec::optional("fillna", Type::Bool, "class level: 0 for absent classes' counts (default true)"))
         .param(PortSpec::optional(
-            "fillna",
-            Type::Bool,
-            "class level: 0 for absent classes' counts (default true)",
+            "block_rows",
+            Type::Integer,
+            "out of core: whole maps read by blocks of this many rows, zones window by window from the rasters on \
+             disk (always beyond 250 million cells), the same metrics",
         ))
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
-        let stack = args.stack("maps")?;
+        let (layers, grid, keys) = layers_of(args, "maps")?;
         let level = level_of(args, &["landscape", "class"])?;
-        let metrics = chosen(args, level)?;
+        let mut metrics = chosen(args, level)?;
+        let opt = options(args)?;
+        // by blocks, the metrics chosen by default or by type but those that need the whole map
+        if layers.iter().any(Source::tiled) && args.params.get("metrics").is_none_or(|v| v.is_null()) {
+            metrics.retain(|m| by_blocks(m.metric, opt.fragstats));
+        }
         let names: Vec<&str> = metrics.iter().map(|m| m.metric).collect();
         let specs: Vec<(&'static str, &str)> = metrics.iter().map(|m| (level, m.metric)).collect();
-        let opt = options(args)?;
         let fail = |e: Error| Error::msg(format!("node {:?}: {e}", args.node));
-        let n = stack.layers.len();
+        let n = layers.len();
         let dates: Vec<f64> = match args.opt_param::<Vec<f64>>("dates")? {
             Some(d) if d.len() == n => d,
             Some(d) => return Err(Error::msg(format!("node {:?}: dates: {} for {n} layers", args.node, d.len()))),
-            None => stack
-                .keys
+            None => keys
                 .iter()
                 .enumerate()
                 .map(|(i, k)| match k {
@@ -618,9 +664,9 @@ impl Operator for Series {
                 })
                 .collect(),
         };
-        let plots = zones_of(args, &stack.grid)?;
+        let plots = zones_of(args, &grid)?;
         let zonal = plots.is_some();
-        let mut measured = measure_layers(stack, plots.as_ref(), &opt, &specs).map_err(fail)?;
+        let mut measured = measure_layers(&layers, plots.as_ref(), &opt, &specs).map_err(fail)?;
         let mut columns = Vec::new();
         if level == "class" {
             columns.push("class".to_string());
@@ -714,7 +760,11 @@ impl Operator for Signatures {
                 "Spatial signatures, as pylandstats' SpatialSignatureAnalysis in landschaft: landscapes described                  by their metrics, a row per zone of a map (polygons, buffers around points or a grid of squares)                  or per layer of a stack, a column per landscape metric and per class metric and class                  (pland_11...), in alphabetical order. For metrics.pca, metrics.nmf, metrics.cluster and                  metrics.clustergram.",
                 Access::Global,
             )
-            .input(PortSpec::new("maps", Type::Any, "a map of classes (its zones) or a stack (a row per layer)"))
+            .input(PortSpec::new(
+                "maps",
+                Type::Raster,
+                "a map of classes (its zones) or a stack (a row per layer), or rasters on disk",
+            ))
             .input(PortSpec::optional("plots", Type::Vector, "zones (polygons) or points (buffers around them)"))
             .output(PortSpec::new("table", Type::Table, "per zone (or landscape): the metrics")),
         )
@@ -728,17 +778,16 @@ impl Operator for Signatures {
                 .choices(["square", "circle"]),
         )
         .param(PortSpec::optional("fillna", Type::Bool, "0 for absent classes' counts and areas (default true)"))
+        .param(PortSpec::optional(
+            "block_rows",
+            Type::Integer,
+            "out of core: whole maps read by blocks of this many rows, zones window by window from the rasters on              disk (always beyond 250 million cells), the same metrics",
+        ))
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let fail = |e: Error| Error::msg(format!("node {:?}: {e}", args.node));
-        let stack = match args.get("maps") {
-            Some(Value::Stack(s)) => s.clone(),
-            _ => {
-                let m = args.map("maps")?;
-                Stack { grid: m.grid.clone(), keys: vec![Key::Name("1".into())], layers: vec![m.data.clone()] }
-            }
-        };
+        let (layers, grid, _) = layers_of(args, "maps")?;
         let mut land = metric_list(args, "landscape_metrics", "landscape")?;
         let mut class = metric_list(args, "class_metrics", "class")?;
         if land.is_empty() && class.is_empty() {
@@ -752,14 +801,14 @@ impl Operator for Signatures {
         let wanted: Option<Vec<i32>> =
             args.opt_param::<Vec<f64>>("classes")?.map(|c| c.into_iter().map(|v| v as i32).collect::<Vec<_>>());
         let fillna: bool = args.param("fillna", true)?;
-        let plots = zones_of(args, &stack.grid)?;
+        let plots = zones_of(args, &grid)?;
         let zonal = plots.is_some();
-        if zonal && stack.layers.len() > 1 {
+        if zonal && layers.len() > 1 {
             return Err(Error::msg(format!("node {:?}: zones of one map, not of a stack", args.node)));
         }
         let specs: Vec<(&'static str, &str)> =
             land.iter().map(|m| ("landscape", *m)).chain(class.iter().map(|m| ("class", *m))).collect();
-        let measured = measure_layers(&stack, plots.as_ref(), &options(args)?, &specs).map_err(fail)?;
+        let measured = measure_layers(&layers, plots.as_ref(), &options(args)?, &specs).map_err(fail)?;
         // a row per zone or layer: its landscape metrics and those of its classes
         let mut rows: BTreeMap<usize, ZoneRow> = BTreeMap::new();
         for (z, d, r) in &measured {

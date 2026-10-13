@@ -509,13 +509,15 @@ impl Operator for Write {
     }
 }
 
-/// A GeoTIFF of one band written row by row, in order, never whole in memory: the rows are kept until they make a
-/// row of TIFF tiles (512 x 512), which is then written; at most 512 rows and those of a push are held.
+/// A GeoTIFF written row by row, in order, never whole in memory: the rows are kept until they make a row of TIFF
+/// tiles (512 x 512), which is then written; at most 512 rows and those of a push are held. One band, or several
+/// pushed side by side.
 pub struct RowsWriter {
     out: TiledWriter,
     grid: Grid,
     path: PathBuf,
-    pending: Vec<f64>,
+    /// Each band's rows not yet written.
+    pending: Vec<Vec<f64>>,
     done: usize,
 }
 
@@ -523,33 +525,63 @@ impl RowsWriter {
     const TILE: usize = 512;
 
     pub fn create(path: &Path, grid: &Grid, name: &str, dtype: DataType, nodata: Option<f64>) -> Result<RowsWriter> {
-        let out = TiledWriter::create(path, grid, vec![Some(name.into())], dtype, nodata, Self::TILE, Some(6))
+        Self::create_bands(path, grid, &[name], dtype, nodata)
+    }
+
+    /// A GeoTIFF of a band per name.
+    pub fn create_bands(
+        path: &Path,
+        grid: &Grid,
+        names: &[&str],
+        dtype: DataType,
+        nodata: Option<f64>,
+    ) -> Result<RowsWriter> {
+        let bands = names.iter().map(|n| Some(n.to_string())).collect();
+        let out = TiledWriter::create(path, grid, bands, dtype, nodata, Self::TILE, Some(6))
             .map_err(|e| Error::msg(format!("{}: {e}", path.display())))?;
-        Ok(RowsWriter { out, grid: grid.clone(), path: path.to_path_buf(), pending: Vec::new(), done: 0 })
+        let pending = vec![Vec::new(); names.len()];
+        Ok(RowsWriter { out, grid: grid.clone(), path: path.to_path_buf(), pending, done: 0 })
     }
 
     /// The next rows (a multiple of the width).
     pub fn push(&mut self, rows: impl IntoIterator<Item = f64>) -> Result<()> {
-        self.pending.extend(rows);
+        self.pending[0].extend(rows);
+        self.flush(false)
+    }
+
+    /// The next rows of every band, as many of each.
+    pub fn push_bands(&mut self, rows: &[&[f64]]) -> Result<()> {
+        if rows.len() != self.pending.len() || rows.iter().any(|r| r.len() != rows[0].len()) {
+            return Err(Error::msg(format!("{}: as many rows of every band", self.path.display())));
+        }
+        for (p, r) in self.pending.iter_mut().zip(rows) {
+            p.extend_from_slice(r);
+        }
         self.flush(false)
     }
 
     fn flush(&mut self, last: bool) -> Result<()> {
         let (nx, ny, t) = (self.grid.width, self.grid.height, Self::TILE);
-        while self.pending.len() >= t * nx || (last && !self.pending.is_empty()) {
+        while self.pending[0].len() >= t * nx || (last && !self.pending[0].is_empty()) {
             let h = t.min(ny - self.done);
-            if self.pending.len() < h * nx {
+            if self.pending[0].len() < h * nx {
                 return Err(Error::msg(format!("{}: rows missing", self.path.display())));
             }
             for col in 0..nx.div_ceil(t) {
                 let (x0, w) = (col * t, t.min(nx - col * t));
-                let tile: Vec<f64> =
-                    (0..h).flat_map(|y| self.pending[y * nx + x0..y * nx + x0 + w].iter().copied()).collect();
+                let tiles: Vec<Vec<f64>> = self
+                    .pending
+                    .iter()
+                    .map(|p| (0..h).flat_map(|y| p[y * nx + x0..y * nx + x0 + w].iter().copied()).collect())
+                    .collect();
+                let tiles: Vec<&[f64]> = tiles.iter().map(Vec::as_slice).collect();
                 self.out
-                    .write_tile(col, self.done / t, &[&tile])
+                    .write_tile(col, self.done / t, &tiles)
                     .map_err(|e| Error::msg(format!("{}: {e}", self.path.display())))?;
             }
-            self.pending.drain(..h * nx);
+            for p in &mut self.pending {
+                p.drain(..h * nx);
+            }
             self.done += h;
         }
         Ok(())

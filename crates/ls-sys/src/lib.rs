@@ -1356,7 +1356,9 @@ pub mod ffi {
         fn lsm_tiled_labels(t: &LsmTiled, values: &[i32], na: &[u8], y0: i64, rows: i64) -> Result<Vec<i32>>;
         /// The values of every band (bands x ny x nx, NaN no data) at points: (points x bands); NaN outside the
         /// grid or on no data; bilinear from the four cell centres around, the weights over those with data
-        /// (landschaft's extract).
+        /// (landschaft's extract). The values are the rows [row0, row0 + ny) of a grid of ny_total rows (gt the
+        /// grid's): the points in those rows (with one row around for bilinear) get the whole grid's values.
+        #[allow(clippy::too_many_arguments)]
         fn io_extract(
             values: &[f64],
             bands: i32,
@@ -1366,6 +1368,8 @@ pub mod ffi {
             x: &[f64],
             y: &[f64],
             bilinear: bool,
+            row0: i32,
+            ny_total: i32,
         ) -> Result<Vec<f64>>;
     }
 }

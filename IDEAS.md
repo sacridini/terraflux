@@ -34,7 +34,8 @@ neutros (`nlm.*`) para testar fluxos sem dados. A ordem sugerida:
      Os grupos voltam às zonas por `vector.join` (e `vector.rasterize`, um mapa dos grupos);
    - **Feito** (Unreleased): paisagens fora da memória (`block_rows` nos nós de métricas, o `TiledLandscape`
      do C++), o mapa das manchas de um raster em disco gravado bloco a bloco, e o MSPA por tiles do GTB
-     (`landscape.mspa_tiled`). Falta: as outras métricas por blocos (janela móvel, amostras, séries);
+     (`landscape.mspa_tiled`). **Feito** (Unreleased): as outras métricas por blocos (janela móvel por faixas com
+     halo, amostras janela a janela, séries e assinaturas de rasters em disco);
    - **Feito** (Unreleased): gráficos de várias métricas de uma vez (barras, linhas e pontos por grupo, o
      clustergram, a matriz de correlação), os box plots por grupo e o círculo de correlações do PCA.
 3. **Planejamento sistemático de conservação e restauração.** **Feito** (Unreleased): o prioritizr (tabelas,
@@ -58,7 +59,10 @@ distâncias, unidades de planejamento em polígonos, o desenho no viewer).
 - **Feito** (Unreleased): vetores sobre os mapas no viewer, e sozinhos, desenhados em tiles por threads a partir
   de um R-tree (camadas de milhões de feições sem travar), coloridos por atributo; `vector.extract` (o do
   landschaft, bit a bit), `vector.buffer`, `vector.clip` e `vector.dissolve` (o GEOS pelo GDAL), `vector.join`.
-- Falta: os vetores no motor por tiles.
+- **Feito** (Unreleased): os vetores no motor por tiles: `vector.zonal` por faixas de linhas (as zonas grandes
+  corrida por corrida, as mesmas somas do C++), `vector.extract` pelas faixas que têm pontos e `vector.rasterize`
+  num GeoTIFF faixa a faixa, bit a bit com a memória (exceto as linhas do GDAL com `all_touched` nos cantos das
+  células). Falta: `vector.exact_sum` e `vector.distance` fora da memória.
 
 ## Viewer
 

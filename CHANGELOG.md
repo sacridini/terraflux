@@ -6,6 +6,27 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Out of core, the rest of the landscape metrics: `metrics.window` by strips of rows with the window's half side
+  above and below (every cell's window whole, so the same maps to the bit), of rasters on disk into a GeoTIFF of a
+  band per metric (`path`); `metrics.sample` reads each plot's window alone from the rasters on disk (and the map's
+  classes for `all_classes` by blocks); `metrics.series` and `metrics.signatures` take rasters on disk, a layer
+  per date, whole maps by blocks of rows and zones window by window. `block_rows` on all of them, and rasters on
+  disk of more than 250 million cells always; the same tables as in memory, to the bit. `vector.grid_zones` reads
+  only the grid of its map.
+- Vectors over rasters larger than memory: `vector.zonal` by strips of rows (the zones that fit a strip by
+  landschaft's zonal statistics on it, a zone too large read run after run and summed as landschaft sums it, its
+  order statistics from its values or, for whole numbers, their counts), `vector.extract` from the strips of rows
+  that hold points (landschaft's extract of a block, a row around for bilinear), `vector.rasterize` into a GeoTIFF
+  strip by strip (`path`; polygons by their runs, lines by GDAL in the grid's pixels, points by their cell). The
+  same values as in memory, to the bit, but GDAL's lines through cells' corners with `all_touched`.
+- `RowsWriter` writes several bands side by side (`create_bands`, `push_bands`).
+
+### Changed
+- `metrics.window`'s maps, `vector.rasterize`'s map and the maps of `metrics.series`, `metrics.signatures`,
+  `metrics.sample`, `vector.zonal` and `vector.extract` are of the type `Raster` (a map, a stack or rasters on
+  disk): any map connects as before.
+
 ## [0.19.0] - 2026-10-13
 
 ### Added
