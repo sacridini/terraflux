@@ -615,8 +615,12 @@ Pendências:
   gdistance, 4, 8 ou 16 direções, simétrica ou não; uma pilha de uma camada por direção, o layout nos metadados
   da grade), `cost.geo_correction`, `cost.acc_cost`, `cost.distance` e `cost.shortest_path`, bit a bit com o
   landschaft numa grade projetada, numa em graus e numa global que dá a volta.
-- **Próximos (2026-10-13):** os passeios aleatórios do `cost` (commute distance, passage, RSP, path_inc,
-  barreiras e áreas, Mahalanobis, normalize, sum_reciprocal), biodiversidade (`bio`), incerteza, lotes; o resto
+- **Distâncias na grade — passeios aleatórios (0.32.0, 2026-10-13):** `cost.commute_distance`, `cost.passage`
+  (com e sem theta), `cost.rsp_distance`, `cost.normalize`, `cost.sum_reciprocal`, `cost.combine`, `cost.math` e
+  `cost.to_map`, bit a bit com o landschaft (o método 2 do RSP, pelo SparseLU do Eigen, varia nos últimos bits de
+  uma execução para outra no próprio landschaft; testado a 1e-12).
+- **Próximos (2026-10-13):** o resto do `cost` (path_inc, barreiras e áreas, Mahalanobis), biodiversidade
+  (`bio`), incerteza, lotes; o resto
   dos circuitos (redes, pares incluídos, os arquivos .ini); os instaladores de macOS e Linux;
   `vector.exact_sum` e `vector.distance` fora da memória.
 

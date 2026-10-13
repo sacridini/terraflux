@@ -8,7 +8,9 @@ On maungawhau (a projected grid): the transitions of every built-in function, 4,
 symmetric and not; their geoCorrection (c and r, scaled); the accumulated cost from points and from a mask; the
 least costs among points and from points to others; the least-cost paths. On europe (longitude/latitude): the
 same over its populations (pop_coord.csv). On a global grid that wraps around (cost_global.tif, written here):
-the accumulated cost, the least costs and the paths across the 180th meridian.
+the accumulated cost, the least costs and the paths across the 180th meridian. Then the random walks and the
+matrix's algebra (cost_walk.npz): commute distances, passages with and without theta, randomised-shortest-path
+distances, normalize, sumReciprocal, sums of transitions, R's maths on the connections and the summaries of cells.
 
 Run with the landschaft the submodule points at installed.
 """
@@ -106,5 +108,50 @@ def main() -> None:
     print(REF / "cost.npz", len(out))
 
 
+def walk_cases() -> None:
+    out: dict[str, np.ndarray] = {}
+    m = C.example_data("maungawhau")
+    sym = C.geo_correction(1 / C.transition(m, "mean", 8, True), "r")
+    asym = C.geo_correction(1 / C.transition(m, "from", 16, False), "r")
+    pts = np.array(M_POINTS)
+    out["m/commute"] = C.commute_distance(sym, pts)
+    for compat in (True, False):
+        out[f"m/passage/{int(compat)}"] = np.asarray(C.passage(sym, M_POINTS[0], M_POINTS[1], gdistance_compat=compat))
+    for name, tr in (("sym", sym), ("asym", asym)):
+        for theta in (0.001, 0.01):
+            for tn in ("net", "total"):
+                out[f"m/{name}/rsp_passage/{theta}/{tn}"] = np.asarray(
+                    C.passage(tr, M_POINTS[0], np.array(M_POINTS[1:3]), theta=theta, total_net=tn))
+        for method in (1, 2):
+            for tn in ("net", "total"):
+                out[f"m/{name}/rsp/{method}/{tn}"] = C.rsp_distance(tr, pts, np.array(M_TO), 0.001, total_net=tn,
+                                                                    method=method)
+        for method in ("row", "col", "symm"):
+            out[f"m/{name}/normalize/{method}"] = C.normalize(tr, method).values
+        for reduce in ("NZcolMeans", "NZrowMeans", "colSums", "rowSums", "colMeans", "rowMeans"):
+            out[f"m/{name}/to_map/{reduce}"] = np.asarray(tr.to_raster(reduce), dtype=np.float64)
+    out["m/rsp_same"] = C.rsp_distance(sym, pts[:3], pts[:3], 0.001)
+    a, b = 1 / C.transition(m, "mean", 8, True), 1 / C.transition(m, "max", 4, False)
+    out["m/sum_reciprocal"] = C.sum_reciprocal(a, b).values
+    out["m/combine/sum"] = (a + b).values
+    out["m/combine/difference"] = (a - b).values
+    out["m/combine/product"] = (a * b).values
+    out["m/math/sqrt"] = a.map("sqrt").values
+    out["m/math/exp"] = a.map("exp").values
+    out["m/math/log"] = a.map("log").values
+    out["m/math/pow"] = (a ** 2.5).values
+    out["m/math/multiply"] = (a * 3.0).values
+    out["m/math/divide"] = (2.0 / a).values
+
+    e = C.example_data("europe")
+    with open(C.example_data("europe").parent / "pop_coord.csv", newline="") as f:
+        pops = np.array([[float(r["x"]), float(r["y"])] for r in csv.DictReader(f)])
+    tr = C.geo_correction(1 / C.transition(e, "mean", 8, True), "r")
+    out["e/commute"] = C.commute_distance(tr, pops)
+    np.savez_compressed(REF / "cost_walk.npz", **{k: np.ascontiguousarray(v, dtype=np.float64) for k, v in out.items()})
+    print(REF / "cost_walk.npz", len(out))
+
+
 if __name__ == "__main__":
     main()
+    walk_cases()

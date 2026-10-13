@@ -21,7 +21,10 @@
 #include "circuit/circuitscape.hpp"
 #include "circuit/grid.hpp"
 #include "circuit/omniscape.hpp"
+#include "cost/randomwalk.hpp"
+#include "cost/rsp.hpp"
 #include "cost/shortest.hpp"
+#include "lsm/rmath.hpp"
 #include "surf/surface.hpp"
 #include "sim/clumondo.hpp"
 #include "sim/futures.hpp"
@@ -2482,6 +2485,114 @@ rust::Vec<double> cost_matrix(rust::Slice<const double> values, rust::Slice<cons
     const cost::Layout t{&g, directions, symmetric, values.data()};
     return to_rust<double>(cost::cost_matrix(t, std::vector<std::int64_t>(from.begin(), from.end()),
                                              std::vector<std::int64_t>(to.begin(), to.end())));
+}
+
+rust::Vec<std::int64_t> cost_neighbours(rust::Slice<const double> grid, std::int32_t directions, bool symmetric) {
+    const cost::Grid g = cost_grid(grid);
+    check(directions == 4 || directions == 8 || directions == 16, "directions must be 4, 8 or 16");
+    const auto nd = static_cast<std::size_t>(cost::offsets(directions, symmetric).size());
+    std::vector<std::int64_t> out(nd * static_cast<std::size_t>(g.ncell()));
+    cost::neighbours(g, directions, symmetric, out.data());
+    return to_rust<std::int64_t>(std::move(out));
+}
+
+rust::Vec<double> cost_margin_sums(rust::Slice<const double> values, rust::Slice<const double> grid,
+                                   std::int32_t directions, bool symmetric, std::int32_t margin, bool count) {
+    const cost::Grid g = cost_grid(grid);
+    cost_check(g, directions, symmetric, values.size());
+    std::vector<double> out(static_cast<std::size_t>(g.ncell()));
+    cost::margin_sums(g, directions, symmetric, values.data(), margin, count, out.data());
+    return to_rust<double>(std::move(out));
+}
+
+rust::Vec<double> cost_rmath(rust::Str name, rust::Slice<const double> x, double y) {
+    const std::string n(name);
+    const int f = n == "sqrt" ? 0 : n == "exp" ? 1 : n == "log" ? 2 : n == "pow" ? 3 : -1;
+    check(f >= 0, "unknown function: sqrt, exp, log or pow");
+    std::vector<double> out(x.size());
+    const auto len = static_cast<std::int64_t>(x.size());
+#pragma omp parallel for schedule(static)
+    for (std::int64_t k = 0; k < len; ++k) {
+        const double v = x[static_cast<std::size_t>(k)];
+        switch (f) {
+            case 0: out[k] = lsm::r_sqrt(v); break;
+            case 1: out[k] = lsm::r_exp(v); break;
+            case 2: out[k] = lsm::r_log(v); break;
+            default: out[k] = lsm::r_pow(v, y); break;
+        }
+    }
+    return to_rust<double>(std::move(out));
+}
+
+namespace {
+std::vector<std::int32_t> walk_nodes(const cost::WalkGraph& wg, const cost::Grid& g,
+                                     rust::Slice<const std::int64_t> cells, bool strict) {
+    std::vector<std::int32_t> v;
+    for (const std::int64_t c : cells) {
+        const std::int32_t n = (c >= 0 && c < g.ncell()) ? wg.node_of[static_cast<std::size_t>(c)] : -1;
+        check(!strict || n >= 0, "an origin or goal is not on the transition's graph");
+        v.push_back(n);
+    }
+    return v;
+}
+}  // namespace
+
+CommuteOut cost_commute(rust::Slice<const double> values, rust::Slice<const double> grid, std::int32_t directions,
+                        bool symmetric, rust::Slice<const std::int64_t> cells) {
+    const cost::Grid g = cost_grid(grid);
+    cost_check(g, directions, symmetric, values.size());
+    const cost::Layout t{&g, directions, symmetric, values.data()};
+    const bool geometric = directions != 16 && !g.wrap;
+    const cost::WalkGraph wg = cost::walk_graph(t);
+    const std::vector<std::int32_t> nodes = walk_nodes(wg, g, cells, false);
+    CommuteOut out;
+    for (const std::int32_t n : nodes) out.part.push_back(n >= 0 ? wg.component[n] : -1);
+    out.resistance = to_rust<double>(cost::effective_resistance(wg, nodes, geometric, g.nx));
+    out.volume = wg.volume;
+    for (const double v : wg.component_volume) out.part_volume.push_back(v);
+    return out;
+}
+
+rust::Vec<double> cost_rw_passages(rust::Slice<const double> values, rust::Slice<const double> grid,
+                                   std::int32_t directions, bool symmetric, rust::Slice<const std::int64_t> origins,
+                                   rust::Slice<const std::int64_t> goals, bool quirk) {
+    const cost::Grid g = cost_grid(grid);
+    cost_check(g, directions, symmetric, values.size());
+    const cost::Layout t{&g, directions, symmetric, values.data()};
+    const bool geometric = directions != 16 && !g.wrap;
+    const cost::WalkGraph wg = cost::walk_graph(t);
+    return to_rust<double>(cost::random_walk_passages(wg, walk_nodes(wg, g, origins, true),
+                                                      walk_nodes(wg, g, goals, true), quirk, geometric, g.nx,
+                                                      g.ncell()));
+}
+
+rust::Vec<double> cost_rsp_passages(rust::Slice<const double> values, rust::Slice<const double> grid,
+                                    std::int32_t directions, bool symmetric, rust::Slice<const std::int64_t> origins,
+                                    rust::Slice<const std::int64_t> goals, double theta, bool net, bool edges) {
+    const cost::Grid g = cost_grid(grid);
+    cost_check(g, directions, symmetric, values.size());
+    const cost::Layout t{&g, directions, symmetric, values.data()};
+    cost::RspOptions o;
+    o.theta = theta;
+    o.net = net;
+    o.solidify = true;
+    return to_rust<double>(cost::rsp_passages(t, std::vector<std::int64_t>(origins.begin(), origins.end()),
+                                              std::vector<std::int64_t>(goals.begin(), goals.end()), o, edges));
+}
+
+rust::Vec<double> cost_rsp_distances(rust::Slice<const double> values, rust::Slice<const double> grid,
+                                     std::int32_t directions, bool symmetric, rust::Slice<const std::int64_t> from,
+                                     rust::Slice<const std::int64_t> to, double theta, bool net, std::int32_t method) {
+    const cost::Grid g = cost_grid(grid);
+    cost_check(g, directions, symmetric, values.size());
+    const cost::Layout t{&g, directions, symmetric, values.data()};
+    cost::RspOptions o;
+    o.theta = theta;
+    o.net = net;
+    o.method = method;
+    o.solidify = false;
+    return to_rust<double>(cost::rsp_distances(t, std::vector<std::int64_t>(from.begin(), from.end()),
+                                               std::vector<std::int64_t>(to.begin(), to.end()), o));
 }
 
 PathsOut cost_paths(rust::Slice<const double> values, rust::Slice<const double> grid, std::int32_t directions,

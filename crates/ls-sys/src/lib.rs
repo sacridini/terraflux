@@ -372,6 +372,15 @@ pub mod ffi {
         extent: Vec<f64>,
     }
 
+    /// Effective resistances between cells of a symmetric transition (k x k), its volume, the volume of each
+    /// connected part and each cell's part (-1 off the graph).
+    struct CommuteOut {
+        resistance: Vec<f64>,
+        volume: f64,
+        part_volume: Vec<f64>,
+        part: Vec<i32>,
+    }
+
     /// Least-cost paths: their cells, one after the other (offsets into them).
     struct PathsOut {
         cells: Vec<i64>,
@@ -1595,6 +1604,66 @@ pub mod ffi {
             symmetric: bool,
             from: &[i64],
             to: &[i64],
+        ) -> Result<Vec<f64>>;
+        /// The neighbour cell of every (direction, cell) of a transition layout (-1: none).
+        fn cost_neighbours(grid: &[f64], directions: i32, symmetric: bool) -> Result<Vec<i64>>;
+        /// Row (0) or column (1) sums of a transition matrix as the Matrix package's, or counts of the
+        /// connections.
+        fn cost_margin_sums(
+            values: &[f64],
+            grid: &[f64],
+            directions: i32,
+            symmetric: bool,
+            margin: i32,
+            count: bool,
+        ) -> Result<Vec<f64>>;
+        /// R's sqrt, exp, log or x^y (mingw's x87 maths) of every value.
+        fn cost_rmath(name: &str, x: &[f64], y: f64) -> Result<Vec<f64>>;
+        /// Effective resistances between cells (gdistance's commuteDistance, before the volume).
+        fn cost_commute(
+            values: &[f64],
+            grid: &[f64],
+            directions: i32,
+            symmetric: bool,
+            cells: &[i64],
+        ) -> Result<CommuteOut>;
+        /// Net passages of a random walk (gdistance's passage without theta); `quirk`: gdistance's potential
+        /// of the grounded cell.
+        #[allow(clippy::too_many_arguments)]
+        fn cost_rw_passages(
+            values: &[f64],
+            grid: &[f64],
+            directions: i32,
+            symmetric: bool,
+            origins: &[i64],
+            goals: &[i64],
+            quirk: bool,
+        ) -> Result<Vec<f64>>;
+        /// Randomised-shortest-path passages (gdistance's passage with theta): per cell, or per connection.
+        #[allow(clippy::too_many_arguments)]
+        fn cost_rsp_passages(
+            values: &[f64],
+            grid: &[f64],
+            directions: i32,
+            symmetric: bool,
+            origins: &[i64],
+            goals: &[i64],
+            theta: f64,
+            net: bool,
+            edges: bool,
+        ) -> Result<Vec<f64>>;
+        /// Randomised-shortest-path distances (gdistance's rSPDistance): from x to, row-major.
+        #[allow(clippy::too_many_arguments)]
+        fn cost_rsp_distances(
+            values: &[f64],
+            grid: &[f64],
+            directions: i32,
+            symmetric: bool,
+            from: &[i64],
+            to: &[i64],
+            theta: f64,
+            net: bool,
+            method: i32,
         ) -> Result<Vec<f64>>;
         /// The cells of the least-cost paths from origin to each goal (igraph's ties).
         fn cost_paths(

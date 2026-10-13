@@ -59,6 +59,7 @@ struct RunsOut;
 struct OmniscapeOut;
 struct CircuitOut;
 struct PathsOut;
+struct CommuteOut;
 struct PlaneOut;
 struct BearingOut;
 struct AacfOut;
@@ -485,6 +486,21 @@ rust::Vec<double> cost_geo_correction(rust::Slice<const double> values, rust::Sl
 rust::Vec<double> cost_matrix(rust::Slice<const double> values, rust::Slice<const double> grid,
                               std::int32_t directions, bool symmetric, rust::Slice<const std::int64_t> from,
                               rust::Slice<const std::int64_t> to);
+rust::Vec<std::int64_t> cost_neighbours(rust::Slice<const double> grid, std::int32_t directions, bool symmetric);
+rust::Vec<double> cost_margin_sums(rust::Slice<const double> values, rust::Slice<const double> grid,
+                                   std::int32_t directions, bool symmetric, std::int32_t margin, bool count);
+rust::Vec<double> cost_rmath(rust::Str name, rust::Slice<const double> x, double y);
+CommuteOut cost_commute(rust::Slice<const double> values, rust::Slice<const double> grid, std::int32_t directions,
+                        bool symmetric, rust::Slice<const std::int64_t> cells);
+rust::Vec<double> cost_rw_passages(rust::Slice<const double> values, rust::Slice<const double> grid,
+                                   std::int32_t directions, bool symmetric, rust::Slice<const std::int64_t> origins,
+                                   rust::Slice<const std::int64_t> goals, bool quirk);
+rust::Vec<double> cost_rsp_passages(rust::Slice<const double> values, rust::Slice<const double> grid,
+                                    std::int32_t directions, bool symmetric, rust::Slice<const std::int64_t> origins,
+                                    rust::Slice<const std::int64_t> goals, double theta, bool net, bool edges);
+rust::Vec<double> cost_rsp_distances(rust::Slice<const double> values, rust::Slice<const double> grid,
+                                     std::int32_t directions, bool symmetric, rust::Slice<const std::int64_t> from,
+                                     rust::Slice<const std::int64_t> to, double theta, bool net, std::int32_t method);
 PathsOut cost_paths(rust::Slice<const double> values, rust::Slice<const double> grid, std::int32_t directions,
                     bool symmetric, std::int64_t origin, rust::Slice<const std::int64_t> goals);
 

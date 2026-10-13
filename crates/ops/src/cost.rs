@@ -1,7 +1,9 @@
 //! Distances over a grid, landschaft's port of the R package gdistance through its C++: transitions between
 //! neighbouring cells (4, 8 or 16 directions, a function of the two cells' values), corrected for the cells'
 //! distances (geoCorrection), and over them the accumulated cost from origins (accCost), the least costs between
-//! points (costDistance) and the least-cost paths (shortestPath).
+//! points (costDistance) and the least-cost paths (shortestPath); random walks over them (commuteDistance,
+//! passage, rSPDistance), and the matrix's own algebra (normalize, sumReciprocal, sums of transitions, R's
+//! maths on the connections, the summary of each cell's).
 //!
 //! A transition is a stack of a layer per direction (the value of the connection from each cell in that
 //! direction, 0 none; a symmetric one keeps the directions after (0, 0) only, as landschaft's `Transition`) whose
@@ -26,6 +28,14 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(AccCost));
     r.add(Arc::new(CostDistance));
     r.add(Arc::new(ShortestPath));
+    r.add(Arc::new(CommuteDistance));
+    r.add(Arc::new(Passage));
+    r.add(Arc::new(RspDistance));
+    r.add(Arc::new(Normalize));
+    r.add(Arc::new(SumReciprocal));
+    r.add(Arc::new(Combine));
+    r.add(Arc::new(TransitionMath));
+    r.add(Arc::new(ToMap));
 }
 
 /// A transition's layout and grid (landschaft's GridInfo): what its stack's grid carries.
@@ -97,6 +107,61 @@ impl Transition {
             return Err(fail("its layers do not match its directions"));
         }
         Ok(t)
+    }
+
+    /// The neighbour cell of every (direction, cell) of a layout of the grid (-1: none).
+    fn neighbours(&self, directions: i32, symmetric: bool) -> Result<Vec<i64>> {
+        Ok(ffi::cost_neighbours(&self.core(), directions, symmetric)?)
+    }
+
+    /// Row (0) or column (1) sums of the matrix, or counts of its connections.
+    fn margin(&self, margin: i32, count: bool) -> Result<Vec<f64>> {
+        let l = &self.layout;
+        Ok(ffi::cost_margin_sums(&self.values, &self.core(), l.directions, l.symmetric, margin, count)?)
+    }
+
+    /// The values in another layout (more directions; asymmetric from symmetric), as landschaft's _relayout.
+    pub fn relayout(&self, directions: i32, symmetric: bool) -> Result<Vec<f64>> {
+        let l = &self.layout;
+        if directions == l.directions && symmetric == l.symmetric {
+            return Ok(self.values.clone());
+        }
+        if symmetric && !l.symmetric {
+            return Err(Error::msg("an asymmetric transition cannot be made symmetric"));
+        }
+        if directions < l.directions {
+            return Err(Error::msg("cannot drop directions"));
+        }
+        let target = offsets(directions, symmetric)?;
+        let index = |o: (i32, i32)| target.iter().position(|&t| t == o).unwrap();
+        let n = self.cells();
+        let mut out = vec![0.0; target.len() * n];
+        let src = self.offsets()?;
+        if symmetric || !l.symmetric {
+            for (k, &o) in src.iter().enumerate() {
+                let j = index(o);
+                out[j * n..(j + 1) * n].copy_from_slice(&self.values[k * n..(k + 1) * n]);
+            }
+            return Ok(out);
+        }
+        let nb = self.neighbours(l.directions, l.symmetric)?;
+        for (k, &(dr, dc)) in src.iter().enumerate() {
+            let (fwd, back) = (index((dr, dc)), index((-dr, -dc)));
+            for cell in 0..n {
+                let (v, to) = (self.values[k * n + cell], nb[k * n + cell]);
+                if to >= 0 && v != 0.0 {
+                    out[fwd * n + cell] = v;
+                    out[back * n + to as usize] = v;
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// A transition of other values on the same grid.
+    fn like(&self, values: Vec<f64>, directions: i32, symmetric: bool) -> Transition {
+        let layout = Layout { directions, symmetric, ..self.layout.clone() };
+        Transition { values, layout, grid: self.grid.clone() }
     }
 
     /// Whether the matrix is symmetric (gdistance's isSymmetric): always for symmetric transitions, for
@@ -212,6 +277,45 @@ fn clean(values: &mut [f64]) {
         if v.is_nan() {
             *v = 0.0;
         }
+    }
+}
+
+/// The cells of a node's port with those outside the grid left out.
+fn inside(args: &Args, port: &str, t: &Transition) -> Result<Vec<i64>> {
+    Ok(cells_of(args, port, t)?.into_iter().filter(|c| *c >= 0).collect())
+}
+
+/// A symmetric transition, or why not.
+fn symmetric_of(args: &Args, what: &str) -> Result<Transition> {
+    let t = Transition::of(args, "transition")?;
+    if !t.is_symmetric()? {
+        return Err(Error::msg(format!("node {:?}: {what} needs a symmetric transition", args.node)));
+    }
+    Ok(t)
+}
+
+/// A square or rectangular matrix as a table: a row per point from, its number, then a column per point to.
+fn matrix_table(m: &[f64], nf: usize, nt: usize) -> Table {
+    let mut table = Table::new(std::iter::once("point".to_string()).chain((1..=nt).map(|j| j.to_string())).collect());
+    table.rows = (0..nf)
+        .map(|i| std::iter::once((i + 1) as f64).chain(m[i * nt..(i + 1) * nt].iter().copied()).collect())
+        .collect();
+    table
+}
+
+fn theta_of(args: &Args) -> Result<f64> {
+    let theta: f64 = args.param("theta", f64::NAN)?;
+    if !(0.0..=20.0).contains(&theta) {
+        return Err(Error::msg(format!("node {:?}: theta must be between 0 and 20 (gdistance's range)", args.node)));
+    }
+    Ok(theta)
+}
+
+fn net_of(args: &Args) -> Result<bool> {
+    match args.param("total_net", "net".to_string())?.as_str() {
+        "net" => Ok(true),
+        "total" => Ok(false),
+        _ => Err(Error::msg(format!("node {:?}: total_net should be either total or net", args.node))),
     }
 }
 
@@ -413,12 +517,7 @@ impl Operator for CostDistance {
                 }
             }
         }
-        let mut table =
-            Table::new(std::iter::once("point".to_string()).chain((1..=nt).map(|j| j.to_string())).collect());
-        table.rows = (0..nf)
-            .map(|i| std::iter::once((i + 1) as f64).chain(out[i * nt..(i + 1) * nt].iter().copied()).collect())
-            .collect();
-        Ok(outputs([("table", Value::Table(table))]))
+        Ok(outputs([("table", Value::Table(matrix_table(&out, nf, nt)))]))
     }
 }
 
@@ -486,5 +585,395 @@ impl Operator for ShortestPath {
             }
         }
         Ok(outputs([("lines", Value::Vector(Arc::new(lines))), ("map", Value::Map(Map::new(t.grid.clone(), share)))]))
+    }
+}
+
+struct CommuteDistance;
+
+impl Operator for CommuteDistance {
+    fn signature(&self) -> OpSignature {
+        transition_port(OpSignature::new(
+            "cost.commute_distance",
+            "The expected commute distances of a random walk between points (gdistance's commuteDistance through \
+             landschaft's C++): how long a walk that moves to a neighbour with a probability proportional to the \
+             conductance takes, on average, to reach the other point and come back; the effective resistance \
+             times the graph's volume. inf between separate parts of the graph, no value for points outside it.",
+            Access::Global,
+        ))
+        .input(PortSpec::new("points", Type::Vector, "the points"))
+        .output(PortSpec::new(
+            "table",
+            Type::Table,
+            "a row per point: its number, then the distance to each point",
+        ))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let t = symmetric_of(args, "commute_distance")?;
+        let cells = cells_of(args, "points", &t)?;
+        let l = &t.layout;
+        let c = ffi::cost_commute(&t.values, &t.core(), l.directions, l.symmetric, &cells)
+            .map_err(|e| Error::msg(format!("node {:?}: {e}", args.node)))?;
+        let n = cells.len();
+        let out: Vec<f64> = if c.part_volume.len() == 1 {
+            c.resistance.iter().map(|r| r * c.volume).collect()
+        } else {
+            (0..n * n)
+                .map(|k| {
+                    let p = c.part[k / n];
+                    c.resistance[k] * if p >= 0 { c.part_volume[p as usize] } else { f64::NAN }
+                })
+                .collect()
+        };
+        Ok(outputs([("table", Value::Table(matrix_table(&out, n, n)))]))
+    }
+}
+
+struct Passage;
+
+impl Operator for Passage {
+    fn signature(&self) -> OpSignature {
+        transition_port(OpSignature::new(
+            "cost.passage",
+            "The passages of a random walk from origins to goals through every cell (gdistance's passage through \
+             landschaft's C++). Without theta: the net number of times a random walk passes through each cell, the \
+             current of a unit current from the origins to the goals (a symmetric transition; 1 at the origins and \
+             goals, 0 off the graph). With theta (0 to 20): randomised shortest paths (Saerens et al. 2009), that \
+             prefer cheap routes more as theta grows; no value off the graph.",
+            Access::Global,
+        ))
+        .input(PortSpec::new("origins", Type::Any, "points (vector features) or a mask (its cells not 0)"))
+        .input(PortSpec::new("goals", Type::Any, "points (vector features) or a mask (its cells not 0)"))
+        .output(PortSpec::new("map", Type::Map, "the passages"))
+        .param(PortSpec::optional("theta", Type::Number, "randomised shortest paths, 0 to 20 (default: none)"))
+        .param(
+            PortSpec::optional("total_net", Type::Text, "with theta: net (default) or total passages")
+                .choices(["net", "total"]),
+        )
+        .param(PortSpec::optional(
+            "gdistance_compat",
+            Type::Bool,
+            "without theta: gdistance's potential of the grounded cell (default true); false: the exact currents",
+        ))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let fail = |e: cxx::Exception| Error::msg(format!("node {:?}: {e}", args.node));
+        let t = Transition::of(args, "transition")?;
+        let (oc, gc) = (inside(args, "origins", &t)?, inside(args, "goals", &t)?);
+        let net = net_of(args)?;
+        let l = &t.layout;
+        let out = if args.params.get("theta").is_none_or(|v| v.is_null()) {
+            let t = symmetric_of(args, "passage without theta")?;
+            if !net {
+                return Err(Error::msg(format!(
+                    "node {:?}: without theta only net passages (gdistance: try a low value of theta instead)",
+                    args.node
+                )));
+            }
+            let quirk: bool = args.param("gdistance_compat", true)?;
+            ffi::cost_rw_passages(&t.values, &t.core(), l.directions, l.symmetric, &oc, &gc, quirk).map_err(fail)?
+        } else {
+            let theta = theta_of(args)?;
+            ffi::cost_rsp_passages(&t.values, &t.core(), l.directions, l.symmetric, &oc, &gc, theta, net, false)
+                .map_err(fail)?
+        };
+        Ok(outputs([("map", Value::Map(Map::new(t.grid.clone(), out)))]))
+    }
+}
+
+struct RspDistance;
+
+impl Operator for RspDistance {
+    fn signature(&self) -> OpSignature {
+        transition_port(OpSignature::new(
+            "cost.rsp_distance",
+            "Randomised-shortest-path distances between points (gdistance's rSPDistance through landschaft's C++): \
+             the expected cost of the walk from each point to each other, near a random walk's with theta near 0, \
+             near the least cost with large theta. No value for points off the grid.",
+            Access::Global,
+        ))
+        .input(PortSpec::new("from", Type::Vector, "the points"))
+        .input(PortSpec::optional("to", Type::Vector, "other points (default: the same)"))
+        .output(PortSpec::new("table", Type::Table, "a row per point from: its number, then the cost to each point"))
+        .param(PortSpec::new("theta", Type::Number, "0 to 20"))
+        .param(
+            PortSpec::optional("total_net", Type::Text, "the cost of the net (default) or total passages")
+                .choices(["net", "total"]),
+        )
+        .param(
+            PortSpec::optional("method", Type::Integer, "1 (default): exp(-theta cost) P; 2: P^theta").choices([1, 2]),
+        )
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let t = Transition::of(args, "transition")?;
+        let theta = theta_of(args)?;
+        let method: i32 = args.param("method", 1)?;
+        if method != 1 && method != 2 {
+            return Err(Error::msg(format!("node {:?}: method should be either 1 or 2", args.node)));
+        }
+        let fc = cells_of(args, "from", &t)?;
+        let tc = if args.get("to").is_some() { cells_of(args, "to", &t)? } else { fc.clone() };
+        let l = &t.layout;
+        let out = ffi::cost_rsp_distances(
+            &t.values,
+            &t.core(),
+            l.directions,
+            l.symmetric,
+            &fc,
+            &tc,
+            theta,
+            net_of(args)?,
+            method,
+        )
+        .map_err(|e| Error::msg(format!("node {:?}: {e}", args.node)))?;
+        Ok(outputs([("table", Value::Table(matrix_table(&out, fc.len(), tc.len())))]))
+    }
+}
+
+struct Normalize;
+
+impl Operator for Normalize {
+    fn signature(&self) -> OpSignature {
+        transition_port(OpSignature::new(
+            "cost.normalize",
+            "A transition normalised (gdistance's normalize): each row divided by its sum (the probabilities of a \
+             random walk; asymmetric), each column, or by the square roots of the row and column sums (stays \
+             symmetric).",
+            Access::Global,
+        ))
+        .output(PortSpec::new("transition", Type::Stack, "the normalised transition"))
+        .param(PortSpec::optional("method", Type::Text, "row (default), col or symm").choices(["row", "col", "symm"]))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let t = Transition::of(args, "transition")?;
+        let method: String = args.param("method", "row".to_string())?;
+        let (d, n) = (t.layout.directions, t.cells());
+        let out = match method.as_str() {
+            "row" | "col" => {
+                let inv: Vec<f64> = t
+                    .margin(if method == "row" { 0 } else { 1 }, false)?
+                    .iter()
+                    .map(|s| {
+                        let v = 1.0 / s;
+                        if v.is_infinite() { 0.0 } else { v }
+                    })
+                    .collect();
+                let v = t.relayout(d, false)?;
+                let out: Vec<f64> = if method == "row" {
+                    v.iter().enumerate().map(|(k, x)| x * inv[k % n]).collect()
+                } else {
+                    let nb = t.neighbours(d, false)?;
+                    v.iter().zip(&nb).map(|(x, &b)| if b >= 0 { x * inv[b as usize] } else { 0.0 }).collect()
+                };
+                t.like(out, d, false)
+            }
+            "symm" => {
+                let rs = ffi::cost_rmath("pow", &t.margin(0, false)?, -0.5)?;
+                let cs = ffi::cost_rmath("pow", &t.margin(1, false)?, -0.5)?;
+                let s = t.layout.symmetric;
+                let nb = t.neighbours(d, s)?;
+                let out: Vec<f64> = t
+                    .values
+                    .iter()
+                    .zip(&nb)
+                    .enumerate()
+                    .map(|(k, (&x, &b))| {
+                        if b < 0 || x == 0.0 {
+                            return 0.0;
+                        }
+                        let (cell, b) = ((k % n) as i64, b);
+                        // forceSymmetric: the upper triangle, (x * rs[lower]) * cs[higher]
+                        let (lo, hi) = if s { (cell.min(b), cell.max(b)) } else { (cell, b) };
+                        (x * rs[lo as usize]) * cs[hi as usize]
+                    })
+                    .collect();
+                t.like(out, d, s)
+            }
+            _ => return Err(Error::msg(format!("node {:?}: invalid method {method:?}: row, col or symm", args.node))),
+        };
+        Ok(outputs([("transition", out.value()?)]))
+    }
+}
+
+/// Two transitions on the same grid in their common layout: the most directions, symmetric when both are.
+fn common(a: &Transition, b: &Transition) -> Result<(Vec<f64>, Vec<f64>, i32, bool)> {
+    let (ga, gb) = (&a.grid, &b.grid);
+    if ga.width != gb.width
+        || ga.height != gb.height
+        || a.layout.extent != b.layout.extent
+        || a.layout.lonlat != b.layout.lonlat
+    {
+        return Err(Error::msg("transitions on different grids"));
+    }
+    let d = a.layout.directions.max(b.layout.directions);
+    let s = a.layout.symmetric && b.layout.symmetric;
+    Ok((a.relayout(d, s)?, b.relayout(d, s)?, d, s))
+}
+
+fn two_transitions(sig: OpSignature) -> OpSignature {
+    sig.input(PortSpec::new("a", Type::Stack, "a transition"))
+        .input(PortSpec::new("b", Type::Stack, "another, on the same grid"))
+        .output(PortSpec::new("transition", Type::Stack, "the result"))
+}
+
+struct SumReciprocal;
+
+impl Operator for SumReciprocal {
+    fn signature(&self) -> OpSignature {
+        two_transitions(OpSignature::new(
+            "cost.sum_reciprocal",
+            "Two transitions of conductances as resistances in series (gdistance's sumReciprocal): 1 / (1/a + 1/b) \
+             on the connections.",
+            Access::Global,
+        ))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let fail = |e: Error| Error::msg(format!("node {:?}: {e}", args.node));
+        let resist = |t: Transition| -> Transition {
+            if t.layout.matrix_values != "conductance" {
+                return t;
+            }
+            let v = t
+                .values
+                .iter()
+                .map(|&x| if x != 0.0 { 1.0 / x } else { 0.0 })
+                .map(|x| if x.is_infinite() { 0.0 } else { x })
+                .collect();
+            let (d, s) = (t.layout.directions, t.layout.symmetric);
+            t.like(v, d, s)
+        };
+        let a = resist(Transition::of(args, "a")?);
+        let b = resist(Transition::of(args, "b")?);
+        let (va, vb, d, s) = common(&a, &b).map_err(fail)?;
+        let out: Vec<f64> = va
+            .iter()
+            .zip(&vb)
+            .map(|(x, y)| x + y)
+            .map(|x| if x != 0.0 { 1.0 / x } else { 0.0 })
+            .map(|x| if x.is_infinite() { 0.0 } else { x })
+            .collect();
+        let mut t = a.like(out, d, s);
+        t.layout.matrix_values = "conductance".into();
+        Ok(outputs([("transition", t.value()?)]))
+    }
+}
+
+struct Combine;
+
+impl Operator for Combine {
+    fn signature(&self) -> OpSignature {
+        two_transitions(OpSignature::new(
+            "cost.combine",
+            "Two transitions on the same grid added, subtracted or multiplied connection by connection \
+             (gdistance's Arith on TransitionLayers), in their common layout: the most directions, symmetric when \
+             both are.",
+            Access::Global,
+        ))
+        .param(PortSpec::optional("operation", Type::Text, "sum (default), difference or product").choices([
+            "sum",
+            "difference",
+            "product",
+        ]))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let fail = |e: Error| Error::msg(format!("node {:?}: {e}", args.node));
+        let (a, b) = (Transition::of(args, "a")?, Transition::of(args, "b")?);
+        let (va, vb, d, s) = common(&a, &b).map_err(fail)?;
+        let op: String = args.param("operation", "sum".to_string())?;
+        let f: fn(f64, f64) -> f64 = match op.as_str() {
+            "sum" => |x, y| x + y,
+            "difference" => |x, y| x - y,
+            "product" => |x, y| x * y,
+            _ => return Err(fail(Error::msg(format!("unknown operation {op:?}: sum, difference or product")))),
+        };
+        let out = va.iter().zip(&vb).map(|(x, y)| f(*x, *y)).collect();
+        Ok(outputs([("transition", a.like(out, d, s).value()?)]))
+    }
+}
+
+struct TransitionMath;
+
+impl Operator for TransitionMath {
+    fn signature(&self) -> OpSignature {
+        transition_port(OpSignature::new(
+            "cost.math",
+            "A function of a transition's values on its connections (landschaft's Transition.map, R's maths to the \
+             bit): sqrt, exp, log, pow (to a value), multiply (by a value) or divide (a value by each, the \
+             reciprocal for 1); NaN results leave the connection out.",
+            Access::Global,
+        ))
+        .output(PortSpec::new("transition", Type::Stack, "the result"))
+        .param(
+            PortSpec::new("function", Type::Text, "sqrt, exp, log, pow, multiply or divide")
+                .choices(["sqrt", "exp", "log", "pow", "multiply", "divide"]),
+        )
+        .param(PortSpec::optional("value", Type::Number, "the power, the factor or the dividend (default 1)"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let mut t = Transition::of(args, "transition")?;
+        let function: String = args.param("function", String::new())?;
+        let value: f64 = args.param("value", 1.0)?;
+        let on: Vec<usize> = (0..t.values.len()).filter(|&k| t.values[k] != 0.0).collect();
+        let x: Vec<f64> = on.iter().map(|&k| t.values[k]).collect();
+        let y: Vec<f64> = match function.as_str() {
+            "sqrt" | "exp" | "log" | "pow" => ffi::cost_rmath(&function, &x, value)?,
+            "multiply" => {
+                // tr * number: every value
+                t.values.iter_mut().for_each(|v| *v *= value);
+                return Ok(outputs([("transition", t.value()?)]));
+            }
+            "divide" => x.iter().map(|v| value / v).collect(),
+            _ => return Err(Error::msg(format!("node {:?}: unknown function {function:?}", args.node))),
+        };
+        let mut out = vec![0.0; t.values.len()];
+        for (&k, v) in on.iter().zip(y) {
+            out[k] = v;
+        }
+        clean(&mut out);
+        t.values = out;
+        Ok(outputs([("transition", t.value()?)]))
+    }
+}
+
+const REDUCE: [&str; 6] = ["NZcolMeans", "NZrowMeans", "colSums", "rowSums", "colMeans", "rowMeans"];
+
+struct ToMap;
+
+impl Operator for ToMap {
+    fn signature(&self) -> OpSignature {
+        transition_port(OpSignature::new(
+            "cost.to_map",
+            "A map of each cell's connections (gdistance's raster() of a TransitionLayer): sums or means of the \
+             matrix's columns (connections into the cell) or rows (out of it); NZ: the mean over the connections \
+             only (no value without any).",
+            Access::Global,
+        ))
+        .output(PortSpec::new("map", Type::Map, "a value per cell"))
+        .param(PortSpec::optional("reduce", Type::Text, "NZcolMeans (default)...").choices(REDUCE))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let t = Transition::of(args, "transition")?;
+        let reduce: String = args.param("reduce", "NZcolMeans".to_string())?;
+        if !REDUCE.contains(&reduce.as_str()) {
+            return Err(Error::msg(format!("node {:?}: reduce must be one of {}", args.node, REDUCE.join(", "))));
+        }
+        let margin = if reduce.contains("col") { 1 } else { 0 };
+        let sums = t.margin(margin, false)?;
+        let n = t.cells() as f64;
+        let out: Vec<f64> = if reduce.starts_with("NZ") {
+            sums.iter().zip(t.margin(margin, true)?).map(|(s, c)| s / c).collect()
+        } else if reduce.ends_with("Means") {
+            sums.iter().map(|s| s / n).collect()
+        } else {
+            sums
+        };
+        Ok(outputs([("map", Value::Map(Map::new(t.grid.clone(), out)))]))
     }
 }

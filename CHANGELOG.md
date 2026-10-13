@@ -6,6 +6,17 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Random walks over grid distances (landschaft's cost module, gdistance's through its C++):
+  `cost.commute_distance` (the expected commute distances, each separate part of the graph with its own volume),
+  `cost.passage` (the net passages of a random walk, gdistance's grounded cell or the exact currents; with theta,
+  randomised shortest paths, net or total), `cost.rsp_distance` (methods 1 and 2, net or total). And the
+  matrix's own algebra: `cost.normalize` (row, col, symm), `cost.sum_reciprocal`, `cost.combine` (sum,
+  difference, product in the common layout), `cost.math` (R's sqrt, exp, log and powers, factors and
+  reciprocals on the connections) and `cost.to_map` (gdistance's raster(): sums and means of rows and columns).
+  The same as landschaft's, to the bit, but for RSP's method 2, whose Eigen SparseLU changes its last bits from
+  run to run in landschaft itself (within 1e-12).
+
 ## [0.31.0] - 2026-10-13
 
 ### Added
