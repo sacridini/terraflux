@@ -161,7 +161,7 @@ fn like_the_exact_engine() {
                 &mut ctx,
                 &land,
                 &p,
-                &fitted.markov,
+                terraflux_ops::dinamica::Rates::One(&fitted.markov),
                 &fitted.patches,
                 k,
                 seed as i64,

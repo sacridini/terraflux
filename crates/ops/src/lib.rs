@@ -169,6 +169,13 @@ impl Args<'_> {
         }
     }
 
+    pub fn regional(&self, port: &str) -> Result<&Arc<value::Regional>> {
+        match self.get(port).ok_or_else(|| self.missing(port))? {
+            Value::Regional(m) => Ok(m),
+            v => Err(self.wrong(port, "regional demand", v)),
+        }
+    }
+
     pub fn glm(&self, port: &str) -> Result<&Arc<GlmModel>> {
         match self.get(port).ok_or_else(|| self.missing(port))? {
             Value::Glm(m) => Ok(m),

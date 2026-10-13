@@ -146,6 +146,24 @@ def bridge():
     model = S.Model(est, S.AreaDemand.from_maps(lu, times=[0, 14]), S.CLUE(max_diff=20, mean_diff=10),
                     S.Rules(elasticity=0.3))
     write("estimator", model, drv_path, dr, 9)
+    # regional demands: three regions in vertical bands, a corner of the map in none
+    shape = lu[0].shape
+    r = np.ones(shape)
+    r[:, shape[1] // 3:] = 2
+    r[:, 2 * shape[1] // 3:] = 3
+    r[: shape[0] // 4, 2 * shape[1] // 3:] = np.nan
+    regions = lu[0].copy(data=r)
+    lr = S.LogisticRegression().fit(lu[0], dr)
+    model = S.Model(lr, S.Regional.from_maps(regions, lu, times=[0, 14]), S.CLUE(max_diff=20, mean_diff=10),
+                    S.Rules(elasticity=0.3))
+    write("clue_regional", model, drv_path, dr, 11)
+    model = S.Model(lr, S.Regional.markov(regions, lu[0], lu[1], steps=14), S.CARS(steps=3, step_size=20,
+                                                                                  max_iter=500))
+    write("cars_regional", model, drv_path, dr, 12)
+    dyn = S.presets.dinamica(lu[0], lu[1], dr, steps=14, woe=250)
+    rates = {1: {(1, 2): 0.01, (3, 2): 0.02}, 2: {(1, 2): 0.03, (1, 3): 0.01}, 3: {(3, 4): 0.02, (4, 3): 0.01}}
+    alloc = S.ExpanderPatcher(expansion=0.5, expander=(4, 2, 1.5), patcher=(6, 4, 1.5), steps=5)
+    write("dinamica_regional", S.Model(dyn.potential, S.Regional(regions, rates), alloc), drv_path, dr, 13)
 
 
 def main():

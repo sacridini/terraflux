@@ -166,6 +166,25 @@ pub fn write_value(value: &Value, path: &Path, dtype: Option<&str>) -> Result<Pa
         Value::Table(t) => write_text(path, "csv", &t.to_csv()),
         Value::Markov(m) => write_text(path, "json", &json(&**m)?),
         Value::Demand(d) => write_text(path, "json", &json(&**d)?),
+        Value::Regional(r) => {
+            let parts: Vec<serde_json::Value> = r
+                .ids
+                .iter()
+                .zip(&r.parts)
+                .map(|(id, part)| {
+                    Ok(match part {
+                        terraflux_ops::value::RegionDemand::Demand(d) => {
+                            serde_json::json!({ "region": id, "demand": serde_json::to_value(&**d)? })
+                        }
+                        terraflux_ops::value::RegionDemand::Markov(m) => {
+                            serde_json::json!({ "region": id, "markov": serde_json::to_value(&**m)? })
+                        }
+                    })
+                })
+                .collect::<std::result::Result<_, serde_json::Error>>()
+                .map_err(|e| Error::Model(e.to_string()))?;
+            write_text(path, "json", &json(&parts)?)
+        }
         Value::Glm(g) => write_text(path, "json", &json(&**g)?),
         Value::Woe(w) => write_text(path, "json", &json(&**w)?),
         Value::Patches(p) => write_text(path, "json", &json(&**p)?),

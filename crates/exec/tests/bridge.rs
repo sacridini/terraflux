@@ -45,3 +45,18 @@ fn cars_saved_by_landschaft() {
 fn estimator_saved_by_landschaft_as_its_predictions() {
     case("estimator");
 }
+
+#[test]
+fn regional_clue_saved_by_landschaft() {
+    case("clue_regional");
+}
+
+#[test]
+fn regional_cars_saved_by_landschaft() {
+    case("cars_regional");
+}
+
+#[test]
+fn regional_dinamica_saved_by_landschaft() {
+    case("dinamica_regional");
+}

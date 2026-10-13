@@ -8,7 +8,7 @@ use serde::Deserialize;
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 use terraflux_ls_sys::{NbRule, ffi};
 
-use crate::value::class_label;
+use crate::value::{Regional, class_label};
 use crate::{Args, Ctx, Error, Key, Map, Operator, Outputs, Registry, Result, Table, Value, outputs};
 
 /// The allocation of the step.
@@ -159,14 +159,52 @@ pub struct Step {
     pub info: Table,
 }
 
-/// One step of landschaft's `Model.run` (lulcc's allocate) for a model without regions.
+/// The demand of a step: one for the whole map, or one per region.
+#[derive(Clone, Copy)]
+pub enum Demands<'a> {
+    One(&'a crate::Demand),
+    Regional(&'a Regional),
+}
+
+impl Demands<'_> {
+    fn classes(&self) -> Vec<f64> {
+        match self {
+            Demands::One(d) => d.classes.clone(),
+            Demands::Regional(r) => r.classes(),
+        }
+    }
+}
+
+/// The allocation's report over the regions: iterations and differences at their largest (the mean
+/// difference averaged), converged if all are.
+fn merge_info(infos: &[Vec<(String, f64)>]) -> Vec<(String, f64)> {
+    if infos.len() == 1 {
+        return infos[0].clone();
+    }
+    infos[0]
+        .iter()
+        .enumerate()
+        .map(|(j, (k, _))| {
+            let v: Vec<f64> = infos.iter().map(|i| i[j].1).collect();
+            let x = match k.as_str() {
+                "converged" => f64::from(u8::from(v.iter().all(|&x| x != 0.0))),
+                "mean_diff" => v.iter().sum::<f64>() / v.len() as f64,
+                _ => v.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+            };
+            (k.clone(), x)
+        })
+        .collect()
+}
+
+/// One step of landschaft's `Model.run` (lulcc's allocate); with regions, region by region in the order of
+/// their ids with the one generator (cells of no region keep their class).
 #[allow(clippy::too_many_arguments)]
 pub fn step(
     ctx: &mut Ctx,
     landscape: &Map,
     history: &Map,
     suitability: &crate::Stack,
-    demand: &crate::Demand,
+    demand: Demands<'_>,
     step: usize,
     rng: &mut terraflux_ls_sys::RRng,
     restrictions: Option<&Map>,
@@ -174,7 +212,7 @@ pub fn step(
 ) -> Result<Step> {
     let land = &landscape.data;
     let (ny, nx) = landscape.shape();
-    let classes = demand.classes.clone();
+    let classes = demand.classes();
     let nc = classes.len();
     let found = landscape.classes();
     let unknown: Vec<String> = found.iter().filter(|c| !classes.contains(c)).map(|&c| class_label(c)).collect();
@@ -220,71 +258,127 @@ pub fn step(
             }
         }
     }
-    let d = demand.at(step, &classes)?;
     let hist: Vec<i64> = cells.iter().map(|&i| history.data[i] as i64).collect();
     let mask: Vec<i64> = match restrictions {
         None => vec![1; n],
         Some(r) => cells.iter().map(|&i| if !r.data[i].is_nan() && r.data[i] != 0.0 { 0 } else { 1 }).collect(),
     };
-    if let Some(allowed) = &s.allowed {
-        if allowed.len() != nc || allowed.iter().any(|r| r.len() != nc) {
-            return Err(Error::msg("the conversion matrix must be square, one row and column per class"));
-        }
-        let prev = demand.at(step - 1, &classes)?;
-        let cd: Vec<f64> = d.iter().zip(&prev).map(|(a, b)| a - b).collect();
-        let rules: Vec<i64> = allowed.concat();
-        let am = ffi::allow_matrix(&x0, &hist, &classes, &cd, &rules)?;
-        for (t, a) in tprob.iter_mut().zip(&am) {
-            *t *= a;
-        }
-    }
-    let auto = ffi::auto_convert(&x0, &tprob, &classes, &mask)?;
-    for (i, &a) in auto.iter().enumerate() {
-        if !a.is_nan() {
-            x0[i] = a;
-            tprob[i * nc..(i + 1) * nc].fill(f64::NAN);
-        }
-    }
-    let mut info = vec![("step".to_string(), step as f64)];
-    let x1 = {
-        let mut rng = rng.pin_mut();
-        match &s.allocation {
-            Allocation::Clue { jitter, scale, max_iter, max_diff, mean_diff } => {
-                let mut t = vec![0.0; n * nc];
-                for i in 0..n {
-                    for j in 0..nc {
-                        t[j * n + i] = tprob[i * nc + j];
-                    }
-                }
-                let r =
-                    ffi::clues(&t, &x0, &d, &classes, *jitter, *scale, *max_iter, *max_diff, *mean_diff, rng.as_mut())?;
-                if !r.converged {
-                    ctx.warn(format!(
-                        "step {step}: the allocation did not meet the demand in {max_iter} iterations (largest \
-                         difference {} cells): the last one is kept",
-                        r.max_diff
-                    ));
-                }
-                info.push(("iterations".into(), r.iterations as f64));
-                info.push(("converged".into(), if r.converged { 1.0 } else { 0.0 }));
-                info.push(("max_diff".into(), r.max_diff));
-                info.push(("mean_diff".into(), r.mean_diff));
-                r.allocation
+    let rules: Option<Vec<i64>> = match &s.allowed {
+        Some(allowed) => {
+            if allowed.len() != nc || allowed.iter().any(|r| r.len() != nc) {
+                return Err(Error::msg("the conversion matrix must be square, one row and column per class"));
             }
-            Allocation::Ordered { order, stochastic } => {
-                let r = ffi::ordered(&tprob, &x0, &d, &classes, order, *stochastic, rng.as_mut())?;
-                if r.short_cells > 0 {
-                    ctx.warn(format!(
-                        "step {step}: the demand was not met by {} cells: too few cells could take a class",
-                        r.short_cells
-                    ));
+            Some(allowed.concat())
+        }
+        None => None,
+    };
+    // the groups of cells allocated together, each with its demand
+    let groups: Vec<(Vec<usize>, &crate::Demand, Option<f64>)> = match demand {
+        Demands::One(d) => vec![((0..n).collect(), d, None)],
+        Demands::Regional(r) => {
+            let mut members = vec![Vec::new(); r.ids.len()];
+            for (i, &cell) in cells.iter().enumerate() {
+                let k = r.index[cell];
+                if k >= 0 {
+                    members[k as usize].push(i);
                 }
-                info.push(("iterations".into(), r.iterations as f64));
-                info.push(("converged".into(), if r.converged { 1.0 } else { 0.0 }));
-                r.allocation
             }
+            let mut out = Vec::with_capacity(r.ids.len());
+            for (k, g) in members.into_iter().enumerate() {
+                out.push((g, r.demand(k)?.as_ref(), Some(r.ids[k])));
+            }
+            out
         }
     };
+    let mut x1 = x0.clone();
+    let mut infos = Vec::with_capacity(groups.len());
+    for (g, d_all, region) in &groups {
+        let m = g.len();
+        let d = d_all.at(step, &classes)?;
+        let mut tp: Vec<f64> = Vec::with_capacity(m * nc);
+        for &i in g {
+            tp.extend_from_slice(&tprob[i * nc..(i + 1) * nc]);
+        }
+        let mut xg: Vec<f64> = g.iter().map(|&i| x0[i]).collect();
+        if let Some(rules) = &rules {
+            let prev = d_all.at(step - 1, &classes)?;
+            let cd: Vec<f64> = d.iter().zip(&prev).map(|(a, b)| a - b).collect();
+            let hg: Vec<i64> = g.iter().map(|&i| hist[i]).collect();
+            let am = ffi::allow_matrix(&xg, &hg, &classes, &cd, rules)?;
+            for (t, a) in tp.iter_mut().zip(&am) {
+                *t *= a;
+            }
+        }
+        let mg: Vec<i64> = g.iter().map(|&i| mask[i]).collect();
+        let auto = ffi::auto_convert(&xg, &tp, &classes, &mg)?;
+        for (i, &a) in auto.iter().enumerate() {
+            if !a.is_nan() {
+                xg[i] = a;
+                tp[i * nc..(i + 1) * nc].fill(f64::NAN);
+            }
+        }
+        for (&i, &x) in g.iter().zip(&xg) {
+            x0[i] = x;
+        }
+        let place = region.map_or(String::new(), |id| format!(" in region {}", class_label(id)));
+        let mut info = Vec::new();
+        let xr = {
+            let mut rng = rng.pin_mut();
+            match &s.allocation {
+                Allocation::Clue { jitter, scale, max_iter, max_diff, mean_diff } => {
+                    let mut t = vec![0.0; m * nc];
+                    for i in 0..m {
+                        for j in 0..nc {
+                            t[j * m + i] = tp[i * nc + j];
+                        }
+                    }
+                    let r = ffi::clues(
+                        &t,
+                        &xg,
+                        &d,
+                        &classes,
+                        *jitter,
+                        *scale,
+                        *max_iter,
+                        *max_diff,
+                        *mean_diff,
+                        rng.as_mut(),
+                    )?;
+                    if !r.converged {
+                        ctx.warn(format!(
+                            "step {step}{place}: the allocation did not meet the demand in {max_iter} iterations \
+                             (largest difference {} cells): the last one is kept",
+                            r.max_diff
+                        ));
+                    }
+                    info.push(("iterations".to_string(), r.iterations as f64));
+                    info.push(("converged".into(), if r.converged { 1.0 } else { 0.0 }));
+                    info.push(("max_diff".into(), r.max_diff));
+                    info.push(("mean_diff".into(), r.mean_diff));
+                    r.allocation
+                }
+                Allocation::Ordered { order, stochastic } => {
+                    let r = ffi::ordered(&tp, &xg, &d, &classes, order, *stochastic, rng.as_mut())?;
+                    if r.short_cells > 0 {
+                        ctx.warn(format!(
+                            "step {step}{place}: the demand was not met by {} cells: too few cells could take a \
+                             class",
+                            r.short_cells
+                        ));
+                    }
+                    info.push(("iterations".to_string(), r.iterations as f64));
+                    info.push(("converged".into(), if r.converged { 1.0 } else { 0.0 }));
+                    r.allocation
+                }
+            }
+        };
+        for (&i, &x) in g.iter().zip(&xr) {
+            x1[i] = x;
+        }
+        infos.push(info);
+    }
+    let mut info = vec![("step".to_string(), step as f64)];
+    info.extend(merge_info(&infos));
     let mut out = vec![f64::NAN; land.len()];
     let mut hist_out = vec![f64::NAN; land.len()];
     for (i, &cell) in cells.iter().enumerate() {
@@ -325,6 +419,15 @@ impl Operator for History {
     }
 }
 
+/// The demand input of a step: `demand` or `regional`, one of them.
+fn demands<'a>(args: &'a Args) -> Result<Demands<'a>> {
+    match (args.get("demand"), args.get("regional")) {
+        (Some(_), None) => Ok(Demands::One(args.demand("demand")?.as_ref())),
+        (None, Some(_)) => Ok(Demands::Regional(args.regional("regional")?.as_ref())),
+        _ => Err(Error::msg(format!("node {:?}: give a demand or a regional demand, one of them", args.node))),
+    }
+}
+
 struct StepOp;
 
 impl Operator for StepOp {
@@ -339,7 +442,8 @@ impl Operator for StepOp {
         .input(PortSpec::new("landscape", Type::Map, "the map at the start of the step"))
         .input(PortSpec::new("history", Type::Map, "the steps each cell has had its class"))
         .input(PortSpec::new("suitability", Type::Stack, "a layer per class (e.g. glm.predict)"))
-        .input(PortSpec::new("demand", Type::Demand, "the cells of each class at each step"))
+        .input(PortSpec::optional("demand", Type::Demand, "the cells of each class at each step"))
+        .input(PortSpec::optional("regional", Type::Regional, "or a demand per region (demand.regional)"))
         .input(PortSpec::new("step", Type::Integer, "the step (1, 2...)"))
         .input(PortSpec::new("rng", Type::Rng, "R's generator, carried from step to step"))
         .input(PortSpec::optional("restrictions", Type::Map, "cells that keep their class (non-zero)"))
@@ -375,7 +479,7 @@ impl Operator for StepOp {
             args.map("landscape")?,
             args.map("history")?,
             args.stack("suitability")?,
-            args.demand("demand")?,
+            demands(args)?,
             k as usize,
             &mut guard,
             args.opt_map("restrictions")?,
