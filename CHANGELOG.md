@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-10-13
+
 ### Added
 - Phylogenetic trees and indices (landschaft's bio module): a new type of value, the tree, and `bio.tree` (a
   Newick or Nexus file read as Biodiverse reads it: unnamed nodes `0___`..., `__dup` names, the Translate table,
