@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.38.0] - 2026-10-13
+
 ### Added
 - Properties and label matrices of Biodiverse's analyses (landschaft's bio module): `bio.properties` (label or
   group properties of a basedata from a Biodiverse properties file; they feed the lbprop and gpprop
