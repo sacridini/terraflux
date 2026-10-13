@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.48.0] - 2026-10-13
+
 ### Added
 - Saura's ProtConn (Makurhini's MK_ProtConn, landschaft's protconn): `conn.protconn` (the protected areas
   clipped to a region and dissolved, transboundary ones around the nodes or the region, the region's parts
