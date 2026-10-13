@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-10-13
+
 ### Added
 - The rest of landschaft's grid distances: `cost.barriers` (the connections across a boundary: per break of
   continuous values, or per pair of categories in gdistance's order, one or both ways) and `cost.areas` (per
