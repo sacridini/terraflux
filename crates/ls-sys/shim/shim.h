@@ -59,6 +59,7 @@ struct RunsOut;
 struct OmniscapeOut;
 struct CircuitOut;
 struct PathsOut;
+struct EdgesOut;
 struct CommuteOut;
 struct PlaneOut;
 struct BearingOut;
@@ -501,6 +502,16 @@ rust::Vec<double> cost_rsp_passages(rust::Slice<const double> values, rust::Slic
 rust::Vec<double> cost_rsp_distances(rust::Slice<const double> values, rust::Slice<const double> grid,
                                      std::int32_t directions, bool symmetric, rust::Slice<const std::int64_t> from,
                                      rust::Slice<const std::int64_t> to, double theta, bool net, std::int32_t method);
+EdgesOut cost_graph_edges(rust::Slice<const double> values, rust::Slice<const double> grid, std::int32_t directions,
+                          bool symmetric);
+rust::Vec<double> cost_path_flows(rust::Slice<const double> values, rust::Slice<const double> grid,
+                                  std::int32_t directions, bool symmetric, std::int64_t origin,
+                                  rust::Slice<const std::int64_t> locs, double theta, bool quirk);
+rust::Vec<double> cost_path_overlap(rust::Slice<const double> fa, std::int64_t na, rust::Slice<const double> fb,
+                                    std::int64_t nb, std::int64_t ne, rust::Slice<const double> r, std::int64_t nr,
+                                    rust::Slice<const std::int32_t> functions, bool upper);
+rust::Vec<double> cost_r_cov(rust::Slice<const double> x, std::int64_t n, std::int64_t k);
+double cost_r_mean(rust::Slice<const double> x);
 PathsOut cost_paths(rust::Slice<const double> values, rust::Slice<const double> grid, std::int32_t directions,
                     bool symmetric, std::int64_t origin, rust::Slice<const std::int64_t> goals);
 

@@ -23,8 +23,8 @@
 #include "circuit/omniscape.hpp"
 #include "cost/randomwalk.hpp"
 #include "cost/rsp.hpp"
+#include "lsm/extended.hpp"
 #include "cost/shortest.hpp"
-#include "lsm/rmath.hpp"
 #include "surf/surface.hpp"
 #include "sim/clumondo.hpp"
 #include "sim/futures.hpp"
@@ -2594,6 +2594,83 @@ rust::Vec<double> cost_rsp_distances(rust::Slice<const double> values, rust::Sli
     return to_rust<double>(cost::rsp_distances(t, std::vector<std::int64_t>(from.begin(), from.end()),
                                                std::vector<std::int64_t>(to.begin(), to.end()), o));
 }
+
+EdgesOut cost_graph_edges(rust::Slice<const double> values, rust::Slice<const double> grid, std::int32_t directions,
+                          bool symmetric) {
+    const cost::Grid g = cost_grid(grid);
+    cost_check(g, directions, symmetric, values.size());
+    const cost::Layout t{&g, directions, symmetric, values.data()};
+    cost::GraphEdges e = cost::rsp_edges(t);
+    EdgesOut out;
+    out.from = to_rust<std::int64_t>(e.from);
+    out.to = to_rust<std::int64_t>(e.to);
+    out.value = to_rust<double>(e.t);
+    return out;
+}
+
+rust::Vec<double> cost_path_flows(rust::Slice<const double> values, rust::Slice<const double> grid,
+                                  std::int32_t directions, bool symmetric, std::int64_t origin,
+                                  rust::Slice<const std::int64_t> locs, double theta, bool quirk) {
+    const cost::Grid g = cost_grid(grid);
+    cost_check(g, directions, symmetric, values.size());
+    const cost::Layout t{&g, directions, symmetric, values.data()};
+    const std::vector<std::int64_t> cells(locs.begin(), locs.end());
+    if (std::isnan(theta)) {  // random walk
+        const cost::WalkGraph wg = cost::walk_graph(t);
+        const std::int32_t o = origin >= 0 && origin < g.ncell() ? wg.node_of[static_cast<std::size_t>(origin)] : -1;
+        check(o >= 0, "the origin is not on the transition's graph");
+        std::vector<std::int32_t> nodes;
+        for (const std::int64_t c : cells)
+            nodes.push_back(c >= 0 && c < g.ncell() ? wg.node_of[static_cast<std::size_t>(c)] : -1);
+        return to_rust<double>(cost::walk_flows(wg, o, nodes, quirk, directions != 16 && !g.wrap, g.nx));
+    }
+    return to_rust<double>(cost::rsp_flows(t, origin, cells, theta));
+}
+
+rust::Vec<double> cost_path_overlap(rust::Slice<const double> fa, std::int64_t na, rust::Slice<const double> fb,
+                                    std::int64_t nb, std::int64_t ne, rust::Slice<const double> r, std::int64_t nr,
+                                    rust::Slice<const std::int32_t> functions, bool upper) {
+    check(static_cast<std::int64_t>(fa.size()) == na * ne && static_cast<std::int64_t>(fb.size()) == nb * ne &&
+              static_cast<std::int64_t>(r.size()) == nr * ne,
+          "flows (locations x connections) and weights (layers x connections)");
+    const std::vector<int> fns(functions.begin(), functions.end());
+    const auto nf = static_cast<std::int64_t>(fns.size());
+    std::vector<double> out(static_cast<std::size_t>(nf * nr * na * nb), std::numeric_limits<double>::quiet_NaN());
+    cost::path_overlap(fa.data(), na, fb.data(), nb, ne, r.data(), nr, fns, upper, out.data());
+    return to_rust<double>(std::move(out));
+}
+
+rust::Vec<double> cost_r_cov(rust::Slice<const double> x, std::int64_t n, std::int64_t k) {
+    // R's cov(x) (cov.c, cov_na_1, no missing values): column means in two passes, sums of products of
+    // deviations, all in LDOUBLE (landschaft's cost_r_cov)
+    check(static_cast<std::int64_t>(x.size()) == n * k, "x must be n x k");
+    using E = lsm::Extended;
+    const double* px = x.data();
+    std::vector<double> mean(static_cast<std::size_t>(k));
+    for (std::int64_t j = 0; j < k; ++j) {
+        E s = 0.0;
+        for (std::int64_t r = 0; r < n; ++r) s += px[r * k + j];
+        E t = s / E(static_cast<double>(n));
+        if (std::isfinite(static_cast<double>(t))) {
+            s = 0.0;
+            for (std::int64_t r = 0; r < n; ++r) s += E(px[r * k + j]) - t;
+            t = t + s / E(static_cast<double>(n));
+        }
+        mean[j] = static_cast<double>(t);
+    }
+    std::vector<double> out(static_cast<std::size_t>(k * k));
+    for (std::int64_t i = 0; i < k; ++i) {
+        for (std::int64_t j = 0; j <= i; ++j) {
+            E s = 0.0;
+            const E xm = mean[i], ym = mean[j];
+            for (std::int64_t r = 0; r < n; ++r) s += (E(px[r * k + i]) - xm) * (E(px[r * k + j]) - ym);
+            out[i * k + j] = out[j * k + i] = static_cast<double>(s / E(static_cast<double>(n - 1)));
+        }
+    }
+    return to_rust<double>(std::move(out));
+}
+
+double cost_r_mean(rust::Slice<const double> x) { return lsm::r_mean(x.data(), static_cast<std::int64_t>(x.size())); }
 
 PathsOut cost_paths(rust::Slice<const double> values, rust::Slice<const double> grid, std::int32_t directions,
                     bool symmetric, std::int64_t origin, rust::Slice<const std::int64_t> goals) {

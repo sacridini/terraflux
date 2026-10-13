@@ -6,6 +6,15 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- The rest of landschaft's grid distances: `cost.barriers` (the connections across a boundary: per break of
+  continuous values, or per pair of categories in gdistance's order, one or both ways) and `cost.areas` (per
+  category), sets of transitions in one stack (the layout's `count`); `cost.mahal` (gdistance's Mahalanobis
+  transition of a stack of maps: R's cov, solve, %*% and mean, LAPACK's recursive LU over R's BLAS rewritten
+  in Rust); and `cost.path_inc` (the overlap and non-overlap of the routes from a common origin, random walks or
+  randomised shortest paths, weighted by the costs, a transition or a set). The same as landschaft's, to the
+  bit.
+
 ## [0.32.0] - 2026-10-13
 
 ### Added

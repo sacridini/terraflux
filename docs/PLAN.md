@@ -619,8 +619,10 @@ Pendências:
   (com e sem theta), `cost.rsp_distance`, `cost.normalize`, `cost.sum_reciprocal`, `cost.combine`, `cost.math` e
   `cost.to_map`, bit a bit com o landschaft (o método 2 do RSP, pelo SparseLU do Eigen, varia nos últimos bits de
   uma execução para outra no próprio landschaft; testado a 1e-12).
-- **Próximos (2026-10-13):** o resto do `cost` (path_inc, barreiras e áreas, Mahalanobis), biodiversidade
-  (`bio`), incerteza, lotes; o resto
+- **Distâncias na grade — o resto (0.33.0, 2026-10-13):** `cost.barriers`, `cost.areas` (conjuntos de
+  transições numa pilha), `cost.mahal` (o `solve` do R reescrito em Rust) e `cost.path_inc`, bit a bit com o
+  landschaft. O módulo `cost` está todo no Terraflux.
+- **Próximos (2026-10-13):** biodiversidade (`bio`), incerteza, lotes; o resto
   dos circuitos (redes, pares incluídos, os arquivos .ini); os instaladores de macOS e Linux;
   `vector.exact_sum` e `vector.distance` fora da memória.
 

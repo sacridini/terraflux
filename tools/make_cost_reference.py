@@ -11,6 +11,8 @@ same over its populations (pop_coord.csv). On a global grid that wraps around (c
 the accumulated cost, the least costs and the paths across the 180th meridian. Then the random walks and the
 matrix's algebra (cost_walk.npz): commute distances, passages with and without theta, randomised-shortest-path
 distances, normalize, sumReciprocal, sums of transitions, R's maths on the connections and the summaries of cells.
+Last the barriers, areas and Mahalanobis transitions and pathInc (cost_inc.npz) on maungawhau's classes and
+layers, written here (cost_classes.tif, cost_layers.tif).
 
 Run with the landschaft the submodule points at installed.
 """
@@ -152,6 +154,55 @@ def walk_cases() -> None:
     print(REF / "cost_walk.npz", len(out))
 
 
+def inc_cases() -> None:
+    import rasterio
+
+    out: dict[str, np.ndarray] = {}
+    m = C.example_data("maungawhau")
+    with rasterio.open(m) as src:
+        z = src.read(1).astype(np.float64)
+        profile = dict(driver="GTiff", width=src.width, height=src.height, crs=src.crs, transform=src.transform)
+    classes = np.digitize(z, [110, 150]) + 1.0  # 1, 2, 3
+    classes[40:44, 20:24] = np.nan
+    with rasterio.open(REF / "cost_classes.tif", "w", count=1, dtype="float64", nodata=np.nan, **profile) as dst:
+        dst.write(classes, 1)
+    rng = np.random.default_rng(11)
+    layers = np.stack([z, np.sqrt(z) * 3.0 + rng.normal(0, 1, z.shape), rng.uniform(0, 5, z.shape)])
+    layers[2, 10:12, 30:33] = np.nan
+    with rasterio.open(REF / "cost_layers.tif", "w", count=3, dtype="float64", nodata=np.nan, **profile) as dst:
+        dst.write(layers)
+    cls = REF / "cost_classes.tif"
+    for d in (4, 8, 16):
+        out[f"mahal/{d}"] = C.transition(REF / "cost_layers.tif", "mahal", d).values
+    for k, t in enumerate(C.barriers(m, 8, breaks=[110, 150])):
+        out[f"barriers/breaks/{k}"] = t.values
+    for sym in (True, False):
+        for k, t in enumerate(C.barriers(cls, 8, symmetric=sym)):
+            out[f"barriers/{int(sym)}/{k}"] = t.values
+    for d in (4, 16):
+        for k, t in enumerate(C.areas(cls, d)):
+            out[f"areas/{d}/{k}"] = t.values
+    sym = C.geo_correction(1 / C.transition(m, "mean", 8, True), "r")
+    asym = C.geo_correction(1 / C.transition(m, "from", 8, False), "r")
+    origin = M_POINTS[2]
+    locs = np.array(M_POINTS)
+    for key, kw in (("rw", {}), ("rw_exact", {"gdistance_compat": False}), ("weights", {"weight": C.barriers(cls, 8)}),
+                    ("areas", {"weight": C.areas(cls, 8)}), ("one", {"weight": C.transition(m, "max", 8)})):
+        r = C.path_inc(sym, origin, locs, **kw)
+        for f, v in r.items():
+            out[f"inc/{key}/{f}"] = v
+    r = C.path_inc(sym, origin, locs, np.array(M_TO))
+    for f, v in r.items():
+        out[f"inc/to/{f}"] = v
+    for name, tr in (("sym", sym), ("asym", asym)):
+        r = C.path_inc(tr, origin, locs[:4], theta=0.001)
+        for f, v in r.items():
+            out[f"inc/theta/{name}/{f}"] = v
+    np.savez_compressed(REF / "cost_inc.npz", **{k: np.ascontiguousarray(v, dtype=np.float64) for k, v in out.items()})
+    print(REF / "cost_inc.npz", len(out))
+
+
 if __name__ == "__main__":
     main()
     walk_cases()
+    inc_cases()

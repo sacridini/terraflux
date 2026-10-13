@@ -3,11 +3,13 @@
 //! distances (geoCorrection), and over them the accumulated cost from origins (accCost), the least costs between
 //! points (costDistance) and the least-cost paths (shortestPath); random walks over them (commuteDistance,
 //! passage, rSPDistance), and the matrix's own algebra (normalize, sumReciprocal, sums of transitions, R's
-//! maths on the connections, the summary of each cell's).
+//! maths on the connections, the summary of each cell's); the barrier, area and Mahalanobis transitions and the
+//! overlap of routes from a common origin (pathInc).
 //!
 //! A transition is a stack of a layer per direction (the value of the connection from each cell in that
 //! direction, 0 none; a symmetric one keeps the directions after (0, 0) only, as landschaft's `Transition`) whose
-//! grid carries its layout in the metadata item `terraflux_transition`.
+//! grid carries its layout in the metadata item `terraflux_transition`. A set of transitions of one layout (the
+//! barriers or areas of a map) is one stack of all their layers, the layout's `count` saying how many.
 
 use std::sync::Arc;
 
@@ -36,6 +38,10 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(Combine));
     r.add(Arc::new(TransitionMath));
     r.add(Arc::new(ToMap));
+    r.add(Arc::new(Barriers));
+    r.add(Arc::new(Areas));
+    r.add(Arc::new(Mahal));
+    r.add(Arc::new(PathInc));
 }
 
 /// A transition's layout and grid (landschaft's GridInfo): what its stack's grid carries.
@@ -50,6 +56,17 @@ pub struct Layout {
     pub lonlat: bool,
     /// A global longitude/latitude grid: the columns wrap around.
     pub wrap: bool,
+    /// The transitions in the stack (a set: barriers, areas).
+    #[serde(default = "one", skip_serializing_if = "is_one")]
+    pub count: usize,
+}
+
+fn one() -> usize {
+    1
+}
+
+fn is_one(n: &usize) -> bool {
+    *n == 1
 }
 
 /// A transition: its values (directions x cells, row-major), layout and the grid of its map.
@@ -89,6 +106,52 @@ impl Transition {
         }))
     }
 
+    /// A set of transitions of one layout on one grid as a value: a stack of all their layers.
+    pub fn set_value(set: Vec<Transition>) -> Result<Value> {
+        let Some(first) = set.first() else { return Err(Error::msg("no transitions")) };
+        let offs = first.offsets()?;
+        let n = first.cells();
+        let mut layout = first.layout.clone();
+        layout.count = set.len();
+        let mut g = (*first.grid).clone();
+        g.geo.set_item(ITEM, Some(&serde_json::to_string(&layout).unwrap()));
+        let (mut keys, mut layers) = (Vec::new(), Vec::new());
+        for (k, t) in set.iter().enumerate() {
+            keys.extend(offs.iter().map(|(r, c)| Key::Name(format!("{}/{r},{c}", k + 1))));
+            layers.extend(t.values.chunks(n.max(1)).map(|c| Arc::new(c.to_vec())));
+        }
+        Ok(Value::Stack(Stack { grid: Arc::new(g), keys, layers }))
+    }
+
+    /// The transitions of a node's port: one, or a set.
+    pub fn set_of(args: &Args, port: &str) -> Result<Vec<Transition>> {
+        let fail = |m: &str| Error::msg(format!("node {:?}: {port}: {m}", args.node));
+        let Some(Value::Stack(s)) = args.get(port) else { return Err(fail("connect a transition (cost.transition)")) };
+        let layout: Layout = s
+            .grid
+            .geo
+            .item(ITEM)
+            .and_then(|t| serde_json::from_str(t).ok())
+            .ok_or_else(|| fail("a transition (cost.transition), not any stack"))?;
+        let mut g = (*s.grid).clone();
+        g.geo.set_item(ITEM, None);
+        let grid = Arc::new(g);
+        let nd = offsets(layout.directions, layout.symmetric)?.len();
+        if layout.count == 0 || s.layers.len() != nd * layout.count {
+            return Err(fail("its layers do not match its directions"));
+        }
+        let n = grid.width * grid.height;
+        Ok(s.layers
+            .chunks(nd)
+            .map(|ls| Transition {
+                values: ls.iter().flat_map(|l| l.iter().copied()).collect(),
+                layout: Layout { count: 1, ..layout.clone() },
+                grid: grid.clone(),
+            })
+            .filter(|t| t.values.len() == nd * n)
+            .collect())
+    }
+
     /// The transition of a node's port.
     pub fn of(args: &Args, port: &str) -> Result<Transition> {
         let fail = |m: &str| Error::msg(format!("node {:?}: {port}: {m}", args.node));
@@ -99,6 +162,9 @@ impl Transition {
             .item(ITEM)
             .and_then(|t| serde_json::from_str(t).ok())
             .ok_or_else(|| fail("a transition (cost.transition), not any stack"))?;
+        if layout.count != 1 {
+            return Err(fail("a set of transitions (cost.barriers, cost.areas): weights of cost.path_inc"));
+        }
         let mut g = (*s.grid).clone();
         g.geo.set_item(ITEM, None);
         let t =
@@ -361,7 +427,8 @@ impl Operator for TransitionOp {
             return Err(fail(Error::msg(format!("unknown function {function:?}; built-in: {}", BUILTINS.join(", ")))));
         }
         let (extent, lonlat, wrap) = grid_layout(&m.grid).map_err(fail)?;
-        let layout = Layout { directions, symmetric, matrix_values: "conductance".into(), extent, lonlat, wrap };
+        let layout =
+            Layout { directions, symmetric, matrix_values: "conductance".into(), extent, lonlat, wrap, count: 1 };
         let mut t = Transition { values: Vec::new(), layout, grid: m.grid.clone() };
         t.values = ffi::cost_builtin(&m.data, &t.core(), directions, symmetric, &function)?;
         if args.param("reciprocal", false)? {
@@ -975,5 +1042,616 @@ impl Operator for ToMap {
             sums
         };
         Ok(outputs([("map", Value::Map(Map::new(t.grid.clone(), out)))]))
+    }
+}
+
+/// An empty transition on a map's grid (its layout from the grid).
+fn on_grid(grid: &Arc<Grid>, directions: i32, symmetric: bool, matrix_values: &str) -> Result<Transition> {
+    if ![4, 8, 16].contains(&directions) {
+        return Err(Error::msg("directions must be 4, 8 or 16"));
+    }
+    let (extent, lonlat, wrap) = grid_layout(grid)?;
+    let layout = Layout { directions, symmetric, matrix_values: matrix_values.into(), extent, lonlat, wrap, count: 1 };
+    Ok(Transition { values: Vec::new(), layout, grid: grid.clone() })
+}
+
+/// gdistance's .matrIndex: the i-th pair (1-based) of n categories, (larger, smaller).
+fn matr_index(i: usize, n: usize) -> (usize, usize) {
+    let cc: Vec<i64> = (1..n)
+        .rev()
+        .scan(0i64, |s, v| {
+            *s += v as i64;
+            Some(*s)
+        })
+        .collect();
+    let second = cc.iter().position(|&c| c - i as i64 >= 0).unwrap() + 1;
+    let before = if second >= 2 { cc[second - 2] } else { 0 };
+    ((-before + i as i64 + second as i64) as usize, second)
+}
+
+struct Barriers;
+
+impl Operator for Barriers {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "cost.barriers",
+            "Barrier transitions of a map (gdistance's transition(x, \"barriers\")): each marks with 1 (as \
+             resistances) the connections that cross a boundary, as weights of cost.path_inc. With breaks: one \
+             per break, between a cell below it and one above; else the values are categories: one per pair of \
+             categories in gdistance's order ((2, 1), (3, 1), ..., (3, 2), ...), two (one per way) when not \
+             symmetric.",
+            Access::Global,
+        )
+        .input(PortSpec::new("map", Type::Map, "the values"))
+        .output(PortSpec::new("transitions", Type::Stack, "a set of transitions"))
+        .param(PortSpec::optional("directions", Type::Integer, "4, 8 (default) or 16").choices([4, 8, 16]))
+        .param(PortSpec::optional("breaks", Type::Any, "breaks of continuous values: [b1, b2, ...]"))
+        .param(PortSpec::optional("symmetric", Type::Bool, "categories: both ways in one (default true)"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let fail = |e: Error| Error::msg(format!("node {:?}: {e}", args.node));
+        let m = args.map("map")?;
+        let directions: i32 = args.param("directions", 8)?;
+        let base = on_grid(&m.grid, directions, false, "resistance").map_err(fail)?;
+        let flat = &m.data;
+        let mut set = Vec::new();
+        if let Some(breaks) = args.opt_param::<Vec<f64>>("breaks")? {
+            let lo = ffi::cost_builtin(flat, &base.core(), directions, false, "min")?;
+            let hi = ffi::cost_builtin(flat, &base.core(), directions, false, "max")?;
+            for b in breaks {
+                let hit = lo.iter().zip(&hi).map(|(l, h)| f64::from(u8::from(*l < b && *h > b))).collect();
+                set.push(base.like(hit, directions, false));
+            }
+        } else {
+            let mut cats: Vec<f64> = flat.iter().copied().filter(|v| v.is_finite()).collect();
+            cats.sort_by(f64::total_cmp);
+            cats.dedup();
+            let n = cats.len();
+            if n < 2 {
+                return Err(fail(Error::msg("barriers between categories need two or more")));
+            }
+            let nb = base.neighbours(directions, false)?;
+            let cells = flat.len();
+            let pair = |a: f64, b: f64, both: bool| -> Vec<f64> {
+                nb.iter()
+                    .enumerate()
+                    .map(|(k, &to)| {
+                        if to < 0 {
+                            return 0.0;
+                        }
+                        let (x, y) = (flat[k % cells], flat[to as usize]);
+                        f64::from(u8::from((x == a && y == b) || (both && x == b && y == a)))
+                    })
+                    .collect()
+            };
+            let symmetric: bool = args.param("symmetric", true)?;
+            for i in 1..=(n * n - n) / 2 {
+                let (j1, j2) = matr_index(i, n);
+                let (c1, c2) = (cats[j1 - 1], cats[j2 - 1]);
+                if symmetric {
+                    set.push(base.like(pair(c1, c2, true), directions, false));
+                } else {
+                    set.push(base.like(pair(c1, c2, false), directions, false));
+                    set.push(base.like(pair(c2, c1, false), directions, false));
+                }
+            }
+        }
+        if set.is_empty() {
+            return Err(fail(Error::msg("no barriers: give breaks")));
+        }
+        Ok(outputs([("transitions", Transition::set_value(set)?)]))
+    }
+}
+
+struct Areas;
+
+impl Operator for Areas {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "cost.areas",
+            "Area transitions of a map of categories (gdistance's transition(x, \"areas\")): one per category k \
+             (1, 2, ... n: the value k), 1 between two cells of it, 0.5 between one of it and another cell, as \
+             weights of cost.path_inc.",
+            Access::Global,
+        )
+        .input(PortSpec::new("map", Type::Map, "categories 1..n"))
+        .output(PortSpec::new("transitions", Type::Stack, "a set of transitions"))
+        .param(PortSpec::optional("directions", Type::Integer, "4, 8 (default) or 16").choices([4, 8, 16]))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let m = args.map("map")?;
+        let directions: i32 = args.param("directions", 8)?;
+        let base = on_grid(&m.grid, directions, true, "conductance")
+            .map_err(|e| Error::msg(format!("node {:?}: {e}", args.node)))?;
+        let flat = &m.data;
+        let mut cats: Vec<f64> = flat.iter().copied().filter(|v| v.is_finite()).collect();
+        cats.sort_by(f64::total_cmp);
+        cats.dedup();
+        let nb = base.neighbours(directions, true)?;
+        let cells = flat.len();
+        let set: Vec<Transition> = (1..=cats.len())
+            .map(|k| {
+                let k = k as f64;
+                let v = nb
+                    .iter()
+                    .enumerate()
+                    .map(|(e, &to)| {
+                        if to < 0 {
+                            return 0.0;
+                        }
+                        let (x, y) = (flat[e % cells], flat[to as usize]);
+                        if !x.is_finite() || !y.is_finite() {
+                            return 0.0;
+                        }
+                        (f64::from(u8::from(x == k)) + f64::from(u8::from(y == k))) / 2.0
+                    })
+                    .collect();
+                base.like(v, directions, true)
+            })
+            .collect();
+        if set.is_empty() {
+            return Err(Error::msg(format!("node {:?}: the map has no categories", args.node)));
+        }
+        Ok(outputs([("transitions", Transition::set_value(set)?)]))
+    }
+}
+
+/// raster::adjacent's direction order (row, column offsets), which sets the order of the pairs and so the bits of
+/// their mean.
+fn adjacent_order(directions: i32) -> &'static [(i64, i64)] {
+    match directions {
+        4 => &[(0, -1), (0, 1), (-1, 0), (1, 0)],
+        8 => &[(-1, -1), (0, -1), (1, -1), (-1, 1), (0, 1), (1, 1), (-1, 0), (1, 0)],
+        _ => &[
+            (-1, -2),
+            (1, -2),
+            (-1, 2),
+            (1, 2),
+            (-2, -1),
+            (-1, -1),
+            (0, -1),
+            (1, -1),
+            (2, -1),
+            (-2, 1),
+            (-1, 1),
+            (0, 1),
+            (1, 1),
+            (2, 1),
+            (-1, 0),
+            (1, 0),
+        ],
+    }
+}
+
+/// LAPACK 3.12's dgetrf2 (the recursive LU with partial pivoting) over R's reference BLAS, on the block
+/// a[r0.., c0..] of an n-column row-major matrix; ipiv 1-based, relative to the block (landschaft's _rlinalg).
+#[allow(clippy::too_many_arguments)]
+fn dgetrf2(
+    a: &mut [f64],
+    n_cols: usize,
+    r0: usize,
+    c0: usize,
+    m: usize,
+    n: usize,
+    ipiv: &mut [usize],
+    p0: usize,
+) -> usize {
+    let at = |r: usize, c: usize| r * n_cols + c;
+    let mut info = 0;
+    if m == 0 || n == 0 {
+        return 0;
+    }
+    if m == 1 {
+        ipiv[p0] = 1;
+        if a[at(r0, c0)] == 0.0 {
+            info = 1;
+        }
+    } else if n == 1 {
+        let sfmin = 2.2250738585072014e-308;
+        let (mut i, mut dmax) = (1, a[at(r0, c0)].abs());
+        for k in 2..=m {
+            if a[at(r0 + k - 1, c0)].abs() > dmax {
+                (i, dmax) = (k, a[at(r0 + k - 1, c0)].abs());
+            }
+        }
+        ipiv[p0] = i;
+        if a[at(r0 + i - 1, c0)] != 0.0 {
+            if i != 1 {
+                a.swap(at(r0, c0), at(r0 + i - 1, c0));
+            }
+            if a[at(r0, c0)].abs() >= sfmin {
+                let s = 1.0 / a[at(r0, c0)];
+                for k in 1..m {
+                    a[at(r0 + k, c0)] = s * a[at(r0 + k, c0)];
+                }
+            } else {
+                for k in 1..m {
+                    a[at(r0 + k, c0)] /= a[at(r0, c0)];
+                }
+            }
+        } else {
+            info = 1;
+        }
+    } else {
+        let n1 = m.min(n) / 2;
+        let n2 = n - n1;
+        let iinfo = dgetrf2(a, n_cols, r0, c0, m, n1, ipiv, p0);
+        if info == 0 && iinfo > 0 {
+            info = iinfo;
+        }
+        for i in 1..=n1 {
+            let ip = ipiv[p0 + i - 1];
+            if ip != i {
+                for j in c0 + n1..c0 + n {
+                    a.swap(at(r0 + i - 1, j), at(r0 + ip - 1, j));
+                }
+            }
+        }
+        // dtrsm L, L, N, U: A12 := L11^-1 A12
+        for j in c0 + n1..c0 + n {
+            for k in 0..n1 {
+                let bkj = a[at(r0 + k, j)];
+                for i in k + 1..n1 {
+                    a[at(r0 + i, j)] = a[at(r0 + i, j)] - bkj * a[at(r0 + i, c0 + k)];
+                }
+            }
+        }
+        // dgemm N, N: A22 := A22 - A21 A12
+        for j in 0..n2 {
+            for l in 0..n1 {
+                let temp = -a[at(r0 + l, c0 + n1 + j)];
+                for i in 0..m - n1 {
+                    a[at(r0 + n1 + i, c0 + n1 + j)] =
+                        a[at(r0 + n1 + i, c0 + n1 + j)] + temp * a[at(r0 + n1 + i, c0 + l)];
+                }
+            }
+        }
+        let iinfo = dgetrf2(a, n_cols, r0 + n1, c0 + n1, m - n1, n2, ipiv, p0 + n1);
+        if info == 0 && iinfo > 0 {
+            info = iinfo + n1;
+        }
+        for i in n1..m.min(n) {
+            ipiv[p0 + i] += n1;
+        }
+        for i in n1 + 1..=m.min(n) {
+            let ip = ipiv[p0 + i - 1];
+            if ip != i {
+                for j in c0..c0 + n1 {
+                    a.swap(at(r0 + i - 1, j), at(r0 + ip - 1, j));
+                }
+            }
+        }
+    }
+    info
+}
+
+/// R's solve(a): the inverse of a small square matrix (row-major), bit for bit (LAPACK's dgesv over R's BLAS).
+pub fn r_solve(a: &[f64], n: usize) -> Result<Vec<f64>> {
+    let mut lu = a.to_vec();
+    let mut ipiv = vec![0; n];
+    let info = dgetrf2(&mut lu, n, 0, 0, n, n, &mut ipiv, 0);
+    if info > 0 {
+        return Err(Error::msg(format!("Lapack routine dgesv: system is exactly singular: U[{info},{info}] = 0")));
+    }
+    let mut x: Vec<f64> = (0..n * n).map(|k| f64::from(u8::from(k / n == k % n))).collect();
+    let at = |r: usize, c: usize| r * n + c;
+    for i in 1..=n {
+        let ip = ipiv[i - 1];
+        if ip != i {
+            for j in 0..n {
+                x.swap(at(i - 1, j), at(ip - 1, j));
+            }
+        }
+    }
+    for j in 0..n {
+        for k in 0..n {
+            let bkj = x[at(k, j)];
+            for i in k + 1..n {
+                x[at(i, j)] = x[at(i, j)] - bkj * lu[at(i, k)];
+            }
+        }
+    }
+    for j in 0..n {
+        for k in (0..n).rev() {
+            x[at(k, j)] /= lu[at(k, k)];
+            let bkj = x[at(k, j)];
+            for i in 0..k {
+                x[at(i, j)] = x[at(i, j)] - bkj * lu[at(i, k)];
+            }
+        }
+    }
+    Ok(x)
+}
+
+/// (x %*% a) %*% x for every row x of d (n x k), as R computes it (two dgemv).
+fn quadratic_forms(d: &[f64], k: usize, a: &[f64]) -> Vec<f64> {
+    d.chunks(k)
+        .map(|x| {
+            let z: Vec<f64> = (0..k)
+                .map(|j| {
+                    let mut t = 0.0;
+                    for i in 0..k {
+                        t += a[i * k + j] * x[i];
+                    }
+                    0.0 + 1.0 * t
+                })
+                .collect();
+            let mut out = 0.0;
+            for j in 0..k {
+                out += (1.0 * x[j]) * z[j];
+            }
+            out
+        })
+        .collect()
+}
+
+struct Mahal;
+
+impl Operator for Mahal {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "cost.mahal",
+            "The Mahalanobis transition of a stack of maps (gdistance's transition(brick, \"mahal\")): for every \
+             pair of neighbouring cells with values in all maps, the Mahalanobis distance d between their values \
+             (with the inverse of the maps' covariance); the connection is mean(d) / (d + mean(d)). R's cov, \
+             solve, %*% and mean, to the bit.",
+            Access::Global,
+        )
+        .input(PortSpec::new("maps", Type::Stack, "two or more maps"))
+        .output(PortSpec::new("transition", Type::Stack, "a symmetric transition"))
+        .param(PortSpec::optional("directions", Type::Integer, "4, 8 (default) or 16").choices([4, 8, 16]))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let fail = |e: Error| Error::msg(format!("node {:?}: {e}", args.node));
+        let Some(Value::Stack(s)) = args.get("maps") else { return Err(fail(Error::msg("connect a stack of maps"))) };
+        let k = s.layers.len();
+        if k < 2 {
+            return Err(fail(Error::msg("the Mahalanobis transition needs two or more maps")));
+        }
+        let directions: i32 = args.param("directions", 8)?;
+        let mut t = on_grid(&s.grid, directions, true, "conductance").map_err(fail)?;
+        let (ny, nx) = (s.grid.height as i64, s.grid.width as i64);
+        let n = (ny * nx) as usize;
+        let row = |c: usize| -> Vec<f64> { s.layers.iter().map(|l| l[c]).collect() };
+        let complete: Vec<bool> = (0..n).map(|c| s.layers.iter().all(|l| !l[c].is_nan())).collect();
+        let data: Vec<usize> = (0..n).filter(|&c| complete[c]).collect();
+        // raster::adjacent(pairs = TRUE, target = the cells with data), in its order
+        let (mut froms, mut tos) = (Vec::new(), Vec::new());
+        for &(dr, dc) in adjacent_order(directions) {
+            for &c in &data {
+                let (r, col) = (c as i64 / nx, c as i64 % nx);
+                let (r2, mut c2) = (r + dr, col + dc);
+                if t.layout.wrap {
+                    c2 = c2.rem_euclid(nx);
+                }
+                if r2 < 0 || r2 >= ny || c2 < 0 || c2 >= nx {
+                    continue;
+                }
+                let to = (r2 * nx + c2) as usize;
+                if complete[to] {
+                    froms.push(c);
+                    tos.push(to);
+                }
+            }
+        }
+        let mut diff = Vec::with_capacity(froms.len() * k);
+        for (&a, &b) in froms.iter().zip(&tos) {
+            let (x, y) = (row(a), row(b));
+            diff.extend(x.iter().zip(&y).map(|(p, q)| p - q));
+        }
+        let obs: Vec<f64> = data.iter().flat_map(|&c| row(c)).collect();
+        let cov = ffi::cost_r_cov(&obs, data.len() as i64, k as i64)?;
+        let inv = r_solve(&cov, k).map_err(fail)?;
+        let q = quadratic_forms(&diff, k, &inv);
+        let d = ffi::cost_rmath("sqrt", &q, 0.0)?;
+        let m = ffi::cost_r_mean(&d);
+        let w: Vec<f64> = d.iter().map(|v| m / (v + m)).collect();
+        // both orientations of a pair carry the same bits: the lower cell first, into the symmetric layout
+        let nb = t.neighbours(directions, true)?;
+        let mut at = std::collections::HashMap::new();
+        for (p, &b) in nb.iter().enumerate() {
+            if b >= 0 {
+                let c = (p % n) as i64;
+                at.entry((c.min(b), c.max(b))).or_insert(p);
+            }
+        }
+        let mut out = vec![0.0; nb.len()];
+        for ((&a, &b), v) in froms.iter().zip(&tos).zip(w) {
+            if a < b
+                && let Some(&p) = at.get(&(a as i64, b as i64))
+            {
+                out[p] = v;
+            }
+        }
+        t.values = out;
+        Ok(outputs([("transition", t.value()?)]))
+    }
+}
+
+impl Transition {
+    /// The matrix's value at (from, to): the connection from a cell to a neighbour (0 none).
+    fn at(&self, offs: &[(i32, i32)], from: i64, to: i64) -> f64 {
+        let nx = self.grid.width as i64;
+        let (dr, mut dc) = (to / nx - from / nx, to % nx - from % nx);
+        if self.layout.wrap && dc.abs() > 2 {
+            dc = if dc > 0 { dc - nx } else { dc + nx };
+        }
+        let n = self.cells();
+        let find = |o: (i64, i64)| offs.iter().position(|&(r, c)| (i64::from(r), i64::from(c)) == o);
+        if let Some(k) = find((dr, dc)) {
+            return self.values[k * n + from as usize];
+        }
+        if self.layout.symmetric
+            && let Some(k) = find((-dr, -dc))
+        {
+            return self.values[k * n + to as usize];
+        }
+        0.0
+    }
+}
+
+struct PathInc;
+
+impl Operator for PathInc {
+    fn signature(&self) -> OpSignature {
+        transition_port(OpSignature::new(
+            "cost.path_inc",
+            "The overlap and non-overlap of the routes from a common origin to each location (gdistance's pathInc \
+             through landschaft's C++, van Etten & Hijmans 2010): the flow of a random walk (or, with theta, of \
+             randomised shortest paths) from the origin to each location on every connection, then for each pair \
+             of locations the sum over the connections of min(f1, f2) (overlap) or max(f1, f2)(1 - min) - min \
+             (non-overlap), weighted by the cost of each connection or by weights (a transition, or a set: \
+             cost.barriers, cost.areas; a result per transition).",
+            Access::Global,
+        ))
+        .input(PortSpec::new("origin", Type::Vector, "the common origin (one point)"))
+        .input(PortSpec::new("from", Type::Vector, "the locations"))
+        .input(PortSpec::optional("to", Type::Vector, "other locations (default: the pairs among from)"))
+        .input(PortSpec::optional("weights", Type::Stack, "a transition or a set (default: the costs)"))
+        .output(PortSpec::new("overlap", Type::Table, "a row per weight and location: its numbers, then each pair's"))
+        .output(PortSpec::new("nonoverlap", Type::Table, "the same, of the non-overlap"))
+        .param(PortSpec::optional("theta", Type::Number, "randomised shortest paths, 0 to 20 (default: random walks)"))
+        .param(PortSpec::optional(
+            "gdistance_compat",
+            Type::Bool,
+            "random walks: gdistance's grounded cell (default true)",
+        ))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let fail = |m: String| Error::msg(format!("node {:?}: {m}", args.node));
+        let t = Transition::of(args, "transition")?;
+        let theta = if args.params.get("theta").is_none_or(|v| v.is_null()) {
+            if !t.is_symmetric()? {
+                return Err(fail("path_inc without theta needs a symmetric transition".into()));
+            }
+            f64::NAN
+        } else {
+            theta_of(args)?
+        };
+        let oc = cells_of(args, "origin", &t)?;
+        if oc.len() != 1 || oc[0] < 0 {
+            return Err(fail("path_inc needs one origin inside the grid".into()));
+        }
+        let l = &t.layout;
+        let core = t.core();
+        let edges = ffi::cost_graph_edges(&t.values, &core, l.directions, l.symmetric)?;
+        let ne = edges.value.len();
+        let inf0 = |v: f64| if v.is_infinite() { 0.0 } else { v };
+        let r: Vec<Vec<f64>> = if args.get("weights").is_some() {
+            let set = Transition::set_of(args, "weights")?;
+            let mut r = Vec::new();
+            for w in set {
+                let (gw, gt) = (&w.grid, &t.grid);
+                if gw.width != gt.width
+                    || gw.height != gt.height
+                    || w.layout.extent != l.extent
+                    || w.layout.lonlat != l.lonlat
+                {
+                    return Err(fail("the weight is on another grid".into()));
+                }
+                let offs = w.offsets()?;
+                let conductance = w.layout.matrix_values == "conductance";
+                r.push(
+                    edges
+                        .from
+                        .iter()
+                        .zip(&edges.to)
+                        .map(|(&a, &b)| {
+                            let v = w.at(&offs, a, b);
+                            inf0(if conductance { 1.0 / v } else { v })
+                        })
+                        .collect(),
+                );
+            }
+            r
+        } else {
+            vec![edges.value.iter().map(|v| inf0(1.0 / v)).collect()]
+        };
+        let nr = r.len();
+        let rflat: Vec<f64> = r.concat();
+        let fc = cells_of(args, "from", &t)?;
+        let tc = if args.get("to").is_some() { Some(cells_of(args, "to", &t)?) } else { None };
+        let quirk: bool = args.param("gdistance_compat", true)?;
+        let flows = |cells: &[i64]| -> Result<(Vec<i64>, Vec<f64>)> {
+            let u = unique(cells);
+            let f = ffi::cost_path_flows(&t.values, &core, l.directions, l.symmetric, oc[0], &u, theta, quirk)
+                .map_err(|e| fail(e.to_string()))?;
+            Ok((u, f))
+        };
+        let (ua, fa) = flows(&fc)?;
+        let (ub, fb) = match &tc {
+            None => (ua.clone(), fa.clone()),
+            Some(tc) => flows(tc)?,
+        };
+        let (na, nb) = (ua.len(), ub.len());
+        let upper = tc.is_none();
+        let res = ffi::cost_path_overlap(&fa, na as i64, &fb, nb as i64, ne as i64, &rflat, nr as i64, &[0, 1], upper)?;
+        // locations off the graph (their flows are NaN): no result
+        let off = |f: &[f64], n: usize| -> Vec<bool> {
+            (0..n).map(|p| f[p * ne..(p + 1) * ne].iter().any(|v| v.is_nan())).collect()
+        };
+        let (off_a, off_b) = (off(&fa, na), off(&fb, nb));
+        let index =
+            |cells: &[i64], u: &[i64], off: &[bool]| -> Vec<i64> {
+                cells
+                    .iter()
+                    .map(|&c| {
+                        if c < 0 { -1 } else { u.binary_search(&c).map_or(-1, |p| if off[p] { -1 } else { p as i64 }) }
+                    })
+                    .collect()
+            };
+        let ia = index(&fc, &ua, &off_a);
+        let ib = match &tc {
+            None => ia.clone(),
+            Some(tc) => index(tc, &ub, &off_b),
+        };
+        let nt = ib.len();
+        let mut tables = Vec::new();
+        for f in 0..2 {
+            let mut table = Table::new(
+                ["weight".to_string(), "point".to_string()]
+                    .into_iter()
+                    .chain((1..=nt).map(|j| j.to_string()))
+                    .collect(),
+            );
+            for li in 0..nr {
+                let base = (f * nr + li) * na * nb;
+                let v = |p: usize, q: usize| -> f64 {
+                    let x = res[base + p * nb + q];
+                    if off_a[p] || off_b[q] {
+                        return f64::NAN;
+                    }
+                    x
+                };
+                // np.triu(v) + np.triu(v, 1).T
+                let sym = |p: usize, q: usize| -> f64 {
+                    let a = if p <= q { v(p, q) } else { 0.0 };
+                    let b = if q < p { v(q, p) } else { 0.0 };
+                    a + b
+                };
+                for (i, &pa) in ia.iter().enumerate() {
+                    let mut row = vec![(li + 1) as f64, (i + 1) as f64];
+                    for (j, &pb) in ib.iter().enumerate() {
+                        row.push(if pa < 0 || pb < 0 {
+                            f64::NAN
+                        } else if upper && i == j {
+                            0.0
+                        } else if upper {
+                            sym(pa as usize, pb as usize)
+                        } else {
+                            v(pa as usize, pb as usize)
+                        });
+                    }
+                    table.rows.push(row);
+                }
+            }
+            tables.push(table);
+        }
+        let non = tables.pop().unwrap();
+        Ok(outputs([("overlap", Value::Table(tables.pop().unwrap())), ("nonoverlap", Value::Table(non))]))
     }
 }

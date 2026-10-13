@@ -381,6 +381,13 @@ pub mod ffi {
         part: Vec<i32>,
     }
 
+    /// The connections of the graph of cells with outgoing connections, in flow order: from, to, value.
+    struct EdgesOut {
+        from: Vec<i64>,
+        to: Vec<i64>,
+        value: Vec<f64>,
+    }
+
     /// Least-cost paths: their cells, one after the other (offsets into them).
     struct PathsOut {
         cells: Vec<i64>,
@@ -1665,6 +1672,40 @@ pub mod ffi {
             net: bool,
             method: i32,
         ) -> Result<Vec<f64>>;
+        /// The connections (from, to, value) of the graph of cells with outgoing connections, in flow order
+        /// (pathInc's).
+        fn cost_graph_edges(values: &[f64], grid: &[f64], directions: i32, symmetric: bool) -> Result<EdgesOut>;
+        /// The flows on every connection from the origin to each location (pathInc): a random walk (theta NaN;
+        /// `quirk` gdistance's grounded cell) or randomised shortest paths; locations x connections.
+        #[allow(clippy::too_many_arguments)]
+        fn cost_path_flows(
+            values: &[f64],
+            grid: &[f64],
+            directions: i32,
+            symmetric: bool,
+            origin: i64,
+            locs: &[i64],
+            theta: f64,
+            quirk: bool,
+        ) -> Result<Vec<f64>>;
+        /// pathInc's sums of overlap (0) / nonoverlap (1) of flows (na x ne, nb x ne) weighted per connection
+        /// (nr x ne): functions x nr x na x nb, NaN where `upper` leaves the lower triangle out.
+        #[allow(clippy::too_many_arguments)]
+        fn cost_path_overlap(
+            fa: &[f64],
+            na: i64,
+            fb: &[f64],
+            nb: i64,
+            ne: i64,
+            r: &[f64],
+            nr: i64,
+            functions: &[i32],
+            upper: bool,
+        ) -> Result<Vec<f64>>;
+        /// R's cov() of a complete matrix (n observations x k variables, row-major), in long double.
+        fn cost_r_cov(x: &[f64], n: i64, k: i64) -> Result<Vec<f64>>;
+        /// R's mean() (long double, two passes).
+        fn cost_r_mean(x: &[f64]) -> f64;
         /// The cells of the least-cost paths from origin to each goal (igraph's ties).
         fn cost_paths(
             values: &[f64],

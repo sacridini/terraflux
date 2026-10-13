@@ -380,3 +380,78 @@ fn random_walks_are_landschafts() {
     );
     check("e/commute", &table(&c["table"]), &z["e/commute"]);
 }
+
+fn inc_table(v: &Value) -> Vec<f64> {
+    let Value::Table(t) = v else { panic!("not a table") };
+    t.rows.iter().flat_map(|r| r[2..].to_vec()).collect()
+}
+
+/// The barrier, area and Mahalanobis transitions and pathInc against landschaft's
+/// (tests/data/reference/cost_inc.npz, on maungawhau's classes and layers: cost_classes.tif, cost_layers.tif),
+/// to the bit.
+#[test]
+fn barriers_areas_mahal_and_path_inc_are_landschafts() {
+    let z = terraflux_raster::npy::read_npz(root().join("tests/data/reference/cost_inc.npz")).unwrap();
+    let cases: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root().join("tests/data/reference/cost.json")).unwrap()).unwrap();
+    let m = example("maungawhau");
+    let cls = open(root().join("tests/data/reference/cost_classes.tif"));
+    let p = root().join("tests/data/reference/cost_layers.tif");
+    let layers3 = Value::Stack(Rasters::open(p.to_str().unwrap(), None, None).unwrap().stack().unwrap());
+    for d in [4, 8, 16] {
+        let t = run("cost.mahal", vec![("maps", layers3.clone())], serde_json::json!({"directions": d}));
+        check(&format!("mahal/{d}"), &layers(&t["transition"]), &z[&format!("mahal/{d}")]);
+    }
+    let set = |v: &Value, prefix: &str| {
+        let got = layers(v);
+        let mut k = 0;
+        let mut off = 0;
+        while let Some(want) = z.get(&format!("{prefix}/{k}")) {
+            check(&format!("{prefix}/{k}"), &got[off..off + want.data.len()], want);
+            off += want.data.len();
+            k += 1;
+        }
+        assert!(k > 0 && off == got.len(), "{prefix}: {k} transitions, {off} of {}", got.len());
+    };
+    let b = run("cost.barriers", vec![("map", Value::Map(m.clone()))], serde_json::json!({"breaks": [110, 150]}));
+    set(&b["transitions"], "barriers/breaks");
+    for sym in [true, false] {
+        let b = run("cost.barriers", vec![("map", Value::Map(cls.clone()))], serde_json::json!({"symmetric": sym}));
+        set(&b["transitions"], &format!("barriers/{}", u8::from(sym)));
+    }
+    for d in [4, 16] {
+        let a = run("cost.areas", vec![("map", Value::Map(cls.clone()))], serde_json::json!({"directions": d}));
+        set(&a["transitions"], &format!("areas/{d}"));
+    }
+
+    let crs = terraflux_ops::prepare::crs_of(&m.grid);
+    let mc = &cases["maungawhau"];
+    let all = mc["points"].as_array().unwrap();
+    let pts = |r: std::ops::Range<usize>| points(&serde_json::Value::Array(all[r].to_vec()), crs.clone());
+    let sym = geo(&conductance(&m, "mean", 8, true), "r", false);
+    let asym = geo(&conductance(&m, "from", 8, false), "r", false);
+    let barriers = run("cost.barriers", vec![("map", Value::Map(cls.clone()))], serde_json::json!({}))
+        .remove("transitions")
+        .unwrap();
+    let areas =
+        run("cost.areas", vec![("map", Value::Map(cls.clone()))], serde_json::json!({})).remove("transitions").unwrap();
+    let max = transition(&m, "max", 8, true);
+    let inc = |tr: &Value, from: Value, extra: Vec<(&'static str, Value)>, params: serde_json::Value, key: &str| {
+        let mut inputs = vec![("transition", tr.clone()), ("origin", pts(2..3)), ("from", from)];
+        inputs.extend(extra);
+        let r = run("cost.path_inc", inputs, params);
+        for f in ["overlap", "nonoverlap"] {
+            let k = format!("inc/{key}/{f}");
+            check(&k, &inc_table(&r[f]), &z[&k]);
+        }
+    };
+    let n = all.len();
+    inc(&sym, pts(0..n), vec![], serde_json::json!({}), "rw");
+    inc(&sym, pts(0..n), vec![], serde_json::json!({"gdistance_compat": false}), "rw_exact");
+    inc(&sym, pts(0..n), vec![("weights", barriers)], serde_json::json!({}), "weights");
+    inc(&sym, pts(0..n), vec![("weights", areas)], serde_json::json!({}), "areas");
+    inc(&sym, pts(0..n), vec![("weights", max)], serde_json::json!({}), "one");
+    inc(&sym, pts(0..n), vec![("to", points(&mc["to"], crs.clone()))], serde_json::json!({}), "to");
+    inc(&sym, pts(0..4), vec![], serde_json::json!({"theta": 0.001}), "theta/sym");
+    inc(&asym, pts(0..4), vec![], serde_json::json!({"theta": 0.001}), "theta/asym");
+}
