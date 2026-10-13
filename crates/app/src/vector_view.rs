@@ -1,192 +1,129 @@
-//! Vector features as the viewer shows them: polygons' outlines, lines and points fitted to the pane (scroll to
-//! zoom, drag to move, double-click to fit again), the feature under the pointer named, and the attributes beside.
+//! Vector features as the viewer shows them: drawn as tiles by threads ([`crate::vector_tiles`]) over a grid that
+//! spans them (in their coordinate system, so a basemap can go under them), as smoothly whatever their number:
+//! scroll to zoom, drag to move, double-click to fit again; the feature under the pointer named with its
+//! attributes, the attributes' table and the style (a colour, or the colours of an attribute) beside.
 
-use egui::{Color32, Pos2, Rect, Sense, Shape, Stroke, Ui, Vec2};
-use terraflux_raster::vector::{Geometry, Vector, Xy};
+use std::sync::Arc;
 
-use crate::theme;
+use egui::Ui;
+use terraflux_raster::Grid;
+use terraflux_raster::vector::{Column, Geometry, Vector};
 
-/// The view: the zoom and the offset (in pane pixels) from the fitted view.
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct View {
-    zoom: f32,
-    offset: Vec2,
+use crate::map_view::{MapView, Source};
+use crate::palette::Coloring;
+use crate::vector_tiles::{Overlay, Style};
+
+/// The cells across the grid a layer is drawn on (along its longer side).
+const CELLS: f64 = 65536.0;
+
+/// A grid that spans the features (3 % around them), in their coordinate system.
+pub fn grid_over(v: &Vector) -> Grid {
+    let b = v.bounds().unwrap_or([0.0, 0.0, 1.0, 1.0]);
+    let (w, h) = (b[2] - b[0], b[3] - b[1]);
+    let side = w.max(h);
+    let side = if side > 0.0 { side * 1.06 } else { 1.0 };
+    let cell = side / CELLS;
+    let (cx, cy) = ((b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0);
+    let (nx, ny) = (((w * 1.06).max(cell) / cell).ceil() as usize, ((h * 1.06).max(cell) / cell).ceil() as usize);
+    let mut g = Grid::new(nx.max(1), ny.max(1));
+    g.transform = [cx - nx as f64 * cell / 2.0, cell, 0.0, cy + ny as f64 * cell / 2.0, 0.0, -cell];
+    g.geo.wkt = v.crs.clone();
+    g
 }
 
-impl Default for View {
-    fn default() -> Self {
-        View { zoom: 1.0, offset: Vec2::ZERO }
+/// The style of a layer's controls: a colour, the attribute that colours the features, the polygons' fill.
+pub fn style_controls(ui: &mut Ui, v: &Vector, style: &mut Style, id: egui::Id) {
+    ui.horizontal(|ui| {
+        ui.label("colour");
+        ui.color_edit_button_srgba(&mut style.colour);
+        let name = style.by.clone().unwrap_or_else(|| "one".into());
+        egui::ComboBox::from_id_salt(id.with("by")).selected_text(format!("by: {name}")).show_ui(ui, |ui| {
+            ui.selectable_value(&mut style.by, None, "one colour");
+            for (n, _) in &v.attributes {
+                ui.selectable_value(&mut style.by, Some(n.clone()), n);
+            }
+        });
+    });
+    if v.geometries.iter().any(Geometry::is_polygonal) {
+        ui.spacing_mut().slider_width = (ui.available_width() - 90.0).clamp(40.0, 160.0);
+        ui.add(egui::Slider::new(&mut style.fill, 0.0..=1.0).text("fill"));
     }
 }
 
-/// The features drawn in the space left, their attributes in a panel at the right.
-pub fn show(ui: &mut Ui, v: &Vector, id: egui::Id) {
+/// What the panel shows of a layer, worked out once: the grid it is drawn on, its attributes' table, its kinds
+/// of features and attributes of text.
+#[derive(Clone)]
+struct Summary {
+    key: usize,
+    grid: Option<Arc<Grid>>,
+    table: Arc<terraflux_ops::Table>,
+    counts: String,
+    texts: Vec<String>,
+}
+
+fn summary(v: &Arc<Vector>) -> Summary {
+    let (mut polygons, mut lines, mut points) = (0, 0, 0);
+    for g in &v.geometries {
+        if g.is_polygonal() {
+            polygons += 1;
+        } else if g.is_point() {
+            points += 1;
+        } else if matches!(g, Geometry::LineString(_) | Geometry::MultiLineString(_)) {
+            lines += 1;
+        }
+    }
+    Summary {
+        key: Arc::as_ptr(v) as usize,
+        grid: v.bounds().map(|_| Arc::new(grid_over(v))),
+        table: Arc::new(terraflux_ops::vector::attribute_table(v)),
+        counts: format!("{} features: {polygons} polygons, {lines} lines, {points} points", v.len()),
+        texts: v.attributes.iter().filter(|(_, c)| matches!(c, Column::Texts(_))).map(|(n, _)| n.clone()).collect(),
+    }
+}
+
+/// The features drawn in the space left, their attributes and style in a panel at the right. What is worked out
+/// of the features (their grid, table, counts) is kept while they are the same: nothing goes over them per frame.
+pub fn show(ui: &mut Ui, v: &Arc<Vector>, view: &mut MapView, id: egui::Id) {
+    let mut style: Style = ui.data(|d| d.get_temp(id.with("style"))).unwrap_or_default();
+    let key = Arc::as_ptr(v) as usize;
+    let sum = match ui.data(|d| d.get_temp::<Summary>(id.with("summary"))) {
+        Some(s) if s.key == key => s,
+        _ => {
+            let s = summary(v);
+            ui.data_mut(|d| d.insert_temp(id.with("summary"), s.clone()));
+            s
+        }
+    };
     egui::Panel::right(id.with("attributes"))
         .resizable(true)
         .default_size(300.0)
         .frame(egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(egui::Margin::same(8)))
         .show(ui, |ui| {
-            let kinds = |f: fn(&Geometry) -> bool| v.geometries.iter().filter(|g| f(g)).count();
-            ui.label(format!(
-                "{} features: {} polygons, {} lines, {} points",
-                v.len(),
-                kinds(|g| g.is_polygonal()),
-                kinds(|g| matches!(g, Geometry::LineString(_) | Geometry::MultiLineString(_))),
-                kinds(|g| g.is_point()),
-            ));
-            let texts: Vec<&str> = v
-                .attributes
-                .iter()
-                .filter(|(_, c)| matches!(c, terraflux_raster::vector::Column::Texts(_)))
-                .map(|(n, _)| n.as_str())
-                .collect();
-            if !texts.is_empty() {
-                ui.label(egui::RichText::new(format!("texts: {}", texts.join(", "))).weak());
+            ui.label(&sum.counts);
+            if !sum.texts.is_empty() {
+                ui.label(egui::RichText::new(format!("texts: {}", sum.texts.join(", "))).weak());
+            }
+            ui.add_space(4.0);
+            style_controls(ui, v, &mut style, id);
+            if v.crs.is_some() {
+                egui::ComboBox::from_id_salt(id.with("basemap"))
+                    .selected_text(format!("basemap: {}", view.basemap.name()))
+                    .show_ui(ui, |ui| {
+                        for b in crate::map_view::Basemap::ALL {
+                            ui.selectable_value(&mut view.basemap, b, b.name());
+                        }
+                    });
             }
             ui.separator();
-            let t = terraflux_ops::vector::attribute_table(v);
-            crate::table_view::show(ui, &t, id.with("table"));
+            crate::table_view::show(ui, &sum.table, id.with("table"));
         });
-    let (rect, resp) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
-    let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, 0.0, ui.visuals().extreme_bg_color);
-    let Some(b) = v.bounds() else {
-        painter.text(rect.center(), egui::Align2::CENTER_CENTER, "no geometry", egui::FontId::default(), Color32::GRAY);
+    ui.data_mut(|d| d.insert_temp(id.with("style"), style.clone()));
+    let Some(grid) = sum.grid.clone() else {
+        ui.centered_and_justified(|ui| ui.label("no geometry"));
         return;
     };
-    let mut view: View = ui.data(|d| d.get_temp(id)).unwrap_or_default();
-    if resp.dragged() {
-        view.offset += resp.drag_delta();
-    }
-    if resp.double_clicked() {
-        view = View::default();
-    }
-    if resp.hovered() {
-        let scroll = ui.input(|i| i.smooth_scroll_delta.y);
-        if scroll != 0.0 {
-            let f = (scroll / 200.0).exp();
-            // zoom about the pointer
-            if let Some(p) = resp.hover_pos() {
-                let c = rect.center() + view.offset;
-                view.offset += (p - c) * (1.0 - f);
-            }
-            view.zoom *= f;
-        }
-    }
-    ui.data_mut(|d| d.insert_temp(id, view));
-    // the fitted scale (the same in x and y), the y axis up
-    let (w, h) = ((b[2] - b[0]).max(1e-12), (b[3] - b[1]).max(1e-12));
-    let fit = ((rect.width() as f64 - 24.0) / w).min((rect.height() as f64 - 24.0) / h).max(1e-12);
-    let scale = fit * f64::from(view.zoom);
-    let centre = rect.center() + view.offset;
-    let (cx, cy) = ((b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0);
-    let at = |p: &Xy| Pos2::new(centre.x + ((p[0] - cx) * scale) as f32, centre.y - ((p[1] - cy) * scale) as f32);
-    let stroke = Stroke::new(1.2, theme::ACCENT);
-    let fill = theme::ACCENT.gamma_multiply(0.18);
-    let mut hovered = None;
-    let pointer = resp.hover_pos();
-    for (k, g) in v.geometries.iter().enumerate() {
-        let near = |pts: &[Pos2]| pointer.is_some_and(|p| Rect::from_points(pts).expand(3.0).contains(p));
-        match g {
-            Geometry::Empty => {}
-            Geometry::Point(p) => {
-                let q = at(p);
-                painter.circle_filled(q, 3.0, theme::ACCENT);
-                if near(&[q]) {
-                    hovered = Some(k);
-                }
-            }
-            Geometry::MultiPoint(ps) => {
-                for p in ps {
-                    let q = at(p);
-                    painter.circle_filled(q, 3.0, theme::ACCENT);
-                    if near(&[q]) {
-                        hovered = Some(k);
-                    }
-                }
-            }
-            Geometry::LineString(l) => {
-                let pts: Vec<Pos2> = l.iter().map(at).collect();
-                painter.add(Shape::line(pts, stroke));
-            }
-            Geometry::MultiLineString(ls) => {
-                for l in ls {
-                    painter.add(Shape::line(l.iter().map(at).collect(), stroke));
-                }
-            }
-            Geometry::Polygon(_) | Geometry::MultiPolygon(_) => {
-                for poly in g.polygons() {
-                    for (r, ring) in poly.iter().enumerate() {
-                        let pts: Vec<Pos2> = ring.iter().map(at).collect();
-                        if r == 0 && pts.len() > 2 {
-                            // the outer ring lightly filled where egui can (convex), else its outline only
-                            if pointer.is_some_and(|p| inside(&pts, p)) {
-                                hovered = Some(k);
-                            }
-                            if convex(&pts) {
-                                painter.add(Shape::convex_polygon(pts.clone(), fill, Stroke::NONE));
-                            }
-                        }
-                        painter.add(Shape::closed_line(pts, stroke));
-                    }
-                }
-            }
-        }
-    }
-    // the coordinates under the pointer, in the view's corner
-    if let Some(p) = pointer {
-        let (x, y) = (cx + f64::from(p.x - centre.x) / scale, cy - f64::from(p.y - centre.y) / scale);
-        let digits = if w.max(h) < 360.0 && b[0] >= -180.0 && b[2] <= 360.0 { 6 } else { 2 };
-        let corner = rect.left_bottom() + egui::Vec2::new(6.0, -4.0);
-        let galley = painter.layout_no_wrap(
-            format!("x {x:.digits$}   y {y:.digits$}"),
-            egui::FontId::monospace(11.0),
-            Color32::WHITE,
-        );
-        let top = corner - egui::Vec2::new(0.0, galley.size().y);
-        painter.rect_filled(
-            Rect::from_min_size(top, galley.size()).expand2(egui::Vec2::new(4.0, 2.0)),
-            2.0,
-            Color32::from_black_alpha(150),
-        );
-        painter.galley(top, galley, Color32::WHITE);
-    }
-    if let Some(k) = hovered {
-        let mut text = format!("feature {}", k + 1);
-        for (n, c) in &v.attributes {
-            let value = match c {
-                terraflux_raster::vector::Column::Numbers(x) => crate::table_view::cell(x[k]),
-                terraflux_raster::vector::Column::Texts(t) => t[k].clone(),
-            };
-            text.push_str(&format!("\n{n}: {value}"));
-        }
-        resp.on_hover_text_at_pointer(text);
-    }
-}
-
-fn inside(pts: &[Pos2], p: Pos2) -> bool {
-    let mut c = false;
-    for i in 0..pts.len() {
-        let (a, b) = (pts[i], pts[(i + 1) % pts.len()]);
-        if (a.y > p.y) != (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x {
-            c = !c;
-        }
-    }
-    c
-}
-
-fn convex(pts: &[Pos2]) -> bool {
-    let n = pts.len();
-    let mut sign = 0.0f32;
-    for i in 0..n {
-        let (a, b, c) = (pts[i], pts[(i + 1) % n], pts[(i + 2) % n]);
-        let z = (b - a).x * (c - b).y - (b - a).y * (c - b).x;
-        if z != 0.0 {
-            if sign != 0.0 && z.signum() != sign {
-                return false;
-            }
-            sign = z.signum();
-        }
-    }
-    true
+    let overlays = [Overlay { vector: v.clone(), style }];
+    egui::CentralPanel::default().frame(egui::Frame::new().fill(crate::theme::WELL)).show(ui, |ui| {
+        view.show_layers(ui, &Source::Blank(grid), &Coloring::Classes(Vec::new()), &overlays);
+    });
 }

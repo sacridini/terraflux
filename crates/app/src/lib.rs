@@ -14,6 +14,7 @@ pub mod runner;
 pub mod table_view;
 pub mod templates;
 pub mod theme;
+pub mod vector_tiles;
 pub mod vector_view;
 pub mod wizard;
 

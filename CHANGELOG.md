@@ -6,6 +6,19 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Vector layers over the maps in the viewer ("Vectors over the map": any vector of the run, reprojected to the
+  map, in a colour or coloured by an attribute, polygons filled as asked), and vectors alone drawn the same way
+  over a grid that spans them (with a basemap under them). The layers are drawn as tiles threads rasterize
+  (tiny-skia, antialiased) from an R-tree of the features made once per layer on a thread of its own, vertices
+  closer than a pixel skipped and features smaller than one drawn as dots: the screen only draws textures, so
+  layers of millions of features move as smoothly as a map (a quarter of a million polygons indexed in 60 ms and
+  the whole drawn in 90 ms, off the screen's thread). The feature under the pointer is found by the tree and
+  named with its attributes.
+
+### Changed
+- The vector panel works out a layer's table, counts and grid once, not at every frame.
+
 ## [0.18.0] - 2026-10-13
 
 ### Added

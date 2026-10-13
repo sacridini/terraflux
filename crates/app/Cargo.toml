@@ -21,6 +21,8 @@ terraflux-gdal = { path = "../gdal" }
 terraflux-graph = { path = "../graph" }
 terraflux-ops = { path = "../ops" }
 terraflux-raster = { path = "../raster" }
+tiny-skia = "0.12"
+rstar = "0.12"
 
 [dev-dependencies]
 egui_kittest = { version = "0.36", features = ["wgpu"] }

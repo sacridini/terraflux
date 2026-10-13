@@ -385,6 +385,7 @@ fn look_of(source: &Source, palette: Palette) -> Look {
             }
             look
         }
+        Source::Blank(_) => palette.look(&[]),
     }
 }
 
@@ -1026,13 +1027,20 @@ fn preview(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Hover> {
         });
         return None;
     };
-    let mut shown =
-        Shown { node, port, band: s.preview_band, chosen: s.preview_chosen, view: std::mem::take(&mut s.preview_view) };
+    let mut shown = Shown {
+        node,
+        port,
+        band: s.preview_band,
+        chosen: s.preview_chosen,
+        view: std::mem::take(&mut s.preview_view),
+        overlays: std::mem::take(&mut s.preview_overlays),
+    };
     let hover = output(ui, s, r, &mut shown, "viewer");
     s.preview = Some((shown.node, shown.port));
     s.preview_band = shown.band;
     s.preview_chosen = shown.chosen;
     s.preview_view = shown.view;
+    s.preview_overlays = shown.overlays;
     hover
 }
 
@@ -1045,6 +1053,25 @@ pub struct Shown {
     pub band: usize,
     pub chosen: bool,
     pub view: crate::map_view::MapView,
+    /// The vector layers drawn over the map: (node, port, style), the last on top.
+    pub overlays: Vec<(String, String, crate::vector_tiles::Style)>,
+}
+
+/// The vector values of a session's run: (node, port, features), in the model's order.
+pub fn vector_values(
+    s: &Session,
+    r: &Registry,
+) -> Vec<(String, String, std::sync::Arc<terraflux_raster::vector::Vector>)> {
+    let mut out = Vec::new();
+    for n in &s.model.nodes {
+        let Some(op) = r.get(&n.op) else { continue };
+        for p in op.signature().outputs.iter().filter(|p| p.ty == terraflux_graph::Type::Vector) {
+            if let Some(Value::Vector(v)) = s.value_of(&n.id, &p.name) {
+                out.push((n.id.clone(), p.name.clone(), v));
+            }
+        }
+    }
+    out
 }
 
 /// Where to save an output: a GeoTIFF for maps, a GeoPackage for vectors, else what the value is written as (CSV,
@@ -1197,7 +1224,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     }
     if maps.is_empty() {
         if let Value::Vector(v) = &value {
-            crate::vector_view::show(ui, v, egui::Id::new(("vector", salt, &node, &port)));
+            crate::vector_view::show(ui, v, &mut sh.view, egui::Id::new(("vector", salt, &node, &port)));
             return None;
         }
         if let Value::Table(t) = &value {
@@ -1282,12 +1309,51 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     ui.add_enabled(show, egui::Slider::new(&mut opacity, 0.0..=1.0).text("opacity"));
                     v.transparency = 1.0 - opacity;
                 }
+                // vector layers of the run over the map (reprojected to it), each in its style
+                ui.add_space(8.0);
+                theme::section(ui, "Vectors over the map");
+                let available = vector_values(s, r);
+                if available.is_empty() {
+                    ui.label(RichText::new("no vector of the run").weak().size(11.0));
+                }
+                for (vn, vp, vec) in &available {
+                    let at = sh.overlays.iter().position(|(a, b, _)| a == vn && b == vp);
+                    let mut on = at.is_some();
+                    let label = if vp == "vector" { vn.clone() } else { format!("{vn}.{vp}") };
+                    if ui.checkbox(&mut on, label).on_hover_text(format!("{} features", vec.len())).changed() {
+                        match at {
+                            Some(i) if !on => {
+                                sh.overlays.remove(i);
+                            }
+                            None if on => sh.overlays.push((vn.clone(), vp.clone(), Default::default())),
+                            _ => {}
+                        }
+                    }
+                    if let Some(i) = sh.overlays.iter().position(|(a, b, _)| a == vn && b == vp) {
+                        ui.indent((vn, vp), |ui| {
+                            crate::vector_view::style_controls(
+                                ui,
+                                vec,
+                                &mut sh.overlays[i].2,
+                                egui::Id::new((vn, vp, salt)),
+                            );
+                        });
+                    }
+                }
             });
         });
+    let overlays: Vec<crate::vector_tiles::Overlay> = sh
+        .overlays
+        .iter()
+        .filter_map(|(n, p, style)| match s.value_of(n, p) {
+            Some(Value::Vector(v)) => Some(crate::vector_tiles::Overlay { vector: v, style: style.clone() }),
+            _ => None,
+        })
+        .collect();
     let mut hover = None;
     egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::WELL)).show(ui, |ui| {
         if let Some(l) = &look {
-            hover = sh.view.show(ui, &maps[k], &l.coloring);
+            hover = sh.view.show_layers(ui, &maps[k], &l.coloring, &overlays);
         } else {
             ui.centered_and_justified(|ui| ui.spinner());
         }

@@ -391,6 +391,8 @@ pub struct Session {
     /// Whether the band chosen of the rasters shown was shown first already.
     pub preview_chosen: bool,
     pub preview_view: MapView,
+    /// The vector layers drawn over the maps shown (they stay as other nodes are shown).
+    pub preview_overlays: Vec<(String, String, crate::vector_tiles::Style)>,
     pub looks: Looks,
     /// The outputs shown in map tabs of their own (a double click on a node), by tab; the tabs the dock is still
     /// to show.
@@ -486,6 +488,7 @@ impl Session {
             preview_band: 0,
             preview_chosen: false,
             preview_view: MapView::default(),
+            preview_overlays: Vec::new(),
             looks: Looks::default(),
             auto: true,
             edited_at: None,

@@ -6,7 +6,8 @@
 //! (tiles that left the view while waiting are let go); until a tile comes, the coarsest tile already made
 //! over its place is shown, stretched. A map in memory and rasters on disk (read where and as finely as the
 //! tiles need, see `terraflux_raster::image`) are drawn the same way, so that a map of billions of cells
-//! shows at once and moves as smoothly as a small one.
+//! shows at once and moves as smoothly as a small one. Vector layers are drawn over it the same way, as tiles
+//! threads rasterize ([`crate::vector_tiles`]); with no map under them (a grid only), the view shows vectors alone.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -32,13 +33,16 @@ pub struct Hover {
     pub x: f64,
     pub y: f64,
     pub value: f64,
+    /// The feature of a vector layer under the pointer: (layer, feature).
+    pub feature: Option<(usize, usize)>,
 }
 
-/// What a view draws: a map in memory, or a layer of rasters on disk.
+/// What a view draws: a map in memory, a layer of rasters on disk, or no map (a grid for vector layers).
 #[derive(Clone)]
 pub enum Source {
     Map(Map),
     Rasters(Arc<Rasters>, usize),
+    Blank(Arc<terraflux_raster::Grid>),
 }
 
 impl From<&Map> for Source {
@@ -58,6 +62,7 @@ impl Source {
                 let layer = &r.layers[*l];
                 (Arc::as_ptr(&r.images[layer.image]) as usize, layer.band)
             }
+            Source::Blank(g) => (Arc::as_ptr(g) as usize, usize::MAX),
         }
     }
 
@@ -65,6 +70,7 @@ impl Source {
         match self {
             Source::Map(m) => &m.grid,
             Source::Rasters(r, l) => r.grid_of(*l),
+            Source::Blank(g) => g,
         }
     }
 
@@ -111,6 +117,7 @@ impl Source {
                 let win = Window { x0: x0 as i64, y0: y0 as i64, width: TILE * step, height: TILE * step };
                 r.sample(*l, win, step).map_err(|e| e.to_string())
             }
+            Source::Blank(_) => Ok(vec![f32::NAN; TILE * TILE]),
         }
     }
 
@@ -118,7 +125,7 @@ impl Source {
     fn value(&self, x: usize, y: usize) -> Option<f64> {
         match self {
             Source::Map(m) => m.data.get(y * m.grid.width + x).copied(),
-            Source::Rasters(..) => None,
+            Source::Rasters(..) | Source::Blank(_) => None,
         }
     }
 }
@@ -359,6 +366,8 @@ pub struct MapView {
     pub transparency: f32,
     pub hide_data: bool,
     base: Base,
+    /// The vector layers drawn over the map.
+    pub vectors: crate::vector_tiles::VectorTiles,
 }
 
 impl MapView {
@@ -507,9 +516,9 @@ impl MapView {
         self.zoom
     }
 
-    /// Whether tiles of the view are being made.
+    /// Whether tiles of the view (of the map or of its vector layers) are being made.
     pub fn busy(&self) -> bool {
-        !self.asked.is_empty()
+        !self.asked.is_empty() || self.vectors.busy()
     }
 
     /// The cell under a screen point.
@@ -569,7 +578,20 @@ impl MapView {
     }
 
     pub fn show(&mut self, ui: &mut Ui, source: &Source, coloring: &Coloring) -> Option<Hover> {
+        self.show_layers(ui, source, coloring, &[])
+    }
+
+    /// The map and vector layers over it (the last on top); the feature under the pointer named with its
+    /// attributes.
+    pub fn show_layers(
+        &mut self,
+        ui: &mut Ui,
+        source: &Source,
+        coloring: &Coloring,
+        overlays: &[crate::vector_tiles::Overlay],
+    ) -> Option<Hover> {
         let ctx = ui.ctx().clone();
+        let blank = matches!(source, Source::Blank(_));
         if self.workers.is_none() {
             self.workers = Some(Workers::new(ctx.clone()));
         }
@@ -613,7 +635,7 @@ impl MapView {
             self.draw_base(&ctx, &painter, rect, source.grid());
         }
         let tint = Color32::from_white_alpha(((1.0 - self.transparency.clamp(0.0, 1.0)) * 255.0).round() as u8);
-        let show_data = !self.hide_data;
+        let show_data = !self.hide_data && !blank;
         // the level: a tile's pixel about a pixel of the screen
         let ppp = ctx.pixels_per_point();
         let top = source.top();
@@ -704,6 +726,10 @@ impl MapView {
                 }
             }
         }
+        // a grid alone: no tiles of it
+        if blank {
+            wanted.clear();
+        }
         // the workers' queue: what the view needs, the nearest the centre first; the rest let go
         wanted.sort_by(|a, b| a.0.total_cmp(&b.0));
         if let Some(wk) = &self.workers {
@@ -720,6 +746,18 @@ impl MapView {
                 self.asked.insert((k, colouring));
             }
             cv.notify_all();
+        }
+        // the vector layers over the map
+        let cam = crate::vector_tiles::Camera { center: self.center, zoom: self.zoom, rect, pixels_per_point: ppp };
+        let vector_errors = self.vectors.draw(&ctx, &painter, cam, source.grid(), overlays);
+        if let Some(e) = vector_errors.first() {
+            painter.text(
+                rect.left_top() + Vec2::new(8.0, 26.0),
+                egui::Align2::LEFT_TOP,
+                e,
+                egui::FontId::proportional(12.0),
+                ui.visuals().error_fg_color,
+            );
         }
         // whose map the basemap is, as the services ask; why there is none
         if self.basemap != Basemap::None {
@@ -743,6 +781,25 @@ impl MapView {
         let c = self.to_cell(rect, p);
         let g = &source.grid().transform;
         let inside = c.x >= 0.0 && c.y >= 0.0 && c.x < w as f32 && c.y < h as f32;
+        // the feature under the pointer (4 points around), its attributes beside it
+        let feature = if overlays.is_empty() {
+            None
+        } else {
+            let tolerance = f64::from(4.0 / self.zoom);
+            self.vectors.pick(&ctx, overlays, source.grid(), [f64::from(c.x), f64::from(c.y)], tolerance)
+        };
+        if let Some((l, k)) = feature {
+            let v = &overlays[l].vector;
+            let mut text = format!("feature {}", k + 1);
+            for (n, col) in &v.attributes {
+                let value = match col {
+                    terraflux_raster::vector::Column::Numbers(x) => crate::table_view::cell(x[k]),
+                    terraflux_raster::vector::Column::Texts(t) => t[k].clone(),
+                };
+                text.push_str(&format!("\n{n}: {value}"));
+            }
+            response.clone().on_hover_text_at_pointer(text);
+        }
         // the coordinates under the pointer, in the view's corner (and the cell's value over the map)
         {
             let (px, py) = (f64::from(c.x), f64::from(c.y));
@@ -750,7 +807,7 @@ impl MapView {
             // degrees to a hundred-thousandth, metres to a centimetre
             let digits = if g[1].abs() < 0.01 { 6 } else { 2 };
             let mut text = format!("x {x:.digits$}   y {y:.digits$}");
-            if inside {
+            if inside && !blank {
                 let v = self.value_at(source, c.x as usize, c.y as usize);
                 let v = if v.is_nan() { "no value".to_string() } else { terraflux_ops::value::class_label(v) };
                 text.push_str(&format!("   ·   row {}  column {}   ·   {v}", c.y as usize, c.x as usize));
@@ -763,7 +820,14 @@ impl MapView {
             painter.galley(at - Vec2::new(0.0, galley.size().y), galley, Color32::WHITE);
         }
         if !inside {
-            return None;
+            return feature.map(|f| Hover {
+                row: 0,
+                col: 0,
+                x: f64::NAN,
+                y: f64::NAN,
+                value: f64::NAN,
+                feature: Some(f),
+            });
         }
         let (col, row) = (c.x as usize, c.y as usize);
         let (cx, cy) = (col as f64 + 0.5, row as f64 + 0.5);
@@ -773,6 +837,7 @@ impl MapView {
             x: g[0] + cx * g[1] + cy * g[2],
             y: g[3] + cx * g[4] + cy * g[5],
             value: self.value_at(source, col, row),
+            feature,
         })
     }
 }
