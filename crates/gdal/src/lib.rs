@@ -127,6 +127,15 @@ struct Api {
     OSRIsSame: unsafe extern "C" fn(H, H) -> c_int,
     OCTNewCoordinateTransformation: unsafe extern "C" fn(H, H) -> H,
     OCTDestroyCoordinateTransformation: unsafe extern "C" fn(H),
+    OCTTransformEx: unsafe extern "C" fn(H, c_int, *mut f64, *mut f64, *mut f64, *mut c_int) -> c_int,
+    CPLHTTPFetch: unsafe extern "C" fn(*const c_char, *const *const c_char) -> *mut HttpResult,
+    CPLHTTPDestroyResult: unsafe extern "C" fn(*mut HttpResult),
+    VSIFileFromMemBuffer: unsafe extern "C" fn(*const c_char, *mut u8, u64, c_int) -> H,
+    VSIFCloseL: unsafe extern "C" fn(H) -> c_int,
+    VSIUnlink: unsafe extern "C" fn(*const c_char) -> c_int,
+    GDALGetRasterColorTable: unsafe extern "C" fn(H) -> H,
+    GDALGetColorEntryCount: unsafe extern "C" fn(H) -> c_int,
+    GDALGetColorEntry: unsafe extern "C" fn(H, c_int) -> *const [i16; 4],
     VSIFree: unsafe extern "C" fn(*mut c_void),
     GDALRasterizeGeometries: unsafe extern "C" fn(
         H,
@@ -147,6 +156,20 @@ struct Api {
     CPLSetErrorHandler: unsafe extern "C" fn(*const c_void) -> *const c_void,
     CPLQuietErrorHandler: *const c_void,
     OSRSetPROJSearchPaths: unsafe extern "C" fn(*const *const c_char),
+}
+
+/// cpl_http.h's CPLHTTPResult.
+#[repr(C)]
+struct HttpResult {
+    status: c_int,
+    content_type: *mut c_char,
+    error: *mut c_char,
+    len: c_int,
+    alloc: c_int,
+    data: *mut u8,
+    headers: *mut *mut c_char,
+    mime_parts: c_int,
+    mime: *mut c_void,
 }
 
 /// GDAL loaded: its library, functions, version and folder.
@@ -339,6 +362,15 @@ impl Gdal {
             OSRIsSame: f!(OSRIsSame),
             OCTNewCoordinateTransformation: f!(OCTNewCoordinateTransformation),
             OCTDestroyCoordinateTransformation: f!(OCTDestroyCoordinateTransformation),
+            OCTTransformEx: f!(OCTTransformEx),
+            CPLHTTPFetch: f!(CPLHTTPFetch),
+            CPLHTTPDestroyResult: f!(CPLHTTPDestroyResult),
+            VSIFileFromMemBuffer: f!(VSIFileFromMemBuffer),
+            VSIFCloseL: f!(VSIFCloseL),
+            VSIUnlink: f!(VSIUnlink),
+            GDALGetRasterColorTable: f!(GDALGetRasterColorTable),
+            GDALGetColorEntryCount: f!(GDALGetColorEntryCount),
+            GDALGetColorEntry: f!(GDALGetColorEntry),
             VSIFree: f!(VSIFree),
             GDALRasterizeGeometries: f!(GDALRasterizeGeometries),
             CPLGetLastErrorMsg: f!(CPLGetLastErrorMsg),
@@ -1397,4 +1429,163 @@ pub fn rasterize(
     }
     unsafe { (a.GDALClose)(ds) };
     result
+}
+
+/// A transformation of coordinates between two systems (x, easting or longitude, first), kept to transform many
+/// points.
+pub struct Transform {
+    ct: H,
+}
+
+// a transformation is used by one thread at a time (it is moved, not shared)
+unsafe impl Send for Transform {}
+
+impl Transform {
+    /// From one system to another (EPSG codes, WKT, PROJ strings).
+    pub fn new(from: &str, to: &str) -> Result<Transform> {
+        let g = gdal().map_err(String::from)?;
+        let (src, dst) = (g.srs(from)?, g.srs(to)?);
+        let ct = unsafe { (g.api.OCTNewCoordinateTransformation)(src, dst) };
+        unsafe {
+            (g.api.OSRDestroySpatialReference)(src);
+            (g.api.OSRDestroySpatialReference)(dst);
+        }
+        if ct.is_null() {
+            return Err(g.last_error("no transformation between the coordinate systems"));
+        }
+        Ok(Transform { ct })
+    }
+
+    /// The points transformed in place; those that cannot be become NaN.
+    pub fn points(&self, xs: &mut [f64], ys: &mut [f64]) {
+        let Ok(g) = gdal() else { return };
+        let n = xs.len().min(ys.len());
+        let mut ok = vec![0 as c_int; n];
+        unsafe {
+            (g.api.OCTTransformEx)(
+                self.ct,
+                n as c_int,
+                xs.as_mut_ptr(),
+                ys.as_mut_ptr(),
+                std::ptr::null_mut(),
+                ok.as_mut_ptr(),
+            )
+        };
+        for i in 0..n {
+            if ok[i] == 0 || !xs[i].is_finite() || !ys[i].is_finite() {
+                xs[i] = f64::NAN;
+                ys[i] = f64::NAN;
+            }
+        }
+    }
+}
+
+impl Drop for Transform {
+    fn drop(&mut self) {
+        if let Ok(g) = gdal() {
+            unsafe { (g.api.OCTDestroyCoordinateTransformation)(self.ct) };
+        }
+    }
+}
+
+/// The body of a web address fetched by GDAL's HTTP (curl): its status (200...) and bytes.
+pub fn fetch(url: &str, options: &[&str]) -> Result<(i32, Vec<u8>)> {
+    let g = gdal().map_err(String::from)?;
+    let opts: Vec<CString> = options.iter().map(|o| cstr(o)).collect();
+    let mut ptrs: Vec<*const c_char> = opts.iter().map(|o| o.as_ptr()).collect();
+    ptrs.push(std::ptr::null());
+    let r = unsafe { (g.api.CPLHTTPFetch)(cstr(url).as_ptr(), ptrs.as_ptr()) };
+    if r.is_null() {
+        return Err(format!("{url}: no answer"));
+    }
+    let res = unsafe { &*r };
+    let out = if !res.error.is_null() && res.data.is_null() {
+        Err(format!("{url}: {}", text(res.error)))
+    } else {
+        let data = if res.data.is_null() || res.len <= 0 {
+            Vec::new()
+        } else {
+            unsafe { std::slice::from_raw_parts(res.data, res.len as usize) }.to_vec()
+        };
+        Ok((res.status, data))
+    };
+    unsafe { (g.api.CPLHTTPDestroyResult)(r) };
+    out
+}
+
+/// An image file in memory (PNG, JPEG...) decoded by GDAL: its width, height and RGBA pixels.
+pub fn decode_image(bytes: &[u8]) -> Result<(usize, usize, Vec<[u8; 4]>)> {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let g = gdal().map_err(String::from)?;
+    let a = &g.api;
+    let name = format!("/vsimem/terraflux-image-{}", NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+    let mut data = bytes.to_vec();
+    let f = unsafe { (a.VSIFileFromMemBuffer)(cstr(&name).as_ptr(), data.as_mut_ptr(), data.len() as u64, 0) };
+    if f.is_null() {
+        return Err("the image cannot be put in memory".into());
+    }
+    unsafe { (a.VSIFCloseL)(f) };
+    let out = (|| -> Result<(usize, usize, Vec<[u8; 4]>)> {
+        let ds = g.open_handle(&name, false)?;
+        let (w, h) = unsafe { ((a.GDALGetRasterXSize)(ds) as usize, (a.GDALGetRasterYSize)(ds) as usize) };
+        let n = unsafe { (a.GDALGetRasterCount)(ds) } as usize;
+        let mut px = vec![[0u8, 0, 0, 255]; w * h];
+        let mut band = vec![0u8; w * h];
+        let mut r = Ok(());
+        for b in 0..n.min(4) {
+            let hb = unsafe { (a.GDALGetRasterBand)(ds, b as c_int + 1) };
+            let e = unsafe {
+                (a.GDALRasterIO)(
+                    hb,
+                    0,
+                    0,
+                    0,
+                    w as c_int,
+                    h as c_int,
+                    band.as_mut_ptr() as *mut c_void,
+                    w as c_int,
+                    h as c_int,
+                    1,
+                    0,
+                    0,
+                )
+            };
+            if e >= 3 {
+                r = Err(g.last_error("decoding the image"));
+                break;
+            }
+            // a palette: each value its colour
+            let table = if n == 1 { unsafe { (a.GDALGetRasterColorTable)(hb) } } else { std::ptr::null_mut() };
+            if !table.is_null() {
+                let k = unsafe { (a.GDALGetColorEntryCount)(table) }.max(0) as usize;
+                let colours: Vec<[u8; 4]> = (0..k)
+                    .map(|i| {
+                        let e = unsafe { &*(a.GDALGetColorEntry)(table, i as c_int) };
+                        [e[0] as u8, e[1] as u8, e[2] as u8, e[3] as u8]
+                    })
+                    .collect();
+                for (p, v) in px.iter_mut().zip(&band) {
+                    *p = colours.get(*v as usize).copied().unwrap_or([0, 0, 0, 0]);
+                }
+                continue;
+            }
+            for (p, v) in px.iter_mut().zip(&band) {
+                match (n, b) {
+                    // grey (and alpha)
+                    (1 | 2, 0) => {
+                        p[0] = *v;
+                        p[1] = *v;
+                        p[2] = *v;
+                    }
+                    (2, 1) => p[3] = *v,
+                    _ => p[b] = *v,
+                }
+            }
+        }
+        unsafe { (a.GDALClose)(ds) };
+        r.map(|_| (w, h, px))
+    })();
+    unsafe { (a.VSIUnlink)(cstr(&name).as_ptr()) };
+    drop(data);
+    out
 }

@@ -10,6 +10,7 @@ use terraflux_ls_sys::ffi;
 use terraflux_raster::Grid;
 use terraflux_raster::vector::{Column, Geometry, Vector};
 
+use crate::vector_tiled::Layers;
 use crate::{Args, Ctx, Error, Map, Operator, Outputs, Registry, Result, Table, Value, outputs};
 
 pub fn register(r: &mut Registry) {
@@ -222,18 +223,32 @@ fn burn_values(args: &Args, v: &Vector) -> Result<(Vec<f64>, Vec<usize>)> {
     }
 }
 
-/// Layers on one grid: the grid, their names, their values.
-type Layers = (Arc<Grid>, Vec<String>, Vec<Arc<Vec<f64>>>);
-
-/// A map (or a stack) input as its layers on one grid.
-fn layers_of(args: &Args, port: &str) -> Result<Layers> {
-    match args.get(port) {
-        Some(Value::Stack(s)) => Ok((s.grid.clone(), s.keys.iter().map(|k| k.to_string()).collect(), s.layers.clone())),
+/// A map (or a stack) input as its layers on one grid, and the cells of a layer of the strips it is read by (none:
+/// whole): by blocks of `block_rows` rows when asked for, and rasters on disk of more than 250 million cells
+/// always (16 million cells a strip by default).
+fn layers_of(args: &Args, port: &str) -> Result<(Layers, Option<usize>)> {
+    let rows = crate::metrics::rows_param(args)?;
+    let budget = |nx: usize| rows.map_or(1 << 24, |r| r * nx);
+    let memory = |grid: &Arc<Grid>, names: Vec<String>, layers: Vec<Arc<Vec<f64>>>| {
+        let b = rows.map(|r| r * grid.width);
+        (Layers::Memory { grid: grid.clone(), names, layers }, b)
+    };
+    Ok(match args.get(port) {
+        Some(Value::Stack(s)) => memory(&s.grid, s.keys.iter().map(|k| k.to_string()).collect(), s.layers.clone()),
+        Some(Value::Raster(r)) if rows.is_some() || r.cells() > crate::metrics::TILED_CELLS => {
+            let nx = r.grid_of(r.chosen).width;
+            let layers = Layers::Disk { names: vec![port.to_string()], rasters: r.clone(), layers: vec![r.chosen] };
+            (layers, Some(budget(nx)))
+        }
+        Some(Value::Raster(r)) => {
+            let m = r.map()?;
+            memory(&m.grid, vec![port.to_string()], vec![m.data.clone()])
+        }
         _ => {
             let m = args.map(port)?;
-            Ok((m.grid.clone(), vec![port.to_string()], vec![m.data.clone()]))
+            memory(&m.grid, vec![port.to_string()], vec![m.data.clone()])
         }
-    }
+    })
 }
 
 struct Read;
@@ -311,12 +326,12 @@ impl Operator for Rasterize {
             "Burn vector features into the grid of a map, as GDAL's rasterizer (landschaft's rasterize): the \
              cells whose centre a polygon takes (or every cell it touches), the cells of lines and of points; an \
              attribute's value or one value; the later features over the earlier, or added up (counting \
-             overlaps). The features reprojected to the map's coordinate system first.",
+             overlaps). The features reprojected to the map's coordinate system first. Out of core (block_rows, a              path, or rasters on disk of more than 250 million cells) burnt strip by strip into a GeoTIFF, the              same cells (but where GDAL draws a line through cells' corners with all_touched).",
             Access::Global,
         )
         .input(PortSpec::new("vector", Type::Vector, "the features"))
-        .input(PortSpec::new("like", Type::Map, "a map on the grid to burn into"))
-        .output(PortSpec::new("map", Type::Map, "the features burnt"))
+        .input(PortSpec::new("like", Type::Raster, "a map on the grid to burn into (only its grid is read)"))
+        .output(PortSpec::new("map", Type::Raster, "the features burnt (on disk for rasters on disk)"))
         .param(PortSpec::optional("field", Type::Text, "the attribute burnt (features without it are left out)"))
         .param(PortSpec::optional("value", Type::Number, "the value burnt without a field (1)"))
         .param(PortSpec::optional("fill", Type::Number, "the cells no feature takes (0; null: no value)"))
@@ -325,11 +340,28 @@ impl Operator for Rasterize {
             PortSpec::optional("merge", Type::Text, "replace (default: the last feature wins) or add")
                 .choices(["replace", "add"]),
         )
+        .param(PortSpec::optional(
+            "block_rows",
+            Type::Integer,
+            "out of core: burnt by strips of this many rows into a GeoTIFF (path); on the grid of rasters on disk              of more than 250 million cells always",
+        ))
+        .param(PortSpec::optional(
+            "path",
+            Type::Text,
+            "out of core: the GeoTIFF written (default next to the rasters: name_burnt.tif)",
+        ))
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
-        let like = args.map("like")?;
-        let v = on_grid(vector_of(args, "vector")?, &like.grid)?;
+        let rows = crate::metrics::rows_param(args)?;
+        let (grid, disk) = match args.get("like") {
+            Some(Value::Raster(r)) => (Arc::new(r.grid_of(r.chosen).clone()), Some(r.clone())),
+            Some(Value::Map(m)) => (m.grid.clone(), None),
+            Some(Value::Stack(s)) => (s.grid.clone(), None),
+            Some(v) => return Err(Error::msg(format!("node {:?}: like: a map, not a {:?}", args.node, v.ty()))),
+            None => return Err(Error::msg(format!("node {:?}: connect a map (like)", args.node))),
+        };
+        let v = on_grid(vector_of(args, "vector")?, &grid)?;
         let (values, keep) = burn_values(args, &v)?;
         let fill = match args.params.get("fill") {
             Some(serde_json::Value::Null) => f64::NAN,
@@ -341,9 +373,34 @@ impl Operator for Rasterize {
         }
         let kept = v.select(&keep);
         let vals: Vec<f64> = keep.iter().map(|&i| values[i]).collect();
-        let mut out = vec![fill; like.grid.width * like.grid.height];
-        burn(&mut out, &like.grid, &kept, &vals, args.param("all_touched", false)?, merge == "add")?;
-        Ok(outputs([("map", Value::Map(Map::new(like.grid.clone(), out)))]))
+        let all_touched = args.param("all_touched", false)?;
+        let path: Option<String> = args.opt_param::<String>("path")?.filter(|p| !p.is_empty());
+        if rows.is_some() || path.is_some() || disk.as_ref().is_some_and(|r| r.cells() > crate::metrics::TILED_CELLS) {
+            let fail = |e: Error| Error::msg(format!("node {:?}: {e}", args.node));
+            let path = match (path, &disk) {
+                (Some(p), _) => std::path::PathBuf::from(p).with_extension("tif"),
+                (None, Some(r)) => {
+                    let src = r.images[r.layers[r.chosen].image].path();
+                    let stem = src.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+                    src.with_file_name(format!("{stem}_burnt.tif"))
+                }
+                (None, None) => return Err(fail(Error::msg("path: the GeoTIFF to write the features to"))),
+            };
+            if disk.as_ref().is_some_and(|r| r.images.iter().any(|i| i.path() == path)) {
+                return Err(fail(Error::msg("the output must differ from the input")));
+            }
+            if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+                std::fs::create_dir_all(dir).map_err(|e| fail(Error::msg(format!("{}: {e}", dir.display()))))?;
+            }
+            let rows = crate::metrics::block_rows(rows, grid.width);
+            crate::vector_tiled::burn_to_file(&path, &grid, &kept, &vals, fill, all_touched, merge == "add", rows)
+                .map_err(fail)?;
+            let written = crate::files::Rasters::open(&path.to_string_lossy(), None, None)?;
+            return Ok(outputs([("map", Value::Raster(Arc::new(written)))]));
+        }
+        let mut out = vec![fill; grid.width * grid.height];
+        burn(&mut out, &grid, &kept, &vals, all_touched, merge == "add")?;
+        Ok(outputs([("map", Value::Map(Map::new(grid, out)))]))
     }
 }
 
@@ -374,11 +431,11 @@ impl Operator for Zonal {
         OpSignature::new(
             "vector.zonal",
             "Statistics of a map (or of every layer of a stack) in every polygon, landschaft's zonal_stats: each \
-             polygon's cells as GDAL burns them (polygons may overlap), the cells with a value.",
+             polygon's cells as GDAL burns them (polygons may overlap), the cells with a value. Out of core              (block_rows, or rasters on disk of more than 250 million cells) by strips of rows, the same values.",
             Access::Global,
         )
         .input(PortSpec::new("vector", Type::Vector, "the polygons"))
-        .input(PortSpec::new("map", Type::Any, "a map or a stack"))
+        .input(PortSpec::new("map", Type::Raster, "a map or a stack (or rasters on disk, by strips)"))
         .output(PortSpec::new(
             "table",
             Type::Table,
@@ -391,19 +448,25 @@ impl Operator for Zonal {
              percentile_<p> (default count, mean, min, max, std)",
         ))
         .param(PortSpec::optional("all_touched", Type::Bool, "every cell a polygon touches (false)"))
+        .param(PortSpec::optional(
+            "block_rows",
+            Type::Integer,
+            "out of core: the map read by strips of this many rows, the same values; rasters on disk of more than \
+             250 million cells always are",
+        ))
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let node = args.node;
         let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
-        let (grid, names, layers) = layers_of(args, "map")?;
-        let v = on_grid(vector_of(args, "vector")?, &grid)?;
+        let (layers, budget) = layers_of(args, "map")?;
+        let v = on_grid(vector_of(args, "vector")?, layers.grid())?;
         if let Some(i) = v.geometries.iter().position(|g| !g.is_polygonal() && !matches!(g, Geometry::Empty)) {
             return Err(err(format!("feature {}: zones are polygons (buffer points or lines first)", i + 1)));
         }
         let stats = stats_of(args)?;
         let geoms: Vec<&Geometry> = v.geometries.iter().collect();
-        let t = zonal_table(&geoms, &grid, &names, &layers, &stats, args.param("all_touched", false)?)
+        let t = zonal_table(&geoms, &layers, budget, &stats, args.param("all_touched", false)?)
             .map_err(|e| err(e.to_string()))?;
         Ok(outputs([("table", Value::Table(t))]))
     }
@@ -425,21 +488,27 @@ fn stats_of(args: &Args) -> Result<Vec<String>> {
 }
 
 /// landschaft's zonal_stats of layers in polygons: a row per feature (1..), a column per statistic (of every
-/// layer: <layer>_<statistic> when there are several).
+/// layer: <layer>_<statistic> when there are several). Whole, or by strips of `budget` cells of a layer.
 fn zonal_table(
     geoms: &[&Geometry],
-    grid: &Grid,
-    names: &[String],
-    layers: &[Arc<Vec<f64>>],
+    layers: &Layers,
+    budget: Option<usize>,
     stats: &[String],
     all_touched: bool,
 ) -> Result<Table> {
     let codes: Vec<(i32, f64)> = stats.iter().filter_map(|s| stat_code(s)).collect();
+    let grid = layers.grid();
     let r = runs(geoms, grid, all_touched)?;
-    let values: Vec<f64> = layers.iter().flat_map(|l| l.iter().copied()).collect();
     let (c, p): (Vec<i32>, Vec<f64>) = codes.iter().copied().unzip();
-    let out = ffi::io_zonal_stats(&values, layers.len() as i32, grid.height as i32, grid.width as i32, &r, &c, &p)?;
-    let multi = layers.len() > 1;
+    let out = match budget {
+        Some(b) => crate::vector_tiled::zonal_stats(layers, &r, &c, &p, b)?,
+        None => {
+            let values = layers.window(0, grid.height, 0, grid.width)?;
+            ffi::io_zonal_stats(&values, layers.bands() as i32, grid.height as i32, grid.width as i32, &r, &c, &p)?
+        }
+    };
+    let names = layers.names();
+    let multi = names.len() > 1;
     let mut cols = vec!["feature".to_string()];
     for b in names {
         for s in stats {
@@ -447,7 +516,7 @@ fn zonal_table(
         }
     }
     let mut t = Table::new(cols);
-    let per = layers.len() * stats.len();
+    let per = names.len() * stats.len();
     t.rows = (0..geoms.len())
         .map(|z| std::iter::once((z + 1) as f64).chain(out[z * per..(z + 1) * per].iter().copied()).collect())
         .collect();
@@ -476,11 +545,11 @@ impl Operator for Extract {
             "The values of a map (or of every layer of a stack) at points, landschaft's extract: the cell holding \
              each point (nearest) or interpolated from the four nearest cell centres (bilinear, the weights over \
              those with a value); with a buffer, the statistics of the cells within that radius of each point \
-             (zonal_stats of GEOS's circles). The points are reprojected to the map. No value outside it.",
+             (zonal_stats of GEOS's circles). The points are reprojected to the map. No value outside it. Out of              core (block_rows, or rasters on disk of more than 250 million cells) only the strips of rows holding              points are read, the same values.",
             Access::Global,
         )
         .input(PortSpec::new("vector", Type::Vector, "the points"))
-        .input(PortSpec::new("map", Type::Any, "a map or a stack"))
+        .input(PortSpec::new("map", Type::Raster, "a map or a stack (or rasters on disk, by strips)"))
         .output(PortSpec::new("vector", Type::Vector, "the points with a column per layer (or statistic)"))
         .output(PortSpec::new("table", Type::Table, "per point (feature 1..): its attributes and the values"))
         .param(
@@ -489,11 +558,19 @@ impl Operator for Extract {
         .param(PortSpec::optional("buffer", Type::Number, "a radius (map units): statistics of the cells around"))
         .param(PortSpec::optional("stats", Type::Any, "with a buffer: the statistics, as vector.zonal's"))
         .param(PortSpec::optional("all_touched", Type::Bool, "with a buffer: every cell the circle touches"))
+        .param(PortSpec::optional(
+            "block_rows",
+            Type::Integer,
+            "out of core: the map read by strips of this many rows, the same values; rasters on disk of more than \
+             250 million cells always are",
+        ))
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let err = |m: String| Error::msg(format!("node {:?}: {m}", args.node));
-        let (grid, names, layers) = layers_of(args, "map")?;
+        let (layers, budget) = layers_of(args, "map")?;
+        let names = layers.names().to_vec();
+        let grid = layers.grid().clone();
         let original = vector_of(args, "vector")?;
         let v = on_grid(original, &grid)?;
         let mut xy = Vec::with_capacity(v.len());
@@ -513,7 +590,7 @@ impl Operator for Extract {
                 let circles = terraflux_gdal::buffer(&v.geometries, radius, 16).map_err(err)?;
                 let geoms: Vec<&Geometry> = circles.iter().collect();
                 let stats = stats_of(args)?;
-                let t = zonal_table(&geoms, &grid, &names, &layers, &stats, args.param("all_touched", false)?)?;
+                let t = zonal_table(&geoms, &layers, budget, &stats, args.param("all_touched", false)?)?;
                 (1..t.columns.len()).map(|j| (t.columns[j].clone(), t.rows.iter().map(|r| r[j]).collect())).collect()
             }
             None => {
@@ -521,19 +598,10 @@ impl Operator for Extract {
                 if method != "nearest" && method != "bilinear" {
                     return Err(err("method: nearest or bilinear".into()));
                 }
-                let values: Vec<f64> = layers.iter().flat_map(|l| l.iter().copied()).collect();
                 let (x, y): (Vec<f64>, Vec<f64>) = xy.iter().map(|p| (p[0], p[1])).unzip();
-                let nb = layers.len();
-                let out = ffi::io_extract(
-                    &values,
-                    nb as i32,
-                    grid.height as i32,
-                    grid.width as i32,
-                    &grid.transform,
-                    &x,
-                    &y,
-                    method == "bilinear",
-                )?;
+                let nb = layers.bands();
+                let rows = budget.map_or(grid.height, |b| (b / grid.width).max(1));
+                let out = crate::vector_tiled::extract(&layers, &x, &y, method == "bilinear", rows)?;
                 names
                     .iter()
                     .enumerate()
@@ -730,7 +798,10 @@ impl Operator for ExactSum {
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
-        let (grid, names, layers) = layers_of(args, "map")?;
+        let (layers, _) = layers_of(args, "map")?;
+        let (grid, names) = (Arc::new(layers.grid().clone()), layers.names().to_vec());
+        let all = layers.window(0, grid.height, 0, grid.width)?;
+        let layers: Vec<Arc<Vec<f64>>> = all.chunks(grid.cells().max(1)).map(|c| Arc::new(c.to_vec())).collect();
         let v = on_grid(vector_of(args, "vector")?, &grid)?;
         if let Some(i) = v.geometries.iter().position(|g| !g.is_polygonal() && !matches!(g, Geometry::Empty)) {
             return Err(Error::msg(format!("node {:?}: feature {} is no polygon", args.node, i + 1)));

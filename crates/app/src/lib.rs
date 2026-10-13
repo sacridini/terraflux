@@ -3,6 +3,7 @@
 //! the validation against an observed map.
 
 pub mod app;
+pub mod basemap;
 pub mod builder;
 pub mod canvas_gpu;
 pub mod charts;
@@ -10,6 +11,8 @@ pub mod editor;
 pub mod editor_view;
 pub mod map_view;
 pub mod palette;
+pub mod prepare;
+pub mod prepare_view;
 pub mod runner;
 pub mod table_view;
 pub mod templates;

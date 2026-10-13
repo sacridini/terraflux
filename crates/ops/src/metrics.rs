@@ -130,26 +130,123 @@ pub enum Rows<'a> {
 }
 
 impl Rows<'_> {
-    fn grid(&self) -> &Grid {
+    pub fn grid(&self) -> &Grid {
         match self {
             Rows::Memory(m) => &m.grid,
             Rows::Disk(r) => r.grid_of(r.chosen),
         }
     }
 
+    /// The cells of rows [y0, y1) and columns [x0, x1), NaN where there is no value.
+    pub fn cells(&self, y0: usize, y1: usize, x0: usize, x1: usize) -> Result<Vec<f64>> {
+        let nx = self.grid().width;
+        match self {
+            Rows::Memory(m) => Ok((y0..y1).flat_map(|y| m.data[y * nx + x0..y * nx + x1].iter().copied()).collect()),
+            Rows::Disk(r) => {
+                r.window(r.chosen, Cells { x0: x0 as i64, y0: y0 as i64, width: x1 - x0, height: y1 - y0 })
+            }
+        }
+    }
+
     /// Rows [y0, y1) as classes and their NA mask (always given).
     fn read(&self, y0: usize, y1: usize) -> Result<(Vec<i32>, Vec<u8>)> {
-        let nx = self.grid().width;
-        let data: Vec<f64> = match self {
-            Rows::Memory(m) => m.data[y0 * nx..y1 * nx].to_vec(),
-            Rows::Disk(r) => r.window(r.chosen, Cells { x0: 0, y0: y0 as i64, width: nx, height: y1 - y0 })?,
-        };
-        let (values, mut na) = classes_of(&data)?;
+        let (values, mut na) = classes_of(&self.cells(y0, y1, 0, self.grid().width)?)?;
         if na.is_empty() {
             na = vec![0; values.len()];
         }
         Ok((values, na))
     }
+
+    /// The map's classes, increasing, and whether it has cells without a value; read by blocks of `rows`.
+    pub fn classes(&self, rows: Option<usize>) -> Result<(Vec<i32>, bool)> {
+        let (nx, ny) = (self.grid().width, self.grid().height);
+        let step = block_rows(rows, nx);
+        let (mut classes, mut any_na) = (Vec::new(), false);
+        for y0 in (0..ny).step_by(step) {
+            let (values, na) = self.read(y0, (y0 + step).min(ny))?;
+            any_na |= na.contains(&1);
+            classes.extend(ffi::lsm_unique_values(&values, &na));
+            classes.sort_unstable();
+            classes.dedup();
+        }
+        Ok((classes, any_na))
+    }
+}
+
+/// Where the metrics of a node's map come from: a map in memory measured whole, or by blocks of rows (asked for
+/// with `block_rows`, or rasters on disk of more than 250 million cells).
+pub enum Source {
+    Whole(Map),
+    Memory(Map, Option<usize>),
+    Disk(Arc<Rasters>, Option<usize>),
+}
+
+impl Source {
+    /// The source of a node's port, by its `block_rows`.
+    pub fn of(args: &Args, port: &str) -> Result<Source> {
+        let rows = rows_param(args)?;
+        Ok(match args.get(port) {
+            Some(Value::Raster(r)) if rows.is_some() || r.cells() > TILED_CELLS => Source::Disk(r.clone(), rows),
+            Some(Value::Raster(r)) => Source::Whole(r.map()?),
+            Some(Value::Map(m)) if rows.is_some() => Source::Memory(m.clone(), rows),
+            Some(Value::Map(m)) => Source::Whole(m.clone()),
+            Some(v) => return Err(Error::msg(format!("node {:?}: {port}: a map, not a {:?}", args.node, v.ty()))),
+            None => return Err(Error::msg(format!("node {:?}: connect a map", args.node))),
+        })
+    }
+
+    /// Read by blocks.
+    pub fn tiled(&self) -> bool {
+        !matches!(self, Source::Whole(_))
+    }
+
+    pub fn rows(&self) -> Rows<'_> {
+        match self {
+            Source::Whole(m) | Source::Memory(m, _) => Rows::Memory(m),
+            Source::Disk(r, _) => Rows::Disk(r),
+        }
+    }
+
+    /// The rows of a block asked for.
+    pub fn block_rows(&self) -> Option<usize> {
+        match self {
+            Source::Whole(_) => None,
+            Source::Memory(_, r) | Source::Disk(_, r) => *r,
+        }
+    }
+
+    pub fn grid(&self) -> Arc<Grid> {
+        match self {
+            Source::Whole(m) | Source::Memory(m, _) => m.grid.clone(),
+            Source::Disk(r, _) => Arc::new(r.grid_of(r.chosen).clone()),
+        }
+    }
+
+    /// The metrics `specs` of the map, whole or by blocks.
+    pub fn measure(&self, options: &ffi::LsmOptions, specs: &[(&'static str, &str)]) -> Result<Measured> {
+        match self {
+            Source::Whole(m) => measure(m, options, specs, false),
+            _ => measure_tiled(self.rows(), options, specs, self.block_rows(), Labels::None),
+        }
+    }
+}
+
+/// A node's `block_rows`: a whole number ≥ 1, or none.
+pub fn rows_param(args: &Args) -> Result<Option<usize>> {
+    match args.opt_param::<f64>("block_rows")? {
+        Some(r) if r >= 1.0 && r.fract() == 0.0 => Ok(Some(r as usize)),
+        Some(r) => Err(Error::msg(format!("node {:?}: block_rows: a whole number ≥ 1, not {r}", args.node))),
+        None => Ok(None),
+    }
+}
+
+/// The setting `block_rows` of a node.
+pub(crate) fn block_rows_param(sig: OpSignature) -> OpSignature {
+    sig.param(PortSpec::optional(
+        "block_rows",
+        Type::Integer,
+        "out of core: the map read by blocks of this many rows, the same metrics; rasters on disk of more than 250          million cells always are",
+    ))
 }
 
 /// The rows of a block of an out-of-core landscape: a multiple of 64 (the strips the C++ labels the map in, so
@@ -161,7 +258,7 @@ pub fn block_rows(rows: Option<usize>, width: usize) -> usize {
 }
 
 /// Rasters on disk of more cells than this are read by blocks for their metrics (as f64 they would take 2 GB).
-const TILED_CELLS: usize = 250_000_000;
+pub const TILED_CELLS: usize = 250_000_000;
 
 /// What is done with a block of an out-of-core landscape: its classes, NA mask, first row, rows, rows of context
 /// above and below.
@@ -482,13 +579,7 @@ impl Operator for Metrics {
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
-        let rows: Option<usize> = match args.opt_param::<f64>("block_rows")? {
-            Some(r) if r >= 1.0 && r.fract() == 0.0 => Some(r as usize),
-            Some(r) => {
-                return Err(Error::msg(format!("node {:?}: block_rows: a whole number ≥ 1, not {r}", args.node)));
-            }
-            None => None,
-        };
+        let rows = rows_param(args)?;
         // the map in memory, or rasters on disk read by blocks (when large, or asked to)
         let (in_memory, disk) = match args.get("map") {
             Some(Value::Raster(r)) if rows.is_some() || r.cells() > TILED_CELLS => (None, Some(r.clone())),
@@ -646,26 +737,30 @@ struct Window;
 
 impl Operator for Window {
     fn signature(&self) -> OpSignature {
-        settings(
+        block_rows_param(settings(
             OpSignature::new(
                 "metrics.window",
-                "Landscape-level metrics in a moving window, as landscapemetrics' window_lsm: for every cell, the \
-                 metrics of the landscape the window centred on it covers (cells outside the map are NA). A map per \
-                 metric, in a stack.",
+                "Landscape-level metrics in a moving window, as landscapemetrics' window_lsm: for every cell, the                  metrics of the landscape the window centred on it covers (cells outside the map are NA). A map per                  metric, in a stack. Out of core (block_rows, or rasters on disk) by strips of rows with the                  window's half side above and below, the same maps; those of rasters on disk written to a GeoTIFF,                  a band per metric.",
                 Access::Global,
             )
-            .input(PortSpec::new("map", Type::Map, "the map of classes"))
-            .output(PortSpec::new("maps", Type::Stack, "a map per metric, by its name")),
-        )
+            .input(PortSpec::new("map", Type::Raster, "the map of classes (or rasters on disk, by blocks)"))
+            .output(PortSpec::new("maps", Type::Raster, "a map per metric, by its name (on disk for rasters on disk)")),
+        ))
         .param(PortSpec::optional("window", Type::Integer, "the window's side in cells, odd (default 5)"))
         .param(
             PortSpec::optional("shape", Type::Text, "square (default) or circle (the cells within side/2)")
                 .choices(["square", "circle"]),
         )
+        .param(PortSpec::optional(
+            "path",
+            Type::Text,
+            "rasters on disk: the GeoTIFF written (default next to the input: name_window5.tif)",
+        ))
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
-        let map = args.map("map")?;
+        let fail = |e: Error| Error::msg(format!("node {:?}: {e}", args.node));
+        let source = Source::of(args, "map")?;
         let metrics = chosen(args, "landscape")?;
         let side: i64 = args.param("window", 5)?;
         if side < 1 || side % 2 == 0 {
@@ -683,29 +778,67 @@ impl Operator for Window {
                 .collect(),
             s => return Err(Error::msg(format!("node {:?}: the shape is square or circle, not {s:?}", args.node))),
         };
-        let (values, na) = classes_of(&map.data)?;
-        let (ny, nx) = map.shape();
-        let (resx, resy) = resolution(map);
         let names: Vec<String> = metrics.iter().map(|m| m.metric.to_string()).collect();
-        let out = ffi::lsm_window(
-            &values,
-            &na,
-            ny as i64,
-            nx as i64,
-            resx,
-            resy,
-            &window,
-            side,
-            side,
-            &names,
-            &options(args)?,
-        )?;
-        let cells = ny * nx;
-        let maps = Stack {
-            grid: map.grid.clone(),
-            keys: names.iter().map(|n| Key::Name(n.clone())).collect(),
-            layers: out.chunks(cells.max(1)).map(|c| Arc::new(c.to_vec())).collect(),
+        let options = options(args)?;
+        let grid = source.grid();
+        let (ny, nx) = (grid.height, grid.width);
+        let (resx, resy) = (grid.transform[1].abs(), grid.transform[5].abs());
+        // the maps of the window of every cell of rows [y0, y0 + n), from those rows and `halo` above and below
+        let rows = source.rows();
+        let halo = (side / 2) as usize;
+        let strip = |y0: usize, n: usize| -> Result<Vec<Vec<f64>>> {
+            let (above, below) = (halo.min(y0), halo.min(ny - y0 - n));
+            let (values, na) = classes_of(&rows.cells(y0 - above, y0 + n + below, 0, nx)?)?;
+            let h = above + n + below;
+            let out =
+                ffi::lsm_window(&values, &na, h as i64, nx as i64, resx, resy, &window, side, side, &names, &options)?;
+            Ok(out.chunks((h * nx).max(1)).map(|m| m[above * nx..(above + n) * nx].to_vec()).collect())
         };
-        Ok(outputs([("maps", Value::Stack(maps))]))
+        // strips of at least four times the halo's rows, the cells measured twice at most a third of them
+        let step = block_rows(source.block_rows(), nx).max(block_rows(Some(4 * halo), nx));
+        match &source {
+            Source::Disk(r, _) => {
+                let path = match args.opt_param::<String>("path")?.filter(|p| !p.is_empty()) {
+                    Some(p) => std::path::PathBuf::from(p).with_extension("tif"),
+                    None => {
+                        let src = r.images[r.layers[r.chosen].image].path();
+                        let stem = src.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+                        src.with_file_name(format!("{stem}_window{side}.tif"))
+                    }
+                };
+                if r.images.iter().any(|i| i.path() == path) {
+                    return Err(fail(Error::msg("the output must differ from the input")));
+                }
+                if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+                    std::fs::create_dir_all(dir).map_err(|e| fail(Error::msg(format!("{}: {e}", dir.display()))))?;
+                }
+                let bands: Vec<&str> = names.iter().map(String::as_str).collect();
+                let mut out =
+                    crate::files::RowsWriter::create_bands(&path, &grid, &bands, DataType::F64, None).map_err(fail)?;
+                for y0 in (0..ny).step_by(step) {
+                    let maps = strip(y0, step.min(ny - y0)).map_err(fail)?;
+                    let maps: Vec<&[f64]> = maps.iter().map(Vec::as_slice).collect();
+                    out.push_bands(&maps).map_err(fail)?;
+                }
+                out.finish().map_err(fail)?;
+                let written = Rasters::open(&path.to_string_lossy(), None, None)?;
+                Ok(outputs([("maps", Value::Raster(Arc::new(written)))]))
+            }
+            _ => {
+                let mut layers = vec![Vec::with_capacity(ny * nx); names.len()];
+                let step = if source.tiled() { step } else { ny.max(1) };
+                for y0 in (0..ny).step_by(step) {
+                    for (l, m) in layers.iter_mut().zip(strip(y0, step.min(ny - y0)).map_err(fail)?) {
+                        l.extend(m);
+                    }
+                }
+                let maps = Stack {
+                    grid,
+                    keys: names.iter().map(|n| Key::Name(n.clone())).collect(),
+                    layers: layers.into_iter().map(Arc::new).collect(),
+                };
+                Ok(outputs([("maps", Value::Stack(maps))]))
+            }
+        }
     }
 }

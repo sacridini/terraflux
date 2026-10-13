@@ -366,7 +366,10 @@ fn panels(ui: &mut Ui, t: &Table, rows: &[usize], chart: &Chart, id: egui::Id) {
                                     String::new()
                                 }
                             })
-                            .show(ui, |p| p.bar_chart(BarChart::new(t.columns[j].clone(), bars)));
+                            .show(ui, |p| {
+                                wheel_zoom(p);
+                                p.bar_chart(BarChart::new(t.columns[j].clone(), bars));
+                            });
                     }
                     Kind::Boxes => {
                         let names: Vec<String> = split.iter().map(|(g, _)| group_name(t, chart.by, *g)).collect();
@@ -381,6 +384,7 @@ fn panels(ui: &mut Ui, t: &Table, rows: &[usize], chart: &Chart, id: egui::Id) {
                                 }
                             })
                             .show(ui, |p| {
+                                wheel_zoom(p);
                                 for (g, (value, members)) in split.iter().enumerate() {
                                     let values: Vec<f64> = members.iter().map(|&i| t.rows[i][j]).collect();
                                     let Some((s, out)) = box_stats(&values) else { continue };
@@ -399,6 +403,7 @@ fn panels(ui: &mut Ui, t: &Table, rows: &[usize], chart: &Chart, id: egui::Id) {
                     }
                     Kind::Lines => {
                         plot.x_axis_label(t.columns[x].clone()).show(ui, |p| {
+                            wheel_zoom(p);
                             for (g, (value, members)) in split.iter().enumerate() {
                                 let mut pts: Vec<[f64; 2]> = members
                                     .iter()
@@ -414,6 +419,7 @@ fn panels(ui: &mut Ui, t: &Table, rows: &[usize], chart: &Chart, id: egui::Id) {
                     }
                     _ => {
                         plot.x_axis_label(t.columns[x].clone()).show(ui, |p| {
+                            wheel_zoom(p);
                             for (g, (value, members)) in split.iter().enumerate() {
                                 let pts: Vec<[f64; 2]> = members
                                     .iter()
@@ -435,6 +441,19 @@ fn panels(ui: &mut Ui, t: &Table, rows: &[usize], chart: &Chart, id: egui::Id) {
     });
 }
 
+/// The wheel zooms a chart around the point under the pointer, as on a map (the page under it does not scroll
+/// then); ctrl and the wheel, or dragging, as egui_plot does.
+fn wheel_zoom(p: &mut egui_plot::PlotUi) {
+    if !p.response().hovered() {
+        return;
+    }
+    let scroll = p.ctx().input(|i| i.smooth_scroll_delta.y);
+    if scroll != 0.0 {
+        p.zoom_bounds_around_hovered(Vec2::splat((scroll / 200.0).exp()));
+        p.ctx().input_mut(|i| i.smooth_scroll_delta = Vec2::ZERO);
+    }
+}
+
 /// A clustergram: dots sized by their rows, lines as wide as the rows they share.
 fn draw_clustergram(ui: &mut Ui, cg: &Clustergram, n: usize, id: egui::Id) {
     let n = n.max(1) as f32;
@@ -448,6 +467,7 @@ fn draw_clustergram(ui: &mut Ui, cg: &Clustergram, n: usize, id: egui::Id) {
             |m, _| if (m.value - m.value.round()).abs() < 1e-6 { format!("{}", m.value) } else { String::new() },
         )
         .show(ui, |p| {
+            wheel_zoom(p);
             for &(k, a, b, c) in &cg.lines {
                 p.line(Line::new("", vec![[k, a], [k + 1.0, b]]).color(line).width((c as f32 / n * 24.0).max(1.0)));
             }
@@ -484,6 +504,7 @@ fn loadings(ui: &mut Ui, t: &Table, [a, b]: [usize; 2], id: egui::Id) {
         .include_y(-1.1)
         .include_y(1.1)
         .show(ui, |p| {
+            wheel_zoom(p);
             let circle: Vec<[f64; 2]> = (0..=96)
                 .map(|k| {
                     let t = k as f64 / 96.0 * std::f64::consts::TAU;
@@ -539,6 +560,7 @@ fn matrix(ui: &mut Ui, t: &Table, id: egui::Id) {
             }
         })
         .show(ui, |p| {
+            wheel_zoom(p);
             p.heatmap(
                 Heatmap::new(values, m)
                     .at(PlotPoint::new(-0.5, -0.5))

@@ -197,3 +197,156 @@ fn rasters_on_disk_by_blocks() {
     assert!(r.get("metrics.class").unwrap().run(&mut Ctx::default(), &args).is_err());
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// Maps written to a GeoTIFF of a band each (no value: -9), as rasters on disk.
+fn on_disk(maps: &[&Map], path: &Path) -> Value {
+    let bands = maps
+        .iter()
+        .map(|m| Band { name: None, data: m.data.iter().map(|v| if v.is_nan() { -9.0 } else { *v }).collect() })
+        .collect();
+    Raster { grid: (*maps[0].grid).clone(), bands, dtype: DataType::I16, nodata: Some(-9.0) }.write(path).unwrap();
+    Value::Raster(Arc::new(Rasters::open(path.to_str().unwrap(), None, None).unwrap()))
+}
+
+fn temp_dir(what: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("terraflux-tiled-{what}-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn run_with(op: &str, inputs: Vec<(&str, Value)>, params: serde_json::Value) -> Outputs {
+    let r = Registry::standard();
+    let params = params.as_object().cloned().unwrap_or_default();
+    let args =
+        Args { node: "n", inputs: inputs.into_iter().map(|(k, v)| (k.to_string(), v)).collect(), params: &params };
+    r.get(op).unwrap().run(&mut Ctx::default(), &args).unwrap()
+}
+
+fn same_bits(a: &[f64], b: &[f64], what: &str) {
+    assert_eq!(a.len(), b.len(), "{what}");
+    for (i, (p, q)) in a.iter().zip(b).enumerate() {
+        assert!(p.to_bits() == q.to_bits() || (p.is_nan() && q.is_nan()), "{what}: cell {i}: {p} {q}");
+    }
+}
+
+/// The moving window by strips of rows (with the window's half side above and below): the same maps as the map
+/// whole, in memory and from rasters on disk (written to a GeoTIFF, a band per metric).
+#[test]
+fn windows_by_blocks() {
+    let map = clustered();
+    let dir = temp_dir("window");
+    let disk = on_disk(&[&map], &dir.join("clustered.tif"));
+    let metrics = ["shdi", "ed", "contag", "np", "ta", "lpi", "pafrac", "ai"];
+    let cases = [
+        serde_json::json!({"window": 5}),
+        serde_json::json!({"window": 11, "shape": "circle", "directions": 4}),
+        // a window deeper than the strips asked for
+        serde_json::json!({"window": 81, "block_rows": 64}),
+    ];
+    for case in cases {
+        let mut p = case.clone();
+        p["metrics"] = serde_json::json!(metrics);
+        if let Some(o) = p.as_object_mut() {
+            o.remove("block_rows");
+        }
+        let Value::Stack(whole) = &run("metrics.window", Value::Map(map.clone()), p.clone())["maps"] else { panic!() };
+        p["block_rows"] = case.get("block_rows").cloned().unwrap_or(64.into());
+        let Value::Stack(blocks) = &run("metrics.window", Value::Map(map.clone()), p.clone())["maps"] else { panic!() };
+        for (k, m) in metrics.iter().enumerate() {
+            same_bits(&blocks.layers[k], &whole.layers[k], &format!("{case} {m}"));
+        }
+        let path = dir.join("window.tif");
+        p["path"] = path.to_string_lossy().into();
+        let Value::Raster(written) = &run("metrics.window", disk.clone(), p)["maps"] else { panic!() };
+        assert_eq!(written.layers.len(), metrics.len());
+        let back = Raster::read(&path).unwrap();
+        for (k, m) in metrics.iter().enumerate() {
+            assert_eq!(back.bands[k].name.as_deref(), Some(*m));
+            same_bits(&back.bands[k].data, &whole.layers[k], &format!("{case} {m} on disk"));
+        }
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Points spread over the clustered map (its cells of 30 x 20), a few near its edges and one outside.
+fn points() -> terraflux_raster::vector::Vector {
+    use terraflux_raster::vector::{Column, Geometry, Vector};
+    let xy = [[700.0, 900.0], [2600.0, 3300.0], [5000.0, 6500.0], [60.0, 3000.0], [4100.0, 1500.0], [9000.0, 9000.0]];
+    Vector {
+        geometries: xy.iter().map(|p| Geometry::Point(*p)).collect(),
+        attributes: vec![("id".into(), Column::Numbers((1..=xy.len()).map(|i| i as f64).collect()))],
+        crs: None,
+    }
+}
+
+/// Samples of rasters on disk, each plot's window read alone: the same tables as the map in memory.
+#[test]
+fn samples_from_disk() {
+    let map = clustered();
+    let dir = temp_dir("sample");
+    let disk = on_disk(&[&map], &dir.join("clustered.tif"));
+    let plots = Value::Vector(Arc::new(points()));
+    for (level, extra) in [
+        ("landscape", serde_json::json!({})),
+        ("class", serde_json::json!({"all_classes": true, "shape": "circle"})),
+        ("patch", serde_json::json!({"size": [150, 400]})),
+    ] {
+        let mut p = extra.clone();
+        p["level"] = level.into();
+        if p.get("size").is_none() {
+            p["size"] = 300.into();
+        }
+        let memory =
+            run_with("metrics.sample", vec![("map", Value::Map(map.clone())), ("plots", plots.clone())], p.clone());
+        p["block_rows"] = 64.into();
+        let blocks = run_with("metrics.sample", vec![("map", disk.clone()), ("plots", plots.clone())], p);
+        same(&table(&blocks), &table(&memory), &format!("sample {level}"));
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// A series of two dates, and its signatures, from rasters on disk by blocks: the same tables as the stack in
+/// memory, of whole maps and of zones.
+#[test]
+fn series_and_signatures_from_disk() {
+    let first = clustered();
+    let second = Map::new(
+        first.grid.clone(),
+        first.data.iter().enumerate().map(|(i, v)| if i % 7 == 0 && !v.is_nan() { 2.0 } else { *v }).collect(),
+    );
+    let dir = temp_dir("series");
+    let disk = on_disk(&[&first, &second], &dir.join("dates.tif"));
+    let stack = terraflux_ops::Stack {
+        grid: first.grid.clone(),
+        keys: vec![terraflux_ops::Key::Name("2000".into()), terraflux_ops::Key::Name("2010".into())],
+        layers: vec![first.data.clone(), second.data.clone()],
+    };
+    for (level, extra) in [
+        ("landscape", serde_json::json!({"metrics": ["shdi", "ed", "np", "lpi", "area_mn", "enn_mn"]})),
+        ("class", serde_json::json!({"metrics": ["pland", "np", "core_mn"], "grid": 1500})),
+    ] {
+        let mut p = extra.clone();
+        p["level"] = level.into();
+        p["dates"] = serde_json::json!([2000, 2010]);
+        let memory = run_with("metrics.series", vec![("maps", Value::Stack(stack.clone()))], p.clone());
+        p["block_rows"] = 64.into();
+        let blocks = run_with("metrics.series", vec![("maps", disk.clone())], p.clone());
+        same(&table(&blocks), &table(&memory), &format!("series {level} on disk"));
+        let blocks = run_with("metrics.series", vec![("maps", Value::Stack(stack.clone()))], p);
+        same(&table(&blocks), &table(&memory), &format!("series {level} by blocks"));
+    }
+    let p = serde_json::json!({"landscape_metrics": ["shdi", "contag"], "class_metrics": ["pland", "ed"]});
+    let memory = run_with("metrics.signatures", vec![("maps", Value::Stack(stack.clone()))], p.clone());
+    let mut q = p.clone();
+    q["block_rows"] = 64.into();
+    let blocks = run_with("metrics.signatures", vec![("maps", disk.clone())], q);
+    same(&table(&blocks), &table(&memory), "signatures of layers");
+    let one = on_disk(&[&first], &dir.join("first.tif"));
+    let mut p = p.clone();
+    p["grid"] = 1200.into();
+    let memory = run_with("metrics.signatures", vec![("maps", Value::Map(first.clone()))], p.clone());
+    p["block_rows"] = 64.into();
+    let blocks = run_with("metrics.signatures", vec![("maps", one)], p);
+    same(&table(&blocks), &table(&memory), "signatures of zones");
+    std::fs::remove_dir_all(&dir).ok();
+}

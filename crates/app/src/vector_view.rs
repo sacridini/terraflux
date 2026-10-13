@@ -1,7 +1,8 @@
 //! Vector features as the viewer shows them: drawn as tiles by threads ([`crate::vector_tiles`]) over a grid that
 //! spans them (in their coordinate system, so a basemap can go under them), as smoothly whatever their number:
 //! scroll to zoom, drag to move, double-click to fit again; the feature under the pointer named with its
-//! attributes, the attributes' table and the style (a colour, or the colours of an attribute) beside.
+//! attributes, and the style (a colour or the colours of an attribute, the fill, the lines' width) beside. The
+//! attributes' table is the node's output of its own (`table`), not repeated here.
 
 use std::sync::Arc;
 
@@ -31,7 +32,8 @@ pub fn grid_over(v: &Vector) -> Grid {
     g
 }
 
-/// The style of a layer's controls: a colour, the attribute that colours the features, the polygons' fill.
+/// The style of a layer's controls: a colour, the attribute that colours the features, the polygons' fill, the
+/// lines' width (the points' size).
 pub fn style_controls(ui: &mut Ui, v: &Vector, style: &mut Style, id: egui::Id) {
     ui.horizontal(|ui| {
         ui.label("colour");
@@ -44,19 +46,21 @@ pub fn style_controls(ui: &mut Ui, v: &Vector, style: &mut Style, id: egui::Id) 
             }
         });
     });
+    ui.spacing_mut().slider_width = (ui.available_width() - 90.0).clamp(40.0, 160.0);
     if v.geometries.iter().any(Geometry::is_polygonal) {
-        ui.spacing_mut().slider_width = (ui.available_width() - 90.0).clamp(40.0, 160.0);
         ui.add(egui::Slider::new(&mut style.fill, 0.0..=1.0).text("fill"));
     }
+    let what = if v.geometries.iter().all(Geometry::is_point) { "size" } else { "line width" };
+    ui.add(egui::Slider::new(&mut style.width, 0.0..=12.0).step_by(0.1).text(what))
+        .on_hover_text("pixels: the lines' and outlines' width (0: polygons without outline), the points' size");
 }
 
-/// What the panel shows of a layer, worked out once: the grid it is drawn on, its attributes' table, its kinds
-/// of features and attributes of text.
+/// What the panel shows of a layer, worked out once: the grid it is drawn on, its kinds of features and
+/// attributes of text.
 #[derive(Clone)]
 struct Summary {
     key: usize,
     grid: Option<Arc<Grid>>,
-    table: Arc<terraflux_ops::Table>,
     counts: String,
     texts: Vec<String>,
 }
@@ -75,14 +79,13 @@ fn summary(v: &Arc<Vector>) -> Summary {
     Summary {
         key: Arc::as_ptr(v) as usize,
         grid: v.bounds().map(|_| Arc::new(grid_over(v))),
-        table: Arc::new(terraflux_ops::vector::attribute_table(v)),
         counts: format!("{} features: {polygons} polygons, {lines} lines, {points} points", v.len()),
         texts: v.attributes.iter().filter(|(_, c)| matches!(c, Column::Texts(_))).map(|(n, _)| n.clone()).collect(),
     }
 }
 
-/// The features drawn in the space left, their attributes and style in a panel at the right. What is worked out
-/// of the features (their grid, table, counts) is kept while they are the same: nothing goes over them per frame.
+/// The features drawn in the space left, their style in a panel at the right. What is worked out of the features
+/// (their grid, counts) is kept while they are the same: nothing goes over them per frame.
 pub fn show(ui: &mut Ui, v: &Arc<Vector>, view: &mut MapView, id: egui::Id) {
     let mut style: Style = ui.data(|d| d.get_temp(id.with("style"))).unwrap_or_default();
     let key = Arc::as_ptr(v) as usize;
@@ -114,8 +117,6 @@ pub fn show(ui: &mut Ui, v: &Arc<Vector>, view: &mut MapView, id: egui::Id) {
                         }
                     });
             }
-            ui.separator();
-            crate::table_view::show(ui, &sum.table, id.with("table"));
         });
     ui.data_mut(|d| d.insert_temp(id.with("style"), style.clone()));
     let Some(grid) = sum.grid.clone() else {

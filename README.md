@@ -155,6 +155,16 @@ no console.
   maps and the drivers (the dates and steps from the band names), checks the data as soon as it is chosen
   (grids, classes, missing values, constant or collinear drivers) and offers to fix what it can (resampling a
   driver to the land use map's grid), then writes the model with a note on every choice.
+- **Panes:** the node's and Prepare at the left, the model over the viewer; the operators in a drawer at the
+  window's left edge and in the toolbar. Any tab dragged out of the dock becomes a window of its own, to put on
+  another screen. ctrl+O opens a raster or vectors, ctrl+W closes the tab in front, backspace (or delete) deletes
+  the node selected.
+- **Prepare:** the data of the node selected next to the model's reference grid (the land use map's, suggested
+  as soon as one is read): its coordinate system, cells and extent, what differs, and the steps a click away,
+  each a node of an operator already there with a note saying why: onto the grid (`raster.match`, resampled by
+  what the values are: classes the nearest cell or the most common one, values interpolated or averaged, counts
+  summed), reprojected, the slope of a surface, the distance to a class; for vectors the distance to them, burnt
+  into the grid, the statistics of the grid's map in each polygon; every raster off the grid put on it at once.
 - **The node editor:** connect ports (each connection checked), type values and settings, edit the bodies of
   loops and groups; the note of every node says why it is there.
 - **Map:** the maps of the run as they come, step by step, and the maps of the inputs: a stack's one after the
@@ -254,9 +264,12 @@ terraflux run model.toml --tiled --disk /shared/layers --coordinator http://coor
 ```
 
 Landscape metrics read a map larger than memory by blocks of rows (`block_rows` on `metrics.patch`,
-`metrics.class` and `metrics.landscape`, and always for rasters on disk of more than 250 million cells), the same
-values as in memory; MSPA by GuidosToolbox's overlapping tiles (`landscape.mspa_tiled`) reads and writes a raster
-on disk tile by tile.
+`metrics.class`, `metrics.landscape`, `metrics.window`, `metrics.sample`, `metrics.series` and
+`metrics.signatures`, and always for rasters on disk of more than 250 million cells), the same values as in
+memory: the moving window by strips with the window's half side around them (its maps written to a GeoTIFF, a
+band per metric), samples and zones window by window. So do the vectors over rasters: `vector.zonal` by strips of
+rows, `vector.extract` from the strips that hold points, `vector.rasterize` into a GeoTIFF strip by strip. MSPA
+by GuidosToolbox's overlapping tiles (`landscape.mspa_tiled`) reads and writes a raster on disk tile by tile.
 
 No command takes every core: Rust's tasks, landschaft's OpenMP kernels and the workers of a local cluster share
 all the cores but one, unless `--threads` (or `TERRAFLUX_THREADS`) says otherwise.

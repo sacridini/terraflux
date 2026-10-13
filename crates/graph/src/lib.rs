@@ -42,7 +42,8 @@ pub const PLUGIN: &str = "plugin.wasm";
 
 /// The operators whose `params.path` is a file: relative to the model's folder in the model file, absolute
 /// once the model is expanded to run ([`submodel::expand`]).
-pub const FILE_OPS: [&str; 4] = [PLUGIN, "raster.read", "raster.write", "landscape.mspa_tiled"];
+pub const FILE_OPS: [&str; 6] =
+    [PLUGIN, "raster.read", "raster.write", "landscape.mspa_tiled", "vector.read", "vector.write"];
 
 /// Make the file paths of the nodes ([`FILE_OPS`]) relative to `dir` (the folder a model is saved in).
 pub fn relative_paths(nodes: &mut [Node], dir: &Path) {

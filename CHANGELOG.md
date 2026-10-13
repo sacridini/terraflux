@@ -6,6 +6,63 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-10-13
+
+### Added
+- Basemaps fetched and drawn anew: the web tiles of the service fetched by a pool of twelve threads shared by
+  every view (each tile once, kept on disk and decoded in memory), and drawn by the GPU as textures on meshes whose
+  vertices are carried to the map's coordinate system once per tile: nothing is warped on the processor, a tile
+  shows as it comes, two levels coarser first, the coarser ones kept under those still to come. GDAL's HTTP
+  (`terraflux_gdal::fetch`), image decoding (`decode_image`, palettes too) and coordinate transformations
+  (`Transform`).
+- The operators in a drawer at the window's left edge (out while the pointer is at the edge or over it) and in
+  the toolbar (Operators); the node's and the Prepare panes at the left.
+- Tabs dragged out of the dock become windows of their own (on another screen too); ctrl+W closes the tab in
+  front of the window it is pressed in, and each window takes its own keys (F5, ctrl+S, ctrl+O).
+- ctrl+O opens a raster or vector features (a node that reads the file, by its extension); vector.read and
+  vector.write choose their file in a dialog, and their paths are kept relative to the model as the rasters'.
+- Backspace deletes the node selected (as delete; the key macOS deletes with).
+- The vector layers' line width (the points' size) beside their fill.
+- Charts zoom with the wheel around the point under the pointer, as maps.
+
+### Changed
+- The attributes' table of vectors is only the node's table output (no longer repeated beside the features).
+
+## [0.21.0] - 2026-10-13
+
+### Added
+- The Prepare pane (beside the node's): the model's reference grid (the land use map's suggested, or the node
+  selected), the data of the node selected next to it (coordinate system, cells, extent and what differs; classes,
+  values or counts) and the steps a click away, each a node of an operator already there with a note saying why:
+  onto the grid (`raster.match`, resampled by what the values are), reprojected (`raster.reproject`), the slope
+  (`raster.terrain`), the distance to a class (`dynamic.distance_to`); of vectors the distance to them
+  (`vector.distance`), burnt into the grid (`vector.rasterize`, by an attribute or not), the statistics of the
+  grid's map in each polygon (`vector.zonal`); every raster read off the grid put on it at once. The reference
+  grid of a model opened is the one its steps put maps on (`terraflux_app::prepare`).
+
+## [0.20.0] - 2026-10-13
+
+### Added
+- Out of core, the rest of the landscape metrics: `metrics.window` by strips of rows with the window's half side
+  above and below (every cell's window whole, so the same maps to the bit), of rasters on disk into a GeoTIFF of a
+  band per metric (`path`); `metrics.sample` reads each plot's window alone from the rasters on disk (and the map's
+  classes for `all_classes` by blocks); `metrics.series` and `metrics.signatures` take rasters on disk, a layer
+  per date, whole maps by blocks of rows and zones window by window. `block_rows` on all of them, and rasters on
+  disk of more than 250 million cells always; the same tables as in memory, to the bit. `vector.grid_zones` reads
+  only the grid of its map.
+- Vectors over rasters larger than memory: `vector.zonal` by strips of rows (the zones that fit a strip by
+  landschaft's zonal statistics on it, a zone too large read run after run and summed as landschaft sums it, its
+  order statistics from its values or, for whole numbers, their counts), `vector.extract` from the strips of rows
+  that hold points (landschaft's extract of a block, a row around for bilinear), `vector.rasterize` into a GeoTIFF
+  strip by strip (`path`; polygons by their runs, lines by GDAL in the grid's pixels, points by their cell). The
+  same values as in memory, to the bit, but GDAL's lines through cells' corners with `all_touched`.
+- `RowsWriter` writes several bands side by side (`create_bands`, `push_bands`).
+
+### Changed
+- `metrics.window`'s maps, `vector.rasterize`'s map and the maps of `metrics.series`, `metrics.signatures`,
+  `metrics.sample`, `vector.zonal` and `vector.extract` are of the type `Raster` (a map, a stack or rasters on
+  disk): any map connects as before.
+
 ## [0.19.0] - 2026-10-13
 
 ### Added

@@ -40,6 +40,8 @@ pub enum Pane {
     Operators,
     /// The node selected.
     Node,
+    /// The data of the node selected put on the reference grid, or made drivers, in a click.
+    Prepare,
     /// What the node selected gives.
     Viewer,
     /// The run's maps, step by step, and the inputs' maps.
@@ -53,14 +55,23 @@ pub enum Pane {
 }
 
 impl Pane {
-    pub const ALL: [Pane; 7] =
-        [Pane::Model, Pane::Operators, Pane::Node, Pane::Viewer, Pane::Simulation, Pane::Areas, Pane::Validation];
+    pub const ALL: [Pane; 8] = [
+        Pane::Model,
+        Pane::Operators,
+        Pane::Node,
+        Pane::Prepare,
+        Pane::Viewer,
+        Pane::Simulation,
+        Pane::Areas,
+        Pane::Validation,
+    ];
 
     pub fn title(self) -> &'static str {
         match self {
             Pane::Model => "Model",
             Pane::Operators => "Operators",
             Pane::Node => "Node",
+            Pane::Prepare => "Prepare",
             Pane::Viewer => "Viewer",
             Pane::Simulation => "Simulation",
             Pane::Areas => "Areas",
@@ -70,13 +81,13 @@ impl Pane {
     }
 }
 
-/// The panes as they first are: the operators on the left, the model in the middle over the viewer, the node
-/// on the right (the others from the View menu; the maps of nodes open beside the viewer).
+/// The panes as they first are: the node and the preparation of its data on the left, the model over the viewer
+/// beside them (the operators in a drawer at the left edge and in the toolbar, the others from the View menu; the
+/// maps of nodes open beside the viewer).
 pub fn default_layout() -> DockState<Pane> {
     let mut d = DockState::new(vec![Pane::Model]);
     let s = d.main_surface_mut();
-    let [model, _] = s.split_left(NodeIndex::root(), 0.17, vec![Pane::Operators]);
-    let [model, _] = s.split_right(model, 0.74, vec![Pane::Node]);
+    let [model, _] = s.split_left(NodeIndex::root(), 0.24, vec![Pane::Node, Pane::Prepare]);
     let [_, _] = s.split_below(model, 0.5, vec![Pane::Viewer]);
     d
 }
@@ -96,12 +107,14 @@ fn retain_panes(dock: &mut DockState<Pane>, keep: impl FnMut(&mut Pane) -> bool)
 }
 
 /// The version of the layout kept (a layout of another version is let go).
-const LAYOUT_VERSION: u32 = 3;
+const LAYOUT_VERSION: u32 = 5;
 
 /// A window of its own (another screen): its panes in a dock.
 pub struct Detached {
     pub id: egui::ViewportId,
     pub dock: DockState<Pane>,
+    /// Where it opens on the screen (where its tab was dropped), the first time.
+    pub at: Option<egui::Pos2>,
 }
 
 /// The layout kept between sessions: the main dock, and the panes of each window of their own.
@@ -127,6 +140,30 @@ pub fn layout_file() -> Option<PathBuf> {
             })
         })
         .map(|d| d.join("Terraflux").join("layout.json"))
+}
+
+/// The application's keys pressed in a window.
+#[derive(Default)]
+struct Keys {
+    run: bool,
+    save: bool,
+    open: bool,
+    tab: bool,
+    close: bool,
+}
+
+impl Keys {
+    /// The keys of the window `ui` is in, taken.
+    fn read(ui: &mut Ui) -> Keys {
+        let typing = ui.ctx().memory(|m| m.focused().is_some());
+        ui.input_mut(|i| Keys {
+            run: i.consume_key(egui::Modifiers::NONE, egui::Key::F5),
+            save: i.consume_key(egui::Modifiers::COMMAND, egui::Key::S),
+            open: i.consume_key(egui::Modifiers::COMMAND, egui::Key::O),
+            tab: !typing && i.consume_key(egui::Modifiers::NONE, egui::Key::Tab),
+            close: i.consume_key(egui::Modifiers::COMMAND, egui::Key::W),
+        })
+    }
 }
 
 /// What the panes asked of the dock in a frame.
@@ -197,6 +234,21 @@ impl egui_dock::TabViewer for Panes<'_> {
             ui.close();
         }
     }
+}
+
+/// The tabs of a dock's floating windows (tabs dragged out of it), taken out of it: a list per window.
+fn floating_tabs(dock: &mut DockState<Pane>) -> Vec<Vec<Pane>> {
+    let surfaces: Vec<egui_dock::SurfaceIndex> =
+        dock.iter_surfaces_indexed().filter(|(i, s)| !i.is_main() && !s.is_empty()).map(|(i, _)| i).collect();
+    let mut out = Vec::new();
+    for i in surfaces.into_iter().rev() {
+        let tabs: Vec<Pane> = dock[i].tabs().copied().collect();
+        dock.remove_surface(i);
+        if !tabs.is_empty() {
+            out.push(tabs);
+        }
+    }
+    out
 }
 
 /// The dock's look: the theme's greys, the tab shown in the panel's grey, the bar a shade darker.
@@ -420,6 +472,10 @@ pub struct Session {
     /// Run the whole model once its data is read.
     pub run_when_ready: bool,
     edited_at: Option<Instant>,
+    /// The output whose grid the model's maps are put on (node, port).
+    pub reference: Option<(String, String)>,
+    /// What the values of nodes' rasters are, as chosen in the preparation (else guessed from their type).
+    pub kinds: BTreeMap<String, crate::prepare::Kind>,
 }
 
 impl Session {
@@ -459,8 +515,11 @@ impl Session {
         std::thread::spawn(move || {
             let _ = tx.send(Loaded::read(&m, &base));
         });
+        let reference = crate::prepare::reference_of(&source);
         Ok(Session {
             toml: None,
+            reference,
+            kinds: BTreeMap::new(),
             source,
             model,
             editor: EditorState::default(),
@@ -965,6 +1024,8 @@ pub struct TerrafluxApp {
     tab_back: Option<Pane>,
     /// Tab was taken this frame: the keyboard's focus it may have given a field is let go at the frame's end.
     tabbed: bool,
+    /// The operators' drawer is out (the pointer went to the window's left edge).
+    pub drawer: bool,
 }
 
 /// A row of a list: a name, selected or not, and a note on the right.
@@ -1006,6 +1067,7 @@ impl TerrafluxApp {
             styled: false,
             tab_back: None,
             tabbed: false,
+            drawer: false,
         };
         if let Some(p) = model {
             app.open(&p);
@@ -1134,6 +1196,19 @@ impl TerrafluxApp {
                     });
                 }
             });
+            if let Some(s) = &mut self.session {
+                ui.menu_button("Operators", |ui| {
+                    ui.set_width(300.0);
+                    ui.set_max_height(560.0);
+                    let before = s.revision;
+                    crate::builder::operators_pane(ui, s, &self.registry, &self.library);
+                    if s.revision != before {
+                        ui.close();
+                    }
+                })
+                .response
+                .on_hover_text("add an operator after the node selected (also at the window's left edge, and \"/\")");
+            }
             if ui.button("Wizard...").on_hover_text("a land change model from your maps, step by step").clicked() {
                 self.wizard = Some(Wizard::default());
             }
@@ -1208,6 +1283,47 @@ impl TerrafluxApp {
         }
     }
 
+    /// The operators' drawer: out over the panes while the pointer is at the window's left edge or over it, in
+    /// again when the pointer leaves it.
+    fn drawer(&mut self, ctx: &egui::Context, area: egui::Rect) {
+        const WIDTH: f32 = 280.0;
+        let Some(s) = &mut self.session else { return };
+        let pointer = ctx.input(|i| i.pointer.latest_pos());
+        let dragging = ctx.dragged_id().is_some();
+        if let Some(p) = pointer {
+            if !self.drawer && !dragging && p.x <= area.left() + 3.0 && area.y_range().contains(p.y) {
+                self.drawer = true;
+            } else if self.drawer
+                && (p.x > area.left() + WIDTH + 24.0 || !area.y_range().contains(p.y))
+                && !ctx.any_popup_open()
+            {
+                self.drawer = false;
+            }
+        }
+        if !self.drawer {
+            return;
+        }
+        let before = s.revision;
+        egui::Area::new(egui::Id::new("operators drawer")).fixed_pos(area.min).order(egui::Order::Foreground).show(
+            ctx,
+            |ui| {
+                egui::Frame::new()
+                    .fill(ui.visuals().panel_fill)
+                    .shadow(ui.visuals().popup_shadow)
+                    .stroke(ui.visuals().window_stroke)
+                    .show(ui, |ui| {
+                        ui.set_width(WIDTH);
+                        ui.set_height(area.height());
+                        crate::builder::operators_pane(ui, s, &self.registry, &self.library);
+                    });
+            },
+        );
+        // an operator added: the drawer goes in
+        if s.revision != before {
+            self.drawer = false;
+        }
+    }
+
     /// The bar at the bottom: the cell under the pointer, else how to move around.
     fn status(&self, ui: &mut Ui) {
         ui.horizontal(|ui| {
@@ -1227,12 +1343,13 @@ impl TerrafluxApp {
                     );
                 }
                 None if self.session.is_some() => {
+                    let delete = if cfg!(target_os = "macos") { "⌫" } else { "del" };
                     ui.label(
-                        RichText::new(
+                        RichText::new(format!(
                             "click an operator (or /) to add it    drag: select    right or middle drag: move    double \
-                             click: its map    del: delete    ctrl+R: rename    ctrl+L: arrange    Tab: the model \
-                             and back    ctrl+W: close the tab    F5: run all",
-                        )
+                             click: its map    {delete}: delete    ctrl+R: rename    ctrl+L: arrange    Tab: the model \
+                             and back    ctrl+W: close the tab    F5: run all"
+                        ))
                         .color(weak),
                     );
                 }
@@ -1537,22 +1654,15 @@ impl TerrafluxApp {
         }
     }
 
-    /// The keys of the whole application: F5 runs the model, ctrl+S saves it, Tab goes to the model and back to
-    /// the tab it came from, ctrl+W closes the tab in focus.
+    /// The keys of the whole application, in the main window when it has the focus (a window of its own takes
+    /// its keys itself): F5 runs the model, ctrl+S saves it, ctrl+O opens a raster or vectors, Tab goes to the
+    /// model and back to the tab it came from, ctrl+W closes the tab in focus.
     fn keys(&mut self, ui: &mut Ui) {
-        let typing = ui.ctx().memory(|m| m.focused().is_some());
-        let (run, save, tab, close) = ui.input_mut(|i| {
-            (
-                i.consume_key(egui::Modifiers::NONE, egui::Key::F5),
-                i.consume_key(egui::Modifiers::COMMAND, egui::Key::S),
-                !typing && i.consume_key(egui::Modifiers::NONE, egui::Key::Tab),
-                i.consume_key(egui::Modifiers::COMMAND, egui::Key::W),
-            )
-        });
-        if save {
-            self.save(false);
+        if !ui.input(|i| i.focused) {
+            return;
         }
-        if tab {
+        let keys = Keys::read(ui);
+        if keys.tab {
             self.tabbed = true;
             match self.focused() {
                 Some(Pane::Model) => {
@@ -1568,18 +1678,30 @@ impl TerrafluxApp {
                 }
             }
         }
-        if close && let Some(p) = self.focused() {
+        if keys.close
+            && let Some(p) = self.focused()
+        {
             if let (Pane::Map(id), Some(s)) = (p, &mut self.session) {
                 s.map_tabs.remove(&id);
             }
             self.close(p);
         }
-        if let Some(s) = &mut self.session
-            && run
-            && s.can_run()
-        {
-            let ctx = ui.ctx().clone();
-            s.start(Box::new(move || ctx.request_repaint()));
+        self.app_keys(ui.ctx(), &keys);
+    }
+
+    /// What the keys of any window ask of the application: run, save, open data.
+    fn app_keys(&mut self, ctx: &egui::Context, keys: &Keys) {
+        if keys.save {
+            self.save(false);
+        }
+        if let Some(s) = &mut self.session {
+            if keys.open {
+                crate::builder::open_data(s, &self.registry);
+            }
+            if keys.run && s.can_run() {
+                let ctx = ctx.clone();
+                s.start(Box::new(move || ctx.request_repaint()));
+            }
         }
     }
 
@@ -1655,7 +1777,9 @@ impl TerrafluxApp {
                     });
                 });
         }
+        let area = ui.available_rect_before_wrap();
         egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::BAR)).show(ui, |ui| self.docks(ui));
+        self.drawer(ui.ctx(), area);
         // Tab is ours: no field keeps the focus egui gave it
         if std::mem::take(&mut self.tabbed) {
             ui.ctx().memory_mut(|m| {
@@ -1675,6 +1799,7 @@ impl TerrafluxApp {
             Pane::Model => crate::builder::model_pane(ui, s, r),
             Pane::Operators => crate::builder::operators_pane(ui, s, r, lib),
             Pane::Node => crate::builder::node_pane(ui, s, r),
+            Pane::Prepare => crate::prepare_view::pane(ui, s, r),
             Pane::Viewer => {
                 if let Some(h) = crate::builder::viewer_pane(ui, s, r) {
                     self.hover = Some(h);
@@ -1801,7 +1926,27 @@ impl TerrafluxApp {
         });
         self.window_count += 1;
         let id = egui::ViewportId::from_hash_of(("terraflux window", self.window_count));
-        self.windows.push(Detached { id, dock: DockState::new(vec![pane]) });
+        self.windows.push(Detached { id, dock: DockState::new(vec![pane]), at: None });
+    }
+
+    /// Tabs dragged out of a dock: a window of their own each, where the pointer let them go (on the screen).
+    fn float_out(&mut self, ctx: &egui::Context, tabs: Vec<Vec<Pane>>) {
+        if tabs.is_empty() {
+            return;
+        }
+        let origin = ctx.input(|i| i.viewport().outer_rect.map(|r| r.min)).unwrap_or_default();
+        let pointer = ctx.input(|i| i.pointer.latest_pos()).unwrap_or_default();
+        for group in tabs {
+            let Some((&first, rest)) = group.split_first() else { continue };
+            self.window_count += 1;
+            let id = egui::ViewportId::from_hash_of(("terraflux window", self.window_count));
+            let mut dock = DockState::new(vec![first]);
+            for &t in rest {
+                dock.push_to_first_leaf(t);
+            }
+            let at = origin + (pointer - egui::Pos2::ZERO) - egui::vec2(40.0, 12.0);
+            self.windows.push(Detached { id, dock, at: Some(at) });
+        }
     }
 
     /// Bring a pane back to the main window.
@@ -1890,18 +2035,43 @@ impl TerrafluxApp {
             .style(style.clone())
             .show_leaf_collapse_buttons(false)
             .show_inside(ui, &mut Panes { app: self, moves: &mut moves, detached: false });
+        // tabs dragged out of the dock (egui_dock's floating windows): windows of their own, to take anywhere
+        let floating = floating_tabs(&mut dock);
         self.dock = Some(dock);
+        self.float_out(ui.ctx(), floating);
         let mut windows = std::mem::take(&mut self.windows);
         let mut closed = Vec::new();
+        let mut window_keys: Vec<Keys> = Vec::new();
         for (k, w) in windows.iter_mut().enumerate() {
             let title = w.dock.iter_all_tabs().map(|(_, t)| t.title()).collect::<Vec<_>>().join(", ");
-            let builder = egui::ViewportBuilder::default()
+            let mut builder = egui::ViewportBuilder::default()
                 .with_title(format!("Terraflux - {title}"))
                 .with_inner_size([960.0, 720.0]);
+            if let Some(at) = w.at.take() {
+                builder = builder.with_position(at);
+            }
             let app = &mut *self;
             let moves = &mut moves;
             let style = style.clone();
             let close = ui.ctx().show_viewport_immediate(w.id, builder, |ui, _class| {
+                // its keys: ctrl+W closes its tab in front, the others are the application's
+                let keys = if ui.input(|i| i.focused) { Keys::read(ui) } else { Keys::default() };
+                if keys.close {
+                    let front = w
+                        .dock
+                        .find_active_focused()
+                        .map(|(_, t)| *t)
+                        .or_else(|| w.dock.iter_leaves().find_map(|l| l.1.tabs().get(l.1.active.0).copied()));
+                    if let Some(p) = front
+                        && let Some(path) = w.dock.find_tab(&p)
+                    {
+                        if let (Pane::Map(id), Some(s)) = (p, &mut app.session) {
+                            s.map_tabs.remove(&id);
+                        }
+                        w.dock.remove_tab(path);
+                    }
+                }
+                window_keys.push(keys);
                 egui::CentralPanel::default().frame(egui::Frame::new().fill(ui.visuals().panel_fill)).show(ui, |ui| {
                     egui_dock::DockArea::new(&mut w.dock)
                         .id(egui::Id::new(("window dock", w.id)))
@@ -1922,8 +2092,16 @@ impl TerrafluxApp {
                 self.put_back(*t);
             }
         }
+        let mut out = Vec::new();
+        for w in &mut windows {
+            out.extend(floating_tabs(&mut w.dock));
+        }
         windows.append(&mut self.windows);
         self.windows = windows;
+        self.float_out(ui.ctx(), out);
+        for k in &window_keys {
+            self.app_keys(ui.ctx(), k);
+        }
         for p in moves.detach {
             self.detach(p);
         }
@@ -2080,11 +2258,14 @@ pub(crate) fn node_panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
             {
                 let dialog = match n.op.as_str() {
                     terraflux_graph::PLUGIN => rfd::FileDialog::new().add_filter("WebAssembly", &["wasm", "wat"]),
+                    "vector.read" | "vector.write" => rfd::FileDialog::new()
+                        .add_filter("Vectors", &crate::builder::VECTOR_EXTENSIONS)
+                        .add_filter("Every file", &["*"]),
                     _ => rfd::FileDialog::new()
                         .add_filter("Rasters", &terraflux_ops::files::RASTER_EXTENSIONS)
                         .add_filter("Every file", &["*"]),
                 };
-                let writes = ["raster.write", "landscape.mspa_tiled"].contains(&n.op.as_str());
+                let writes = ["raster.write", "landscape.mspa_tiled", "vector.write"].contains(&n.op.as_str());
                 let picked = if writes { dialog.save_file() } else { dialog.pick_file() };
                 if let Some(p) = picked {
                     let p = p.to_string_lossy().into_owned();

@@ -838,3 +838,102 @@ fn nodes_are_gone_through_with_the_keyboard() {
     let s = h.state().session.as_ref().unwrap();
     assert_eq!(s.preview.as_ref().map(|(n, _)| n), Some(&first));
 }
+
+/// The preparation pane: the land use suggested as the reference grid and chosen in a click, the drivers (in
+/// another coordinate system) put on it in another, a raster.match with its note added after them.
+#[test]
+fn data_is_put_on_the_reference_grid_in_a_click() {
+    let d = tmp("prepare");
+    std::fs::create_dir_all(&d).unwrap();
+    let (land, utm, geo) = (d.join("land.tif"), d.join("drivers_utm.tif"), d.join("drivers_geo.tif"));
+    let srs = ["-a_srs".to_string(), "EPSG:32651".to_string()];
+    terraflux_gdal::translate(&data("sibuyan_landuse.tif"), &land, &srs).unwrap();
+    terraflux_gdal::translate(&data("sibuyan_drivers.tif"), &utm, &srs).unwrap();
+    terraflux_gdal::warp(&[&utm], &geo, &["-t_srs".into(), "EPSG:4326".into()]).unwrap();
+    let mut m = terraflux_graph::Model::new("prepare");
+    for (id, p) in [("land", &land), ("drivers", &geo)] {
+        m.nodes.push(terraflux_graph::Node::new(id, "raster.read").param("path", p.to_string_lossy()));
+    }
+    let path = d.join("prepare.toml");
+    m.save(&path).unwrap();
+    let mut h = harness(TerrafluxApp::new(Some(path)));
+    loaded(&mut h);
+    h.state_mut().focus(Pane::Prepare);
+    let r = terraflux_ops::Registry::standard();
+    for id in ["drivers", "land"] {
+        let s = h.state_mut().session.as_mut().unwrap();
+        terraflux_app::builder::select(s, &r, id);
+        s.start_to(Some(id.into()), Box::new(|| {}));
+        until(&mut h, "the run", |a| {
+            let s = a.session.as_ref().unwrap();
+            !s.running() && s.value_of(id, "raster").is_some()
+        });
+    }
+    h.run_steps(3);
+    shot(&mut h, "18-prepare-reference");
+    h.get_by_label("Use land (classes)").click();
+    h.run_steps(2);
+    assert_eq!(h.state().session.as_ref().unwrap().reference, Some(("land".into(), "raster".into())));
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        terraflux_app::builder::select(s, &r, "drivers");
+    }
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("another coordinate system").is_some(), "what differs from the grid");
+    shot(&mut h, "19-prepare-drivers");
+    h.get_by_label("Put on the reference grid").click();
+    h.run_steps(2);
+    let s = h.state().session.as_ref().unwrap();
+    let n = s.source.nodes.iter().find(|n| n.op == "raster.match").expect("raster.match added");
+    assert_eq!(n.inputs["raster"], terraflux_graph::Source::Ref("drivers.raster".into()));
+    assert_eq!(n.inputs["like"], terraflux_graph::Source::Ref("land.raster".into()));
+    assert!(n.note.as_ref().is_some_and(|t| t.contains("Resampling")), "{:?}", n.note);
+    assert_eq!(s.selected.as_deref(), Some(n.id.as_str()));
+}
+
+/// The panes' places: the node's at the left, the operators in a drawer the pointer opens at the window's left
+/// edge (and closes leaving it) and in the toolbar; backspace deletes the node selected; a tab dragged out of the
+/// dock (egui_dock's floating window) becomes a window of its own.
+#[test]
+fn the_operators_drawer_and_windows_of_their_own() {
+    let mut h = harness(TerrafluxApp::new(None));
+    h.run_steps(2);
+    let ctx = h.ctx.clone();
+    h.state_mut().start_template(&ctx, &terraflux_app::templates::TEMPLATES[0]);
+    h.run_steps(4);
+    assert!(!h.state().is_open(Pane::Operators), "no operators' pane at first");
+    assert!(h.state().is_open(Pane::Node) && h.state().is_open(Pane::Prepare));
+    assert!(h.query_by_label("Operators").is_some(), "the toolbar's menu");
+    assert!(h.query_by_label("Open a raster...").is_none());
+    // the pointer at the left edge: the drawer
+    h.event(egui::Event::PointerMoved(egui::pos2(1.0, 300.0)));
+    h.run_steps(3);
+    assert!(h.state().drawer);
+    assert!(h.query_by_label("Open a raster...").is_some(), "the operators in the drawer");
+    shot(&mut h, "20-drawer");
+    h.event(egui::Event::PointerMoved(egui::pos2(700.0, 300.0)));
+    h.run_steps(3);
+    assert!(!h.state().drawer, "away from it, it goes in");
+    // backspace deletes
+    let n = h.state().session.as_ref().unwrap().source.nodes.len();
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let id = s.source.nodes.last().unwrap().id.clone();
+        terraflux_app::builder::select(s, &terraflux_ops::Registry::standard(), &id);
+    }
+    h.run_steps(2);
+    h.key_press(egui::Key::Backspace);
+    h.run_steps(2);
+    assert_eq!(h.state().session.as_ref().unwrap().source.nodes.len(), n - 1, "backspace deletes the node");
+    // a floating window of the dock: a window of its own
+    {
+        let a = h.state_mut();
+        let dock = a.dock.as_mut().unwrap();
+        let path = dock.find_tab(&Pane::Viewer).unwrap();
+        dock.remove_tab(path);
+        dock.add_window(vec![Pane::Viewer]);
+    }
+    h.run_steps(3);
+    assert_eq!(h.state().detached(), vec![Pane::Viewer]);
+    assert!(h.state().dock.as_ref().unwrap().iter_surfaces_indexed().all(|(i, s)| i.is_main() || s.is_empty()));
+}
