@@ -258,7 +258,13 @@ impl Basemap {
     /// The service as GDAL opens it, its tiles kept in the user's cache.
     fn service(self) -> Option<String> {
         let (url, levels) = self.url()?;
-        let root = std::env::var_os("LOCALAPPDATA").map(std::path::PathBuf::from).unwrap_or_else(std::env::temp_dir);
+        let root = std::env::var_os("LOCALAPPDATA")
+            .map(std::path::PathBuf::from)
+            .or_else(|| {
+                let home = std::env::var_os("HOME").filter(|_| cfg!(target_os = "macos"))?;
+                Some(std::path::PathBuf::from(home).join("Library").join("Caches"))
+            })
+            .unwrap_or_else(std::env::temp_dir);
         let cache = root.join("Terraflux").join("tiles").join(format!("{self:?}"));
         Some(terraflux_gdal::tile_service(url, levels, &cache))
     }

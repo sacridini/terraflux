@@ -1,7 +1,8 @@
 //! Builds landschaft's C++ libraries (CMake, `LANDSCHAFT_PYTHON=OFF`) and the shim between them and Rust.
 //!
 //! The landschaft sources are the submodule `extern/landschaft`, or the folder in `LANDSCHAFT_DIR`. A
-//! local copy of Eigen can be given in `LANDSCHAFT_EIGEN_DIR` (else CMake downloads it).
+//! local copy of Eigen can be given in `LANDSCHAFT_EIGEN_DIR` (else CMake downloads it). On macOS the OpenMP
+//! runtime is Homebrew's libomp (`brew install libomp`), or the one in `OpenMP_ROOT`.
 
 use std::path::PathBuf;
 
@@ -38,11 +39,19 @@ fn main() {
     }
     println!("cargo:rerun-if-env-changed=CMAKE");
 
+    // Apple's clang has no OpenMP runtime of its own: the kernels and the shim are built against one libomp,
+    // linked statically so that the program needs none next to it
+    let openmp = target.contains("apple").then(apple_openmp);
+    println!("cargo:rerun-if-env-changed=OpenMP_ROOT");
+
     let mut cfg = cmake::Config::new(&source);
     // the MILP prioritization too (optcore, with HiGHS)
     cfg.define("LANDSCHAFT_PYTHON", "OFF").define("LANDSCHAFT_MILP", "ON").profile("Release");
     if let Some(eigen) = std::env::var_os("LANDSCHAFT_EIGEN_DIR") {
         cfg.define("FETCHCONTENT_SOURCE_DIR_EIGEN", eigen);
+    }
+    if let Some(root) = &openmp {
+        cfg.define("OpenMP_ROOT", root);
     }
     let dst = cfg.build();
     let include = dst.join("include");
@@ -67,8 +76,9 @@ fn main() {
     // the OpenMP runtime of the kernels
     if target.contains("msvc") {
         println!("cargo:rustc-link-lib=dylib=vcomp");
-    } else if target.contains("apple") {
-        println!("cargo:rustc-link-lib=dylib=omp");
+    } else if let Some(root) = &openmp {
+        println!("cargo:rustc-link-search=native={}", root.join("lib").display());
+        println!("cargo:rustc-link-lib=static=omp");
     } else {
         println!("cargo:rustc-link-lib=dylib=gomp");
     }
@@ -77,6 +87,9 @@ fn main() {
     bridge.file("shim/shim.cc").include(&include).include(&manifest).std("c++17");
     if target.contains("msvc") {
         bridge.flag("/fp:precise").flag("/EHsc").flag("/permissive-").flag("/openmp");
+    } else if let Some(root) = &openmp {
+        bridge.include(root.join("include"));
+        bridge.flag("-ffp-contract=off").flag("-fno-fast-math").flag("-Xpreprocessor").flag("-fopenmp");
     } else {
         bridge.flag("-ffp-contract=off").flag("-fno-fast-math").flag("-fopenmp");
     }
@@ -84,6 +97,18 @@ fn main() {
     println!("cargo:rerun-if-changed=shim/shim.cc");
     println!("cargo:rerun-if-changed=shim/shim.h");
     println!("cargo:rerun-if-changed=src/lib.rs");
+}
+
+/// The libomp of macOS: `OpenMP_ROOT`, else Homebrew's.
+fn apple_openmp() -> PathBuf {
+    let root = std::env::var_os("OpenMP_ROOT").map(PathBuf::from).or_else(|| {
+        let out = std::process::Command::new("brew").args(["--prefix", "libomp"]).output().ok()?;
+        out.status.success().then(|| PathBuf::from(String::from_utf8_lossy(&out.stdout).trim()))
+    });
+    match root {
+        Some(r) if r.join("include").join("omp.h").exists() => r,
+        _ => panic!("no OpenMP runtime: run `brew install libomp`, or set OpenMP_ROOT to a libomp's prefix"),
+    }
 }
 
 /// The CMake of the newest Visual Studio (vswhere), if it has one.

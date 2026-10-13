@@ -27,7 +27,7 @@ pub use app::TerrafluxApp;
 ///
 /// - `TERRAFLUX_PRESENT`: `vsync` (default) or `novsync` (frames as soon as they are drawn);
 /// - `TERRAFLUX_LATENCY`: the frames queued, 1 (default) to 3;
-/// - `WGPU_BACKEND`: `dx12`, `vulkan` or `gl` (the graphics interface; wgpu's choice by default).
+/// - `WGPU_BACKEND`: `dx12`, `vulkan`, `metal` or `gl` (the graphics interface; wgpu's choice by default).
 pub fn wgpu_options() -> eframe::egui_wgpu::WgpuConfiguration {
     use eframe::egui_wgpu::{SurfaceConfig, WgpuConfiguration, wgpu::PresentMode};
     let present_mode = match std::env::var("TERRAFLUX_PRESENT").unwrap_or_default().to_lowercase().as_str() {

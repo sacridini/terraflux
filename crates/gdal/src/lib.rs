@@ -4,7 +4,8 @@
 //!
 //! GDAL is found, in order:
 //! - in `TERRAFLUX_GDAL` (a folder, or the library itself);
-//! - in the folder `gdal` next to the program (the installers bring it there, with its data);
+//! - in the folder `gdal` next to the program (the installers bring it there, with its data), or in macOS's
+//!   application bundle, `Contents/Frameworks/gdal` (its data in `Contents/Resources`);
 //! - next to the program, in the `PATH`, and where GDAL is usually installed.
 //!
 //! Its data (GDAL's and PROJ's) and its plugins are looked for next to the library. Without GDAL, Terraflux
@@ -192,9 +193,15 @@ fn candidates() -> Vec<PathBuf> {
     if let Some(p) = std::env::var_os("TERRAFLUX_GDAL").map(PathBuf::from) {
         if p.is_file() { files.push(p) } else { dirs.push(p) }
     }
-    if let Some(exe) = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)) {
+    // the program's own folder, through a link to it (/usr/local/bin/terraflux to the application's)
+    let exe = std::env::current_exe().ok().map(|e| if cfg!(windows) { e } else { e.canonicalize().unwrap_or(e) });
+    if let Some(exe) = exe.and_then(|e| e.parent().map(Path::to_path_buf)) {
         dirs.push(exe.join("gdal"));
         dirs.push(exe.join("gdal").join("bin"));
+        if cfg!(target_os = "macos") {
+            // Terraflux.app/Contents/MacOS/terraflux: Contents/Frameworks/gdal
+            dirs.push(exe.join("..").join("Frameworks").join("gdal"));
+        }
         dirs.push(exe.clone());
     }
     if let Some(path) = std::env::var_os("PATH") {
@@ -207,7 +214,7 @@ fn candidates() -> Vec<PathBuf> {
             dirs.push(PathBuf::from(d));
         }
     } else {
-        for d in ["/usr/lib", "/usr/lib/x86_64-linux-gnu", "/usr/local/lib", "/opt/homebrew/lib"] {
+        for d in ["/usr/lib", "/usr/lib/x86_64-linux-gnu", "/usr/local/lib", "/opt/homebrew/lib", "/opt/local/lib"] {
             dirs.push(PathBuf::from(d));
         }
     }
@@ -346,13 +353,16 @@ impl Gdal {
         unsafe {
             // errors are read, not printed
             (api.CPLSetErrorHandler)(api.CPLQuietErrorHandler);
-            if let Some(d) = first(&["gdal-data", "../share/gdal", "share/gdal", "data"]) {
+            // the last ones from macOS's application bundle's Contents/Frameworks/gdal
+            if let Some(d) = first(&["gdal-data", "../share/gdal", "share/gdal", "data", "../../Resources/gdal-data"]) {
                 (api.CPLSetConfigOption)(cstr("GDAL_DATA").as_ptr(), cstr(&d.to_string_lossy()).as_ptr());
             }
             if let Some(d) = first(&["gdalplugins", "../lib/gdalplugins", "gdal/plugins"]) {
                 (api.CPLSetConfigOption)(cstr("GDAL_DRIVER_PATH").as_ptr(), cstr(&d.to_string_lossy()).as_ptr());
             }
-            if let Some(d) = first(&["projlib", "proj-data", "../share/proj", "share/proj", "proj"]) {
+            if let Some(d) =
+                first(&["projlib", "proj-data", "../share/proj", "share/proj", "proj", "../../Resources/projlib"])
+            {
                 let p = cstr(&d.to_string_lossy());
                 let paths = [p.as_ptr(), std::ptr::null()];
                 (api.OSRSetPROJSearchPaths)(paths.as_ptr());
