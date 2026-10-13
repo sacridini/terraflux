@@ -33,6 +33,7 @@ pub mod lulcc;
 pub mod markov;
 pub mod metrics;
 pub mod milp;
+pub mod molusce;
 pub mod mspa_tiled;
 pub mod nlm;
 pub mod planner;
@@ -204,6 +205,13 @@ impl Args<'_> {
         }
     }
 
+    pub fn numpy_rng(&self, port: &str) -> Result<&value::NumpyRng> {
+        match self.get(port).ok_or_else(|| self.missing(port))? {
+            Value::NumpyRng(r) => Ok(r),
+            v => Err(self.wrong(port, "numpy generator (rng.numpy)", v)),
+        }
+    }
+
     /// A setting read into a type (its default when absent).
     pub fn param<T: DeserializeOwned>(&self, name: &str, default: T) -> Result<T> {
         match self.params.get(name) {
@@ -256,6 +264,7 @@ impl Registry {
         crafty::register(&mut r);
         markov::register(&mut r);
         metrics::register(&mut r);
+        molusce::register(&mut r);
         nlm::register(&mut r);
         demand::register(&mut r);
         glm::register(&mut r);

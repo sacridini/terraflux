@@ -194,7 +194,7 @@ pub fn write_value(value: &Value, path: &Path, dtype: Option<&str>) -> Result<Pa
         Value::Text(x) => write_text(path, "json", &json(x)?),
         Value::Json(x) => write_text(path, "json", &json(x)?),
         Value::Series(_) => Err(Error::Model("a series of mixed values cannot be written".into())),
-        Value::Rng(_) => Err(Error::Model("a random generator cannot be written".into())),
+        Value::Rng(_) | Value::NumpyRng(_) => Err(Error::Model("a random generator cannot be written".into())),
         Value::Agents(a) => write_text(path, "csv", &a.to_table().to_csv()),
         Value::Vector(v) => {
             // GeoPackage, unless the path names another vector format

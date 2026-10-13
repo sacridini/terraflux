@@ -65,3 +65,18 @@ fn regional_dinamica_saved_by_landschaft() {
 fn cost_distance_saved_by_landschaft() {
     case("clue_cost");
 }
+
+#[test]
+fn molusce_saved_by_landschaft() {
+    case("molusce");
+}
+
+#[test]
+fn molusce_with_a_moving_driver_saved_by_landschaft() {
+    case("molusce_dynamic");
+}
+
+#[test]
+fn molusce_with_a_regression_saved_by_landschaft() {
+    case("molusce_glm");
+}

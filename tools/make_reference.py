@@ -171,6 +171,17 @@ def bridge():
     model = S.Model(lr, S.AreaDemand.from_maps(lu, times=[0, 14]), S.CLUE(max_diff=20, mean_diff=10),
                     S.Rules(elasticity=0.3), dynamic={"cost_built": cost})
     write("clue_cost", model, drv_path, dr, 14)
+    # MOLUSCE: its weights of evidence (the fitted maps; the weights on a distance that moves) and a regression
+    near = S.distance_to(2, unit="cells")
+    factors = {"elevation": drivers["elevation"], "slope": drivers["slope"], "near": near(lu[0])}
+    bins = {n: sorted({float(q) for q in np.nanpercentile(v.values, [20, 40, 60, 80])}) for n, v in factors.items()}
+    woe = S.MolusceWoE(bins=bins).fit(lu[0], lu[1], factors)
+    counts = S.crosstab(lu[0], lu[1])
+    write("molusce", S.Model(woe, counts, S.MolusceCA(iterations=3)), drv_path, dr, 15)
+    dyn = S.Model(woe, counts, S.MolusceCA(iterations=3), dynamic={"near": near})
+    write("molusce_dynamic", dyn, drv_path, dr, 16)
+    lr = S.LogisticRegression().fit(lu[0], dr)
+    write("molusce_glm", S.Model(lr, counts, S.MolusceCA(iterations=2)), drv_path, dr, 17)
 
 
 def main():

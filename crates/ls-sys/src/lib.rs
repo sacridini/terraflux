@@ -541,6 +541,33 @@ pub mod ffi {
         new_variance: f64,
     }
 
+    // simulate bridge (landschaft-bb): MOLUSCE
+    #[derive(Debug, Clone, PartialEq)]
+    struct MolusceForecastOut {
+        prediction: Vec<f64>,
+        confidence: Vec<f64>,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    struct MolusceChange {
+        from: f64,
+        to: f64,
+        cells: i64,
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct MolusceStepOut {
+        state: Vec<f64>,
+        changed: Vec<MolusceChange>,
+    }
+
+    /// The weights of one transition code for one factor (MOLUSCE's weights of evidence).
+    #[derive(Debug, Clone, PartialEq)]
+    struct MolusceFactor {
+        categories: Vec<f64>,
+        weights: Vec<f64>,
+    }
+
     unsafe extern "C++" {
         include!("terraflux-ls-sys/shim/shim.h");
 
@@ -1078,6 +1105,28 @@ pub mod ffi {
             sources: &[i64],
         ) -> Result<Vec<f64>>;
 
+        /// numpy's legacy RandomState seeded with an integer (MOLUSCE's numpy.random.seed).
+        #[namespace = "sim"]
+        type NumpyRandomState;
+        fn numpy_rng_new(seed: u32) -> UniquePtr<NumpyRandomState>;
+        fn numpy_rng_random_sample(rng: Pin<&mut NumpyRandomState>, n: usize) -> Vec<f64>;
+        fn molusce_categories(values: &[f64], bounds: &[f64]) -> Result<Vec<f64>>;
+        fn molusce_total(factors: &[f64], nf: i32, n: i64, weights: &[MolusceFactor]) -> Result<Vec<f64>>;
+        fn molusce_prediction_woe(
+            state: &[f64],
+            classes: &[f64],
+            codes: &[i64],
+            totals: &[f64],
+        ) -> Result<MolusceForecastOut>;
+        fn molusce_prediction_classes(state: &[f64], layers: &[f64], classes: &[f64]) -> Result<MolusceForecastOut>;
+        fn molusce_ca_step(
+            state: &[f64],
+            prediction: &[f64],
+            confidence: &[f64],
+            counts: &[MolusceChange],
+            rng: Pin<&mut NumpyRandomState>,
+        ) -> Result<MolusceStepOut>;
+
         // out-of-core landscapes (tiles)
 
         /// landschaft's out-of-core landscape: a raster labelled block by block of rows (a multiple of 64), the
@@ -1160,7 +1209,8 @@ pub mod ffi {
 }
 
 pub use ffi::{
-    CarsOut, CluesOut, GlmFit, NbRule, ObservedPatches, OrderedOut, PatchOut, PatchSpec, SimilarityOut, WoeWeights,
+    CarsOut, CluesOut, GlmFit, MolusceChange, MolusceFactor, MolusceForecastOut, MolusceStepOut, NbRule,
+    ObservedPatches, OrderedOut, PatchOut, PatchSpec, SimilarityOut, WoeWeights,
 };
 
 /// The threads Terraflux uses: never every core of the machine (all but one by default).
@@ -1214,6 +1264,27 @@ pub mod threads {
         crate::ffi::set_threads(n.clamp(1, most()) as i32);
     }
 }
+
+/// numpy's legacy generator after `numpy.random.seed(seed)` (MOLUSCE's).
+pub struct NumpyRng(cxx::UniquePtr<ffi::NumpyRandomState>);
+
+impl NumpyRng {
+    pub fn new(seed: u32) -> Self {
+        NumpyRng(ffi::numpy_rng_new(seed))
+    }
+
+    /// `random_sample(n)`: numbers in [0, 1).
+    pub fn random_sample(&mut self, n: usize) -> Vec<f64> {
+        ffi::numpy_rng_random_sample(self.0.pin_mut(), n)
+    }
+
+    pub fn pin_mut(&mut self) -> std::pin::Pin<&mut ffi::NumpyRandomState> {
+        self.0.pin_mut()
+    }
+}
+
+// SAFETY: the generator is plain state, used by one thread at a time (behind a lock)
+unsafe impl Send for NumpyRng {}
 
 /// R's generator after `set.seed(seed)`.
 pub struct RRng(cxx::UniquePtr<ffi::RRng>);

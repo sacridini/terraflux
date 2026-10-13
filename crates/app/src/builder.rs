@@ -1166,7 +1166,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 // what is shown, saved: a file only, or a file and a node that writes it at every run
                 let maps = matches!(&value, Some(Value::Map(_) | Value::Stack(_) | Value::Raster(_)))
                     || matches!(&value, Some(Value::Series(v)) if v.iter().all(|x| matches!(x, Value::Map(_))));
-                let can = value.as_ref().is_some_and(|v| !matches!(v, Value::Rng(_)));
+                let can = value.as_ref().is_some_and(|v| !matches!(v, Value::Rng(_) | Value::NumpyRng(_)));
                 ui.add_enabled_ui(can, |ui| {
                     ui.menu_button("Save output", |ui| {
                         if ui.button("As a file...").clicked() {

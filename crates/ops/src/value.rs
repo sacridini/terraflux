@@ -350,6 +350,16 @@ impl std::fmt::Debug for Rng {
     }
 }
 
+/// numpy's legacy generator shared along a loop (MOLUSCE's).
+#[derive(Clone)]
+pub struct NumpyRng(pub Arc<Mutex<terraflux_ls_sys::NumpyRng>>);
+
+impl std::fmt::Debug for NumpyRng {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "NumpyRng")
+    }
+}
+
 /// A value of the graph.
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -370,6 +380,8 @@ pub enum Value {
     Woe(Arc<crate::woe::WoeModel>),
     Patches(Arc<PatchParams>),
     Rng(Rng),
+    /// numpy's generator (a random generator too).
+    NumpyRng(NumpyRng),
     Agents(Arc<crate::agents::Agents>),
     /// Rasters on disk, read when needed.
     Raster(Arc<crate::files::Rasters>),
@@ -395,7 +407,7 @@ impl Value {
             Value::Glm(_) => Type::Glm,
             Value::Woe(_) => Type::Woe,
             Value::Patches(_) => Type::Patches,
-            Value::Rng(_) => Type::Rng,
+            Value::Rng(_) | Value::NumpyRng(_) => Type::Rng,
             Value::Agents(_) => Type::Agents,
             Value::Raster(_) => Type::Raster,
             Value::Vector(_) => Type::Vector,

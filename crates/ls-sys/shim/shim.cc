@@ -1632,6 +1632,73 @@ rust::Vec<double> cost_accumulated(rust::Slice<const double> values, std::int64_
     return to_rust<double>(cost::accumulated_cost(t, src));
 }
 
+std::unique_ptr<sim::NumpyRandomState> numpy_rng_new(std::uint32_t seed) {
+    return std::make_unique<sim::NumpyRandomState>(seed);
+}
+
+rust::Vec<double> numpy_rng_random_sample(sim::NumpyRandomState& rng, std::size_t n) {
+    rust::Vec<double> out;
+    out.reserve(n);
+    for (std::size_t i = 0; i < n; ++i) out.push_back(rng.random_sample());
+    return out;
+}
+
+rust::Vec<double> molusce_categories(rust::Slice<const double> values, rust::Slice<const double> bounds) {
+    std::vector<double> b(bounds.begin(), bounds.end());
+    check(std::is_sorted(b.begin(), b.end()), "the bounds must be sorted");
+    return to_rust<double>(sim::molusce_categories(values.data(), static_cast<std::int64_t>(values.size()), b));
+}
+
+rust::Vec<double> molusce_total(rust::Slice<const double> factors, std::int32_t nf, std::int64_t n,
+                                rust::Slice<const MolusceFactor> weights) {
+    check(nf > 0 && n >= 0 && static_cast<std::int64_t>(factors.size()) == std::int64_t{nf} * n,
+          "the factors must be factors x cells");
+    check(weights.size() % static_cast<std::size_t>(nf) == 0, "the weights must be codes x factors");
+    std::vector<std::vector<sim::MolusceFactorWeights>> w(weights.size() / static_cast<std::size_t>(nf));
+    for (std::size_t k = 0; k < weights.size(); ++k) {
+        const auto& x = weights[k];
+        check(x.categories.size() == x.weights.size(), "one weight per category");
+        w[k / static_cast<std::size_t>(nf)].push_back(
+            {std::vector<double>(x.categories.begin(), x.categories.end()),
+             std::vector<double>(x.weights.begin(), x.weights.end())});
+    }
+    return to_rust<double>(sim::molusce_total(factors.data(), nf, n, w));
+}
+
+MolusceForecastOut molusce_prediction_woe(rust::Slice<const double> state, rust::Slice<const double> classes,
+                                          rust::Slice<const std::int64_t> codes, rust::Slice<const double> totals) {
+    const auto n = static_cast<std::int64_t>(state.size());
+    check(static_cast<std::int64_t>(totals.size()) == static_cast<std::int64_t>(codes.size()) * n,
+          "the totals must be codes x cells");
+    const auto f = sim::molusce_prediction_woe(state.data(), n, std::vector<double>(classes.begin(), classes.end()),
+                                               std::vector<std::int64_t>(codes.begin(), codes.end()), totals.data());
+    return MolusceForecastOut{to_rust<double>(f.prediction), to_rust<double>(f.confidence)};
+}
+
+MolusceForecastOut molusce_prediction_classes(rust::Slice<const double> state, rust::Slice<const double> layers,
+                                              rust::Slice<const double> classes) {
+    const auto n = static_cast<std::int64_t>(state.size());
+    const auto m = static_cast<int>(classes.size());
+    check(static_cast<std::int64_t>(layers.size()) == std::int64_t{m} * n, "the layers must be classes x cells");
+    const auto f = sim::molusce_prediction_classes(state.data(), n, m, layers.data(),
+                                                   std::vector<double>(classes.begin(), classes.end()));
+    return MolusceForecastOut{to_rust<double>(f.prediction), to_rust<double>(f.confidence)};
+}
+
+MolusceStepOut molusce_ca_step(rust::Slice<const double> state, rust::Slice<const double> prediction,
+                               rust::Slice<const double> confidence, rust::Slice<const MolusceChange> counts,
+                               sim::NumpyRandomState& rng) {
+    check(prediction.size() == state.size() && confidence.size() == state.size(),
+          "the prediction and confidence differ in size from the state");
+    std::vector<sim::MolusceTransition> c;
+    for (const auto& x : counts) c.push_back({x.from, x.to, x.cells});
+    const auto r = sim::molusce_ca_step(state.data(), static_cast<std::int64_t>(state.size()), prediction.data(),
+                                        confidence.data(), c, rng);
+    MolusceStepOut out{to_rust<double>(r.state), {}};
+    for (const auto& x : r.changed) out.changed.push_back(MolusceChange{x.from, x.to, x.cells});
+    return out;
+}
+
 }  // namespace tfx
 
 // out-of-core landscapes (tiles)

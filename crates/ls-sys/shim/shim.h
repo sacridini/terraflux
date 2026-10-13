@@ -8,6 +8,7 @@
 
 #include "nlm/rng.hpp"
 #include "prio/prio.hpp"
+#include "sim/molusce.hpp"
 #include "rust/cxx.h"
 
 namespace tfx {
@@ -21,6 +22,10 @@ struct PatchSpec;
 struct PatchOut;
 struct ObservedPatches;
 struct CarsOut;
+struct MolusceForecastOut;
+struct MolusceChange;
+struct MolusceStepOut;
+struct MolusceFactor;
 struct SimilarityOut;
 struct FadOut;
 struct FadScalesOut;
@@ -338,6 +343,20 @@ ObservedPatches observed_patches(rust::Slice<const double> a, rust::Slice<const 
 rust::Vec<double> cost_accumulated(rust::Slice<const double> values, std::int64_t ny, std::int64_t nx, double xmin,
                                    double xmax, double ymin, double ymax, bool wrap, std::int32_t directions,
                                    bool symmetric, rust::Slice<const std::int64_t> sources);
+
+// MOLUSCE's simulator (landschaft's sim/molusce.hpp) and numpy's legacy generator
+std::unique_ptr<sim::NumpyRandomState> numpy_rng_new(std::uint32_t seed);
+rust::Vec<double> numpy_rng_random_sample(sim::NumpyRandomState& rng, std::size_t n);
+rust::Vec<double> molusce_categories(rust::Slice<const double> values, rust::Slice<const double> bounds);
+rust::Vec<double> molusce_total(rust::Slice<const double> factors, std::int32_t nf, std::int64_t n,
+                                rust::Slice<const MolusceFactor> weights);
+MolusceForecastOut molusce_prediction_woe(rust::Slice<const double> state, rust::Slice<const double> classes,
+                                          rust::Slice<const std::int64_t> codes, rust::Slice<const double> totals);
+MolusceForecastOut molusce_prediction_classes(rust::Slice<const double> state, rust::Slice<const double> layers,
+                                              rust::Slice<const double> classes);
+MolusceStepOut molusce_ca_step(rust::Slice<const double> state, rust::Slice<const double> prediction,
+                               rust::Slice<const double> confidence, rust::Slice<const MolusceChange> counts,
+                               sim::NumpyRandomState& rng);
 
 }  // namespace tfx
 

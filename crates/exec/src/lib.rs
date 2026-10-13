@@ -111,7 +111,7 @@ impl Cache {
 /// Whether a value holds a random generator, whose state changes as it is used (not to be kept).
 fn holds_rng(v: &Value) -> bool {
     match v {
-        Value::Rng(_) => true,
+        Value::Rng(_) | Value::NumpyRng(_) => true,
         Value::Series(s) => s.iter().any(holds_rng),
         _ => false,
     }
