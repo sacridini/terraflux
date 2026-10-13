@@ -6,6 +6,13 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Batch processing (landschaft's batch, GuidosToolbox's Batch Process): `batch.run` runs any operator on the
+  rasters of a folder, a glob pattern or a list, in parallel, one raster per worker, and writes what it gives
+  named after the input and the operator (maps as GeoTIFF, tables as CSV, texts) with a JSON per input (the
+  parameters, the files, the numbers, the time); inputs already done are skipped unless overwrite, errors are
+  reported per file, and MSPA keeps GuidosToolbox's naming.
+
 ## [0.39.0] - 2026-10-13
 
 ### Added

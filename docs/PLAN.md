@@ -642,7 +642,9 @@ Pendências:
 - **Incerteza (0.39.0, 2026-10-13):** `uncertainty.sum_sd`, `uncertainty.product_sd`, `uncertainty.interval`,
   `uncertainty.delta` e `uncertainty.monte_carlo` (as expressões do map.calc; o ziggurat normal do numpy, o
   ndtri do cephes, as somas e quantis do numpy), bit a bit com o landschaft.
-- **Próximos (2026-10-13):** lotes; o resto
+- **Lotes (0.40.0, 2026-10-13):** `batch.run` (qualquer operador em muitos rasters, em paralelo, com os nomes
+  do landschaft e do GTB e um JSON por entrada).
+- **Próximos (2026-10-13):** o resto
   dos circuitos (redes, pares incluídos, os arquivos .ini); os instaladores de macOS e Linux;
   `vector.exact_sum` e `vector.distance` fora da memória.
 
