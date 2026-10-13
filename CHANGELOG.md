@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.41.0] - 2026-10-13
+
 ### Added
 - Circuitscape's network mode and included pairs (landschaft's circuit module): `circuit.network_advanced`
   (currents and grounds on a graph of edges: node voltages, node and branch currents) and
