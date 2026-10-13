@@ -204,6 +204,90 @@ def pairs_and_networks() -> None:
     print(REF / "circuit_networks.npz", len(out))
 
 
+def ini_cases() -> None:
+    """Circuitscape's raster test INI files (run from its folder, landschaft one thread) and the Omniscape INI
+    files of landschaft's references, without writing outputs: tests/data/reference/circuit_ini.npz and .json."""
+    import warnings
+
+    cs = LS / "circuitscape"
+    out: dict[str, np.ndarray] = {}
+    meta: dict = {"circuitscape": [], "omniscape": []}
+    here = os.getcwd()
+    os.chdir(cs)
+    try:
+        for ini in sorted((cs / "input" / "raster").rglob("*.ini")):
+            rel = ini.relative_to(cs).as_posix()
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    r = ls.circuit.circuitscape_ini(rel, write_outputs=False, n_threads=1)
+            except Exception as e:  # noqa: BLE001 - the error is part of the reference
+                meta["circuitscape"].append({"ini": rel, "error": f"{type(e).__name__}: {e}"})
+                continue
+            keys = []
+            for k in ("voltage", "current", "resistances", "cum_current", "max_current"):
+                v = getattr(r, k)
+                if v is not None:
+                    out[f"cs/{rel}/{k}"] = np.asarray(v, dtype=np.float64)
+                    keys.append(k)
+            maps = sorted(k for k in r.maps if isinstance(k, str) and k != "solved")
+            for k in maps:
+                out[f"cs/{rel}/maps/{k}"] = np.asarray(r.maps[k], dtype=np.float64)
+            meta["circuitscape"].append({"ini": rel, "keys": keys, "maps": maps})
+    finally:
+        os.chdir(here)
+    for ini in sorted((LS / "omniscape_ini").glob("*.ini")):
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                ds = ls.circuit.omniscape_ini(ini, write_outputs=False, n_threads=1)
+        except Exception as e:  # noqa: BLE001
+            meta["omniscape"].append({"ini": ini.name, "error": f"{type(e).__name__}: {e}"})
+            continue
+        keys = [k for k in ("cum_currmap", "flow_potential", "normalized_cum_currmap", "classified_resistance")
+                if k in ds]
+        for k in keys:
+            out[f"om/{ini.name}/{k}"] = np.asarray(ds[k].values, dtype=np.float64)
+        meta["omniscape"].append({"ini": ini.name, "keys": keys})
+    np.savez_compressed(REF / "circuit_ini.npz", **out)
+    (REF / "circuit_ini.json").write_text(json.dumps(meta, indent=1) + "\n", encoding="utf-8")
+    print(REF / "circuit_ini.npz", len(out))
+
+
+INI_OUTPUTS = ["input/raster/pairwise/1/sgVerify1.ini", "input/raster/advanced/1/mgVerify1.ini",
+               "input/raster/one_to_all/1/oneToAllVerify1.ini"]
+
+
+def ini_outputs() -> None:
+    """The files landschaft writes for three Circuitscape INI files (their copies in
+    tests/data/reference/circuit_ini_out, inputs from Circuitscape's folder, outputs next to them)."""
+    import shutil
+
+    cs = LS / "circuitscape"
+    dest = REF / "circuit_ini_out"
+    shutil.rmtree(dest, ignore_errors=True)
+    dest.mkdir()
+    here = os.getcwd()
+    os.chdir(cs)
+    try:
+        for rel in INI_OUTPUTS:
+            name = Path(rel).stem
+            text = (cs / rel).read_text(encoding="utf-8")
+            lines = []
+            for line in text.splitlines():
+                if line.startswith("output_file"):
+                    line = f"output_file = {(dest / name / name).as_posix()}.out"
+                lines.append(line)
+            ini = dest / f"{name}.ini"
+            ini.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            ls.circuit.circuitscape_ini(ini, n_threads=1)
+    finally:
+        os.chdir(here)
+    print(dest, sorted(p.name for p in dest.rglob("*") if p.is_file()))
+
+
 if __name__ == "__main__":
     circuitscape_cases()
     pairs_and_networks()
+    ini_cases()
+    ini_outputs()

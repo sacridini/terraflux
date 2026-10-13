@@ -2125,7 +2125,7 @@ PairwiseOut circuit_pairwise(rust::Slice<const double> gmap, rust::Slice<const s
     const auto n = static_cast<std::size_t>(nx * ny);
     check(nx > 0 && ny > 0 && gmap.size() == n, "the habitat differs in size from nx x ny");
     check(polymap.empty() || polymap.size() == n, "the polygon raster must have the habitat's shape");
-    check(flags.size() == 6, "six options");
+    check(flags.size() == 8, "eight options");
     check(region_ids.empty() || region_ids.size() == point_cells.size(), "an id per focal cell");
     const std::int64_t* pm = polymap.empty() ? nullptr : polymap.data();
     circuit::PairwiseOptions o;
@@ -2135,8 +2135,15 @@ PairwiseOut circuit_pairwise(rust::Slice<const double> gmap, rust::Slice<const s
     o.null_currents = flags[3] != 0;
     o.null_voltages = flags[4] != 0;
     o.log_transform = flags[5] != 0;
+    o.volt_maps = flags[6] != 0;
+    o.cur_maps = flags[7] != 0;
     std::vector<std::uint8_t> ex(excluded.begin(), excluded.end());
-    std::function<void(circuit::PairMaps&&)> ignore = [](circuit::PairMaps&&) {};
+    std::mutex lock;
+    std::vector<circuit::PairMaps> pairs;
+    std::function<void(circuit::PairMaps&&)> ignore = [&](circuit::PairMaps&& pm) {
+        std::lock_guard<std::mutex> guard(lock);
+        pairs.push_back(std::move(pm));
+    };
     int threads = 1;
 #if defined(_OPENMP)
     threads = omp_get_max_threads();
@@ -2160,6 +2167,40 @@ PairwiseOut circuit_pairwise(rust::Slice<const double> gmap, rust::Slice<const s
     out.resistances = to_rust<double>(std::move(r.resistances));
     out.cum = to_rust<double>(std::move(r.cum));
     out.max = to_rust<double>(std::move(r.max));
+    std::sort(pairs.begin(), pairs.end(), [](const circuit::PairMaps& x, const circuit::PairMaps& y) {
+        return std::pair(x.ci, x.cj) < std::pair(y.ci, y.cj);
+    });
+    for (const circuit::PairMaps& pm : pairs) {
+        out.pair_ci.push_back(pm.ci);
+        out.pair_cj.push_back(pm.cj);
+        for (const double v : pm.voltage) out.pair_volt.push_back(v);
+        for (const double v : pm.current) out.pair_cur.push_back(v);
+    }
+    return out;
+}
+
+CsAdvancedOut circuit_cs_advanced(rust::Slice<const double> gmap, rust::Slice<const std::int64_t> polymap, std::int64_t nx,
+                                  std::int64_t ny, rust::Slice<const double> source, rust::Slice<const double> ground,
+                                  bool avg_resistances, bool four_neighbors, std::int32_t policy) {
+    const auto n = static_cast<std::size_t>(nx * ny);
+    check(nx > 0 && ny > 0 && gmap.size() == n && source.size() == n && ground.size() == n,
+          "expected habitat, source and ground rasters of the same shape");
+    check(polymap.empty() || polymap.size() == n, "the polygon raster must have the habitat's shape");
+    check(policy >= 0 && policy <= 3, "the policy is 0 to 3");
+    const std::int64_t* pm = polymap.empty() ? nullptr : polymap.data();
+    int threads = 1;
+#if defined(_OPENMP)
+    threads = omp_get_max_threads();
+#endif
+    const circuit::RasterGraph g = circuit::raster_graph(gmap.data(), pm, nx, ny, avg_resistances, four_neighbors);
+    circuit::NodeSolution sol = circuit::raster_advanced(g, circuit::node_sums(g, source.data()),
+                                                         circuit::node_sums(g, ground.data()),
+                                                         static_cast<circuit::ConflictPolicy>(policy), threads);
+    CsAdvancedOut out;
+    out.nodemap = to_rust<std::int32_t>(g.nodemap);
+    out.voltage = to_rust<double>(std::move(sol.voltage));
+    out.current = to_rust<double>(std::move(sol.current));
+    out.solved = sol.solved;
     return out;
 }
 

@@ -337,6 +337,21 @@ pub mod ffi {
         resistances: Vec<f64>,
         cum: Vec<f64>,
         max: Vec<f64>,
+        /// Per pair solved with map options: its focal indices, its voltage and current grids (nx x ny each,
+        /// one after the other; empty when not asked).
+        pair_ci: Vec<i32>,
+        pair_cj: Vec<i32>,
+        pair_volt: Vec<f64>,
+        pair_cur: Vec<f64>,
+    }
+
+    /// Circuitscape's advanced mode on a raster: each cell's node (-1 none), the voltages and currents by node,
+    /// whether it was solved.
+    struct CsAdvancedOut {
+        nodemap: Vec<i32>,
+        voltage: Vec<f64>,
+        current: Vec<f64>,
+        solved: bool,
     }
 
     /// Circuitscape's network modes: node voltages and currents, branch currents (node r < c, value; 0-based),
@@ -1711,6 +1726,21 @@ pub mod ffi {
             four_neighbors: bool,
             flags: &[u8],
         ) -> Result<PairwiseOut>;
+        /// Circuitscape's advanced mode on a raster (landschaft's circuitscape_advanced): sources and grounds by
+        /// cell (grounds as conductances, +Inf direct), summed per node; policy 0 keepall, 1 rmvsrc, 2 rmvgnd, 3
+        /// rmvall.
+        #[allow(clippy::too_many_arguments)]
+        fn circuit_cs_advanced(
+            gmap: &[f64],
+            polymap: &[i64],
+            nx: i64,
+            ny: i64,
+            source: &[f64],
+            ground: &[f64],
+            avg_resistances: bool,
+            four_neighbors: bool,
+            policy: i32,
+        ) -> Result<CsAdvancedOut>;
         /// Circuitscape's advanced mode on a network (0-based nodes 0..m-1; edges a, b of conductance w): sources
         /// and grounds by node (grounds as conductances, +Inf direct); policy 0 keepall, 1 rmvsrc, 2 rmvgnd, 3
         /// rmvall.

@@ -647,7 +647,11 @@ Pendências:
 - **Circuitos — redes e pares incluídos (0.41.0, 2026-10-13):** `circuit.network_advanced`,
   `circuit.network_pairwise` e os arquivos de pares incluídos/excluídos do Circuitscape nos modos em raster e de
   rede, bit a bit com o landschaft.
-- **Próximos (2026-10-13):** os arquivos .ini do Circuitscape e do Omniscape; os instaladores de macOS e Linux;
+- **Circuitos — arquivos INI (0.42.0, 2026-10-13):** `circuit.circuitscape_ini` e `circuit.omniscape_ini`
+  (os leitores do Circuitscape e do Omniscape portados; as saídas escritas como eles as nomeiam), bit a bit com
+  o landschaft nos 51 casos de teste do Circuitscape em raster e nos INI do Omniscape; os arquivos byte a byte.
+  O módulo de circuitos está todo no Terraflux.
+- **Próximos (2026-10-13):** os instaladores de macOS e Linux;
   `vector.exact_sum` e `vector.distance` fora da memória.
 
 - **A ponte do ls.simulate completa (branch `simulate-bridge`, 2026-10-13):** todo modelo do `ls.simulate` vai pelo

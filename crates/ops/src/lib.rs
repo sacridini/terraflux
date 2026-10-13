@@ -20,6 +20,7 @@ pub mod bio;
 pub mod change;
 pub mod change_analysis;
 pub mod circuit;
+pub mod circuit_ini;
 pub mod clumondo;
 pub mod cost;
 pub mod crafty;
@@ -277,6 +278,7 @@ impl Registry {
         batch::register(&mut r);
         bio::register(&mut r);
         circuit::register(&mut r);
+        circuit_ini::register(&mut r);
         uncertainty::register(&mut r);
         cost::register(&mut r);
         surface::register(&mut r);

@@ -1,0 +1,999 @@
+{
+ "circuitscape": [
+  {
+   "ini": "input/raster/advanced/1/mgVerify1.ini",
+   "keys": [
+    "voltage",
+    "current"
+   ],
+   "maps": []
+  },
+  {
+   "ini": "input/raster/advanced/2/mgVerify2.ini",
+   "keys": [
+    "voltage",
+    "current"
+   ],
+   "maps": []
+  },
+  {
+   "ini": "input/raster/advanced/3/mgVerify3.ini",
+   "keys": [
+    "voltage",
+    "current"
+   ],
+   "maps": []
+  },
+  {
+   "ini": "input/raster/advanced/4/mgVerify4.ini",
+   "keys": [
+    "voltage",
+    "current"
+   ],
+   "maps": []
+  },
+  {
+   "ini": "input/raster/advanced/5/mgVerify5.ini",
+   "keys": [
+    "voltage",
+    "current"
+   ],
+   "maps": []
+  },
+  {
+   "ini": "input/raster/advanced/6/ex_advanced.ini",
+   "keys": [
+    "voltage",
+    "current"
+   ],
+   "maps": []
+  },
+  {
+   "ini": "input/raster/advanced/6/mgVerify6.ini",
+   "keys": [
+    "voltage",
+    "current"
+   ],
+   "maps": []
+  },
+  {
+   "ini": "input/raster/advanced/7/mgVerify7.ini",
+   "keys": [
+    "voltage",
+    "current"
+   ],
+   "maps": []
+  },
+  {
+   "ini": "input/raster/all_to_one/1/allToOneVerify1.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1",
+    "curmap_11",
+    "curmap_2",
+    "curmap_3",
+    "curmap_4",
+    "curmap_5",
+    "curmap_51",
+    "curmap_6",
+    "curmap_8",
+    "curmap_9"
+   ]
+  },
+  {
+   "ini": "input/raster/all_to_one/10/allToOneVerify10.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1",
+    "curmap_2",
+    "curmap_3",
+    "curmap_4",
+    "curmap_7"
+   ]
+  },
+  {
+   "ini": "input/raster/all_to_one/11/allToOneVerify11.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1",
+    "curmap_2",
+    "curmap_3",
+    "curmap_4",
+    "curmap_7"
+   ]
+  },
+  {
+   "ini": "input/raster/all_to_one/12/allToOneVerify12.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1",
+    "curmap_2",
+    "curmap_3",
+    "curmap_5",
+    "curmap_6",
+    "curmap_8",
+    "curmap_9"
+   ]
+  },
+  {
+   "ini": "input/raster/all_to_one/2/allToOneVerify2.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1",
+    "curmap_2",
+    "curmap_3",
+    "curmap_4",
+    "curmap_5"
+   ]
+  },
+  {
+   "ini": "input/raster/all_to_one/3/allToOneVerify3.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1",
+    "curmap_2",
+    "curmap_3"
+   ]
+  },
+  {
+   "ini": "input/raster/all_to_one/4/allToOneVerify4.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1",
+    "curmap_11",
+    "curmap_2",
+    "curmap_3",
+    "curmap_4",
+    "curmap_5",
+    "curmap_51",
+    "curmap_6",
+    "curmap_8",
+    "curmap_9"
+   ]
+  },
+  {
+   "ini": "input/raster/all_to_one/5/allToOneVerify5.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1",
+    "curmap_2",
+    "curmap_3",
+    "curmap_4",
+    "curmap_7"
+   ]
+  },
+  {
+   "ini": "input/raster/all_to_one/6/allToOneVerify6.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1",
+    "curmap_2",
+    "curmap_3",
+    "curmap_4",
+    "curmap_7"
+   ]
+  },
+  {
+   "ini": "input/raster/all_to_one/7/allToOneVerify7.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1",
+    "curmap_2",
+    "curmap_3",
+    "curmap_4",
+    "curmap_5",
+    "curmap_6",
+    "curmap_7"
+   ]
+  },
+  {
+   "ini": "input/raster/all_to_one/8/allToOneVerify8.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1",
+    "curmap_2",
+    "curmap_3",
+    "curmap_4",
+    "curmap_7"
+   ]
+  },
+  {
+   "ini": "input/raster/all_to_one/9/allToOneVerify9.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1",
+    "curmap_2",
+    "curmap_3",
+    "curmap_4",
+    "curmap_7"
+   ]
+  },
+  {
+   "ini": "input/raster/extra.one/1/oneToAllVerify1.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1",
+    "curmap_11",
+    "curmap_2",
+    "curmap_3",
+    "curmap_4",
+    "curmap_5",
+    "curmap_51",
+    "curmap_6",
+    "curmap_8",
+    "curmap_9",
+    "voltmap_1",
+    "voltmap_11",
+    "voltmap_2",
+    "voltmap_3",
+    "voltmap_4",
+    "voltmap_5",
+    "voltmap_51",
+    "voltmap_6",
+    "voltmap_8",
+    "voltmap_9"
+   ]
+  },
+  {
+   "ini": "input/raster/one_to_all/1/oneToAllVerify1.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1",
+    "curmap_11",
+    "curmap_2",
+    "curmap_3",
+    "curmap_4",
+    "curmap_5",
+    "curmap_51",
+    "curmap_6",
+    "curmap_8",
+    "curmap_9",
+    "voltmap_1",
+    "voltmap_11",
+    "voltmap_2",
+    "voltmap_3",
+    "voltmap_4",
+    "voltmap_5",
+    "voltmap_51",
+    "voltmap_6",
+    "voltmap_8",
+    "voltmap_9"
+   ]
+  },
+  {
+   "ini": "input/raster/one_to_all/10/oneToAllVerify10.ini",
+   "keys": [
+    "resistances",
+    "cum_current",
+    "max_current"
+   ],
+   "maps": [
+    "curmap_1",
+    "curmap_2",
+    "curmap_3",
+    "curmap_4",
+    "curmap_7"
+   ]
+  },
+  {
+   "ini": "input/raster/one_to_all/11/oneToAllVerify11.ini",
+   "keys": [
+    "resistances"
+   ],
+   "maps": []
+  },
+  {
+   "ini": "input/raster/one_to_all/12/oneToAllVerify12.ini",
+   "keys": [
+    "resistances"
+   ],
+   "maps": []
+  },
+  {
+   "ini": "input/raster/one_to_all/13/oneToAllVerify13.ini",
+   "keys": [
+    "resistances"
+   ],
+   "maps": []
+  },
+  {
+   "ini": "input/raster/one_to_all/2/oneToAllVerify2.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1",
+    "curmap_2",
+    "curmap_3",
+    "curmap_4",
+    "curmap_5",
+    "voltmap_1",
+    "voltmap_2",
+    "voltmap_3",
+    "voltmap_4",
+    "voltmap_5"
+   ]
+  },
+  {
+   "ini": "input/raster/one_to_all/3/oneToAllVerify3.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1",
+    "curmap_2",
+    "curmap_3",
+    "voltmap_1",
+    "voltmap_2",
+    "voltmap_3"
+   ]
+  },
+  {
+   "ini": "input/raster/one_to_all/4/oneToAllVerify4.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1",
+    "curmap_11",
+    "curmap_2",
+    "curmap_3",
+    "curmap_4",
+    "curmap_5",
+    "curmap_51",
+    "curmap_6",
+    "curmap_8",
+    "curmap_9",
+    "voltmap_1",
+    "voltmap_11",
+    "voltmap_2",
+    "voltmap_3",
+    "voltmap_4",
+    "voltmap_5",
+    "voltmap_51",
+    "voltmap_6",
+    "voltmap_8",
+    "voltmap_9"
+   ]
+  },
+  {
+   "ini": "input/raster/one_to_all/5/oneToAllVerify5.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1",
+    "curmap_2",
+    "curmap_3",
+    "curmap_4",
+    "curmap_7",
+    "voltmap_1",
+    "voltmap_2",
+    "voltmap_3",
+    "voltmap_4",
+    "voltmap_7"
+   ]
+  },
+  {
+   "ini": "input/raster/one_to_all/6/oneToAllVerify6.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1",
+    "curmap_2",
+    "curmap_3",
+    "curmap_4",
+    "curmap_7",
+    "voltmap_1",
+    "voltmap_2",
+    "voltmap_3",
+    "voltmap_4",
+    "voltmap_7"
+   ]
+  },
+  {
+   "ini": "input/raster/one_to_all/7/oneToAllVerify7.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1",
+    "curmap_2",
+    "curmap_3",
+    "curmap_4",
+    "curmap_5",
+    "curmap_6",
+    "curmap_7",
+    "voltmap_1",
+    "voltmap_2",
+    "voltmap_3",
+    "voltmap_4",
+    "voltmap_5",
+    "voltmap_6",
+    "voltmap_7"
+   ]
+  },
+  {
+   "ini": "input/raster/one_to_all/8/oneToAllVerify8.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1",
+    "curmap_2",
+    "curmap_3",
+    "curmap_4",
+    "curmap_7",
+    "voltmap_1",
+    "voltmap_2",
+    "voltmap_3",
+    "voltmap_4",
+    "voltmap_7"
+   ]
+  },
+  {
+   "ini": "input/raster/one_to_all/9/oneToAllVerify9.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1",
+    "curmap_2",
+    "curmap_3",
+    "curmap_4",
+    "curmap_7",
+    "voltmap_1",
+    "voltmap_2",
+    "voltmap_3",
+    "voltmap_4",
+    "voltmap_7"
+   ]
+  },
+  {
+   "ini": "input/raster/pairwise/1/sgVerify1.ini",
+   "keys": [
+    "resistances",
+    "cum_current",
+    "max_current"
+   ],
+   "maps": [
+    "curmap_1_2",
+    "curmap_1_4",
+    "curmap_1_5",
+    "curmap_1_8",
+    "curmap_1_9",
+    "curmap_2_4",
+    "curmap_2_5",
+    "curmap_2_8",
+    "curmap_2_9",
+    "curmap_4_8",
+    "curmap_4_9",
+    "curmap_5_8",
+    "curmap_5_9",
+    "curmap_8_9",
+    "voltmap_1_2",
+    "voltmap_1_4",
+    "voltmap_1_5",
+    "voltmap_1_8",
+    "voltmap_1_9",
+    "voltmap_2_4",
+    "voltmap_2_5",
+    "voltmap_2_8",
+    "voltmap_2_9",
+    "voltmap_4_8",
+    "voltmap_4_9",
+    "voltmap_5_8",
+    "voltmap_5_9",
+    "voltmap_8_9"
+   ]
+  },
+  {
+   "ini": "input/raster/pairwise/10/sgVerify10.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1_2",
+    "curmap_1_3",
+    "curmap_1_4",
+    "curmap_1_7",
+    "curmap_2_3",
+    "curmap_2_4",
+    "curmap_2_7",
+    "curmap_3_4",
+    "curmap_3_7",
+    "curmap_4_7",
+    "voltmap_1_2",
+    "voltmap_1_3",
+    "voltmap_1_4",
+    "voltmap_1_7",
+    "voltmap_2_3",
+    "voltmap_2_4",
+    "voltmap_2_7",
+    "voltmap_3_4",
+    "voltmap_3_7",
+    "voltmap_4_7"
+   ]
+  },
+  {
+   "ini": "input/raster/pairwise/11/sgVerify11.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1_2",
+    "curmap_1_3",
+    "curmap_1_7",
+    "curmap_2_3",
+    "curmap_2_4",
+    "curmap_3_4",
+    "curmap_3_7",
+    "curmap_4_7",
+    "voltmap_1_2",
+    "voltmap_1_3",
+    "voltmap_1_7",
+    "voltmap_2_3",
+    "voltmap_2_4",
+    "voltmap_3_4",
+    "voltmap_3_7",
+    "voltmap_4_7"
+   ]
+  },
+  {
+   "ini": "input/raster/pairwise/12/sgVerify12.ini",
+   "keys": [
+    "resistances"
+   ],
+   "maps": []
+  },
+  {
+   "ini": "input/raster/pairwise/13/sgVerify13.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1_2",
+    "curmap_1_8",
+    "curmap_8_9",
+    "voltmap_1_2",
+    "voltmap_1_8",
+    "voltmap_8_9"
+   ]
+  },
+  {
+   "ini": "input/raster/pairwise/14/sgVerify14.ini",
+   "keys": [
+    "resistances",
+    "cum_current",
+    "max_current"
+   ],
+   "maps": [
+    "curmap_1_3",
+    "curmap_1_4",
+    "curmap_1_5",
+    "curmap_2_3",
+    "curmap_2_4",
+    "curmap_2_5",
+    "curmap_3_4",
+    "curmap_3_5",
+    "curmap_4_5",
+    "voltmap_1_3",
+    "voltmap_1_4",
+    "voltmap_1_5",
+    "voltmap_2_3",
+    "voltmap_2_4",
+    "voltmap_2_5",
+    "voltmap_3_4",
+    "voltmap_3_5",
+    "voltmap_4_5"
+   ]
+  },
+  {
+   "ini": "input/raster/pairwise/15/sgVerify15.ini",
+   "keys": [
+    "resistances"
+   ],
+   "maps": []
+  },
+  {
+   "ini": "input/raster/pairwise/16/sgVerify16.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1_3",
+    "curmap_1_4",
+    "curmap_1_5",
+    "curmap_2_3",
+    "curmap_2_4",
+    "curmap_2_5",
+    "curmap_3_4",
+    "curmap_3_5",
+    "curmap_4_5",
+    "voltmap_1_3",
+    "voltmap_1_4",
+    "voltmap_1_5",
+    "voltmap_2_3",
+    "voltmap_2_4",
+    "voltmap_2_5",
+    "voltmap_3_4",
+    "voltmap_3_5",
+    "voltmap_4_5"
+   ]
+  },
+  {
+   "ini": "input/raster/pairwise/17/sgVerify17.ini",
+   "keys": [
+    "resistances"
+   ],
+   "maps": []
+  },
+  {
+   "ini": "input/raster/pairwise/2/sgVerify2.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1_3",
+    "curmap_1_4",
+    "curmap_1_5",
+    "curmap_2_3",
+    "curmap_2_4",
+    "curmap_2_5",
+    "curmap_3_4",
+    "curmap_3_5",
+    "curmap_4_5",
+    "voltmap_1_3",
+    "voltmap_1_4",
+    "voltmap_1_5",
+    "voltmap_2_3",
+    "voltmap_2_4",
+    "voltmap_2_5",
+    "voltmap_3_4",
+    "voltmap_3_5",
+    "voltmap_4_5"
+   ]
+  },
+  {
+   "ini": "input/raster/pairwise/3/sgVerify3.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "voltmap_1_2"
+   ]
+  },
+  {
+   "ini": "input/raster/pairwise/4/sgVerify4.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1_2",
+    "curmap_1_4",
+    "curmap_1_5",
+    "curmap_1_8",
+    "curmap_1_9",
+    "curmap_2_4",
+    "curmap_2_5",
+    "curmap_2_8",
+    "curmap_2_9",
+    "curmap_4_5",
+    "curmap_4_8",
+    "curmap_4_9",
+    "curmap_5_8",
+    "curmap_5_9",
+    "curmap_8_9",
+    "voltmap_1_2",
+    "voltmap_1_4",
+    "voltmap_1_5",
+    "voltmap_1_8",
+    "voltmap_1_9",
+    "voltmap_2_4",
+    "voltmap_2_5",
+    "voltmap_2_8",
+    "voltmap_2_9",
+    "voltmap_4_5",
+    "voltmap_4_8",
+    "voltmap_4_9",
+    "voltmap_5_8",
+    "voltmap_5_9",
+    "voltmap_8_9"
+   ]
+  },
+  {
+   "ini": "input/raster/pairwise/5/sgVerify5.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1_2",
+    "curmap_1_3",
+    "curmap_1_4",
+    "curmap_1_7",
+    "curmap_2_3",
+    "curmap_2_4",
+    "curmap_2_7",
+    "curmap_3_4",
+    "curmap_3_7",
+    "curmap_4_7",
+    "voltmap_1_2",
+    "voltmap_1_3",
+    "voltmap_1_4",
+    "voltmap_1_7",
+    "voltmap_2_3",
+    "voltmap_2_4",
+    "voltmap_2_7",
+    "voltmap_3_4",
+    "voltmap_3_7",
+    "voltmap_4_7"
+   ]
+  },
+  {
+   "ini": "input/raster/pairwise/6/sgVerify6.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1_2",
+    "curmap_1_3",
+    "curmap_1_4",
+    "curmap_2_3",
+    "curmap_2_4",
+    "curmap_2_7",
+    "curmap_3_4",
+    "voltmap_1_2",
+    "voltmap_1_3",
+    "voltmap_1_4",
+    "voltmap_2_3",
+    "voltmap_2_4",
+    "voltmap_2_7",
+    "voltmap_3_4"
+   ]
+  },
+  {
+   "ini": "input/raster/pairwise/7/sgVerify7.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1_2",
+    "curmap_1_3",
+    "curmap_1_4",
+    "curmap_1_5",
+    "curmap_1_6",
+    "curmap_1_7",
+    "curmap_2_3",
+    "curmap_2_4",
+    "curmap_2_5",
+    "curmap_2_6",
+    "curmap_2_7",
+    "curmap_3_4",
+    "curmap_3_5",
+    "curmap_3_6",
+    "curmap_3_7",
+    "curmap_4_5",
+    "curmap_4_6",
+    "curmap_4_7",
+    "curmap_5_6",
+    "curmap_5_7",
+    "curmap_6_7",
+    "voltmap_1_2",
+    "voltmap_1_3",
+    "voltmap_1_4",
+    "voltmap_1_5",
+    "voltmap_1_6",
+    "voltmap_1_7",
+    "voltmap_2_3",
+    "voltmap_2_4",
+    "voltmap_2_5",
+    "voltmap_2_6",
+    "voltmap_2_7",
+    "voltmap_3_4",
+    "voltmap_3_5",
+    "voltmap_3_6",
+    "voltmap_3_7",
+    "voltmap_4_5",
+    "voltmap_4_6",
+    "voltmap_4_7",
+    "voltmap_5_6",
+    "voltmap_5_7",
+    "voltmap_6_7"
+   ]
+  },
+  {
+   "ini": "input/raster/pairwise/8/sgVerify8.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1_2",
+    "curmap_1_3",
+    "curmap_1_4",
+    "curmap_1_7",
+    "curmap_2_3",
+    "curmap_2_4",
+    "curmap_2_7",
+    "curmap_3_4",
+    "curmap_3_7",
+    "curmap_4_7",
+    "voltmap_1_2",
+    "voltmap_1_3",
+    "voltmap_1_4",
+    "voltmap_1_7",
+    "voltmap_2_3",
+    "voltmap_2_4",
+    "voltmap_2_7",
+    "voltmap_3_4",
+    "voltmap_3_7",
+    "voltmap_4_7"
+   ]
+  },
+  {
+   "ini": "input/raster/pairwise/9/sgVerify9.ini",
+   "keys": [
+    "resistances",
+    "cum_current"
+   ],
+   "maps": [
+    "curmap_1_2",
+    "curmap_1_3",
+    "curmap_1_4",
+    "curmap_1_7",
+    "curmap_2_3",
+    "curmap_2_4",
+    "curmap_2_7",
+    "curmap_3_4",
+    "curmap_3_7",
+    "curmap_4_7",
+    "voltmap_1_2",
+    "voltmap_1_3",
+    "voltmap_1_4",
+    "voltmap_1_7",
+    "voltmap_2_3",
+    "voltmap_2_4",
+    "voltmap_2_7",
+    "voltmap_3_4",
+    "voltmap_3_7",
+    "voltmap_4_7"
+   ]
+  }
+ ],
+ "omniscape": [
+  {
+   "ini": "config.ini",
+   "keys": [
+    "cum_currmap",
+    "flow_potential",
+    "normalized_cum_currmap"
+   ]
+  },
+  {
+   "ini": "config2.ini",
+   "keys": [
+    "cum_currmap"
+   ]
+  },
+  {
+   "ini": "config3.ini",
+   "keys": [
+    "cum_currmap",
+    "flow_potential"
+   ]
+  },
+  {
+   "ini": "config4a.ini",
+   "keys": [
+    "cum_currmap",
+    "flow_potential",
+    "normalized_cum_currmap"
+   ]
+  },
+  {
+   "ini": "config4b.ini",
+   "keys": [
+    "cum_currmap",
+    "normalized_cum_currmap"
+   ]
+  },
+  {
+   "ini": "config4c.ini",
+   "keys": [
+    "cum_currmap"
+   ]
+  },
+  {
+   "ini": "config5.ini",
+   "keys": [
+    "cum_currmap"
+   ]
+  },
+  {
+   "ini": "config6.ini",
+   "keys": [
+    "cum_currmap"
+   ]
+  },
+  {
+   "ini": "config7.ini",
+   "error": "ValueError: resistance (or conductance) values must be > 0"
+  },
+  {
+   "ini": "config_32bit.ini",
+   "keys": [
+    "cum_currmap",
+    "flow_potential",
+    "normalized_cum_currmap"
+   ]
+  },
+  {
+   "ini": "config_reclass.ini",
+   "keys": [
+    "cum_currmap",
+    "classified_resistance"
+   ]
+  }
+ ]
+}

@@ -6,6 +6,18 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Circuitscape's and Omniscape's INI files (landschaft's circuitscape_ini and omniscape_ini):
+  `circuit.circuitscape_ini` runs a Circuitscape configuration on rasters (advanced, pairwise, one-to-all and
+  all-to-one, with its polygons, mask, reclassification, included pairs and variable source strengths; ASCII
+  grids read in double, gzipped ones, GeoTIFFs and text lists; paths from the working directory or next to the
+  INI) and writes its outputs as Circuitscape names them (ASCII grids with C++'s shortest round trip, or
+  GeoTIFF; the resistances and their three columns; the configuration), the pairs' and points' voltage and
+  current maps too; `circuit.omniscape_ini` runs an Omniscape configuration (every option of Omniscape 0.7,
+  conditions, reclass tables with missing values, single precision) and writes its project folder. The same as
+  landschaft's, to the bit, on Circuitscape's fifty-one raster test cases and landschaft's Omniscape
+  configurations, and the files written byte for byte.
+
 ## [0.41.0] - 2026-10-13
 
 ### Added

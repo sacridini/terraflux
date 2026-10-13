@@ -75,6 +75,7 @@ struct BioJoin;
 struct BioClusterOut;
 struct ClusterRecalc;
 struct NetworkOut;
+struct CsAdvancedOut;
 struct EdgesOut;
 struct CommuteOut;
 struct PlaneOut;
@@ -563,6 +564,9 @@ BioCounts bio_rand_swaps(rust::Slice<const std::int64_t> indptr, rust::Slice<con
                          rust::Slice<const double> label_range, rust::Str kind, std::int64_t swap_count,
                          std::int64_t max_swap_attempts, bool stop_on_all_swapped, bool use_max_swap);
 rust::Vec<double> bio_perl_sqrt(rust::Slice<const double> x);
+CsAdvancedOut circuit_cs_advanced(rust::Slice<const double> gmap, rust::Slice<const std::int64_t> polymap, std::int64_t nx,
+                                  std::int64_t ny, rust::Slice<const double> source, rust::Slice<const double> ground,
+                                  bool avg_resistances, bool four_neighbors, std::int32_t policy);
 NetworkOut circuit_network_advanced(rust::Slice<const std::int32_t> a, rust::Slice<const std::int32_t> b,
                                     rust::Slice<const double> w, std::int32_t m, rust::Slice<const double> source,
                                     rust::Slice<const double> ground, std::int32_t policy);

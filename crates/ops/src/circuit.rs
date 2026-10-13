@@ -567,12 +567,13 @@ impl FocalPoints {
 
 /// The inputs of Circuitscape's raster modes: the conductances, the short-circuit regions (empty: none), the
 /// focal points.
-struct Circuit {
-    g: Vec<f64>,
-    poly: Vec<i64>,
-    points: FocalPoints,
-    nx: usize,
-    ny: usize,
+/// A raster circuit: the conductances, the short-circuit regions, the focal points, the size.
+pub struct Circuit {
+    pub g: Vec<f64>,
+    pub poly: Vec<i64>,
+    pub points: FocalPoints,
+    pub nx: usize,
+    pub ny: usize,
 }
 
 impl Circuit {
@@ -685,6 +686,8 @@ impl Operator for Pairwise {
             u8::from(args.param("null_currents", false)?),
             0,
             u8::from(args.param("log_transform", false)?),
+            0,
+            0,
         ];
         let out = ffi::circuit_pairwise(
             &c.g,
@@ -792,9 +795,7 @@ impl Operator for OneToAll {
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let fail = |e: String| Error::msg(format!("node {:?}: {e}", args.node));
         let (mut c, grid) = Circuit::of(args)?;
-        let (nx, ny) = (c.nx, c.ny);
-        let one_to_all = !args.param("all_to_one", false)?;
-        let mut strengths: Option<Vec<(f64, f64)>> = match args.params.get("strengths") {
+        let strengths: Option<Vec<(f64, f64)>> = match args.params.get("strengths") {
             None | Some(serde_json::Value::Null) => None,
             Some(v) => {
                 let rows: Vec<[f64; 2]> =
@@ -802,200 +803,263 @@ impl Operator for OneToAll {
                 Some(rows.into_iter().map(|r| (r[0], r[1])).collect())
             }
         };
-        let pairs = included_pairs_of(args, false)?;
-        if let Some(p) = &pairs {
-            c.points.retain(&p.ids);
-            if let Some(st) = &mut strengths {
-                st.retain(|(id, _)| p.ids.contains(&(*id as i64)));
-            }
-        }
-        // include mode: the pairs not marked; exclude mode: the marked ones
-        let mode = if pairs.as_ref().is_some_and(|p| p.mode == "include") { 0 } else { 1 };
-        let (cum_on, max_on, focal_zero): (bool, bool, bool) =
-            (args.param("cum_map", false)?, args.param("max_map", false)?, args.param("focal_zero", false)?);
-        let p = &c.points;
-        let cells: Vec<usize> = p.rows.iter().zip(&p.cols).map(|(r, k)| r * nx + k).collect();
-        let mut point_map = vec![0i64; nx * ny];
-        for (k, &cell) in cells.iter().enumerate() {
-            point_map[cell] = p.ids[k];
-        }
-        let unique = p.unique();
-        // the first cell of each id
-        let mut unique_map = vec![0i64; nx * ny];
-        for &u in &unique {
-            let first = p.ids.iter().position(|&i| i == u).unwrap();
-            unique_map[cells[first]] = u;
-        }
-        let base_poly = point_polymap(&c.poly, &point_map, &p.ids, nx, ny);
-        let no_regions = p.ids.len() == p.unique().len();
-        let mut res = vec![0.0; unique.len()];
-        let mut cum = vec![0.0; nx * ny];
-        let mut mx = vec![NODATA; nx * ny];
-        let policy = if one_to_all { 2 } else { 1 };
-        let problem = |i: usize| -> Option<Problem> {
-            let n = unique[i];
-            if let Some(st) = &strengths
-                && i >= st.len()
-            {
-                return None;
-            }
-            let strength = strengths.as_ref().map_or(1.0, |s| s[i].1);
-            // the focal points this one is not paired with leave the point map
-            let mut pm = point_map.clone();
-            let mut poly = None;
-            if let Some(pr) = &pairs {
-                let k = pr.ids.len();
-                let row = pr.ids.iter().position(|&x| x == n)?;
-                for j in 0..k {
-                    if j != row && pr.matrix[row * k + j] == mode {
-                        let gone = pr.ids[j];
-                        pm.iter_mut().filter(|v| **v == gone).for_each(|v| *v = 0);
-                    }
-                }
-                if !no_regions {
-                    poly = Some(point_polymap(&c.poly, &pm, &p.ids, nx, ny));
-                }
-            }
-            if pm.iter().sum::<i64>() == n {
-                return None;
-            }
-            let smap: Option<Vec<f64>> = strengths.as_ref().map(|st| {
-                let mut m = vec![0.0; nx * ny];
-                for (k, &cell) in cells.iter().enumerate() {
-                    if k < st.len() {
-                        m[cell] = if pm[cell] == 0 { 1.0 } else { st[k].1 };
-                    }
-                }
-                m
-            });
-            let (src, gnd): (Vec<f64>, Vec<f64>) = if one_to_all {
-                (
-                    unique_map.iter().map(|&u| if u == n { strength } else { 0.0 }).collect(),
-                    pm.iter().map(|&v| if v == n || v == 0 { 0.0 } else { f64::INFINITY }).collect(),
-                )
-            } else {
-                let src = match &smap {
-                    Some(m) => unique_map.iter().zip(m).map(|(&u, &v)| if u == n { 0.0 } else { v }).collect(),
-                    None => unique_map
-                        .iter()
-                        .zip(&pm)
-                        .map(|(&u, &v)| {
-                            if v == n {
-                                0.0
-                            } else if u != 0 {
-                                1.0
-                            } else {
-                                0.0
-                            }
-                        })
-                        .collect(),
-                };
-                (src, pm.iter().map(|&v| if v == n { f64::INFINITY } else { 0.0 }).collect())
-            };
-            let nonzero = |v: &[f64]| -> (Vec<i64>, Vec<f64>) {
-                v.iter().enumerate().filter(|(_, x)| **x != 0.0).map(|(k, x)| (k as i64, *x)).unzip()
-            };
-            let check = cells[p.ids.iter().position(|&x| x == n).unwrap()] as i64;
-            Some(Problem { src: nonzero(&src), gnd: nonzero(&gnd), check, strength, n, poly })
-        };
         let threads = crate::threads::ensure();
-        let batch: usize = args.opt_param::<usize>("batch")?.unwrap_or(4 * threads).max(1);
-        let mut b0 = 0;
-        while b0 < unique.len() {
-            let range = b0..(b0 + batch).min(unique.len());
-            let probs: Vec<(usize, Option<Problem>)> = range.clone().map(|i| (i, problem(i))).collect();
-            for (i, q) in &probs {
-                if q.is_none() {
-                    res[*i] = -1.0;
+        let o = OneToAllOptions {
+            one_to_all: !args.param("all_to_one", false)?,
+            strengths,
+            pairs: included_pairs_of(args, false)?,
+            cum: args.param("cum_map", false)?,
+            max: args.param("max_map", false)?,
+            focal_zero: args.param("focal_zero", false)?,
+            volt_maps: false,
+            cur_maps: false,
+            avg_resistances: args.param("avg_resistances", false)?,
+            four_neighbors: args.param("four_neighbors", false)?,
+            batch: args.opt_param::<usize>("batch")?.unwrap_or(4 * threads).max(1),
+        };
+        let r = one_to_all(&mut c, &o)?;
+        let mut t =
+            crate::Table::new(vec!["id".into(), if o.one_to_all { "resistance".into() } else { "value".into() }]);
+        t.rows = r.ids.iter().zip(&r.values).map(|(u, v)| vec![*u as f64, *v]).collect();
+        let mut out = Outputs::new();
+        out.insert("resistances".into(), Value::Table(t));
+        if o.cum {
+            out.insert("cum".into(), map_of(&grid, r.cum));
+        }
+        if o.max {
+            out.insert("max".into(), map_of(&grid, r.max));
+        }
+        Ok(out)
+    }
+}
+
+/// How the one-to-all (all-to-one) driver runs.
+pub struct OneToAllOptions {
+    pub one_to_all: bool,
+    /// (id, strength) rows, by position as Circuitscape.
+    pub strengths: Option<Vec<(f64, f64)>>,
+    pub pairs: Option<IncludedPairs>,
+    pub cum: bool,
+    pub max: bool,
+    pub focal_zero: bool,
+    pub volt_maps: bool,
+    pub cur_maps: bool,
+    pub avg_resistances: bool,
+    pub four_neighbors: bool,
+    /// The problems solved together.
+    pub batch: usize,
+}
+
+/// A point's id and its voltage and current maps (when asked).
+pub type PointMaps = (i64, Option<Vec<f64>>, Option<Vec<f64>>);
+
+/// The results of the one-to-all driver: per focal id its value, the cumulative and largest current maps, and
+/// per point solved its voltage and current maps when asked.
+pub struct OneToAllResult {
+    pub ids: Vec<i64>,
+    pub values: Vec<f64>,
+    pub cum: Vec<f64>,
+    pub max: Vec<f64>,
+    pub maps: Vec<PointMaps>,
+}
+
+/// Circuitscape's one-to-all (all-to-one) driver (landschaft's _one_to_all, run_onetoall).
+pub fn one_to_all(c: &mut Circuit, o: &OneToAllOptions) -> Result<OneToAllResult> {
+    let (nx, ny) = (c.nx, c.ny);
+    let one_to_all = o.one_to_all;
+    let mut strengths = o.strengths.clone();
+    let pairs = o.pairs.clone();
+    if let Some(p) = &pairs {
+        c.points.retain(&p.ids);
+        if let Some(st) = &mut strengths {
+            st.retain(|(id, _)| p.ids.contains(&(*id as i64)));
+        }
+    }
+    // include mode: the pairs not marked; exclude mode: the marked ones
+    let mode = if pairs.as_ref().is_some_and(|p| p.mode == "include") { 0 } else { 1 };
+    let focal_zero = o.focal_zero;
+    let mut maps = Vec::new();
+    let p = &c.points;
+    let cells: Vec<usize> = p.rows.iter().zip(&p.cols).map(|(r, k)| r * nx + k).collect();
+    let mut point_map = vec![0i64; nx * ny];
+    for (k, &cell) in cells.iter().enumerate() {
+        point_map[cell] = p.ids[k];
+    }
+    let unique = p.unique();
+    // the first cell of each id
+    let mut unique_map = vec![0i64; nx * ny];
+    for &u in &unique {
+        let first = p.ids.iter().position(|&i| i == u).unwrap();
+        unique_map[cells[first]] = u;
+    }
+    let base_poly = point_polymap(&c.poly, &point_map, &p.ids, nx, ny);
+    let no_regions = p.ids.len() == p.unique().len();
+    let mut res = vec![0.0; unique.len()];
+    let mut cum = vec![0.0; nx * ny];
+    let mut mx = vec![NODATA; nx * ny];
+    let policy = if one_to_all { 2 } else { 1 };
+    let problem = |i: usize| -> Option<Problem> {
+        let n = unique[i];
+        if let Some(st) = &strengths
+            && i >= st.len()
+        {
+            return None;
+        }
+        let strength = strengths.as_ref().map_or(1.0, |s| s[i].1);
+        // the focal points this one is not paired with leave the point map
+        let mut pm = point_map.clone();
+        let mut poly = None;
+        if let Some(pr) = &pairs {
+            let k = pr.ids.len();
+            let row = pr.ids.iter().position(|&x| x == n)?;
+            for j in 0..k {
+                if j != row && pr.matrix[row * k + j] == mode {
+                    let gone = pr.ids[j];
+                    pm.iter_mut().filter(|v| **v == gone).for_each(|v| *v = 0);
                 }
             }
-            let todo: Vec<(usize, &Problem)> = probs.iter().filter_map(|(i, q)| q.as_ref().map(|q| (*i, q))).collect();
-            // one call per graph (focal regions with included pairs rebuild it per point)
-            let mut groups: Vec<Vec<(usize, &Problem)>> = Vec::new();
-            for (i, q) in todo {
-                match groups.last_mut() {
-                    Some(g) if q.poly.is_none() && g[0].1.poly.is_none() => g.push((i, q)),
-                    _ => groups.push(vec![(i, q)]),
+            if !no_regions {
+                poly = Some(point_polymap(&c.poly, &pm, &p.ids, nx, ny));
+            }
+        }
+        if pm.iter().sum::<i64>() == n {
+            return None;
+        }
+        let smap: Option<Vec<f64>> = strengths.as_ref().map(|st| {
+            let mut m = vec![0.0; nx * ny];
+            for (k, &cell) in cells.iter().enumerate() {
+                if k < st.len() {
+                    m[cell] = if pm[cell] == 0 { 1.0 } else { st[k].1 };
                 }
             }
-            for todo in groups {
-                let poly = todo[0].1.poly.as_ref().unwrap_or(&base_poly);
-                if !todo.is_empty() {
-                    let mut lists = [Vec::new(), Vec::new(), vec![0i64], Vec::new(), Vec::new(), vec![0i64]];
-                    let (mut sc, mut sv, mut gc, mut gv) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
-                    let mut checks = Vec::new();
-                    for (_, q) in &todo {
-                        sc.extend(&q.src.0);
-                        sv.extend(&q.src.1);
-                        lists[2].push(sc.len() as i64);
-                        gc.extend(&q.gnd.0);
-                        gv.extend(&q.gnd.1);
-                        lists[5].push(gc.len() as i64);
-                        checks.push(q.check);
-                    }
-                    let out = ffi::circuit_multi_advanced(
-                        &c.g,
-                        poly,
-                        nx as i64,
-                        ny as i64,
-                        args.param("avg_resistances", false)?,
-                        args.param("four_neighbors", false)?,
-                        &sc,
-                        &sv,
-                        &lists[2],
-                        &gc,
-                        &gv,
-                        &lists[5],
-                        &checks,
-                        policy,
-                    )?;
-                    let nm = &out.nodemap;
-                    for (k, (i, q)) in todo.iter().enumerate() {
-                        let (a, b) = (out.node_offsets[k] as usize, out.node_offsets[k + 1] as usize);
-                        let (volt, curr) = (&out.voltage[a..b], &out.current[a..b]);
-                        let active = &out.active[out.active_offsets[k] as usize..out.active_offsets[k + 1] as usize];
-                        res[*i] = if out.solved[k] == 0 {
-                            -1.0
-                        } else if !one_to_all {
+            m
+        });
+        let (src, gnd): (Vec<f64>, Vec<f64>) = if one_to_all {
+            (
+                unique_map.iter().map(|&u| if u == n { strength } else { 0.0 }).collect(),
+                pm.iter().map(|&v| if v == n || v == 0 { 0.0 } else { f64::INFINITY }).collect(),
+            )
+        } else {
+            let src = match &smap {
+                Some(m) => unique_map.iter().zip(m).map(|(&u, &v)| if u == n { 0.0 } else { v }).collect(),
+                None => unique_map
+                    .iter()
+                    .zip(&pm)
+                    .map(|(&u, &v)| {
+                        if v == n {
                             0.0
+                        } else if u != 0 {
+                            1.0
                         } else {
-                            let cell = unique_map.iter().position(|&u| u == q.n).unwrap();
-                            let node = nm[cell];
-                            let val = if node < 0 { 0.0 } else { volt[node as usize] / q.strength };
-                            if val == 0.0 { -1.0 } else { val }
-                        };
-                        for (cell, &node) in nm.iter().enumerate() {
-                            let mut cur = if node >= 0 { curr[node as usize] } else { 0.0 };
-                            if focal_zero && active.contains(&node) {
-                                cur = 0.0;
-                            }
-                            cum[cell] += cur;
-                            if cur > mx[cell] {
-                                mx[cell] = cur;
-                            }
+                            0.0
+                        }
+                    })
+                    .collect(),
+            };
+            (src, pm.iter().map(|&v| if v == n { f64::INFINITY } else { 0.0 }).collect())
+        };
+        let nonzero = |v: &[f64]| -> (Vec<i64>, Vec<f64>) {
+            v.iter().enumerate().filter(|(_, x)| **x != 0.0).map(|(k, x)| (k as i64, *x)).unzip()
+        };
+        let check = cells[p.ids.iter().position(|&x| x == n).unwrap()] as i64;
+        Some(Problem { src: nonzero(&src), gnd: nonzero(&gnd), check, strength, n, poly })
+    };
+    let batch = o.batch.max(1);
+    let mut b0 = 0;
+    while b0 < unique.len() {
+        let range = b0..(b0 + batch).min(unique.len());
+        let probs: Vec<(usize, Option<Problem>)> = range.clone().map(|i| (i, problem(i))).collect();
+        for (i, q) in &probs {
+            if q.is_none() {
+                res[*i] = -1.0;
+            }
+        }
+        let todo: Vec<(usize, &Problem)> = probs.iter().filter_map(|(i, q)| q.as_ref().map(|q| (*i, q))).collect();
+        // one call per graph (focal regions with included pairs rebuild it per point)
+        let mut groups: Vec<Vec<(usize, &Problem)>> = Vec::new();
+        for (i, q) in todo {
+            match groups.last_mut() {
+                Some(g) if q.poly.is_none() && g[0].1.poly.is_none() => g.push((i, q)),
+                _ => groups.push(vec![(i, q)]),
+            }
+        }
+        for todo in groups {
+            let poly = todo[0].1.poly.as_ref().unwrap_or(&base_poly);
+            if !todo.is_empty() {
+                let mut lists = [Vec::new(), Vec::new(), vec![0i64], Vec::new(), Vec::new(), vec![0i64]];
+                let (mut sc, mut sv, mut gc, mut gv) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+                let mut checks = Vec::new();
+                for (_, q) in &todo {
+                    sc.extend(&q.src.0);
+                    sv.extend(&q.src.1);
+                    lists[2].push(sc.len() as i64);
+                    gc.extend(&q.gnd.0);
+                    gv.extend(&q.gnd.1);
+                    lists[5].push(gc.len() as i64);
+                    checks.push(q.check);
+                }
+                let out = ffi::circuit_multi_advanced(
+                    &c.g,
+                    poly,
+                    nx as i64,
+                    ny as i64,
+                    o.avg_resistances,
+                    o.four_neighbors,
+                    &sc,
+                    &sv,
+                    &lists[2],
+                    &gc,
+                    &gv,
+                    &lists[5],
+                    &checks,
+                    policy,
+                )?;
+                let nm = &out.nodemap;
+                for (k, (i, q)) in todo.iter().enumerate() {
+                    let (a, b) = (out.node_offsets[k] as usize, out.node_offsets[k + 1] as usize);
+                    let (volt, curr) = (&out.voltage[a..b], &out.current[a..b]);
+                    let active = &out.active[out.active_offsets[k] as usize..out.active_offsets[k + 1] as usize];
+                    res[*i] = if out.solved[k] == 0 {
+                        -1.0
+                    } else if !one_to_all {
+                        0.0
+                    } else {
+                        let cell = unique_map.iter().position(|&u| u == q.n).unwrap();
+                        let node = nm[cell];
+                        let val = if node < 0 { 0.0 } else { volt[node as usize] / q.strength };
+                        if val == 0.0 { -1.0 } else { val }
+                    };
+                    let (mut vmap, mut cmap) = (Vec::new(), Vec::new());
+                    for (cell, &node) in nm.iter().enumerate() {
+                        let mut cur = if node >= 0 { curr[node as usize] } else { 0.0 };
+                        if focal_zero && active.contains(&node) {
+                            cur = 0.0;
+                        }
+                        cum[cell] += cur;
+                        if cur > mx[cell] {
+                            mx[cell] = cur;
+                        }
+                        if o.volt_maps {
+                            vmap.push(if node >= 0 { volt[node as usize] } else { 0.0 });
+                        }
+                        if o.cur_maps {
+                            cmap.push(cur);
                         }
                     }
+                    if o.volt_maps || o.cur_maps {
+                        maps.push((q.n, o.volt_maps.then_some(vmap), o.cur_maps.then_some(cmap)));
+                    }
                 }
             }
-            b0 = range.end;
         }
-        for v in cum.iter_mut().chain(mx.iter_mut()) {
-            if *v < NODATA {
-                *v = NODATA;
-            }
-        }
-        let mut t = crate::Table::new(vec!["id".into(), if one_to_all { "resistance".into() } else { "value".into() }]);
-        t.rows = unique.iter().zip(&res).map(|(u, r)| vec![*u as f64, *r]).collect();
-        let mut o = Outputs::new();
-        o.insert("resistances".into(), Value::Table(t));
-        if cum_on {
-            o.insert("cum".into(), map_of(&grid, cum));
-        }
-        if max_on {
-            o.insert("max".into(), map_of(&grid, mx));
-        }
-        Ok(o)
+        b0 = range.end;
     }
+    for v in cum.iter_mut().chain(mx.iter_mut()) {
+        if *v < NODATA {
+            *v = NODATA;
+        }
+    }
+    Ok(OneToAllResult { ids: unique, values: res, cum, max: mx, maps })
 }
 
 /// Circuitscape's include / exclude pairs: the mode, the focal ids and the n x n 0/1 matrix marking the pairs.
