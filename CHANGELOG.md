@@ -30,6 +30,10 @@ minor versions.
   as that product whatever their name (`product` sets it by hand); MSPA by tiles writes it too. The dataset's
   metadata items are read and written with the GeoTIFF (`GeoTags::metadata`).
 
+- The builder without the mouse: with the model's canvas in focus the arrows go to the node beside the one
+  selected (the first, top left, when none is; the view follows), enter shows its output in the viewer; with "/"
+  to add operators, a model is built from the keyboard.
+
 ### Changed
 - A continuous map's ramp spans its values' 2nd to 98th percentiles (98th of the absolute values centred on 0),
   as landschaft's plot, no longer their least and most: a few outliers no longer wash it out.

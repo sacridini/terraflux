@@ -797,3 +797,40 @@ fn keys_switch_close_rename_and_disconnect() {
     let chosen = s.source.node("class").unwrap().params["metrics"].as_array().unwrap().clone();
     assert!(chosen.iter().any(|m| m == "ca") && chosen.iter().any(|m| m == "pland"), "{chosen:?}");
 }
+
+/// The builder without the mouse: with the model's canvas in focus the arrows go from node to node (the first
+/// node first), enter shows the output of the node selected in the viewer.
+#[test]
+fn nodes_are_gone_through_with_the_keyboard() {
+    let mut h = harness(TerrafluxApp::new(None));
+    h.run_steps(2);
+    let ctx = h.ctx.clone();
+    h.state_mut().start_template(&ctx, &terraflux_app::templates::TEMPLATES[0]);
+    h.run_steps(4);
+    h.state_mut().focus(Pane::Model);
+    h.run_steps(2);
+    let selected = |h: &Harness<TerrafluxApp>| h.state().session.as_ref().unwrap().selected.clone();
+    // to the first node of the chain, leftwards
+    let mut last = None;
+    for _ in 0..8 {
+        h.key_press(egui::Key::ArrowLeft);
+        h.run_steps(2);
+        if selected(&h) == last {
+            break;
+        }
+        last = selected(&h);
+    }
+    let first = last.expect("a node selected");
+    h.key_press(egui::Key::ArrowRight);
+    h.run_steps(2);
+    let second = selected(&h).unwrap();
+    assert_ne!(first, second, "the arrow goes to the next node");
+    h.key_press(egui::Key::ArrowLeft);
+    h.run_steps(2);
+    assert_eq!(selected(&h).as_ref(), Some(&first), "and back");
+    h.key_press(egui::Key::Enter);
+    h.run_steps(2);
+    assert_eq!(h.state_mut().focused(), Some(Pane::Viewer), "enter shows the node's output");
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.preview.as_ref().map(|(n, _)| n), Some(&first));
+}

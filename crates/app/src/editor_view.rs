@@ -154,6 +154,52 @@ impl EditorState {
         Some(self.rect?.min + cam.pan + p.to_vec2() * cam.zoom)
     }
 
+    /// The node nearest a node in a direction (a unit vector, y down), among the nodes of the scope shown: within
+    /// 60 degrees of it, the nearest by distance, sideways steps counting double; the first node (top left) when
+    /// none is given.
+    pub fn neighbour(&self, from: Option<&str>, dir: Vec2) -> Option<String> {
+        let s = self.scene.as_ref()?;
+        let nodes = || s.boxes.iter().filter(|b| !b.source);
+        let Some(at) = from.and_then(|f| s.index.get(f)).map(|&i| s.boxes[i].rect.center()) else {
+            return nodes()
+                .min_by(|a, b| (a.rect.min.y + a.rect.min.x).total_cmp(&(b.rect.min.y + b.rect.min.x)))
+                .map(|b| b.key.clone());
+        };
+        nodes()
+            .filter(|b| Some(b.key.as_str()) != from)
+            .filter_map(|b| {
+                let d = b.rect.center() - at;
+                let along = d.dot(dir);
+                let across = (d - dir * along).length();
+                (along > 0.0 && across <= along * 1.732).then(|| (along + 2.0 * across, b.key.clone()))
+            })
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .map(|(_, k)| k)
+    }
+
+    /// Keep a node in view: the camera moved just enough that its box is on the canvas (with a margin).
+    pub fn reveal(&mut self, node: &str) {
+        let (Some(s), Some(rect)) = (self.scene.as_ref(), self.rect) else { return };
+        let Some(&i) = s.index.get(node) else { return };
+        let b = s.boxes[i].rect;
+        let Some(cam) = self.cameras.get_mut(&self.path) else { return };
+        let (min, max) =
+            (rect.min + cam.pan + b.min.to_vec2() * cam.zoom, rect.min + cam.pan + b.max.to_vec2() * cam.zoom);
+        let inner = rect.shrink(40.0);
+        let mut shift = Vec2::ZERO;
+        if min.x < inner.min.x {
+            shift.x = inner.min.x - min.x;
+        } else if max.x > inner.max.x {
+            shift.x = (inner.max.x - max.x).max(inner.min.x - min.x);
+        }
+        if min.y < inner.min.y {
+            shift.y = inner.min.y - min.y;
+        } else if max.y > inner.max.y {
+            shift.y = (inner.max.y - max.y).max(inner.min.y - min.y);
+        }
+        cam.pan += shift;
+    }
+
     /// Where a node's header is on the screen (as last drawn).
     pub fn screen_of(&self, node: &str) -> Option<Pos2> {
         let s = self.scene.as_ref()?;

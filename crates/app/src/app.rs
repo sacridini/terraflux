@@ -1537,10 +1537,15 @@ impl TerrafluxApp {
         self.hover = None;
         if self.wizard.is_none() {
             self.keys(ui);
+            let canvas = self.focused() == Some(Pane::Model);
+            let mut show = false;
             if let Some(s) = &mut self.session {
-                crate::builder::keys(ui, s, &self.registry);
+                show = crate::builder::keys(ui, s, &self.registry, canvas);
                 // the operators by name, from the keyboard ("/"), over the panes (its keys taken before theirs)
                 crate::builder::quick_add(ui.ctx(), s, &self.registry, &self.library);
+            }
+            if show {
+                self.focus(Pane::Viewer);
             }
         }
         let bar = egui::Frame::new().fill(theme::BAR).inner_margin(Margin::symmetric(8, 5));

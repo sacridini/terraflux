@@ -630,9 +630,40 @@ fn runnable(s: &Session) -> Option<String> {
 }
 
 /// ctrl+enter runs up to the node selected, del deletes the nodes selected, ctrl+L arranges the nodes, ctrl+R
-/// renames the node selected, "/" searches the operators to add one.
-pub fn keys(ui: &Ui, s: &mut Session, r: &Registry) {
+/// renames the node selected, "/" searches the operators to add one; with the model's canvas in focus the arrows
+/// go to the node beside the one selected (kept in view) and enter shows its output: whether to show the viewer.
+pub fn keys(ui: &Ui, s: &mut Session, r: &Registry, canvas: bool) -> bool {
     let typing = ui.ctx().memory(|m| m.focused().is_some());
+    let mut show = false;
+    if canvas && !typing && s.editor.quick.is_none() && s.editor.renaming.is_none() && !s.editor.text {
+        let (left, right, up, down, enter) = ui.input_mut(|i| {
+            let none = egui::Modifiers::NONE;
+            (
+                i.consume_key(none, egui::Key::ArrowLeft),
+                i.consume_key(none, egui::Key::ArrowRight),
+                i.consume_key(none, egui::Key::ArrowUp),
+                i.consume_key(none, egui::Key::ArrowDown),
+                i.consume_key(none, egui::Key::Enter),
+            )
+        });
+        let dir = [
+            (left, egui::vec2(-1.0, 0.0)),
+            (right, egui::vec2(1.0, 0.0)),
+            (up, egui::vec2(0.0, -1.0)),
+            (down, egui::vec2(0.0, 1.0)),
+        ]
+        .into_iter()
+        .find(|(k, _)| *k)
+        .map(|(_, d)| d);
+        if let Some(d) = dir
+            && let Some(id) = s.editor.neighbour(s.selected.as_deref(), d)
+        {
+            select(s, r, &id);
+            s.editor.chosen = [id.clone()].into();
+            s.editor.reveal(&id);
+        }
+        show = enter && s.selected.is_some();
+    }
     let rename = !typing && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::R));
     if rename && let Some(id) = s.selected.clone() {
         s.editor.text = false;
@@ -688,6 +719,7 @@ pub fn keys(ui: &Ui, s: &mut Session, r: &Registry) {
             s.edited();
         }
     }
+    show
 }
 
 /// The output of a node to show first: a map, a stack or a series, else the first.
