@@ -6,6 +6,17 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Grid distances (landschaft's cost module, the R package gdistance through its C++), a subject of their own in
+  the builder: `cost.transition` (the connections of every cell with its 4, 8 or 16 neighbours, a built-in
+  function of the two cells' values: mean, min, max, sum, prod, from, to, diff, harmonic, geometric; symmetric or
+  not; its reciprocal for a conductance of a resistance), kept as a stack of a layer per direction whose grid
+  carries the layout; `cost.geo_correction` (types c and r, scaled or not; great-circle distances on
+  longitude/latitude grids), `cost.acc_cost` (from points or a mask), `cost.distance` (among points or from
+  points to others; a table) and `cost.shortest_path` (lines through the cells' centres and a map of the share of
+  the paths through each cell). Global longitude/latitude grids wrap around as gdistance's. The same as
+  landschaft's, to the bit, on its example rasters and a global grid (`tools/make_cost_reference.py`).
+
 ## [0.30.0] - 2026-10-13
 
 ### Added

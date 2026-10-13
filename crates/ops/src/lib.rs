@@ -19,6 +19,7 @@ pub mod change;
 pub mod change_analysis;
 pub mod circuit;
 pub mod clumondo;
+pub mod cost;
 pub mod crafty;
 pub mod demand;
 pub mod dinamica;
@@ -270,6 +271,7 @@ impl Registry {
         change::register(&mut r);
         change_analysis::register(&mut r);
         circuit::register(&mut r);
+        cost::register(&mut r);
         surface::register(&mut r);
         legend::register(&mut r);
         clumondo::register(&mut r);

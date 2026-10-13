@@ -2404,6 +2404,103 @@ AacfOut surf_aacf(rust::Slice<const double> z, std::int32_t nx, std::int32_t ny,
     return out;
 }
 
+namespace {
+cost::Grid cost_grid(rust::Slice<const double> grid) {
+    check(grid.size() == 7, "a grid: ny, nx, xmin, xmax, ymin, ymax, wrap");
+    cost::Grid g;
+    g.ny = static_cast<std::int64_t>(grid[0]);
+    g.nx = static_cast<std::int64_t>(grid[1]);
+    g.xmin = grid[2];
+    g.xmax = grid[3];
+    g.ymin = grid[4];
+    g.ymax = grid[5];
+    g.wrap = grid[6] != 0.0;
+    check(g.ny > 0 && g.nx > 0, "the grid is empty");
+    return g;
+}
+
+void cost_check(const cost::Grid& g, std::int32_t directions, bool symmetric, std::size_t n) {
+    check(directions == 4 || directions == 8 || directions == 16, "directions must be 4, 8 or 16");
+    const auto nd = static_cast<std::int64_t>(cost::offsets(directions, symmetric).size());
+    check(static_cast<std::int64_t>(n) == nd * g.ncell(), "the transition's values do not match the grid");
+}
+
+cost::Builtin cost_builtin_of(const std::string& name) {
+    if (name == "mean") return cost::Builtin::Mean;
+    if (name == "min") return cost::Builtin::Min;
+    if (name == "max") return cost::Builtin::Max;
+    if (name == "sum") return cost::Builtin::Sum;
+    if (name == "from") return cost::Builtin::From;
+    if (name == "to") return cost::Builtin::To;
+    if (name == "diff") return cost::Builtin::Diff;
+    if (name == "harmonic") return cost::Builtin::Harmonic;
+    if (name == "geometric") return cost::Builtin::Geometric;
+    if (name == "prod") return cost::Builtin::Product;
+    throw std::invalid_argument("unknown transition function '" + name + "'");
+}
+}  // namespace
+
+rust::Vec<std::int32_t> cost_offsets(std::int32_t directions, bool symmetric) {
+    check(directions == 4 || directions == 8 || directions == 16, "directions must be 4, 8 or 16");
+    rust::Vec<std::int32_t> out;
+    for (const cost::Offset o : cost::offsets(directions, symmetric)) {
+        out.push_back(o.dr);
+        out.push_back(o.dc);
+    }
+    return out;
+}
+
+rust::Vec<double> cost_builtin(rust::Slice<const double> x, rust::Slice<const double> grid, std::int32_t directions,
+                               bool symmetric, rust::Str function) {
+    const cost::Grid g = cost_grid(grid);
+    check(static_cast<std::int64_t>(x.size()) == g.ncell(), "the values do not match the grid");
+    check(directions == 4 || directions == 8 || directions == 16, "directions must be 4, 8 or 16");
+    const cost::Builtin fn = cost_builtin_of(std::string(function));
+    const auto nd = static_cast<std::size_t>(cost::offsets(directions, symmetric).size());
+    std::vector<double> out(nd * static_cast<std::size_t>(g.ncell()));
+    cost::builtin_values(x.data(), g, directions, symmetric, fn, out.data());
+    return to_rust<double>(std::move(out));
+}
+
+rust::Vec<double> cost_geo_correction(rust::Slice<const double> values, rust::Slice<const double> grid,
+                                      std::int32_t directions, bool symmetric, bool lonlat, rust::Str kind,
+                                      bool resistance, bool scale, bool factors) {
+    const cost::Grid g = cost_grid(grid);
+    cost_check(g, directions, symmetric, values.size());
+    const std::string type(kind);
+    check(type == "c" || type == "r", "type can only be c or r");
+    std::vector<double> out(values.begin(), values.end());
+    cost::geo_correction(g, directions, symmetric, lonlat, type[0], resistance, scale, factors, out.data());
+    return to_rust<double>(std::move(out));
+}
+
+rust::Vec<double> cost_matrix(rust::Slice<const double> values, rust::Slice<const double> grid,
+                              std::int32_t directions, bool symmetric, rust::Slice<const std::int64_t> from,
+                              rust::Slice<const std::int64_t> to) {
+    const cost::Grid g = cost_grid(grid);
+    cost_check(g, directions, symmetric, values.size());
+    const cost::Layout t{&g, directions, symmetric, values.data()};
+    return to_rust<double>(cost::cost_matrix(t, std::vector<std::int64_t>(from.begin(), from.end()),
+                                             std::vector<std::int64_t>(to.begin(), to.end())));
+}
+
+PathsOut cost_paths(rust::Slice<const double> values, rust::Slice<const double> grid, std::int32_t directions,
+                    bool symmetric, std::int64_t origin, rust::Slice<const std::int64_t> goals) {
+    const cost::Grid g = cost_grid(grid);
+    cost_check(g, directions, symmetric, values.size());
+    check(origin >= 0 && origin < g.ncell(), "the origin is outside the grid");
+    const cost::Layout t{&g, directions, symmetric, values.data()};
+    const std::vector<std::vector<std::int64_t>> paths =
+        cost::shortest_paths(t, origin, std::vector<std::int64_t>(goals.begin(), goals.end()));
+    PathsOut out;
+    out.offsets.push_back(0);
+    for (const auto& p : paths) {
+        for (std::int64_t c : p) out.cells.push_back(c);
+        out.offsets.push_back(static_cast<std::int64_t>(out.cells.size()));
+    }
+    return out;
+}
+
 rust::Vec<double> io_extract(rust::Slice<const double> values, std::int32_t bands, std::int32_t ny, std::int32_t nx,
                              rust::Slice<const double> gt, rust::Slice<const double> x, rust::Slice<const double> y,
                              bool bilinear, std::int32_t row0, std::int32_t ny_total) {

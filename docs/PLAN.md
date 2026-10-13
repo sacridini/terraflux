@@ -611,8 +611,13 @@ Pendências:
   a bit com o landschaft.
 - **Superfícies — terreno (0.30.0, 2026-10-13):** terrain, TPI, TRI, VRM, SRR, dissecção, curvaturas, desvio
   esférico, HSP, TRASP, HLI, planos, picos e vales, curva de Abbott-Firestone e AACF, bit a bit com o landschaft.
-- **Próximos (2026-10-13):** distâncias na grade (`cost`), biodiversidade (`bio`), incerteza, lotes; o resto dos
-  circuitos (redes, pares incluídos, os arquivos .ini); depois métricas de superfície, distâncias na grade, biodiversidade, incerteza e lotes; os instaladores de macOS e Linux;
+- **Distâncias na grade — caminhos de menor custo (0.31.0, 2026-10-13):** `cost.transition` (as funções do
+  gdistance, 4, 8 ou 16 direções, simétrica ou não; uma pilha de uma camada por direção, o layout nos metadados
+  da grade), `cost.geo_correction`, `cost.acc_cost`, `cost.distance` e `cost.shortest_path`, bit a bit com o
+  landschaft numa grade projetada, numa em graus e numa global que dá a volta.
+- **Próximos (2026-10-13):** os passeios aleatórios do `cost` (commute distance, passage, RSP, path_inc,
+  barreiras e áreas, Mahalanobis, normalize, sum_reciprocal), biodiversidade (`bio`), incerteza, lotes; o resto
+  dos circuitos (redes, pares incluídos, os arquivos .ini); os instaladores de macOS e Linux;
   `vector.exact_sum` e `vector.distance` fora da memória.
 
 - **A ponte do ls.simulate completa (branch `simulate-bridge`, 2026-10-13):** todo modelo do `ls.simulate` vai pelo

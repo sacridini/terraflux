@@ -58,6 +58,7 @@ struct PrioFlexOut;
 struct RunsOut;
 struct OmniscapeOut;
 struct CircuitOut;
+struct PathsOut;
 struct PlaneOut;
 struct BearingOut;
 struct AacfOut;
@@ -473,6 +474,19 @@ rust::Vec<std::int64_t> surf_peaks(rust::Slice<const double> z, std::int32_t nx,
 BearingOut surf_bearing(rust::Slice<const double> z, rust::Slice<const double> probs);
 AacfOut surf_aacf(rust::Slice<const double> z, std::int32_t nx, std::int32_t ny, rust::Slice<const double> extent,
                   bool lonlat);
+
+// grid distances (landschaft's cost module, gdistance's)
+rust::Vec<std::int32_t> cost_offsets(std::int32_t directions, bool symmetric);
+rust::Vec<double> cost_builtin(rust::Slice<const double> x, rust::Slice<const double> grid, std::int32_t directions,
+                               bool symmetric, rust::Str function);
+rust::Vec<double> cost_geo_correction(rust::Slice<const double> values, rust::Slice<const double> grid,
+                                      std::int32_t directions, bool symmetric, bool lonlat, rust::Str kind,
+                                      bool resistance, bool scale, bool factors);
+rust::Vec<double> cost_matrix(rust::Slice<const double> values, rust::Slice<const double> grid,
+                              std::int32_t directions, bool symmetric, rust::Slice<const std::int64_t> from,
+                              rust::Slice<const std::int64_t> to);
+PathsOut cost_paths(rust::Slice<const double> values, rust::Slice<const double> grid, std::int32_t directions,
+                    bool symmetric, std::int64_t origin, rust::Slice<const std::int64_t> goals);
 
 // the values of maps at points (landschaft's extract, lsio::extract): bands x ny x nx, NaN no data
 rust::Vec<double> io_extract(rust::Slice<const double> values, std::int32_t bands, std::int32_t ny, std::int32_t nx,

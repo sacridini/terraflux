@@ -372,6 +372,12 @@ pub mod ffi {
         extent: Vec<f64>,
     }
 
+    /// Least-cost paths: their cells, one after the other (offsets into them).
+    struct PathsOut {
+        cells: Vec<i64>,
+        offsets: Vec<i64>,
+    }
+
     /// Circuitscape's advanced mode on a raster: node currents and voltages of every cell.
     struct CircuitOut {
         current: Vec<f64>,
@@ -1562,6 +1568,43 @@ pub mod ffi {
         fn surf_bearing(z: &[f64], probs: &[f64]) -> Result<BearingOut>;
         /// geodiv's aacf image.
         fn surf_aacf(z: &[f64], nx: i32, ny: i32, extent: &[f64], lonlat: bool) -> Result<AacfOut>;
+        /// The directions of a transition layout (gdistance's): (row, column) offsets, pairs.
+        fn cost_offsets(directions: i32, symmetric: bool) -> Result<Vec<i32>>;
+        /// Transition values of a built-in function of the two cells' values (gdistance's transition()): mean,
+        /// min, max, sum, prod, from, to, diff, harmonic, geometric; `grid` [ny, nx, xmin, xmax, ymin, ymax,
+        /// wrap].
+        fn cost_builtin(x: &[f64], grid: &[f64], directions: i32, symmetric: bool, function: &str) -> Result<Vec<f64>>;
+        /// gdistance's geoCorrection on transition values (type 'c' or 'r').
+        #[allow(clippy::too_many_arguments)]
+        fn cost_geo_correction(
+            values: &[f64],
+            grid: &[f64],
+            directions: i32,
+            symmetric: bool,
+            lonlat: bool,
+            kind: &str,
+            resistance: bool,
+            scale: bool,
+            factors: bool,
+        ) -> Result<Vec<f64>>;
+        /// Least costs between cells (gdistance's costDistance): from x to, row-major.
+        fn cost_matrix(
+            values: &[f64],
+            grid: &[f64],
+            directions: i32,
+            symmetric: bool,
+            from: &[i64],
+            to: &[i64],
+        ) -> Result<Vec<f64>>;
+        /// The cells of the least-cost paths from origin to each goal (igraph's ties).
+        fn cost_paths(
+            values: &[f64],
+            grid: &[f64],
+            directions: i32,
+            symmetric: bool,
+            origin: i64,
+            goals: &[i64],
+        ) -> Result<PathsOut>;
         #[allow(clippy::too_many_arguments)]
         fn io_extract(
             values: &[f64],
