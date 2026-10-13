@@ -73,7 +73,7 @@ fn basedata_and_spatial_analyses_are_landschafts() {
         let conds: Vec<Condition> = strings(&case["conditions"]).iter().map(|c| Condition::new(c).unwrap()).collect();
         let query = case["query"].as_str().map(|q| Condition::new(q).unwrap());
         let what = format!("case {k} {:?}", strings(&case["conditions"]));
-        let r = spatial_analysis(&bd, &conds, &calcs, query.as_ref(), None, 1, true)
+        let r = spatial_analysis(&bd, &conds, &calcs, query.as_ref(), None, None, 1, true)
             .unwrap_or_else(|e| panic!("{what}: {e}"));
         let groups: Vec<String> = r.groups.iter().map(|&g| bd.groups[g as usize].clone()).collect();
         assert_eq!(groups, strings(&case["groups"]), "{what}: groups");
@@ -217,7 +217,7 @@ fn trees_and_phylogenetic_indices_are_landschafts() {
         let tree = read_trees(&String::from_utf8_lossy(&std::fs::read(data.join(f)).unwrap()), None).unwrap().remove(0);
         let conds: Vec<Condition> = strings(&case["conditions"]).iter().map(|c| Condition::new(c).unwrap()).collect();
         let what = format!("{f} {:?}", strings(&case["conditions"]));
-        let r = spatial_analysis(&bd, &conds, &calcs, None, Some(&tree), 12345, true)
+        let r = spatial_analysis(&bd, &conds, &calcs, None, Some(&tree), None, 12345, true)
             .unwrap_or_else(|e| panic!("{what}: {e}"));
         assert_eq!(r.names, strings(&case["columns"]), "{what}: columns");
         check(&format!("{what}: table"), &r.rows.concat(), &z[&format!("ph/{k}/table")].data);
@@ -310,7 +310,7 @@ fn randomisations_are_landschafts() {
         };
         let function = case["function"].as_str().unwrap();
         let what = format!("case {k} {function} {a}");
-        let run = prepare(&bd, &conds, &calcs, None, Some(&tree), 1, true).unwrap();
+        let run = prepare(&bd, &conds, &calcs, None, Some(&tree), None, 1, true).unwrap();
         let mut rnd = Randomisation::new(&bd, run, function, case["seed"].as_u64().unwrap(), o).unwrap();
         rnd.run(5).unwrap_or_else(|e| panic!("{what}: {e}"));
         assert_eq!(rnd.result.names, strings(&reference["columns"]), "{what}: columns");
@@ -411,7 +411,7 @@ fn clusters_are_landschafts() {
         };
         let what = format!("case {k} {c}");
         let t = c["tree"].as_bool().unwrap_or(false).then_some(&tree);
-        let r = cluster(&bd, t, &o, true).unwrap_or_else(|e| panic!("{what}: {e}"));
+        let r = cluster(&bd, t, None, &o, true).unwrap_or_else(|e| panic!("{what}: {e}"));
         assert_eq!(r.tree.names, strings(&entry["names"]), "{what}: names");
         let parent: Vec<i64> = entry["parent"].as_array().unwrap().iter().map(|v| v.as_i64().unwrap()).collect();
         assert_eq!(r.tree.parent, parent, "{what}: parent");
@@ -473,4 +473,155 @@ fn the_cluster_operators_cut_maps() {
         }
         assert!(matches!(&out["table"], Value::Table(t) if t.columns.contains(&"RICHNESS_ALL".to_string())));
     }
+}
+
+/// Label and group properties (RANGE and ABUNDANCE too), label matrices (full and sparse) and the indices using
+/// them, and randomisations moving group properties by set and by item, against landschaft's
+/// (tests/data/reference/bio_props.json and .npz), to the bit.
+#[test]
+fn properties_and_matrices_are_landschafts() {
+    use std::collections::HashMap;
+    use terraflux_ops::bio::properties::{MatrixImport, read_matrix, read_properties};
+    use terraflux_ops::bio::rand::{Options, Randomisation};
+    use terraflux_ops::bio::spatial::prepare;
+    let reference: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root().join("tests/data/reference/bio_props.json")).unwrap())
+            .unwrap();
+    let z = terraflux_raster::npy::read_npz(root().join("tests/data/reference/bio_props.npz")).unwrap();
+    let bd_ref: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root().join("tests/data/reference/bio.json")).unwrap()).unwrap();
+    let text = std::fs::read_to_string(sites()).unwrap();
+    let data = root().join("extern/landschaft/tests/data/bio");
+    let read = |f: &str| String::from_utf8_lossy(&std::fs::read(data.join(f)).unwrap()).into_owned();
+    let props = |f: &str, el: &[usize], cols: &[(&str, usize)]| {
+        let cols: Vec<(String, usize)> = cols.iter().map(|(n, c)| (n.to_string(), *c)).collect();
+        read_properties(&read(f), el, &cols, None, None).unwrap()
+    };
+    let basedata = |kind: &str| {
+        let mut bd = BaseData::from_table(&text, &import(&bd_ref["basedata"]["cells"]["options"])).unwrap();
+        let (n, p): (Vec<String>, Vec<HashMap<String, String>>) = match kind {
+            "labels" => props("label_props.csv", &[0, 1], &[("prop_a", 2), ("prop_b", 3), ("prop_c", 4)]),
+            "range" => props("label_props.csv", &[0, 1], &[("RANGE", 3), ("ABUNDANCE", 2)]),
+            _ => (Vec::new(), Vec::new()),
+        };
+        bd.set_label_properties(&n, &p);
+        if kind == "groups" {
+            let (n, p) = props("gp_props.csv", &[0], &[("NUM_MEAN", 3), ("NUM_MIN", 4), ("NUM_RANGE", 5)]);
+            bd.set_group_properties(&n, &p);
+        }
+        bd
+    };
+    let calcs = strings(&reference["calculations"]);
+    for (k, case) in reference["spatial"].as_array().unwrap().iter().enumerate() {
+        let kind = case["kind"].as_str().unwrap();
+        let bd = basedata(kind);
+        let conds: Vec<Condition> = strings(&case["conditions"]).iter().map(|c| Condition::new(c).unwrap()).collect();
+        let what = format!("{kind} {:?}", strings(&case["conditions"]));
+        let r =
+            spatial_analysis(&bd, &conds, &calcs, None, None, None, 1, true).unwrap_or_else(|e| panic!("{what}: {e}"));
+        assert_eq!(r.names, strings(&case["columns"]), "{what}: columns");
+        check(&format!("{what}: table"), &r.rows.concat(), &z[&format!("p/{k}/table")].data);
+        for l in case["lists"].as_array().unwrap() {
+            let name = l[0].as_str().unwrap();
+            let got = r.lists.iter().find(|x| x.name == name).unwrap_or_else(|| panic!("{what}: no list {name}"));
+            let keys: Vec<f64> = got.rows.iter().flatten().map(|e| e.0).collect();
+            let values: Vec<f64> = got.rows.iter().flatten().map(|e| e.1).collect();
+            check(&format!("{what}: {name}: keys"), &keys, &z[&format!("p/{k}/list/{name}/keys")].data);
+            check(&format!("{what}: {name}: values"), &values, &z[&format!("p/{k}/list/{name}/values")].data);
+        }
+        assert_eq!(r.texts, strings(&case["texts"]), "{what}: texts");
+    }
+    let bd = basedata("labels");
+    let conds = [Condition::new("sp_self_only()").unwrap(), Condition::new("sp_circle (radius => 300000)").unwrap()];
+    for (k, case) in reference["matrix"].as_array().unwrap().iter().enumerate() {
+        let a = &case["args"];
+        let o = if a.get("sparse").is_some() {
+            MatrixImport {
+                sparse: true,
+                row_columns: vec![0],
+                col_columns: vec![1],
+                value_column: Some(2),
+                self_similarity: Some(0.0),
+                ..MatrixImport::default()
+            }
+        } else {
+            MatrixImport::default()
+        };
+        let m = read_matrix(&read(case["file"].as_str().unwrap()), &o).unwrap();
+        assert_eq!(m.elements, strings(&case["elements"]), "matrix {k}: elements");
+        check(&format!("matrix {k}: values"), &m.values, &z[&format!("m/{k}/values")].data);
+        let calcs: Vec<String> =
+            ["matrix_stats", "compare_dissim_matrix_values", "mx_rao_qe"].iter().map(|s| s.to_string()).collect();
+        let r = spatial_analysis(&bd, &conds, &calcs, None, None, Some(&m), 1, true).unwrap();
+        assert_eq!(r.names, strings(&case["columns"]), "matrix {k}: columns");
+        check(&format!("matrix {k}: table"), &r.rows.concat(), &z[&format!("m/{k}/table")].data);
+    }
+    let bd = basedata("groups");
+    let calcs: Vec<String> = ["richness", "gpprop_stats", "gpprop_quantiles"].iter().map(|s| s.to_string()).collect();
+    let conds = [Condition::new("sp_circle (radius => 200000)").unwrap()];
+    for (k, case) in reference["rand"].as_array().unwrap().iter().enumerate() {
+        let a = &case["args"];
+        let o = Options {
+            randomise_group_props_by: a["randomise_group_props_by"].as_str().map(String::from),
+            definition_query: a["definition_query"].as_str().map(String::from),
+            ..Options::default()
+        };
+        let run = prepare(&bd, &conds, &calcs, None, None, None, 1, true).unwrap();
+        let function = case["function"].as_str().unwrap();
+        let mut rnd = Randomisation::new(&bd, run, function, case["seed"].as_u64().unwrap(), o).unwrap();
+        rnd.run(5).unwrap();
+        assert_eq!(rnd.result.names, strings(&reference["rand_columns"]), "rand {k}: columns");
+        let (n, kk) = (rnd.result.groups.len(), rnd.result.names.len());
+        let s = &rnd.scalars;
+        let p = s.p();
+        let mut comparison = Vec::new();
+        for g in 0..n {
+            for part in [&s.c, &p, &s.q, &s.sumx, &s.sumxx, &s.t] {
+                comparison.extend_from_slice(&part[g * kk..(g + 1) * kk]);
+            }
+        }
+        check(&format!("rand {k} {function} {a}"), &comparison, &z[&format!("r/{k}/comparison")].data);
+    }
+}
+
+/// bio.properties and bio.matrix feed bio.spatial's property and matrix calculations.
+#[test]
+fn the_properties_and_matrix_operators_feed_the_analysis() {
+    let r = Registry::standard();
+    let run = |op: &str, inputs: Vec<(&str, Value)>, params: serde_json::Value| {
+        let params = params.as_object().unwrap().clone();
+        let args =
+            Args { node: "n", inputs: inputs.into_iter().map(|(k, v)| (k.to_string(), v)).collect(), params: &params };
+        r.get(op).unwrap().run(&mut Ctx::default(), &args).unwrap_or_else(|e| panic!("{op}: {e}"))
+    };
+    let data = root().join("extern/landschaft/tests/data/bio");
+    let bd = run(
+        "bio.table",
+        vec![],
+        serde_json::json!({"path": sites().to_str().unwrap(), "group_columns": ["x", "y"],
+        "label_columns": ["genus", "species"], "cell_sizes": [100000, 100000]}),
+    )
+    .remove("basedata")
+    .unwrap();
+    let bd = run(
+        "bio.properties",
+        vec![("basedata", bd)],
+        serde_json::json!({"path": data.join("label_props.csv").to_str().unwrap(), "element_columns": ["genus", "species"],
+            "property_columns": ["prop_a", "prop_b"]}),
+    )
+    .remove("basedata")
+    .unwrap();
+    let m = run("bio.matrix", vec![], serde_json::json!({"path": data.join("Example_matrix.txt").to_str().unwrap()}))
+        .remove("matrix")
+        .unwrap();
+    let out = run(
+        "bio.spatial",
+        vec![("basedata", bd), ("matrix", m)],
+        serde_json::json!({"conditions": "sp_circle (radius => 200000)", "calculations": ["lbprop_stats_abc2", "matrix_stats"]}),
+    );
+    let Value::Table(t) = &out["table"] else { panic!() };
+    let Value::Json(lists) = &out["lists"] else { panic!() };
+    let stats = &lists["LBPROP_STATS_ABC2"]["1950000:1350000"];
+    assert!(stats.as_object().is_some_and(|m| m.keys().any(|k| k.contains("PROP_A"))), "{stats}");
+    assert!(t.columns.iter().any(|c| c.starts_with("MX_")), "{:?}", t.columns);
 }

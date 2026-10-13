@@ -7,6 +7,7 @@ pub mod cluster;
 pub mod conditions;
 pub mod names;
 pub mod perl;
+pub mod properties;
 pub mod rand;
 pub mod spatial;
 pub mod tree;
@@ -32,6 +33,8 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(Randomise));
     r.add(Arc::new(Cluster { region_grower: false }));
     r.add(Arc::new(Cluster { region_grower: true }));
+    r.add(Arc::new(ReadProperties));
+    r.add(Arc::new(ReadMatrix));
 }
 
 impl BaseData {
@@ -222,6 +225,15 @@ impl Operator for FromPoints {
     }
 }
 
+/// The label matrix of a node's `matrix` port, if connected.
+fn matrix_of(args: &Args) -> Result<Option<Arc<properties::LabelMatrix>>> {
+    match args.get("matrix") {
+        Some(Value::LabelMatrix(m)) => Ok(Some(m.clone())),
+        Some(_) => Err(Error::msg(format!("node {:?}: matrix: connect a label matrix (bio.matrix)", args.node))),
+        None => Ok(None),
+    }
+}
+
 /// The basedata of a node's port.
 fn basedata_of(args: &Args) -> Result<Arc<BaseData>> {
     match args.get("basedata") {
@@ -272,6 +284,7 @@ impl Operator for Spatial {
         )
         .input(PortSpec::new("basedata", Type::BaseData, "groups x labels sample counts"))
         .input(PortSpec::optional("tree", Type::Tree, "a phylogeny for the phylogenetic indices (bio.tree)"))
+        .input(PortSpec::optional("matrix", Type::LabelMatrix, "a label matrix for the matrix indices (bio.matrix)"))
         .output(PortSpec::new("table", Type::Table, "a row per processed group: its coordinates, then each index"))
         .output(PortSpec::new("maps", Type::Stack, "an index per layer (groups that are cells of two axes)"))
         .output(PortSpec::new("lists", Type::Any, "the list indices: per list and group, its keys and values (JSON)"))
@@ -303,12 +316,14 @@ impl Operator for Spatial {
             None => None,
         };
         let seed: i64 = args.param("seed", 0)?;
+        let matrix = matrix_of(args)?;
         let r = spatial::spatial_analysis(
             &bd,
             &conditions,
             &calcs,
             query.as_ref(),
             tree.as_deref(),
+            matrix.as_deref(),
             seed as u64,
             rayon::current_num_threads() > 1,
         )
@@ -470,6 +485,7 @@ impl Operator for Randomise {
         )
         .input(PortSpec::new("basedata", Type::BaseData, "groups x labels sample counts"))
         .input(PortSpec::optional("tree", Type::Tree, "a phylogeny for the phylogenetic indices (bio.tree)"))
+        .input(PortSpec::optional("matrix", Type::LabelMatrix, "a label matrix for the matrix indices (bio.matrix)"))
         .output(PortSpec::new("table", Type::Table, "the observed indices"))
         .output(PortSpec::new("p_rank", Type::Table, "the p-rank of each index"))
         .output(PortSpec::new("z_scores", Type::Table, "the z-score of each index"))
@@ -502,6 +518,10 @@ impl Operator for Randomise {
         .param(PortSpec::optional("subset_definition_query", Type::Text, "groups randomised (others kept)"))
         .param(PortSpec::optional("labels_not_to_randomise", Type::Any, "labels kept in place"))
         .param(
+            PortSpec::optional("randomise_group_props_by", Type::Text, "no_change (default), by_set, by_item")
+                .choices(["no_change", "by_set", "by_item"]),
+        )
+        .param(
             PortSpec::optional("randomise_trees_by", Type::Text, "shuffle_terminal_names")
                 .choices(["shuffle_no_change", "shuffle_terminal_names"]),
         )
@@ -524,8 +544,18 @@ impl Operator for Randomise {
         };
         let seed: i64 = args.param("seed", 0)?;
         let parallel = rayon::current_num_threads() > 1;
-        let run = spatial::prepare(&bd, &conditions, &calcs, query.as_ref(), tree.as_deref(), seed as u64, parallel)
-            .map_err(fail)?;
+        let matrix = matrix_of(args)?;
+        let run = spatial::prepare(
+            &bd,
+            &conditions,
+            &calcs,
+            query.as_ref(),
+            tree.as_deref(),
+            matrix.as_deref(),
+            seed as u64,
+            parallel,
+        )
+        .map_err(fail)?;
         let o = rand::Options {
             richness_multiplier: args.opt_param("richness_multiplier")?,
             richness_addition: args.opt_param("richness_addition")?,
@@ -542,6 +572,7 @@ impl Operator for Randomise {
             definition_query: text("subset_definition_query")?,
             labels_not_to_randomise: texts(args, "labels_not_to_randomise")?,
             randomise_trees_by: text("randomise_trees_by")?,
+            randomise_group_props_by: text("randomise_group_props_by")?,
         };
         let function: String = args.param("function", "rand_structured".to_string())?;
         let rand_seed: i64 = args.param("rand_seed", 0)?;
@@ -630,6 +661,7 @@ impl Operator for Cluster {
             };
         sig.input(PortSpec::new("basedata", Type::BaseData, "groups x labels sample counts"))
             .input(PortSpec::optional("tree", Type::Tree, "a phylogeny for phylogenetic indices (bio.tree)"))
+            .input(PortSpec::optional("matrix", Type::LabelMatrix, "a label matrix (bio.matrix)"))
             .output(PortSpec::new("tree", Type::Tree, "the dendrogram: groups at the tips, joins named 0___..."))
             .output(PortSpec::new(
                 "nodes",
@@ -676,7 +708,9 @@ impl Operator for Cluster {
             clear_singletons: args.param("clear_singletons", false)?,
             region_grower: rg,
         };
-        let r = cluster::cluster(&bd, tree.as_deref(), &o, rayon::current_num_threads() > 1).map_err(fail)?;
+        let matrix = matrix_of(args)?;
+        let r = cluster::cluster(&bd, tree.as_deref(), matrix.as_deref(), &o, rayon::current_num_threads() > 1)
+            .map_err(fail)?;
         let mut nodes = Table::new(
             ["node", "parent", "length"]
                 .iter()
@@ -723,5 +757,119 @@ impl Operator for Cluster {
             }
         }
         Ok(out.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
+    }
+}
+
+/// Columns given by 0-based position or by name in the header of a delimited text.
+fn columns(args: &Args, name: &str, header: &[String]) -> Result<Vec<usize>> {
+    texts(args, name)?
+        .iter()
+        .map(|c| {
+            header
+                .iter()
+                .position(|h| h == c)
+                .or_else(|| c.parse().ok())
+                .ok_or_else(|| Error::msg(format!("node {:?}: {name}: no column {c:?}", args.node)))
+        })
+        .collect()
+}
+
+fn header_of(rows: &[Vec<Option<String>>]) -> Vec<String> {
+    rows.first().map_or(Vec::new(), |h| h.iter().map(|c| c.clone().unwrap_or_default()).collect())
+}
+
+struct ReadProperties;
+
+impl Operator for ReadProperties {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "bio.properties",
+            "Label or group properties of a basedata from a Biodiverse properties file (landschaft's \
+             read_properties and set_label_properties / set_group_properties): the element from its columns \
+             joined with ':', property names upper-cased, only values that look like numbers (empty fields set \
+             but undefined), a later row overriding. They feed the lbprop and gpprop calculations; RANGE and \
+             ABUNDANCE set the labels' ranges and abundances.",
+            Access::None,
+        )
+        .input(PortSpec::new("basedata", Type::BaseData, "groups x labels sample counts"))
+        .output(PortSpec::new("basedata", Type::BaseData, "with the properties"))
+        .param(PortSpec::new("path", Type::Text, "the properties file"))
+        .param(PortSpec::optional("of", Type::Text, "labels (default) or groups").choices(["labels", "groups"]))
+        .param(PortSpec::new("element_columns", Type::Any, "the element's columns (names or 0-based positions)"))
+        .param(PortSpec::new("property_columns", Type::Any, "the property columns (each named by its header)"))
+        .param(PortSpec::optional("separator", Type::Text, "guess (default), tab, space or a character"))
+        .param(PortSpec::optional("quote", Type::Text, "guess (default) or a character"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let fail = |e: Error| Error::msg(format!("node {:?}: {e}", args.node));
+        let mut bd = (*basedata_of(args)?).clone();
+        let path: String = args.param("path", String::new())?;
+        let text =
+            String::from_utf8_lossy(&std::fs::read(&path).map_err(|e| fail(Error::msg(format!("{path}: {e}"))))?)
+                .into_owned();
+        let (sep, quote) = (one_char(args, "separator")?, one_char(args, "quote")?);
+        let rows = properties::rows_of(&text, sep, quote);
+        let header = header_of(&rows);
+        let element = columns(args, "element_columns", &header)?;
+        let props: Vec<(String, usize)> = columns(args, "property_columns", &header)?
+            .into_iter()
+            .map(|c| (header.get(c).cloned().unwrap_or_else(|| c.to_string()), c))
+            .collect();
+        let (names, per) = properties::read_properties(&text, &element, &props, sep, quote).map_err(fail)?;
+        match args.param("of", "labels".to_string())?.as_str() {
+            "groups" => bd.set_group_properties(&names, &per),
+            "labels" => bd.set_label_properties(&names, &per),
+            o => return Err(fail(Error::msg(format!("of: labels or groups, not {o:?}")))),
+        }
+        Ok(outputs([("basedata", Value::BaseData(Arc::new(bd)))]))
+    }
+}
+
+struct ReadMatrix;
+
+impl Operator for ReadMatrix {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "bio.matrix",
+            "A label matrix from a Biodiverse matrix file (landschaft's read_matrix): full or a triangle (the \
+             element of each row from its columns, the values in the rows' order), or sparse pairs; the first \
+             value read for a pair wins. For the matrix calculations (matrix_stats, compare_dissim_matrix_values, \
+             mx_rao_qe).",
+            Access::None,
+        )
+        .output(PortSpec::new("matrix", Type::LabelMatrix, "values between labels"))
+        .param(PortSpec::new("path", Type::Text, "the matrix file"))
+        .param(PortSpec::optional("element_columns", Type::Any, "the element's columns ([1, 2], default)"))
+        .param(PortSpec::optional("values_start_col", Type::Integer, "the first value column (after the elements)"))
+        .param(PortSpec::optional("sparse", Type::Bool, "one pair per line"))
+        .param(PortSpec::optional("row_columns", Type::Any, "sparse: the row element's columns"))
+        .param(PortSpec::optional("col_columns", Type::Any, "sparse: the column element's columns"))
+        .param(PortSpec::optional("value_column", Type::Any, "sparse: the value's column"))
+        .param(PortSpec::optional("self_similarity", Type::Number, "the value of a missing (a, a)"))
+        .param(PortSpec::optional("separator", Type::Text, "guess (default), tab, space or a character"))
+        .param(PortSpec::optional("quote", Type::Text, "guess (default) or a character"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let fail = |e: Error| Error::msg(format!("node {:?}: {e}", args.node));
+        let path: String = args.param("path", String::new())?;
+        let text =
+            String::from_utf8_lossy(&std::fs::read(&path).map_err(|e| fail(Error::msg(format!("{path}: {e}"))))?)
+                .into_owned();
+        let (sep, quote) = (one_char(args, "separator")?, one_char(args, "quote")?);
+        let header = header_of(&properties::rows_of(&text, sep, quote));
+        let mut o = properties::MatrixImport { sep, quote, ..Default::default() };
+        if args.params.contains_key("element_columns") {
+            o.element_columns = columns(args, "element_columns", &header)?;
+        }
+        o.values_start_col = args.opt_param::<i64>("values_start_col")?.map(|v| v as usize);
+        o.sparse = args.param("sparse", false)?;
+        o.row_columns = columns(args, "row_columns", &header)?;
+        o.col_columns = columns(args, "col_columns", &header)?;
+        o.value_column = columns(args, "value_column", &header)?.first().copied();
+        o.self_similarity = args.opt_param("self_similarity")?;
+        let m = properties::read_matrix(&text, &o).map_err(fail)?;
+        Ok(outputs([("matrix", Value::LabelMatrix(Arc::new(m)))]))
     }
 }

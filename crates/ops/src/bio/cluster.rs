@@ -11,6 +11,7 @@ use terraflux_ls_sys::{ClusterRecalc, ffi};
 
 use super::basedata::BaseData;
 use super::conditions::{Condition, neighbours};
+use super::properties::LabelMatrix;
 use super::spatial::{DEPS, REGISTRY, RowLabels, SpatialResult, calc_name, calculation, run_sets};
 use super::tree::Tree;
 use crate::{Error, Result};
@@ -352,7 +353,13 @@ fn hierarchical_labels(bd: &BaseData, a: &Arena, order: &[String]) -> RowLabels 
 
 /// Biodiverse's cluster analysis (or its region grower): groups joined pair by pair by an index of their
 /// labels.
-pub fn cluster(bd: &BaseData, tree: Option<&Tree>, o: &ClusterOptions, parallel: bool) -> Result<ClusterResult> {
+pub fn cluster(
+    bd: &BaseData,
+    tree: Option<&Tree>,
+    matrix: Option<&LabelMatrix>,
+    o: &ClusterOptions,
+    parallel: bool,
+) -> Result<ClusterResult> {
     if !LINKAGES.contains(&o.linkage.as_str()) {
         return Err(Error::msg(format!("linkage must be one of {}", LINKAGES.join(", "))));
     }
@@ -419,7 +426,8 @@ pub fn cluster(bd: &BaseData, tree: Option<&Tree>, o: &ClusterOptions, parallel:
             let p1: Vec<i32> = pairs.iter().map(|&(a, _)| procs[a as usize]).collect();
             let p2: Vec<i32> = pairs.iter().map(|&(_, b)| procs[b as usize]).collect();
             let ip: Vec<i64> = (0..=pairs.len() as i64).collect();
-            let r = run_sets(bd, p1.clone(), (ip.clone(), p1), Some((ip, p2)), &calcs, tree, true, None, parallel)?;
+            let r =
+                run_sets(bd, p1.clone(), (ip.clone(), p1), Some((ip, p2)), &calcs, tree, matrix, true, None, parallel)?;
             for ((a, b), v) in pairs.iter().zip(value_of(&r)) {
                 if !v.is_nan() {
                     pair_keys.push(i64::from(*a) * n as i64 + i64::from(*b));
@@ -447,6 +455,7 @@ pub fn cluster(bd: &BaseData, tree: Option<&Tree>, o: &ClusterOptions, parallel:
     let failure: Rc<RefCell<Option<Error>>> = Rc::new(RefCell::new(None));
     let mut recalc = {
         let (groups, failure, calcs, tree) = (terminal_groups.clone(), failure.clone(), calcs.clone(), tree.cloned());
+        let matrix = matrix.cloned();
         let bd = bd.clone();
         let index = o.index.clone();
         ClusterRecalc(Box::new(move |n1: &str, n2: &str, new_name: &str, checks: &[String]| -> Vec<f64> {
@@ -472,6 +481,7 @@ pub fn cluster(bd: &BaseData, tree: Option<&Tree>, o: &ClusterOptions, parallel:
                 Some((ip2, ix2)),
                 &calcs,
                 tree.as_ref(),
+                matrix.as_ref(),
                 false,
                 None,
                 parallel,
@@ -496,6 +506,7 @@ pub fn cluster(bd: &BaseData, tree: Option<&Tree>, o: &ClusterOptions, parallel:
             None,
             &calcs,
             tree,
+            matrix,
             false,
             None,
             parallel,
@@ -691,7 +702,7 @@ pub fn cluster(bd: &BaseData, tree: Option<&Tree>, o: &ClusterOptions, parallel:
         let ix: Vec<i32> = rows.iter().flatten().copied().collect();
         let procs_rows: Vec<i32> = rows.iter().map(|r| r[0]).collect();
         let row_labels = hierarchical_labels(bd, &a, &order);
-        Some(run_sets(bd, procs_rows, (ip, ix), None, &calcs, tree, false, Some(row_labels), parallel)?)
+        Some(run_sets(bd, procs_rows, (ip, ix), None, &calcs, tree, matrix, false, Some(row_labels), parallel)?)
     };
     Ok(ClusterResult { tree: tree_out, nodes, table })
 }

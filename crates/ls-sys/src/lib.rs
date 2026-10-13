@@ -488,6 +488,24 @@ pub mod ffi {
         row_labels: Vec<i32>,
         row_counts: Vec<f64>,
         row_samples: Vec<f64>,
+        /// Label and group properties: per property its name, its distinct values (offsets into `keys`), their
+        /// numbers and each element's value (-1 not set, -2 undefined; properties x elements).
+        label_prop_names: Vec<String>,
+        label_prop_key_off: Vec<i64>,
+        label_prop_keys: Vec<String>,
+        label_prop_values: Vec<f64>,
+        label_prop_elem: Vec<i32>,
+        group_prop_names: Vec<String>,
+        group_prop_key_off: Vec<i64>,
+        group_prop_keys: Vec<String>,
+        group_prop_values: Vec<f64>,
+        group_prop_elem: Vec<i32>,
+        /// A label matrix: each label's row (-1 none), its size, values (NaN no value) and self-similarity.
+        has_matrix: bool,
+        label_mx: Vec<i32>,
+        mx_n: i32,
+        mx_values: Vec<f64>,
+        mx_self_similarity: f64,
     }
 
     /// A join of Biodiverse's clustering: its number, the new node and its two children, the value and the

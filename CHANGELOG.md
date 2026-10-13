@@ -6,6 +6,15 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Properties and label matrices of Biodiverse's analyses (landschaft's bio module): `bio.properties` (label or
+  group properties of a basedata from a Biodiverse properties file; they feed the lbprop and gpprop
+  calculations, and RANGE and ABUNDANCE the labels' ranges and abundances) and `bio.matrix` (a label matrix,
+  full, a triangle or sparse pairs; a new type of value) for the matrix calculations of `bio.spatial`,
+  `bio.randomise`, `bio.cluster` and `bio.region_grower`. `bio.randomise` moves group properties by set or by
+  item (randomise_group_props_by), within subsets too. The reading, the property tables and the shuffles are
+  ported from landschaft's Python. The same as landschaft's, to the bit.
+
 ## [0.37.0] - 2026-10-13
 
 ### Added

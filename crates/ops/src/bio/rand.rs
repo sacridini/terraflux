@@ -11,7 +11,8 @@ use terraflux_ls_sys::ffi;
 use super::basedata::BaseData;
 use super::conditions::{Condition, definition_query, neighbours};
 use super::names::{numify, perl_number, split_element};
-use super::spatial::{Run, SpatialResult, evaluate};
+use super::properties::Properties;
+use super::spatial::{Run, SpatialResult, evaluate, label_ranges};
 use super::tree::Tree;
 use crate::{Error, Result};
 
@@ -49,6 +50,8 @@ pub struct Options {
     pub definition_query: Option<String>,
     pub labels_not_to_randomise: Vec<String>,
     pub randomise_trees_by: Option<String>,
+    /// no_change (default), by_set or by_item.
+    pub randomise_group_props_by: Option<String>,
 }
 
 /// Whether a condition has more than whitespace and comments.
@@ -65,7 +68,12 @@ fn with_counts(bd: &BaseData, c: ffi::BioCounts) -> BaseData {
 }
 
 /// A basedata of some groups (and labels), as Biodiverse builds subsets.
-fn subset(bd: &BaseData, groups: &[usize], labels: Option<&[usize]>) -> (BaseData, Vec<usize>, Vec<usize>) {
+fn subset(
+    bd: &BaseData,
+    groups: &[usize],
+    labels: Option<&[usize]>,
+    group_props: bool,
+) -> (BaseData, Vec<usize>, Vec<usize>) {
     let labels: Vec<usize> = match labels {
         Some(l) => l.to_vec(),
         None => {
@@ -109,6 +117,8 @@ fn subset(bd: &BaseData, groups: &[usize], labels: Option<&[usize]>) -> (BaseDat
         } else {
             groups.iter().map(|&g| bd.group_axes[g].clone()).collect()
         },
+        label_props: Vec::new(),
+        group_props: if group_props { rows_of(&bd.group_props, groups) } else { Vec::new() },
     };
     (sub, groups.to_vec(), labels)
 }
@@ -159,6 +169,8 @@ struct Subsets {
     failed: Vec<usize>,
     cache: HashMap<usize, (BaseData, Vec<usize>, Vec<usize>)>,
     failed_part: Option<(BaseData, Vec<usize>, Vec<usize>)>,
+    /// The failed groups' properties as last randomised (by_set starts from them).
+    failed_props: Option<Properties>,
     leftovers: Option<(BaseData, Vec<usize>, Vec<usize>)>,
 }
 
@@ -312,10 +324,7 @@ fn randomise_once(
             Ok(with_counts(bd, c))
         }
         "rand_independent_swaps" | "rand_independent_swaps_modified" | "rand_curveball" => {
-            let mut range = vec![0.0; bd.n_labels()];
-            for &l in &bd.indices {
-                range[l as usize] += 1.0;
-            }
+            let range = label_ranges(bd).0;
             let c = ffi::bio_rand_swaps(
                 &bd.indptr,
                 &bd.indices,
@@ -361,17 +370,29 @@ fn randomise_subsets(
             .collect();
         let failed: Vec<usize> =
             if dq.is_some() { (0..bd.n_groups()).filter(|g| !stored.contains_key(g)).collect() } else { Vec::new() };
-        state.subsets = Some(Subsets { stored, failed, cache: HashMap::new(), failed_part: None, leftovers: None });
+        state.subsets = Some(Subsets {
+            stored,
+            failed,
+            cache: HashMap::new(),
+            failed_part: None,
+            failed_props: None,
+            leftovers: None,
+        });
     }
     let s = state.subsets.as_mut().unwrap();
     let n = bd.n_groups();
     let mut done = vec![false; n];
     let mut parts: Vec<(BaseData, Vec<usize>, Vec<usize>)> = Vec::new();
+    let how = o.randomise_group_props_by.as_deref();
+    let mut props: Vec<(Vec<usize>, Properties)> = Vec::new();
     if !s.failed.is_empty() {
         if s.failed_part.is_none() {
-            s.failed_part = Some(subset(bd, &s.failed, None));
+            s.failed_part = Some(subset(bd, &s.failed, None, true));
         }
         parts.push(s.failed_part.clone().unwrap()); // not randomised
+        let fp = shuffle_props(&bd.group_props, &s.failed, rng, how, s.failed_props.as_ref())?;
+        props.push((s.failed.clone(), fp.clone()));
+        s.failed_props = Some(fp);
         for &g in &s.failed {
             done[g] = true;
         }
@@ -391,10 +412,12 @@ fn randomise_subsets(
                 continue;
             }
             nbrs.sort_unstable();
-            s.cache.insert(g, subset(bd, &nbrs, None));
+            s.cache.insert(g, subset(bd, &nbrs, None, true));
         }
         let (sbd, g_idx, l_idx) = &s.cache[&g];
         let rbd = randomise_once(sbd, rng, function, o, &mut State::default())?;
+        let all: Vec<usize> = (0..sbd.n_groups()).collect();
+        props.push((g_idx.clone(), shuffle_props(&sbd.group_props, &all, rng, how, None)?));
         for &x in g_idx {
             done[x] = true;
         }
@@ -403,15 +426,92 @@ fn randomise_subsets(
     if !done.iter().all(|d| *d) {
         if s.leftovers.is_none() {
             let left: Vec<usize> = (0..n).filter(|&g| !done[g]).collect();
-            s.leftovers = Some(subset(bd, &left, None));
+            s.leftovers = Some(subset(bd, &left, None, true));
         }
         let (sbd, g_idx, l_idx) = s.leftovers.as_ref().unwrap();
         let rbd = randomise_once(sbd, rng, function, o, &mut State::default())?;
+        let all: Vec<usize> = (0..sbd.n_groups()).collect();
+        props.push((g_idx.clone(), shuffle_props(&sbd.group_props, &all, rng, how, None)?));
         parts.push((rbd, g_idx.clone(), l_idx.clone()));
     }
     let refs: Vec<(&BaseData, &[usize], &[usize])> =
         parts.iter().map(|(b, g, l)| (b, g.as_slice(), l.as_slice())).collect();
-    Ok(place(bd, &refs))
+    let mut out = place(bd, &refs);
+    if !bd.group_props.is_empty() {
+        let mut gp: Properties = bd.group_props.iter().map(|(n, _)| (n.clone(), vec![None; n_groups(bd)])).collect();
+        for (g_idx, frame) in &props {
+            for (k, (_, col)) in frame.iter().enumerate() {
+                for (i, &g) in g_idx.iter().enumerate() {
+                    gp[k].1[g] = col[i].clone();
+                }
+            }
+        }
+        out.group_props = gp;
+    }
+    Ok(out)
+}
+
+fn n_groups(bd: &BaseData) -> usize {
+    bd.n_groups()
+}
+
+/// The properties of some elements (rows), in their order.
+fn rows_of(p: &Properties, rows: &[usize]) -> Properties {
+    p.iter().map(|(n, col)| (n.clone(), rows.iter().map(|&g| col[g].clone()).collect())).collect()
+}
+
+/// process_group_props: the group properties of a randomised basedata. no_change keeps them; by_set moves each
+/// group's properties together to a random group; by_item moves each property's values independently; `current`
+/// holds what the receiving groups had.
+fn shuffle_props(
+    orig: &Properties,
+    rows: &[usize],
+    rng: &mut UniquePtr<ffi::BioRng>,
+    how: Option<&str>,
+    current: Option<&Properties>,
+) -> Result<Properties> {
+    let how = how.unwrap_or("no_change");
+    let how = how.strip_prefix("process_group_props_").unwrap_or(how);
+    let mut keys: Vec<&String> =
+        orig.iter().filter(|(_, col)| col.iter().any(Option::is_some)).map(|(n, _)| n).collect();
+    keys.sort();
+    let sub = rows_of(orig, rows);
+    if how == "no_change" || keys.is_empty() {
+        return Ok(sub);
+    }
+    let n = rows.len();
+    match how {
+        "by_set" => {
+            let mut out: Properties = match current {
+                Some(c) => c.clone(),
+                None => orig.iter().map(|(name, _)| (name.clone(), vec![None; n])).collect(),
+            };
+            let perm = ffi::bio_rng_shuffle(rng.pin_mut(), n as i64);
+            for i in 0..n {
+                if sub.iter().all(|(_, col)| col[i].is_none()) {
+                    continue; // no properties
+                }
+                for (k, (_, col)) in sub.iter().enumerate() {
+                    out[k].1[perm[i] as usize] = col[i].clone();
+                }
+            }
+            Ok(out)
+        }
+        "by_item" => {
+            let mut out: Properties = orig.iter().map(|(name, _)| (name.clone(), vec![None; n])).collect();
+            for key in keys {
+                let perm = ffi::bio_rng_shuffle(rng.pin_mut(), n as i64);
+                let k = sub.iter().position(|(name, _)| name == key).unwrap();
+                for (i, &to) in perm.iter().enumerate() {
+                    if let Some(v) = &sub[k].1[i] {
+                        out[k].1[to as usize] = Some(v.clone());
+                    }
+                }
+            }
+            Ok(out)
+        }
+        h => Err(Error::msg(format!("unknown randomise_group_props_by {h:?} (no_change, by_set or by_item)"))),
+    }
 }
 
 /// get_randomised_basedata: the labels kept in place, the subsets, then the function.
@@ -424,7 +524,15 @@ fn randomised_basedata(
 ) -> Result<BaseData> {
     let use_subsets = has_text(o.spatial_conditions_for_subset.as_deref()) || has_text(o.definition_query.as_deref());
     let core = |b: &BaseData, rng: &mut UniquePtr<ffi::BioRng>, st: &mut State| -> Result<BaseData> {
-        if use_subsets { randomise_subsets(b, rng, function, o, st) } else { randomise_once(b, rng, function, o, st) }
+        if use_subsets {
+            return randomise_subsets(b, rng, function, o, st);
+        }
+        let mut out = randomise_once(b, rng, function, o, st)?;
+        if !b.group_props.is_empty() {
+            let all: Vec<usize> = (0..b.n_groups()).collect();
+            out.group_props = shuffle_props(&b.group_props, &all, rng, o.randomise_group_props_by.as_deref(), None)?;
+        }
+        Ok(out)
     };
     let constant: HashSet<usize> =
         o.labels_not_to_randomise.iter().filter_map(|l| bd.labels.binary_search(l).ok()).collect();
@@ -445,16 +553,20 @@ fn randomised_basedata(
             })
             .collect();
         let l_idx: Vec<usize> = (0..bd.n_labels()).filter(|l| !constant.contains(l) && range[*l] > 0).collect();
-        let (nbd, g_idx, l_idx) = subset(bd, &g_idx, Some(&l_idx));
+        let (nbd, g_idx, l_idx) = subset(bd, &g_idx, Some(&l_idx), false);
         let const_l: Vec<usize> = (0..bd.n_labels()).filter(|l| constant.contains(l)).collect();
         let all: Vec<usize> = (0..bd.n_groups()).collect();
-        let kept = subset(bd, &all, Some(&const_l));
+        let kept = subset(bd, &all, Some(&const_l), false);
         state.constant = Some(Box::new(Constant { nbd, g_idx, l_idx, kept, state: State::default() }));
     }
     let c = state.constant.as_mut().unwrap();
     let rbd = core(&c.nbd, rng, &mut c.state)?;
     let (kept, all, const_l) = &c.kept;
-    Ok(place(bd, &[(&rbd, &c.g_idx, &c.l_idx), (kept, all, const_l)]))
+    let mut out = place(bd, &[(&rbd, &c.g_idx, &c.l_idx), (kept, all, const_l)]);
+    // Biodiverse's randomised basedata has no properties here
+    out.label_props = Vec::new();
+    out.group_props = Vec::new();
+    Ok(out)
 }
 
 /// Comparison counters of one list (or the scalar indices), aligned to the observed values.

@@ -248,8 +248,79 @@ def clusters() -> None:
     print(REF / "bio_cluster.json", len(arrays))
 
 
+LABEL_PROPS = {"prop_a": 2, "prop_b": 3, "prop_c": 4}
+GROUP_PROPS = {"NUM_MEAN": 3, "NUM_MIN": 4, "NUM_RANGE": 5}
+RANGE_PROPS = {"RANGE": 3, "ABUNDANCE": 2}
+PROP_CASES = [
+    ("labels", ["sp_circle (radius => 200000)"]),
+    ("labels", ["sp_self_only()", "sp_circle (radius => 300000)"]),
+    ("groups", ["sp_circle (radius => 200000)"]),
+    ("range", ["sp_circle (radius => 200000)"]),
+]
+PROP_RAND = [
+    ("rand_csr_by_group", {"randomise_group_props_by": "by_set"}),
+    ("rand_structured", {"randomise_group_props_by": "by_item"}),
+    ("rand_structured", {"randomise_group_props_by": "by_set", "definition_query": "$y > 1000000"}),
+]
+
+
+def properties() -> None:
+    """Label and group properties, label matrices and the indices using them (bio_props.json, bio_props.npz)."""
+    data = ROOT / "extern" / "landschaft" / "tests" / "data" / "bio"
+    reg = B._spatial._registry()
+    calcs = sorted(k.removeprefix("calc_") for k, v in reg.items() if not v["uses_tree"]
+                   and k not in B._spatial._MATRIX_CALCS)
+    out: dict = {"calculations": calcs, "spatial": [], "matrix": [], "rand": []}
+    arrays: dict[str, np.ndarray] = {}
+
+    def basedata(kind):
+        bd = B.BaseData.from_table(B.example_data(), **BASEDATA["cells"])
+        if kind in ("labels", "groups_and_labels"):
+            bd.set_label_properties(B.read_properties(data / "label_props.csv", [0, 1], LABEL_PROPS))
+        if kind == "range":
+            bd.set_label_properties(B.read_properties(data / "label_props.csv", [0, 1], RANGE_PROPS))
+        if kind in ("groups", "groups_and_labels"):
+            bd.set_group_properties(B.read_properties(data / "gp_props.csv", [0], GROUP_PROPS))
+        return bd
+
+    for k, (kind, conds) in enumerate(PROP_CASES):
+        bd = basedata(kind)
+        res = B.spatial_analysis(bd, conds, calcs, prng_seed=1, n_threads=4)
+        case = {"kind": kind, "conditions": conds, "columns": list(res.table.columns), "lists": [],
+                "texts": list(res.lists._texts)}
+        arrays[f"p/{k}/table"] = res.table.to_numpy(dtype=np.float64)
+        for name in res.lists:
+            kind_, ip, keys, values = res.lists.raw(name)
+            case["lists"].append([name, int(kind_)])
+            arrays[f"p/{k}/list/{name}/keys"] = np.asarray(keys, dtype=np.float64)
+            arrays[f"p/{k}/list/{name}/values"] = np.asarray(values, dtype=np.float64)
+        out["spatial"].append(case)
+    bd = basedata("labels")
+    for k, (f, kw) in enumerate([("Example_matrix.txt", {}),
+                                 ("Example_matrix_sparse.txt", {"sparse": True, "row_columns": [0], "col_columns": [1],
+                                                                "value_column": 2, "self_similarity": 0.0})]):
+        m = B.read_matrix(data / f, **kw)
+        res = B.spatial_analysis(bd, ["sp_self_only()", "sp_circle (radius => 300000)"],
+                                 ["matrix_stats", "compare_dissim_matrix_values", "mx_rao_qe"], matrix=m, n_threads=4)
+        out["matrix"].append({"file": f, "args": kw, "elements": m.elements, "columns": list(res.table.columns)})
+        arrays[f"m/{k}/values"] = m.values.astype(np.float64)
+        arrays[f"m/{k}/table"] = res.table.to_numpy(dtype=np.float64)
+    bd = basedata("groups")
+    res = B.spatial_analysis(bd, "sp_circle (radius => 200000)", ["richness", "gpprop_stats", "gpprop_quantiles"],
+                             n_threads=4)
+    out["rand_columns"] = list(res.table.columns)
+    for k, (fn, kw) in enumerate(PROP_RAND):
+        rnd = B.randomise(res, fn, iterations=5, seed=300 + k, n_threads=4, **kw)
+        out["rand"].append({"function": fn, "args": kw, "seed": 300 + k})
+        arrays[f"r/{k}/comparison"] = rnd.comparison().to_numpy(dtype=np.float64)
+    (REF / "bio_props.json").write_text(json.dumps(out) + "\n", encoding="utf-8")
+    np.savez_compressed(REF / "bio_props.npz", **arrays)
+    print(REF / "bio_props.json", len(arrays))
+
+
 if __name__ == "__main__":
     main()
     trees()
     randomisations()
     clusters()
+    properties()

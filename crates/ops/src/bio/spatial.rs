@@ -9,6 +9,7 @@ use terraflux_ls_sys::ffi;
 use super::basedata::BaseData;
 use super::conditions::{Condition, Csr, Neighbourhoods, neighbours};
 use super::names::{dequote_element, join_element, looks_like_number, numify, split_element};
+use super::properties::{LabelMatrix, any_set, numbers, tables};
 use super::tree::{Tree, tree_view};
 use crate::{Error, Result};
 
@@ -121,7 +122,9 @@ fn label_hierarchy(bd: &BaseData) -> (i32, Vec<i32>, Vec<String>) {
 }
 
 /// The basedata as the index engine reads it.
-fn view(bd: &BaseData, valid: &[String]) -> ffi::BioView {
+/// Each label's range (Biodiverse's get_range: the RANGE property where larger than the groups it is in) and
+/// abundance (the ABUNDANCE property where larger than its samples), and its sample count.
+pub fn label_ranges(bd: &BaseData) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
     let n_l = bd.n_labels();
     let mut variety = vec![0.0; n_l];
     let mut sample = vec![0.0; n_l];
@@ -129,20 +132,50 @@ fn view(bd: &BaseData, valid: &[String]) -> ffi::BioView {
         variety[l as usize] += 1.0;
         sample[l as usize] += bd.counts[k];
     }
+    let over = |base: &[f64], name: &str| -> Vec<f64> {
+        match numbers(&bd.label_props, name) {
+            Some(r) => base.iter().zip(r).map(|(&v, r)| if r.is_nan() { v } else { r.max(v) }).collect(),
+            None => base.to_vec(),
+        }
+    };
+    (over(&variety, "RANGE"), over(&sample, "ABUNDANCE"), sample)
+}
+
+fn view(bd: &BaseData, valid: &[String], matrix: Option<&LabelMatrix>) -> ffi::BioView {
+    let n_l = bd.n_labels();
+    let (range, abundance, sample) = label_ranges(bd);
     let (levels, prefix, prefix_names) = label_hierarchy(bd);
     let numeric = bd.labels.iter().all(|l| looks_like_number(l));
     let order = precalc_order(valid);
     let position: HashMap<&String, usize> = order.iter().enumerate().map(|(i, c)| (c, i)).collect();
     let mut exec: Vec<i32> = (0..valid.len() as i32).collect();
     exec.sort_by_key(|&i| position.get(&valid[i as usize]).copied().unwrap_or(order.len()));
+    let (lp, gp) = (tables(&bd.label_props), tables(&bd.group_props));
+    // the matrix's block of the labels in the basedata
+    let mx = matrix.map(|m| {
+        let index: HashMap<&String, usize> = m.elements.iter().enumerate().map(|(i, e)| (e, i)).collect();
+        let label_index: Vec<i64> = bd.labels.iter().map(|l| index.get(l).map_or(-1, |&i| i as i64)).collect();
+        let mut present: Vec<usize> = label_index.iter().filter(|&&i| i >= 0).map(|&i| i as usize).collect();
+        present.sort_unstable();
+        present.dedup();
+        let mut remap = vec![-1i32; m.elements.len()];
+        for (k, &p) in present.iter().enumerate() {
+            remap[p] = k as i32;
+        }
+        let n = m.elements.len();
+        let values: Vec<f64> =
+            present.iter().flat_map(|&i| present.iter().map(move |&j| m.values[i * n + j])).collect();
+        let lmx: Vec<i32> = label_index.iter().map(|&i| if i >= 0 { remap[i as usize] } else { -1 }).collect();
+        (lmx, present.len() as i32, values)
+    });
     ffi::BioView {
         n_groups: bd.n_groups() as i64,
         n_labels: n_l as i64,
         indptr: bd.indptr.clone(),
         indices: bd.indices.clone(),
         counts: bd.counts.clone(),
-        label_range: variety,
-        label_abundance: sample.clone(),
+        label_range: range,
+        label_abundance: abundance,
         label_sample_count: sample,
         abc_any_variant: abc_any_variant(valid),
         n_label_levels: levels,
@@ -157,6 +190,21 @@ fn view(bd: &BaseData, valid: &[String]) -> ffi::BioView {
         row_labels: Vec::new(),
         row_counts: Vec::new(),
         row_samples: Vec::new(),
+        label_prop_names: lp.0,
+        label_prop_key_off: lp.1,
+        label_prop_keys: lp.2,
+        label_prop_values: lp.3,
+        label_prop_elem: lp.4,
+        group_prop_names: gp.0,
+        group_prop_key_off: gp.1,
+        group_prop_keys: gp.2,
+        group_prop_values: gp.3,
+        group_prop_elem: gp.4,
+        has_matrix: mx.is_some(),
+        label_mx: mx.as_ref().map_or(Vec::new(), |m| m.0.clone()),
+        mx_n: mx.as_ref().map_or(0, |m| m.1),
+        mx_values: mx.as_ref().map_or(Vec::new(), |m| m.2.clone()),
+        mx_self_similarity: matrix.and_then(|m| m.self_similarity).unwrap_or(f64::NAN),
     }
 }
 
@@ -242,6 +290,7 @@ pub struct Run {
     /// Each processing group's row among `procs`.
     pub expand: Option<Vec<usize>>,
     pub tree: Option<Tree>,
+    pub matrix: Option<LabelMatrix>,
     pub pc_steps: Vec<i32>,
     pub pc_vpd: bool,
     pub seed: u64,
@@ -251,26 +300,30 @@ pub struct Run {
 /// Biodiverse's spatial analysis: indices over the neighbourhood of every group (landschaft's
 /// spatial_analysis, without matrices and properties). `seed`: Biodiverse's prng_seed, of the random tips of the
 /// expected NTI on trees that are not ultrametric and of the net VPD.
+#[allow(clippy::too_many_arguments)]
 pub fn spatial_analysis(
     bd: &BaseData,
     conditions: &[Condition],
     calculations: &[String],
     query: Option<&Condition>,
     tree: Option<&Tree>,
+    matrix: Option<&LabelMatrix>,
     seed: u64,
     parallel: bool,
 ) -> Result<SpatialResult> {
-    let run = prepare(bd, conditions, calculations, query, tree, seed, parallel)?;
+    let run = prepare(bd, conditions, calculations, query, tree, matrix, seed, parallel)?;
     evaluate(bd, &run, None)
 }
 
 /// The calculations that can run, the neighbourhoods and the rows to compute.
+#[allow(clippy::too_many_arguments)]
 pub fn prepare(
     bd: &BaseData,
     conditions: &[Condition],
     calculations: &[String],
     query: Option<&Condition>,
     tree: Option<&Tree>,
+    matrix: Option<&LabelMatrix>,
     seed: u64,
     parallel: bool,
 ) -> Result<Run> {
@@ -296,7 +349,7 @@ pub fn prepare(
     }
     let matrix_calcs = ["calc_matrix_stats", "calc_compare_dissim_matrix_values", "calc_mx_rao_qe"];
     let needs: Vec<&String> = valid.iter().filter(|c| matrix_calcs.contains(&c.as_str())).collect();
-    if !needs.is_empty() {
+    if !needs.is_empty() && matrix.is_none() {
         return Err(Error::msg(format!(
             "these calculations need a matrix: {}",
             needs.iter().map(|n| n.trim_start_matches("calc_")).collect::<Vec<_>>().join(", ")
@@ -308,7 +361,12 @@ pub fn prepare(
             !(c.starts_with("calc_numeric_label") || c.starts_with("calc_num_labels") || c.starts_with("calc_iei"))
         });
     }
-    valid.retain(|c| !(c.starts_with("calc_lbprop") || c.starts_with("calc_gpprop")));
+    if !any_set(&bd.label_props) {
+        valid.retain(|c| !c.starts_with("calc_lbprop"));
+    }
+    if !any_set(&bd.group_props) {
+        valid.retain(|c| !c.starts_with("calc_gpprop"));
+    }
     if valid.is_empty() {
         return Err(Error::msg("none of the calculations can run with this many neighbour sets"));
     }
@@ -358,7 +416,20 @@ pub fn prepare(
             expand = Some(inverse);
         }
     }
-    Ok(Run { valid, nbrs, set1, set2, procs, expand, tree: tree.cloned(), pc_steps, pc_vpd, seed, parallel })
+    Ok(Run {
+        valid,
+        nbrs,
+        set1,
+        set2,
+        procs,
+        expand,
+        tree: tree.cloned(),
+        matrix: matrix.cloned(),
+        pc_steps,
+        pc_vpd,
+        seed,
+        parallel,
+    })
 }
 
 /// The calculations of an analysis on a basedata with the same groups (its neighbourhoods), with its tree or
@@ -380,6 +451,7 @@ pub fn run_sets(
     set2: Option<Csr>,
     calcs: &[String],
     tree: Option<&Tree>,
+    matrix: Option<&LabelMatrix>,
     pairwise: bool,
     row_labels: Option<RowLabels>,
     parallel: bool,
@@ -398,6 +470,7 @@ pub fn run_sets(
         procs,
         expand: None,
         tree: tree.cloned(),
+        matrix: matrix.cloned(),
         pc_steps: Vec::new(),
         pc_vpd: false,
         seed: 0,
@@ -416,7 +489,7 @@ fn evaluate_with(
     let tree = tree.or(run.tree.as_ref());
     let valid = &run.valid;
     let procs = &run.procs;
-    let mut v = view(bd, valid);
+    let mut v = view(bd, valid, run.matrix.as_ref());
     v.pairwise_mode = pairwise;
     if let Some((ip, labels, counts, samples)) = row_labels {
         v.has_row_labels = true;

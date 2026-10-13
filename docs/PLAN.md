@@ -635,8 +635,11 @@ Pendências:
 - **Biodiversidade — agrupamentos (0.37.0, 2026-10-13):** `bio.cluster` e `bio.region_grower` (o
   link_recalculate por um callback do C++ para o Rust; o acabamento da árvore e o corte em k portados), bit a
   bit com o landschaft.
-- **Próximos (2026-10-13):** o resto do `bio` (propriedades de rótulos e grupos, matrizes, os índices que
-  dependem deles), incerteza, lotes; o resto
+- **Biodiversidade — propriedades e matrizes (0.38.0, 2026-10-13):** `bio.properties` e `bio.matrix` (o tipo
+  matriz de rótulos), os índices de propriedades e de matriz, as propriedades de grupo nas randomizações, bit a
+  bit com o landschaft. O módulo `bio` está no Terraflux, menos as importações de rasters, hexágonos e H3, as
+  condições de shapefiles e os callables do Python.
+- **Próximos (2026-10-13):** incerteza, lotes; o resto
   dos circuitos (redes, pares incluídos, os arquivos .ini); os instaladores de macOS e Linux;
   `vector.exact_sum` e `vector.distance` fora da memória.
 

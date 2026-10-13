@@ -31,6 +31,11 @@ pub struct BaseData {
     pub crs: Option<String>,
     /// The axis values of each group as Biodiverse keeps them (strings).
     pub group_axes: Vec<Vec<String>>,
+    /// Label and group properties (Perl strings: None not set, "" set but undefined).
+    #[serde(default)]
+    pub label_props: super::properties::Properties,
+    #[serde(default)]
+    pub group_props: super::properties::Properties,
 }
 
 /// POSIX round: halves away from zero.
@@ -151,6 +156,8 @@ impl BaseData {
             cell_origins,
             crs,
             group_axes: g_order.iter().map(|&g| group_axes[g].clone()).collect(),
+            label_props: Vec::new(),
+            group_props: Vec::new(),
         })
     }
 
@@ -436,6 +443,18 @@ fn guess_separator(lines: &[&str], quote: char) -> char {
     best
 }
 
+/// The rows of a delimited text (landschaft's _read_rows): the quote and separator guessed from the first lines
+/// when not given; empty unquoted fields None.
+pub fn read_rows(text: &str, sep: Option<char>, quote: Option<char>) -> Vec<Vec<Option<String>>> {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let first: String = text.chars().take(20000).collect();
+    let head: Vec<&str> = first.lines().take(11).collect();
+    let head = if head.is_empty() { vec![""] } else { head };
+    let quote = quote.unwrap_or_else(|| guess_quote(&head.join("\n")));
+    let sep = sep.unwrap_or_else(|| guess_separator(&head, quote));
+    read_csv(text, sep, quote)
+}
+
 /// How Biodiverse's text import reads a table (landschaft's BaseData.from_table).
 #[derive(Debug, Clone, Default)]
 pub struct TableImport {
@@ -457,11 +476,7 @@ pub struct TableImport {
 impl BaseData {
     /// Delimited text read like Biodiverse's `import_data` (columns by name or by 0-based position).
     pub fn from_table(text: &str, o: &TableImport) -> Result<BaseData> {
-        let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-        let head: Vec<&str> = text[..text.len().min(20000)].lines().take(11).collect();
-        let quote = o.quote.unwrap_or_else(|| guess_quote(&head.join("\n")));
-        let sep = o.sep.unwrap_or_else(|| guess_separator(if head.is_empty() { &[""] } else { &head }, quote));
-        let rows = read_csv(text, sep, quote);
+        let rows = read_rows(text, o.sep, o.quote);
         let Some((header, body)) = rows.split_first() else { return Err(Error::msg("empty table")) };
         let header: Vec<String> = header.iter().map(|h| h.clone().unwrap_or_default()).collect();
         let col = |c: &String| -> Result<usize> {

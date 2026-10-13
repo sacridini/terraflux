@@ -391,6 +391,8 @@ pub enum Value {
     BaseData(Arc<crate::bio::BaseData>),
     /// A rooted phylogenetic tree.
     Tree(Arc<crate::bio::tree::Tree>),
+    /// Values between labels (Biodiverse's label matrix).
+    LabelMatrix(Arc<crate::bio::properties::LabelMatrix>),
 }
 
 impl Value {
@@ -417,6 +419,7 @@ impl Value {
             Value::Vector(_) => Type::Vector,
             Value::BaseData(_) => Type::BaseData,
             Value::Tree(_) => Type::Tree,
+            Value::LabelMatrix(_) => Type::LabelMatrix,
         }
     }
 

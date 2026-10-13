@@ -47,6 +47,8 @@ pub enum Type {
     BaseData,
     /// A rooted phylogenetic tree.
     Tree,
+    /// Values between labels (Biodiverse's label matrix).
+    LabelMatrix,
 }
 
 impl Type {

@@ -3019,6 +3019,35 @@ BioIndexOut bio_run_indices(const BioView& view, rust::Slice<const std::int32_t>
     b.label_values = std_vec<double>(view.label_values);
     b.exec_order = std_vec<std::int32_t>(view.exec_order);
     b.pairwise_mode = view.pairwise_mode;
+    auto props = [](const rust::Vec<rust::String>& names, const rust::Vec<std::int64_t>& key_off,
+                    const rust::Vec<rust::String>& keys, const rust::Vec<double>& values,
+                    const rust::Vec<std::int32_t>& elem, std::size_t n_elems,
+                    std::vector<bio::BaseDataView::Property>& out) {
+        check(key_off.size() == names.size() + 1 && elem.size() == names.size() * n_elems,
+              "properties: offsets and a value per property and element");
+        for (std::size_t k = 0; k < names.size(); ++k) {
+            bio::BaseDataView::Property p;
+            p.name = std::string(names[k]);
+            for (std::int64_t i = key_off[k]; i < key_off[k + 1]; ++i) {
+                p.keys.emplace_back(std::string(keys[static_cast<std::size_t>(i)]));
+                p.values.push_back(values[static_cast<std::size_t>(i)]);
+            }
+            p.element_key.assign(elem.begin() + static_cast<std::ptrdiff_t>(k * n_elems),
+                                 elem.begin() + static_cast<std::ptrdiff_t>((k + 1) * n_elems));
+            out.push_back(std::move(p));
+        }
+    };
+    props(view.label_prop_names, view.label_prop_key_off, view.label_prop_keys, view.label_prop_values,
+          view.label_prop_elem, static_cast<std::size_t>(view.n_labels), b.label_props);
+    props(view.group_prop_names, view.group_prop_key_off, view.group_prop_keys, view.group_prop_values,
+          view.group_prop_elem, static_cast<std::size_t>(view.n_groups), b.group_props);
+    if (view.has_matrix) {
+        b.has_matrix = true;
+        b.label_mx = std_vec<std::int32_t>(view.label_mx);
+        b.mx_n = view.mx_n;
+        b.mx_values = std_vec<double>(view.mx_values);
+        b.mx_self_similarity = view.mx_self_similarity;
+    }
     if (view.has_row_labels) {
         b.has_row_labels = true;
         b.row_indptr = std_vec<std::int64_t>(view.row_indptr);
