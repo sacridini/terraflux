@@ -6,6 +6,14 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Extrapolation of species distribution models (landschaft's mess, mop and exdet): `sdm.mess` (Elith's MESS,
+  per predictor and the least), `sdm.mop` (the mop package's MOP: basic, simple or detailed ranges, Euclidean
+  distances scaled and centered or not, Mahalanobis, rescaled, over the in-range, out-of-range or all
+  conditions) and `sdm.exdet` (Mesgaran's NT1, NT2 and most influential covariate), on stacks of predictors or
+  tables. MESS and the Euclidean MOP are landschaft's to the bit; the Mahalanobis MOP and ExDet (numpy's
+  covariance, LAPACK's inverse) to rounding.
+
 ## [0.49.0] - 2026-10-13
 
 ### Added

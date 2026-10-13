@@ -55,6 +55,7 @@ pub mod prioritize;
 pub mod restoration;
 pub mod restoration_plan;
 pub mod sampling;
+pub mod sdm;
 pub mod signatures;
 pub mod surface;
 pub mod uncertainty;
@@ -291,6 +292,7 @@ impl Registry {
         molusce::register(&mut r);
         nlm::register(&mut r);
         conn::register(&mut r);
+        sdm::register(&mut r);
         demand::register(&mut r);
         glm::register(&mut r);
         woe::register(&mut r);

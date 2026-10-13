@@ -673,6 +673,8 @@ Pendências:
 - **SAMC e ProtConn em raster (0.49.0, 2026-10-13):** `conn.settlement_probabilities`, `conn.graph_from_samc`
   (o LU esparso do Eigen no lugar do SuperLU: a rounding) e `conn.protconn_raster` (bit a bit). O módulo `conn`
   está todo no Terraflux.
+- **SDM — extrapolação (0.50.0, 2026-10-13):** `sdm.mess`, `sdm.mop` e `sdm.exdet`. O resto do `sdm` (limpeza,
+  thinning, background, folds, MaxNet, avaliação, VIF) vem em blocos.
 - **Próximos (2026-10-13):** os instaladores de macOS e Linux;
   `vector.exact_sum` e `vector.distance` fora da memória.
 

@@ -1,0 +1,145 @@
+[
+ {
+  "name": "mess",
+  "op": "sdm.mess",
+  "params": {},
+  "names": [
+   "mess"
+  ],
+  "target": "env"
+ },
+ {
+  "name": "mess_full",
+  "op": "sdm.mess",
+  "params": {
+   "full": true
+  },
+  "names": [
+   "temp_mess",
+   "prec_mess",
+   "soil_mess",
+   "mess"
+  ],
+  "target": "env"
+ },
+ {
+  "name": "mess_table",
+  "op": "sdm.mess",
+  "params": {
+   "full": true
+  },
+  "names": [
+   "temp_mess",
+   "prec_mess",
+   "soil_mess",
+   "mess"
+  ],
+  "target": "table"
+ },
+ {
+  "name": "mop",
+  "op": "sdm.mop",
+  "params": {},
+  "names": [
+   "mop",
+   "basic"
+  ],
+  "target": "env"
+ },
+ {
+  "name": "mop_simple",
+  "op": "sdm.mop",
+  "params": {
+   "type": "simple",
+   "where": "all",
+   "percentage": 5.0
+  },
+  "names": [
+   "mop",
+   "basic",
+   "simple"
+  ],
+  "target": "env"
+ },
+ {
+  "name": "mop_detailed",
+  "op": "sdm.mop",
+  "params": {
+   "type": "detailed",
+   "scale": true,
+   "center": true,
+   "where": "out_range",
+   "rescale": true
+  },
+  "names": [
+   "mop",
+   "basic",
+   "simple",
+   "low_combined",
+   "high_combined"
+  ],
+  "target": "env"
+ },
+ {
+  "name": "mop_none",
+  "op": "sdm.mop",
+  "params": {
+   "type": "detailed",
+   "distance": "none"
+  },
+  "names": [
+   "basic",
+   "simple",
+   "low_combined",
+   "high_combined"
+  ],
+  "target": "env"
+ },
+ {
+  "name": "mop_mahalanobis",
+  "op": "sdm.mop",
+  "params": {
+   "distance": "mahalanobis",
+   "percentage": 10.0,
+   "where": "all"
+  },
+  "names": [
+   "mop",
+   "basic"
+  ],
+  "target": "env"
+ },
+ {
+  "name": "mop_table",
+  "op": "sdm.mop",
+  "params": {
+   "type": "simple"
+  },
+  "names": [
+   "mop",
+   "basic",
+   "simple"
+  ],
+  "target": "table"
+ },
+ {
+  "name": "exdet",
+  "op": "sdm.exdet",
+  "params": {},
+  "names": [
+   "exdet",
+   "mic"
+  ],
+  "target": "env"
+ },
+ {
+  "name": "exdet_table",
+  "op": "sdm.exdet",
+  "params": {},
+  "names": [
+   "exdet",
+   "mic"
+  ],
+  "target": "table"
+ }
+]

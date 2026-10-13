@@ -161,6 +161,9 @@ rust::Vec<double> samc_inverse_block(std::int64_t m, rust::Slice<const std::int3
                                      rust::Slice<const std::int64_t> targets);
 ConnCentrality conn_centrality(rust::Slice<const std::int32_t> pi, rust::Slice<const std::int32_t> pj,
                                rust::Slice<const double> length, std::int32_t n, bool unit);
+rust::Vec<double> sdm_knn_mean_distance(rust::Slice<const double> m, std::int64_t nm, rust::Slice<const double> g,
+                                        std::int64_t ng, std::int64_t p, std::int64_t k, bool squared);
+rust::Vec<double> sdm_r_colmeans(rust::Slice<const double> x, std::int64_t n, std::int64_t p);
 rust::Vec<double> nlm_rescale(rust::Slice<const double> x);
 rust::Vec<double> nlm_random(std::int32_t seed, std::int64_t ny, std::int64_t nx);
 rust::Vec<double> nlm_percolation(std::int32_t seed, std::int64_t ny, std::int64_t nx, double prob);

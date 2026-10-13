@@ -74,6 +74,7 @@
 #include <Eigen/SparseLU>
 
 #include "conn/cost.hpp"
+#include "sdm/extrapolation.hpp"
 #include "conn/graph.hpp"
 #include "conn/nodes.hpp"
 #include "sim/change.hpp"
@@ -504,6 +505,25 @@ ConnCentrality conn_centrality(rust::Slice<const std::int32_t> pi, rust::Slice<c
     out.betweenness = to_rust<double>(c.betweenness);
     out.closeness_sum = to_rust<double>(c.closeness_sum);
     out.reached = to_rust<std::int32_t>(c.reached);
+    return out;
+}
+
+rust::Vec<double> sdm_knn_mean_distance(rust::Slice<const double> m, std::int64_t nm, rust::Slice<const double> g,
+                                        std::int64_t ng, std::int64_t p, std::int64_t k, bool squared) {
+    check(nm > 0 && p > 0 && m.size() == static_cast<std::size_t>(nm * p) && g.size() == static_cast<std::size_t>(ng * p),
+          "expected two tables with the same columns");
+    check(k >= 1, "k must be at least 1");
+    return to_rust<double>(sdm::knn_mean_distance(m.data(), nm, g.data(), ng, p, k, squared));
+}
+
+rust::Vec<double> sdm_r_colmeans(rust::Slice<const double> x, std::int64_t n, std::int64_t p) {
+    check(n > 0 && p > 0 && x.size() == static_cast<std::size_t>(n * p), "expected an n x p table");
+    rust::Vec<double> out;
+    for (std::int64_t j = 0; j < p; ++j) {  // colMeans: one 80-bit pass, divided by n in 80 bits
+        lsm::Extended s = 0.0;
+        for (std::int64_t i = 0; i < n; ++i) s += x[static_cast<std::size_t>(i * p + j)];
+        out.push_back(static_cast<double>(s / lsm::Extended(n)));
+    }
     return out;
 }
 

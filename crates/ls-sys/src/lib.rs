@@ -1283,6 +1283,19 @@ pub mod ffi {
         fn samc_inverse_block(m: i64, from: &[i32], to: &[i32], q: &[f64], targets: &[i64]) -> Result<Vec<f64>>;
         /// igraph's betweenness and the closeness sums on edges of the given lengths (`unit`: every edge 1).
         fn conn_centrality(pi: &[i32], pj: &[i32], length: &[f64], n: i32, unit: bool) -> Result<ConnCentrality>;
+        /// mop's distances: for each row of g (ng x p), the mean of its k smallest Euclidean distances to the rows
+        /// of m (nm x p), R's mean; `squared` the squared distances.
+        fn sdm_knn_mean_distance(
+            m: &[f64],
+            nm: i64,
+            g: &[f64],
+            ng: i64,
+            p: i64,
+            k: i64,
+            squared: bool,
+        ) -> Result<Vec<f64>>;
+        /// R's colMeans of an n x p table (row-major): one 80-bit pass, divided in 80 bits.
+        fn sdm_r_colmeans(x: &[f64], n: i64, p: i64) -> Result<Vec<f64>>;
         /// NLMR's util_rescale (a copy): (x - min) / (max - min), 0 when min and max are all.equal.
         fn nlm_rescale(x: &[f64]) -> Vec<f64>;
         /// nlm_random before rescaling: runif by column.
