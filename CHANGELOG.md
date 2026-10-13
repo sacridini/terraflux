@@ -6,6 +6,10 @@ minor versions.
 
 ## [Unreleased]
 
+### Fixed
+- GDAL no longer writes its `.properties` index next to the gzipped rasters it reads (`/vsigzip/`): reading
+  Circuitscape's gzipped test grids left the landschaft submodule modified.
+
 ## [0.42.0] - 2026-10-13
 
 ### Added

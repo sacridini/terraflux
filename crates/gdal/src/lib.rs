@@ -402,6 +402,8 @@ impl Gdal {
                 (api.OSRSetPROJSearchPaths)(paths.as_ptr());
             }
             (api.CPLSetConfigOption)(cstr("GDAL_PAM_ENABLED").as_ptr(), cstr("NO").as_ptr());
+            // no .properties files written next to the gzipped files read (/vsigzip/)
+            (api.CPLSetConfigOption)(cstr("CPL_VSIL_GZIP_WRITE_PROPERTIES").as_ptr(), cstr("NO").as_ptr());
             // the web (map services): its certificates next to the library, and who asks
             if let Some(c) = ["curl-ca-bundle.crt", "../share/curl/curl-ca-bundle.crt"]
                 .iter()
