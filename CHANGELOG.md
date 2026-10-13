@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-10-13
+
 ### Added
 - Random walks over grid distances (landschaft's cost module, gdistance's through its C++):
   `cost.commute_distance` (the expected commute distances, each separate part of the graph with its own volume),
