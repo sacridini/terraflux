@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.53.0] - 2026-10-13
+
 ### Added
 - Occurrence records and background points for species distribution models (landschaft's thin, one_per_cell
   and background): `sdm.thin` (spThin's thinning, the repetition that keeps the most), `sdm.one_per_cell` (the
