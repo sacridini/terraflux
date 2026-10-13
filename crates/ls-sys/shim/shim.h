@@ -331,6 +331,14 @@ SimilarityOut similarity(rust::Slice<const std::int32_t> a, rust::Slice<const st
 ObservedPatches observed_patches(rust::Slice<const double> a, rust::Slice<const double> b, std::int64_t ny,
                                  std::int64_t nx, double from, double to);
 
+// simulate bridge (landschaft-bb)
+
+// gdistance's accCost (landschaft's ls.cost.acc_cost): the accumulated cost from the nearest source cell over a
+// transition of conductances (values: directions x cells, as ls.cost.Transition.values); inf where unreachable.
+rust::Vec<double> cost_accumulated(rust::Slice<const double> values, std::int64_t ny, std::int64_t nx, double xmin,
+                                   double xmax, double ymin, double ymax, bool wrap, std::int32_t directions,
+                                   bool symmetric, rust::Slice<const std::int64_t> sources);
+
 }  // namespace tfx
 
 // out-of-core landscapes (tiles): landschaft's lsm::TiledLandscape, a raster labelled block by block of rows

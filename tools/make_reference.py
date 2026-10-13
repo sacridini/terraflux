@@ -164,6 +164,13 @@ def bridge():
     rates = {1: {(1, 2): 0.01, (3, 2): 0.02}, 2: {(1, 2): 0.03, (1, 3): 0.01}, 3: {(3, 4): 0.02, (4, 3): 0.01}}
     alloc = S.ExpanderPatcher(expansion=0.5, expander=(4, 2, 1.5), patcher=(6, 4, 1.5), steps=5)
     write("dinamica_regional", S.Model(dyn.potential, S.Regional(regions, rates), alloc), drv_path, dr, 13)
+    # the accumulated cost from built land over the slope, a dynamic variable
+    tr = ls.cost.geo_correction(1 / ls.cost.transition(dr.sel(band="slope").fillna(0) + 1, "mean", 8))
+    cost = S.distance_to(2, cost=tr)
+    lr = S.LogisticRegression().fit(lu[0], {**drivers, "cost_built": cost(lu[0])})
+    model = S.Model(lr, S.AreaDemand.from_maps(lu, times=[0, 14]), S.CLUE(max_diff=20, mean_diff=10),
+                    S.Rules(elasticity=0.3), dynamic={"cost_built": cost})
+    write("clue_cost", model, drv_path, dr, 14)
 
 
 def main():

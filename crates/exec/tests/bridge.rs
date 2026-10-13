@@ -60,3 +60,8 @@ fn regional_cars_saved_by_landschaft() {
 fn regional_dinamica_saved_by_landschaft() {
     case("dinamica_regional");
 }
+
+#[test]
+fn cost_distance_saved_by_landschaft() {
+    case("clue_cost");
+}

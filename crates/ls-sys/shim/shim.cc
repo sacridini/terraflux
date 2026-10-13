@@ -18,6 +18,8 @@
 #endif
 #include <vector>
 
+#include "cost/shortest.hpp"
+#include "cost/transition.hpp"
 #include "gtb/accounting.hpp"
 #include "gtb/change.hpp"
 #include "gtb/contagion.hpp"
@@ -1604,6 +1606,30 @@ ObservedPatches observed_patches(rust::Slice<const double> a, rust::Slice<const 
     const auto r = sim::observed_patches(a.data(), b.data(), ny, nx, from, to);
     return ObservedPatches{r.cells, r.expansion, r.expansion_patches, r.expansion_mean, r.expansion_variance,
                            r.new_patches, r.new_mean, r.new_variance};
+}
+
+// simulate bridge (landschaft-bb)
+
+rust::Vec<double> cost_accumulated(rust::Slice<const double> values, std::int64_t ny, std::int64_t nx, double xmin,
+                                   double xmax, double ymin, double ymax, bool wrap, std::int32_t directions,
+                                   bool symmetric, rust::Slice<const std::int64_t> sources) {
+    check(directions == 4 || directions == 8 || directions == 16, "directions must be 4, 8 or 16");
+    check(ny > 0 && nx > 0, "the grid is empty");
+    cost::Grid g;
+    g.ny = ny;
+    g.nx = nx;
+    g.xmin = xmin;
+    g.xmax = xmax;
+    g.ymin = ymin;
+    g.ymax = ymax;
+    g.wrap = wrap;
+    const auto n_dirs = static_cast<std::int64_t>(cost::offsets(directions, symmetric).size());
+    check(static_cast<std::int64_t>(values.size()) == n_dirs * g.ncell(),
+          "the transition's values do not match the grid and directions");
+    std::vector<std::int64_t> src(sources.begin(), sources.end());
+    for (const auto c : src) check(c >= 0 && c < g.ncell(), "a source cell is outside the grid");
+    const cost::Layout t{&g, directions, symmetric, values.data()};
+    return to_rust<double>(cost::accumulated_cost(t, src));
 }
 
 }  // namespace tfx

@@ -20,6 +20,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=LANDSCHAFT_EIGEN_DIR");
     println!("cargo:rerun-if-changed={}", source.join("CMakeLists.txt").display());
     println!("cargo:rerun-if-changed={}", source.join("src").join("cpp").join("sim").display());
+    println!("cargo:rerun-if-changed={}", source.join("src").join("cpp").join("cost").display());
     println!("cargo:rerun-if-changed={}", source.join("src").join("cpp").join("gtb").display());
     println!("cargo:rerun-if-changed={}", source.join("src").join("cpp").join("lsm").display());
     println!("cargo:rerun-if-changed={}", source.join("src").join("cpp").join("rest").display());
@@ -49,6 +50,8 @@ fn main() {
     println!("cargo:rustc-link-search=native={}", dst.join("lib").display());
     for lib in [
         "simcore",
+        "costcore",
+        "circuitcore",
         "iocore",
         "lsmcore",
         "nlmcore",

@@ -1062,6 +1062,22 @@ pub mod ffi {
         fn similarity(a: &[i32], b: &[i32], ny: i64, nx: i64, window: i32, exponential: bool) -> Result<SimilarityOut>;
         fn observed_patches(a: &[f64], b: &[f64], ny: i64, nx: i64, from: f64, to: f64) -> Result<ObservedPatches>;
 
+        // simulate bridge (landschaft-bb)
+        #[allow(clippy::too_many_arguments)]
+        fn cost_accumulated(
+            values: &[f64],
+            ny: i64,
+            nx: i64,
+            xmin: f64,
+            xmax: f64,
+            ymin: f64,
+            ymax: f64,
+            wrap: bool,
+            directions: i32,
+            symmetric: bool,
+            sources: &[i64],
+        ) -> Result<Vec<f64>>;
+
         // out-of-core landscapes (tiles)
 
         /// landschaft's out-of-core landscape: a raster labelled block by block of rows (a multiple of 64), the
