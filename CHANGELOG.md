@@ -6,6 +6,14 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- The choice of predictors and their range of autocorrelation (landschaft's vif, select_predictors and
+  autocorrelation_range, after usdm and blockCV): `sdm.vif` (R's lm over the complete cells, usdm's sample of
+  them on large grids, by latitude on lon/lat grids, or a table's rows), `sdm.select_predictors` (vifcor and
+  vifstep, predictors kept, within an area) and `sdm.autocorrelation_range` (gstat's variograms, spherical,
+  exponential, Gaussian and Matern, fitted to a sample of every layer; their median range and the block size).
+  The same as landschaft's, to the bit.
+
 ## [0.55.0] - 2026-10-13
 
 ### Added

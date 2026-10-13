@@ -79,6 +79,8 @@
 #include "sdm/rstats.hpp"
 #include "sdm/thin.hpp"
 #include "sdm/kmeans.hpp"
+#include "sdm/collinear.hpp"
+#include "sdm/variogram.hpp"
 #include "cost/geodesic.hpp"
 #include "conn/graph.hpp"
 #include "conn/nodes.hpp"
@@ -191,6 +193,40 @@ rust::Vec<std::int32_t> sdm_kmeans(nlm::RRng& rng, rust::Slice<const double> x, 
         sdm::kmeans(col.data(), m, p, k, iter_max, nstart, static_cast<sdm::KmeansAlgorithm>(algorithm), rng);
     rust::Vec<std::int32_t> out;
     for (const int c : r.cluster) out.push_back(c);
+    return out;
+}
+
+rust::Vec<double> sdm_vif(rust::Slice<const double> table, std::int64_t n, std::int64_t m,
+                          rust::Slice<const std::int64_t> which) {
+    check(n > 0 && m > 0 && table.size() == static_cast<std::size_t>(n * m), "expected an n x m table");
+    for (const std::int64_t w : which) check(w >= 0 && w < m, "column out of range");
+    std::vector<double> col(static_cast<std::size_t>(n * m));  // column-major, as R
+    for (std::int64_t i = 0; i < n; ++i)
+        for (std::int64_t j = 0; j < m; ++j) col[static_cast<std::size_t>(j * n + i)] = table[static_cast<std::size_t>(i * m + j)];
+    return to_rust<double>(sdm::vif(col.data(), n, m, to_std(which)));
+}
+
+rust::Vec<double> sdm_sample_variogram(rust::Slice<const double> x, rust::Slice<const double> y,
+                                       rust::Slice<const double> z, rust::Slice<const double> bounds, bool lonlat) {
+    check(x.size() == y.size() && x.size() == z.size(), "lengths differ");
+    const sdm::SampleVariogram v =
+        sdm::sample_variogram(x.data(), y.data(), z.data(), static_cast<std::int64_t>(x.size()), to_std(bounds), lonlat);
+    rust::Vec<double> out;
+    for (const auto* part : {&v.np, &v.dist, &v.gamma})
+        for (const double d : *part) out.push_back(d);
+    return out;
+}
+
+rust::Vec<double> sdm_fit_variogram(rust::Str model, double kappa, rust::Slice<const double> dist,
+                                    rust::Slice<const double> gamma, rust::Slice<const double> np, double nugget,
+                                    double psill, double range) {
+    check(dist.size() == gamma.size() && dist.size() == np.size(), "lengths differ");
+    const std::string m(model);
+    const sdm::VariogramFit f = sdm::fit_variogram(m.c_str(), kappa, dist.data(), gamma.data(), np.data(),
+                                                   static_cast<std::int64_t>(dist.size()), nugget, psill, range);
+    rust::Vec<double> out;
+    if (f.ok)
+        for (const double v : {f.nugget, f.psill, f.range, f.sserr}) out.push_back(v);
     return out;
 }
 

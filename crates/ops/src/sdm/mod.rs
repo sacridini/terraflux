@@ -7,6 +7,7 @@ pub mod extrapolation;
 pub mod folds;
 pub mod maxnet;
 pub mod points;
+pub mod predictors;
 pub mod workflow;
 
 use std::sync::Arc;
@@ -37,6 +38,9 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(Fit));
     r.add(Arc::new(Responses));
     r.add(Arc::new(Importance));
+    r.add(Arc::new(Vif));
+    r.add(Arc::new(SelectPredictors));
+    r.add(Arc::new(AutocorrelationRange));
 }
 
 fn bad(args: &Args, m: impl std::fmt::Display) -> Error {
@@ -1243,5 +1247,174 @@ impl Operator for Importance {
         t.rows = rows.iter().map(|r| vec![r.1, r.2]).collect();
         let names: Vec<&String> = rows.iter().map(|r| &r.0).collect();
         Ok(outputs([("importance", Value::Table(t)), ("predictors", Value::Json(serde_json::json!(names)))]))
+    }
+}
+
+/// The predictors' values for the selection: a stack's complete cells (clipped to an area; a sample on large
+/// grids) or a table's complete rows; and how to return the kept ones.
+fn selection_values(args: &Args) -> Result<(Frame, Option<Stack>)> {
+    let size: Option<usize> = match args.params.get("size") {
+        Some(serde_json::Value::Null) => None,
+        _ => Some(args.param("size", 5000)?),
+    };
+    let seed: i32 = args.param("seed", 1)?;
+    match args.get("env") {
+        Some(Value::Table(t)) => {
+            Ok((predictors::values_of_table(&table_frame(t), size, seed).map_err(|e| bad(args, e))?, None))
+        }
+        Some(Value::Stack(st)) => {
+            let names: Vec<String> = st.keys.iter().map(key_name).collect();
+            let layers: Vec<Vec<f64>> = st.layers.iter().map(|l| l.to_vec()).collect();
+            let (grid, layers) = match args.get("area") {
+                Some(Value::Vector(a)) => predictors::clip(&st.grid, &layers, a).map_err(|e| bad(args, e))?,
+                _ => ((*st.grid).clone(), layers),
+            };
+            let f = predictors::values_of_stack(&grid, &names, &layers, size, seed).map_err(|e| bad(args, e))?;
+            Ok((f, Some(st.clone())))
+        }
+        _ => Err(bad(args, "connect the predictors: a stack (by name) or a table")),
+    }
+}
+
+fn selection_settings(sig: OpSignature) -> OpSignature {
+    sig.input(PortSpec::new("env", Type::Any, "the predictors: a stack (by name) or a table"))
+        .input(PortSpec::optional("area", Type::Vector, "the area of the stack to look at"))
+        .param(PortSpec::optional("size", Type::Integer, "the cells sampled on large grids (default 5000; null: all)"))
+        .param(PortSpec::optional("seed", Type::Integer, "the seed of R's generator (default 1)"))
+}
+
+struct Vif;
+
+impl Operator for Vif {
+    fn signature(&self) -> OpSignature {
+        selection_settings(
+            OpSignature::new(
+                "sdm.vif",
+                "The variance inflation factor of every predictor (landschaft's vif, usdm's vif): 1 / (1 - R^2) of \
+                 its regression on the others (R's lm), over the cells of the stack (a sample of them on large \
+                 grids) or the rows of a table.",
+                Access::Global,
+            )
+            .output(PortSpec::new("vif", Type::Table, "a column per predictor, its VIF")),
+        )
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let (f, _) = selection_values(args)?;
+        let v = predictors::vif_of(&f, &(0..f.names.len()).collect::<Vec<_>>()).map_err(|e| bad(args, e))?;
+        let mut t = Table::new(f.names.clone());
+        t.rows = vec![v];
+        Ok(outputs([("vif", Value::Table(t))]))
+    }
+}
+
+struct SelectPredictors;
+
+impl Operator for SelectPredictors {
+    fn signature(&self) -> OpSignature {
+        selection_settings(
+            OpSignature::new(
+                "sdm.select_predictors",
+                "Predictors without collinearity (landschaft's select_predictors, usdm's vifcor and vifstep): the \
+                 most correlated pairs above a correlation dropped one by one (the one of larger VIF), then the \
+                 predictors of the largest VIF above a threshold; those to keep stay.",
+                Access::Global,
+            )
+            .output(PortSpec::new("env", Type::Any, "the predictors kept: a stack or a table"))
+            .output(PortSpec::new(
+                "selection",
+                Type::Any,
+                "kept, excluded (in order) and the kept ones' VIF",
+            )),
+        )
+        .param(PortSpec::optional("vif", Type::Number, "the VIF threshold (default 10; null: none)"))
+        .param(PortSpec::optional("cor", Type::Number, "the correlation threshold (default none)"))
+        .param(PortSpec::optional("keep", Type::Any, "the predictors to keep"))
+        .param(
+            PortSpec::optional("method", Type::Text, "of the correlation: pearson (default), spearman, kendall")
+                .choices(["pearson", "spearman", "kendall"]),
+        )
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let (f, stack) = selection_values(args)?;
+        let vif: Option<f64> = match args.params.get("vif") {
+            Some(serde_json::Value::Null) => None,
+            _ => Some(args.param("vif", 10.0)?),
+        };
+        let keep: Vec<String> = match args.params.get("keep") {
+            None | Some(serde_json::Value::Null) => Vec::new(),
+            Some(serde_json::Value::String(k)) => vec![k.clone()],
+            Some(_) => args.param("keep", vec![])?,
+        };
+        let method: String = args.param("method", "pearson".into())?;
+        let sel = predictors::select(&f, vif, args.opt_param("cor")?, &keep, &method).map_err(|e| bad(args, e))?;
+        let env = match (stack, args.get("env")) {
+            (Some(st), _) => {
+                let names: Vec<String> = st.keys.iter().map(key_name).collect();
+                let idx: Vec<usize> = sel.kept.iter().map(|k| names.iter().position(|n| n == k).unwrap()).collect();
+                Value::Stack(Stack {
+                    grid: st.grid.clone(),
+                    keys: idx.iter().map(|&i| st.keys[i].clone()).collect(),
+                    layers: idx.iter().map(|&i| st.layers[i].clone()).collect(),
+                })
+            }
+            (None, Some(Value::Table(t))) => {
+                let idx: Vec<usize> = (0..t.columns.len()).filter(|&c| sel.kept.contains(&t.columns[c])).collect();
+                let mut out = Table::new(idx.iter().map(|&c| t.columns[c].clone()).collect());
+                out.rows = t.rows.iter().map(|r| idx.iter().map(|&c| r[c]).collect()).collect();
+                Value::Table(out)
+            }
+            _ => unreachable!(),
+        };
+        let vifs: serde_json::Map<String, serde_json::Value> =
+            sel.kept.iter().zip(&sel.vif).map(|(k, v)| (k.clone(), serde_json::json!(v))).collect();
+        let selection = serde_json::json!({"kept": sel.kept, "excluded": sel.excluded, "vif": vifs});
+        Ok(outputs([("env", env), ("selection", Value::Json(selection))]))
+    }
+}
+
+struct AutocorrelationRange;
+
+impl Operator for AutocorrelationRange {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "sdm.autocorrelation_range",
+            "The range of spatial autocorrelation of the predictors (landschaft's autocorrelation_range, \
+             blockCV's cv_spatial_autocor): gstat's variograms (spherical, exponential, Gaussian and Matern) \
+             fitted to a sample of every layer, the best one's range; their median and the block size it gives \
+             for spatial blocks.",
+            Access::Global,
+        )
+        .input(PortSpec::new("env", Type::Any, "the predictors: a stack or a map"))
+        .output(PortSpec::new("range", Type::Number, "the median range (metres on lon/lat grids)"))
+        .output(PortSpec::new("block_size", Type::Number, "the size of spatial blocks (degrees on lon/lat grids)"))
+        .output(PortSpec::new("layers", Type::Table, "per layer: range, sill, nugget, kappa"))
+        .output(PortSpec::new("models", Type::Any, "per layer, the variogram model"))
+        .param(PortSpec::optional("n", Type::Integer, "the cells sampled per layer (default 5000)"))
+        .param(PortSpec::optional("seed", Type::Integer, "the seed of R's generator (default 1)"))
+        .param(PortSpec::optional("deg_to_metre", Type::Number, "metres per degree on lon/lat (111325)"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let (grid, layers) = layers_of(args, "env")?;
+        let layers: Vec<Vec<f64>> = layers.iter().map(|l| l.to_vec()).collect();
+        let (range, size, fits) = predictors::autocorrelation_range(
+            &grid,
+            &layers,
+            args.param("n", 5000)?,
+            args.param("seed", 1)?,
+            args.param("deg_to_metre", 111_325.0)?,
+        )
+        .map_err(|e| bad(args, e))?;
+        let mut t = Table::new(["range", "sill", "nugget", "kappa"].iter().map(|s| s.to_string()).collect());
+        t.rows = fits.iter().map(|f| vec![f.range, f.sill, f.nugget, f.kappa]).collect();
+        let models: Vec<&str> = fits.iter().map(|f| f.model).collect();
+        Ok(outputs([
+            ("range", Value::Number(range)),
+            ("block_size", Value::Number(size)),
+            ("layers", Value::Table(t)),
+            ("models", Value::Json(serde_json::json!(models))),
+        ]))
     }
 }

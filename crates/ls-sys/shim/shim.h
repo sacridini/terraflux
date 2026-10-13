@@ -116,6 +116,13 @@ rust::Vec<std::int64_t> rrng_sample_int(nlm::RRng& rng, std::int64_t n, std::int
 rust::Vec<std::int32_t> sdm_kmeans(nlm::RRng& rng, rust::Slice<const double> x, std::int64_t m, std::int64_t p,
                                    std::int32_t k, std::int32_t iter_max, std::int32_t nstart, std::int32_t algorithm);
 double sdm_r_sd(rust::Slice<const double> x);
+rust::Vec<double> sdm_vif(rust::Slice<const double> table, std::int64_t n, std::int64_t m,
+                          rust::Slice<const std::int64_t> which);
+rust::Vec<double> sdm_sample_variogram(rust::Slice<const double> x, rust::Slice<const double> y,
+                                       rust::Slice<const double> z, rust::Slice<const double> bounds, bool lonlat);
+rust::Vec<double> sdm_fit_variogram(rust::Str model, double kappa, rust::Slice<const double> dist,
+                                    rust::Slice<const double> gamma, rust::Slice<const double> np, double nugget,
+                                    double psill, double range);
 ThinOut sdm_thin_spthin(rust::Slice<const double> lon, rust::Slice<const double> lat, double max_km, std::int32_t reps,
                         std::int32_t seed);
 rust::Vec<double> cost_geodesic(rust::Slice<const double> lon1, rust::Slice<const double> lat1,

@@ -1,0 +1,186 @@
+{
+ "cases": [
+  {
+   "name": "vif_big",
+   "op": "sdm.vif",
+   "env": "big",
+   "params": {
+    "seed": 3
+   }
+  },
+  {
+   "name": "vif_geo",
+   "op": "sdm.vif",
+   "env": "geo",
+   "params": {
+    "seed": 3
+   }
+  },
+  {
+   "name": "vif_small",
+   "op": "sdm.vif",
+   "env": "small",
+   "params": {
+    "seed": 3
+   }
+  },
+  {
+   "name": "vif_table",
+   "op": "sdm.vif",
+   "env": "table",
+   "params": {
+    "seed": 3
+   }
+  },
+  {
+   "name": "sel_vif",
+   "op": "sdm.select_predictors",
+   "env": "big",
+   "params": {
+    "vif": 5.0,
+    "seed": 4
+   },
+   "kept": [
+    "p2",
+    "p3",
+    "p5"
+   ],
+   "excluded": [
+    "p4",
+    "p1"
+   ]
+  },
+  {
+   "name": "sel_cor",
+   "op": "sdm.select_predictors",
+   "env": "small",
+   "params": {
+    "vif": null,
+    "cor": 0.7,
+    "keep": [
+     "p1"
+    ]
+   },
+   "kept": [
+    "p1",
+    "p3",
+    "p5"
+   ],
+   "excluded": [
+    "p2",
+    "p4"
+   ]
+  },
+  {
+   "name": "sel_spearman",
+   "op": "sdm.select_predictors",
+   "env": "geo",
+   "params": {
+    "cor": 0.8,
+    "method": "spearman",
+    "vif": 3.0,
+    "seed": 5
+   },
+   "kept": [
+    "p2",
+    "p3",
+    "p5"
+   ],
+   "excluded": [
+    "p1",
+    "p4"
+   ]
+  },
+  {
+   "name": "sel_table",
+   "op": "sdm.select_predictors",
+   "env": "table",
+   "params": {
+    "vif": 4.0,
+    "cor": 0.95
+   },
+   "kept": [
+    "p2",
+    "p3",
+    "p5"
+   ],
+   "excluded": [
+    "p1",
+    "p4"
+   ]
+  },
+  {
+   "name": "sel_area",
+   "op": "sdm.select_predictors",
+   "env": "big",
+   "params": {
+    "vif": 5.0,
+    "area": true,
+    "seed": 6
+   },
+   "kept": [
+    "p2",
+    "p3",
+    "p5"
+   ],
+   "excluded": [
+    "p4",
+    "p1"
+   ]
+  },
+  {
+   "name": "auto_small",
+   "op": "sdm.autocorrelation_range",
+   "env": "small",
+   "params": {
+    "n": 400,
+    "seed": 7
+   },
+   "models": [
+    "Ste",
+    "Ste",
+    "Ste"
+   ]
+  },
+  {
+   "name": "auto_geo",
+   "op": "sdm.autocorrelation_range",
+   "env": "geo",
+   "params": {
+    "n": 300,
+    "seed": 8
+   },
+   "models": [
+    "Ste",
+    "Ste",
+    "Ste"
+   ]
+  }
+ ],
+ "transforms": {
+  "big": [
+   0.0,
+   100.0,
+   0.0,
+   9000.0,
+   0.0,
+   -100.0
+  ],
+  "geo": [
+   -60.0,
+   0.1,
+   0.0,
+   -10.0,
+   0.0,
+   -0.1
+  ],
+  "small": [
+   0.0,
+   100.0,
+   0.0,
+   5000.0,
+   0.0,
+   -100.0
+  ]
+ }
+}

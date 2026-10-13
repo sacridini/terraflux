@@ -1182,6 +1182,24 @@ pub mod ffi {
             nstart: i32,
             algorithm: i32,
         ) -> Result<Vec<i32>>;
+        /// usdm's VIF (1 / (1 - R^2), R's lm and summary.lm) of the columns `which` of an n x m table (row-major).
+        fn sdm_vif(table: &[f64], n: i64, m: i64, which: &[i64]) -> Result<Vec<f64>>;
+        /// gstat's sample variogram with given class bounds: per class the pairs, their mean distance and the
+        /// semivariance, one after the other.
+        fn sdm_sample_variogram(x: &[f64], y: &[f64], z: &[f64], bounds: &[f64], lonlat: bool) -> Result<Vec<f64>>;
+        /// gstat's fit.variogram (method 7) of a nugget plus one model: nugget, partial sill, range and the sum
+        /// of squared errors (empty when it fails).
+        #[allow(clippy::too_many_arguments)]
+        fn sdm_fit_variogram(
+            model: &str,
+            kappa: f64,
+            dist: &[f64],
+            gamma: &[f64],
+            np: &[f64],
+            nugget: f64,
+            psill: f64,
+            range: f64,
+        ) -> Result<Vec<f64>>;
         /// R's sd (80-bit mean and sum of squares).
         fn sdm_r_sd(x: &[f64]) -> f64;
         /// spThin's thin.algorithm on lon/lat records (great-circle distances of fields::rdist.earth), after
