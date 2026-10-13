@@ -22,7 +22,17 @@ minor versions.
   mask's polygons, features merged all or by an attribute, by GEOS through GDAL; the same features and areas as
   geopandas (`tools/make_vector_ops_reference.py`).
 
+- The colours of a map chosen by hand in the viewer (Colours: viridis, centred on 0, terrain, grey, red to green,
+  rank, each on a scale of logarithms or not), remembered for that output.
+- Circuit currents (current maps, flow potential) are shown on a scale of logarithms, as landschaft's plot.
+- What a map is travels with it: raster.write writes the product of GuidosToolbox a map is (MSPA, FAD, SPA...) as
+  `landschaft_product` in the GeoTIFF's metadata, as landschaft does, and rasters on disk that say so are shown
+  as that product whatever their name (`product` sets it by hand); MSPA by tiles writes it too. The dataset's
+  metadata items are read and written with the GeoTIFF (`GeoTags::metadata`).
+
 ### Changed
+- A continuous map's ramp spans its values' 2nd to 98th percentiles (98th of the absolute values centred on 0),
+  as landschaft's plot, no longer their least and most: a few outliers no longer wash it out.
 - `vector.zonal`'s statistics are worked out by a function the extraction in buffers shares.
 - The vector panel works out a layer's table, counts and grid once, not at every frame.
 

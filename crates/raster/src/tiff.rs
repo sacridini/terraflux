@@ -570,6 +570,23 @@ pub(crate) fn band_names(xml: &str, spp: usize) -> Vec<Option<String>> {
     names
 }
 
+/// The items of GDAL's metadata of the dataset (those without a band or a role).
+pub(crate) fn dataset_items(xml: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for item in xml.split("<Item").skip(1) {
+        let Some(close) = item.find('>') else { continue };
+        let attrs = &item[..close];
+        let Some(end) = item[close + 1..].find("</Item>") else { continue };
+        if attrs.contains("sample=") || attrs.contains("role=") {
+            continue;
+        }
+        let Some(i) = attrs.find("name=\"").map(|i| i + 6) else { continue };
+        let Some(j) = attrs[i..].find('"') else { continue };
+        out.push((attrs[i..i + j].to_string(), xml_unescape(&item[close + 1..close + 1 + end])));
+    }
+    out
+}
+
 /// An open TIFF file: its grid, type, no-data value and band names, and windows of its cells read on demand.
 pub struct Reader {
     file: File,
@@ -608,6 +625,7 @@ impl Reader {
             double_params: ifd.floats(GEO_DOUBLE_PARAMS, e)?,
             ascii_params: ifd.get(GEO_ASCII_PARAMS).map(|x| String::from_utf8_lossy(&x.data).into_owned()),
             wkt: None,
+            metadata: ifd.get(GDAL_METADATA).map(|x| dataset_items(&x.text())).unwrap_or_default(),
         };
         let transform = geotransform(&geo);
         let nodata = ifd.get(GDAL_NODATA).and_then(|x| parse_nodata(&x.text()));
@@ -869,8 +887,11 @@ fn grid_tags(tags: &mut Vec<(u16, Value)>, grid: &Grid, names: &[Option<String>]
     if let Some(a) = &g.ascii_params {
         tags.push((GEO_ASCII_PARAMS, Value::Ascii(a.trim_end_matches('\0').to_string())));
     }
-    if names.iter().any(Option::is_some) {
+    if names.iter().any(Option::is_some) || !g.metadata.is_empty() {
         let mut xml = String::from("<GDALMetadata>\n");
+        for (k, v) in &g.metadata {
+            xml.push_str(&format!("  <Item name=\"{}\">{}</Item>\n", xml_escape(k), xml_escape(v)));
+        }
         for (i, n) in names.iter().enumerate() {
             if let Some(n) = n {
                 xml.push_str(&format!(
@@ -1070,5 +1091,22 @@ impl TiledWriter {
         chunk_tags(&mut tags, TILE_OFFSETS, TILE_BYTE_COUNTS, offsets, counts, self.big);
         grid_tags(&mut tags, &self.grid, &self.names, self.nodata);
         finish(&mut self.out, self.pos, tags, self.big)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn dataset_metadata_items() {
+        let xml = "<GDALMetadata>
+  <Item name=\"landschaft_product\">MSPA</Item>
+  <Item name=\"mspa_connectivity\">8</Item>
+                     <Item name=\"DESCRIPTION\" sample=\"0\" role=\"description\">mspa &amp; more</Item>
+</GDALMetadata>";
+        assert_eq!(
+            super::dataset_items(xml),
+            vec![("landschaft_product".to_string(), "MSPA".to_string()), ("mspa_connectivity".into(), "8".into())]
+        );
+        assert_eq!(super::band_names(xml, 1), vec![Some("mspa & more".to_string())]);
     }
 }

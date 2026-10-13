@@ -391,6 +391,8 @@ pub struct Session {
     /// Whether the band chosen of the rasters shown was shown first already.
     pub preview_chosen: bool,
     pub preview_view: MapView,
+    /// The palettes chosen by hand for outputs shown: (node, port).
+    pub palettes: std::collections::HashMap<(String, String), crate::builder::Palette>,
     /// The vector layers drawn over the maps shown (they stay as other nodes are shown).
     pub preview_overlays: Vec<(String, String, crate::vector_tiles::Style)>,
     pub looks: Looks,
@@ -489,6 +491,7 @@ impl Session {
             preview_chosen: false,
             preview_view: MapView::default(),
             preview_overlays: Vec::new(),
+            palettes: Default::default(),
             looks: Looks::default(),
             auto: true,
             edited_at: None,
@@ -871,6 +874,7 @@ impl Session {
                     min: 0.0,
                     max: 1.0,
                     ramp: Default::default(),
+                    log: false,
                 });
                 Some((
                     m.clone(),

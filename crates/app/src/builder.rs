@@ -263,7 +263,21 @@ pub enum Palette {
     Vegetation,
     /// A priority rank (Zonation's): dark to red.
     Rank,
+    /// Circuit currents (Circuitscape's maps, flow potential): a ramp on a scale of logarithms, as landschaft's.
+    Current,
+    /// Chosen by hand: a ramp, on a scale of logarithms or not.
+    Chosen(Ramp, bool),
 }
+
+/// The ramps a map can be shown in by hand, by name.
+pub const RAMPS: [(&str, Ramp); 6] = [
+    ("viridis", Ramp::Viridis),
+    ("blue to red, centred on 0", Ramp::Diverging),
+    ("terrain", Ramp::Terrain),
+    ("grey", Ramp::Grey),
+    ("red to green", Ramp::Vegetation),
+    ("rank", Ramp::Rank),
+];
 
 impl Palette {
     /// The palette of what an operator gives (`made`, when it is a product of GuidosToolbox), `names` those of the
@@ -287,6 +301,10 @@ impl Palette {
             Palette::Product(Product::Accounting)
         } else if has("rank") || starts("priorit") {
             Palette::Rank
+        } else if !starts("voltage")
+            && (starts("current") || starts("curmap") || starts("currmap") || names.contains("flow_potential"))
+        {
+            Palette::Current
         } else if starts("hillshade") || has("shade") {
             Palette::Shade
         } else if has("dem")
@@ -315,6 +333,19 @@ impl Palette {
             Palette::Shade => ramp(Ramp::Grey),
             Palette::Vegetation => ramp(Ramp::Vegetation),
             Palette::Rank => ramp(Ramp::Rank),
+            Palette::Current => {
+                Look { coloring: Coloring::continuous(values, Ramp::Viridis, true), counts: Vec::new(), product: None }
+            }
+            Palette::Chosen(r, log) => {
+                // centred on 0 for the diverging ramp, over the percentiles for the others
+                let coloring = match (r, log, &auto.coloring) {
+                    (Ramp::Diverging, false, Coloring::Continuous { ramp: Ramp::Diverging, .. }) => {
+                        auto.coloring.clone()
+                    }
+                    _ => Coloring::continuous(values, r, log),
+                };
+                Look { coloring, counts: Vec::new(), product: None }
+            }
             Palette::Product(p) => {
                 let counts = class_counts(values);
                 // a file named so that is not the product's values: by its values
@@ -1240,7 +1271,13 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     }
     let k = sh.band.min(maps.len() - 1);
     // the colours by what the values are: the operator that made them, the names they come by
-    let (made, mut hint) = producer(s, &node, &port);
+    let (mut made, mut hint) = producer(s, &node, &port);
+    // rasters on disk that say what product they are (landschaft_product, as landschaft writes it)
+    if made.is_none()
+        && let Some(Source::Rasters(r, l)) = maps.get(sh.band.min(maps.len().saturating_sub(1)))
+    {
+        made = r.grid_of(*l).geo.item("landschaft_product").and_then(Product::from_tag);
+    }
     hint.push_str(&port);
     if let Source::Rasters(r, l) = &maps[k] {
         hint.push(' ');
@@ -1248,7 +1285,8 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         hint.push(' ');
         hint.push_str(&r.images[r.layers[*l].image].path().to_string_lossy());
     }
-    let palette = Palette::of(made, &hint);
+    // a palette chosen by hand for this output, else by what it is
+    let palette = s.palettes.get(&(node.clone(), port.clone())).copied().unwrap_or_else(|| Palette::of(made, &hint));
     let look = s.looks.get(ui.ctx(), &maps[k], palette);
     egui::Panel::right(egui::Id::new(("output side", salt)))
         .resizable(true)
@@ -1288,6 +1326,42 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     }
                 }
                 // the world under the data (web maps, by GDAL), the data over it
+                ui.add_space(8.0);
+                // the colours by hand (remembered for this output), or by what the values are
+                ui.add_space(8.0);
+                theme::section(ui, "Colours");
+                let key = (node.clone(), port.clone());
+                let chosen = s.palettes.get(&key).copied();
+                let shown = match chosen {
+                    Some(Palette::Chosen(r, log)) => {
+                        let name = RAMPS.iter().find(|(_, x)| *x == r).map_or("ramp", |(n, _)| n);
+                        if log { format!("{name}, logarithmic") } else { name.to_string() }
+                    }
+                    _ => "by what they are".to_string(),
+                };
+                let mut pick: Option<Option<Palette>> = None;
+                egui::ComboBox::from_id_salt(("colours", salt)).selected_text(shown).width(180.0).show_ui(ui, |ui| {
+                    if ui.selectable_label(chosen.is_none(), "by what they are").clicked() {
+                        pick = Some(None);
+                    }
+                    for (name, r) in RAMPS {
+                        for log in [false, true] {
+                            let label = if log { format!("{name}, logarithmic") } else { name.to_string() };
+                            if ui.selectable_label(chosen == Some(Palette::Chosen(r, log)), label).clicked() {
+                                pick = Some(Some(Palette::Chosen(r, log)));
+                            }
+                        }
+                    }
+                });
+                match pick {
+                    Some(Some(p)) => {
+                        s.palettes.insert(key, p);
+                    }
+                    Some(None) => {
+                        s.palettes.remove(&key);
+                    }
+                    None => {}
+                }
                 ui.add_space(8.0);
                 theme::section(ui, "Basemap");
                 let v = &mut sh.view;

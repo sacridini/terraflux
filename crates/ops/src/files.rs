@@ -447,6 +447,12 @@ impl Operator for Write {
             PortSpec::optional("type", Type::Text, "the cell type: u8, i16, i32, f32, f64...")
                 .choices(["u8", "i8", "u16", "i16", "u32", "i32", "u64", "i64", "f32", "f64"]),
         )
+        .param(PortSpec::optional(
+            "product",
+            Type::Text,
+            "the product of GuidosToolbox the map is (MSPA, FAD...), written as landschaft_product: by default that \
+             of the operator that made it",
+        ))
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
@@ -463,8 +469,9 @@ impl Operator for Write {
         if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
             std::fs::create_dir_all(dir).map_err(|e| Error::msg(format!("{}: {e}", dir.display())))?;
         }
+        let product: Option<String> = args.opt_param::<String>("product")?.filter(|p| !p.is_empty());
         if let Value::Raster(r) = value {
-            copy(r, &path, wanted)?;
+            copy_as(r, &path, wanted, product.as_deref())?;
             return Ok(outputs([("path", Value::Text(path.to_string_lossy().into_owned()))]));
         }
         let (grid, layers): (_, Vec<(Option<String>, &[f64])>) = match value {
@@ -488,8 +495,11 @@ impl Operator for Write {
         };
         let refs: Vec<&[f64]> = layers.iter().map(|(_, d)| *d).collect();
         let (dtype, nodata) = DataType::fitting(&refs, wanted);
+        // the product the values are, not that of the maps they were made from
+        let mut grid = grid.clone();
+        grid.geo.set_item("landschaft_product", product.as_deref());
         let raster = Raster {
-            grid: grid.clone(),
+            grid,
             bands: layers.into_iter().map(|(name, d)| Band { name, data: d.to_vec() }).collect(),
             dtype,
             nodata,
@@ -566,6 +576,11 @@ impl RowsWriter {
 /// Copy rasters on disk to a tiled GeoTIFF, a band per layer, a band of blocks at a time (whatever their size);
 /// in their type unless one is given.
 pub fn copy(r: &Rasters, path: &Path, wanted: Option<DataType>) -> Result<()> {
+    copy_as(r, path, wanted, None)
+}
+
+/// [`copy`], the product the rasters are written as landschaft_product (none: the files' own).
+pub fn copy_as(r: &Rasters, path: &Path, wanted: Option<DataType>, product: Option<&str>) -> Result<()> {
     const TILE: usize = 256;
     r.one_grid("writing them to one file")?;
     let (w, h) = (r.grid.width, r.grid.height);
@@ -578,7 +593,11 @@ pub fn copy(r: &Rasters, path: &Path, wanted: Option<DataType>) -> Result<()> {
     };
     let names = r.layers.iter().map(|l| Some(l.name.clone())).collect();
     let err = |e: terraflux_raster::Error| Error::msg(format!("{}: {e}", path.display()));
-    let mut out = TiledWriter::create(path, &r.grid, names, dtype, nodata, TILE, Some(6)).map_err(err)?;
+    let mut grid = (*r.grid).clone();
+    if product.is_some() {
+        grid.geo.set_item("landschaft_product", product);
+    }
+    let mut out = TiledWriter::create(path, &grid, names, dtype, nodata, TILE, Some(6)).map_err(err)?;
     for row in 0..h.div_ceil(TILE) {
         let rows = TILE.min(h - row * TILE);
         let win = Window { x0: 0, y0: (row * TILE) as i64, width: w, height: rows };

@@ -909,7 +909,7 @@ pub fn legend(ui: &mut Ui, coloring: &Coloring, counts: &[(f64, usize)], names: 
                 });
             }
         }
-        Coloring::Continuous { min, max, ramp } => {
+        Coloring::Continuous { min, max, ramp, log } => {
             let (r, _) = ui.allocate_exact_size(Vec2::new(160.0, 12.0), Sense::hover());
             let n = 32;
             for i in 0..n {
@@ -921,7 +921,8 @@ pub fn legend(ui: &mut Ui, coloring: &Coloring, counts: &[(f64, usize)], names: 
                     ramp.colour(i as f32 / (n - 1) as f32),
                 );
             }
-            ui.label(format!("{min:.4} to {max:.4}"));
+            let scale = if *log { "   (logarithmic)" } else { "" };
+            ui.label(format!("{min:.4} to {max:.4}{scale}"));
         }
     }
 }

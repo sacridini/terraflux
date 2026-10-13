@@ -129,8 +129,27 @@ fn along(stops: &[[f32; 3]], t: f32) -> Color32 {
 pub enum Coloring {
     /// A colour per class (classes not listed are grey).
     Classes(Vec<(f64, Color32)>),
-    /// From `min` to `max` along a ramp.
-    Continuous { min: f64, max: f64, ramp: Ramp },
+    /// From `min` to `max` along a ramp, on a scale of logarithms when `log` (values at or below 0 the first
+    /// colour).
+    Continuous { min: f64, max: f64, ramp: Ramp, log: bool },
+}
+
+/// The values' 2nd and 98th percentiles (numpy's, by linear interpolation) of the finite ones, of a sample of
+/// about a million when they are more; none when there is none.
+pub fn percentiles_2_98(values: &[f64]) -> Option<(f64, f64)> {
+    let step = values.len().div_ceil(1 << 20).max(1);
+    let mut v: Vec<f64> = values.iter().step_by(step).copied().filter(|x| x.is_finite()).collect();
+    if v.is_empty() {
+        return None;
+    }
+    let mut at = |p: f64| {
+        let h = p * (v.len() - 1) as f64;
+        let (lo, hi) = (h.floor() as usize, h.ceil() as usize);
+        let a = *v.select_nth_unstable_by(lo, f64::total_cmp).1;
+        let b = *v.select_nth_unstable_by(hi, f64::total_cmp).1;
+        a + (h - lo as f64) * (b - a)
+    };
+    Some((at(0.02), at(0.98)))
 }
 
 impl Coloring {
@@ -159,23 +178,59 @@ impl Coloring {
         }
         if whole && !classes.is_empty() {
             classes.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            Coloring::Classes(classes.into_iter().enumerate().map(|(i, c)| (c, class_colour(i))).collect())
-        } else if lo < 0.0 && hi > 0.0 && (-lo).min(hi) / (-lo).max(hi) > 0.2 {
-            let m = (-lo).max(hi);
-            Coloring::Continuous { min: -m, max: m, ramp: Ramp::Diverging }
-        } else {
-            Coloring::Continuous {
-                min: if lo.is_finite() { lo } else { 0.0 },
-                max: if hi.is_finite() { hi } else { 1.0 },
-                ramp: Ramp::Viridis,
-            }
+            return Coloring::Classes(classes.into_iter().enumerate().map(|(i, c)| (c, class_colour(i))).collect());
         }
+        // a ramp over the 2nd to the 98th percentiles (as landschaft's plot), centred on 0 when the values are on
+        // both sides of it, much of each
+        let (p2, p98) = percentiles_2_98(values).unwrap_or((lo, hi));
+        if lo < 0.0 && hi > 0.0 && p2 < 0.0 && p98 > 0.0 && (-p2).min(p98) / (-p2).max(p98) > 0.2 {
+            let abs: Vec<f64> = values.iter().map(|v| v.abs()).collect();
+            let m = percentiles_2_98(&abs).map_or((-lo).max(hi), |(_, m)| m);
+            return Coloring::Continuous { min: -m, max: m, ramp: Ramp::Diverging, log: false };
+        }
+        Coloring::continuous(values, Ramp::Viridis, false)
+    }
+
+    /// A ramp over the values' 2nd to 98th percentiles (of their logarithms, of the values above 0, with `log`);
+    /// the whole range when those are the same.
+    pub fn continuous(values: &[f64], ramp: Ramp, log: bool) -> Coloring {
+        let positive: Vec<f64>;
+        let of = if log {
+            positive = values.iter().copied().filter(|v| *v > 0.0).collect();
+            &positive[..]
+        } else {
+            values
+        };
+        let (lo, hi) = of
+            .iter()
+            .filter(|v| v.is_finite())
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), &v| (a.min(v), b.max(v)));
+        let (mut min, mut max) = percentiles_2_98(of).unwrap_or((lo, hi));
+        if max.is_nan() || min.is_nan() || max <= min {
+            (min, max) = (lo, hi);
+        }
+        if !min.is_finite() || !max.is_finite() {
+            (min, max) = if log { (1.0, 10.0) } else { (0.0, 1.0) };
+        }
+        Coloring::Continuous { min, max, ramp, log }
+    }
+
+    /// Where a value falls along a continuous colouring, 0 to 1 (out of the range clamped by the ramp).
+    pub fn position(min: f64, max: f64, log: bool, v: f64) -> f32 {
+        if log {
+            if v <= 0.0 {
+                return 0.0;
+            }
+            let (a, b) = (min.log10(), max.log10());
+            return if b > a { ((v.log10() - a) / (b - a)) as f32 } else { 0.5 };
+        }
+        if max > min { ((v - min) / (max - min)) as f32 } else { 0.5 }
     }
 
     /// This colouring with a ramp of its own, when it is continuous (the range stays).
     pub fn with_ramp(self, ramp: Ramp) -> Coloring {
         match self {
-            Coloring::Continuous { min, max, .. } => Coloring::Continuous { min, max, ramp },
+            Coloring::Continuous { min, max, log, .. } => Coloring::Continuous { min, max, ramp, log },
             c => c,
         }
     }
@@ -192,11 +247,12 @@ impl Coloring {
                     col.to_array().hash(&mut h);
                 }
             }
-            Coloring::Continuous { min, max, ramp } => {
+            Coloring::Continuous { min, max, ramp, log } => {
                 1u8.hash(&mut h);
                 min.to_bits().hash(&mut h);
                 max.to_bits().hash(&mut h);
                 ramp.hash(&mut h);
+                log.hash(&mut h);
             }
         }
         h.finish()
@@ -230,10 +286,7 @@ impl Coloring {
         }
         match self {
             Coloring::Classes(c) => c.iter().find(|(k, _)| *k == v).map_or(Color32::GRAY, |(_, col)| *col),
-            Coloring::Continuous { min, max, ramp } => {
-                let t = if max > min { ((v - min) / (max - min)) as f32 } else { 0.5 };
-                ramp.colour(t)
-            }
+            Coloring::Continuous { min, max, ramp, log } => ramp.colour(Coloring::position(*min, *max, *log, v)),
         }
     }
 }
@@ -242,7 +295,7 @@ impl Coloring {
 /// steps, so that a map is coloured without a search per cell.
 struct Lut {
     classes: Option<Box<[Color32; 256]>>,
-    ramp: Option<(f64, f64, Box<[Color32; 256]>)>,
+    ramp: Option<(f64, f64, bool, Box<[Color32; 256]>)>,
 }
 
 impl Lut {
@@ -255,12 +308,12 @@ impl Lut {
                 }
                 Lut { classes: Some(t), ramp: None }
             }
-            Coloring::Continuous { min, max, ramp } => {
+            Coloring::Continuous { min, max, ramp, log } => {
                 let mut t = Box::new([Color32::BLACK; 256]);
                 for (i, c) in t.iter_mut().enumerate() {
                     *c = ramp.colour(i as f32 / 255.0);
                 }
-                Lut { classes: None, ramp: Some((*min, *max, t)) }
+                Lut { classes: None, ramp: Some((*min, *max, *log, t)) }
             }
         }
     }
@@ -276,8 +329,8 @@ impl Lut {
             }
             return coloring.colour(v);
         }
-        if let Some((min, max, t)) = &self.ramp {
-            let f = if max > min { (v - min) / (max - min) } else { 0.5 };
+        if let Some((min, max, log, t)) = &self.ramp {
+            let f = Coloring::position(*min, *max, *log, v);
             return t[(f * 255.0).round().clamp(0.0, 255.0) as usize];
         }
         coloring.colour(v)
@@ -312,14 +365,29 @@ mod tests {
     #[test]
     fn classes_or_continuous() {
         assert!(matches!(Coloring::for_values(&[1.0, 2.0, f64::NAN, 2.0]), Coloring::Classes(c) if c.len() == 2));
-        assert!(
-            matches!(Coloring::for_values(&[0.5, 2.0]), Coloring::Continuous { min, max, ramp: Ramp::Viridis } if min == 0.5 && max == 2.0)
-        );
+        // the 2nd and 98th percentiles
+        assert!(matches!(
+            Coloring::for_values(&[0.5, 2.0]),
+            Coloring::Continuous { min, max, ramp: Ramp::Viridis, log: false } if (min - 0.53).abs() < 1e-9 && (max - 1.97).abs() < 1e-9
+        ));
         // on both sides of 0: centred on it
         assert!(matches!(
             Coloring::for_values(&[-0.5, 2.0, 0.25]),
-            Coloring::Continuous { min, max, ramp: Ramp::Diverging } if min == -2.0 && max == 2.0
+            Coloring::Continuous { min, max, ramp: Ramp::Diverging, .. } if (min + 1.94).abs() < 1e-9 && max == -min
         ));
+        // an outlier does not take the ramp
+        let mut v: Vec<f64> = (0..1000).map(|i| f64::from(i) / 10.0 + 0.05).collect();
+        v.push(1e9);
+        let Coloring::Continuous { max, .. } = Coloring::for_values(&v) else { panic!() };
+        assert!(max < 100.0);
+        // logarithms: the percentiles of the values above 0, and their positions
+        let Coloring::Continuous { min, max, log: true, .. } =
+            Coloring::continuous(&[0.0, 1.0, 10.0, 100.0, 1000.0], Ramp::Viridis, true)
+        else {
+            panic!()
+        };
+        assert!((Coloring::position(min, max, true, 100.0) - 0.68).abs() < 0.05, "{min} {max}");
+        assert_eq!(Coloring::position(min, max, true, -1.0), 0.0);
         // a little below 0 only: not
         assert!(matches!(Coloring::for_values(&[-0.1, 2.0, 0.5]), Coloring::Continuous { ramp: Ramp::Viridis, .. }));
         let many: Vec<f64> = (0..100).map(f64::from).collect();
@@ -337,7 +405,7 @@ mod tests {
         assert_eq!((step, full.size), (1, [100, 50]));
         assert_eq!(full.pixels[1], c.colour(1.0));
         assert_eq!(c.colour(f64::NAN), Color32::TRANSPARENT);
-        let r = Coloring::Continuous { min: 0.0, max: 10.0, ramp: Ramp::Viridis };
+        let r = Coloring::Continuous { min: 0.0, max: 10.0, ramp: Ramp::Viridis, log: false };
         let (img, _) = image(&[0.0, 10.0, 20.0, f64::NAN], 4, 1, 4096, &r);
         assert_eq!(img.pixels, vec![sequential(0.0), sequential(1.0), sequential(1.0), Color32::TRANSPARENT]);
         let odd = Coloring::for_values(&[-3.0, 300.0]);

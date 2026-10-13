@@ -62,6 +62,25 @@ pub struct GeoTags {
     /// (Always written: the workers' binary messages carry every field.)
     #[serde(default)]
     pub wkt: Option<String>,
+    /// The dataset's metadata items (GDAL_METADATA without a band), such as `landschaft_product`: the product of
+    /// GuidosToolbox (or of landschaft) the values are.
+    #[serde(default)]
+    pub metadata: Vec<(String, String)>,
+}
+
+impl GeoTags {
+    /// A metadata item's value.
+    pub fn item(&self, name: &str) -> Option<&str> {
+        self.metadata.iter().find(|(n, _)| n == name).map(|(_, v)| v.as_str())
+    }
+
+    /// The metadata with an item set (or taken out, with none).
+    pub fn set_item(&mut self, name: &str, value: Option<&str>) {
+        self.metadata.retain(|(n, _)| n != name);
+        if let Some(v) = value {
+            self.metadata.push((name.to_string(), v.to_string()));
+        }
+    }
 }
 
 impl GeoTags {

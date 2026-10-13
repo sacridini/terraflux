@@ -316,6 +316,7 @@ impl Engine {
             }
             obs.node(at);
             let before = warnings.len();
+            let node = &with_product(node, &model.nodes);
             let out = self.run_node(node, &env, inputs, at, obs, &mut warnings)?;
             let keep = print.is_some() && node.op != "raster.write" && !out.values().any(holds_rng);
             if let (Some(c), Some(p), true) = (cache, print, keep) {
@@ -383,6 +384,7 @@ impl Engine {
                 return Err(Error::Cancelled);
             }
             obs.node(&at);
+            let node = &with_product(node, nodes);
             let out = self.run_node(node, env, inputs, &at, obs, warnings)?;
             env.results.insert(node.id.clone(), out);
         }
@@ -520,6 +522,32 @@ impl Engine {
             out.insert(name, Value::Series(s));
         }
         Ok(out)
+    }
+}
+
+/// raster.write of a map an operator made as a product of GuidosToolbox (MSPA, FAD...): the product's tag given to
+/// it (written in the GeoTIFF as landschaft_product, as landschaft does), unless the node gives one.
+fn with_product<'a>(node: &'a Node, nodes: &[Node]) -> std::borrow::Cow<'a, Node> {
+    use std::borrow::Cow;
+    if node.op != "raster.write" || node.params.contains_key("product") {
+        return Cow::Borrowed(node);
+    }
+    let Some(terraflux_graph::Source::Ref(r)) = node.inputs.get("value") else { return Cow::Borrowed(node) };
+    let Ok(terraflux_graph::Ref::Port { node: from, port }) = terraflux_graph::Ref::parse(r) else {
+        return Cow::Borrowed(node);
+    };
+    let tag = nodes
+        .iter()
+        .find(|n| n.id == from)
+        .and_then(|p| terraflux_ops::landscape::Product::of(&p.op, &port, &p.params))
+        .and_then(|p| p.tag());
+    match tag {
+        Some(t) => {
+            let mut n = node.clone();
+            n.params.insert("product".into(), t.into());
+            Cow::Owned(n)
+        }
+        None => Cow::Borrowed(node),
     }
 }
 

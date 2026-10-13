@@ -162,7 +162,50 @@ pub enum Product {
     Resistance,
 }
 
+/// landschaft's names of its products (`landschaft_product`, written in its GeoTIFFs).
+const TAGS: [(&str, Product); 21] = [
+    ("MSPA", Product::Mspa),
+    ("SPA2", Product::Spa),
+    ("SPA3", Product::Spa),
+    ("SPA5", Product::Spa),
+    ("SPA6", Product::Spa),
+    ("ACCOUNTING", Product::Accounting),
+    ("FAD", Product::Density { five: false }),
+    ("FAD_MULTISCALE", Product::Density { five: false }),
+    ("FOS", Product::Density { five: false }),
+    ("FAD_CLASSES", Product::FadClasses),
+    ("CONTAGION", Product::Connectivity),
+    ("CLUSTERING", Product::Connectivity),
+    ("LANDSCAPE_MOSAIC", Product::Mosaic { classes: 19 }),
+    ("SIMPLE_CHANGE", Product::Change),
+    ("MORPHOLOGICAL_CHANGE", Product::Change),
+    ("FOS_CHANGE", Product::FosChange),
+    ("EUCLIDEAN_DISTANCE", Product::Distance),
+    ("INFLUENCE_ZONES", Product::Influence),
+    ("GTN_COMPONENTS", Product::GtnComponents),
+    ("GTN_IMPORTANCE", Product::GtnImportance),
+    ("RESISTANCE", Product::Resistance),
+];
+
 impl Product {
+    /// The product of a tag of landschaft's (`landschaft_product`).
+    pub fn from_tag(tag: &str) -> Option<Product> {
+        let t = tag.trim().to_uppercase();
+        if t.starts_with("ISOCHRONE") && !t.ends_with("COST") && !t.ends_with("LCP") {
+            return Some(Product::Isochrone);
+        }
+        TAGS.iter().find(|(k, _)| *k == t).map(|(_, p)| *p)
+    }
+
+    /// landschaft's tag of a product (the first of its names), for the GeoTIFFs written.
+    pub fn tag(self) -> Option<&'static str> {
+        match self {
+            Product::Isochrone => Some("ISOCHRONE_A"),
+            Product::Contortion => None,
+            p => TAGS.iter().find(|(_, q)| *q == p).map(|(k, _)| *k),
+        }
+    }
+
     /// The product of what an operator gives at a port, with the node's settings.
     pub fn of(op: &str, port: &str, params: &serde_json::Map<String, serde_json::Value>) -> Option<Product> {
         let int = |k: &str| params.get(k).and_then(|c| c.as_i64());

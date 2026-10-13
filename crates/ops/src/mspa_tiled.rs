@@ -204,7 +204,8 @@ fn to_file(
     overlap: usize,
     read: &dyn Fn(usize, usize, usize, usize) -> Result<Vec<u8>>,
 ) -> Result<()> {
-    let grid = r.grid_of(r.chosen).clone();
+    let mut grid = r.grid_of(r.chosen).clone();
+    grid.geo.set_item("landschaft_product", Some("MSPA"));
     let (ny, nx) = (grid.height, grid.width);
     let (rows, cols) = tiles_of(ny, nx, tile_size, overlap)?;
     let mut out = RowsWriter::create(path, &grid, "mspa", DataType::U8, None)?;
