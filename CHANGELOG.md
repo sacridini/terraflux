@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.45.0] - 2026-10-13
+
 ### Added
 - Habitat graphs of raster patches (landschaft's node_table, distance_table and HabitatGraph.from_raster, as
   Makurhini's nodesfile and distancefile): `conn.nodes` (each patch's area in a unit, or an attribute, weighted
