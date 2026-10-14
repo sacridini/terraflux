@@ -635,7 +635,7 @@ pub fn simulate(ctx: &mut Ctx, s: &Settings, args: &Args) -> Result<Run> {
     Ok(Run { maps, development, info })
 }
 
-struct Simulation;
+pub(crate) struct Simulation;
 
 impl Operator for Simulation {
     fn signature(&self) -> OpSignature {

@@ -1,0 +1,154 @@
+{
+ "format": "terraflux/1",
+ "name": "landschaft PatchGrowing model",
+ "description": "Written by landschaft's Model.save.",
+ "inputs": {
+  "start": {
+   "kind": "map",
+   "path": "model_data/start.tif",
+   "note": "the map the simulation starts from"
+  },
+  "drivers": {
+   "kind": "stack",
+   "path": "model_data/drivers.tif",
+   "note": "the explanatory variables"
+  },
+  "subregions": {
+   "kind": "map",
+   "path": "model_data/subregions.tif",
+   "note": "PatchGrowing's subregions"
+  },
+  "pressure": {
+   "kind": "map",
+   "path": "model_data/pressure.tif",
+   "note": "the development pressure at the start"
+  },
+  "end": {
+   "kind": "map",
+   "path": "end.tif",
+   "note": "the development observed at the end"
+  }
+ },
+ "nodes": [
+  {
+   "id": "simulation",
+   "op": "futures.calibrate",
+   "inputs": {
+    "landscape": "$start",
+    "drivers": "$drivers",
+    "subregions": "$subregions",
+    "pressure": "$pressure",
+    "end": "$end"
+   },
+   "params": {
+    "potential": {
+     "ids": [
+      30,
+      10,
+      20,
+      1
+     ],
+     "intercept": [
+      -2.6,
+      -2.2,
+      -2.9,
+      -2.5
+     ],
+     "devpressure": [
+      0.08,
+      0.11,
+      0.06,
+      0.09
+     ],
+     "predictors": [
+      "slope",
+      "road",
+      "forest"
+     ],
+     "coefficients": [
+      [
+       -0.06,
+       -0.0011,
+       -0.8
+      ],
+      [
+       -0.05,
+       -0.0009,
+       -1.1
+      ],
+      [
+       -0.07,
+       -0.0013,
+       -0.5
+      ],
+      [
+       -0.06,
+       -0.001,
+       -0.9
+      ]
+     ]
+    },
+    "demand": {
+     "subregions": [
+      1
+     ],
+     "rows": [
+      [
+       95.0
+      ],
+      [
+       87.0
+      ],
+      [
+       111.0
+      ],
+      [
+       83.0
+      ],
+      [
+       106.0
+      ]
+     ],
+     "years": [
+      2021.0,
+      2022.0,
+      2023.0,
+      2024.0,
+      2025.0
+     ],
+     "population": null
+    },
+    "neighborhood": 8,
+    "approach": "gravity",
+    "gamma": 1.5,
+    "scaling_factor": 1.0,
+    "num_neighbors": 4,
+    "seed_search": "probability",
+    "incentive_power": 1.0,
+    "compactness_means": [
+     0.2,
+     0.5
+    ],
+    "compactness_ranges": [
+     0.05,
+     0.2
+    ],
+    "discount_factors": [
+     0.5,
+     1.0
+    ],
+    "repeat": 2,
+    "seed": 3
+   },
+   "note": "FUTURES' patch growing (r.futures.simulation), every step in one run."
+  }
+ ],
+ "outputs": {
+  "table": {
+   "from": "simulation.table"
+  },
+  "library": {
+   "from": "simulation.library"
+  }
+ }
+}

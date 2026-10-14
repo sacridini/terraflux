@@ -709,7 +709,8 @@ Pendências:
 - **Validação de simulações (0.65.0, 2026-10-14):** `validate.three_map`, `validate.kappa`,
   `validate.error_budget`, `validate.futures` e `validate.futures_grid`, bit a bit com o landschaft.
 - **Entradas do FUTURES (0.66.0, 2026-10-14):** `futures.devpressure` e `futures.patch_library`, bit a bit com
-  o landschaft. Falta o `calibrate_patches` (roda o modelo FUTURES inteiro do Python do landschaft).
+  o landschaft. **Feito** (0.71.0): `futures.calibrate` (o `calibrate_patches`: as combinações simuladas pelo
+  `futures.simulation`), bit a bit com o landschaft.
 - **Matrizes e rasters do prioritize (0.67.0, 2026-10-14):** `prioritize.boundary_matrix`, `adjacency_matrix`,
   `connectivity_matrix`, `proximity_matrix`, `decay_connectivity`, `unit_points`, `coarsen`, `refine`,
   `binary_stack` e `protected_cells`, bit a bit com o landschaft.
@@ -726,8 +727,10 @@ Pendências:
   sistema dentro. No Linux, os testes de paridade passam, menos o último bit da libm da glibc (Dinamica EGO em
   Sibuyan, a declividade, o dAWF dos grafos, o alcance da autocorrelação) e o que pede o GDAL 3.9 (as áreas
   geodésicas) ou outro GEOS (um caso do ProtConn).
-- **Próximos (2026-10-14):** a assinatura dos instaladores e um ícone; do landschaft, o `calibrate_patches` do
-  FUTURES, os modelos do scikit-learn no `sdm.fit` e a ordem das células do GEOS nos mosaicos de Voronoi.
+- **Calibração do FUTURES (0.71.0, 2026-10-14):** `futures.calibrate` (r.futures.calib pelo `calibrate_patches`
+  do landschaft), a mesma tabela bit a bit.
+- **Próximos (2026-10-14):** a assinatura dos instaladores e um ícone; do landschaft, os modelos do scikit-learn
+  no `sdm.fit` e a ordem das células do GEOS nos mosaicos de Voronoi.
 
 - **A ponte do ls.simulate completa (branch `simulate-bridge`, 2026-10-13):** todo modelo do `ls.simulate` vai pelo
   `Model.save` e roda no Terraflux com os mesmos bits. Estimadores e outros potenciais sem forma fechada como
