@@ -688,8 +688,10 @@ Pendências:
   e `sdm.reference_data`; as tabelas do CoordinateCleaner dentro do executável, as camadas do Natural Earth
   baixadas no primeiro uso (o cache fixado por SHA-256); as mesmas marcas do landschaft.
 - **SDM — área acessível (0.58.0, 2026-10-14):** `sdm.accessible_area` (buffer, envoltória convexa, regiões),
-  o mesmo polígono do landschaft (as áreas a 1e-9; o GEOS do GDAL não dá os mesmos vértices). Falta do `sdm`:
-  `prepare`.
+  o mesmo polígono do landschaft (as áreas a 1e-9; o GEOS do GDAL não dá os mesmos vértices).
+- **SDM — preparação (0.59.0, 2026-10-14):** `sdm.prepare` (cada passo o nó do seu operador, uma semente), bit a
+  bit com o landschaft; o template "Species distribution model" no builder. O módulo `sdm` está no Terraflux,
+  menos o `download_gbif` (a API do GBIF) e os modelos do scikit-learn do `fit` (só o MaxNet).
 - **Próximos (2026-10-13):** os instaladores de macOS e Linux;
   `vector.exact_sum` e `vector.distance` fora da memória.
 

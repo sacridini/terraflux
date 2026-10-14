@@ -10,6 +10,7 @@ pub mod folds;
 pub mod maxnet;
 pub mod points;
 pub mod predictors;
+mod prepare;
 pub mod refdata;
 pub mod workflow;
 
@@ -48,6 +49,7 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(CleanOccurrences));
     r.add(Arc::new(ReferenceData));
     r.add(Arc::new(AccessibleArea));
+    r.add(Arc::new(prepare::Prepare));
 }
 
 fn bad(args: &Args, m: impl std::fmt::Display) -> Error {

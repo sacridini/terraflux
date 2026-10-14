@@ -1,0 +1,589 @@
+{
+ "env": {
+  "names": [
+   "bio1",
+   "bio5",
+   "bio6",
+   "bio7",
+   "bio8",
+   "bio9",
+   "bio12",
+   "bio16",
+   "bio17"
+  ],
+  "transform": [
+   0.5,
+   0.0,
+   -125.0,
+   0.0,
+   -0.5,
+   40.0
+  ]
+ },
+ "cases": {
+  "steps": {
+   "settings": {
+    "clean": false,
+    "thin": 50000,
+    "area": 800000,
+    "predictors": {
+     "vif": 10
+    },
+    "background": 1500,
+    "folds": 4,
+    "seed": 3
+   },
+   "predictors": [
+    "bio5",
+    "bio7",
+    "bio16",
+    "bio17"
+   ],
+   "report": [
+    [
+     "input",
+     116,
+     0,
+     ""
+    ],
+    [
+     "one per cell",
+     94,
+     22,
+     ""
+    ],
+    [
+     "thin",
+     84,
+     10,
+     "50000 m"
+    ],
+    [
+     "area",
+     84,
+     0,
+     ""
+    ],
+    [
+     "predictors",
+     84,
+     0,
+     "dropped bio1, bio6, bio8, bio9, bio12"
+    ],
+    [
+     "background",
+     84,
+     0,
+     "1500 points"
+    ],
+    [
+     "predictor values",
+     84,
+     0,
+     ""
+    ],
+    [
+     "folds",
+     84,
+     0,
+     "4 folds"
+    ]
+   ]
+  },
+  "defaults": {
+   "settings": {
+    "clean": false,
+    "background": 800,
+    "folds": false
+   },
+   "predictors": [
+    "bio5",
+    "bio7",
+    "bio8",
+    "bio16",
+    "bio17"
+   ],
+   "report": [
+    [
+     "input",
+     116,
+     0,
+     ""
+    ],
+    [
+     "one per cell",
+     94,
+     22,
+     ""
+    ],
+    [
+     "area",
+     94,
+     0,
+     "whole extent of the predictors"
+    ],
+    [
+     "predictors",
+     94,
+     0,
+     "dropped bio1, bio6, bio9, bio12"
+    ],
+    [
+     "background",
+     94,
+     0,
+     "800 points"
+    ],
+    [
+     "predictor values",
+     94,
+     0,
+     ""
+    ]
+   ]
+  },
+  "clean": {
+   "settings": {
+    "clean": {
+     "seas": false
+    },
+    "background": 600,
+    "folds": 3,
+    "seed": 2
+   },
+   "predictors": [
+    "bio5",
+    "bio7",
+    "bio8",
+    "bio16",
+    "bio17"
+   ],
+   "report": [
+    [
+     "input",
+     116,
+     0,
+     ""
+    ],
+    [
+     "clean",
+     114,
+     2,
+     "capitals 1, institutions 1"
+    ],
+    [
+     "one per cell",
+     93,
+     21,
+     ""
+    ],
+    [
+     "area",
+     93,
+     0,
+     "whole extent of the predictors"
+    ],
+    [
+     "predictors",
+     93,
+     0,
+     "dropped bio1, bio6, bio9, bio12"
+    ],
+    [
+     "background",
+     93,
+     0,
+     "600 points"
+    ],
+    [
+     "predictor values",
+     93,
+     0,
+     ""
+    ],
+    [
+     "folds",
+     93,
+     0,
+     "3 folds"
+    ]
+   ]
+  },
+  "given_area": {
+   "settings": {
+    "clean": false,
+    "_area": true,
+    "background": 700,
+    "folds": {
+     "method": "random",
+     "k": 4
+    }
+   },
+   "predictors": [
+    "bio5",
+    "bio7",
+    "bio16",
+    "bio17"
+   ],
+   "report": [
+    [
+     "input",
+     116,
+     0,
+     ""
+    ],
+    [
+     "one per cell",
+     94,
+     22,
+     ""
+    ],
+    [
+     "area",
+     94,
+     0,
+     ""
+    ],
+    [
+     "predictors",
+     94,
+     0,
+     "dropped bio1, bio6, bio8, bio9, bio12"
+    ],
+    [
+     "background",
+     94,
+     0,
+     "700 points"
+    ],
+    [
+     "predictor values",
+     94,
+     0,
+     ""
+    ],
+    [
+     "folds",
+     94,
+     0,
+     "4 folds"
+    ]
+   ]
+  },
+  "quadrants": {
+   "settings": {
+    "clean": false,
+    "background": 800,
+    "folds": {
+     "method": "quadrants"
+    },
+    "predictors": false
+   },
+   "predictors": [
+    "bio1",
+    "bio5",
+    "bio6",
+    "bio7",
+    "bio8",
+    "bio9",
+    "bio12",
+    "bio16",
+    "bio17"
+   ],
+   "report": [
+    [
+     "input",
+     116,
+     0,
+     ""
+    ],
+    [
+     "one per cell",
+     94,
+     22,
+     ""
+    ],
+    [
+     "area",
+     94,
+     0,
+     "whole extent of the predictors"
+    ],
+    [
+     "background",
+     94,
+     0,
+     "800 points"
+    ],
+    [
+     "predictor values",
+     94,
+     0,
+     ""
+    ],
+    [
+     "folds",
+     94,
+     0,
+     "4 folds"
+    ]
+   ]
+  },
+  "checkerboard": {
+   "settings": {
+    "clean": false,
+    "background": 800,
+    "folds": {
+     "method": "checkerboard",
+     "aggregation": 4
+    }
+   },
+   "predictors": [
+    "bio5",
+    "bio7",
+    "bio8",
+    "bio16",
+    "bio17"
+   ],
+   "report": [
+    [
+     "input",
+     116,
+     0,
+     ""
+    ],
+    [
+     "one per cell",
+     94,
+     22,
+     ""
+    ],
+    [
+     "area",
+     94,
+     0,
+     "whole extent of the predictors"
+    ],
+    [
+     "predictors",
+     94,
+     0,
+     "dropped bio1, bio6, bio9, bio12"
+    ],
+    [
+     "background",
+     94,
+     0,
+     "800 points"
+    ],
+    [
+     "predictor values",
+     94,
+     0,
+     ""
+    ],
+    [
+     "folds",
+     94,
+     0,
+     "2 folds"
+    ]
+   ]
+  },
+  "clusters": {
+   "settings": {
+    "clean": false,
+    "background": 500,
+    "folds": {
+     "method": "clusters",
+     "k": 4
+    },
+    "seed": 5
+   },
+   "predictors": [
+    "bio5",
+    "bio7",
+    "bio8",
+    "bio16",
+    "bio17"
+   ],
+   "report": [
+    [
+     "input",
+     116,
+     0,
+     ""
+    ],
+    [
+     "one per cell",
+     94,
+     22,
+     ""
+    ],
+    [
+     "area",
+     94,
+     0,
+     "whole extent of the predictors"
+    ],
+    [
+     "predictors",
+     94,
+     0,
+     "dropped bio1, bio6, bio9, bio12"
+    ],
+    [
+     "background",
+     94,
+     0,
+     "500 points"
+    ],
+    [
+     "predictor values",
+     94,
+     0,
+     ""
+    ],
+    [
+     "folds",
+     94,
+     0,
+     "4 folds"
+    ]
+   ]
+  },
+  "jackknife": {
+   "settings": {
+    "clean": false,
+    "thin": {
+     "distance": 200000,
+     "reps": 3
+    },
+    "background": 300,
+    "folds": {
+     "method": "jackknife"
+    },
+    "predictors": 5
+   },
+   "predictors": [
+    "bio5",
+    "bio7",
+    "bio8",
+    "bio16",
+    "bio17"
+   ],
+   "report": [
+    [
+     "input",
+     116,
+     0,
+     ""
+    ],
+    [
+     "one per cell",
+     94,
+     22,
+     ""
+    ],
+    [
+     "thin",
+     42,
+     52,
+     "200000 m"
+    ],
+    [
+     "area",
+     42,
+     0,
+     "whole extent of the predictors"
+    ],
+    [
+     "predictors",
+     42,
+     0,
+     "dropped bio1, bio6, bio9, bio12"
+    ],
+    [
+     "background",
+     42,
+     0,
+     "300 points"
+    ],
+    [
+     "predictor values",
+     42,
+     0,
+     ""
+    ],
+    [
+     "folds",
+     42,
+     0,
+     "42 folds"
+    ]
+   ]
+  },
+  "auto": {
+   "settings": {
+    "clean": false,
+    "background": 900,
+    "folds": {
+     "size": "auto",
+     "k": 3
+    },
+    "seed": 4
+   },
+   "predictors": [
+    "bio5",
+    "bio7",
+    "bio8",
+    "bio16",
+    "bio17"
+   ],
+   "report": [
+    [
+     "input",
+     116,
+     0,
+     ""
+    ],
+    [
+     "one per cell",
+     94,
+     22,
+     ""
+    ],
+    [
+     "area",
+     94,
+     0,
+     "whole extent of the predictors"
+    ],
+    [
+     "predictors",
+     94,
+     0,
+     "dropped bio1, bio6, bio9, bio12"
+    ],
+    [
+     "background",
+     94,
+     0,
+     "900 points"
+    ],
+    [
+     "predictor values",
+     94,
+     0,
+     ""
+    ],
+    [
+     "folds",
+     94,
+     0,
+     "3 folds"
+    ]
+   ]
+  }
+ }
+}

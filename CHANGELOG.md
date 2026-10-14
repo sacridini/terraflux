@@ -6,6 +6,17 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- The preparation of a species distribution model in one node (landschaft's prepare): `sdm.prepare` cleans the
+  records, keeps one per cell, thins them, draws the accessible area, selects the predictors in it, draws
+  background points in it, takes the predictors' values and makes the folds (spatial blocks, of the
+  autocorrelation range too, quadrants, a checkerboard, random, jackknife or clusters), each step the node of its
+  own with its settings and one seed; an area or background points of one's own in place of those steps; the
+  report of what each step removed and every setting. The same records, predictors, folds and report as
+  landschaft's, to the bit.
+- The builder's template "Species distribution model": predictors and presences drawn by chance, `sdm.prepare`,
+  MaxNet fitted over spatial folds and its map of suitability.
+
 ## [0.58.0] - 2026-10-14
 
 ### Added

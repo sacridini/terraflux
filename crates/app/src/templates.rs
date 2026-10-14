@@ -143,7 +143,7 @@ fn clue_s() -> Model {
     m
 }
 
-pub const TEMPLATES: [Template; 17] = [
+pub const TEMPLATES: [Template; 18] = [
     Template {
         name: "MSPA of a forest",
         build: None,
@@ -797,6 +797,77 @@ params = { title = "Share of each cell restored" }
 "#,
     },
     Template {
+        name: "Species distribution model",
+        build: None,
+        about: "three predictors drawn by chance, presences drawn where a species finds its conditions, their \
+                preparation in one node (a record per cell, the predictors without collinearity, background \
+                points, spatial blocks), MaxNet fitted with cross-validation and its map of suitability",
+        toml: r#"
+format = "terraflux/1"
+name = "Species distribution model"
+description = "A species distribution model with MaxNet: the records and predictors prepared in one node, the model fitted over spatial folds, the suitability mapped."
+
+[[nodes]]
+id = "temperature"
+op = "nlm.gaussian_field"
+params = { rows = 60, columns = 80, range = 14, seed = 21 }
+note = "A predictor drawn by chance (in its place, raster.read of a climate layer)."
+
+[[nodes]]
+id = "rainfall"
+op = "nlm.gaussian_field"
+params = { rows = 60, columns = 80, range = 22, seed = 22 }
+
+[[nodes]]
+id = "relief"
+op = "nlm.gaussian_field"
+params = { rows = 60, columns = 80, range = 6, seed = 23 }
+
+[[nodes]]
+id = "predictors"
+op = "stack.of"
+inputs = { temperature = "temperature.map", rainfall = "rainfall.map", relief = "relief.map" }
+
+[[nodes]]
+id = "suitability"
+op = "map.calc"
+inputs = { t = "temperature.map", r = "rainfall.map" }
+params = { expression = "exp(-((t - 0.6) ^ 2) / 0.02 - ((r - 0.5) ^ 2) / 0.05)" }
+note = "Where the species finds its conditions: warm cells of middling rainfall."
+
+[[nodes]]
+id = "presences"
+op = "sdm.background"
+inputs = { env = "predictors.stack", bias = "suitability.map" }
+params = { n = 120, seed = 3 }
+note = "Presences drawn by the suitability (in their place, vector.read of the records, e.g. a CSV of GBIF)."
+
+[[nodes]]
+id = "data"
+op = "sdm.prepare"
+inputs = { occurrences = "presences.points", env = "predictors.stack" }
+params = { clean = false, background = 800, folds = 4, seed = 1 }
+note = "The preparation (landschaft's prepare): a record per cell, the predictors without collinearity (VIF 10), 800 background points, 4 folds of spatial blocks. With lon/lat records clean = true runs CoordinateCleaner's tests; area = a distance in metres draws the background near the records. report: what each step removed."
+
+[[nodes]]
+id = "fit"
+op = "sdm.fit"
+inputs = { records = "data.records" }
+note = "MaxNet fitted on every fold and tested on the others (AUC, TSS, Boyce...), then on every record."
+
+[[nodes]]
+id = "predict"
+op = "sdm.maxnet_predict"
+inputs = { model = "fit.model", env = "data.env" }
+
+[[nodes]]
+id = "plot"
+op = "view.plot"
+inputs = { value = "predict.prediction" }
+params = { title = "Suitability (MaxNet, cloglog)" }
+"#,
+    },
+    Template {
         name: "Multi-action planning (prioriactions)",
         build: None,
         about: "six planning units, two species and a threat: which units to monitor and where to act against \
@@ -1068,5 +1139,18 @@ mod tests {
             };
             assert!(farming(&maps[2]) > farming(&maps[0]), "{name}: farming grows");
         }
+    }
+
+    /// The species distribution model template runs: a map of suitability from 0 to 1.
+    #[test]
+    fn sdm_template_runs() {
+        struct Quiet;
+        impl terraflux_exec::Observer for Quiet {}
+        let m = TEMPLATES.iter().find(|t| t.name == "Species distribution model").unwrap().model();
+        let out = terraflux_exec::Engine::default().run(&m, &Default::default(), &mut Quiet).unwrap();
+        let Some(terraflux_ops::Value::Map(p)) = out.get("predict.prediction") else { panic!("no prediction") };
+        assert!(p.data.iter().all(|v| (0.0..=1.0).contains(v)));
+        let Some(terraflux_ops::Value::Table(t)) = out.get("data.records") else { panic!("no records") };
+        assert!(t.columns.contains(&"fold".to_string()) && t.rows.len() > 800);
     }
 }

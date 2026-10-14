@@ -131,6 +131,13 @@ no console.
   changes, the ecosystems' risk of collapse and their targets.
 - **Multi-action planning (prioriactions):** which units to monitor and which actions against which threats to
   take (`prioritize.actions`), prioriactions's model bit for bit.
+- **Species distribution models:** the occurrence records cleaned by CoordinateCleaner's tests
+  (`sdm.clean_occurrences`), thinned, one per cell; the accessible area; the predictors without collinearity (usdm's
+  VIF) and their range of autocorrelation; background points (dismo's); folds for cross-validation (ENMeval's and
+  blockCV's); MaxNet fitted with cross-validation, its response curves and the importance of the predictors; its
+  evaluation (AUC, TSS, Boyce, thresholds) and extrapolation (MESS, MOP, ExDet). The whole preparation in one node
+  (`sdm.prepare`) or step by step; landschaft's results, mostly to the bit (the template "Species distribution
+  model").
 - **Vector features:** read and written by OGR (GeoPackage, Shapefile, GeoJSON...), drawn beside their
   attributes; burnt into maps as landschaft's rasterize, the statistics of maps in polygons, exactextractr's sums
   over polygons, distances to features; planning units of polygons for prioritizr's problems.
