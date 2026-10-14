@@ -6,6 +6,17 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Biodiverse's other imports (landschaft's BaseData.from_raster, from_vector, from_hex, from_h3 and
+  from_occurrences): `bio.raster` (a label per layer and its values as counts, a threshold for presences, larger
+  group cells; or the values as labels), `bio.vector` (points, lines and polygons over a fishnet of cells: the
+  cells they touch, or the area or length of their parts, GEOS through GDAL; counts from attributes, binarised),
+  `bio.hex` (hexagons, pointy or flat), `bio.h3` (H3 cells, their ids kept) and `bio.occurrences` (a GBIF download,
+  the zip or its table, a Darwin Core Archive with meta.xml, a delimited file or records with Darwin Core columns
+  such as `sdm.download_gbif`'s; cleaned as read_occurrences cleans them, read a line at a time through GDAL's
+  virtual file systems; in cells of degrees or of a projection). The same groups, labels, counts and coordinates
+  as landschaft's.
+
 ## [0.60.0] - 2026-10-14
 
 ### Added

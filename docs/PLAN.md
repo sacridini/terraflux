@@ -693,6 +693,9 @@ Pendências:
   bit com o landschaft; o template "Species distribution model" no builder.
 - **SDM — GBIF (0.60.0, 2026-10-14):** `sdm.download_gbif` (a API de busca do GBIF pelo HTTP do GDAL). O módulo
   `sdm` está no Terraflux, menos os modelos do scikit-learn do `fit` (só o MaxNet).
+- **Biodiversidade — importações (0.61.0, 2026-10-14):** `bio.raster`, `bio.vector` (linhas e polígonos numa
+  malha de células), `bio.hex`, `bio.h3` e `bio.occurrences` (downloads do GBIF e Darwin Core Archives, lidos linha
+  a linha pelo GDAL), iguais ao landschaft. Faltam do `bio`: as condições de shapefiles e os callables do Python.
 - **Próximos (2026-10-13):** os instaladores de macOS e Linux;
   `vector.exact_sum` e `vector.distance` fora da memória.
 

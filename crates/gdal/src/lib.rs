@@ -144,6 +144,10 @@ struct Api {
     CPLHTTPDestroyResult: unsafe extern "C" fn(*mut HttpResult),
     VSIFileFromMemBuffer: unsafe extern "C" fn(*const c_char, *mut u8, u64, c_int) -> H,
     VSIFCloseL: unsafe extern "C" fn(H) -> c_int,
+    VSIFOpenL: unsafe extern "C" fn(*const c_char, *const c_char) -> H,
+    VSIFReadL: unsafe extern "C" fn(*mut c_void, usize, usize, H) -> usize,
+    VSIReadDir: unsafe extern "C" fn(*const c_char) -> *mut *mut c_char,
+    CSLDestroy: unsafe extern "C" fn(*mut *mut c_char),
     VSIUnlink: unsafe extern "C" fn(*const c_char) -> c_int,
     GDALGetRasterColorTable: unsafe extern "C" fn(H) -> H,
     GDALGetColorEntryCount: unsafe extern "C" fn(H) -> c_int,
@@ -391,6 +395,10 @@ impl Gdal {
             CPLHTTPDestroyResult: f!(CPLHTTPDestroyResult),
             VSIFileFromMemBuffer: f!(VSIFileFromMemBuffer),
             VSIFCloseL: f!(VSIFCloseL),
+            VSIFOpenL: f!(VSIFOpenL),
+            VSIFReadL: f!(VSIFReadL),
+            VSIReadDir: f!(VSIReadDir),
+            CSLDestroy: f!(CSLDestroy),
             VSIUnlink: f!(VSIUnlink),
             GDALGetRasterColorTable: f!(GDALGetRasterColorTable),
             GDALGetColorEntryCount: f!(GDALGetColorEntryCount),
@@ -1671,6 +1679,61 @@ pub fn fetch(url: &str, options: &[&str]) -> Result<(i32, Vec<u8>)> {
     };
     unsafe { (g.api.CPLHTTPDestroyResult)(r) };
     out
+}
+
+/// A file read through GDAL's virtual file systems (`/vsizip/`, `/vsicurl/`...), a block at a time.
+pub struct VsiFile {
+    g: &'static Gdal,
+    h: H,
+}
+
+impl VsiFile {
+    pub fn open(path: &str) -> Result<VsiFile> {
+        let g = gdal().map_err(String::from)?;
+        unsafe { (g.api.CPLErrorReset)() };
+        let h = unsafe { (g.api.VSIFOpenL)(cstr(path).as_ptr(), cstr("rb").as_ptr()) };
+        if h.is_null() {
+            return Err(g.last_error(&format!("{path}: GDAL cannot open it")));
+        }
+        Ok(VsiFile { g, h })
+    }
+
+    /// Up to `buf.len()` bytes; 0 at the end.
+    pub fn read(&mut self, buf: &mut [u8]) -> usize {
+        unsafe { (self.g.api.VSIFReadL)(buf.as_mut_ptr() as *mut c_void, 1, buf.len(), self.h) }
+    }
+}
+
+impl std::io::Read for VsiFile {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        Ok(VsiFile::read(self, buf))
+    }
+}
+
+impl Drop for VsiFile {
+    fn drop(&mut self) {
+        unsafe { (self.g.api.VSIFCloseL)(self.h) };
+    }
+}
+
+/// The names in a folder of GDAL's virtual file systems (a zip's members: `/vsizip/file.zip`).
+pub fn read_dir(path: &str) -> Result<Vec<String>> {
+    let g = gdal().map_err(String::from)?;
+    let list = unsafe { (g.api.VSIReadDir)(cstr(path).as_ptr()) };
+    let mut out = Vec::new();
+    if !list.is_null() {
+        let mut k = 0;
+        loop {
+            let p = unsafe { *list.add(k) };
+            if p.is_null() {
+                break;
+            }
+            out.push(text(p));
+            k += 1;
+        }
+        unsafe { (g.api.CSLDestroy)(list) };
+    }
+    Ok(out)
 }
 
 /// An image file in memory (PNG, JPEG...) decoded by GDAL: its width, height and RGBA pixels.

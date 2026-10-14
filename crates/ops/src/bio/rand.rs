@@ -119,6 +119,7 @@ fn subset(
         },
         label_props: Vec::new(),
         group_props: if group_props { rows_of(&bd.group_props, groups) } else { Vec::new() },
+        grid: None,
     };
     (sub, groups.to_vec(), labels)
 }

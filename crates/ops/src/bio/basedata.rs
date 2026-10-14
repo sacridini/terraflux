@@ -36,6 +36,9 @@ pub struct BaseData {
     pub label_props: super::properties::Properties,
     #[serde(default)]
     pub group_props: super::properties::Properties,
+    /// A grid of hexagons or H3 cells the groups are the centres of (its kind, size, the cells' ids).
+    #[serde(default)]
+    pub grid: Option<serde_json::Value>,
 }
 
 /// POSIX round: halves away from zero.
@@ -158,6 +161,7 @@ impl BaseData {
             group_axes: g_order.iter().map(|&g| group_axes[g].clone()).collect(),
             label_props: Vec::new(),
             group_props: Vec::new(),
+            grid: None,
         })
     }
 

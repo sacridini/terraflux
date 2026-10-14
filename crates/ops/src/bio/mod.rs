@@ -5,6 +5,7 @@
 pub mod basedata;
 pub mod cluster;
 pub mod conditions;
+pub mod imports;
 pub mod names;
 pub mod perl;
 pub mod properties;
@@ -35,6 +36,11 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(Cluster { region_grower: true }));
     r.add(Arc::new(ReadProperties));
     r.add(Arc::new(ReadMatrix));
+    r.add(Arc::new(FromRaster));
+    r.add(Arc::new(FromVector));
+    r.add(Arc::new(FromHex));
+    r.add(Arc::new(FromH3));
+    r.add(Arc::new(FromOccurrences));
 }
 
 impl BaseData {
@@ -871,5 +877,309 @@ impl Operator for ReadMatrix {
         o.self_similarity = args.opt_param("self_similarity")?;
         let m = properties::read_matrix(&text, &o).map_err(fail)?;
         Ok(outputs([("matrix", Value::LabelMatrix(Arc::new(m)))]))
+    }
+}
+
+fn basedata_out(bd: BaseData) -> Outputs {
+    outputs([("basedata", Value::BaseData(Arc::new(bd)))])
+}
+
+fn two(args: &Args, name: &str) -> Result<Option<[f64; 2]>> {
+    match numbers(args, name)? {
+        None => Ok(None),
+        Some(v) if v.len() == 2 => Ok(Some([v[0], v[1]])),
+        Some(_) => Err(Error::msg(format!("node {:?}: {name}: two numbers (x and y)", args.node))),
+    }
+}
+
+struct FromRaster;
+
+impl Operator for FromRaster {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "bio.raster",
+            "A basedata of rasters read like Biodiverse's raster import (landschaft's BaseData.from_raster): each \
+             layer a label (its name) and the values its counts in the cells' groups (with a threshold, presence \
+             from species distribution models), or the values themselves labels, each cell counting 1; the cells \
+             snapped to the group cells (default the raster's).",
+            Access::Global,
+        )
+        .input(PortSpec::new("raster", Type::Any, "a stack (a label per layer) or a map"))
+        .output(PortSpec::new("basedata", Type::BaseData, "groups x labels sample counts"))
+        .param(PortSpec::optional("labels_as_bands", Type::Bool, "a label per layer (default true), else values"))
+        .param(PortSpec::optional("threshold", Type::Number, "values >= it count 1, others 0"))
+        .param(PortSpec::optional("cell_sizes", Type::Any, "[x, y] of the group cells (default the raster's)"))
+        .param(PortSpec::optional("cell_origins", Type::Any, "[x, y] (default 0)"))
+        .param(PortSpec::optional("given_label", Type::Text, "one label for every layer"))
+        .param(PortSpec::optional("label", Type::Text, "the label of a map (default its node's output name)"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let fail = |e: Error| Error::msg(format!("node {:?}: {e}", args.node));
+        let read;
+        let raster = match args.get("raster") {
+            Some(Value::Raster(r)) => {
+                read = Value::Stack(r.stack()?);
+                Some(&read)
+            }
+            v => v,
+        };
+        type Layers = Vec<(String, Arc<Vec<f64>>)>;
+        let (grid, layers): (Arc<Grid>, Layers) = match raster {
+            Some(Value::Stack(s)) => {
+                (s.grid.clone(), s.keys.iter().map(key_text).zip(s.layers.iter().cloned()).collect())
+            }
+            Some(_) => {
+                let m = args.map("raster")?;
+                (m.grid.clone(), vec![(args.param("label", "layer".to_string())?, m.data.clone())])
+            }
+            None => return Err(fail(Error::msg("connect a raster"))),
+        };
+        let refs: Vec<(String, &[f64])> = layers.iter().map(|(n, l)| (n.clone(), &l[..])).collect();
+        let o = imports::GridImport {
+            labels_as_bands: args.param("labels_as_bands", true)?,
+            threshold: args.opt_param("threshold")?,
+            cell_sizes: two(args, "cell_sizes")?,
+            cell_origins: two(args, "cell_origins")?.unwrap_or([0.0, 0.0]),
+            given_label: args.opt_param::<String>("given_label")?.filter(|l| !l.is_empty()),
+        };
+        Ok(basedata_out(imports::from_grid(&grid, &refs, &o, grid.geo.wkt.clone()).map_err(fail)?))
+    }
+}
+
+struct FromVector;
+
+impl Operator for FromVector {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "bio.vector",
+            "A basedata of vector features read like Biodiverse's feature import (landschaft's \
+             BaseData.from_vector): points in the cell holding them; lines and polygons over a fishnet of cells \
+             spanning the layer, every cell they touch counting 1, or (measure) the area or length of their part \
+             in it (GEOS through GDAL); the labels from attributes joined with ':'.",
+            Access::Global,
+        )
+        .input(PortSpec::new("features", Type::Vector, "points, lines or polygons"))
+        .output(PortSpec::new("basedata", Type::BaseData, "groups x labels sample counts"))
+        .param(PortSpec::new("label", Type::Any, "the label attribute(s)"))
+        .param(PortSpec::new("cell_sizes", Type::Any, "[x, y] in the features' units (0 keeps point coordinates)"))
+        .param(PortSpec::optional("cell_origins", Type::Any, "[x, y] (default 0)"))
+        .param(PortSpec::optional("count", Type::Any, "count attribute(s), summed (default 1, or the measure)"))
+        .param(
+            PortSpec::optional("measure", Type::Text, "none (the cells touched, default), area or length")
+                .choices(["none", "area", "length"]),
+        )
+        .param(PortSpec::optional("binarise", Type::Bool, "counts become 1"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let fail = |e: Error| Error::msg(format!("node {:?}: {e}", args.node));
+        let Some(Value::Vector(v)) = args.get("features") else { return Err(fail(Error::msg("connect features"))) };
+        let sizes = two(args, "cell_sizes")?.ok_or_else(|| fail(Error::msg("feature imports need two cell sizes")))?;
+        let measure: String = args.param("measure", "none".into())?;
+        let (labels, counts) = (texts(args, "label")?, texts(args, "count")?);
+        let o = imports::FeatureImport {
+            label_columns: &labels,
+            count_columns: &counts,
+            cell_sizes: sizes,
+            cell_origins: two(args, "cell_origins")?.unwrap_or([0.0, 0.0]),
+            measure: match measure.as_str() {
+                "none" | "" => None,
+                "area" => Some("area"),
+                "length" => Some("length"),
+                m => return Err(fail(Error::msg(format!("measure is none, area or length, not {m:?}")))),
+            },
+            binarise: args.param("binarise", false)?,
+        };
+        Ok(basedata_out(imports::from_features(v, &o).map_err(fail)?))
+    }
+}
+
+/// Records' coordinates (the columns given, else the points or the coordinate columns), labels and counts.
+fn grid_records(args: &Args, xname: &str, yname: &str) -> Result<(imports::Records, Option<String>)> {
+    let fail = |m: String| Error::msg(format!("node {:?}: {m}", args.node));
+    let occ = match args.get("records") {
+        Some(Value::Vector(v)) => crate::sdm::points::Occurrences::Vector(v.clone()),
+        Some(Value::Table(t)) => crate::sdm::points::Occurrences::Table(t.clone()),
+        _ => return Err(fail("connect the records: points or a table".into())),
+    };
+    let x: Option<String> = args.opt_param(xname)?;
+    let y: Option<String> = args.opt_param(yname)?;
+    let (xs, ys, crs) = occ.coordinates(x.as_deref(), y.as_deref()).map_err(fail)?;
+    let label_names = texts(args, "label")?;
+    if label_names.is_empty() {
+        return Err(fail("give the label column".into()));
+    }
+    let cols: Vec<Column> = label_names
+        .iter()
+        .map(|n| occ.column(n).ok_or_else(|| fail(format!("no column {n:?}"))))
+        .collect::<Result<_>>()?;
+    let refs: Vec<&Column> = cols.iter().collect();
+    let labels = (0..xs.len())
+        .map(|i| {
+            let text = |c: &Column| match c {
+                Column::Numbers(x) if x[i].is_nan() => String::new(),
+                Column::Numbers(x) => perl_number(x[i]),
+                Column::Texts(t) => t[i].clone(),
+            };
+            let joined = refs.iter().map(|c| csv_field(&text(c))).collect::<Vec<_>>().join(":");
+            if refs.len() <= 1 { dequote_element(&joined) } else { joined }
+        })
+        .collect();
+    let counts = match args.opt_param::<String>("count")?.filter(|c| !c.is_empty()) {
+        Some(c) => Some(crate::sdm::points::numbers(occ.column(&c).ok_or_else(|| fail(format!("no column {c:?}")))?)),
+        None => None,
+    };
+    Ok((imports::Records { x: xs, y: ys, labels, counts }, crs))
+}
+
+struct FromHex;
+
+impl Operator for FromHex {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "bio.hex",
+            "A basedata of records in a grid of hexagons (landschaft's BaseData.from_hex): the groups the centres \
+             of the hexagons (pointy or flat, of a circumradius) holding the records, so that Biodiverse's \
+             distance conditions work on them.",
+            Access::Global,
+        )
+        .input(PortSpec::new("records", Type::Any, "points, or a table with coordinate columns"))
+        .output(PortSpec::new("basedata", Type::BaseData, "groups x labels sample counts"))
+        .param(PortSpec::new("label", Type::Any, "the label column(s)"))
+        .param(PortSpec::new("size", Type::Number, "from a hexagon's centre to its vertices (projected units)"))
+        .param(PortSpec::optional("orientation", Type::Text, "pointy (default) or flat").choices(["pointy", "flat"]))
+        .param(PortSpec::optional("origin", Type::Any, "[x, y], a hexagon's centre (default 0)"))
+        .param(PortSpec::optional("count", Type::Text, "a count column (default 1 per record)"))
+        .param(PortSpec::optional("x", Type::Text, "the x column (default the points, or x, lon...)"))
+        .param(PortSpec::optional("y", Type::Text, "the y column"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let fail = |e: Error| Error::msg(format!("node {:?}: {e}", args.node));
+        let (records, crs) = grid_records(args, "x", "y")?;
+        let size: f64 = args.opt_param("size")?.ok_or_else(|| fail(Error::msg("set the size")))?;
+        let orientation: String = args.param("orientation", "pointy".into())?;
+        if orientation != "pointy" && orientation != "flat" {
+            return Err(fail(Error::msg("orientation is pointy or flat")));
+        }
+        let origin = two(args, "origin")?.unwrap_or([0.0, 0.0]);
+        Ok(basedata_out(imports::from_hex(records, size, orientation == "flat", origin, crs).map_err(fail)?))
+    }
+}
+
+struct FromH3;
+
+impl Operator for FromH3 {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "bio.h3",
+            "A basedata of lon/lat records in H3 cells (landschaft's BaseData.from_h3): the groups the centres of \
+             the cells of a resolution holding the records, the cells' ids kept.",
+            Access::Global,
+        )
+        .input(PortSpec::new("records", Type::Any, "points, or a table with lon/lat columns"))
+        .output(PortSpec::new("basedata", Type::BaseData, "groups x labels sample counts"))
+        .param(PortSpec::new("label", Type::Any, "the label column(s)"))
+        .param(PortSpec::new("resolution", Type::Integer, "H3's resolution, 0 to 15"))
+        .param(PortSpec::optional("count", Type::Text, "a count column (default 1 per record)"))
+        .param(PortSpec::optional("lon", Type::Text, "the longitude column (default the points, or lon...)"))
+        .param(PortSpec::optional("lat", Type::Text, "the latitude column"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let fail = |e: Error| Error::msg(format!("node {:?}: {e}", args.node));
+        let (mut records, crs) = grid_records(args, "lon", "lat")?;
+        crate::sdm::points::to_crs(&mut records.x, &mut records.y, crs.as_deref(), Some("EPSG:4326"))
+            .map_err(|e| fail(Error::msg(e)))?;
+        let res: u8 = args.opt_param("resolution")?.ok_or_else(|| fail(Error::msg("set the resolution")))?;
+        Ok(basedata_out(imports::from_h3(records, res).map_err(fail)?))
+    }
+}
+
+struct FromOccurrences;
+
+impl Operator for FromOccurrences {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "bio.occurrences",
+            "A basedata of occurrence records (landschaft's BaseData.from_occurrences and read_occurrences): a GBIF \
+             download (the zip or its table), a Darwin Core Archive (a zip or a folder with meta.xml), a \
+             delimited file, or records with Darwin Core columns (sdm.download_gbif's); those without a label or \
+             valid coordinates, absent, too uncertain, of other bases of record or with some GBIF issues left \
+             out, one per label and place; in cells (degrees, or of to_crs), read a line at a time.",
+            Access::Global,
+        )
+        .input(PortSpec::optional("occurrences", Type::Any, "records with Darwin Core columns, in place of a file"))
+        .output(PortSpec::new("basedata", Type::BaseData, "groups x labels sample counts"))
+        .param(PortSpec::optional("path", Type::Text, "the GBIF download, Darwin Core Archive or table"))
+        .param(PortSpec::new("cell_sizes", Type::Any, "[x, y]: degrees, or the units of to_crs"))
+        .param(PortSpec::optional("cell_origins", Type::Any, "[x, y] (default 0)"))
+        .param(PortSpec::optional("to_crs", Type::Text, "reproject the records first (EPSG:...)"))
+        .param(PortSpec::optional("label", Type::Any, "the column(s) naming the taxon (default species)"))
+        .param(PortSpec::optional("count", Type::Text, "the column of individuals (individualCount; default 1)"))
+        .param(PortSpec::optional("max_uncertainty", Type::Number, "drop records less precise (metres)"))
+        .param(PortSpec::optional("basis_of_record", Type::Any, "keep only these bases (HUMAN_OBSERVATION...)"))
+        .param(PortSpec::optional("exclude_issues", Type::Any, "drop records with any of these GBIF issues"))
+        .param(PortSpec::optional("present_only", Type::Bool, "drop the ABSENT records (default true)"))
+        .param(PortSpec::optional("drop_duplicates", Type::Bool, "one per label and place (default true)"))
+    }
+
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let fail = |e: Error| Error::msg(format!("node {:?}: {e}", args.node));
+        let mut label = texts(args, "label")?;
+        if label.is_empty() {
+            label = vec!["species".into()];
+        }
+        let bor = texts(args, "basis_of_record")?;
+        let count: Option<String> = args.opt_param::<String>("count")?.filter(|c| !c.is_empty());
+        let f = imports::OccurrenceFilter {
+            label: &label,
+            count: count.as_deref(),
+            max_uncertainty: args.opt_param("max_uncertainty")?,
+            basis_of_record: (args.params.get("basis_of_record").is_some_and(|v| !v.is_null()))
+                .then(|| bor.iter().map(|b| b.to_uppercase()).collect()),
+            exclude_issues: texts(args, "exclude_issues")?.into_iter().collect(),
+            present_only: args.param("present_only", true)?,
+            drop_duplicates: args.param("drop_duplicates", true)?,
+        };
+        let occ = match args.get("occurrences") {
+            Some(Value::Vector(v)) => imports::occurrences_of_columns(&v.attributes, v.len(), &f).map_err(fail)?,
+            Some(Value::Table(t)) => {
+                let cols: Vec<(String, Column)> = t
+                    .columns
+                    .iter()
+                    .enumerate()
+                    .map(|(j, n)| (n.clone(), Column::Numbers(t.rows.iter().map(|r| r[j]).collect())))
+                    .collect();
+                imports::occurrences_of_columns(&cols, t.rows.len(), &f).map_err(fail)?
+            }
+            Some(_) => return Err(fail(Error::msg("occurrences: records with Darwin Core columns"))),
+            None => {
+                let path: String = args.param("path", String::new())?;
+                if path.is_empty() {
+                    return Err(fail(Error::msg("choose the file, or connect the records")));
+                }
+                let (occ, bad) = imports::read_occurrences(&path, &f).map_err(fail)?;
+                if bad > 0 {
+                    ctx.warn(format!("node {:?}: {bad} lines with too many fields skipped", args.node));
+                }
+                occ
+            }
+        };
+        let sizes = numbers(args, "cell_sizes")?.ok_or_else(|| fail(Error::msg("set the cell sizes")))?;
+        let to_crs: Option<String> = args.opt_param::<String>("to_crs")?.filter(|c| !c.is_empty());
+        let bd =
+            imports::from_occurrences(occ, sizes, numbers(args, "cell_origins")?, to_crs.as_deref()).map_err(fail)?;
+        Ok(basedata_out(bd))
+    }
+}
+
+/// A stack's key as a label.
+fn key_text(k: &Key) -> String {
+    match k {
+        Key::Name(n) => n.clone(),
+        Key::Class(c) => perl_number(*c),
+        k => format!("{k:?}"),
     }
 }
