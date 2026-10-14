@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.69.0] - 2026-10-14
+
 ### Added
 - Multi-action planning on rasters (landschaft's actions_raster_data, after prioripy): `prioritize.actions_raster`
   takes the cells with a monitoring cost as the planning units, a layer per feature (its amounts) and per threat
