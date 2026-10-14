@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.65.0] - 2026-10-14
+
 ### Added
 - The comparisons of simulated and observed land change (landschaft's simulate): `validate.three_map` (lulcc's
   three-map comparison of Pontius et al. 2011 at blocks of several sizes, its table by landschaft's C++, the budget
