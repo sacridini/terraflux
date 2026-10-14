@@ -755,7 +755,7 @@ Pendências:
   `results`; o `ssh` do sistema (scripts POSIX pela entrada padrão, túnel `-L`), o coordenador e os workers do
   outro lado com `nohup` ou `sbatch` (Slurm), parados ao fim do lote; o "Run on" do painel de lotes e a seção de
   clusters no painel Computers.
-- **Várias máquinas — tiles sem armazenamento compartilhado (Unreleased, 2026-10-14):** os jobs `tiles-sent`: os
+- **Várias máquinas — tiles sem armazenamento compartilhado (0.78.0, 2026-10-14):** os jobs `tiles-sent`: os
   mapas como bundles; as camadas pelos seus tiles (`<i>.bin`, cada um um blob), com o manifesto (tile, hash) de cada
   camada na passada; o worker busca os tiles dos seus e dos vizinhos (todos, se o halo passa de um tile) numa pasta
   própria do cache e devolve por hash os que gravou, baixados para a pasta da camada; `--shared-disk` mantém o modo

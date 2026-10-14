@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.78.0] - 2026-10-14
+
 ### Changed
 - The tiled engine on many machines needs no storage in common: the model's maps go to the workers once (by
   hash), and the steps' layers by their tiles (a pass lists each layer's tiles and their hashes; a worker fetches
