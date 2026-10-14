@@ -1220,6 +1220,9 @@ pub mod ffi {
         /// CoordinateCleaner's outlier statistic of each record: the mean (or least) haversine distance in km to
         /// the records of its species at other places.
         fn sdm_outlier_statistic(lon: &[f64], lat: &[f64], use_min: bool) -> Result<Vec<f64>>;
+        /// GeographicLib's direct geodesic problem on WGS84 (its C library, geod_direct): the point at distance s
+        /// (metres) from each point at azimuth azi (degrees), lon and lat interleaved.
+        fn sdm_geod_direct(lon: &[f64], lat: &[f64], azi: &[f64], s: &[f64]) -> Result<Vec<f64>>;
         /// The same on the cells of a grid with their counts of records (cc_outl's raster variant).
         fn sdm_outlier_statistic_weighted(
             lon: &[f64],

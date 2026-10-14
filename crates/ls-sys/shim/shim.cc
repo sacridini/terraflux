@@ -276,6 +276,21 @@ rust::Vec<double> sdm_outlier_statistic(rust::Slice<const double> lon, rust::Sli
     return to_rust<double>(sdm::outlier_statistic(lon.data(), lat.data(), static_cast<std::int64_t>(lon.size()), use_min));
 }
 
+rust::Vec<double> sdm_geod_direct(rust::Slice<const double> lon, rust::Slice<const double> lat,
+                                  rust::Slice<const double> azi, rust::Slice<const double> s) {
+    const std::size_t n = lon.size();
+    check(lat.size() == n && azi.size() == n && s.size() == n, "coordinates of different lengths");
+    rust::Vec<double> out;
+    out.reserve(2 * n);
+    for (std::size_t i = 0; i < n; ++i) {
+        double x = 0.0, y = 0.0;
+        sdm::terra_direct(lon[i], lat[i], azi[i], s[i], x, y);
+        out.push_back(x);
+        out.push_back(y);
+    }
+    return out;
+}
+
 rust::Vec<double> sdm_outlier_statistic_weighted(rust::Slice<const double> lon, rust::Slice<const double> lat,
                                                  rust::Slice<const double> count, double within, bool use_min) {
     check(lon.size() == lat.size() && lon.size() == count.size(), "lengths differ");

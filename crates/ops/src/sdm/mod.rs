@@ -2,6 +2,7 @@
 //! (MESS, MOP, ExDet) and how well a model separates presences from the background (AUC, thresholds, Boyce,
 //! omission rates).
 
+pub mod area;
 pub mod clean;
 pub mod evaluate;
 pub mod extrapolation;
@@ -46,6 +47,7 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(AutocorrelationRange));
     r.add(Arc::new(CleanOccurrences));
     r.add(Arc::new(ReferenceData));
+    r.add(Arc::new(AccessibleArea));
 }
 
 fn bad(args: &Args, m: impl std::fmt::Display) -> Error {
@@ -1583,5 +1585,54 @@ impl Operator for ReferenceData {
         let name: String = args.param("name", String::new())?;
         let v = refdata::features(&name).map_err(|e| bad(args, e))?;
         Ok(outputs([("features", Value::Vector(Arc::new(v)))]))
+    }
+}
+
+struct AccessibleArea;
+
+impl Operator for AccessibleArea {
+    fn signature(&self) -> OpSignature {
+        coordinate_settings(
+            OpSignature::new(
+                "sdm.accessible_area",
+                "The area the species could have reached, where its background is drawn (landschaft's \
+                 accessible_area, the M of the BAM diagram): the land within a distance of the records (geodesic \
+                 circles, merged), their convex hull or the regions that hold them (widened by the distance if \
+                 given), cut at the antimeridian, within a mask.",
+                Access::Global,
+            )
+            .input(PortSpec::new("occurrences", Type::Any, "points, or a table with coordinate columns"))
+            .input(PortSpec::optional("regions", Type::Vector, "polygons (ecoregions, biomes...), for regions"))
+            .input(PortSpec::optional("within", Type::Vector, "polygons the area is cut to"))
+            .output(PortSpec::new("area", Type::Vector, "one (multi)polygon in lon/lat")),
+        )
+        .param(PortSpec::optional("method", Type::Text, "buffer (default), convex_hull or regions").choices([
+            "buffer",
+            "convex_hull",
+            "regions",
+        ]))
+        .param(PortSpec::optional("distance", Type::Number, "the radius in metres (required for buffer)"))
+        .param(PortSpec::optional("resolution", Type::Integer, "the vertices of each circle (default 64)"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let occ = occurrences(args, "occurrences")?;
+        let vector = |port: &str| match args.get(port) {
+            Some(Value::Vector(v)) => Some(v.clone()),
+            _ => None,
+        };
+        let (regions, within) = (vector("regions"), vector("within"));
+        let method: String = args.param("method", "buffer".into())?;
+        let s = area::Settings {
+            method: &method,
+            distance: args.opt_param("distance")?,
+            regions: regions.as_deref(),
+            within: within.as_deref(),
+            resolution: args.param("resolution", 64)?,
+        };
+        let x: Option<String> = args.opt_param("x")?;
+        let y: Option<String> = args.opt_param("y")?;
+        let v = area::accessible_area(&occ, &s, x.as_deref(), y.as_deref()).map_err(|e| bad(args, e))?;
+        Ok(outputs([("area", Value::Vector(Arc::new(v)))]))
     }
 }

@@ -127,6 +127,7 @@ struct Api {
     OGR_G_Intersects: unsafe extern "C" fn(H, H) -> c_int,
     OGR_G_Difference: unsafe extern "C" fn(H, H) -> H,
     OGR_G_MakeValid: unsafe extern "C" fn(H) -> H,
+    OGR_G_ConvexHull: unsafe extern "C" fn(H) -> H,
     /// GDAL 3.9 and later
     OGR_G_GeodesicArea: Option<unsafe extern "C" fn(H) -> f64>,
     OSRNewSpatialReference: unsafe extern "C" fn(*const c_char) -> H,
@@ -374,6 +375,7 @@ impl Gdal {
             OGR_G_Intersects: f!(OGR_G_Intersects),
             OGR_G_Difference: f!(OGR_G_Difference),
             OGR_G_MakeValid: f!(OGR_G_MakeValid),
+            OGR_G_ConvexHull: f!(OGR_G_ConvexHull),
             OGR_G_GeodesicArea: unsafe { lib.get(b"OGR_G_GeodesicArea ") }.ok().map(|s| *s),
             OSRNewSpatialReference: f!(OSRNewSpatialReference),
             OSRDestroySpatialReference: f!(OSRDestroySpatialReference),
@@ -1423,6 +1425,18 @@ pub fn make_valid(a: &Geometry) -> Result<Geometry> {
     let v = unsafe { (g.api.OGR_G_MakeValid)(h) };
     unsafe { (g.api.OGR_G_DestroyGeometry)(h) };
     from_ogr(g, v, "valid geometry")
+}
+
+/// The convex hull of a geometry (GEOS's through GDAL).
+pub fn convex_hull(a: &Geometry) -> Result<Geometry> {
+    let g = gdal().map_err(String::from)?;
+    if matches!(a, Geometry::Empty) {
+        return Ok(Geometry::Empty);
+    }
+    let h = ogr_geometry(g, a)?;
+    let v = unsafe { (g.api.OGR_G_ConvexHull)(h) };
+    unsafe { (g.api.OGR_G_DestroyGeometry)(h) };
+    from_ogr(g, v, "convex hull")
 }
 
 /// The geodesic areas (square metres) of polygons on the WGS84 ellipsoid, their coordinates taken to EPSG:4326 by

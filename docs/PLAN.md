@@ -686,8 +686,10 @@ Pendências:
   bit a bit.
 - **SDM — limpeza de registros (0.57.0, 2026-10-14):** `sdm.clean_occurrences` (os testes do CoordinateCleaner)
   e `sdm.reference_data`; as tabelas do CoordinateCleaner dentro do executável, as camadas do Natural Earth
-  baixadas no primeiro uso (o cache fixado por SHA-256); as mesmas marcas do landschaft. Faltam do `sdm`: a área
-  acessível e `prepare`.
+  baixadas no primeiro uso (o cache fixado por SHA-256); as mesmas marcas do landschaft.
+- **SDM — área acessível (0.58.0, 2026-10-14):** `sdm.accessible_area` (buffer, envoltória convexa, regiões),
+  o mesmo polígono do landschaft (as áreas a 1e-9; o GEOS do GDAL não dá os mesmos vértices). Falta do `sdm`:
+  `prepare`.
 - **Próximos (2026-10-13):** os instaladores de macOS e Linux;
   `vector.exact_sum` e `vector.distance` fora da memória.
 

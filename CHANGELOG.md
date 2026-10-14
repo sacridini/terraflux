@@ -6,6 +6,12 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- The area accessible to a species (landschaft's accessible_area): `sdm.accessible_area`, the land within a
+  distance of the records (geodesic circles, GeographicLib's, merged), their convex hull or the regions that hold
+  them (widened by a distance), cut at the antimeridian and folded back, within a mask; the polygon of landschaft
+  (its areas, planar and geodesic, to 1e-9; GEOS through GDAL, so not its vertices).
+
 ## [0.57.0] - 2026-10-14
 
 ### Added

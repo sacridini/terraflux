@@ -128,6 +128,8 @@ ThinOut sdm_thin_spthin(rust::Slice<const double> lon, rust::Slice<const double>
                         std::int32_t seed);
 CirclesOut sdm_circles(rust::Slice<const double> lon, rust::Slice<const double> lat, double d, rust::Str kind);
 rust::Vec<double> sdm_outlier_statistic(rust::Slice<const double> lon, rust::Slice<const double> lat, bool use_min);
+rust::Vec<double> sdm_geod_direct(rust::Slice<const double> lon, rust::Slice<const double> lat,
+                                  rust::Slice<const double> azi, rust::Slice<const double> s);
 rust::Vec<double> sdm_outlier_statistic_weighted(rust::Slice<const double> lon, rust::Slice<const double> lat,
                                                  rust::Slice<const double> count, double within, bool use_min);
 rust::Vec<double> cost_geodesic(rust::Slice<const double> lon1, rust::Slice<const double> lat1,
