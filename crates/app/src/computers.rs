@@ -58,6 +58,9 @@ pub struct Computers {
     /// A cluster being added, and what the checks of the clusters said (by name; checked in threads).
     draft: Option<Draft>,
     checks: std::sync::Arc<std::sync::Mutex<std::collections::BTreeMap<String, String>>>,
+    /// The server more cloud machines work for, and its address on the provider's network.
+    cloud_on: Option<String>,
+    cloud_at: String,
 }
 
 /// A cluster or server being added, as typed.
@@ -188,6 +191,8 @@ pub fn pane(ui: &mut Ui, c: &mut Computers) {
             lend_ui(ui, c);
             ui.add_space(12.0);
             clusters_ui(ui, c);
+            ui.add_space(12.0);
+            cloud_ui(ui, c);
             if let Some(e) = &c.error {
                 ui.add_space(6.0);
                 ui.colored_label(ui.visuals().error_fg_color, e);
@@ -501,4 +506,57 @@ fn clusters_ui(ui: &mut Ui, c: &mut Computers) {
         Some(false) => c.draft = None,
         None => {}
     }
+}
+
+fn cloud_ui(ui: &mut Ui, c: &mut Computers) {
+    use terraflux_dist::cloud::{Role, package_url, user_data};
+    theme::section(ui, "Machines rented in the cloud");
+    ui.label(
+        RichText::new(
+            "At any provider (AWS, Google Cloud, Azure, DigitalOcean, Hetzner...): create a Linux machine and paste this \
+             script as its \"user data\" (cloud-init); it installs Terraflux. Then add it above as a server (its \
+             address, the user the provider gives) and choose it in Run on.",
+        )
+        .weak(),
+    );
+    let url = package_url(terraflux_dist::coordinator::VERSION);
+    if ui.button("Copy the server's script").clicked() {
+        ui.ctx().copy_text(user_data(&Role::Server, &url));
+    }
+    let servers = terraflux_dist::remote::load(&crate::settings::data_dir());
+    if servers.is_empty() {
+        return;
+    }
+    ui.add_space(4.0);
+    ui.label(
+        RichText::new(
+            "More machines working for a server: the server's address on the provider's network (its private IP; the \
+             provider's firewall must let them reach its port).",
+        )
+        .weak(),
+    );
+    ui.horizontal(|ui| {
+        let shown = c.cloud_on.clone().unwrap_or_else(|| "a server".into());
+        egui::ComboBox::from_id_salt("cloud server").selected_text(shown).show_ui(ui, |ui| {
+            for p in &servers {
+                ui.selectable_value(&mut c.cloud_on, Some(p.name.clone()), &p.name);
+            }
+        });
+        ui.add(egui::TextEdit::singleline(&mut c.cloud_at).hint_text("10.0.0.5").desired_width(120.0));
+        let server = servers.iter().find(|p| Some(&p.name) == c.cloud_on.as_ref());
+        let ok = server.is_some() && !c.cloud_at.trim().is_empty();
+        if ui.add_enabled(ok, egui::Button::new("Copy a worker's script")).clicked()
+            && let Some(p) = server
+        {
+            let role = Role::Worker {
+                coordinator: format!("{}:{}", c.cloud_at.trim(), p.port),
+                code: p.code.clone(),
+                threads: None,
+            };
+            ui.ctx().copy_text(user_data(&role, &url));
+        }
+        if let Some(p) = server {
+            ui.label(RichText::new(format!("port {}", p.port)).weak());
+        }
+    });
 }

@@ -204,6 +204,26 @@ follows it again. SSH is the system's own, with the user's keys and `~/.ssh/conf
 password asked (a key, an agent). The profiles are kept in the user's application data (`clusters.toml`). In
 the application, the Computers pane adds and checks them, and "Many runs" offers them in **Run on**.
 
+## Machines rented in the cloud
+
+A provider's machines (AWS, Google Cloud, Azure, DigitalOcean, Hetzner...) are set up by the script the provider
+runs when it creates one (its "user data", cloud-init):
+
+```bash
+terraflux cloud-init > server.yaml                     # Terraflux installed (in /opt/terraflux)
+terraflux cluster add cloud --host ubuntu@203.0.113.7 --workers 16
+terraflux submit model.toml --replicates 1000 --on cloud --out replicates
+
+# more machines working for it: its address on the provider's network, its port and code taken from the profile
+terraflux cloud-init --worker --on cloud --coordinator 10.0.0.5 > worker.yaml
+```
+
+A worker machine keeps `terraflux worker` running as a service (`terraflux-worker`, started again if it stops
+and with the machine). The provider's firewall must let the workers reach the server's port (`terraflux cluster
+list` shows the profiles; the port is in `clusters.toml`). The script downloads the Linux package of this
+version of Terraflux from its release (`tools/make-linux-package.py`); `--package <url>` gives another place.
+In the application, the Computers pane copies both scripts.
+
 ## What travels
 
 | Message | From | To |

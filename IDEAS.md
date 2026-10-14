@@ -112,5 +112,5 @@ computadores"** e **"Emprestar este computador"**, nunca "coordenador", "porta" 
    workers, abre o túnel e traz os resultados.
 5. **Feito** (0.78.0). **Motor por tiles sem armazenamento compartilhado** (avançado): os workers recebem os mapas pelo coordenador e
    guardam as camadas dos passos nele, em vez de caminhos iguais em todas as máquinas.
-6. **Nuvem:** máquinas alugadas que viram workers com um script de inicialização (`cloud-init`) gerado pelo
+6. **Feito** (Unreleased). **Nuvem:** máquinas alugadas que viram workers com um script de inicialização (`cloud-init`) gerado pelo
    Terraflux, ligadas ao coordenador pelo código.

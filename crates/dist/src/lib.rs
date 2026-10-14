@@ -11,6 +11,7 @@ pub mod awake;
 pub mod batch;
 pub mod bundle;
 pub mod client;
+pub mod cloud;
 pub mod coordinator;
 pub mod discover;
 pub mod evaluate;

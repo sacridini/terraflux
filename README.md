@@ -275,6 +275,7 @@ started there for the batch, reached through a tunnel, stopped after it):
 ```bash
 terraflux cluster add hpc --host me@login.cluster.edu --slurm --nodes 4 --cpus 32 --time 02:00:00
 terraflux submit model.toml --replicates 500 --on hpc --out replicates
+terraflux cloud-init > server.yaml        # a machine rented in the cloud: its setup script (cloud-init)
 ```
 
 ## Maps larger than memory

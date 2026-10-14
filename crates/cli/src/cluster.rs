@@ -489,3 +489,35 @@ pub fn cluster(c: ClusterCommand) -> Result<()> {
     }
     Ok(())
 }
+
+/// The cloud-init user data of a server, or of a worker for a coordinator.
+pub fn cloud_init(
+    worker: bool,
+    coordinator: Option<String>,
+    on: Option<String>,
+    code: Option<String>,
+    threads: Option<usize>,
+    package: Option<String>,
+) -> Result<String> {
+    use terraflux_dist::cloud::{Role, package_url, user_data};
+    let url = package.unwrap_or_else(|| package_url(coordinator::VERSION));
+    let role = if worker {
+        let at =
+            coordinator.context("--worker needs --coordinator (the server's address on the provider's network)")?;
+        let (at, code) = match on {
+            Some(name) => {
+                let p = profile(&name)?;
+                let at = if at.contains(':') { at } else { format!("{at}:{}", p.port) };
+                (at, p.code)
+            }
+            None => (at, Code::parse(&code.context("give --on <server> or --code")?)?.to_string()),
+        };
+        if !at.contains(':') {
+            bail!("give the coordinator's port: --coordinator host:port (or --on <server>)");
+        }
+        Role::Worker { coordinator: at, code, threads }
+    } else {
+        Role::Server
+    };
+    Ok(user_data(&role, &url))
+}

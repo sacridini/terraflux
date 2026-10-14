@@ -180,6 +180,28 @@ enum Command {
     /// Clusters and servers reached by SSH: saved once, used by `submit --on`, `calibrate --on`, `results --on`.
     #[command(subcommand)]
     Cluster(cluster::ClusterCommand),
+    /// The setup script (cloud-init user data) of a machine rented in the cloud: a server with Terraflux (then
+    /// `terraflux cluster add`), or, with --worker, a machine working for a server's coordinator.
+    CloudInit {
+        /// A machine working for a coordinator (its address on the provider's network, --coordinator).
+        #[arg(long)]
+        worker: bool,
+        /// The coordinator: `host:port`, or the host of a server saved (--on) whose port is taken.
+        #[arg(long)]
+        coordinator: Option<String>,
+        /// The server saved whose coordinator the worker works for (its code and port).
+        #[arg(long)]
+        on: Option<String>,
+        /// The coordinator's code (without --on).
+        #[arg(long)]
+        code: Option<String>,
+        /// The threads of each task of the worker.
+        #[arg(long)]
+        threads: Option<usize>,
+        /// Where the Linux package of Terraflux is downloaded from (default: this version's release).
+        #[arg(long)]
+        package: Option<String>,
+    },
     /// Resample a raster to the grid of another (of the same coordinate reference system).
     Resample {
         input: PathBuf,
@@ -502,6 +524,9 @@ fn main() -> Result<()> {
             rt()?.block_on(cluster::worker(coordinator, code, name, cache, idle, threads))?
         }
         Command::Cluster(c) => cluster::cluster(c)?,
+        Command::CloudInit { worker, coordinator, on, code, threads, package } => {
+            print!("{}", cluster::cloud_init(worker, coordinator, on, code, threads, package)?)
+        }
         Command::Workers { coordinator, code } => rt()?.block_on(cluster::workers(coordinator, code))?,
         Command::Jobs { coordinator, code } => rt()?.block_on(cluster::jobs(coordinator, code))?,
         Command::Results { job, on, coordinator, code, out } => {

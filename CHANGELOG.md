@@ -6,6 +6,13 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Machines rented in the cloud: `terraflux cloud-init` writes the setup script (cloud-init user data) of a server
+  (Terraflux installed from the Linux package of this version, then saved with `terraflux cluster add`) or, with
+  `--worker`, of a machine that keeps a worker running as a service for a server's coordinator (`--on <server>
+  --coordinator <its private address>`: its port and code from the profile). In the application, the Computers
+  pane copies both scripts.
+
 ## [0.78.0] - 2026-10-14
 
 ### Changed
