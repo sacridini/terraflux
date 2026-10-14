@@ -292,10 +292,11 @@ the tiles, so with the same fitted pieces the same seed gives the same maps what
 of machines, statistically equivalent to the exact engine's (the same areas of change, a similar fuzzy
 similarity). Patches grow within `--radius` cells of their seed.
 
-On many machines, the tiles go to a coordinator's workers, the maps and the layers on storage they share:
+On many machines, the tiles go to a coordinator's workers; the maps and the layers' tiles go to them through
+the coordinator (no storage in common needed; `--shared-disk` when they share it at the same paths):
 
 ```bash
-terraflux run model.toml --tiled --disk /shared/layers --coordinator http://coordinator-host:7700
+terraflux run model.toml --tiled --disk layers --coordinator http://coordinator-host:7700
 ```
 
 Landscape metrics read a map larger than memory by blocks of rows (`block_rows` on `metrics.patch`,

@@ -301,8 +301,13 @@ async fn serve(url: &str, opts: &Options, stop: &AtomicBool) -> Ended {
         // the computer kept awake while it works
         let _awake = crate::awake::Awake::hold();
         let t0 = Instant::now();
-        let (result, payload) = if task.kind == "tiles" {
-            match tiles(&mut client, opts, &id, &task).await {
+        let (result, payload) = if task.kind == "tiles" || task.kind == crate::tiles::SENT {
+            let r = if task.kind == "tiles" {
+                tiles(&mut client, opts, &id, &task).await
+            } else {
+                tiles_sent(&mut client, opts, &id, &task).await
+            };
+            match r {
                 Ok(p) => (Ok((String::new(), Vec::new(), Vec::new())), p),
                 Err(e) => (Err(e), Vec::new()),
             }
@@ -377,6 +382,105 @@ async fn tiles(client: &mut Conn, opts: &Options, id: &str, task: &TaskAssignmen
     done.store(true, Ordering::Relaxed);
     beat.abort();
     r
+}
+
+/// A tile of a layer in a worker's folder of the layer, fetched by its hash unless it is there (a `<i>.hash`
+/// beside it says which it is).
+async fn tile_here(client: &mut Conn, store: &crate::store::Store, dir: &Path, i: usize, hash: &str) -> Result<()> {
+    let mark = dir.join(format!("{i}.hash"));
+    if std::fs::read_to_string(&mark).is_ok_and(|h| h == hash) && dir.join(format!("{i}.bin")).exists() {
+        return Ok(());
+    }
+    let blob = bundle::fetch(client, store, hash).await?;
+    let tmp = dir.join(format!("{i}.{}-{}.part", std::process::id(), crate::unique()));
+    std::fs::copy(&blob, &tmp)?;
+    std::fs::rename(&tmp, dir.join(format!("{i}.bin")))?;
+    std::fs::write(mark, hash)?;
+    Ok(())
+}
+
+/// A pass of the tiled engine whose maps and layers come through the coordinator: the job's files from the
+/// cache, the layers' tiles of these tiles and their neighbours fetched into folders of the cache, the pass run,
+/// and the tiles it wrote sent back.
+async fn tiles_sent(client: &mut Conn, opts: &Options, id: &str, task: &TaskAssignment) -> Result<Vec<u8>> {
+    use terraflux_engine::pass::{Job, decode, encode};
+    use terraflux_engine::tiles::Spec;
+    let e = |x: terraflux_engine::Error| Error::Other(x.to_string());
+    let sent: crate::tiles::SentJob = decode(&task.payload).map_err(e)?;
+    let mut job: Job = decode(&sent.job).map_err(e)?;
+    let chosen: Vec<usize> = decode(&task.task_payload).map_err(e)?;
+    let store = crate::store::Store::open(opts.cache.join("blobs"))?;
+    let tiling = job.tiling();
+    let near = crate::tiles::around(&chosen, &tiling, 1);
+    let mut layers = sent.layers.iter();
+    let mut dirs: Vec<(String, PathBuf, BTreeMap<usize, String>)> = Vec::new();
+    for s in &mut job.sources {
+        match s {
+            Spec::File { path, .. } => {
+                *path = PathBuf::from(bundle::local(client, &opts.cache, &path.to_string_lossy()).await?);
+            }
+            Spec::Layer { dir, .. } => {
+                let l = layers.next().ok_or_else(|| Error::Other("a layer of the pass was not listed".into()))?;
+                // a folder of this worker's (workers may share a cache), with no tile the layer does not have
+                let mine = crate::hash(opts.name.as_bytes());
+                let here = opts.cache.join("layers").join(&mine[..12]).join(&crate::hash(l.key.as_bytes())[..20]);
+                std::fs::create_dir_all(&here)?;
+                let tiles: BTreeMap<usize, String> = l.tiles.iter().cloned().collect();
+                for (i, f) in crate::tiles::tile_files(&here) {
+                    if !tiles.contains_key(&i) {
+                        let _ = std::fs::remove_file(f);
+                        let _ = std::fs::remove_file(here.join(format!("{i}.hash")));
+                    }
+                }
+                for i in &near {
+                    if let Some(h) = tiles.get(i) {
+                        tile_here(client, &store, &here, *i, h).await?;
+                    }
+                }
+                *dir = here.clone();
+                dirs.push((l.key.clone(), here, tiles));
+            }
+        }
+    }
+    let (done, beat) = heartbeats(client, id, opts.heartbeat);
+    let threads = opts.threads;
+    let run = |job: Job, chosen: Vec<usize>| {
+        tokio::task::spawn_blocking(move || {
+            terraflux_ops::threads::ensure();
+            terraflux_ops::threads::set_kernel_threads(threads);
+            job.run(&chosen)
+        })
+    };
+    let mut part =
+        run(job.clone(), chosen.clone()).await.map_err(|x| Error::Other(format!("the task stopped: {x}")))?;
+    // a halo wider than a tile: every tile of the layers, and again
+    if let Err(x) = &part
+        && x.to_string().contains("was not computed")
+    {
+        for (_, here, tiles) in &dirs {
+            for (i, h) in tiles {
+                tile_here(client, &store, here, *i, h).await?;
+            }
+        }
+        part = run(job, chosen).await.map_err(|x| Error::Other(format!("the task stopped: {x}")))?;
+    }
+    let part = part.map_err(e)?;
+    // the tiles written here: those without the mark of a tile fetched
+    let mut written = Vec::new();
+    for (key, here, _) in &dirs {
+        for (i, f) in crate::tiles::tile_files(here) {
+            let mark = here.join(format!("{i}.hash"));
+            if mark.exists() {
+                continue;
+            }
+            let h = bundle::send_file(client, &f).await?;
+            std::fs::write(&mark, &h)?;
+            written.push((key.clone(), i, h));
+        }
+    }
+    done.store(true, Ordering::Relaxed);
+    beat.abort();
+    encode(&crate::tiles::SentPart { part: encode(&part).map_err(e)?, written }).map_err(e)
 }
 
 async fn work(

@@ -212,8 +212,9 @@ the application, the Computers pane adds and checks them, and "Many runs" offers
 | the files the model reads (once, by hash, in pieces) | client | coordinator, then each worker once |
 | a task's output files (maps as GeoTIFF, tables as CSV), or its metrics | worker | coordinator, then client |
 
-| a pass of the tiled engine (where the maps are, what to compute) and the tiles of each task | client | coordinator, then each worker |
-| a pass's part of some tiles (histograms, counts, keys) | worker | coordinator, then client |
+| a pass of the tiled engine (what to compute, the tiles of each task, the layers' tiles by hash) | client | coordinator, then each worker |
+| the model's maps (once), the layers' tiles of a task's tiles and their neighbours (by hash) | client | coordinator, then the worker |
+| a pass's part of some tiles (histograms, counts, keys), the tiles it wrote | worker | coordinator, then client |
 
 ## One large map on many machines
 
@@ -222,12 +223,17 @@ Batches run many small models; the tiled engine runs one model too large for a m
 
 ```bash
 terraflux worker --coordinator http://coordinator-host:7700          # on every machine that works
-terraflux run model.toml --tiled --disk /shared/run-1/layers --coordinator http://coordinator-host:7700
+terraflux run model.toml --tiled --disk run-1/layers --coordinator http://coordinator-host:7700
 ```
 
-- **Shared storage:** the workers read the model's maps and read and write the steps' layers themselves, at
-  the same paths as the machine that runs the model (NFS, SMB, a cluster's parallel file system). Only the
-  passes and their sums travel through the coordinator.
+- **No storage in common:** the model's maps go to each worker once (by hash, as a batch's files). The steps'
+  layers are kept on the disk of the machine that runs the model (`--disk`), a file per tile; a pass lists each
+  layer's tiles and their hashes, a worker fetches those of its tiles and of their neighbours (the halos; every
+  tile of a layer when a halo is wider than a tile), and sends back by hash the tiles it wrote, which are fetched
+  into the layer's folder. A tile goes once to each worker that needs it.
+- **Shared storage** (`--shared-disk`): the workers read the model's maps and read and write the steps' layers
+  themselves, at the same paths as the machine that runs the model (NFS, SMB, a cluster's parallel file system);
+  only the passes and their sums travel through the coordinator.
 - **Passes:** every pass over the tiles (a histogram, a count, the growth of the patches) is a job whose
   tasks are runs of contiguous tiles (`4` per worker); the machine that runs the model merges their parts
   and decides the next pass.

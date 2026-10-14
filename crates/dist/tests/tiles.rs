@@ -86,6 +86,7 @@ fn tiles_on_workers_give_the_maps_of_this_machine() {
     for per_worker in [4, 1, 16] {
         let mut remote = Remote::connect(&local.url).unwrap();
         remote.per_worker = per_worker;
+        remote.shared = true;
         let there = tmp(&format!("tiles-there-{per_worker}"));
         let opt = options(tile, there.join("layers"), Some(Arc::new(remote)));
         run(&m, Path::new(""), &there.join("out"), &opt, |_| {}).unwrap();
@@ -100,6 +101,54 @@ fn tiles_on_workers_give_the_maps_of_this_machine() {
 }
 
 #[test]
+fn tiles_on_workers_without_a_shared_disk_give_the_maps_of_this_machine() {
+    terraflux_ops::threads::ensure();
+    let m = model();
+    let here = tmp("tiles-sent-here");
+    run(&m, Path::new(""), &here.join("out"), &options(64, here.join("layers"), None), |_| {}).unwrap();
+    let want = maps(&here.join("out"));
+    // three workers with caches of their own: the maps and the layers' tiles go to them through the
+    // coordinator, the tiles they write come back here
+    let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+    let local = rt.block_on(Local::start(0, tmp("tiles-sent-cache"), CoordinatorOptions::default())).unwrap();
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    for k in 0..3 {
+        let mut o = terraflux_dist::worker::Options::new(&format!("w{k}"), tmp(&format!("tiles-sent-w{k}")));
+        o.threads = 2;
+        let (u, s) = (local.url.clone(), stop.clone());
+        rt.spawn(async move { terraflux_dist::worker::run(&u, o, s).await });
+    }
+    let remote = Remote::connect(&local.url).unwrap();
+    assert!(!remote.shared, "nothing shared by default");
+    let there = tmp("tiles-sent-there");
+    let opt = options(64, there.join("layers"), Some(Arc::new(remote)));
+    run(&m, Path::new(""), &there.join("out"), &opt, |_| {}).unwrap();
+    let got = maps(&there.join("out"));
+    assert_eq!(got.len(), want.len());
+    for (k, (a, b)) in got.iter().zip(&want).enumerate() {
+        let differ = a.iter().zip(b).filter(|(x, y)| x != y && !(x.is_nan() && y.is_nan())).count();
+        assert_eq!(differ, 0, "step {}: {differ} cells differ", k + 1);
+    }
+    // the workers read nothing of this machine's folders: their own caches had the layers' tiles
+    let cached = |k: usize| {
+        tmp_files(&PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("tiles-sent-w{k}")).join("layers"))
+    };
+    assert!((0..3).map(cached).sum::<usize>() > 0);
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    local.shutdown();
+}
+
+/// The files under a folder.
+fn tmp_files(dir: &Path) -> usize {
+    std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| if e.path().is_dir() { tmp_files(&e.path()) } else { 1 })
+        .sum()
+}
+
+#[test]
 fn maps_in_memory_do_not_go_to_workers() {
     terraflux_ops::threads::ensure();
     let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
@@ -107,6 +156,6 @@ fn maps_in_memory_do_not_go_to_workers() {
     let mut opt = options(64, PathBuf::new(), Some(Arc::new(Remote::connect(&local.url).unwrap())));
     opt.disk = None;
     let e = run(&model(), Path::new(""), &tmp("tiles-memory"), &opt, |_| {}).err().expect("an error");
-    assert!(e.to_string().contains("shared disk"), "{e}");
+    assert!(e.to_string().contains("on disk"), "{e}");
     local.shutdown();
 }

@@ -46,6 +46,11 @@ impl Client {
         bundle::send(&mut self.c, path, base).await
     }
 
+    /// Send a file as a blob (unless the coordinator has it): its hash.
+    pub async fn put_file(&mut self, path: &Path) -> Result<String> {
+        bundle::send_file(&mut self.c, path).await
+    }
+
     /// Send a file: `bundle:<hash>/<its name>`.
     pub async fn upload(&mut self, path: &Path) -> Result<String> {
         self.send(&path.to_string_lossy(), Path::new("")).await

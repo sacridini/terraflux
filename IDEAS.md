@@ -110,7 +110,7 @@ computadores"** e **"Emprestar este computador"**, nunca "coordenador", "porta" 
 4. **Feito** (0.77.0). **Clusters (HPC) por SSH com um perfil salvo:** host, usuário, partição e tempo do Slurm, ou um servidor sem
    escalonador; o `submit --on <perfil>` (e o botão) confere o Terraflux do outro lado, sobe o coordenador e os
    workers, abre o túnel e traz os resultados.
-5. **Motor por tiles sem armazenamento compartilhado** (avançado): os workers recebem os mapas pelo coordenador e
+5. **Feito** (Unreleased). **Motor por tiles sem armazenamento compartilhado** (avançado): os workers recebem os mapas pelo coordenador e
    guardam as camadas dos passos nele, em vez de caminhos iguais em todas as máquinas.
 6. **Nuvem:** máquinas alugadas que viram workers com um script de inicialização (`cloud-init`) gerado pelo
    Terraflux, ligadas ao coordenador pelo código.

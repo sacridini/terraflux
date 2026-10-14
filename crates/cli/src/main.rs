@@ -54,13 +54,17 @@ enum Command {
         /// Keep the steps' layers in this folder instead of memory.
         #[arg(long)]
         disk: Option<PathBuf>,
-        /// Run the tiles on a coordinator's workers (with --tiled; the model's files and --disk on storage
-        /// every worker sees at the same paths).
+        /// Run the tiles on a coordinator's workers (with --tiled and --disk): the maps and the layers' tiles go
+        /// to them through the coordinator.
         #[arg(long)]
         coordinator: Option<String>,
         /// The coordinator's pairing code.
         #[arg(long)]
         code: Option<String>,
+        /// The workers read the model's files and --disk on storage they share with this machine, at the same
+        /// paths (only sums travel).
+        #[arg(long)]
+        shared_disk: bool,
     },
     /// Check a model and its data without running it.
     Check { model: PathBuf },
@@ -515,7 +519,7 @@ fn main() -> Result<()> {
         }
         Command::Calibrate(a) => rt()?.block_on(cluster::calibrate(&a))?,
         Command::App { model } => app(model)?,
-        Command::Run { model, out, set, quiet, tiled, tile, radius, disk, coordinator, code } => {
+        Command::Run { model, out, set, quiet, tiled, tile, radius, disk, coordinator, code, shared_disk } => {
             let mut m = Model::load_expanded(&model).with_context(|| format!("reading {}", model.display()))?;
             let dir = model.parent().map(Path::to_path_buf).unwrap_or_default();
             if tiled {
@@ -534,7 +538,9 @@ fn main() -> Result<()> {
                     runner: match &coordinator {
                         Some(url) => {
                             let code = code.as_deref().map(terraflux_dist::secure::Code::parse).transpose()?;
-                            Some(std::sync::Arc::new(terraflux_dist::tiles::Remote::connect_with(url, code.as_ref())?))
+                            let mut r = terraflux_dist::tiles::Remote::connect_with(url, code.as_ref())?;
+                            r.shared = shared_disk;
+                            Some(std::sync::Arc::new(r))
                         }
                         None => None,
                     },

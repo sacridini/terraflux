@@ -185,7 +185,7 @@ impl Job {
             .iter()
             .map(|s| {
                 s.spec().ok_or_else(|| {
-                    Error::Msg("a map in memory cannot go to other machines: keep the layers on shared disk".into())
+                    Error::Msg("a map in memory cannot go to other machines: keep the layers on disk (--disk)".into())
                 })
             })
             .collect::<Result<_>>()?;

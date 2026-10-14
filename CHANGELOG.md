@@ -6,6 +6,13 @@ minor versions.
 
 ## [Unreleased]
 
+### Changed
+- The tiled engine on many machines needs no storage in common: the model's maps go to the workers once (by
+  hash), and the steps' layers by their tiles (a pass lists each layer's tiles and their hashes; a worker fetches
+  those of its tiles and of their neighbours, and sends back by hash the tiles it wrote, fetched into the layer's
+  folder on the machine that runs the model). The same maps as on one machine. `terraflux run --tiled
+  --coordinator ... --shared-disk` keeps the workers reading and writing the maps on shared storage, as before.
+
 ## [0.77.0] - 2026-10-14
 
 ### Added

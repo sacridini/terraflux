@@ -158,7 +158,7 @@ pub fn run(model: &Model, base: &Path, out: &Path, opt: &Options, mut progress: 
     let mut tiling = Tiling::new(g.width, g.height, opt.tile);
     if let Some(r) = &opt.runner {
         if opt.disk.is_none() {
-            return Err(err("tiles run elsewhere need the layers on shared disk (--disk)"));
+            return Err(err("tiles run elsewhere need the layers on disk (--disk)"));
         }
         tiling = tiling.with_runner(r.clone());
     }
