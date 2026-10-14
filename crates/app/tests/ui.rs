@@ -1364,3 +1364,66 @@ fn the_model_runs_many_times_from_its_pane() {
     assert_eq!(s.source.node("patches").unwrap().params.get("isometry"), ranked[0].settings.get("patches.isometry"));
     assert!(s.dirty);
 }
+
+#[test]
+fn a_batch_stopped_half_way_goes_on() {
+    // a batch of three runs submitted to a coordinator of this computer that stopped before any ran (the
+    // application closed): its job kept in the coordinator's folder
+    let state = tmp("ui-resume-state");
+    let out = tmp("ui-resume-out");
+    let _ = std::fs::remove_dir_all(&state);
+    let _ = std::fs::remove_dir_all(&out);
+    let path = model();
+    let mut m = terraflux_graph::Model::load_expanded(&path).unwrap();
+    m.apply(&[("simulation.times".to_string(), serde_json::json!(1))].into()).unwrap();
+    let job = tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let options = terraflux_dist::coordinator::Options { dir: Some(state.clone()), ..Default::default() };
+        let local = terraflux_dist::Local::start(0, tmp("ui-resume-cache"), options).await.unwrap();
+        let mut c = terraflux_dist::client::Client::connect(&local.url).await.unwrap();
+        let b = terraflux_dist::run::Batch {
+            name: "resume".into(),
+            model: m,
+            base: path.parent().unwrap().to_path_buf(),
+            tasks: terraflux_dist::batch::replicates(3, 1, &["$seed".to_string()]),
+            files: true,
+            evaluation: None,
+        };
+        let job = terraflux_dist::run::submit(&mut c, &b, &mut |_| {}).await.unwrap();
+        local.shutdown();
+        job
+    });
+    let record = terraflux_app::batch_view::Record {
+        kind: terraflux_app::batch_view::Kind::Replicates,
+        model: "Sibuyan".into(),
+        out: out.clone(),
+        files: true,
+        workers: 2,
+        state: state.clone(),
+        job: Some(job),
+        total: 3,
+        plan: None,
+        alive: 0,
+    };
+    // as the application finds it when it starts (the record of the user's data, shared by the tests that run
+    // at the same time, given here)
+    let mut h = harness(TerrafluxApp::new(Some(path)));
+    h.state_mut().batch.interrupted = Some(record);
+    loaded(&mut h);
+    h.state_mut().focus(Pane::Batch);
+    h.run_steps(3);
+    shot(&mut h, "batch-5-interrupted");
+    h.get_by_label("Go on").click();
+    h.run_steps(1);
+    assert!(h.state().batch.running(), "{:?}", h.state().batch.error);
+    until(&mut h, "the batch taken up again", |a| !a.batch.running());
+    h.run_steps(2);
+    let b = &h.state().batch;
+    assert!(b.error.is_none(), "{:?}", b.error);
+    let f = b.finished.as_ref().unwrap();
+    assert_eq!(f.rows.len(), 3);
+    for seed in ["seed_1", "seed_2", "seed_3"] {
+        assert!(out.join(seed).join("maps.tif").exists(), "{seed}");
+    }
+    assert!(!state.exists(), "the batch's coordinator let go once done");
+    assert!(b.interrupted.is_none());
+}

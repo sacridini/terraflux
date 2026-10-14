@@ -10,12 +10,13 @@ use std::time::{Duration, Instant};
 
 use egui::{RichText, Ui};
 use egui_plot::{Legend, Plot, Points};
+use serde::{Deserialize, Serialize};
 use serde_json::Value as Json;
 use terraflux_dist::batch::{self, Param, Scored};
 use terraflux_dist::client::TaskOf;
 use terraflux_dist::evaluate::Evaluation;
 use terraflux_dist::proto::JobStatus;
-use terraflux_dist::run::{Batch, Event, Handle, Place, Progress};
+use terraflux_dist::run::{Batch, Event, Handle, Place, Progress, Start};
 use terraflux_graph::{Input, Model, Node, Source, Type};
 use terraflux_ops::Registry;
 
@@ -23,7 +24,7 @@ use crate::app::{Session, accent_button};
 use crate::theme;
 
 /// What a batch does.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum Kind {
     #[default]
     Replicates,
@@ -226,10 +227,79 @@ pub struct Running {
     stage: String,
     status: Option<JobStatus>,
     calibration: Option<Plan>,
+    /// What is kept on disk to take the batch up again, and when it was last kept.
+    record: Record,
+    kept: Instant,
+}
+
+/// A batch running, kept on disk while it runs: when the application stops before its end, it is taken up again
+/// from there (the runs done are not run again).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Record {
+    pub kind: Kind,
+    /// The model's name.
+    pub model: String,
+    pub out: PathBuf,
+    pub files: bool,
+    pub workers: usize,
+    /// The coordinator's folder (its jobs and data).
+    pub state: PathBuf,
+    pub job: Option<String>,
+    pub total: usize,
+    pub plan: Option<Plan>,
+    /// When the application running it last said so (seconds since 1970): a batch of another window.
+    pub alive: u64,
+}
+
+fn now() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+/// Where the batch running is kept, and the coordinators' folders (the user's application data).
+fn record_file() -> Option<PathBuf> {
+    crate::settings::file().and_then(|f| f.parent().map(|d| d.join("batch.json")))
+}
+
+fn batches_dir() -> PathBuf {
+    crate::settings::file()
+        .and_then(|f| f.parent().map(|d| d.join("batches")))
+        .unwrap_or_else(|| std::env::temp_dir().join("terraflux-batches"))
+}
+
+impl Record {
+    fn keep(&mut self) {
+        self.alive = now();
+        if let Some(f) = record_file() {
+            if let Some(d) = f.parent() {
+                let _ = std::fs::create_dir_all(d);
+            }
+            let _ = std::fs::write(f, serde_json::to_string_pretty(self).unwrap_or_default());
+        }
+    }
+
+    /// The batch let go: its record and its coordinator's folder.
+    fn drop_all(&self) {
+        if let Some(f) = record_file() {
+            let _ = std::fs::remove_file(f);
+        }
+        let _ = std::fs::remove_dir_all(&self.state);
+    }
+
+    /// Whether another window of the application runs it now.
+    pub fn elsewhere(&self) -> bool {
+        now().saturating_sub(self.alive) < 30
+    }
+}
+
+/// The batch that stopped before its end, if any.
+pub fn interrupted() -> Option<Record> {
+    let r: Record = serde_json::from_str(&std::fs::read_to_string(record_file()?).ok()?).ok()?;
+    r.job.is_some().then_some(r)
 }
 
 /// What a calibration needs to rank its runs.
-struct Plan {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Plan {
     candidates: Vec<BTreeMap<String, Json>>,
     keys: Vec<String>,
     seeds: usize,
@@ -291,6 +361,8 @@ pub struct BatchState {
     pub running: Option<Running>,
     pub finished: Option<Finished>,
     pub error: Option<String>,
+    /// A batch that stopped before its end (the application closed), to take up again.
+    pub interrupted: Option<Record>,
     /// The model the choices were made for (they are let go when another opens).
     model_of: Option<String>,
 }
@@ -322,6 +394,7 @@ impl Default for BatchState {
             running: None,
             finished: None,
             error: None,
+            interrupted: None,
             model_of: None,
         }
     }
@@ -333,6 +406,11 @@ pub fn default_workers() -> usize {
 }
 
 impl BatchState {
+    /// The pane's state, with the batch that stopped before its end, if any.
+    pub fn new() -> Self {
+        BatchState { interrupted: interrupted(), ..Default::default() }
+    }
+
     pub fn running(&self) -> bool {
         self.running.is_some()
     }
@@ -345,16 +423,28 @@ impl BatchState {
             match e {
                 Event::Progress(Progress::Workers(n)) => r.stage = format!("{n} workers started"),
                 Event::Progress(Progress::Sending) => r.stage = "sending the data to the workers".into(),
-                Event::Progress(Progress::Submitted { total, .. }) => {
+                Event::Progress(Progress::Submitted { job, total }) => {
                     r.total = total;
                     r.stage = "running".into();
+                    r.record.job = Some(job);
+                    r.record.total = total;
+                    r.record.keep();
+                    r.kept = Instant::now();
                 }
                 Event::Progress(Progress::Status(s)) => r.status = Some(s),
                 Event::Done(o) => done = Some(o),
             }
         }
-        let Some(o) = done else { return };
+        let Some(o) = done else {
+            // still alive: another window does not take it up
+            if r.record.job.is_some() && r.kept.elapsed() > Duration::from_secs(10) {
+                r.record.keep();
+                r.kept = Instant::now();
+            }
+            return;
+        };
         let r = self.running.take().unwrap();
+        r.record.drop_all();
         match o {
             Err(e) if e == terraflux_dist::run::STOPPED => self.error = None,
             Err(e) => self.error = Some(e),
@@ -427,6 +517,7 @@ impl BatchState {
                 workers: self.workers,
                 running: self.running.take(),
                 finished: self.finished.take(),
+                interrupted: self.interrupted.take(),
                 model_of: Some(id),
                 ..Default::default()
             };
@@ -601,24 +692,82 @@ fn start(st: &mut BatchState, s: &Session, r: &Registry, ctx: &egui::Context) ->
     let total = tasks.len();
     let b =
         Batch { name: format!("{} {}", s.title(), st.kind.name()), model, base: s.base(), tasks, files, evaluation };
-    let place =
-        Place::Here { workers: st.workers.clamp(1, total.max(1)), cache: std::env::temp_dir().join("terraflux-cache") };
+    let record = Record {
+        kind: st.kind,
+        model: s.title(),
+        out,
+        files,
+        workers: st.workers.clamp(1, total.max(1)),
+        state: batches_dir().join(format!("{}-{}", now(), std::process::id())),
+        job: None,
+        total,
+        plan,
+        alive: now(),
+    };
+    launch(st, Start::New(Box::new(b)), record, ctx);
+    Ok(())
+}
+
+/// Run a batch (or take one up again) on workers of this computer, its coordinator's jobs in its own folder.
+fn launch(st: &mut BatchState, start: Start, record: Record, ctx: &egui::Context) {
+    let place = Place::Here {
+        workers: record.workers,
+        cache: std::env::temp_dir().join("terraflux-cache"),
+        state: Some(record.state.clone()),
+    };
     let ctx = ctx.clone();
-    let handle =
-        terraflux_dist::run::spawn(b, place, files.then(|| out.clone()), Box::new(move || ctx.request_repaint()));
+    let out = record.files.then(|| record.out.clone());
+    let handle = terraflux_dist::run::spawn(start, place, out, Box::new(move || ctx.request_repaint()));
     st.running = Some(Running {
         handle,
-        kind: st.kind,
-        out,
+        kind: record.kind,
+        out: record.out.clone(),
         started: Instant::now(),
-        total,
+        total: record.total,
         stage: "starting the workers".into(),
         status: None,
-        calibration: plan,
+        calibration: record.plan.clone(),
+        record,
+        kept: Instant::now(),
     });
+    st.interrupted = None;
     st.finished = None;
     st.error = None;
-    Ok(())
+}
+
+/// The batch that stopped before its end: taken up again, or let go.
+fn interrupted_ui(ui: &mut Ui, st: &mut BatchState) {
+    let Some(r) = st.interrupted.clone() else { return };
+    if st.running() {
+        return;
+    }
+    egui::Frame::new().fill(ui.visuals().faint_bg_color).inner_margin(egui::Margin::same(8)).show(ui, |ui| {
+        if r.elsewhere() {
+            ui.label(format!("{} of {} runs in another window of Terraflux.", r.kind.name(), r.model));
+            return;
+        }
+        ui.label(
+            RichText::new(format!(
+                "The {} of {} stopped before its end ({} runs, results in {}).",
+                r.kind.name(),
+                r.model,
+                r.total,
+                r.out.display()
+            ))
+            .strong(),
+        );
+        ui.horizontal(|ui| {
+            if ui.add(accent_button("Go on", true)).on_hover_text("the runs done are not run again").clicked()
+                && let Some(job) = r.job.clone()
+            {
+                launch(st, Start::Resume(job), r.clone(), ui.ctx());
+            }
+            if ui.button("Let it go").clicked() {
+                r.drop_all();
+                st.interrupted = None;
+            }
+        });
+    });
 }
 
 /// A setting chosen from the model's, by a part of its name; whether it changed.
@@ -1076,6 +1225,7 @@ pub fn pane(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry) {
     let busy = st.running();
     // what the batch is, and its button and progress, always in view
     egui::Frame::new().inner_margin(egui::Margin::same(8)).show(ui, |ui| {
+        interrupted_ui(ui, st);
         ui.horizontal(|ui| {
             ui.add_enabled_ui(!busy, |ui| {
                 for (k, name) in [
@@ -1175,5 +1325,43 @@ mod tests {
         assert_eq!(default_seeds(&knobs(&m, &r)), ["noise.seed".to_string()].into());
         assert_eq!(sinks(&m), ["noise"]);
         assert_eq!(default_keep(&m, &r), ["noise.map".to_string()].into());
+    }
+
+    #[test]
+    fn a_batch_is_kept_and_found_again() {
+        let dir = std::env::temp_dir().join(format!("terraflux-record-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        unsafe { std::env::set_var("TERRAFLUX_SETTINGS", dir.join("settings.json")) };
+        assert!(interrupted().is_none());
+        let state = dir.join("batches").join("1");
+        std::fs::create_dir_all(&state).unwrap();
+        let mut r = Record {
+            kind: Kind::Calibration,
+            model: "m".into(),
+            out: dir.join("out"),
+            files: false,
+            workers: 2,
+            state: state.clone(),
+            job: None,
+            total: 4,
+            plan: Some(Plan {
+                candidates: vec![[("a.b".to_string(), Json::from(1.5))].into()],
+                keys: vec!["a.b".into()],
+                seeds: 4,
+                labels: (0..4).map(|k| format!("candidate_0_seed_{k}")).collect(),
+                metric: "fom".into(),
+            }),
+            alive: 0,
+        };
+        r.keep();
+        assert!(interrupted().is_none(), "not submitted yet: nothing to take up");
+        r.job = Some("job-1".into());
+        r.keep();
+        let back = interrupted().unwrap();
+        assert_eq!(back.plan.as_ref().unwrap().candidates[0]["a.b"], 1.5);
+        assert!(back.elsewhere(), "kept a moment ago: a window runs it");
+        r.drop_all();
+        assert!(interrupted().is_none() && !state.exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

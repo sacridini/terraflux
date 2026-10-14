@@ -1084,7 +1084,7 @@ impl TerrafluxApp {
             tab_back: None,
             tabbed: false,
             drawer: false,
-            batch: Default::default(),
+            batch: crate::batch_view::BatchState::new(),
         };
         if let Some(p) = model {
             app.open(&p);
@@ -1444,8 +1444,17 @@ impl TerrafluxApp {
                 }
                 None => {}
             }
+            let batch = match (&self.batch.running, &self.batch.interrupted) {
+                (Some(_), _) => Some("a batch runs (Many runs)"),
+                (None, Some(r)) if !r.elsewhere() => Some("a batch stopped before its end (Many runs)"),
+                _ => None,
+            };
             if let Some(s) = &self.session {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if let Some(b) = batch {
+                        ui.label(RichText::new(b).color(theme::accent()));
+                        ui.separator();
+                    }
                     // a word of what was done (a file saved), for a while
                     if let Some((text, at)) = &s.notice
                         && at.elapsed() < Duration::from_secs(8)

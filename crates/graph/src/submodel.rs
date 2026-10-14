@@ -44,7 +44,7 @@ fn expand_nodes(
     for n in nodes.iter_mut() {
         if FILE_OPS.contains(&n.op.as_str())
             && let Some(serde_json::Value::String(p)) = n.params.get_mut("path")
-            && !p.starts_with("blob:")
+            && !crate::is_sent(p)
             && Path::new(p.as_str()).is_relative()
         {
             *p = dir.join(p.as_str()).to_string_lossy().into_owned();

@@ -1,5 +1,5 @@
-//! The client of a coordinator: it sends the data of a model (once, by hash), submits jobs, follows them and
-//! reads their results.
+//! The client of a coordinator: it checks the coordinator is of its version, sends the files of a model (once,
+//! by hash), submits jobs, follows them, reads their results and fetches their files.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -11,7 +11,7 @@ use tonic::transport::Channel;
 use crate::evaluate::Evaluation;
 use crate::proto::coordinator_client::CoordinatorClient;
 use crate::proto::*;
-use crate::{Error, Result};
+use crate::{Error, Result, bundle};
 
 pub struct Client {
     c: CoordinatorClient<Channel>,
@@ -20,49 +20,81 @@ pub struct Client {
 /// A task of a job: its label and its overrides of the model.
 pub type TaskOf = (String, BTreeMap<String, serde_json::Value>);
 
+/// The operators whose `path` a model reads (sent with it).
+pub const READ_OPS: [&str; 3] = [terraflux_graph::PLUGIN, "raster.read", "vector.read"];
+
 impl Client {
+    /// Connect to a coordinator of this version of Terraflux.
     pub async fn connect(url: &str) -> Result<Client> {
-        Ok(Client { c: crate::worker::connect(url).await? })
-    }
-
-    /// Send a file (unless the coordinator has it): `blob:<hash>`.
-    pub async fn upload(&mut self, path: &Path) -> Result<String> {
-        let data = std::fs::read(path).map_err(|e| Error::Other(format!("{}: {e}", path.display())))?;
-        let hash = crate::hash(&data);
-        if !self.c.has_blob(BlobId { hash: hash.clone() }).await?.into_inner().ok {
-            self.c.put_blob(Blob { hash: hash.clone(), data }).await?;
+        let mut c = crate::worker::connect(url).await?;
+        let theirs = c.hello(Empty {}).await?.into_inner().version;
+        if theirs != crate::coordinator::VERSION {
+            return Err(Error::Other(format!(
+                "the coordinator at {url} is Terraflux {theirs}, this is {}: use the same version on every machine",
+                crate::coordinator::VERSION
+            )));
         }
-        Ok(format!("blob:{hash}"))
+        Ok(Client { c })
     }
 
-    /// The model with its files sent: their paths (relative to `base`) become `blob:<hash>`.
+    /// Send a file, the files beside it of the same name, a folder's or a pattern's files (relative to `base`):
+    /// `bundle:<hash>/...`.
+    pub async fn send(&mut self, path: &str, base: &Path) -> Result<String> {
+        bundle::send(&mut self.c, path, base).await
+    }
+
+    /// Send a file: `bundle:<hash>/<its name>`.
+    pub async fn upload(&mut self, path: &Path) -> Result<String> {
+        self.send(&path.to_string_lossy(), Path::new("")).await
+    }
+
+    /// The model with its files sent (its inputs' and those its nodes read, relative to `base`): their paths
+    /// become `bundle:<hash>/...`.
     pub async fn bundle(&mut self, model: &Model, base: &Path) -> Result<Model> {
         let mut m = model.clone();
         for input in m.inputs.values_mut() {
-            if let Input::Map { path, .. } | Input::Stack { path, .. } = input
-                && !path.starts_with("blob:")
-            {
-                let p = Path::new(path.as_str());
-                let full = if p.is_absolute() { p.to_path_buf() } else { base.join(p) };
-                *path = self.upload(&full).await?;
+            if let Input::Map { path, .. } | Input::Stack { path, .. } = input {
+                *path = self.send(path, base).await?;
             }
         }
-        // the plugins' modules
         let mut paths = Vec::new();
-        plugin_paths(&mut m.nodes, &mut |p| paths.push(p.clone()));
-        let mut sent = std::collections::BTreeMap::new();
+        read_paths(&mut m.nodes, &mut |p| paths.push(p.clone()));
+        let mut sent = BTreeMap::new();
         for p in paths {
-            if !p.starts_with("blob:") && !sent.contains_key(&p) {
-                let full = if Path::new(&p).is_absolute() { Path::new(&p).to_path_buf() } else { base.join(&p) };
-                sent.insert(p.clone(), self.upload(&full).await?);
+            if let std::collections::btree_map::Entry::Vacant(e) = sent.entry(p) {
+                let b = self.send(e.key(), base).await?;
+                e.insert(b);
             }
         }
-        plugin_paths(&mut m.nodes, &mut |p| {
+        read_paths(&mut m.nodes, &mut |p| {
             if let Some(b) = sent.get(p.as_str()) {
                 *p = b.clone();
             }
         });
         Ok(m)
+    }
+
+    /// The tasks with the files their overrides name sent: the paths given to the model's file inputs
+    /// (`$drivers = "drivers_2030.tif"`) and to the nodes that read files (`roads.path`).
+    pub async fn bundle_tasks(&mut self, model: &Model, base: &Path, tasks: &[TaskOf]) -> Result<Vec<TaskOf>> {
+        let mut out = Vec::with_capacity(tasks.len());
+        for (label, o) in tasks {
+            let mut o = o.clone();
+            for (key, value) in o.iter_mut() {
+                let serde_json::Value::String(path) = value else { continue };
+                let file = match key.strip_prefix('$') {
+                    Some(name) => matches!(model.inputs.get(name), Some(Input::Map { .. } | Input::Stack { .. })),
+                    None => key.rsplit_once('.').is_some_and(|(node, setting)| {
+                        setting == "path" && node_at(model, node).is_some_and(|n| READ_OPS.contains(&n.op.as_str()))
+                    }),
+                };
+                if file {
+                    *path = self.send(path, base).await?;
+                }
+            }
+            out.push((label.clone(), o));
+        }
+        Ok(out)
     }
 
     pub async fn submit(
@@ -123,7 +155,7 @@ impl Client {
         }
     }
 
-    /// Drop a job and its results from the coordinator.
+    /// Drop a job, its results and their files from the coordinator.
     pub async fn forget(&mut self, job: &str) -> Result<()> {
         self.c.forget(JobId { id: job.to_string() }).await?;
         Ok(())
@@ -149,11 +181,34 @@ impl Client {
         }
     }
 
-    /// The results of a job's tasks, in the order of the tasks.
+    /// The results of a job's tasks, in the order of the tasks (their files on the coordinator, by hash).
     pub async fn results(&mut self, job: &str) -> Result<Vec<TaskResult>> {
         let mut r = self.c.results(JobId { id: job.to_string() }).await?.into_inner().results;
         r.sort_by_key(|t| t.task_id.rsplit_once('/').and_then(|(_, i)| i.parse::<usize>().ok()).unwrap_or(0));
         Ok(r)
+    }
+
+    /// A file of a result, written to `dest`.
+    pub async fn download(&mut self, hash: &str, dest: &Path) -> Result<()> {
+        bundle::fetch_to(&mut self.c, hash, dest).await
+    }
+
+    /// A file of a result, in memory.
+    pub async fn fetch(&mut self, hash: &str) -> Result<Vec<u8>> {
+        let mut s = self.c.get_blob(BlobId { hash: hash.to_string() }).await?.into_inner();
+        let mut out = Vec::new();
+        while let Some(c) = s.message().await? {
+            out.extend_from_slice(&c.data);
+        }
+        if crate::hash(&out) != hash {
+            return Err(Error::Other(format!("the blob {hash} arrived damaged")));
+        }
+        Ok(out)
+    }
+
+    /// The jobs the coordinator has, done or not.
+    pub async fn jobs(&mut self) -> Result<Vec<JobStatus>> {
+        Ok(self.c.jobs(Empty {}).await?.into_inner().jobs)
     }
 
     pub async fn workers(&mut self) -> Result<Vec<WorkerState>> {
@@ -161,16 +216,27 @@ impl Client {
     }
 }
 
-/// Every plugin's path in some nodes (their bodies' included).
-pub fn plugin_paths(nodes: &mut [terraflux_graph::Node], f: &mut dyn FnMut(&mut String)) {
+/// The node of a path of ids (`simulation/allocate`: a node of a container's body).
+fn node_at<'a>(m: &'a Model, path: &str) -> Option<&'a terraflux_graph::Node> {
+    let mut parts = path.split('/');
+    let first = parts.next()?;
+    let mut node = m.nodes.iter().find(|n| n.id == first)?;
+    for id in parts {
+        node = node.body.as_ref()?.nodes.iter().find(|n| n.id == id)?;
+    }
+    Some(node)
+}
+
+/// Every path a model's nodes read (plugins, rasters, vectors; their bodies' included).
+pub fn read_paths(nodes: &mut [terraflux_graph::Node], f: &mut dyn FnMut(&mut String)) {
     for n in nodes {
-        if n.op == terraflux_graph::PLUGIN
+        if READ_OPS.contains(&n.op.as_str())
             && let Some(serde_json::Value::String(p)) = n.params.get_mut("path")
         {
             f(p);
         }
         if let Some(b) = &mut n.body {
-            plugin_paths(&mut b.nodes, f);
+            read_paths(&mut b.nodes, f);
         }
     }
 }

@@ -212,7 +212,7 @@ fn matches(pattern: &str, name: &str) -> bool {
 
 /// The files a path names: itself, the rasters of a folder, or those matching a pattern (`*` and `?` in the
 /// file's name or in its folders' names: `runs/*/landuse.tif`, a file of each run).
-fn files_of(path: &str) -> Result<Vec<PathBuf>> {
+pub fn files_of(path: &str) -> Result<Vec<PathBuf>> {
     let p = Path::new(path);
     let raster = |q: &Path| {
         q.extension().is_some_and(|e| {

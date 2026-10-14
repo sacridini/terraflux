@@ -28,3 +28,4 @@ rstar = "0.12"
 [dev-dependencies]
 egui_kittest = { version = "0.36", features = ["wgpu"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

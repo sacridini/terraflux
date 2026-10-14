@@ -45,12 +45,17 @@ pub const PLUGIN: &str = "plugin.wasm";
 pub const FILE_OPS: [&str; 6] =
     [PLUGIN, "raster.read", "raster.write", "landscape.mspa_tiled", "vector.read", "vector.write"];
 
+/// Whether a path names data sent to a coordinator (`bundle:<hash>/...`, `blob:<hash>`), not a file here.
+pub fn is_sent(path: &str) -> bool {
+    path.starts_with("bundle:") || path.starts_with("blob:")
+}
+
 /// Make the file paths of the nodes ([`FILE_OPS`]) relative to `dir` (the folder a model is saved in).
 pub fn relative_paths(nodes: &mut [Node], dir: &Path) {
     for n in nodes.iter_mut() {
         if FILE_OPS.contains(&n.op.as_str())
             && let Some(serde_json::Value::String(p)) = n.params.get_mut("path")
-            && !p.starts_with("blob:")
+            && !is_sent(p)
             && Path::new(p.as_str()).is_absolute()
         {
             *p = relative_path(Path::new(p.as_str()), dir);

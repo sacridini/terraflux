@@ -37,7 +37,7 @@ fn place(w: &Where) -> Place {
         None => {
             let most = terraflux_ops::threads::most();
             let n = w.workers.unwrap_or((most / 4).max(1)).clamp(1, most);
-            Place::Here { workers: n, cache: default_cache() }
+            Place::Here { workers: n, cache: default_cache(), state: None }
         }
     }
 }
@@ -53,28 +53,51 @@ fn progress(p: Progress) {
     }
 }
 
-pub async fn serve(listen: SocketAddr, timeout: u64) -> Result<()> {
-    let (addr, _service, handle) =
-        coordinator::serve(listen, Options { timeout: Duration::from_secs(timeout), attempts: 3 }).await?;
+/// Where a coordinator keeps its data and jobs by default (the user's application data).
+pub fn default_data() -> PathBuf {
+    std::env::var_os("APPDATA")
+        .or_else(|| std::env::var_os("XDG_DATA_HOME"))
+        .map(|d| PathBuf::from(d).join("Terraflux"))
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share/terraflux")))
+        .unwrap_or_else(std::env::temp_dir)
+        .join("coordinator")
+}
+
+pub async fn serve(listen: SocketAddr, timeout: u64, data: Option<PathBuf>) -> Result<()> {
+    let dir = data.unwrap_or_else(default_data);
+    let options = Options { timeout: Duration::from_secs(timeout), attempts: 3, dir: Some(dir.clone()) };
+    let (addr, service, handle) = coordinator::serve(listen, options).await?;
     eprintln!(
-        "coordinator listening on {addr}: start workers with `terraflux worker --coordinator http://<this host>:{}`",
+        "coordinator {} listening on {addr}, its jobs kept in {}: start workers with `terraflux worker \
+         --coordinator http://<this host>:{}`",
+        coordinator::VERSION,
+        dir.display(),
         addr.port()
     );
     tokio::select! {
         _ = handle => {}
         _ = tokio::signal::ctrl_c() => eprintln!("stopped"),
     }
+    service.close();
     Ok(())
 }
 
-pub async fn worker(url: &str, name: Option<String>, cache: Option<PathBuf>) -> Result<()> {
+pub async fn worker(url: &str, name: Option<String>, cache: Option<PathBuf>, idle: Option<f64>) -> Result<()> {
     let name = name.unwrap_or_else(|| {
         std::env::var("COMPUTERNAME").or_else(|_| std::env::var("HOSTNAME")).unwrap_or_else(|_| "worker".into())
     });
     let cache = cache.unwrap_or_else(default_cache);
     eprintln!("worker {name}: tasks from {url}, data kept in {}", cache.display());
-    let stop = Arc::new(AtomicBool::new(false));
-    terraflux_dist::worker::run(url, terraflux_dist::worker::Options::new(&name, cache), stop).await?;
+    let mut o = terraflux_dist::worker::Options::new(&name, cache);
+    if let Some(m) = idle {
+        if terraflux_dist::idle::seconds().is_none() {
+            eprintln!("worker {name}: this system does not tell when its user is away: --idle is let go");
+        } else {
+            eprintln!("worker {name}: tasks only after {m} minutes without the keyboard or the mouse");
+            o.idle = Some(Duration::from_secs_f64(m * 60.0));
+        }
+    }
+    terraflux_dist::worker::run(url, o, Arc::new(AtomicBool::new(false))).await?;
     Ok(())
 }
 
@@ -94,27 +117,57 @@ pub async fn workers(url: &str) -> Result<()> {
     Ok(())
 }
 
-/// Run a batch of tasks of a model and write each task's files in `out/<label>/`.
-pub async fn submit(model_path: &Path, tasks: Vec<TaskOf>, out: &Path, w: &Where) -> Result<()> {
+/// The jobs of a coordinator, done or not.
+pub async fn jobs(url: &str) -> Result<()> {
+    let mut c = Client::connect(url).await?;
+    for j in c.jobs().await? {
+        println!(
+            "{}\t{}\t{} of {} done\t{} running\t{} failed",
+            j.id,
+            if j.name.is_empty() { &j.kind } else { &j.name },
+            j.done,
+            j.total,
+            j.running,
+            j.failed
+        );
+    }
+    Ok(())
+}
+
+fn failed(s: &terraflux_dist::proto::JobStatus) -> Result<()> {
+    if s.failed > 0 {
+        bail!("{} tasks failed:\n  {}", s.failed, s.errors.join("\n  "));
+    }
+    Ok(())
+}
+
+/// Follow a job of a coordinator to its end, its files written in `out/<label>/` (those there already kept).
+pub async fn results(url: &str, job: &str, out: &Path) -> Result<()> {
+    let start = run::Start::Resume(job.to_string());
+    let o = run::run(&start, &Place::At(url.to_string()), Some(out), &AtomicBool::new(false), &mut progress).await?;
+    eprintln!("wrote {}", out.display());
+    failed(&o.status)
+}
+
+/// Run a batch of tasks of a model and write each task's files in `out/<label>/`; with `detach`, only submit it
+/// (to a coordinator) and say its job.
+pub async fn submit(model_path: &Path, tasks: Vec<TaskOf>, out: &Path, w: &Where, detach: bool) -> Result<()> {
     let model = Model::load_expanded(model_path).with_context(|| format!("reading {}", model_path.display()))?;
     let base = model_path.parent().map(Path::to_path_buf).unwrap_or_default();
     let name = model.name.clone().unwrap_or_else(|| "batch".into());
     let b = Batch { name, model, base, tasks, files: true, evaluation: None };
-    let o = run::run(&b, &place(w), &AtomicBool::new(false), &mut progress).await?;
-    run::write_results(out, &o.results)?;
-    eprintln!("wrote {}", out.display());
-    if o.status.failed > 0 {
-        bail!(
-            "{} tasks failed:
-  {}",
-            o.status.failed,
-            o.status.errors.join(
-                "
-  "
-            )
-        );
+    if detach {
+        let Place::At(url) = place(w) else { bail!("--detach needs --coordinator") };
+        let mut c = Client::connect(&url).await?;
+        let job = run::submit(&mut c, &b, &mut progress).await?;
+        println!("{job}");
+        eprintln!("its results later: terraflux results {job} --coordinator {url} --out {}", out.display());
+        return Ok(());
     }
-    Ok(())
+    let start = run::Start::New(Box::new(b));
+    let o = run::run(&start, &place(w), Some(out), &AtomicBool::new(false), &mut progress).await?;
+    eprintln!("wrote {}", out.display());
+    failed(&o.status)
 }
 
 #[derive(Args)]
@@ -180,7 +233,8 @@ pub async fn calibrate(a: &Calibrate) -> Result<()> {
     let labels: Vec<String> = tasks.iter().map(|(l, _)| l.clone()).collect();
     let b =
         Batch { name: "calibration".into(), model: model.clone(), base, tasks, files: false, evaluation: Some(eval) };
-    let o = run::run(&b, &place(&a.at), &AtomicBool::new(false), &mut progress).await?;
+    let start = run::Start::New(Box::new(b));
+    let o = run::run(&start, &place(&a.at), None, &AtomicBool::new(false), &mut progress).await?;
     let status = o.status;
     let metrics = batch::metrics_of(&labels, &o.results);
     let ranked = batch::rank(&candidates, a.seeds.len(), &metrics, &a.metric)?;

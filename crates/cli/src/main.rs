@@ -79,6 +79,10 @@ enum Command {
         /// Seconds without news from a worker before its task goes to another.
         #[arg(long, default_value_t = 60)]
         timeout: u64,
+        /// Where the data and the jobs are kept (default: the user's application data); a coordinator started
+        /// again on it goes on with its jobs.
+        #[arg(long)]
+        data: Option<PathBuf>,
     },
     /// Run a headless worker: tasks from a coordinator, until stopped.
     Worker {
@@ -89,11 +93,27 @@ enum Command {
         /// Where the data of the tasks is kept.
         #[arg(long)]
         cache: Option<PathBuf>,
+        /// Take tasks only after this many minutes without the keyboard or the mouse (Windows and macOS).
+        #[arg(long)]
+        idle: Option<f64>,
     },
     /// The workers of a coordinator and what they do.
     Workers {
         #[arg(long)]
         coordinator: String,
+    },
+    /// The jobs of a coordinator, done or not.
+    Jobs {
+        #[arg(long)]
+        coordinator: String,
+    },
+    /// Follow a job of a coordinator to its end and write its files (those written already kept).
+    Results {
+        job: String,
+        #[arg(long)]
+        coordinator: String,
+        #[arg(short, long, default_value = "batch")]
+        out: PathBuf,
     },
     /// Run a batch of a model: replicates (one seed each) or scenarios, here or on a coordinator's workers.
     Submit {
@@ -112,6 +132,9 @@ enum Command {
         /// The folder of the results: one folder per task.
         #[arg(short, long, default_value = "batch")]
         out: PathBuf,
+        /// Only submit the batch to the coordinator and print its job (`terraflux results` fetches it later).
+        #[arg(long)]
+        detach: bool,
         #[command(flatten)]
         at: cluster::Where,
     },
@@ -432,10 +455,14 @@ fn main() -> Result<()> {
     let engine = Engine::default();
     let rt = || tokio::runtime::Builder::new_multi_thread().enable_all().build();
     match command {
-        Command::Serve { listen, timeout } => rt()?.block_on(cluster::serve(listen, timeout))?,
-        Command::Worker { coordinator, name, cache } => rt()?.block_on(cluster::worker(&coordinator, name, cache))?,
+        Command::Serve { listen, timeout, data } => rt()?.block_on(cluster::serve(listen, timeout, data))?,
+        Command::Worker { coordinator, name, cache, idle } => {
+            rt()?.block_on(cluster::worker(&coordinator, name, cache, idle))?
+        }
         Command::Workers { coordinator } => rt()?.block_on(cluster::workers(&coordinator))?,
-        Command::Submit { model, replicates, first_seed, scenarios, seed_input, out, at } => {
+        Command::Jobs { coordinator } => rt()?.block_on(cluster::jobs(&coordinator))?,
+        Command::Results { job, coordinator, out } => rt()?.block_on(cluster::results(&coordinator, &job, &out))?,
+        Command::Submit { model, replicates, first_seed, scenarios, seed_input, out, detach, at } => {
             let tasks = match (replicates, scenarios) {
                 (Some(n), None) => {
                     terraflux_dist::batch::replicates(n, first_seed, &terraflux_dist::batch::seed_keys(&seed_input))
@@ -443,7 +470,7 @@ fn main() -> Result<()> {
                 (None, Some(f)) => terraflux_dist::batch::scenarios(&std::fs::read_to_string(&f)?)?,
                 _ => bail!("give --replicates or --scenarios"),
             };
-            rt()?.block_on(cluster::submit(&model, tasks, &out, &at))?;
+            rt()?.block_on(cluster::submit(&model, tasks, &out, &at, detach))?;
         }
         Command::Calibrate(a) => rt()?.block_on(cluster::calibrate(&a))?,
         Command::App { model } => app(model)?,

@@ -3996,6 +3996,7 @@ dependencies = [
  "terraflux-ops",
  "terraflux-raster",
  "tiny-skia",
+ "tokio",
 ]
 
 [[package]]

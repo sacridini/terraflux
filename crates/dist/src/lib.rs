@@ -7,11 +7,15 @@
 //! scheduler. Every task runs the exact engine, so a task gives the same maps on any worker as on the machine
 //! that submitted it.
 
+pub mod awake;
 pub mod batch;
+pub mod bundle;
 pub mod client;
 pub mod coordinator;
 pub mod evaluate;
+pub mod idle;
 pub mod run;
+pub mod store;
 pub mod tiles;
 pub mod worker;
 
@@ -41,6 +45,12 @@ pub enum Error {
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// A number not given before in this process (for names of files of its own).
+pub fn unique() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
 
 /// The SHA-256 of some bytes, in hexadecimal: the name of a blob.
 pub fn hash(data: &[u8]) -> String {
@@ -75,10 +85,12 @@ impl Local {
         Ok(Local { url, stop, service, handles })
     }
 
+    /// Stop the workers and the coordinator (its jobs kept on disk, when it has a folder of its own).
     pub fn shutdown(self) {
         self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
         for h in self.handles {
             h.abort();
         }
+        self.service.close();
     }
 }

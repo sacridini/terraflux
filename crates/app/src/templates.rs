@@ -1041,7 +1041,7 @@ pub fn absolute_paths(m: &mut Model, base: &std::path::Path) {
         for n in ns {
             if terraflux_graph::FILE_OPS.contains(&n.op.as_str())
                 && let Some(serde_json::Value::String(p)) = n.params.get_mut("path")
-                && !p.starts_with("blob:")
+                && !terraflux_graph::is_sent(p)
                 && !p.is_empty()
                 && std::path::Path::new(p.as_str()).is_relative()
             {

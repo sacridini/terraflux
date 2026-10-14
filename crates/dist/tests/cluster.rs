@@ -9,6 +9,7 @@ use terraflux_dist::Local;
 use terraflux_dist::batch::{Param, calibration_tasks, grid, rank, replicates, seed_keys};
 use terraflux_dist::client::Client;
 use terraflux_dist::coordinator::Options;
+use terraflux_dist::coordinator::VERSION;
 use terraflux_dist::evaluate::{Evaluation, Metrics};
 use terraflux_dist::proto::{TaskRequest, WorkerHello};
 use terraflux_dist::worker::{self, run_task};
@@ -56,7 +57,7 @@ async fn replicates_give_what_local_runs_give() {
     let m = model();
     let bundled = c.bundle(&m, std::path::Path::new("")).await.unwrap();
     assert!(bundled.inputs.values().all(|i| match i {
-        Input::Map { path, .. } | Input::Stack { path, .. } => path.starts_with("blob:"),
+        Input::Map { path, .. } | Input::Stack { path, .. } => path.starts_with("bundle:"),
         _ => true,
     }));
     let tasks = replicates(3, 11, &seed_keys("seed"));
@@ -69,8 +70,8 @@ async fn replicates_give_what_local_runs_give() {
         let dir = tmp(&format!("local-{label}"));
         let (_, files, _) = run_task(m.clone(), overrides, None, &dir, true).unwrap();
         let mine = files.iter().find(|f| f.name == "maps.tif").unwrap();
-        let theirs = r.files.iter().find(|f| f.name == "maps.tif").unwrap();
-        assert_eq!(mine.data, theirs.data, "{label}: the maps of the worker differ from a local run");
+        let theirs = c.fetch(&r.files.iter().find(|f| f.name == "maps.tif").unwrap().hash).await.unwrap();
+        assert_eq!(mine.data, theirs, "{label}: the maps of the worker differ from a local run");
     }
     let w = c.workers().await.unwrap();
     assert_eq!(w.len(), 2);
@@ -117,16 +118,20 @@ async fn calibration_finds_the_setting_of_the_observed_map() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_task_of_a_vanished_worker_runs_again() {
-    let local = Local::start(0, tmp("cache-vanish"), Options { timeout: Duration::from_millis(800), attempts: 3 })
-        .await
-        .unwrap();
+    let local = Local::start(
+        0,
+        tmp("cache-vanish"),
+        Options { timeout: Duration::from_millis(800), attempts: 3, ..Default::default() },
+    )
+    .await
+    .unwrap();
     let mut c = Client::connect(&local.url).await.unwrap();
     let bundled = c.bundle(&model(), std::path::Path::new("")).await.unwrap();
     let job = c.submit("one", &bundled, &replicates(1, 5, &seed_keys("seed")), false, None).await.unwrap();
     // a worker takes the task and is never heard of again
     let mut ghost = worker::connect(&local.url).await.unwrap();
     let ghost_id = ghost
-        .register(WorkerHello { name: "ghost".into(), threads: 1, version: String::new() })
+        .register(WorkerHello { name: "ghost".into(), threads: 1, version: VERSION.into() })
         .await
         .unwrap()
         .into_inner()
@@ -210,11 +215,12 @@ from = \"is.map\"
     let mut c = Client::connect(&local.url).await.unwrap();
     let bundled = c.bundle(&m, &dir).await.unwrap();
     let p = bundled.node("twice").unwrap().params["path"].as_str().unwrap().to_string();
-    assert!(p.starts_with("blob:"), "{p}");
+    assert!(p.starts_with("bundle:") && p.ends_with("/double.wat"), "{p}");
     let job = c.submit("plugin", &bundled, &[("one".to_string(), BTreeMap::new())], true, None).await.unwrap();
     let s = c.wait(&job, |_| {}).await.unwrap();
     assert_eq!((s.done, s.failed), (1, 0), "{:?}", s.errors);
-    let theirs = c.results(&job).await.unwrap()[0].files.iter().find(|f| f.name == "twice.tif").unwrap().data.clone();
+    let hash = c.results(&job).await.unwrap()[0].files.iter().find(|f| f.name == "twice.tif").unwrap().hash.clone();
+    let theirs = c.fetch(&hash).await.unwrap();
     let (_, files, _) = run_task(m.clone(), &BTreeMap::new(), None, &tmp("plugin-local"), true).unwrap();
     let mine = &files.iter().find(|f| f.name == "twice.tif").unwrap().data;
     assert_eq!(mine, &theirs);
@@ -249,16 +255,15 @@ async fn a_batch_writes_what_its_nodes_write_in_a_folder_per_run() {
         files: true,
         evaluation: None,
     };
-    let place = terraflux_dist::run::Place::Here { workers: 2, cache: tmp("cache-batch-writes") };
+    let place = terraflux_dist::run::Place::Here { workers: 2, cache: tmp("cache-batch-writes"), state: None };
     let mut seen = Vec::new();
-    let o = terraflux_dist::run::run(&b, &place, &std::sync::atomic::AtomicBool::new(false), &mut |p| seen.push(p))
-        .await
-        .unwrap();
+    let out = dir.join("out");
+    let start = terraflux_dist::run::Start::New(Box::new(b));
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    let o = terraflux_dist::run::run(&start, &place, Some(&out), &stop, &mut |p| seen.push(p)).await.unwrap();
     assert_eq!((o.status.done, o.status.failed), (3, 0), "{:?}", o.status.errors);
     assert!(seen.iter().any(|p| matches!(p, terraflux_dist::run::Progress::Submitted { total: 3, .. })));
     assert!(!target.exists(), "the runs wrote in their own folders, not in the model's file");
-    let out = dir.join("out");
-    terraflux_dist::run::write_results(&out, &o.results).unwrap();
     let read =
         |label: &str| terraflux_raster::Raster::read(out.join(label).join("noise.tif")).unwrap().bands[0].clone();
     let (a, b2) = (read("seed_1"), read("seed_2"));
@@ -268,4 +273,126 @@ async fn a_batch_writes_what_its_nodes_write_in_a_folder_per_run() {
     let s =
         terraflux_ops::files::Rasters::open(&out.join("*").join("noise.tif").to_string_lossy(), None, None).unwrap();
     assert_eq!(s.layers.iter().map(|l| l.name.as_str()).collect::<Vec<_>>(), ["seed_1", "seed_2", "seed_3"]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn workers_and_clients_of_another_version_are_turned_away() {
+    let local = Local::start(0, tmp("cache-version"), Options::default()).await.unwrap();
+    let mut w = worker::connect(&local.url).await.unwrap();
+    let e = w.register(WorkerHello { name: "old".into(), threads: 1, version: "0.1.0".into() }).await.unwrap_err();
+    assert_eq!(e.code(), tonic::Code::FailedPrecondition);
+    assert!(e.message().contains("0.1.0") && e.message().contains(VERSION), "{}", e.message());
+    assert!(Client::connect(&local.url).await.is_ok());
+    let jobs = Client::connect(&local.url).await.unwrap().workers().await.unwrap();
+    assert!(jobs.is_empty(), "the old worker was not registered");
+    local.shutdown();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_coordinator_started_again_goes_on_with_its_jobs() {
+    // a job of four runs, a coordinator with a folder of its own and no workers: stopped, then started again
+    let state = tmp("coordinator-again");
+    let options = || Options { dir: Some(state.clone()), ..Default::default() };
+    let local = Local::start(0, tmp("cache-again"), options()).await.unwrap();
+    let mut c = Client::connect(&local.url).await.unwrap();
+    let mut m = model();
+    m.apply(&[("simulation.times".to_string(), serde_json::json!(1))].into()).unwrap();
+    let bundled = c.bundle(&m, std::path::Path::new("")).await.unwrap();
+    let job = c.submit("again", &bundled, &replicates(4, 1, &seed_keys("seed")), true, None).await.unwrap();
+    // one run done by hand before the stop
+    let mut w = worker::connect(&local.url).await.unwrap();
+    let wid = w
+        .register(WorkerHello { name: "w".into(), threads: 1, version: VERSION.into() })
+        .await
+        .unwrap()
+        .into_inner()
+        .id;
+    let t = w.next_task(TaskRequest { worker: wid.clone(), wait_ms: 2000 }).await.unwrap().into_inner();
+    w.complete(terraflux_dist::proto::TaskResult {
+        task_id: t.task_id.clone(),
+        worker: wid.clone(),
+        ok: true,
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    // a second run taken and never finished: it runs again after the restart
+    let t = w.next_task(TaskRequest { worker: wid, wait_ms: 2000 }).await.unwrap().into_inner();
+    assert!(!t.task_id.is_empty());
+    local.service.save().unwrap();
+    local.shutdown();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let local = Local::start(2, tmp("cache-again-2"), options()).await.unwrap();
+    let mut c = Client::connect(&local.url).await.unwrap();
+    let jobs = c.jobs().await.unwrap();
+    assert_eq!(jobs.len(), 1);
+    assert_eq!((jobs[0].id.as_str(), jobs[0].done, jobs[0].total), (job.as_str(), 1, 4));
+    let out = tmp("again-out");
+    let start = terraflux_dist::run::Start::Resume(job.clone());
+    let place = terraflux_dist::run::Place::At(local.url.clone());
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    let o = terraflux_dist::run::run(&start, &place, Some(&out), &stop, &mut |_| {}).await.unwrap();
+    assert_eq!((o.status.done, o.status.failed), (4, 0), "{:?}", o.status.errors);
+    for label in ["seed_2", "seed_3", "seed_4"] {
+        assert!(out.join(label).join("maps.tif").exists(), "{label}");
+    }
+    assert!(c.jobs().await.unwrap().is_empty(), "the job forgotten once fetched");
+    local.shutdown();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_files_nodes_read_and_scenarios_give_travel_with_the_model() {
+    // a model that reads a raster and a shapefile by nodes, from a folder the workers never see; a scenario
+    // that gives another raster
+    let dir = tmp("travel");
+    let src = terraflux_raster::Raster::read(data("sibuyan_landuse.tif")).unwrap();
+    let mut one = src.clone();
+    one.bands.truncate(1);
+    one.write(dir.join("a.tif")).unwrap();
+    let mut other = src.clone();
+    other.bands.drain(..1);
+    other.write(dir.join("b.tif")).unwrap();
+    let mut m = Model::new("travel");
+    m.nodes.push(
+        terraflux_graph::Node::new("read", "raster.read").param("path", dir.join("a.tif").to_string_lossy().as_ref()),
+    );
+    m.nodes
+        .push(terraflux_graph::Node::new("forest", "map.calc").input("lu", "read.map").param("expression", "lu == 1"));
+    m.outputs.insert(
+        "forest".into(),
+        terraflux_graph::Output { from: "forest.map".into(), path: None, dtype: Some("u8".into()) },
+    );
+    let tasks: Vec<terraflux_dist::client::TaskOf> = vec![
+        ("a".into(), BTreeMap::new()),
+        ("b".into(), [("read.path".to_string(), serde_json::json!(dir.join("b.tif").to_string_lossy()))].into()),
+    ];
+    let local = Local::start(2, tmp("cache-travel"), Options::default()).await.unwrap();
+    let mut c = Client::connect(&local.url).await.unwrap();
+    let bundled = c.bundle(&m, &dir).await.unwrap();
+    let p = bundled.node("read").unwrap().params["path"].as_str().unwrap().to_string();
+    assert!(p.starts_with("bundle:") && p.ends_with("/a.tif"), "{p}");
+    let sent = c.bundle_tasks(&m, &dir, &tasks).await.unwrap();
+    assert!(sent[1].1["read.path"].as_str().unwrap().starts_with("bundle:"));
+    let start = terraflux_dist::run::Start::New(Box::new(terraflux_dist::run::Batch {
+        name: "travel".into(),
+        model: m.clone(),
+        base: dir.clone(),
+        tasks,
+        files: true,
+        evaluation: None,
+    }));
+    let out = dir.join("out");
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    let place = terraflux_dist::run::Place::At(local.url.clone());
+    let o = terraflux_dist::run::run(&start, &place, Some(&out), &stop, &mut |_| {}).await.unwrap();
+    assert_eq!((o.status.done, o.status.failed), (2, 0), "{:?}", o.status.errors);
+    let a = terraflux_raster::Raster::read(out.join("a").join("forest.tif")).unwrap();
+    let b = terraflux_raster::Raster::read(out.join("b").join("forest.tif")).unwrap();
+    assert_ne!(a.bands[0].data, b.bands[0].data, "the scenario read the other map");
+    let forest = |r: &terraflux_raster::Raster| r.bands[0].data.iter().filter(|v| **v == 1.0).count();
+    let (r1, r2) = (&src.bands[0], &src.bands[1]);
+    assert_eq!(forest(&a), r1.data.iter().filter(|v| **v == 1.0).count());
+    assert_eq!(forest(&b), r2.data.iter().filter(|v| **v == 1.0).count());
+    local.shutdown();
 }

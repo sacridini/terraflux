@@ -6,6 +6,24 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Batches taken up again: the coordinator keeps its data, the results' files and its jobs on disk (`terraflux
+  serve --data`, by default in the user's application data) and goes on with them when started again (the tasks
+  that were running run again). `terraflux submit --detach` only submits a batch, `terraflux jobs` lists a
+  coordinator's jobs and `terraflux results <job>` follows one to its end and writes its files (those written
+  already kept). In the application, a batch the application was closed on is offered again ("Go on").
+- Every file a model reads travels with it: the files of `raster.read` and `vector.read`, with the files beside
+  them of the same name (a shapefile's parts, a raster's sidecars), the rasters of a folder or a pattern, and the
+  files a scenario names; they were read from the paths of the machine that submitted the batch.
+- The computer kept awake while a worker runs a task (Windows, macOS, Linux); `terraflux worker --idle <minutes>`
+  takes tasks only when the computer's user is away (Windows and macOS).
+
+### Changed
+- Workers and clients of another version than the coordinator's are turned away, with the version to install
+  (`WorkerHello.version` was not checked).
+- Files travel in pieces of a megabyte (no more messages of up to a gigabyte held in memory); a task's files go
+  to the coordinator as blobs, and the client fetches each run's files as soon as it is done.
+
 ## [0.74.0] - 2026-10-14
 
 ### Added

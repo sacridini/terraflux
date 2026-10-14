@@ -24,6 +24,10 @@ run (`<model> runs/replicates 1/seed_1/...`) with `tasks.csv`; "Show the runs of
 `raster.read` of `runs/*/file.tif`, the runs as one series. A calibration writes `calibration.csv` and
 `best.json`, plots its scores against each setting, and "Apply the best settings to the model" puts them in it.
 
+A batch goes on if the application is closed before its end: opened again, the pane offers to **go on** (the
+runs done are not run again, their files not fetched again) or to let it go. While a batch runs, the computer
+does not go to sleep.
+
 ## On one machine
 
 Without `--coordinator`, `submit` and `calibrate` start a coordinator and `--workers` workers in their own
@@ -87,14 +91,36 @@ terraflux worker --coordinator http://coordinator-host:7700
 # anywhere that reaches the coordinator
 terraflux submit model.toml --replicates 200 --coordinator http://coordinator-host:7700 --out results
 terraflux workers --coordinator http://coordinator-host:7700
+
+# a batch left to run: submitted, its files fetched later (those fetched already kept)
+terraflux submit model.toml --replicates 200 --coordinator http://coordinator-host:7700 --detach
+terraflux jobs --coordinator http://coordinator-host:7700
+terraflux results job-3 --coordinator http://coordinator-host:7700 --out results
 ```
 
 - **Connections:** workers only connect to the coordinator, so they need no open port and can run behind
   firewalls or NAT.
-- **Data:** the data travels once. The client sends each file of the model once (by its SHA-256), and each
-  worker fetches it once into its cache (`--cache`).
+- **One version:** workers and clients of another version of Terraflux are turned away, with the version to
+  install (every machine runs the same engine: the same maps).
+- **Data:** the data travels once, in pieces of a megabyte, whatever its size. The client sends each file once
+  (by its SHA-256), and each worker fetches it once into its cache (`--cache`). Every file the model reads goes:
+  its inputs, the files of `raster.read` and `vector.read` (with the files beside them of the same name: a
+  shapefile's `.shx`, `.dbf` and `.prj`, a raster's `.aux.xml`), the rasters of a folder or a pattern
+  (`runs/*/landuse.tif`), plugins, a calibration's observed map, and the files a scenario names
+  (`$drivers = "drivers_2030.tif"`, `roads.path = "roads_2030.gpkg"`). On a worker they are read from its
+  cache under their own names.
+- **Results:** a task's files go to the coordinator as they are written, and the client fetches each run's
+  files as soon as it is done (a batch stopped half way keeps what it fetched).
+- **The coordinator's disk:** it keeps the data, the results' files and its jobs in a folder (`--data`; by
+  default the user's application data, `Terraflux/coordinator`). Started again on it, it goes on with its jobs:
+  the tasks done stay done, those that were running run again. A job fetched to its end is forgotten, with its
+  files.
 - **Workers that vanish:** a worker sends heartbeats while it runs a task. If it is not heard of for `--timeout`
   seconds (60 by default), the task goes to another worker; a task is tried three times.
+- **Computers that sleep:** a worker keeps its computer awake while it runs a task (Windows' execution state,
+  `caffeinate` on macOS, `systemd-inhibit` on Linux); the screen may still turn off.
+- **A computer someone uses:** `terraflux worker --idle 10` takes tasks only after 10 minutes without the
+  keyboard or the mouse (Windows and macOS); a task taken runs to its end.
 - **Slurm:** `tools/slurm/terraflux-workers.sbatch` starts workers on the nodes of a Slurm allocation.
 
 **Security:** the coordinator has no authentication or encryption yet. Anyone who reaches its port can submit
@@ -106,7 +132,7 @@ network, or reach it through an SSH tunnel (`ssh -L 7700:localhost:7700 coordina
 | Message | From | To |
 |---|---|---|
 | the model (JSON), the overrides of each task, the evaluation | client | coordinator, then each worker |
-| the input files (once, by hash) | client | coordinator, then each worker once |
+| the files the model reads (once, by hash, in pieces) | client | coordinator, then each worker once |
 | a task's output files (maps as GeoTIFF, tables as CSV), or its metrics | worker | coordinator, then client |
 
 | a pass of the tiled engine (where the maps are, what to compute) and the tiles of each task | client | coordinator, then each worker |

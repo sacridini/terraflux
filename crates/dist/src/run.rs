@@ -1,7 +1,10 @@
 //! A batch from start to end: where it runs (workers on this machine, or a coordinator's), the model's data sent,
-//! the job submitted and followed, its results. The command line and the application run batches with it; the
-//! application in a thread of its own ([`spawn`]).
+//! the job submitted and followed, the files of its runs fetched as they are done, its results. A batch stopped
+//! half way (the computer turned off, the application closed) is taken up again by its job ([`Start::Resume`]):
+//! the coordinator kept it on disk, the runs done are not run again and their files not fetched again. The
+//! command line and the application run batches with it; the application in a thread of its own ([`spawn`]).
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -19,8 +22,9 @@ use crate::{Error, Local, Result};
 /// Where a batch runs.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Place {
-    /// A coordinator and `workers` workers started here for the batch (their data kept in `cache`).
-    Here { workers: usize, cache: PathBuf },
+    /// A coordinator and `workers` workers started here for the batch, their data kept in `cache`; the
+    /// coordinator's jobs kept in `state` (none: let go when it stops; a folder: the batch may be taken up again).
+    Here { workers: usize, cache: PathBuf, state: Option<PathBuf> },
     /// A coordinator's workers (`http://host:7700`).
     At(String),
 }
@@ -38,6 +42,13 @@ pub struct Batch {
     pub evaluation: Option<Evaluation>,
 }
 
+/// A batch to start, or one to take up again (its job on the coordinator).
+#[derive(Debug, Clone)]
+pub enum Start {
+    New(Box<Batch>),
+    Resume(String),
+}
+
 /// How a batch goes.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Progress {
@@ -45,7 +56,7 @@ pub enum Progress {
     Workers(usize),
     /// The model's data is being sent.
     Sending,
-    /// The job was submitted.
+    /// The job was submitted (or found again).
     Submitted { job: String, total: usize },
     /// Tasks done, running, failed.
     Status(JobStatus),
@@ -54,56 +65,93 @@ pub enum Progress {
 /// What a batch gave.
 #[derive(Debug, Clone)]
 pub struct Outcome {
+    pub job: String,
     pub status: JobStatus,
-    /// The results of the tasks, in their order.
+    /// The results of the tasks, in their order (their files written in the folder given, if any).
     pub results: Vec<TaskResult>,
 }
 
 /// The message of a batch stopped by hand.
 pub const STOPPED: &str = "stopped";
 
-/// Run a batch where it is placed, telling `progress` along the way; `stop` drops it.
-pub async fn run(b: &Batch, place: &Place, stop: &AtomicBool, progress: &mut dyn FnMut(Progress)) -> Result<Outcome> {
+/// Run a batch where it is placed (or take one up again), telling `progress` along the way; the files of its
+/// runs written to `out/<run>/` as they are done; `stop` drops it.
+pub async fn run(
+    start: &Start,
+    place: &Place,
+    out: Option<&Path>,
+    stop: &AtomicBool,
+    progress: &mut dyn FnMut(Progress),
+) -> Result<Outcome> {
     let (url, local) = match place {
         Place::At(u) => (u.clone(), None),
-        Place::Here { workers, cache } => {
-            let local = Local::start(*workers, cache.clone(), Options::default()).await?;
+        Place::Here { workers, cache, state } => {
+            let options = Options { dir: state.clone(), ..Default::default() };
+            let local = Local::start(*workers, cache.clone(), options).await?;
             progress(Progress::Workers(*workers));
             (local.url.clone(), Some(local))
         }
     };
-    let r = follow(b, &url, stop, progress).await;
+    let r = async {
+        let mut c = Client::connect(&url).await?;
+        let job = match start {
+            Start::New(b) => submit(&mut c, b, progress).await?,
+            Start::Resume(job) => job.clone(),
+        };
+        follow(&mut c, &job, out, stop, progress).await
+    }
+    .await;
     if let Some(l) = local {
         l.shutdown();
     }
     r
 }
 
-async fn follow(b: &Batch, url: &str, stop: &AtomicBool, progress: &mut dyn FnMut(Progress)) -> Result<Outcome> {
-    let mut c = Client::connect(url).await?;
+/// Send a batch's data and submit it: its job.
+pub async fn submit(c: &mut Client, b: &Batch, progress: &mut dyn FnMut(Progress)) -> Result<String> {
     progress(Progress::Sending);
     let bundled = c.bundle(&b.model, &b.base).await?;
+    let tasks = c.bundle_tasks(&b.model, &b.base, &b.tasks).await?;
     let eval = match &b.evaluation {
         Some(e) => {
             let mut e = e.clone();
-            let p = Path::new(&e.observed);
-            let full = if p.is_absolute() { p.to_path_buf() } else { b.base.join(p) };
-            e.observed = c.upload(&full).await?;
+            e.observed = c.send(&e.observed, &b.base).await?;
             Some(e)
         }
         None => None,
     };
-    let job = c.submit(&b.name, &bundled, &b.tasks, b.files, eval.as_ref()).await?;
-    progress(Progress::Submitted { job: job.clone(), total: b.tasks.len() });
+    let job = c.submit(&b.name, &bundled, &tasks, b.files, eval.as_ref()).await?;
+    progress(Progress::Submitted { job: job.clone(), total: tasks.len() });
+    Ok(job)
+}
+
+/// Follow a job to its end, the files of its runs fetched to `out` as they are done; then forget it.
+pub async fn follow(
+    c: &mut Client,
+    job: &str,
+    out: Option<&Path>,
+    stop: &AtomicBool,
+    progress: &mut dyn FnMut(Progress),
+) -> Result<Outcome> {
     let mut last = None;
+    let mut fetched = BTreeSet::new();
+    let mut announced = false;
     let status = loop {
         if stop.load(Ordering::Relaxed) {
-            let _ = c.forget(&job).await;
+            let _ = c.forget(job).await;
             return Err(Error::Other(STOPPED.into()));
         }
-        let s = c.status(&job).await?;
-        if last.as_ref() != Some(&(s.done, s.failed, s.running)) {
-            last = Some((s.done, s.failed, s.running));
+        let s = c.status(job).await?;
+        if !announced {
+            progress(Progress::Submitted { job: job.to_string(), total: s.total as usize });
+            announced = true;
+        }
+        let key = (s.done, s.failed, s.running);
+        if last != Some(key) {
+            last = Some(key);
+            if let Some(out) = out {
+                fetch_new(c, job, out, &mut fetched).await?;
+            }
             progress(Progress::Status(s.clone()));
         }
         if s.done + s.failed == s.total {
@@ -111,24 +159,39 @@ async fn follow(b: &Batch, url: &str, stop: &AtomicBool, progress: &mut dyn FnMu
         }
         tokio::time::sleep(Duration::from_millis(150)).await;
     };
-    let results = c.results(&job).await?;
-    let _ = c.forget(&job).await;
-    Ok(Outcome { status, results })
+    let results = c.results(job).await?;
+    if let Some(out) = out {
+        fetch_new(c, job, out, &mut fetched).await?;
+        write_summary(out, &results)?;
+    }
+    let _ = c.forget(job).await;
+    Ok(Outcome { job: job.to_string(), status, results })
 }
 
-/// Write each task's files in `out/<label>/` and `out/tasks.csv` (task, worker, seconds, ok, error).
-pub fn write_results(out: &Path, results: &[TaskResult]) -> Result<()> {
+/// The files of the runs done since the last time, written to `out/<run>/` (those there already, of their size,
+/// left as they are).
+async fn fetch_new(c: &mut Client, job: &str, out: &Path, fetched: &mut BTreeSet<String>) -> Result<()> {
+    for r in c.results(job).await? {
+        if !r.ok || fetched.contains(&r.task_id) {
+            continue;
+        }
+        for f in &r.files {
+            let dest = out.join(&r.label).join(&f.name);
+            if std::fs::metadata(&dest).is_ok_and(|m| m.len() == f.size) {
+                continue;
+            }
+            c.download(&f.hash, &dest).await?;
+        }
+        fetched.insert(r.task_id.clone());
+    }
+    Ok(())
+}
+
+/// `out/tasks.csv`: each task's worker, seconds, whether it went well and its error.
+pub fn write_summary(out: &Path, results: &[TaskResult]) -> Result<()> {
     std::fs::create_dir_all(out)?;
     let mut summary = String::from("task,worker,seconds,ok,error\n");
     for r in results {
-        let dir = out.join(&r.label);
-        for f in &r.files {
-            let path = dir.join(&f.name);
-            if let Some(d) = path.parent() {
-                std::fs::create_dir_all(d)?;
-            }
-            std::fs::write(path, &f.data)?;
-        }
         summary.push_str(&format!("{},{},{:.2},{},{:?}\n", r.label, r.worker, r.seconds, r.ok, r.error));
     }
     std::fs::write(out.join("tasks.csv"), summary)?;
@@ -155,16 +218,9 @@ impl Handle {
     }
 }
 
-impl Drop for Handle {
-    fn drop(&mut self) {
-        self.stop();
-    }
-}
-
-/// Run a batch in a thread of its own (with its own async runtime); `wake` is called after every event. With
-/// `write_to`, the tasks' files are written there ([`write_results`]) before the batch is done, and only their
-/// names kept in the outcome.
-pub fn spawn(b: Batch, place: Place, write_to: Option<PathBuf>, wake: Box<dyn Fn() + Send>) -> Handle {
+/// Run a batch in a thread of its own (with its own async runtime); `wake` is called after every event. The
+/// thread ends with the process: a batch placed here with a folder for its jobs may then be taken up again.
+pub fn spawn(start: Start, place: Place, out: Option<PathBuf>, wake: Box<dyn Fn() + Send>) -> Handle {
     let (tx, rx) = channel();
     let stop = Arc::new(AtomicBool::new(false));
     let s = stop.clone();
@@ -182,16 +238,7 @@ pub fn spawn(b: Batch, place: Place, write_to: Option<PathBuf>, wake: Box<dyn Fn
                 let _ = tx.send(Event::Progress(p));
                 wake();
             };
-            let mut o = run(&b, &place, &s, &mut tell).await?;
-            if let Some(out) = &write_to {
-                write_results(out, &o.results)?;
-                for r in &mut o.results {
-                    for f in &mut r.files {
-                        f.data = Vec::new();
-                    }
-                }
-            }
-            Ok::<_, Error>(o)
+            run(&start, &place, out.as_deref(), &s, &mut tell).await
         });
         let _ = tx.send(Event::Done(r.map_err(|e| e.to_string())));
         wake();

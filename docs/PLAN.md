@@ -739,6 +739,11 @@ Pendências:
   runs" (réplicas, cenários numa tabela, calibração contra um mapa observado) sobre `terraflux_dist::run`, o mesmo
   caminho do `submit` e do `calibrate`; os arquivos que os nós gravam vão para a pasta de cada rodada; o
   `raster.read` aceita padrões nas pastas (as rodadas como uma série). As etapas seguintes estão no `IDEAS.md`.
+- **Várias máquinas — robustez (Unreleased, 2026-10-14):** versão checada no registro dos workers e na conexão
+  dos clientes; o coordenador com os blobs, os arquivos dos resultados e os jobs em disco (estado em protobuf,
+  `SavedState`), retomado ao subir de novo; arquivos em pedaços de 1 MiB (streaming); os arquivos lidos pelos nós
+  e pelos cenários em "bundles" (pastas por hash, com os arquivos irmãos); `submit --detach`, `jobs`, `results`;
+  o lote do aplicativo retomável; a máquina sem suspender durante as tarefas e o worker com `--idle`.
 - **Próximos (2026-10-14):** a assinatura dos instaladores e um ícone.
 
 - **A ponte do ls.simulate completa (branch `simulate-bridge`, 2026-10-13):** todo modelo do `ls.simulate` vai pelo

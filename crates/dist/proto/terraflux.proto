@@ -1,9 +1,11 @@
 // The protocol between Terraflux's coordinator, its workers and its clients.
 //
 // Workers only call the coordinator (they need no open port): they register, ask for tasks (a long poll),
-// fetch the data of a task by hash, send heartbeats while they run it and send its result. Clients store the
-// data, submit jobs (a model and the overrides of each of its tasks) and read their status and results.
-// Structured values (models, overrides, evaluations, metrics) travel as JSON.
+// fetch the data of a task by hash, send heartbeats while they run it, send its files (as blobs) and its result.
+// Clients store the data, submit jobs (a model and the overrides of each of its tasks), read their status and
+// results and fetch the results' files. Workers and clients must be of the coordinator's version (the same
+// engine everywhere: the same maps). Structured values (models, overrides, evaluations, metrics) travel as JSON;
+// files travel in chunks.
 //
 // A job of kind "tiles" is a pass of the tiled engine: its payload is the pass (where the maps are, what to
 // compute), each task's payload the tiles it computes, each result's payload the tiles' part (all encoded by
@@ -12,26 +14,31 @@ syntax = "proto3";
 package terraflux.v1;
 
 service Coordinator {
+  // The coordinator's version, to be checked by clients.
+  rpc Hello(Empty) returns (CoordinatorHello);
   rpc Register(WorkerHello) returns (WorkerId);
   rpc NextTask(TaskRequest) returns (TaskAssignment);
-  rpc GetBlob(BlobId) returns (Blob);
+  rpc GetBlob(BlobId) returns (stream Chunk);
   rpc Heartbeat(WorkerId) returns (Ack);
   rpc Complete(TaskResult) returns (Ack);
 
-  rpc PutBlob(Blob) returns (BlobId);
+  rpc PutBlob(stream Chunk) returns (BlobId);
   rpc HasBlob(BlobId) returns (Ack);
   rpc Submit(JobSpec) returns (JobId);
   rpc Status(JobId) returns (JobStatus);
   // The status once every task is done or failed (or after wait_ms).
   rpc Wait(WaitRequest) returns (JobStatus);
-  // Drop a job and its results.
+  // Drop a job, its results and their files.
   rpc Forget(JobId) returns (Ack);
   rpc Results(JobId) returns (JobResults);
+  rpc Jobs(Empty) returns (JobList);
   rpc Workers(Empty) returns (WorkerList);
 }
 
 message Empty {}
 message Ack { bool ok = 1; }
+
+message CoordinatorHello { string version = 1; }
 
 message WorkerHello { string name = 1; uint32 threads = 2; string version = 3; }
 message WorkerId { string id = 1; }
@@ -51,9 +58,11 @@ message TaskAssignment {
 }
 
 message BlobId { string hash = 1; }
-message Blob { string hash = 1; bytes data = 2; }
+// A piece of a blob: the first one of a blob sent says its hash (and size, when known).
+message Chunk { string hash = 1; bytes data = 2; uint64 size = 3; }
 
-message OutputFile { string name = 1; bytes data = 2; }
+// A file of a task's result: a blob of the coordinator.
+message OutputFile { string name = 1; string hash = 2; uint64 size = 3; }
 message TaskResult {
   string task_id = 1;
   string worker = 2;
@@ -86,8 +95,13 @@ message JobStatus {
   uint32 failed = 4;
   uint32 running = 5;
   repeated string errors = 6;
+  string name = 7;
+  string kind = 8;
+  // When it was submitted (seconds since 1970).
+  uint64 submitted = 9;
 }
 message JobResults { repeated TaskResult results = 1; }
+message JobList { repeated JobStatus jobs = 1; }
 
 message WorkerState {
   string id = 1;
@@ -96,5 +110,30 @@ message WorkerState {
   uint32 done = 4;
   string task = 5;
   double seen_seconds_ago = 6;
+  string version = 7;
 }
 message WorkerList { repeated WorkerState workers = 1; }
+
+// The coordinator's state kept on disk: its jobs, their tasks and results (the workers register again).
+message SavedTask {
+  string label = 1;
+  string overrides_json = 2;
+  bytes payload = 3;
+  // 0 pending, 1 done, 2 failed (a task running when the coordinator stopped is pending again).
+  uint32 state = 4;
+  uint32 attempts = 5;
+  TaskResult result = 6;
+}
+message SavedJob {
+  string id = 1;
+  string name = 2;
+  string kind = 3;
+  bytes payload = 4;
+  string model_json = 5;
+  string evaluation_json = 6;
+  bool return_files = 7;
+  repeated SavedTask tasks = 8;
+  repeated string errors = 9;
+  uint64 submitted = 10;
+}
+message SavedState { repeated SavedJob jobs = 1; uint64 next = 2; }

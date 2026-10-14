@@ -1,32 +1,46 @@
-//! The coordinator: the queue of the tasks of the jobs submitted, the data they need (blobs by hash), the
-//! workers and what each is doing. A task whose worker stops sending heartbeats goes back to the queue.
+//! The coordinator: the queue of the tasks of the jobs submitted, the data they need and the files of their
+//! results (blobs by hash, on disk), the workers and what each is doing. A task whose worker stops sending
+//! heartbeats goes back to the queue. Its jobs are kept on disk as they change: a coordinator stopped and started
+//! again on the same folder goes on with them (the tasks that were running run again).
 
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
+use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
+use prost::Message;
 use tokio::sync::Notify;
-use tonic::{Request, Response, Status};
+use tokio_stream::{Stream, StreamExt};
+use tonic::{Request, Response, Status, Streaming};
 
 use crate::proto::coordinator_server::{Coordinator, CoordinatorServer};
 use crate::proto::*;
+use crate::store::{Store, file_chunks};
 
-/// The largest message (a blob, the files of a result).
+/// The largest message (a task's payload, a job's model, a part of the tiled engine).
 pub const MAX_MESSAGE: usize = 1 << 30;
 
-/// How the coordinator treats its workers.
+/// The version of Terraflux: workers and clients of another are turned away.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// How the coordinator treats its workers, and where it keeps its jobs.
 #[derive(Debug, Clone)]
 pub struct Options {
     /// A running task goes back to the queue when its worker has not been heard of for this long.
     pub timeout: Duration,
     /// Times a task is tried before it fails.
     pub attempts: u32,
+    /// Where the blobs and the jobs are kept (none: a folder of its own in the system's temporary folder, let go
+    /// when the coordinator stops).
+    pub dir: Option<PathBuf>,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { timeout: Duration::from_secs(60), attempts: 3 }
+        Options { timeout: Duration::from_secs(60), attempts: 3, dir: None }
     }
 }
 
@@ -48,18 +62,21 @@ struct Task {
 }
 
 struct Job {
+    name: String,
     kind: String,
     payload: Arc<Vec<u8>>,
-    model_json: String,
+    model_json: Arc<String>,
     evaluation_json: String,
     return_files: bool,
     tasks: Vec<Task>,
     errors: Vec<String>,
+    submitted: u64,
 }
 
 struct Worker {
     name: String,
     threads: u32,
+    version: String,
     seen: Instant,
     done: u32,
     task: Option<(String, usize)>,
@@ -67,11 +84,12 @@ struct Worker {
 
 #[derive(Default)]
 struct Inner {
-    blobs: HashMap<String, Arc<Vec<u8>>>,
     jobs: BTreeMap<String, Job>,
     queue: VecDeque<(String, usize)>,
     workers: BTreeMap<String, Worker>,
     next: u64,
+    /// The jobs changed since they were last kept on disk.
+    dirty: bool,
 }
 
 impl Inner {
@@ -100,8 +118,90 @@ impl Inner {
                     t.state = State::Pending;
                     self.queue.push_front((job, i));
                 }
+                self.dirty = true;
             }
         }
+        // workers gone for long are forgotten
+        self.workers.retain(|_, w| w.task.is_some() || w.seen.elapsed() < timeout * 10);
+    }
+
+    fn saved(&self) -> SavedState {
+        SavedState {
+            next: self.next,
+            jobs: self
+                .jobs
+                .iter()
+                .map(|(id, j)| SavedJob {
+                    id: id.clone(),
+                    name: j.name.clone(),
+                    kind: j.kind.clone(),
+                    payload: (*j.payload).clone(),
+                    model_json: (*j.model_json).clone(),
+                    evaluation_json: j.evaluation_json.clone(),
+                    return_files: j.return_files,
+                    errors: j.errors.clone(),
+                    submitted: j.submitted,
+                    tasks: j
+                        .tasks
+                        .iter()
+                        .map(|t| SavedTask {
+                            label: t.label.clone(),
+                            overrides_json: t.overrides_json.clone(),
+                            payload: t.payload.clone(),
+                            state: match t.state {
+                                State::Pending | State::Running { .. } => 0,
+                                State::Done => 1,
+                                State::Failed => 2,
+                            },
+                            attempts: t.attempts,
+                            result: t.result.clone(),
+                        })
+                        .collect(),
+                })
+                .collect(),
+        }
+    }
+
+    fn restore(s: SavedState) -> Inner {
+        let mut inner = Inner { next: s.next, ..Default::default() };
+        for j in s.jobs {
+            let tasks: Vec<Task> = j
+                .tasks
+                .into_iter()
+                .map(|t| Task {
+                    label: t.label,
+                    overrides_json: t.overrides_json,
+                    payload: t.payload,
+                    state: match t.state {
+                        1 => State::Done,
+                        2 => State::Failed,
+                        _ => State::Pending,
+                    },
+                    attempts: t.attempts,
+                    result: t.result,
+                })
+                .collect();
+            for (i, t) in tasks.iter().enumerate() {
+                if t.state == State::Pending {
+                    inner.queue.push_back((j.id.clone(), i));
+                }
+            }
+            inner.jobs.insert(
+                j.id,
+                Job {
+                    name: j.name,
+                    kind: j.kind,
+                    payload: Arc::new(j.payload),
+                    model_json: Arc::new(j.model_json),
+                    evaluation_json: j.evaluation_json,
+                    return_files: j.return_files,
+                    tasks,
+                    errors: j.errors,
+                    submitted: j.submitted,
+                },
+            );
+        }
+        inner
     }
 }
 
@@ -111,15 +211,54 @@ pub struct Service {
     inner: Arc<Mutex<Inner>>,
     notify: Arc<Notify>,
     options: Options,
+    store: Store,
+    dir: PathBuf,
+    /// The folder is the coordinator's own, let go when it stops.
+    temporary: bool,
 }
 
+const STATE: &str = "state.pb";
+
 impl Service {
-    pub fn new(options: Options) -> Self {
-        Service { inner: Arc::new(Mutex::new(Inner::default())), notify: Arc::new(Notify::new()), options }
+    /// A coordinator on its folder: the jobs kept there taken up again.
+    pub fn new(options: Options) -> crate::Result<Self> {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let (dir, temporary) = match &options.dir {
+            Some(d) => (d.clone(), false),
+            None => (
+                std::env::temp_dir().join(format!(
+                    "terraflux-coordinator-{}-{}",
+                    std::process::id(),
+                    NEXT.fetch_add(1, Ordering::Relaxed)
+                )),
+                true,
+            ),
+        };
+        let store = Store::open(dir.join("blobs"))?;
+        let inner = match std::fs::read(dir.join(STATE)) {
+            Ok(bytes) => Inner::restore(
+                SavedState::decode(bytes.as_slice())
+                    .map_err(|e| crate::Error::Other(format!("{}: {e}", dir.join(STATE).display())))?,
+            ),
+            Err(_) => Inner::default(),
+        };
+        Ok(Service {
+            inner: Arc::new(Mutex::new(inner)),
+            notify: Arc::new(Notify::new()),
+            options,
+            store,
+            dir,
+            temporary,
+        })
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The folder of its blobs and jobs.
+    pub fn dir(&self) -> &Path {
+        &self.dir
     }
 
     /// Check the workers now (also done every second by the server).
@@ -127,6 +266,31 @@ impl Service {
         let (t, a) = (self.options.timeout, self.options.attempts);
         self.lock().reap(t, a);
         self.notify.notify_waiters();
+    }
+
+    /// Keep the jobs on disk if they changed (done every second by the server).
+    pub fn save(&self) -> crate::Result<()> {
+        let bytes = {
+            let mut g = self.lock();
+            if !g.dirty {
+                return Ok(());
+            }
+            g.dirty = false;
+            g.saved().encode_to_vec()
+        };
+        let tmp = self.dir.join(format!("{STATE}.part"));
+        std::fs::write(&tmp, bytes)?;
+        std::fs::rename(&tmp, self.dir.join(STATE))?;
+        Ok(())
+    }
+
+    /// Stop: the jobs kept, or the folder let go when it was the coordinator's own.
+    pub fn close(&self) {
+        if self.temporary {
+            let _ = std::fs::remove_dir_all(&self.dir);
+        } else {
+            let _ = self.save();
+        }
     }
 }
 
@@ -139,17 +303,39 @@ fn status_of(id: &str, j: &Job) -> JobStatus {
         failed: count(&|s| *s == State::Failed),
         running: count(&|s| matches!(s, State::Running { .. })),
         errors: j.errors.clone(),
+        name: j.name.clone(),
+        kind: j.kind.clone(),
+        submitted: j.submitted,
     }
 }
 
+fn now() -> u64 {
+    SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+type ChunkStream = Pin<Box<dyn Stream<Item = Result<Chunk, Status>> + Send>>;
+
 #[tonic::async_trait]
 impl Coordinator for Service {
+    async fn hello(&self, _r: Request<Empty>) -> Result<Response<CoordinatorHello>, Status> {
+        Ok(Response::new(CoordinatorHello { version: VERSION.into() }))
+    }
+
     async fn register(&self, r: Request<WorkerHello>) -> Result<Response<WorkerId>, Status> {
         let h = r.into_inner();
+        if h.version != VERSION {
+            return Err(Status::failed_precondition(format!(
+                "this worker is Terraflux {}, the coordinator {VERSION}: install Terraflux {VERSION} on this \
+                 machine",
+                if h.version.is_empty() { "of an unknown version" } else { h.version.as_str() }
+            )));
+        }
         let mut g = self.lock();
         let id = g.id("worker");
-        g.workers
-            .insert(id.clone(), Worker { name: h.name, threads: h.threads, seen: Instant::now(), done: 0, task: None });
+        g.workers.insert(
+            id.clone(),
+            Worker { name: h.name, threads: h.threads, version: h.version, seen: Instant::now(), done: 0, task: None },
+        );
         Ok(Response::new(WorkerId { id }))
     }
 
@@ -175,7 +361,7 @@ impl Coordinator for Service {
                     let a = TaskAssignment {
                         task_id: format!("{job}/{i}"),
                         job_id: job.clone(),
-                        model_json: j.model_json.clone(),
+                        model_json: (*j.model_json).clone(),
                         overrides_json: t.overrides_json.clone(),
                         evaluation_json: j.evaluation_json.clone(),
                         return_files: j.return_files,
@@ -196,10 +382,16 @@ impl Coordinator for Service {
         }
     }
 
-    async fn get_blob(&self, r: Request<BlobId>) -> Result<Response<Blob>, Status> {
+    type GetBlobStream = ChunkStream;
+
+    async fn get_blob(&self, r: Request<BlobId>) -> Result<Response<ChunkStream>, Status> {
         let hash = r.into_inner().hash;
-        let data = self.lock().blobs.get(&hash).cloned().ok_or_else(|| Status::not_found(format!("no blob {hash}")))?;
-        Ok(Response::new(Blob { hash, data: (*data).clone() }))
+        if !self.store.has(&hash) {
+            return Err(Status::not_found(format!("no blob {hash}")));
+        }
+        let path = self.store.path(&hash);
+        let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        Ok(Response::new(Box::pin(file_chunks(path, hash, size).map(Ok))))
     }
 
     async fn heartbeat(&self, r: Request<WorkerId>) -> Result<Response<Ack>, Status> {
@@ -212,6 +404,9 @@ impl Coordinator for Service {
 
     async fn complete(&self, r: Request<TaskResult>) -> Result<Response<Ack>, Status> {
         let mut res = r.into_inner();
+        if let Some(f) = res.files.iter().find(|f| !self.store.has(&f.hash)) {
+            return Err(Status::failed_precondition(format!("the file {} was not sent", f.name)));
+        }
         let mut g = self.lock();
         if let Some(w) = g.workers.get_mut(&res.worker) {
             w.seen = Instant::now();
@@ -234,23 +429,28 @@ impl Coordinator for Service {
             j.errors.push(format!("{}: {}", t.label, res.error));
         }
         t.result = Some(res);
+        g.dirty = true;
         drop(g);
         self.notify.notify_waiters();
         Ok(Response::new(Ack { ok: true }))
     }
 
-    async fn put_blob(&self, r: Request<Blob>) -> Result<Response<BlobId>, Status> {
-        let b = r.into_inner();
-        let hash = crate::hash(&b.data);
-        if !b.hash.is_empty() && b.hash != hash {
-            return Err(Status::invalid_argument("the blob does not match its hash"));
+    async fn put_blob(&self, r: Request<Streaming<Chunk>>) -> Result<Response<BlobId>, Status> {
+        let mut s = r.into_inner();
+        let mut w = self.store.writer().map_err(|e| Status::internal(e.to_string()))?;
+        let mut expected = None;
+        while let Some(c) = s.message().await? {
+            if expected.is_none() {
+                expected = Some(c.hash.clone());
+            }
+            w.write(&c.data).map_err(|e| Status::internal(e.to_string()))?;
         }
-        self.lock().blobs.entry(hash.clone()).or_insert_with(|| Arc::new(b.data));
+        let hash = w.finish(&self.store, expected.as_deref()).map_err(|e| Status::invalid_argument(e.to_string()))?;
         Ok(Response::new(BlobId { hash }))
     }
 
     async fn has_blob(&self, r: Request<BlobId>) -> Result<Response<Ack>, Status> {
-        Ok(Response::new(Ack { ok: self.lock().blobs.contains_key(&r.into_inner().hash) }))
+        Ok(Response::new(Ack { ok: self.store.has(&r.into_inner().hash) }))
     }
 
     async fn submit(&self, r: Request<JobSpec>) -> Result<Response<JobId>, Status> {
@@ -264,9 +464,10 @@ impl Coordinator for Service {
         g.jobs.insert(
             id.clone(),
             Job {
+                name: s.name,
                 kind: s.kind,
                 payload: Arc::new(s.payload),
-                model_json: s.model_json,
+                model_json: Arc::new(s.model_json),
                 evaluation_json: s.evaluation_json,
                 return_files: s.return_files,
                 tasks: s
@@ -282,11 +483,13 @@ impl Coordinator for Service {
                     })
                     .collect(),
                 errors: Vec::new(),
+                submitted: now(),
             },
         );
         for i in 0..n {
             g.queue.push_back((id.clone(), i));
         }
+        g.dirty = true;
         drop(g);
         self.notify.notify_waiters();
         Ok(Response::new(JobId { id }))
@@ -319,9 +522,24 @@ impl Coordinator for Service {
     async fn forget(&self, r: Request<JobId>) -> Result<Response<Ack>, Status> {
         let id = r.into_inner().id;
         let mut g = self.lock();
-        let ok = g.jobs.remove(&id).is_some();
+        let Some(job) = g.jobs.remove(&id) else { return Ok(Response::new(Ack { ok: false })) };
         g.queue.retain(|(j, _)| *j != id);
-        Ok(Response::new(Ack { ok }))
+        g.dirty = true;
+        // the files of its results, unless another job's results have them too
+        let mine: BTreeSet<String> = job
+            .tasks
+            .iter()
+            .flat_map(|t| t.result.iter().flat_map(|r| r.files.iter().map(|f| f.hash.clone())))
+            .collect();
+        let others: BTreeSet<&String> = g
+            .jobs
+            .values()
+            .flat_map(|j| j.tasks.iter().flat_map(|t| t.result.iter().flat_map(|r| r.files.iter().map(|f| &f.hash))))
+            .collect();
+        for h in mine.iter().filter(|h| !others.contains(h)) {
+            self.store.remove(h);
+        }
+        Ok(Response::new(Ack { ok: true }))
     }
 
     async fn results(&self, r: Request<JobId>) -> Result<Response<JobResults>, Status> {
@@ -329,6 +547,11 @@ impl Coordinator for Service {
         let g = self.lock();
         let j = g.jobs.get(&id).ok_or_else(|| Status::not_found("unknown job"))?;
         Ok(Response::new(JobResults { results: j.tasks.iter().filter_map(|t| t.result.clone()).collect() }))
+    }
+
+    async fn jobs(&self, _r: Request<Empty>) -> Result<Response<JobList>, Status> {
+        let g = self.lock();
+        Ok(Response::new(JobList { jobs: g.jobs.iter().map(|(id, j)| status_of(id, j)).collect() }))
     }
 
     async fn workers(&self, _r: Request<Empty>) -> Result<Response<WorkerList>, Status> {
@@ -344,34 +567,42 @@ impl Coordinator for Service {
                     done: w.done,
                     task: w.task.as_ref().map(|(j, i)| format!("{j}/{i}")).unwrap_or_default(),
                     seen_seconds_ago: w.seen.elapsed().as_secs_f64(),
+                    version: w.version.clone(),
                 })
                 .collect(),
         }))
     }
 }
 
-/// A coordinator serving on an address (port 0: any free one): its address and the server's task.
+/// A coordinator serving on an address (port 0: any free one): its address, the service and the server's task
+/// (the jobs kept on disk every second).
 pub async fn serve(
     addr: SocketAddr,
     options: Options,
-) -> std::io::Result<(SocketAddr, Service, tokio::task::JoinHandle<()>)> {
+) -> crate::Result<(SocketAddr, Service, tokio::task::JoinHandle<()>)> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let local = listener.local_addr()?;
-    let service = Service::new(options);
+    let service = Service::new(options)?;
     let s = service.clone();
-    let reaper = service.clone();
-    tokio::spawn(async move {
-        let mut tick = tokio::time::interval(Duration::from_secs(1));
-        loop {
-            tick.tick().await;
-            reaper.reap();
-        }
-    });
+    let keeper = service.clone();
     let handle = tokio::spawn(async move {
         let server =
             CoordinatorServer::new(s).max_decoding_message_size(MAX_MESSAGE).max_encoding_message_size(MAX_MESSAGE);
         let incoming = tokio_stream::wrappers::TcpListenerStream::new(listener);
-        let _ = tonic::transport::Server::builder().add_service(server).serve_with_incoming(incoming).await;
+        let serving = tonic::transport::Server::builder().add_service(server).serve_with_incoming(incoming);
+        let keeping = async move {
+            let mut tick = tokio::time::interval(Duration::from_secs(1));
+            loop {
+                tick.tick().await;
+                keeper.reap();
+                let k = keeper.clone();
+                let _ = tokio::task::spawn_blocking(move || k.save()).await;
+            }
+        };
+        tokio::select! {
+            _ = serving => {}
+            _ = keeping => {}
+        }
     });
     Ok((local, service, handle))
 }
