@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.75.0] - 2026-10-14
+
 ### Added
 - Batches taken up again: the coordinator keeps its data, the results' files and its jobs on disk (`terraflux
   serve --data`, by default in the user's application data) and goes on with them when started again (the tasks

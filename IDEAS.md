@@ -99,7 +99,7 @@ computadores"** e **"Emprestar este computador"**, nunca "coordenador", "porta" 
 1. **Feito** (0.74.0). **Lotes no aplicativo** (numa máquina): uma janela "Executar várias vezes" com réplicas, cenários (uma tabela
    em vez do TOML) e calibração (parâmetros com faixas, o mapa observado), sobre o `Local::start` que já existe;
    progresso, tempo restante, a tabela dos resultados e "aplicar os melhores ajustes ao modelo".
-2. **Feito** (Unreleased). **Robustez** que o leigo não vê: a versão dos workers checada (hoje o `WorkerHello.version` é ignorado), o
+2. **Feito** (0.75.0). **Robustez** que o leigo não vê: a versão dos workers checada (hoje o `WorkerHello.version` é ignorado), o
    coordenador com os dados e os resultados em disco (hoje tudo na RAM, mensagens de até 1 GiB sem streaming),
    lotes retomáveis (ver e baixar os resultados depois, o aplicativo reabre o lote), a máquina sem suspender
    enquanto há tarefas, o worker que pausa quando o usuário volta ao computador; os arquivos lidos pelos nós
