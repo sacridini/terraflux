@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.70.0] - 2026-10-14
+
 ### Added
 - Linux packages (`tools/make-linux-package.py`, in `target/linux`): a folder to keep anywhere, as a tar.gz (its
   `install.sh` links the command into `~/.local/bin` and adds a menu entry for the user) and a Debian package
