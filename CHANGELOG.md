@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.79.0] - 2026-10-14
+
 ### Added
 - Machines rented in the cloud: `terraflux cloud-init` writes the setup script (cloud-init user data) of a server
   (Terraflux installed from the Linux package of this version, then saved with `terraflux cluster add`) or, with
