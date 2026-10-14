@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.77.0] - 2026-10-14
+
 ### Added
 - Clusters and servers reached by SSH, saved once (`terraflux cluster add/list/test/stop/remove`; in the
   application, the Computers pane): `submit --on`, `calibrate --on` and `results --on` check Terraflux there (the

@@ -107,7 +107,7 @@ computadores"** e **"Emprestar este computador"**, nunca "coordenador", "porta" 
 3. **Feito** (0.76.0). **Rede local sem configuração:** o coordenador embutido no aplicativo de quem lança o lote; "Emprestar este
    computador" nos outros; pareamento por um código curto (descoberta por broadcast UDP, o código como segredo:
    token de autenticação e TLS com o certificado fixado); a regra do firewall no instalador.
-4. **Feito** (Unreleased). **Clusters (HPC) por SSH com um perfil salvo:** host, usuário, partição e tempo do Slurm, ou um servidor sem
+4. **Feito** (0.77.0). **Clusters (HPC) por SSH com um perfil salvo:** host, usuário, partição e tempo do Slurm, ou um servidor sem
    escalonador; o `submit --on <perfil>` (e o botão) confere o Terraflux do outro lado, sobe o coordenador e os
    workers, abre o túnel e traz os resultados.
 5. **Motor por tiles sem armazenamento compartilhado** (avançado): os workers recebem os mapas pelo coordenador e

@@ -750,7 +750,7 @@ Pendências:
   descoberta por broadcast UDP (porta 7701) com um "beacon" derivado da chave; o `Pool` do aplicativo (coordenador
   persistente com workers locais, compartilhado ou não) e o `Lender` ("emprestar este computador"); o painel
   Computers; `--code` em todos os comandos; a regra do firewall no instalador (extensão Firewall do WiX).
-- **Várias máquinas — clusters por SSH (Unreleased, 2026-10-14):** perfis salvos (`clusters.toml`, com código de
+- **Várias máquinas — clusters por SSH (0.77.0, 2026-10-14):** perfis salvos (`clusters.toml`, com código de
   pareamento e porta próprios), `terraflux cluster add/list/test/stop/remove`, `--on` no `submit`, `calibrate` e
   `results`; o `ssh` do sistema (scripts POSIX pela entrada padrão, túnel `-L`), o coordenador e os workers do
   outro lado com `nohup` ou `sbatch` (Slurm), parados ao fim do lote; o "Run on" do painel de lotes e a seção de
