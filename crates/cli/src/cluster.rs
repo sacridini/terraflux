@@ -1,6 +1,5 @@
 //! The commands of many runs: a coordinator, workers, batches of replicates or scenarios, calibrations.
 
-use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -9,11 +8,11 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use clap::Args;
-use terraflux_dist::Local;
 use terraflux_dist::batch::{self, Param};
 use terraflux_dist::client::{Client, TaskOf};
 use terraflux_dist::coordinator::{self, Options};
-use terraflux_dist::evaluate::{Evaluation, Metrics};
+use terraflux_dist::evaluate::Evaluation;
+use terraflux_dist::run::{self, Batch, Place, Progress};
 use terraflux_graph::Model;
 
 /// Where a batch runs.
@@ -31,16 +30,25 @@ pub fn default_cache() -> PathBuf {
     std::env::temp_dir().join("terraflux-cache")
 }
 
-/// The coordinator's URL: the one given, or a local cluster started here.
-async fn place(w: &Where) -> Result<(String, Option<Local>)> {
+/// Where a batch runs: the coordinator given, or workers started here.
+fn place(w: &Where) -> Place {
     match &w.coordinator {
-        Some(u) => Ok((u.clone(), None)),
+        Some(u) => Place::At(u.clone()),
         None => {
             let most = terraflux_ops::threads::most();
             let n = w.workers.unwrap_or((most / 4).max(1)).clamp(1, most);
-            let local = Local::start(n, default_cache(), Options::default()).await?;
-            eprintln!("{n} workers on this machine");
-            Ok((local.url.clone(), Some(local)))
+            Place::Here { workers: n, cache: default_cache() }
+        }
+    }
+}
+
+fn progress(p: Progress) {
+    match p {
+        Progress::Workers(n) => eprintln!("{n} workers on this machine"),
+        Progress::Sending => {}
+        Progress::Submitted { job, total } => eprintln!("job {job}: {total} tasks"),
+        Progress::Status(s) => {
+            eprintln!("  {} of {} done, {} running, {} failed", s.done, s.total, s.running, s.failed)
         }
     }
 }
@@ -86,38 +94,25 @@ pub async fn workers(url: &str) -> Result<()> {
     Ok(())
 }
 
-fn progress(s: &terraflux_dist::proto::JobStatus) {
-    eprintln!("  {} of {} done, {} running, {} failed", s.done, s.total, s.running, s.failed);
-}
-
 /// Run a batch of tasks of a model and write each task's files in `out/<label>/`.
 pub async fn submit(model_path: &Path, tasks: Vec<TaskOf>, out: &Path, w: &Where) -> Result<()> {
     let model = Model::load_expanded(model_path).with_context(|| format!("reading {}", model_path.display()))?;
     let base = model_path.parent().map(Path::to_path_buf).unwrap_or_default();
-    let (url, local) = place(w).await?;
-    let mut c = Client::connect(&url).await?;
-    let bundled = c.bundle(&model, &base).await?;
     let name = model.name.clone().unwrap_or_else(|| "batch".into());
-    let job = c.submit(&name, &bundled, &tasks, true, None).await?;
-    eprintln!("job {job}: {} tasks", tasks.len());
-    let status = c.wait(&job, progress).await?;
-    std::fs::create_dir_all(out)?;
-    let mut summary = String::from("task,worker,seconds,ok,error\n");
-    for r in c.results(&job).await? {
-        let dir = out.join(&r.label);
-        std::fs::create_dir_all(&dir)?;
-        for f in &r.files {
-            std::fs::write(dir.join(&f.name), &f.data)?;
-        }
-        summary.push_str(&format!("{},{},{:.2},{},{:?}\n", r.label, r.worker, r.seconds, r.ok, r.error));
-    }
-    std::fs::write(out.join("tasks.csv"), summary)?;
-    if let Some(l) = local {
-        l.shutdown();
-    }
+    let b = Batch { name, model, base, tasks, files: true, evaluation: None };
+    let o = run::run(&b, &place(w), &AtomicBool::new(false), &mut progress).await?;
+    run::write_results(out, &o.results)?;
     eprintln!("wrote {}", out.display());
-    if status.failed > 0 {
-        bail!("{} tasks failed:\n  {}", status.failed, status.errors.join("\n  "));
+    if o.status.failed > 0 {
+        bail!(
+            "{} tasks failed:
+  {}",
+            o.status.failed,
+            o.status.errors.join(
+                "
+  "
+            )
+        );
     }
     Ok(())
 }
@@ -147,7 +142,7 @@ pub struct Calibrate {
     /// What to maximise: `fom` (figure of merit), `overall`, or `similarity:<window>`.
     #[arg(long, default_value = "fom")]
     pub metric: String,
-    /// The input holding the seed.
+    /// What holds the seed: an input (`seed`), a node's (`simulation.seed`), or several, separated by commas.
     #[arg(long, default_value = "seed")]
     pub seed_input: String,
     #[arg(short, long, default_value = "calibration")]
@@ -173,34 +168,25 @@ pub async fn calibrate(a: &Calibrate) -> Result<()> {
         Some((f, b)) if !b.contains(['/', '\\']) && f.len() > 1 => (f.to_string(), Some(b.to_string())),
         _ => (a.observed.clone(), None),
     };
-    let (url, local) = place(&a.at).await?;
-    let mut c = Client::connect(&url).await?;
-    let bundled = c.bundle(&model, &base).await?;
     let eval = Evaluation {
         output: "simulation.maps".into(),
-        observed: c.upload(Path::new(&file)).await?,
+        observed: std::path::absolute(&file)?.to_string_lossy().into_owned(),
         band,
         start: a.start.clone(),
         windows: vec![1, 3, 5, 7, 9, 11],
     };
-    let tasks = batch::calibration_tasks(&candidates, &a.seeds, &a.seed_input);
-    let job = c.submit("calibration", &bundled, &tasks, false, Some(&eval)).await?;
-    eprintln!("calibration {job}: {} candidates x {} seeds", candidates.len(), a.seeds.len());
-    let status = c.wait(&job, progress).await?;
-    let results = c.results(&job).await?;
-    let by_label: BTreeMap<String, Option<Metrics>> =
-        results.iter().map(|r| (r.label.clone(), serde_json::from_str(&r.metrics_json).ok())).collect();
-    let metrics: Vec<Option<Metrics>> = tasks.iter().map(|(l, _)| by_label.get(l).cloned().flatten()).collect();
+    let tasks = batch::calibration_tasks(&candidates, &a.seeds, &batch::seed_keys(&a.seed_input));
+    eprintln!("calibration: {} candidates x {} seeds", candidates.len(), a.seeds.len());
+    let labels: Vec<String> = tasks.iter().map(|(l, _)| l.clone()).collect();
+    let b =
+        Batch { name: "calibration".into(), model: model.clone(), base, tasks, files: false, evaluation: Some(eval) };
+    let o = run::run(&b, &place(&a.at), &AtomicBool::new(false), &mut progress).await?;
+    let status = o.status;
+    let metrics = batch::metrics_of(&labels, &o.results);
     let ranked = batch::rank(&candidates, a.seeds.len(), &metrics, &a.metric)?;
     std::fs::create_dir_all(&a.out)?;
     let keys: Vec<String> = params.iter().map(|p| p.key.clone()).collect();
-    let mut csv = format!("rank,candidate,{},{},runs\n", keys.join(","), a.metric);
-    for (k, s) in ranked.iter().enumerate() {
-        let vals: Vec<String> =
-            keys.iter().map(|key| s.settings.get(key).map(|v| v.to_string()).unwrap_or_default()).collect();
-        csv.push_str(&format!("{},{},{},{},{}\n", k + 1, s.candidate, vals.join(","), s.score, s.runs));
-    }
-    std::fs::write(a.out.join("calibration.csv"), csv)?;
+    std::fs::write(a.out.join("calibration.csv"), batch::ranking_csv(&ranked, &keys, &a.metric))?;
     let best = &ranked[0];
     std::fs::write(a.out.join("best.json"), serde_json::to_string_pretty(&best.settings)?)?;
     let mut calibrated = model.clone();
@@ -216,9 +202,6 @@ pub async fn calibrate(a: &Calibrate) -> Result<()> {
     let stem = a.model.file_stem().and_then(|s| s.to_str()).unwrap_or("model");
     let out_model = a.model.with_file_name(format!("{stem}_calibrated.{ext}"));
     calibrated.save(&out_model)?;
-    if let Some(l) = local {
-        l.shutdown();
-    }
     eprintln!("best: {} ({} = {:.6})", serde_json::to_string(&best.settings)?, a.metric, best.score);
     eprintln!("wrote {} and {}", a.out.join("calibration.csv").display(), out_model.display());
     if status.failed > 0 {

@@ -1268,3 +1268,99 @@ fn the_legend_is_edited_in_the_viewer() {
     assert!(h.query_by_label("forest").is_some(), "the name in the legend");
     shot(&mut h, "30-legend");
 }
+
+#[test]
+fn the_model_runs_many_times_from_its_pane() {
+    let mut h = harness(TerrafluxApp::new(Some(model())));
+    loaded(&mut h);
+    {
+        // two steps a run, for the test
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source.apply(&[("simulation.times".to_string(), serde_json::json!(2))].into()).unwrap();
+        s.edited();
+    }
+    h.state_mut().focus(Pane::Batch);
+    let out = tmp("ui-batch");
+    let _ = std::fs::remove_dir_all(&out);
+    {
+        let b = &mut h.state_mut().batch;
+        b.runs = 3;
+        b.workers = 3;
+        b.out = Some(out.join("replicates"));
+    }
+    h.run_steps(3);
+    shot(&mut h, "batch-1-replicates");
+    h.get_by_label("Run 3 times").click();
+    h.run_steps(1);
+    assert!(h.state().batch.running(), "{:?}", h.state().batch.error);
+    until(&mut h, "the replicates", |a| !a.batch.running());
+    h.run_steps(2);
+    {
+        let b = &h.state().batch;
+        assert!(b.error.is_none(), "{:?}", b.error);
+        let f = b.finished.as_ref().unwrap();
+        assert_eq!(f.rows.iter().map(|r| r.label.as_str()).collect::<Vec<_>>(), ["seed_1", "seed_2", "seed_3"]);
+        assert!(f.rows.iter().all(|r| r.ok), "{:?}", f.errors);
+        assert!(!f.files.is_empty());
+        assert!(out.join("replicates").join("tasks.csv").exists());
+        assert!(out.join("replicates").join("seed_2").join(&f.files[0]).exists());
+    }
+    shot(&mut h, "batch-2-done");
+    // the runs as one series in the model
+    let name = h.state().batch.finished.as_ref().unwrap().files.iter().find(|n| n.ends_with(".tif")).unwrap().clone();
+    let before = h.state().session.as_ref().unwrap().source.nodes.len();
+    h.get_by_label(&format!("Show the runs of {name} in the model")).scroll_to_me();
+    h.run_steps(30);
+    h.get_by_label(&format!("Show the runs of {name} in the model")).click();
+    h.run_steps(2);
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.source.nodes.len(), before + 1);
+    assert_eq!(s.source.nodes.last().unwrap().op, "raster.read");
+
+    // a calibration of the patches' isometry against the map of 2011, the best settings put in the model
+    {
+        let b = &mut h.state_mut().batch;
+        b.kind = terraflux_app::batch_view::Kind::Calibration;
+        b.ranges = vec![terraflux_app::batch_view::Range {
+            key: "patches.isometry".into(),
+            from: "0.5".into(),
+            to: "2.5".into(),
+            points: "3".into(),
+        }];
+        b.observed = Some(data("sibuyan_landuse.tif"));
+        b.bands = vec!["1997".into(), "2011".into()];
+        b.band = 1;
+        b.out = Some(out.join("calibration"));
+    }
+    h.run_steps(3);
+    shot(&mut h, "batch-3-calibration");
+    h.get_by_label("Run 3 times").click();
+    h.run_steps(1);
+    assert!(
+        h.state().batch.running(),
+        "{:?} loading {}",
+        h.state().batch.error,
+        h.state().session.as_ref().unwrap().loading()
+    );
+    until(&mut h, "the calibration", |a| !a.batch.running());
+    h.run_steps(2);
+    let b = &h.state().batch;
+    assert!(b.error.is_none(), "{:?}", b.error);
+    let f = b.finished.as_ref().unwrap();
+    assert_eq!(f.kind, terraflux_app::batch_view::Kind::Calibration, "{:?} {:?}", f.errors, f.rows);
+    let (ranked, keys, metric) = f.ranked.clone().unwrap();
+    assert_eq!(
+        (ranked.len(), keys.as_slice(), metric.as_str()),
+        (3, ["patches.isometry".to_string()].as_slice(), "similarity:5")
+    );
+    assert!(ranked[0].score >= ranked[2].score);
+    assert!(out.join("calibration").join("calibration.csv").exists());
+    shot(&mut h, "batch-4-calibrated");
+    h.get_by_label("Apply the best settings to the model").scroll_to_me();
+    h.run_steps(30);
+    h.get_by_label("Apply the best settings to the model").click();
+    h.run_steps(2);
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.source.node("patches").unwrap().params.get("isometry"), ranked[0].settings.get("patches.isometry"));
+    assert!(s.dirty);
+}

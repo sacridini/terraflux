@@ -210,7 +210,8 @@ fn matches(pattern: &str, name: &str) -> bool {
     p[i..].iter().all(|c| *c == '*')
 }
 
-/// The files a path names: itself, the rasters of a folder, or those matching a pattern in its name.
+/// The files a path names: itself, the rasters of a folder, or those matching a pattern (`*` and `?` in the
+/// file's name or in its folders' names: `runs/*/landuse.tif`, a file of each run).
 fn files_of(path: &str) -> Result<Vec<PathBuf>> {
     let p = Path::new(path);
     let raster = |q: &Path| {
@@ -219,21 +220,44 @@ fn files_of(path: &str) -> Result<Vec<PathBuf>> {
             RASTER_EXTENSIONS.contains(&e.as_str())
         })
     };
-    let list = |dir: &Path, keep: &dyn Fn(&str) -> bool| -> Result<Vec<PathBuf>> {
-        let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
-            .map_err(|e| Error::msg(format!("{}: {e}", dir.display())))?
+    let entries = |dir: &Path| -> Result<Vec<PathBuf>> {
+        let d = if dir.as_os_str().is_empty() { Path::new(".") } else { dir };
+        let mut v: Vec<PathBuf> = std::fs::read_dir(d)
+            .map_err(|e| Error::msg(format!("{}: {e}", d.display())))?
             .filter_map(|e| e.ok().map(|e| e.path()))
-            .filter(|q| q.is_file() && raster(q) && q.file_name().is_some_and(|n| keep(&n.to_string_lossy())))
             .collect();
         v.sort();
         Ok(v)
     };
-    let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let found = if name.contains(['*', '?']) {
-        let dir = p.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
-        list(dir, &|n| matches(&name, n))?
+    let wild = |c: &std::path::Component| c.as_os_str().to_string_lossy().contains(['*', '?']);
+    let found = if p.components().any(|c| wild(&c)) {
+        // folder by folder: the names matching each pattern
+        let parts: Vec<_> = p.components().collect();
+        let mut at = vec![PathBuf::new()];
+        for (k, c) in parts.iter().enumerate() {
+            let last = k + 1 == parts.len();
+            let mut next = Vec::new();
+            for dir in &at {
+                if wild(c) {
+                    let pattern = c.as_os_str().to_string_lossy();
+                    for q in entries(dir)? {
+                        let name = q.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                        if matches(&pattern, &name) && if last { q.is_file() && raster(&q) } else { q.is_dir() } {
+                            next.push(q);
+                        }
+                    }
+                } else {
+                    let q = dir.join(c.as_os_str());
+                    if !last || q.is_file() {
+                        next.push(q);
+                    }
+                }
+            }
+            at = next;
+        }
+        at
     } else if p.is_dir() {
-        list(p, &|_| true)?
+        entries(p)?.into_iter().filter(|q| q.is_file() && raster(q)).collect()
     } else {
         vec![p.to_path_buf()]
     };
@@ -241,6 +265,20 @@ fn files_of(path: &str) -> Result<Vec<PathBuf>> {
         return Err(Error::msg(format!("{path}: no raster")));
     }
     Ok(found)
+}
+
+/// The name of each file of a series: its stem, or its folder's name when the stems are all the same (a file
+/// of each run).
+fn series_names(files: &[PathBuf]) -> Vec<String> {
+    let stem = |f: &PathBuf| f.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let same = files.len() > 1 && files.iter().all(|f| stem(f) == stem(&files[0]));
+    files
+        .iter()
+        .map(|f| match f.parent().and_then(Path::file_name) {
+            Some(d) if same => d.to_string_lossy().into_owned(),
+            _ => stem(f),
+        })
+        .collect()
 }
 
 impl Rasters {
@@ -258,8 +296,7 @@ impl Rasters {
             }
         } else {
             // every band of every file: a file's name, and its band's when it has more than one
-            for (i, (img, f)) in images.iter().zip(&files).enumerate() {
-                let stem = f.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+            for (i, (img, stem)) in images.iter().zip(series_names(&files)).enumerate() {
                 let names = img.meta().band_names();
                 let many = names.len() > 1;
                 for (b, band) in names.into_iter().enumerate() {

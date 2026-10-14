@@ -4,6 +4,7 @@
 
 pub mod app;
 pub mod basemap;
+pub mod batch_view;
 pub mod builder;
 pub mod canvas_gpu;
 pub mod charts;

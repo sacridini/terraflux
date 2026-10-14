@@ -258,6 +258,10 @@ terraflux submit model.toml --scenarios scenarios.toml --coordinator http://coor
 Workers only connect to the coordinator; data travels once, by hash; a task whose worker vanishes runs on
 another. See [`docs/cluster.md`](docs/cluster.md) (and the Slurm template in `tools/slurm`).
 
+In the application, the **Many runs** pane does the same without the command line: replicates, scenarios in a
+table and calibration against an observed map, with their progress, their results and the best settings
+applied to the model in a click.
+
 ## Maps larger than memory
 
 ```bash

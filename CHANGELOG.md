@@ -6,6 +6,26 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Many runs from the application: the "Many runs" pane (the toolbar's "Many runs...") runs the model again and
+  again on workers of this computer, as many at once as chosen. Replicates (the model's seeds found by
+  themselves, or chosen), scenarios in a table (a row per scenario, a column per setting it changes, any input
+  or node setting picked by name) and calibration (settings tried in ranges, every combination or random draws,
+  each with some seeds, scored against an observed map by the fuzzy similarity, the figure of merit or the
+  share of cells of the same class). The runs' progress and the time left; the results as a table, in a folder
+  per run; the runs of a map as one series in the model in a click; a calibration's ranking, its scores against
+  each setting and its best settings applied to the model in a click.
+- `raster.read` takes patterns in the folders' names too (`runs/*/landuse.tif`: a file of each run, the layers
+  named by their folders).
+- `terraflux_dist::run`: a batch from start to end (placed here or on a coordinator, its data sent, followed,
+  its results written), the command line's and the application's.
+
+### Changed
+- In a batch, the files the nodes write (`raster.write`, `vector.write`, `landscape.mspa_tiled`) go to each run's
+  folder and come back with its outputs, instead of every run writing the same file.
+- A batch's seed may be a node's (`--seed-input simulation.seed`) or several (`seed,other.seed`); a calibration
+  may score any output of maps and start from a node's map (a `raster.read`), not only the model's inputs.
+
 ## [0.73.0] - 2026-10-14
 
 ### Added

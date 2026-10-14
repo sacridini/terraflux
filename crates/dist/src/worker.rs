@@ -107,30 +107,73 @@ pub async fn localize(
     Ok(())
 }
 
-/// Run one task (blocking): the model with its overrides, then the evaluation or the outputs' files.
+/// The operators that write files: in a batch, each run writes them in a folder of its own.
+pub const WRITE_OPS: [&str; 3] = ["raster.write", "vector.write", "landscape.mspa_tiled"];
+
+/// The files the nodes write put in `dir`, by their names (a name taken already gets the node's id before it).
+pub fn write_into(nodes: &mut [terraflux_graph::Node], dir: &Path, taken: &mut std::collections::BTreeSet<String>) {
+    for n in nodes {
+        if WRITE_OPS.contains(&n.op.as_str())
+            && let Some(serde_json::Value::String(p)) = n.params.get_mut("path")
+        {
+            let name = Path::new(p.as_str()).file_name().map(|f| f.to_string_lossy().into_owned());
+            let mut name = name.unwrap_or_else(|| format!("{}.tif", n.id));
+            if !taken.insert(name.clone()) {
+                name = format!("{}_{name}", n.id);
+                taken.insert(name.clone());
+            }
+            *p = dir.join(name).to_string_lossy().into_owned();
+        }
+        if let Some(b) = &mut n.body {
+            write_into(&mut b.nodes, dir, taken);
+        }
+    }
+}
+
+/// Every file under a folder, named by its path in it (with `/`).
+fn files_under(dir: &Path, prefix: &str, out: &mut Vec<OutputFile>) -> Result<()> {
+    let mut entries: Vec<_> = std::fs::read_dir(dir)?.filter_map(|e| e.ok()).collect();
+    entries.sort_by_key(|e| e.file_name());
+    for e in entries {
+        let name = format!("{prefix}{}", e.file_name().to_string_lossy());
+        if e.path().is_dir() {
+            files_under(&e.path(), &format!("{name}/"), out)?;
+        } else {
+            out.push(OutputFile { name, data: std::fs::read(e.path())? });
+        }
+    }
+    Ok(())
+}
+
+/// Run one task (blocking) in the folder `dir`: the model with its overrides, the files its nodes write put in
+/// the folder, then the evaluation, and the outputs' files and the nodes' (when `keep`).
 pub fn run_task(
     mut model: Model,
     overrides: &BTreeMap<String, serde_json::Value>,
     eval: Option<&Evaluation>,
-    files: Option<&Path>,
+    dir: &Path,
+    keep: bool,
 ) -> Result<(String, Vec<OutputFile>, Vec<String>)> {
     model.apply(overrides).map_err(|e| Error::Other(e.to_string()))?;
-    let inputs = load_inputs(&model, Path::new(""), &BTreeMap::new()).map_err(|e| Error::Other(e.to_string()))?;
-    let results = Engine::default().run(&model, &inputs, &mut Quiet).map_err(|e| Error::Other(e.to_string()))?;
-    let metrics = match eval {
-        Some(e) => serde_json::to_string(&evaluate(e, &results, &inputs)?)?,
-        None => String::new(),
-    };
-    let mut out = Vec::new();
-    if let Some(dir) = files {
-        std::fs::create_dir_all(dir)?;
-        for f in write_outputs(&model, &results, dir).map_err(|e| Error::Other(e.to_string()))? {
-            let name = f.file_name().unwrap().to_string_lossy().into_owned();
-            out.push(OutputFile { name, data: std::fs::read(&f)? });
+    let _ = std::fs::remove_dir_all(dir);
+    std::fs::create_dir_all(dir)?;
+    write_into(&mut model.nodes, dir, &mut Default::default());
+    let r = (|| {
+        let inputs = load_inputs(&model, Path::new(""), &BTreeMap::new()).map_err(|e| Error::Other(e.to_string()))?;
+        let results = Engine::default().run(&model, &inputs, &mut Quiet).map_err(|e| Error::Other(e.to_string()))?;
+        let metrics = match eval {
+            Some(e) => serde_json::to_string(&evaluate(e, &results, &inputs)?)?,
+            None => String::new(),
+        };
+        let mut out = Vec::new();
+        if keep {
+            write_outputs(&model, &results, dir).map_err(|e| Error::Other(e.to_string()))?;
+            files_under(dir, "", &mut out)?;
         }
-        let _ = std::fs::remove_dir_all(dir);
-    }
-    Ok((metrics, out, results.warnings))
+        Ok((metrics, out, results.warnings))
+    })();
+    let _ = std::fs::remove_dir_all(dir);
+    r
 }
 
 /// Ask for tasks and run them until `stop`; reconnects when the coordinator goes away.
@@ -247,12 +290,12 @@ async fn work(
     localize(client, &opts.cache, &mut model, eval.as_mut()).await?;
     // heartbeats while the task runs
     let (done, beat) = heartbeats(client, id, opts.heartbeat);
-    let files = task.return_files.then(|| opts.cache.join("out").join(task.task_id.replace('/', "_")));
-    let threads = opts.threads;
+    let dir = opts.cache.join("out").join(format!("{}-{}", opts.name, task.task_id.replace('/', "_")));
+    let (threads, keep) = (opts.threads, task.return_files);
     let r = tokio::task::spawn_blocking(move || {
         terraflux_ops::threads::ensure();
         terraflux_ops::threads::set_kernel_threads(threads);
-        run_task(model, &overrides, eval.as_ref(), files.as_deref())
+        run_task(model, &overrides, eval.as_ref(), &dir, keep)
     })
     .await
     .map_err(|e| Error::Other(format!("the task stopped: {e}")))?;

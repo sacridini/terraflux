@@ -10,12 +10,22 @@ use crate::client::TaskOf;
 use crate::evaluate::Metrics;
 use crate::{Error, Result};
 
-/// `n` runs with the seeds `first`, `first + 1`... (the input `seed`).
-pub fn replicates(n: usize, first: i64, seed_input: &str) -> Vec<TaskOf> {
+/// The keys of the seeds a batch sets, from `seed` (the input `$seed`), `$seed`, `node.seed` (a node's seed), or
+/// several of them separated by commas.
+pub fn seed_keys(spec: &str) -> Vec<String> {
+    spec.split(',')
+        .map(str::trim)
+        .filter(|k| !k.is_empty())
+        .map(|k| if k.starts_with('$') || k.contains('.') { k.to_string() } else { format!("${k}") })
+        .collect()
+}
+
+/// `n` runs with the seeds `first`, `first + 1`..., each given to every key of `keys` (see [`seed_keys`]).
+pub fn replicates(n: usize, first: i64, keys: &[String]) -> Vec<TaskOf> {
     (0..n)
         .map(|k| {
             let seed = first + k as i64;
-            (format!("seed_{seed}"), [(format!("${seed_input}"), Value::from(seed))].into())
+            (format!("seed_{seed}"), keys.iter().map(|key| (key.clone(), Value::from(seed))).collect())
         })
         .collect()
 }
@@ -139,13 +149,15 @@ pub fn random(params: &[Param], n: usize, seed: u64) -> Vec<BTreeMap<String, Val
     out
 }
 
-/// The tasks of a calibration: each candidate run with each seed.
-pub fn calibration_tasks(candidates: &[BTreeMap<String, Value>], seeds: &[i64], seed_input: &str) -> Vec<TaskOf> {
+/// The tasks of a calibration: each candidate run with each seed (given to every key of `keys`).
+pub fn calibration_tasks(candidates: &[BTreeMap<String, Value>], seeds: &[i64], keys: &[String]) -> Vec<TaskOf> {
     let mut out = Vec::new();
     for (i, c) in candidates.iter().enumerate() {
         for &s in seeds {
             let mut o = c.clone();
-            o.insert(format!("${seed_input}"), Value::from(s));
+            for k in keys {
+                o.insert(k.clone(), Value::from(s));
+            }
             out.push((format!("candidate_{i}_seed_{s}"), o));
         }
     }
@@ -189,6 +201,38 @@ pub fn rank(
     Ok(out)
 }
 
+/// The metrics of the tasks labelled `labels`, from their results (none for a task without one, or failed).
+pub fn metrics_of(labels: &[String], results: &[crate::proto::TaskResult]) -> Vec<Option<Metrics>> {
+    let by_label: BTreeMap<&str, &crate::proto::TaskResult> = results.iter().map(|r| (r.label.as_str(), r)).collect();
+    labels
+        .iter()
+        .map(|l| by_label.get(l.as_str()).filter(|r| r.ok).and_then(|r| serde_json::from_str(&r.metrics_json).ok()))
+        .collect()
+}
+
+/// A calibration's ranking as CSV: rank, candidate, the settings varied, the score and the runs it is the mean of.
+pub fn ranking_csv(ranked: &[Scored], keys: &[String], metric: &str) -> String {
+    let mut csv = format!(
+        "rank,candidate,{},{metric},runs
+",
+        keys.join(",")
+    );
+    for (k, s) in ranked.iter().enumerate() {
+        let vals: Vec<String> =
+            keys.iter().map(|key| s.settings.get(key).map(|v| v.to_string()).unwrap_or_default()).collect();
+        csv.push_str(&format!(
+            "{},{},{},{},{}
+",
+            k + 1,
+            s.candidate,
+            vals.join(","),
+            s.score,
+            s.runs
+        ));
+    }
+    csv
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -225,7 +269,13 @@ mod tests {
         assert_eq!(s.len(), 2);
         assert_eq!(s[0].1["$seed"], Value::from(2));
         assert!(scenarios("[[scenario]]\nname = \"a\"\n[[scenario]]\nname = \"a\"\n").is_err());
-        let r = replicates(3, 10, "seed");
+        let r = replicates(3, 10, &seed_keys("seed"));
         assert_eq!(r[2].0, "seed_12");
+        assert_eq!(r[2].1["$seed"], Value::from(12));
+        let keys = seed_keys("sim.seed, $other,third");
+        assert_eq!(keys, ["sim.seed", "$other", "$third"]);
+        let r = replicates(2, 1, &keys);
+        assert_eq!(r[1].1.len(), 3);
+        assert_eq!(r[1].1["sim.seed"], Value::from(2));
     }
 }

@@ -11,6 +11,7 @@ pub mod batch;
 pub mod client;
 pub mod coordinator;
 pub mod evaluate;
+pub mod run;
 pub mod tiles;
 pub mod worker;
 

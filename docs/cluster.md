@@ -5,6 +5,25 @@ settings (scenarios), the settings a calibration tries. Terraflux runs batches o
 the workers of a coordinator, with the same commands. Every run is the exact engine's, so a task gives the same
 maps on any worker as on the machine that submitted it.
 
+## From the application
+
+The toolbar's **Many runs...** opens a pane with the three kinds of batches, run on workers of this computer
+(as many at once as chosen; each gets an equal share of the threads):
+
+- **Replicates:** the number of runs and the first seed. The seeds the runs change are found in the model (its
+  inputs named `seed`, else the seeds its nodes are given), or ticked by hand.
+- **Scenarios:** a table, a row per scenario and a column per setting it changes, any of the model's inputs and
+  nodes' settings picked by name (an empty cell keeps the model's value).
+- **Calibration:** settings in ranges (every combination, or random draws of a Latin hypercube), the seeds of
+  each try, the simulated maps, the map they start from (an input or a `raster.read`), the observed map and its
+  band, and the score.
+
+Each run keeps the model's outputs, the files its nodes write (in the run's folder) and the outputs ticked
+under "Each run keeps" (by default, the maps of the nodes where the model ends). The results go to a folder per
+run (`<model> runs/replicates 1/seed_1/...`) with `tasks.csv`; "Show the runs of ... in the model" adds a
+`raster.read` of `runs/*/file.tif`, the runs as one series. A calibration writes `calibration.csv` and
+`best.json`, plots its scores against each setting, and "Apply the best settings to the model" puts them in it.
+
 ## On one machine
 
 Without `--coordinator`, `submit` and `calibrate` start a coordinator and `--workers` workers in their own
@@ -38,7 +57,10 @@ set = { "$drivers" = "drivers_2030.tif" }
 ```
 
 `$name` sets an input (a value, or the path of a file input); `node.setting` sets a node's setting or literal
-input (`simulation/allocate.prune_factor` for a node inside the loop).
+input (`simulation/allocate.prune_factor` for a node inside the loop). `--seed-input` names what holds the seed
+of replicates and calibrations: an input (`seed`), a node's (`simulation.seed`), or several, separated by commas.
+
+The files the nodes write (`raster.write`, `vector.write`) go to each task's folder, by their names.
 
 ### Calibration
 

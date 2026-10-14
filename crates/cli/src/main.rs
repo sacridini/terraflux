@@ -106,7 +106,7 @@ enum Command {
         /// Scenarios: a TOML file of `[[scenario]] name = "..." set = { "$seed" = 2, "node.setting" = 1.2 }`.
         #[arg(long)]
         scenarios: Option<PathBuf>,
-        /// The input holding the seed.
+        /// What holds the seed: an input (`seed`), a node's (`simulation.seed`), or several, separated by commas.
         #[arg(long, default_value = "seed")]
         seed_input: String,
         /// The folder of the results: one folder per task.
@@ -437,7 +437,9 @@ fn main() -> Result<()> {
         Command::Workers { coordinator } => rt()?.block_on(cluster::workers(&coordinator))?,
         Command::Submit { model, replicates, first_seed, scenarios, seed_input, out, at } => {
             let tasks = match (replicates, scenarios) {
-                (Some(n), None) => terraflux_dist::batch::replicates(n, first_seed, &seed_input),
+                (Some(n), None) => {
+                    terraflux_dist::batch::replicates(n, first_seed, &terraflux_dist::batch::seed_keys(&seed_input))
+                }
                 (None, Some(f)) => terraflux_dist::batch::scenarios(&std::fs::read_to_string(&f)?)?,
                 _ => bail!("give --replicates or --scenarios"),
             };

@@ -88,3 +88,29 @@ distâncias, unidades de planejamento em polígonos, o desenho no viewer).
 - **Feito** (Unreleased): navegar pelos nós com o teclado (setas com o ponteiro sobre o canvas, Enter abre a
   saída); templates do Dinamica EGO e do CLUE-S (dados desenhados por modelos neutros); templates do próprio
   usuário (salvar o modelo como template, vê-lo e removê-lo no menu).
+
+## Várias máquinas sem saber de computação
+
+Registro de 2026-10-14. Os lotes em várias máquinas (`serve`, `worker`, `submit`, `calibrate`, o motor por tiles
+com `--coordinator`) existem desde 0.4.0, mas só pela linha de comando: subir o coordenador, saber o IP, abrir a
+porta, rodar um worker em cada máquina, sem autenticação nem TLS. A ideia é que o usuário veja **"Rodar em mais
+computadores"** e **"Emprestar este computador"**, nunca "coordenador", "porta" ou "worker". A ordem:
+
+1. **Feito** (Unreleased). **Lotes no aplicativo** (numa máquina): uma janela "Executar várias vezes" com réplicas, cenários (uma tabela
+   em vez do TOML) e calibração (parâmetros com faixas, o mapa observado), sobre o `Local::start` que já existe;
+   progresso, tempo restante, a tabela dos resultados e "aplicar os melhores ajustes ao modelo".
+2. **Robustez** que o leigo não vê: a versão dos workers checada (hoje o `WorkerHello.version` é ignorado), o
+   coordenador com os dados e os resultados em disco (hoje tudo na RAM, mensagens de até 1 GiB sem streaming),
+   lotes retomáveis (ver e baixar os resultados depois, o aplicativo reabre o lote), a máquina sem suspender
+   enquanto há tarefas, o worker que pausa quando o usuário volta ao computador; os arquivos lidos pelos nós
+   (`raster.read`, `vector.read`, shapefiles com os arquivos irmãos, pastas e padrões) enviados com o modelo.
+3. **Rede local sem configuração:** o coordenador embutido no aplicativo de quem lança o lote; "Emprestar este
+   computador" nos outros; pareamento por um código curto (descoberta por broadcast UDP, o código como segredo:
+   token de autenticação e TLS com o certificado fixado); a regra do firewall no instalador.
+4. **Clusters (HPC) por SSH com um perfil salvo:** host, usuário, partição e tempo do Slurm, ou um servidor sem
+   escalonador; o `submit --on <perfil>` (e o botão) confere o Terraflux do outro lado, sobe o coordenador e os
+   workers, abre o túnel e traz os resultados.
+5. **Motor por tiles sem armazenamento compartilhado** (avançado): os workers recebem os mapas pelo coordenador e
+   guardam as camadas dos passos nele, em vez de caminhos iguais em todas as máquinas.
+6. **Nuvem:** máquinas alugadas que viram workers com um script de inicialização (`cloud-init`) gerado pelo
+   Terraflux, ligadas ao coordenador pelo código.

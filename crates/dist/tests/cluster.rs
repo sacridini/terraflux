@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use terraflux_dist::Local;
-use terraflux_dist::batch::{Param, calibration_tasks, grid, rank, replicates};
+use terraflux_dist::batch::{Param, calibration_tasks, grid, rank, replicates, seed_keys};
 use terraflux_dist::client::Client;
 use terraflux_dist::coordinator::Options;
 use terraflux_dist::evaluate::{Evaluation, Metrics};
@@ -59,7 +59,7 @@ async fn replicates_give_what_local_runs_give() {
         Input::Map { path, .. } | Input::Stack { path, .. } => path.starts_with("blob:"),
         _ => true,
     }));
-    let tasks = replicates(3, 11, "seed");
+    let tasks = replicates(3, 11, &seed_keys("seed"));
     let job = c.submit("replicates", &bundled, &tasks, true, None).await.unwrap();
     let s = c.wait(&job, |_| {}).await.unwrap();
     assert_eq!((s.done, s.failed), (3, 0), "{:?}", s.errors);
@@ -67,7 +67,7 @@ async fn replicates_give_what_local_runs_give() {
     for (r, (label, overrides)) in results.iter().zip(&tasks) {
         assert_eq!(&r.label, label);
         let dir = tmp(&format!("local-{label}"));
-        let (_, files, _) = run_task(m.clone(), overrides, None, Some(&dir)).unwrap();
+        let (_, files, _) = run_task(m.clone(), overrides, None, &dir, true).unwrap();
         let mine = files.iter().find(|f| f.name == "maps.tif").unwrap();
         let theirs = r.files.iter().find(|f| f.name == "maps.tif").unwrap();
         assert_eq!(mine.data, theirs.data, "{label}: the maps of the worker differ from a local run");
@@ -84,7 +84,7 @@ async fn calibration_finds_the_setting_of_the_observed_map() {
     let m = model();
     let truth: BTreeMap<String, serde_json::Value> = [("patches.isometry".to_string(), serde_json::json!(1.5))].into();
     let dir = tmp("truth");
-    let (_, files, _) = run_task(m.clone(), &truth, None, Some(&dir)).unwrap();
+    let (_, files, _) = run_task(m.clone(), &truth, None, &dir, true).unwrap();
     let observed = tmp("observed").join("observed.tif");
     std::fs::write(&observed, &files.iter().find(|f| f.name == "maps.tif").unwrap().data).unwrap();
 
@@ -99,7 +99,7 @@ async fn calibration_finds_the_setting_of_the_observed_map() {
         windows: vec![1, 5],
     };
     let candidates = grid(&[Param::parse("patches.isometry=0.5:2.5:5", 5).unwrap()]);
-    let tasks = calibration_tasks(&candidates, &[1], "seed");
+    let tasks = calibration_tasks(&candidates, &[1], &seed_keys("seed"));
     let job = c.submit("calibration", &bundled, &tasks, false, Some(&eval)).await.unwrap();
     let s = c.wait(&job, |_| {}).await.unwrap();
     assert_eq!(s.failed, 0, "{:?}", s.errors);
@@ -122,7 +122,7 @@ async fn a_task_of_a_vanished_worker_runs_again() {
         .unwrap();
     let mut c = Client::connect(&local.url).await.unwrap();
     let bundled = c.bundle(&model(), std::path::Path::new("")).await.unwrap();
-    let job = c.submit("one", &bundled, &replicates(1, 5, "seed"), false, None).await.unwrap();
+    let job = c.submit("one", &bundled, &replicates(1, 5, &seed_keys("seed")), false, None).await.unwrap();
     // a worker takes the task and is never heard of again
     let mut ghost = worker::connect(&local.url).await.unwrap();
     let ghost_id = ghost
@@ -152,7 +152,7 @@ async fn workers_sharing_a_cache_fetch_the_data_together() {
     let mut m = model();
     m.apply(&[("simulation.times".to_string(), serde_json::json!(1))].into()).unwrap();
     let bundled = c.bundle(&m, std::path::Path::new("")).await.unwrap();
-    let job = c.submit("shared", &bundled, &replicates(12, 1, "seed"), false, None).await.unwrap();
+    let job = c.submit("shared", &bundled, &replicates(12, 1, &seed_keys("seed")), false, None).await.unwrap();
     let s = c.wait(&job, |_| {}).await.unwrap();
     assert_eq!((s.done, s.failed), (12, 0), "{:?}", s.errors);
     local.shutdown();
@@ -215,7 +215,7 @@ from = \"is.map\"
     let s = c.wait(&job, |_| {}).await.unwrap();
     assert_eq!((s.done, s.failed), (1, 0), "{:?}", s.errors);
     let theirs = c.results(&job).await.unwrap()[0].files.iter().find(|f| f.name == "twice.tif").unwrap().data.clone();
-    let (_, files, _) = run_task(m.clone(), &BTreeMap::new(), None, Some(&tmp("plugin-local"))).unwrap();
+    let (_, files, _) = run_task(m.clone(), &BTreeMap::new(), None, &tmp("plugin-local"), true).unwrap();
     let mine = &files.iter().find(|f| f.name == "twice.tif").unwrap().data;
     assert_eq!(mine, &theirs);
     let f = tmp("plugin-out").join("twice.tif");
@@ -225,4 +225,47 @@ from = \"is.map\"
         r.bands[0].masked(r.nodata).iter().filter(|v| !v.is_nan()).map(|v| v.to_bits()).collect();
     assert_eq!(values, [0.0f64.to_bits(), 2.0f64.to_bits()].into(), "forest cells doubled, the others 0");
     local.shutdown();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_batch_writes_what_its_nodes_write_in_a_folder_per_run() {
+    // a model of the builder: a neutral map by a node's seed, written by a node to a file of this machine
+    let dir = tmp("batch-writes");
+    let target = dir.join("noise.tif");
+    let mut m = Model::new("writes");
+    m.nodes.push(
+        terraflux_graph::Node::new("noise", "nlm.random").param("rows", 20).param("columns", 30).param("seed", 1),
+    );
+    m.nodes.push(
+        terraflux_graph::Node::new("save", "raster.write")
+            .input("value", "noise.map")
+            .param("path", target.to_string_lossy().as_ref()),
+    );
+    let b = terraflux_dist::run::Batch {
+        name: "writes".into(),
+        model: m,
+        base: dir.clone(),
+        tasks: replicates(3, 1, &seed_keys("noise.seed")),
+        files: true,
+        evaluation: None,
+    };
+    let place = terraflux_dist::run::Place::Here { workers: 2, cache: tmp("cache-batch-writes") };
+    let mut seen = Vec::new();
+    let o = terraflux_dist::run::run(&b, &place, &std::sync::atomic::AtomicBool::new(false), &mut |p| seen.push(p))
+        .await
+        .unwrap();
+    assert_eq!((o.status.done, o.status.failed), (3, 0), "{:?}", o.status.errors);
+    assert!(seen.iter().any(|p| matches!(p, terraflux_dist::run::Progress::Submitted { total: 3, .. })));
+    assert!(!target.exists(), "the runs wrote in their own folders, not in the model's file");
+    let out = dir.join("out");
+    terraflux_dist::run::write_results(&out, &o.results).unwrap();
+    let read =
+        |label: &str| terraflux_raster::Raster::read(out.join(label).join("noise.tif")).unwrap().bands[0].clone();
+    let (a, b2) = (read("seed_1"), read("seed_2"));
+    assert_ne!(a.masked(None), b2.masked(None), "another seed, another map");
+    assert!(std::fs::read_to_string(out.join("tasks.csv")).unwrap().lines().count() == 4);
+    // the runs as one series: a pattern in the folders' names
+    let s =
+        terraflux_ops::files::Rasters::open(&out.join("*").join("noise.tif").to_string_lossy(), None, None).unwrap();
+    assert_eq!(s.layers.iter().map(|l| l.name.as_str()).collect::<Vec<_>>(), ["seed_1", "seed_2", "seed_3"]);
 }

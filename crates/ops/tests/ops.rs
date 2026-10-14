@@ -751,6 +751,19 @@ fn rasters_are_read_and_written() {
     assert!(same(&st.layers[1], &st.layers[3]), "the same band, from two files");
     std::fs::remove_file(series.join("both.tif")).unwrap();
     assert!(Rasters::open(&series.join("*.png").to_string_lossy(), None, None).is_err());
+    // a file of each run of a batch: a pattern in the folders' names, the layers named by the folders
+    let runs = dir.join("runs");
+    for (run, year) in [("seed_1", "1997"), ("seed_2", "2011"), ("other", "2011")] {
+        std::fs::create_dir_all(runs.join(run)).unwrap();
+        let mut one = whole.clone();
+        one.bands.retain(|b| b.name.as_deref() == Some(year));
+        one.write(runs.join(run).join("landuse.tif")).unwrap();
+    }
+    let seeds = Rasters::open(&runs.join("seed_*").join("landuse.tif").to_string_lossy(), None, None).unwrap();
+    assert_eq!(seeds.layers.iter().map(|l| l.name.as_str()).collect::<Vec<_>>(), ["seed_1", "seed_2"]);
+    let every = Rasters::open(&runs.join("*").join("*.tif").to_string_lossy(), None, None).unwrap();
+    assert_eq!(every.layers.len(), 3);
+    assert!(Rasters::open(&runs.join("*").join("none.tif").to_string_lossy(), None, None).is_err());
     assert!(run("raster.read", vec![], serde_json::json!({"path": dir.join("none.tif")})).is_err());
     let _ = std::fs::remove_dir_all(dir);
 }

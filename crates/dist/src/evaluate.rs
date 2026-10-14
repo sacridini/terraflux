@@ -22,7 +22,7 @@ pub struct Evaluation {
     /// Its band, by name or 0-based index (default: the last).
     #[serde(default)]
     pub band: Option<String>,
-    /// The input the simulation starts from.
+    /// What the simulation starts from: an input (`t0`) or a node's output (`landuse.raster`).
     #[serde(default = "start")]
     pub start: String,
     /// The windows of the fuzzy similarity.
@@ -84,13 +84,25 @@ impl Metrics {
     }
 }
 
-fn last_map(v: &Value) -> Option<&Map> {
+/// The last map of a value: a map, the last of a series or a stack, the last layer of rasters on disk.
+pub fn last_map(v: &Value) -> Option<Map> {
     match v {
-        Value::Map(m) => Some(m),
-        Value::Series(s) => match s.last()? {
-            Value::Map(m) => Some(m),
-            _ => None,
-        },
+        Value::Map(m) => Some(m.clone()),
+        Value::Series(s) => last_map(s.last()?),
+        Value::Stack(s) => Some(Map { grid: s.grid.clone(), data: s.layers.last()?.clone() }),
+        Value::Raster(r) => r.choose(r.layers.len().checked_sub(1)?).map().ok(),
+        _ => None,
+    }
+}
+
+/// The first map of a value (the start of a simulation): a map, the first of a series or a stack, the layer
+/// chosen of rasters on disk.
+pub fn first_map(v: &Value) -> Option<Map> {
+    match v {
+        Value::Map(m) => Some(m.clone()),
+        Value::Series(s) => first_map(s.first()?),
+        Value::Stack(s) => Some(Map { grid: s.grid.clone(), data: s.layers.first()?.clone() }),
+        Value::Raster(r) => r.map().ok(),
         _ => None,
     }
 }
@@ -98,9 +110,14 @@ fn last_map(v: &Value) -> Option<&Map> {
 pub fn evaluate(e: &Evaluation, results: &Results, inputs: &BTreeMap<String, Value>) -> Result<Metrics> {
     let sim =
         results.get(&e.output).and_then(last_map).ok_or_else(|| Error::Other(format!("{} gives no map", e.output)))?;
-    let Some(Value::Map(start)) = inputs.get(&e.start) else {
-        return Err(Error::Other(format!("no map ${}", e.start)));
+    let start = match inputs.get(e.start.trim_start_matches('$')) {
+        Some(v) => first_map(v),
+        None => results.get(&e.start).and_then(first_map),
     };
+    let Some(start) = start else {
+        return Err(Error::Other(format!("{} gives no map to start from", e.start)));
+    };
+    let (start, sim) = (&start, &sim);
     let r = Raster::read(&e.observed).map_err(|x| Error::Other(format!("{}: {x}", e.observed)))?;
     let band = match &e.band {
         None => r.bands.len() - 1,

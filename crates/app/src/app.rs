@@ -49,13 +49,15 @@ pub enum Pane {
     /// The area of each class along the steps.
     Areas,
     Validation,
+    /// The model run many times: replicates, scenarios, calibration.
+    Batch,
     /// A node's output in a tab of its own (opened by a double click on the node; one per node, brought to the
     /// front when it is open already).
     Map(u64),
 }
 
 impl Pane {
-    pub const ALL: [Pane; 8] = [
+    pub const ALL: [Pane; 9] = [
         Pane::Model,
         Pane::Operators,
         Pane::Node,
@@ -64,6 +66,7 @@ impl Pane {
         Pane::Simulation,
         Pane::Areas,
         Pane::Validation,
+        Pane::Batch,
     ];
 
     pub fn title(self) -> &'static str {
@@ -76,6 +79,7 @@ impl Pane {
             Pane::Simulation => "Simulation",
             Pane::Areas => "Areas",
             Pane::Validation => "Validation",
+            Pane::Batch => "Many runs",
             Pane::Map(_) => "Map",
         }
     }
@@ -1032,6 +1036,8 @@ pub struct TerrafluxApp {
     tabbed: bool,
     /// The operators' drawer is out (the pointer went to the window's left edge).
     pub drawer: bool,
+    /// The model run many times (replicates, scenarios, calibration).
+    pub batch: crate::batch_view::BatchState,
 }
 
 /// A row of a list: a name, selected or not, and a note on the right.
@@ -1078,6 +1084,7 @@ impl TerrafluxApp {
             tab_back: None,
             tabbed: false,
             drawer: false,
+            batch: Default::default(),
         };
         if let Some(p) = model {
             app.open(&p);
@@ -1215,6 +1222,13 @@ impl TerrafluxApp {
             }
             if ui.button("Settings").on_hover_text("the theme, the text's size, the threads...").clicked() {
                 self.settings_open = !self.settings_open;
+            }
+            if ui
+                .button("Many runs...")
+                .on_hover_text("the model run many times: replicates, scenarios, calibration")
+                .clicked()
+            {
+                self.focus(Pane::Batch);
             }
             if ui.button("Wizard...").on_hover_text("a land change model from your maps, step by step").clicked() {
                 self.wizard = Some(Wizard::default());
@@ -1798,6 +1812,11 @@ impl TerrafluxApp {
                 ui.ctx().request_repaint_after(Duration::from_millis(100));
             }
         }
+        // a batch goes on whether its pane is shown or not
+        self.batch.poll();
+        if self.batch.running() {
+            ui.ctx().request_repaint_after(Duration::from_millis(500));
+        }
         // the cell under the pointer, from the map that has it this frame
         self.hover = None;
         if self.wizard.is_none() {
@@ -1895,6 +1914,7 @@ impl TerrafluxApp {
             Pane::Validation => {
                 egui::Frame::new().inner_margin(Margin::same(8)).show(ui, |ui| self.validation_tab(ui));
             }
+            Pane::Batch => crate::batch_view::pane(ui, &mut self.batch, s, r),
             Pane::Map(id) => {
                 let Some(mut shown) = s.map_tabs.remove(&id) else {
                     ui.label(RichText::new("This map's node is gone.").weak());
@@ -1987,7 +2007,7 @@ impl TerrafluxApp {
         // beside the pane it goes with: the maps and results by the viewer, the text by the model
         let dock = self.dock.get_or_insert_with(default_layout);
         let near = match pane {
-            Pane::Simulation | Pane::Areas | Pane::Validation | Pane::Map(_) => Some(Pane::Viewer),
+            Pane::Simulation | Pane::Areas | Pane::Validation | Pane::Batch | Pane::Map(_) => Some(Pane::Viewer),
             Pane::Viewer => Some(Pane::Model),
             _ => None,
         };

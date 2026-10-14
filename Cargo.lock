@@ -3989,6 +3989,7 @@ dependencies = [
  "rstar",
  "serde",
  "serde_json",
+ "terraflux-dist",
  "terraflux-exec",
  "terraflux-gdal",
  "terraflux-graph",
