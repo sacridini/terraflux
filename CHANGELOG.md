@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.67.0] - 2026-10-14
+
 ### Added
 - The matrices and rasters around prioritizr's problems (landschaft's prioritize): `prioritize.boundary_matrix`,
   `prioritize.adjacency_matrix` (4 or 8 directions), `prioritize.connectivity_matrix` (the shared boundary times
