@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.62.0] - 2026-10-14
+
 ### Added
 - Biodiverse's spatial conditions on shapefiles in `bio.spatial`, `bio.randomise` and the other nodes of
   conditions: `sp_point_in_poly_shape` (the groups inside or on the features of a vector file, `file.gpkg:layer`
