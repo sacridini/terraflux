@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.57.0] - 2026-10-14
+
 ### Added
 - The cleaning of occurrence records (landschaft's clean_occurrences, CoordinateCleaner's tests):
   `sdm.clean_occurrences` flags or drops records with invalid coordinates, equal longitude and latitude, at 0/0,
