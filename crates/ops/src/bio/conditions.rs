@@ -1090,6 +1090,35 @@ impl<'a> Context<'a> {
                 let m = polygon_contains(&pts, &polygon)?;
                 self.mask(m, which)
             }
+            "sp_point_in_poly_shape" => {
+                let ax = axes_arg(Some(vec![0, 1]))?.unwrap();
+                let mut which = 0;
+                if let Some(pa) = args.get("point") {
+                    match pa {
+                        Ast::Aref(n) if n == "nbrcoord" || n == "coord" => which = i32::from(n == "coord"),
+                        _ => {
+                            return Err(unsupported(
+                                "sp_point_in_poly_shape: point must be \\@nbrcoord or \\@coord".into(),
+                            ));
+                        }
+                    }
+                }
+                let field_name = args.get("field_name").map(constant).transpose()?;
+                let field_val = args.get("field_val").map(constant).transpose()?;
+                let pts = axis_points(bd, &ax)?;
+                let m = points_in_shapes(&pts, &get("file")?.text(), field_name.as_ref(), field_val.as_ref())?;
+                self.mask(m, which)
+            }
+            "sp_points_in_same_poly_shape" => {
+                if args.contains_key("point1") || args.contains_key("point2") {
+                    return Err(unsupported("sp_points_in_same_poly_shape: point1/point2 are not supported".into()));
+                }
+                let ax = axes_arg(Some(vec![0, 1]))?.unwrap();
+                let set = features_per_point(&axis_points(bd, &ax)?, &get("file")?.text())?;
+                self.c.sets.push(set);
+                let i = self.c.sets.len() as i32 - 1;
+                self.add_call("SameFeature", |c| c.index = i)
+            }
             "sp_select_sequence" => {
                 let Some(procs) = self.procs else {
                     return Err(unsupported("sp_select_sequence needs the processing order".into()));
@@ -1102,6 +1131,138 @@ impl<'a> Context<'a> {
             _ => return Err(unsupported(format!("{name} is not supported yet"))),
         })
     }
+}
+
+/// The groups' coordinates on two axes.
+fn axis_points(bd: &BaseData, ax: &[i32]) -> Result<Vec<[f64; 2]>> {
+    let n = bd.n_axes();
+    if ax.len() != 2 || ax.iter().any(|&a| a < 0 || a as usize >= n) {
+        return Err(Error::msg(format!("the axes must be two of the {n} axes")));
+    }
+    let (a, b) = (ax[0] as usize, ax[1] as usize);
+    Ok((0..bd.n_groups()).map(|g| [bd.coords[g * n + a], bd.coords[g * n + b]]).collect())
+}
+
+/// A vector file and its layer (`file.gpkg:layer`; a shapefile's name without .shp).
+fn dataset_layer(file: &str) -> (String, Option<String>) {
+    static RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)^(.*\.(?:gpkg|gdb|sqlite)):(.+)$").unwrap());
+    if let Some(c) = RE.captures(file) {
+        return (c[1].to_string(), Some(c[2].to_string()));
+    }
+    if !std::path::Path::new(file).exists() && std::path::Path::new(&format!("{file}.shp")).exists() {
+        return (format!("{file}.shp"), None);
+    }
+    (file.to_string(), None)
+}
+
+fn read_features(file: &str) -> Result<terraflux_raster::vector::Vector> {
+    let (path, layer) = dataset_layer(file);
+    terraflux_gdal::read_vector(&path, layer.as_deref()).map_err(Error::msg)
+}
+
+/// Whether each point intersects the features (polygons by GEOS's point-in-polygon rule, others by GEOS).
+fn intersecting(points: &[[f64; 2]], geoms: &[&terraflux_raster::vector::Geometry]) -> Result<Vec<Vec<usize>>> {
+    use crate::sdm::clean::{Shape, Shapes};
+    let (mut shapes, mut of_shape, mut others) = (Vec::new(), Vec::new(), Vec::new());
+    for (k, g) in geoms.iter().enumerate() {
+        match Shape::of(g) {
+            Some(s) => {
+                shapes.push(s);
+                of_shape.push(k);
+            }
+            None => others.push(k),
+        }
+    }
+    let index = Shapes::new(shapes);
+    let geos =
+        terraflux_gdal::Geos::new(&others.iter().map(|&k| geoms[k].clone()).collect::<Vec<_>>()).map_err(Error::msg)?;
+    points
+        .iter()
+        .map(|&p| {
+            let mut hit: Vec<usize> = index.covering(p).map(|j| of_shape[j]).collect();
+            for (j, &k) in others.iter().enumerate() {
+                if geos.intersects_with(j, &terraflux_raster::vector::Geometry::Point(p)).map_err(Error::msg)? {
+                    hit.push(k);
+                }
+            }
+            Ok(hit)
+        })
+        .collect()
+}
+
+/// sp_point_in_poly_shape: the points inside (or on) any feature of a vector file, or of those with an
+/// attribute's value (SQLite's comparison), or the feature at a position (from 1).
+fn points_in_shapes(
+    points: &[[f64; 2]],
+    file: &str,
+    field_name: Option<&Const>,
+    field_val: Option<&Const>,
+) -> Result<Vec<bool>> {
+    use terraflux_raster::vector::Column;
+    let v = read_features(file)?;
+    let keep: Vec<usize> = match (field_name, field_val) {
+        (Some(name), val) => {
+            let name = name.text();
+            let col = v
+                .attributes
+                .iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, c)| c)
+                .ok_or_else(|| Error::msg(format!("{file}: no field {name:?}")))?;
+            (0..v.len())
+                .filter(|&k| match (col, val) {
+                    (Column::Numbers(x), Some(Const::Num(f))) => x[k] == *f,
+                    (c, val) => {
+                        let text = match val {
+                            Some(Const::Num(f)) => super::names::perl_number(*f),
+                            Some(c) => c.text(),
+                            None => "None".into(),
+                        };
+                        let cell = match c {
+                            Column::Numbers(x) => super::names::perl_number(x[k]),
+                            Column::Texts(t) => t[k].clone(),
+                        };
+                        cell == text
+                    }
+                })
+                .collect()
+        }
+        (None, Some(val)) => {
+            let f = val.float()?;
+            if f != f.floor() {
+                return Err(Error::msg(format!(
+                    "field_val value must be an integer if field_name is not passed, got {}",
+                    val.text()
+                )));
+            }
+            let k = f as i64 - 1;
+            if k >= 0 && (k as usize) < v.len() { vec![k as usize] } else { Vec::new() }
+        }
+        (None, None) => (0..v.len()).collect(),
+    };
+    let geoms: Vec<&terraflux_raster::vector::Geometry> = keep.iter().map(|&k| &v.geometries[k]).collect();
+    Ok(intersecting(points, &geoms)?.into_iter().map(|h| !h.is_empty()).collect())
+}
+
+/// sp_points_in_same_poly_shape: per point the features (identical geometries one) it falls in, as a CSR.
+fn features_per_point(points: &[[f64; 2]], file: &str) -> Result<(Vec<i64>, Vec<i32>)> {
+    let v = read_features(file)?;
+    // identical geometries are one feature (Biodiverse hashes the WKT)
+    let wkb: Vec<Vec<u8>> = v.geometries.iter().map(|g| g.to_wkb()).collect();
+    let mut sorted: Vec<&Vec<u8>> = wkb.iter().collect();
+    sorted.sort();
+    sorted.dedup();
+    let fid: Vec<i32> = wkb.iter().map(|w| sorted.binary_search(&w).unwrap() as i32).collect();
+    let geoms: Vec<&terraflux_raster::vector::Geometry> = v.geometries.iter().collect();
+    let (mut indptr, mut indices) = (vec![0i64], Vec::new());
+    for hit in intersecting(points, &geoms)? {
+        let mut ids: Vec<i32> = hit.iter().map(|&k| fid[k]).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        indices.extend(ids);
+        indptr.push(indices.len() as i64);
+    }
+    Ok((indptr, indices))
 }
 
 /// sp_select_sequence: every `frequency`-th group, the offset cycling per processing group.

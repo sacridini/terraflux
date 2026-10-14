@@ -695,7 +695,10 @@ Pendências:
   `sdm` está no Terraflux, menos os modelos do scikit-learn do `fit` (só o MaxNet).
 - **Biodiversidade — importações (0.61.0, 2026-10-14):** `bio.raster`, `bio.vector` (linhas e polígonos numa
   malha de células), `bio.hex`, `bio.h3` e `bio.occurrences` (downloads do GBIF e Darwin Core Archives, lidos linha
-  a linha pelo GDAL), iguais ao landschaft. Faltam do `bio`: as condições de shapefiles e os callables do Python.
+  a linha pelo GDAL), iguais ao landschaft.
+- **Biodiversidade — condições de shapefiles (0.62.0, 2026-10-14):** `sp_point_in_poly_shape` e
+  `sp_points_in_same_poly_shape`, iguais ao landschaft. O módulo `bio` está todo no Terraflux, menos os callables
+  do Python (que não cabem num executável sem Python).
 - **Próximos (2026-10-13):** os instaladores de macOS e Linux;
   `vector.exact_sum` e `vector.distance` fora da memória.
 

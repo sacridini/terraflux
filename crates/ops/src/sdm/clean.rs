@@ -187,7 +187,7 @@ impl Shapes {
     }
 
     /// The shapes covering the point.
-    fn covering(&self, p: [f64; 2]) -> impl Iterator<Item = usize> + '_ {
+    pub fn covering(&self, p: [f64; 2]) -> impl Iterator<Item = usize> + '_ {
         self.tree
             .locate_in_envelope_intersecting(&AABB::from_point(p))
             .map(|g| g.data)
