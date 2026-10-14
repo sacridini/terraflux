@@ -1,5 +1,5 @@
-//! The modelling workflow of landschaft's sdm with MaxNet: the records' predictor values (dataset), the model
-//! fitted with cross-validation over folds (fit: AUC, TSS, Boyce and omission per fold, their means and
+//! The modelling workflow of landschaft's sdm (MaxNet, a GLM or a random forest): the records' predictor values
+//! (dataset), the model fitted with cross-validation over folds (fit: AUC, TSS, Boyce and omission per fold, their means and
 //! standard deviations, the threshold of maximum sensitivity plus specificity), response curves and
 //! permutation importance (numpy's generator).
 
@@ -8,7 +8,7 @@ use terraflux_raster::Grid;
 
 use super::evaluate::{Classes, boyce, evaluate, omission_rate};
 use super::extrapolation::Frame;
-use super::maxnet::{self, MaxNet};
+use super::model::{Learner, Model};
 use crate::change::numpy_sum;
 use crate::signatures::NumpyRng;
 
@@ -60,9 +60,9 @@ fn rows(f: &Frame, idx: &[usize]) -> Frame {
     Frame { names: f.names.clone(), columns: f.columns.iter().map(|c| idx.iter().map(|&i| c[i]).collect()).collect() }
 }
 
-/// A MaxNet's suitability (its predict_proba's presence column: its output, cloglog by default).
-fn suitability(m: &MaxNet, x: &Frame) -> Result<Vec<f64>, String> {
-    m.predict(x, None, None)
+/// A model's suitability (its predict_proba's presence column; MaxNet's output, cloglog by default).
+fn suitability(m: &Model, x: &Frame) -> Result<Vec<f64>, String> {
+    m.suitability(x)
 }
 
 /// pandas' groupby mean (Kahan's summation) and std (Welford's, ddof 1) of a column, NaN left out.
@@ -87,14 +87,22 @@ fn mean_sd(v: &[f64]) -> (f64, f64) {
 /// A fitted model with its cross-validation: the model, a row of METRICS per fold (with the fold first), their
 /// means and standard deviations, and the threshold of maximum sensitivity plus specificity.
 pub struct Fitted {
-    pub model: MaxNet,
+    pub model: Model,
     pub metrics: Vec<Vec<f64>>,
     pub summary: Vec<f64>,
     pub threshold: f64,
 }
 
-/// landschaft's fit with MaxNet: the model on every record, and with folds (0: training only) one per fold.
-pub fn fit(x: &Frame, y: &[f64], folds: Option<&[f64]>, s: &maxnet::Settings, cv: bool) -> Result<Fitted, String> {
+/// landschaft's fit: the model on every record, and with folds (0: training only) one per fold; the records'
+/// weights given to the models that take them.
+pub fn fit(
+    x: &Frame,
+    y: &[f64],
+    weights: Option<&[f64]>,
+    folds: Option<&[f64]>,
+    s: &Learner,
+    cv: bool,
+) -> Result<Fitted, String> {
     let mut metrics = Vec::new();
     if let (true, Some(f)) = (cv, folds) {
         let mut ks: Vec<f64> = f.iter().copied().filter(|k| *k > 0.0).collect();
@@ -104,7 +112,8 @@ pub fn fit(x: &Frame, y: &[f64], folds: Option<&[f64]>, s: &maxnet::Settings, cv
             let train: Vec<usize> = (0..y.len()).filter(|&i| f[i] != *k).collect();
             let test: Vec<usize> = (0..y.len()).filter(|&i| f[i] == *k).collect();
             let ytr: Vec<f64> = train.iter().map(|&i| y[i]).collect();
-            let m = maxnet::fit(&rows(x, &train), &ytr, s)?;
+            let wtr: Option<Vec<f64>> = weights.map(|w| train.iter().map(|&i| w[i]).collect());
+            let m = s.fit(&rows(x, &train), &ytr, wtr.as_deref())?;
             let mut pred = vec![f64::NAN; y.len()];
             for (i, v) in train.iter().zip(suitability(&m, &rows(x, &train))?) {
                 pred[*i] = v;
@@ -117,7 +126,7 @@ pub fn fit(x: &Frame, y: &[f64], folds: Option<&[f64]>, s: &maxnet::Settings, cv
             metrics.push(row);
         }
     }
-    let model = maxnet::fit(x, y, s)?;
+    let model = s.fit(x, y, weights)?;
     let pred = suitability(&model, x)?;
     let (p, a): (Vec<f64>, Vec<f64>) = (
         (0..y.len()).filter(|&i| y[i] == 1.0).map(|i| pred[i]).collect(),
@@ -155,7 +164,7 @@ fn linspace(start: f64, stop: f64, n: usize) -> Vec<f64> {
 
 /// Response curves: each predictor over its range in n steps, the others at their mean (or median); a value
 /// and a suitability column per predictor. `x`: the records' predictors, in their order.
-pub fn response_curves(m: &MaxNet, x: &Frame, predictors: &[String], n: usize, fixed: &str) -> Result<Frame, String> {
+pub fn response_curves(m: &Model, x: &Frame, predictors: &[String], n: usize, fixed: &str) -> Result<Frame, String> {
     let xs = x;
     let base: Vec<f64> = xs
         .columns
@@ -194,7 +203,7 @@ pub fn response_curves(m: &MaxNet, x: &Frame, predictors: &[String], n: usize, f
 /// Permutation importance: the mean drop of AUC (and its standard deviation) when each predictor is shuffled
 /// (numpy's generator), the most important first.
 pub fn importance(
-    m: &MaxNet,
+    m: &Model,
     x: &Frame,
     y: &[f64],
     n_repeats: usize,

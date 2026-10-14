@@ -396,7 +396,7 @@ pub enum Value {
     /// A habitat connectivity graph.
     HabitatGraph(Arc<crate::conn::HabitatGraph>),
     /// A fitted species distribution model.
-    SdmModel(Arc<crate::sdm::maxnet::MaxNet>),
+    SdmModel(Arc<crate::sdm::model::Model>),
 }
 
 impl Value {

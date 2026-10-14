@@ -78,6 +78,7 @@ fn workflow_is_landschafts() {
         let Value::Number(th) = fit["threshold"] else { panic!() };
         check(&format!("{case} threshold"), &[th], &z[&format!("{case}/threshold")].data);
         let Value::SdmModel(m) = &fit["model"] else { panic!() };
+        let terraflux_ops::sdm::model::Model::Maxnet(m) = &**m else { panic!("not a MaxNet") };
         check(&format!("{case} betas"), &m.betas, &z[&format!("{case}/betas")].data);
     }
     let fit =

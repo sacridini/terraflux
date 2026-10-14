@@ -694,7 +694,7 @@ Pendências:
 - **SDM — preparação (0.59.0, 2026-10-14):** `sdm.prepare` (cada passo o nó do seu operador, uma semente), bit a
   bit com o landschaft; o template "Species distribution model" no builder.
 - **SDM — GBIF (0.60.0, 2026-10-14):** `sdm.download_gbif` (a API de busca do GBIF pelo HTTP do GDAL). O módulo
-  `sdm` está no Terraflux, menos os modelos do scikit-learn do `fit` (só o MaxNet).
+  `sdm` está no Terraflux. **Feito** (0.73.0): os modelos do scikit-learn no `fit` (GLM e floresta aleatória).
 - **Biodiversidade — importações (0.61.0, 2026-10-14):** `bio.raster`, `bio.vector` (linhas e polígonos numa
   malha de células), `bio.hex`, `bio.h3` e `bio.occurrences` (downloads do GBIF e Darwin Core Archives, lidos linha
   a linha pelo GDAL), iguais ao landschaft.
@@ -731,8 +731,11 @@ Pendências:
 - **Mosaicos de Voronoi do NLMR (0.72.0, 2026-10-14):** `nlm.mosaic_tess` e `nlm.mosaic_gibbs` dão os valores às
   células na ordem do GEOS (o `GEOSVoronoiDiagram` do geos_c ao lado do GDAL, `terraflux_gdal::geos`), bit a bit
   com o landschaft.
-- **Próximos (2026-10-14):** a assinatura dos instaladores e um ícone; do landschaft, os modelos do scikit-learn
-  no `sdm.fit`.
+- **SDM — modelos do scikit-learn (0.73.0, 2026-10-14):** `sdm.fit` com `model = glm` (StandardScaler e
+  LogisticRegression: o ótimo, a 1e-7 do scikit-learn) e `model = random_forest` (o RandomForestClassifier portado do
+  Cython: as mesmas árvores e probabilidades bit a bit), os registros pesados como no dataset do landschaft. O
+  `fit` do landschaft aceita qualquer estimador do scikit-learn; ficam de fora os outros (SVM, boosting...).
+- **Próximos (2026-10-14):** a assinatura dos instaladores e um ícone.
 
 - **A ponte do ls.simulate completa (branch `simulate-bridge`, 2026-10-13):** todo modelo do `ls.simulate` vai pelo
   `Model.save` e roda no Terraflux com os mesmos bits. Estimadores e outros potenciais sem forma fechada como

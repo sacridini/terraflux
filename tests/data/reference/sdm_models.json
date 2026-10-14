@@ -1,0 +1,42 @@
+{
+ "columns": [
+  "temp",
+  "prec",
+  "soil",
+  "cover",
+  "presence",
+  "fold"
+ ],
+ "cases": {
+  "glm": {
+   "model": "glm"
+  },
+  "glm_c01": {
+   "model": "glm",
+   "C": 0.1
+  },
+  "rf": {
+   "model": "random_forest"
+  },
+  "rf_leaf5": {
+   "model": "random_forest",
+   "n_estimators": 50,
+   "min_samples_leaf": 5
+  },
+  "rf_all_depth": {
+   "model": "random_forest",
+   "n_estimators": 30,
+   "max_features": "all",
+   "max_depth": 4,
+   "random_state": 11
+  },
+  "rf_nobootstrap": {
+   "model": "random_forest",
+   "n_estimators": 20,
+   "bootstrap": false,
+   "min_samples_split": 6,
+   "max_features": 2,
+   "random_state": 7
+  }
+ }
+}

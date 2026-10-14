@@ -136,8 +136,8 @@ no console.
 - **Species distribution models:** occurrence records from GBIF (`sdm.download_gbif`), cleaned by
   CoordinateCleaner's tests (`sdm.clean_occurrences`), thinned, one per cell; the accessible area; the predictors
   without collinearity (usdm's VIF) and their range of autocorrelation; background points (dismo's); folds for
-  cross-validation (ENMeval's and blockCV's); MaxNet fitted with cross-validation, its response curves and the
-  importance of the predictors; its evaluation (AUC, TSS, Boyce, thresholds) and extrapolation (MESS, MOP, ExDet).
+  cross-validation (ENMeval's and blockCV's); MaxNet, a GLM or a random forest (scikit-learn's, the same trees)
+  fitted with cross-validation, their response curves and the importance of the predictors; its evaluation (AUC, TSS, Boyce, thresholds) and extrapolation (MESS, MOP, ExDet).
   The whole preparation in one node (`sdm.prepare`) or step by step; landschaft's results, mostly to the bit (the
   template "Species distribution model").
 - **Vector features:** read and written by OGR (GeoPackage, Shapefile, GeoJSON...), drawn beside their

@@ -7,8 +7,11 @@ pub mod clean;
 pub mod evaluate;
 pub mod extrapolation;
 pub mod folds;
+pub mod forest;
 pub mod gbif;
+pub mod logistic;
 pub mod maxnet;
+pub mod model;
 pub mod points;
 pub mod predictors;
 mod prepare;
@@ -513,7 +516,7 @@ impl Operator for FitMaxNet {
         let coefficients: serde_json::Map<String, serde_json::Value> =
             m.names.iter().zip(&m.betas).map(|(n, b)| (n.clone(), serde_json::json!(b))).collect();
         Ok(outputs([
-            ("model", Value::SdmModel(Arc::new(m))),
+            ("model", Value::SdmModel(Arc::new(model::Model::Maxnet(Box::new(m))))),
             ("coefficients", Value::Json(serde_json::Value::Object(coefficients))),
         ]))
     }
@@ -525,11 +528,12 @@ impl Operator for PredictMaxNet {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "sdm.maxnet_predict",
-            "A MaxNet's predictions (maxnet's predict): the suitability of every cell of a stack of the \
-             predictors (by name), or of every row of a table; cloglog, logistic, exponential or the link.",
+            "A model's predictions (maxnet's predict, the others' predict_proba): the suitability of every cell \
+             of a stack of the predictors (by name), or of every row of a table; for a MaxNet cloglog, logistic, \
+             exponential or the link, for a GLM or a forest the probability of presence.",
             Access::Global,
         )
-        .input(PortSpec::new("model", Type::SdmModel, "a fitted model (sdm.maxnet)"))
+        .input(PortSpec::new("model", Type::SdmModel, "a fitted model (sdm.maxnet, sdm.fit)"))
         .input(PortSpec::new("env", Type::Any, "a stack of the predictors (by name), or a table"))
         .output(PortSpec::new("prediction", Type::Any, "a map on the stack's grid, or a table"))
         .param(PortSpec::optional("type", Type::Text, "the output (default the model's)").choices(maxnet::OUTPUTS))
@@ -540,7 +544,11 @@ impl Operator for PredictMaxNet {
         let Some(Value::SdmModel(m)) = args.get("model") else { return Err(bad(args, "connect a fitted model")) };
         let (frame, grid) = frame_of(args, "env")?;
         let output: Option<String> = args.opt_param("type")?;
-        let p = m.predict(&frame, output.as_deref(), args.opt_param("clamp")?).map_err(|e| bad(args, e))?;
+        let p = match &**m {
+            model::Model::Maxnet(m) => m.predict(&frame, output.as_deref(), args.opt_param("clamp")?),
+            other => other.suitability(&frame),
+        }
+        .map_err(|e| bad(args, e))?;
         let v = match grid {
             Some(grid) => Value::Map(crate::Map::new(grid, p)),
             None => {
@@ -1136,8 +1144,9 @@ impl Operator for Fit {
         maxnet_settings(records_settings(
             OpSignature::new(
                 "sdm.fit",
-                "A MaxNet species distribution model with cross-validation (landschaft's fit): one fit per fold \
-                 of the records (AUC of the training and test records and their difference, the largest TSS, \
+                "A species distribution model with cross-validation (landschaft's fit): MaxNet (the default), a \
+                 GLM (scikit-learn's StandardScaler and LogisticRegression) or a random forest (scikit-learn's \
+                 RandomForestClassifier, the same trees); one fit per fold of the records (AUC of the training and test records and their difference, the largest TSS, \
                  Boyce's index, the omission rates at the minimum and 10th percentile training presence), their \
                  means and standard deviations, and the model on every record with its threshold of maximum \
                  sensitivity plus specificity.",
@@ -1157,6 +1166,32 @@ impl Operator for Fit {
             )),
         ))
         .param(PortSpec::optional("cv", Type::Bool, "cross-validate over the folds (default true)"))
+        .param(
+            PortSpec::optional("model", Type::Text, "maxnet (default), glm or random_forest")
+                .choices(["maxnet", "glm", "random_forest"]),
+        )
+        .param(PortSpec::optional("C", Type::Number, "glm: the inverse of the L2 penalty (default 1)"))
+        .param(PortSpec::optional("standardize", Type::Bool, "glm: standardize the predictors first (default true)"))
+        .param(PortSpec::optional("n_estimators", Type::Integer, "random_forest: the trees (default 100)"))
+        .param(PortSpec::optional("min_samples_leaf", Type::Integer, "random_forest: default 1"))
+        .param(PortSpec::optional("min_samples_split", Type::Integer, "random_forest: default 2"))
+        .param(PortSpec::optional("max_depth", Type::Integer, "random_forest: default none"))
+        .param(PortSpec::optional(
+            "max_features",
+            Type::Any,
+            "random_forest: the features tried per split: sqrt (default), log2, all, a number or a share",
+        ))
+        .param(PortSpec::optional("bootstrap", Type::Bool, "random_forest: default true"))
+        .param(PortSpec::optional("random_state", Type::Integer, "random_forest: scikit-learn's seed (default 1)"))
+        .param(
+            PortSpec::optional(
+                "weights",
+                Type::Text,
+                "the records' weights for the GLM and the forest: balanced (default: presences 1, the background \
+                 their number over its), equal; a weight column of the records is taken as it is",
+            )
+            .choices(["balanced", "equal"]),
+        )
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
@@ -1164,8 +1199,45 @@ impl Operator for Fit {
         let categorical = categorical_of(args)?;
         let classes: String = args.param("classes", "default".into())?;
         let output: String = args.param("type", "cloglog".into())?;
-        let s = settings_of(args, &categorical, &classes, &output)?;
-        let f = workflow::fit(&x, &y, folds.as_deref(), &s, args.param("cv", true)?).map_err(|e| bad(args, e))?;
+        let kind: String = args.param("model", "maxnet".into())?;
+        let learner = match kind.as_str() {
+            "maxnet" => model::Learner::Maxnet(settings_of(args, &categorical, &classes, &output)?),
+            "glm" => model::Learner::Glm(logistic::Settings {
+                c: args.param("C", 1.0)?,
+                standardize: args.param("standardize", true)?,
+                max_iter: 100,
+            }),
+            "random_forest" => {
+                let d = forest::Settings::default();
+                model::Learner::RandomForest(forest::Settings {
+                    n_estimators: args.param("n_estimators", d.n_estimators)?,
+                    max_depth: args.opt_param("max_depth")?,
+                    min_samples_split: args.param("min_samples_split", d.min_samples_split)?,
+                    min_samples_leaf: args.param("min_samples_leaf", d.min_samples_leaf)?,
+                    max_features: args.params.get("max_features").cloned().unwrap_or(d.max_features),
+                    bootstrap: args.param("bootstrap", d.bootstrap)?,
+                    random_state: args.param("random_state", d.random_state)?,
+                })
+            }
+            k => return Err(bad(args, format!("model: maxnet, glm or random_forest, not {k:?}"))),
+        };
+        // the records' weights (landschaft's dataset's): a weight column, or balanced
+        let given = record_columns(args, "records")?;
+        let weights: Option<Vec<f64>> = match given.names.iter().position(|n| n == "weight") {
+            Some(k) => Some(given.columns[k].clone()),
+            None => match args.param::<String>("weights", "balanced".into())?.as_str() {
+                "balanced" => {
+                    let npres = y.iter().filter(|v| **v == 1.0).count() as f64;
+                    let nbg = y.iter().filter(|v| **v == 0.0).count() as f64;
+                    let bg = if nbg > 0.0 { npres / nbg } else { 1.0 };
+                    Some(y.iter().map(|v| if *v == 1.0 { 1.0 } else { bg }).collect())
+                }
+                "equal" => None,
+                w => return Err(bad(args, format!("weights: balanced or equal, not {w:?}"))),
+            },
+        };
+        let f = workflow::fit(&x, &y, weights.as_deref(), folds.as_deref(), &learner, args.param("cv", true)?)
+            .map_err(|e| bad(args, e))?;
         let mut metrics = Table::new(
             std::iter::once("fold".to_string()).chain(workflow::METRICS.iter().map(|m| m.to_string())).collect(),
         );

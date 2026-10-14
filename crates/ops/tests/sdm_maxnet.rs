@@ -53,6 +53,7 @@ fn maxnet_is_landschafts() {
             c["params"].clone(),
         );
         let Value::SdmModel(m) = &out["model"] else { panic!() };
+        let terraflux_ops::sdm::model::Model::Maxnet(m) = &**m else { panic!("not a MaxNet") };
         assert_eq!(m.classes, c["classes"].as_str().unwrap(), "{name}: classes");
         let names: Vec<String> = c["names"].as_array().unwrap().iter().map(|s| s.as_str().unwrap().into()).collect();
         assert_eq!(m.names, names, "{name}: features");
