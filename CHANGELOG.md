@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.59.0] - 2026-10-14
+
 ### Added
 - The preparation of a species distribution model in one node (landschaft's prepare): `sdm.prepare` cleans the
   records, keeps one per cell, thins them, draws the accessible area, selects the predictors in it, draws
