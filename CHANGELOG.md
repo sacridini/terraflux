@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.74.0] - 2026-10-14
+
 ### Added
 - Many runs from the application: the "Many runs" pane (the toolbar's "Many runs...") runs the model again and
   again on workers of this computer, as many at once as chosen. Replicates (the model's seeds found by

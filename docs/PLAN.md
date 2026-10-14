@@ -735,7 +735,7 @@ Pendências:
   LogisticRegression: o ótimo, a 1e-7 do scikit-learn) e `model = random_forest` (o RandomForestClassifier portado do
   Cython: as mesmas árvores e probabilidades bit a bit), os registros pesados como no dataset do landschaft. O
   `fit` do landschaft aceita qualquer estimador do scikit-learn; ficam de fora os outros (SVM, boosting...).
-- **Várias máquinas sem saber de computação — lotes no aplicativo (Unreleased, 2026-10-14):** o painel "Many
+- **Várias máquinas sem saber de computação — lotes no aplicativo (0.74.0, 2026-10-14):** o painel "Many
   runs" (réplicas, cenários numa tabela, calibração contra um mapa observado) sobre `terraflux_dist::run`, o mesmo
   caminho do `submit` e do `calibrate`; os arquivos que os nós gravam vão para a pasta de cada rodada; o
   `raster.read` aceita padrões nas pastas (as rodadas como uma série). As etapas seguintes estão no `IDEAS.md`.

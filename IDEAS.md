@@ -96,7 +96,7 @@ com `--coordinator`) existem desde 0.4.0, mas só pela linha de comando: subir o
 porta, rodar um worker em cada máquina, sem autenticação nem TLS. A ideia é que o usuário veja **"Rodar em mais
 computadores"** e **"Emprestar este computador"**, nunca "coordenador", "porta" ou "worker". A ordem:
 
-1. **Feito** (Unreleased). **Lotes no aplicativo** (numa máquina): uma janela "Executar várias vezes" com réplicas, cenários (uma tabela
+1. **Feito** (0.74.0). **Lotes no aplicativo** (numa máquina): uma janela "Executar várias vezes" com réplicas, cenários (uma tabela
    em vez do TOML) e calibração (parâmetros com faixas, o mapa observado), sobre o `Local::start` que já existe;
    progresso, tempo restante, a tabela dos resultados e "aplicar os melhores ajustes ao modelo".
 2. **Robustez** que o leigo não vê: a versão dos workers checada (hoje o `WorkerHello.version` é ignorado), o
