@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.63.0] - 2026-10-14
+
 ### Added
 - `vector.exact_sum` and `vector.distance` out of core (`block_rows`, and rasters on disk of more than 250 million
   cells): the exact sums with only the values under each polygon read from disk (exactextract's coverage of the
