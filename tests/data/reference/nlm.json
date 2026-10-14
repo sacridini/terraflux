@@ -353,7 +353,8 @@
    "rows": 20,
    "columns": 25,
    "germs": 30,
-   "seed": 3
+   "seed": 3,
+   "nlmr_compat": false
   },
   "inputs": {},
   "shape": [
@@ -371,12 +372,62 @@
    "r": 2.0,
    "patch_classes": 4,
    "seed": 3,
+   "rescale": false,
+   "nlmr_compat": false
+  },
+  "inputs": {},
+  "shape": [
+   20,
+   25
+  ]
+ },
+ {
+  "name": "tess_nlmr",
+  "op": "nlm.mosaic_tess",
+  "params": {
+   "rows": 30,
+   "columns": 40,
+   "germs": 50,
+   "seed": 9
+  },
+  "inputs": {},
+  "shape": [
+   30,
+   40
+  ]
+ },
+ {
+  "name": "tess_nlmr_raw",
+  "op": "nlm.mosaic_tess",
+  "params": {
+   "rows": 20,
+   "columns": 25,
+   "germs": 30,
+   "seed": 3,
    "rescale": false
   },
   "inputs": {},
   "shape": [
    20,
    25
+  ]
+ },
+ {
+  "name": "gibbs_nlmr",
+  "op": "nlm.mosaic_gibbs",
+  "params": {
+   "rows": 30,
+   "columns": 40,
+   "germs": 25,
+   "r": 3.0,
+   "patch_classes": 5,
+   "seed": 4,
+   "rescale": false
+  },
+  "inputs": {},
+  "shape": [
+   30,
+   40
   ]
  },
  {

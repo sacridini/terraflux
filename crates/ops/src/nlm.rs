@@ -703,25 +703,28 @@ impl Operator for Tess {
                 "nlm.mosaic_gibbs",
                 "A Voronoi mosaic of classes from germs kept apart (NLMR's nlm_mosaicgibbs): spatstat's rSSI germs \
                  at least R apart, each with a class 1..patch_classes, every cell the class of its nearest germ. \
-                 Each germ keeps its own class (landschaft's nlmr_compat = False: NLMR hands the classes to the \
-                 Voronoi cells in the order GEOS lists them).",
+                 As NLMR (nlmr_compat, the default) the k-th class goes to the k-th Voronoi cell in the order GEOS \
+                 lists them (GEOS 3.11 or later, next to GDAL); else each germ keeps its own class.",
                 Access::Global,
             )
         } else {
             OpSignature::new(
                 "nlm.mosaic_tess",
                 "A Voronoi mosaic of random values (NLMR's nlm_mosaictess): random germs (sf's st_sample), a \
-                 uniform value each, every cell the value of its nearest germ. Each germ keeps its own value \
-                 (landschaft's nlmr_compat = False: NLMR hands the values to the Voronoi cells in the order GEOS \
-                 lists them).",
+                 uniform value each, every cell the value of its nearest germ. As NLMR (nlmr_compat, the default) \
+                 the k-th value goes to the k-th Voronoi cell in the order GEOS lists them (GEOS 3.11 or later, \
+                 next to GDAL) and the values are floats, as terra::rasterize writes them; else each germ keeps \
+                 its own value, in double precision.",
                 Access::Global,
             )
         };
-        let sig = rescaled(sized(sig.output(PortSpec::new("map", Type::Map, "the mosaic")))).param(PortSpec::new(
-            "germs",
-            Type::Integer,
-            "how many germs",
-        ));
+        let sig = rescaled(sized(sig.output(PortSpec::new("map", Type::Map, "the mosaic"))))
+            .param(PortSpec::new("germs", Type::Integer, "how many germs"))
+            .param(PortSpec::optional(
+                "nlmr_compat",
+                Type::Bool,
+                "NLMR's assignment of the values to the Voronoi cells by GEOS's order (default true)",
+            ));
         if self.gibbs {
             sig.param(PortSpec::new("r", Type::Number, "the shortest distance between germs, in cells"))
                 .param(PortSpec::new("patch_classes", Type::Integer, "the classes"))
@@ -760,9 +763,52 @@ impl Operator for Tess {
             let g = ls(args, ffi::nlm_tess_germs(seed, germs, nx as f64, ny as f64))?;
             (g.x, g.y, g.v)
         };
-        let v = ls(args, ffi::nlm_nearest_germ_raster(&x, &y, &v, ny, nx))?;
+        let compat: bool = args.param("nlmr_compat", true)?;
+        let v = if compat { by_cell_order(ctx, args, &x, &y, v, if self.gibbs { 0.1 } else { 0.0 })? } else { v };
+        let mut v = ls(args, ffi::nlm_nearest_germ_raster(&x, &y, &v, ny, nx))?;
+        if compat {
+            // terra::rasterize() writes floats
+            v.iter_mut().for_each(|x| *x = f64::from(*x as f32));
+        }
         Ok(map_out(grid, maybe_rescale(args, v)?))
     }
+}
+
+/// NLMR gives the k-th value to the k-th Voronoi cell in the order GEOS lists them (sf::st_voronoi of the germs'
+/// union): the values reassigned so (landschaft's _values_by_cell_order); without GEOS each germ keeps its own,
+/// with a warning.
+fn by_cell_order(
+    ctx: &mut Ctx,
+    args: &Args,
+    x: &[f64],
+    y: &[f64],
+    values: Vec<f64>,
+    tolerance: f64,
+) -> Result<Vec<f64>> {
+    let g = match terraflux_gdal::geos::geos() {
+        Ok(g) => g,
+        Err(e) => {
+            ctx.warn(format!(
+                "node {:?}: GEOS is needed for NLMR's assignment of values to the Voronoi cells ({e}); each germ gets \
+                 its own value instead (or set nlmr_compat to false)",
+                args.node
+            ));
+            return Ok(values);
+        }
+    };
+    if g.version_number() < (3, 11) {
+        ctx.warn(format!(
+            "node {:?}: GEOS {} orders the Voronoi cells differently from GEOS 3.11 and later, so the values do not \
+             follow NLMR's",
+            args.node, g.version
+        ));
+    }
+    let germ_of_cell = g.voronoi_cell_order(x, y, tolerance).map_err(|e| bad(args, e))?;
+    let mut out = values.clone();
+    for (k, &germ) in germ_of_cell.iter().enumerate() {
+        out[germ] = values[k];
+    }
+    Ok(out)
 }
 
 /// NLMR's landscape_classify: the classes 1, 2... of the values (NaN none), by the weights (each class's share of

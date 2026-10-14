@@ -11,6 +11,8 @@
 //! Its data (GDAL's and PROJ's) and its plugins are looked for next to the library. Without GDAL, Terraflux
 //! reads and writes GeoTIFF by itself; [`gdal`] says why GDAL could not be had.
 
+pub mod geos;
+
 use std::ffi::{CStr, CString, c_char, c_int, c_uint, c_void};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};

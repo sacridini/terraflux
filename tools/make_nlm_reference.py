@@ -83,11 +83,19 @@ def main() -> None:
     case("mosaic_infinit", "nlm.mosaic_field", {"rows": 16, "columns": 18, "n": 0, "infinit": True, "seed": 14,
                                                 "rescale": False},
          N.mosaic_field(18, 16, n=None, infinit=True, seed=14, rescale=False))
-    case("tess", "nlm.mosaic_tess", {"rows": 20, "columns": 25, "germs": 30, "seed": 3},
+    case("tess", "nlm.mosaic_tess", {"rows": 20, "columns": 25, "germs": 30, "seed": 3, "nlmr_compat": False},
          N.mosaic_tess(25, 20, germs=30, seed=3, nlmr_compat=False))
     case("gibbs", "nlm.mosaic_gibbs", {"rows": 20, "columns": 25, "germs": 15, "r": 2.0, "patch_classes": 4,
-                                       "seed": 3, "rescale": False},
+                                       "seed": 3, "rescale": False, "nlmr_compat": False},
          N.mosaic_gibbs(25, 20, germs=15, R=2.0, patch_classes=4, seed=3, nlmr_compat=False, rescale=False))
+    # NLMR's: the k-th value to the k-th Voronoi cell in GEOS's order (shapely's GEOS)
+    case("tess_nlmr", "nlm.mosaic_tess", {"rows": 30, "columns": 40, "germs": 50, "seed": 9},
+         N.mosaic_tess(40, 30, germs=50, seed=9))
+    case("tess_nlmr_raw", "nlm.mosaic_tess", {"rows": 20, "columns": 25, "germs": 30, "seed": 3, "rescale": False},
+         N.mosaic_tess(25, 20, germs=30, seed=3, rescale=False))
+    case("gibbs_nlmr", "nlm.mosaic_gibbs", {"rows": 30, "columns": 40, "germs": 25, "r": 3.0, "patch_classes": 5,
+                                            "seed": 4, "rescale": False},
+         N.mosaic_gibbs(40, 30, germs=25, R=3.0, patch_classes=5, seed=4, rescale=False))
     case("random_cluster", "nlm.random_cluster", {**size, "seed": 8, "p": 0.4, "weights": [0.3, 0.7]},
          N.random_cluster(17, 13, p=0.4, ai=[0.3, 0.7], seed=8, rescale=False))
     case("gaussian", "nlm.gaussian_field", {**size, "seed": 2, "range": 5.0},

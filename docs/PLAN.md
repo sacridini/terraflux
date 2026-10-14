@@ -657,9 +657,8 @@ Pendências:
 - **Modelos neutros (0.43.0, 2026-10-13):** os outros 16 do `nlm` — `nlm.random`, `nlm.percolation`,
   `nlm.planar_gradient`, `nlm.edge_gradient`, `nlm.distance_gradient`, `nlm.curds`, `nlm.mpd`, `nlm.neigh`,
   `nlm.random_rectangular_cluster`, `nlm.mosaic_field`, `nlm.mosaic_tess`, `nlm.mosaic_gibbs` e os utilitários
-  `nlm.classify`, `nlm.binarize`, `nlm.merge` e `nlm.rescale` —, bit a bit com o landschaft. Os mosaicos de
-  Voronoi dão a cada germe o seu valor (o `nlmr_compat=False` do landschaft): a ordem das células do GEOS que o
-  NLMR segue não está portada.
+  `nlm.classify`, `nlm.binarize`, `nlm.merge` e `nlm.rescale` —, bit a bit com o landschaft. **Feito** (0.72.0):
+  os mosaicos de Voronoi seguem o NLMR (a ordem das células do GEOS, pelo geos_c que vem com o GDAL).
 - **Grafos de habitat (0.44.0, 2026-10-13):** o `HabitatGraph` do `conn` (tipo novo) — `conn.graph`,
   `conn.read_conefor`, `conn.write_conefor`, `conn.overall`, `conn.node_importance` (com restauração e
   betweenness), `conn.link_importance`, `conn.link_change`, `conn.components` e `conn.centrality` —, bit a bit
@@ -729,8 +728,11 @@ Pendências:
   geodésicas) ou outro GEOS (um caso do ProtConn).
 - **Calibração do FUTURES (0.71.0, 2026-10-14):** `futures.calibrate` (r.futures.calib pelo `calibrate_patches`
   do landschaft), a mesma tabela bit a bit.
+- **Mosaicos de Voronoi do NLMR (0.72.0, 2026-10-14):** `nlm.mosaic_tess` e `nlm.mosaic_gibbs` dão os valores às
+  células na ordem do GEOS (o `GEOSVoronoiDiagram` do geos_c ao lado do GDAL, `terraflux_gdal::geos`), bit a bit
+  com o landschaft.
 - **Próximos (2026-10-14):** a assinatura dos instaladores e um ícone; do landschaft, os modelos do scikit-learn
-  no `sdm.fit` e a ordem das células do GEOS nos mosaicos de Voronoi.
+  no `sdm.fit`.
 
 - **A ponte do ls.simulate completa (branch `simulate-bridge`, 2026-10-13):** todo modelo do `ls.simulate` vai pelo
   `Model.save` e roda no Terraflux com os mesmos bits. Estimadores e outros potenciais sem forma fechada como
