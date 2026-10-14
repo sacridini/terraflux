@@ -6,6 +6,18 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.72.0] - 2026-10-14
+
+### Changed
+- `nlm.mosaic_tess` and `nlm.mosaic_gibbs` follow NLMR by default (`nlmr_compat`, as landschaft's): the k-th value
+  goes to the k-th Voronoi cell in the order GEOS lists them (sf's `st_voronoi` of the germs' union), the values
+  as floats as `terra::rasterize` writes them; `nlmr_compat = false` keeps the earlier maps (each germ its own
+  value). The same maps as landschaft's, to the bit.
+
+### Added
+- GEOS's own C API for what GDAL does not pass on (`terraflux_gdal::geos`): the geos_c library next to GDAL's (in
+  the installers' GDAL too), else the system's; its Voronoi diagram.
+
 ## [0.71.0] - 2026-10-14
 
 ### Added
