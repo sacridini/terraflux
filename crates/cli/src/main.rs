@@ -90,6 +90,9 @@ enum Command {
         /// coordinator says on the local network where it is, to be found by its code.
         #[arg(long, num_args = 0..=1, default_missing_value = "new")]
         code: Option<String>,
+        /// Say nothing on the network (the workers given its address).
+        #[arg(long)]
+        no_beacons: bool,
     },
     /// Run a headless worker: tasks from a coordinator, until stopped.
     Worker {
@@ -108,6 +111,9 @@ enum Command {
         /// Take tasks only after this many minutes without the keyboard or the mouse (Windows and macOS).
         #[arg(long)]
         idle: Option<f64>,
+        /// The threads of each task (default: all the cores but one).
+        #[arg(long)]
+        threads: Option<usize>,
     },
     /// The workers of a coordinator and what they do.
     Workers {
@@ -130,6 +136,9 @@ enum Command {
     /// Follow a job of a coordinator to its end and write its files (those written already kept).
     Results {
         job: String,
+        /// A cluster of `terraflux cluster add` (reached by SSH).
+        #[arg(long)]
+        on: Option<String>,
         #[arg(long)]
         coordinator: Option<String>,
         /// The coordinator's pairing code (with no --coordinator: the coordinator of the code found on the
@@ -164,6 +173,9 @@ enum Command {
     },
     /// Calibrate settings of a model against an observed map, here or on a coordinator's workers.
     Calibrate(Box<cluster::Calibrate>),
+    /// Clusters and servers reached by SSH: saved once, used by `submit --on`, `calibrate --on`, `results --on`.
+    #[command(subcommand)]
+    Cluster(cluster::ClusterCommand),
     /// Resample a raster to the grid of another (of the same coordinate reference system).
     Resample {
         input: PathBuf,
@@ -479,16 +491,17 @@ fn main() -> Result<()> {
     let engine = Engine::default();
     let rt = || tokio::runtime::Builder::new_multi_thread().enable_all().build();
     match command {
-        Command::Serve { listen, timeout, data, code } => {
-            rt()?.block_on(cluster::serve(listen, timeout, data, code))?
+        Command::Serve { listen, timeout, data, code, no_beacons } => {
+            rt()?.block_on(cluster::serve(listen, timeout, data, code, !no_beacons))?
         }
-        Command::Worker { coordinator, code, name, cache, idle } => {
-            rt()?.block_on(cluster::worker(coordinator, code, name, cache, idle))?
+        Command::Worker { coordinator, code, name, cache, idle, threads } => {
+            rt()?.block_on(cluster::worker(coordinator, code, name, cache, idle, threads))?
         }
+        Command::Cluster(c) => cluster::cluster(c)?,
         Command::Workers { coordinator, code } => rt()?.block_on(cluster::workers(coordinator, code))?,
         Command::Jobs { coordinator, code } => rt()?.block_on(cluster::jobs(coordinator, code))?,
-        Command::Results { job, coordinator, code, out } => {
-            rt()?.block_on(cluster::results(coordinator, code, &job, &out))?
+        Command::Results { job, on, coordinator, code, out } => {
+            rt()?.block_on(cluster::results(coordinator, code, on, &job, &out))?
         }
         Command::Submit { model, replicates, first_seed, scenarios, seed_input, out, detach, at } => {
             let tasks = match (replicates, scenarios) {

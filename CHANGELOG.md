@@ -6,6 +6,15 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Clusters and servers reached by SSH, saved once (`terraflux cluster add/list/test/stop/remove`; in the
+  application, the Computers pane): `submit --on`, `calibrate --on` and `results --on` check Terraflux there (the
+  same version), start its coordinator (with a pairing code of the profile's) and its workers (on the host, or in a
+  Slurm allocation of `sbatch`), reach it through an SSH tunnel, and stop them once the batch is done; a batch
+  whose client went away goes on there and is followed again by its job. "Many runs" in the application runs on a
+  cluster chosen in **Run on**.
+- `terraflux worker --threads` (the threads of each task) and `terraflux serve --no-beacons`.
+
 ## [0.76.0] - 2026-10-14
 
 ### Added

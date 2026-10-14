@@ -1415,6 +1415,7 @@ fn a_batch_stopped_half_way_goes_on() {
         out: out.clone(),
         files: true,
         job: Some(job),
+        on: None,
         total: 3,
         plan: None,
         alive: 0,

@@ -17,6 +17,7 @@ pub mod evaluate;
 pub mod idle;
 pub mod net;
 pub mod pool;
+pub mod remote;
 pub mod run;
 pub mod secure;
 pub mod store;

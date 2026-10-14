@@ -269,6 +269,14 @@ terraflux serve --listen 0.0.0.0:7700 --code                            # prints
 terraflux worker --code K7QM-2XPA-9DTE                                  # finds it on the network
 ```
 
+A cluster (Slurm) or a server reached by SSH is saved once, and batches run there without logging in (Terraflux
+started there for the batch, reached through a tunnel, stopped after it):
+
+```bash
+terraflux cluster add hpc --host me@login.cluster.edu --slurm --nodes 4 --cpus 32 --time 02:00:00
+terraflux submit model.toml --replicates 500 --on hpc --out replicates
+```
+
 ## Maps larger than memory
 
 ```bash

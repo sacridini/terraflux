@@ -55,6 +55,45 @@ pub struct Computers {
     typed: String,
     /// The workers of the pool, asked again every second.
     seen: Option<(Instant, Vec<WorkerState>)>,
+    /// A cluster being added, and what the checks of the clusters said (by name; checked in threads).
+    draft: Option<Draft>,
+    checks: std::sync::Arc<std::sync::Mutex<std::collections::BTreeMap<String, String>>>,
+}
+
+/// A cluster or server being added, as typed.
+#[derive(Debug, Clone)]
+struct Draft {
+    name: String,
+    host: String,
+    ssh_port: String,
+    program: String,
+    slurm: bool,
+    workers: usize,
+    nodes: usize,
+    cpus: usize,
+    per_node: usize,
+    time: String,
+    partition: String,
+    account: String,
+}
+
+impl Default for Draft {
+    fn default() -> Draft {
+        Draft {
+            name: String::new(),
+            host: String::new(),
+            ssh_port: String::new(),
+            program: String::new(),
+            slurm: false,
+            workers: 4,
+            nodes: 2,
+            cpus: 16,
+            per_node: 1,
+            time: "04:00:00".into(),
+            partition: String::new(),
+            account: String::new(),
+        }
+    }
 }
 
 impl Computers {
@@ -147,6 +186,8 @@ pub fn pane(ui: &mut Ui, c: &mut Computers) {
             share_ui(ui, c);
             ui.add_space(12.0);
             lend_ui(ui, c);
+            ui.add_space(12.0);
+            clusters_ui(ui, c);
             if let Some(e) = &c.error {
                 ui.add_space(6.0);
                 ui.colored_label(ui.visuals().error_fg_color, e);
@@ -309,5 +350,155 @@ fn lend_ui(ui: &mut Ui, c: &mut Computers) {
                 l.paused.store(!paused, std::sync::atomic::Ordering::Relaxed);
             }
         });
+    }
+}
+
+fn clusters_ui(ui: &mut Ui, c: &mut Computers) {
+    use terraflux_dist::remote::{self, Cluster, Profile, Scheduler};
+    theme::section(ui, "Clusters and servers");
+    ui.label(
+        RichText::new(
+            "A cluster or a server reached by SSH (with a key, no password asked), with Terraflux of this version: \
+             \"Many runs\" may run there (Run on). Terraflux is started there for each batch and stopped after it.",
+        )
+        .weak(),
+    );
+    let dir = crate::settings::data_dir();
+    let mut all = remote::load(&dir);
+    let mut remove = None;
+    if !all.is_empty() {
+        egui::Grid::new("clusters").striped(true).spacing([14.0, 4.0]).show(ui, |ui| {
+            for p in &all {
+                ui.label(RichText::new(&p.name).strong());
+                ui.label(RichText::new(&p.host).monospace());
+                ui.label(match &p.scheduler {
+                    Scheduler::Host { workers } => format!("{workers} runs at once"),
+                    Scheduler::Slurm { nodes, cpus, time, .. } => {
+                        format!("Slurm: {nodes} nodes x {cpus} threads, {time}")
+                    }
+                });
+                if ui.small_button("Check").on_hover_text("SSH and Terraflux's version there").clicked() {
+                    let (p, checks) = (p.clone(), c.checks.clone());
+                    checks.lock().unwrap().insert(p.name.clone(), "checking...".into());
+                    std::thread::spawn(move || {
+                        let cl = Cluster::new(p.clone());
+                        let said = match cl.program() {
+                            Ok((path, v)) if v == terraflux_dist::coordinator::VERSION => {
+                                format!("ready: Terraflux {v} ({path})")
+                            }
+                            Ok((_, v)) => format!(
+                                "Terraflux {v} there, {} here: install the same version",
+                                terraflux_dist::coordinator::VERSION
+                            ),
+                            Err(e) => e.to_string(),
+                        };
+                        checks.lock().unwrap().insert(p.name, said);
+                    });
+                }
+                if ui.small_button("x").on_hover_text("forget it").clicked() {
+                    remove = Some(p.name.clone());
+                }
+                ui.label(RichText::new(c.checks.lock().unwrap().get(&p.name).cloned().unwrap_or_default()).weak());
+                ui.end_row();
+            }
+        });
+    }
+    if let Some(n) = remove {
+        all.retain(|p| p.name != n);
+        if let Err(e) = remote::save(&dir, &all) {
+            c.error = Some(e.to_string());
+        }
+    }
+    let Some(d) = &mut c.draft else {
+        if ui.button("Add a cluster or server...").clicked() {
+            c.draft = Some(Draft::default());
+        }
+        return;
+    };
+    let mut done = None;
+    egui::Frame::new().fill(ui.visuals().faint_bg_color).inner_margin(egui::Margin::same(8)).show(ui, |ui| {
+        egui::Grid::new("cluster draft").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
+            ui.label("Name");
+            ui.add(egui::TextEdit::singleline(&mut d.name).hint_text("hpc").desired_width(160.0));
+            ui.end_row();
+            ui.label("User and host");
+            ui.add(egui::TextEdit::singleline(&mut d.host).hint_text("me@login.cluster.edu").desired_width(220.0));
+            ui.end_row();
+            ui.label("SSH port");
+            ui.add(egui::TextEdit::singleline(&mut d.ssh_port).hint_text("22").desired_width(60.0));
+            ui.end_row();
+            ui.label("Terraflux there");
+            ui.add(
+                egui::TextEdit::singleline(&mut d.program).hint_text("terraflux (on its PATH)").desired_width(220.0),
+            );
+            ui.end_row();
+            ui.label("Where the runs go");
+            ui.horizontal(|ui| {
+                ui.radio_value(&mut d.slurm, false, "the host itself");
+                ui.radio_value(&mut d.slurm, true, "the nodes of a Slurm allocation");
+            });
+            ui.end_row();
+            if d.slurm {
+                ui.label("Nodes");
+                ui.add(egui::DragValue::new(&mut d.nodes).range(1..=10_000));
+                ui.end_row();
+                ui.label("Threads per node");
+                ui.add(egui::DragValue::new(&mut d.cpus).range(1..=1024));
+                ui.end_row();
+                ui.label("Runs at once per node");
+                ui.add(egui::DragValue::new(&mut d.per_node).range(1..=1024));
+                ui.end_row();
+                ui.label("Time");
+                ui.add(egui::TextEdit::singleline(&mut d.time).desired_width(90.0));
+                ui.end_row();
+                ui.label("Partition");
+                ui.add(egui::TextEdit::singleline(&mut d.partition).hint_text("the default").desired_width(120.0));
+                ui.end_row();
+                ui.label("Account");
+                ui.add(egui::TextEdit::singleline(&mut d.account).hint_text("none").desired_width(120.0));
+                ui.end_row();
+            } else {
+                ui.label("Runs at once");
+                ui.add(egui::DragValue::new(&mut d.workers).range(1..=1024));
+                ui.end_row();
+            }
+        });
+        ui.horizontal(|ui| {
+            let ok = !d.name.trim().is_empty() && !d.host.trim().is_empty();
+            if ui.add_enabled(ok, accent_button("Save", ok)).clicked() {
+                done = Some(true);
+            }
+            if ui.button("Cancel").clicked() {
+                done = Some(false);
+            }
+        });
+    });
+    match done {
+        Some(true) => {
+            let d = c.draft.take().unwrap();
+            let some = |t: &str| (!t.trim().is_empty()).then(|| t.trim().to_string());
+            let scheduler = if d.slurm {
+                Scheduler::Slurm {
+                    partition: some(&d.partition),
+                    account: some(&d.account),
+                    time: d.time.trim().to_string(),
+                    nodes: d.nodes,
+                    cpus: d.cpus,
+                    workers: d.per_node,
+                }
+            } else {
+                Scheduler::Host { workers: d.workers }
+            };
+            let mut p = Profile::new(d.name.trim(), d.host.trim(), scheduler);
+            p.ssh_port = d.ssh_port.trim().parse().ok();
+            p.program = some(&d.program);
+            all.retain(|x| x.name != p.name);
+            all.push(p);
+            if let Err(e) = remote::save(&dir, &all) {
+                c.error = Some(e.to_string());
+            }
+        }
+        Some(false) => c.draft = None,
+        None => {}
     }
 }

@@ -28,6 +28,9 @@ pub enum Place {
     Here { workers: usize, cache: PathBuf, state: Option<PathBuf> },
     /// A coordinator's workers (`http://host:7700`), with its pairing code if it has one.
     At { url: String, code: Option<Code> },
+    /// A cluster or a server reached by SSH ([`crate::remote`]): its coordinator and workers started for the
+    /// batch, stopped when it is done.
+    Cluster(Box<crate::remote::Profile>),
 }
 
 /// A batch: a model (its paths relative to `base`) run once per task.
@@ -57,6 +60,8 @@ pub enum Progress {
     Workers(usize),
     /// The model's data is being sent.
     Sending,
+    /// What is being done on a cluster.
+    Cluster(String),
     /// The job was submitted (or found again).
     Submitted { job: String, total: usize },
     /// Tasks done, running, failed.
@@ -84,8 +89,20 @@ pub async fn run(
     stop: &AtomicBool,
     progress: &mut dyn FnMut(Progress),
 ) -> Result<Outcome> {
+    let mut opened = None;
     let (url, code, local) = match place {
         Place::At { url, code } => (url.clone(), code.clone(), None),
+        Place::Cluster(p) => {
+            progress(Progress::Cluster(format!("starting Terraflux on {}", p.host)));
+            let cluster = crate::remote::Cluster::new((**p).clone());
+            let o = tokio::task::spawn_blocking(move || crate::remote::Opened::open(cluster))
+                .await
+                .map_err(|e| Error::Other(e.to_string()))??;
+            progress(Progress::Cluster(format!("{} reached", p.host)));
+            let url = o.url();
+            opened = Some(o);
+            (url, Some(p.code()?), None)
+        }
         Place::Here { workers, cache, state } => {
             let options = Options { dir: state.clone(), ..Default::default() };
             let local = Local::start(*workers, cache.clone(), options).await?;
@@ -104,6 +121,18 @@ pub async fn run(
     .await;
     if let Some(l) = local {
         l.shutdown();
+    }
+    // the cluster's workers and coordinator stopped once the batch is done (or dropped); a batch whose client
+    // went away goes on there
+    if let Some(o) = opened {
+        let finished = match &r {
+            Ok(_) => true,
+            Err(e) => e.to_string() == STOPPED,
+        };
+        if finished {
+            progress(Progress::Cluster(format!("stopping Terraflux on {}", o.cluster.profile.host)));
+            let _ = tokio::task::spawn_blocking(move || o.cluster.stop()).await;
+        }
     }
     r
 }

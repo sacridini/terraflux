@@ -26,6 +26,9 @@ pub struct Where {
     /// The coordinator's pairing code (with no --coordinator: the coordinator of the code found on the network).
     #[arg(long)]
     code: Option<String>,
+    /// A cluster or a server of `terraflux cluster add`: Terraflux started there for the batch, by SSH.
+    #[arg(long)]
+    on: Option<String>,
     /// Workers on this machine when no coordinator is given (default: a quarter of the cores, at least 1).
     #[arg(long)]
     workers: Option<usize>,
@@ -57,8 +60,23 @@ async fn reach(coordinator: Option<String>, code: Option<&Code>) -> Result<Strin
     Ok(f.addr.clone())
 }
 
-/// Where a batch runs: the coordinator given (or found by its code), or workers started here.
+/// A cluster's profile, by its name.
+pub fn profile(name: &str) -> Result<terraflux_dist::remote::Profile> {
+    let all = terraflux_dist::remote::load(&terraflux_dist::remote::default_dir());
+    let names: Vec<&str> = all.iter().map(|p| p.name.as_str()).collect();
+    all.iter().find(|p| p.name == name).cloned().with_context(|| {
+        format!(
+            "no cluster {name:?} (those of `terraflux cluster add`: {})",
+            if names.is_empty() { "none".into() } else { names.join(", ") }
+        )
+    })
+}
+
+/// Where a batch runs: a cluster, the coordinator given (or found by its code), or workers started here.
 async fn place(w: &Where) -> Result<Place> {
+    if let Some(name) = &w.on {
+        return Ok(Place::Cluster(Box::new(profile(name)?)));
+    }
     let code = code_of(&w.code)?;
     if w.coordinator.is_some() || code.is_some() {
         let url = reach(w.coordinator.clone(), code.as_ref()).await?;
@@ -73,6 +91,7 @@ fn progress(p: Progress) {
     match p {
         Progress::Workers(n) => eprintln!("{n} workers on this machine"),
         Progress::Sending => {}
+        Progress::Cluster(what) => eprintln!("{what}"),
         Progress::Submitted { job, total } => eprintln!("job {job}: {total} tasks"),
         Progress::Status(s) => {
             eprintln!("  {} of {} done, {} running, {} failed", s.done, s.total, s.running, s.failed)
@@ -90,7 +109,13 @@ pub fn default_data() -> PathBuf {
         .join("coordinator")
 }
 
-pub async fn serve(listen: SocketAddr, timeout: u64, data: Option<PathBuf>, code: Option<String>) -> Result<()> {
+pub async fn serve(
+    listen: SocketAddr,
+    timeout: u64,
+    data: Option<PathBuf>,
+    code: Option<String>,
+    beacons: bool,
+) -> Result<()> {
     let dir = data.unwrap_or_else(default_data);
     let code = match code.as_deref() {
         Some("new") => Some(Code::generate()),
@@ -104,7 +129,7 @@ pub async fn serve(listen: SocketAddr, timeout: u64, data: Option<PathBuf>, code
     let _beacons = match &code {
         Some(c) => {
             eprintln!("its code: {c}\nstart workers with `terraflux worker --code {c}` (on this network)");
-            (!listen.ip().is_loopback())
+            (beacons && !listen.ip().is_loopback())
                 .then(|| terraflux_dist::discover::announce(c, addr.port(), terraflux_dist::discover::PORT))
                 .transpose()?
         }
@@ -127,6 +152,7 @@ pub async fn worker(
     name: Option<String>,
     cache: Option<PathBuf>,
     idle: Option<f64>,
+    threads: Option<usize>,
 ) -> Result<()> {
     let code = code_of(&code)?;
     let name = name.unwrap_or_else(|| {
@@ -134,6 +160,9 @@ pub async fn worker(
     });
     let cache = cache.unwrap_or_else(default_cache);
     let mut o = terraflux_dist::worker::Options::new(&name, cache.clone());
+    if let Some(t) = threads {
+        o.threads = t.max(1);
+    }
     if let Some(m) = idle {
         if terraflux_dist::idle::seconds().is_none() {
             eprintln!("worker {name}: this system does not tell when its user is away: --idle is let go");
@@ -209,11 +238,22 @@ fn failed(s: &terraflux_dist::proto::JobStatus) -> Result<()> {
 }
 
 /// Follow a job of a coordinator to its end, its files written in `out/<label>/` (those there already kept).
-pub async fn results(coordinator: Option<String>, code: Option<String>, job: &str, out: &Path) -> Result<()> {
-    let code = code_of(&code)?;
-    let url = reach(coordinator, code.as_ref()).await?;
+pub async fn results(
+    coordinator: Option<String>,
+    code: Option<String>,
+    on: Option<String>,
+    job: &str,
+    out: &Path,
+) -> Result<()> {
+    let place = match on {
+        Some(name) => Place::Cluster(Box::new(profile(&name)?)),
+        None => {
+            let code = code_of(&code)?;
+            Place::At { url: reach(coordinator, code.as_ref()).await?, code }
+        }
+    };
     let start = run::Start::Resume(job.to_string());
-    let o = run::run(&start, &Place::At { url, code }, Some(out), &AtomicBool::new(false), &mut progress).await?;
+    let o = run::run(&start, &place, Some(out), &AtomicBool::new(false), &mut progress).await?;
     eprintln!("wrote {}", out.display());
     failed(&o.status)
 }
@@ -331,6 +371,121 @@ pub async fn calibrate(a: &Calibrate) -> Result<()> {
     eprintln!("wrote {} and {}", a.out.join("calibration.csv").display(), out_model.display());
     if status.failed > 0 {
         eprintln!("{} runs failed:\n  {}", status.failed, status.errors.join("\n  "));
+    }
+    Ok(())
+}
+
+/// The commands of the clusters and servers reached by SSH.
+#[derive(clap::Subcommand)]
+pub enum ClusterCommand {
+    /// Save a cluster or a server: `--workers N` (on the host itself) or `--slurm` (on the nodes of an
+    /// allocation: --nodes, --cpus, --time, --partition, --account, --per-node).
+    Add {
+        name: String,
+        /// `user@host`, or an alias of ~/.ssh/config.
+        #[arg(long)]
+        host: String,
+        #[arg(long)]
+        ssh_port: Option<u16>,
+        /// Terraflux there (default: `terraflux` on its PATH, else ~/.terraflux/bin/terraflux).
+        #[arg(long)]
+        program: Option<String>,
+        /// Workers on the host itself.
+        #[arg(long, conflicts_with = "slurm")]
+        workers: Option<usize>,
+        /// Workers on the nodes of a Slurm allocation.
+        #[arg(long)]
+        slurm: bool,
+        #[arg(long, default_value_t = 1)]
+        nodes: usize,
+        /// The threads of each node used.
+        #[arg(long, default_value_t = 8)]
+        cpus: usize,
+        /// Workers per node.
+        #[arg(long, default_value_t = 1)]
+        per_node: usize,
+        #[arg(long, default_value = "04:00:00")]
+        time: String,
+        #[arg(long)]
+        partition: Option<String>,
+        #[arg(long)]
+        account: Option<String>,
+    },
+    /// The clusters and servers saved.
+    List,
+    /// Check that a cluster is reached and has Terraflux of this version.
+    Test { name: String },
+    /// Stop Terraflux's coordinator and workers on a cluster (its jobs kept).
+    Stop { name: String },
+    /// Forget a cluster.
+    Remove { name: String },
+}
+
+pub fn cluster(c: ClusterCommand) -> Result<()> {
+    use terraflux_dist::remote::{self, Cluster, Profile, Scheduler};
+    let dir = remote::default_dir();
+    let mut all = remote::load(&dir);
+    match c {
+        ClusterCommand::Add {
+            name,
+            host,
+            ssh_port,
+            program,
+            workers,
+            slurm,
+            nodes,
+            cpus,
+            per_node,
+            time,
+            partition,
+            account,
+        } => {
+            let scheduler = if slurm {
+                Scheduler::Slurm { partition, account, time, nodes, cpus, workers: per_node }
+            } else {
+                Scheduler::Host { workers: workers.unwrap_or(1) }
+            };
+            let mut p = Profile::new(&name, &host, scheduler);
+            p.ssh_port = ssh_port;
+            p.program = program;
+            all.retain(|x| x.name != name);
+            all.push(p);
+            remote::save(&dir, &all)?;
+            eprintln!(
+                "saved {name} in {}: `terraflux cluster test {name}` checks it",
+                dir.join("clusters.toml").display()
+            );
+        }
+        ClusterCommand::List => {
+            for p in &all {
+                let how = match &p.scheduler {
+                    Scheduler::Host { workers } => format!("{workers} workers on the host"),
+                    Scheduler::Slurm { nodes, cpus, time, partition, .. } => format!(
+                        "Slurm: {nodes} nodes x {cpus} threads, {time}{}",
+                        partition.as_ref().map(|p| format!(", partition {p}")).unwrap_or_default()
+                    ),
+                };
+                println!("{}\t{}\t{how}", p.name, p.host);
+            }
+        }
+        ClusterCommand::Test { name } => {
+            let c = Cluster::new(profile(&name)?);
+            let (path, version) = c.program()?;
+            println!("{}: Terraflux {version} ({path})", c.profile.host);
+            c.check()?;
+        }
+        ClusterCommand::Stop { name } => {
+            Cluster::new(profile(&name)?).stop()?;
+            eprintln!("stopped");
+        }
+        ClusterCommand::Remove { name } => {
+            let before = all.len();
+            all.retain(|x| x.name != name);
+            if all.len() == before {
+                bail!("no cluster {name:?}");
+            }
+            remote::save(&dir, &all)?;
+        }
     }
     Ok(())
 }

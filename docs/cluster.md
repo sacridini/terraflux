@@ -171,6 +171,39 @@ can submit tasks and read their data. It listens on 127.0.0.1 unless given anoth
 expose it only on a trusted network, or reach it through an SSH tunnel (`ssh -L 7700:localhost:7700
 coordinator-host`).
 
+## A cluster or a server, by SSH
+
+A cluster (Slurm) or a server of one's own is saved once, and batches run there without logging in:
+
+```bash
+terraflux cluster add hpc --host me@login.cluster.edu --slurm --nodes 4 --cpus 32 --per-node 2 \
+    --time 02:00:00 --partition short
+terraflux cluster add lab --host me@lab-server --workers 8      # a server: 8 runs at once on it
+terraflux cluster test hpc                                         # SSH, and Terraflux's version there
+
+terraflux submit model.toml --replicates 500 --on hpc --out replicates
+terraflux calibrate model.toml --param patches.isometry=0.5:2.5 --observed landuse.tif:2011 --on hpc
+terraflux results job-4 --on hpc --out replicates                  # a batch whose client went away
+terraflux cluster stop hpc
+```
+
+For each batch the client:
+
+1. checks Terraflux on the other side, of the same version (`terraflux` on its PATH, `~/.terraflux/bin/terraflux`,
+   or `--program`);
+2. starts its coordinator there (unless it runs), with a pairing code of the profile's, listening on a port of the
+   profile's, its jobs in `~/.terraflux/coordinator-<port>`;
+3. starts the workers: on the host (`--workers`, sharing its threads), or in a Slurm allocation (an `sbatch` of
+   `--nodes`, each with `--cpus` threads for `--per-node` workers, `--time`, `--partition`, `--account`; the workers
+   reach the coordinator on the login node by its name);
+4. reaches the coordinator through an SSH tunnel, sends the data, follows the batch and fetches its files;
+5. stops the workers (`scancel`) and the coordinator once the batch is done or stopped.
+
+A batch whose client went away (the computer turned off) goes on there; `terraflux results <job> --on <name>`
+follows it again. SSH is the system's own, with the user's keys and `~/.ssh/config`: it must log in without a
+password asked (a key, an agent). The profiles are kept in the user's application data (`clusters.toml`). In
+the application, the Computers pane adds and checks them, and "Many runs" offers them in **Run on**.
+
 ## What travels
 
 | Message | From | To |

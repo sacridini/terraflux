@@ -242,8 +242,11 @@ pub struct Record {
     pub model: String,
     pub out: PathBuf,
     pub files: bool,
-    /// Its job on the application's pool (see [`crate::computers`]).
+    /// Its job on the application's pool (see [`crate::computers`]), or on a cluster's.
     pub job: Option<String>,
+    /// The cluster it runs on (none: the application's pool).
+    #[serde(default)]
+    pub on: Option<String>,
     pub total: usize,
     pub plan: Option<Plan>,
     /// When the application running it last said so (seconds since 1970): a batch of another window.
@@ -357,6 +360,8 @@ pub struct BatchState {
     pub interrupted: Option<Record>,
     /// The model the choices were made for (they are let go when another opens).
     model_of: Option<String>,
+    /// Where it runs: a cluster's name (none: this computer, and those helping it).
+    pub on: Option<String>,
 }
 
 impl Default for BatchState {
@@ -388,6 +393,7 @@ impl Default for BatchState {
             error: None,
             interrupted: None,
             model_of: None,
+            on: None,
         }
     }
 }
@@ -415,6 +421,7 @@ impl BatchState {
             match e {
                 Event::Progress(Progress::Workers(n)) => r.stage = format!("{n} workers started"),
                 Event::Progress(Progress::Sending) => r.stage = "sending the data to the workers".into(),
+                Event::Progress(Progress::Cluster(what)) => r.stage = what,
                 Event::Progress(Progress::Submitted { job, total }) => {
                     r.total = total;
                     r.stage = "running".into();
@@ -510,6 +517,7 @@ impl BatchState {
                 running: self.running.take(),
                 finished: self.finished.take(),
                 interrupted: self.interrupted.take(),
+                on: self.on.take(),
                 model_of: Some(id),
                 ..Default::default()
             };
@@ -690,13 +698,26 @@ fn start(
     let total = tasks.len();
     let b =
         Batch { name: format!("{} {}", s.title(), st.kind.name()), model, base: s.base(), tasks, files, evaluation };
-    let record = Record { kind: st.kind, model: s.title(), out, files, job: None, total, plan, alive: now() };
-    let place = computers.pool(st.workers.clamp(1, total.max(1)))?.place();
+    let record =
+        Record { kind: st.kind, model: s.title(), out, files, job: None, on: st.on.clone(), total, plan, alive: now() };
+    let place = match &st.on {
+        Some(name) => cluster_place(name)?,
+        None => computers.pool(st.workers.clamp(1, total.max(1)))?.place(),
+    };
     launch(st, Start::New(Box::new(b)), record, place, ctx);
     Ok(())
 }
 
-/// Run a batch (or take one up again) on the application's pool.
+/// A cluster saved, as where a batch runs.
+fn cluster_place(name: &str) -> Result<Place, String> {
+    terraflux_dist::remote::load(&crate::settings::data_dir())
+        .into_iter()
+        .find(|p| p.name == name)
+        .map(|p| Place::Cluster(Box::new(p)))
+        .ok_or_else(|| format!("no cluster {name:?} any more (Computers)"))
+}
+
+/// Run a batch (or take one up again) on the application's pool or a cluster.
 fn launch(st: &mut BatchState, start: Start, record: Record, place: Place, ctx: &egui::Context) {
     let ctx = ctx.clone();
     let out = record.files.then(|| record.out.clone());
@@ -743,16 +764,19 @@ fn interrupted_ui(ui: &mut Ui, st: &mut BatchState, computers: &mut Computers) {
             if ui.add(accent_button("Go on", true)).on_hover_text("the runs done are not run again").clicked()
                 && let Some(job) = r.job.clone()
             {
-                match computers.pool(st.workers) {
-                    Ok(p) => {
-                        let place = p.place();
-                        launch(st, Start::Resume(job), r.clone(), place, ui.ctx());
-                    }
+                let place = match &r.on {
+                    Some(name) => cluster_place(name),
+                    None => computers.pool(st.workers).map(|p| p.place()),
+                };
+                match place {
+                    Ok(place) => launch(st, Start::Resume(job), r.clone(), place, ui.ctx()),
                     Err(e) => st.error = Some(e),
                 }
             }
             if ui.button("Let it go").clicked() {
-                if let (Some(job), Ok(p)) = (&r.job, computers.pool(0)) {
+                if r.on.is_none()
+                    && let (Some(job), Ok(p)) = (&r.job, computers.pool(0))
+                {
                     p.forget(job);
                 }
                 r.drop_all();
@@ -1295,12 +1319,28 @@ pub fn pane(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry, com
                         st.out = None;
                     }
                 });
-                ui.horizontal(|ui| {
-                    let most = terraflux_ops::threads::most();
-                    ui.label("Runs at once on this computer");
-                    ui.add(egui::Slider::new(&mut st.workers, 1..=most.max(1)))
-                        .on_hover_text("each run gets an equal share of the computer's threads");
-                });
+                let clusters = terraflux_dist::remote::load(&crate::settings::data_dir());
+                if !clusters.is_empty() {
+                    ui.horizontal(|ui| {
+                        ui.label("Run on");
+                        let shown = st.on.clone().unwrap_or_else(|| "this computer".into());
+                        egui::ComboBox::from_id_salt("run on").selected_text(shown).show_ui(ui, |ui| {
+                            ui.selectable_value(&mut st.on, None, "this computer")
+                                .on_hover_text("and the computers helping it (Computers)");
+                            for c in &clusters {
+                                ui.selectable_value(&mut st.on, Some(c.name.clone()), &c.name).on_hover_text(&c.host);
+                            }
+                        });
+                    });
+                }
+                if st.on.is_none() {
+                    ui.horizontal(|ui| {
+                        let most = terraflux_ops::threads::most();
+                        ui.label("Runs at once on this computer");
+                        ui.add(egui::Slider::new(&mut st.workers, 1..=most.max(1)))
+                            .on_hover_text("each run gets an equal share of the computer's threads");
+                    });
+                }
             });
             ui.add_space(6.0);
             finished_ui(ui, st, s, r);
@@ -1341,6 +1381,7 @@ mod tests {
             out: dir.join("out"),
             files: false,
             job: None,
+            on: None,
             total: 4,
             plan: Some(Plan {
                 candidates: vec![[("a.b".to_string(), Json::from(1.5))].into()],
