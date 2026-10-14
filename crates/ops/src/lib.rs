@@ -26,6 +26,7 @@ pub mod conn;
 pub mod cost;
 pub mod crafty;
 pub mod demand;
+pub mod differ;
 pub mod dinamica;
 pub mod dynamic;
 pub mod files;
@@ -277,6 +278,7 @@ impl Registry {
         algebra::register(&mut r);
         change::register(&mut r);
         change_analysis::register(&mut r);
+        differ::register(&mut r);
         batch::register(&mut r);
         bio::register(&mut r);
         circuit::register(&mut r);

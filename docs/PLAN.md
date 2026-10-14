@@ -701,8 +701,9 @@ Pendências:
   do Python (que não cabem num executável sem Python).
 - **Vetores fora da memória (0.63.0, 2026-10-14):** `vector.exact_sum` (só as janelas sob cada polígono lidas do
   disco) e `vector.distance` (por faixas num GeoTIFF), os mesmos bits da memória.
-- **Próximos (2026-10-14):** os instaladores de macOS e Linux; do `simulate`, as comparações do diffeR em várias
-  resoluções (composite, differenceMR, memberships, MAD, sample2pop), a do MOLUSCE (kappa, error budget), a de três
+- **diffeR em várias resoluções (0.64.0, 2026-10-14):** `change.memberships`, `change.composite`,
+  `change.resolutions`, `change.mad` e `change.sample_to_population`, bit a bit com o landschaft.
+- **Próximos (2026-10-14):** os instaladores de macOS e Linux; do `simulate`, a comparação do MOLUSCE (kappa, error budget), a de três
   mapas, a validação do r.futures e a pressão de desenvolvimento e a biblioteca de manchas do FUTURES; do
   `prioritize`, os projetos do Zonation 5 (.z5), coarsen/refine, as matrizes de conectividade e proximidade e o
   prioriactions de rasters.

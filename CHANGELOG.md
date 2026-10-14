@@ -6,6 +6,14 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- diffeR's comparisons at coarser resolutions (landschaft's simulate): `change.memberships` (the share of each
+  class in blocks of cells), `change.composite` (the composite cross-tabulation of Pontius & Cheuk),
+  `change.resolutions` (differenceMR: quantity, exchange and shift at resolutions growing by a factor, scaled to a
+  population or not), `change.mad` (the mean absolute deviation of two continuous maps by quantity, strata and
+  element, at every resolution) and `change.sample_to_population` (sample2pop). R's and terra's sums; the same as
+  landschaft's, to the bit.
+
 ## [0.63.0] - 2026-10-14
 
 ### Added
