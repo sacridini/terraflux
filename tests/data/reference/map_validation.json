@@ -1,0 +1,96 @@
+{
+ "futures": {
+  "binary": [
+   "total_quantity",
+   "total_allocation",
+   "kappa",
+   "kappasimulation",
+   "misses",
+   "hits",
+   "false_alarms",
+   "null_successes",
+   "figure_of_merit",
+   "producer",
+   "user",
+   "initially_developed"
+  ],
+  "no_original": [
+   "total_quantity",
+   "total_allocation",
+   "kappa"
+  ],
+  "classes": [
+   "total_quantity",
+   "total_allocation",
+   "kappa",
+   "kappasimulation",
+   "misses",
+   "hits",
+   "false_alarms",
+   "null_successes",
+   "figure_of_merit",
+   "producer",
+   "user",
+   "initially_developed"
+  ]
+ },
+ "grid": {
+  "tiles": [
+   "row",
+   "col",
+   "x",
+   "y",
+   "cells",
+   "total_quantity",
+   "total_allocation",
+   "kappa",
+   "kappasimulation",
+   "misses",
+   "hits",
+   "false_alarms",
+   "null_successes",
+   "figure_of_merit",
+   "producer",
+   "user",
+   "initially_developed",
+   "quantity_class_0",
+   "allocation_class_0",
+   "quantity_class_1",
+   "allocation_class_1"
+  ],
+  "regions": [
+   "region",
+   "cells",
+   "total_quantity",
+   "total_allocation",
+   "kappa",
+   "kappasimulation",
+   "misses",
+   "hits",
+   "false_alarms",
+   "null_successes",
+   "figure_of_merit",
+   "producer",
+   "user",
+   "initially_developed",
+   "quantity_class_0",
+   "allocation_class_0",
+   "quantity_class_1",
+   "allocation_class_1"
+  ],
+  "tiles_no_original": [
+   "row",
+   "col",
+   "x",
+   "y",
+   "cells",
+   "total_quantity",
+   "total_allocation",
+   "kappa",
+   "quantity_class_0",
+   "allocation_class_0",
+   "quantity_class_1",
+   "allocation_class_1"
+  ]
+ }
+}

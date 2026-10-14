@@ -97,6 +97,7 @@
 #include "sim/rules.hpp"
 #include "sim/similarity.hpp"
 #include "sim/woe.hpp"
+#include "sim/validation.hpp"
 #include "terraflux-ls-sys/src/lib.rs.h"
 
 namespace tfx {
@@ -333,6 +334,15 @@ ExactPiece io_exact_piece(rust::Slice<const double> grid, std::int64_t ny, std::
         for (std::int64_t j = 0; j < out.cols; ++j)
             out.fraction.push_back(cov.fraction(static_cast<std::size_t>(i), static_cast<std::size_t>(j)));
     return out;
+}
+
+rust::Vec<double> sim_tmc_table(std::int32_t n, rust::Slice<const double> x, rust::Slice<const double> x1,
+                                rust::Slice<const double> y1, rust::Slice<const double> w) {
+    check(n >= 2 && n <= 64, "the comparison takes 2 to 64 classes");
+    const std::int64_t blocks = static_cast<std::int64_t>(w.size());
+    const std::size_t cells = static_cast<std::size_t>(n) * static_cast<std::size_t>(blocks);
+    check(x.size() == cells && x1.size() == cells && y1.size() == cells, "the counts and weights differ in size");
+    return to_rust<double>(sim::tmc_table(n, blocks, x.data(), x1.data(), y1.data(), w.data()));
 }
 
 CirclesOut sdm_circles(rust::Slice<const double> lon, rust::Slice<const double> lat, double d, rust::Str kind) {

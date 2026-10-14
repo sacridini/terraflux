@@ -41,6 +41,7 @@ pub mod landscape;
 pub mod legend;
 pub mod lsm_catalog;
 pub mod lulcc;
+pub mod map_validation;
 pub mod markov;
 pub mod metrics;
 pub mod milp;
@@ -279,6 +280,7 @@ impl Registry {
         change::register(&mut r);
         change_analysis::register(&mut r);
         differ::register(&mut r);
+        map_validation::register(&mut r);
         batch::register(&mut r);
         bio::register(&mut r);
         circuit::register(&mut r);

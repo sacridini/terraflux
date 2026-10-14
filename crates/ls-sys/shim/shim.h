@@ -133,6 +133,8 @@ std::int64_t io_exact_piece_count(rust::Slice<const double> grid, std::int64_t n
 ExactPiece io_exact_piece(rust::Slice<const double> grid, std::int64_t ny, std::int64_t nx, rust::Slice<const double> xy,
                           rust::Slice<const std::int64_t> ring_offsets, rust::Slice<const std::int64_t> polygon_offsets,
                           std::int64_t max_cells, std::int64_t k);
+rust::Vec<double> sim_tmc_table(std::int32_t n, rust::Slice<const double> x, rust::Slice<const double> x1,
+                                rust::Slice<const double> y1, rust::Slice<const double> w);
 CirclesOut sdm_circles(rust::Slice<const double> lon, rust::Slice<const double> lat, double d, rust::Str kind);
 rust::Vec<double> sdm_outlier_statistic(rust::Slice<const double> lon, rust::Slice<const double> lat, bool use_min);
 rust::Vec<double> sdm_geod_direct(rust::Slice<const double> lon, rust::Slice<const double> lat,

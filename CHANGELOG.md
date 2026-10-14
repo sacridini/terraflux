@@ -6,6 +6,17 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- The comparisons of simulated and observed land change (landschaft's simulate): `validate.three_map` (lulcc's
+  three-map comparison of Pontius et al. 2011 at blocks of several sizes, its table by landschaft's C++, the budget
+  of agreement and disagreement and the figure of merit, overall, per class and per transition),
+  `validate.kappa` (MOLUSCE's kappa, kappa location and histogram, correctness, Cramer's V, joint information
+  uncertainty, correlation), `validate.error_budget` (MOLUSCE's error budget of Pontius 2002 at coarser
+  resolutions), `validate.futures` and `validate.futures_grid` (r.futures.validation and gridvalidation:
+  disagreement, kappa, kappa simulation and the change metrics, whole, by tiles or by regions). The same as
+  landschaft's, to the bit (MOLUSCE's correlation and joint information uncertainty, whose numpy uses BLAS and its
+  own logarithm, to 1e-12).
+
 ## [0.64.0] - 2026-10-14
 
 ### Added
