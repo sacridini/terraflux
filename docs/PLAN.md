@@ -70,8 +70,11 @@ usar, sem ficar simplista. Ele precisa:
     usuário, os plugins WebAssembly.
   - Instalador do Windows feito (2026-10-13, `tools/make-installer.ps1`): um MSI do WiX 5 (ferramenta .NET do
     repositório) e um zip portátil, com o GDAL na pasta `gdal` e as DLLs do runtime do Visual C++ e do OpenMP ao
-    lado do executável (a implantação local que a Microsoft permite, sem rodar o redistribuível). Faltam macOS e
-    Linux, a assinatura do instalador e um ícone.
+    lado do executável (a implantação local que a Microsoft permite, sem rodar o redistribuível).
+  - macOS feito (`tools/make-macos-app.py`): `Terraflux.app` num dmg e num zip, com o GDAL dentro. Linux feito
+    (0.70.0, 2026-10-14, `tools/make-linux-package.py`): uma pasta em tar.gz (com `install.sh` para o usuário) e
+    um .deb (`/opt/terraflux`), com o GDAL do sistema e o libgomp dentro; pede uma glibc tão nova quanto a da
+    compilação. Faltam a assinatura dos instaladores e um ícone.
 
 ## Princípios de produto
 
@@ -718,7 +721,13 @@ Pendências:
   custo de monitoramento, uma camada por feature e por ameaça, os custos das ações em números ou mapas, unidades
   travadas por mapas, o boundary das células; a solução em mapas), as mesmas tabelas e os mesmos ótimos do
   landschaft nos rasters dos testes dele e no exemplo.
-- **Próximos (2026-10-14):** os instaladores de macOS e Linux.
+- **Linux (0.70.0, 2026-10-14):** o Terraflux compila e roda no Linux (Ubuntu 24.04 no WSL: a CLI, e o
+  aplicativo no Wayland e no X11); `tools/make-linux-package.py` faz a pasta, o tar.gz e o .deb com o GDAL do
+  sistema dentro. No Linux, os testes de paridade passam, menos o último bit da libm da glibc (Dinamica EGO em
+  Sibuyan, a declividade, o dAWF dos grafos, o alcance da autocorrelação) e o que pede o GDAL 3.9 (as áreas
+  geodésicas) ou outro GEOS (um caso do ProtConn).
+- **Próximos (2026-10-14):** a assinatura dos instaladores e um ícone; do landschaft, o `calibrate_patches` do
+  FUTURES, os modelos do scikit-learn no `sdm.fit` e a ordem das células do GEOS nos mosaicos de Voronoi.
 
 - **A ponte do ls.simulate completa (branch `simulate-bridge`, 2026-10-13):** todo modelo do `ls.simulate` vai pelo
   `Model.save` e roda no Terraflux com os mesmos bits. Estimadores e outros potenciais sem forma fechada como

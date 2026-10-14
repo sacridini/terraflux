@@ -390,12 +390,30 @@ from the release build and Homebrew's GDAL (`brew install gdal`; `--gdal` anothe
 then an installed GDAL is used). The application asks for the macOS that the GDAL brought was built for
 (Homebrew's: the macOS it was installed on).
 
+On Linux, the archive (`terraflux-<version>-linux-x64.tar.gz`) unpacks into a folder to keep anywhere; its
+`install.sh` links the command into `~/.local/bin` and adds Terraflux to the menu, for the user alone. The Debian
+package (`terraflux_<version>_amd64.deb`, `sudo apt install ./terraflux_<version>_amd64.deb`) puts the same folder
+in `/opt/terraflux`, the command in `/usr/bin` and the menu entry. Both bring GDAL (its library and every library
+it needs but the C and C++ runtimes, in the folder `gdal`, with GDAL's and PROJ's data and the web's
+certificates) and the OpenMP runtime (`lib`): nothing else is needed but a glibc as new as the one they were built
+with (2.39, Ubuntu 24.04's, when built there) and, for the application, the desktop's own libraries (EGL or Vulkan,
+X11's `libxkbcommon-x11` or Wayland). They are made by
+
+```bash
+python3 tools/make-linux-package.py   # target/linux: the folder, the tar.gz and the .deb
+```
+
+from the release build and the system's GDAL (`--gdal` another prefix, `--no-gdal` none), with patchelf
+(`apt install patchelf`, or `--patchelf` its path) and dpkg-deb. Build on the oldest distribution to be
+supported; Ubuntu's GDAL 3.8 has no geodesic areas (the sampling of landscape metrics in degrees, the accessible
+area of species), which ask for GDAL 3.9 or later (`--gdal` a newer one).
+
 ## Building
 
 Terraflux needs Rust (1.85 or later), CMake and a C++17 compiler (Visual Studio on Windows; on Windows the
 CMake of the newest Visual Studio is used; on macOS Apple's clang, with the Command Line Tools, and Homebrew's
-OpenMP runtime: `brew install cmake libomp`, or `OpenMP_ROOT` another libomp). Landschaft's C++ kernels come from
-the submodule:
+OpenMP runtime: `brew install cmake libomp`, or `OpenMP_ROOT` another libomp; on Linux GCC and its libgomp:
+`apt install build-essential cmake`). Landschaft's C++ kernels come from the submodule:
 
 ```bash
 git clone --recurse-submodules git@github.com:sacridini/terraflux.git
@@ -409,7 +427,10 @@ characters. `LANDSCHAFT_DIR` points the build at another landschaft checkout, `L
 Eigen 3.4. `tools/make_reference.py` writes the reference outputs of the parity tests with landschaft. They were
 written on Windows: on macOS, whose maths library rounds some functions (`exp`, `log`, `pow`) otherwise in the last
 bit, the parity tests of the logistic regressions (CLUE-S, ordered), of Dinamica EGO's model on Sibuyan and of
-plangea's intactness differ from them in the last bit.
+plangea's intactness differ from them in the last bit. On Linux (glibc's maths library) Dinamica EGO's model on
+Sibuyan, the terrain's slope, the habitat graphs' dAWF and the autocorrelation range of the species distribution
+models differ in the last bits; with Ubuntu 24.04's GDAL 3.8 (and its GEOS 3.12) the geodesic areas are not had
+and one ProtConn case clips its polygons otherwise.
 
 | Crate | What it holds |
 |---|---|

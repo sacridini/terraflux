@@ -6,6 +6,14 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Linux packages (`tools/make-linux-package.py`, in `target/linux`): a folder to keep anywhere, as a tar.gz (its
+  `install.sh` links the command into `~/.local/bin` and adds a menu entry for the user) and a Debian package
+  (`/opt/terraflux`, the command in `/usr/bin`, the menu entry). They bring the system's GDAL (its library and every
+  library it needs but the C and C++ runtimes, in `gdal/`, each loading the others from there; GDAL's and PROJ's
+  data and the web's certificates) and the OpenMP runtime: nothing else is needed but a glibc as new as the one
+  they were built with. Terraflux builds and runs on Linux (Ubuntu 24.04: the application on Wayland and X11).
+
 ## [0.69.0] - 2026-10-14
 
 ### Added
