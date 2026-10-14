@@ -2,12 +2,14 @@
 //! (MESS, MOP, ExDet) and how well a model separates presences from the background (AUC, thresholds, Boyce,
 //! omission rates).
 
+pub mod clean;
 pub mod evaluate;
 pub mod extrapolation;
 pub mod folds;
 pub mod maxnet;
 pub mod points;
 pub mod predictors;
+pub mod refdata;
 pub mod workflow;
 
 use std::sync::Arc;
@@ -15,6 +17,7 @@ use std::sync::Arc;
 use extrapolation::Frame;
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 use terraflux_raster::Grid;
+use terraflux_raster::vector::Vector;
 
 use crate::{Args, Ctx, Error, Key, Operator, Outputs, Registry, Result, Stack, Table, Value, outputs};
 
@@ -41,6 +44,8 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(Vif));
     r.add(Arc::new(SelectPredictors));
     r.add(Arc::new(AutocorrelationRange));
+    r.add(Arc::new(CleanOccurrences));
+    r.add(Arc::new(ReferenceData));
 }
 
 fn bad(args: &Args, m: impl std::fmt::Display) -> Error {
@@ -1416,5 +1421,167 @@ impl Operator for AutocorrelationRange {
             ("layers", Value::Table(t)),
             ("models", Value::Json(serde_json::json!(models))),
         ]))
+    }
+}
+
+struct CleanOccurrences;
+
+const CLEAN_TESTS: [(&str, &str); 12] = [
+    ("equal", "equal longitude and latitude (default true)"),
+    ("zeros", "at 0/0: buffer, degrees around 0/0 (default 0.5)"),
+    ("capitals", "at a country's capital: buffer (metres, default 10000), geod (true), verify (false)"),
+    (
+        "centroids",
+        "at a country's or province's centroid: buffer (metres, default 1000), detail (both, country or \
+         provinces), geod (true), verify (false)",
+    ),
+    ("seas", "in the sea: scale of Natural Earth's land (110, 50 or 10; default 50)"),
+    ("urban", "in Natural Earth's urban areas (default false)"),
+    (
+        "countries",
+        "outside the country it claims: column (the records' ISO codes; a text sets it), ref_col (default \
+         iso_a2_eh for two-letter codes, else iso_a3_eh); default false",
+    ),
+    (
+        "outliers",
+        "far from the records of its species: method (quantile, mad or distance), mltpl (5), tdi (km, 1000), \
+         size (7), min_occs (7), thinning (false), thinning_res (0.5)",
+    ),
+    ("gbif", "at GBIF's headquarters: buffer (metres, default 1000), geod (true), verify (false)"),
+    (
+        "institutions",
+        "at a biodiversity institution: buffer (metres, default 100), geod (false), verify (false), \
+         verify_mltpl (10)",
+    ),
+    ("duplicates", "duplicated: additions, more columns that must be equal too (default false)"),
+    (
+        "aohi",
+        "at an artificial hotspot: buffer (metres, default 10000), geod (true), taxa (Aves, Insecta, Mammalia, \
+         Plantae); default false",
+    ),
+];
+
+impl Operator for CleanOccurrences {
+    fn signature(&self) -> OpSignature {
+        let mut sig = coordinate_settings(
+            OpSignature::new(
+                "sdm.clean_occurrences",
+                "Occurrence records with suspicious coordinates flagged or dropped (landschaft's \
+                 clean_occurrences, CoordinateCleaner's tests): invalid coordinates, equal longitude and latitude, \
+                 0/0, capitals, country and province centroids, the sea, towns, outside the country they claim, \
+                 geographic outliers of their species, GBIF's headquarters, biodiversity institutions, duplicates \
+                 and artificial hotspots. Each test takes false (skip it), true (its defaults), a number (its main \
+                 option) or an object of its options. CoordinateCleaner's tables travel with Terraflux; Natural \
+                 Earth's land, urban areas and countries are downloaded on first use (or connect your own).",
+                Access::Global,
+            )
+            .input(PortSpec::new("occurrences", Type::Any, "points, or a table with coordinate columns"))
+            .input(PortSpec::optional("capitals_ref", Type::Any, "capitals in place of CoordinateCleaner's (points)"))
+            .input(PortSpec::optional("centroids_ref", Type::Any, "centroids in place of CoordinateCleaner's (points)"))
+            .input(PortSpec::optional(
+                "institutions_ref",
+                Type::Any,
+                "institutions in place of CoordinateCleaner's (points)",
+            ))
+            .input(PortSpec::optional("seas_ref", Type::Vector, "the land, in place of Natural Earth's (polygons)"))
+            .input(PortSpec::optional("urban_ref", Type::Vector, "urban areas in place of Natural Earth's"))
+            .input(PortSpec::optional("countries_ref", Type::Vector, "countries in place of Natural Earth's"))
+            .output(PortSpec::new(
+                "occurrences",
+                Type::Any,
+                "the records that pass every test, or (flag) all with flag_<test> and flagged",
+            ))
+            .output(PortSpec::new("counts", Type::Table, "the records each test flagged, and in total")),
+        )
+        .param(PortSpec::optional(
+            "species",
+            Type::Text,
+            "the column of the species (default species, scientificName or label)",
+        ))
+        .param(
+            PortSpec::optional("action", Type::Text, "drop (default) or flag the suspicious records")
+                .choices(["drop", "flag"]),
+        );
+        for (name, doc) in CLEAN_TESTS {
+            sig = sig.param(PortSpec::optional(name, Type::Any, doc));
+        }
+        sig
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let occ = occurrences(args, "occurrences")?;
+        let action: String = args.param("action", "drop".into())?;
+        if action != "drop" && action != "flag" {
+            return Err(bad(args, "action is drop or flag"));
+        }
+        let point_refs = |port: &str| -> Result<Option<points::Occurrences>> {
+            match args.get(port) {
+                None => Ok(None),
+                Some(_) => occurrences(args, port).map(Some),
+            }
+        };
+        let vector_ref = |port: &str| -> Result<Option<Arc<Vector>>> {
+            match args.get(port) {
+                None => Ok(None),
+                Some(Value::Vector(v)) => Ok(Some(v.clone())),
+                _ => Err(bad(args, format!("connect {port}: polygons"))),
+            }
+        };
+        let (capitals, centroids, institutions) =
+            (point_refs("capitals_ref")?, point_refs("centroids_ref")?, point_refs("institutions_ref")?);
+        let (seas, urban, countries) =
+            (vector_ref("seas_ref")?, vector_ref("urban_ref")?, vector_ref("countries_ref")?);
+        let refs = clean::Refs {
+            capitals: capitals.as_ref(),
+            centroids: centroids.as_ref(),
+            institutions: institutions.as_ref(),
+            seas: seas.as_deref(),
+            urban: urban.as_deref(),
+            countries: countries.as_deref(),
+        };
+        let settings: clean::Settings =
+            CLEAN_TESTS.iter().filter_map(|(n, _)| args.params.get(*n).map(|v| (*n, v.clone()))).collect();
+        let species: Option<String> = args.opt_param("species")?;
+        let x: Option<String> = args.opt_param("x")?;
+        let y: Option<String> = args.opt_param("y")?;
+        let c = clean::clean(&occ, species.as_deref(), &settings, &refs, x.as_deref(), y.as_deref())
+            .map_err(|e| bad(args, e))?;
+        let mut counts = Table::new(c.flags.iter().map(|(n, _)| n.clone()).chain(["total".to_string()]).collect());
+        let count = |f: &[bool]| f.iter().filter(|&&b| b).count() as f64;
+        counts.rows = vec![c.flags.iter().map(|(_, f)| count(f)).chain([count(&c.any)]).collect()];
+        let out = if action == "flag" {
+            let as_number = |f: &[bool]| f.iter().map(|&b| if b { 1.0 } else { 0.0 }).collect::<Vec<f64>>();
+            let mut cols: Vec<(String, Vec<f64>)> =
+                c.flags.iter().map(|(n, f)| (format!("flag_{n}"), as_number(f))).collect();
+            cols.push(("flagged".into(), as_number(&c.any)));
+            occ.with_columns(cols)
+        } else {
+            occ.subset(&c.any.iter().map(|&b| !b).collect::<Vec<bool>>())
+        };
+        Ok(outputs([("occurrences", occurrences_out(out)), ("counts", Value::Table(counts))]))
+    }
+}
+
+struct ReferenceData;
+
+impl Operator for ReferenceData {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "sdm.reference_data",
+            "The geographic reference data of the cleaning of records (landschaft's reference_data): \
+             CoordinateCleaner's centroids and capitals of countries and provinces (countryref, at the \
+             centroids), biodiversity institutions and artificial hotspots (aohi), and Natural Earth's land \
+             (land110, land50, land10), urban areas (urban50) and countries (countries50), downloaded on first \
+             use.",
+            Access::Global,
+        )
+        .output(PortSpec::new("features", Type::Vector, "the points or polygons, with their attributes"))
+        .param(PortSpec::new("name", Type::Text, "the data set").choices(refdata::NAMES))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let name: String = args.param("name", String::new())?;
+        let v = refdata::features(&name).map_err(|e| bad(args, e))?;
+        Ok(outputs([("features", Value::Vector(Arc::new(v)))]))
     }
 }

@@ -683,7 +683,11 @@ Pendências:
 - **SDM — fluxo de modelagem (0.55.0, 2026-10-13):** `sdm.dataset`, `sdm.fit` (validação cruzada),
   `sdm.response_curves` e `sdm.importance`, bit a bit.
 - **SDM — preditores (0.56.0, 2026-10-13):** `sdm.vif`, `sdm.select_predictors` e `sdm.autocorrelation_range`,
-  bit a bit. Faltam do `sdm`: a limpeza de registros (CoordinateCleaner), a área acessível e `prepare`.
+  bit a bit.
+- **SDM — limpeza de registros (0.57.0, 2026-10-14):** `sdm.clean_occurrences` (os testes do CoordinateCleaner)
+  e `sdm.reference_data`; as tabelas do CoordinateCleaner dentro do executável, as camadas do Natural Earth
+  baixadas no primeiro uso (o cache fixado por SHA-256); as mesmas marcas do landschaft. Faltam do `sdm`: a área
+  acessível e `prepare`.
 - **Próximos (2026-10-13):** os instaladores de macOS e Linux;
   `vector.exact_sum` e `vector.distance` fora da memória.
 

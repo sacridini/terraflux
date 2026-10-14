@@ -40,6 +40,14 @@ fn coordinate_column(columns: &[String], given: Option<&str>, names: &[&str], ax
     Err(format!("no {axis} coordinate column found (looked for {}); set {axis}", names.join(", ")))
 }
 
+/// A column as numbers: texts that are not numbers are NaN (pandas' to_numeric with errors="coerce").
+pub fn numbers(c: Column) -> Vec<f64> {
+    match c {
+        Column::Numbers(x) => x,
+        Column::Texts(t) => t.iter().map(|s| s.trim().parse::<f64>().unwrap_or(f64::NAN)).collect(),
+    }
+}
+
 impl Occurrences {
     pub fn len(&self) -> usize {
         match self {
@@ -52,9 +60,45 @@ impl Occurrences {
         self.len() == 0
     }
 
+    /// Features without geometries (a CSV read by GDAL): their coordinates are attributes.
+    fn attribute_records(&self, x: Option<&str>, y: Option<&str>) -> bool {
+        match self {
+            Occurrences::Vector(v) => {
+                (x.is_some() || y.is_some() || v.geometries.iter().all(|g| matches!(g, Geometry::Empty)))
+                    && !v.attributes.is_empty()
+            }
+            Occurrences::Table(_) => false,
+        }
+    }
+
+    /// The names of the records' columns.
+    pub fn columns(&self) -> Vec<String> {
+        match self {
+            Occurrences::Vector(v) => v.attributes.iter().map(|(n, _)| n.clone()).collect(),
+            Occurrences::Table(t) => t.columns.clone(),
+        }
+    }
+
+    /// A column of the records: numbers, or texts ("" missing).
+    pub fn column(&self, name: &str) -> Option<Column> {
+        match self {
+            Occurrences::Vector(v) => v.attributes.iter().find(|(n, _)| n == name).map(|(_, c)| c.clone()),
+            Occurrences::Table(t) => t.column(name).map(Column::Numbers),
+        }
+    }
+
     /// The records' coordinates and their coordinate system (WKT or a code; lon/lat for tables of lon/lat
     /// columns).
     pub fn coordinates(&self, x: Option<&str>, y: Option<&str>) -> Result<Coordinates, String> {
+        if self.attribute_records(x, y) {
+            let columns = self.columns();
+            let xc = &columns[coordinate_column(&columns, x, &X_NAMES, "x")?];
+            let yc = &columns[coordinate_column(&columns, y, &Y_NAMES, "y")?];
+            let lonlat = LONLAT.contains(&xc.to_lowercase().as_str()) && LONLAT.contains(&yc.to_lowercase().as_str());
+            let Occurrences::Vector(v) = self else { unreachable!() };
+            let crs = v.crs.clone().or_else(|| lonlat.then(|| "EPSG:4326".to_string()));
+            return Ok((numbers(self.column(xc).unwrap()), numbers(self.column(yc).unwrap()), crs));
+        }
         match self {
             Occurrences::Vector(v) => {
                 let (mut xs, mut ys) = (Vec::with_capacity(v.len()), Vec::with_capacity(v.len()));
@@ -83,6 +127,33 @@ impl Occurrences {
                     t.rows.iter().map(|r| r[yc]).collect(),
                     lonlat.then(|| "EPSG:4326".to_string()),
                 ))
+            }
+        }
+    }
+
+    /// The records with more columns of numbers (replacing those of the same names).
+    pub fn with_columns(&self, cols: Vec<(String, Vec<f64>)>) -> Occurrences {
+        match self {
+            Occurrences::Vector(v) => {
+                let mut v = (**v).clone();
+                for (name, x) in cols {
+                    v.attributes.retain(|(n, _)| *n != name);
+                    v.attributes.push((name, Column::Numbers(x)));
+                }
+                Occurrences::Vector(Arc::new(v))
+            }
+            Occurrences::Table(t) => {
+                let mut t = t.clone();
+                for (name, x) in cols {
+                    match t.columns.iter().position(|c| *c == name) {
+                        Some(j) => t.rows.iter_mut().zip(&x).for_each(|(r, &v)| r[j] = v),
+                        None => {
+                            t.columns.push(name);
+                            t.rows.iter_mut().zip(&x).for_each(|(r, &v)| r.push(v));
+                        }
+                    }
+                }
+                Occurrences::Table(t)
             }
         }
     }
@@ -247,7 +318,7 @@ pub struct Background<'a> {
 }
 
 /// R's quantile type 7 (NaN left out).
-fn quantile7(x: &[f64], probs: &[f64]) -> Vec<f64> {
+pub(crate) fn quantile7(x: &[f64], probs: &[f64]) -> Vec<f64> {
     let mut x: Vec<f64> = x.iter().copied().filter(|v| !v.is_nan()).collect();
     x.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let n = x.len();

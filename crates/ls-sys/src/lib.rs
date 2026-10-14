@@ -214,6 +214,14 @@ pub mod ffi {
         kept: Vec<i64>,
     }
 
+    /// Circles around points as CoordinateCleaner draws them: per point its parts (rings), per ring its
+    /// vertices, and the coordinates (x, y interleaved) one ring after the other.
+    struct CirclesOut {
+        parts: Vec<i64>,
+        vertices: Vec<i64>,
+        xy: Vec<f64>,
+    }
+
     /// NLMR's nlm_mosaicfield before rescaling: the sum (empty without steps), each step's sum one after the
     /// other (`collect`), the infinite field (`infinit`, else empty).
     struct NlmMosaicOut {
@@ -1205,6 +1213,21 @@ pub mod ffi {
         /// spThin's thin.algorithm on lon/lat records (great-circle distances of fields::rdist.earth), after
         /// set.seed(seed).
         fn sdm_thin_spthin(lon: &[f64], lat: &[f64], max_km: f64, reps: i32, seed: i32) -> Result<ThinOut>;
+        /// The circles of radius d (metres; degrees for planar) around each point: geosphere (destPoint's 73
+        /// vertices, the poles and the antimeridian handled), terra (terra's point buffer, 40 vertices) or
+        /// planar (GEOS's buffer of a point).
+        fn sdm_circles(lon: &[f64], lat: &[f64], d: f64, kind: &str) -> Result<CirclesOut>;
+        /// CoordinateCleaner's outlier statistic of each record: the mean (or least) haversine distance in km to
+        /// the records of its species at other places.
+        fn sdm_outlier_statistic(lon: &[f64], lat: &[f64], use_min: bool) -> Result<Vec<f64>>;
+        /// The same on the cells of a grid with their counts of records (cc_outl's raster variant).
+        fn sdm_outlier_statistic_weighted(
+            lon: &[f64],
+            lat: &[f64],
+            count: &[f64],
+            within: f64,
+            use_min: bool,
+        ) -> Result<Vec<f64>>;
         /// Geodesic distances on WGS84 (GeographicLib's inverse, as the R package raster computes them).
         fn cost_geodesic(lon1: &[f64], lat1: &[f64], lon2: &[f64], lat2: &[f64]) -> Result<Vec<f64>>;
 

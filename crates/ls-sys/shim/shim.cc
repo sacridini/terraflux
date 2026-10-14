@@ -78,6 +78,8 @@
 #include "sdm/maxnet.hpp"
 #include "sdm/rstats.hpp"
 #include "sdm/thin.hpp"
+#include "sdm/clean.hpp"
+#include "sdm/geocircle/geocircle.hpp"
 #include "sdm/kmeans.hpp"
 #include "sdm/collinear.hpp"
 #include "sdm/variogram.hpp"
@@ -244,6 +246,41 @@ ThinOut sdm_thin_spthin(rust::Slice<const double> lon, rust::Slice<const double>
     out.keep = to_rust<std::uint8_t>(r.keep);
     out.kept = to_rust<std::int64_t>(r.kept);
     return out;
+}
+
+CirclesOut sdm_circles(rust::Slice<const double> lon, rust::Slice<const double> lat, double d, rust::Str kind) {
+    check(lon.size() == lat.size(), "lon and lat differ in length");
+    const std::string k(kind);
+    check(k == "geosphere" || k == "terra" || k == "planar", "kind must be geosphere, terra or planar");
+    CirclesOut out;
+    for (std::size_t i = 0; i < lon.size(); ++i) {
+        sdm::GeoParts p;
+        if (k == "geosphere") {
+            p = sdm::geod_polys_fixed(lon[i], lat[i], d);
+        } else if (k == "terra") {
+            p = sdm::terra_point_buffer(lon[i], lat[i], d);
+        } else {
+            p = {sdm::geos_circle(lon[i], lat[i], d)};
+        }
+        out.parts.push_back(static_cast<std::int64_t>(p.size()));
+        for (const sdm::GeoRing& r : p) {
+            out.vertices.push_back(static_cast<std::int64_t>(r.size() / 2));
+            for (const double v : r) out.xy.push_back(v);
+        }
+    }
+    return out;
+}
+
+rust::Vec<double> sdm_outlier_statistic(rust::Slice<const double> lon, rust::Slice<const double> lat, bool use_min) {
+    check(lon.size() == lat.size(), "lon and lat differ in length");
+    return to_rust<double>(sdm::outlier_statistic(lon.data(), lat.data(), static_cast<std::int64_t>(lon.size()), use_min));
+}
+
+rust::Vec<double> sdm_outlier_statistic_weighted(rust::Slice<const double> lon, rust::Slice<const double> lat,
+                                                 rust::Slice<const double> count, double within, bool use_min) {
+    check(lon.size() == lat.size() && lon.size() == count.size(), "lengths differ");
+    return to_rust<double>(sdm::outlier_statistic_weighted(lon.data(), lat.data(), count.data(),
+                                                           static_cast<std::int64_t>(lon.size()), within, use_min));
 }
 
 rust::Vec<double> cost_geodesic(rust::Slice<const double> lon1, rust::Slice<const double> lat1,

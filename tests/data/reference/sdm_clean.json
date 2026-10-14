@@ -1,0 +1,469 @@
+{
+ "synthetic": {
+  "records": "synthetic",
+  "settings": {
+   "urban": true,
+   "countries": "iso3",
+   "duplicates": true,
+   "aohi": true
+  },
+  "counts": [
+   "invalid",
+   "equal",
+   "zeros",
+   "capitals",
+   "centroids",
+   "seas",
+   "urban",
+   "countries",
+   "outliers",
+   "gbif",
+   "institutions",
+   "duplicates",
+   "aohi",
+   "total"
+  ]
+ },
+ "synthetic_mad": {
+  "records": "synthetic",
+  "settings": {
+   "equal": false,
+   "zeros": false,
+   "capitals": false,
+   "centroids": false,
+   "seas": false,
+   "urban": false,
+   "countries": false,
+   "outliers": {
+    "method": "mad"
+   },
+   "gbif": false,
+   "institutions": false,
+   "duplicates": false,
+   "aohi": false
+  },
+  "counts": [
+   "invalid",
+   "outliers",
+   "total"
+  ]
+ },
+ "synthetic_distance": {
+  "records": "synthetic",
+  "settings": {
+   "equal": false,
+   "zeros": false,
+   "capitals": false,
+   "centroids": false,
+   "seas": false,
+   "urban": false,
+   "countries": false,
+   "outliers": {
+    "method": "distance",
+    "tdi": 500
+   },
+   "gbif": false,
+   "institutions": false,
+   "duplicates": false,
+   "aohi": false
+  },
+  "counts": [
+   "invalid",
+   "outliers",
+   "total"
+  ]
+ },
+ "synthetic_thin": {
+  "records": "synthetic",
+  "settings": {
+   "equal": false,
+   "zeros": false,
+   "capitals": false,
+   "centroids": false,
+   "seas": false,
+   "urban": false,
+   "countries": false,
+   "outliers": {
+    "thinning": true
+   },
+   "gbif": false,
+   "institutions": false,
+   "duplicates": false,
+   "aohi": false
+  },
+  "counts": [
+   "invalid",
+   "outliers",
+   "total"
+  ]
+ },
+ "synthetic_verify": {
+  "records": "synthetic",
+  "settings": {
+   "equal": false,
+   "zeros": false,
+   "capitals": {
+    "verify": true
+   },
+   "centroids": {
+    "verify": true
+   },
+   "seas": false,
+   "urban": false,
+   "countries": false,
+   "outliers": false,
+   "gbif": {
+    "verify": true,
+    "buffer": 5000
+   },
+   "institutions": {
+    "verify": true,
+    "buffer": 200
+   },
+   "duplicates": false,
+   "aohi": false
+  },
+  "counts": [
+   "invalid",
+   "capitals",
+   "centroids",
+   "gbif",
+   "institutions",
+   "total"
+  ]
+ },
+ "synthetic_options": {
+  "records": "synthetic",
+  "settings": {
+   "equal": false,
+   "zeros": 1,
+   "capitals": {
+    "buffer": 60000,
+    "geod": false
+   },
+   "centroids": {
+    "detail": "provinces",
+    "buffer": 2000
+   },
+   "seas": false,
+   "urban": false,
+   "countries": false,
+   "outliers": false,
+   "gbif": false,
+   "institutions": {
+    "geod": true,
+    "buffer": 300
+   },
+   "duplicates": {
+    "additions": [
+     "iso3"
+    ]
+   },
+   "aohi": {
+    "taxa": [
+     "Aves"
+    ],
+    "buffer": 50000
+   }
+  },
+  "counts": [
+   "invalid",
+   "zeros",
+   "capitals",
+   "centroids",
+   "institutions",
+   "duplicates",
+   "aohi",
+   "total"
+  ]
+ },
+ "acaule": {
+  "records": "acaule",
+  "settings": {
+   "countries": "ISO2",
+   "duplicates": {
+    "additions": [
+     "institution"
+    ]
+   }
+  },
+  "counts": [
+   "invalid",
+   "equal",
+   "zeros",
+   "capitals",
+   "centroids",
+   "seas",
+   "countries",
+   "outliers",
+   "gbif",
+   "institutions",
+   "duplicates",
+   "total"
+  ]
+ },
+ "acaule_country": {
+  "records": "acaule",
+  "settings": {
+   "equal": false,
+   "zeros": false,
+   "capitals": false,
+   "centroids": {
+    "detail": "country"
+   },
+   "seas": false,
+   "urban": false,
+   "countries": false,
+   "outliers": {
+    "method": "mad",
+    "mltpl": 3
+   },
+   "gbif": false,
+   "institutions": false,
+   "duplicates": false,
+   "aohi": false
+  },
+  "counts": [
+   "invalid",
+   "centroids",
+   "outliers",
+   "total"
+  ]
+ },
+ "edges_cap": {
+  "records": "edges",
+  "settings": {
+   "equal": false,
+   "zeros": false,
+   "capitals": 10000,
+   "centroids": false,
+   "seas": false,
+   "urban": false,
+   "countries": false,
+   "outliers": false,
+   "gbif": false,
+   "institutions": false,
+   "duplicates": false,
+   "aohi": false
+  },
+  "counts": [
+   "invalid",
+   "capitals",
+   "total"
+  ]
+ },
+ "edges_cap_terra": {
+  "records": "edges",
+  "settings": {
+   "equal": false,
+   "zeros": false,
+   "capitals": {
+    "geod": false
+   },
+   "centroids": false,
+   "seas": false,
+   "urban": false,
+   "countries": false,
+   "outliers": false,
+   "gbif": false,
+   "institutions": false,
+   "duplicates": false,
+   "aohi": false
+  },
+  "counts": [
+   "invalid",
+   "capitals",
+   "total"
+  ]
+ },
+ "edges_dateline": {
+  "records": "edges",
+  "settings": {
+   "equal": false,
+   "zeros": false,
+   "capitals": true,
+   "centroids": false,
+   "seas": false,
+   "urban": false,
+   "countries": false,
+   "outliers": false,
+   "gbif": false,
+   "institutions": false,
+   "duplicates": false,
+   "aohi": false,
+   "_capitals_ref": "dateline"
+  },
+  "counts": [
+   "invalid",
+   "capitals",
+   "total"
+  ]
+ },
+ "edges_dateline_terra": {
+  "records": "edges",
+  "settings": {
+   "equal": false,
+   "zeros": false,
+   "capitals": {
+    "geod": false
+   },
+   "centroids": false,
+   "seas": false,
+   "urban": false,
+   "countries": false,
+   "outliers": false,
+   "gbif": false,
+   "institutions": false,
+   "duplicates": false,
+   "aohi": false,
+   "_capitals_ref": "dateline"
+  },
+  "counts": [
+   "invalid",
+   "capitals",
+   "total"
+  ]
+ },
+ "edges_pole": {
+  "records": "edges",
+  "settings": {
+   "equal": false,
+   "zeros": false,
+   "capitals": false,
+   "centroids": {
+    "detail": "country"
+   },
+   "seas": false,
+   "urban": false,
+   "countries": false,
+   "outliers": false,
+   "gbif": false,
+   "institutions": false,
+   "duplicates": false,
+   "aohi": false
+  },
+  "counts": [
+   "invalid",
+   "centroids",
+   "total"
+  ]
+ },
+ "edges_pole_big": {
+  "records": "edges",
+  "settings": {
+   "equal": false,
+   "zeros": false,
+   "capitals": false,
+   "centroids": {
+    "detail": "country",
+    "buffer": 60000
+   },
+   "seas": false,
+   "urban": false,
+   "countries": false,
+   "outliers": false,
+   "gbif": false,
+   "institutions": false,
+   "duplicates": false,
+   "aohi": false
+  },
+  "counts": [
+   "invalid",
+   "centroids",
+   "total"
+  ]
+ },
+ "edges_zeros": {
+  "records": "edges",
+  "settings": {
+   "equal": false,
+   "zeros": 0,
+   "capitals": false,
+   "centroids": false,
+   "seas": false,
+   "urban": false,
+   "countries": false,
+   "outliers": false,
+   "gbif": false,
+   "institutions": false,
+   "duplicates": false,
+   "aohi": false
+  },
+  "counts": [
+   "invalid",
+   "zeros",
+   "total"
+  ]
+ },
+ "large": {
+  "records": "large",
+  "settings": {
+   "equal": false,
+   "zeros": false,
+   "capitals": false,
+   "centroids": false,
+   "seas": false,
+   "urban": false,
+   "countries": false,
+   "outliers": true,
+   "gbif": false,
+   "institutions": false,
+   "duplicates": false,
+   "aohi": false
+  },
+  "counts": [
+   "invalid",
+   "outliers",
+   "total"
+  ]
+ },
+ "large_mad": {
+  "records": "large",
+  "settings": {
+   "equal": false,
+   "zeros": false,
+   "capitals": false,
+   "centroids": false,
+   "seas": false,
+   "urban": false,
+   "countries": false,
+   "outliers": {
+    "method": "mad"
+   },
+   "gbif": false,
+   "institutions": false,
+   "duplicates": false,
+   "aohi": false
+  },
+  "counts": [
+   "invalid",
+   "outliers",
+   "total"
+  ]
+ },
+ "large_distance": {
+  "records": "large",
+  "settings": {
+   "equal": false,
+   "zeros": false,
+   "capitals": false,
+   "centroids": false,
+   "seas": false,
+   "urban": false,
+   "countries": false,
+   "outliers": {
+    "method": "distance",
+    "tdi": 1500
+   },
+   "gbif": false,
+   "institutions": false,
+   "duplicates": false,
+   "aohi": false
+  },
+  "counts": [
+   "invalid",
+   "outliers",
+   "total"
+  ]
+ }
+}

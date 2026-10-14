@@ -20,6 +20,7 @@ struct CluesOut;
 struct NlmMosaicOut;
 struct MaxnetFit;
 struct ThinOut;
+struct CirclesOut;
 struct ConnAnalysis;
 struct ConnGains;
 struct ConnRasterNodes;
@@ -125,6 +126,10 @@ rust::Vec<double> sdm_fit_variogram(rust::Str model, double kappa, rust::Slice<c
                                     double psill, double range);
 ThinOut sdm_thin_spthin(rust::Slice<const double> lon, rust::Slice<const double> lat, double max_km, std::int32_t reps,
                         std::int32_t seed);
+CirclesOut sdm_circles(rust::Slice<const double> lon, rust::Slice<const double> lat, double d, rust::Str kind);
+rust::Vec<double> sdm_outlier_statistic(rust::Slice<const double> lon, rust::Slice<const double> lat, bool use_min);
+rust::Vec<double> sdm_outlier_statistic_weighted(rust::Slice<const double> lon, rust::Slice<const double> lat,
+                                                 rust::Slice<const double> count, double within, bool use_min);
 rust::Vec<double> cost_geodesic(rust::Slice<const double> lon1, rust::Slice<const double> lat1,
                                 rust::Slice<const double> lon2, rust::Slice<const double> lat2);
 

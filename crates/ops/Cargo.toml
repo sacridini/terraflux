@@ -23,7 +23,9 @@ h3o = { version = "0.11", features = ["geo"] }
 geo = { version = "0.33", default-features = false }
 regex = "1"
 flate2.workspace = true
+robust = "1.2"
+rstar = "0.12"
+sha2 = "0.11"
 
 [dev-dependencies]
 hex = "0.4"
-sha2 = "0.11"

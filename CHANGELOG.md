@@ -6,6 +6,19 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- The cleaning of occurrence records (landschaft's clean_occurrences, CoordinateCleaner's tests):
+  `sdm.clean_occurrences` flags or drops records with invalid coordinates, equal longitude and latitude, at 0/0,
+  at capitals, country and province centroids, GBIF's headquarters, biodiversity institutions or artificial
+  hotspots (the circles of CoordinateCleaner from landschaft's C++, geosphere's or terra's), in the sea, in towns,
+  outside the country they claim, far from the other records of their species (quantile, MAD or distance; the
+  raster variant of large species) or duplicated; each test off, on, with its main option or with an object of
+  options, with the `verify` of the capitals, centroids, GBIF and institutions. `sdm.reference_data` gives the
+  reference data as features. CoordinateCleaner's tables travel inside Terraflux (tools/make_sdm_refdata.py);
+  Natural Earth's land, urban areas and countries are downloaded on first use into the cache (pinned by their
+  SHA-256), or connected as polygons of one's own. The same flags as landschaft's, record by record.
+- Occurrence records as features without geometries (a CSV read by GDAL): their coordinates from the columns.
+
 ## [0.56.0] - 2026-10-13
 
 ### Added
