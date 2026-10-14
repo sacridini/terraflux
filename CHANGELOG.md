@@ -6,6 +6,18 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.73.0] - 2026-10-14
+
+### Added
+- scikit-learn's models in `sdm.fit` (landschaft's fit with them): `model = "glm"` (StandardScaler and
+  LogisticRegression, the L2 penalty's `C`; the optimum scikit-learn converges to, within its tolerance) and
+  `model = "random_forest"` (RandomForestClassifier: the trees grown as its Cython grows them, from numpy's legacy
+  MT19937 seeds and bootstraps, its rand_r, introsort and Gini; `n_estimators`, `max_depth`, `min_samples_split`,
+  `min_samples_leaf`, `max_features`, `bootstrap`, `random_state`), the same trees and probabilities to the bit. The
+  records weighted as landschaft's dataset weighs them (`weights`: balanced by default, equal, or a weight column),
+  the forest's bootstraps drawn with the weights as scikit-learn draws them. The fitted model (`SdmModel`) is MaxNet,
+  a GLM or a forest; `sdm.maxnet_predict`, `sdm.response_curves` and `sdm.importance` take any of them.
+
 ## [0.72.0] - 2026-10-14
 
 ### Changed
