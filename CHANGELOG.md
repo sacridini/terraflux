@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.68.0] - 2026-10-14
+
 ### Added
 - Zonation 5's projects (landschaft's read_project and run_project): `prioritize.zonation_project` reads a
   settings file (`.z5`), its feature list (weights, groups, thresholds, ABF's z, zero modes, value extraction as
