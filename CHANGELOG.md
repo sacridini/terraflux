@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.66.0] - 2026-10-14
+
 ### Added
 - FUTURES' inputs (landschaft's simulate): `futures.devpressure` (r.futures.devpressure: the development pressure
   by occurrence, gravity or kernel, its r.mfilter by landschaft's C++, padded or not) and `futures.patch_library`
