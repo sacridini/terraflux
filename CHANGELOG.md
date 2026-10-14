@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.64.0] - 2026-10-14
+
 ### Added
 - diffeR's comparisons at coarser resolutions (landschaft's simulate): `change.memberships` (the share of each
   class in blocks of cells), `change.composite` (the composite cross-tabulation of Pontius & Cheuk),
