@@ -7,6 +7,7 @@ pub mod clean;
 pub mod evaluate;
 pub mod extrapolation;
 pub mod folds;
+pub mod gbif;
 pub mod maxnet;
 pub mod points;
 pub mod predictors;
@@ -50,6 +51,7 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(ReferenceData));
     r.add(Arc::new(AccessibleArea));
     r.add(Arc::new(prepare::Prepare));
+    r.add(Arc::new(DownloadGbif));
 }
 
 fn bad(args: &Args, m: impl std::fmt::Display) -> Error {
@@ -1636,5 +1638,96 @@ impl Operator for AccessibleArea {
         let y: Option<String> = args.opt_param("y")?;
         let v = area::accessible_area(&occ, &s, x.as_deref(), y.as_deref()).map_err(|e| bad(args, e))?;
         Ok(outputs([("area", Value::Vector(Arc::new(v)))]))
+    }
+}
+
+struct DownloadGbif;
+
+/// A setting of one text or a list of them.
+fn texts_param(args: &Args, name: &str) -> Result<Vec<String>> {
+    Ok(match args.params.get(name) {
+        None | Some(serde_json::Value::Null) => Vec::new(),
+        Some(serde_json::Value::String(s)) => vec![s.clone()],
+        Some(_) => args.param(name, vec![])?,
+    })
+}
+
+impl Operator for DownloadGbif {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "sdm.download_gbif",
+            "Occurrence records of a species from GBIF (landschaft's download_gbif, the occurrence search API, no \
+             account needed): the records with coordinates, up to 100 000 per query (narrow it by country, area \
+             or years), as points with their Darwin Core terms and GBIF's issues. For larger queries, and the \
+             DOI to cite, request a download on gbif.org.",
+            Access::Global,
+        )
+        .input(PortSpec::optional("area", Type::Vector, "only the records in its bounding box"))
+        .output(PortSpec::new("occurrences", Type::Vector, "the records, points in lon/lat"))
+        .output(PortSpec::new("query", Type::Any, "the query, the taxon matched, the count and whether truncated"))
+        .param(PortSpec::new("species", Type::Any, "a scientific name (GBIF's backbone) or a taxon key"))
+        .param(PortSpec::optional("country", Type::Any, "ISO 3166-1 alpha-2 codes (BR), one or a list"))
+        .param(PortSpec::optional("year", Type::Any, "a year, or a range [1990, 2020] or \"1990,2020\""))
+        .param(PortSpec::optional(
+            "basis_of_record",
+            Type::Any,
+            "PRESERVED_SPECIMEN, HUMAN_OBSERVATION..., one or a list",
+        ))
+        .param(PortSpec::optional("max_uncertainty", Type::Number, "drop records less precise than this (metres)"))
+        .param(PortSpec::optional("limit", Type::Integer, "at most this many records (default all, 100 000)"))
+        .param(PortSpec::optional(
+            "has_geospatial_issue",
+            Type::Bool,
+            "keep the records GBIF flags with geospatial issues (default false)",
+        ))
+        .param(PortSpec::optional("workers", Type::Integer, "the pages asked at the same time (default 4)"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let species = match args.params.get("species") {
+            Some(serde_json::Value::String(s)) if !s.trim().is_empty() => gbif::Species::Name(s.trim().to_string()),
+            Some(serde_json::Value::Number(n)) if n.as_i64().is_some() => gbif::Species::Key(n.as_i64().unwrap()),
+            _ => return Err(bad(args, "set the species: a scientific name or a GBIF taxon key")),
+        };
+        let year = match args.params.get("year") {
+            None | Some(serde_json::Value::Null) => None,
+            Some(serde_json::Value::Array(a)) if a.len() == 2 => Some(format!("{},{}", a[0], a[1])),
+            Some(serde_json::Value::String(s)) => Some(s.clone()),
+            Some(serde_json::Value::Number(n)) => Some(n.to_string()),
+            Some(v) => return Err(bad(args, format!("year: a year or a range, not {v}"))),
+        };
+        let bbox = match args.get("area") {
+            Some(Value::Vector(v)) => {
+                let ll = match &v.crs {
+                    Some(c) if !terraflux_gdal::same_crs(c, "EPSG:4326").map_err(|e| bad(args, e))? => {
+                        terraflux_gdal::reproject_vector(v, "EPSG:4326").map_err(|e| bad(args, e))?
+                    }
+                    _ => (**v).clone(),
+                };
+                let mut b = [f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY];
+                for g in &ll.geometries {
+                    g.points(&mut |p| {
+                        b = [b[0].min(p[0]), b[1].min(p[1]), b[2].max(p[0]), b[3].max(p[1])];
+                    });
+                }
+                if !b[0].is_finite() {
+                    return Err(bad(args, "the area has no coordinates"));
+                }
+                Some(b)
+            }
+            _ => None,
+        };
+        let q = gbif::Query {
+            country: texts_param(args, "country")?,
+            bbox,
+            year,
+            basis_of_record: texts_param(args, "basis_of_record")?,
+            max_uncertainty: args.opt_param("max_uncertainty")?,
+            limit: args.opt_param("limit")?,
+            has_geospatial_issue: args.param("has_geospatial_issue", false)?,
+            workers: args.param("workers", 4)?,
+        };
+        let (v, info) = gbif::download(&species, &q, &gbif::http_get).map_err(|e| bad(args, e))?;
+        Ok(outputs([("occurrences", Value::Vector(Arc::new(v))), ("query", Value::Json(info))]))
     }
 }

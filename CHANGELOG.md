@@ -6,6 +6,13 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Occurrence records from GBIF (landschaft's download_gbif): `sdm.download_gbif`, GBIF's occurrence search API
+  through GDAL's HTTP (no account): a scientific name matched to GBIF's backbone (a synonym gives the accepted
+  name's records) or a taxon key, by country, the box of an area, years, basis of record; up to 100 000 records,
+  pages asked a few at a time; the records with coordinates as points with their Darwin Core terms and GBIF's
+  issues, those less precise than a distance left out; the query, the taxon matched and the count.
+
 ## [0.59.0] - 2026-10-14
 
 ### Added
