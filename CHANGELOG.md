@@ -6,6 +6,16 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.71.0] - 2026-10-14
+
+### Added
+- The calibration of FUTURES' patches (landschaft's calibrate_patches, r.futures.calib): `futures.calibrate`
+  takes futures.simulation's inputs and settings and the development observed at the end; the patches developed
+  in between give the patch library and the histograms of patch area and compactness, and every combination of
+  the compactness means, ranges and discount factors is simulated `repeat` times from the start and compared with
+  them (the histograms' chi-square distance, numpy's histograms and sums). The table of the combinations from the
+  best and the library, the same as landschaft's to the bit.
+
 ## [0.70.0] - 2026-10-14
 
 ### Added
