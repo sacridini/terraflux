@@ -46,6 +46,7 @@ struct Api {
     GDALGetRasterNoDataValue: unsafe extern "C" fn(H, *mut c_int) -> f64,
     GDALGetDescription: unsafe extern "C" fn(H) -> *const c_char,
     GDALGetOverviewCount: unsafe extern "C" fn(H) -> c_int,
+    GDALGetBlockSize: unsafe extern "C" fn(H, *mut c_int, *mut c_int),
     GDALGetDatasetDriver: unsafe extern "C" fn(H) -> H,
     GDALGetDriverShortName: unsafe extern "C" fn(H) -> *const c_char,
     GDALGetDriverCount: unsafe extern "C" fn() -> c_int,
@@ -313,6 +314,7 @@ impl Gdal {
             GDALGetRasterNoDataValue: f!(GDALGetRasterNoDataValue),
             GDALGetDescription: f!(GDALGetDescription),
             GDALGetOverviewCount: f!(GDALGetOverviewCount),
+            GDALGetBlockSize: f!(GDALGetBlockSize),
             GDALGetDatasetDriver: f!(GDALGetDatasetDriver),
             GDALGetDriverShortName: f!(GDALGetDriverShortName),
             GDALGetDriverCount: f!(GDALGetDriverCount),
@@ -518,6 +520,8 @@ pub struct Dataset {
     /// GDAL's driver (GTiff, netCDF, JP2OpenJPEG...) and the overviews of the first band.
     pub driver: String,
     pub overviews: usize,
+    /// The height of the bands' blocks (strips or tiles), the smallest of the bands'.
+    pub block_rows: usize,
 }
 
 impl Dataset {
@@ -535,10 +539,13 @@ impl Dataset {
         unsafe { (a.GDALGetGeoTransform)(h, transform.as_mut_ptr()) };
         let wkt = text(unsafe { (a.GDALGetProjectionRef)(h) });
         let mut bands = Vec::new();
-        let (mut dtype, mut nodata, mut overviews) = (DataType::F64, None, 0);
+        let (mut dtype, mut nodata, mut overviews, mut block_rows) = (DataType::F64, None, 0, usize::MAX);
         for b in 1..=n {
             let band = unsafe { (a.GDALGetRasterBand)(h, b) };
             let name = text(unsafe { (a.GDALGetDescription)(band) });
+            let (mut bw, mut bh): (c_int, c_int) = (0, 0);
+            unsafe { (a.GDALGetBlockSize)(band, &mut bw, &mut bh) };
+            block_rows = block_rows.min(bh.max(1) as usize);
             bands.push(Band { name: (!name.is_empty()).then_some(name), data: Vec::new() });
             if b == 1 {
                 dtype = data_type(unsafe { (a.GDALGetRasterDataType)(band) });
@@ -552,7 +559,7 @@ impl Dataset {
         let geo = GeoTags { wkt: (!wkt.is_empty()).then_some(wkt), ..Default::default() };
         let meta =
             Raster { grid: Grid { width: w as usize, height: ht as usize, transform, geo }, bands, dtype, nodata };
-        Ok(Dataset { path, handles: Mutex::new(vec![Handle(h)]), meta, driver, overviews })
+        Ok(Dataset { path, handles: Mutex::new(vec![Handle(h)]), meta, driver, overviews, block_rows })
     }
 
     /// The file.

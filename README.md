@@ -115,7 +115,8 @@ no console.
   the maps of a metric per patch
   or class.
 - **Spatial prioritization:** Zonation 5's ranking (`prioritize.zonation`), the same rank maps as the z5 binary,
-  with its conditions, retention, connectivity transforms, impact assessment and post-processing; Marxan 4's
+  with its conditions, retention, connectivity transforms, impact assessment and post-processing, and Zonation's
+  projects as z5 runs them (`prioritize.zonation_project`: the `.z5` file, its feature list and link files); Marxan 4's
   reserves (`prioritize.marxan`), the same runs as Marxan; ProxIRR's irreplaceability (`prioritize.proxirr`), R's
   proxirr's bits; prioritizr's integer programs (`prioritize.optimize`: min set, min shortfall, max utility, max
   features, phylogenetic diversity, the species-area extinction risk and more; boundary, connectivity and linear

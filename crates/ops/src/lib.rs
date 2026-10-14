@@ -71,6 +71,7 @@ pub mod view;
 pub mod woe;
 mod ziggurat;
 pub mod zonation;
+pub mod zonation_project;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -316,6 +317,7 @@ impl Registry {
         plus::register(&mut r);
         prepare::register(&mut r);
         prioritize::register(&mut r);
+        zonation_project::register(&mut r);
         h3::register(&mut r);
         actions::register(&mut r);
         restoration::register(&mut r);

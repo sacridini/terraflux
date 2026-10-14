@@ -119,6 +119,11 @@ impl Image {
         self.meta.grid.height
     }
 
+    /// The height of the image's chunks (its strips or tiles).
+    pub fn block_rows(&self) -> usize {
+        self.levels[0].1.chunk().1.max(1)
+    }
+
     /// The reductions of the overviews in the file (2, 4, 8...), none when it has none.
     pub fn overviews(&self) -> Vec<usize> {
         self.levels.iter().skip(1).map(|(f, _)| *f).collect()

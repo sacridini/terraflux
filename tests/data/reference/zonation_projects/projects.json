@@ -1,0 +1,1389 @@
+{
+ "caz1": {
+  "group": "core",
+  "flags": "",
+  "mode": "CAZ1",
+  "bits": 8,
+  "files": {
+   "features.txt": "filename\n\"sp0.tif\"\n\"sp1.tif\"\n\"sp2.tif\"\n\"sp3.tif\"\n\"sp4.tif\"\n\"sp5.tif\"\n\"sp6.tif\"\n\"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\n"
+  },
+  "rasters": [
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "caz2": {
+  "group": "core",
+  "flags": "",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "features.txt": "filename\n\"sp0.tif\"\n\"sp1.tif\"\n\"sp2.tif\"\n\"sp3.tif\"\n\"sp4.tif\"\n\"sp5.tif\"\n\"sp6.tif\"\n\"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\n"
+  },
+  "rasters": [
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "cazmax": {
+  "group": "core",
+  "flags": "",
+  "mode": "CAZMAX",
+  "bits": 8,
+  "files": {
+   "features.txt": "filename\n\"sp0.tif\"\n\"sp1.tif\"\n\"sp2.tif\"\n\"sp3.tif\"\n\"sp4.tif\"\n\"sp5.tif\"\n\"sp6.tif\"\n\"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\n"
+  },
+  "rasters": [
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "abf_025": {
+  "group": "core",
+  "flags": "",
+  "mode": "ABF 0.25",
+  "bits": 8,
+  "files": {
+   "features.txt": "filename\n\"sp0.tif\"\n\"sp1.tif\"\n\"sp2.tif\"\n\"sp3.tif\"\n\"sp4.tif\"\n\"sp5.tif\"\n\"sp6.tif\"\n\"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\n"
+  },
+  "rasters": [
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "abf_06": {
+  "group": "core",
+  "flags": "",
+  "mode": "ABF 0.6",
+  "bits": 8,
+  "files": {
+   "features.txt": "filename\n\"sp0.tif\"\n\"sp1.tif\"\n\"sp2.tif\"\n\"sp3.tif\"\n\"sp4.tif\"\n\"sp5.tif\"\n\"sp6.tif\"\n\"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\n"
+  },
+  "rasters": [
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "cazp_2": {
+  "group": "core",
+  "flags": "",
+  "mode": "CAZP 2",
+  "bits": 8,
+  "files": {
+   "features.txt": "filename\n\"sp0.tif\"\n\"sp1.tif\"\n\"sp2.tif\"\n\"sp3.tif\"\n\"sp4.tif\"\n\"sp5.tif\"\n\"sp6.tif\"\n\"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\n"
+  },
+  "rasters": [
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "cazp_05": {
+  "group": "core",
+  "flags": "",
+  "mode": "CAZP 0.5",
+  "bits": 8,
+  "files": {
+   "features.txt": "filename\n\"sp0.tif\"\n\"sp1.tif\"\n\"sp2.tif\"\n\"sp3.tif\"\n\"sp4.tif\"\n\"sp5.tif\"\n\"sp6.tif\"\n\"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\n"
+  },
+  "rasters": [
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "cazpw_3": {
+  "group": "core",
+  "flags": "",
+  "mode": "CAZPW 3",
+  "bits": 8,
+  "files": {
+   "features.txt": "filename\n\"sp0.tif\"\n\"sp1.tif\"\n\"sp2.tif\"\n\"sp3.tif\"\n\"sp4.tif\"\n\"sp5.tif\"\n\"sp6.tif\"\n\"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\n"
+  },
+  "rasters": [
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "caz2_16bit": {
+  "group": "core",
+  "flags": "",
+  "mode": "CAZ2",
+  "bits": 16,
+  "files": {
+   "features.txt": "filename\n\"sp0.tif\"\n\"sp1.tif\"\n\"sp2.tif\"\n\"sp3.tif\"\n\"sp4.tif\"\n\"sp5.tif\"\n\"sp6.tif\"\n\"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\n"
+  },
+  "rasters": [
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "abf_16bit": {
+  "group": "core",
+  "flags": "",
+  "mode": "ABF 0.25",
+  "bits": 16,
+  "files": {
+   "features.txt": "filename\n\"sp0.tif\"\n\"sp1.tif\"\n\"sp2.tif\"\n\"sp3.tif\"\n\"sp4.tif\"\n\"sp5.tif\"\n\"sp6.tif\"\n\"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\n"
+  },
+  "rasters": [
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "caz2_weights": {
+  "group": "core",
+  "flags": "-w",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "features.txt": "weight filename\n2.0 \"sp0.tif\"\n1.0 \"sp1.tif\"\n1.0 \"sp2.tif\"\n3.0 \"sp3.tif\"\n0.5 \"sp4.tif\"\n1.0 \"sp5.tif\"\n1.5 \"sp6.tif\"\n1.0 \"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\n"
+  },
+  "rasters": [
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "caz1_negweights": {
+  "group": "core",
+  "flags": "-w",
+  "mode": "CAZ1",
+  "bits": 8,
+  "files": {
+   "features.txt": "weight filename\n2.0 \"sp0.tif\"\n1.0 \"sp1.tif\"\n-1.0 \"sp2.tif\"\n3.0 \"sp3.tif\"\n0.0 \"sp4.tif\"\n1.0 \"sp5.tif\"\n-0.5 \"sp6.tif\"\n1.0 \"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\n"
+  },
+  "rasters": [
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "caz2_negweights": {
+  "group": "core",
+  "flags": "-w",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "features.txt": "weight filename\n2.0 \"sp0.tif\"\n1.0 \"sp1.tif\"\n-1.0 \"sp2.tif\"\n3.0 \"sp3.tif\"\n0.0 \"sp4.tif\"\n1.0 \"sp5.tif\"\n-0.5 \"sp6.tif\"\n1.0 \"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\n"
+  },
+  "rasters": [
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "cazmax_negweights": {
+  "group": "core",
+  "flags": "-w",
+  "mode": "CAZMAX",
+  "bits": 8,
+  "files": {
+   "features.txt": "weight filename\n2.0 \"sp0.tif\"\n1.0 \"sp1.tif\"\n-1.0 \"sp2.tif\"\n3.0 \"sp3.tif\"\n0.0 \"sp4.tif\"\n1.0 \"sp5.tif\"\n-0.5 \"sp6.tif\"\n1.0 \"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\n"
+  },
+  "rasters": [
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "abf_025_negweights": {
+  "group": "core",
+  "flags": "-w",
+  "mode": "ABF 0.25",
+  "bits": 8,
+  "files": {
+   "features.txt": "weight filename\n2.0 \"sp0.tif\"\n1.0 \"sp1.tif\"\n-1.0 \"sp2.tif\"\n3.0 \"sp3.tif\"\n0.0 \"sp4.tif\"\n1.0 \"sp5.tif\"\n-0.5 \"sp6.tif\"\n1.0 \"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\n"
+  },
+  "rasters": [
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "cazpw_2_negweights": {
+  "group": "core",
+  "flags": "-w",
+  "mode": "CAZPW 2",
+  "bits": 8,
+  "files": {
+   "features.txt": "weight filename\n2.0 \"sp0.tif\"\n1.0 \"sp1.tif\"\n-1.0 \"sp2.tif\"\n3.0 \"sp3.tif\"\n0.0 \"sp4.tif\"\n1.0 \"sp5.tif\"\n-0.5 \"sp6.tif\"\n1.0 \"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\n"
+  },
+  "rasters": [
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "caz2_weightgroups": {
+  "group": "core",
+  "flags": "-W",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "features.txt": "weight wgrp filename\n2.0 1 \"sp0.tif\"\n1.0 1 \"sp1.tif\"\n1.0 2 \"sp2.tif\"\n3.0 2 \"sp3.tif\"\n0.5 2 \"sp4.tif\"\n1.0 3 \"sp5.tif\"\n1.5 -1 \"sp6.tif\"\n1.0 3 \"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\nweight groups file = wgroups.txt\n",
+   "wgroups.txt": "1 4.0\n2 1.0\n3 2.5\n"
+  },
+  "rasters": [
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "caz2_groups": {
+  "group": "core",
+  "flags": "-w -g",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "features.txt": "weight group filename\n2.0 1 \"sp0.tif\"\n1.0 1 \"sp1.tif\"\n1.0 2 \"sp2.tif\"\n3.0 2 \"sp3.tif\"\n0.5 2 \"sp4.tif\"\n1.0 3 \"sp5.tif\"\n1.5 3 \"sp6.tif\"\n1.0 3 \"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\n"
+  },
+  "rasters": [
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "caz2_threshold": {
+  "group": "core",
+  "flags": "-t",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "features.txt": "threshold filename\n0.0 \"sp0.tif\"\n0.2 \"sp1.tif\"\n0.0 \"sp2.tif\"\n0.5 \"sp3.tif\"\n0.1 \"sp4.tif\"\n0.0 \"sp5.tif\"\n0.3 \"sp6.tif\"\n0.0 \"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\n"
+  },
+  "rasters": [
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "abf_layer_z": {
+  "group": "core",
+  "flags": "",
+  "mode": "ABF 0.35",
+  "bits": 8,
+  "files": {
+   "features.txt": "abfz filename\n0.25 \"sp0.tif\"\n0.5 \"sp1.tif\"\n0.35 \"sp2.tif\"\n0.1 \"sp3.tif\"\n0.25 \"sp4.tif\"\n0.8 \"sp5.tif\"\n0.15 \"sp6.tif\"\n0.3 \"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\n"
+  },
+  "rasters": [
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "caz2_zero_none": {
+  "group": "core",
+  "flags": "",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "features.txt": "filename\n\"sp0.tif\"\n\"sp1.tif\"\n\"sp2.tif\"\n\"sp3.tif\"\n\"sp4.tif\"\n\"sp5.tif\"\n\"sp6.tif\"\n\"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\nzero mode = none\n"
+  },
+  "rasters": [
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "caz2_zero_dynamic": {
+  "group": "core",
+  "flags": "",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "features.txt": "keep_zeros filename\n1 \"sp0.tif\"\n0 \"sp1.tif\"\n0 \"sp2.tif\"\n1 \"sp3.tif\"\n0 \"sp4.tif\"\n0 \"sp5.tif\"\n1 \"sp6.tif\"\n0 \"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\nzero mode = dynamic\n"
+  },
+  "rasters": [
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "caz2_mixed": {
+  "group": "core",
+  "flags": "",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "features.txt": "filename\n\"sp0.tif\"\n\"pa0.tif\"\n\"count.tif\"\n\"holes.tif\"\n\"sp3.tif\"\n\"pa1.tif\"\n",
+   "settings.z5": "feature list file = features.txt\n"
+  },
+  "rasters": [
+   "count.tif",
+   "holes.tif",
+   "pa0.tif",
+   "pa1.tif",
+   "sp0.tif",
+   "sp3.tif"
+  ]
+ },
+ "abf_mixed": {
+  "group": "core",
+  "flags": "",
+  "mode": "ABF 0.25",
+  "bits": 8,
+  "files": {
+   "features.txt": "filename\n\"sp0.tif\"\n\"pa0.tif\"\n\"count.tif\"\n\"holes.tif\"\n\"sp3.tif\"\n\"pa1.tif\"\n",
+   "settings.z5": "feature list file = features.txt\n"
+  },
+  "rasters": [
+   "count.tif",
+   "holes.tif",
+   "pa0.tif",
+   "pa1.tif",
+   "sp0.tif",
+   "sp3.tif"
+  ]
+ },
+ "caz1_presence": {
+  "group": "core",
+  "flags": "",
+  "mode": "CAZ1",
+  "bits": 8,
+  "files": {
+   "features.txt": "filename\n\"pa0.tif\"\n\"pa1.tif\"\n",
+   "settings.z5": "feature list file = features.txt\n"
+  },
+  "rasters": [
+   "pa0.tif",
+   "pa1.tif"
+  ]
+ },
+ "caz2_extract": {
+  "group": "core",
+  "flags": "",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "features.txt": "filename\n\"landcover.tif/1\"\n\"landcover.tif/2\"\n\"landcover.tif/4\"\n\"sp1.tif\"\n",
+   "settings.z5": "feature list file = features.txt\n"
+  },
+  "rasters": [
+   "landcover.tif",
+   "sp1.tif"
+  ]
+ },
+ "caz2_cost_tracked": {
+  "group": "core",
+  "flags": "-x",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "features.txt": "filename\n\"sp0.tif\"\n\"sp1.tif\"\n\"sp2.tif\"\n\"sp3.tif\"\n\"sp4.tif\"\n\"sp5.tif\"\n\"sp6.tif\"\n\"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\ncost layer = cost.tif\n"
+  },
+  "rasters": [
+   "cost.tif",
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "caz2_cost": {
+  "group": "core",
+  "flags": "-X",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "features.txt": "filename\n\"sp0.tif\"\n\"sp1.tif\"\n\"sp2.tif\"\n\"sp3.tif\"\n\"sp4.tif\"\n\"sp5.tif\"\n\"sp6.tif\"\n\"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\ncost layer = cost.tif\n"
+  },
+  "rasters": [
+   "cost.tif",
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "abf_cost_negweights": {
+  "group": "core",
+  "flags": "-w -X",
+  "mode": "ABF 0.25",
+  "bits": 8,
+  "files": {
+   "features.txt": "weight filename\n2.0 \"sp0.tif\"\n1.0 \"sp1.tif\"\n-1.0 \"sp2.tif\"\n3.0 \"sp3.tif\"\n0.0 \"sp4.tif\"\n1.0 \"sp5.tif\"\n-0.5 \"sp6.tif\"\n1.0 \"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\ncost layer = cost.tif\n"
+  },
+  "rasters": [
+   "cost.tif",
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "caz2_hmask": {
+  "group": "core",
+  "flags": "-h",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "features.txt": "filename\n\"sp0.tif\"\n\"sp1.tif\"\n\"sp2.tif\"\n\"sp3.tif\"\n\"sp4.tif\"\n\"sp5.tif\"\n\"sp6.tif\"\n\"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\nhierarchic mask layer = hmask.tif\n"
+  },
+  "rasters": [
+   "hmask.tif",
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "caz2_hmask_cost": {
+  "group": "core",
+  "flags": "-w -h -X",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "features.txt": "weight filename\n2.0 \"sp0.tif\"\n1.0 \"sp1.tif\"\n1.0 \"sp2.tif\"\n3.0 \"sp3.tif\"\n0.5 \"sp4.tif\"\n1.0 \"sp5.tif\"\n1.5 \"sp6.tif\"\n1.0 \"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\nhierarchic mask layer = hmask.tif\ncost layer = cost.tif\n"
+  },
+  "rasters": [
+   "cost.tif",
+   "hmask.tif",
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "caz2_area_all": {
+  "group": "core",
+  "flags": "-a",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "features.txt": "filename\n\"sp0.tif\"\n\"sp1.tif\"\n\"sp2.tif\"\n\"sp3.tif\"\n\"sp4.tif\"\n\"sp5.tif\"\n\"sp6.tif\"\n\"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\nanalysis area mask layer = areas.tif\n"
+  },
+  "rasters": [
+   "areas.tif",
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "caz2_area_2": {
+  "group": "core",
+  "flags": "-a --area=2",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "features.txt": "filename\n\"sp0.tif\"\n\"sp1.tif\"\n\"sp2.tif\"\n\"sp3.tif\"\n\"sp4.tif\"\n\"sp5.tif\"\n\"sp6.tif\"\n\"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\nanalysis area mask layer = areas.tif\n"
+  },
+  "rasters": [
+   "areas.tif",
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "caz2_smoothing": {
+  "group": "core",
+  "flags": "",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "features.txt": "filename\n\"sp0.tif\"\n\"sp1.tif\"\n\"sp2.tif\"\n\"sp3.tif\"\n\"sp4.tif\"\n\"sp5.tif\"\n\"sp6.tif\"\n\"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\nsmoothing factor = 0.5\n"
+  },
+  "rasters": [
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "caz2_maxiter": {
+  "group": "core",
+  "flags": "",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "features.txt": "filename\n\"sp0.tif\"\n\"sp1.tif\"\n\"sp2.tif\"\n\"sp3.tif\"\n\"sp4.tif\"\n\"sp5.tif\"\n\"sp6.tif\"\n\"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\nmax iterations = 3\n"
+  },
+  "rasters": [
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "caz2_error": {
+  "group": "core",
+  "flags": "",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "features.txt": "filename\n\"sp0.tif\"\n\"sp1.tif\"\n\"sp2.tif\"\n\"sp3.tif\"\n\"sp4.tif\"\n\"sp5.tif\"\n\"sp6.tif\"\n\"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\nmean ranking error threshold = 0.2\nstop on plateau = 1\n"
+  },
+  "rasters": [
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "caz2_curves": {
+  "group": "core",
+  "flags": "",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "features.txt": "filename\n\"sp0.tif\"\n\"sp1.tif\"\n\"sp2.tif\"\n\"sp3.tif\"\n\"sp4.tif\"\n\"sp5.tif\"\n\"sp6.tif\"\n\"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\ncurves output interval = 0.01\n"
+  },
+  "rasters": [
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "load": {
+  "group": "core",
+  "flags": "",
+  "mode": "LOAD",
+  "bits": 8,
+  "files": {
+   "features.txt": "filename\n\"sp0.tif\"\n\"sp1.tif\"\n\"sp2.tif\"\n\"sp3.tif\"\n\"sp4.tif\"\n\"sp5.tif\"\n\"sp6.tif\"\n\"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\nexternal solution = sp7.tif\n"
+  },
+  "rasters": [
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "big_caz2": {
+  "group": "core",
+  "flags": "",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "features.txt": "filename\n\"big0.tif\"\n\"big1.tif\"\n\"big2.tif\"\n\"big3.tif\"\n\"big4.tif\"\n\"big5.tif\"\n\"big6.tif\"\n\"big7.tif\"\n\"big8.tif\"\n\"big9.tif\"\n\"big10.tif\"\n\"big11.tif\"\n",
+   "settings.z5": "feature list file = features.txt\n"
+  },
+  "rasters": [
+   "big0.tif",
+   "big1.tif",
+   "big10.tif",
+   "big11.tif",
+   "big2.tif",
+   "big3.tif",
+   "big4.tif",
+   "big5.tif",
+   "big6.tif",
+   "big7.tif",
+   "big8.tif",
+   "big9.tif"
+  ]
+ },
+ "big_abf": {
+  "group": "core",
+  "flags": "",
+  "mode": "ABF 0.25",
+  "bits": 8,
+  "files": {
+   "features.txt": "filename\n\"big0.tif\"\n\"big1.tif\"\n\"big2.tif\"\n\"big3.tif\"\n\"big4.tif\"\n\"big5.tif\"\n\"big6.tif\"\n\"big7.tif\"\n\"big8.tif\"\n\"big9.tif\"\n\"big10.tif\"\n\"big11.tif\"\n",
+   "settings.z5": "feature list file = features.txt\n"
+  },
+  "rasters": [
+   "big0.tif",
+   "big1.tif",
+   "big10.tif",
+   "big11.tif",
+   "big2.tif",
+   "big3.tif",
+   "big4.tif",
+   "big5.tif",
+   "big6.tif",
+   "big7.tif",
+   "big8.tif",
+   "big9.tif"
+  ]
+ },
+ "big_caz1_weights": {
+  "group": "core",
+  "flags": "-w",
+  "mode": "CAZ1",
+  "bits": 8,
+  "files": {
+   "features.txt": "weight filename\n1.0 \"big0.tif\"\n2.0 \"big1.tif\"\n3.0 \"big2.tif\"\n4.0 \"big3.tif\"\n1.0 \"big4.tif\"\n2.0 \"big5.tif\"\n3.0 \"big6.tif\"\n4.0 \"big7.tif\"\n1.0 \"big8.tif\"\n2.0 \"big9.tif\"\n3.0 \"big10.tif\"\n4.0 \"big11.tif\"\n",
+   "settings.z5": "feature list file = features.txt\n"
+  },
+  "rasters": [
+   "big0.tif",
+   "big1.tif",
+   "big10.tif",
+   "big11.tif",
+   "big2.tif",
+   "big3.tif",
+   "big4.tif",
+   "big5.tif",
+   "big6.tif",
+   "big7.tif",
+   "big8.tif",
+   "big9.tif"
+  ]
+ },
+ "caz2_condition": {
+  "group": "transform",
+  "flags": "-c",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "conditions.txt": "1 0 cond1.tif\n2 0 cond2.tif\n3 1 cond1.tif\n",
+   "features.txt": "condition filename\n1 \"sp0.tif\"\n-1 \"sp1.tif\"\n2 \"sp2.tif\"\n1 \"sp3.tif\"\n3 \"sp4.tif\"\n-1 \"sp5.tif\"\n2 \"sp6.tif\"\n3 \"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\ncondition link file = conditions.txt\n"
+  },
+  "rasters": [
+   "cond1.tif",
+   "cond2.tif",
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "abf_condition_16bit": {
+  "group": "transform",
+  "flags": "-c",
+  "mode": "ABF 0.25",
+  "bits": 16,
+  "files": {
+   "conditions.txt": "1 0 cond1.tif\n2 0 cond2.tif\n3 1 cond1.tif\n",
+   "features.txt": "condition filename\n1 \"sp0.tif\"\n-1 \"sp1.tif\"\n2 \"sp2.tif\"\n1 \"sp3.tif\"\n3 \"sp4.tif\"\n-1 \"sp5.tif\"\n2 \"sp6.tif\"\n3 \"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\ncondition link file = conditions.txt\n"
+  },
+  "rasters": [
+   "cond1.tif",
+   "cond2.tif",
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "caz2_retention": {
+  "group": "transform",
+  "flags": "-r",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "features.txt": "retention filename\n1 \"sp0.tif\"\n-1 \"sp1.tif\"\n2 \"sp2.tif\"\n3 \"sp3.tif\"\n4 \"sp4.tif\"\n2 \"sp5.tif\"\n-1 \"sp6.tif\"\n3 \"sp7.tif\"\n",
+   "retention.txt": "1 2 0.3\n2 1 retrel.tif\n3 0 retabs.tif\n4 2 0.75\n",
+   "settings.z5": "feature list file = features.txt\nretention link file = retention.txt\n"
+  },
+  "rasters": [
+   "retabs.tif",
+   "retrel.tif",
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "abf_retention_weights": {
+  "group": "transform",
+  "flags": "-w -r",
+  "mode": "ABF 0.25",
+  "bits": 8,
+  "files": {
+   "features.txt": "weight retention filename\n2.0 1 \"sp0.tif\"\n1.0 -1 \"sp1.tif\"\n1.0 2 \"sp2.tif\"\n3.0 3 \"sp3.tif\"\n0.5 4 \"sp4.tif\"\n1.0 2 \"sp5.tif\"\n1.5 -1 \"sp6.tif\"\n1.0 3 \"sp7.tif\"\n",
+   "retention.txt": "1 2 0.3\n2 1 retrel.tif\n3 0 retabs.tif\n4 2 0.75\n",
+   "settings.z5": "feature list file = features.txt\nretention link file = retention.txt\n"
+  },
+  "rasters": [
+   "retabs.tif",
+   "retrel.tif",
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "caz1_condition_retention_cost": {
+  "group": "transform",
+  "flags": "-w -c -r -X",
+  "mode": "CAZ1",
+  "bits": 8,
+  "files": {
+   "conditions.txt": "1 0 cond1.tif\n2 0 cond2.tif\n3 1 cond1.tif\n",
+   "features.txt": "weight condition retention filename\n2.0 1 1 \"sp0.tif\"\n1.0 -1 -1 \"sp1.tif\"\n1.0 2 2 \"sp2.tif\"\n3.0 1 3 \"sp3.tif\"\n0.5 3 4 \"sp4.tif\"\n1.0 -1 2 \"sp5.tif\"\n1.5 2 -1 \"sp6.tif\"\n1.0 3 3 \"sp7.tif\"\n",
+   "retention.txt": "1 2 0.3\n2 1 retrel.tif\n3 0 retabs.tif\n4 2 0.75\n",
+   "settings.z5": "feature list file = features.txt\ncondition link file = conditions.txt\nretention link file = retention.txt\ncost layer = cost.tif\n"
+  },
+  "rasters": [
+   "cond1.tif",
+   "cond2.tif",
+   "cost.tif",
+   "retabs.tif",
+   "retrel.tif",
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "caz2_preprocessing": {
+  "group": "transform",
+  "flags": "-w -g -b -f",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "features.txt": "weight group tr_out filename\n2.0 1 1 \"sp0.tif\"\n1.0 1 0 \"sp1.tif\"\n-1.0 2 1 \"sp2.tif\"\n3.0 2 1 \"sp3.tif\"\n0.0 2 0 \"sp4.tif\"\n1.0 3 0 \"sp5.tif\"\n-0.5 3 1 \"sp6.tif\"\n1.0 3 0 \"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\n"
+  },
+  "rasters": [
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "caz2_preprocessing_plain": {
+  "group": "transform",
+  "flags": "-b -f",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "features.txt": "tr_out filename\n1 \"sp0.tif\"\n1 \"sp1.tif\"\n1 \"sp2.tif\"\n1 \"sp3.tif\"\n1 \"sp4.tif\"\n1 \"sp5.tif\"\n1 \"sp6.tif\"\n1 \"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\n"
+  },
+  "rasters": [
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "caz2_preprocessing_all": {
+  "group": "transform",
+  "flags": "-w -g -b -f -c -r",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "conditions.txt": "1 0 cond1.tif\n2 0 cond2.tif\n3 1 cond1.tif\n",
+   "features.txt": "weight group tr_out condition retention filename\n2.0 1 1 1 1 \"sp0.tif\"\n1.0 1 0 -1 -1 \"sp1.tif\"\n-1.0 2 1 2 2 \"sp2.tif\"\n3.0 2 1 1 3 \"sp3.tif\"\n0.0 2 0 3 4 \"sp4.tif\"\n1.0 3 0 -1 2 \"sp5.tif\"\n-0.5 3 1 2 -1 \"sp6.tif\"\n1.0 3 0 3 3 \"sp7.tif\"\n",
+   "retention.txt": "1 2 0.3\n2 1 retrel.tif\n3 0 retabs.tif\n4 2 0.75\n",
+   "settings.z5": "feature list file = features.txt\ncondition link file = conditions.txt\nretention link file = retention.txt\n"
+  },
+  "rasters": [
+   "cond1.tif",
+   "cond2.tif",
+   "retabs.tif",
+   "retrel.tif",
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "big_abf_retention": {
+  "group": "transform",
+  "flags": "-r",
+  "mode": "ABF 0.25",
+  "bits": 8,
+  "files": {
+   "features.txt": "retention filename\n1 \"big0.tif\"\n-1 \"big1.tif\"\n1 \"big2.tif\"\n-1 \"big3.tif\"\n4 \"big4.tif\"\n-1 \"big5.tif\"\n1 \"big6.tif\"\n-1 \"big7.tif\"\n4 \"big8.tif\"\n-1 \"big9.tif\"\n-1 \"big10.tif\"\n1 \"big11.tif\"\n",
+   "retention.txt": "1 2 0.2\n4 2 0.5\n",
+   "settings.z5": "feature list file = features.txt\nretention link file = retention.txt\n"
+  },
+  "rasters": [
+   "big0.tif",
+   "big1.tif",
+   "big10.tif",
+   "big11.tif",
+   "big2.tif",
+   "big3.tif",
+   "big4.tif",
+   "big5.tif",
+   "big6.tif",
+   "big7.tif",
+   "big8.tif",
+   "big9.tif"
+  ]
+ },
+ "conn_sf": {
+  "group": "connectivity",
+  "flags": "-d -f",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "features.txt": "sf_conn tr_out filename\n1 1 \"conn0.tif\"\n2 1 \"conn1.tif\"\n3 1 \"conn2.tif\"\n4 1 \"conn3.tif\"\n5 1 \"conn4.tif\"\n",
+   "settings.z5": "feature list file = features.txt\nsingle-feature connectivity link file = sf.txt\n",
+   "sf.txt": "1 0 negexp(4, 3)\n2 1 gaussian(3, 2)\n3 0 uniform(5)\n4 1 triangular(6)\n5 0 negexp(40, 3)\n"
+  },
+  "rasters": [
+   "conn0.tif",
+   "conn1.tif",
+   "conn2.tif",
+   "conn3.tif",
+   "conn4.tif"
+  ]
+ },
+ "conn_sf_abf_16bit": {
+  "group": "connectivity",
+  "flags": "-d -f",
+  "mode": "ABF 0.25",
+  "bits": 16,
+  "files": {
+   "features.txt": "sf_conn tr_out filename\n1 1 \"conn0.tif\"\n2 1 \"conn1.tif\"\n3 1 \"conn2.tif\"\n4 1 \"conn3.tif\"\n5 1 \"conn4.tif\"\n",
+   "settings.z5": "feature list file = features.txt\nsingle-feature connectivity link file = sf.txt\n",
+   "sf.txt": "1 0 negexp(4, 3)\n2 1 gaussian(3, 2)\n3 0 uniform(5)\n4 1 triangular(6)\n5 0 negexp(40, 3)\n"
+  },
+  "rasters": [
+   "conn0.tif",
+   "conn1.tif",
+   "conn2.tif",
+   "conn3.tif",
+   "conn4.tif"
+  ]
+ },
+ "conn_sf_small": {
+  "group": "connectivity",
+  "flags": "-d -f",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "features.txt": "sf_conn tr_out filename\n2 1 \"sp0.tif\"\n-1 1 \"sp1.tif\"\n1 1 \"sp2.tif\"\n3 1 \"sp3.tif\"\n-1 1 \"sp4.tif\"\n4 1 \"sp5.tif\"\n1 1 \"sp6.tif\"\n-1 1 \"sp7.tif\"\n",
+   "settings.z5": "feature list file = features.txt\nsingle-feature connectivity link file = sf.txt\n",
+   "sf.txt": "1 0 negexp(4, 3)\n2 1 gaussian(3, 2)\n3 0 uniform(5)\n4 1 triangular(6)\n5 0 negexp(40, 3)\n"
+  },
+  "rasters": [
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "conn_interaction": {
+  "group": "connectivity",
+  "flags": "-i -f",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "features.txt": "ia_conn1 tr_out filename\n1 1 \"conn0.tif\"\n-1 1 \"conn1.tif\"\n2 1 \"conn2.tif\"\n3 1 \"conn3.tif\"\n-1 1 \"conn4.tif\"\n",
+   "ia.txt": "1 1 1.0 1 negexp(3, 4) res1.tif\n2 0 0.8 1 gaussian(2, 3) res2.tif\n3 0 0.5 0 negexp(5, 2) res1.tif\n",
+   "settings.z5": "feature list file = features.txt\ninteraction connectivity link file = ia.txt\n"
+  },
+  "rasters": [
+   "conn0.tif",
+   "conn1.tif",
+   "conn2.tif",
+   "conn3.tif",
+   "conn4.tif",
+   "res1.tif",
+   "res2.tif"
+  ]
+ },
+ "conn_sf_interaction2": {
+  "group": "connectivity",
+  "flags": "-d -I -f",
+  "mode": "CAZ1",
+  "bits": 8,
+  "files": {
+   "features.txt": "sf_conn ia_conn2 tr_out filename\n1 -1 1 \"conn0.tif\"\n2 2 1 \"conn1.tif\"\n3 1 1 \"conn2.tif\"\n4 -1 1 \"conn3.tif\"\n5 3 1 \"conn4.tif\"\n",
+   "ia.txt": "1 1 1.0 1 negexp(3, 4) res1.tif\n2 0 0.8 1 gaussian(2, 3) res2.tif\n3 0 0.5 0 negexp(5, 2) res1.tif\n",
+   "settings.z5": "feature list file = features.txt\nsingle-feature connectivity link file = sf.txt\ninteraction connectivity link file = ia.txt\n",
+   "sf.txt": "1 0 negexp(4, 3)\n2 1 gaussian(3, 2)\n3 0 uniform(5)\n4 1 triangular(6)\n5 0 negexp(40, 3)\n"
+  },
+  "rasters": [
+   "conn0.tif",
+   "conn1.tif",
+   "conn2.tif",
+   "conn3.tif",
+   "conn4.tif",
+   "res1.tif",
+   "res2.tif"
+  ]
+ },
+ "conn_matrix": {
+  "group": "connectivity",
+  "flags": "-m -f",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "features.txt": "matrix_conn tr_out filename\n1 1 \"conn0.tif\"\n1 1 \"conn1.tif\"\n-1 1 \"conn2.tif\"\n2 1 \"conn3.tif\"\n-1 1 \"conn4.tif\"\n",
+   "m.txt": "1 negexp(3, 4) matrix.txt\n2 gaussian(2, 3) matrix.txt\n",
+   "matrix.txt": "0.8 0.1 0.3\n0.2 0.7 0.0\n0.0 0.2 1.0\n",
+   "settings.z5": "feature list file = features.txt\nmatrix connectivity link file = m.txt\n"
+  },
+  "rasters": [
+   "conn0.tif",
+   "conn1.tif",
+   "conn2.tif",
+   "conn3.tif",
+   "conn4.tif"
+  ]
+ },
+ "post_presence": {
+  "group": "post",
+  "flags": "-p",
+  "mode": "CAZ1",
+  "bits": 8,
+  "files": {
+   "features.txt": "filename\n\"pa0.tif\"\n\"pa1.tif\"\n",
+   "pp.txt": "area_statistics_external(\"areas.tif\", \"ext\")\narea_statistics_rank_range(0.8, 1.0, \"top\")\narea_statistics_separate_areas(0.7, 1.0, 5, \"sep\")\nsolution_comparison(0.8, 1.0, \"sp7.tif\", 0.5, 1.0, \"cmp\")\nhistogram(0.8, 1.0, 10, \"h\")\nhistogram(0.0, 1.0, 7, \"\")\nflexibility_map(2.0, true, true, true, \"flex\")\nflexibility_map(10.0, true, false, false, \"wide\")\n",
+   "settings.z5": "feature list file = features.txt\npost-processing file = pp.txt\n"
+  },
+  "rasters": [
+   "areas.tif",
+   "pa0.tif",
+   "pa1.tif",
+   "sp7.tif"
+  ]
+ },
+ "post_caz2": {
+  "group": "post",
+  "flags": "-w -g -p",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "features.txt": "weight group filename\n2.0 1 \"sp0.tif\"\n1.0 1 \"sp1.tif\"\n-1.0 2 \"sp2.tif\"\n3.0 2 \"sp3.tif\"\n0.0 2 \"sp4.tif\"\n1.0 3 \"sp5.tif\"\n-0.5 3 \"sp6.tif\"\n1.0 3 \"sp7.tif\"\n",
+   "pp.txt": "area_statistics_external(\"areas.tif\", \"ext\")\narea_statistics_rank_range(0.8, 1.0, \"top\")\narea_statistics_separate_areas(0.7, 1.0, 5, \"sep\")\nsolution_comparison(0.8, 1.0, \"sp7.tif\", 0.5, 1.0, \"cmp\")\nhistogram(0.8, 1.0, 10, \"h\")\nhistogram(0.0, 1.0, 7, \"\")\nflexibility_map(2.0, true, true, true, \"flex\")\nflexibility_map(10.0, true, false, false, \"wide\")\n",
+   "settings.z5": "feature list file = features.txt\npost-processing file = pp.txt\n"
+  },
+  "rasters": [
+   "areas.tif",
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "post_abf_cost_hmask": {
+  "group": "post",
+  "flags": "-w -X -h -p",
+  "mode": "ABF 0.25",
+  "bits": 8,
+  "files": {
+   "features.txt": "weight filename\n2.0 \"sp0.tif\"\n1.0 \"sp1.tif\"\n1.0 \"sp2.tif\"\n3.0 \"sp3.tif\"\n0.5 \"sp4.tif\"\n1.0 \"sp5.tif\"\n1.5 \"sp6.tif\"\n1.0 \"sp7.tif\"\n",
+   "pp.txt": "area_statistics_external(\"areas.tif\", \"ext\")\narea_statistics_rank_range(0.8, 1.0, \"top\")\narea_statistics_separate_areas(0.7, 1.0, 5, \"sep\")\nsolution_comparison(0.8, 1.0, \"sp7.tif\", 0.5, 1.0, \"cmp\")\nhistogram(0.8, 1.0, 10, \"h\")\nhistogram(0.0, 1.0, 7, \"\")\nflexibility_map(2.0, true, true, true, \"flex\")\nflexibility_map(10.0, true, false, false, \"wide\")\n",
+   "settings.z5": "feature list file = features.txt\npost-processing file = pp.txt\ncost layer = cost.tif\nhierarchic mask layer = hmask.tif\n"
+  },
+  "rasters": [
+   "areas.tif",
+   "cost.tif",
+   "hmask.tif",
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "post_cazp": {
+  "group": "post",
+  "flags": "-p",
+  "mode": "CAZP 0.5",
+  "bits": 8,
+  "files": {
+   "features.txt": "filename\n\"sp0.tif\"\n\"sp1.tif\"\n\"sp2.tif\"\n\"sp3.tif\"\n\"sp4.tif\"\n\"sp5.tif\"\n\"sp6.tif\"\n\"sp7.tif\"\n",
+   "pp.txt": "area_statistics_external(\"areas.tif\", \"ext\")\narea_statistics_rank_range(0.8, 1.0, \"top\")\narea_statistics_separate_areas(0.7, 1.0, 5, \"sep\")\nsolution_comparison(0.8, 1.0, \"sp7.tif\", 0.5, 1.0, \"cmp\")\nhistogram(0.8, 1.0, 10, \"h\")\nhistogram(0.0, 1.0, 7, \"\")\nflexibility_map(2.0, true, true, true, \"flex\")\nflexibility_map(10.0, true, false, false, \"wide\")\n",
+   "settings.z5": "feature list file = features.txt\npost-processing file = pp.txt\n"
+  },
+  "rasters": [
+   "areas.tif",
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif"
+  ]
+ },
+ "imp_source": {
+  "group": "impact",
+  "flags": "-s",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "bins.txt": "1 0.1 0.5 1.0\n2 0.3\n",
+   "buffers.txt": "1 1 100 2 50 5 20\n1 2 80 3 30\n2 1 60 4 25\n2 3 90\n",
+   "features.txt": "impact_grp impact_bins filename\n1 0 \"sp0.tif\"\n1 -1 \"sp1.tif\"\n2 1 \"sp2.tif\"\n-1 -1 \"sp3.tif\"\n2 2 \"sp4.tif\"\n1 0 \"sp5.tif\"\n-1 -1 \"sp6.tif\"\n2 -1 \"sp7.tif\"\n",
+   "scenario.txt": "project id = scen1\narea unit name = ha\nimpact unit name = ind\narea conversion factor = 0.25\nsubareas raster file = subareas.tif\noutput intermediate raster maps = 1\nimpact source raster file = isrc.tif\n",
+   "settings.z5": "feature list file = features.txt\nimpact assessment scenario file = scenario.txt\nimpact buffers file = buffers.txt\nbinning link file = bins.txt\n"
+  },
+  "rasters": [
+   "isrc.tif",
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif",
+   "subareas.tif"
+  ]
+ },
+ "imp_source_weights_abf": {
+  "group": "impact",
+  "flags": "-w -s",
+  "mode": "ABF 0.25",
+  "bits": 8,
+  "files": {
+   "bins.txt": "1 0.1 0.5 1.0\n2 0.3\n",
+   "buffers.txt": "1 1 100 2 50 5 20\n1 2 80 3 30\n2 1 60 4 25\n2 3 90\n",
+   "features.txt": "impact_grp impact_bins weight filename\n1 0 2.0 \"sp0.tif\"\n1 -1 1.0 \"sp1.tif\"\n2 1 1.0 \"sp2.tif\"\n-1 -1 3.0 \"sp3.tif\"\n2 2 0.5 \"sp4.tif\"\n1 0 1.0 \"sp5.tif\"\n-1 -1 1.5 \"sp6.tif\"\n2 -1 1.0 \"sp7.tif\"\n",
+   "scenario.txt": "project id = scen1\narea unit name = ha\nimpact unit name = ind\narea conversion factor = 0.25\nsubareas raster file = subareas.tif\noutput intermediate raster maps = 1\nimpact source raster file = isrc.tif\n",
+   "settings.z5": "feature list file = features.txt\nimpact assessment scenario file = scenario.txt\nimpact buffers file = buffers.txt\nbinning link file = bins.txt\n"
+  },
+  "rasters": [
+   "isrc.tif",
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif",
+   "subareas.tif"
+  ]
+ },
+ "imp_cumulative_v1_sum": {
+  "group": "impact",
+  "flags": "-e",
+  "mode": "CAZ2",
+  "bits": 8,
+  "files": {
+   "cmatrix.txt": "1 0.5\n0.3 1\n",
+   "cumulative.txt": "project id = cum1\narea unit name = sqkm\nimpact unit name = kg\narea conversion factor = 2\nsubareas raster file = subareas.tif\noutput intermediate raster maps = 1\nanalyze direct habitat loss = 1\ndirect habitat loss raster list = direct.txt\ndirect habitat loss link matrix = dmatrix.txt\nanalyze cumulative pressures = 1\ncumulative pressures raster list = pressures.txt\nindividual pressure aggregation = 0\ncumulative pressures link matrix = cmatrix.txt\n\n[cumulative pressure functions]\ngroup 1 = pf1.txt\ngroup 2 = pf2.txt\n",
+   "direct.txt": "filename\ndloss1.tif\ndloss2.tif\n",
+   "dmatrix.txt": "1 0.5\n0 1\n",
+   "features.txt": "impact_grp impact_bins filename\n1 0 \"sp0.tif\"\n1 -1 \"sp1.tif\"\n2 1 \"sp2.tif\"\n-1 -1 \"sp3.tif\"\n2 2 \"sp4.tif\"\n1 0 \"sp5.tif\"\n-1 -1 \"sp6.tif\"\n2 -1 \"sp7.tif\"\n",
+   "pf1.txt": "0 0\n0.5 0.2\n1 0.6\n",
+   "pf2.txt": "0.1 0\n0.4 0.5\n0.9 0.9\n",
+   "pressures.txt": "normalize offset divisor filename\n1 0 1 press1.tif\n0 0.1 2 press2.tif\n",
+   "settings.z5": "feature list file = features.txt\ncumulative impact assessment scenario file = cumulative.txt\n"
+  },
+  "rasters": [
+   "dloss1.tif",
+   "dloss2.tif",
+   "press1.tif",
+   "press2.tif",
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif",
+   "subareas.tif"
+  ]
+ },
+ "imp_cumulative_v2_product_multiply": {
+  "group": "impact",
+  "flags": "-e",
+  "mode": "ABF 0.25",
+  "bits": 8,
+  "files": {
+   "cmatrix.txt": "1 0.5\n0.3 1\n",
+   "cumulative.txt": "project id = cum1\narea unit name = sqkm\nimpact unit name = kg\narea conversion factor = 2\nsubareas raster file = subareas.tif\noutput intermediate raster maps = 1\nanalyze direct habitat loss = 2\ndirect habitat loss raster list = direct.txt\ndirect habitat loss link matrix = dmatrix.txt\nanalyze cumulative pressures = 2\ncumulative pressures raster list = pressures.txt\nindividual pressure aggregation = 1\ncumulative pressures link matrix = cmatrix.txt\n\n[cumulative pressure functions]\ngroup 1 = pf1.txt\ngroup 1 pressure 2 = pf2.txt\ngroup 2 = pf2.txt\n",
+   "direct.txt": "filename\ndloss1.tif\ndloss2.tif\n",
+   "dmatrix.txt": "1 0.5\n0 1\n",
+   "features.txt": "impact_grp impact_bins filename\n1 0 \"sp0.tif\"\n1 -1 \"sp1.tif\"\n2 1 \"sp2.tif\"\n-1 -1 \"sp3.tif\"\n2 2 \"sp4.tif\"\n1 0 \"sp5.tif\"\n-1 -1 \"sp6.tif\"\n2 -1 \"sp7.tif\"\n",
+   "pf1.txt": "0 0\n0.5 0.2\n1 0.6\n",
+   "pf2.txt": "0.1 0\n0.4 0.5\n0.9 0.9\n",
+   "pressures.txt": "normalize offset divisor filename\n1 0 1 press1.tif\n0 0.1 2 press2.tif\n",
+   "settings.z5": "feature list file = features.txt\ncumulative impact assessment scenario file = cumulative.txt\n"
+  },
+  "rasters": [
+   "dloss1.tif",
+   "dloss2.tif",
+   "press1.tif",
+   "press2.tif",
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif",
+   "subareas.tif"
+  ]
+ },
+ "imp_both_v2_max": {
+  "group": "impact",
+  "flags": "-w -s -e",
+  "mode": "CAZ1",
+  "bits": 8,
+  "files": {
+   "bins.txt": "1 0.1 0.5 1.0\n2 0.3\n",
+   "buffers.txt": "1 1 100 2 50 5 20\n1 2 80 3 30\n2 1 60 4 25\n2 3 90\n",
+   "cmatrix.txt": "1 0.5\n0.3 1\n",
+   "cumulative.txt": "project id = cum1\narea unit name = sqkm\nimpact unit name = kg\narea conversion factor = 2\nsubareas raster file = subareas.tif\noutput intermediate raster maps = 1\nanalyze direct habitat loss = 1\ndirect habitat loss raster list = direct.txt\ndirect habitat loss link matrix = dmatrix.txt\nanalyze cumulative pressures = 2\ncumulative pressures raster list = pressures.txt\nindividual pressure aggregation = 2\ncumulative pressures link matrix = cmatrix.txt\n\n[cumulative pressure functions]\ngroup 1 = pf1.txt\ngroup 1 pressure 2 = pf2.txt\ngroup 2 = pf2.txt\n",
+   "direct.txt": "filename\ndloss1.tif\ndloss2.tif\n",
+   "dmatrix.txt": "1 0.5\n0 1\n",
+   "features.txt": "impact_grp impact_bins weight filename\n1 0 2.0 \"sp0.tif\"\n1 -1 1.0 \"sp1.tif\"\n2 1 1.0 \"sp2.tif\"\n-1 -1 3.0 \"sp3.tif\"\n2 2 0.5 \"sp4.tif\"\n1 0 1.0 \"sp5.tif\"\n-1 -1 1.5 \"sp6.tif\"\n2 -1 1.0 \"sp7.tif\"\n",
+   "pf1.txt": "0 0\n0.5 0.2\n1 0.6\n",
+   "pf2.txt": "0.1 0\n0.4 0.5\n0.9 0.9\n",
+   "pressures.txt": "normalize offset divisor filename\n1 0 1 press1.tif\n0 0.1 2 press2.tif\n",
+   "scenario.txt": "project id = scen1\narea unit name = ha\nimpact unit name = ind\narea conversion factor = 0.25\nsubareas raster file = subareas.tif\noutput intermediate raster maps = 1\nimpact source raster file = isrc.tif\n",
+   "settings.z5": "feature list file = features.txt\nimpact assessment scenario file = scenario.txt\nimpact buffers file = buffers.txt\nbinning link file = bins.txt\ncumulative impact assessment scenario file = cumulative.txt\n"
+  },
+  "rasters": [
+   "dloss1.tif",
+   "dloss2.tif",
+   "isrc.tif",
+   "press1.tif",
+   "press2.tif",
+   "sp0.tif",
+   "sp1.tif",
+   "sp2.tif",
+   "sp3.tif",
+   "sp4.tif",
+   "sp5.tif",
+   "sp6.tif",
+   "sp7.tif",
+   "subareas.tif"
+  ]
+ }
+}

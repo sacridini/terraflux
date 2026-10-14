@@ -83,7 +83,7 @@ fn per_layer<T: Copy + serde::de::DeserializeOwned>(args: &Args, name: &str, n: 
     }
 }
 
-struct Zonation;
+pub(crate) struct Zonation;
 
 impl Operator for Zonation {
     fn signature(&self) -> OpSignature {
@@ -299,6 +299,15 @@ impl Operator for Zonation {
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let (mut out, ranked) = self.rank(args)?;
+        self.post(args, &ranked, &mut out)?;
+        Ok(out)
+    }
+}
+
+impl Zonation {
+    /// The ranking and the maps and tables of its data (the outputs but those of the post-processing).
+    pub(crate) fn rank(&self, args: &Args) -> Result<(Outputs, Ranked)> {
         let node = args.node;
         let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
         let stack = args.stack("features")?;
@@ -601,36 +610,32 @@ impl Operator for Zonation {
             }
             out.insert("transformed".into(), Value::Stack(Stack { grid: stack.grid.clone(), keys, layers }));
         }
-        self.post(
-            args,
-            &PostInput {
-                data: &data,
-                settings: &settings,
-                r: &r,
-                cells: &cells,
-                w: &w,
-                sets: zonation::feature_sets(&w, weights_on, groups.as_deref()),
-                names: &names,
-                grid: &stack.grid,
-                cost: map_data("cost")?,
-                hmask: map_data("hierarchic_mask")?,
-            },
-            &mut out,
-        )?;
-        Ok(out)
+        let ranked = Ranked {
+            sets: zonation::feature_sets(&w, weights_on, groups.as_deref()),
+            cost: map_data("cost")?,
+            hmask: map_data("hierarchic_mask")?,
+            data,
+            settings,
+            r,
+            cells,
+            w,
+            names,
+            grid: stack.grid.clone(),
+        };
+        Ok((out, ranked))
     }
 }
 
-/// What the post-processing analyses of a ranking read.
-struct PostInput<'a> {
-    data: &'a ffi::PrioData,
-    settings: &'a ffi::PrioSettings,
-    r: &'a ffi::PrioRankOut,
-    cells: &'a [i64],
-    w: &'a [f32],
+/// A ranking and what the post-processing analyses of it read.
+pub(crate) struct Ranked {
+    data: cxx::UniquePtr<ffi::PrioData>,
+    settings: ffi::PrioSettings,
+    r: ffi::PrioRankOut,
+    cells: Vec<i64>,
+    w: Vec<f32>,
     sets: Vec<(String, Vec<usize>)>,
-    names: &'a [String],
-    grid: &'a Arc<terraflux_raster::Grid>,
+    names: Vec<String>,
+    grid: Arc<terraflux_raster::Grid>,
     cost: Vec<f64>,
     hmask: Vec<f64>,
 }
@@ -639,7 +644,7 @@ impl Zonation {
     /// Zonation's post-processing analyses of the ranking: statistics of areas (external, a range of ranks, the
     /// separate areas of a range), the comparison with another solution, the histogram of the features' coverage
     /// and the flexibility map.
-    fn post(&self, args: &Args, p: &PostInput, out: &mut Outputs) -> Result<()> {
+    pub(crate) fn post(&self, args: &Args, p: &Ranked, out: &mut Outputs) -> Result<()> {
         let node = args.node;
         let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
         let (ny, nx) = (p.grid.height, p.grid.width);
@@ -655,7 +660,7 @@ impl Zonation {
                 g => [f64::NAN, g.parse().unwrap_or(f64::NAN)],
             }
         };
-        let packed_map = |m: &Map| zonation::gather(&m.data, p.cells);
+        let packed_map = |m: &Map| zonation::gather(&m.data, &p.cells);
         let grid_of = |v: &[f64], fill: f64| -> Vec<f64> {
             let mut g = vec![fill; n];
             for (&c, &x) in p.cells.iter().zip(v) {
@@ -697,10 +702,10 @@ impl Zonation {
                     ));
                 }
             };
-            let feats = zonation::features_float(p.data, l).map_err(err)?;
+            let feats = zonation::features_float(&p.data, l).map_err(err)?;
             let cost: Option<Vec<f64>> =
-                (!p.cost.is_empty()).then(|| zonation::gather(&p.cost, p.cells).iter().map(|v| v.max(0.0)).collect());
-            let rows = zonation::area_statistics(&feats, p.w, cost.as_deref(), &p.sets, rank, &mask);
+                (!p.cost.is_empty()).then(|| zonation::gather(&p.cost, &p.cells).iter().map(|v| v.max(0.0)).collect());
+            let rows = zonation::area_statistics(&feats, &p.w, cost.as_deref(), &p.sets, rank, &mask);
             let mut stats = Table::new(
                 ["weights", "group", "area", "size", "avgrank", "ds", "wds", "rfd", "wfd", "cost"]
                     .map(String::from)
@@ -773,8 +778,8 @@ impl Zonation {
                 return Err(err("flexibility: the max error should be between 0 and 100 (%)".into()));
             }
             let f = ffi::prio_flexibility(
-                p.data,
-                p.settings,
+                &p.data,
+                &p.settings,
                 ny as i64,
                 nx as i64,
                 &p.cost,

@@ -6,6 +6,17 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Zonation 5's projects (landschaft's read_project and run_project): `prioritize.zonation_project` reads a
+  settings file (`.z5`), its feature list (weights, groups, thresholds, ABF's z, zero modes, value extraction as
+  `file.tif/3`) and link files (conditions, retention, weight groups, connectivity kernels, interactions and
+  matrices, impact scenarios and their binning) with the switches of the z5 command line (`-wgtcrxXhabfdiImsep`,
+  `--area=N`, `--mode=`), reads the rasters they name and runs the ranking of `prioritize.zonation`, adding up the
+  features by the blocks of rows of their files as z5 does; with `-p` the calls of the post-processing file run on
+  the ranking one after another (the tables numbered by call, the maps named as Zonation's files). The projects of
+  landschaft's 65 cases give the same rank maps as the z5 binary, to the bit.
+- The height of a raster file's blocks (strips or tiles), read by Terraflux's own TIFF reader and by GDAL.
+
 ## [0.67.0] - 2026-10-14
 
 ### Added

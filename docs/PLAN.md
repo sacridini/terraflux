@@ -710,8 +710,11 @@ Pendências:
 - **Matrizes e rasters do prioritize (0.67.0, 2026-10-14):** `prioritize.boundary_matrix`, `adjacency_matrix`,
   `connectivity_matrix`, `proximity_matrix`, `decay_connectivity`, `unit_points`, `coarsen`, `refine`,
   `binary_stack` e `protected_cells`, bit a bit com o landschaft.
-- **Próximos (2026-10-14):** os instaladores de macOS e Linux; do `prioritize`, os projetos do Zonation 5 (.z5) e
-  o prioriactions de rasters.
+- **Projetos do Zonation 5 (Unreleased):** `prioritize.zonation_project` (o `.z5`, a lista de features e os
+  arquivos de ligação lidos com as chaves da linha de comando do z5; o pós-processamento chamada a chamada), os
+  mesmos rank maps do binário z5 nos 65 projetos do landschaft. Falta escrever as saídas como o z5 as nomeia
+  (`rankmap.tif`, as curvas em CSV, `features_info.csv`, os arquivos do pós-processamento e dos impactos).
+- **Próximos (2026-10-14):** do `prioritize`, o prioriactions de rasters; os instaladores de macOS e Linux.
 
 - **A ponte do ls.simulate completa (branch `simulate-bridge`, 2026-10-13):** todo modelo do `ls.simulate` vai pelo
   `Model.save` e roda no Terraflux com os mesmos bits. Estimadores e outros potenciais sem forma fechada como

@@ -65,6 +65,14 @@ impl File {
         }
     }
 
+    /// The height of its blocks (strips or tiles).
+    pub fn block_rows(&self) -> usize {
+        match self {
+            File::Own(i) => i.block_rows(),
+            File::Gdal(d) => d.block_rows,
+        }
+    }
+
     /// Who reads it: "Terraflux" or GDAL's driver.
     pub fn reader(&self) -> String {
         match self {
