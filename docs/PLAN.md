@@ -744,7 +744,7 @@ Pendências:
   `SavedState`), retomado ao subir de novo; arquivos em pedaços de 1 MiB (streaming); os arquivos lidos pelos nós
   e pelos cenários em "bundles" (pastas por hash, com os arquivos irmãos); `submit --detach`, `jobs`, `results`;
   o lote do aplicativo retomável; a máquina sem suspender durante as tarefas e o worker com `--idle`.
-- **Várias máquinas — rede local sem configuração (Unreleased, 2026-10-14):** códigos de pareamento (base 32 de
+- **Várias máquinas — rede local sem configuração (0.76.0, 2026-10-14):** códigos de pareamento (base 32 de
   Crockford, 60 bits, chave por PBKDF2-HMAC-SHA256 com 100 000 rodadas); TLS (rustls, certificado próprio do
   coordenador via rcgen), a prova HMAC do certificado antes do token e o certificado fixado; token em toda chamada;
   descoberta por broadcast UDP (porta 7701) com um "beacon" derivado da chave; o `Pool` do aplicativo (coordenador

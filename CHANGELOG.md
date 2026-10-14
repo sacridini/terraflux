@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.76.0] - 2026-10-14
+
 ### Added
 - Other computers of the local network help with the runs, from a code and nothing else: the **Computers** pane
   (the toolbar's "Computers...") shows this computer's code when "Let other computers help" is on, and lends this
