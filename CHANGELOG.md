@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.61.0] - 2026-10-14
+
 ### Added
 - Biodiverse's other imports (landschaft's BaseData.from_raster, from_vector, from_hex, from_h3 and
   from_occurrences): `bio.raster` (a label per layer and its values as counts, a threshold for presences, larger
