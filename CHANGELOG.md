@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.60.0] - 2026-10-14
+
 ### Added
 - Occurrence records from GBIF (landschaft's download_gbif): `sdm.download_gbif`, GBIF's occurrence search API
   through GDAL's HTTP (no account): a scientific name matched to GBIF's backbone (a synonym gives the accepted
