@@ -13,6 +13,7 @@
 //! a model gives the same maps here as in Python with the same seed.
 
 pub mod actions;
+pub mod actions_raster;
 pub mod agents;
 pub mod algebra;
 pub mod batch;
@@ -320,6 +321,7 @@ impl Registry {
         zonation_project::register(&mut r);
         h3::register(&mut r);
         actions::register(&mut r);
+        actions_raster::register(&mut r);
         restoration::register(&mut r);
         restoration_plan::register(&mut r);
         vector::register(&mut r);

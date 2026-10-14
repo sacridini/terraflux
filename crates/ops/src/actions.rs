@@ -554,7 +554,7 @@ pub fn settings_of(args: &Args, d: &mut ActionsData) -> Result<ffi::ActionsSetti
     .map_err(|e| Error::msg(format!("node {node:?}: {e}")))
 }
 
-struct Actions;
+pub(crate) struct Actions;
 
 impl Operator for Actions {
     fn signature(&self) -> OpSignature {
@@ -617,9 +617,16 @@ impl Operator for Actions {
     }
 
     fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        Ok(solve(ctx, args, data_of(args)?)?.0)
+    }
+}
+
+/// A problem solved with a node's settings (model, budget, blm, curve, segments, gap, time_limit): the outputs of
+/// prioritize.actions, and the problem with the solution's units then actions.
+pub fn solve(ctx: &mut Ctx, args: &Args, mut d: ActionsData) -> Result<(Outputs, ActionsData, Vec<f64>)> {
+    {
         let node = args.node;
         let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
-        let mut d = data_of(args)?;
         let s = settings_of(args, &mut d)?;
         for w in d.warnings.drain(..) {
             ctx.warn(w);
@@ -651,6 +658,7 @@ impl Operator for Actions {
         if let Some(c) = f.connectivity {
             out.insert("connectivity".into(), Value::Table(c));
         }
-        Ok(out)
+        let x = r.x[..n + na].to_vec();
+        Ok((out, d, x))
     }
 }

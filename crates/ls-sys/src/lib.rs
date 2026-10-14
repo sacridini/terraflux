@@ -954,6 +954,7 @@ pub mod ffi {
     struct ActionsPairs {
         feature: Vec<i64>,
         unit: Vec<i64>,
+        amount: Vec<f64>,
         threatened: Vec<u8>,
     }
 

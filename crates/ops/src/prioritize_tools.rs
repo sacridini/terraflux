@@ -85,7 +85,7 @@ fn units_of(args: &Args) -> Result<Units> {
 }
 
 /// terra's xres and yres: the extent over the cells.
-fn res(g: &Grid) -> (f64, f64) {
+pub(crate) fn res(g: &Grid) -> (f64, f64) {
     let t = g.transform;
     let (nx, ny) = (g.width as f64, g.height as f64);
     (((t[0] + nx * t[1]) - t[0]) / nx, (t[3] - (t[3] + ny * t[5])) / ny)

@@ -51,6 +51,9 @@ neutros (`nlm.*`) para testar fluxos sem dados. A ordem sugerida:
    - **Feito** (0.13.0): unidades de planejamento em polígonos no prioritizr (com os vetores no builder).
    - **Feito** (Unreleased): polígonos com zonas de manejo (o `polygon_zone_units` do landschaft, bit a bit com o
      compile() do prioritizr) e as unidades H3 (`prioritize.h3_units`, pelo h3o; os mesmos hexágonos e custos).
+   - **Feito** (0.69.0): o prioriactions de rasters (`prioritize.actions_raster`: as unidades nas células com
+     custo de monitoramento, features e ameaças em camadas, custos das ações em números ou mapas, a solução em
+     mapas), as mesmas tabelas e os mesmos ótimos do landschaft.
    - **Feito** (0.68.0): os projetos do Zonation 5 (`prioritize.zonation_project`: o `.z5`, a lista de features
      e os arquivos de ligação, o pós-processamento), os mesmos rank maps do z5 nos 65 projetos do landschaft. Falta
      escrever as saídas nos arquivos do z5 (`rankmap.tif`, as curvas, `features_info.csv`, pós-processamento e

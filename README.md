@@ -131,7 +131,8 @@ no console.
   cheapest plan for a benefit; conservation and conversion, trade-off curves, sets of weights compared, projected
   changes, the ecosystems' risk of collapse and their targets.
 - **Multi-action planning (prioriactions):** which units to monitor and which actions against which threats to
-  take (`prioritize.actions`), prioriactions's model bit for bit.
+  take (`prioritize.actions`), prioriactions's model bit for bit; from rasters of the features, the threats and the
+  costs, the solution as maps (`prioritize.actions_raster`).
 - **Species distribution models:** occurrence records from GBIF (`sdm.download_gbif`), cleaned by
   CoordinateCleaner's tests (`sdm.clean_occurrences`), thinned, one per cell; the accessible area; the predictors
   without collinearity (usdm's VIF) and their range of autocorrelation; background points (dismo's); folds for

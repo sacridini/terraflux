@@ -714,7 +714,11 @@ Pendências:
   arquivos de ligação lidos com as chaves da linha de comando do z5; o pós-processamento chamada a chamada), os
   mesmos rank maps do binário z5 nos 65 projetos do landschaft. Falta escrever as saídas como o z5 as nomeia
   (`rankmap.tif`, as curvas em CSV, `features_info.csv`, os arquivos do pós-processamento e dos impactos).
-- **Próximos (2026-10-14):** do `prioritize`, o prioriactions de rasters; os instaladores de macOS e Linux.
+- **prioriactions de rasters (0.69.0, 2026-10-14):** `prioritize.actions_raster` (as unidades nas células com
+  custo de monitoramento, uma camada por feature e por ameaça, os custos das ações em números ou mapas, unidades
+  travadas por mapas, o boundary das células; a solução em mapas), as mesmas tabelas e os mesmos ótimos do
+  landschaft nos rasters dos testes dele e no exemplo.
+- **Próximos (2026-10-14):** os instaladores de macOS e Linux.
 
 - **A ponte do ls.simulate completa (branch `simulate-bridge`, 2026-10-13):** todo modelo do `ls.simulate` vai pelo
   `Model.save` e roda no Terraflux com os mesmos bits. Estimadores e outros potenciais sem forma fechada como

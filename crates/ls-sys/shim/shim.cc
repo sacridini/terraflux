@@ -1971,6 +1971,7 @@ ActionsPairs actions_pairs(const ActionsInput& input) {
     ActionsPairs out;
     out.feature = to_rust<std::int64_t>(p.feature);
     out.unit = to_rust<std::int64_t>(p.unit);
+    out.amount = to_rust<double>(p.amount);
     out.threatened = to_rust<std::uint8_t>(p.threatened);
     return out;
 }

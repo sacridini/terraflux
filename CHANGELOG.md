@@ -6,6 +6,15 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Multi-action planning on rasters (landschaft's actions_raster_data, after prioripy): `prioritize.actions_raster`
+  takes the cells with a monitoring cost as the planning units, a layer per feature (its amounts) and per threat
+  (its intensity), the actions' costs as numbers or maps (one for all, per threat in order or by name), the units
+  locked in or out by maps, a sensitivity table and the cells' shared edges as boundary data; builds
+  prioriactions's tables as landschaft builds them (relative targets shares of what each feature has where a
+  threat harms it and where none does) and solves them as `prioritize.actions`; the monitored cells and every
+  threat's actions as maps. The same tables and optima as landschaft's on its test rasters and on its example.
+
 ## [0.68.0] - 2026-10-14
 
 ### Added
