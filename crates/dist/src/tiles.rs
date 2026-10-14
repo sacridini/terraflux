@@ -31,8 +31,13 @@ impl std::fmt::Debug for Remote {
 impl Remote {
     /// Connect to a coordinator (from outside any async runtime: the runner has its own).
     pub fn connect(url: &str) -> crate::Result<Remote> {
+        Remote::connect_with(url, None)
+    }
+
+    /// Connect to a coordinator with its pairing code, if it has one.
+    pub fn connect_with(url: &str, code: Option<&crate::secure::Code>) -> crate::Result<Remote> {
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
-        let client = rt.block_on(Client::connect(url))?;
+        let client = rt.block_on(Client::connect_with(url, code))?;
         Ok(Remote { url: url.to_string(), rt, client: Mutex::new(client), per_worker: 4 })
     }
 

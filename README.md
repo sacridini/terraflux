@@ -260,7 +260,14 @@ another. See [`docs/cluster.md`](docs/cluster.md) (and the Slurm template in `to
 
 In the application, the **Many runs** pane does the same without the command line: replicates, scenarios in a
 table and calibration against an observed map, with their progress, their results and the best settings
-applied to the model in a click.
+applied to the model in a click. The **Computers** pane shares the runs with the computers of the local network
+from a code, or lends this computer to another's; the computers find each other by themselves, and only those
+given the code take part (TLS, the code checked both ways):
+
+```bash
+terraflux serve --listen 0.0.0.0:7700 --code                            # prints its code
+terraflux worker --code K7QM-2XPA-9DTE                                  # finds it on the network
+```
 
 ## Maps larger than memory
 

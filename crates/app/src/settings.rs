@@ -33,11 +33,32 @@ pub struct Settings {
     pub threads: Option<usize>,
     /// The collections each operator is in (indices of [`COLLECTIONS`]).
     pub favourites: BTreeMap<String, Vec<u8>>,
+    /// Other computers may work for this one's batches: those given its code.
+    pub share: bool,
+    pub share_code: Option<String>,
+    /// This computer works for another's batches: the other's code, how many threads, and only when nobody uses
+    /// it for so many minutes (none: whenever).
+    pub lend: bool,
+    pub lend_code: String,
+    pub lend_threads: Option<usize>,
+    pub lend_idle: Option<f64>,
 }
 
 impl Default for Settings {
     fn default() -> Settings {
-        Settings { theme: "Default".into(), text: 1.0, zoom: 1.0, threads: None, favourites: BTreeMap::new() }
+        Settings {
+            theme: "Default".into(),
+            text: 1.0,
+            zoom: 1.0,
+            threads: None,
+            favourites: BTreeMap::new(),
+            share: false,
+            share_code: None,
+            lend: false,
+            lend_code: String::new(),
+            lend_threads: None,
+            lend_idle: None,
+        }
     }
 }
 
@@ -80,6 +101,11 @@ pub fn update(f: impl FnOnce(&mut Settings)) {
         }
         let _ = std::fs::write(path, serde_json::to_string_pretty(&*s).unwrap_or_default());
     }
+}
+
+/// The folder of the user's application data (where the settings are).
+pub fn data_dir() -> PathBuf {
+    file().and_then(|f| f.parent().map(PathBuf::from)).unwrap_or_else(|| std::env::temp_dir().join("Terraflux"))
 }
 
 /// The threads asked for in the settings.

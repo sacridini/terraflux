@@ -51,13 +51,15 @@ pub enum Pane {
     Validation,
     /// The model run many times: replicates, scenarios, calibration.
     Batch,
+    /// Other computers helping this one, this one helping another.
+    Computers,
     /// A node's output in a tab of its own (opened by a double click on the node; one per node, brought to the
     /// front when it is open already).
     Map(u64),
 }
 
 impl Pane {
-    pub const ALL: [Pane; 9] = [
+    pub const ALL: [Pane; 10] = [
         Pane::Model,
         Pane::Operators,
         Pane::Node,
@@ -67,6 +69,7 @@ impl Pane {
         Pane::Areas,
         Pane::Validation,
         Pane::Batch,
+        Pane::Computers,
     ];
 
     pub fn title(self) -> &'static str {
@@ -80,6 +83,7 @@ impl Pane {
             Pane::Areas => "Areas",
             Pane::Validation => "Validation",
             Pane::Batch => "Many runs",
+            Pane::Computers => "Computers",
             Pane::Map(_) => "Map",
         }
     }
@@ -1038,6 +1042,8 @@ pub struct TerrafluxApp {
     pub drawer: bool,
     /// The model run many times (replicates, scenarios, calibration).
     pub batch: crate::batch_view::BatchState,
+    /// The application's pool of workers, shared or not, and this computer lent to another.
+    pub computers: crate::computers::Computers,
 }
 
 /// A row of a list: a name, selected or not, and a note on the right.
@@ -1085,6 +1091,7 @@ impl TerrafluxApp {
             tabbed: false,
             drawer: false,
             batch: crate::batch_view::BatchState::new(),
+            computers: crate::computers::Computers::new(),
         };
         if let Some(p) = model {
             app.open(&p);
@@ -1230,6 +1237,13 @@ impl TerrafluxApp {
             {
                 self.focus(Pane::Batch);
             }
+            if ui
+                .button("Computers...")
+                .on_hover_text("other computers helping with the runs, this one helping another")
+                .clicked()
+            {
+                self.focus(Pane::Computers);
+            }
             if ui.button("Wizard...").on_hover_text("a land change model from your maps, step by step").clicked() {
                 self.wizard = Some(Wizard::default());
             }
@@ -1365,7 +1379,17 @@ impl TerrafluxApp {
             ui.add_space(6.0);
             if ui.button("Back to the defaults").clicked() {
                 let favourites = std::mem::take(&mut st.favourites);
-                st = crate::settings::Settings { favourites, ..Default::default() };
+                // the computers' choices are not looks: they stay
+                st = crate::settings::Settings {
+                    favourites,
+                    share: st.share,
+                    share_code: st.share_code.clone(),
+                    lend: st.lend,
+                    lend_code: st.lend_code.clone(),
+                    lend_threads: st.lend_threads,
+                    lend_idle: st.lend_idle,
+                    ..Default::default()
+                };
             }
         });
         crate::settings::update(|s| *s = st);
@@ -1923,7 +1947,8 @@ impl TerrafluxApp {
             Pane::Validation => {
                 egui::Frame::new().inner_margin(Margin::same(8)).show(ui, |ui| self.validation_tab(ui));
             }
-            Pane::Batch => crate::batch_view::pane(ui, &mut self.batch, s, r),
+            Pane::Batch => crate::batch_view::pane(ui, &mut self.batch, s, r, &mut self.computers),
+            Pane::Computers => crate::computers::pane(ui, &mut self.computers),
             Pane::Map(id) => {
                 let Some(mut shown) = s.map_tabs.remove(&id) else {
                     ui.label(RichText::new("This map's node is gone.").weak());
@@ -2016,7 +2041,9 @@ impl TerrafluxApp {
         // beside the pane it goes with: the maps and results by the viewer, the text by the model
         let dock = self.dock.get_or_insert_with(default_layout);
         let near = match pane {
-            Pane::Simulation | Pane::Areas | Pane::Validation | Pane::Batch | Pane::Map(_) => Some(Pane::Viewer),
+            Pane::Simulation | Pane::Areas | Pane::Validation | Pane::Batch | Pane::Computers | Pane::Map(_) => {
+                Some(Pane::Viewer)
+            }
             Pane::Viewer => Some(Pane::Model),
             _ => None,
         };

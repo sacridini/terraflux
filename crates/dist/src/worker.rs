@@ -9,12 +9,11 @@ use std::time::{Duration, Instant};
 
 use terraflux_exec::{Engine, Quiet, load_inputs, write_outputs};
 use terraflux_graph::{Input, Model};
-use tonic::transport::Channel;
 
-use crate::coordinator::MAX_MESSAGE;
 use crate::evaluate::{Evaluation, evaluate};
-use crate::proto::coordinator_client::CoordinatorClient;
+use crate::net::Conn;
 use crate::proto::*;
+use crate::secure::Code;
 use crate::{Error, Result, bundle};
 
 #[derive(Debug, Clone)]
@@ -31,6 +30,10 @@ pub struct Options {
     pub idle: Option<Duration>,
     /// Asked between tasks: whether to take no task for now.
     pub paused: Option<Arc<AtomicBool>>,
+    /// The coordinator's pairing code (none: a plain connection).
+    pub code: Option<Code>,
+    /// Where to tell what it does.
+    pub status: Option<Arc<std::sync::Mutex<Status>>>,
 }
 
 impl Options {
@@ -42,6 +45,8 @@ impl Options {
             threads: terraflux_ops::threads::default_threads(),
             idle: None,
             paused: None,
+            code: None,
+            status: None,
         }
     }
 
@@ -52,9 +57,9 @@ impl Options {
     }
 }
 
-pub async fn connect(url: &str) -> Result<CoordinatorClient<Channel>> {
-    let c = CoordinatorClient::connect(url.to_string()).await?;
-    Ok(c.max_decoding_message_size(MAX_MESSAGE).max_encoding_message_size(MAX_MESSAGE))
+/// Connect to a coordinator (plain, or with a pairing code).
+pub async fn connect(url: &str, code: Option<&Code>) -> Result<Conn> {
+    crate::net::connect(url, code).await
 }
 
 /// A file a task wrote: its name and its bytes.
@@ -67,7 +72,7 @@ pub struct File {
 /// The paths sent with a model (`bundle:<hash>/...`) as files of the cache: its inputs, the files its nodes
 /// read, an evaluation's observed map and the files a task's overrides give.
 pub async fn localize(
-    client: &mut CoordinatorClient<Channel>,
+    client: &mut Conn,
     cache: &Path,
     model: &mut Model,
     eval: Option<&mut Evaluation>,
@@ -174,99 +179,179 @@ pub fn run_task(
     r
 }
 
+/// What a worker is doing, for whoever shows it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Status {
+    /// The coordinator it works for (its address), if connected.
+    pub coordinator: Option<String>,
+    /// The task it runs now.
+    pub task: Option<String>,
+    /// The tasks it did.
+    pub done: u32,
+    /// Why it does not work, if it does not (looking for its coordinator, another version...).
+    pub note: Option<String>,
+}
+
+fn tell(opts: &Options, f: impl FnOnce(&mut Status)) {
+    if let Some(s) = &opts.status {
+        f(&mut s.lock().unwrap_or_else(|e| e.into_inner()));
+    }
+}
+
 /// Ask for tasks and run them until `stop`; reconnects when the coordinator goes away.
 pub async fn run(url: &str, opts: Options, stop: Arc<AtomicBool>) -> Result<()> {
-    let threads = opts.threads as u32;
     let mut told = String::new();
     while !stop.load(Ordering::Relaxed) {
-        let mut client = match connect(url).await {
-            Ok(c) => c,
-            Err(_) => {
-                tokio::time::sleep(Duration::from_secs(2)).await;
-                continue;
-            }
-        };
-        let hello = WorkerHello { name: opts.name.clone(), threads, version: crate::coordinator::VERSION.into() };
-        let id = match client.register(hello).await {
-            Ok(r) => r.into_inner().id,
-            Err(e) => {
-                // another version: said once, tried again now and then (the coordinator may be updated)
-                let wrong = e.code() == tonic::Code::FailedPrecondition;
-                if wrong && told != e.message() {
-                    eprintln!("worker {}: {}", opts.name, e.message());
-                    told = e.message().to_string();
-                }
-                tokio::time::sleep(Duration::from_secs(if wrong { 30 } else { 2 })).await;
-                continue;
-            }
-        };
-        while !stop.load(Ordering::Relaxed) {
-            if opts.waiting() {
-                tokio::time::sleep(Duration::from_secs(2)).await;
-                continue;
-            }
-            let task = match client.next_task(TaskRequest { worker: id.clone(), wait_ms: 1000 }).await {
-                Ok(t) => t.into_inner(),
-                Err(_) => break, // register again
-            };
-            if task.task_id.is_empty() {
-                continue;
-            }
-            // the computer kept awake while it works
-            let _awake = crate::awake::Awake::hold();
-            let t0 = Instant::now();
-            let (result, payload) = if task.kind == "tiles" {
-                match tiles(&mut client, &opts, &id, &task).await {
-                    Ok(p) => (Ok((String::new(), Vec::new(), Vec::new())), p),
-                    Err(e) => (Err(e), Vec::new()),
-                }
-            } else {
-                (work(&mut client, &opts, &id, &task).await, Vec::new())
-            };
-            let (ok, mut error, metrics, written, warnings) = match result {
-                Ok((m, f, w)) => (true, String::new(), m, f, w),
-                Err(e) => (false, e.to_string(), String::new(), Vec::new(), Vec::new()),
-            };
-            // the files go as blobs, the result names them
-            let mut files = Vec::new();
-            let mut sent = ok;
-            for f in written {
-                let size = f.data.len() as u64;
-                match bundle::send_bytes(&mut client, f.data).await {
-                    Ok(hash) => files.push(OutputFile { name: f.name, hash, size }),
-                    Err(e) => {
-                        sent = false;
-                        error = format!("sending {}: {e}", f.name);
-                        break;
-                    }
-                }
-            }
-            let r = TaskResult {
-                task_id: task.task_id.clone(),
-                worker: id.clone(),
-                ok: ok && sent,
-                error,
-                metrics_json: metrics,
-                files: if sent { files } else { Vec::new() },
-                seconds: t0.elapsed().as_secs_f64(),
-                warnings,
-                label: String::new(),
-                payload,
-            };
-            if client.complete(r).await.is_err() {
-                break;
-            }
+        if let Ended::Refused(why) = serve(url, &opts, &stop).await
+            && told != why
+        {
+            eprintln!("worker {}: {why}", opts.name);
+            told = why;
         }
+        tokio::time::sleep(Duration::from_secs(2)).await;
     }
     Ok(())
 }
 
+/// Find the coordinator of a pairing code on the local network (its beacons heard at `on`) and work for it
+/// until `stop`; found again when it goes away.
+pub async fn run_found(code: Code, mut opts: Options, stop: Arc<AtomicBool>, on: std::net::SocketAddr) -> Result<()> {
+    opts.code = Some(code.clone());
+    while !stop.load(Ordering::Relaxed) {
+        tell(&opts, |s| {
+            s.coordinator = None;
+            s.note = Some("looking for the computer of this code on the network".into());
+        });
+        let found = match crate::discover::find(&code, Duration::from_secs(3), on).await {
+            Ok(f) => f,
+            Err(e) => {
+                tell(&opts, |s| s.note = Some(e.to_string()));
+                tokio::time::sleep(Duration::from_secs(3)).await;
+                continue;
+            }
+        };
+        let Some(f) = found.iter().find(|f| f.version == crate::coordinator::VERSION) else {
+            if let Some(f) = found.first() {
+                let why = format!(
+                    "{} has Terraflux {}, this computer {}: install the same version on both",
+                    f.name,
+                    f.version,
+                    crate::coordinator::VERSION
+                );
+                tell(&opts, |s| s.note = Some(why));
+                tokio::time::sleep(Duration::from_secs(10)).await;
+            }
+            continue;
+        };
+        if let Ended::Refused(why) = serve(&f.addr, &opts, &stop).await {
+            tell(&opts, |s| s.note = Some(why));
+            tokio::time::sleep(Duration::from_secs(10)).await;
+        }
+    }
+    tell(&opts, |s| *s = Status::default());
+    Ok(())
+}
+
+/// How a worker's time with a coordinator ended.
+enum Ended {
+    /// It could not be reached, or went away.
+    Lost,
+    /// It turned the worker away: why.
+    Refused(String),
+    Stopped,
+}
+
+/// Work for a coordinator until it goes away, turns the worker away, or `stop`.
+async fn serve(url: &str, opts: &Options, stop: &AtomicBool) -> Ended {
+    let threads = opts.threads as u32;
+    let mut client = match connect(url, opts.code.as_ref()).await {
+        Ok(c) => c,
+        Err(e) => {
+            let why = e.to_string();
+            return if why.contains("does not know this code") { Ended::Refused(why) } else { Ended::Lost };
+        }
+    };
+    let hello = WorkerHello { name: opts.name.clone(), threads, version: crate::coordinator::VERSION.into() };
+    let id = match client.register(hello).await {
+        Ok(r) => r.into_inner().id,
+        Err(e) if matches!(e.code(), tonic::Code::FailedPrecondition | tonic::Code::Unauthenticated) => {
+            return Ended::Refused(e.message().to_string());
+        }
+        Err(_) => return Ended::Lost,
+    };
+    tell(opts, |s| {
+        s.coordinator = Some(crate::net::host_port(url));
+        s.note = None;
+    });
+    while !stop.load(Ordering::Relaxed) {
+        if opts.waiting() {
+            tell(opts, |s| s.note = Some("waiting: paused, or someone at this computer".into()));
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            continue;
+        }
+        let task = match client.next_task(TaskRequest { worker: id.clone(), wait_ms: 1000 }).await {
+            Ok(t) => t.into_inner(),
+            Err(_) => return Ended::Lost, // register again
+        };
+        tell(opts, |s| s.note = None);
+        if task.task_id.is_empty() {
+            continue;
+        }
+        tell(opts, |s| s.task = Some(task.task_id.clone()));
+        // the computer kept awake while it works
+        let _awake = crate::awake::Awake::hold();
+        let t0 = Instant::now();
+        let (result, payload) = if task.kind == "tiles" {
+            match tiles(&mut client, opts, &id, &task).await {
+                Ok(p) => (Ok((String::new(), Vec::new(), Vec::new())), p),
+                Err(e) => (Err(e), Vec::new()),
+            }
+        } else {
+            (work(&mut client, opts, &id, &task).await, Vec::new())
+        };
+        let (ok, mut error, metrics, written, warnings) = match result {
+            Ok((m, f, w)) => (true, String::new(), m, f, w),
+            Err(e) => (false, e.to_string(), String::new(), Vec::new(), Vec::new()),
+        };
+        // the files go as blobs, the result names them
+        let mut files = Vec::new();
+        let mut sent = ok;
+        for f in written {
+            let size = f.data.len() as u64;
+            match bundle::send_bytes(&mut client, f.data).await {
+                Ok(hash) => files.push(OutputFile { name: f.name, hash, size }),
+                Err(e) => {
+                    sent = false;
+                    error = format!("sending {}: {e}", f.name);
+                    break;
+                }
+            }
+        }
+        let r = TaskResult {
+            task_id: task.task_id.clone(),
+            worker: id.clone(),
+            ok: ok && sent,
+            error,
+            metrics_json: metrics,
+            files: if sent { files } else { Vec::new() },
+            seconds: t0.elapsed().as_secs_f64(),
+            warnings,
+            label: String::new(),
+            payload,
+        };
+        tell(opts, |s| {
+            s.task = None;
+            s.done += 1;
+        });
+        if client.complete(r).await.is_err() {
+            return Ended::Lost;
+        }
+    }
+    Ended::Stopped
+}
+
 /// Heartbeats to the coordinator until the returned flag is set.
-fn heartbeats(
-    client: &CoordinatorClient<Channel>,
-    id: &str,
-    every: Duration,
-) -> (Arc<AtomicBool>, tokio::task::JoinHandle<()>) {
+fn heartbeats(client: &Conn, id: &str, every: Duration) -> (Arc<AtomicBool>, tokio::task::JoinHandle<()>) {
     let done = Arc::new(AtomicBool::new(false));
     let (d, mut hb, wid) = (done.clone(), client.clone(), id.to_string());
     let beat = tokio::spawn(async move {
@@ -279,12 +364,7 @@ fn heartbeats(
 }
 
 /// A pass of the tiled engine on some tiles (the maps on shared storage): its part, encoded.
-async fn tiles(
-    client: &mut CoordinatorClient<Channel>,
-    opts: &Options,
-    id: &str,
-    task: &TaskAssignment,
-) -> Result<Vec<u8>> {
+async fn tiles(client: &mut Conn, opts: &Options, id: &str, task: &TaskAssignment) -> Result<Vec<u8>> {
     let (done, beat) = heartbeats(client, id, opts.heartbeat);
     let (job, chosen, threads) = (task.payload.clone(), task.task_payload.clone(), opts.threads);
     let r = tokio::task::spawn_blocking(move || {
@@ -300,7 +380,7 @@ async fn tiles(
 }
 
 async fn work(
-    client: &mut CoordinatorClient<Channel>,
+    client: &mut Conn,
     opts: &Options,
     id: &str,
     task: &TaskAssignment,

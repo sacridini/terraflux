@@ -35,6 +35,7 @@ fn open(m: &Model, name: &str) -> TerrafluxApp {
     std::fs::create_dir_all(&dir).unwrap();
     let p = dir.join(name);
     m.save(&p).unwrap();
+    terraflux_app::computers::AUTOSTART.store(false, std::sync::atomic::Ordering::Relaxed);
     let mut app = TerrafluxApp::new(Some(p));
     app.session.as_mut().unwrap().wait();
     app
@@ -216,6 +217,7 @@ fn the_canvas_answers_the_pointer() {
 #[ignore = "a large raster of one's own: TERRAFLUX_BIG_RASTER"]
 fn big_raster_shows_at_once() {
     let Ok(path) = std::env::var("TERRAFLUX_BIG_RASTER") else { return };
+    terraflux_app::computers::AUTOSTART.store(false, std::sync::atomic::Ordering::Relaxed);
     let mut h = harness(TerrafluxApp::new(None));
     h.run_steps(2);
     let t = Instant::now();

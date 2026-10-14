@@ -744,6 +744,12 @@ Pendências:
   `SavedState`), retomado ao subir de novo; arquivos em pedaços de 1 MiB (streaming); os arquivos lidos pelos nós
   e pelos cenários em "bundles" (pastas por hash, com os arquivos irmãos); `submit --detach`, `jobs`, `results`;
   o lote do aplicativo retomável; a máquina sem suspender durante as tarefas e o worker com `--idle`.
+- **Várias máquinas — rede local sem configuração (Unreleased, 2026-10-14):** códigos de pareamento (base 32 de
+  Crockford, 60 bits, chave por PBKDF2-HMAC-SHA256 com 100 000 rodadas); TLS (rustls, certificado próprio do
+  coordenador via rcgen), a prova HMAC do certificado antes do token e o certificado fixado; token em toda chamada;
+  descoberta por broadcast UDP (porta 7701) com um "beacon" derivado da chave; o `Pool` do aplicativo (coordenador
+  persistente com workers locais, compartilhado ou não) e o `Lender` ("emprestar este computador"); o painel
+  Computers; `--code` em todos os comandos; a regra do firewall no instalador (extensão Firewall do WiX).
 - **Próximos (2026-10-14):** a assinatura dos instaladores e um ícone.
 
 - **A ponte do ls.simulate completa (branch `simulate-bridge`, 2026-10-13):** todo modelo do `ls.simulate` vai pelo
@@ -760,7 +766,7 @@ Pendências gerais, depois das fases:
 - editor de legenda, gráficos editáveis do WoE e assistente de análise das mudanças;
 - motor por tiles para os outros modelos, variáveis dinâmicas, álgebra de mapas e agentes, além de Zarr/COG;
 - plugins WebAssembly para o comportamento de agentes;
-- autenticação e TLS no coordenador.
+- autenticação e TLS no coordenador (feito: códigos de pareamento, 2026-10-14).
 
 ## Verificação
 

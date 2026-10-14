@@ -2,9 +2,11 @@
 <!--
   Terraflux's Windows installer (WiX 5): terraflux.exe, the Visual C++ and OpenMP runtimes next to it, and GDAL in
   the folder `gdal`, in Program Files\Terraflux; a shortcut in the Start menu and the folder on the PATH (for
-  `terraflux run`). Built by tools\make-installer.ps1, which stages the files and gives Version and Stage.
+  `terraflux run`); a rule of the Windows firewall that lets the computers of the local network reach Terraflux
+  (other computers helping with its runs, found by its beacons; only those given its code get in). Built by
+  tools\make-installer.ps1, which stages the files and gives Version and Stage.
 -->
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall">
   <Package
       Name="Terraflux"
       Manufacturer="Terraflux"
@@ -27,6 +29,7 @@
       <ComponentGroupRef Id="Files" />
       <ComponentRef Id="StartMenu" />
       <ComponentRef Id="OnPath" />
+      <ComponentRef Id="Firewall" />
     </Feature>
   </Package>
 
@@ -49,6 +52,15 @@
         <RegistryValue Root="HKLM" Key="Software\Terraflux" Name="StartMenu" Type="integer" Value="1" KeyPath="yes" />
       </Component>
     </StandardDirectory>
+  </Fragment>
+
+  <Fragment>
+    <!-- the local network only: the computers that help, and the beacons they find each other by -->
+    <Component Id="Firewall" Directory="INSTALLFOLDER" Guid="3d0f5bb4-6d1e-4c1f-9f3b-2a7c7f0d9e51">
+      <fw:FirewallException Id="TerrafluxNetwork" Name="Terraflux (computers of the local network)"
+                            Program="[INSTALLFOLDER]terraflux.exe" Scope="localSubnet" IgnoreFailure="yes" />
+      <RegistryValue Root="HKLM" Key="Software\Terraflux" Name="Firewall" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
   </Fragment>
 
   <Fragment>

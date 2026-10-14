@@ -17,6 +17,12 @@ hex = "0.4"
 thiserror.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net"] }
 tokio-stream = { version = "0.1", features = ["net"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rcgen = { version = "0.13", default-features = false, features = ["ring", "pem"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+tower = { version = "0.5", features = ["util"] }
+socket2 = { version = "0.6", features = ["all"] }
 tonic = "0.14"
 tonic-prost = "0.14"
 terraflux-engine = { path = "../engine" }

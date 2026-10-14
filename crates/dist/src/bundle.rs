@@ -7,13 +7,11 @@
 
 use std::path::{Component, Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
-use tonic::transport::Channel;
-
-use crate::proto::coordinator_client::CoordinatorClient;
+use crate::net::Conn;
 use crate::proto::{BlobId, Chunk};
 use crate::store::{Store, bytes_chunks, file_chunks, hash_file};
 use crate::{Error, Result};
+use serde::{Deserialize, Serialize};
 
 /// The files of a bundle: their paths in its folder (with `/`) and their hashes.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -22,7 +20,7 @@ pub struct Manifest {
 }
 
 /// Send a file (unless the coordinator has it): its hash.
-pub async fn send_file(c: &mut CoordinatorClient<Channel>, path: &Path) -> Result<String> {
+pub async fn send_file(c: &mut Conn, path: &Path) -> Result<String> {
     let p = path.to_path_buf();
     let (hash, size) =
         tokio::task::spawn_blocking(move || hash_file(&p)).await.map_err(|e| Error::Other(e.to_string()))??;
@@ -33,7 +31,7 @@ pub async fn send_file(c: &mut CoordinatorClient<Channel>, path: &Path) -> Resul
 }
 
 /// Send bytes (unless the coordinator has them): their hash.
-pub async fn send_bytes(c: &mut CoordinatorClient<Channel>, data: Vec<u8>) -> Result<String> {
+pub async fn send_bytes(c: &mut Conn, data: Vec<u8>) -> Result<String> {
     let hash = crate::hash(&data);
     if !c.has_blob(BlobId { hash: hash.clone() }).await?.into_inner().ok {
         c.put_blob(bytes_chunks(data, hash.clone())).await?;
@@ -42,7 +40,7 @@ pub async fn send_bytes(c: &mut CoordinatorClient<Channel>, data: Vec<u8>) -> Re
 }
 
 /// A blob in a store (fetched when it does not have it): its file.
-pub async fn fetch(c: &mut CoordinatorClient<Channel>, store: &Store, hash: &str) -> Result<PathBuf> {
+pub async fn fetch(c: &mut Conn, store: &Store, hash: &str) -> Result<PathBuf> {
     if store.has(hash) {
         return Ok(store.path(hash));
     }
@@ -56,7 +54,7 @@ pub async fn fetch(c: &mut CoordinatorClient<Channel>, store: &Store, hash: &str
 }
 
 /// A blob written to a file (whole, or not at all).
-pub async fn fetch_to(c: &mut CoordinatorClient<Channel>, hash: &str, dest: &Path) -> Result<()> {
+pub async fn fetch_to(c: &mut Conn, hash: &str, dest: &Path) -> Result<()> {
     if let Some(d) = dest.parent() {
         std::fs::create_dir_all(d)?;
     }
@@ -126,7 +124,7 @@ fn slashes(p: &Path) -> String {
 }
 
 /// Send what a path names (relative to `base`): `bundle:<hash>/<path in the bundle>`.
-pub async fn send(c: &mut CoordinatorClient<Channel>, path: &str, base: &Path) -> Result<String> {
+pub async fn send(c: &mut Conn, path: &str, base: &Path) -> Result<String> {
     if terraflux_graph::is_sent(path) {
         return Ok(path.to_string());
     }
@@ -146,7 +144,7 @@ pub async fn send(c: &mut CoordinatorClient<Channel>, path: &str, base: &Path) -
 }
 
 /// The local path of a path sent (`bundle:<hash>/...`): the bundle's folder made once in the cache.
-pub async fn local(c: &mut CoordinatorClient<Channel>, cache: &Path, path: &str) -> Result<String> {
+pub async fn local(c: &mut Conn, cache: &Path, path: &str) -> Result<String> {
     let Some(rest) = path.strip_prefix("bundle:") else { return Ok(path.to_string()) };
     let (hash, rel) = rest.split_once('/').unwrap_or((rest, ""));
     let store = Store::open(cache.join("blobs"))?;

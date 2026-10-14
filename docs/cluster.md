@@ -24,6 +24,24 @@ run (`<model> runs/replicates 1/seed_1/...`) with `tasks.csv`; "Show the runs of
 `raster.read` of `runs/*/file.tif`, the runs as one series. A calibration writes `calibration.csv` and
 `best.json`, plots its scores against each setting, and "Apply the best settings to the model" puts them in it.
 
+### Other computers of the network
+
+The toolbar's **Computers...** opens a pane of two parts, and nothing else to set up:
+
+- **Other computers help this one:** "Let other computers help" shows this computer's code (`K7QM-2XPA-9DTE`).
+  The runs of "Many runs" then also go to the computers of the local network given the code.
+- **This computer helps another:** type the other's code and "Lend this computer". It finds the other on the
+  network by itself and runs some of its runs: with the threads chosen, only when nobody uses it for some minutes
+  (Windows and macOS), or paused at will. Without the window: `terraflux worker --code K7QM-2XPA-9DTE`.
+
+Only the computers given the code take part, and what travels is encrypted (see "With a code" below). The
+installer lets Terraflux through the Windows firewall for the local network; elsewhere, the system may ask the
+first time. A network that does not carry broadcasts (some offices' Wi-Fi) needs the address instead:
+`terraflux worker --code ... --coordinator <the other's address>:7700`.
+
+The batches run on the application's own coordinator (its jobs in the user's application data, `pool`), with
+as many workers of this computer as "Runs at once on this computer" says.
+
 A batch goes on if the application is closed before its end: opened again, the pane offers to **go on** (the
 runs done are not run again, their files not fetched again) or to let it go. While a batch runs, the computer
 does not go to sleep.
@@ -123,9 +141,35 @@ terraflux results job-3 --coordinator http://coordinator-host:7700 --out results
   keyboard or the mouse (Windows and macOS); a task taken runs to its end.
 - **Slurm:** `tools/slurm/terraflux-workers.sbatch` starts workers on the nodes of a Slurm allocation.
 
-**Security:** the coordinator has no authentication or encryption yet. Anyone who reaches its port can submit
-tasks and read their data. It listens on 127.0.0.1 unless given another address. Expose it only on a trusted
-network, or reach it through an SSH tunnel (`ssh -L 7700:localhost:7700 coordinator-host`).
+### With a code
+
+```bash
+# the coordinator makes a code (or takes one: --code K7QM-2XPA-9DTE) and says on the network where it is
+terraflux serve --listen 0.0.0.0:7700 --code
+
+# workers and clients with the code find it by themselves on the local network
+terraflux worker --code K7QM-2XPA-9DTE
+terraflux submit model.toml --replicates 200 --code K7QM-2XPA-9DTE --out results
+
+# or by its address (another network, a VPN)
+terraflux worker --coordinator coordinator-host:7700 --code K7QM-2XPA-9DTE
+```
+
+- **The code:** 12 characters of Crockford's base 32 (60 bits; case, dashes and spaces do not matter, O reads 0
+  and I and L read 1). A key is made from it slowly (PBKDF2-HMAC-SHA256, 100 000 rounds).
+- **Encryption:** TLS 1.2 or 1.3, with a certificate the coordinator makes once and keeps in its folder.
+- **Who is who:** a client or worker accepts the coordinator only once it proves it knows the code (an HMAC of
+  the certificate it presented, made with the key: someone in between with a certificate of their own cannot
+  make it); the certificate is then pinned. Every call then carries a token made from the key; the coordinator
+  answers no call without it.
+- **Found on the network:** a coordinator with a code that listens beyond this computer broadcasts every two
+  seconds, on the UDP port 7701, its port and a beacon made from the key (it does not give the code away); a
+  worker with the same code listens for it.
+
+**Security without a code:** the coordinator has no authentication or encryption. Anyone who reaches its port
+can submit tasks and read their data. It listens on 127.0.0.1 unless given another address. Without a code,
+expose it only on a trusted network, or reach it through an SSH tunnel (`ssh -L 7700:localhost:7700
+coordinator-host`).
 
 ## What travels
 

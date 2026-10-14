@@ -39,11 +39,23 @@ fn shot(h: &mut Harness<TerrafluxApp>, name: &str) {
     }
 }
 
+/// The tests' own settings, not the user's; no computer shared or lent unless a test does it (on this computer
+/// only).
+fn setup() {
+    unsafe { std::env::set_var("TERRAFLUX_SETTINGS", tmp("settings.json")) };
+    terraflux_app::computers::AUTOSTART.store(false, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The application, with the tests' settings.
+fn new_app(model: Option<PathBuf>) -> TerrafluxApp {
+    setup();
+    TerrafluxApp::new(model)
+}
+
 /// The application rendered off screen by wgpu, the builder's canvas pipelines installed as the application
 /// does.
 fn harness(app: TerrafluxApp) -> Harness<'static, TerrafluxApp> {
-    // the tests' own settings, not the user's
-    unsafe { std::env::set_var("TERRAFLUX_SETTINGS", tmp("settings.json")) };
+    setup();
     let rs = egui_kittest::wgpu::create_render_state(
         egui_kittest::wgpu::default_wgpu_setup(),
         eframe::egui_wgpu::RendererOptions::PREDICTABLE,
@@ -80,7 +92,7 @@ fn drawn(h: &mut Harness<TerrafluxApp>) {
 
 #[test]
 fn a_model_runs_and_every_tab_draws() {
-    let mut h = harness(TerrafluxApp::new(Some(model())));
+    let mut h = harness(new_app(Some(model())));
     loaded(&mut h);
     h.state_mut().focus(Pane::Simulation);
     h.run_steps(3);
@@ -167,7 +179,7 @@ fn a_model_runs_and_every_tab_draws() {
 
 #[test]
 fn the_wizard_checks_the_data() {
-    let mut h = harness(TerrafluxApp::new(None));
+    let mut h = harness(new_app(None));
     h.run_steps(2);
     h.get_by_label("Wizard...").click();
     h.run_steps(2);
@@ -212,7 +224,7 @@ fn the_wizard_checks_the_data() {
 fn the_editor_changes_the_graph() {
     let path = tmp("ui-edited.toml");
     std::fs::copy(model(), &path).unwrap();
-    let mut h = harness(TerrafluxApp::new(Some(path.clone())));
+    let mut h = harness(new_app(Some(path.clone())));
     loaded(&mut h);
     h.state_mut().focus(Pane::Model);
     h.run_steps(3);
@@ -263,7 +275,7 @@ fn the_editor_changes_the_graph() {
 /// again), the result saved as a raster and the model as a file.
 #[test]
 fn the_builder_reads_analyses_and_writes() {
-    let mut h = harness(TerrafluxApp::new(None));
+    let mut h = harness(new_app(None));
     h.run_steps(2);
     assert!(h.state().is_open(Pane::Model), "the application opens in the builder");
     for p in [Pane::Simulation, Pane::Areas, Pane::Validation] {
@@ -351,7 +363,7 @@ fn the_builder_reads_analyses_and_writes() {
 /// a write node in the model too); a rule changed, the tab shows the new map.
 #[test]
 fn a_plot_shows_without_writing_and_saves_from_its_tab() {
-    let mut h = harness(TerrafluxApp::new(None));
+    let mut h = harness(new_app(None));
     h.run_steps(2);
     let r = terraflux_ops::Registry::standard();
     {
@@ -416,7 +428,7 @@ fn a_basemap_shows_under_the_data() {
     if terraflux_gdal::gdal().is_err() {
         return;
     }
-    let mut h = harness(TerrafluxApp::new(None));
+    let mut h = harness(new_app(None));
     h.run_steps(2);
     let r = terraflux_ops::Registry::standard();
     {
@@ -463,7 +475,7 @@ fn a_basemap_shows_under_the_data() {
 /// selected, escape closes the search.
 #[test]
 fn templates_run_and_the_keyboard_adds_operators() {
-    let mut h = harness(TerrafluxApp::new(None));
+    let mut h = harness(new_app(None));
     h.run_steps(2);
     let ctx = h.ctx.clone();
     h.state_mut().start_template(&ctx, &terraflux_app::templates::TEMPLATES[0]);
@@ -541,7 +553,7 @@ fn templates_run_and_the_keyboard_adds_operators() {
 #[test]
 fn fragmentation_is_shown_in_its_classes() {
     use terraflux_ops::landscape::Product;
-    let mut h = harness(TerrafluxApp::new(None));
+    let mut h = harness(new_app(None));
     h.run_steps(2);
     let ctx = h.ctx.clone();
     let t = terraflux_app::templates::TEMPLATES.iter().find(|t| t.name == "Fragmentation of a forest").unwrap();
@@ -578,7 +590,7 @@ fn fragmentation_is_shown_in_its_classes() {
 #[test]
 fn the_mosaic_and_contagion_are_named() {
     use terraflux_ops::landscape::Product;
-    let mut h = harness(TerrafluxApp::new(None));
+    let mut h = harness(new_app(None));
     h.run_steps(2);
     let ctx = h.ctx.clone();
     let t = terraflux_app::templates::TEMPLATES.iter().find(|t| t.name == "Landscape mosaic").unwrap();
@@ -615,7 +627,7 @@ fn the_mosaic_and_contagion_are_named() {
 fn metrics_show_as_tables_bars_and_maps() {
     use terraflux_app::charts::{Chart, Kind};
     use terraflux_app::table_view::{TableState, rows_shown};
-    let mut h = harness(TerrafluxApp::new(None));
+    let mut h = harness(new_app(None));
     h.run_steps(2);
     let ctx = h.ctx.clone();
     let t = terraflux_app::templates::TEMPLATES.iter().find(|t| t.name == "Landscape metrics").unwrap();
@@ -650,7 +662,7 @@ fn metrics_show_as_tables_bars_and_maps() {
 /// Zonation's rank in its ramp (dark to red), the features built by stack.of.
 #[test]
 fn zonation_rank_in_its_colours() {
-    let mut h = harness(TerrafluxApp::new(None));
+    let mut h = harness(new_app(None));
     h.run_steps(2);
     let ctx = h.ctx.clone();
     let t = terraflux_app::templates::TEMPLATES.iter().find(|t| t.name == "Zonation").unwrap();
@@ -696,7 +708,7 @@ fn vectors_are_drawn_with_their_attributes() {
         eprintln!("skipped: no GDAL");
         return;
     }
-    let mut h = harness(TerrafluxApp::new(None));
+    let mut h = harness(new_app(None));
     h.run_steps(2);
     let r = terraflux_ops::Registry::standard();
     {
@@ -720,7 +732,7 @@ fn vectors_are_drawn_with_their_attributes() {
 /// model is a button of the model's tab.
 #[test]
 fn keys_switch_close_rename_and_disconnect() {
-    let mut h = harness(TerrafluxApp::new(None));
+    let mut h = harness(new_app(None));
     h.run_steps(2);
     {
         let s = h.state_mut().session.as_mut().unwrap();
@@ -804,7 +816,7 @@ fn keys_switch_close_rename_and_disconnect() {
 /// node first), enter shows the output of the node selected in the viewer.
 #[test]
 fn nodes_are_gone_through_with_the_keyboard() {
-    let mut h = harness(TerrafluxApp::new(None));
+    let mut h = harness(new_app(None));
     h.run_steps(2);
     let ctx = h.ctx.clone();
     h.state_mut().start_template(&ctx, &terraflux_app::templates::TEMPLATES[0]);
@@ -858,7 +870,7 @@ fn data_is_put_on_the_reference_grid_in_a_click() {
     }
     let path = d.join("prepare.toml");
     m.save(&path).unwrap();
-    let mut h = harness(TerrafluxApp::new(Some(path)));
+    let mut h = harness(new_app(Some(path)));
     loaded(&mut h);
     h.state_mut().focus(Pane::Prepare);
     let r = terraflux_ops::Registry::standard();
@@ -898,7 +910,7 @@ fn data_is_put_on_the_reference_grid_in_a_click() {
 /// dock (egui_dock's floating window) becomes a window of its own.
 #[test]
 fn the_operators_drawer_and_windows_of_their_own() {
-    let mut h = harness(TerrafluxApp::new(None));
+    let mut h = harness(new_app(None));
     h.run_steps(2);
     let ctx = h.ctx.clone();
     h.state_mut().start_template(&ctx, &terraflux_app::templates::TEMPLATES[0]);
@@ -978,7 +990,7 @@ fn maps_stack_and_cells_show_their_series() {
     );
     let path = d.join("stack.toml");
     m.save(&path).unwrap();
-    let mut h = harness(TerrafluxApp::new(Some(path)));
+    let mut h = harness(new_app(Some(path)));
     loaded(&mut h);
     {
         let s = h.state_mut().session.as_mut().unwrap();
@@ -1046,7 +1058,7 @@ fn maps_stack_and_cells_show_their_series() {
 /// in the red collection shown when the collection is.
 #[test]
 fn settings_themes_and_favourites() {
-    let mut h = harness(TerrafluxApp::new(None));
+    let mut h = harness(new_app(None));
     h.run_steps(2);
     let ctx = h.ctx.clone();
     h.state_mut().start_template(&ctx, &terraflux_app::templates::TEMPLATES[0]);
@@ -1085,7 +1097,7 @@ fn settings_themes_and_favourites() {
 /// the Operators menu cascades as a classic menu, an operator chosen added after the node selected.
 #[test]
 fn rename_metadata_and_the_operators_menu() {
-    let mut h = harness(TerrafluxApp::new(None));
+    let mut h = harness(new_app(None));
     h.run_steps(2);
     let r = terraflux_ops::Registry::standard();
     {
@@ -1149,7 +1161,7 @@ fn the_changes_are_analysed_from_the_prepare_pane() {
     );
     let path = d.join("changes.toml");
     m.save(&path).unwrap();
-    let mut h = harness(TerrafluxApp::new(Some(path)));
+    let mut h = harness(new_app(Some(path)));
     loaded(&mut h);
     h.state_mut().focus(Pane::Prepare);
     {
@@ -1186,7 +1198,7 @@ fn weights_of_evidence_are_edited_in_the_viewer() {
     );
     let path = d.join("woe.toml");
     m.save(&path).unwrap();
-    let mut h = harness(TerrafluxApp::new(Some(path)));
+    let mut h = harness(new_app(Some(path)));
     loaded(&mut h);
     {
         let s = h.state_mut().session.as_mut().unwrap();
@@ -1228,7 +1240,7 @@ fn weights_of_evidence_are_edited_in_the_viewer() {
 /// name in the legend then.
 #[test]
 fn the_legend_is_edited_in_the_viewer() {
-    let mut h = harness(TerrafluxApp::new(None));
+    let mut h = harness(new_app(None));
     h.run_steps(2);
     let r = terraflux_ops::Registry::standard();
     {
@@ -1271,7 +1283,7 @@ fn the_legend_is_edited_in_the_viewer() {
 
 #[test]
 fn the_model_runs_many_times_from_its_pane() {
-    let mut h = harness(TerrafluxApp::new(Some(model())));
+    let mut h = harness(new_app(Some(model())));
     loaded(&mut h);
     {
         // two steps a run, for the test
@@ -1282,6 +1294,9 @@ fn the_model_runs_many_times_from_its_pane() {
     h.state_mut().focus(Pane::Batch);
     let out = tmp("ui-batch");
     let _ = std::fs::remove_dir_all(&out);
+    let _ = std::fs::remove_dir_all(tmp("ui-batch-pool"));
+    h.state_mut().computers.pool = None;
+    h.state_mut().computers.dir = Some(tmp("ui-batch-pool"));
     {
         let b = &mut h.state_mut().batch;
         b.runs = 3;
@@ -1367,19 +1382,22 @@ fn the_model_runs_many_times_from_its_pane() {
 
 #[test]
 fn a_batch_stopped_half_way_goes_on() {
-    // a batch of three runs submitted to a coordinator of this computer that stopped before any ran (the
-    // application closed): its job kept in the coordinator's folder
-    let state = tmp("ui-resume-state");
+    // a batch of three runs submitted to the application's pool, closed before any ran: its job kept in the
+    // pool's folder
+    let pool_dir = tmp("ui-resume-pool");
     let out = tmp("ui-resume-out");
-    let _ = std::fs::remove_dir_all(&state);
+    let _ = std::fs::remove_dir_all(&pool_dir);
     let _ = std::fs::remove_dir_all(&out);
     let path = model();
     let mut m = terraflux_graph::Model::load_expanded(&path).unwrap();
     m.apply(&[("simulation.times".to_string(), serde_json::json!(1))].into()).unwrap();
+    let code = terraflux_dist::secure::Code::generate();
+    let pool =
+        terraflux_dist::pool::Pool::start(pool_dir.clone(), tmp("ui-resume-cache"), code.clone(), false, 0).unwrap();
+    let place = pool.place();
     let job = tokio::runtime::Runtime::new().unwrap().block_on(async {
-        let options = terraflux_dist::coordinator::Options { dir: Some(state.clone()), ..Default::default() };
-        let local = terraflux_dist::Local::start(0, tmp("ui-resume-cache"), options).await.unwrap();
-        let mut c = terraflux_dist::client::Client::connect(&local.url).await.unwrap();
+        let terraflux_dist::run::Place::At { url, code } = place else { unreachable!() };
+        let mut c = terraflux_dist::client::Client::connect_with(&url, code.as_ref()).await.unwrap();
         let b = terraflux_dist::run::Batch {
             name: "resume".into(),
             model: m,
@@ -1388,17 +1406,14 @@ fn a_batch_stopped_half_way_goes_on() {
             files: true,
             evaluation: None,
         };
-        let job = terraflux_dist::run::submit(&mut c, &b, &mut |_| {}).await.unwrap();
-        local.shutdown();
-        job
+        terraflux_dist::run::submit(&mut c, &b, &mut |_| {}).await.unwrap()
     });
+    drop(pool);
     let record = terraflux_app::batch_view::Record {
         kind: terraflux_app::batch_view::Kind::Replicates,
         model: "Sibuyan".into(),
         out: out.clone(),
         files: true,
-        workers: 2,
-        state: state.clone(),
         job: Some(job),
         total: 3,
         plan: None,
@@ -1406,8 +1421,11 @@ fn a_batch_stopped_half_way_goes_on() {
     };
     // as the application finds it when it starts (the record of the user's data, shared by the tests that run
     // at the same time, given here)
-    let mut h = harness(TerrafluxApp::new(Some(path)));
+    let mut h = harness(new_app(Some(path)));
     h.state_mut().batch.interrupted = Some(record);
+    // the pool of this test (another test may have shared the user's, in the settings the tests share)
+    h.state_mut().computers.pool = None;
+    h.state_mut().computers.dir = Some(pool_dir);
     loaded(&mut h);
     h.state_mut().focus(Pane::Batch);
     h.run_steps(3);
@@ -1424,6 +1442,76 @@ fn a_batch_stopped_half_way_goes_on() {
     for seed in ["seed_1", "seed_2", "seed_3"] {
         assert!(out.join(seed).join("maps.tif").exists(), "{seed}");
     }
-    assert!(!state.exists(), "the batch's coordinator let go once done");
     assert!(b.interrupted.is_none());
+}
+
+#[test]
+fn a_computer_lends_itself_to_another_by_its_code() {
+    // two applications: one shares its pool (on this computer's loopback, beacons on a port of the test's own),
+    // the other is lent to it by its code
+    let beacons = 46_000 + (std::process::id() % 1000) as u16;
+    let loopback = std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
+    // neither shared nor lent at first (whatever a run stopped half way left in the tests' settings)
+    setup();
+    terraflux_app::settings::update(|s| {
+        s.share = false;
+        s.lend = false;
+        s.lend_code.clear();
+    });
+    let mut a = harness(new_app(None));
+    a.state_mut().computers.pool = None;
+    a.state_mut().computers.dir = Some(tmp("ui-share-pool"));
+    a.state_mut().computers.network = Some((loopback, beacons));
+    a.state_mut().focus(Pane::Computers);
+    a.run_steps(2);
+    a.get_by_label("Let other computers help").click();
+    a.run_steps(3);
+    let code = a.state().computers.pool.as_ref().expect("the pool started, shared").code().clone();
+    assert!(a.state().computers.pool.as_ref().unwrap().shared());
+    assert!(a.query_by_label(&code.to_string()).is_some(), "the code shown");
+    shot(&mut a, "computers-1-shared");
+
+    let mut b = new_app(None);
+    b.computers.network = Some((loopback, beacons));
+    let mut b = harness(b);
+    b.state_mut().focus(Pane::Computers);
+    b.run_steps(2);
+    b.get_by_role_and_label(egui::accesskit::Role::TextInput, "Code").click();
+    b.run_steps(1);
+    b.event(egui::Event::Text(code.to_string().to_lowercase()));
+    b.run_steps(2);
+    b.get_by_label("Lend this computer").click();
+    b.run_steps(2);
+    let t = Instant::now();
+    while b.state().computers.lender.as_ref().is_none_or(|l| l.status().coordinator.is_none()) {
+        b.step();
+        std::thread::sleep(Duration::from_millis(50));
+        let e = b.state().computers.error.clone();
+        let l = b.state().computers.lender.as_ref().map(|l| (l.code().to_string(), l.status()));
+        let st = terraflux_app::settings::get();
+        assert!(
+            t.elapsed() < Duration::from_secs(60),
+            "the lent computer found the other: {e:?} {l:?} pool {code} settings {} {}",
+            st.lend,
+            st.lend_code
+        );
+    }
+    b.run_steps(2);
+    shot(&mut b, "computers-2-lent");
+    // the sharing computer sees it among its helpers
+    let t = Instant::now();
+    while a.state_mut().computers.helpers().is_empty() {
+        a.step();
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(t.elapsed() < Duration::from_secs(30), "the helper seen");
+    }
+    a.run_steps(3);
+    shot(&mut a, "computers-3-helped");
+    // stop lending, stop sharing (the settings of the tests back as they were)
+    b.get_by_label("Stop lending").click();
+    b.run_steps(2);
+    assert!(b.state().computers.lender.is_none());
+    a.get_by_label("Let other computers help").click();
+    a.run_steps(2);
+    assert!(!a.state().computers.pool.as_ref().unwrap().shared());
 }

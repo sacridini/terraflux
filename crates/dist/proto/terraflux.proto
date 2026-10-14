@@ -38,7 +38,8 @@ service Coordinator {
 message Empty {}
 message Ack { bool ok = 1; }
 
-message CoordinatorHello { string version = 1; }
+// proof: with a pairing code, the HMAC of the coordinator's certificate made with the code's key.
+message CoordinatorHello { string version = 1; bytes proof = 2; }
 
 message WorkerHello { string name = 1; uint32 threads = 2; string version = 3; }
 message WorkerId { string id = 1; }

@@ -58,6 +58,9 @@ enum Command {
         /// every worker sees at the same paths).
         #[arg(long)]
         coordinator: Option<String>,
+        /// The coordinator's pairing code.
+        #[arg(long)]
+        code: Option<String>,
     },
     /// Check a model and its data without running it.
     Check { model: PathBuf },
@@ -83,11 +86,20 @@ enum Command {
         /// again on it goes on with its jobs.
         #[arg(long)]
         data: Option<PathBuf>,
+        /// A pairing code: TLS, and only the computers given the code (`--code` alone makes one, printed); the
+        /// coordinator says on the local network where it is, to be found by its code.
+        #[arg(long, num_args = 0..=1, default_missing_value = "new")]
+        code: Option<String>,
     },
     /// Run a headless worker: tasks from a coordinator, until stopped.
     Worker {
+        /// The coordinator (`host:7700`); with no coordinator, the one of --code found on the network.
         #[arg(long)]
-        coordinator: String,
+        coordinator: Option<String>,
+        /// The coordinator's pairing code (with no --coordinator: the coordinator of the code found on the
+        /// network).
+        #[arg(long)]
+        code: Option<String>,
         #[arg(long)]
         name: Option<String>,
         /// Where the data of the tasks is kept.
@@ -100,18 +112,30 @@ enum Command {
     /// The workers of a coordinator and what they do.
     Workers {
         #[arg(long)]
-        coordinator: String,
+        coordinator: Option<String>,
+        /// The coordinator's pairing code (with no --coordinator: the coordinator of the code found on the
+        /// network).
+        #[arg(long)]
+        code: Option<String>,
     },
     /// The jobs of a coordinator, done or not.
     Jobs {
         #[arg(long)]
-        coordinator: String,
+        coordinator: Option<String>,
+        /// The coordinator's pairing code (with no --coordinator: the coordinator of the code found on the
+        /// network).
+        #[arg(long)]
+        code: Option<String>,
     },
     /// Follow a job of a coordinator to its end and write its files (those written already kept).
     Results {
         job: String,
         #[arg(long)]
-        coordinator: String,
+        coordinator: Option<String>,
+        /// The coordinator's pairing code (with no --coordinator: the coordinator of the code found on the
+        /// network).
+        #[arg(long)]
+        code: Option<String>,
         #[arg(short, long, default_value = "batch")]
         out: PathBuf,
     },
@@ -455,13 +479,17 @@ fn main() -> Result<()> {
     let engine = Engine::default();
     let rt = || tokio::runtime::Builder::new_multi_thread().enable_all().build();
     match command {
-        Command::Serve { listen, timeout, data } => rt()?.block_on(cluster::serve(listen, timeout, data))?,
-        Command::Worker { coordinator, name, cache, idle } => {
-            rt()?.block_on(cluster::worker(&coordinator, name, cache, idle))?
+        Command::Serve { listen, timeout, data, code } => {
+            rt()?.block_on(cluster::serve(listen, timeout, data, code))?
         }
-        Command::Workers { coordinator } => rt()?.block_on(cluster::workers(&coordinator))?,
-        Command::Jobs { coordinator } => rt()?.block_on(cluster::jobs(&coordinator))?,
-        Command::Results { job, coordinator, out } => rt()?.block_on(cluster::results(&coordinator, &job, &out))?,
+        Command::Worker { coordinator, code, name, cache, idle } => {
+            rt()?.block_on(cluster::worker(coordinator, code, name, cache, idle))?
+        }
+        Command::Workers { coordinator, code } => rt()?.block_on(cluster::workers(coordinator, code))?,
+        Command::Jobs { coordinator, code } => rt()?.block_on(cluster::jobs(coordinator, code))?,
+        Command::Results { job, coordinator, code, out } => {
+            rt()?.block_on(cluster::results(coordinator, code, &job, &out))?
+        }
         Command::Submit { model, replicates, first_seed, scenarios, seed_input, out, detach, at } => {
             let tasks = match (replicates, scenarios) {
                 (Some(n), None) => {
@@ -474,7 +502,7 @@ fn main() -> Result<()> {
         }
         Command::Calibrate(a) => rt()?.block_on(cluster::calibrate(&a))?,
         Command::App { model } => app(model)?,
-        Command::Run { model, out, set, quiet, tiled, tile, radius, disk, coordinator } => {
+        Command::Run { model, out, set, quiet, tiled, tile, radius, disk, coordinator, code } => {
             let mut m = Model::load_expanded(&model).with_context(|| format!("reading {}", model.display()))?;
             let dir = model.parent().map(Path::to_path_buf).unwrap_or_default();
             if tiled {
@@ -491,7 +519,10 @@ fn main() -> Result<()> {
                     settings: terraflux_engine::dinamica::Settings { radius, ..Default::default() },
                     disk,
                     runner: match &coordinator {
-                        Some(url) => Some(std::sync::Arc::new(terraflux_dist::tiles::Remote::connect(url)?)),
+                        Some(url) => {
+                            let code = code.as_deref().map(terraflux_dist::secure::Code::parse).transpose()?;
+                            Some(std::sync::Arc::new(terraflux_dist::tiles::Remote::connect_with(url, code.as_ref())?))
+                        }
                         None => None,
                     },
                 };

@@ -129,7 +129,7 @@ async fn a_task_of_a_vanished_worker_runs_again() {
     let bundled = c.bundle(&model(), std::path::Path::new("")).await.unwrap();
     let job = c.submit("one", &bundled, &replicates(1, 5, &seed_keys("seed")), false, None).await.unwrap();
     // a worker takes the task and is never heard of again
-    let mut ghost = worker::connect(&local.url).await.unwrap();
+    let mut ghost = worker::connect(&local.url, None).await.unwrap();
     let ghost_id = ghost
         .register(WorkerHello { name: "ghost".into(), threads: 1, version: VERSION.into() })
         .await
@@ -278,7 +278,7 @@ async fn a_batch_writes_what_its_nodes_write_in_a_folder_per_run() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn workers_and_clients_of_another_version_are_turned_away() {
     let local = Local::start(0, tmp("cache-version"), Options::default()).await.unwrap();
-    let mut w = worker::connect(&local.url).await.unwrap();
+    let mut w = worker::connect(&local.url, None).await.unwrap();
     let e = w.register(WorkerHello { name: "old".into(), threads: 1, version: "0.1.0".into() }).await.unwrap_err();
     assert_eq!(e.code(), tonic::Code::FailedPrecondition);
     assert!(e.message().contains("0.1.0") && e.message().contains(VERSION), "{}", e.message());
@@ -300,7 +300,7 @@ async fn a_coordinator_started_again_goes_on_with_its_jobs() {
     let bundled = c.bundle(&m, std::path::Path::new("")).await.unwrap();
     let job = c.submit("again", &bundled, &replicates(4, 1, &seed_keys("seed")), true, None).await.unwrap();
     // one run done by hand before the stop
-    let mut w = worker::connect(&local.url).await.unwrap();
+    let mut w = worker::connect(&local.url, None).await.unwrap();
     let wid = w
         .register(WorkerHello { name: "w".into(), threads: 1, version: VERSION.into() })
         .await
@@ -330,7 +330,7 @@ async fn a_coordinator_started_again_goes_on_with_its_jobs() {
     assert_eq!((jobs[0].id.as_str(), jobs[0].done, jobs[0].total), (job.as_str(), 1, 4));
     let out = tmp("again-out");
     let start = terraflux_dist::run::Start::Resume(job.clone());
-    let place = terraflux_dist::run::Place::At(local.url.clone());
+    let place = terraflux_dist::run::Place::At { url: local.url.clone(), code: None };
     let stop = std::sync::atomic::AtomicBool::new(false);
     let o = terraflux_dist::run::run(&start, &place, Some(&out), &stop, &mut |_| {}).await.unwrap();
     assert_eq!((o.status.done, o.status.failed), (4, 0), "{:?}", o.status.errors);
@@ -384,7 +384,7 @@ async fn the_files_nodes_read_and_scenarios_give_travel_with_the_model() {
     }));
     let out = dir.join("out");
     let stop = std::sync::atomic::AtomicBool::new(false);
-    let place = terraflux_dist::run::Place::At(local.url.clone());
+    let place = terraflux_dist::run::Place::At { url: local.url.clone(), code: None };
     let o = terraflux_dist::run::run(&start, &place, Some(&out), &stop, &mut |_| {}).await.unwrap();
     assert_eq!((o.status.done, o.status.failed), (2, 0), "{:?}", o.status.errors);
     let a = terraflux_raster::Raster::read(out.join("a").join("forest.tif")).unwrap();

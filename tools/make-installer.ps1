@@ -57,9 +57,13 @@ try {
     # the MSI
     dotnet tool restore
     if ($LASTEXITCODE) { throw "dotnet tool restore failed" }
+    # the firewall's rule (computers of the local network helping with the runs)
+    dotnet wix extension add -g WixToolset.Firewall.wixext/5.0.2
+    if ($LASTEXITCODE) { throw "the WiX firewall extension could not be added" }
     $msi = "$out\terraflux-$version-x64.msi"
     $stageFull = (Resolve-Path $stage).Path
-    dotnet wix build installer\terraflux.wxs -arch x64 -d "Version=$version" -d "Stage=$stageFull" -o $msi
+    dotnet wix build installer\terraflux.wxs -arch x64 -ext WixToolset.Firewall.wixext -d "Version=$version" `
+        -d "Stage=$stageFull" -o $msi
     if ($LASTEXITCODE) { throw "wix build failed" }
     foreach ($f in $msi, $zip) { "{0} ({1:N0} MB)" -f $f, ((Get-Item $f).Length / 1MB) }
 }

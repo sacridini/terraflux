@@ -8,6 +8,7 @@ pub mod batch_view;
 pub mod builder;
 pub mod canvas_gpu;
 pub mod charts;
+pub mod computers;
 pub mod editor;
 pub mod editor_view;
 pub mod legend_view;

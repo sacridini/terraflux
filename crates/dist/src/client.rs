@@ -6,15 +6,13 @@ use std::path::Path;
 use std::time::Duration;
 
 use terraflux_graph::{Input, Model};
-use tonic::transport::Channel;
 
 use crate::evaluate::Evaluation;
-use crate::proto::coordinator_client::CoordinatorClient;
 use crate::proto::*;
 use crate::{Error, Result, bundle};
 
 pub struct Client {
-    c: CoordinatorClient<Channel>,
+    c: crate::net::Conn,
 }
 
 /// A task of a job: its label and its overrides of the model.
@@ -24,9 +22,14 @@ pub type TaskOf = (String, BTreeMap<String, serde_json::Value>);
 pub const READ_OPS: [&str; 3] = [terraflux_graph::PLUGIN, "raster.read", "vector.read"];
 
 impl Client {
-    /// Connect to a coordinator of this version of Terraflux.
+    /// Connect to a coordinator of this version of Terraflux (plain).
     pub async fn connect(url: &str) -> Result<Client> {
-        let mut c = crate::worker::connect(url).await?;
+        Client::connect_with(url, None).await
+    }
+
+    /// Connect to a coordinator of this version of Terraflux, with its pairing code if it has one.
+    pub async fn connect_with(url: &str, code: Option<&crate::secure::Code>) -> Result<Client> {
+        let mut c = crate::net::connect(url, code).await?;
         let theirs = c.hello(Empty {}).await?.into_inner().version;
         if theirs != crate::coordinator::VERSION {
             return Err(Error::Other(format!(

@@ -104,7 +104,7 @@ computadores"** e **"Emprestar este computador"**, nunca "coordenador", "porta" 
    lotes retomáveis (ver e baixar os resultados depois, o aplicativo reabre o lote), a máquina sem suspender
    enquanto há tarefas, o worker que pausa quando o usuário volta ao computador; os arquivos lidos pelos nós
    (`raster.read`, `vector.read`, shapefiles com os arquivos irmãos, pastas e padrões) enviados com o modelo.
-3. **Rede local sem configuração:** o coordenador embutido no aplicativo de quem lança o lote; "Emprestar este
+3. **Feito** (Unreleased). **Rede local sem configuração:** o coordenador embutido no aplicativo de quem lança o lote; "Emprestar este
    computador" nos outros; pareamento por um código curto (descoberta por broadcast UDP, o código como segredo:
    token de autenticação e TLS com o certificado fixado); a regra do firewall no instalador.
 4. **Clusters (HPC) por SSH com um perfil salvo:** host, usuário, partição e tempo do Slurm, ou um servidor sem

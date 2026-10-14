@@ -18,6 +18,7 @@ use tonic::{Request, Response, Status, Streaming};
 
 use crate::proto::coordinator_server::{Coordinator, CoordinatorServer};
 use crate::proto::*;
+use crate::secure::{Code, Identity, same};
 use crate::store::{Store, file_chunks};
 
 /// The largest message (a task's payload, a job's model, a part of the tiled engine).
@@ -36,11 +37,14 @@ pub struct Options {
     /// Where the blobs and the jobs are kept (none: a folder of its own in the system's temporary folder, let go
     /// when the coordinator stops).
     pub dir: Option<PathBuf>,
+    /// The pairing code: TLS, and only the clients and workers that know it (none: plain, anyone who reaches
+    /// it).
+    pub code: Option<Code>,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { timeout: Duration::from_secs(60), attempts: 3, dir: None }
+        Options { timeout: Duration::from_secs(60), attempts: 3, dir: None, code: None }
     }
 }
 
@@ -215,6 +219,12 @@ pub struct Service {
     dir: PathBuf,
     /// The folder is the coordinator's own, let go when it stops.
     temporary: bool,
+    /// Held while the jobs are written: a save waits for the one under way (the last one wins).
+    saving: Arc<Mutex<()>>,
+    /// With a code: its certificate, the proof it knows the code, and the token of the calls.
+    identity: Option<Arc<Identity>>,
+    proof: Vec<u8>,
+    token: Option<String>,
 }
 
 const STATE: &str = "state.pb";
@@ -242,6 +252,14 @@ impl Service {
             ),
             Err(_) => Inner::default(),
         };
+        let (identity, proof, token) = match &options.code {
+            Some(code) => {
+                let id = Identity::load_or_create(&dir)?;
+                let proof = code.proof(&id.fingerprint());
+                (Some(Arc::new(id)), proof, Some(format!("Bearer {}", code.token())))
+            }
+            None => (None, Vec::new(), None),
+        };
         Ok(Service {
             inner: Arc::new(Mutex::new(inner)),
             notify: Arc::new(Notify::new()),
@@ -249,7 +267,62 @@ impl Service {
             store,
             dir,
             temporary,
+            saving: Arc::new(Mutex::new(())),
+            identity,
+            proof,
+            token,
         })
+    }
+
+    /// Drop a job, its results and the files of its results (unless another job's results have them too):
+    /// whether it was there.
+    pub fn forget_now(&self, id: &str) -> bool {
+        let mut g = self.lock();
+        let Some(job) = g.jobs.remove(id) else { return false };
+        g.queue.retain(|(j, _)| j != id);
+        g.dirty = true;
+        let mine: BTreeSet<String> = job
+            .tasks
+            .iter()
+            .flat_map(|t| t.result.iter().flat_map(|r| r.files.iter().map(|f| f.hash.clone())))
+            .collect();
+        let others: BTreeSet<&String> = g
+            .jobs
+            .values()
+            .flat_map(|j| j.tasks.iter().flat_map(|t| t.result.iter().flat_map(|r| r.files.iter().map(|f| &f.hash))))
+            .collect();
+        for h in mine.iter().filter(|h| !others.contains(h)) {
+            self.store.remove(h);
+        }
+        true
+    }
+
+    /// The workers and what each is doing.
+    pub fn workers_now(&self) -> Vec<WorkerState> {
+        let g = self.lock();
+        g.workers
+            .iter()
+            .map(|(id, w)| WorkerState {
+                id: id.clone(),
+                name: w.name.clone(),
+                threads: w.threads,
+                done: w.done,
+                task: w.task.as_ref().map(|(j, i)| format!("{j}/{i}")).unwrap_or_default(),
+                seen_seconds_ago: w.seen.elapsed().as_secs_f64(),
+                version: w.version.clone(),
+            })
+            .collect()
+    }
+
+    /// Whether a call may be made: with a code, only with its token.
+    fn allowed<T>(&self, r: &Request<T>) -> Result<(), Status> {
+        let Some(token) = &self.token else { return Ok(()) };
+        let given = r.metadata().get("authorization").and_then(|v| v.to_str().ok()).unwrap_or("");
+        if same(given.as_bytes(), token.as_bytes()) {
+            Ok(())
+        } else {
+            Err(Status::unauthenticated("this coordinator needs its code"))
+        }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
@@ -270,6 +343,7 @@ impl Service {
 
     /// Keep the jobs on disk if they changed (done every second by the server).
     pub fn save(&self) -> crate::Result<()> {
+        let _one = self.saving.lock().unwrap_or_else(|e| e.into_inner());
         let bytes = {
             let mut g = self.lock();
             if !g.dirty {
@@ -318,10 +392,11 @@ type ChunkStream = Pin<Box<dyn Stream<Item = Result<Chunk, Status>> + Send>>;
 #[tonic::async_trait]
 impl Coordinator for Service {
     async fn hello(&self, _r: Request<Empty>) -> Result<Response<CoordinatorHello>, Status> {
-        Ok(Response::new(CoordinatorHello { version: VERSION.into() }))
+        Ok(Response::new(CoordinatorHello { version: VERSION.into(), proof: self.proof.clone() }))
     }
 
     async fn register(&self, r: Request<WorkerHello>) -> Result<Response<WorkerId>, Status> {
+        self.allowed(&r)?;
         let h = r.into_inner();
         if h.version != VERSION {
             return Err(Status::failed_precondition(format!(
@@ -340,6 +415,7 @@ impl Coordinator for Service {
     }
 
     async fn next_task(&self, r: Request<TaskRequest>) -> Result<Response<TaskAssignment>, Status> {
+        self.allowed(&r)?;
         let r = r.into_inner();
         let deadline = Instant::now() + Duration::from_millis(u64::from(r.wait_ms.min(60_000)));
         loop {
@@ -385,6 +461,7 @@ impl Coordinator for Service {
     type GetBlobStream = ChunkStream;
 
     async fn get_blob(&self, r: Request<BlobId>) -> Result<Response<ChunkStream>, Status> {
+        self.allowed(&r)?;
         let hash = r.into_inner().hash;
         if !self.store.has(&hash) {
             return Err(Status::not_found(format!("no blob {hash}")));
@@ -395,6 +472,7 @@ impl Coordinator for Service {
     }
 
     async fn heartbeat(&self, r: Request<WorkerId>) -> Result<Response<Ack>, Status> {
+        self.allowed(&r)?;
         let id = r.into_inner().id;
         let mut g = self.lock();
         let w = g.workers.get_mut(&id).ok_or_else(|| Status::not_found("unknown worker"))?;
@@ -403,6 +481,7 @@ impl Coordinator for Service {
     }
 
     async fn complete(&self, r: Request<TaskResult>) -> Result<Response<Ack>, Status> {
+        self.allowed(&r)?;
         let mut res = r.into_inner();
         if let Some(f) = res.files.iter().find(|f| !self.store.has(&f.hash)) {
             return Err(Status::failed_precondition(format!("the file {} was not sent", f.name)));
@@ -436,6 +515,7 @@ impl Coordinator for Service {
     }
 
     async fn put_blob(&self, r: Request<Streaming<Chunk>>) -> Result<Response<BlobId>, Status> {
+        self.allowed(&r)?;
         let mut s = r.into_inner();
         let mut w = self.store.writer().map_err(|e| Status::internal(e.to_string()))?;
         let mut expected = None;
@@ -450,10 +530,12 @@ impl Coordinator for Service {
     }
 
     async fn has_blob(&self, r: Request<BlobId>) -> Result<Response<Ack>, Status> {
+        self.allowed(&r)?;
         Ok(Response::new(Ack { ok: self.store.has(&r.into_inner().hash) }))
     }
 
     async fn submit(&self, r: Request<JobSpec>) -> Result<Response<JobId>, Status> {
+        self.allowed(&r)?;
         let s = r.into_inner();
         if s.tasks.is_empty() {
             return Err(Status::invalid_argument("a job needs a task"));
@@ -496,6 +578,7 @@ impl Coordinator for Service {
     }
 
     async fn status(&self, r: Request<JobId>) -> Result<Response<JobStatus>, Status> {
+        self.allowed(&r)?;
         let id = r.into_inner().id;
         let g = self.lock();
         let j = g.jobs.get(&id).ok_or_else(|| Status::not_found("unknown job"))?;
@@ -503,6 +586,7 @@ impl Coordinator for Service {
     }
 
     async fn wait(&self, r: Request<WaitRequest>) -> Result<Response<JobStatus>, Status> {
+        self.allowed(&r)?;
         let r = r.into_inner();
         let deadline = Instant::now() + Duration::from_millis(u64::from(r.wait_ms.min(60_000)));
         loop {
@@ -520,29 +604,12 @@ impl Coordinator for Service {
     }
 
     async fn forget(&self, r: Request<JobId>) -> Result<Response<Ack>, Status> {
-        let id = r.into_inner().id;
-        let mut g = self.lock();
-        let Some(job) = g.jobs.remove(&id) else { return Ok(Response::new(Ack { ok: false })) };
-        g.queue.retain(|(j, _)| *j != id);
-        g.dirty = true;
-        // the files of its results, unless another job's results have them too
-        let mine: BTreeSet<String> = job
-            .tasks
-            .iter()
-            .flat_map(|t| t.result.iter().flat_map(|r| r.files.iter().map(|f| f.hash.clone())))
-            .collect();
-        let others: BTreeSet<&String> = g
-            .jobs
-            .values()
-            .flat_map(|j| j.tasks.iter().flat_map(|t| t.result.iter().flat_map(|r| r.files.iter().map(|f| &f.hash))))
-            .collect();
-        for h in mine.iter().filter(|h| !others.contains(h)) {
-            self.store.remove(h);
-        }
-        Ok(Response::new(Ack { ok: true }))
+        self.allowed(&r)?;
+        Ok(Response::new(Ack { ok: self.forget_now(&r.into_inner().id) }))
     }
 
     async fn results(&self, r: Request<JobId>) -> Result<Response<JobResults>, Status> {
+        self.allowed(&r)?;
         let id = r.into_inner().id;
         let g = self.lock();
         let j = g.jobs.get(&id).ok_or_else(|| Status::not_found("unknown job"))?;
@@ -550,32 +617,19 @@ impl Coordinator for Service {
     }
 
     async fn jobs(&self, _r: Request<Empty>) -> Result<Response<JobList>, Status> {
+        self.allowed(&_r)?;
         let g = self.lock();
         Ok(Response::new(JobList { jobs: g.jobs.iter().map(|(id, j)| status_of(id, j)).collect() }))
     }
 
     async fn workers(&self, _r: Request<Empty>) -> Result<Response<WorkerList>, Status> {
-        let g = self.lock();
-        Ok(Response::new(WorkerList {
-            workers: g
-                .workers
-                .iter()
-                .map(|(id, w)| WorkerState {
-                    id: id.clone(),
-                    name: w.name.clone(),
-                    threads: w.threads,
-                    done: w.done,
-                    task: w.task.as_ref().map(|(j, i)| format!("{j}/{i}")).unwrap_or_default(),
-                    seen_seconds_ago: w.seen.elapsed().as_secs_f64(),
-                    version: w.version.clone(),
-                })
-                .collect(),
-        }))
+        self.allowed(&_r)?;
+        Ok(Response::new(WorkerList { workers: self.workers_now() }))
     }
 }
 
 /// A coordinator serving on an address (port 0: any free one): its address, the service and the server's task
-/// (the jobs kept on disk every second).
+/// (the jobs kept on disk every second). With a code, it speaks TLS only.
 pub async fn serve(
     addr: SocketAddr,
     options: Options,
@@ -583,13 +637,17 @@ pub async fn serve(
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let local = listener.local_addr()?;
     let service = Service::new(options)?;
+    let tls = service.identity.as_ref().map(|i| i.server_config()).transpose()?;
     let s = service.clone();
     let keeper = service.clone();
     let handle = tokio::spawn(async move {
         let server =
             CoordinatorServer::new(s).max_decoding_message_size(MAX_MESSAGE).max_encoding_message_size(MAX_MESSAGE);
-        let incoming = tokio_stream::wrappers::TcpListenerStream::new(listener);
-        let serving = tonic::transport::Server::builder().add_service(server).serve_with_incoming(incoming);
+        let builder = tonic::transport::Server::builder().add_service(server);
+        let serving: Pin<Box<dyn std::future::Future<Output = _> + Send>> = match tls {
+            Some(config) => Box::pin(builder.serve_with_incoming(crate::net::accept(listener, config))),
+            None => Box::pin(builder.serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))),
+        };
         let keeping = async move {
             let mut tick = tokio::time::interval(Duration::from_secs(1));
             loop {

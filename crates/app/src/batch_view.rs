@@ -21,6 +21,7 @@ use terraflux_graph::{Input, Model, Node, Source, Type};
 use terraflux_ops::Registry;
 
 use crate::app::{Session, accent_button};
+use crate::computers::Computers;
 use crate::theme;
 
 /// What a batch does.
@@ -241,9 +242,7 @@ pub struct Record {
     pub model: String,
     pub out: PathBuf,
     pub files: bool,
-    pub workers: usize,
-    /// The coordinator's folder (its jobs and data).
-    pub state: PathBuf,
+    /// Its job on the application's pool (see [`crate::computers`]).
     pub job: Option<String>,
     pub total: usize,
     pub plan: Option<Plan>,
@@ -255,15 +254,9 @@ fn now() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
-/// Where the batch running is kept, and the coordinators' folders (the user's application data).
+/// Where the batch running is kept (the user's application data).
 fn record_file() -> Option<PathBuf> {
     crate::settings::file().and_then(|f| f.parent().map(|d| d.join("batch.json")))
-}
-
-fn batches_dir() -> PathBuf {
-    crate::settings::file()
-        .and_then(|f| f.parent().map(|d| d.join("batches")))
-        .unwrap_or_else(|| std::env::temp_dir().join("terraflux-batches"))
 }
 
 impl Record {
@@ -277,12 +270,11 @@ impl Record {
         }
     }
 
-    /// The batch let go: its record and its coordinator's folder.
+    /// The batch let go: its record.
     fn drop_all(&self) {
         if let Some(f) = record_file() {
             let _ = std::fs::remove_file(f);
         }
-        let _ = std::fs::remove_dir_all(&self.state);
     }
 
     /// Whether another window of the application runs it now.
@@ -648,8 +640,14 @@ fn default_start(m: &Model) -> Option<String> {
         .or(all.into_iter().next())
 }
 
-/// Start the batch chosen on the model of the session.
-fn start(st: &mut BatchState, s: &Session, r: &Registry, ctx: &egui::Context) -> Result<(), String> {
+/// Start the batch chosen on the model of the session, on the application's pool.
+fn start(
+    st: &mut BatchState,
+    s: &Session,
+    r: &Registry,
+    computers: &mut Computers,
+    ctx: &egui::Context,
+) -> Result<(), String> {
     if s.issues.iter().any(|i| i.severity == terraflux_graph::Severity::Error) {
         return Err("the model has errors: fix them first (see the nodes in red)".into());
     }
@@ -692,29 +690,14 @@ fn start(st: &mut BatchState, s: &Session, r: &Registry, ctx: &egui::Context) ->
     let total = tasks.len();
     let b =
         Batch { name: format!("{} {}", s.title(), st.kind.name()), model, base: s.base(), tasks, files, evaluation };
-    let record = Record {
-        kind: st.kind,
-        model: s.title(),
-        out,
-        files,
-        workers: st.workers.clamp(1, total.max(1)),
-        state: batches_dir().join(format!("{}-{}", now(), std::process::id())),
-        job: None,
-        total,
-        plan,
-        alive: now(),
-    };
-    launch(st, Start::New(Box::new(b)), record, ctx);
+    let record = Record { kind: st.kind, model: s.title(), out, files, job: None, total, plan, alive: now() };
+    let place = computers.pool(st.workers.clamp(1, total.max(1)))?.place();
+    launch(st, Start::New(Box::new(b)), record, place, ctx);
     Ok(())
 }
 
-/// Run a batch (or take one up again) on workers of this computer, its coordinator's jobs in its own folder.
-fn launch(st: &mut BatchState, start: Start, record: Record, ctx: &egui::Context) {
-    let place = Place::Here {
-        workers: record.workers,
-        cache: std::env::temp_dir().join("terraflux-cache"),
-        state: Some(record.state.clone()),
-    };
+/// Run a batch (or take one up again) on the application's pool.
+fn launch(st: &mut BatchState, start: Start, record: Record, place: Place, ctx: &egui::Context) {
     let ctx = ctx.clone();
     let out = record.files.then(|| record.out.clone());
     let handle = terraflux_dist::run::spawn(start, place, out, Box::new(move || ctx.request_repaint()));
@@ -736,7 +719,7 @@ fn launch(st: &mut BatchState, start: Start, record: Record, ctx: &egui::Context
 }
 
 /// The batch that stopped before its end: taken up again, or let go.
-fn interrupted_ui(ui: &mut Ui, st: &mut BatchState) {
+fn interrupted_ui(ui: &mut Ui, st: &mut BatchState, computers: &mut Computers) {
     let Some(r) = st.interrupted.clone() else { return };
     if st.running() {
         return;
@@ -760,9 +743,18 @@ fn interrupted_ui(ui: &mut Ui, st: &mut BatchState) {
             if ui.add(accent_button("Go on", true)).on_hover_text("the runs done are not run again").clicked()
                 && let Some(job) = r.job.clone()
             {
-                launch(st, Start::Resume(job), r.clone(), ui.ctx());
+                match computers.pool(st.workers) {
+                    Ok(p) => {
+                        let place = p.place();
+                        launch(st, Start::Resume(job), r.clone(), place, ui.ctx());
+                    }
+                    Err(e) => st.error = Some(e),
+                }
             }
             if ui.button("Let it go").clicked() {
+                if let (Some(job), Ok(p)) = (&r.job, computers.pool(0)) {
+                    p.forget(job);
+                }
                 r.drop_all();
                 st.interrupted = None;
             }
@@ -1218,14 +1210,14 @@ fn finished_ui(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry) 
 }
 
 /// The batch pane.
-pub fn pane(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry) {
+pub fn pane(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry, computers: &mut Computers) {
     st.follow(s);
     st.poll();
     let knobs = knobs(&s.model, r);
     let busy = st.running();
     // what the batch is, and its button and progress, always in view
     egui::Frame::new().inner_margin(egui::Margin::same(8)).show(ui, |ui| {
-        interrupted_ui(ui, st);
+        interrupted_ui(ui, st, computers);
         ui.horizontal(|ui| {
             ui.add_enabled_ui(!busy, |ui| {
                 for (k, name) in [
@@ -1253,7 +1245,7 @@ pub fn pane(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry) {
                     ui.label(RichText::new(e).color(ui.visuals().warn_fg_color));
                 }
                 if resp.clicked()
-                    && let Err(e) = start(st, s, r, ui.ctx())
+                    && let Err(e) = start(st, s, r, computers, ui.ctx())
                 {
                     st.error = Some(e);
                 }
@@ -1261,6 +1253,16 @@ pub fn pane(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry) {
         });
         if let Some(run) = &st.running {
             running_ui(ui, run);
+            let helpers = computers.helpers().len();
+            if helpers > 0 {
+                ui.label(
+                    RichText::new(format!(
+                        "{helpers} other {} helping",
+                        if helpers == 1 { "computer is" } else { "computers are" }
+                    ))
+                    .color(theme::accent()),
+                );
+            }
         }
         if let Some(e) = &st.error {
             ui.colored_label(ui.visuals().error_fg_color, e);
@@ -1333,15 +1335,11 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         unsafe { std::env::set_var("TERRAFLUX_SETTINGS", dir.join("settings.json")) };
         assert!(interrupted().is_none());
-        let state = dir.join("batches").join("1");
-        std::fs::create_dir_all(&state).unwrap();
         let mut r = Record {
             kind: Kind::Calibration,
             model: "m".into(),
             out: dir.join("out"),
             files: false,
-            workers: 2,
-            state: state.clone(),
             job: None,
             total: 4,
             plan: Some(Plan {
@@ -1361,7 +1359,7 @@ mod tests {
         assert_eq!(back.plan.as_ref().unwrap().candidates[0]["a.b"], 1.5);
         assert!(back.elsewhere(), "kept a moment ago: a window runs it");
         r.drop_all();
-        assert!(interrupted().is_none() && !state.exists());
+        assert!(interrupted().is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

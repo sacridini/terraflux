@@ -6,6 +6,21 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Other computers of the local network help with the runs, from a code and nothing else: the **Computers** pane
+  (the toolbar's "Computers...") shows this computer's code when "Let other computers help" is on, and lends this
+  computer to another's by typing the other's code ("Lend this computer": the threads it uses, only when nobody
+  uses it for some minutes, paused at will). The computers find each other on the network by themselves; the
+  sharing computer lists those helping, the lent one says whom it works for and how many runs it did. "Many runs"
+  goes to the application's own coordinator (its jobs in the user's application data), which other computers
+  join when it is shared.
+- Pairing codes for coordinators (`terraflux serve --code`, `worker --code`, `submit --code`, `calibrate --code`,
+  `jobs --code`, `results --code`, `run --tiled --code`): TLS with a certificate the coordinator makes for
+  itself, the coordinator's proof that it knows the code (an HMAC of its certificate) before anything is sent,
+  the certificate then pinned, and every call with a token made from the code (PBKDF2-HMAC-SHA256); without
+  `--coordinator`, the coordinator of the code is found on the local network by its beacons (UDP port 7701).
+- The Windows installer lets Terraflux through the firewall for the local network.
+
 ## [0.75.0] - 2026-10-14
 
 ### Added

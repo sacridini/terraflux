@@ -17,6 +17,7 @@ use crate::client::{Client, TaskOf};
 use crate::coordinator::Options;
 use crate::evaluate::Evaluation;
 use crate::proto::{JobStatus, TaskResult};
+use crate::secure::Code;
 use crate::{Error, Local, Result};
 
 /// Where a batch runs.
@@ -25,8 +26,8 @@ pub enum Place {
     /// A coordinator and `workers` workers started here for the batch, their data kept in `cache`; the
     /// coordinator's jobs kept in `state` (none: let go when it stops; a folder: the batch may be taken up again).
     Here { workers: usize, cache: PathBuf, state: Option<PathBuf> },
-    /// A coordinator's workers (`http://host:7700`).
-    At(String),
+    /// A coordinator's workers (`http://host:7700`), with its pairing code if it has one.
+    At { url: String, code: Option<Code> },
 }
 
 /// A batch: a model (its paths relative to `base`) run once per task.
@@ -83,17 +84,17 @@ pub async fn run(
     stop: &AtomicBool,
     progress: &mut dyn FnMut(Progress),
 ) -> Result<Outcome> {
-    let (url, local) = match place {
-        Place::At(u) => (u.clone(), None),
+    let (url, code, local) = match place {
+        Place::At { url, code } => (url.clone(), code.clone(), None),
         Place::Here { workers, cache, state } => {
             let options = Options { dir: state.clone(), ..Default::default() };
             let local = Local::start(*workers, cache.clone(), options).await?;
             progress(Progress::Workers(*workers));
-            (local.url.clone(), Some(local))
+            (local.url.clone(), None, Some(local))
         }
     };
     let r = async {
-        let mut c = Client::connect(&url).await?;
+        let mut c = Client::connect_with(&url, code.as_ref()).await?;
         let job = match start {
             Start::New(b) => submit(&mut c, b, progress).await?,
             Start::Resume(job) => job.clone(),
