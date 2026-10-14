@@ -6,6 +6,15 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- The matrices and rasters around prioritizr's problems (landschaft's prioritize): `prioritize.boundary_matrix`,
+  `prioritize.adjacency_matrix` (4 or 8 directions), `prioritize.connectivity_matrix` (the shared boundary times
+  the mean of a map or an attribute) and `prioritize.proximity_matrix` of cells or polygons, as the i, j, x tables
+  the problems take; `prioritize.decay_connectivity` (distances between units as Conefor's dispersal
+  probability), `prioritize.unit_points`, `prioritize.coarsen` and `prioritize.refine` (a problem on coarser blocks
+  and its selection back on the fine grid), `prioritize.binary_stack` (zone numbers as a 0/1 layer per zone) and
+  `prioritize.protected_cells`. The same as landschaft's, to the bit.
+
 ## [0.66.0] - 2026-10-14
 
 ### Added

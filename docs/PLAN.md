@@ -707,8 +707,11 @@ Pendências:
   `validate.error_budget`, `validate.futures` e `validate.futures_grid`, bit a bit com o landschaft.
 - **Entradas do FUTURES (0.66.0, 2026-10-14):** `futures.devpressure` e `futures.patch_library`, bit a bit com
   o landschaft. Falta o `calibrate_patches` (roda o modelo FUTURES inteiro do Python do landschaft).
-- **Próximos (2026-10-14):** os instaladores de macOS e Linux; do `prioritize`, os projetos do Zonation 5 (.z5), coarsen/refine, as matrizes de conectividade e proximidade e o
-  prioriactions de rasters.
+- **Matrizes e rasters do prioritize (0.67.0, 2026-10-14):** `prioritize.boundary_matrix`, `adjacency_matrix`,
+  `connectivity_matrix`, `proximity_matrix`, `decay_connectivity`, `unit_points`, `coarsen`, `refine`,
+  `binary_stack` e `protected_cells`, bit a bit com o landschaft.
+- **Próximos (2026-10-14):** os instaladores de macOS e Linux; do `prioritize`, os projetos do Zonation 5 (.z5) e
+  o prioriactions de rasters.
 
 - **A ponte do ls.simulate completa (branch `simulate-bridge`, 2026-10-13):** todo modelo do `ls.simulate` vai pelo
   `Model.save` e roda no Terraflux com os mesmos bits. Estimadores e outros potenciais sem forma fechada como

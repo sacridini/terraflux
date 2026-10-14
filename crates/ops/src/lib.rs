@@ -55,6 +55,7 @@ pub mod plus;
 pub mod prepare;
 pub mod presets;
 pub mod prioritize;
+pub mod prioritize_tools;
 pub mod restoration;
 pub mod restoration_plan;
 pub mod sampling;
@@ -281,6 +282,7 @@ impl Registry {
         change::register(&mut r);
         change_analysis::register(&mut r);
         differ::register(&mut r);
+        prioritize_tools::register(&mut r);
         futures_tools::register(&mut r);
         map_validation::register(&mut r);
         batch::register(&mut r);
