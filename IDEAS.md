@@ -62,7 +62,7 @@ distâncias, unidades de planejamento em polígonos, o desenho no viewer).
 - **Feito** (Unreleased): os vetores no motor por tiles: `vector.zonal` por faixas de linhas (as zonas grandes
   corrida por corrida, as mesmas somas do C++), `vector.extract` pelas faixas que têm pontos e `vector.rasterize`
   num GeoTIFF faixa a faixa, bit a bit com a memória (exceto as linhas do GDAL com `all_touched` nos cantos das
-  células). Falta: `vector.exact_sum` e `vector.distance` fora da memória.
+  células). **Feito** (0.63.0): `vector.exact_sum` e `vector.distance` fora da memória, os mesmos bits.
 
 ## Viewer
 

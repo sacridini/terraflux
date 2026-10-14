@@ -6,6 +6,13 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- `vector.exact_sum` and `vector.distance` out of core (`block_rows`, and rasters on disk of more than 250 million
+  cells): the exact sums with only the values under each polygon read from disk (exactextract's coverage of the
+  polygon on the whole grid, in landschaft's pieces), the distances by strips into a GeoTIFF (the features burnt
+  strip by strip, the column passes through a file of the nearest rows below, the rows' envelopes); the same bits
+  as in memory.
+
 ## [0.62.0] - 2026-10-14
 
 ### Added

@@ -216,6 +216,22 @@ pub mod ffi {
 
     /// Circles around points as CoordinateCleaner draws them: per point its parts (rings), per ring its
     /// vertices, and the coordinates (x, y interleaved) one ring after the other.
+    /// A piece of exactextract's coverage of a feature (lsio::exact_sums' loop): the window of the grid (its first
+    /// row and column, rows and columns), the coverage's rows and columns, its offset in the window, the covered
+    /// fraction of every cell (rows x cols); `empty` when the piece covers nothing.
+    struct ExactPiece {
+        empty: bool,
+        i0: i64,
+        j0: i64,
+        wrows: i64,
+        wcols: i64,
+        rows: i64,
+        cols: i64,
+        x_off: i64,
+        y_off: i64,
+        fraction: Vec<f32>,
+    }
+
     struct CirclesOut {
         parts: Vec<i64>,
         vertices: Vec<i64>,
@@ -1222,6 +1238,30 @@ pub mod ffi {
         fn sdm_outlier_statistic(lon: &[f64], lat: &[f64], use_min: bool) -> Result<Vec<f64>>;
         /// GeographicLib's direct geodesic problem on WGS84 (its C library, geod_direct): the point at distance s
         /// (metres) from each point at azimuth azi (degrees), lon and lat interleaved.
+        /// The pieces (subgrids of at most `max_cells` cells) of a feature's box on the grid (xmin, ymin, xmax, ymax,
+        /// dx, dy; ny x nx), as lsio::exact_sums cuts it.
+        #[allow(clippy::too_many_arguments)]
+        fn io_exact_piece_count(
+            grid: &[f64],
+            ny: i64,
+            nx: i64,
+            xy: &[f64],
+            ring_offsets: &[i64],
+            polygon_offsets: &[i64],
+            max_cells: i64,
+        ) -> Result<i64>;
+        /// Piece `k` of a feature's coverage.
+        #[allow(clippy::too_many_arguments)]
+        fn io_exact_piece(
+            grid: &[f64],
+            ny: i64,
+            nx: i64,
+            xy: &[f64],
+            ring_offsets: &[i64],
+            polygon_offsets: &[i64],
+            max_cells: i64,
+            k: i64,
+        ) -> Result<ExactPiece>;
         fn sdm_geod_direct(lon: &[f64], lat: &[f64], azi: &[f64], s: &[f64]) -> Result<Vec<f64>>;
         /// The same on the cells of a grid with their counts of records (cc_outl's raster variant).
         fn sdm_outlier_statistic_weighted(

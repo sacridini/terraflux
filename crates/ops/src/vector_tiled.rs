@@ -477,16 +477,8 @@ pub fn burn_to_file(
     add: bool,
     rows: usize,
 ) -> Result<()> {
-    let (nx, ny) = (grid.width, grid.height);
-    let polys: Vec<usize> = (0..v.len()).filter(|&i| v.geometries[i].is_polygonal()).collect();
-    let geoms: Vec<&Geometry> = polys.iter().map(|&i| &v.geometries[i]).collect();
-    let runs = if geoms.is_empty() { None } else { Some(crate::vector::runs(&geoms, grid, all_touched)?) };
-    let poly_values: Vec<f64> = polys.iter().map(|&i| values[i]).collect();
-    let is_line = |g: &Geometry| matches!(g, Geometry::LineString(_) | Geometry::MultiLineString(_));
-    let (lines, line_values): (Vec<&Geometry>, Vec<f64>) =
-        v.geometries.iter().zip(values).filter(|(g, _)| is_line(g)).map(|(g, &x)| (g, x)).unzip();
-    let (points, point_values): (Vec<&Geometry>, Vec<f64>) =
-        v.geometries.iter().zip(values).filter(|(g, _)| g.is_point()).map(|(g, &x)| (g, x)).unzip();
+    let ny = grid.height;
+    let burner = Burner::new(grid, v, values, all_touched)?;
     // f32 when every value written is one
     let exact32 = |x: f64| x.is_nan() || f64::from(x as f32) == x;
     let dtype = if !add && values.iter().all(|&x| exact32(x)) && exact32(fill) { DataType::F32 } else { DataType::F64 };
@@ -495,8 +487,42 @@ pub fn burn_to_file(
     let rows = rows.max(1);
     for y0 in (0..ny).step_by(rows) {
         let n = rows.min(ny - y0);
+        out.push(burner.strip(y0, n, fill, add)?)?;
+    }
+    out.finish()
+}
+
+/// Features burnt strip by strip: polygons by their runs, lines by GDAL, points by their cell.
+struct Burner<'a> {
+    grid: &'a Grid,
+    runs: Option<ffi::RunsOut>,
+    poly_values: Vec<f64>,
+    lines: Vec<&'a Geometry>,
+    line_values: Vec<f64>,
+    points: Vec<&'a Geometry>,
+    point_values: Vec<f64>,
+    all_touched: bool,
+}
+
+impl<'a> Burner<'a> {
+    fn new(grid: &'a Grid, v: &'a terraflux_raster::vector::Vector, values: &[f64], all_touched: bool) -> Result<Self> {
+        let polys: Vec<usize> = (0..v.len()).filter(|&i| v.geometries[i].is_polygonal()).collect();
+        let geoms: Vec<&Geometry> = polys.iter().map(|&i| &v.geometries[i]).collect();
+        let runs = if geoms.is_empty() { None } else { Some(crate::vector::runs(&geoms, grid, all_touched)?) };
+        let poly_values: Vec<f64> = polys.iter().map(|&i| values[i]).collect();
+        let is_line = |g: &Geometry| matches!(g, Geometry::LineString(_) | Geometry::MultiLineString(_));
+        let (lines, line_values): (Vec<&Geometry>, Vec<f64>) =
+            v.geometries.iter().zip(values).filter(|(g, _)| is_line(g)).map(|(g, &x)| (g, x)).unzip();
+        let (points, point_values): (Vec<&Geometry>, Vec<f64>) =
+            v.geometries.iter().zip(values).filter(|(g, _)| g.is_point()).map(|(g, &x)| (g, x)).unzip();
+        Ok(Burner { grid, runs, poly_values, lines, line_values, points, point_values, all_touched })
+    }
+
+    /// Rows y0..y0 + n burnt.
+    fn strip(&self, y0: usize, n: usize, fill: f64, add: bool) -> Result<Vec<f64>> {
+        let (grid, nx) = (self.grid, self.grid.width);
         let mut strip = vec![fill; n * nx];
-        if let Some(runs) = &runs {
+        if let Some(runs) = &self.runs {
             let mut moved = ffi::RunsOut { offsets: vec![0], y: vec![], x0: vec![], x1: vec![] };
             for z in 0..runs.offsets.len() - 1 {
                 for r in runs.offsets[z] as usize..runs.offsets[z + 1] as usize {
@@ -509,28 +535,28 @@ pub fn burn_to_file(
                 }
                 moved.offsets.push(moved.y.len() as i64);
             }
-            ffi::io_burn_runs(&mut strip, n as i32, nx as i32, &moved, &poly_values, add)?;
+            ffi::io_burn_runs(&mut strip, n as i32, nx as i32, &moved, &self.poly_values, add)?;
         }
         // lines by GDAL in the whole grid's pixels, moved up by the strip's first row: the same cells as on the
         // whole grid, but where GDAL draws a line through cells' corners with all_touched (that depends on where a
         // strip starts, as with GDAL's own swaths)
-        if !lines.is_empty() {
-            let moved: Vec<Geometry> = lines.iter().map(|g| in_pixels(g, grid, y0)).collect();
+        if !self.lines.is_empty() {
+            let moved: Vec<Geometry> = self.lines.iter().map(|g| in_pixels(g, grid, y0)).collect();
             terraflux_gdal::rasterize(
                 &mut strip,
                 nx,
                 n,
                 [0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
                 &moved,
-                &line_values,
-                all_touched,
+                &self.line_values,
+                self.all_touched,
                 add,
             )
             .map_err(|e| crate::Error::msg(format!("lines are burnt by GDAL: {e}")))?;
         }
         // points by their cell of the whole grid
         let t = &grid.transform;
-        for (g, &value) in points.iter().zip(&point_values) {
+        for (g, &value) in self.points.iter().zip(&self.point_values) {
             let mut cells = Vec::new();
             g.points(&mut |p| {
                 let col = ((p[0] - t[0]) / t[1]).floor();
@@ -543,9 +569,87 @@ pub fn burn_to_file(
                 if add { strip[c] += value } else { strip[c] = value }
             }
         }
-        out.push(strip)?;
+        Ok(strip)
     }
-    out.finish()
+}
+
+/// The distance from every cell to the nearest cell of the features (vector.distance) by strips into a GeoTIFF:
+/// the features burnt strip by strip; from the bottom up, each cell's nearest burnt row below (kept in a file next
+/// to the output); from the top down, the nearest above, the squared distances along the columns as
+/// vector::distance_to computes them, and its lower envelopes along the rows. The same distances as in memory.
+pub fn distance_to_file(
+    path: &std::path::Path,
+    grid: &Grid,
+    v: &terraflux_raster::vector::Vector,
+    all_touched: bool,
+    rows: usize,
+) -> Result<()> {
+    use std::io::{Read, Seek, SeekFrom, Write};
+    let (nx, ny) = (grid.width, grid.height);
+    let (dx, dy) = (grid.transform[1].abs(), grid.transform[5].abs());
+    let burner = Burner::new(grid, v, &vec![1.0; v.len()], all_touched)?;
+    let rows = rows.max(1);
+    let starts: Vec<usize> = (0..ny).step_by(rows).collect();
+    let io = |e: std::io::Error| crate::Error::msg(format!("{}: {e}", path.display()));
+    let below_path = path.with_extension("below.tmp");
+    let mut below_file =
+        std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(true).open(&below_path).map_err(io)?;
+    let result = (|| -> Result<()> {
+        below_file.set_len((nx * ny * 8) as u64).map_err(io)?;
+        // from the bottom up: the nearest burnt row at or below every cell (u64::MAX: none)
+        let mut next = vec![u64::MAX; nx];
+        for &y0 in starts.iter().rev() {
+            let n = rows.min(ny - y0);
+            let mask = burner.strip(y0, n, 0.0, false)?;
+            let mut out = vec![0u8; n * nx * 8];
+            for r in (0..n).rev() {
+                for x in 0..nx {
+                    if mask[r * nx + x] != 0.0 {
+                        next[x] = (y0 + r) as u64;
+                    }
+                    out[(r * nx + x) * 8..(r * nx + x + 1) * 8].copy_from_slice(&next[x].to_le_bytes());
+                }
+            }
+            below_file.seek(SeekFrom::Start((y0 * nx * 8) as u64)).map_err(io)?;
+            below_file.write_all(&out).map_err(io)?;
+        }
+        // from the top down: the nearest above, the squared distances along the columns, the rows' envelopes
+        let mut writer = crate::files::RowsWriter::create(path, grid, "distance", DataType::F64, None)?;
+        let mut last = vec![u64::MAX; nx];
+        for &y0 in &starts {
+            let n = rows.min(ny - y0);
+            let mask = burner.strip(y0, n, 0.0, false)?;
+            let mut raw = vec![0u8; n * nx * 8];
+            below_file.seek(SeekFrom::Start((y0 * nx * 8) as u64)).map_err(io)?;
+            below_file.read_exact(&mut raw).map_err(io)?;
+            let mut g = vec![f64::INFINITY; n * nx];
+            for r in 0..n {
+                let y = y0 + r;
+                for x in 0..nx {
+                    if mask[r * nx + x] != 0.0 {
+                        last[x] = y as u64;
+                    }
+                    let k = r * nx + x;
+                    let mut v = f64::INFINITY;
+                    if last[x] != u64::MAX {
+                        v = ((y - last[x] as usize) as f64 * dy).powi(2);
+                    }
+                    let b = u64::from_le_bytes(raw[k * 8..(k + 1) * 8].try_into().unwrap());
+                    if b != u64::MAX {
+                        v = v.min(((b as usize - y) as f64 * dy).powi(2));
+                    }
+                    g[k] = v;
+                }
+            }
+            let strip: Vec<f64> =
+                (0..n).flat_map(|r| crate::vector::envelope_row(&g[r * nx..(r + 1) * nx], dx)).collect();
+            writer.push(strip)?;
+        }
+        writer.finish()
+    })();
+    drop(below_file);
+    std::fs::remove_file(&below_path).ok();
+    result
 }
 
 /// A line in the pixels of a grid as GDAL's rasterizer puts it there, its rows counted from row `y0` (exactly: a
@@ -560,4 +664,63 @@ fn in_pixels(g: &Geometry, grid: &Grid, y0: usize) -> Geometry {
         }
         g => g.clone(),
     }
+}
+
+/// The pieces of exactextract's coverage of the boxes of the polygons as lsio::exact_sums cuts them.
+const EXACT_PIECE: i64 = 30_000_000;
+
+/// exactextractr's sums of the layers over polygons with the values read under each polygon only (lsio's
+/// exact_sums loop: the coverage of the feature's box on the whole grid, in pieces; value times fraction summed
+/// row by row in the window of the piece, as a float), the same sums as with the layers in memory.
+pub fn exact_sums(layers: &Layers, geoms: &[&Geometry]) -> Result<Vec<f64>> {
+    use rayon::prelude::*;
+    let grid = layers.grid();
+    let bounds = crate::vector::exact_bounds(grid)?;
+    let (ny, nx) = (grid.height as i64, grid.width as i64);
+    let bands = layers.bands();
+    let sums: Vec<Vec<f64>> = geoms
+        .par_iter()
+        .map(|g| -> Result<Vec<f64>> {
+            let (mut xy, mut ring_off, mut poly_off) = (Vec::new(), vec![0i64], vec![0i64]);
+            for poly in g.polygons() {
+                for ring in poly {
+                    ring.iter().for_each(|p| xy.extend_from_slice(p));
+                    ring_off.push((xy.len() / 2) as i64);
+                }
+                poly_off.push((ring_off.len() - 1) as i64);
+            }
+            let mut sum = vec![0.0f64; bands];
+            let pieces = ffi::io_exact_piece_count(&bounds, ny, nx, &xy, &ring_off, &poly_off, EXACT_PIECE)?;
+            for k in 0..pieces {
+                let p = ffi::io_exact_piece(&bounds, ny, nx, &xy, &ring_off, &poly_off, EXACT_PIECE, k)?;
+                if p.empty {
+                    continue;
+                }
+                let (i0, j0, wrows, wcols) = (p.i0 as usize, p.j0 as usize, p.wrows as usize, p.wcols as usize);
+                let values = layers.window(i0, i0 + wrows, j0, j0 + wcols)?;
+                let plane = wrows * wcols;
+                for (l, s) in sum.iter_mut().enumerate() {
+                    for i in 0..p.rows {
+                        let wi = i + p.y_off;
+                        if wi < 0 || wi >= p.wrows {
+                            continue;
+                        }
+                        for j in 0..p.cols {
+                            let wj = j + p.x_off;
+                            if wj < 0 || wj >= p.wcols {
+                                continue;
+                            }
+                            let pct = p.fraction[(i * p.cols + j) as usize];
+                            let val = values[l * plane + wi as usize * wcols + wj as usize];
+                            if pct > 0.0 && !val.is_nan() {
+                                *s += val * f64::from(pct);
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(sum.into_iter().map(|s| f64::from(s as f32)).collect())
+        })
+        .collect::<Result<_>>()?;
+    Ok(sums.concat())
 }

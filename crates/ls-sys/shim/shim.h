@@ -21,6 +21,7 @@ struct NlmMosaicOut;
 struct MaxnetFit;
 struct ThinOut;
 struct CirclesOut;
+struct ExactPiece;
 struct ConnAnalysis;
 struct ConnGains;
 struct ConnRasterNodes;
@@ -126,6 +127,12 @@ rust::Vec<double> sdm_fit_variogram(rust::Str model, double kappa, rust::Slice<c
                                     double psill, double range);
 ThinOut sdm_thin_spthin(rust::Slice<const double> lon, rust::Slice<const double> lat, double max_km, std::int32_t reps,
                         std::int32_t seed);
+std::int64_t io_exact_piece_count(rust::Slice<const double> grid, std::int64_t ny, std::int64_t nx,
+                                  rust::Slice<const double> xy, rust::Slice<const std::int64_t> ring_offsets,
+                                  rust::Slice<const std::int64_t> polygon_offsets, std::int64_t max_cells);
+ExactPiece io_exact_piece(rust::Slice<const double> grid, std::int64_t ny, std::int64_t nx, rust::Slice<const double> xy,
+                          rust::Slice<const std::int64_t> ring_offsets, rust::Slice<const std::int64_t> polygon_offsets,
+                          std::int64_t max_cells, std::int64_t k);
 CirclesOut sdm_circles(rust::Slice<const double> lon, rust::Slice<const double> lat, double d, rust::Str kind);
 rust::Vec<double> sdm_outlier_statistic(rust::Slice<const double> lon, rust::Slice<const double> lat, bool use_min);
 rust::Vec<double> sdm_geod_direct(rust::Slice<const double> lon, rust::Slice<const double> lat,

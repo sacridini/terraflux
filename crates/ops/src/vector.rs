@@ -746,15 +746,21 @@ impl Operator for Dissolve {
     }
 }
 
-/// exactextractr's exact_extract(fun = "sum") of every layer over every polygonal feature: features x layers.
-pub fn exact_sums(grid: &Grid, layers: &[Arc<Vec<f64>>], geoms: &[&Geometry]) -> Result<Vec<f64>> {
+/// The grid as exactextract's: xmin, ymin, xmax, ymax, dx, dy (north-up maps only).
+pub fn exact_bounds(grid: &Grid) -> Result<[f64; 6]> {
     let t = &grid.transform;
     if t[2] != 0.0 || t[4] != 0.0 || t[5] >= 0.0 {
         return Err(Error::msg("the map must be north-up"));
     }
     let (dx, dy) = (t[1], -t[5]);
     let (ny, nx) = (grid.height, grid.width);
-    let bounds = [t[0], t[3] - ny as f64 * dy, t[0] + nx as f64 * dx, t[3], dx, dy];
+    Ok([t[0], t[3] - ny as f64 * dy, t[0] + nx as f64 * dx, t[3], dx, dy])
+}
+
+/// exactextractr's exact_extract(fun = "sum") of every layer over every polygonal feature: features x layers.
+pub fn exact_sums(grid: &Grid, layers: &[Arc<Vec<f64>>], geoms: &[&Geometry]) -> Result<Vec<f64>> {
+    let bounds = exact_bounds(grid)?;
+    let (ny, nx) = (grid.height, grid.width);
     // every polygon of every feature, its rings as they are
     let (mut xy, mut ring_off, mut poly_off, mut feat_off) = (Vec::new(), vec![0i64], vec![0i64], vec![0i64]);
     for g in geoms {
@@ -789,27 +795,41 @@ impl Operator for ExactSum {
             "vector.exact_sum",
             "The coverage-weighted sum of a map (or of every layer of a stack) over every polygon, \
              exactextractr's exact_extract(fun = \"sum\"): every cell weighted by the share of it the polygon \
-             covers, exactly (the amounts of features in planning units of polygons).",
+             covers, exactly (the amounts of features in planning units of polygons). Out of core (block_rows, or \
+             rasters on disk of more than 250 million cells) the windows under every polygon read from disk, the \
+             same sums.",
             Access::Global,
         )
         .input(PortSpec::new("vector", Type::Vector, "the polygons"))
         .input(PortSpec::new("map", Type::Any, "a map or a stack"))
         .output(PortSpec::new("table", Type::Table, "per feature (1..): the sum of every layer"))
+        .param(PortSpec::optional(
+            "block_rows",
+            Type::Integer,
+            "out of core: the values read under every polygon only, the same sums; rasters on disk of more than \
+             250 million cells always are",
+        ))
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
-        let (layers, _) = layers_of(args, "map")?;
+        let (layers, budget) = layers_of(args, "map")?;
         let (grid, names) = (Arc::new(layers.grid().clone()), layers.names().to_vec());
-        let all = layers.window(0, grid.height, 0, grid.width)?;
-        let layers: Vec<Arc<Vec<f64>>> = all.chunks(grid.cells().max(1)).map(|c| Arc::new(c.to_vec())).collect();
         let v = on_grid(vector_of(args, "vector")?, &grid)?;
         if let Some(i) = v.geometries.iter().position(|g| !g.is_polygonal() && !matches!(g, Geometry::Empty)) {
             return Err(Error::msg(format!("node {:?}: feature {} is no polygon", args.node, i + 1)));
         }
         let geoms: Vec<&Geometry> = v.geometries.iter().collect();
-        let s = exact_sums(&grid, &layers, &geoms)?;
+        let s = match budget {
+            Some(_) => crate::vector_tiled::exact_sums(&layers, &geoms)?,
+            None => {
+                let all = layers.window(0, grid.height, 0, grid.width)?;
+                let layers: Vec<Arc<Vec<f64>>> =
+                    all.chunks(grid.cells().max(1)).map(|c| Arc::new(c.to_vec())).collect();
+                exact_sums(&grid, &layers, &geoms)?
+            }
+        };
+        let l = names.len();
         let mut t = Table::new(std::iter::once("feature".to_string()).chain(names.iter().cloned()).collect());
-        let l = layers.len();
         t.rows = (0..v.len())
             .map(|f| std::iter::once((f + 1) as f64).chain(s[f * l..(f + 1) * l].iter().copied()).collect())
             .collect();
@@ -844,42 +864,46 @@ pub fn distance_to(target: &[bool], (ny, nx): (usize, usize), (dx, dy): (f64, f6
         }
     }
     // along the rows: the lower envelope of the parabolas (dx (x - q))^2 + g(q)
-    let mut out = vec![inf; ny * nx];
+    (0..ny).flat_map(|y| envelope_row(&g[y * nx..(y + 1) * nx], dx)).collect()
+}
+
+/// The distances along a row from the squared distances along the columns `f`: the lower envelope of the
+/// parabolas (dx (x - q))^2 + f(q) (infinity without any).
+pub fn envelope_row(f: &[f64], dx: f64) -> Vec<f64> {
+    let nx = f.len();
+    let mut out = vec![f64::INFINITY; nx];
+    let finite: Vec<usize> = (0..nx).filter(|&q| f[q].is_finite()).collect();
+    if finite.is_empty() {
+        return out;
+    }
     let (mut v, mut z) = (vec![0usize; nx], vec![0f64; nx + 1]);
-    for y in 0..ny {
-        let f = &g[y * nx..(y + 1) * nx];
-        let finite: Vec<usize> = (0..nx).filter(|&q| f[q].is_finite()).collect();
-        if finite.is_empty() {
-            continue;
-        }
-        let px = |q: usize| q as f64 * dx;
-        let mut k = 0;
-        v[0] = finite[0];
-        z[0] = f64::NEG_INFINITY;
-        z[1] = f64::INFINITY;
-        for &q in &finite[1..] {
-            let mut s;
-            loop {
-                let p = v[k];
-                s = ((f[q] + px(q) * px(q)) - (f[p] + px(p) * px(p))) / (2.0 * (px(q) - px(p)));
-                if s > z[k] {
-                    break;
-                }
-                k -= 1;
+    let px = |q: usize| q as f64 * dx;
+    let mut k = 0;
+    v[0] = finite[0];
+    z[0] = f64::NEG_INFINITY;
+    z[1] = f64::INFINITY;
+    for &q in &finite[1..] {
+        let mut s;
+        loop {
+            let p = v[k];
+            s = ((f[q] + px(q) * px(q)) - (f[p] + px(p) * px(p))) / (2.0 * (px(q) - px(p)));
+            if s > z[k] {
+                break;
             }
-            k += 1;
-            v[k] = q;
-            z[k] = s;
-            z[k + 1] = f64::INFINITY;
+            k -= 1;
         }
-        let mut j = 0;
-        for x in 0..nx {
-            while z[j + 1] < px(x) {
-                j += 1;
-            }
-            let p = v[j];
-            out[y * nx + x] = ((px(x) - px(p)).powi(2) + f[p]).sqrt();
+        k += 1;
+        v[k] = q;
+        z[k] = s;
+        z[k + 1] = f64::INFINITY;
+    }
+    let mut j = 0;
+    for (x, o) in out.iter_mut().enumerate() {
+        while z[j + 1] < px(x) {
+            j += 1;
         }
+        let p = v[j];
+        *o = ((px(x) - px(p)).powi(2) + f[p]).sqrt();
     }
     out
 }
@@ -891,19 +915,68 @@ impl Operator for Distance {
         OpSignature::new(
             "vector.distance",
             "The distance (in the map's units) from every cell's centre to the nearest cell of the features (as \
-             vector.rasterize burns them), exactly (the Euclidean distance transform).",
+             vector.rasterize burns them), exactly (the Euclidean distance transform). Out of core (block_rows, \
+             a path, or rasters on disk of more than 250 million cells) by strips into a GeoTIFF, the same \
+             distances (but where GDAL draws a line through cells' corners with all_touched).",
             Access::Global,
         )
         .input(PortSpec::new("vector", Type::Vector, "the features"))
-        .input(PortSpec::new("like", Type::Map, "a map on the grid of the distances"))
-        .output(PortSpec::new("map", Type::Map, "the distance of every cell (0 in the features)"))
+        .input(PortSpec::new("like", Type::Raster, "a map on the grid of the distances (only its grid is read)"))
+        .output(PortSpec::new(
+            "map",
+            Type::Raster,
+            "the distance of every cell (0 in the features; on disk for \
+             rasters on disk)",
+        ))
         .param(PortSpec::optional("all_touched", Type::Bool, "every cell a feature touches is one (false)"))
+        .param(PortSpec::optional(
+            "block_rows",
+            Type::Integer,
+            "out of core: by strips of this many rows into a GeoTIFF (path); on the grid of rasters on disk of \
+             more than 250 million cells always",
+        ))
+        .param(PortSpec::optional(
+            "path",
+            Type::Text,
+            "out of core: the GeoTIFF written (default next to the rasters: name_distance.tif)",
+        ))
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
-        let like = args.map("like")?;
-        let v = on_grid(vector_of(args, "vector")?, &like.grid)?;
-        let grid = &like.grid;
+        let rows = crate::metrics::rows_param(args)?;
+        let (grid, disk) = match args.get("like") {
+            Some(Value::Raster(r)) => (Arc::new(r.grid_of(r.chosen).clone()), Some(r.clone())),
+            Some(Value::Map(m)) => (m.grid.clone(), None),
+            Some(Value::Stack(s)) => (s.grid.clone(), None),
+            Some(v) => return Err(Error::msg(format!("node {:?}: like: a map, not a {:?}", args.node, v.ty()))),
+            None => return Err(Error::msg(format!("node {:?}: connect a map (like)", args.node))),
+        };
+        let v = on_grid(vector_of(args, "vector")?, &grid)?;
+        let all_touched = args.param("all_touched", false)?;
+        let path: Option<String> = args.opt_param::<String>("path")?.filter(|p| !p.is_empty());
+        if rows.is_some() || path.is_some() || disk.as_ref().is_some_and(|r| r.cells() > crate::metrics::TILED_CELLS) {
+            let fail = |e: Error| Error::msg(format!("node {:?}: {e}", args.node));
+            let path = match (path, &disk) {
+                (Some(p), _) => std::path::PathBuf::from(p).with_extension("tif"),
+                (None, Some(r)) => {
+                    let src = r.images[r.layers[r.chosen].image].path();
+                    let stem = src.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+                    src.with_file_name(format!("{stem}_distance.tif"))
+                }
+                (None, None) => return Err(fail(Error::msg("path: the GeoTIFF to write the distances to"))),
+            };
+            if disk.as_ref().is_some_and(|r| r.images.iter().any(|i| i.path() == path)) {
+                return Err(fail(Error::msg("the output must differ from the input")));
+            }
+            if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+                std::fs::create_dir_all(dir).map_err(|e| fail(Error::msg(format!("{}: {e}", dir.display()))))?;
+            }
+            let rows = crate::metrics::block_rows(rows, grid.width);
+            crate::vector_tiled::distance_to_file(&path, &grid, &v, all_touched, rows).map_err(fail)?;
+            let written = crate::files::Rasters::open(&path.to_string_lossy(), None, None)?;
+            return Ok(outputs([("map", Value::Raster(Arc::new(written)))]));
+        }
+        let grid = &grid;
         let mut mask = vec![0.0; grid.width * grid.height];
         burn(&mut mask, grid, &v, &vec![1.0; v.len()], args.param("all_touched", false)?, false)?;
         let target: Vec<bool> = mask.iter().map(|m| *m != 0.0).collect();

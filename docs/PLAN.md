@@ -699,8 +699,13 @@ Pendências:
 - **Biodiversidade — condições de shapefiles (0.62.0, 2026-10-14):** `sp_point_in_poly_shape` e
   `sp_points_in_same_poly_shape`, iguais ao landschaft. O módulo `bio` está todo no Terraflux, menos os callables
   do Python (que não cabem num executável sem Python).
-- **Próximos (2026-10-13):** os instaladores de macOS e Linux;
-  `vector.exact_sum` e `vector.distance` fora da memória.
+- **Vetores fora da memória (0.63.0, 2026-10-14):** `vector.exact_sum` (só as janelas sob cada polígono lidas do
+  disco) e `vector.distance` (por faixas num GeoTIFF), os mesmos bits da memória.
+- **Próximos (2026-10-14):** os instaladores de macOS e Linux; do `simulate`, as comparações do diffeR em várias
+  resoluções (composite, differenceMR, memberships, MAD, sample2pop), a do MOLUSCE (kappa, error budget), a de três
+  mapas, a validação do r.futures e a pressão de desenvolvimento e a biblioteca de manchas do FUTURES; do
+  `prioritize`, os projetos do Zonation 5 (.z5), coarsen/refine, as matrizes de conectividade e proximidade e o
+  prioriactions de rasters.
 
 - **A ponte do ls.simulate completa (branch `simulate-bridge`, 2026-10-13):** todo modelo do `ls.simulate` vai pelo
   `Model.save` e roda no Terraflux com os mesmos bits. Estimadores e outros potenciais sem forma fechada como

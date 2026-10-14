@@ -248,6 +248,93 @@ ThinOut sdm_thin_spthin(rust::Slice<const double> lon, rust::Slice<const double>
     return out;
 }
 
+namespace {
+
+using ExactGridT = exactextract::Grid<exactextract::bounded_extent>;
+
+// lsio's grid_of and feature_box (io/exact.cpp)
+ExactGridT exact_grid(rust::Slice<const double> g, std::int64_t ny, std::int64_t nx) {
+    check(g.size() == 6, "a grid of 6");
+    ExactGridT grid({g[0], g[1], g[2], g[3]}, g[4], g[5]);
+    check(static_cast<std::int64_t>(grid.rows()) == ny && static_cast<std::int64_t>(grid.cols()) == nx,
+          "the grid's extent and resolution do not give its rows and columns");
+    return grid;
+}
+
+std::vector<exactextract::Polygon> exact_feature(rust::Slice<const double> xy, rust::Slice<const std::int64_t> ring_offsets,
+                                                 rust::Slice<const std::int64_t> polygon_offsets) {
+    std::vector<exactextract::Polygon> feature;
+    for (std::size_t p = 0; p + 1 < polygon_offsets.size(); ++p) {
+        exactextract::Polygon poly;
+        for (std::int64_t r = polygon_offsets[p]; r < polygon_offsets[p + 1]; ++r) {
+            exactextract::Ring ring;
+            for (std::int64_t k = ring_offsets[r]; k < ring_offsets[r + 1]; ++k) ring.push_back({xy[2 * k], xy[2 * k + 1]});
+            poly.rings.push_back(std::move(ring));
+        }
+        feature.push_back(std::move(poly));
+    }
+    return feature;
+}
+
+std::vector<ExactGridT> exact_subgrids(const ExactGridT& grid, const std::vector<exactextract::Polygon>& feature,
+                                       std::int64_t max_cells) {
+    exactextract::Box b = exactextract::Box::make_empty();
+    bool first = true;
+    for (const auto& p : feature)
+        for (const auto& ring : p.rings) {
+            if (ring.empty()) continue;
+            const exactextract::Box r = exactextract::ring_box(ring);
+            b = first ? r : exactextract::Box{std::min(b.xmin, r.xmin), std::min(b.ymin, r.ymin), std::max(b.xmax, r.xmax),
+                                              std::max(b.ymax, r.ymax)};
+            first = false;
+        }
+    if (feature.empty() || !b.intersects(grid.extent())) return {};
+    return exactextract::subdivide(grid.crop(b), static_cast<std::size_t>(max_cells));
+}
+
+}  // namespace
+
+std::int64_t io_exact_piece_count(rust::Slice<const double> grid, std::int64_t ny, std::int64_t nx,
+                                  rust::Slice<const double> xy, rust::Slice<const std::int64_t> ring_offsets,
+                                  rust::Slice<const std::int64_t> polygon_offsets, std::int64_t max_cells) {
+    const ExactGridT g = exact_grid(grid, ny, nx);
+    return static_cast<std::int64_t>(exact_subgrids(g, exact_feature(xy, ring_offsets, polygon_offsets), max_cells).size());
+}
+
+ExactPiece io_exact_piece(rust::Slice<const double> grid, std::int64_t ny, std::int64_t nx, rust::Slice<const double> xy,
+                          rust::Slice<const std::int64_t> ring_offsets, rust::Slice<const std::int64_t> polygon_offsets,
+                          std::int64_t max_cells, std::int64_t k) {
+    const ExactGridT g = exact_grid(grid, ny, nx);
+    const auto feature = exact_feature(xy, ring_offsets, polygon_offsets);
+    const auto subgrids = exact_subgrids(g, feature, max_cells);
+    check(k >= 0 && k < static_cast<std::int64_t>(subgrids.size()), "no such piece");
+    ExactPiece out{};
+    out.empty = true;
+    const exactextract::Coverage cov = exactextract::raster_cell_intersection(subgrids[static_cast<std::size_t>(k)], feature);
+    if (cov.grid.empty()) return out;
+    // as lsio::exact_sums: the window of the grid under the coverage, and the coverage's offset in it
+    const ExactGridT window = g.crop(cov.grid.extent());
+    if (window.empty()) return out;
+    check(window.dx() == cov.grid.dx() && window.dy() == cov.grid.dy(),
+          "coverage grid at another resolution than the raster");
+    if (!(window == cov.grid)) {
+        out.x_off = static_cast<std::int64_t>(std::round((cov.grid.xmin() - window.xmin()) / cov.grid.dx()));
+        out.y_off = static_cast<std::int64_t>(std::round((window.ymax() - cov.grid.ymax()) / cov.grid.dy()));
+    }
+    out.empty = false;
+    out.i0 = static_cast<std::int64_t>(window.row_offset(g));
+    out.j0 = static_cast<std::int64_t>(window.col_offset(g));
+    out.wrows = static_cast<std::int64_t>(window.rows());
+    out.wcols = static_cast<std::int64_t>(window.cols());
+    out.rows = static_cast<std::int64_t>(cov.fraction.rows());
+    out.cols = static_cast<std::int64_t>(cov.fraction.cols());
+    out.fraction.reserve(static_cast<std::size_t>(out.rows * out.cols));
+    for (std::int64_t i = 0; i < out.rows; ++i)
+        for (std::int64_t j = 0; j < out.cols; ++j)
+            out.fraction.push_back(cov.fraction(static_cast<std::size_t>(i), static_cast<std::size_t>(j)));
+    return out;
+}
+
 CirclesOut sdm_circles(rust::Slice<const double> lon, rust::Slice<const double> lat, double d, rust::Str kind) {
     check(lon.size() == lat.size(), "lon and lat differ in length");
     const std::string k(kind);

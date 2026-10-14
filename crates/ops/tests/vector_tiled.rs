@@ -262,3 +262,64 @@ fn rasterize_by_strips() {
     }
     std::fs::remove_dir_all(&d).ok();
 }
+
+/// exactextractr's sums over polygons with the values read under each polygon (in memory and from disk), of whole
+/// numbers and decimals: those of the map in memory.
+#[test]
+fn exact_sums_by_windows() {
+    let d = dir("exact");
+    let (ny, nx) = (330, 270);
+    for (name, map, dtype) in
+        [("classes", classes(ny, nx), DataType::I16), ("decimals", decimals(ny, nx), DataType::F64)]
+    {
+        let disk = write(&map, dtype, &d.join(format!("{name}.tif")));
+        let memory = run(
+            "vector.exact_sum",
+            vec![("vector", zones(ny, nx)), ("map", Value::Map(map.clone()))],
+            serde_json::json!({}),
+        );
+        let p = serde_json::json!({"block_rows": 16});
+        let windows =
+            run("vector.exact_sum", vec![("vector", zones(ny, nx)), ("map", Value::Map(map.clone()))], p.clone());
+        same(&table(&windows, "table"), &table(&memory, "table"), &format!("{name} in memory"));
+        let windows = run("vector.exact_sum", vec![("vector", zones(ny, nx)), ("map", disk)], p);
+        same(&table(&windows, "table"), &table(&memory, "table"), &format!("{name} on disk"));
+        assert!(table(&memory, "table").rows.iter().any(|r| r[1] != 0.0));
+    }
+    std::fs::remove_dir_all(&d).ok();
+}
+
+/// The distance to features by strips into a GeoTIFF (from memory and from disk): that of the map in memory.
+#[test]
+fn distance_by_strips() {
+    let d = dir("distance");
+    let (ny, nx) = (330, 270);
+    let map = decimals(ny, nx);
+    let disk = write(&map, DataType::F64, &d.join("like.tif"));
+    let features = {
+        let Value::Vector(z) = zones(ny, nx) else { unreachable!() };
+        let Value::Vector(p) = points(ny, nx) else { unreachable!() };
+        // a few zones (not the one over almost all) and points
+        let mut geometries: Vec<Geometry> = [0usize, 2, 4, 5].iter().map(|&i| z.geometries[i].clone()).collect();
+        geometries.extend(p.geometries[..20].iter().cloned());
+        let n = geometries.len();
+        Value::Vector(Arc::new(Vector {
+            geometries,
+            attributes: vec![("id".into(), Column::Numbers((1..=n).map(|i| i as f64).collect()))],
+            crs: None,
+        }))
+    };
+    let memory = run(
+        "vector.distance",
+        vec![("vector", features.clone()), ("like", Value::Map(map.clone()))],
+        serde_json::json!({}),
+    );
+    let Value::Map(want) = &memory["map"] else { panic!() };
+    for (rows, like) in [(7, Value::Map(map.clone())), (64, disk.clone()), (1000, disk)] {
+        let p = serde_json::json!({"block_rows": rows, "path": d.join(format!("dist_{rows}.tif")).to_string_lossy()});
+        let out = run("vector.distance", vec![("vector", features.clone()), ("like", like)], p);
+        let Value::Raster(r) = &out["map"] else { panic!() };
+        same_bits(&r.map().unwrap().data, &want.data, &format!("{rows} rows"));
+    }
+    std::fs::remove_dir_all(&d).ok();
+}
