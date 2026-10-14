@@ -1172,11 +1172,15 @@ impl TerrafluxApp {
             }
             ui.menu_button("Templates", |ui| {
                 ui.label(RichText::new("Models to start from, run at once").weak().size(11.0));
-                for t in &crate::templates::TEMPLATES {
-                    if ui.button(t.name).on_hover_text(t.about).clicked() {
-                        self.start_template(ui.ctx(), t);
-                        ui.close();
-                    }
+                for g in crate::templates::GROUPS {
+                    ui.menu_button(g, |ui| {
+                        for t in crate::templates::TEMPLATES.iter().filter(|t| t.group == g) {
+                            if ui.button(t.name).on_hover_text(t.about).clicked() {
+                                self.start_template(ui.ctx(), t);
+                                ui.close();
+                            }
+                        }
+                    });
                 }
                 // the user's own: a model saved as a template, opened as a new model
                 ui.separator();

@@ -89,6 +89,12 @@ distâncias, unidades de planejamento em polígonos, o desenho no viewer).
   saída); templates do Dinamica EGO e do CLUE-S (dados desenhados por modelos neutros); templates do próprio
   usuário (salvar o modelo como template, vê-lo e removê-lo no menu).
 
+- **Feito** (Unreleased): templates para mostrar as possibilidades da ferramenta, em grupos no menu (padrões,
+  métricas, conectividade, conservação e restauração, espécies, mudança de uso, superfícies e incerteza): mudança
+  de uma floresta, manchas, tipos de paisagem, redes de habitat, circuitos, custos e caminhos aleatórios,
+  corredor, avaliação de um plano, espécie num clima mais quente, fatores da mudança, autômato celular num laço,
+  agentes, CRAFTY, análise e validação da mudança, terreno, carbono com incerteza, mais modelos neutros.
+
 ## Várias máquinas sem saber de computação
 
 Registro de 2026-10-14. Os lotes em várias máquinas (`serve`, `worker`, `submit`, `calibrate`, o motor por tiles

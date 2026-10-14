@@ -6,6 +6,23 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Templates for many more of the tools, each running as soon as it opens on data drawn by neutral landscape
+  models: Forest gain and loss (simple, morphological and FAD change), Patches and their shapes (patch metrics,
+  parcellation, contortion), Kinds of landscapes (spatial signatures, PCA, k-means), Network of a forest (MSPA's
+  GTN components and importance), Habitat network (Conefor's IIC and PC, every patch's dPC), Circuit
+  connectivity (Circuitscape's pairwise currents, Omniscape), Least costs and random walks (gdistance),
+  Restoring a corridor (GTB's Restoration Planner), Irreplaceability of a plan (prioritizr's evaluation and a
+  portfolio), A species in a warmer climate (response curves, importance, the projection and MESS), Drivers of
+  land change (Markov, weights of evidence, logistic regressions), A city that grows (a cellular automaton in a
+  loop), Farmers on their parcels (agents), CRAFTY, Land change analysis (transitions, Pontius's components,
+  intensity analysis), Validating a simulation (figure of merit, fuzzy similarity, three-map comparison,
+  kappas), Terrain of a surface, Carbon and its uncertainty (Monte Carlo) and More neutral landscapes.
+
+### Changed
+- The Templates menu in groups: patterns, landscape metrics, connectivity, conservation and restoration,
+  species, land change, surfaces and uncertainty.
+
 ## [0.79.0] - 2026-10-14
 
 ### Added

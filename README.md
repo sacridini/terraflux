@@ -79,10 +79,15 @@ no console.
 - **From the keyboard:** `/` opens a search of the operators anywhere; type part of a name or of what it does,
   the arrows choose, enter adds it connected to the node selected (which the new node becomes, so a chain is
   built key after key), esc closes the search.
-- **Templates:** models to start from, run as soon as they open: MSPA of a forest (a map drawn by a neutral
-  landscape model, reclassified, MSPA, plotted), MSPA of your map, a forest cut from a surface by ranges, the
-  fragmentation of a forest (FAD at five scales and FOS), its patterns and objects (SPA and Accounting), MSPA's
-  edge width compared, the neutral landscape models side by side.
+- **Templates:** models to start from, run as soon as they open (their data drawn by neutral landscape models,
+  a note on every node), in groups: GuidosToolbox's patterns (MSPA, fragmentation, SPA and Accounting, the
+  landscape mosaic, a forest's gain and loss); landscape metrics (per class, per patch, kinds of landscapes by
+  their signatures); connectivity (MSPA's network, a habitat graph as Conefor's, Circuitscape and Omniscape,
+  least costs and random walks, a corridor to restore); conservation and restoration (intactness, Zonation,
+  Marxan, prioritizr and its evaluation, plangea, prioriactions); species (a distribution model, and one
+  projected to a warmer climate with MESS); land change (Dinamica EGO, CLUE-S, the drivers of a change, a
+  cellular automaton in a loop, farmers as agents, CRAFTY, the analysis of a change and the validation of a
+  simulation); surfaces and uncertainty (terrain, carbon by Monte Carlo, the neutral landscape models).
 - **Reclassifying:** the rules of `raster.reclassify` as a table (the values, what they become), the classes of
   the map it reads with their share beside them (A rule per class fills it), or its range for a continuous map
   (4 equal ranges), and how to write values, ranges (`0..10`), every other value (`*`) and no data (`nan`).
