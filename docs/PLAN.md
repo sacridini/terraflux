@@ -705,8 +705,9 @@ Pendências:
   `change.resolutions`, `change.mad` e `change.sample_to_population`, bit a bit com o landschaft.
 - **Validação de simulações (0.65.0, 2026-10-14):** `validate.three_map`, `validate.kappa`,
   `validate.error_budget`, `validate.futures` e `validate.futures_grid`, bit a bit com o landschaft.
-- **Próximos (2026-10-14):** os instaladores de macOS e Linux; do `simulate`, a pressão de desenvolvimento e a biblioteca de manchas do FUTURES; do
-  `prioritize`, os projetos do Zonation 5 (.z5), coarsen/refine, as matrizes de conectividade e proximidade e o
+- **Entradas do FUTURES (0.66.0, 2026-10-14):** `futures.devpressure` e `futures.patch_library`, bit a bit com
+  o landschaft. Falta o `calibrate_patches` (roda o modelo FUTURES inteiro do Python do landschaft).
+- **Próximos (2026-10-14):** os instaladores de macOS e Linux; do `prioritize`, os projetos do Zonation 5 (.z5), coarsen/refine, as matrizes de conectividade e proximidade e o
   prioriactions de rasters.
 
 - **A ponte do ls.simulate completa (branch `simulate-bridge`, 2026-10-13):** todo modelo do `ls.simulate` vai pelo

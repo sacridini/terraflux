@@ -336,6 +336,14 @@ ExactPiece io_exact_piece(rust::Slice<const double> grid, std::int64_t ny, std::
     return out;
 }
 
+rust::Vec<float> sim_futures_mfilter(rust::Slice<const double> input, std::int64_t rows, std::int64_t cols,
+                                     rust::Slice<const double> matrix, std::int32_t size) {
+    check(static_cast<std::int64_t>(input.size()) == rows * cols, "the input is rows x cols");
+    const std::size_t side = static_cast<std::size_t>(2 * size + 1);
+    check(size >= 0 && matrix.size() == side * side, "the matrix is (2 size + 1)^2");
+    return to_rust<float>(sim::futures_mfilter(input.data(), rows, cols, matrix.data(), size));
+}
+
 rust::Vec<double> sim_tmc_table(std::int32_t n, rust::Slice<const double> x, rust::Slice<const double> x1,
                                 rust::Slice<const double> y1, rust::Slice<const double> w) {
     check(n >= 2 && n <= 64, "the comparison takes 2 to 64 classes");

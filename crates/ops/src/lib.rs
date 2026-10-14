@@ -33,6 +33,7 @@ pub mod files;
 pub mod fitted;
 pub mod fragmentation;
 pub mod futures;
+pub mod futures_tools;
 pub mod glm;
 pub mod gtb_palettes;
 pub mod gtn;
@@ -280,6 +281,7 @@ impl Registry {
         change::register(&mut r);
         change_analysis::register(&mut r);
         differ::register(&mut r);
+        futures_tools::register(&mut r);
         map_validation::register(&mut r);
         batch::register(&mut r);
         bio::register(&mut r);

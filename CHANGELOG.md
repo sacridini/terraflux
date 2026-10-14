@@ -6,6 +6,13 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- FUTURES' inputs (landschaft's simulate): `futures.devpressure` (r.futures.devpressure: the development pressure
+  by occurrence, gravity or kernel, its r.mfilter by landschaft's C++, padded or not) and `futures.patch_library`
+  (r.futures.calib's library of the patches developed between two maps, whole or per subregion, with a threshold;
+  in the form of futures.simulation's patch_sizes). The same as landschaft's, to the bit (the kernel to the last
+  bit of a float).
+
 ## [0.65.0] - 2026-10-14
 
 ### Added

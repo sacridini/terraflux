@@ -1265,6 +1265,9 @@ pub mod ffi {
         /// lulcc's ThreeMapComparison table of one resolution (Rules 1-4; the totals NaN) from the cells of each of
         /// the n classes per block of the three maps (n x blocks, row-major) and the cells with a value per block:
         /// (n + 1)^2 x (n + 1), row-major.
+        /// r.mfilter as r.futures.devpressure runs it: sum(w * v) over the (2 size + 1)^2 window in row order (any
+        /// null in the window gives null), the cells within `size` of the edges keep their value; as floats.
+        fn sim_futures_mfilter(input: &[f64], rows: i64, cols: i64, matrix: &[f64], size: i32) -> Result<Vec<f32>>;
         fn sim_tmc_table(n: i32, x: &[f64], x1: &[f64], y1: &[f64], w: &[f64]) -> Result<Vec<f64>>;
         fn sdm_geod_direct(lon: &[f64], lat: &[f64], azi: &[f64], s: &[f64]) -> Result<Vec<f64>>;
         /// The same on the cells of a grid with their counts of records (cc_outl's raster variant).
