@@ -332,6 +332,21 @@ impl Rasters {
         }
     }
 
+    /// The chosen layer alone: what a map of these rasters is, on disk (a port of any value takes it as a map,
+    /// not as a stack of every band).
+    pub fn only_chosen(&self) -> Rasters {
+        let k = self.chosen.min(self.layers.len().saturating_sub(1));
+        let whole = self.whole.lock().unwrap().get(&k).map(|v| (0, v.clone())).into_iter().collect();
+        Rasters {
+            grid: Arc::new(self.grid_of(k).clone()),
+            layers: self.layers.get(k).cloned().into_iter().collect(),
+            images: self.images.clone(),
+            chosen: 0,
+            mixed: false,
+            whole: Mutex::new(whole),
+        }
+    }
+
     pub fn cells(&self) -> usize {
         self.grid.width * self.grid.height
     }
@@ -467,10 +482,11 @@ impl Operator for Read {
             Some(v) => Some(v.to_string()),
         };
         let r = Arc::new(Rasters::open(&path, band.as_deref(), args.opt_param::<f64>("nodata")?)?);
-        // every output is the rasters on disk: read whole only where a node needs a map or a stack
+        // every output is the rasters on disk: read whole only where a node needs a map or a stack; the map's,
+        // the chosen band alone
         Ok(outputs([
             ("raster", Value::Raster(r.clone())),
-            ("map", Value::Raster(r.clone())),
+            ("map", Value::Raster(Arc::new(r.only_chosen()))),
             ("stack", Value::Raster(r)),
         ]))
     }
