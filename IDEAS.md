@@ -89,7 +89,7 @@ distâncias, unidades de planejamento em polígonos, o desenho no viewer).
   saída); templates do Dinamica EGO e do CLUE-S (dados desenhados por modelos neutros); templates do próprio
   usuário (salvar o modelo como template, vê-lo e removê-lo no menu).
 
-- **Feito** (Unreleased): templates para mostrar as possibilidades da ferramenta, em grupos no menu (padrões,
+- **Feito** (0.80.0): templates para mostrar as possibilidades da ferramenta, em grupos no menu (padrões,
   métricas, conectividade, conservação e restauração, espécies, mudança de uso, superfícies e incerteza): mudança
   de uma floresta, manchas, tipos de paisagem, redes de habitat, circuitos, custos e caminhos aleatórios,
   corredor, avaliação de um plano, espécie num clima mais quente, fatores da mudança, autômato celular num laço,

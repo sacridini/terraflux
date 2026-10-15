@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.80.0] - 2026-10-15
+
 ### Added
 - Templates for many more of the tools, each running as soon as it opens on data drawn by neutral landscape
   models: Forest gain and loss (simple, morphological and FAD change), Patches and their shapes (patch metrics,
