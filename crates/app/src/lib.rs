@@ -57,7 +57,6 @@ pub fn run(model: Option<PathBuf>) -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 820.0])
-            .with_maximized(true)
             .with_title("Terraflux"),
         wgpu_options: wgpu_options(),
         ..Default::default()
@@ -72,6 +71,8 @@ pub fn run(model: Option<PathBuf>) -> eframe::Result<()> {
                 canvas_gpu::install(rs);
             }
             let mut app = TerrafluxApp::new(model);
+            // maximized once shown (made maximized, a window shown after its first frame is not, on Windows)
+            app.maximize = Some(0);
             // the panes where they were left
             if let Some(path) = app::layout_file() {
                 app.restore_layout(path);

@@ -495,3 +495,45 @@ fn new_inputs_are_named_after_what_they_read() {
     assert_eq!(new_input("$t0", &[""]), "t0");
     assert_eq!(new_input("@step", &[]), "step");
 }
+
+/// A model opened after another (a template after the blank model the application starts with): its shapes reach
+/// the GPU, whose canvas keeps the shapes it was given last until their generation changes (both editors' first
+/// generation was 1: the template's boxes were never drawn, only their texts).
+#[test]
+fn another_model_is_drawn() {
+    let mut h = harness(TerrafluxApp::new(None));
+    h.run_steps(3);
+    let before = editor(&h).generation();
+    assert!(before > 0, "the blank model's canvas drawn");
+    let ctx = h.ctx.clone();
+    h.state_mut().start_template(&ctx, &terraflux_app::templates::TEMPLATES[0]);
+    h.state_mut().focus(Pane::Model);
+    h.run_steps(3);
+    assert!(editor(&h).boxes() > 0);
+    assert_ne!(editor(&h).generation(), before, "new shapes for the GPU");
+}
+
+/// A layout kept with the viewer in front of the model's tab: the viewer is let go when the application opens
+/// (it comes with the data), and the model's tab is the one in front (egui_dock left the leaf's index past its tabs:
+/// the model's pane was blank).
+#[test]
+fn a_layout_kept_with_the_viewer_in_front_shows_the_model() {
+    // a layout drawn (its rectangles known, as the application keeps it), the viewer in front of the model
+    let mut h = harness(TerrafluxApp::new(None));
+    h.state_mut().focus(Pane::Viewer);
+    h.run_steps(3);
+    let dock = h.state().dock.clone().unwrap();
+    let viewer = dock.find_tab(&Pane::Viewer).unwrap();
+    assert_eq!(dock.find_tab(&Pane::Model).map(|p| p.node_path()), Some(viewer.node_path()));
+    let path = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("canvas-layout.json");
+    let text = serde_json::json!({ "version": 7, "main": dock, "windows": [] });
+    std::fs::write(&path, text.to_string()).unwrap();
+    let mut app = TerrafluxApp::new(None);
+    app.restore_layout(path);
+    assert!(!app.is_open(Pane::Viewer), "the viewer comes with the data");
+    assert!(app.is_open(Pane::Node), "the layout read");
+    let dock = app.dock.as_ref().unwrap();
+    let at = dock.find_tab(&Pane::Model).unwrap();
+    let leaf = dock.leaf(at.node_path()).unwrap();
+    assert_eq!(leaf.tabs().get(leaf.active.0), Some(&Pane::Model));
+}

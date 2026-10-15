@@ -109,9 +109,16 @@ pub fn default_layout() -> DockState<Pane> {
 }
 
 /// The panes kept that `keep` says to keep, and the floating windows left with none taken away (egui_dock's
-/// own `retain_tabs` leaves such a window, a tree of one empty node, and panics drawing it).
+/// own `retain_tabs` leaves such a window, a tree of one empty node, and panics drawing it). A leaf whose tab in
+/// front was taken away shows its last (egui_dock leaves the index past its tabs: nothing is drawn there).
 fn retain_panes(dock: &mut DockState<Pane>, keep: impl FnMut(&mut Pane) -> bool) {
     dock.retain_tabs(keep);
+    for (_, leaf) in dock.iter_leaves_mut() {
+        let n = leaf.tabs().len();
+        if n > 0 && leaf.active.0 >= n {
+            leaf.active = egui_dock::TabIndex(n - 1);
+        }
+    }
     let empty: Vec<_> = dock
         .iter_surfaces_indexed()
         .filter(|(i, s)| !i.is_main() && s.node_tree().is_some_and(|t| t.num_tabs() == 0))
@@ -1058,6 +1065,9 @@ pub struct TerrafluxApp {
     pub drawer: bool,
     /// The viewer was opened when the first data came (not again, if it is closed after).
     viewer_opened: bool,
+    /// The window to be maximized, at its third frame (the frames drawn so far): on Windows the window shown
+    /// after its first frame loses the maximized state it was made with.
+    pub maximize: Option<u32>,
     /// The Files pane's folder.
     pub files: crate::files_view::Files,
     /// The model run many times (replicates, scenarios, calibration).
@@ -1111,6 +1121,7 @@ impl TerrafluxApp {
             tabbed: false,
             drawer: false,
             viewer_opened: false,
+            maximize: None,
             files: crate::files_view::Files::default(),
             batch: crate::batch_view::BatchState::new(),
             computers: crate::computers::Computers::new(),
@@ -1925,6 +1936,13 @@ impl TerrafluxApp {
 
     /// One frame of the application.
     pub fn frame(&mut self, ui: &mut Ui) {
+        if let Some(k) = &mut self.maximize {
+            *k += 1;
+            if *k >= 3 {
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(true));
+                self.maximize = None;
+            }
+        }
         // the style of the settings (again when they change)
         let st = crate::settings::get();
         let key = (st.theme.clone(), st.text.to_bits(), st.zoom.to_bits());

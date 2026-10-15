@@ -30,6 +30,11 @@ minor versions.
   the rest. The operators' pane closed, they are in the drawer at the left edge and in the toolbar as before.
 
 ### Fixed
+- The model's boxes, ports and connections drawn when another model is opened (a template after the blank model
+  the application starts with): every editor's first shapes had the same generation, so the GPU kept the shapes
+  it had and only the nodes' texts showed until a node was moved.
+- The window opens maximized on Windows (made maximized, it was not once shown), and the model's pane is not blank
+  when the layout kept had the viewer in front of it.
 - A tab dragged out of the dock no longer trips egui's check of a widget drawn in two windows in one frame (its
   window of its own shown from the next frame).
 - A pane opened from the View menu has the focus (it was put in the dock behind the tab in front).

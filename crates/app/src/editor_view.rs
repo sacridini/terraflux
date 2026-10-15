@@ -160,6 +160,11 @@ impl EditorState {
         self.cameras.get(&self.path).map_or(1.0, |c| c.zoom)
     }
 
+    /// The generation of the shapes the GPU was last given (no two editors share one).
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
     /// The boxes of the scene shown (what the scope reads, then its nodes).
     pub fn boxes(&self) -> usize {
         self.scene.as_ref().map_or(0, |s| s.boxes.len())
@@ -705,6 +710,13 @@ impl Scene {
 
 type BTreeStatus = std::collections::BTreeMap<String, NodeStatus>;
 
+/// A generation of the shapes no canvas had before: the GPU keeps the shapes it was given last and takes new ones
+/// when their generation changes, so every editor's (a new model's, a template's) must differ from the others'.
+fn next_generation() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
 /// The name of a new input reading `reference`: the node it comes from (`elevation.map`: `elevation`), the model's
 /// input or the carried value; `_2`, `_3`... after it when a node has that name already.
 pub fn new_input(reference: &str, taken: &[&str]) -> String {
@@ -744,7 +756,7 @@ pub fn show(
     let key = (revision, st.path.clone(), status_rev, crate::theme::current().name);
     if st.scene.as_ref().is_none_or(|s| s.key != key) {
         let mut scene = Scene::build(model, nodes, r, &st.path, status, ui.visuals());
-        st.generation += 1;
+        st.generation = next_generation();
         scene.key = key;
         Arc::get_mut(&mut scene.shapes).unwrap().generation = st.generation;
         st.scene = Some(scene);
@@ -936,7 +948,7 @@ pub fn show(
     let cam = *cam;
     // the nodes dragged move in the scene at once (the model's places follow through the actions)
     if !moved.is_empty() {
-        st.generation += 1;
+        st.generation = next_generation();
         let generation = st.generation;
         let scene = st.scene.as_mut().unwrap();
         for (i, p) in moved {
