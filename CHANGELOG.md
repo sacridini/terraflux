@@ -6,6 +6,20 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.80.1] - 2026-10-15
+
+### Fixed
+- `raster.read`'s `map` is the band chosen alone: since 0.80.0 a multi-band file's map reached map algebra, groups
+  and submodels (inputs of any value) as a stack of every band. A band is still read once, whichever port asks.
+- `terraflux calibrate` types a range by the model's value of the setting for every node (0.80.0 found only the
+  model's first node).
+- `terraflux run --set node.setting=value` refuses a setting the node's operator does not take (a misspelt name ran
+  silently).
+- The template "A city that grows (a loop)" grows: with its neighbours counted by `nbsum` (0.80.0), its bar was
+  above every cell next to the old town; three city neighbours and a bar from 0.6 now.
+- `terraflux serve` without a code on 127.0.0.1 prints the worker command with its address, and `terraflux jobs`
+  says when there are none.
+
 ## [0.80.0] - 2026-10-15
 
 ### Added
