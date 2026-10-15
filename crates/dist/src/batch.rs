@@ -267,7 +267,8 @@ mod tests {
     #[test]
     fn the_model_types_the_ranges() {
         let m = terraflux_graph::Model::from_toml(
-            "format = \"terraflux/1\"\n[[nodes]]\nid = \"a\"\nop = \"x.op\"\nparams = { share = 0.5, window = 3 }\n",
+            "format = \"terraflux/1\"\n[[nodes]]\nid = \"z\"\nop = \"x.op\"\n[[nodes]]\nid = \"y\"\nop = \"x.op\"\n\
+             [[nodes]]\nid = \"a\"\nop = \"x.op\"\nparams = { share = 0.5, window = 3 }\n",
         )
         .unwrap();
         let p = Param::parse("a.share=0:1", 5).unwrap().typed_by(&m);

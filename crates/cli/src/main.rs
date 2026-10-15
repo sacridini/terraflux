@@ -605,6 +605,20 @@ fn main() -> Result<()> {
                     overrides.insert(k.to_string(), v.to_string());
                 }
             }
+            // a setting the node's operator does not take is a mistake (a misspelt name), not a silent no-op
+            for k in settings.keys() {
+                let (path, name) = k.rsplit_once('.').context("--set node.setting=value")?;
+                let op = m.node_mut(path).with_context(|| format!("--set {k}: no node {path:?}"))?.op.clone();
+                if let Some(sig) = engine.registry.sig(&op)
+                    && !sig.container
+                    && sig.extra.is_none()
+                    && !sig.params.iter().any(|p| p.name == name)
+                    && sig.input_spec(name).is_none()
+                {
+                    let known: Vec<&str> = sig.params.iter().map(|p| p.name.as_str()).collect();
+                    bail!("--set {k}: {op} has no setting {name:?} (its settings: {})", known.join(", "));
+                }
+            }
             if !settings.is_empty() {
                 m.apply(&settings)?;
             }

@@ -160,7 +160,15 @@ pub async fn serve(
                 .transpose()?
         }
         None => {
-            eprintln!("start workers with `terraflux worker --coordinator http://<this host>:{}`", addr.port());
+            if listen.ip().is_loopback() {
+                eprintln!(
+                    "start workers on this computer with `terraflux worker --coordinator http://{addr}` (listening on \
+                     {}, it is not seen from other computers)",
+                    listen.ip()
+                );
+            } else {
+                eprintln!("start workers with `terraflux worker --coordinator http://<this host>:{}`", addr.port());
+            }
             None
         }
     };
@@ -250,7 +258,11 @@ pub async fn workers(coordinator: Option<String>, code: Option<String>) -> Resul
 /// The jobs of a coordinator, done or not.
 pub async fn jobs(coordinator: Option<String>, code: Option<String>) -> Result<()> {
     let mut c = client(coordinator, code).await?;
-    for j in c.jobs().await? {
+    let list = c.jobs().await?;
+    if list.is_empty() {
+        eprintln!("no jobs: submit one with `terraflux submit` or `terraflux calibrate`");
+    }
+    for j in list {
         println!(
             "{}\t{}\t{} of {} done\t{} running\t{} failed",
             j.id,

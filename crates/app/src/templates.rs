@@ -1985,8 +1985,8 @@ collect = { maps = "grow.map" }
 id = "grow"
 op = "map.calc"
 inputs = { c = "@city", suit = "suitability.map", step = "@step" }
-params = { expression = "if c == 0 and nbsum(c == 1, 1) >= 2 and suit > 0.8 - step * 0.008 then 1 else c" }
-note = "A cell becomes city when two of its neighbours are, if it is suited enough; the bar falls a little every step, so the best land goes first."
+params = { expression = "if c == 0 and nbsum(c == 1, 1) >= 3 and suit > 0.6 - step * 0.008 then 1 else c" }
+note = "A cell becomes city when three of its neighbours are, if it is suited enough; the bar falls a little every step, so the best land goes first."
 
 [[nodes]]
 id = "plot_growth"

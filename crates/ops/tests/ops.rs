@@ -699,8 +699,9 @@ fn rasters_are_read_and_written() {
     let whole = terraflux_raster::Raster::read(&data).unwrap();
     // read: the headers only, the file on disk; a map or a stack where a port takes one
     let read = run("raster.read", vec![], serde_json::json!({"path": data, "band": "2011"})).unwrap();
+    // the map: the band chosen alone (a port of any value takes it as a map)
     let Value::Raster(r) = &read["map"] else { panic!() };
-    assert_eq!((r.layers.len(), r.chosen), (2, 1));
+    assert_eq!((r.layers.len(), r.chosen, r.layers[0].name.as_str()), (1, 0, "2011"));
     let Value::Map(m) = as_port(read["map"].clone(), terraflux_graph::Type::Map).unwrap() else { panic!() };
     let want = whole.bands[1].masked(whole.nodata);
     assert!(m.data.iter().zip(&want).all(|(a, b)| a == b || (a.is_nan() && b.is_nan())));

@@ -170,8 +170,9 @@ pub struct Rasters {
     /// Whether the files are of different grids (tiles of a region, say): each layer is on its file's grid, and
     /// they make no stack.
     pub mixed: bool,
-    /// The layers read whole so far.
-    whole: Mutex<HashMap<usize, Arc<Vec<f64>>>>,
+    /// The bands read whole so far, by file and band: shared by the views of the same rasters (another layer
+    /// chosen, the chosen layer alone), so a band is read once whichever port asks for it.
+    whole: Arc<Mutex<HashMap<(usize, usize), Arc<Vec<f64>>>>>,
 }
 
 impl std::fmt::Debug for Rasters {
@@ -317,7 +318,7 @@ impl Rasters {
             },
         };
         let mixed = images.iter().any(|i| !i.meta().grid.same_as(&grid));
-        Ok(Rasters { grid: Arc::new(grid), layers, images, chosen, mixed, whole: Mutex::new(HashMap::new()) })
+        Ok(Rasters { grid: Arc::new(grid), layers, images, chosen, mixed, whole: Arc::new(Mutex::new(HashMap::new())) })
     }
 
     /// The same rasters, another layer the map.
@@ -328,7 +329,7 @@ impl Rasters {
             images: self.images.clone(),
             chosen: layer.min(self.layers.len().saturating_sub(1)),
             mixed: self.mixed,
-            whole: Mutex::new(self.whole.lock().unwrap().clone()),
+            whole: self.whole.clone(),
         }
     }
 
@@ -336,14 +337,13 @@ impl Rasters {
     /// not as a stack of every band).
     pub fn only_chosen(&self) -> Rasters {
         let k = self.chosen.min(self.layers.len().saturating_sub(1));
-        let whole = self.whole.lock().unwrap().get(&k).map(|v| (0, v.clone())).into_iter().collect();
         Rasters {
             grid: Arc::new(self.grid_of(k).clone()),
             layers: self.layers.get(k).cloned().into_iter().collect(),
             images: self.images.clone(),
             chosen: 0,
             mixed: false,
-            whole: Mutex::new(whole),
+            whole: self.whole.clone(),
         }
     }
 
@@ -396,7 +396,8 @@ impl Rasters {
 
     /// A layer read whole (once), NaN where there is no value; refused beyond [`MOST_CELLS`].
     pub fn read(&self, layer: usize) -> Result<Arc<Vec<f64>>> {
-        if let Some(v) = self.whole.lock().unwrap().get(&layer) {
+        let key = (self.layers[layer].image, self.layers[layer].band);
+        if let Some(v) = self.whole.lock().unwrap().get(&key) {
             return Ok(v.clone());
         }
         let cells = self.grid_of(layer).cells();
@@ -412,7 +413,7 @@ impl Rasters {
         let l = &self.layers[layer];
         let data = self.images[l.image].read_band(l.band)?;
         let data = Arc::new(Band { name: None, data }.masked(l.nodata));
-        self.whole.lock().unwrap().insert(layer, data.clone());
+        self.whole.lock().unwrap().insert(key, data.clone());
         Ok(data)
     }
 

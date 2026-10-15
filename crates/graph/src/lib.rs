@@ -405,7 +405,8 @@ impl Model {
         }
         let (path, name) = key.rsplit_once('.')?;
         let mut parts = path.split('/');
-        let mut node = self.nodes.iter().find(|n| Some(n.id.as_str()) == parts.next())?;
+        let first = parts.next()?;
+        let mut node = self.nodes.iter().find(|n| n.id == first)?;
         for id in parts {
             node = node.body.as_ref()?.nodes.iter().find(|n| n.id == id)?;
         }
