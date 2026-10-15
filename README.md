@@ -1,353 +1,164 @@
-# Terraflux
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo/terraflux-logo-dark.svg">
+    <img alt="Terraflux" src="assets/logo/terraflux-logo-light.svg" width="380">
+  </picture>
+</p>
 
-**Fast, scalable land use and land cover change modelling — from a laptop to the whole planet at 30 m.**
+<p align="center">
+  <strong>Landscape ecology, conservation planning and land change simulation in one open-source application.</strong><br>
+  Built on the methods of the reference tools, from a laptop to a cluster.
+</p>
 
-Terraflux is a native application for land change simulation with cellular automata, in the spirit of
-Dinamica EGO: a visual model builder, guided data preparation and live maps, with an engine that runs
-the same model on one machine or distributed across many headless workers.
+<p align="center">
+  <a href="LICENSE"><img alt="License: GPL-3.0-or-later" src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue"></a>
+  <img alt="Version 0.80" src="https://img.shields.io/badge/version-0.80-orange">
+  <img alt="Rust 1.85+" src="https://img.shields.io/badge/rust-1.85%2B-b7410e?logo=rust">
+  <img alt="Windows, macOS, Linux" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey">
+</p>
 
-> **Status:** 0.7 — the application (a wizard that checks and fixes the data, live maps, a node editor,
-> charts and validation), the exact engine, the command line and batches on many machines (replicates,
-> scenarios, calibration) run Dinamica EGO's classic model, CLUE-S, the ordered allocation and PLUS's CARS, with
-> dynamic variables, bit for bit as landschaft's `ls.simulate` (and so as lulcc); models fitted in Python run
-> here unchanged. Map algebra, submodels and WebAssembly plugins change a model's logic; agents (macro agents,
-> parcel managers, CRAFTY's competition for land) act on the map in the same graph. A tiled engine runs
-> Dinamica EGO's model on maps larger than memory, on one machine or many: the same maps whatever the number of
-> workers. The plan is in [`docs/PLAN.md`](docs/PLAN.md) (Portuguese) and the changes in
-> [`CHANGELOG.md`](CHANGELOG.md).
+<p align="center">
+  <a href="#features">Features</a> ·
+  <a href="#installation">Installation</a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#scaling-up">Scaling up</a> ·
+  <a href="#documentation">Documentation</a> ·
+  <a href="#building-from-source">Building</a>
+</p>
 
-## Goals
+<p align="center">
+  <img alt="The Terraflux model builder: a forest's fragmentation, its graph above and its map below" src="docs/images/builder.png" width="100%">
+</p>
 
-- **One model, many front-ends.** A model is a typed graph of operators saved as versionable text. The
-  guided wizard, the node editor, Python and the text file all read and write the same graph.
-- **Easy without hiding anything.** Every automatic choice of the wizard becomes an explicit node in the
-  graph, with its reason, so beginners accept sensible defaults and experts change anything.
-- **Guided data preparation.** A reference grid per project; automatic harmonisation with the right
-  resampling for each kind of data; class legends; observed changes; explanatory variables in one click;
-  checks that catch problems before a run.
-- **Any scale.** An exact mode, bit for bit with the reference tools on one machine, and a scalable mode
-  over tiles: deterministic whatever the partitioning, up to global scenarios at 30 m.
-- **Flexible logic.** Map algebra, reusable submodels and pluggable operators (Rust and WASM).
-- **Agents.** An agent-based layer on top of the cellular automata, in the same graph.
+Terraflux is a native desktop application and command line for spatial ecology. Habitat patterns, landscape
+metrics, connectivity, spatial prioritization, restoration planning, species distributions and land use change
+are operators in one visual model builder: connect them node by node, and every result shows as soon as the
+graph changes. The same model runs unchanged from the command line, on all the cores of a workstation, on the
+computers of a local network or on a Slurm cluster, and on maps larger than memory.
 
-## Technology
+## Why Terraflux
 
-- **Application:** Rust, with an [egui](https://github.com/emilk/egui) + wgpu interface.
-- **Simulation kernels:** C++17/OpenMP from [landschaft](https://github.com/sacridini/landschaft), which
-  reproduces lulcc, CLUMondo, r.futures, MOLUSCE, OpenLand and diffeR, plus Dinamica EGO's and PLUS's
-  methods from their publications.
-- **Distribution:** gRPC between a coordinator and workers, with Zarr and COG on shared storage.
-- **Python:** through landschaft's `ls.simulate`.
+- **Results you can trust.** The methods follow their reference implementations, and many give the same
+  results to the bit: GuidosToolbox, landscapemetrics, Zonation 5, Marxan, prioritizr, plangea, Dinamica EGO and
+  lulcc's CLUE-S among them. Parity tests against [landschaft](https://github.com/sacridini/landschaft) run in the
+  test suite.
+- **No code needed, nothing hidden.** Nearly 300 operators in a searchable library, 37 ready-to-run templates and
+  a wizard that checks and fixes the data. Every automatic choice is a visible node, with a note on why it is
+  there.
+- **One model, many front-ends.** A model is a typed graph saved as readable text (TOML or JSON). The builder,
+  the wizard, the command line and Python all read and write the same file.
+- **Any scale.** An exact engine on one machine, and a tiled engine that gives the same maps whatever the number
+  of tiles, threads or machines.
 
-## The application
+## Features
 
-```bash
-terraflux app                 # or: terraflux app model.toml
+| Field | What Terraflux does | Methods of |
+|---|---|---|
+| **Land change simulation** | Dinamica EGO's model (Markov chains, weights of evidence, Expander and Patcher), CLUE-S, ordered allocation, PLUS's CARS, cellular automata in loops, validation by fuzzy similarity | Dinamica EGO, lulcc, landschaft |
+| **Habitat patterns** | MSPA (also tiled, for maps larger than memory), SPA, Accounting, FAD and FOS fragmentation, landscape mosaic, spatial entropy, change between two dates | GuidosToolbox |
+| **Landscape metrics** | Patch, class and landscape metrics, moving windows, sample plots, time series, spatial signatures with PCA, NMF and clustering | landscapemetrics, FRAGSTATS |
+| **Connectivity** | Habitat graphs and Conefor's indices, MSPA networks, circuit theory, least-cost paths and corridors, random walks | Conefor, Circuitscape, Omniscape, gdistance |
+| **Conservation planning** | Zonation 5 rankings and projects, Marxan reserves, prioritizr's integer programs solved by HiGHS, irreplaceability, multi-action planning | Zonation, Marxan, prioritizr, ProxIRR, prioriactions |
+| **Restoration** | Ecological intactness, restoration plans under area targets and budgets, trade-off curves | plangea |
+| **Species distributions** | GBIF records, CoordinateCleaner's tests, thinning, background points, spatial folds, MaxNet, GLM and random forests, evaluation and extrapolation (MESS, MOP) | dismo, ENMeval, blockCV, usdm |
+| **Agents** | Macro agents, parcel managers and CRAFTY's competition for land, in the same graph as the cellular automata | CRAFTY |
+| **Surfaces and data** | Terrain, distances, map algebra, reprojection and resampling, vectors by OGR, zonal statistics, Monte Carlo uncertainty | GDAL, exactextractr |
+
+<table>
+  <tr>
+    <td width="50%"><img alt="Zonation's priority rank of four species" src="docs/images/zonation.png"></td>
+    <td width="50%"><img alt="A city that grows in a loop of 25 steps" src="docs/images/land-change.png"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Spatial prioritization: Zonation's priority rank</sub></td>
+    <td align="center"><sub>Land change: a city that grows in a loop of 25 steps</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img alt="A land use map over satellite imagery" src="docs/images/basemap.png"></td>
+    <td width="50%">
+      <h4>The application</h4>
+      <ul>
+        <li>A node editor drawn by the GPU: 10,000 nodes at about 0.1 ms a frame</li>
+        <li>Results shown as the graph changes, from a cache that reruns only what changed</li>
+        <li>Rasters of any size shown at once, tiles read at the screen's resolution</li>
+        <li>Satellite and map basemaps under the data, maps and vectors stacked</li>
+        <li>Rasters and vectors dropped from the file manager become nodes</li>
+        <li>Panes you can arrange, and take to another screen</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Basemaps: a land use map over satellite imagery</sub></td>
+    <td></td>
+  </tr>
+</table>
+
+## Installation
+
+Each release ships self-contained packages: GDAL and the runtimes are bundled, nothing else is needed (neither
+Python nor a GDAL of your own).
+
+| Platform | Package | Notes |
+|---|---|---|
+| **Windows** 10 and 11, 64-bit | `terraflux-<version>-x64.msi` | Start menu shortcut, `terraflux` on the `PATH` |
+| | `terraflux-<version>-windows-x64.zip` | Portable: unpack anywhere |
+| **macOS**, Apple silicon | `terraflux-<version>-macos-arm64.dmg` | Drag `Terraflux.app` to Applications |
+| **Linux** x86-64, glibc 2.39+ (Ubuntu 24.04+) | `terraflux_<version>_amd64.deb` | `sudo apt install ./terraflux_<version>_amd64.deb` |
+| | `terraflux-<version>-linux-x64.tar.gz` | Unpack and run `install.sh`, no root needed |
+
+> [!NOTE]
+> The macOS application is signed ad hoc, not notarized: the first time, open it with a right click and **Open**.
+
+<details>
+<summary>Making the packages</summary>
+
+```powershell
+tools\make-installer.ps1                # Windows: the MSI (WiX 5) and the zip, in target\installer
 ```
 
-A double click on `terraflux.exe` or `Terraflux.app` (or `terraflux` without a command) opens the application
-too, and so does a model file dropped on it or opened with it (on Windows); started that way on Windows, it shows
-no console.
+```bash
+python3 tools/make-macos-app.py         # macOS: Terraflux.app, the dmg and the zip, in target/macos
+python3 tools/make-linux-package.py     # Linux: the folder, the tar.gz and the .deb, in target/linux
+```
 
-- **Panes you arrange:** the model, the operators, the node, the viewer, the simulation's maps, the areas and
-  the validation are tabs to drag, split, close (ctrl+W; the View menu turns each on or off) or take to a
-  window of their own on another screen (right click on a tab); the layout is kept between sessions. Tab goes
-  to the model and Tab again back to the tab you were in. A double click on a node opens its map in a tab of
-  its own: one per node, brought to the front when it is open already (a new one once it is closed). The
-  model's tab shows its text (TOML) and its problems with a button (Text). The viewer writes the coordinates
-  under the pointer in its corner, with the cell's row, column and value.
-- **Seeing without writing:** `view.plot` shows a map, a stack, a loop's maps or rasters in a tab of its own,
-  refreshed at every run (read, reclassify, plot: no file). What a tab or the viewer shows is saved from it
-  (Save output: a file only, or a file and a `raster.write` in the model), in the background.
-- **Basemaps:** under any map shown, satellite imagery or a map of the world (Esri's imagery and topographic
-  map, OpenStreetMap, OpenTopoMap, Carto), warped by GDAL onto the data's CRS, kept in a cache; the data over it
-  shown or hidden, at the opacity chosen.
-- **Editing many nodes:** drag on the canvas to select the nodes in a box (shift or ctrl and a click add or take
-  one away, ctrl+A all), drag one to move them all, del deletes them; Arrange (ctrl+L) puts the nodes in tidy
-  columns by what they read, ordered so that connections cross little. ctrl+R renames the node selected. A
-  connection is taken off by dragging it away from its input (dropped on another input: moved there) or by a
-  right click on the input.
-- **Settings in lists:** a setting of a few values (a method, a shape, a connectivity, yes or no) is chosen in
-  a list, its default first; the metrics of the landscape metrics are all of them, those of some types (area
-  and edge, shape, core area...) or some one by one.
-- **Builder** (where the application opens): open a raster, click the operators of the library (by
-  landschaft's subjects, with a search) and they come connected to the node selected; what the node selected gives is shown in the
-  viewer, a tab beside the canvas's (a map with its legend, the maps of a stack or of a loop's steps, a table, a value). A run stops at the
-  node shown and takes what did not change from the cache, so after every change of a setting only what it
-  touches runs again and its result shows at once (ctrl+enter runs to the node, F5 the whole model). Save a map
-  as a raster, the model as a file.
-- **From the keyboard:** `/` opens a search of the operators anywhere; type part of a name or of what it does,
-  the arrows choose, enter adds it connected to the node selected (which the new node becomes, so a chain is
-  built key after key), esc closes the search.
-- **Templates:** models to start from, run as soon as they open (their data drawn by neutral landscape models,
-  a note on every node), in groups: GuidosToolbox's patterns (MSPA, fragmentation, SPA and Accounting, the
-  landscape mosaic, a forest's gain and loss); landscape metrics (per class, per patch, kinds of landscapes by
-  their signatures); connectivity (MSPA's network, a habitat graph as Conefor's, Circuitscape and Omniscape,
-  least costs and random walks, a corridor to restore); conservation and restoration (intactness, Zonation,
-  Marxan, prioritizr and its evaluation, plangea, prioriactions); species (a distribution model, and one
-  projected to a warmer climate with MESS); land change (Dinamica EGO, CLUE-S, the drivers of a change, a
-  cellular automaton in a loop, farmers as agents, CRAFTY, the analysis of a change and the validation of a
-  simulation); surfaces and uncertainty (terrain, carbon by Monte Carlo, the neutral landscape models).
-- **Reclassifying:** the rules of `raster.reclassify` as a table (the values, what they become), the classes of
-  the map it reads with their share beside them (A rule per class fills it), or its range for a continuous map
-  (4 equal ranges), and how to write values, ranges (`0..10`), every other value (`*`) and no data (`nan`).
-- **Colours that fit the data,** as landschaft's plot: classes (whole values, few of them) a colour each, other
-  values a ramp, centred on 0 in blue and red when they are on both sides of it; what GuidosToolbox gives (MSPA,
-  SPA, Accounting, FAD and FOS) in its colours and names, a density's legend in its classes (rare to intact),
-  through the plots that show them and in files named as GTB names them; elevations, a
-  hillshade and NDVI by their ramps (by the names of their nodes, files and bands).
-- **GuidosToolbox:** landschaft's port of GTB, the same bits as GTB's own outputs: MSPA (`landscape.mspa`), the
-  MSPA of maps larger than memory by GTB's tiles (`landscape.mspa_tiled`), the simplified pattern analysis
-  (`landscape.spa`, 2 to 6 classes), the objects by size (`landscape.accounting`),
-  the foreground's density (`fragmentation.fad`, at five scales `fragmentation.fad_multiscale`) and the
-  fragmentation at a fixed scale (`fragmentation.fos`, by FAD, FED or FAC, binary maps or % covers), contagion and
-  clustering in a window, the spatial entropy, the landscape mosaic, GraySpatCon's metrics of a % cover,
-  parcellation, contortion, the Euclidean distance to the foreground's edge, the zones of influence and the
-  proximity of the objects, the habitat network of an MSPA map (GTN's components, the importance of its links
-  and nodes, Conefor's inputs), the Restoration Planner (status, resistance, cost distance, least-cost path and
-  corridor, isochrones), and the simple, morphological, FOS, FAD and mosaic change between two dates, with GTB's
-  reports as tables and as GTB's text. They read a map coded as GTB's (0 missing, 1 background, 2 foreground) or
-  any map with the foreground's classes given.
-- **Landscape metrics:** landscapemetrics' metrics (and FRAGSTATS' extras) per patch, per class, of the
-  landscape and in a moving window (`metrics.patch`, `metrics.class`, `metrics.landscape`, `metrics.window`; of
-  maps larger than memory by blocks of rows, the same values), of
-  sample plots (buffers around points, polygons; `metrics.sample`) and along a series of maps (`metrics.series`,
-  by zones or a grid of them), with the correlation between them (`metrics.correlation`), the same values as R's
-  landscapemetrics; spatial signatures of zones or landscapes (`metrics.signatures`) with their principal
-  components, non-negative factors, clusters and clustergrams (`metrics.pca`, `metrics.nmf`, `metrics.cluster`,
-  `metrics.clustergram`), the same clusters as landschaft; tables sorted, filtered and drawn in the viewer (bars,
-  lines or points of several metrics at once, by class, zone or cluster; clustergrams; correlation matrices), and
-  the maps of a metric per patch
-  or class.
-- **Spatial prioritization:** Zonation 5's ranking (`prioritize.zonation`), the same rank maps as the z5 binary,
-  with its conditions, retention, connectivity transforms, impact assessment and post-processing, and Zonation's
-  projects as z5 runs them (`prioritize.zonation_project`: the `.z5` file, its feature list and link files); Marxan 4's
-  reserves (`prioritize.marxan`), the same runs as Marxan; ProxIRR's irreplaceability (`prioritize.proxirr`), R's
-  proxirr's bits; prioritizr's integer programs (`prioritize.optimize`: min set, min shortfall, max utility, max
-  features, phylogenetic diversity, the species-area extinction risk and more; boundary, connectivity and linear
-  penalties, neighbour and contiguity constraints; planning units in maps, tables, polygons or H3 hexagons
-  (`prioritize.h3_units`); portfolios), prioritizr's
-  models bit for bit, solved by HiGHS; management zones; the evaluation of solutions (`prioritize.evaluate`) and
-  the calibration of trade-offs (`prioritize.calibrate`).
-- **Restoration planning (plangea):** ecological intactness of a human footprint and its gradient as cells are
-  restored, the original vegetation of converted land, the area of habitat of species; plangea's bits. The
-  restoration plan (`restoration.plan`): the most reduction of the species' extinction risk (and carbon, and
-  ecological intactness) within area targets and a budget, exact (a proven bound) or by plangea's steps, or the
-  cheapest plan for a benefit; conservation and conversion, trade-off curves, sets of weights compared, projected
-  changes, the ecosystems' risk of collapse and their targets.
-- **Multi-action planning (prioriactions):** which units to monitor and which actions against which threats to
-  take (`prioritize.actions`), prioriactions's model bit for bit; from rasters of the features, the threats and the
-  costs, the solution as maps (`prioritize.actions_raster`).
-- **Species distribution models:** occurrence records from GBIF (`sdm.download_gbif`), cleaned by
-  CoordinateCleaner's tests (`sdm.clean_occurrences`), thinned, one per cell; the accessible area; the predictors
-  without collinearity (usdm's VIF) and their range of autocorrelation; background points (dismo's); folds for
-  cross-validation (ENMeval's and blockCV's); MaxNet, a GLM or a random forest (scikit-learn's, the same trees)
-  fitted with cross-validation, their response curves and the importance of the predictors; its evaluation (AUC, TSS, Boyce, thresholds) and extrapolation (MESS, MOP, ExDet).
-  The whole preparation in one node (`sdm.prepare`) or step by step; landschaft's results, mostly to the bit (the
-  template "Species distribution model").
-- **Vector features:** read and written by OGR (GeoPackage, Shapefile, GeoJSON...), drawn beside their
-  attributes; burnt into maps as landschaft's rasterize, the statistics of maps in polygons, exactextractr's sums
-  over polygons, distances to features; planning units of polygons for prioritizr's problems.
-- **Rasters of any size:** opening a raster reads its header only; the viewer reads the tiles in view at the
-  screen's resolution (in threads, the coarser level shown meanwhile), so a raster of billions of cells shows
-  in under half a second and zooms smoothly; a folder or a pattern (`forest/*.tif`) is one stack, a layer per
-  band of each file (Open a folder as a stack), to go through.
-  Operators that need a map in memory read it then.
-- **GDAL:** every format GDAL reads, and by GDAL: `raster.reproject`, `raster.resample`, `raster.match`
-  (another raster's grid), `raster.clip`, `raster.convert` (formats, cell types, COG), `raster.mosaic`,
-  `raster.terrain` (slope, aspect, hillshade, TRI, TPI, roughness), `raster.fill` (gaps) and
-  `distance.proximity` (the distance to some values, on the file whatever its size); `raster.reclassify` by
-  Terraflux. A series may hold files of different grids (tiles to join). GDAL is loaded when the
-  program runs (no GDAL is needed to build Terraflux): from the folder `gdal` next to the program (the
-  installers bring it; `tools/bundle-gdal.ps1` copies one there), `TERRAFLUX_GDAL`, or an installed GDAL.
-  Without it, GeoTIFF is read and written by Terraflux itself.
-- **Large diagrams:** the canvas is drawn by the GPU (the boxes, ports and connections in a few instanced draws
-  whatever their number) and laid out only when the graph changes; texts are written for the nodes in view
-  when the zoom makes them readable. Drag the background (or with the middle button) to move, the wheel to zoom,
-  Home to see the whole graph. With 10,000 nodes a frame takes about 0.1 ms, dragging a node 0.5 ms.
-- **Wizard:** a wizard in three steps picks the model (Dinamica EGO's, CLUE-S, ordered), reads the land use
-  maps and the drivers (the dates and steps from the band names), checks the data as soon as it is chosen
-  (grids, classes, missing values, constant or collinear drivers) and offers to fix what it can (resampling a
-  driver to the land use map's grid), then writes the model with a note on every choice.
-- **Panes:** the operators and the Files at the window's left edge, the node's and Prepare beside them, the model
-  in the rest, the viewer in a tab beside it from the first data read (the window opens maximized); the operators'
-  pane closed, they are in a drawer at the window's left edge and in the toolbar. Any tab dragged out of the dock
-  becomes a window of its own, to put on another screen. ctrl+O opens a raster or vectors, ctrl+W closes the tab
-  in front, backspace (or delete) deletes the node selected.
-- **Files to nodes:** rasters and vectors dragged from the system's file manager onto any window (the main one or
-  one of its own), or from the Files pane onto the canvas (where they are let go), are nodes that read them; the
-  Files pane lists the data of a folder (a double click adds a file, a right click reads a folder of rasters as
-  one stack), a model dropped is opened. A node that takes any inputs (`stack.of`'s maps) has a place for one
-  more: a connection let go on it, or on the node, is a new input named after the node it comes from.
-- **The viewer:** maps over maps (each as opaque as asked) and vectors over them, chosen beside the map or
-  stacked by plots in the model (a plot's `under`); a cell clicked on a stack shows its values along the layers
-  in a chart; B puts the satellite under the map; at the closest zoom each cell's value is written in it.
-  **Settings:** themes, the text's size, the zoom, the threads; favourites in coloured collections in the
-  operators' library.
-- **Legends and weights of evidence:** the classes' names and colours edited in the viewer (a `raster.legend`
-  node, carried with the map to the GeoTIFF); the weights of evidence of a fit in bars, its ranges merged or
-  split and its weights set by hand, the fit run again.
-- **Prepare:** the data of the node selected next to the model's reference grid (the land use map's, suggested
-  as soon as one is read): its coordinate system, cells and extent, what differs, and the steps a click away,
-  each a node of an operator already there with a note saying why: onto the grid (`raster.match`, resampled by
-  what the values are: classes the nearest cell or the most common one, values interpolated or averaged, counts
-  summed), reprojected, the slope of a surface, the distance to a class; for vectors the distance to them, burnt
-  into the grid, the statistics of the grid's map in each polygon; every raster off the grid put on it at once.
-- **The node editor:** connect ports (each connection checked), type values and settings, edit the bodies of
-  loops and groups; the note of every node says why it is there.
-- **Map:** the maps of the run as they come, step by step, and the maps of the inputs: a stack's one after the
-  other (a slider, the arrow keys, play) with small images of all of them; zoom, pan, the class and coordinates
-  under the pointer.
-- **Charts:** the area of each class along the steps.
-- **Validation:** the last map against an observed one: figure of merit, hits, misses and false alarms, and
-  Dinamica EGO's fuzzy similarity of the changes in windows of growing size.
+Each script starts from the release build and bundles a GDAL: on Windows the one in `C:\Program Files\GDAL`
+(`-Gdal` another), on macOS Homebrew's (`--gdal` another prefix), on Linux the system's (`--gdal` another
+prefix; patchelf and dpkg-deb are needed). Build the Linux packages on the oldest distribution to support.
+Ubuntu's GDAL 3.8 lacks geodesic areas, which some landscape metrics and species distribution steps need:
+GDAL 3.9 or later is recommended.
 
-![A Dinamica model of Sibuyan after 14 steps](docs/images/map.png)
-
-![The builder: a raster, MSPA on it and its result](docs/images/graph.png)
-
-If the window stutters when it is moved or resized, how frames reach the screen can be changed:
-`TERRAFLUX_PRESENT=novsync` (frames as soon as they are drawn), `TERRAFLUX_LATENCY=2` (frames queued; 1 by
-default) and `WGPU_BACKEND=dx12`, `vulkan`, `metal` or `gl` (the graphics interface).
+</details>
 
 ## Quick start
 
+Open the application with a double click, or from a terminal:
+
 ```bash
-# a model from Dinamica EGO's classic one, fitted on two maps (14 steps between them)
+terraflux app                 # the model builder
+terraflux app model.toml      # with a model
+```
+
+Start from **Templates** (each runs as soon as it opens, its data drawn by neutral landscape models), open a raster
+with **Open a raster...** or drop one on the window, then click operators in the library: each comes connected to
+the node selected. Press `/` to search the operators from the keyboard.
+
+The same work from the command line:
+
+```bash
+# a model from Dinamica EGO's classic one, fitted on two maps 14 steps apart
 terraflux new dinamica --t0 landuse.tif:1997 --t1 landuse.tif:2011 --drivers drivers.tif --steps 14 -o model.toml
 terraflux check model.toml          # every operator, reference and connection checked
-terraflux run model.toml            # writes output/maps.tif (a band per step), steps.csv, weights.csv
+terraflux run model.toml            # output/maps.tif (a band per step), steps.csv, weights.csv
 terraflux run model.toml --set seed=7 --out other
 terraflux ops                       # the operators and what they do
-terraflux resample drivers.tif --like landuse.tif -o drivers_aligned.tif
 ```
 
-`terraflux new clue` and `terraflux new ordered` make lulcc's CLUE-S and ordered models (logistic regressions,
-a demand interpolated from observed maps, conversion rules, elasticities, neighbourhoods, restrictions).
+`terraflux new clue` and `terraflux new ordered` make lulcc's CLUE-S and ordered models.
 
-## Changing the logic
+### Models as text
 
-```toml
-[[nodes]]
-id = "suitable"
-op = "map.calc"                                      # map algebra, as Dinamica EGO's Calculate Map
-inputs = { land = "$t0", drivers = "$drivers" }
-params = { expression = "if land == 3 and drivers.dist_roads < 500 then nbmean(land == 2, 1) else 0" }
-
-[[nodes]]
-id = "forest"
-op = "control.submodel"                              # another model file as one node
-inputs = { lu = "$t0" }
-params = { path = "lib/forest.toml" }
-
-[[nodes]]
-id = "keep"
-op = "plugin.wasm"                                   # a function in WebAssembly (any language), sandboxed
-inputs = { land = "$t0", slope = "suitable.map" }
-params = { path = "plugins/keep.wasm" }
-```
-
-See [`docs/modelling.md`](docs/modelling.md): the node editor, map algebra, groups and submodels, plugins.
-
-## Agents
-
-Populations of agents carried along the loop with the map: macro agents giving the demand, parcel managers
-changing the potential of their parcels (`agents.table`, `agents.parcels`, `agents.update` with rules
-`attribute = expression`, `agents.map`, `agents.summary`), and CRAFTY's competition for land between agent
-functional types (`crafty.allocate`). See [`docs/agents.md`](docs/agents.md).
-
-## Many runs, many machines
-
-```bash
-terraflux submit model.toml --replicates 50 --out replicates            # the cores of this machine
-terraflux calibrate model.toml --param patches.isometry=0.5:2.5 --observed landuse.tif:2011 --metric similarity:5
-
-terraflux serve --listen 0.0.0.0:7700                                   # a coordinator
-terraflux worker --coordinator http://coordinator-host:7700             # on every machine that works
-terraflux submit model.toml --scenarios scenarios.toml --coordinator http://coordinator-host:7700
-```
-
-Workers only connect to the coordinator; data travels once, by hash; a task whose worker vanishes runs on
-another. See [`docs/cluster.md`](docs/cluster.md) (and the Slurm template in `tools/slurm`).
-
-In the application, the **Many runs** pane does the same without the command line: replicates, scenarios in a
-table and calibration against an observed map, with their progress, their results and the best settings
-applied to the model in a click. The **Computers** pane shares the runs with the computers of the local network
-from a code, or lends this computer to another's; the computers find each other by themselves, and only those
-given the code take part (TLS, the code checked both ways):
-
-```bash
-terraflux serve --listen 0.0.0.0:7700 --code                            # prints its code
-terraflux worker --code K7QM-2XPA-9DTE                                  # finds it on the network
-```
-
-A cluster (Slurm) or a server reached by SSH is saved once, and batches run there without logging in (Terraflux
-started there for the batch, reached through a tunnel, stopped after it):
-
-```bash
-terraflux cluster add hpc --host me@login.cluster.edu --slurm --nodes 4 --cpus 32 --time 02:00:00
-terraflux submit model.toml --replicates 500 --on hpc --out replicates
-terraflux cloud-init > server.yaml        # a machine rented in the cloud: its setup script (cloud-init)
-```
-
-## Maps larger than memory
-
-```bash
-terraflux run model.toml --tiled                          # tiles of 1024 cells, layers in memory
-terraflux run model.toml --tiled --tile 2048 --disk layers  # the steps' layers kept on disk
-terraflux run model.toml --tiled --threads 8               # threads (default: all the cores but one)
-```
-
-The tiled engine runs Dinamica EGO's model tile by tile. Its Markov chains and weights of evidence are the
-exact engine's to the bit (they are sums over the tiles); the patches a fit measures are measured within tiles.
-Its allocation draws random numbers by counter and finds the seeds of the patches from histograms summed over
-the tiles, so with the same fitted pieces the same seed gives the same maps whatever the tiling and the number
-of machines, statistically equivalent to the exact engine's (the same areas of change, a similar fuzzy
-similarity). Patches grow within `--radius` cells of their seed. A model that fits its patches in the run
-measures them within the tiles, so its maps change a little with `--tile` (not with the threads or the
-machines): keep the tile size when comparing runs.
-
-On many machines, the tiles go to a coordinator's workers; the maps and the layers' tiles go to them through
-the coordinator (no storage in common needed; `--shared-disk` when they share it at the same paths):
-
-```bash
-terraflux run model.toml --tiled --disk layers --coordinator http://coordinator-host:7700
-```
-
-Landscape metrics read a map larger than memory by blocks of rows (`block_rows` on `metrics.patch`,
-`metrics.class`, `metrics.landscape`, `metrics.window`, `metrics.sample`, `metrics.series` and
-`metrics.signatures`, and always for rasters on disk of more than 250 million cells), the same values as in
-memory: the moving window by strips with the window's half side around them (its maps written to a GeoTIFF, a
-band per metric), samples and zones window by window. So do the vectors over rasters: `vector.zonal` by strips of
-rows, `vector.extract` from the strips that hold points, `vector.rasterize` into a GeoTIFF strip by strip. MSPA
-by GuidosToolbox's overlapping tiles (`landscape.mspa_tiled`) reads and writes a raster on disk tile by tile.
-
-No command takes every core: Rust's tasks, landschaft's OpenMP kernels and the workers of a local cluster share
-all the cores but one, unless `--threads` (or `TERRAFLUX_THREADS`) says otherwise.
-
-## From Python
-
-[landschaft](https://github.com/sacridini/landschaft) writes its fitted models as Terraflux graphs:
-
-```python
-import landschaft as ls
-
-S = ls.simulate
-model = S.presets.dinamica(lu[0], lu[1], drivers, steps=14)   # fitted in Python
-model.save("dinamica.json", lu[0], drivers, seed=1)            # the graph and its data
-maps = S.terraflux("dinamica.json")                            # run by Terraflux: the maps of model.run
-model, inputs = S.Model.load("dinamica.json")                  # and back
-```
-
-## The model file
-
-A model is a graph of operators in TOML (or JSON): its inputs, its nodes and its outputs. Each node runs one
-operator on inputs that come from the model's inputs (`$name`), from other nodes (`node.port`), from values
-carried along a loop (`@name`, `@step`) or literal values; its `note` says why it is there. The models made by
-`terraflux new` are written out node by node, so that anything they chose can be read and changed.
-
-Rasters can also come in and go out through nodes, as the builder writes them (paths relative to the model's
-folder):
+A model is a graph of operators. Each node reads the model's inputs (`$name`), other nodes' outputs
+(`node.port`), values carried along a loop (`@name`) or literal values:
 
 ```toml
 [[nodes]]
@@ -360,6 +171,7 @@ id = "mspa"
 op = "landscape.mspa"                 # GuidosToolbox's MSPA, the same bits
 inputs = { map = "read.map" }
 params = { foreground = 1, edge_width = 2 }
+note = "The forest's core, edges and corridors."
 
 [[nodes]]
 id = "write"
@@ -368,87 +180,71 @@ inputs = { value = "mspa.map" }
 params = { path = "forest_mspa.tif" }
 ```
 
-```toml
-format = "terraflux/1"
+Map algebra (`map.calc`), reusable submodels (`control.submodel`), loops and sandboxed WebAssembly plugins
+(`plugin.wasm`) change a model's logic: see [`docs/modelling.md`](docs/modelling.md).
 
-[inputs.t0]
-kind = "map"
-path = "landuse.tif"
-band = "1997"
+## Scaling up
 
-[[nodes]]
-id = "markov"
-op = "markov.fit"
-note = "Transition rates per step: the 14th root of the matrix of the calibration period."
-inputs = { t0 = "$t0", t1 = "$t1", steps = 14 }
-
-[[nodes]]
-id = "simulation"
-op = "control.repeat"
-inputs = { times = 14, landscape = "$t0" }
-[nodes.body]
-carry = { landscape = "allocate.landscape" }
-collect = { maps = "allocate.landscape" }
-# [[nodes.body.nodes]] ... woe.probability, dinamica.step
-
-[outputs.maps]
-from = "simulation.maps"
-```
-
-## Installing
-
-On Windows, the installer (`terraflux-<version>-x64.msi`) puts Terraflux in Program Files with a shortcut in the
-Start menu and the folder on the PATH (for `terraflux run`); the zip (`terraflux-<version>-windows-x64.zip`) holds
-the same files, to unpack anywhere. Both bring GDAL (the folder `gdal`) and the Visual C++ and OpenMP runtimes:
-nothing else is needed, neither Python nor a GDAL of one's own. They are made by
-
-```powershell
-tools\make-installer.ps1      # target\installer: the MSI (WiX 5, a .NET tool of the repository) and the zip
-```
-
-from the release build, the GDAL of `C:\Program Files\GDAL` (`-Gdal` another) and the runtimes of the newest
-Visual Studio.
-
-On macOS, the disk image (`terraflux-<version>-macos-arm64.dmg`) holds `Terraflux.app`, to drag to Applications;
-the zip (`terraflux-<version>-macos-arm64.zip`) the same application. It brings GDAL (its libraries in
-`Contents/Frameworks/gdal`, GDAL's and PROJ's data in `Contents/Resources`, PROJ's grids of datums left out) and
-OpenMP is linked into `terraflux`: nothing else is needed. The command is the application's own
-(`ln -s /Applications/Terraflux.app/Contents/MacOS/terraflux /usr/local/bin/terraflux`, for `terraflux run`).
-The application is signed ad hoc, not notarized: downloaded, it is opened the first time by a right click and
-Open. They are made by
+**Many runs.** Replicates, scenarios and calibration, on the cores of one machine or on many. The **Many runs**
+pane does the same without the command line.
 
 ```bash
-python3 tools/make-macos-app.py   # target/macos: Terraflux.app, the dmg and the zip
+terraflux submit model.toml --replicates 50 --out replicates
+terraflux calibrate model.toml --param patches.isometry=0.5:2.5 --observed landuse.tif:2011 --metric similarity:5
 ```
 
-from the release build and Homebrew's GDAL (`brew install gdal`; `--gdal` another prefix, `--no-gdal` none:
-then an installed GDAL is used). The application asks for the macOS that the GDAL brought was built for
-(Homebrew's: the macOS it was installed on).
-
-On Linux, the archive (`terraflux-<version>-linux-x64.tar.gz`) unpacks into a folder to keep anywhere; its
-`install.sh` links the command into `~/.local/bin` and adds Terraflux to the menu, for the user alone. The Debian
-package (`terraflux_<version>_amd64.deb`, `sudo apt install ./terraflux_<version>_amd64.deb`) puts the same folder
-in `/opt/terraflux`, the command in `/usr/bin` and the menu entry. Both bring GDAL (its library and every library
-it needs but the C and C++ runtimes, in the folder `gdal`, with GDAL's and PROJ's data and the web's
-certificates) and the OpenMP runtime (`lib`): nothing else is needed but a glibc as new as the one they were built
-with (2.39, Ubuntu 24.04's, when built there) and, for the application, the desktop's own libraries (EGL or Vulkan,
-X11's `libxkbcommon-x11` or Wayland). They are made by
+**Many machines.** A coordinator and workers; data travels once, by hash, and a task whose worker vanishes runs on
+another. On a local network the computers find each other from a code (TLS, the code checked both ways); a Slurm
+cluster or an SSH server is saved once and used without logging in.
 
 ```bash
-python3 tools/make-linux-package.py   # target/linux: the folder, the tar.gz and the .deb
+terraflux serve --listen 0.0.0.0:7700 --code                         # prints its code
+terraflux worker --code K7QM-2XPA-9DTE                               # on every machine that helps
+
+terraflux cluster add hpc --host me@login.cluster.edu --slurm --nodes 4 --cpus 32 --time 02:00:00
+terraflux submit model.toml --replicates 500 --on hpc --out replicates
 ```
 
-from the release build and the system's GDAL (`--gdal` another prefix, `--no-gdal` none), with patchelf
-(`apt install patchelf`, or `--patchelf` its path) and dpkg-deb. Build on the oldest distribution to be
-supported; Ubuntu's GDAL 3.8 has no geodesic areas (the sampling of landscape metrics in degrees, the accessible
-area of species), which ask for GDAL 3.9 or later (`--gdal` a newer one).
+**Maps larger than memory.** The tiled engine runs Dinamica EGO's model tile by tile, on one machine or many; with
+the same fitted pieces, the same seed gives the same maps whatever the tiling and the number of machines.
+Landscape metrics, MSPA and the vector operators read large rasters by blocks, with the same values as in memory.
 
-## Building
+```bash
+terraflux run model.toml --tiled --tile 2048 --disk layers
+terraflux run model.toml --tiled --disk layers --coordinator http://coordinator-host:7700
+```
 
-Terraflux needs Rust (1.85 or later), CMake and a C++17 compiler (Visual Studio on Windows; on Windows the
-CMake of the newest Visual Studio is used; on macOS Apple's clang, with the Command Line Tools, and Homebrew's
-OpenMP runtime: `brew install cmake libomp`, or `OpenMP_ROOT` another libomp; on Linux GCC and its libgomp:
-`apt install build-essential cmake`). Landschaft's C++ kernels come from the submodule:
+See [`docs/cluster.md`](docs/cluster.md) for the details, and `tools/slurm` for a Slurm template.
+
+## From Python
+
+[landschaft](https://github.com/sacridini/landschaft) writes its fitted models as Terraflux graphs:
+
+```python
+import landschaft as ls
+
+S = ls.simulate
+model = S.presets.dinamica(lu[0], lu[1], drivers, steps=14)   # fitted in Python
+model.save("dinamica.json", lu[0], drivers, seed=1)            # the graph and its data
+maps = S.terraflux("dinamica.json")                            # run by Terraflux
+```
+
+## Documentation
+
+| | |
+|---|---|
+| [`docs/modelling.md`](docs/modelling.md) | The node editor, map algebra, groups, submodels and plugins |
+| [`docs/agents.md`](docs/agents.md) | Agents and CRAFTY's competition for land |
+| [`docs/cluster.md`](docs/cluster.md) | Batches, coordinators, workers and clusters |
+| [`website/`](website/) | The documentation website: a quickstart, 99 tutorials for ecologists in 18 fields, the CLI and operator references (`python website/build.py`) |
+| [`CHANGELOG.md`](CHANGELOG.md) | The changes of every release |
+| [`docs/PLAN.md`](docs/PLAN.md) | The roadmap (in Portuguese) |
+
+## Building from source
+
+Terraflux needs Rust 1.85 or later, CMake and a C++17 compiler: Visual Studio on Windows, Apple's clang with
+Homebrew's OpenMP on macOS (`brew install cmake libomp`), GCC on Linux (`apt install build-essential cmake`).
+landschaft's C++ kernels come from a submodule. GDAL is loaded at run time and is not needed to build.
 
 ```bash
 git clone --recurse-submodules git@github.com:sacridini/terraflux.git
@@ -457,28 +253,41 @@ cargo build --release          # target/release/terraflux
 cargo test --release           # parity with landschaft included
 ```
 
-On Windows keep the build folder's path short (`CARGO_TARGET_DIR`): MSBuild fails on paths over 260
-characters. `LANDSCHAFT_DIR` points the build at another landschaft checkout, `LANDSCHAFT_EIGEN_DIR` at a local copy of
-Eigen 3.4. `tools/make_reference.py` writes the reference outputs of the parity tests with landschaft. They were
-written on Windows: on macOS, whose maths library rounds some functions (`exp`, `log`, `pow`) otherwise in the last
-bit, the parity tests of the logistic regressions (CLUE-S, ordered), of Dinamica EGO's model on Sibuyan and of
-plangea's intactness differ from them in the last bit. On Linux (glibc's maths library) Dinamica EGO's model on
-Sibuyan, the terrain's slope, the habitat graphs' dAWF and the autocorrelation range of the species distribution
-models differ in the last bits; with Ubuntu 24.04's GDAL 3.8 (and its GEOS 3.12) the geodesic areas are not had
-and one ProtConn case clips its polygons otherwise.
+<details>
+<summary>Notes on building and testing</summary>
 
-| Crate | What it holds |
+- On Windows, keep the build folder's path short (`CARGO_TARGET_DIR`): MSBuild fails on paths over 260 characters.
+- `LANDSCHAFT_DIR` points the build at another landschaft checkout, `LANDSCHAFT_EIGEN_DIR` at a local copy of
+  Eigen 3.4.
+- GDAL is found next to the program (the folder `gdal`, which the packages bring and `tools/bundle-gdal.ps1`
+  fills), in `TERRAFLUX_GDAL`, or installed. Without it, GeoTIFF is still read and written by Terraflux itself.
+- The parity references were written on Windows (`tools/make_reference.py`). Other maths libraries round some
+  functions differently in the last bit, so a few parity tests differ there on macOS and Linux (the logistic
+  regressions, Dinamica EGO on Sibuyan, terrain slope), and Ubuntu 24.04's GDAL 3.8 lacks geodesic areas.
+- If the window stutters when moved, try `TERRAFLUX_PRESENT=novsync`, `TERRAFLUX_LATENCY=2` or
+  `WGPU_BACKEND=dx12|vulkan|metal|gl`.
+
+</details>
+
+| Crate | Contents |
 |---|---|
-| `terraflux-graph` | the model graph: file format, references, signatures, checks, submodels |
-| `terraflux-ops` | the operators (Markov chains, demands, logistic regression, weights of evidence, CLUE-S, ordered, Expander/Patcher, map algebra, WebAssembly plugins, agents, CRAFTY) and the presets |
-| `terraflux-exec` | the exact engine: inputs, graph run, outputs; the checks of the data |
-| `terraflux-engine` | the tiled engine: fits by reduction, counter-based random numbers, allocation by thresholds |
-| `terraflux-raster` | grids, rasters, GeoTIFF reading and writing in pure Rust (BigTIFF, tiles, windows, LZW, Deflate, predictors), resampling |
-| `terraflux-ls-sys` | the bridge to landschaft's C++ kernels |
-| `terraflux-app` | the application (egui, wgpu): wizard, node editor, live maps, charts, validation |
-| `terraflux-dist` | the coordinator, the workers and the batches (gRPC) |
-| `terraflux-cli` | the `terraflux` command |
+| `terraflux-graph` | The model graph: file format, references, signatures, checks, submodels |
+| `terraflux-ops` | The operators and the model presets |
+| `terraflux-exec` | The exact engine and the data checks |
+| `terraflux-engine` | The tiled engine: fits by reduction, counter-based random numbers, allocation by thresholds |
+| `terraflux-raster` | Grids, rasters and a pure-Rust GeoTIFF reader and writer (BigTIFF, tiles, LZW, Deflate) |
+| `terraflux-gdal` | GDAL and OGR, loaded at run time |
+| `terraflux-ls-sys` | The bridge to landschaft's C++ kernels |
+| `terraflux-app` | The application (egui and wgpu) |
+| `terraflux-dist` | The coordinator, the workers and the batches (gRPC) |
+| `terraflux-cli` | The `terraflux` command |
+
+## Acknowledgements
+
+Terraflux stands on [landschaft](https://github.com/sacridini/landschaft)'s C++ kernels and on
+[egui](https://github.com/emilk/egui), [wgpu](https://wgpu.rs), [GDAL](https://gdal.org) and
+[HiGHS](https://highs.dev). Its methods are those of the tools named above and of their authors' publications.
 
 ## License
 
-GPL-3.0-or-later.
+Terraflux is free software, released under the [GNU General Public License v3.0 or later](LICENSE).
