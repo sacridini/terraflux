@@ -870,7 +870,7 @@ pub fn operators_menu(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library)
             });
         }
         if !any {
-            ui.label(RichText::new("none yet: right-click an operator in the drawer").weak().size(11.0));
+            ui.label(RichText::new("none yet: right-click an operator to put it in one").weak().size(11.0));
         }
     });
     ui.separator();

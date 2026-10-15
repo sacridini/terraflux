@@ -37,7 +37,23 @@ const SOURCES_X: f32 = -(WIDTH + 80.0);
 /// The zooms from which the nodes' names, then their ports' names and operators, are written.
 const NAMES_FROM: f32 = 0.35;
 const PORTS_FROM: f32 = 0.6;
-const OUTPUT: Color32 = Color32::from_rgb(90, 160, 220);
+
+/// The colour of a type's ports and connections, the website's graphs' own (a map blue, a stack violet, a table
+/// gold, a number green, features pink, agents ochre); `None` for the others (drawn in the theme's grey). On a
+/// light theme a shade darker, to stand out on white.
+pub fn type_colour(t: Type, dark: bool) -> Option<Color32> {
+    let (r, g, b) = match t {
+        Type::Map | Type::Raster => (0x5f, 0xa8, 0xe0),
+        Type::Stack | Type::Series => (0xa0, 0x8a, 0xe6),
+        Type::Table => (0xe3, 0xbd, 0x62),
+        Type::Number | Type::Integer | Type::Bool => (0x9c, 0xcf, 0x7c),
+        Type::Vector => (0xe2, 0x8a, 0xa8),
+        Type::Agents => (0xd3, 0x9b, 0x6a),
+        _ => return None,
+    };
+    let c = Color32::from_rgb(r, g, b);
+    Some(if dark { c } else { c.lerp_to_gamma(Color32::BLACK, 0.3) })
+}
 
 /// How a node did in the last run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -230,6 +246,7 @@ impl EditorState {
 /// An input port: its name, type, whether the operator needs it and whether something feeds it.
 struct Port {
     name: String,
+    ty: Type,
     required: bool,
     connected: bool,
 }
@@ -469,7 +486,7 @@ impl Scene {
             let p = n.pos.unwrap_or_else(|| auto[&n.id]);
             let inputs: Vec<Port> = editor::input_ports(n, r)
                 .into_iter()
-                .map(|(name, _, required)| Port { connected: n.inputs.contains_key(&name), name, required })
+                .map(|(name, ty, required)| Port { connected: n.inputs.contains_key(&name), name, ty, required })
                 .collect();
             let outputs = editor::output_ports(n, r);
             let rows = inputs.len().max(outputs.len()).max(1);
@@ -525,11 +542,15 @@ impl Scene {
                     edges_at.push(EdgeAt { from: (s, o), to: (to_box, i) });
                     let from = boxes[s].output_at(o);
                     let to = b.input_at(i);
+                    // the type of what flows: the output's, else (an output of any type) the input's
+                    let colour = type_colour(boxes[s].outputs[o].1, v.dark_mode)
+                        .or_else(|| type_colour(b.inputs[i].ty, v.dark_mode))
+                        .unwrap_or(line);
                     edges.push(EdgeInstance {
                         from: [from.x, from.y],
                         to: [to.x, to.y],
-                        color: line.to_array(),
-                        width: 1.4,
+                        color: colour.to_array(),
+                        width: 1.6,
                     });
                 }
             }
@@ -549,7 +570,7 @@ impl Scene {
             };
             for (i, p) in b.inputs.iter().enumerate() {
                 let colour = if p.connected {
-                    v.text_color()
+                    type_colour(p.ty, v.dark_mode).unwrap_or(v.text_color())
                 } else if p.required {
                     v.warn_fg_color
                 } else {
@@ -557,8 +578,8 @@ impl Scene {
                 };
                 rects.push(dot(b.input_at(i), colour));
             }
-            for i in 0..b.outputs.len() {
-                rects.push(dot(b.output_at(i), OUTPUT));
+            for (i, (_, t)) in b.outputs.iter().enumerate() {
+                rects.push(dot(b.output_at(i), type_colour(*t, v.dark_mode).unwrap_or(v.text_color())));
             }
             if let Some(s) = state {
                 let colour = match s {
@@ -981,14 +1002,22 @@ pub fn show(
         }
     }
     // a connection being drawn
-    if let (Some(Drag::Connect(_, from)), Some(q)) = (&st.drag, pointer) {
+    if let (Some(Drag::Connect(reference, from)), Some(q)) = (&st.drag, pointer) {
         let p0 = screen(*from);
+        // in the colour of the output it comes from
+        let of = scene.index.get(reference.as_str()).map(|&i| (i, 0)).or_else(|| {
+            let (node, port) = reference.split_once('.')?;
+            let i = *scene.index.get(node)?;
+            Some((i, scene.boxes[i].outputs.iter().position(|(p, _)| p == port)?))
+        });
+        let colour =
+            of.and_then(|(i, k)| type_colour(scene.boxes[i].outputs[k].1, v.dark_mode)).unwrap_or(v.selection.bg_fill);
         let dx = ((q.x - p0.x).abs() * 0.5).max(30.0 * cam.zoom);
         painter.add(egui::epaint::CubicBezierShape::from_points_stroke(
             [p0, p0 + Vec2::new(dx, 0.0), q - Vec2::new(dx, 0.0), q],
             false,
             Color32::TRANSPARENT,
-            Stroke::new(2.0, v.selection.bg_fill),
+            Stroke::new(2.0, colour),
         ));
     }
     // the note of the node under the pointer; how to take a connection off an input

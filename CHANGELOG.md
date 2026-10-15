@@ -6,6 +6,12 @@ minor versions.
 
 ## [Unreleased]
 
+### Changed
+- The node editor's connections and ports in the colour of their type, the website's graphs' own: maps blue,
+  stacks violet, tables gold, numbers green, vectors pink, agents ochre (a connection being drawn too).
+- The operators pinned again at the window's left edge, the node's pane beside them, the model and the viewer in
+  the rest. The operators' pane closed, they are in the drawer at the left edge and in the toolbar as before.
+
 ## [0.80.1] - 2026-10-15
 
 ### Fixed

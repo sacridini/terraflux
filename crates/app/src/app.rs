@@ -89,13 +89,14 @@ impl Pane {
     }
 }
 
-/// The panes as they first are: the node and the preparation of its data on the left, the model over the viewer
-/// beside them (the operators in a drawer at the left edge and in the toolbar, the others from the View menu; the
-/// maps of nodes open beside the viewer).
+/// The panes as they first are: the operators at the left edge, the node and the preparation of its data beside
+/// them, the model over the viewer in the rest (the others from the View menu; the maps of nodes open beside the
+/// viewer). The operators' pane closed, they are in a drawer at the left edge and in the toolbar.
 pub fn default_layout() -> DockState<Pane> {
     let mut d = DockState::new(vec![Pane::Model]);
     let s = d.main_surface_mut();
-    let [model, _] = s.split_left(NodeIndex::root(), 0.24, vec![Pane::Node, Pane::Prepare]);
+    let [model, _] = s.split_left(NodeIndex::root(), 0.17, vec![Pane::Operators]);
+    let [model, _] = s.split_left(model, 0.25, vec![Pane::Node, Pane::Prepare]);
     let [_, _] = s.split_below(model, 0.5, vec![Pane::Viewer]);
     d
 }
@@ -115,7 +116,7 @@ fn retain_panes(dock: &mut DockState<Pane>, keep: impl FnMut(&mut Pane) -> bool)
 }
 
 /// The version of the layout kept (a layout of another version is let go).
-const LAYOUT_VERSION: u32 = 5;
+const LAYOUT_VERSION: u32 = 6;
 
 /// A window of its own (another screen): its panes in a dock.
 pub struct Detached {
@@ -1038,7 +1039,7 @@ pub struct TerrafluxApp {
     tab_back: Option<Pane>,
     /// Tab was taken this frame: the keyboard's focus it may have given a field is let go at the frame's end.
     tabbed: bool,
-    /// The operators' drawer is out (the pointer went to the window's left edge).
+    /// The operators' drawer is out (their pane closed, the pointer went to the window's left edge).
     pub drawer: bool,
     /// The model run many times (replicates, scenarios, calibration).
     pub batch: crate::batch_view::BatchState,
@@ -1400,10 +1401,14 @@ impl TerrafluxApp {
         self.settings_open = open;
     }
 
-    /// The operators' drawer: out over the panes while the pointer is at the window's left edge or over it, in
-    /// again when the pointer leaves it.
+    /// The operators' drawer, while their pane is closed: out over the panes while the pointer is at the window's
+    /// left edge or over it, in again when the pointer leaves it.
     fn drawer(&mut self, ctx: &egui::Context, area: egui::Rect) {
         const WIDTH: f32 = 280.0;
+        if self.is_open(Pane::Operators) {
+            self.drawer = false;
+            return;
+        }
         let Some(s) = &mut self.session else { return };
         let pointer = ctx.input(|i| i.pointer.latest_pos());
         let dragging = ctx.dragged_id().is_some();

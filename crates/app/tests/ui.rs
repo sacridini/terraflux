@@ -905,9 +905,10 @@ fn data_is_put_on_the_reference_grid_in_a_click() {
     assert_eq!(s.selected.as_deref(), Some(n.id.as_str()));
 }
 
-/// The panes' places: the node's at the left, the operators in a drawer the pointer opens at the window's left
-/// edge (and closes leaving it) and in the toolbar; backspace deletes the node selected; a tab dragged out of the
-/// dock (egui_dock's floating window) becomes a window of its own.
+/// The panes' places: the operators at the window's left edge, the node's beside them, the model in the rest;
+/// the operators' pane closed, they are in a drawer the pointer opens at the window's left edge (and closes
+/// leaving it) and in the toolbar; backspace deletes the node selected; a tab dragged out of the dock (egui_dock's
+/// floating window) becomes a window of its own.
 #[test]
 fn the_operators_drawer_and_windows_of_their_own() {
     let mut h = harness(new_app(None));
@@ -915,8 +916,29 @@ fn the_operators_drawer_and_windows_of_their_own() {
     let ctx = h.ctx.clone();
     h.state_mut().start_template(&ctx, &terraflux_app::templates::TEMPLATES[0]);
     h.run_steps(4);
-    assert!(!h.state().is_open(Pane::Operators), "no operators' pane at first");
+    assert!(h.state().is_open(Pane::Operators), "the operators' pane at first");
     assert!(h.state().is_open(Pane::Node) && h.state().is_open(Pane::Prepare));
+    let left = |pane: Pane| {
+        let dock = h.state().dock.as_ref().unwrap();
+        let path = dock.find_tab(&pane).unwrap();
+        dock[path.surface][path.node].rect().unwrap().left()
+    };
+    let (ops, node, model) = (left(Pane::Operators), left(Pane::Node), left(Pane::Model));
+    assert!(ops < node && node < model, "operators, node, model from the left: {ops} {node} {model}");
+    assert!(h.query_by_label("Open a raster...").is_some(), "the operators in their pane");
+    h.event(egui::Event::PointerMoved(egui::pos2(1.0, 300.0)));
+    h.run_steps(3);
+    assert!(!h.state().drawer, "no drawer over the operators' pane");
+    shot(&mut h, "20-panes");
+    // the operators' pane closed: the drawer
+    {
+        let dock = h.state_mut().dock.as_mut().unwrap();
+        let path = dock.find_tab(&Pane::Operators).unwrap();
+        dock.remove_tab(path);
+    }
+    h.event(egui::Event::PointerMoved(egui::pos2(700.0, 300.0)));
+    h.run_steps(4);
+    assert!(!h.state().is_open(Pane::Operators));
     assert!(h.query_by_label("Operators").is_some(), "the toolbar's menu");
     assert!(h.query_by_label("Open a raster...").is_none());
     // the pointer at the left edge: the drawer
@@ -1055,7 +1077,7 @@ fn maps_stack_and_cells_show_their_series() {
 }
 
 /// The settings: a window from the toolbar, the theme changed at once (each drawn); the favourites: an operator
-/// in the red collection shown when the collection is.
+/// in the red collection shown in the operators' pane when the collection is.
 #[test]
 fn settings_themes_and_favourites() {
     let mut h = harness(new_app(None));
@@ -1083,9 +1105,7 @@ fn settings_themes_and_favourites() {
     assert_eq!(terraflux_app::settings::collections_of("raster.read"), vec![0]);
     assert_eq!(terraflux_app::settings::in_collection(0), vec!["raster.read".to_string()]);
     h.ctx.data_mut(|d| d.insert_temp(egui::Id::new("collection shown"), Some(0u8)));
-    h.event(egui::Event::PointerMoved(egui::pos2(1.0, 300.0)));
     h.run_steps(3);
-    assert!(h.state().drawer);
     shot(&mut h, "24-favourites");
     assert!(h.query_by_label_contains("read").is_some(), "the red collection's operator");
     assert!(h.query_by_label_contains("reclassify").is_none(), "only the collection's");
@@ -1139,10 +1159,11 @@ fn rename_metadata_and_the_operators_menu() {
     h.get_by_label("Operators").click();
     h.run_steps(2);
     shot(&mut h, "26-operators-menu");
-    h.query_by_label_contains("Data preparation").expect("the subject's submenu").click();
+    // the menu's, over the operators' pane's
+    h.query_all_by_label_contains("Data preparation").last().expect("the subject's submenu").click();
     h.run_steps(2);
     shot(&mut h, "26-operators-menu");
-    h.query_by_label_contains("reclassify").expect("the submenu's operator").click();
+    h.query_all_by_label_contains("reclassify").last().expect("the submenu's operator").click();
     h.run_steps(3);
     let s = h.state().session.as_ref().unwrap();
     let n = s.source.nodes.iter().find(|n| n.op == "raster.reclassify").expect("added");
