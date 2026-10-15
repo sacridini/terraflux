@@ -1,0 +1,67 @@
+format = "terraflux/1"
+name = "Land change analysis"
+description = "Three dates of land use compared: the transitions, the components of the change (Pontius) and the intensity analysis (Aldwaik & Pontius, as OpenLand)."
+
+[[nodes]]
+id = "land_2000"
+op = "nlm.random_cluster"
+params = { rows = 160, columns = 160, resolution = 100, p = 0.5, weights = [0.55, 0.35, 0.10], seed = 11 }
+note = "Land use drawn by chance on cells of 100 m: 1 forest, 2 farming, 3 water. In its place, a raster.read of a map of yours."
+
+[[nodes]]
+id = "aptitude"
+op = "nlm.gaussian_field"
+params = { rows = 160, columns = 160, resolution = 100, range = 25, seed = 12 }
+note = "How suited each cell is to farming."
+
+[[nodes]]
+id = "land_2010"
+op = "map.calc"
+inputs = { t0 = "land_2000.map", suit = "aptitude.map" }
+params = { expression = "if t0 == 1 and nbsum(t0 == 2, 1) >= 3 and suit > 0.65 then 2 else t0" }
+note = "Ten years later: farming grown into the forest beside it, where it is suited."
+
+[[nodes]]
+id = "land_2020"
+op = "map.calc"
+inputs = { t1 = "land_2010.map", suit = "aptitude.map" }
+params = { expression = "if t1 == 1 and nbsum(t1 == 2, 1) >= 3 and suit > 0.5 then 2 else if t1 == 2 and suit < 0.2 then 1 else t1" }
+note = "Ten more: farming grows faster, and the least suited farms go back to forest."
+
+[[nodes]]
+id = "series"
+op = "stack.of"
+inputs = { y2000 = "land_2000.map", y2010 = "land_2010.map", y2020 = "land_2020.map" }
+note = "The maps, a layer per date."
+
+[[nodes]]
+id = "crosstab"
+op = "change.crosstab"
+inputs = { from = "land_2000.map", to = "land_2020.map" }
+note = "The transition matrix of 2000 to 2020: the cells of each class (rows) in each class twenty years later (columns)."
+
+[[nodes]]
+id = "transitions"
+op = "change.transitions"
+inputs = { maps = "series.stack" }
+params = { times = [2000, 2010, 2020] }
+note = "Every transition of every period in km² (areas: each class at each date), as OpenLand's contingency table."
+
+[[nodes]]
+id = "components"
+op = "change.components"
+inputs = { from = "land_2000.map", to = "land_2020.map" }
+note = "Pontius's components: of each class its gain, loss and persistence; overall the change made of quantity, exchange and shift."
+
+[[nodes]]
+id = "intensity"
+op = "change.intensity"
+inputs = { maps = "series.stack" }
+params = { times = [2000, 2010, 2020], gain = 2, loss = 1 }
+note = "The intensity analysis: whether each period changed faster than the uniform rate (interval), which classes gained and lost actively (category), and which classes farming took (transition_gain) and forest went to (transition_loss)."
+
+[[nodes]]
+id = "plot_series"
+op = "view.plot"
+inputs = { value = "series.stack" }
+params = { title = "Land use in 2000, 2010 and 2020" }

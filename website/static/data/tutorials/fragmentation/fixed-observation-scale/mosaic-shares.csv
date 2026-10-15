@@ -1,0 +1,20 @@
+class,share
+Pure agriculture,28.65
+Agriculture (>60%),12.33
+Agriculture-Developed,9.43
+Agriculture-Natural,8.83
+Pure natural,8.62
+Natural-Developed-Agriculture,6.09
+Pure developed,4.95
+Mosaic Agriculture-Natural,4.78
+Developed-Agriculture-Natural,3.83
+Mosaic Agriculture-Developed,3.82
+Natural (>60%),3.52
+Developed (>60%),1.63
+Mosaic of the three,1.48
+Natural-Agriculture,0.61
+Developed-Agriculture,0.48
+Mosaic Developed-Natural,0.38
+Natural-Developed,0.29
+Natural-Developed-Agriculture,0.16
+Natural-Agriculture-Developed,0.1

@@ -1,0 +1,53 @@
+format = "terraflux/1"
+name = "Forest gain and loss"
+description = "GuidosToolbox's change analysis of a forest at two dates: simple change, morphological change (the real one told from the shifts of its edges) and the change of its fragmentation (FAD)."
+
+[[nodes]]
+id = "before"
+op = "nlm.random_cluster"
+params = { rows = 250, columns = 250, p = 0.55, weights = [0.4, 0.6], seed = 27 }
+note = "The forest at the first date, drawn by chance: 1 the background, 2 the forest (in its place, a raster.read of a map of yours)."
+
+[[nodes]]
+id = "pressure"
+op = "nlm.gaussian_field"
+params = { rows = 250, columns = 250, range = 30, seed = 28 }
+note = "Where clearing presses, from 0 to 1."
+
+[[nodes]]
+id = "after"
+op = "map.calc"
+inputs = { f = "before.map", p = "pressure.map" }
+params = { expression = "if f == 2 and p > 0.6 and nbsum(f == 1, 1) >= 1 then 1 else if f == 1 and p < 0.2 and nbsum(f == 2, 1) >= 5 then 2 else f" }
+note = "The second date: the forest cleared from its edges where the pressure is high, regrown in the gaps where it is low."
+
+[[nodes]]
+id = "simple"
+op = "change.simple"
+inputs = { before = "before.map", after = "after.map" }
+note = "Every cell's change: stable background, gain, loss, stable forest; stats counts them."
+
+[[nodes]]
+id = "morphological"
+op = "change.morphological"
+inputs = { before = "before.map", after = "after.map" }
+note = "The same change with the spurious one at the forest's edges (a cell's shift) told apart; stats has the net change and the elasticity."
+
+[[nodes]]
+id = "fad"
+op = "change.fad"
+inputs = { before = "before.map", after = "after.map" }
+params = { foreground = 2, windows = [7, 13, 27, 81] }
+note = "FAD at four scales at both dates: how many forest cells moved to a more fragmented class or a less fragmented one (stats), and the matrix of the classes."
+
+[[nodes]]
+id = "plot_simple"
+op = "view.plot"
+inputs = { value = "simple.map" }
+params = { title = "Simple change" }
+
+[[nodes]]
+id = "plot_morphological"
+op = "view.plot"
+inputs = { value = "morphological.map" }
+params = { title = "Morphological change" }

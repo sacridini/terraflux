@@ -1,0 +1,37 @@
+format = "terraflux/1"
+name = "Forest from a surface"
+description = "A continuous surface reclassified by ranges into a forest map, and its MSPA."
+
+[[nodes]]
+id = "surface"
+op = "nlm.gaussian_field"
+params = { rows = 300, columns = 300, range = 15, seed = 3 }
+note = "A smooth surface from 0 to 1 drawn by chance: a suitability, say."
+
+[[nodes]]
+id = "forest"
+op = "raster.reclassify"
+inputs = { map = "surface.map" }
+params = { rules = "0..0.45 -> 1\n0.45..1 -> 2" }
+note = "Ranges: up to 0.45 the background (1), above it the forest (2). Move the threshold and see MSPA change."
+
+[[nodes]]
+id = "mspa"
+op = "landscape.mspa"
+inputs = { map = "forest.map" }
+params = { edge_width = 2 }
+note = "An edge two cells wide."
+
+[[nodes]]
+id = "plot_surface"
+op = "view.plot"
+inputs = { value = "surface.map" }
+params = { title = "Surface" }
+note = "A continuous map: a ramp of colours."
+
+[[nodes]]
+id = "plot_mspa"
+op = "view.plot"
+inputs = { value = "mspa.map" }
+params = { title = "MSPA" }
+note = "MSPA's classes in GuidosToolbox's colours."

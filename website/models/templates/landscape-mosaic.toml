@@ -1,0 +1,42 @@
+format = "terraflux/1"
+name = "Landscape mosaic"
+description = "GuidosToolbox's landscape mosaic of a land cover, and the contagion and entropy of its natural land."
+
+[[nodes]]
+id = "cover"
+op = "nlm.random_cluster"
+params = { rows = 300, columns = 300, p = 0.5, weights = [0.35, 0.5, 0.15], seed = 9 }
+note = "A land cover drawn by chance: 1 agriculture, 2 natural, 3 developed (the mosaic's coding already). With a map of yours, give the classes of each in the mosaic's settings."
+
+[[nodes]]
+id = "mosaic"
+op = "fragmentation.landscape_mosaic"
+inputs = { map = "cover.map" }
+params = { window = 27 }
+note = "The mix of the three around each cell (27 cells): which dominates, pairs, mosaics; stats has the share of each class."
+
+[[nodes]]
+id = "contagion"
+op = "fragmentation.contagion"
+inputs = { map = "cover.map" }
+params = { foreground = 2, window = 7 }
+note = "How much of the natural land's edges join natural land, around each cell."
+
+[[nodes]]
+id = "entropy"
+op = "fragmentation.entropy"
+inputs = { map = "cover.map" }
+params = { foreground = 2 }
+note = "How mixed the natural land and the rest are over the whole map (%)."
+
+[[nodes]]
+id = "plot_mosaic"
+op = "view.plot"
+inputs = { value = "mosaic.map" }
+params = { title = "Landscape mosaic" }
+
+[[nodes]]
+id = "plot_contagion"
+op = "view.plot"
+inputs = { value = "contagion.map" }
+params = { title = "Contagion of the natural land" }

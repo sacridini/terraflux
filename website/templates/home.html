@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block bodyclass %}home{% endblock %}
+{% block main %}
+<section class="hero">
+  <div class="hero-in">
+    <div class="hero-text">
+      <p class="hero-kicker">Open-source software for landscape ecology</p>
+      <h1>See a landscape change, cell by cell, and know why.</h1>
+      <p class="hero-sub">Terraflux is a free desktop application and command line for habitat patterns, connectivity,
+        spatial prioritization, species distributions and land change simulation. You build an analysis by
+        connecting nodes, and it gives the same numbers as the tools you would cite.</p>
+      <div class="hero-cta">
+        <a class="btn btn-primary dl-auto" href="/download/" data-os-label="Download for {os}">Download Terraflux {{ site.version }}</a>
+        <a class="btn btn-ghost" href="/quickstart/">Start the quickstart</a>
+      </div>
+      <p class="hero-note">For Windows, macOS and Linux. GDAL included, nothing else to install. Free under the GPL.</p>
+    </div>
+    <figure class="hero-sim" aria-label="A land change simulation running in the browser">
+      <div class="sim-window">
+        <div class="sim-bar">
+          <span class="sim-title">Simulated land use</span>
+          <span class="sim-step">step 0</span>
+        </div>
+        <canvas class="sim-canvas" width="560" height="400" aria-hidden="true"></canvas>
+        <div class="sim-legend">
+          <span><i class="k-forest"></i>Forest</span>
+          <span><i class="k-farm"></i>Farming</span>
+          <span><i class="k-new"></i>Converted in this run</span>
+          <span><i class="k-water"></i>Water</span>
+          <button class="sim-replay" type="button">Run again</button>
+        </div>
+      </div>
+      <figcaption>A cellular automaton in the spirit of Dinamica EGO's Expander, running in your browser: farming
+        spreads into the forest next to it, where the land suits it best.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="band parity">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>The same numbers as the tools you cite</h2>
+      <p>Terraflux re-implements established methods from their publications and source code, and its test suite
+        checks each one against the reference implementation, most of them to the last bit. A reviewer who knows
+        FRAGSTATS or Zonation will find the same results.</p>
+    </div>
+    <div class="parity-grid">
+      {% for t in parity %}
+      <div class="parity-item"><strong>{{ t[0] }}</strong><span>{{ t[1] }}</span><em>{{ t[2] }}</em></div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<section class="band builder">
+  <div class="wrap split">
+    <div class="split-text">
+      <h2>An analysis is a graph you can read</h2>
+      <p>Each step is a node: read a map, reclassify it, run MSPA, plot the result. You connect an output to an
+        input, and Terraflux checks that the two fit. Change a setting and only what depends on it runs again,
+        so the map updates while you think.</p>
+      <ul class="ticks">
+        <li>Every node carries a note saying why it is there, so a model explains itself to a colleague.</li>
+        <li>The graph is a small text file: keep it under version control and publish it with your paper.</li>
+        <li>The same file runs in the application, from the command line, on a cluster and from Python.</li>
+      </ul>
+      <a class="textlink" href="/tutorials/#getting-started">Learn the basics in the first tutorials</a>
+    </div>
+    <div class="split-media">
+      <div class="tfg-canvas zoomable" data-caption="A model graph: a map drawn by a neutral landscape model, reclassified, MSPA and a plot." tabindex="0">{{ home_graph|safe }}<button class="zoom-btn" type="button" aria-label="Enlarge">Enlarge</button></div>
+      <div class="shot zoomable" data-caption="The builder: the operators at the left, the model graph, the map of the selected node and its settings.">
+        <img src="/img/app/builder.png" alt="The Terraflux window: the model graph, the selected node's settings and its map" width="1384" height="821" loading="lazy" decoding="async">
+        <button class="zoom-btn" type="button" aria-label="Enlarge">Enlarge</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band topics">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>From a first map to a full study</h2>
+      <p>{{ ops_count }} operators in eighteen fields, each with tutorials that start from the idea behind the
+        method and the papers that introduced it, and end with the graph that runs it.</p>
+    </div>
+    <div class="topic-grid">
+      {% for c in cats %}
+      <a class="topic" href="/tutorials/{{ c.slug }}/">
+        {{ c.cells|cells(26) }}
+        <strong>{{ c.title }}</strong>
+        <span>{{ c.blurb }}</span>
+        {% if c.pages %}<em>{{ c.pages|length }} tutorial{{ "s" if c.pages|length != 1 }}</em>{% endif %}
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<section class="band scale">
+  <div class="wrap split rev">
+    <div class="split-text">
+      <h2>From a laptop to a cluster, without rewriting anything</h2>
+      <p>Run fifty replicates on the cores of your laptop, lend the lab's computers to a calibration with a
+        pairing code, or send five hundred scenarios to your university's Slurm cluster. The model stays the
+        same file. Maps larger than memory run in tiles, with the same result whatever the number of machines.</p>
+      <a class="textlink" href="/parallel/">Read the guide to parallel and distributed computing</a>
+    </div>
+    <div class="split-media">
+      <ol class="scale-steps">
+        <li><strong>Your computer</strong><span>All cores but one, by default</span><code>terraflux submit model.toml --replicates 50</code></li>
+        <li><strong>The lab's computers</strong><span>Found on the network, joined by a code</span><code>terraflux worker --code K7QM-2XPA-9DTE</code></li>
+        <li><strong>A cluster or the cloud</strong><span>Slurm or SSH, saved once</span><code>terraflux submit model.toml --replicates 500 --on hpc</code></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section class="band get">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>Get Terraflux</h2>
+      <p>The installers bring GDAL and every library Terraflux needs.
+        {% if not site.releases_public %}The first public release is being prepared: the downloads will work as soon as it is published.{% endif %}</p>
+    </div>
+    <div class="os-grid">
+      {% for d in downloads %}
+      <div class="os-card" data-os="{{ d.os }}">
+        <h3>{{ d.label }}</h3>
+        <p>{{ d.detail }}</p>
+        {% set f = d.files[0] %}
+        <a class="btn btn-primary{% if not site.releases_public %} is-pending{% endif %}" href="{{ f.url if site.releases_public else '/download/#' ~ d.os }}">{{ f.kind }}</a>
+        <a class="textlink small" href="/download/#{{ d.os }}">Other formats</a>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<section class="band cite">
+  <div class="wrap split">
+    <div class="split-text">
+      <h2>Open science, open source</h2>
+      <p>Terraflux is free software under the GPL. Its methods are documented with the papers they come from,
+        its results are tested against the reference implementations, and every model is a text file that can
+        be published beside the paper that used it.</p>
+      <a class="textlink" href="/about/citing/">How to cite Terraflux</a>
+    </div>
+    <div class="split-media">
+      <div class="codeblock"><button class="copy" type="button" aria-label="Copy">Copy</button><pre class="bib"><code>{{ bibtex }}</code></pre></div>
+    </div>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}<script src="/js/hero.js?v={{ asset_v }}" defer></script>{% endblock %}

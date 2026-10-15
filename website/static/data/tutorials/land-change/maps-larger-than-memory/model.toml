@@ -1,0 +1,113 @@
+format = "terraflux/1"
+name = "Dinamica EGO's classic model"
+description = "Markov rates, weights of evidence, Expander and Patcher, fitted on two maps."
+
+[inputs.drivers]
+kind = "stack"
+path = "big4_drivers.tif"
+note = "the explanatory variables"
+
+[inputs.seed]
+kind = "value"
+value = 1
+note = "the seed of the simulation"
+
+[inputs.t0]
+kind = "map"
+path = "big4_landuse.tif"
+band = "1997"
+note = "the map at the start of the calibration period"
+
+[inputs.t1]
+kind = "map"
+path = "big4_landuse.tif"
+band = "2011"
+note = "the map at its end"
+
+[[nodes]]
+id = "markov"
+op = "markov.fit"
+note = "Transition rates per step: the 14-th root of the matrix of the calibration period, as Dinamica's DetermineTransitionMatrix."
+
+[nodes.inputs]
+steps = 14
+t0 = "$t0"
+t1 = "$t1"
+
+[[nodes]]
+id = "woe"
+op = "woe.fit"
+note = "Weights of evidence of every transition with a rate, the ranges cut automatically (buffers of a hundredth of each variable's range)."
+
+[nodes.inputs]
+drivers = "$drivers"
+markov = "markov.markov"
+t0 = "$t0"
+t1 = "$t1"
+
+[nodes.params]
+ranges = { dist_sea = 250, dist_roads = 250, dist_urban = 250, dist_streams = 250, elevation = 50, slope = 2, aspect = 30, pop_density = 50 }
+categorical = ["diorite", "ultramafic", "sediments", "no_erosion", "moderate_erosion"]
+
+[[nodes]]
+id = "patches"
+op = "patches.settings"
+note = "The Expander and Patcher's settings given, the same for every transition."
+
+[nodes.params]
+transitions = [{ from = 1, to = 2, expansion = 0.5, expander = [4.0, 4.0, 1.5], patcher = [4.0, 4.0, 1.5] }, { from = 1, to = 3, expansion = 0.5, expander = [4.0, 4.0, 1.5], patcher = [4.0, 4.0, 1.5] }, { from = 1, to = 4, expansion = 0.5, expander = [4.0, 4.0, 1.5], patcher = [4.0, 4.0, 1.5] }, { from = 1, to = 5, expansion = 0.5, expander = [4.0, 4.0, 1.5], patcher = [4.0, 4.0, 1.5] }, { from = 2, to = 3, expansion = 0.5, expander = [4.0, 4.0, 1.5], patcher = [4.0, 4.0, 1.5] }, { from = 3, to = 2, expansion = 0.5, expander = [4.0, 4.0, 1.5], patcher = [4.0, 4.0, 1.5] }, { from = 3, to = 4, expansion = 0.5, expander = [4.0, 4.0, 1.5], patcher = [4.0, 4.0, 1.5] }, { from = 3, to = 5, expansion = 0.5, expander = [4.0, 4.0, 1.5], patcher = [4.0, 4.0, 1.5] }, { from = 4, to = 2, expansion = 0.5, expander = [4.0, 4.0, 1.5], patcher = [4.0, 4.0, 1.5] }, { from = 4, to = 3, expansion = 0.5, expander = [4.0, 4.0, 1.5], patcher = [4.0, 4.0, 1.5] }]
+
+[[nodes]]
+id = "simulation"
+op = "control.repeat"
+note = "One iteration per time step, the map carried from step to step."
+
+[nodes.inputs]
+landscape = "$t0"
+times = 14
+
+[[nodes.body.nodes]]
+id = "probability"
+op = "woe.probability"
+note = "The transition probabilities of the current map."
+
+[nodes.body.nodes.inputs]
+drivers = "$drivers"
+landscape = "@landscape"
+model = "woe.model"
+
+[[nodes.body.nodes]]
+id = "allocate"
+op = "dinamica.step"
+note = "Expander and Patcher: each transition changes its rate times the cells of its origin class."
+
+[nodes.body.nodes.inputs]
+landscape = "@landscape"
+patches = "patches.patches"
+probability = "probability.probability"
+rates = "markov.markov"
+seed = "$seed"
+step = "@step"
+
+[nodes.body.nodes.params]
+prune_factor = 10.0
+window = [
+    3,
+    3,
+]
+
+[nodes.body.carry]
+landscape = "allocate.landscape"
+
+[nodes.body.collect]
+info = "allocate.info"
+maps = "allocate.landscape"
+
+[outputs.maps]
+from = "simulation.maps"
+
+[outputs.steps]
+from = "simulation.info"
+
+[outputs.weights]
+from = "woe.table"

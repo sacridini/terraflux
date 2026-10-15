@@ -1,0 +1,84 @@
+format = "terraflux/1"
+name = "Drivers of land change"
+description = "What explains a change: the Markov chain of two dates, the weights of evidence of the change on its drivers (Dinamica EGO) and the logistic regressions of every class (lulcc), each as maps of probability."
+
+[[nodes]]
+id = "land_2000"
+op = "nlm.random_cluster"
+params = { rows = 160, columns = 160, p = 0.5, weights = [0.55, 0.35, 0.10], seed = 11 }
+note = "Land use drawn by chance: 1 forest, 2 farming, 3 water. In its place, a raster.read of a map of yours."
+
+[[nodes]]
+id = "aptitude"
+op = "nlm.gaussian_field"
+params = { rows = 160, columns = 160, range = 25, seed = 12 }
+note = "A driver: how suited each cell is to farming (0 to 1)."
+
+[[nodes]]
+id = "roughness"
+op = "nlm.fbm"
+params = { rows = 160, columns = 160, dimension = 1.4, seed = 13 }
+note = "A driver of no effect on the change, as real models have some."
+
+[[nodes]]
+id = "land_2010"
+op = "map.calc"
+inputs = { t0 = "land_2000.map", suit = "aptitude.map" }
+params = { expression = "if t0 == 1 and nbsum(t0 == 2, 1) >= 3 and suit > 0.6 then 2 else t0" }
+note = "Ten years later: farming grown into the forest beside it, where it is suited."
+
+[[nodes]]
+id = "to_farming"
+op = "dynamic.distance_to"
+inputs = { landscape = "land_2000.map" }
+params = { classes = 2, unit = "cells" }
+note = "A driver of the map itself: the distance to farming."
+
+[[nodes]]
+id = "drivers"
+op = "stack.of"
+inputs = { aptitude = "aptitude.map", roughness = "roughness.map", to_farming = "to_farming.distance" }
+note = "The drivers, a layer each."
+
+[[nodes]]
+id = "markov"
+op = "markov.fit"
+inputs = { t0 = "land_2000.map", t1 = "land_2010.map", steps = 1 }
+note = "The transition probabilities of the period: which share of each class went to each other."
+
+[[nodes]]
+id = "weights"
+op = "woe.fit"
+inputs = { t0 = "land_2000.map", t1 = "land_2010.map", drivers = "drivers.stack", markov = "markov.markov" }
+params = { ranges = { aptitude = 0.05, roughness = 0.05, to_farming = 1 }, fix_abnormal = true }
+note = "Dinamica EGO's weights of evidence of every transition (here forest to farming) on the ranges of every driver: table is Dinamica's report, a positive weight favouring the change, a negative one keeping it away."
+
+[[nodes]]
+id = "woe_probability"
+op = "woe.probability"
+inputs = { model = "weights.model", landscape = "land_2010.map", drivers = "drivers.stack" }
+note = "The probability of the change in every cell of forest, from the weights."
+
+[[nodes]]
+id = "regressions"
+op = "glm.fit"
+inputs = { landscape = "land_2010.map", drivers = "drivers.stack" }
+note = "A logistic regression of the presence of every class on the drivers (R's glm, as lulcc)."
+
+[[nodes]]
+id = "glm_probability"
+op = "glm.predict"
+inputs = { model = "regressions.model", drivers = "drivers.stack", landscape = "land_2010.map" }
+note = "The probability of every class in every cell, a layer each."
+
+[[nodes]]
+id = "plot_woe"
+op = "view.plot"
+inputs = { value = "woe_probability.probability" }
+params = { title = "Forest to farming (weights of evidence)" }
+
+[[nodes]]
+id = "plot_glm"
+op = "view.plot"
+inputs = { value = "glm_probability.suitability" }
+params = { title = "Every class (logistic regression)" }

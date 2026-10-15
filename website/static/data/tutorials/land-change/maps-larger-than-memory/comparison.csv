@@ -1,0 +1,7 @@
+run,forest cells,figure of merit,similarity 1,similarity 5,similarity 9
+exact,66560,0.515,0.644,0.719,0.743
+tiled 128,66571,0.513,0.645,0.716,0.739
+tiled 256,66571,0.513,0.645,0.716,0.739
+tiled 1024,66571,0.513,0.645,0.716,0.739
+tiled disk,66571,0.513,0.645,0.716,0.739
+tiled 2 workers,66571,0.513,0.645,0.716,0.739

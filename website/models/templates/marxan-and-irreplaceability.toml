@@ -1,0 +1,67 @@
+format = "terraflux/1"
+name = "Marxan and irreplaceability"
+description = "Marxan 4's reserves from maps (every cell a planning unit), and ProxIRR's irreplaceability."
+
+[[nodes]]
+id = "bird"
+op = "nlm.gaussian_field"
+params = { rows = 40, columns = 50, range = 8, seed = 1 }
+note = "Species' amounts drawn by chance (in their place, raster.read of distribution maps)."
+
+[[nodes]]
+id = "frog"
+op = "nlm.gaussian_field"
+params = { rows = 40, columns = 50, range = 4, seed = 2 }
+
+[[nodes]]
+id = "orchid"
+op = "nlm.gaussian_field"
+params = { rows = 40, columns = 50, range = 12, seed = 3 }
+
+[[nodes]]
+id = "wetland"
+op = "nlm.fbm"
+params = { rows = 40, columns = 50, dimension = 1.4, seed = 4 }
+
+[[nodes]]
+id = "features"
+op = "stack.of"
+inputs = { bird = "bird.map", frog = "frog.map", orchid = "orchid.map", wetland = "wetland.map" }
+
+[[nodes]]
+id = "cost"
+op = "nlm.gaussian_field"
+params = { rows = 40, columns = 50, range = 15, seed = 9 }
+note = "What each cell costs."
+
+[[nodes]]
+id = "marxan"
+op = "prioritize.marxan"
+inputs = { features = "features.stack", cost = "cost.map" }
+params = { prop = [0.3, 0.3, 0.3, 0.3], blm = 0.2, num_reps = 10, num_iters = 200000, num_temp = 1000, seed = 7 }
+note = "Reserves holding 30% of every species at the least cost and boundary (blm: how much compactness weighs), 10 runs. map: the best run; frequency_map: how often each cell was chosen."
+
+[[nodes]]
+id = "irreplaceability"
+op = "prioritize.proxirr"
+inputs = { features = "features.stack" }
+params = { prop = 0.3 }
+note = "ProxIRR: beta, the chance each cell is needed to reach the targets; gamma, how many targets need it."
+
+[[nodes]]
+id = "plot_best"
+op = "view.plot"
+inputs = { value = "marxan.map" }
+params = { title = "Best reserve" }
+
+[[nodes]]
+id = "plot_frequency"
+op = "view.plot"
+inputs = { value = "marxan.frequency_map" }
+params = { title = "Selection frequency" }
+
+[[nodes]]
+id = "plot_beta"
+op = "view.plot"
+inputs = { value = "irreplaceability.beta" }
+params = { title = "Irreplaceability (beta)" }

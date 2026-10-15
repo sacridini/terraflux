@@ -1,0 +1,55 @@
+format = "terraflux/1"
+name = "Kinds of landscapes"
+description = "A land cover cut into squares, every square described by its metrics (pylandstats' spatial signatures), their principal components, and the squares grouped by k-means into kinds of landscapes."
+
+[[nodes]]
+id = "gradient"
+op = "nlm.planar_gradient"
+params = { rows = 240, columns = 240, direction = 120, seed = 81 }
+note = "A gradient across the map (a climate, an altitude...)."
+
+[[nodes]]
+id = "patchiness"
+op = "nlm.gaussian_field"
+params = { rows = 240, columns = 240, range = 6, seed = 82 }
+
+[[nodes]]
+id = "surface"
+op = "nlm.merge"
+inputs = { primary = "gradient.map", secondary = "patchiness.map" }
+params = { scaling = 1.2 }
+note = "The gradient with patches on it."
+
+[[nodes]]
+id = "cover"
+op = "nlm.classify"
+inputs = { map = "surface.map" }
+params = { weights = [0.3, 0.3, 0.2, 0.2] }
+note = "Four classes of 30, 30, 20 and 20 % of the cells, which change along the gradient (in its place, a raster.read of a land cover of yours)."
+
+[[nodes]]
+id = "signatures"
+op = "metrics.signatures"
+inputs = { maps = "cover.classes" }
+params = { grid = 30, landscape_metrics = ["shdi", "ed", "lpi", "contag"], class_metrics = ["pland"] }
+note = "The map tiled by squares of 30 cells: a row per square, its diversity, edge density, largest patch, contagion and the share of every class."
+
+[[nodes]]
+id = "pca"
+op = "metrics.pca"
+inputs = { table = "signatures.table" }
+params = { components = 3 }
+note = "The principal components of the metrics: loadings tells what each means, scores places every square on them."
+
+[[nodes]]
+id = "kinds"
+op = "metrics.cluster"
+inputs = { table = "signatures.table" }
+params = { k = 4, seed = 0 }
+note = "The squares in 4 groups of like metrics (k-means of their z-scores): kinds of landscape."
+
+[[nodes]]
+id = "plot_cover"
+op = "view.plot"
+inputs = { value = "cover.classes" }
+params = { title = "Land cover" }

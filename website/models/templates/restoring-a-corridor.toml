@@ -1,0 +1,79 @@
+format = "terraflux/1"
+name = "Restoring a corridor"
+description = "GuidosToolbox's Restoration Planner: a resistance from the distance to the habitat, the least-cost path between two areas, and what restoring it gains."
+
+[[nodes]]
+id = "landscape"
+op = "nlm.random_cluster"
+params = { rows = 150, columns = 150, p = 0.4, weights = [0.8, 0.2], seed = 17 }
+note = "Two classes drawn by chance: 1 the background, 2 the habitat (GuidosToolbox's coding already)."
+
+[[nodes]]
+id = "near_a"
+op = "nlm.distance_gradient"
+params = { rows = 150, columns = 150, origin = [5, 20, 5, 20], nlmr_compat = false, rescale = false }
+note = "The distance to a square in the north-west: 0 inside it."
+
+[[nodes]]
+id = "near_b"
+op = "nlm.distance_gradient"
+params = { rows = 150, columns = 150, origin = [130, 145, 130, 145], nlmr_compat = false, rescale = false }
+note = "And to one in the south-east."
+
+[[nodes]]
+id = "a"
+op = "map.calc"
+inputs = { d = "near_a.map" }
+params = { expression = "d == 0" }
+note = "Area A (in its place, a raster of a reserve)."
+
+[[nodes]]
+id = "b"
+op = "map.calc"
+inputs = { d = "near_b.map" }
+params = { expression = "d == 0" }
+note = "Area B."
+
+[[nodes]]
+id = "habitat"
+op = "map.calc"
+inputs = { h = "landscape.map", a = "a.map", b = "b.map" }
+params = { expression = "if a or b then 2 else h" }
+note = "The two areas are habitat too."
+
+[[nodes]]
+id = "resistance"
+op = "restoration.resistance"
+inputs = { map = "habitat.map" }
+note = "GTB's resistance: 2 in the habitat, growing with the distance from it up to 100."
+
+[[nodes]]
+id = "path"
+op = "restoration.least_cost_path"
+inputs = { resistance = "resistance.map", a = "a.map", b = "b.map" }
+note = "The cheapest way from A to B: cost is the cost from A plus that from B (its least along the path); stats has its length and expense."
+
+[[nodes]]
+id = "corridor"
+op = "restoration.corridor"
+inputs = { resistance = "resistance.map", a = "a.map", b = "b.map", habitat = "habitat.map" }
+note = "The path's background restored: stats has the cells restored and the ECA and coherence gained by it."
+
+[[nodes]]
+id = "plot_cost"
+op = "view.plot"
+inputs = { value = "path.cost" }
+params = { title = "Cost from A plus from B" }
+
+[[nodes]]
+id = "shown"
+op = "map.calc"
+inputs = { h = "habitat.map", p = "corridor.path" }
+params = { expression = "if p == 1 then 3 else h" }
+note = "The corridor (3) over the background (1) and the habitat (2); corridor.restored is the habitat once its background is restored."
+
+[[nodes]]
+id = "plot_corridor"
+op = "view.plot"
+inputs = { value = "shown.map" }
+params = { title = "The corridor (3)" }

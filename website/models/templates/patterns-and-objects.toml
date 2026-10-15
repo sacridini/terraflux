@@ -1,0 +1,35 @@
+format = "terraflux/1"
+name = "Patterns and objects"
+description = "GuidosToolbox's SPA and Accounting on a forest map: a coarser MSPA, and the forest's objects by size."
+
+[[nodes]]
+id = "landscape"
+op = "nlm.random_cluster"
+params = { rows = 300, columns = 300, p = 0.5, weights = [0.5, 0.5], seed = 5 }
+note = "Two classes drawn by chance: 1 the background, 2 the forest (GuidosToolbox's coding already)."
+
+[[nodes]]
+id = "spa"
+op = "landscape.spa"
+inputs = { map = "landscape.map" }
+params = { variant = 6 }
+note = "Core, islet, edge, perforation and margin: MSPA's main classes at less cost; stats has their areas, porosity the share of core-openings."
+
+[[nodes]]
+id = "objects"
+op = "landscape.accounting"
+inputs = { map = "landscape.map" }
+params = { thresholds = [10, 100, 1000, 5000], highlight_largest = true }
+note = "The forest's objects in five size classes (up to 10 cells, 100, 1000, 5000, larger), the three largest painted apart; stats counts each class."
+
+[[nodes]]
+id = "plot_spa"
+op = "view.plot"
+inputs = { value = "spa.map" }
+params = { title = "SPA6" }
+
+[[nodes]]
+id = "plot_objects"
+op = "view.plot"
+inputs = { value = "objects.map" }
+params = { title = "Objects by size" }

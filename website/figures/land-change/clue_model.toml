@@ -1,0 +1,79 @@
+format = "terraflux/1"
+name = "CLUE-S on Plum Island (lulcc's vignette)"
+description = "The model `terraflux new clue` writes for lulcc's Plum Island Ecosystems data, written compactly: logistic regressions, a demand interpolated from the maps of 1985, 1991 and 1999, and CLUE-S's allocation of 14 yearly steps."
+
+[inputs.observed]
+kind = "stack"
+path = "pie_landuse.tif"
+note = "the observed maps, one band per date (1985, 1991, 1999)"
+
+[inputs.drivers]
+kind = "stack"
+path = "pie_drivers.tif"
+note = "elevation, slope, dist_built_1985"
+
+[inputs.start]
+kind = "map"
+path = "pie_landuse.tif"
+band = "1985"
+note = "the map the simulation starts from"
+
+[inputs.seed]
+kind = "value"
+value = 1
+note = "set.seed() of R's generator"
+
+[[nodes]]
+id = "regression"
+op = "glm.fit"
+inputs = { landscape = "$start", drivers = "$drivers" }
+params = { formulas = { 1 = ["elevation", "slope"], 2 = ["elevation", "slope", "dist_built_1985"], 3 = ["elevation", "slope"] } }
+note = "Logistic regression of the presence of each class on its drivers (lulcc's glmModels)."
+
+[[nodes]]
+id = "suitability"
+op = "glm.predict"
+inputs = { model = "regression.model", drivers = "$drivers", landscape = "$start" }
+note = "The suitability of each class at every cell; the drivers are static, so it is computed once."
+
+[[nodes]]
+id = "demand"
+op = "demand.from_maps"
+inputs = { maps = "$observed" }
+params = { times = [1985, 1991, 1999] }
+note = "The cells of each class in every year, interpolated linearly from the observed maps."
+
+[[nodes]]
+id = "rng"
+op = "rng.r"
+inputs = { seed = "$seed" }
+note = "R's generator after set.seed(seed), as lulcc draws."
+
+[[nodes]]
+id = "history"
+op = "lulcc.history"
+inputs = { landscape = "$start" }
+note = "How long each cell has had its class (1 where not given)."
+
+[[nodes]]
+id = "simulation"
+op = "control.repeat"
+inputs = { times = "demand.steps", landscape = "$start", history = "history.history" }
+note = "One iteration per year of the demand, the map and the history carried."
+
+[nodes.body]
+carry = { landscape = "allocate.landscape", history = "allocate.history" }
+collect = { maps = "allocate.landscape", info = "allocate.info" }
+
+[[nodes.body.nodes]]
+id = "allocate"
+op = "lulcc.step"
+inputs = { landscape = "@landscape", history = "@history", suitability = "suitability.suitability", demand = "demand.demand", step = "@step", rng = "rng.rng" }
+params = { allocation = { method = "clue", jitter = 0.0002, scale = 0.000001, max_iter = 1000, max_diff = 50, mean_diff = 50 }, elasticity = [0.2, 0.2, 0.2] }
+note = "CLUE-S: every cell takes the class of highest suitability plus an iteration variable, moved until the demand is met."
+
+[outputs.maps]
+from = "simulation.maps"
+
+[outputs.steps]
+from = "simulation.info"

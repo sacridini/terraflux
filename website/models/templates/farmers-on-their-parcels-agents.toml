@@ -1,0 +1,90 @@
+format = "terraflux/1"
+name = "Farmers on their parcels (agents)"
+description = "Agents in a loop: a farmer per parcel, whose wealth follows the fertility of the parcel and a price that falls, who gives up farming when broke."
+
+[[nodes]]
+id = "mosaic"
+op = "nlm.mosaic_tess"
+params = { rows = 120, columns = 120, germs = 60, seed = 51 }
+note = "A Voronoi mosaic: 60 cells of a random value each."
+
+[[nodes]]
+id = "parcels"
+op = "map.calc"
+inputs = { m = "mosaic.map" }
+params = { expression = "1 + floor(m * 100000)" }
+note = "Each Voronoi cell a parcel with an id (in its place, a raster.read of a cadastre's parcel ids)."
+
+[[nodes]]
+id = "fertility"
+op = "nlm.gaussian_field"
+params = { rows = 120, columns = 120, range = 25, seed = 52 }
+note = "The soil's fertility, 0 to 1."
+
+[[nodes]]
+id = "farms"
+op = "agents.parcels"
+inputs = { parcels = "parcels.map", fertility = "fertility.map" }
+note = "An agent per parcel: its id, its cells and the mean fertility of its land."
+
+[[nodes]]
+id = "start"
+op = "agents.update"
+inputs = { agents = "farms.agents" }
+params = { rules = "wealth = 20\nfarming = 1" }
+note = "Every farmer starts with a wealth of 20, farming."
+
+[[nodes]]
+id = "years"
+op = "control.repeat"
+inputs = { times = 20, farmers = "start.agents" }
+note = "20 years: @farmers are the farmers of the year before; summary collects the totals of every year, maps the parcels still farmed."
+
+[nodes.body]
+carry = { farmers = "year.agents" }
+collect = { summary = "totals.table", maps = "farmed.map" }
+
+[[nodes.body.nodes]]
+id = "year"
+op = "agents.update"
+inputs = { agents = "@farmers", step = "@step" }
+params = { rules = "price = 10 - step * 0.25\nincome = if farming == 1 then fertility * price * 2 else 1\nwealth = wealth + income - 7\nfarming = if wealth > 0 then farming else 0" }
+note = "The rules of a year, in order: the price falls, the farmers earn by the fertility of their parcel, pay 7, and those broke stop farming (and earn 1 elsewhere)."
+
+[[nodes.body.nodes]]
+id = "totals"
+op = "agents.summary"
+inputs = { agents = "year.agents" }
+note = "How many farmers and the sum and mean of every attribute."
+
+[[nodes.body.nodes]]
+id = "farmed"
+op = "agents.map"
+inputs = { agents = "year.agents", parcels = "parcels.map" }
+params = { column = "farming" }
+note = "Whether each parcel is still farmed, painted on it."
+
+[[nodes]]
+id = "wealth"
+op = "agents.map"
+inputs = { agents = "years.farmers", parcels = "parcels.map" }
+params = { column = "wealth" }
+note = "The farmers after 20 years (years.farmers): their wealth painted on their parcels."
+
+[[nodes]]
+id = "plot_wealth"
+op = "view.plot"
+inputs = { value = "wealth.map" }
+params = { title = "Wealth after 20 years" }
+
+[[nodes]]
+id = "plot_fertility"
+op = "view.plot"
+inputs = { value = "fertility.map" }
+params = { title = "Fertility" }
+
+[[nodes]]
+id = "plot_farming"
+op = "view.plot"
+inputs = { value = "years.maps" }
+params = { title = "Parcels still farmed, year by year" }

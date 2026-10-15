@@ -1,0 +1,30 @@
+format = "terraflux/1"
+name = "MSPA of a forest"
+description = "GuidosToolbox's MSPA on a forest map: read (here drawn), reclassify, MSPA, plot."
+
+[[nodes]]
+id = "landscape"
+op = "nlm.random_cluster"
+params = { rows = 300, columns = 300, p = 0.55, weights = [0.3, 0.15, 0.55], seed = 7 }
+note = "A map of three classes drawn by chance (1 farming, 2 water, 3 forest): in its place, a raster.read of a map of yours."
+
+[[nodes]]
+id = "forest"
+op = "raster.reclassify"
+inputs = { map = "landscape.map" }
+params = { rules = "3 -> 2\n* -> 1" }
+note = "MSPA reads 2 as the foreground and 1 as the background: the forest (3) becomes 2, every other class 1."
+
+[[nodes]]
+id = "mspa"
+op = "landscape.mspa"
+inputs = { map = "forest.map" }
+params = { edge_width = 1, connectivity = 8 }
+note = "Core, islet, perforation, edge, loop, bridge and branch, as GuidosToolbox computes them."
+
+[[nodes]]
+id = "plot"
+op = "view.plot"
+inputs = { value = "mspa.map" }
+params = { title = "MSPA" }
+note = "Its map in a tab of its own, in GuidosToolbox's colours, refreshed at every run."

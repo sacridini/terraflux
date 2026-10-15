@@ -1,0 +1,68 @@
+format = "terraflux/1"
+name = "Circuit connectivity"
+description = "Circuitscape's currents between habitat patches, and Omniscape's omnidirectional connectivity, over one resistance."
+
+[[nodes]]
+id = "quality"
+op = "nlm.gaussian_field"
+params = { rows = 100, columns = 100, range = 20, seed = 31 }
+note = "A habitat's quality from 0 to 1 drawn by chance (in its place, a raster.read of a suitability map)."
+
+[[nodes]]
+id = "resistance"
+op = "map.calc"
+inputs = { q = "quality.map" }
+params = { expression = "1 + 99 * (1 - q) ^ 3" }
+note = "The resistance to movement: 1 in the best habitat, up to 100 where there is none."
+
+[[nodes]]
+id = "cores"
+op = "map.calc"
+inputs = { q = "quality.map" }
+params = { expression = "q > 0.8" }
+note = "The cores: the best habitat (1), the rest 0."
+
+[[nodes]]
+id = "parcels"
+op = "landscape.parcellation"
+inputs = { map = "cores.map" }
+note = "Every patch numbered, of the cores and of the rest."
+
+[[nodes]]
+id = "patches"
+op = "map.calc"
+inputs = { c = "cores.map", p = "parcels.parcels" }
+params = { expression = "if c == 1 then p else 0" }
+note = "The cores' patches by number: Circuitscape's focal regions (0 elsewhere)."
+
+[[nodes]]
+id = "pairwise"
+op = "circuit.pairwise"
+inputs = { habitat = "resistance.map", points = "patches.map" }
+params = { cum_map = true, max_map = true }
+note = "Circuitscape's pairwise mode: the effective resistance between every pair of patches (resistances), the current of all pairs summed (cum): where animals moving between them would pass."
+
+[[nodes]]
+id = "omniscape"
+op = "circuit.omniscape"
+inputs = { resistance = "resistance.map" }
+params = { radius = 12, block_size = 5, flow_potential = true, normalized_current = true }
+note = "Omniscape: currents from every cell to those within 12 cells (a target every 5 cells), the sources from the resistance. normalized: the current over what it would be without resistances (above 1, channelled; below, impeded)."
+
+[[nodes]]
+id = "plot_resistance"
+op = "view.plot"
+inputs = { value = "resistance.map" }
+params = { title = "Resistance" }
+
+[[nodes]]
+id = "plot_current"
+op = "view.plot"
+inputs = { value = "pairwise.cum" }
+params = { title = "Current between the cores (Circuitscape)" }
+
+[[nodes]]
+id = "plot_omniscape"
+op = "view.plot"
+inputs = { value = "omniscape.normalized" }
+params = { title = "Normalised current (Omniscape)" }

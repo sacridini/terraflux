@@ -1,0 +1,148 @@
+{
+ "subjects": [
+  {
+   "title": "IO",
+   "prefixes": []
+  },
+  {
+   "title": "Data preparation",
+   "prefixes": [
+    "raster",
+    "vector"
+   ]
+  },
+  {
+   "title": "Habitat patterns",
+   "prefixes": [
+    "landscape",
+    "patterns"
+   ]
+  },
+  {
+   "title": "Fragmentation",
+   "prefixes": [
+    "fragmentation"
+   ]
+  },
+  {
+   "title": "Landscape metrics",
+   "prefixes": [
+    "metrics"
+   ]
+  },
+  {
+   "title": "Habitat networks",
+   "prefixes": [
+    "networks",
+    "conn"
+   ]
+  },
+  {
+   "title": "Circuit connectivity",
+   "prefixes": [
+    "circuit"
+   ]
+  },
+  {
+   "title": "Surface metrics",
+   "prefixes": [
+    "surface"
+   ]
+  },
+  {
+   "title": "Grid distances",
+   "prefixes": [
+    "cost"
+   ]
+  },
+  {
+   "title": "Distance & restoration",
+   "prefixes": [
+    "distance",
+    "restoration"
+   ]
+  },
+  {
+   "title": "Change detection",
+   "prefixes": [
+    "change"
+   ]
+  },
+  {
+   "title": "Large data & batch",
+   "prefixes": [
+    "batch"
+   ]
+  },
+  {
+   "title": "Neutral landscape models",
+   "prefixes": [
+    "nlm"
+   ]
+  },
+  {
+   "title": "Biodiversity analysis",
+   "prefixes": [
+    "bio"
+   ]
+  },
+  {
+   "title": "Spatial prioritization",
+   "prefixes": [
+    "prioritize"
+   ]
+  },
+  {
+   "title": "Species distributions",
+   "prefixes": [
+    "sdm"
+   ]
+  },
+  {
+   "title": "Land change simulation",
+   "prefixes": [
+    "markov",
+    "woe",
+    "patches",
+    "dinamica",
+    "glm",
+    "lulcc",
+    "demand",
+    "plus",
+    "cars",
+    "dynamic",
+    "agents",
+    "crafty",
+    "validate"
+   ]
+  },
+  {
+   "title": "Uncertainty",
+   "prefixes": [
+    "uncertainty"
+   ]
+  },
+  {
+   "title": "Map algebra",
+   "prefixes": [
+    "map",
+    "stack"
+   ]
+  },
+  {
+   "title": "Plot",
+   "prefixes": [
+    "view"
+   ]
+  },
+  {
+   "title": "Model flow",
+   "prefixes": [
+    "control",
+    "rng",
+    "plugin"
+   ]
+  }
+ ],
+ "io": []
+}

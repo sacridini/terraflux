@@ -1,0 +1,11 @@
+pair,straight_km,least_cost,ratio
+South – North-east,29.3,218.9,7.5
+South – South-west,19.2,102.3,5.3
+South – North-west,33.3,192.4,5.8
+South – Far north-east,42.6,279.5,6.6
+North-east – South-west,37.9,230.8,6.1
+North-east – North-west,24.5,75.2,3.1
+North-east – Far north-east,14.2,61.1,4.3
+South-west – North-west,27.3,156.6,5.7
+South-west – Far north-east,52.1,287.6,5.5
+North-west – Far north-east,35.3,132.0,3.7

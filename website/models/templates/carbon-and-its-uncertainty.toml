@@ -1,0 +1,48 @@
+format = "terraflux/1"
+name = "Carbon and its uncertainty"
+description = "The carbon of a forest and how sure one can be of it: its parameters drawn many times (Monte Carlo), the mean, the deviation and an interval of 95 % of every cell."
+
+[[nodes]]
+id = "canopy"
+op = "nlm.gaussian_field"
+params = { rows = 100, columns = 100, range = 15, seed = 61 }
+note = "The canopy's cover, 0 to 1 (in its place, a raster.read of a tree cover map)."
+
+[[nodes]]
+id = "carbon"
+op = "uncertainty.monte_carlo"
+inputs = { canopy = "canopy.map" }
+params = { expression = "a * canopy ^ b * fraction", parameters = [["a", 250, 25], ["b", 1.5, 0.15], ["fraction", 0.47, 0.02]], n = 500, seed = 1 }
+note = "The carbon, t/ha: the biomass from the cover by an allometry a cover^b (a 250 ± 25, b 1.5 ± 0.15), times its carbon fraction (0.47 ± 0.02); the three drawn 500 times from normal distributions. mean, sd and quantiles (2.5 % and 97.5 %) of every cell."
+
+[[nodes]]
+id = "interval"
+op = "uncertainty.interval"
+inputs = { value = "carbon.mean", sd = "carbon.sd" }
+params = { level = 0.9 }
+note = "A normal interval of 90 % from the mean and the deviation."
+
+[[nodes]]
+id = "relative"
+op = "map.calc"
+inputs = { m = "carbon.mean", s = "carbon.sd" }
+params = { expression = "if m > 0 then 100 * s / m else null" }
+note = "The deviation as a share of the mean (%)."
+
+[[nodes]]
+id = "plot_mean"
+op = "view.plot"
+inputs = { value = "carbon.mean" }
+params = { title = "Carbon (t/ha), the mean" }
+
+[[nodes]]
+id = "plot_sd"
+op = "view.plot"
+inputs = { value = "carbon.sd" }
+params = { title = "Its standard deviation" }
+
+[[nodes]]
+id = "plot_quantiles"
+op = "view.plot"
+inputs = { value = "carbon.quantiles" }
+params = { title = "2.5 % and 97.5 %" }

@@ -1,0 +1,134 @@
+format = "terraflux/1"
+name = "Ordered allocation (lulcc)"
+
+[inputs.drivers]
+kind = "stack"
+path = "pie_drivers.tif"
+note = "the explanatory variables"
+
+[inputs.observed]
+kind = "stack"
+path = "pie_landuse.tif"
+note = "the observed maps, one band per date"
+
+[inputs.seed]
+kind = "value"
+value = 1
+note = "set.seed() of R's generator"
+
+[inputs.start]
+kind = "map"
+path = "pie_landuse.tif"
+band = "1985"
+note = "the map the simulation starts from"
+
+[[nodes]]
+id = "regression"
+op = "glm.fit"
+note = "Logistic regression of the presence of each class on its drivers (lulcc's glmModels)."
+
+[nodes.inputs]
+drivers = "$drivers"
+landscape = "$start"
+
+[nodes.params.formulas]
+1 = [
+    "elevation",
+    "slope",
+]
+2 = [
+    "elevation",
+    "slope",
+    "dist_built_1985",
+]
+3 = [
+    "elevation",
+    "slope",
+]
+
+[[nodes]]
+id = "suitability"
+op = "glm.predict"
+note = "The suitability of each class at every cell; the drivers are static, so it is computed once."
+
+[nodes.inputs]
+drivers = "$drivers"
+landscape = "$start"
+model = "regression.model"
+
+[[nodes]]
+id = "demand"
+op = "demand.from_maps"
+note = "The cells of each class at each step interpolated and extrapolated linearly from the observed maps (lulcc's approxExtrapDemand)."
+
+[nodes.inputs]
+maps = "$observed"
+
+[nodes.params]
+times = [
+    1985.0,
+    1991.0,
+    1999.0,
+]
+
+[[nodes]]
+id = "rng"
+op = "rng.r"
+note = "R's generator after set.seed(seed), as lulcc draws."
+
+[nodes.inputs]
+seed = "$seed"
+
+[[nodes]]
+id = "history"
+op = "lulcc.history"
+note = "How long each cell has had its class (1 where not given)."
+
+[nodes.inputs]
+landscape = "$start"
+
+[[nodes]]
+id = "simulation"
+op = "control.repeat"
+note = "One iteration per step of the demand, the map and the history carried."
+
+[nodes.inputs]
+history = "history.history"
+landscape = "$start"
+times = "demand.steps"
+
+[[nodes.body.nodes]]
+id = "allocate"
+op = "lulcc.step"
+note = "The ordered allocation (Fuchs et al. 2013): classes served in order, cells drawn by suitability."
+
+[nodes.body.nodes.inputs]
+demand = "demand.demand"
+history = "@history"
+landscape = "@landscape"
+rng = "rng.rng"
+step = "@step"
+suitability = "suitability.suitability"
+
+[nodes.body.nodes.params.allocation]
+method = "ordered"
+order = [
+    2.0,
+    1.0,
+    3.0,
+]
+stochastic = true
+
+[nodes.body.carry]
+history = "allocate.history"
+landscape = "allocate.landscape"
+
+[nodes.body.collect]
+info = "allocate.info"
+maps = "allocate.landscape"
+
+[outputs.maps]
+from = "simulation.maps"
+
+[outputs.steps]
+from = "simulation.info"

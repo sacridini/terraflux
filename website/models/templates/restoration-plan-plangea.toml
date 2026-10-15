@@ -1,0 +1,94 @@
+format = "terraflux/1"
+name = "Restoration plan (plangea)"
+description = "plangea's restoration problem: the cells to restore for the most reduction of the species' extinction risk."
+
+[[nodes]]
+id = "field"
+op = "nlm.gaussian_field"
+params = { rows = 40, columns = 50, range = 10, seed = 5 }
+note = "A smooth surface from 0 to 1 drawn by chance."
+
+[[nodes]]
+id = "forest"
+op = "map.calc"
+inputs = { f = "field.map" }
+params = { expression = "f * 0.9" }
+note = "The share of forest in each cell (in its place, a raster.read of land cover shares)."
+
+[[nodes]]
+id = "crops"
+op = "map.calc"
+inputs = { f = "field.map" }
+params = { expression = "1 - f * 0.9" }
+note = "The rest is cropland: the land restoration can return to forest."
+
+[[nodes]]
+id = "land_cover"
+op = "stack.of"
+inputs = { forest = "forest.map", crops = "crops.map" }
+
+[[nodes]]
+id = "vegetation"
+op = "restoration.original_vegetation"
+inputs = { land_cover = "land_cover.stack" }
+params = { natural = ["forest"], anthropic = ["crops"] }
+note = "What the converted land was before (plangea): forest here, and the share of anthropic land."
+
+[[nodes]]
+id = "toucan"
+op = "nlm.gaussian_field"
+params = { rows = 40, columns = 50, range = 15, seed = 11 }
+
+[[nodes]]
+id = "jaguar"
+op = "nlm.gaussian_field"
+params = { rows = 40, columns = 50, range = 20, seed = 12 }
+
+[[nodes]]
+id = "frog"
+op = "nlm.gaussian_field"
+params = { rows = 40, columns = 50, range = 6, seed = 13 }
+
+[[nodes]]
+id = "ranges"
+op = "map.calc"
+inputs = { t = "toucan.map" }
+params = { expression = "t > 0.4" }
+note = "A species' range: the cells above 0 (in its place, raster.read of range maps)."
+
+[[nodes]]
+id = "ranges2"
+op = "map.calc"
+inputs = { j = "jaguar.map" }
+params = { expression = "j > 0.5" }
+
+[[nodes]]
+id = "ranges3"
+op = "map.calc"
+inputs = { f = "frog.map" }
+params = { expression = "f > 0.3" }
+
+[[nodes]]
+id = "species"
+op = "stack.of"
+inputs = { toucan = "ranges.map", jaguar = "ranges2.map", frog = "ranges3.map" }
+
+[[nodes]]
+id = "habitat"
+op = "sdm.area_of_habitat"
+inputs = { ranges = "species.stack", land_cover = "land_cover.stack", original = "vegetation.original", restore = "vegetation.restore", anthropic = "vegetation.anthropic" }
+params = { natural = ["forest"], cell_area = 1.0 }
+note = "Every species' habitat now and before conversion (km²), and what restoring a cell gives it."
+
+[[nodes]]
+id = "plan"
+op = "restoration.plan"
+inputs = { restorable = "vegetation.anthropic", table = "habitat.table", gain = "habitat.gain" }
+params = { target = 100, cell_area = 1.0, z_sd = 0.1 }
+note = "The share of every cell to restore, 100 km² in all, for the most reduction of the species' extinction risk (exact within 1e-7; method = steps for plangea's own). Try levels = [0.25, 0.5, 1] for a trade-off curve. summary: the risk reduction and its deviation from z's."
+
+[[nodes]]
+id = "plot_plan"
+op = "view.plot"
+inputs = { value = "plan.restored" }
+params = { title = "Share of each cell restored" }

@@ -1,0 +1,11 @@
+pair,least_cost,commute
+South – North-east,2189,3.01
+South – South-west,1023,1.78
+South – North-west,1924,2.68
+South – Far north-east,2795,3.53
+North-east – South-west,2308,3.41
+North-east – North-west,752,2.21
+North-east – Far north-east,611,1.64
+South-west – North-west,1566,2.79
+South-west – Far north-east,2876,3.94
+North-west – Far north-east,1320,2.72

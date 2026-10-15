@@ -1,0 +1,352 @@
+---
+title: A tour of Terraflux
+short: A tour of the application
+description: The window and its panes, the Templates menu and its groups, opening and running a template, the operators' library and the / search, the viewer, basemaps and the settings, for someone who has never used the application.
+order: 10
+level: beginner
+time: 20 min
+template: MSPA of a forest
+ops: [nlm.random_cluster, raster.reclassify, landscape.mspa, view.plot]
+---
+
+This tutorial is the first thing to read after installing Terraflux. You will open the application, learn the
+name and the job of every part of its window, open a ready-made model from the **Templates** menu, run it, look at
+its map, change one of its settings, and find your way to the hundreds of operators it holds. You need no data of
+your own and no experience with GIS software: everything here runs on maps that Terraflux draws by itself. At the
+end you will know where things are, which is all the later tutorials assume.
+
+## The idea: an analysis is a chain of boxes
+
+Most GIS software works through menus: you open a map, choose *Raster > Reclassify* in a menu, fill a dialog, get
+a new map, choose the next tool, and so on. When you want to do it again with another map, or with a different
+setting halfway through, you repeat every click.
+
+Terraflux keeps the chain itself. Each step of an analysis is a **node**: a box that runs one **operator** (read a
+map, reclassify it, compute a fragmentation index...). The boxes are joined by **connections** that carry a map,
+a table or a number from the output of one node to the input of the next. The whole chain is a **model**. Because
+the model is kept, you can change any step and run it again: Terraflux recomputes only what that change touches.
+A model is saved as a small text file that you can share, put in the supplementary material of a paper, or run on
+another computer from the command line.
+
+This way of working is called *visual programming* or a *model builder*; ecologists may know it from ArcGIS's
+ModelBuilder, QGIS's graphical modeler or the land change software Dinamica EGO (Soares-Filho et al., 2002), whose
+models are drawn the same way.
+
+!!! science "Key idea"
+    A model is a **graph**: nodes are operations, connections are the data passed between them. The graph says
+    *what depends on what*, so the application knows the order to run the nodes in, and which nodes need to run
+    again when you change one.
+
+## When to use the application, and when the command line
+
+Terraflux is two things in one program:
+
+- the **application**, a window where you build, run and look at models: this tutorial;
+- the **command line** (`terraflux run`, `terraflux check`...), which runs the same model files without a window:
+  for long runs, many runs, servers and clusters. [Your first model](../first-model/) shows it.
+
+You will usually build and check a model in the application and, when it is right, run it as many times as you need
+from the command line. Nothing is lost between the two: they read and write the same file.
+
+## What you need
+
+Only Terraflux, installed as the [Quickstart](/quickstart/) explains. The templates used here draw their own maps
+with *neutral landscape models*, random maps with a known structure (Gardner et al., 1987; Sciaini et al., 2018),
+so they run without any file.
+
+## The window
+
+Open Terraflux (from the Start menu on Windows, Applications on macOS, the menu of your desktop on Linux, or by
+typing `terraflux app` in a terminal). The window starts empty, with a message in the middle of the canvas:
+*Open a raster, click an operator of the library or press / to start; or begin from a template (Templates)*.
+
+![The empty window of Terraflux](/img/tutorials/getting-started/tour/empty.png "Terraflux as it opens: the toolbar at the top, the Node and Prepare panes on the left, the Model pane (an empty canvas) and the Viewer on the right, and a line of keyboard hints at the bottom. Screenshot of Terraflux 0.79 on Windows.")
+
+Here is the same window after a template has run, with its parts numbered:
+
+![The parts of the window](/img/tutorials/getting-started/tour/window.png "The window with the template 'MSPA of a forest' run. Numbers are explained below. Screenshot of Terraflux 0.79 on Windows (the theme Default).")
+
+1. **The toolbar.** *New* (an empty model), *Open...* (a model file), *Templates* (models to start from),
+   *Operators* (the library as a menu), *Settings*, *Many runs...*, *Computers...*, *Wizard...* (a land change
+   model built step by step from your maps), *View* (panes on and off), *Save* and *Save as...*.
+2. **Run and Stop**, then the model's name and how long the last run took (*done in 0.04 s*). **Run** (++f5++) runs
+   the whole model.
+3. **The Node pane**: the node you selected. Its name (which you can change with *Rename*), its operator
+   (`landscape.mspa`) and what that operator does, **Why** (the node's note: why it is in the model), its
+   **Inputs** (what is connected to it), its **Settings**, and *Delete node*.
+4. **The Prepare pane**, a tab beside Node: the data of the node selected compared with the model's *reference
+   grid*, and the steps that put it on that grid in a click (see [One grid for all your maps](../one-grid/)).
+5. **The Model pane**: the canvas where the nodes and their connections are drawn.
+6. **The Model pane's bar**: where you are in the model (*Top level*, or inside a loop), **Run to here** (run the
+   node selected and what it needs, ++ctrl+enter++), **Arrange** (tidy the nodes, ++ctrl+l++), **update after every
+   edit** (run again by itself after every change) and **Text** (the model as text).
+7. **The Viewer and the map tabs.** The Viewer shows what the node selected gives. A [[view.plot]] node, or a
+   double click on any node, opens a tab of its own (here *MSPA*), refreshed at every run.
+8. **Save output** (the map shown as a GeoTIFF file, with or without a [[raster.write]] node added to the model)
+   and **Metadata** (what the file or map says about itself: size, cell size, coordinate system, no data...).
+9. **The legend**: the classes of the map with their colours and their number of cells (here 300 x 300 cells, of
+   which 33,168 are core forest), or a colour bar for continuous values.
+10. **The key hints**: a reminder of the mouse and keyboard actions of the pane under the pointer.
+
+!!! tip "Arrange the window your way"
+    Every pane is a tab. Drag a tab to put it beside, above or below another; drag it out of the window and it
+    becomes a window of its own, to put on a second screen (or right-click the tab: *Open in a window of its
+    own*). ++ctrl+w++ closes the tab in front, and **View** turns each pane on or off (*Many runs*, *Computers*,
+    *Simulation*, *Areas* and *Validation* are off at first). **View > Reset the layout** brings back the window as
+    it first was. Terraflux remembers the layout between sessions.
+
+## Templates: models to start from
+
+A **template** is a small, complete model, made to show how a kind of analysis is built. It opens in the Model
+pane, arranges itself, and **runs at once**, so you see its result before you have touched anything. Every node of
+a template has a note that says what it does and what to put in its place for your own study (*in its place, a
+raster.read of a map of yours*).
+
+Open the **Templates** menu. Its templates are in seven groups:
+
+![The Templates menu, the group Patterns open](/img/tutorials/getting-started/tour/templates-menu.png "The Templates menu: seven groups, here Patterns (GuidosToolbox) open, and below them Yours, your own templates.")
+
+| Group | Its templates | Tutorials |
+|---|---|---|
+| Patterns (GuidosToolbox) | MSPA of a forest, MSPA of your map, Forest from a surface, Fragmentation of a forest, Patterns and objects, Landscape mosaic, MSPA's edge width, Forest gain and loss | [Habitat patterns](../../habitat-patterns/) |
+| Landscape metrics | Landscape metrics, Patches and their shapes, Kinds of landscapes | [Landscape metrics](../../landscape-metrics/) |
+| Connectivity | Network of a forest (MSPA), Habitat network (Conefor), Circuit connectivity, Least costs and random walks, Restoring a corridor | [Habitat networks](../../habitat-networks/), [Circuit connectivity](../../circuit-connectivity/), [Grid distances](../../grid-distances/) |
+| Conservation and restoration | Ecological intactness, Zonation, Marxan and irreplaceability, Conservation planning (prioritizr), Irreplaceability of a plan, Restoration plan (plangea), Multi-action planning (prioriactions) | [Spatial prioritization](../../spatial-prioritization/), [Distance and restoration](../../distance-restoration/) |
+| Species | Species distribution model, A species in a warmer climate | [Species distributions](../../species-distributions/) |
+| Land change | Dinamica EGO, CLUE-S, Drivers of land change, A city that grows (a loop), Farmers on their parcels (agents), CRAFTY: farmers and foresters, Land change analysis, Validating a simulation | [Land change simulation](../../land-change/) |
+| Surfaces and uncertainty | Neutral landscapes, More neutral landscapes, Terrain of a surface, Carbon and its uncertainty | [Surface metrics](../../surface-metrics/), [Uncertainty](../../uncertainty/) |
+
+Hover over a template's name to read what it does. Below the groups, **Yours** lists the templates you saved
+yourself ([Your first model](../first-model/#save-your-own-template) shows how).
+
+Each template gives a different kind of result. These six were run from the same menu (here by the command line,
+which runs the same files):
+
+```tfgallery
+columns: 3
+caption: "What six templates give, each in a few seconds and without data of your own: MSPA's classes of a forest, its fragmentation (the density of forest around each forest cell, from red, rare, to dark green, intact; white is not forest), the current of Circuitscape between four patches, the heat load of a terrain, a fractal neutral landscape, and the uncertainty (standard deviation) of a forest's carbon from 500 Monte Carlo draws."
+images:
+  - { src: /img/tutorials/getting-started/tour/t_mspa-of-a-forest.png, caption: "MSPA of a forest" }
+  - { src: /img/tutorials/getting-started/tour/t_fragmentation-of-a-forest.png, caption: "Fragmentation of a forest" }
+  - { src: /img/tutorials/getting-started/tour/t_circuit-connectivity.png, caption: "Circuit connectivity" }
+  - { src: /img/tutorials/getting-started/tour/t_terrain-of-a-surface.png, caption: "Terrain of a surface" }
+  - { src: /img/tutorials/getting-started/tour/t_neutral-landscapes.png, caption: "Neutral landscapes" }
+  - { src: /img/tutorials/getting-started/tour/t_carbon-and-its-uncertainty.png, caption: "Carbon and its uncertainty" }
+```
+
+## Open and run a template
+
+Let us open the simplest one. It finds the **core** of a forest, the part far enough from its edge that edge
+effects (more light, wind, predators, people) do not reach it, with GuidosToolbox's *morphological spatial
+pattern analysis*, MSPA (Soille & Vogt, 2009). You do not need to understand MSPA yet: the tutorial
+[MSPA](../../habitat-patterns/mspa/) does that. Here it is only an example of a model.
+
+<div class="steps" markdown>
+
+1. Click **Templates**, move to **Patterns (GuidosToolbox)** and click **MSPA of a forest**.
+2. Four nodes appear in the Model pane, joined from left to right, and run at once: the title bar says *done in*
+   a few hundredths of a second.
+3. A tab **MSPA** opens beside the Viewer with the result: the forest split into core (green), edge (black),
+   perforation (blue), islets, bridges, loops and branches.
+4. The node `mspa` is selected (orange outline), so the Node pane shows its settings.
+
+</div>
+
+The model is this graph. The same drawing appears in every tutorial of this site, with the model file under it
+(click *Model file (TOML)*):
+
+```tfgraph
+#! caption: The template "MSPA of a forest": a map drawn by chance, its forest made the foreground, MSPA, and a plot.
+#! numbered: true
+format = "terraflux/1"
+name = "MSPA of a forest"
+
+[[nodes]]
+id = "landscape"
+op = "nlm.random_cluster"
+params = { rows = 300, columns = 300, p = 0.55, weights = [0.3, 0.15, 0.55], seed = 7 }
+note = "A map of three classes drawn by chance (1 farming, 2 water, 3 forest): in its place, a raster.read of a map of yours."
+
+[[nodes]]
+id = "forest"
+op = "raster.reclassify"
+inputs = { map = "landscape.map" }
+params = { rules = "3 -> 2\n* -> 1" }
+note = "MSPA reads 2 as the foreground and 1 as the background: the forest (3) becomes 2, every other class 1."
+
+[[nodes]]
+id = "mspa"
+op = "landscape.mspa"
+inputs = { map = "forest.map" }
+params = { edge_width = 1, connectivity = 8 }
+note = "Core, islet, perforation, edge, loop, bridge and branch, as GuidosToolbox computes them."
+
+[[nodes]]
+id = "plot"
+op = "view.plot"
+inputs = { value = "mspa.map" }
+params = { title = "MSPA" }
+note = "Its map in a tab of its own, in GuidosToolbox's colours, refreshed at every run."
+```
+
+Read it from left to right. Node 1, [[nlm.random_cluster]], draws a landscape of 300 x 300 cells in three classes
+(1 farming, 2 water, 3 forest). Node 2, [[raster.reclassify]], turns the forest into 2 and everything else into 1,
+because MSPA expects 2 for the habitat it analyses (the *foreground*) and 1 for the rest. Node 3,
+[[landscape.mspa]], runs MSPA. Node 4, [[view.plot]], shows the result in its own tab. Each box lists its inputs
+on the left edge and its outputs on the right; the connection from `landscape.map` to `forest`'s input `map` is
+how the map travels.
+
+![The Model pane with the template](/img/tutorials/getting-started/tour/model-pane.png "The Model pane: four nodes, each with its name, its operator in small grey letters, its inputs (left) and outputs (right). The green dot at the top right of a node says that it ran; mspa is selected (orange).")
+
+### Look at any step
+
+Click a node to select it: the Viewer shows what it gives. Click `landscape` and the Viewer shows the three classes
+drawn by chance; click `forest` and you see the two classes MSPA reads. This is how you check a model step by
+step: **look at the output of every node** before you trust the last one. A double click on a node opens its map in
+a tab of its own, to keep it in view while you work on another node.
+
+The small dot at the top right of a node tells how it did in the last run: green when it ran, a darker green when
+its result came from the cache (nothing it depends on had changed), orange while it runs, red when it failed.
+
+### Change a setting
+
+Select `mspa`. In the Node pane, under **Settings**, the box `edge_width` holds 1: the edge of the forest is one
+cell wide. Click in it, type `3` and press ++tab++ (or click elsewhere). Because **update after every edit** is
+ticked, the model runs again at once: only `mspa` and `plot` run, `landscape` and `forest` come from the cache,
+and the MSPA tab shows wider edges and smaller cores. Settings with a few possible values, such as
+`connectivity` (8 or 4 neighbours), are chosen in a list instead.
+
+![The Node pane of mspa](/img/tutorials/getting-started/tour/node-pane.png "The Node pane of the node mspa: its operator and what it does, Why (the note of the template), its input map connected to forest.map, and its settings. A star marks an input that must be connected.")
+
+Hover over the name of a setting to read what it means. Every setting of every operator is also in the
+[operator reference](/operators/).
+
+## The operators' library
+
+Terraflux has about 300 operators. There are three ways to add one to a model.
+
+**The drawer.** Move the pointer to the left edge of the window: the **Operators** drawer slides out. At its top
+are **Open a raster...** (++ctrl+o++), **Open vectors...**, **Open a folder as a stack...** and **Save as a
+raster...**; below, your favourites and the operators by subject, with a search box. Click an operator and a new
+node appears, **already connected** to the node selected, so a chain is built click after click.
+
+**The Operators menu** in the toolbar holds the same library.
+
+**The search: ++slash++.** Press ++slash++ anywhere (when you are not typing in a box). A search opens over the
+window; type part of an operator's name or of what it does (`reclass`, `distance`, `core`), choose with the
+arrows, and press ++enter++: the operator is added after the node selected, and the new node becomes the selected
+one. A chain of five nodes takes five searches, without the mouse. ++esc++ closes the search.
+
+The library is ordered by subject, the same subjects as the categories of this site's tutorials:
+
+| Subject | Prefixes of its operators | For |
+|---|---|---|
+| IO | `raster.read`, `raster.write`, `vector.read`, `vector.write` | reading and writing files |
+| Data preparation | `raster.*`, `vector.*` | reprojecting, resampling, clipping, reclassifying, rasterizing |
+| Habitat patterns, Fragmentation | `landscape.*`, `patterns.*`, `fragmentation.*` | GuidosToolbox |
+| Landscape metrics | `metrics.*` | landscapemetrics and FRAGSTATS |
+| Habitat networks, Circuit connectivity, Grid distances | `networks.*`, `conn.*`, `circuit.*`, `cost.*` | connectivity |
+| Surface metrics, Distance & restoration, Change detection | `surface.*`, `distance.*`, `restoration.*`, `change.*` | terrain, plangea, diffeR |
+| Large data & batch | `batch.*` | many files |
+| Neutral landscape models | `nlm.*` | NLMR's random maps |
+| Biodiversity analysis, Spatial prioritization, Species distributions | `bio.*`, `prioritize.*`, `sdm.*` | Biodiverse, Zonation, Marxan, prioritizr, MaxNet |
+| Land change simulation | `markov.*`, `woe.*`, `dinamica.*`, `lulcc.*`, `plus.*`, `agents.*`... | Dinamica EGO, CLUE-S, PLUS, agents |
+| Uncertainty | `uncertainty.*` | Monte Carlo, error propagation |
+| Map algebra, Plot, Model flow | `map.*`, `stack.*`, `view.*`, `control.*`, `rng.*`, `plugin.*` | the pieces of every model ([Building models](../../building-models/)) |
+
+!!! tip "Favourites"
+    Right-click an operator in the library to put it in a coloured collection of favourites (red, orange, yellow,
+    green, blue, purple, grey). Your favourites are listed at the top of the drawer.
+
+## The viewer
+
+Whatever the node selected gives is shown in the **Viewer**: a map with its legend, the layers of a stack one at a
+time (with **<** and **>** buttons and a slider), the maps of a loop's steps, a table (sortable, and drawn as bars,
+lines or points), or a single value. If the node has not run yet, the Viewer says so: *Not run yet: ctrl+enter
+runs it, and what it needs*.
+
+Over a map:
+
+- the **wheel** zooms around the pointer, **dragging** pans, a **double click** shows the whole map again;
+- the corner shows the **coordinates** under the pointer, the **row** and **column** of the cell and its
+  **value** (see [Your first raster](../first-raster/#what-the-viewer-shows));
+- **Colours** chooses a colour ramp (by default the colours fit the data: classes a colour each, values a ramp);
+- **Maps over it** draws other maps of the run over this one, each as opaque as you like, and **Vectors over the
+  map** draws vector layers of the run over it;
+- clicking a cell of a **stack** draws a chart of that cell's value in every layer.
+
+### Basemaps
+
+Under **Basemap** you can put a map of the world under your data: *Satellite (Esri)*, *Topographic (Esri)*,
+*OpenStreetMap*, *OpenTopoMap* or *Light (Carto)*. Terraflux downloads the tiles, reprojects them onto your map's
+coordinate system and keeps them in a cache on your computer. *show the data* and its **opacity** slider let you
+see through your map to the imagery: the quickest way to check that a land cover map is where it should be, and
+whether its forest really is forest. With the pointer over a map, the key ++b++ puts the satellite imagery under
+it (and ++b++ again takes it away).
+
+!!! warning "A basemap needs coordinates"
+    A basemap can only be placed under a map that has a **coordinate reference system** (CRS): it must know where
+    on Earth the cells are. The templates' maps are drawn by chance, on no place, so they have none; a GeoTIFF of
+    a real place usually has one. A basemap also needs an Internet connection the first time an area is shown. See
+    [Coordinate systems](../coordinate-systems/) for files without a CRS.
+
+## Settings
+
+**Settings** in the toolbar opens a small window:
+
+- **Theme**: the colours of the window (*Default*, *Immaterial*, *Riparian*, *Angst Robot*, *Twenty Four Carat*);
+- **Text size** and **Interface zoom**: for a small laptop screen or a projector;
+- **Threads**: how many of the computer's cores the operators use. By default all the cores but one, so that the
+  computer stays usable while a model runs; the change takes effect at the next start.
+
+Settings, favourites and the layout are kept in your user's application data (`%APPDATA%\Terraflux` on Windows,
+`~/Library/Application Support/Terraflux` on macOS, `~/.config/Terraflux` on Linux).
+
+## The keys worth learning
+
+| Key | Does |
+|---|---|
+| ++f5++ | run the whole model |
+| ++ctrl+enter++ | run up to the node selected (what it needs, the rest from the cache) |
+| ++slash++ | search the operators and add one after the node selected |
+| ++ctrl+o++ | open a raster or vectors |
+| ++ctrl+s++ | save the model |
+| ++ctrl+l++ | arrange the nodes in tidy columns |
+| ++ctrl+r++ | rename the node selected |
+| ++delete++ or ++backspace++ | delete the nodes selected |
+| ++tab++ | go to the Model pane, and ++tab++ again back to where you were |
+| ++ctrl+w++ | close the tab in front |
+| ++home++ | fit the whole graph in the canvas |
+| ++b++ (over a map) | satellite imagery under the map, or none |
+| arrows (over the canvas) | go to the node beside the one selected; ++enter++ shows its output |
+
+On macOS, ++cmd++ takes the place of ++ctrl++.
+
+## Common pitfalls
+
+- **Nothing happens when I press a key.** Keys go to the pane under the pointer, and not while you type in a box:
+  click on the canvas first.
+- **The map I expect is not shown.** The Viewer shows the node *selected*. Click the node whose output you want,
+  or double-click it to open its own tab.
+- **A required input is missing.** Inputs that must be connected are marked with a star in the Node pane and are
+  drawn in orange on the canvas until they are; **Run** stays greyed out while a model has errors, which the Model
+  pane's **Text** view lists.
+- **A template's result looks random.** It is: the templates draw their maps by chance (with a fixed *seed*, so
+  the same map each time). Replace the first node by a [[raster.read]] of your own map to use real data; the
+  [Quickstart](/quickstart/) does it.
+- **A pane disappeared.** Turn it back on in **View**, or **View > Reset the layout**.
+
+## Going further
+
+- [Your first raster](../first-raster/): what the numbers in the viewer mean.
+- [Your first model](../first-model/): build a model by hand, connect its nodes, save it and run it from the
+  command line.
+- [Building models](../../building-models/): map algebra, stacks, loops, groups and plugins.
+- The [Glossary](/glossary/) and the [operator reference](/operators/).
+
+## References
+
+- Gardner, R. H., Milne, B. T., Turner, M. G., & O'Neill, R. V. (1987). Neutral models for the analysis of broad-scale landscape pattern. *Landscape Ecology*, 1(1), 19–28. https://doi.org/10.1007/BF02275262
+- Sciaini, M., Fritsch, M., Scherer, C., & Simpkins, C. E. (2018). NLMR and landscapetools: An integrated environment for simulating and modifying neutral landscape models in R. *Methods in Ecology and Evolution*, 9(11), 2240–2248. https://doi.org/10.1111/2041-210X.13076
+- Soares-Filho, B. S., Coutinho Cerqueira, G., & Lopes Pennachin, C. (2002). DINAMICA: a stochastic cellular automata model designed to simulate the landscape dynamics in an Amazonian colonization frontier. *Ecological Modelling*, 154(3), 217–235. https://doi.org/10.1016/S0304-3800(02)00059-5
+- Soille, P., & Vogt, P. (2009). Morphological segmentation of binary patterns. *Pattern Recognition Letters*, 30(4), 456–459. https://doi.org/10.1016/j.patrec.2008.10.015

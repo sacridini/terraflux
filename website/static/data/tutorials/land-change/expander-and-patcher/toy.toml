@@ -1,0 +1,72 @@
+format = "terraflux/1"
+
+[[nodes]]
+id = "land"
+op = "nlm.random_cluster"
+params = { rows = 150, columns = 150, p = 0.5, weights = [0.8, 0.2], seed = 4 }
+note = "The map at the start: 1 forest, 2 farmland."
+
+[[nodes]]
+id = "suitability"
+op = "nlm.gaussian_field"
+params = { rows = 150, columns = 150, range = 30, seed = 5 }
+note = "A driver: how well each cell suits farming."
+
+[[nodes]]
+id = "drivers"
+op = "stack.of"
+inputs = { suitability = "suitability.map" }
+
+[[nodes]]
+id = "observed"
+op = "map.calc"
+inputs = { land = "land.map", s = "suitability.map" }
+params = { expression = "if land == 1 and s > 0.68 then 2 else land" }
+note = "A change to learn from: forest cleared where farming suits it best."
+
+[[nodes]]
+id = "chain"
+op = "markov.fit"
+inputs = { t0 = "land.map", t1 = "observed.map", steps = 1 }
+
+[[nodes]]
+id = "weights"
+op = "woe.fit"
+inputs = { t0 = "land.map", t1 = "observed.map", drivers = "drivers.stack", markov = "chain.markov" }
+params = { ranges = { suitability = 0.05 } }
+
+[[nodes]]
+id = "probability"
+op = "woe.probability"
+inputs = { model = "weights.model", landscape = "land.map", drivers = "drivers.stack" }
+
+[[nodes]]
+id = "patches"
+op = "patches.settings"
+params = { transitions = [{ from = 1, to = 2, expansion = 0.5, expander = [20, 200, 1.5], patcher = [20, 200, 1.5] }] }
+
+[[nodes]]
+id = "allocate"
+op = "dinamica.step"
+inputs = { landscape = "land.map", probability = "probability.probability", rates = "chain.markov", patches = "patches.patches", step = 1, seed = 1 }
+
+[[nodes]]
+id = "write_start"
+op = "raster.write"
+inputs = { value = "land.map" }
+params = { path = "start.tif" }
+
+[[nodes]]
+id = "write_end"
+op = "raster.write"
+inputs = { value = "allocate.landscape" }
+params = { path = "end.tif" }
+
+[[nodes]]
+id = "write_probability"
+op = "raster.write"
+inputs = { value = "probability.probability" }
+params = { path = "probability.tif" }
+
+[outputs.info]
+from = "allocate.info"

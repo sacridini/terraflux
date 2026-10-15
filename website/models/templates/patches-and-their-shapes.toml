@@ -1,0 +1,41 @@
+format = "terraflux/1"
+name = "Patches and their shapes"
+description = "Every patch of a land cover measured (landscapemetrics' patch level): its area, shape and core; GuidosToolbox's parcellation (the effective mesh size) and the contortion of the forest's outlines."
+
+[[nodes]]
+id = "cover"
+op = "nlm.random_cluster"
+params = { rows = 200, columns = 200, resolution = 30, p = 0.5, weights = [0.5, 0.3, 0.2], seed = 71 }
+note = "A land cover of three classes drawn by chance on cells of 30 m: 1 forest, 2 grassland, 3 farming (in its place, a raster.read of a map of yours)."
+
+[[nodes]]
+id = "patches"
+op = "metrics.patch"
+inputs = { map = "cover.map" }
+params = { metrics = ["area", "perim", "shape", "core", "enn"], show = "area" }
+note = "A row per patch: its area (ha), perimeter, shape index, core area and the distance to its nearest neighbour of the same class. Sort a column by a click; map paints every patch with its area."
+
+[[nodes]]
+id = "parcellation"
+op = "landscape.parcellation"
+inputs = { map = "cover.map" }
+note = "GuidosToolbox's parcellation: per class its parcels, their mean size (APS), the effective mesh size (AWAPS) and the division."
+
+[[nodes]]
+id = "contortion"
+op = "landscape.contortion"
+inputs = { map = "cover.map" }
+params = { foreground = 1, min_area = 20 }
+note = "How contorted the outline of every forest patch of 20 cells or more is."
+
+[[nodes]]
+id = "plot_area"
+op = "view.plot"
+inputs = { value = "patches.map" }
+params = { title = "Area of each patch (ha)" }
+
+[[nodes]]
+id = "plot_contortion"
+op = "view.plot"
+inputs = { value = "contortion.map" }
+params = { title = "Contortion of the forest" }

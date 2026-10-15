@@ -1,0 +1,29 @@
+FAD: Fragmentation class change from A -> B at observation scale: average over 7x7-13x13-27x27-81x81-243x243 pixels
+==============================================================================================================================================
+# pixels A->B  :     B0-Background           B1-Rare         B2-Patchy   B3-Transitional       B4-Dominant       B5-Interior         B6-Intact
+A0-Background  :            571166                 0                23                41                10                 0                 0
+A1-Rare        :               276               261                 0                 0                 0                 0                 0
+A2-Patchy      :             13224               837             27159                55                 0                 0                 0
+A3-Transitional:             22470                17             10472             38806                20                 0                 0
+A4-Dominant    :             33656                 1              3690             30092            175013                 0                 0
+A5-Interior    :              4766                 0                 0               402             40936             26337                 0
+A6-Intact      :                 0                 0                 0                 0                 0                 0                 0
+  
+Foreground cover at time A [pixels]: 428490
+Foreground cover at time B [pixels]: 354172
+Net foreground cover change (A->B) [pixels]: -74318
+=========================================================================================
+Observation scale:             7          13          27          81         243      mscale
+Diff: FAD_AV(A->B):      -1.6104     -2.1567     -3.4021     -5.7412     -7.9601     -4.1754
+Diff: AVCON(A->B):       -6.9044     -6.7221     -6.6723     -6.6125     -6.6411     -6.7110
+  
+Change matrix constrained to the 86522 pixels in different fragmentation classes [%]: 
+Fragmentation decrease (=connectivity increase) - above the matrix diagonal [%]: 0.0866832
+Fragmentation increase (=connectivity decrease) - below the matrix diagonal [%]: 99.9133
+A->B [%]     :           B1-Rare       B2-Patchy B3-Transitional     B4-Dominant     B5-Interior       B6-Intact
+A1-Rare        :               0               0               0               0               0               0
+A2-Patchy      :        0.967384               0       0.0635676               0               0               0
+A3-Transitional:       0.0196482         12.1033               0       0.0231155               0               0
+A4-Dominant    :      0.00115578         4.26481         34.7796               0               0               0
+A5-Interior    :               0               0        0.464622         47.3128               0               0
+A6-Intact      :               0               0               0               0               0               0

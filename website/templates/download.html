@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% set title = "Download" %}
+{% block description %}Download Terraflux {{ site.version }} for Windows, macOS and Linux. GDAL and every library it needs are included.{% endblock %}
+{% block bodyclass %}download-page{% endblock %}
+{% block main %}
+<section class="dl-hero">
+  <div class="wrap">
+    <h1>Download Terraflux</h1>
+    <p class="lede">Version {{ site.version }}. Each package brings GDAL, PROJ and the runtimes Terraflux needs:
+      you do not need Python, R or a GIS installed.</p>
+    {% if not site.releases_public %}
+    <div class="notice-box" role="note">
+      <strong>The first public release is on its way.</strong>
+      <span>Terraflux's repository is not public yet. The links below point to where the packages of each release
+        will be published on GitHub, and will work as soon as it opens. To follow the project, watch the
+        <a href="{{ site.repo }}">repository</a>.</span>
+    </div>
+    {% endif %}
+    <div class="dl-detected" hidden>
+      <p>We think you are on <strong class="dl-os-name"></strong>.</p>
+    </div>
+  </div>
+</section>
+<section class="wrap dl-list">
+  {% for d in downloads %}
+  <div class="dl-os" id="{{ d.os }}" data-os="{{ d.os }}">
+    <div class="dl-os-head">
+      <h2>{{ d.label }}</h2>
+      <p>{{ d.detail }}</p>
+    </div>
+    <div class="dl-files">
+      {% for f in d.files %}
+      <a class="dl-file{% if f.primary %} is-primary{% endif %}{% if not site.releases_public %} is-pending{% endif %}" href="{{ f.url }}"{% if not site.releases_public %} aria-disabled="true"{% endif %}>
+        <span class="dl-kind">{{ f.kind }}</span>
+        <code class="dl-name">{{ f.name }}</code>
+        {% if f.note %}<span class="dl-note">{{ f.note }}</span>{% endif %}
+      </a>
+      {% endfor %}
+    </div>
+    <div class="dl-steps prose">
+      {% if d.os == "windows" %}
+      <ol>
+        <li>Run the <code>.msi</code>. Terraflux goes to Program Files, with a shortcut in the Start menu.</li>
+        <li>Open <strong>Terraflux</strong> from the Start menu, or double-click a model file (<code>.toml</code>).</li>
+        <li>The installer puts <code>terraflux</code> on the PATH: open a new terminal and type <code>terraflux --version</code>.</li>
+      </ol>
+      {% elif d.os == "macos" %}
+      <ol>
+        <li>Open the <code>.dmg</code> and drag <strong>Terraflux.app</strong> to Applications.</li>
+        <li>The application is not notarized yet: the first time, right-click it and choose <strong>Open</strong>.</li>
+        <li>For the command line: <code>ln -s /Applications/Terraflux.app/Contents/MacOS/terraflux /usr/local/bin/terraflux</code></li>
+      </ol>
+      {% else %}
+      <ol>
+        <li>On Debian or Ubuntu: <code>sudo apt install ./terraflux_{{ site.version }}_amd64.deb</code>. Terraflux goes to <code>/opt/terraflux</code>, the command to <code>/usr/bin</code>.</li>
+        <li>Anywhere else, unpack the <code>.tar.gz</code> and run <code>./install.sh</code>: it links the command into <code>~/.local/bin</code> and adds Terraflux to the menu, without root.</li>
+        <li>The application needs the desktop's own libraries (EGL or Vulkan, and <code>libxkbcommon-x11</code> or Wayland); the command line needs none.</li>
+      </ol>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</section>
+<section class="wrap dl-more prose">
+  <h2>Other ways to get Terraflux</h2>
+  <div class="dl-more-grid">
+    <div>
+      <h3>Build from source</h3>
+      <p>Terraflux needs Rust 1.85 or later, CMake and a C++17 compiler.</p>
+      <div class="codeblock"><button class="copy" type="button" aria-label="Copy">Copy</button><pre><code>git clone --recurse-submodules {{ site.repo }}.git
+cd terraflux
+cargo build --release</code></pre></div>
+    </div>
+    <div>
+      <h3>On a server or a cluster</h3>
+      <p>The Linux archive runs without a desktop: the command line, the coordinator and the workers need no
+        graphics libraries. See <a href="/parallel/">parallel and distributed computing</a>.</p>
+    </div>
+    <div>
+      <h3>Every release</h3>
+      <p>The packages of every version, with their checksums and changes, are on the
+        <a href="{{ site.repo }}/releases">releases page</a>.</p>
+    </div>
+  </div>
+</section>
+{% endblock %}

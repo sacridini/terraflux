@@ -1,0 +1,39 @@
+format = "terraflux/1"
+name = "Multi-action planning (prioriactions)"
+description = "prioriactions's minimizeCosts: the cheapest monitoring and actions that meet the species' recovery targets."
+
+[[nodes]]
+id = "pu"
+op = "table.of"
+params = { columns = ["id", "monitoring_cost"], rows = [[1, 2], [2, 1], [3, 3], [4, 1], [5, 2], [6, 2]] }
+note = "The planning units and what monitoring them costs (in its place, a table read from a file)."
+
+[[nodes]]
+id = "features"
+op = "table.of"
+params = { columns = ["id", "target_recovery"], rows = [[1, 1], [2, 1]] }
+note = "Two species and the recovery each must reach."
+
+[[nodes]]
+id = "dist_features"
+op = "table.of"
+params = { columns = ["pu", "feature", "amount"], rows = [[1, 1, 1], [2, 1, 1], [3, 1, 1], [3, 2, 1], [4, 2, 1], [5, 2, 1], [6, 1, 1]] }
+note = "Where each species lives."
+
+[[nodes]]
+id = "threats"
+op = "table.of"
+params = { columns = ["id"], rows = [[1]] }
+
+[[nodes]]
+id = "dist_threats"
+op = "table.of"
+params = { columns = ["pu", "threat", "amount", "action_cost"], rows = [[1, 1, 1, 1], [2, 1, 1, 4], [3, 1, 1, 2], [4, 1, 1, 1], [5, 1, 1, 2]] }
+note = "Where the threat is, and what acting against it costs there."
+
+[[nodes]]
+id = "plan"
+op = "prioritize.actions"
+inputs = { pu = "pu.table", features = "features.table", dist_features = "dist_features.table", threats = "threats.table", dist_threats = "dist_threats.table" }
+params = { model = "minimizeCosts" }
+note = "prioriactions's model, solved exactly. Try model = maximizeBenefits with a budget. summary: every unit's actions; benefit: what each species gets."

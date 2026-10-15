@@ -1,0 +1,56 @@
+format = "terraflux/1"
+name = "Habitat network (Conefor)"
+description = "A graph of habitat patches: the connectivity of the landscape (IIC, PC and their equivalent connected areas) and the importance of every patch to it, as Conefor and Makurhini."
+
+[[nodes]]
+id = "landscape"
+op = "nlm.random_cluster"
+params = { rows = 150, columns = 150, resolution = 100, p = 0.4, weights = [0.75, 0.25], seed = 23 }
+note = "Two classes drawn by chance on cells of 100 m: 1 the matrix, 2 the forest (in its place, a raster.read of a map of yours)."
+
+[[nodes]]
+id = "graph"
+op = "conn.graph_from_raster"
+inputs = { map = "landscape.map" }
+params = { habitat = 2, area_unit = "ha", distance = "edge" }
+note = "Every patch of forest a node, its area its attribute; between every two, the gap between their edges (m)."
+
+[[nodes]]
+id = "overall"
+op = "conn.overall"
+inputs = { graph = "graph.graph" }
+params = { distance = [500, 1000, 2000], probability = 0.5 }
+note = "The landscape's connectivity for species that cross 500 m, 1 and 2 km of matrix with a probability of one half: a row per distance (IIC, PC, the equivalent connected area...)."
+
+[[nodes]]
+id = "importance"
+op = "conn.node_importance"
+inputs = { graph = "graph.graph" }
+params = { distance = 1000, probability = 0.5 }
+note = "How much of PC (and IIC) is lost without each patch: dPC, and its fractions intra (its own area), flux and connector (a stepping stone)."
+
+[[nodes]]
+id = "dpc"
+op = "conn.to_map"
+inputs = { graph = "graph.graph", table = "importance.table" }
+params = { column = "dPC" }
+note = "Every patch painted with its dPC."
+
+[[nodes]]
+id = "connector"
+op = "conn.to_map"
+inputs = { graph = "graph.graph", table = "importance.table" }
+params = { column = "dPCconnector" }
+note = "And with the part of it as a stepping stone between the others."
+
+[[nodes]]
+id = "plot_dpc"
+op = "view.plot"
+inputs = { value = "dpc.map" }
+params = { title = "Importance of each patch (dPC, %)" }
+
+[[nodes]]
+id = "plot_connector"
+op = "view.plot"
+inputs = { value = "connector.map" }
+params = { title = "As a stepping stone (dPCconnector)" }

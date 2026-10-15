@@ -1,0 +1,7 @@
+order,changed,fom,agreement,Forest->Built,Forest->Other,Built->Forest,Built->Other,Other->Forest,Other->Built
+Forest → Built → Other,8953,0.056,86.6,725,2620,0,0,0,5608
+Forest → Other → Built,2750,0.036,90.8,1458,0,0,0,0,1292
+Built → Forest → Other,7506,0.062,87.7,4809,0,0,0,1173,1524
+Built → Other → Forest,7456,0.062,87.8,4812,0,0,0,1123,1521
+Other → Forest → Built,2720,0.036,90.9,1432,0,0,0,0,1288
+Other → Built → Forest,8251,0.06,87.2,5688,0,0,0,1918,645

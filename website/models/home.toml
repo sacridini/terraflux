@@ -1,0 +1,26 @@
+format = "terraflux/1"
+name = "MSPA of a forest"
+#! highlight: mspa
+
+[[nodes]]
+id = "landscape"
+op = "nlm.random_cluster"
+params = { rows = 300, columns = 300, p = 0.55, weights = [0.3, 0.15, 0.55], seed = 7 }
+
+[[nodes]]
+id = "forest"
+op = "raster.reclassify"
+inputs = { map = "landscape.map" }
+params = { rules = "3 -> 2\n* -> 1" }
+
+[[nodes]]
+id = "mspa"
+op = "landscape.mspa"
+inputs = { map = "forest.map" }
+params = { edge_width = 1, connectivity = 8 }
+
+[[nodes]]
+id = "plot"
+op = "view.plot"
+inputs = { value = "mspa.map" }
+params = { title = "MSPA" }

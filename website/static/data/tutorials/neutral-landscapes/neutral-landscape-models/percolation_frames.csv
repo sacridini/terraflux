@@ -1,0 +1,9 @@
+prob,largest,spans
+0.45,0.7,False
+0.5,2.1,False
+0.55,4.0,False
+0.575,32.0,True
+0.6,45.8,True
+0.625,85.6,True
+0.65,93.5,True
+0.7,98.1,True

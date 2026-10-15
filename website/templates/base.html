@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+{% set ptitle = (page.title ~ " | " ~ site.name) if page and page.title else (title ~ " | " ~ site.name if title else site.name ~ " | " ~ site.tagline) %}
+<title>{% block title %}{{ ptitle }}{% endblock %}</title>
+<meta name="description" content="{% block description %}{{ (page.meta.description if page and page.meta.description else site.description)|striptags|trim }}{% endblock %}">
+<meta property="og:title" content="{{ self.title() }}">
+<meta property="og:description" content="{{ self.description() }}">
+<meta property="og:type" content="website">
+<meta property="og:image" content="{{ site.url }}img/social.png">
+<meta name="theme-color" content="#3B8A5A">
+<link rel="icon" href="/img/terraflux-icon.svg" type="image/svg+xml">
+<link rel="icon" href="/img/terraflux-icon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="/img/terraflux-icon-256.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Newsreader:opsz,wght@6..72,450;6..72,560;6..72,640&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&display=swap">
+<link rel="stylesheet" href="/css/site.css?v={{ asset_v }}">
+<link rel="stylesheet" href="/css/pygments.css?v={{ asset_v }}">
+{% block head %}{% endblock %}
+<script>
+(function(){try{var q=/[?&]theme=(light|dark)/.exec(location.search);var t=q?q[1]:localStorage.getItem('tf-theme');if(!t){t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}document.documentElement.setAttribute('data-theme',t)}catch(e){}})();
+</script>
+</head>
+<body class="{% block bodyclass %}{% endblock %}">
+<a class="skip" href="#main">Skip to the content</a>
+<header class="topbar">
+  <div class="topbar-in">
+    <a class="brand" href="/" aria-label="Terraflux home">
+      <img class="logo-light" src="/img/terraflux-logo-light.svg" alt="Terraflux" width="126" height="32">
+      <img class="logo-dark" src="/img/terraflux-logo-dark.svg" alt="Terraflux" width="126" height="32">
+    </a>
+    <nav class="mainnav" aria-label="Main">
+      {% for n in site.nav %}
+      <a href="{{ n.url }}"{% if page and page.url.startswith(n.url) %} aria-current="page"{% endif %}>{{ n.title }}</a>
+      {% endfor %}
+    </nav>
+    <div class="topbar-tools">
+      <button class="search-open" type="button" aria-label="Search the documentation">
+        <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M13 13l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <span>Search</span><kbd>Ctrl K</kbd>
+      </button>
+      <button class="theme-toggle" type="button" aria-label="Switch between light and dark">
+        <svg class="i-sun" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><circle cx="10" cy="10" r="3.6" fill="currentColor"/><g stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M10 1.8v2M10 16.2v2M1.8 10h2M16.2 10h2M4.2 4.2l1.4 1.4M14.4 14.4l1.4 1.4M4.2 15.8l1.4-1.4M14.4 5.6l1.4-1.4"/></g></svg>
+        <svg class="i-moon" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M15.5 12.6A6.5 6.5 0 017.4 4.5a6.5 6.5 0 108.1 8.1z" fill="currentColor"/></svg>
+      </button>
+      <a class="gh" href="{{ site.repo }}" aria-label="Terraflux on GitHub">
+        <svg viewBox="0 0 16 16" width="19" height="19" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      </a>
+      <a class="btn btn-download" href="/download/">Download</a>
+      <button class="menu-toggle" type="button" aria-label="Open the menu" aria-expanded="false">
+        <svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+{% if not site.releases_public %}{% block notice %}{% endblock %}{% endif %}
+<main id="main">
+{% block main %}{% endblock %}
+</main>
+<footer class="footer">
+  <div class="footer-in">
+    <div class="footer-brand">
+      <img class="logo-light" src="/img/terraflux-logo-light.svg" alt="Terraflux" width="110" height="28">
+      <img class="logo-dark" src="/img/terraflux-logo-dark.svg" alt="Terraflux" width="110" height="28">
+      <p>Free and open-source software for landscape ecology, conservation planning and land change simulation.
+        Released under the {{ site.license }} license.</p>
+    </div>
+    <div class="footer-cols">
+      <div><h2>Learn</h2><a href="/quickstart/">Quickstart</a><a href="/tutorials/">Tutorials</a><a href="/parallel/">Parallel computing</a><a href="/glossary/">Glossary</a></div>
+      <div><h2>Reference</h2><a href="/cli/">Command line</a><a href="/operators/">Operators</a><a href="/about/citing/">Cite Terraflux</a></div>
+      <div><h2>Project</h2><a href="/download/">Download</a><a href="{{ site.repo }}">Source code</a><a href="{{ site.repo }}/issues">Report an issue</a></div>
+    </div>
+  </div>
+  <div class="footer-base">
+    <span>Terraflux {{ site.version }}</span>
+    <span>&copy; {{ year }} {{ site.author }} and contributors</span>
+  </div>
+</footer>
+<div class="search-dialog" role="dialog" aria-modal="true" aria-label="Search" hidden>
+  <div class="search-box">
+    <div class="search-field">
+      <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M13 13l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <input type="search" placeholder="Search tutorials, operators and commands" aria-label="Search" autocomplete="off" spellcheck="false">
+      <kbd>Esc</kbd>
+    </div>
+    <ol class="search-results" role="listbox"></ol>
+    <p class="search-hint">Try <em>MSPA</em>, <em>least cost</em>, <em>weights of evidence</em> or <em>coordinator</em>.</p>
+  </div>
+</div>
+<div class="lightbox" role="dialog" aria-modal="true" aria-label="Enlarged figure" hidden>
+  <div class="lb-stage"><div class="lb-content"></div></div>
+  <div class="lb-bar">
+    <p class="lb-caption"></p>
+    <div class="lb-tools">
+      <button type="button" class="lb-out" aria-label="Zoom out">&minus;</button>
+      <button type="button" class="lb-fit" aria-label="Fit to the screen">Fit</button>
+      <button type="button" class="lb-in" aria-label="Zoom in">+</button>
+      <button type="button" class="lb-close" aria-label="Close">Close</button>
+    </div>
+  </div>
+</div>
+<script>window.TF_ROOT = "{{ root }}";</script>
+<script src="/js/site.js?v={{ asset_v }}" defer></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

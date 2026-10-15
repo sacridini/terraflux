@@ -1,0 +1,49 @@
+format = "terraflux/1"
+name = "Zonation"
+description = "Zonation 5's priority ranking of four features with a cost: the rank map and the performance curves."
+
+[[nodes]]
+id = "bird"
+op = "nlm.gaussian_field"
+params = { rows = 100, columns = 120, range = 15, seed = 1 }
+note = "A species' suitability drawn by chance (in its place, a raster.read of a distribution map)."
+
+[[nodes]]
+id = "frog"
+op = "nlm.gaussian_field"
+params = { rows = 100, columns = 120, range = 6, seed = 2 }
+
+[[nodes]]
+id = "orchid"
+op = "nlm.gaussian_field"
+params = { rows = 100, columns = 120, range = 25, seed = 3 }
+
+[[nodes]]
+id = "wetland"
+op = "nlm.fbm"
+params = { rows = 100, columns = 120, dimension = 1.4, seed = 4 }
+
+[[nodes]]
+id = "features"
+op = "stack.of"
+inputs = { bird = "bird.map", frog = "frog.map", orchid = "orchid.map", wetland = "wetland.map" }
+note = "The features, a layer each."
+
+[[nodes]]
+id = "cost"
+op = "nlm.gaussian_field"
+params = { rows = 100, columns = 120, range = 30, seed = 9 }
+note = "What each cell costs (land prices, say): Zonation keeps the cheap cells where they serve as well."
+
+[[nodes]]
+id = "zonation"
+op = "prioritize.zonation"
+inputs = { features = "features.stack", cost = "cost.map" }
+params = { rule = "CAZ2", weights = [2.0, 1.0, 1.0, 1.5] }
+note = "CAZ2: the cells removed first are those whose loss the features feel least (weights in the order of the features' names). curves: how much of each feature remains as cells are removed."
+
+[[nodes]]
+id = "plot_rank"
+op = "view.plot"
+inputs = { value = "zonation.rank" }
+params = { title = "Priority rank" }

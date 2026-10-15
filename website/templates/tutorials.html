@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% from "macros.html" import level_badge, side_nav %}
+{% set title = heading or "Tutorials" %}
+{% block description %}{% if lede %}{{ lede }}{% else %}Tutorials for Terraflux, from opening a first map to simulating land change: the ideas behind each method, the papers that introduced it and the graph that runs it.{% endif %}{% endblock %}
+{% block bodyclass %}doc tut-index{% endblock %}
+{% block main %}
+<div class="doc-layout no-toc">
+  <aside class="doc-side">{{ side_nav(sidebar, page) }}</aside>
+  <div class="doc-main wide">
+    <header class="doc-head">
+      {% if heading %}
+      <nav class="crumbs" aria-label="Breadcrumb"><a href="/tutorials/">Tutorials</a></nav>
+      <h1>{{ heading }}</h1>
+      <p class="lede">{{ lede }}</p>
+      {% else %}
+      <h1>Tutorials</h1>
+      <p class="lede">Each tutorial starts with the idea behind a method and the papers that introduced it, then builds
+        the graph that runs it, node by node, and shows how to read what it gives. If you are new to Terraflux,
+        begin with <a href="#getting-started">Getting started</a>: it assumes no experience with GIS software.</p>
+      {% endif %}
+      <div class="tut-filter" role="group" aria-label="Filter by level">
+        <button type="button" class="is-on" data-level="all">All levels</button>
+        <button type="button" data-level="beginner">Beginner</button>
+        <button type="button" data-level="intermediate">Intermediate</button>
+        <button type="button" data-level="advanced">Advanced</button>
+      </div>
+    </header>
+    {% for c in cats %}
+    <section class="tut-cat" id="{{ c.slug }}">
+      {% if not heading %}
+      <div class="tut-cat-head">
+        {{ c.cells|cells(30) }}
+        <div>
+          <h2>{{ c.title }}</h2>
+          <p>{{ c.blurb }}</p>
+        </div>
+      </div>
+      {% endif %}
+      {% if c.pages %}
+      <div class="tut-list">
+        {% for g in c.groups %}
+        {% if g.series %}
+        <div class="tut-series" data-level="{{ g.pages|map(attribute='meta')|map(attribute='level')|join(' ')|lower }}">
+          <div class="ts-head"><strong>{{ g.series }}</strong><span>A series in {{ g.pages|length }} parts</span></div>
+          <ol>
+            {% for p in g.pages %}
+            <li data-level="{{ (p.meta.level or '')|lower }}"><a href="{{ p.url }}"><span class="ts-title">{{ p.meta.short or p.title }}</span>{{ level_badge(p.meta.level) }}{% if p.meta.time %}<span class="time">{{ p.meta.time }}</span>{% endif %}</a></li>
+            {% endfor %}
+          </ol>
+        </div>
+        {% else %}
+        {% set p = g.pages[0] %}
+        <a class="tut-card" href="{{ p.url }}" data-level="{{ (p.meta.level or '')|lower }}">
+          <strong>{{ p.title }}</strong>
+          {% if p.meta.description %}<span class="d">{{ p.meta.description|striptags|truncate(150) }}</span>{% endif %}
+          <span class="meta">{{ level_badge(p.meta.level) }}{% if p.meta.time %}<span class="time">{{ p.meta.time }}</span>{% endif %}</span>
+        </a>
+        {% endif %}
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="tut-empty">Tutorials for this field are being written. Meanwhile, the <a href="/operators/">operator reference</a> lists what each operator does.</p>
+      {% endif %}
+    </section>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

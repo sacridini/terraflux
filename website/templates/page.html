@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% from "macros.html" import toc_list, level_badge, side_nav %}
+{% block bodyclass %}doc{% endblock %}
+{% block head %}{% if '\(' in page.html or '\[' in page.html or 'arithmatex' in page.html %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+{% endif %}{% endblock %}
+{% block main %}
+<div class="doc-layout">
+  <aside class="doc-side">{{ side_nav(sidebar, page) }}</aside>
+  <article class="doc-main">
+    {% if category %}
+    <nav class="crumbs" aria-label="Breadcrumb"><a href="/tutorials/">Tutorials</a><span aria-hidden="true">/</span><a href="/tutorials/#{{ category.slug }}">{{ category.title }}</a></nav>
+    {% elif page.section and site.sections[page.section] and not page.is_index %}
+    <nav class="crumbs" aria-label="Breadcrumb"><a href="/{{ page.section }}/">{{ site.sections[page.section].title }}</a></nav>
+    {% endif %}
+    <header class="doc-head">
+      {% if series %}<p class="series-tag">{{ series.title }}, part {{ series.index + 1 }} of {{ series.pages|length }}</p>{% endif %}
+      <h1>{{ page.title }}</h1>
+      {% if page.meta.description %}<p class="lede">{{ page.meta.description|md }}</p>{% endif %}
+      {% if page.meta.level or page.meta.time or page.meta.ops %}
+      <dl class="doc-facts">
+        {% if page.meta.level %}<div><dt>Level</dt><dd>{{ level_badge(page.meta.level) }}</dd></div>{% endif %}
+        {% if page.meta.time %}<div><dt>Time</dt><dd>{{ page.meta.time }}</dd></div>{% endif %}
+        {% if page.meta.template %}<div><dt>Template</dt><dd>{{ page.meta.template }}</dd></div>{% endif %}
+        {% if page.meta.ops %}<div class="wide"><dt>Operators</dt><dd>{% for o in page.meta.ops %}<a class="op-chip" href="{{ op_url(o) }}">{{ o }}</a>{% endfor %}</dd></div>{% endif %}
+      </dl>
+      {% endif %}
+    </header>
+    {% if series %}
+    <ol class="series-steps">
+      {% for p in series.pages %}<li{% if loop.index0 == series.index %} class="is-on"{% elif loop.index0 < series.index %} class="is-done"{% endif %}><a href="{{ p.url }}"><span class="n">{{ loop.index }}</span><span>{{ p.meta.short or p.title }}</span></a></li>{% endfor %}
+    </ol>
+    {% endif %}
+    <div class="prose">
+{{ page.html|safe }}
+    </div>
+    <nav class="pager" aria-label="Pages">
+      {% if prev %}<a class="pg-prev" href="{{ prev.url }}"><span>Previous</span><strong>{{ prev.title }}</strong></a>{% else %}<span></span>{% endif %}
+      {% if next %}<a class="pg-next" href="{{ next.url }}"><span>Next</span><strong>{{ next.title }}</strong></a>{% endif %}
+    </nav>
+    <p class="edit"><a href="{{ site.repo }}/edit/main/website/content/{{ page.src }}">Suggest a change to this page</a></p>
+  </article>
+  <aside class="doc-toc" aria-label="On this page">
+    {% if page.toc %}
+    <p class="toc-title">On this page</p>
+    {{ toc_list(page.toc[0].children if page.toc|length == 1 and page.toc[0].level == 1 else page.toc) }}
+    {% endif %}
+  </aside>
+</div>
+{% endblock %}

@@ -1,0 +1,38 @@
+format = "terraflux/1"
+name = "Neutral landscapes"
+description = "NLMR's models: a random cluster (classes), a Gaussian field and a fractional Brownian motion (0 to 1)."
+
+[[nodes]]
+id = "clusters"
+op = "nlm.random_cluster"
+params = { rows = 256, columns = 256, p = 0.4, weights = [0.25, 0.25, 0.5], seed = 4 }
+note = "Classes: a colour each."
+
+[[nodes]]
+id = "field"
+op = "nlm.gaussian_field"
+params = { rows = 256, columns = 256, range = 20, seed = 4 }
+note = "Values from 0 to 1: a ramp."
+
+[[nodes]]
+id = "fractal"
+op = "nlm.fbm"
+params = { rows = 256, columns = 256, dimension = 1.5, seed = 4 }
+
+[[nodes]]
+id = "plot_clusters"
+op = "view.plot"
+inputs = { value = "clusters.map" }
+params = { title = "Random cluster" }
+
+[[nodes]]
+id = "plot_field"
+op = "view.plot"
+inputs = { value = "field.map" }
+params = { title = "Gaussian field" }
+
+[[nodes]]
+id = "plot_fractal"
+op = "view.plot"
+inputs = { value = "fractal.map" }
+params = { title = "Fractal" }

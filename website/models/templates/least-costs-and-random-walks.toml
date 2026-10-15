@@ -1,0 +1,91 @@
+format = "terraflux/1"
+name = "Least costs and random walks"
+description = "gdistance's ways across a landscape between two places: the accumulated cost of the cheapest routes, and the passages of walkers that know the way less and less well (randomised shortest paths, then a random walk)."
+
+[[nodes]]
+id = "roughness"
+op = "nlm.fbm"
+params = { rows = 100, columns = 100, dimension = 1.5, seed = 91 }
+note = "How hard each cell is to cross, 0 to 1 (in its place, a raster.read of a resistance)."
+
+[[nodes]]
+id = "conductance"
+op = "map.calc"
+inputs = { r = "roughness.map" }
+params = { expression = "1 / (1 + 20 * r ^ 2)" }
+note = "How easily it is crossed: 1 over the resistance."
+
+[[nodes]]
+id = "transition"
+op = "cost.transition"
+inputs = { map = "conductance.map" }
+params = { function = "mean", directions = 8 }
+note = "The connection of every cell with its 8 neighbours: the mean of their conductances."
+
+[[nodes]]
+id = "corrected"
+op = "cost.geo_correction"
+inputs = { transition = "transition.transition" }
+params = { type = "c" }
+note = "Corrected for the distances between the cells' centres (the diagonals longer)."
+
+[[nodes]]
+id = "near_a"
+op = "nlm.distance_gradient"
+params = { rows = 100, columns = 100, origin = [3, 8, 45, 55], nlmr_compat = false, rescale = false }
+
+[[nodes]]
+id = "origin"
+op = "map.calc"
+inputs = { d = "near_a.map" }
+params = { expression = "d == 0" }
+note = "Where the walkers start: a strip in the west (in its place, a raster of a reserve, or vector.read of points)."
+
+[[nodes]]
+id = "near_b"
+op = "nlm.distance_gradient"
+params = { rows = 100, columns = 100, origin = [93, 98, 45, 55], nlmr_compat = false, rescale = false }
+
+[[nodes]]
+id = "goal"
+op = "map.calc"
+inputs = { d = "near_b.map" }
+params = { expression = "d == 0" }
+note = "Where they go: a strip in the east."
+
+[[nodes]]
+id = "cost"
+op = "cost.acc_cost"
+inputs = { transition = "corrected.transition", origins = "origin.map" }
+note = "The cost of the cheapest route from the origin to every cell."
+
+[[nodes]]
+id = "rsp"
+op = "cost.passage"
+inputs = { transition = "corrected.transition", origins = "origin.map", goals = "goal.map" }
+params = { theta = 0.05 }
+note = "Randomised shortest paths (theta 0.05): walkers that mostly take the cheap ways, spread over several. Try theta = 1 (near the least-cost path) or 0.001 (near a random walk)."
+
+[[nodes]]
+id = "random_walk"
+op = "cost.passage"
+inputs = { transition = "transition.transition", origins = "origin.map", goals = "goal.map" }
+note = "Without theta, a random walk: the current from the origin to the goal (Circuitscape's), over the transition before the correction."
+
+[[nodes]]
+id = "plot_cost"
+op = "view.plot"
+inputs = { value = "cost.map" }
+params = { title = "Accumulated cost from the origin" }
+
+[[nodes]]
+id = "plot_rsp"
+op = "view.plot"
+inputs = { value = "rsp.map" }
+params = { title = "Randomised shortest paths" }
+
+[[nodes]]
+id = "plot_walk"
+op = "view.plot"
+inputs = { value = "random_walk.map" }
+params = { title = "Random walk" }

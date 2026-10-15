@@ -1,0 +1,30 @@
+format = "terraflux/1"
+name = "MSPA of your map"
+description = "GuidosToolbox's MSPA on a map of yours: read, reclassify, MSPA, plot."
+
+[[nodes]]
+id = "read"
+op = "raster.read"
+params = { path = "" }
+note = "Choose your map's file (Node > path > Choose...)."
+
+[[nodes]]
+id = "forest"
+op = "raster.reclassify"
+inputs = { map = "read.map" }
+params = { rules = "1 -> 2\n* -> 1" }
+note = "Your forest's classes become 2 (the foreground), the rest 1 (the background): put your forest's classes in place of 1 (A rule per class lists the map's classes)."
+
+[[nodes]]
+id = "mspa"
+op = "landscape.mspa"
+inputs = { map = "forest.map" }
+params = { edge_width = 1, connectivity = 8 }
+note = "Core, islet, perforation, edge, loop, bridge and branch, as GuidosToolbox computes them."
+
+[[nodes]]
+id = "plot"
+op = "view.plot"
+inputs = { value = "mspa.map" }
+params = { title = "MSPA" }
+note = "Its map in a tab of its own, refreshed at every run."

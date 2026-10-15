@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% set title = "Operators" %}
+{% block description %}The {{ total }} operators of Terraflux, by subject: what each one does, its inputs, outputs and settings.{% endblock %}
+{% block bodyclass %}doc{% endblock %}
+{% block main %}
+<div class="doc-layout no-toc">
+  <aside class="doc-side">
+    <nav class="sidenav" aria-label="Subjects">
+      <p class="sn-title">Operators</p>
+      <ul>{% for g in groups %}<li><a href="/operators/{{ g.slug }}/">{{ g.title }} <span class="count">{{ g.ops|length }}</span></a></li>{% endfor %}</ul>
+    </nav>
+  </aside>
+  <div class="doc-main wide">
+    <header class="doc-head">
+      <h1>Operator reference</h1>
+      <p class="lede">The {{ total }} operators of Terraflux, grouped as in the application's library. Each node of a
+        model runs one operator: this reference lists what it reads (inputs), what it gives (outputs) and how it is
+        set (settings). It is generated from Terraflux {{ site.version }} itself.</p>
+      <div class="op-filter">
+        <input type="search" placeholder="Filter the operators, for example mspa or cost" aria-label="Filter the operators">
+      </div>
+    </header>
+    <div class="op-groups">
+      {% for g in groups %}
+      <section class="op-group">
+        <h2><a href="/operators/{{ g.slug }}/">{{ g.title }}</a> <span class="count">{{ g.ops|length }}</span></h2>
+        <ul>
+          {% for o in g.ops %}<li data-q="{{ o.name }} {{ o.doc|lower|truncate(200) }}"><a href="/operators/{{ g.slug }}/#{{ op_anchor(o.name) }}"><code>{{ o.name }}</code></a><span>{{ o.doc|truncate(110) }}</span></li>{% endfor %}
+        </ul>
+      </section>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

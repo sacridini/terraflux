@@ -1,0 +1,6 @@
+preparation,auc_test,tss,boyce,or_10p
+Defaults,0.867,0.658,0.68,0.192
+Thinned at 50 km,0.866,0.667,0.6,0.185
+Area of 500 km,0.689,0.344,0.454,0.137
+Blocks of 500 km,0.705,0.368,0.545,0.107
+Random folds,0.694,0.338,0.632,0.107

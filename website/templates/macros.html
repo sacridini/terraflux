@@ -1,0 +1,38 @@
+{% macro toc_list(tokens, level=0) %}
+<ul>
+{% for t in tokens %}
+  <li><a href="#{{ t.id }}">{{ t.name|striptags }}</a>{% if t.children and level < 1 %}{{ toc_list(t.children, level + 1) }}{% endif %}</li>
+{% endfor %}
+</ul>
+{% endmacro %}
+
+{% macro level_badge(level) %}{% if level %}<span class="badge lv-{{ level|lower }}">{{ level|capitalize }}</span>{% endif %}{% endmacro %}
+
+{% macro side_nav(sidebar, page) %}
+<nav class="sidenav" aria-label="Section">
+{% if sidebar.kind == "tutorials" %}
+  <a class="sn-top{% if not page %} is-on{% endif %}" href="/tutorials/">All tutorials</a>
+  {% for c in sidebar.cats if c.pages %}
+  <details class="sn-group" {% if page and page.category == c.slug %}open{% endif %}>
+    <summary>{{ c.cells|cells(14) }}<span>{{ c.title }}</span></summary>
+    <ul>
+    {% for g in c.groups %}
+      {% if g.series %}
+      <li class="sn-series"><span>{{ g.series }}</span>
+        <ul>{% for p in g.pages %}<li><a href="{{ p.url }}"{% if page and p.url == page.url %} aria-current="page"{% endif %}>{{ p.meta.short or p.title }}</a></li>{% endfor %}</ul>
+      </li>
+      {% else %}
+      {% for p in g.pages %}<li><a href="{{ p.url }}"{% if page and p.url == page.url %} aria-current="page"{% endif %}>{{ p.meta.short or p.title }}</a></li>{% endfor %}
+      {% endif %}
+    {% endfor %}
+    </ul>
+  </details>
+  {% endfor %}
+{% elif sidebar.kind == "section" %}
+  <p class="sn-title">{{ sidebar.title }}</p>
+  <ul>
+  {% for p in sidebar.pages %}<li><a href="{{ p.url }}"{% if page and p.url == page.url %} aria-current="page"{% endif %}>{{ p.meta.short or p.title }}</a></li>{% endfor %}
+  </ul>
+{% endif %}
+</nav>
+{% endmacro %}

@@ -1,0 +1,5 @@
+measure,Replacement cost,Ferrier's irreplaceability,Rarity-weighted richness,Rank importance
+Replacement cost,1.0,0.55,0.46,0.44
+Ferrier's irreplaceability,0.55,1.0,0.86,0.73
+Rarity-weighted richness,0.46,0.86,1.0,0.82
+Rank importance,0.44,0.73,0.82,1.0

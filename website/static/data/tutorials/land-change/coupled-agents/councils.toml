@@ -1,0 +1,91 @@
+format = "terraflux/1"
+
+[inputs.observed]
+kind = "stack"
+path = "pie_landuse.tif"
+
+[inputs.start]
+kind = "map"
+path = "pie_landuse.tif"
+band = "1985"
+
+[inputs.drivers]
+kind = "stack"
+path = "pie_drivers.tif"
+
+[[nodes]]
+id = "regression"
+op = "glm.fit"
+inputs = { landscape = "$start", drivers = "$drivers" }
+params = { formulas = { 1 = ["elevation", "slope"], 2 = ["elevation", "slope", "dist_built_1985"], 3 = ["elevation", "slope"] } }
+
+[[nodes]]
+id = "suitability"
+op = "glm.predict"
+inputs = { model = "regression.model", drivers = "$drivers", landscape = "$start" }
+
+[[nodes]]
+id = "demand"
+op = "demand.from_maps"
+inputs = { maps = "$observed" }
+params = { times = [1985, 1991, 1999] }
+
+[[nodes]]
+id = "rng"
+op = "rng.r"
+inputs = { seed = 1 }
+
+[[nodes]]
+id = "history"
+op = "lulcc.history"
+inputs = { landscape = "$start" }
+
+[[nodes]]
+id = "west_east"
+op = "nlm.planar_gradient"
+inputs = { like = "$start" }
+params = { direction = 90 }
+
+[[nodes]]
+id = "towns"
+op = "map.calc"
+inputs = { g = "west_east.map" }
+params = { expression = "1 + (g > 0.5)" }
+
+[[nodes]]
+id = "councils"
+op = "agents.parcels"
+inputs = { parcels = "towns.map" }
+
+[[nodes]]
+id = "simulation"
+op = "control.repeat"
+inputs = { times = "demand.steps", landscape = "$start", history = "history.history" }
+
+[nodes.body]
+carry = { landscape = "allocate.landscape", history = "allocate.history" }
+collect = { maps = "allocate.landscape", info = "allocate.info" }
+
+[[nodes.body.nodes]]
+id = "zoning"
+op = "agents.update"
+inputs = { agents = "councils.agents", step = "@step" }
+params = { rules = "frozen = if id == 2 and step > 4 then 1 else 0" }
+
+[[nodes.body.nodes]]
+id = "frozen"
+op = "agents.map"
+inputs = { agents = "zoning.agents", parcels = "towns.map" }
+params = { column = "frozen" }
+
+[[nodes.body.nodes]]
+id = "allocate"
+op = "lulcc.step"
+inputs = { landscape = "@landscape", history = "@history", suitability = "suitability.suitability", demand = "demand.demand", step = "@step", rng = "rng.rng", restrictions = "frozen.map" }
+params = { allocation = { method = "clue", jitter = 0.0002, scale = 0.000001, max_iter = 1000, max_diff = 50, mean_diff = 50 }, elasticity = [0.2, 0.2, 0.2] }
+
+[outputs.maps]
+from = "simulation.maps"
+
+[outputs.steps]
+from = "simulation.info"

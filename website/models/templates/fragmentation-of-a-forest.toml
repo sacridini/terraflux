@@ -1,0 +1,35 @@
+format = "terraflux/1"
+name = "Fragmentation of a forest"
+description = "GuidosToolbox's fragmentation of a forest map: its density at five scales (FAD-MS) and FOS."
+
+[[nodes]]
+id = "landscape"
+op = "nlm.random_cluster"
+params = { rows = 300, columns = 300, p = 0.55, weights = [0.3, 0.15, 0.55], seed = 7 }
+note = "A map of three classes drawn by chance (1 farming, 2 water, 3 forest): in its place, a raster.read of a map of yours."
+
+[[nodes]]
+id = "fad"
+op = "fragmentation.fad_multiscale"
+inputs = { map = "landscape.map" }
+params = { foreground = 3 }
+note = "The forest's share (%) in windows of 7, 13, 27, 81 and 243 cells and their average; scales has each, stats the shares of the classes (rare to intact). The foreground is the forest's class: no reclassification needed."
+
+[[nodes]]
+id = "fos"
+op = "fragmentation.fos"
+inputs = { map = "landscape.map" }
+params = { foreground = 3, window = 27, method = "FAC", classes = 5 }
+note = "The connectivity of the forest at one scale (27 cells), by FAC; summary has GTB's report (ECA, coherence)."
+
+[[nodes]]
+id = "plot_fad"
+op = "view.plot"
+inputs = { value = "fad.map" }
+params = { title = "FAD, the average of five scales" }
+
+[[nodes]]
+id = "plot_fos"
+op = "view.plot"
+inputs = { value = "fos.map" }
+params = { title = "FOS (FAC, 27 cells)" }

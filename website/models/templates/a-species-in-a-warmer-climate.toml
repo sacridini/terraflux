@@ -1,0 +1,134 @@
+format = "terraflux/1"
+name = "A species in a warmer climate"
+description = "A species distribution model explained and projected: its response curves and the importance of its predictors, its suitability today and in a climate 2 degrees warmer, and where that projection extrapolates (MESS)."
+
+[[nodes]]
+id = "field_t"
+op = "nlm.gaussian_field"
+params = { rows = 60, columns = 80, range = 14, seed = 21 }
+
+[[nodes]]
+id = "temperature"
+op = "map.calc"
+inputs = { f = "field_t.map" }
+params = { expression = "14 + f * 12" }
+note = "The mean temperature, from 14 to 26 °C (in its place, raster.read of a climate layer)."
+
+[[nodes]]
+id = "field_r"
+op = "nlm.gaussian_field"
+params = { rows = 60, columns = 80, range = 22, seed = 22 }
+
+[[nodes]]
+id = "rainfall"
+op = "map.calc"
+inputs = { f = "field_r.map" }
+params = { expression = "800 + f * 1600" }
+note = "The rainfall, from 800 to 2400 mm."
+
+[[nodes]]
+id = "predictors"
+op = "stack.of"
+inputs = { temperature = "temperature.map", rainfall = "rainfall.map" }
+
+[[nodes]]
+id = "suitability"
+op = "map.calc"
+inputs = { t = "temperature.map", r = "rainfall.map" }
+params = { expression = "exp(-((t - 19) ^ 2) / 3 - ((r - 1600) ^ 2) / 150000)" }
+note = "Where the species finds its conditions: about 19 °C and 1600 mm."
+
+[[nodes]]
+id = "presences"
+op = "sdm.background"
+inputs = { env = "predictors.stack", bias = "suitability.map" }
+params = { n = 150, seed = 3 }
+note = "Presences drawn by the suitability (in their place, vector.read of the records)."
+
+[[nodes]]
+id = "data"
+op = "sdm.prepare"
+inputs = { occurrences = "presences.points", env = "predictors.stack" }
+params = { clean = false, background = 1000, folds = 4, seed = 1 }
+note = "A record per cell, 1000 background points, 4 folds of spatial blocks."
+
+[[nodes]]
+id = "fit"
+op = "sdm.fit"
+inputs = { records = "data.records" }
+note = "MaxNet fitted over the folds (stats: AUC, TSS, Boyce...)."
+
+[[nodes]]
+id = "curves"
+op = "sdm.response_curves"
+inputs = { model = "fit.model", records = "data.records" }
+note = "How the suitability answers each predictor, the other at its mean: a table of a column of values and one of suitability per predictor."
+
+[[nodes]]
+id = "importance"
+op = "sdm.importance"
+inputs = { model = "fit.model", records = "data.records" }
+note = "How much the AUC falls when each predictor is shuffled: the most important first."
+
+[[nodes]]
+id = "today"
+op = "sdm.maxnet_predict"
+inputs = { model = "fit.model", env = "data.env" }
+note = "The suitability today."
+
+[[nodes]]
+id = "warmer"
+op = "map.calc"
+inputs = { t = "temperature.map" }
+params = { expression = "t + 2" }
+note = "The temperature in a climate 2 °C warmer (in its place, raster.read of a scenario's layer)."
+
+[[nodes]]
+id = "future"
+op = "stack.set"
+inputs = { stack = "data.env", map = "warmer.map" }
+params = { name = "temperature" }
+note = "The predictors of the future: the warmer temperature in place of today's."
+
+[[nodes]]
+id = "tomorrow"
+op = "sdm.maxnet_predict"
+inputs = { model = "fit.model", env = "future.stack" }
+note = "The suitability in the warmer climate."
+
+[[nodes]]
+id = "shift"
+op = "map.calc"
+inputs = { a = "today.prediction", b = "tomorrow.prediction" }
+params = { expression = "b - a" }
+note = "What changes: gains (positive) and losses (negative)."
+
+[[nodes]]
+id = "mess"
+op = "sdm.mess"
+inputs = { reference = "data.env", env = "future.stack" }
+note = "Elith's MESS: how like the conditions of today the future's are; negative where the model extrapolates, and is not to be trusted."
+
+[[nodes]]
+id = "plot_today"
+op = "view.plot"
+inputs = { value = "today.prediction" }
+params = { title = "Suitability today" }
+
+[[nodes]]
+id = "plot_tomorrow"
+op = "view.plot"
+inputs = { value = "tomorrow.prediction" }
+params = { title = "Suitability 2 °C warmer" }
+
+[[nodes]]
+id = "plot_shift"
+op = "view.plot"
+inputs = { value = "shift.map" }
+params = { title = "Gains and losses" }
+
+[[nodes]]
+id = "plot_mess"
+op = "view.plot"
+inputs = { value = "mess.result" }
+params = { title = "MESS (negative: extrapolation)" }

@@ -1,0 +1,6 @@
+design,folds,auc_test,tss,boyce,or_10p
+blocks,5,0.685,0.347,0.518,0.142
+random,5,0.687,0.338,0.562,0.156
+quadrants,4,0.662,0.317,0.577,0.17
+checkerboard,2,0.68,0.298,0.625,0.127
+clusters,5,0.691,0.456,0.439,0.315

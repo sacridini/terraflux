@@ -1,0 +1,33 @@
+format = "terraflux/1"
+name = "MSPA's edge width"
+description = "How the edge's width changes MSPA's classes: the same forest, edges of 1 and 4 cells."
+
+[[nodes]]
+id = "landscape"
+op = "nlm.random_cluster"
+params = { rows = 300, columns = 300, p = 0.6, weights = [0.4, 0.6], seed = 11 }
+note = "Two classes drawn by chance: 1 the background, 2 the forest (MSPA's coding already)."
+
+[[nodes]]
+id = "edge_1"
+op = "landscape.mspa"
+inputs = { map = "landscape.map" }
+params = { edge_width = 1 }
+
+[[nodes]]
+id = "edge_4"
+op = "landscape.mspa"
+inputs = { map = "landscape.map" }
+params = { edge_width = 4 }
+
+[[nodes]]
+id = "plot_1"
+op = "view.plot"
+inputs = { value = "edge_1.map" }
+params = { title = "Edge of 1 cell" }
+
+[[nodes]]
+id = "plot_4"
+op = "view.plot"
+inputs = { value = "edge_4.map" }
+params = { title = "Edge of 4 cells" }

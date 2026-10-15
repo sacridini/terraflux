@@ -1,0 +1,110 @@
+format = "terraflux/1"
+name = "Agents and land: a coupled model"
+
+[[nodes]]
+id = "east"
+op = "nlm.planar_gradient"
+params = { rows = 40, columns = 40, direction = 90 }
+
+[[nodes]]
+id = "north"
+op = "nlm.planar_gradient"
+params = { rows = 40, columns = 40, direction = 0 }
+
+[[nodes]]
+id = "fertility"
+op = "map.calc"
+inputs = { e = "east.map" }
+params = { expression = "0.0125 + 0.975 * e" }
+
+[[nodes]]
+id = "wood"
+op = "map.calc"
+inputs = { n = "north.map" }
+params = { expression = "0.0125 + 0.975 * n" }
+
+[[nodes]]
+id = "capitals"
+op = "stack.of"
+inputs = { fertility = "fertility.map", wood = "wood.map" }
+
+[[nodes]]
+id = "parcels"
+op = "map.calc"
+inputs = { e = "east.map", n = "north.map" }
+params = { expression = "1 + (e > 0.5) + 2 * (n < 0.5)" }
+
+[[nodes]]
+id = "land"
+op = "map.calc"
+inputs = { e = "east.map" }
+params = { expression = "e * 0" }
+
+[[nodes]]
+id = "people"
+op = "agents.table"
+params = { agents = [{ id = 1, population = 1000, food_per_head = 0.25, timber_per_head = 0.15 }] }
+
+[[nodes]]
+id = "managers"
+op = "agents.parcels"
+inputs = { parcels = "parcels.map" }
+
+[[nodes]]
+id = "simulation"
+op = "control.repeat"
+inputs = { times = 30, land = "land.map", people = "people.agents" }
+
+[nodes.body]
+carry = { land = "alloc.land", people = "grow.agents" }
+collect = { cover = "alloc.cover", info = "alloc.info", demand = "need.table" }
+
+[[nodes.body.nodes]]
+id = "grow"
+op = "agents.update"
+inputs = { agents = "@people" }
+params = { rules = "population = population * 1.02\nfood = population * food_per_head\ntimber = population * timber_per_head" }
+
+[[nodes.body.nodes]]
+id = "need"
+op = "agents.summary"
+inputs = { agents = "grow.agents" }
+
+[[nodes.body.nodes]]
+id = "decide"
+op = "agents.update"
+inputs = { agents = "managers.agents", step = "@step" }
+params = { rules = "subsidy = if id == 1 and step > 5 then 3 else 1" }
+
+[[nodes.body.nodes]]
+id = "boost"
+op = "agents.map"
+inputs = { agents = "decide.agents", parcels = "parcels.map" }
+params = { column = "subsidy" }
+
+[[nodes.body.nodes]]
+id = "fert"
+op = "map.calc"
+inputs = { caps = "capitals.stack", boost = "boost.map" }
+params = { expression = "min(caps.fertility * boost, 1)" }
+
+[[nodes.body.nodes]]
+id = "caps"
+op = "stack.set"
+inputs = { stack = "capitals.stack", map = "fert.map" }
+params = { name = "fertility" }
+
+[[nodes.body.nodes]]
+id = "alloc"
+op = "crafty.allocate"
+inputs = { land = "@land", capitals = "caps.stack", demand = "need.table", step = "@step", seed = 3 }
+params = { services = { food = "food_sum", timber = "timber_sum" }, search = 0.2, giving_up_rate = 0.2, afts = [
+  { name = "farmer", class = 2, production = { food = 1.0 }, sensitivity = { fertility = 2.0 }, giving_up = 0.05, giving_in = 0.1 },
+  { name = "forester", class = 3, production = { timber = 1.0 }, sensitivity = { wood = 1.0 }, giving_up = 0.05, giving_in = 0.1 },
+] }
+
+[outputs.info]
+from = "simulation.info"
+
+[outputs.demand]
+from = "simulation.demand"

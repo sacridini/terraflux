@@ -1,0 +1,4 @@
+model,first_year,changed,hits,misses,false_alarms,fom,agreement,seconds
+CLUE-S (part 4),13023,19522,1609,5948,16892,0.063,79.0,18.5
+"Ordered, stochastic",610,7506,927,7336,6264,0.062,87.7,1.0
+"Ordered, deterministic",596,7512,918,7345,6279,0.062,87.7,1.0

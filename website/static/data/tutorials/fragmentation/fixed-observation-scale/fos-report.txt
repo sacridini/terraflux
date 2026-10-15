@@ -1,0 +1,35 @@
+Fragmentation analysis using Fixed Observation Scale (FOS)
+(Fragmentation is complementary to Connectivity: Fragmentation = 100% - Connectivity)
+Method options: FAD - FG Area Density; FED - FG Edge Density; FAC - FG Area Clustering; 
+================================================================================
+FOS parameter settings:
+Binary
+Foreground connectivity: 8-connectivity
+FOS-type selected: FAC_6class
+Pixel resolution [m]: 25
+Window size [pixels]: 27
+Observation scale [(window size * pixel resolution)^2]: 45.5625 hectares <-> 112.587 acres
+================================================================================
+Proportion [%] of foreground area in foreground cover class:
+               Rare (FAC-pixel value within: [0 - 9]):      3.1562
+           Patchy (FAC-pixel value within: [10 - 39]):     13.8309
+     Transitional (FAC-pixel value within: [40 - 59]):     14.6085
+         Dominant (FAC-pixel value within: [60 - 89]):     31.4026
+         Interior (FAC-pixel value within: [90 - 99]):     30.1251
+                        Intact (FAC-pixel value: 100):      6.8767
+================================================================================
+A) Image summary:
+================================================================================
+Reporting unit area [pixels]: 999730
+Foreground area [pixels]: 428490
+Foreground area [%]: 42.8606
+Number of foreground patches: 2850
+Average foreground patch size [pixels]: 150.347
+================================================================================
+B) Reporting levels
+================================================================================
+- Average FAC at WS27 [%]: 70.5904
+- ECA (Equivalent Connected Area) [pixels]: 221293
+- COH (Coherence = ECA/ECA_max*100) [%]: 51.6448
+- AVCON (average connectivity) at WS27 [%]: 30.2554
+- COH_ru (ECA/Reporting unit area*100) [%]: 22.1353

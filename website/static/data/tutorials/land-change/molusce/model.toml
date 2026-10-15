@@ -1,0 +1,44 @@
+format = "terraflux/1"
+name = "MOLUSCE on Sibuyan"
+
+[[nodes]]
+id = "start"
+op = "raster.read"
+params = { path = "sibuyan_landuse.tif", band = "2011" }
+
+[[nodes]]
+id = "drivers"
+op = "raster.read"
+params = { path = "sibuyan_drivers.tif" }
+
+[[nodes]]
+id = "weights"
+op = "molusce.total"
+inputs = { drivers = "drivers.stack" }
+params = { classes = [1, 2, 3, 4, 5], drivers = ["elevation", "slope", "dist_roads"], bins = { elevation = [50, 150, 300, 600], slope = [4, 10, 16, 22], dist_roads = [250, 500, 1000, 2000, 4000] }, weights = [{ from = 1, to = 1, driver = "elevation", categories = [1.0, 2.0, 3.0, 4.0, 5.0], weights = [-3.412416, -1.186782, 0.153642, 1.615203, 4.516654] }, { from = 1, to = 1, driver = "slope", categories = [1.0, 2.0, 3.0, 4.0, 5.0], weights = [-2.37748, -0.707633, 0.458932, 1.144624, 2.516123] }, { from = 1, to = 1, driver = "dist_roads", categories = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0], weights = [-3.203498, -2.363637, -1.334145, -0.114809, 1.482993, 4.906252] }, { from = 1, to = 2, driver = "elevation", categories = [1.0, 2.0, 3.0, 4.0, 5.0], weights = [0.965499, 1.020416, -0.295241, -3.787853, -33.520874] }, { from = 1, to = 2, driver = "slope", categories = [1.0, 2.0, 3.0, 4.0, 5.0], weights = [-0.3129, 0.806936, 0.233312, -0.328902, -2.017765] }, { from = 1, to = 2, driver = "dist_roads", categories = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0], weights = [1.091315, 1.193148, 0.879709, -0.3813, -33.719033, -33.159903] }, { from = 1, to = 3, driver = "elevation", categories = [1.0, 2.0, 3.0, 4.0, 5.0], weights = [0.003487, 1.392776, 0.4166, -1.827964, -33.520718] }, { from = 1, to = 3, driver = "slope", categories = [1.0, 2.0, 3.0, 4.0, 5.0], weights = [0.39827, 0.923517, -0.335184, -0.809568, -2.312853] }, { from = 1, to = 3, driver = "dist_roads", categories = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0], weights = [-0.155531, 0.439672, 0.845118, 0.715742, -1.307703, -33.191493] }, { from = 1, to = 4, driver = "elevation", categories = [1.0, 2.0, 3.0, 4.0, 5.0], weights = [2.338003, -2.575342, -4.700002, -34.987976, -34.891204] }, { from = 1, to = 4, driver = "slope", categories = [1.0, 2.0, 3.0, 4.0, 5.0], weights = [2.521829, -5.723525, -36.356743, -36.111821, -36.161233] }, { from = 1, to = 4, driver = "dist_roads", categories = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0], weights = [1.611752, 1.797467, 0.034576, -2.437661, -33.799663, -33.240756] }, { from = 1, to = 5, driver = "elevation", categories = [1.0, 2.0, 3.0, 4.0, 5.0], weights = [-66.886656, -66.639152, 2.700815, -66.987938, -66.891612] }, { from = 1, to = 5, driver = "slope", categories = [1.0, 2.0, 3.0, 4.0, 5.0], weights = [-66.83839, -66.898621, -66.915802, 2.643807, -66.721089] }, { from = 1, to = 5, driver = "dist_roads", categories = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0], weights = [-65.790926, -66.187821, -66.526423, 2.457136, -67.18765, -66.631249] }, { from = 2, to = 2, driver = "elevation", categories = [1.0, 2.0, 3.0, 4.0, 5.0], weights = [1.433022, 0.892961, -0.171744, -2.575103, -33.70764] }, { from = 2, to = 2, driver = "slope", categories = [1.0, 2.0, 3.0, 4.0, 5.0], weights = [0.990129, 0.708442, -0.372439, -1.128618, -2.36153] }, { from = 2, to = 2, driver = "dist_roads", categories = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0], weights = [1.330559, 1.334663, 1.050885, -0.015486, -3.428165, -33.321063] }, { from = 2, to = 3, driver = "elevation", categories = [1.0, 2.0, 3.0, 4.0, 5.0], weights = [-34.547187, 2.452753, -1.695385, -34.648537, -34.552146] }, { from = 2, to = 3, driver = "slope", categories = [1.0, 2.0, 3.0, 4.0, 5.0], weights = [0.264033, 1.16243, -0.469174, -1.450362, -33.324712] }, { from = 2, to = 3, driver = "dist_roads", categories = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0], weights = [-33.102904, -33.499901, -2.013439, 2.108721, -1.92093, -33.943504] }, { from = 3, to = 2, driver = "elevation", categories = [1.0, 2.0, 3.0, 4.0, 5.0], weights = [0.148805, 0.728214, 0.690668, -0.635726, -33.413354] }, { from = 3, to = 2, driver = "slope", categories = [1.0, 2.0, 3.0, 4.0, 5.0], weights = [0.016256, -0.302758, 0.015998, 0.479494, -0.323214] }, { from = 3, to = 2, driver = "dist_roads", categories = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0], weights = [-0.37351, -0.00153, 1.130747, 0.84699, -3.445155, -33.214447] }, { from = 3, to = 3, driver = "elevation", categories = [1.0, 2.0, 3.0, 4.0, 5.0], weights = [-0.218125, 0.523572, 0.434512, 0.361011, -2.437023] }, { from = 3, to = 3, driver = "slope", categories = [1.0, 2.0, 3.0, 4.0, 5.0], weights = [-0.061124, 0.350874, 0.369312, -0.053171, -1.220794] }, { from = 3, to = 3, driver = "dist_roads", categories = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0], weights = [-0.568041, -0.245043, -0.005566, 0.302395, 0.628959, -3.024411] }, { from = 3, to = 4, driver = "elevation", categories = [1.0, 2.0, 3.0, 4.0, 5.0], weights = [2.438681, -66.641704, -66.617424, -66.990673, -66.89429] }, { from = 3, to = 4, driver = "slope", categories = [1.0, 2.0, 3.0, 4.0, 5.0], weights = [2.48739, -66.901278, -66.918469, -66.674397, -66.723654] }, { from = 3, to = 4, driver = "dist_roads", categories = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0], weights = [2.631099, 0.923012, -1.340948, -33.623459, -33.952893, -33.396171] }, { from = 3, to = 5, driver = "elevation", categories = [1.0, 2.0, 3.0, 4.0, 5.0], weights = [-66.886656, -66.639152, 2.700815, -66.987938, -66.891612] }, { from = 3, to = 5, driver = "slope", categories = [1.0, 2.0, 3.0, 4.0, 5.0], weights = [-66.838397, 2.416912, -66.915809, -66.671863, -66.721097] }, { from = 3, to = 5, driver = "dist_roads", categories = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0], weights = [-65.790926, -66.187821, -66.526423, 2.457136, -67.18765, -66.631249] }, { from = 4, to = 2, driver = "elevation", categories = [1.0, 2.0, 3.0, 4.0, 5.0], weights = [2.400338, -4.168131, -35.418719, -35.792555, -35.695999] }, { from = 4, to = 2, driver = "slope", categories = [1.0, 2.0, 3.0, 4.0, 5.0], weights = [2.111309, -1.011436, -34.180976, -33.936525, -33.985851] }, { from = 4, to = 2, driver = "dist_roads", categories = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0], weights = [1.095493, 1.689402, 0.771035, -2.881866, -33.775801, -33.218106] }, { from = 4, to = 3, driver = "elevation", categories = [1.0, 2.0, 3.0, 4.0, 5.0], weights = [0.734908, 1.559199, -33.365426, -33.738559, -33.64221] }, { from = 4, to = 3, driver = "slope", categories = [1.0, 2.0, 3.0, 4.0, 5.0], weights = [-0.028558, 1.746192, -33.848759, -33.604763, -33.654006] }, { from = 4, to = 3, driver = "dist_roads", categories = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0], weights = [-32.338846, 0.131159, 1.298391, 0.336271, -0.869486, -33.179267] }, { from = 4, to = 4, driver = "elevation", categories = [1.0, 2.0, 3.0, 4.0, 5.0], weights = [2.423244, -3.424742, -5.391555, -35.381578, -35.284647] }, { from = 4, to = 4, driver = "slope", categories = [1.0, 2.0, 3.0, 4.0, 5.0], weights = [2.219121, -1.40238, -3.973324, -4.428364, -34.092722] }, { from = 4, to = 4, driver = "dist_roads", categories = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0], weights = [0.845602, 1.412354, 0.996885, -0.845261, -4.132681, -33.187526] }, { from = 5, to = 5, driver = "elevation", categories = [1.0, 2.0, 3.0, 4.0, 5.0], weights = [2.413436, -2.158143, -5.46531, -34.862158, -34.764709] }, { from = 5, to = 5, driver = "slope", categories = [1.0, 2.0, 3.0, 4.0, 5.0], weights = [2.105084, -0.934924, -1.911832, -33.766721, -33.816403] }, { from = 5, to = 5, driver = "dist_roads", categories = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0], weights = [2.511157, 1.152394, -0.249195, -1.960004, -33.847504, -33.284789] }] }
+
+[[nodes]]
+id = "rng"
+op = "rng.numpy"
+inputs = { seed = 1 }
+
+[[nodes]]
+id = "simulation"
+op = "control.repeat"
+inputs = { times = 2, landscape = "start.map" }
+
+[nodes.body]
+carry = { landscape = "allocate.landscape" }
+collect = { maps = "allocate.landscape", info = "allocate.info" }
+
+[[nodes.body.nodes]]
+id = "allocate"
+op = "molusce.step"
+inputs = { landscape = "@landscape", total = "weights.total", rng = "rng.rng", step = "@step" }
+params = { classes = [1, 2, 3, 4, 5], counts = [{ from = 1, to = 1, cells = 4160 }, { from = 1, to = 2, cells = 126 }, { from = 1, to = 3, cells = 320 }, { from = 1, to = 4, cells = 116 }, { from = 1, to = 5, cells = 1 }, { from = 2, to = 1, cells = 0 }, { from = 2, to = 2, cells = 1140 }, { from = 2, to = 3, cells = 18 }, { from = 2, to = 4, cells = 0 }, { from = 2, to = 5, cells = 0 }, { from = 3, to = 1, cells = 0 }, { from = 3, to = 2, cells = 77 }, { from = 3, to = 3, cells = 745 }, { from = 3, to = 4, cells = 16 }, { from = 3, to = 5, cells = 1 }, { from = 4, to = 1, cells = 0 }, { from = 4, to = 2, cells = 61 }, { from = 4, to = 3, cells = 7 }, { from = 4, to = 4, cells = 156 }, { from = 4, to = 5, cells = 0 }, { from = 5, to = 1, cells = 0 }, { from = 5, to = 2, cells = 0 }, { from = 5, to = 3, cells = 0 }, { from = 5, to = 4, cells = 0 }, { from = 5, to = 5, cells = 282 }] }
+
+[outputs.maps]
+from = "simulation.maps"
+
+[outputs.info]
+from = "simulation.info"

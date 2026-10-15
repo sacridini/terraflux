@@ -1,0 +1,5 @@
+plan,species,carbon,intactness
+species alone,100.0,79.8,43.9
+carbon alone,47.9,100.0,41.0
+intactness alone,14.5,70.1,100.0
+all three,77.9,88.5,70.0

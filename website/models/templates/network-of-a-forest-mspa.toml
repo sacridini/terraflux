@@ -1,0 +1,46 @@
+format = "terraflux/1"
+name = "Network of a forest (MSPA)"
+description = "GuidosToolbox's network analysis: MSPA's cores (the nodes) and bridges (the links), their components and the importance of every link and stepping stone."
+
+[[nodes]]
+id = "landscape"
+op = "nlm.random_cluster"
+params = { rows = 250, columns = 250, resolution = 30, p = 0.55, weights = [0.45, 0.55], seed = 19 }
+note = "Two classes drawn by chance on cells of 30 m: 1 the background, 2 the forest (MSPA's coding already)."
+
+[[nodes]]
+id = "mspa"
+op = "landscape.mspa"
+inputs = { map = "landscape.map" }
+params = { edge_width = 2 }
+note = "The cores and the bridges between them."
+
+[[nodes]]
+id = "components"
+op = "networks.gtn_components"
+inputs = { map = "mspa.map" }
+note = "The networks of cores joined by bridges: summary has their number, the equivalent connected area (ECA) and the coherence (ECA over its largest, %)."
+
+[[nodes]]
+id = "importance"
+op = "networks.gtn_importance"
+inputs = { map = "mspa.map" }
+note = "The loss of connectivity (dPC) without each bridge and each stepping-stone core; the top 1, 5 and 10 % in GTB's colours. links and nodes rank them."
+
+[[nodes]]
+id = "plot_mspa"
+op = "view.plot"
+inputs = { value = "mspa.map" }
+params = { title = "MSPA" }
+
+[[nodes]]
+id = "plot_components"
+op = "view.plot"
+inputs = { value = "components.map" }
+params = { title = "Networks" }
+
+[[nodes]]
+id = "plot_importance"
+op = "view.plot"
+inputs = { value = "importance.map" }
+params = { title = "The most important links and nodes" }

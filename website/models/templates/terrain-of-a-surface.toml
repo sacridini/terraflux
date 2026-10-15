@@ -1,0 +1,81 @@
+format = "terraflux/1"
+name = "Terrain of a surface"
+description = "The measures of a relief: slope, aspect, heat load, topographic position, ruggedness, curvature and ISO 25178's surface metrics."
+
+[[nodes]]
+id = "relief"
+op = "nlm.mpd"
+params = { rows = 200, columns = 200, resolution = 30, roughness = 0.55, nlmr_compat = false, seed = 6 }
+note = "A fractal surface by midpoint displacement, from 0 to 1, of cells of 30 m (in its place, a raster.read of an elevation model)."
+
+[[nodes]]
+id = "elevation"
+op = "map.calc"
+inputs = { r = "relief.map" }
+params = { expression = "200 + r * 800" }
+note = "Metres: from 200 to 1000."
+
+[[nodes]]
+id = "slope"
+op = "surface.terrain"
+inputs = { map = "elevation.map" }
+params = { v = "slope" }
+note = "Degrees, by Horn's 8 neighbours (terra's terrain)."
+
+[[nodes]]
+id = "aspect"
+op = "surface.terrain"
+inputs = { map = "elevation.map" }
+params = { v = "aspect" }
+
+[[nodes]]
+id = "heat_load"
+op = "surface.hli"
+inputs = { aspect = "aspect.map", slope = "slope.map" }
+params = { latitude = -20, hemisphere = "southern", scaled = true }
+note = "McCune & Keon's heat load: the slopes facing the sun warmer (a latitude of 20° south, here)."
+
+[[nodes]]
+id = "position"
+op = "surface.tpi"
+inputs = { map = "elevation.map" }
+params = { scale = 9 }
+note = "Each cell above (ridges) or below (valleys) the mean of the 9 x 9 cells around it."
+
+[[nodes]]
+id = "ruggedness"
+op = "surface.vrm"
+inputs = { map = "elevation.map" }
+params = { s = 5 }
+note = "The vector ruggedness measure: 0 flat or an even slope, up to 1 broken."
+
+[[nodes]]
+id = "curvature"
+op = "surface.curvature"
+inputs = { map = "elevation.map" }
+params = { type = "profile" }
+
+[[nodes]]
+id = "surface"
+op = "surface.metrics"
+inputs = { map = "elevation.map" }
+params = { metrics = ["sa", "sq", "ssk", "sku", "sdr"] }
+note = "The surface's roughness (sa, sq), skewness, kurtosis and developed area ratio, as geodiv computes them."
+
+[[nodes]]
+id = "plot_elevation"
+op = "view.plot"
+inputs = { value = "elevation.map" }
+params = { title = "Elevation" }
+
+[[nodes]]
+id = "plot_heat"
+op = "view.plot"
+inputs = { value = "heat_load.map" }
+params = { title = "Heat load" }
+
+[[nodes]]
+id = "plot_position"
+op = "view.plot"
+inputs = { value = "position.map" }
+params = { title = "Topographic position" }

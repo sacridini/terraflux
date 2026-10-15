@@ -1,0 +1,61 @@
+format = "terraflux/1"
+name = "CARS with a Markov chain per region"
+
+[[nodes]]
+id = "lu1997"
+op = "raster.read"
+params = { path = "sibuyan_landuse.tif", band = "1997" }
+
+[[nodes]]
+id = "drivers"
+op = "raster.read"
+params = { path = "sibuyan_drivers.tif" }
+
+[[nodes]]
+id = "regions"
+op = "raster.read"
+params = { path = "regions.tif" }
+
+[[nodes]]
+id = "regression"
+op = "glm.fit"
+inputs = { landscape = "lu1997.map", drivers = "drivers.stack" }
+params = { formulas = { 1 = ["dist_sea", "elevation", "slope", "dist_roads", "dist_urban"], 2 = ["dist_sea", "elevation", "slope", "dist_roads", "dist_urban"], 3 = ["dist_sea", "elevation", "slope", "dist_roads", "dist_urban"], 4 = ["dist_sea", "elevation", "slope", "dist_roads", "dist_urban"], 5 = ["dist_sea", "elevation", "slope", "dist_roads", "dist_urban"] } }
+
+[[nodes]]
+id = "probability"
+op = "glm.predict"
+inputs = { model = "regression.model", drivers = "drivers.stack", landscape = "lu1997.map" }
+
+[[nodes]]
+id = "chains"
+op = "demand.regional"
+inputs = { regions = "regions.map" }
+params = { ids = [1, 2, 3], demands = [{ markov = { classes = [1, 2, 3, 4, 5], single = [[0.775418, 0.048263, 0.14157, 0.034749, 0.0], [0.0, 1.0, 0.0, 0.0, 0.0], [0.0, 0.07177, 0.909091, 0.014354, 0.004785], [0.0, 0.193798, 0.0, 0.806202, 0.0], [0.0, 0.0, 0.0, 0.0, 1.0]], steps = 14 } }, { markov = { classes = [1, 2, 3, 4, 5], single = [[0.929242, 0.019495, 0.049819, 0.001444, 0.0], [0.0, 0.979287, 0.020713, 0.0, 0.0], [0.0, 0.109155, 0.890845, 0.0, 0.0], [0.0, 0.5, 0.097222, 0.402778, 0.0], [0.0, 0.0, 0.0, 0.0, 1.0]], steps = 14 } }, { markov = { classes = [1, 2, 3, 4, 5], single = [[0.934978, 0.013453, 0.017377, 0.033632, 0.000561], [0.0, 1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.790323, 0.209677, 0.0], [0.0, 0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 0.0, 1.0]], steps = 14 } }] }
+
+[[nodes]]
+id = "demand"
+op = "plus.demand"
+inputs = { start = "lu1997.map", regional = "chains.regional" }
+params = { steps = 14 }
+
+[[nodes]]
+id = "simulation"
+op = "control.repeat"
+inputs = { times = "demand.steps", landscape = "lu1997.map" }
+
+[nodes.body]
+carry = { landscape = "cars.landscape" }
+collect = { maps = "cars.landscape", info = "cars.info" }
+
+[[nodes.body.nodes]]
+id = "cars"
+op = "cars.step"
+inputs = { landscape = "@landscape", probability = "probability.suitability", regional = "demand.regional", step = "@step", seed = 1 }
+params = { seeds = 0.1, decay = 0.9, step_size = 20, window = 3, max_iter = 500 }
+
+[outputs.maps]
+from = "simulation.maps"
+
+[outputs.steps]
+from = "simulation.info"

@@ -1,0 +1,59 @@
+format = "terraflux/1"
+name = "CRAFTY: farmers and foresters"
+description = "CRAFTY's competition for land: farmers and foresters produce food and timber from the capitals of the cells, and over 20 steps take the land where their services are wanted most, as the demand for food grows."
+
+[[nodes]]
+id = "fertility"
+op = "nlm.gaussian_field"
+params = { rows = 100, columns = 100, range = 15, seed = 101 }
+note = "A capital, 0 to 1: the soil's fertility (in its place, raster.read of a capital's map)."
+
+[[nodes]]
+id = "wood"
+op = "nlm.gaussian_field"
+params = { rows = 100, columns = 100, range = 25, seed = 102 }
+note = "Another: the forest's growing stock."
+
+[[nodes]]
+id = "capitals"
+op = "stack.of"
+inputs = { fertility = "fertility.map", wood = "wood.map" }
+note = "The capitals, a layer each by name."
+
+[[nodes]]
+id = "start"
+op = "nlm.random_cluster"
+params = { rows = 100, columns = 100, p = 0.5, weights = [0.5, 0.5], seed = 103 }
+note = "Who manages each cell at the start: 1 farmers, 2 foresters, drawn by chance."
+
+[[nodes]]
+id = "demand"
+op = "table.of"
+params = { columns = ["food", "timber"], rows = [[1500, 1500], [1600, 1500], [1700, 1500], [1800, 1500], [1900, 1500], [2000, 1500], [2100, 1500], [2200, 1500], [2300, 1500], [2400, 1500], [2500, 1500], [2600, 1500], [2700, 1500], [2800, 1500], [2900, 1500], [3000, 1500], [3100, 1500], [3200, 1500], [3300, 1500], [3400, 1500]] }
+note = "The demand for food and timber at every step (a row each): food grows, timber stays."
+
+[[nodes]]
+id = "simulation"
+op = "control.repeat"
+inputs = { times = 20, land = "start.map" }
+note = "20 steps: @land, who manages each cell, passed on; cover (the land cover of every step) and info (the supply and demand) collected."
+
+[nodes.body]
+carry = { land = "compete.land" }
+collect = { cover = "compete.cover", info = "compete.info" }
+
+[[nodes.body.nodes]]
+id = "compete"
+op = "crafty.allocate"
+inputs = { land = "@land", capitals = "capitals.stack", demand = "demand.table", step = "@step", seed = 7 }
+params = { search = 0.2, giving_up_rate = 0.2, afts = [
+  { name = "farmer", class = 1, production = { food = 1.0 }, sensitivity = { fertility = 2.0 }, giving_up = 0.05, giving_in = 0.1 },
+  { name = "forester", class = 2, production = { timber = 1.0 }, sensitivity = { wood = 1.0 }, giving_up = 0.05, giving_in = 0.1 },
+] }
+note = "A step of CRAFTY: what each AFT would produce from the capitals (production x capital^sensitivity), the value of the demand left unmet, managers giving up below their threshold, and a share of the cells (search) offered to the most competitive."
+
+[[nodes]]
+id = "plot_cover"
+op = "view.plot"
+inputs = { value = "simulation.cover" }
+params = { title = "Farmers (1), foresters (2), unmanaged (0), step by step" }

@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% set title = group.title ~ " operators" %}
+{% block description %}The {{ group.title|lower }} operators of Terraflux: their inputs, outputs and settings.{% endblock %}
+{% block bodyclass %}doc{% endblock %}
+{% macro ports(list, kind) %}
+{% if list %}
+<div class="table-wrap"><table class="sig">
+  <thead><tr><th>{{ kind }}</th><th>Type</th><th>What it is</th></tr></thead>
+  <tbody>
+  {% for p in list %}<tr><td><code>{{ p.name }}</code>{% if p.required and kind != "Output" %}<span class="req" title="required">required</span>{% endif %}</td><td><span class="ty ty-{{ p.type }}">{{ p.type }}</span></td><td>{{ md_op(p.doc) }}</td></tr>{% endfor %}
+  </tbody>
+</table></div>
+{% endif %}
+{% endmacro %}
+{% block main %}
+<div class="doc-layout">
+  <aside class="doc-side">
+    <nav class="sidenav" aria-label="Subjects">
+      <a class="sn-top" href="/operators/">All operators</a>
+      <ul>{% for g in groups %}<li><a href="/operators/{{ g.slug }}/"{% if g.slug == group.slug %} aria-current="page"{% endif %}>{{ g.title }} <span class="count">{{ g.ops|length }}</span></a></li>{% endfor %}</ul>
+    </nav>
+  </aside>
+  <article class="doc-main">
+    <nav class="crumbs" aria-label="Breadcrumb"><a href="/operators/">Operators</a></nav>
+    <header class="doc-head">
+      <h1>{{ group.title }}</h1>
+      <p class="lede">{{ group.ops|length }} operators. Inputs marked <span class="req">required</span> must be connected
+        or given; the others have defaults.</p>
+    </header>
+    <div class="prose ops-list">
+    {% for o in group.ops %}
+      <section class="op" id="{{ op_anchor(o.name) }}">
+        <h2><code>{{ o.name }}</code><a class="headerlink" href="#{{ op_anchor(o.name) }}" title="Link to this operator">#</a></h2>
+        <p>{{ md_op(o.doc) }}</p>
+        {{ ports(o.inputs, "Input") }}
+        {{ ports(o.outputs, "Output") }}
+        {{ ports(o.params, "Setting") }}
+        {% if o.extra %}<p class="extra">Takes any other inputs by name ({{ o.extra }}).</p>{% endif %}
+      </section>
+    {% endfor %}
+    </div>
+  </article>
+  <aside class="doc-toc" aria-label="On this page">
+    <p class="toc-title">On this page</p>
+    <ul>{% for o in group.ops %}<li><a href="#{{ op_anchor(o.name) }}">{{ o.name }}</a></li>{% endfor %}</ul>
+  </aside>
+</div>
+{% endblock %}

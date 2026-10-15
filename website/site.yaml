@@ -1,0 +1,77 @@
+# The website's settings. Build with `python website/build.py` (see website/README.md).
+
+name: Terraflux
+tagline: Landscape ecology, conservation planning and land change simulation in one open-source application.
+description: >-
+  Terraflux is a free, open-source desktop application and command line for landscape ecology: habitat patterns,
+  landscape metrics, connectivity, spatial prioritization, species distributions and land use change simulation,
+  with the same results as the reference tools, from a laptop to a cluster.
+repo: https://github.com/sacridini/terraflux
+# the site's public address (for links shared and the sitemap); pages link to each other relatively
+url: https://sacridini.github.io/terraflux/
+license: GPL-3.0-or-later
+author: Eduardo Lacerda
+
+# Downloads. While the repository is private, `releases_public: false` keeps the buttons in place and says that
+# the first public release is on its way; set it to true when releases are published on GitHub.
+releases_public: false
+release_tag: "v{version}"
+release_base: "https://github.com/sacridini/terraflux/releases/download/{tag}/"
+downloads:
+  - os: windows
+    label: Windows
+    detail: Windows 10 and 11, 64-bit
+    files:
+      - { name: "terraflux-{version}-x64.msi", kind: "Installer (.msi)", primary: true, note: "Start menu shortcut, terraflux on the PATH" }
+      - { name: "terraflux-{version}-windows-x64.zip", kind: "Portable (.zip)", note: "Unpack anywhere, no installation" }
+  - os: macos
+    label: macOS
+    detail: Apple silicon (M1 or later)
+    files:
+      - { name: "terraflux-{version}-macos-arm64.dmg", kind: "Disk image (.dmg)", primary: true, note: "Drag Terraflux.app to Applications" }
+      - { name: "terraflux-{version}-macos-arm64.zip", kind: "Application (.zip)" }
+  - os: linux
+    label: Linux
+    detail: x86-64, glibc 2.39 or newer (Ubuntu 24.04+)
+    files:
+      - { name: "terraflux_{version}_amd64.deb", kind: "Debian / Ubuntu (.deb)", primary: true, note: "sudo apt install ./terraflux_{version}_amd64.deb" }
+      - { name: "terraflux-{version}-linux-x64.tar.gz", kind: "Archive (.tar.gz)", note: "Unpack and run install.sh, no root needed" }
+
+# The bar at the top of every page.
+nav:
+  - { title: Quickstart, url: /quickstart/ }
+  - { title: Tutorials, url: /tutorials/ }
+  - { title: Parallel computing, url: /parallel/ }
+  - { title: CLI, url: /cli/ }
+  - { title: Operators, url: /operators/ }
+
+# The sections of the documentation: a folder of content/ each, its pages ordered by their `order`.
+sections:
+  quickstart: { title: Quickstart, dir: quickstart }
+  parallel: { title: Parallel and distributed computing, dir: parallel }
+  cli: { title: CLI reference, dir: cli }
+  about: { title: About, dir: about }
+  glossary: { title: Glossary, dir: glossary }
+
+# The tutorials' categories, in this order: a folder of content/tutorials/ each. `prefixes` are the operators
+# they cover (the subjects of the application's library); `cells` draws the category's small icon (3x3 cells:
+# 0 empty, 1 forest, 2 change).
+tutorial_categories:
+  - { slug: getting-started, title: Getting started, cells: "111100100", blurb: "Open and look at maps and vectors, reproject and resample them, save them, and build your first graph." }
+  - { slug: building-models, title: Building models, cells: "110011001", prefixes: [map, stack, control, rng, plugin, view], blurb: "Map algebra, stacks, loops, groups, submodels and plugins: the pieces every model is made of." }
+  - { slug: habitat-patterns, title: Habitat patterns, cells: "111101111", prefixes: [landscape, patterns], blurb: "GuidosToolbox's morphological spatial pattern analysis: cores, edges, bridges and corridors." }
+  - { slug: fragmentation, title: Fragmentation, cells: "101010101", prefixes: [fragmentation], blurb: "How fragmented a habitat is at many scales: density, connectivity, contagion and entropy." }
+  - { slug: landscape-metrics, title: Landscape metrics, cells: "110110001", prefixes: [metrics], blurb: "FRAGSTATS' and landscapemetrics' metrics per patch, class and landscape, in windows and signatures." }
+  - { slug: habitat-networks, title: Habitat networks, cells: "100010001", prefixes: [networks, conn], blurb: "Habitat as a graph: Conefor's connectivity indices, ProtConn and the importance of each patch." }
+  - { slug: circuit-connectivity, title: Circuit connectivity, cells: "100111001", prefixes: [circuit], blurb: "Circuitscape and Omniscape: movement as electrical current through a landscape of resistance." }
+  - { slug: surface-metrics, title: Surface metrics, cells: "001011111", prefixes: [surface], blurb: "Terrain and continuous surfaces: slope, curvature, roughness and texture." }
+  - { slug: grid-distances, title: Grid distances, cells: "100110111", prefixes: [cost], blurb: "Least-cost paths, cost distances and random walks across a landscape, as R's gdistance." }
+  - { slug: distance-restoration, title: Distance and restoration, cells: "111110100", prefixes: [distance, restoration], blurb: "Distances, ecological intactness and where restoration does most for species, as plangea." }
+  - { slug: change-detection, title: Change detection, cells: "112122222", prefixes: [change], blurb: "What changed between two maps, how fast and how intensely: transitions, intensity analysis and diffeR." }
+  - { slug: neutral-landscapes, title: Neutral landscape models, cells: "101011010", prefixes: [nlm], blurb: "Landscapes drawn by chance, to test methods and to ask what pattern alone would give." }
+  - { slug: biodiversity, title: Biodiversity analysis, cells: "011101110", prefixes: [bio], blurb: "Biodiverse's analyses: richness, endemism, phylogenetic diversity and clusters of regions." }
+  - { slug: spatial-prioritization, title: Spatial prioritization, cells: "122121111", prefixes: [prioritize], blurb: "Zonation, Marxan, prioritizr and prioriactions: where to protect, restore and act." }
+  - { slug: species-distributions, title: Species distributions, cells: "010111010", prefixes: [sdm], blurb: "From GBIF records to a distribution model, its evaluation and its projection to other climates." }
+  - { slug: land-change, title: Land change simulation, cells: "111122222", prefixes: [markov, woe, patches, dinamica, glm, lulcc, demand, plus, cars, dynamic, agents, crafty, validate, clumondo, molusce, futures], blurb: "Dinamica EGO, CLUE-S, PLUS and agents: calibrate, simulate and validate the future of a landscape." }
+  - { slug: uncertainty, title: Uncertainty, cells: "120201021", prefixes: [uncertainty], blurb: "Monte Carlo and the propagation of uncertainty through a model." }
+  - { slug: large-data, title: Large data and batches, cells: "222222222", prefixes: [batch], blurb: "Rasters larger than memory and the same analysis over hundreds of files." }
