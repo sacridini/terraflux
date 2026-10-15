@@ -71,8 +71,8 @@ no console.
   a list, its default first; the metrics of the landscape metrics are all of them, those of some types (area
   and edge, shape, core area...) or some one by one.
 - **Builder** (where the application opens): open a raster, click the operators of the library (by
-  landschaft's subjects, with a search) and they come connected to the node selected; what the node selected gives is shown under the
-  canvas (a map with its legend, the maps of a stack or of a loop's steps, a table, a value). A run stops at the
+  landschaft's subjects, with a search) and they come connected to the node selected; what the node selected gives is shown in the
+  viewer, a tab beside the canvas's (a map with its legend, the maps of a stack or of a loop's steps, a table, a value). A run stops at the
   node shown and takes what did not change from the cache, so after every change of a setting only what it
   touches runs again and its result shows at once (ctrl+enter runs to the node, F5 the whole model). Save a map
   as a raster, the model as a file.
@@ -169,14 +169,21 @@ no console.
   maps and the drivers (the dates and steps from the band names), checks the data as soon as it is chosen
   (grids, classes, missing values, constant or collinear drivers) and offers to fix what it can (resampling a
   driver to the land use map's grid), then writes the model with a note on every choice.
-- **Panes:** the node's and Prepare at the left, the model over the viewer; the operators in a drawer at the
-  window's left edge and in the toolbar. Any tab dragged out of the dock becomes a window of its own, to put on
-  another screen. ctrl+O opens a raster or vectors, ctrl+W closes the tab in front, backspace (or delete) deletes
-  the node selected.
+- **Panes:** the operators and the Files at the window's left edge, the node's and Prepare beside them, the model
+  in the rest, the viewer in a tab beside it from the first data read (the window opens maximized); the operators'
+  pane closed, they are in a drawer at the window's left edge and in the toolbar. Any tab dragged out of the dock
+  becomes a window of its own, to put on another screen. ctrl+O opens a raster or vectors, ctrl+W closes the tab
+  in front, backspace (or delete) deletes the node selected.
+- **Files to nodes:** rasters and vectors dragged from the system's file manager onto any window (the main one or
+  one of its own), or from the Files pane onto the canvas (where they are let go), are nodes that read them; the
+  Files pane lists the data of a folder (a double click adds a file, a right click reads a folder of rasters as
+  one stack), a model dropped is opened. A node that takes any inputs (`stack.of`'s maps) has a place for one
+  more: a connection let go on it, or on the node, is a new input named after the node it comes from.
 - **The viewer:** maps over maps (each as opaque as asked) and vectors over them, chosen beside the map or
   stacked by plots in the model (a plot's `under`); a cell clicked on a stack shows its values along the layers
-  in a chart; B puts the satellite under the map. **Settings:** themes, the text's size, the zoom, the threads;
-  favourites in coloured collections in the operators' library.
+  in a chart; B puts the satellite under the map; at the closest zoom each cell's value is written in it.
+  **Settings:** themes, the text's size, the zoom, the threads; favourites in coloured collections in the
+  operators' library.
 - **Legends and weights of evidence:** the classes' names and colours edited in the viewer (a `raster.legend`
   node, carried with the map to the GeoTIFF); the weights of evidence of a fit in bars, its ranges merged or
   split and its weights set by hand, the fit run again.

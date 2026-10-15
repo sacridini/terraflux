@@ -6,11 +6,33 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- A Files pane, in a tab beside the operators': a folder's rasters, vectors and models (every file if asked); a
+  file dragged to the model's canvas is a node that reads it where it is let go, a double click adds it after the
+  node selected, a right click reads a folder of rasters as one stack, a model is opened. The folder is kept
+  between sessions.
+- Rasters and vectors dragged from the system's file manager onto the main window or a window of its own: a node
+  each that reads it (`raster.read` or `vector.read` by the extension); a model dropped is opened.
+- A node that takes any inputs (`stack.of`'s maps, a group's values) shows a place for one more on the canvas: a
+  connection let go on it, or anywhere on the node, adds an input named after the node it comes from
+  (`elevation.map`: `elevation`, then `elevation_2`...). A raster joins a stack by a connection.
+- At the viewer's closest zoom each cell's value is written in it (only the cells in view, read from the map in
+  memory or the tiles kept).
+
 ### Changed
+- The viewer is a tab beside the model's, not under it, and opens with the first data (a raster or vectors read,
+  a template; behind the model's tab when a model is opened). A run's plots open beside it without taking the
+  front from the model.
+- The operators' and the node's panes open a quarter narrower; the window opens maximized.
 - The node editor's connections and ports in the colour of their type, the website's graphs' own: maps blue,
   stacks violet, tables gold, numbers green, vectors pink, agents ochre (a connection being drawn too).
 - The operators pinned again at the window's left edge, the node's pane beside them, the model and the viewer in
   the rest. The operators' pane closed, they are in the drawer at the left edge and in the toolbar as before.
+
+### Fixed
+- A tab dragged out of the dock no longer trips egui's check of a widget drawn in two windows in one frame (its
+  window of its own shown from the next frame).
+- A pane opened from the View menu has the focus (it was put in the dock behind the tab in front).
 
 ## [0.80.1] - 2026-10-15
 

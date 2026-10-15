@@ -24,6 +24,24 @@ use crate::palette::{Coloring, image, image_f32};
 pub const TILE: usize = 256;
 /// The tiles kept (textures and values): 128 MB of each at most.
 const KEPT: usize = 512;
+/// The closest zoom, screen points per cell: the cells' values are written in them.
+pub const MAX_ZOOM: f32 = 64.0;
+
+/// A cell's value short enough for its square: a whole number as it is, else four significant digits (an
+/// exponent for the very large and the very small).
+pub fn cell_text(v: f64) -> String {
+    let a = v.abs();
+    if v.fract() == 0.0 && a < 1e7 {
+        return format!("{}", v as i64);
+    }
+    if a >= 1e5 || a < 1e-3 {
+        return format!("{v:.2e}");
+    }
+    let whole = if a < 1.0 { 1 } else { a.log10().floor() as usize + 1 };
+    let t = format!("{v:.*}", 4usize.saturating_sub(whole).max(1));
+    let t = t.trim_end_matches('0');
+    t.strip_suffix('.').unwrap_or(t).to_string()
+}
 
 /// The cell under the pointer.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -647,7 +665,7 @@ impl MapView {
                 // keep the cell under the pointer in place
                 let under = self.to_cell(rect, p);
                 let least = self.least_zoom(rect, source.grid(), w, h);
-                self.zoom = (self.zoom * factor).clamp(least.min(self.zoom), 64.0);
+                self.zoom = (self.zoom * factor).clamp(least.min(self.zoom), MAX_ZOOM);
                 self.center = under - (p - rect.center()) / self.zoom;
             }
         }
@@ -735,6 +753,29 @@ impl MapView {
                 egui::FontId::proportional(12.0),
                 ui.visuals().error_fg_color,
             );
+        }
+        // at the closest zoom, each cell's value written in it: only the cells in view (a few hundred at most at
+        // 64 points a cell), their values from the map in memory or the tiles kept, the texts' layouts cached by
+        // egui from frame to frame
+        if show_data && self.zoom >= MAX_ZOOM {
+            let (a, b) = (self.to_cell(rect, rect.min), self.to_cell(rect, rect.max));
+            let (x0, y0) = (a.x.floor().max(0.0) as usize, a.y.floor().max(0.0) as usize);
+            let (x1, y1) = ((b.x.ceil().max(0.0) as usize).min(w), (b.y.ceil().max(0.0) as usize).min(h));
+            let font = egui::FontId::monospace((self.zoom / 6.0).clamp(9.0, 12.0));
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    let v = self.value_at(source, x, y);
+                    if v.is_nan() {
+                        continue;
+                    }
+                    let centre = rect.center() + (Vec2::new(x as f32 + 0.5, y as f32 + 0.5) - self.center) * self.zoom;
+                    // dark on a light cell, light on a dark one
+                    let c = coloring.colour(v);
+                    let light = 0.299 * c.r() as f32 + 0.587 * c.g() as f32 + 0.114 * c.b() as f32 > 140.0;
+                    let ink = if light && self.transparency < 0.5 { Color32::BLACK } else { Color32::WHITE };
+                    painter.text(centre, egui::Align2::CENTER_CENTER, cell_text(v), font.clone(), ink);
+                }
+            }
         }
         // the cell clicked, outlined in the accent (its values along the layers beside the map)
         if let Some((row, col)) = self.picked.filter(|&(r, c)| r < h && c < w && !blank) {
@@ -938,6 +979,18 @@ pub fn class_counts(values: &[f64]) -> Vec<(f64, usize)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cell_texts() {
+        assert_eq!(cell_text(3.0), "3");
+        assert_eq!(cell_text(-1250.0), "-1250");
+        assert_eq!(cell_text(0.25), "0.25");
+        assert_eq!(cell_text(0.123456), "0.123");
+        assert_eq!(cell_text(12.3456), "12.35");
+        assert_eq!(cell_text(1234.56), "1234.6");
+        assert_eq!(cell_text(123456.7), "1.23e5");
+        assert_eq!(cell_text(0.00012), "1.20e-4");
+    }
 
     #[test]
     fn counts() {

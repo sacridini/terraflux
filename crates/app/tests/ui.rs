@@ -925,7 +925,24 @@ fn the_operators_drawer_and_windows_of_their_own() {
     };
     let (ops, node, model) = (left(Pane::Operators), left(Pane::Node), left(Pane::Model));
     assert!(ops < node && node < model, "operators, node, model from the left: {ops} {node} {model}");
+    // the operators about an eighth of the window, the node's pane about a sixth
+    let width = h.ctx.content_rect().width();
+    assert!(((node - ops) / width - 0.1275).abs() < 0.02, "the operators' width: {}", node - ops);
+    assert!(((model - node) / width - 0.1556).abs() < 0.02, "the node's width: {}", model - node);
     assert!(h.query_by_label("Open a raster...").is_some(), "the operators in their pane");
+    // the files in a tab beside the operators': the data of a folder, a raster carried to the model from there
+    {
+        let dock = h.state().dock.as_ref().unwrap();
+        let (a, b) = (dock.find_tab(&Pane::Operators).unwrap(), dock.find_tab(&Pane::Files).unwrap());
+        assert_eq!((a.surface, a.node), (b.surface, b.node), "the files beside the operators");
+    }
+    h.state_mut().files.go(data(""));
+    h.state_mut().focus(Pane::Files);
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("sibuyan_landuse.tif").is_some(), "the folder's rasters");
+    shot(&mut h, "20-files");
+    h.state_mut().focus(Pane::Operators);
+    h.run_steps(2);
     h.event(egui::Event::PointerMoved(egui::pos2(1.0, 300.0)));
     h.run_steps(3);
     assert!(!h.state().drawer, "no drawer over the operators' pane");
@@ -1536,4 +1553,44 @@ fn a_computer_lends_itself_to_another_by_its_code() {
     a.get_by_label("Let other computers help").click();
     a.run_steps(2);
     assert!(!a.state().computers.pool.as_ref().unwrap().shared());
+}
+
+/// The viewer opens beside the model when the first data comes; at the closest zoom the cells' values are written
+/// in them.
+#[test]
+fn the_viewer_comes_with_the_data_and_the_cells_show_their_values() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    assert!(!h.state().is_open(Pane::Viewer), "no viewer before there is data");
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let p = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
+        terraflux_app::builder::add(s, &terraflux_ops::Registry::standard(), "raster.read", &[("path", p.into())])
+            .unwrap();
+    }
+    h.run_steps(2);
+    assert_eq!(h.state_mut().focused(), Some(Pane::Viewer), "the viewer, in front");
+    {
+        let dock = h.state().dock.as_ref().unwrap();
+        let (a, b) = (dock.find_tab(&Pane::Model).unwrap(), dock.find_tab(&Pane::Viewer).unwrap());
+        assert_eq!((a.surface, a.node), (b.surface, b.node), "in a tab beside the model's");
+    }
+    drawn(&mut h);
+    until(&mut h, "the map drawn", |a| a.session.as_ref().unwrap().preview_view.rect().is_some());
+    let rect = h.state().session.as_ref().unwrap().preview_view.rect().unwrap();
+    h.event(egui::Event::PointerMoved(rect.center()));
+    h.run_steps(2);
+    for _ in 0..40 {
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, 400.0),
+            modifiers: Default::default(),
+            phase: egui::TouchPhase::Move,
+        });
+        h.run_steps(1);
+    }
+    let zoom = h.state().session.as_ref().unwrap().preview_view.zoom();
+    assert_eq!(zoom, terraflux_app::map_view::MAX_ZOOM);
+    drawn(&mut h);
+    shot(&mut h, "22-cell-values");
 }

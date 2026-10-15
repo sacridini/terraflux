@@ -38,6 +38,8 @@ pub enum Pane {
     Model,
     /// The operators' library.
     Operators,
+    /// The computer's folders: data dragged to the model.
+    Files,
     /// The node selected.
     Node,
     /// The data of the node selected put on the reference grid, or made drivers, in a click.
@@ -59,9 +61,10 @@ pub enum Pane {
 }
 
 impl Pane {
-    pub const ALL: [Pane; 10] = [
+    pub const ALL: [Pane; 11] = [
         Pane::Model,
         Pane::Operators,
+        Pane::Files,
         Pane::Node,
         Pane::Prepare,
         Pane::Viewer,
@@ -76,6 +79,7 @@ impl Pane {
         match self {
             Pane::Model => "Model",
             Pane::Operators => "Operators",
+            Pane::Files => "Files",
             Pane::Node => "Node",
             Pane::Prepare => "Prepare",
             Pane::Viewer => "Viewer",
@@ -89,15 +93,18 @@ impl Pane {
     }
 }
 
-/// The panes as they first are: the operators at the left edge, the node and the preparation of its data beside
-/// them, the model over the viewer in the rest (the others from the View menu; the maps of nodes open beside the
-/// viewer). The operators' pane closed, they are in a drawer at the left edge and in the toolbar.
+/// The panes as they first are: the operators (and the files, in a tab beside them) at the left edge, the node and
+/// the preparation of its data beside them, the model in the rest (the others from the View menu). The viewer opens
+/// in a tab beside the model's when the first data comes (a raster or vectors read, a template); the maps of nodes
+/// open beside the viewer. The operators' pane closed, they are in a drawer at the left edge and in the toolbar.
 pub fn default_layout() -> DockState<Pane> {
+    // the operators' and the node's panes a quarter narrower than they were (0.17 and 0.21 of the window)
+    const OPERATORS: f32 = 0.1275;
+    const NODE: f32 = 0.1556;
     let mut d = DockState::new(vec![Pane::Model]);
     let s = d.main_surface_mut();
-    let [model, _] = s.split_left(NodeIndex::root(), 0.17, vec![Pane::Operators]);
-    let [model, _] = s.split_left(model, 0.25, vec![Pane::Node, Pane::Prepare]);
-    let [_, _] = s.split_below(model, 0.5, vec![Pane::Viewer]);
+    let [model, _] = s.split_left(NodeIndex::root(), OPERATORS, vec![Pane::Operators, Pane::Files]);
+    let [_, _] = s.split_left(model, NODE / (1.0 - OPERATORS), vec![Pane::Node, Pane::Prepare]);
     d
 }
 
@@ -116,7 +123,7 @@ fn retain_panes(dock: &mut DockState<Pane>, keep: impl FnMut(&mut Pane) -> bool)
 }
 
 /// The version of the layout kept (a layout of another version is let go).
-const LAYOUT_VERSION: u32 = 6;
+const LAYOUT_VERSION: u32 = 7;
 
 /// A window of its own (another screen): its panes in a dock.
 pub struct Detached {
@@ -475,6 +482,8 @@ pub struct Session {
     pub opened: Vec<u64>,
     /// The map tabs to bring to the front (asked for again while open).
     pub raised: Vec<u64>,
+    /// The map tabs opened by a run (its plots): they do not take the front from the model's tab.
+    pub quiet: Vec<u64>,
     /// Outputs being saved (in threads): where, and what came of it; a word for the status bar and since when.
     saving: Vec<(PathBuf, Receiver<Result<PathBuf, String>>)>,
     pub notice: Option<(String, Instant)>,
@@ -584,6 +593,7 @@ impl Session {
             next_tab: 0,
             opened: Vec::new(),
             raised: Vec::new(),
+            quiet: Vec::new(),
             run_when_ready: false,
             saving: Vec::new(),
             notice: None,
@@ -896,8 +906,13 @@ impl Session {
                 Message::Done(r) => done = Some(r),
             }
         }
+        // (a plot open already is left where it is)
         for p in plots {
-            self.open_map(&p, "shown");
+            if !self.map_tabs.values().any(|t| t.node == p) {
+                let id = self.open_map(&p, "shown");
+                self.opened.retain(|&o| o != id);
+                self.quiet.push(id);
+            }
         }
         if let Some(r) = done {
             self.run = None;
@@ -1041,6 +1056,10 @@ pub struct TerrafluxApp {
     tabbed: bool,
     /// The operators' drawer is out (their pane closed, the pointer went to the window's left edge).
     pub drawer: bool,
+    /// The viewer was opened when the first data came (not again, if it is closed after).
+    viewer_opened: bool,
+    /// The Files pane's folder.
+    pub files: crate::files_view::Files,
     /// The model run many times (replicates, scenarios, calibration).
     pub batch: crate::batch_view::BatchState,
     /// The application's pool of workers, shared or not, and this computer lent to another.
@@ -1091,6 +1110,8 @@ impl TerrafluxApp {
             tab_back: None,
             tabbed: false,
             drawer: false,
+            viewer_opened: false,
+            files: crate::files_view::Files::default(),
             batch: crate::batch_view::BatchState::new(),
             computers: crate::computers::Computers::new(),
         };
@@ -1106,6 +1127,11 @@ impl TerrafluxApp {
                 self.session = Some(s);
                 self.message = None;
                 self.focus(Pane::Model);
+                // a model of data: its viewer beside it, the graph in front
+                self.viewer_opened = false;
+                if self.has_data() {
+                    self.add_viewer(false);
+                }
             }
             Err(e) => self.message = Some(e),
         }
@@ -1135,6 +1161,8 @@ impl TerrafluxApp {
         self.session = Some(s);
         self.message = None;
         self.focus(Pane::Model);
+        // what it makes, in the viewer
+        self.add_viewer(true);
     }
 
     /// Save the model (asking where when it has no file yet).
@@ -1836,6 +1864,65 @@ impl TerrafluxApp {
         }
     }
 
+    /// Files dragged from the system's file manager to a window: shown while they are over it, a node each that
+    /// reads it when they are let go (a model dropped is opened).
+    fn take_dropped(&mut self, ui: &Ui) {
+        let (dropped, over): (Vec<PathBuf>, usize) = ui.input(|i| {
+            (i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).collect(), i.raw.hovered_files.len())
+        });
+        if over > 0 {
+            let screen = ui.ctx().content_rect();
+            let p = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("files over")));
+            p.rect_filled(screen, 0.0, Color32::from_black_alpha(110));
+            p.rect_stroke(screen.shrink(6.0), 8.0, (2.0, theme::accent()), egui::StrokeKind::Inside);
+            let text =
+                if over == 1 { "a node that reads it".to_string() } else { format!("{over} nodes that read them") };
+            p.text(
+                screen.center(),
+                egui::Align2::CENTER_CENTER,
+                format!("Drop: {text}"),
+                egui::FontId::proportional(20.0),
+                Color32::WHITE,
+            );
+        }
+        if dropped.is_empty() {
+            return;
+        }
+        let Some(s) = &mut self.session else { return };
+        match crate::builder::add_files(s, &self.registry, &dropped) {
+            Some(model) => self.open(&model),
+            None => ui.ctx().request_repaint(),
+        }
+    }
+
+    /// The viewer opened (beside the model, in front), once, when the first data comes: a raster or vectors read,
+    /// a model with inputs, a template started.
+    fn open_viewer(&mut self) {
+        if !self.viewer_opened && self.has_data() {
+            self.add_viewer(true);
+        }
+    }
+
+    /// Whether the model reads data: inputs, or nodes that read rasters or vectors.
+    fn has_data(&self) -> bool {
+        self.session.as_ref().is_some_and(|s| {
+            !s.source.inputs.is_empty() || s.source.nodes.iter().any(|n| n.op == "raster.read" || n.op == "vector.read")
+        })
+    }
+
+    /// The viewer's tab opened beside the model's (if it is not open), in front or behind the tab in front.
+    fn add_viewer(&mut self, front: bool) {
+        self.viewer_opened = true;
+        if self.is_open(Pane::Viewer) {
+            return;
+        }
+        let before = self.focused();
+        self.focus(Pane::Viewer);
+        if !front {
+            self.focus(before.filter(|p| *p != Pane::Viewer).unwrap_or(Pane::Model));
+        }
+    }
+
     /// One frame of the application.
     pub fn frame(&mut self, ui: &mut Ui) {
         // the style of the settings (again when they change)
@@ -1854,6 +1941,7 @@ impl TerrafluxApp {
                 ui.ctx().request_repaint_after(Duration::from_millis(100));
             }
         }
+        self.open_viewer();
         // a batch goes on whether its pane is shown or not
         self.batch.poll();
         if self.batch.running() {
@@ -1919,6 +2007,7 @@ impl TerrafluxApp {
                 });
         }
         self.settings_window(ui.ctx());
+        self.take_dropped(ui);
         let area = ui.available_rect_before_wrap();
         egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::bar())).show(ui, |ui| self.docks(ui));
         self.drawer(ui.ctx(), area);
@@ -1940,6 +2029,11 @@ impl TerrafluxApp {
         match pane {
             Pane::Model => crate::builder::model_pane(ui, s, r),
             Pane::Operators => crate::builder::operators_pane(ui, s, r, lib),
+            Pane::Files => {
+                if let Some(crate::files_view::Asked::Open(p)) = crate::files_view::pane(ui, &mut self.files, s, r) {
+                    self.open(&p);
+                }
+            }
             Pane::Node => crate::builder::node_pane(ui, s, r),
             Pane::Prepare => crate::prepare_view::pane(ui, s, r),
             Pane::Viewer => {
@@ -1986,11 +2080,14 @@ impl TerrafluxApp {
     /// The map tabs asked for put in the dock (beside the viewer, else where the focus is); those of nodes no
     /// longer open taken away.
     fn place_map_tabs(&mut self) {
-        let (opened, raised, known): (Vec<u64>, Vec<u64>, Vec<u64>) = match &mut self.session {
-            Some(s) => {
-                (std::mem::take(&mut s.opened), std::mem::take(&mut s.raised), s.map_tabs.keys().copied().collect())
-            }
-            None => (Vec::new(), Vec::new(), Vec::new()),
+        let (opened, raised, quiet, known): (Vec<u64>, Vec<u64>, Vec<u64>, Vec<u64>) = match &mut self.session {
+            Some(s) => (
+                std::mem::take(&mut s.opened),
+                std::mem::take(&mut s.raised),
+                std::mem::take(&mut s.quiet),
+                s.map_tabs.keys().copied().collect(),
+            ),
+            None => (Vec::new(), Vec::new(), Vec::new(), Vec::new()),
         };
         let stale = |t: &mut Pane| !matches!(t, Pane::Map(id) if !known.contains(id));
         let dock = self.dock.get_or_insert_with(default_layout);
@@ -2000,7 +2097,10 @@ impl TerrafluxApp {
         }
         self.windows.retain(|w| w.dock.iter_all_tabs().next().is_some());
         for id in opened {
-            self.beside_viewer(Pane::Map(id));
+            self.beside_viewer(Pane::Map(id), true);
+        }
+        for id in quiet {
+            self.beside_viewer(Pane::Map(id), false);
         }
         // (brought to the front where it is, or put back if its window went away)
         for id in raised {
@@ -2009,17 +2109,24 @@ impl TerrafluxApp {
     }
 
     /// A tab put beside the viewer's wherever it is (in the main window or one of its own), else beside the maps
-    /// open, else where the focus is; brought to the front.
-    fn beside_viewer(&mut self, pane: Pane) {
+    /// open, else beside the model's, else where the focus is; brought to the front (not `front`: unless the model's tab is in front there).
+    fn beside_viewer(&mut self, pane: Pane, front: bool) {
         let is_map = |t: &Pane| matches!(t, Pane::Map(_));
         let dock = self.dock.get_or_insert_with(default_layout);
         for d in std::iter::once(dock).chain(self.windows.iter_mut().map(|w| &mut w.dock)) {
-            let at = d.find_tab(&Pane::Viewer).or_else(|| d.iter_all_tabs().find(|(_, t)| is_map(t)).map(|(p, _)| p));
+            let at = d
+                .find_tab(&Pane::Viewer)
+                .or_else(|| d.iter_all_tabs().find(|(_, t)| is_map(t)).map(|(p, _)| p))
+                .or_else(|| d.find_tab(&Pane::Model));
             if let Some(path) = at
                 && let Ok(leaf) = d.leaf_mut(path.node_path())
             {
+                let before = leaf.active;
+                let model = leaf.tabs().get(before.0) == Some(&Pane::Model);
                 leaf.append_tab(pane);
-                if let Some(p) = d.find_tab(&pane) {
+                if !front && model {
+                    leaf.active = before;
+                } else if let Some(p) = d.find_tab(&pane) {
                     let _ = d.set_active_tab(p);
                 }
                 return;
@@ -2047,18 +2154,24 @@ impl TerrafluxApp {
                 return;
             }
         }
-        // beside the pane it goes with: the maps and results by the viewer, the text by the model
+        // beside the pane it goes with: the maps and results by the viewer (else the model), the viewer by the model
         let dock = self.dock.get_or_insert_with(default_layout);
-        let near = match pane {
+        let near: &[Pane] = match pane {
             Pane::Simulation | Pane::Areas | Pane::Validation | Pane::Batch | Pane::Computers | Pane::Map(_) => {
-                Some(Pane::Viewer)
+                &[Pane::Viewer, Pane::Model]
             }
-            Pane::Viewer => Some(Pane::Model),
-            _ => None,
+            Pane::Viewer => &[Pane::Model],
+            Pane::Files => &[Pane::Operators],
+            _ => &[],
         };
-        match near.and_then(|n| dock.find_tab(&n)).map(|p| dock.leaf_mut(p.node_path())) {
+        match near.iter().find_map(|n| dock.find_tab(n)).map(|p| dock.leaf_mut(p.node_path())) {
             Some(Ok(leaf)) => leaf.append_tab(pane),
             _ => dock.push_to_focused_leaf(pane),
+        }
+        // in front, with the focus
+        if let Some(path) = dock.find_tab(&pane) {
+            let _ = dock.set_active_tab(path);
+            dock.set_focused_node_and_surface(path.node_path());
         }
     }
 
@@ -2148,13 +2261,18 @@ impl TerrafluxApp {
             && let Ok(mut l) = serde_json::from_str::<Layout>(&text)
             && l.version == LAYOUT_VERSION
         {
-            // the maps of nodes were of the last session
-            retain_panes(&mut l.main, |t| !matches!(t, Pane::Map(_)));
+            // the maps of nodes were of the last session; the viewer opens when there is data
+            let kept = |t: &Pane| !matches!(t, Pane::Map(_) | Pane::Viewer);
+            retain_panes(&mut l.main, |t| kept(t));
             self.dock = Some(l.main);
             for panes in l.windows {
-                for p in panes.into_iter().filter(|p| !matches!(p, Pane::Map(_))) {
+                for p in panes.into_iter().filter(kept) {
                     self.detach(p);
                 }
+            }
+            self.viewer_opened = false;
+            if self.has_data() {
+                self.add_viewer(false);
             }
         }
         self.layout_file = Some(path);
@@ -2200,8 +2318,10 @@ impl TerrafluxApp {
         // tabs dragged out of the dock (egui_dock's floating windows): windows of their own, to take anywhere
         let floating = floating_tabs(&mut dock);
         self.dock = Some(dock);
-        self.float_out(ui.ctx(), floating);
+        // (their windows shown from the next frame: their panes were drawn in the dock's floating window in this
+        // one)
         let mut windows = std::mem::take(&mut self.windows);
+        self.float_out(ui.ctx(), floating);
         let mut closed = Vec::new();
         let mut window_keys: Vec<Keys> = Vec::new();
         for (k, w) in windows.iter_mut().enumerate() {
@@ -2241,6 +2361,7 @@ impl TerrafluxApp {
                         .show_leaf_collapse_buttons(false)
                         .show_inside(ui, &mut Panes { app, moves, detached: true });
                 });
+                app.take_dropped(ui);
                 ui.input(|i| i.viewport().close_requested())
             });
             if close || w.dock.iter_all_tabs().next().is_none() {
@@ -2297,7 +2418,8 @@ pub(crate) fn node_panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
     };
     ui.horizontal(|ui| {
         let mut name = field(s, "id", n.id.clone());
-        ui.add(egui::TextEdit::singleline(&mut name).desired_width(140.0));
+        // (as wide as the pane lets it, beside its button)
+        ui.add(egui::TextEdit::singleline(&mut name).desired_width((ui.available_width() - 70.0).clamp(60.0, 140.0)));
         s.fields.insert("id".into(), name.clone());
         if ui.button("Rename").clicked() {
             change = Some(crate::editor::rename_node(&mut s.source, &path, &n.id, &name).map(|_| {
@@ -2355,7 +2477,7 @@ pub(crate) fn node_panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
         }
     });
     if sig.as_ref().is_some_and(|g| g.extra.is_some() || g.container) {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             let mut name = field(s, "new_input", String::new());
             ui.add(egui::TextEdit::singleline(&mut name).desired_width(100.0).hint_text("name"));
             let mut value = field(s, "new_value", String::new());

@@ -788,10 +788,24 @@ pub fn beside(nodes: &[Node], from: Option<&str>) -> [f32; 2] {
 /// Add a node of an operator next to the one selected, its first input fed by the selected node's first output
 /// that fits; it becomes the node selected.
 pub fn add(s: &mut Session, r: &Registry, op: &str, params: &[(&str, serde_json::Value)]) -> Result<String, String> {
+    add_at(s, r, op, params, None)
+}
+
+/// Add a node of an operator: at a place of the graph, if given (nothing connected to it), else as [`add`] does.
+pub fn add_at(
+    s: &mut Session,
+    r: &Registry,
+    op: &str,
+    params: &[(&str, serde_json::Value)],
+    at: Option<[f32; 2]>,
+) -> Result<String, String> {
     let path = s.editor.path.clone();
     let nodes = s.source.scope(&path).cloned().unwrap_or_default();
-    let from = s.selected.as_ref().and_then(|id| nodes.iter().find(|n| &n.id == id)).cloned();
-    let pos = beside(&nodes, from.as_ref().map(|n| n.id.as_str()));
+    let from = match at {
+        Some(_) => None,
+        None => s.selected.as_ref().and_then(|id| nodes.iter().find(|n| &n.id == id)).cloned(),
+    };
+    let pos = at.unwrap_or_else(|| beside(&nodes, from.as_ref().map(|n| n.id.as_str())));
     let id = crate::editor::add_node(&mut s.source, r, &path, op, pos)?;
     if let Some(n) = s.source.scope(&path).and_then(|v| v.iter().find(|n| n.id == id)).cloned() {
         for (k, v) in params {
@@ -932,6 +946,42 @@ pub fn open_data(s: &mut Session, r: &Registry) {
 pub fn is_vector(p: &std::path::Path) -> bool {
     p.extension().is_some_and(|e| VECTOR_EXTENSIONS.contains(&e.to_string_lossy().to_lowercase().as_str()))
 }
+
+/// Whether a file is a raster, by its extension.
+pub fn is_raster(p: &std::path::Path) -> bool {
+    p.extension()
+        .is_some_and(|e| terraflux_ops::files::RASTER_EXTENSIONS.contains(&e.to_string_lossy().to_lowercase().as_str()))
+}
+
+/// A node that reads a file (a raster's `raster.read`, vector features' `vector.read`), at a place of the graph or
+/// after the node selected (a file of neither kind: read as a raster, GDAL knows many more).
+pub fn add_file(s: &mut Session, r: &Registry, p: &Path, at: Option<[f32; 2]>) -> Result<String, String> {
+    let op = if is_vector(p) { "vector.read" } else { "raster.read" };
+    add_at(s, r, op, &[("path", p.to_string_lossy().into_owned().into())], at)
+}
+
+/// Files dropped on a window (from the system's file manager): a node each that reads it, one under the other
+/// (the folders left out); a model (`.toml`) is not data, it is given back to be opened.
+pub fn add_files(s: &mut Session, r: &Registry, files: &[PathBuf]) -> Option<PathBuf> {
+    let mut model = None;
+    let selected = s.selected.clone();
+    for p in files.iter().filter(|p| p.is_file()) {
+        if p.extension().is_some_and(|e| e.eq_ignore_ascii_case("toml")) {
+            model = Some(p.clone());
+            continue;
+        }
+        // each beside the node that was selected, under the one before
+        s.selected = selected.clone();
+        if let Err(e) = add_file(s, r, p, None) {
+            s.editor.message = Some(e);
+        }
+    }
+    model
+}
+
+/// A file dragged from the Files pane (`egui`'s drag and drop).
+#[derive(Debug, Clone)]
+pub struct DraggedFile(pub PathBuf);
 
 fn library(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library) {
     theme::section(ui, "Data");
@@ -1206,6 +1256,22 @@ fn bar(ui: &mut Ui, s: &mut Session, r: &Registry) {
 
 fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
     let shown = s.preview.clone();
+    // a file of the Files pane let go over the canvas: a node that reads it, there
+    let over = ui.max_rect();
+    if egui::DragAndDrop::has_payload_of_type::<DraggedFile>(ui.ctx()) {
+        let pointer = ui.input(|i| i.pointer.latest_pos()).filter(|p| over.contains(*p));
+        if let Some(p) = pointer {
+            ui.painter().rect_stroke(over.shrink(2.0), 4.0, (2.0, theme::accent()), egui::StrokeKind::Inside);
+            if ui.input(|i| i.pointer.any_released())
+                && let Some(f) = egui::DragAndDrop::take_payload::<DraggedFile>(ui.ctx())
+            {
+                let at = s.editor.graph_at(p).map(|q| [q.x - crate::editor_view::WIDTH / 2.0, q.y - 19.0]);
+                if let Err(e) = add_file(s, r, &f.0, at) {
+                    s.editor.message = Some(e);
+                }
+            }
+        }
+    }
     let actions = crate::editor_view::show(
         ui,
         &s.source,

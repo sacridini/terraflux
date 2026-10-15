@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 use egui_kittest::Harness;
 use terraflux_app::TerrafluxApp;
+use terraflux_app::app::Pane;
 use terraflux_graph::{Model, Node};
 
 /// A model of `n` nodes of map algebra, each reading the one before and another earlier one; placed in a grid
@@ -411,4 +412,86 @@ fn nodes_are_selected_moved_deleted_arranged_and_opened() {
     assert!(s.value_of("read", "raster").is_some());
     assert!(h.state().is_open(terraflux_app::app::Pane::Map(*id)));
     h.render().unwrap().save(PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("ui-13-map-tab.png")).unwrap();
+}
+
+/// A file dropped on a window from the system's file manager.
+#[derive(Debug)]
+struct Dropped(PathBuf);
+
+impl egui::DroppedFile for Dropped {
+    fn path(&self) -> &std::path::Path {
+        &self.0
+    }
+
+    fn bytes(&self) -> Result<Vec<u8>, String> {
+        std::fs::read(&self.0).map_err(|e| e.to_string())
+    }
+}
+
+#[test]
+fn files_become_nodes_and_rasters_join_a_stack_by_a_connection() {
+    let inputs = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/inputs");
+    let mut m = Model::new("stack");
+    let mut stack = Node::new("drivers", "stack.of");
+    stack.pos = Some([600.0, 0.0]);
+    m.nodes.push(stack);
+    let mut h = harness(open(&m, "canvas-files.toml"));
+    h.run_steps(3);
+    assert!(!h.state().is_open(Pane::Viewer), "no viewer before there is data");
+    // files dropped on the window (a raster and vector features; a folder is left out): a node that reads each
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
+    let geojson = dir.join("canvas-points.geojson");
+    std::fs::write(&geojson, r#"{"type":"FeatureCollection","features":[]}"#).unwrap();
+    for p in [inputs.join("sibuyan_landuse.tif"), geojson.clone(), inputs.clone()] {
+        h.input_mut().dropped_files.push(std::sync::Arc::new(Dropped(p)));
+    }
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    let read: Vec<(&str, &str)> =
+        s.source.nodes.iter().skip(1).map(|n| (n.op.as_str(), n.params["path"].as_str().unwrap())).collect();
+    let tif = inputs.join("sibuyan_landuse.tif").to_string_lossy().into_owned();
+    assert_eq!(read, [("raster.read", tif.as_str()), ("vector.read", geojson.to_str().unwrap())]);
+    let raster = s.source.nodes[1].id.clone();
+    // the first data: the viewer, in a tab beside the model's, in front
+    assert_eq!(h.state_mut().focused(), Some(Pane::Viewer));
+    h.state_mut().focus(Pane::Model);
+    // stack.of takes any maps: a connection let go on its place of a new input, or on the node, is one more
+    // input, named as the node it comes from
+    h.run_steps(3);
+    let from = editor(&h).screen_of_output(&raster, "map").unwrap();
+    let to = editor(&h).screen_of_input("drivers", "").unwrap();
+    drag(&mut h, from, to);
+    let ins = &h.state().session.as_ref().unwrap().source.nodes[0].inputs;
+    assert_eq!(ins.get(&raster), Some(&terraflux_graph::Source::Ref(format!("{raster}.map"))), "{ins:?}");
+    let to = editor(&h).screen_of("drivers").unwrap();
+    drag(&mut h, from, to);
+    let ins = &h.state().session.as_ref().unwrap().source.nodes[0].inputs;
+    assert_eq!(ins.get(&format!("{raster}_2")), Some(&terraflux_graph::Source::Ref(format!("{raster}.map"))));
+    // a raster of the Files pane carried to the canvas: a node where it is let go
+    let canvas = editor(&h).canvas().unwrap();
+    let at = canvas.center() + egui::vec2(0.0, 150.0);
+    h.hover_at(at);
+    h.run_steps(1);
+    egui::DragAndDrop::set_payload(&h.ctx, terraflux_app::builder::DraggedFile(inputs.join("sibuyan_drivers.tif")));
+    h.run_steps(1);
+    h.drag_at(at);
+    h.run_steps(1);
+    h.drop_at(at);
+    h.run_steps(2);
+    let s = h.state().session.as_ref().unwrap();
+    let last = s.source.nodes.last().unwrap();
+    assert_eq!(last.op, "raster.read");
+    assert!(last.params["path"].as_str().unwrap().ends_with("sibuyan_drivers.tif"));
+    let p = last.pos.unwrap();
+    let q = editor(&h).graph_at(at).unwrap();
+    assert!((p[0] + terraflux_app::editor_view::WIDTH / 2.0 - q.x).abs() < 1.0, "{p:?} {q:?}");
+}
+
+#[test]
+fn new_inputs_are_named_after_what_they_read() {
+    use terraflux_app::editor_view::new_input;
+    assert_eq!(new_input("elevation.map", &[]), "elevation");
+    assert_eq!(new_input("elevation.map", &["elevation", "elevation_2"]), "elevation_3");
+    assert_eq!(new_input("$t0", &[""]), "t0");
+    assert_eq!(new_input("@step", &[]), "step");
 }

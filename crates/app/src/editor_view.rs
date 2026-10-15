@@ -198,6 +198,13 @@ impl EditorState {
         self.rect
     }
 
+    /// The point of the graph (graph units) at a point of the screen over the canvas.
+    pub fn graph_at(&self, p: Pos2) -> Option<Pos2> {
+        let rect = self.rect.filter(|r| r.contains(p))?;
+        let cam = self.cameras.get(&self.path)?;
+        Some(((p - rect.min - cam.pan) / cam.zoom).to_pos2())
+    }
+
     /// Keep a node in view: the camera moved just enough that its box is on the canvas (with a margin).
     pub fn reveal(&mut self, node: &str) {
         let (Some(s), Some(rect)) = (self.scene.as_ref(), self.rect) else { return };
@@ -243,7 +250,8 @@ impl EditorState {
     }
 }
 
-/// An input port: its name, type, whether the operator needs it and whether something feeds it.
+/// An input port: its name, type, whether the operator needs it and whether something feeds it. A port of no
+/// name is the place of a new input, at the bottom of a node whose operator takes any (`stack.of`'s maps).
 struct Port {
     name: String,
     ty: Type,
@@ -484,10 +492,13 @@ impl Scene {
         let auto = if missing { auto_positions(nodes) } else { HashMap::new() };
         for n in nodes {
             let p = n.pos.unwrap_or_else(|| auto[&n.id]);
-            let inputs: Vec<Port> = editor::input_ports(n, r)
+            let mut inputs: Vec<Port> = editor::input_ports(n, r)
                 .into_iter()
                 .map(|(name, ty, required)| Port { connected: n.inputs.contains_key(&name), name, ty, required })
                 .collect();
+            if let Some(ty) = r.sig(&n.op).and_then(|s| s.extra) {
+                inputs.push(Port { name: String::new(), ty, required: false, connected: false });
+            }
             let outputs = editor::output_ports(n, r);
             let rows = inputs.len().max(outputs.len()).max(1);
             let rect = Rect::from_min_size(Pos2::new(p[0], p[1]), Vec2::new(WIDTH, HEAD + rows as f32 * ROW + 6.0));
@@ -694,6 +705,22 @@ impl Scene {
 
 type BTreeStatus = std::collections::BTreeMap<String, NodeStatus>;
 
+/// The name of a new input reading `reference`: the node it comes from (`elevation.map`: `elevation`), the model's
+/// input or the carried value; `_2`, `_3`... after it when a node has that name already.
+pub fn new_input(reference: &str, taken: &[&str]) -> String {
+    let base = match Ref::parse(reference) {
+        Ok(Ref::Port { node, .. }) => node,
+        Ok(Ref::Input(n) | Ref::Carried(n)) => n,
+        Err(_) => "input".to_string(),
+    };
+    let base: String = base.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-').collect();
+    let base = if base.is_empty() { "input".to_string() } else { base };
+    (1..)
+        .map(|k| if k == 1 { base.clone() } else { format!("{base}_{k}") })
+        .find(|n| !taken.contains(&n.as_str()))
+        .unwrap()
+}
+
 /// Draw the scope; what the user did. `revision` and `status_rev` change when the model and the nodes' states
 /// do (the scene is made again then only).
 #[allow(clippy::too_many_arguments)]
@@ -826,15 +853,24 @@ pub fn show(
         _ => None,
     };
     if resp.drag_stopped() {
-        if let (Some(Drag::Connect(reference, _)), Some(q)) = (&st.drag, pointer)
-            && let Some(Hit::Input(i, k)) = scene.hit(to_world(q, cam), reach(cam))
-        {
-            let b = &scene.boxes[i];
-            actions.push(Action::Connect {
-                reference: reference.clone(),
-                node: b.key.clone(),
-                port: b.inputs[k].name.clone(),
-            });
+        if let (Some(Drag::Connect(reference, _)), Some(q)) = (&st.drag, pointer) {
+            // on an input; on a node that takes any (its place of a new input, or anywhere on it): a new one,
+            // named as what it reads
+            let port = match scene.hit(to_world(q, cam), reach(cam)) {
+                Some(Hit::Input(i, k)) if !scene.boxes[i].inputs[k].name.is_empty() => {
+                    Some((i, scene.boxes[i].inputs[k].name.clone()))
+                }
+                Some(Hit::Input(i, _) | Hit::Head(i) | Hit::Body(i))
+                    if scene.boxes[i].inputs.last().is_some_and(|p| p.name.is_empty()) =>
+                {
+                    let names: Vec<&str> = scene.boxes[i].inputs.iter().map(|p| p.name.as_str()).collect();
+                    Some((i, new_input(reference, &names)))
+                }
+                _ => None,
+            };
+            if let Some((i, port)) = port {
+                actions.push(Action::Connect { reference: reference.clone(), node: scene.boxes[i].key.clone(), port });
+            }
         }
         // the nodes in the box: the selection (added to it with shift or ctrl)
         if let Some(r) = boxed {
@@ -943,12 +979,17 @@ pub fn show(
                 );
             }
             for (k, p) in b.inputs.iter().enumerate() {
+                let (name, colour) = if p.name.is_empty() {
+                    ("+ new input", v.weak_text_color())
+                } else {
+                    (p.name.as_str(), v.text_color())
+                };
                 painter.text(
                     screen(b.input_at(k)) + Vec2::new(9.0, 0.0) * cam.zoom,
                     Align2::LEFT_CENTER,
-                    &p.name,
+                    name,
                     FontId::monospace(size(11.0)),
-                    v.text_color(),
+                    colour,
                 );
             }
             for (k, (name, _)) in b.outputs.iter().enumerate() {
@@ -1032,6 +1073,9 @@ pub fn show(
             }
             Some(Hit::Input(i, k)) if scene.boxes[i].inputs[k].connected => {
                 resp.clone().on_hover_text_at_pointer("drag the connection away, or right-click, to disconnect it");
+            }
+            Some(Hit::Input(i, k)) if scene.boxes[i].inputs[k].name.is_empty() => {
+                resp.clone().on_hover_text_at_pointer("drop a connection here (or on the node) for one more input");
             }
             _ => {}
         }

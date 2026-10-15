@@ -42,6 +42,8 @@ pub struct Settings {
     pub lend_code: String,
     pub lend_threads: Option<usize>,
     pub lend_idle: Option<f64>,
+    /// The folder the Files pane shows.
+    pub files_dir: Option<PathBuf>,
 }
 
 impl Default for Settings {
@@ -58,6 +60,7 @@ impl Default for Settings {
             lend_code: String::new(),
             lend_threads: None,
             lend_idle: None,
+            files_dir: None,
         }
     }
 }
