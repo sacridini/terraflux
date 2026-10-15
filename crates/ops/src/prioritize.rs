@@ -1089,8 +1089,8 @@ impl Operator for Marxan {
              and final score",
         ))
         .output(PortSpec::new("penalties", Type::Table, "per feature: its id, target and penalty"))
-        .output(PortSpec::new("map", Type::Map, "maps: the best run's reserve (1 in, 0 out)"))
-        .output(PortSpec::new("frequency_map", Type::Map, "maps: how often each cell was selected"))
+        .output(PortSpec::optional("map", Type::Map, "maps: the best run's reserve (1 in, 0 out)"))
+        .output(PortSpec::optional("frequency_map", Type::Map, "maps: how often each cell was selected"))
         .param(PortSpec::optional("blm", Type::Number, "the boundary length modifier (default 0)"))
         .param(PortSpec::optional(
             "prop",
@@ -1382,8 +1382,8 @@ impl Operator for Proxirr {
             "per feature in a unit: species, pu, amount, the feature's global amount and target, alpha",
         ))
         .output(PortSpec::new("targets", Type::Table, "per feature: its id, global amount and target"))
-        .output(PortSpec::new("beta", Type::Map, "maps: each cell's beta"))
-        .output(PortSpec::new("gamma", Type::Map, "maps: each cell's gamma"))
+        .output(PortSpec::optional("beta", Type::Map, "maps: each cell's beta"))
+        .output(PortSpec::optional("gamma", Type::Map, "maps: each cell's gamma"))
         .param(PortSpec::optional("prop", Type::Any, "maps: the targets as a share of each feature's total"))
         .param(PortSpec::optional("targets", Type::Any, "maps: the features' targets (amounts)"))
         .param(PortSpec::optional(
@@ -3453,7 +3453,12 @@ impl Operator for Calibrate {
         .param(PortSpec::optional("spatial", Type::Any, "other penalties and constraints, as prioritize.optimize's"))
         .param(PortSpec::optional("gap", Type::Number, "the candidates' optimality gap (default 0.1)"))
         .param(PortSpec::optional("ideal_gap", Type::Number, "the least cost and Cohon's ideal solutions' gap (0)"))
-        .param(PortSpec::optional("time_limit", Type::Number, "seconds per solve (default none)"))
+        .param(PortSpec::optional(
+            "time_limit",
+            Type::Number,
+            "seconds per solve (default none, as prioritizr: a strong penalty can make a solve take hours; the \
+             candidates stopped by it are marked not optimal, with their gap)",
+        ))
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
@@ -3487,7 +3492,13 @@ impl Operator for Calibrate {
                 })
                 .collect()
         };
-        let p0 = problem(&base)?;
+        // pareto solves min shortfall within each budget whatever objective was given (min_shortfall itself, with
+        // no budget yet): the problem's units and targets read as a min set
+        let p0 = if approach == "pareto" {
+            problem(&Self::with_objective(&base, "min_set", None))?
+        } else {
+            problem(&base)?
+        };
         let u = &p0.units;
         if u.zoned() {
             return Err(err("the calibration does not support zones yet".into()));

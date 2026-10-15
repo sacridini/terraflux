@@ -424,6 +424,8 @@ pub fn as_port(v: Value, want: Type) -> Result<Value> {
     match (v, want) {
         (Value::Raster(r), Type::Stack) => Ok(Value::Stack(r.stack()?)),
         (Value::Raster(r), Type::Raster) => Ok(Value::Raster(r)),
+        // a port of any value: every band of rasters of many (a stack), not only the first
+        (Value::Raster(r), Type::Any) if r.layers.len() > 1 => Ok(Value::Stack(r.stack()?)),
         (Value::Raster(r), _) => Ok(Value::Map(r.map()?)),
         (v, _) => Ok(v),
     }
@@ -668,7 +670,16 @@ pub fn copy_as(r: &Rasters, path: &Path, wanted: Option<DataType>, product: Opti
     } else {
         r.layers[0].nodata.filter(|n| !n.is_nan()).or(Some(dtype.range().1))
     };
-    let names = r.layers.iter().map(|l| Some(l.name.clone())).collect();
+    // the layers' names as the bands' descriptions, but for a band that had none (its number stood for it)
+    let names = r
+        .layers
+        .iter()
+        .map(|l| {
+            let described =
+                r.images.get(l.image).and_then(|i| i.meta().bands.get(l.band)).is_none_or(|b| b.name.is_some());
+            (described || l.name != l.band.to_string()).then(|| l.name.clone())
+        })
+        .collect();
     let err = |e: terraflux_raster::Error| Error::msg(format!("{}: {e}", path.display()));
     let mut grid = (*r.grid).clone();
     if product.is_some() {

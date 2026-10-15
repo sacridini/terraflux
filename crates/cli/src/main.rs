@@ -35,14 +35,16 @@ enum Command {
         /// The folder of the outputs (default: `output` next to the model).
         #[arg(short, long)]
         out: Option<PathBuf>,
-        /// Replace an input: `name=path` for a file, `name=value` (JSON) for a value; e.g. `--set seed=7`.
+        /// Replace an input (`name=path` for a file, `name=value` (JSON) for a value) or a node's setting
+        /// (`node.setting=value`); e.g. `--set seed=7`, `--set patches.isometry=2`.
         #[arg(long = "set", value_name = "NAME=VALUE")]
         set: Vec<String>,
         /// Print only errors.
         #[arg(short, long)]
         quiet: bool,
-        /// Run on tiles (maps larger than memory; Dinamica EGO's model): the same maps with any tiling,
-        /// statistically equivalent to the exact engine.
+        /// Run on tiles (maps larger than memory; Dinamica EGO's model): the same maps with any number of
+        /// threads or machines (the tile size changes the patches a fit measures), statistically equivalent to
+        /// the exact engine.
         #[arg(long)]
         tiled: bool,
         /// The side of the tiles (cells).
@@ -411,7 +413,14 @@ fn new_lulcc(a: &LulccArgs, ordered: bool) -> Result<Model> {
     let mut m = Model::new(if ordered { "Ordered allocation (lulcc)" } else { "CLUE-S (lulcc)" });
     m.inputs.insert("observed".into(), stack_input(&a.observed, &dir, "the observed maps, one band per date")?);
     m.inputs.insert("drivers".into(), stack_input(&a.drivers, &dir, "the explanatory variables")?);
-    let start = a.start.clone().unwrap_or_else(|| format!("{}:0", a.observed));
+    // by default the first observed band, by its name when it has one (its index otherwise)
+    let start = a.start.clone().unwrap_or_else(|| {
+        let first = terraflux_ops::files::Rasters::open(&a.observed, None, None)
+            .ok()
+            .and_then(|r| r.layers.first().map(|l| l.name.clone()))
+            .unwrap_or_else(|| "0".into());
+        format!("{}:{first}", a.observed)
+    });
     m.inputs.insert("start".into(), map_input(&start, &dir, "the map the simulation starts from")?);
     m.inputs
         .insert("seed".into(), Input::Value { value: a.seed.into(), note: Some("set.seed() of R's generator".into()) });
@@ -584,10 +593,20 @@ fn main() -> Result<()> {
                 }
                 return Ok(());
             }
+            // `name=value` replaces an input; `node.setting=value` a node's setting (as a scenario's)
             let mut overrides = BTreeMap::new();
+            let mut settings = BTreeMap::new();
             for s in &set {
                 let (k, v) = s.split_once('=').with_context(|| format!("--set {s}: give name=value"))?;
-                overrides.insert(k.to_string(), v.to_string());
+                if k.contains('.') {
+                    let v = serde_json::from_str(v).unwrap_or_else(|_| serde_json::Value::String(v.to_string()));
+                    settings.insert(k.to_string(), v);
+                } else {
+                    overrides.insert(k.to_string(), v.to_string());
+                }
+            }
+            if !settings.is_empty() {
+                m.apply(&settings)?;
             }
             let t = Instant::now();
             let inputs = load_inputs(&m, &dir, &overrides)?;

@@ -92,7 +92,15 @@ fn progress(p: Progress) {
         Progress::Workers(n) => eprintln!("{n} workers on this machine"),
         Progress::Sending => {}
         Progress::Cluster(what) => eprintln!("{what}"),
-        Progress::Submitted { job, total } => eprintln!("job {job}: {total} tasks"),
+        // a batch submitted then followed is announced by both: once is enough
+        Progress::Submitted { job, total } => {
+            static LAST: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+            let mut last = LAST.lock().unwrap();
+            if last.as_deref() != Some(job.as_str()) {
+                eprintln!("job {job}: {total} tasks");
+                *last = Some(job);
+            }
+        }
         Progress::Status(s) => {
             eprintln!("  {} of {} done, {} running, {} failed", s.done, s.total, s.running, s.failed)
         }
@@ -128,8 +136,26 @@ pub async fn serve(
     eprintln!("coordinator {} listening on {addr}, its jobs kept in {}", coordinator::VERSION, dir.display());
     let _beacons = match &code {
         Some(c) => {
-            eprintln!("its code: {c}\nstart workers with `terraflux worker --code {c}` (on this network)");
-            (beacons && !listen.ip().is_loopback())
+            let found = beacons && !listen.ip().is_loopback();
+            eprintln!("its code: {c}");
+            // found by its code only when it says where it is on the network (not from 127.0.0.1)
+            if found {
+                eprintln!("start workers with `terraflux worker --code {c}` (on this network)");
+            } else if listen.ip().is_loopback() {
+                eprintln!(
+                    "start workers on this computer with `terraflux worker --coordinator {addr} --code {c}` \
+                     (listening on {}, it is not seen from other computers: --listen 0.0.0.0:{} for them)",
+                    listen.ip(),
+                    addr.port()
+                );
+            } else {
+                eprintln!(
+                    "start workers with `terraflux worker --coordinator <this host>:{} --code {c}` (no beacons: \
+                     it is not found by its code alone)",
+                    addr.port()
+                );
+            }
+            found
                 .then(|| terraflux_dist::discover::announce(c, addr.port(), terraflux_dist::discover::PORT))
                 .transpose()?
         }
@@ -199,15 +225,23 @@ async fn client(coordinator: Option<String>, code: Option<String>) -> Result<Cli
 
 pub async fn workers(coordinator: Option<String>, code: Option<String>) -> Result<()> {
     let mut c = client(coordinator, code).await?;
-    for w in c.workers().await? {
+    let list = c.workers().await?;
+    if list.is_empty() {
+        eprintln!("no workers: start one with `terraflux worker` and the coordinator's address or code");
+    }
+    for w in list {
+        // a worker asks for tasks every few seconds and sends heartbeats while it runs one: one silent for
+        // longer has stopped, or lost the network (the coordinator forgets it after a while)
+        let state = if w.seen_seconds_ago > 30.0 {
+            "silent (stopped?)".to_string()
+        } else if w.task.is_empty() {
+            "idle".to_string()
+        } else {
+            format!("running {}", w.task)
+        };
         println!(
             "{}\t{}\t{} threads\t{} tasks done\t{}\tseen {:.0} s ago",
-            w.id,
-            w.name,
-            w.threads,
-            w.done,
-            if w.task.is_empty() { "idle".to_string() } else { format!("running {}", w.task) },
-            w.seen_seconds_ago
+            w.id, w.name, w.threads, w.done, state, w.seen_seconds_ago
         );
     }
     Ok(())
@@ -318,7 +352,11 @@ pub struct Calibrate {
 pub async fn calibrate(a: &Calibrate) -> Result<()> {
     let model = Model::load_expanded(&a.model).with_context(|| format!("reading {}", a.model.display()))?;
     let base = a.model.parent().map(Path::to_path_buf).unwrap_or_default();
-    let params: Vec<Param> = a.params.iter().map(|p| Param::parse(p, a.n)).collect::<terraflux_dist::Result<_>>()?;
+    let params: Vec<Param> = a
+        .params
+        .iter()
+        .map(|p| Param::parse(p, a.n).map(|p| p.typed_by(&model)))
+        .collect::<terraflux_dist::Result<_>>()?;
     let candidates = match a.method.as_str() {
         "grid" => batch::grid(&params),
         "random" => batch::random(&params, a.n, 1),

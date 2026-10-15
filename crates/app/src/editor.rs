@@ -154,7 +154,7 @@ pub fn remove_node(m: &mut Model, path: &[String], id: &str) -> Result<()> {
 /// Connect a reference (`$input`, `@carried`, `node.port`) to a node's input port, checked.
 pub fn connect(m: &mut Model, r: &Registry, path: &[String], reference: &str, node: &str, port: &str) -> Result<()> {
     Ref::parse(reference).map_err(|e| e.to_string())?;
-    if !valid_id(port) {
+    if !terraflux_graph::valid_port(port) {
         return Err(format!("{port:?} is not a valid port name"));
     }
     let at = format!("{}{node}", prefix(path));
@@ -185,6 +185,14 @@ pub fn set_literal(m: &mut Model, r: &Registry, path: &[String], node: &str, por
         node_mut(c, path, node)?.inputs.insert(port.to_string(), Source::Literal(value_of(text)));
         Ok(())
     })
+}
+
+/// Set a node's note, why it is there (empty text: no note).
+pub fn set_note(m: &mut Model, path: &[String], node: &str, text: &str) -> Result<()> {
+    let n = node_mut(m, path, node)?;
+    let t = text.trim();
+    n.note = if t.is_empty() { None } else { Some(t.to_string()) };
+    Ok(())
 }
 
 /// Set a setting (empty text: remove it).

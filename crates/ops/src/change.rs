@@ -125,9 +125,9 @@ impl Operator for Fos {
         OpSignature::new(
             "change.fos",
             "The change of fragmentation between two FOS maps (fragmentation.fos, or FAD) of the same windows, as \
-             GuidosToolbox: on the foreground of both dates the change of its connectivity + 100 (100 none), 250 \
-             foreground gained, 251 lost, 252 stable background, 254 missing; and how the foreground moved \
-             between the classes rare to intact.",
+             GuidosToolbox: on the foreground of both dates 100 + its connectivity before - after (100 no change, \
+             above 100 a loss of connectivity, below 100 a gain), 250 foreground gained, 251 lost, 252 stable \
+             background, 254 missing; and how the foreground moved between the classes rare to intact.",
             Access::Global,
         )
         .input(PortSpec::new("before", Type::Map, "the FOS map at the first date"))

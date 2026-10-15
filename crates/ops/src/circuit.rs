@@ -334,8 +334,8 @@ impl Operator for Omniscape {
         .input(PortSpec::optional("condition2", Type::Map, "a second condition"))
         .input(PortSpec::optional("condition2_future", Type::Map, "its future values"))
         .output(PortSpec::new("current", Type::Map, "the cumulative current (cum_currmap)"))
-        .output(PortSpec::new("flow_potential", Type::Map, "the flow potential (flow_potential: true)"))
-        .output(PortSpec::new("normalized", Type::Map, "the current over the flow potential (normalized_current)"))
+        .output(PortSpec::optional("flow_potential", Type::Map, "the flow potential (flow_potential: true)"))
+        .output(PortSpec::optional("normalized", Type::Map, "the current over the flow potential (normalized_current)"))
         .param(PortSpec::new("radius", Type::Number, "the window's radius, in cells"))
         .param(PortSpec::optional("block_size", Type::Number, "targets every this many cells, odd (1)"))
         .param(PortSpec::optional("buffer", Type::Number, "cells beyond the radius in each window (0)"))
@@ -780,7 +780,8 @@ impl Operator for OneToAll {
              for every focal point in turn, 1 A (or its strength) injected there with every other point a direct \
              ground (one-to-all), or the point grounded and the others injecting (all-to-one); the voltage over \
              the strength at each point (one-to-all), the cumulative and largest current maps when asked. \
-             Circuitscape's quirks kept (strengths by position).",
+             Circuitscape's quirks kept (strengths by position); all-to-one measures no resistances, so its \
+             table's `value` column is 0, as Circuitscape's: read its current maps.",
             Access::Global,
         ))
         .param(PortSpec::optional("all_to_one", Type::Bool, "all-to-one instead of one-to-all"))
@@ -1340,13 +1341,13 @@ impl Operator for NetworkPairwise {
             Access::None,
         ))
         .output(PortSpec::new("resistances", Type::Table, "a row per focal node: its id, then its resistances"))
-        .output(PortSpec::new(
+        .output(PortSpec::optional(
             "cum_node_currents",
             Type::Table,
             "with current_maps: node, current summed over the pairs",
         ))
-        .output(PortSpec::new("cum_branch_currents", Type::Table, "with current_maps: from, to, current"))
-        .output(PortSpec::new("maps", Type::Any, "with the map options: each pair's values (JSON)"))
+        .output(PortSpec::optional("cum_branch_currents", Type::Table, "with current_maps: from, to, current"))
+        .output(PortSpec::optional("maps", Type::Any, "with the map options: each pair's values (JSON)"))
         .param(PortSpec::new("focal_nodes", Type::Any, "the focal node numbers, or the path of Circuitscape's file"))
         .param(PortSpec::optional("included_pairs", Type::Text, "Circuitscape's include / exclude pairs file"))
         .param(PortSpec::optional("voltage_maps", Type::Bool, "every pair's node voltages"))

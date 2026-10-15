@@ -319,12 +319,27 @@ impl Operator for TableOf {
 /// `stack.of`: maps of a grid as one stack.
 struct Of;
 
+/// A layer's key from its name: a transition (`1_to_2`), a class (`1`) or a name.
+fn key_of_name(name: &str) -> Key {
+    let num = |t: &str| t.parse::<f64>().ok().filter(|x| x.is_finite());
+    if let Some((a, b)) = name.split_once("_to_")
+        && let (Some(a), Some(b)) = (num(a), num(b))
+    {
+        return Key::Transition(a, b);
+    }
+    match num(name) {
+        Some(c) => Key::Class(c),
+        None => Key::Name(name.to_string()),
+    }
+}
+
 impl Operator for Of {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "stack.of",
             "Maps of one grid as a stack, a layer each named as its input (any names: the features of a \
-             prioritization, the drivers of a model), in the order of their names.",
+             prioritization, the drivers of a model), in the order of their names. A name `1_to_2` makes the \
+             layer a transition's (a probability for dinamica.step), a name `1` a class's (a suitability).",
             Access::Local,
         )
         .extra(Type::Map)
@@ -342,7 +357,7 @@ impl Operator for Of {
             if (g.width, g.height) != (m.grid.width, m.grid.height) {
                 return Err(Error::msg(format!("node {:?}: {name} is not on the grid of the others", args.node)));
             }
-            keys.push(Key::Name(name.clone()));
+            keys.push(key_of_name(name));
             layers.push(m.data.clone());
         }
         let grid = grid.ok_or_else(|| Error::msg(format!("node {:?}: no maps", args.node)))?;

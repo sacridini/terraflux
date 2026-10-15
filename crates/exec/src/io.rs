@@ -135,8 +135,8 @@ fn json<T: serde::Serialize>(v: &T) -> Result<String> {
 }
 
 /// Write a value to `path` (its extension set from the kind of value): maps and series of maps as GeoTIFF,
-/// tables as CSV, vectors as GeoPackage (or the vector format of the path's extension), fitted models and numbers
-/// as JSON.
+/// tables as CSV, vectors as GeoPackage (or the vector format of the path's extension), texts as plain text,
+/// fitted models and numbers as JSON.
 pub fn write_value(value: &Value, path: &Path, dtype: Option<&str>) -> Result<PathBuf> {
     match value {
         Value::Map(m) => write_maps(&m.grid, vec![(None, &m.data)], path, dtype),
@@ -191,7 +191,8 @@ pub fn write_value(value: &Value, path: &Path, dtype: Option<&str>) -> Result<Pa
         Value::Number(x) => write_text(path, "json", &json(x)?),
         Value::Integer(x) => write_text(path, "json", &json(x)?),
         Value::Bool(x) => write_text(path, "json", &json(x)?),
-        Value::Text(x) => write_text(path, "json", &json(x)?),
+        // a text as it reads (a report, GuidosToolbox's text), not quoted as JSON
+        Value::Text(x) => write_text(path, "txt", x),
         Value::Json(x) => write_text(path, "json", &json(x)?),
         Value::Series(_) => Err(Error::Model("a series of mixed values cannot be written".into())),
         Value::Rng(_) | Value::NumpyRng(_) => Err(Error::Model("a random generator cannot be written".into())),

@@ -585,10 +585,13 @@ fn tasks(st: &BatchState, knobs: &[Knob]) -> Result<(Vec<TaskOf>, Option<Plan>),
             let mut params = Vec::new();
             for r in &st.ranges {
                 let points = r.points.trim().parse::<usize>().unwrap_or(5);
-                params.push(
-                    Param::parse(&format!("{}={}:{}:{}", r.key, r.from.trim(), r.to.trim(), points), points)
-                        .map_err(|e| format!("{}: {e}", r.key))?,
-                );
+                let mut p = Param::parse(&format!("{}={}:{}:{}", r.key, r.from.trim(), r.to.trim(), points), points)
+                    .map_err(|e| format!("{}: {e}", r.key))?;
+                // whole numbers or not as the model's value is (0 to 1 of a share: decimals)
+                if let Some(v) = knobs.iter().find(|k| k.key == r.key).map(|k| &k.value).filter(|v| v.is_number()) {
+                    p.integer = v.is_i64() || v.is_u64();
+                }
+                params.push(p);
             }
             let candidates = if st.random { batch::random(&params, st.draws.max(1), 1) } else { batch::grid(&params) };
             let list: Vec<i64> = st

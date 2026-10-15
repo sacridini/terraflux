@@ -296,7 +296,9 @@ exact engine's to the bit (they are sums over the tiles); the patches a fit meas
 Its allocation draws random numbers by counter and finds the seeds of the patches from histograms summed over
 the tiles, so with the same fitted pieces the same seed gives the same maps whatever the tiling and the number
 of machines, statistically equivalent to the exact engine's (the same areas of change, a similar fuzzy
-similarity). Patches grow within `--radius` cells of their seed.
+similarity). Patches grow within `--radius` cells of their seed. A model that fits its patches in the run
+measures them within the tiles, so its maps change a little with `--tile` (not with the threads or the
+machines): keep the tile size when comparing runs.
 
 On many machines, the tiles go to a coordinator's workers; the maps and the layers' tiles go to them through
 the coordinator (no storage in common needed; `--shared-disk` when they share it at the same paths):

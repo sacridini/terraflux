@@ -22,6 +22,44 @@ minor versions.
 ### Changed
 - The Templates menu in groups: patterns, landscape metrics, connectivity, conservation and restoration,
   species, land change, surfaces and uncertainty.
+- `terraflux run --set node.setting=value` changes a node's setting, as a scenario does (`--set name=value` an
+  input, as before).
+- `terraflux calibrate` (and the Many runs pane) makes a range's values whole numbers when the model's value of
+  the setting is one and decimals when it is not (`patches.expansion=0:1` of a share tries 0, 0.25, 0.5...), and
+  rounds them to 12 significant digits (0.7, not 0.7000000000000001).
+- `terraflux check` reports a setting written as a reference (`edge_width = "$x"`): settings take values.
+- Map algebra: the radius of `nbsum nbmean nbmin nbmax nbcount` may be a number input (`nbmean(x, r)`).
+- `stack.of` takes inputs named by numbers: `1_to_2` makes the layer a transition's (a probability for
+  `dinamica.step`, so map algebra can make them), `1` a class's.
+- `batch.run`'s table has a column `skipped` (inputs done before, not run again), and its report says so.
+- A multi-band raster connected to an input of any type arrives as a stack of every band, not its first.
+- A run writes its text outputs as plain text (`name.txt`), not as a JSON string.
+- The node's note is edited in the Node pane ("Why").
+- `terraflux serve --code` says how to start workers for its address (no beacons on 127.0.0.1), `terraflux
+  workers` says when there are none and marks those not heard of for 30 s as silent, and `terraflux submit` prints
+  its job once.
+- `terraflux cloud-init --worker`: the worker service runs as an unprivileged user (systemd's `DynamicUser`).
+- `terraflux new clue` and `new ordered` write the start band by its name when the observed file has band names.
+
+### Fixed
+- A model no longer stops when an output given only with some settings or inputs is missing and nothing reads
+  it; a node that reads it is told why. This was the cause of `gave no output` with `metrics.class` and
+  `metrics.patch` without `show` or by blocks, `bio.cluster` without calculations, Marxan's and ProxIRR's tables
+  mode, Omniscape without its flow potential, and circuit networks without their maps.
+- The templates counted neighbours in a state with `nbcount` (cells with a value) where `nbsum` was meant: the
+  city of "A city that grows" spread to every suitable cell, and the land change templates' second date grew
+  farming almost everywhere. The CLUE-S template takes a smaller iteration step (lulcc's default never met the
+  demand on its 25,600 cells).
+- The names of the landscape mosaic's classes 6 to 12 (two of them shared one), as landschaft 55d03a8.
+- `sdm.maxnet` with a records table on `data` no longer takes the coordinates, the folds and the weights as
+  predictors.
+- `prioritize.calibrate`'s pareto approach takes any objective (it always solves min shortfall within budgets).
+- A raster on disk written by `raster.write` no longer has its band's number as its description.
+- The descriptions of `change.fos` (the sign of its change), `networks.gtn_importance` (within 1, 5, 10 % of the
+  most important), `conn.*` (least-cost distances between centroids; importance without measuring distances
+  again), `circuit.one_to_all` (all-to-one gives no resistances), `nlm.random_cluster`, `sdm.exdet` (mic is
+  1-based), `sdm.fit`'s feature classes and `prioritize.calibrate`'s time limit; the README and `run --tiled` on
+  what the tile size changes.
 
 ## [0.79.0] - 2026-10-14
 

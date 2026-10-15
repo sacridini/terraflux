@@ -209,7 +209,8 @@ impl Operator for Exdet {
             "sdm.exdet",
             "Mesgaran's extrapolation detection (landschaft's exdet): NT1, below 0 where a predictor falls outside \
              the reference's range, and inside the ranges NT2, the Mahalanobis distance against the reference's \
-             largest (above 1 a novel combination); mic, the most influential covariate.",
+             largest (above 1 a novel combination); mic, the most influential covariate, by its 1-based place \
+             among the predictors (0: no novelty).",
             Access::Global,
         ))
     }
@@ -430,6 +431,10 @@ fn training(args: &Args) -> Result<(Frame, Vec<f64>)> {
             f.names.iter().position(|n| *n == presence).ok_or_else(|| bad(args, format!("no column {presence:?}")))?;
         f.names.remove(k);
         let y = f.columns.remove(k);
+        // records of sdm.dataset carry their coordinates and folds: not predictors (as sdm.fit leaves them out)
+        let keep: Vec<String> =
+            f.names.iter().filter(|n| !NOT_PREDICTORS.contains(&n.to_lowercase().as_str())).cloned().collect();
+        let f = f.select(&keep).map_err(|e| bad(args, e))?;
         return Ok((f, y));
     }
     let (Some(Value::Table(p)), Some(Value::Table(b))) = (args.get("presences"), args.get("background")) else {
@@ -1015,7 +1020,13 @@ fn records_xy(args: &Args) -> Result<(Frame, Vec<f64>, Option<Vec<f64>>)> {
 
 fn maxnet_settings(sig: OpSignature) -> OpSignature {
     sig.param(PortSpec::optional("categorical", Type::Any, "the predictors that are categories (classes)"))
-        .param(PortSpec::optional("classes", Type::Text, "the feature classes: default, or letters of l, q, p, h, t"))
+        .param(PortSpec::optional(
+            "classes",
+            Type::Text,
+            "the feature classes: default (maxnet's, by each fit's presences: l, lq, lqh or lqph; with \
+             cross-validation a fold's model may get fewer than the final one: give the letters to fix them), or \
+             letters of l, q, p, h, t",
+        ))
         .param(PortSpec::optional("regmult", Type::Number, "the regularisation multiplier (default 1)"))
         .param(PortSpec::optional(
             "add_samples_to_background",

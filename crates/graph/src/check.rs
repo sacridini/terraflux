@@ -211,7 +211,7 @@ impl<'a> Checker<'a> {
                 let want = match sig.input_spec(port) {
                     Some(p) => p.ty,
                     None if carried => Type::Any,
-                    None if sig.extra.is_some() && valid_id(port) => sig.extra.unwrap(),
+                    None if sig.extra.is_some() && crate::valid_port(port) => sig.extra.unwrap(),
                     None => {
                         self.error(&at, format!("{} has no input {port:?}", n.op));
                         continue;
@@ -233,9 +233,20 @@ impl<'a> Checker<'a> {
                 }
             }
             let known: BTreeSet<&str> = sig.params.iter().map(|p| p.name.as_str()).collect();
-            for k in n.params.keys() {
+            for (k, v) in &n.params {
                 if !known.contains(k.as_str()) {
                     self.warn(&at, format!("{} does not read the setting {k:?}", n.op));
+                }
+                // a setting is a value: a reference written there would only fail when the model runs
+                if let Some(r) = v.as_str().filter(|r| is_reference(r)) {
+                    self.error(
+                        &format!("{at}.{k}"),
+                        format!(
+                            "the setting {k:?} is {r:?}: settings take values, not references (change a setting \
+                             from outside with `run --set {}.{k}=...` or a scenario)",
+                            n.id
+                        ),
+                    );
                 }
             }
             match (&n.body, sig.container) {
@@ -276,6 +287,14 @@ impl<'a> Checker<'a> {
         }
         scopes.pop();
     }
+}
+
+/// A text that names an input or a carried value (`$name`, `@name`), as a reference would.
+fn is_reference(s: &str) -> bool {
+    let mut c = s.chars();
+    matches!(c.next(), Some('$' | '@'))
+        && c.next().is_some_and(|f| f.is_ascii_alphabetic() || f == '_')
+        && s[2..].chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
 }
 
 fn literal_type(v: &serde_json::Value) -> Type {
@@ -406,6 +425,12 @@ from = "sim.maps"
     fn carried_values_need_a_first_value() {
         let m = model(&GOOD.replace("inputs = { times = 3, land = \"$t0\" }", "inputs = { times = 3 }"));
         assert!(errors(&m).iter().any(|x| x.contains("needs a first value")));
+    }
+
+    #[test]
+    fn settings_are_not_references() {
+        let m = model(&GOOD.replace("params = { k = 1 }", "params = { k = \"$t0\" }"));
+        assert!(errors(&m).iter().any(|x| x.contains("settings take values")));
     }
 
     #[test]

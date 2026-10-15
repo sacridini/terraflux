@@ -5,8 +5,8 @@
 //!   `/usr/local/bin`); then saved as a server reached by SSH ([`crate::remote`]: `terraflux cluster add`, or the
 //!   application's Computers pane), its coordinator and workers started for each batch;
 //! - **more machines working for it:** Terraflux installed and a worker kept running as a service (started
-//!   again if it stops, and with the machine), reaching the server's coordinator by its address on the provider's
-//!   network and its code.
+//!   again if it stops, and with the machine; as an unprivileged user of systemd's, not root), reaching the
+//!   server's coordinator by its address on the provider's network and its code.
 
 /// The Linux package of a version of Terraflux, as the releases carry it (`tools/make-linux-package.py`).
 pub fn package_url(version: &str) -> String {
@@ -34,7 +34,8 @@ pub fn user_data(role: &Role, url: &str) -> String {
             "write_files:\n  - path: /etc/systemd/system/terraflux-worker.service\n    content: |\n      [Unit]\n      \
              Description=Terraflux worker\n      After=network-online.target\n      Wants=network-online.target\n      \
              [Service]\n      ExecStart=/usr/local/bin/terraflux worker --coordinator {coordinator} --code {code} --cache \
-             /var/cache/terraflux --name %H{threads}\n      Restart=always\n      RestartSec=10\n      Nice=5\n      \
+             /var/cache/terraflux --name %H{threads}\n      DynamicUser=yes\n      CacheDirectory=terraflux\n      \
+             Restart=always\n      RestartSec=10\n      Nice=5\n      \
              [Install]\n      WantedBy=multi-user.target\n"
         );
     }
@@ -44,7 +45,7 @@ pub fn user_data(role: &Role, url: &str) -> String {
          /usr/local/bin/terraflux\n"
     );
     if matches!(role, Role::Worker { .. }) {
-        s += "  - mkdir -p /var/cache/terraflux\n  - systemctl daemon-reload\n  - systemctl enable --now terraflux-worker\n";
+        s += "  - systemctl daemon-reload\n  - systemctl enable --now terraflux-worker\n";
     }
     s
 }
@@ -67,6 +68,8 @@ mod tests {
         );
         assert!(worker.contains("worker --coordinator 10.0.0.5:23456 --code K7QM-2XPA-9DTE"));
         assert!(worker.contains("--threads 8") && worker.contains("systemctl enable --now terraflux-worker"));
+        // the worker runs as an unprivileged user of its own, its cache its own
+        assert!(worker.contains("DynamicUser=yes") && worker.contains("CacheDirectory=terraflux"));
         // YAML: every line of the unit indented under its content
         let unit: Vec<&str> = worker.lines().skip_while(|l| !l.contains("content: |")).skip(1).take(11).collect();
         assert!(unit.iter().all(|l| l.starts_with("      ")), "{unit:?}");

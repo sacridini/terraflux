@@ -67,7 +67,7 @@ fn land_change_data(m: &mut Model) {
         Node::new("land_2010", "map.calc")
             .input("t0", "land_2000.map")
             .input("suit", "aptitude.map")
-            .param("expression", "if t0 == 1 and nbcount(t0 == 2, 1) >= 2 and suit > 0.45 then 2 else t0")
+            .param("expression", "if t0 == 1 and nbsum(t0 == 2, 1) >= 2 and suit > 0.45 then 2 else t0")
             .note("Ten years later: farming grown into the forest beside it, where it is suited."),
     );
     m.nodes.push(
@@ -138,7 +138,9 @@ fn clue_s() -> Model {
             history: None,
             times: vec![2000.0, 2010.0],
             formulas: None,
-            allocation: serde_json::json!({"method": "clue"}),
+            // the iteration moves by the difference in cells times the scale: lulcc's 0.0005 overshoots on a
+            // map of 25,600 cells and never meets the demand; a smaller step does in a few hundred iterations
+            allocation: serde_json::json!({"method": "clue", "scale": 0.000005, "max_iter": 5000}),
             elasticity: Some(serde_json::json!([0.5, 0.2, 1.0])),
             allowed: None,
             neighbourhood: None,
@@ -1072,7 +1074,7 @@ note = "Where clearing presses, from 0 to 1."
 id = "after"
 op = "map.calc"
 inputs = { f = "before.map", p = "pressure.map" }
-params = { expression = "if f == 2 and p > 0.6 and nbcount(f == 1, 1) >= 1 then 1 else if f == 1 and p < 0.2 and nbcount(f == 2, 1) >= 5 then 2 else f" }
+params = { expression = "if f == 2 and p > 0.6 and nbsum(f == 1, 1) >= 1 then 1 else if f == 1 and p < 0.2 and nbsum(f == 2, 1) >= 5 then 2 else f" }
 note = "The second date: the forest cleared from its edges where the pressure is high, regrown in the gaps where it is low."
 
 [[nodes]]
@@ -1866,7 +1868,7 @@ note = "A driver of no effect on the change, as real models have some."
 id = "land_2010"
 op = "map.calc"
 inputs = { t0 = "land_2000.map", suit = "aptitude.map" }
-params = { expression = "if t0 == 1 and nbcount(t0 == 2, 1) >= 3 and suit > 0.6 then 2 else t0" }
+params = { expression = "if t0 == 1 and nbsum(t0 == 2, 1) >= 3 and suit > 0.6 then 2 else t0" }
 note = "Ten years later: farming grown into the forest beside it, where it is suited."
 
 [[nodes]]
@@ -1983,7 +1985,7 @@ collect = { maps = "grow.map" }
 id = "grow"
 op = "map.calc"
 inputs = { c = "@city", suit = "suitability.map", step = "@step" }
-params = { expression = "if c == 0 and nbcount(c == 1, 1) >= 2 and suit > 0.8 - step * 0.008 then 1 else c" }
+params = { expression = "if c == 0 and nbsum(c == 1, 1) >= 2 and suit > 0.8 - step * 0.008 then 1 else c" }
 note = "A cell becomes city when two of its neighbours are, if it is suited enough; the bar falls a little every step, so the best land goes first."
 
 [[nodes]]
@@ -2199,14 +2201,14 @@ note = "How suited each cell is to farming."
 id = "land_2010"
 op = "map.calc"
 inputs = { t0 = "land_2000.map", suit = "aptitude.map" }
-params = { expression = "if t0 == 1 and nbcount(t0 == 2, 1) >= 3 and suit > 0.65 then 2 else t0" }
+params = { expression = "if t0 == 1 and nbsum(t0 == 2, 1) >= 3 and suit > 0.65 then 2 else t0" }
 note = "Ten years later: farming grown into the forest beside it, where it is suited."
 
 [[nodes]]
 id = "land_2020"
 op = "map.calc"
 inputs = { t1 = "land_2010.map", suit = "aptitude.map" }
-params = { expression = "if t1 == 1 and nbcount(t1 == 2, 1) >= 3 and suit > 0.5 then 2 else if t1 == 2 and suit < 0.2 then 1 else t1" }
+params = { expression = "if t1 == 1 and nbsum(t1 == 2, 1) >= 3 and suit > 0.5 then 2 else if t1 == 2 and suit < 0.2 then 1 else t1" }
 note = "Ten more: farming grows faster, and the least suited farms go back to forest."
 
 [[nodes]]
@@ -2274,14 +2276,14 @@ params = { rows = 160, columns = 160, range = 25, seed = 12 }
 id = "observed"
 op = "map.calc"
 inputs = { t0 = "start.map", suit = "aptitude.map" }
-params = { expression = "if t0 == 1 and nbcount(t0 == 2, 1) >= 3 and suit > 0.6 then 2 else t0" }
+params = { expression = "if t0 == 1 and nbsum(t0 == 2, 1) >= 3 and suit > 0.6 then 2 else t0" }
 note = "What happened: farming grew into the forest beside it, where it was suited (in its place, the map of the second date)."
 
 [[nodes]]
 id = "simulated"
 op = "map.calc"
 inputs = { t0 = "start.map", suit = "aptitude.map" }
-params = { expression = "if t0 == 1 and nbcount(t0 == 2, 1) >= 3 and nbmean(suit, 4) > 0.6 then 2 else t0" }
+params = { expression = "if t0 == 1 and nbsum(t0 == 2, 1) >= 3 and nbmean(suit, 4) > 0.6 then 2 else t0" }
 note = "What a model said: much the same, but from a blurred suitability (its mean over 9 x 9 cells) (in its place, a model's simulated map)."
 
 [[nodes]]
@@ -2741,7 +2743,8 @@ mod tests {
                 terraflux_ops::Value::Map(m) => m.data.iter().filter(|&&x| x == 2.0).count(),
                 _ => 0,
             };
-            assert!(farming(&maps[2]) > farming(&maps[0]), "{name}: farming grows");
+            let counts: Vec<usize> = maps.iter().map(farming).collect();
+            assert!(counts[2] > counts[0], "{name}: farming grows ({counts:?})");
         }
     }
 

@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Mutex;
 
-use terraflux_graph::{Catalog, Model, Node, Ref, Severity, Source, check, dependencies_among, ids, order};
+use terraflux_graph::{Model, Node, Ref, Severity, Source, check, dependencies_among, ids, order};
 use terraflux_ops::{Args, Ctx, Outputs, Registry, Value};
 
 pub use io::{load_inputs, write_outputs, write_value};
@@ -194,6 +194,11 @@ impl Env<'_> {
         }
     }
 
+    /// Whether a node of this scope (or an enclosing one) has run.
+    fn ran(&self, node: &str) -> bool {
+        self.results.contains_key(node) || self.parent.is_some_and(|p| p.ran(node))
+    }
+
     fn carried(&self, name: &str) -> Option<&Value> {
         match self.carried.get(name) {
             Some(v) => Some(v),
@@ -364,7 +369,16 @@ impl Engine {
             Ref::Carried(n) => env.carried(n),
             Ref::Port { node, port } => env.port(node, port),
         };
-        v.cloned().ok_or_else(|| Error::Node { at: at.into(), message: format!("{r} has no value") })
+        v.cloned().ok_or_else(|| {
+            let message = match &r {
+                Ref::Port { node, port } if env.ran(node) => format!(
+                    "{node} gave no output {port:?}: some outputs are given only with some settings or inputs (see \
+                     its operator's description)"
+                ),
+                _ => format!("{r} has no value"),
+            };
+            Error::Node { at: at.into(), message }
+        })
     }
 
     fn run_scope(
@@ -434,13 +448,8 @@ impl Engine {
             obs.warning(at, &w);
             warnings.push(format!("{at}: {w}"));
         }
-        let sig = self.registry.signature(&node.op).unwrap();
-        // the optional outputs: given on request or for some inputs only (a reader of one missing has no value)
-        for p in sig.outputs.iter().filter(|p| p.required) {
-            if !out.contains_key(&p.name) {
-                return Err(Error::Node { at: at.into(), message: format!("{} gave no output {:?}", node.op, p.name) });
-            }
-        }
+        // an output missing matters only to what reads it (some are given only with some settings or inputs): its
+        // reader is told, by `resolve`
         Ok(out)
     }
 

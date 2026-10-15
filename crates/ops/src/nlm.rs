@@ -127,7 +127,10 @@ impl Operator for RandomCluster {
                 "nlm.random_cluster",
                 "A map of patches of classes 1, 2... (NLMR's nlm_randomcluster, Saura & Martínez-Millán 2000): a \
                  share p of the cells grows into clusters, each of a class drawn with the weights, and the rest \
-                 takes its neighbours' class. A forest map to try MSPA or a land change model on.",
+                 takes its neighbours' class. A forest map to try MSPA or a land change model on. The weights \
+                 give the shares only roughly: the clusters are classed as wholes, so with few large clusters \
+                 (p above about 0.59, the percolation threshold, where one cluster spans the map) one class may \
+                 take most of it.",
                 Access::Global,
             )
             .output(PortSpec::new("map", Type::Map, "the classes 1, 2...")),

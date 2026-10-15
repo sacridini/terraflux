@@ -195,6 +195,12 @@ pub fn valid_id(s: &str) -> bool {
         && c.all(|x| x.is_ascii_alphanumeric() || x == '_' || x == '-')
 }
 
+/// Names of the inputs an operator takes by any name (a stack's layers, map algebra's variables): letters,
+/// digits, `_` or `-`, a digit first too (`1_to_2`, a transition's layer).
+pub fn valid_port(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(|x| x.is_ascii_alphanumeric() || x == '_' || x == '-')
+}
+
 /// One operator of the graph.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Node {
@@ -386,6 +392,27 @@ impl Model {
             nodes = &mut nodes.iter_mut().find(|n| &n.id == id)?.body.as_mut()?.nodes;
         }
         Some(nodes)
+    }
+
+    /// The value a key of `apply` has now: a value input (`$name`), or a node's setting or literal input
+    /// (`node.setting`, `container/node.setting`).
+    pub fn setting(&self, key: &str) -> Option<&serde_json::Value> {
+        if let Some(name) = key.strip_prefix('$') {
+            return match self.inputs.get(name)? {
+                Input::Value { value, .. } => Some(value),
+                _ => None,
+            };
+        }
+        let (path, name) = key.rsplit_once('.')?;
+        let mut parts = path.split('/');
+        let mut node = self.nodes.iter().find(|n| Some(n.id.as_str()) == parts.next())?;
+        for id in parts {
+            node = node.body.as_ref()?.nodes.iter().find(|n| n.id == id)?;
+        }
+        match node.inputs.get(name) {
+            Some(Source::Literal(v)) => Some(v),
+            _ => node.params.get(name),
+        }
     }
 
     /// The node of a path of ids (`simulation/allocate`: a node of a container's body).

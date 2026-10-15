@@ -536,8 +536,16 @@ impl Operator for Metrics {
             )
             .input(PortSpec::new("map", Type::Raster, "the map of classes (or rasters on disk, by blocks)"))
             .output(PortSpec::new("table", Type::Table, "per patch: its class, its number and the metrics"))
-            .output(PortSpec::new("patches", Type::Map, "each cell's patch, by number"))
-            .output(PortSpec::new("map", Type::Map, "the metric shown (show) on each patch")),
+            .output(PortSpec::optional(
+                "patches",
+                Type::Map,
+                "each cell's patch, by number (of a map in memory, or written to patches_path)",
+            ))
+            .output(PortSpec::optional(
+                "map",
+                Type::Map,
+                "the metric shown (show) on each patch, of a map in memory",
+            )),
             "class" => OpSignature::new(
                 &name,
                 "Landscape metrics of every class, as landscapemetrics and FRAGSTATS: area, share (pland), \
@@ -547,7 +555,11 @@ impl Operator for Metrics {
             )
             .input(PortSpec::new("map", Type::Raster, "the map of classes (or rasters on disk, by blocks)"))
             .output(PortSpec::new("table", Type::Table, "per class: the class and the metrics"))
-            .output(PortSpec::new("map", Type::Map, "the metric shown (show) on each class")),
+            .output(PortSpec::optional(
+                "map",
+                Type::Map,
+                "the metric shown (show) on each class, of a map in memory",
+            )),
             _ => OpSignature::new(
                 &name,
                 "Landscape metrics of the whole map, as landscapemetrics and FRAGSTATS: diversity (shdi, sidi...), \

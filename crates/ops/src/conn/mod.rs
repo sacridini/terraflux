@@ -292,7 +292,9 @@ impl Operator for NodeImportance {
                 "Every node's importance (Conefor's dI, Makurhini's MK_dPCIIC): the share of each index lost \
                  without it and the intra, flux and connector fractions of dIIC and dPC; the betweenness BC, \
                  BC(IIC) and BC(PC) when asked for. On a graph with nodes to restore, the gain of adding each \
-                 (Makurhini's dIICres and dPCres, or Conefor's d*add). A row per node and distance.",
+                 (Makurhini's dIICres and dPCres, or Conefor's d*add). A row per node and distance. As in \
+                 Conefor and Makurhini, a node is taken out of the graph as it is: the distances between the \
+                 others are not measured again, so with least-cost distances the detours it forces are missed.",
                 Access::Global,
             )
             .output(PortSpec::new("table", Type::Table, "the importances")),

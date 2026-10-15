@@ -915,9 +915,9 @@ impl Operator for OmniscapeIni {
             Access::None,
         )
         .output(PortSpec::new("current", Type::Map, "the cumulative current (cum_currmap)"))
-        .output(PortSpec::new("flow_potential", Type::Map, "with calc_flow_potential"))
-        .output(PortSpec::new("normalized", Type::Map, "with calc_normalized_current"))
-        .output(PortSpec::new("classified_resistance", Type::Map, "with reclassify_resistance"))
+        .output(PortSpec::optional("flow_potential", Type::Map, "with calc_flow_potential"))
+        .output(PortSpec::optional("normalized", Type::Map, "with calc_normalized_current"))
+        .output(PortSpec::optional("classified_resistance", Type::Map, "with reclassify_resistance"))
         .param(PortSpec::new("path", Type::Text, "the INI file"))
         .param(PortSpec::optional(
             "write_outputs",

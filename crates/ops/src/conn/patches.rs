@@ -73,7 +73,8 @@ fn distance_settings(sig: OpSignature) -> OpSignature {
             PortSpec::optional(
                 "distance",
                 Type::Text,
-                "centroid (default), edge, least-cost (gdistance's, over the resistance) or commute-time",
+                "centroid (default), edge, least-cost (gdistance's, over the resistance) or commute-time; the \
+                 least-cost and commute-time distances join the patches' centroids, as Makurhini's",
             )
             .choices(["centroid", "edge", "least-cost", "commute-time"]),
         )
@@ -210,8 +211,8 @@ impl Operator for Distances {
                  distance_table, Makurhini's distancefile): between their centroids (R's means of the cells' \
                  centres; the features' largest part's, or GEOS's point on the surface when it falls outside), \
                  their edges (the gap between their closest cells; GEOS's distance), least-cost over a \
-                 resistance (gdistance's) or commute times; the straight distance for the pairs the resistance \
-                 does not join.",
+                 resistance (gdistance's) or commute times, from centroid to centroid as Makurhini's; the straight \
+                 distance for the pairs the resistance does not join.",
                 Access::Global,
             )
             .output(PortSpec::new("table", Type::Table, "from, to and distance")),

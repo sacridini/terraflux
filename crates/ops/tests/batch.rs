@@ -73,6 +73,7 @@ fn batch_runs_an_operator_on_every_raster() {
     let Value::Table(t) = &out["table"] else { panic!() };
     let ok: Vec<f64> = t.rows.iter().map(|r| r[1]).collect();
     assert_eq!(ok, [1.0, 1.0, 0.0], "{:?}", out["report"]);
+    assert!(t.rows.iter().all(|r| r[2] == 0.0), "nothing skipped the first time");
     let meta: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(dir.join("acc/forest_0_landscape_accounting.json")).unwrap())
             .unwrap();
@@ -81,5 +82,8 @@ fn batch_runs_an_operator_on_every_raster() {
     assert!(!files.is_empty() && files.iter().all(|f| Path::new(f.as_str().unwrap()).exists()));
     let again = run("batch.run", vec![], params);
     let Value::Table(t2) = &again["table"] else { panic!() };
-    assert!(t2.rows[..2].iter().all(|r| r[1] == 1.0 && r[2] < t.rows[0][2].max(0.01)));
+    // done before: ok and skipped (columns input, ok, skipped, seconds, files), not run again
+    assert!(t2.rows[..2].iter().all(|r| r[1] == 1.0 && r[2] == 1.0 && r[3] < t.rows[0][3].max(0.01)));
+    let Value::Text(report) = &again["report"] else { panic!() };
+    assert!(report.contains("skipped"), "{report}");
 }

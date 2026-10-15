@@ -2305,10 +2305,20 @@ pub(crate) fn node_panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
     if let Some(sig) = &sig {
         ui.label(&sig.doc);
     }
-    if let Some(note) = &n.note {
-        ui.separator();
-        ui.label(RichText::new("Why").strong());
-        ui.label(note);
+    // why the node is there, written by whoever built the model (or the wizard): edited in place
+    ui.separator();
+    ui.label(RichText::new("Why").strong());
+    let init = n.note.clone().unwrap_or_default();
+    let mut text = field(s, "note", init.clone());
+    let resp = ui.add(
+        egui::TextEdit::multiline(&mut text)
+            .desired_rows(2)
+            .desired_width(f32::INFINITY)
+            .hint_text("why this node is here (a note for whoever reads the model)"),
+    );
+    s.fields.insert("note".into(), text.clone());
+    if resp.lost_focus() && text != init {
+        change = Some(crate::editor::set_note(&mut s.source, &path, &n.id, &text));
     }
     ui.separator();
     ui.label(RichText::new("Inputs").strong());

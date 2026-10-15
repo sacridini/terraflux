@@ -326,11 +326,16 @@ impl Operator for Importance {
             "The importance of every link (bridge) and stepping-stone node (core with two links or more) of the \
              habitat network of an MSPA map, as GuidosToolbox's nw_importance (landschaft's gtn_importance): the \
              loss of connectivity (dPC, the drop of PC's numerator, %) without it; links positive and nodes \
-             negative on the maps, the top 1, 5 and 10 % in GTB's colours.",
+             negative on the maps; in GTB's colours, those within 1, 5 and 10 % of the most important (at least \
+             99, 95 and 90 % of its dPC).",
             Access::Global,
         )
         .input(PortSpec::new("map", Type::Map, "the MSPA map (landscape.mspa)"))
-        .output(PortSpec::new("map", Type::Map, "GTB's colours: cores, bridges, the top 1, 5, 10 % of links and nodes"))
+        .output(PortSpec::new(
+            "map",
+            Type::Map,
+            "GTB's colours: cores, bridges, links and nodes within 1, 5, 10 % of the most important",
+        ))
         .output(PortSpec::new("importance", Type::Map, "dPC of every link (positive) and node (negative) on its cells"))
         .output(PortSpec::new("ids", Type::Map, "the link (positive) or node (negative) of every cell"))
         .output(PortSpec::new(
@@ -467,7 +472,7 @@ impl Operator for Importance {
         let max_node = node_rows.iter().map(|r| r.dpc).fold(f64::NAN, f64::max);
         let (max_link, max_node) =
             (if max_link.is_nan() { 0.0 } else { max_link }, if max_node.is_nan() { 0.0 } else { max_node });
-        // the top 1, 5 and 10 % (the thresholds in single precision, as numpy compares them)
+        // within 1, 5 and 10 % of the most important (the thresholds in single precision, as numpy compares them)
         if max_link > 0.0 {
             for (share, code) in [(0.90, 195u8), (0.95, 194), (0.99, 192)] {
                 let t = (max_link * share) as f32;

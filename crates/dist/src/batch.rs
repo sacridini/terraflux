@@ -96,8 +96,22 @@ impl Param {
         v
     }
 
+    /// Whole numbers when the model's value of the setting is one, decimals when it is not; the range as
+    /// written (`3:7` whole, `0.5:2.5` not) only for a setting the model does not give.
+    pub fn typed_by(mut self, model: &terraflux_graph::Model) -> Param {
+        if let Some(v) = model.setting(&self.key).filter(|v| v.is_number()) {
+            self.integer = v.is_i64() || v.is_u64();
+        }
+        self
+    }
+
     fn round(&self, x: f64) -> f64 {
-        if self.integer { x.round() } else { x }
+        if self.integer {
+            x.round()
+        } else {
+            // 12 significant digits: 0.7, not 0.7000000000000001
+            format!("{x:.11e}").parse().unwrap_or(x)
+        }
     }
 
     fn json(&self, x: f64) -> Value {
@@ -248,6 +262,21 @@ mod tests {
         assert_eq!(g.len(), 15);
         assert_eq!(g[0]["allocate.window"], Value::from(3));
         assert!(Param::parse("x", 3).is_err());
+    }
+
+    #[test]
+    fn the_model_types_the_ranges() {
+        let m = terraflux_graph::Model::from_toml(
+            "format = \"terraflux/1\"\n[[nodes]]\nid = \"a\"\nop = \"x.op\"\nparams = { share = 0.5, window = 3 }\n",
+        )
+        .unwrap();
+        let p = Param::parse("a.share=0:1", 5).unwrap().typed_by(&m);
+        assert!(!p.integer);
+        assert_eq!(p.values(), vec![0.0, 0.25, 0.5, 0.75, 1.0]);
+        let q = Param::parse("a.window=3:7:3", 5).unwrap().typed_by(&m);
+        assert!(q.integer);
+        let r = Param::parse("a.share=0:0.7:8", 8).unwrap().typed_by(&m);
+        assert_eq!(r.values()[7], 0.7);
     }
 
     #[test]

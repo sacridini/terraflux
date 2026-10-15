@@ -674,9 +674,9 @@ impl Operator for Cluster {
                 Type::Table,
                 "a row per node (name order): its parent, length, Biodiverse's values, its group",
             ))
-            .output(PortSpec::new("table", Type::Table, "the calculations of each node's groups"))
-            .output(PortSpec::new("clusters", Type::Table, "with k: each group's cluster"))
-            .output(PortSpec::new("map", Type::Map, "with k: the clusters (groups that are cells of two axes)"))
+            .output(PortSpec::optional("table", Type::Table, "with calculations: those of each node's groups"))
+            .output(PortSpec::optional("clusters", Type::Table, "with k: each group's cluster"))
+            .output(PortSpec::optional("map", Type::Map, "with k: the clusters (groups that are cells of two axes)"))
             .param(PortSpec::optional(
                 "conditions",
                 Type::Any,

@@ -13,7 +13,8 @@
 //! - **Functions:** `abs sqrt exp ln log10 floor ceil round min max clamp(x, lo, hi) isnull(x)
 //!   coalesce(x, y)` (`y` where `x` is missing).
 //! - **Neighbourhoods** (a square of radius `r` cells around each cell, the cell included, missing cells left
-//!   out): `nbsum(x, r) nbmean(x, r) nbmin(x, r) nbmax(x, r) nbcount(x, r)` (cells with a value).
+//!   out): `nbsum(x, r) nbmean(x, r) nbmin(x, r) nbmax(x, r) nbcount(x, r)` (cells with a value; `r` a whole number or
+//!   a number input).
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -322,9 +323,13 @@ fn check_call(name: &str, args: &[Expr]) -> Result<()> {
         return Err(Error::msg(format!("{name} takes {n} value(s), not {}", args.len())));
     }
     if name.starts_with("nb") {
+        // a whole number, or the name of a number input (its value checked when the expression runs)
         match &args[1] {
             Expr::Num(r) if *r >= 0.0 && r.fract() == 0.0 => {}
-            _ => return Err(Error::msg(format!("the radius of {name} is a whole number of cells"))),
+            Expr::Var(_) => {}
+            _ => {
+                return Err(Error::msg(format!("the radius of {name} is a whole number of cells, or a number input")));
+            }
         }
     }
     Ok(())
@@ -357,9 +362,12 @@ impl Expr {
         self.walk(&mut |e| {
             if let Expr::Call(f, a) = e
                 && f.starts_with("nb")
-                && let Expr::Num(x) = a[1]
             {
-                r = r.max(x as usize);
+                // a radius given by an input: known only when it runs (at least 1 here)
+                r = r.max(match a[1] {
+                    Expr::Num(x) => x as usize,
+                    _ => 1,
+                });
             }
         });
         r
@@ -565,8 +573,13 @@ impl Expr {
     fn call(&self, f: &str, args: &[Expr], s: &Scope) -> Result<V> {
         let (w, h) = (s.width, s.height);
         if f.starts_with("nb") {
-            let r = match args[1] {
-                Expr::Num(r) => r as usize,
+            let r = match &args[1] {
+                Expr::Num(r) => *r as usize,
+                Expr::Var(n) => match s.numbers.get(n.as_str()) {
+                    Some(&x) if x >= 0.0 && x.fract() == 0.0 => x as usize,
+                    Some(&x) => return Err(Error::msg(format!("the radius of {f} ({n} = {x}) is not a whole number"))),
+                    None => return Err(Error::msg(format!("the radius of {f} ({n}) is not a number input"))),
+                },
                 _ => unreachable!(),
             };
             let cells = match args[0].eval(s)? {
@@ -772,6 +785,8 @@ mod tests {
         same(&calc("nbmin(a, 0)", &[("a", a.clone())], 3, 3), &a);
         same(&calc("nbmean(a == 2, 1)", &[("a", a.clone())], 3, 3)[..3], &[1.0 / 3.0, 1.0 / 5.0, 1.0 / 3.0]);
         assert_eq!(parse("nbsum(a, 2) + nbmax(a, 1)").unwrap().radius(), 2);
+        // a radius given by a number input
+        assert_eq!(calc("nbsum(a, k)", &[("a", a.clone())], 3, 3), calc("nbsum(a, 2)", &[("a", a.clone())], 3, 3));
     }
 
     #[test]
@@ -780,7 +795,7 @@ mod tests {
             ("1 +", "ends too early"),
             ("a = 1", "=="),
             ("foo(1)", "no function"),
-            ("nbsum(a, b)", "whole number"),
+            ("nbsum(a, 1.5)", "whole number"),
             ("abs(1, 2)", "takes 1"),
             ("(1 + 2", "expected \")\""),
             ("1 2", "unexpected"),

@@ -90,6 +90,8 @@ pub struct BatchResult {
     pub outputs: Vec<PathBuf>,
     pub seconds: f64,
     pub error: Option<String>,
+    /// Done before (its JSON found, and no overwrite): not run again, its files those of the earlier run.
+    pub skipped: bool,
 }
 
 fn json_number(x: f64) -> serde_json::Value {
@@ -213,7 +215,7 @@ pub fn batch(
     let single = sig.outputs.len() == 1;
     let process = |src: &PathBuf| -> BatchResult {
         let start = Instant::now();
-        let run = || -> Result<Vec<PathBuf>> {
+        let run = || -> Result<(Vec<PathBuf>, bool)> {
             let base = out_dir.join(format!("{}_{tool}", src.file_stem().unwrap_or_default().to_string_lossy()));
             let meta_path = base.with_file_name(format!("{}.json", base.file_name().unwrap().to_string_lossy()));
             if meta_path.exists() && !overwrite {
@@ -224,7 +226,7 @@ pub fn batch(
                     .as_array()
                     .map_or(Vec::new(), |a| a.iter().filter_map(|p| p.as_str().map(PathBuf::from)).collect());
                 files.push(meta_path);
-                return Ok(files);
+                return Ok((files, true));
             }
             let raster = Rasters::open(&src.to_string_lossy(), None, None)?;
             let value = as_port(Value::Raster(Arc::new(raster)), port.ty)?;
@@ -263,17 +265,22 @@ pub fn batch(
             std::fs::write(&meta_path, serde_json::to_string_pretty(&meta).unwrap())
                 .map_err(|e| Error::msg(format!("{}: {e}", meta_path.display())))?;
             outputs.push(meta_path);
-            Ok(outputs)
+            Ok((outputs, false))
         };
         match run() {
-            Ok(outputs) => {
-                BatchResult { input: src.clone(), outputs, seconds: start.elapsed().as_secs_f64(), error: None }
-            }
+            Ok((outputs, skipped)) => BatchResult {
+                input: src.clone(),
+                outputs,
+                seconds: start.elapsed().as_secs_f64(),
+                error: None,
+                skipped,
+            },
             Err(e) => BatchResult {
                 input: src.clone(),
                 outputs: Vec::new(),
                 seconds: start.elapsed().as_secs_f64(),
                 error: Some(e.to_string()),
+                skipped: false,
             },
         }
     };
@@ -293,10 +300,14 @@ impl Operator for Run {
              after the input and the operator: maps <name>_<operator>[_<output>].tif, tables .csv, texts .txt, \
              and <name>_<operator>.json with the parameters, the files, the numbers and the time (an input whose \
              JSON exists is skipped unless overwrite). MSPA with GuidosToolbox's naming. A row per input: ok, \
-             seconds, files written; the errors in the report.",
+             skipped (done before), seconds, files written; the errors in the report.",
             Access::None,
         )
-        .output(PortSpec::new("table", Type::Table, "a row per input: its number, ok (1/0), seconds, files"))
+        .output(PortSpec::new(
+            "table",
+            Type::Table,
+            "a row per input: its number, ok (1/0), skipped (1/0: done before), seconds, files",
+        ))
         .output(PortSpec::new("report", Type::Text, "each input and its outcome"))
         .param(PortSpec::new("operator", Type::Text, "the operator, e.g. landscape.mspa"))
         .param(PortSpec::new("inputs", Type::Any, "a folder, a glob pattern (tiles/*.tif) or a list of rasters"))
@@ -344,16 +355,23 @@ impl Operator for Run {
             args.param("overwrite", false)?,
         )
         .map_err(fail)?;
-        let mut table = Table::new(["input", "ok", "seconds", "files"].iter().map(|s| s.to_string()).collect());
+        let mut table =
+            Table::new(["input", "ok", "skipped", "seconds", "files"].iter().map(|s| s.to_string()).collect());
         let mut report = Vec::new();
         for (i, r) in results.iter().enumerate() {
             table.rows.push(vec![
                 (i + 1) as f64,
                 f64::from(u8::from(r.error.is_none())),
+                f64::from(u8::from(r.skipped)),
                 r.seconds,
                 r.outputs.len() as f64,
             ]);
             report.push(match &r.error {
+                None if r.skipped => format!(
+                    "{}: skipped (done before; overwrite runs it again), {} files",
+                    r.input.display(),
+                    r.outputs.len()
+                ),
                 None => format!("{}: ok, {} files", r.input.display(), r.outputs.len()),
                 Some(e) => format!("{}: {e}", r.input.display()),
             });
