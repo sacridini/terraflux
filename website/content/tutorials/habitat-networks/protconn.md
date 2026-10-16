@@ -107,13 +107,13 @@ note = "CORINE Land Cover, cells of 100 m."
 [[nodes]]
 id = "graph"
 op = "conn.graph_from_raster"
-inputs = { map = "land.map" }
+inputs = { map = "land.raster" }
 params = { habitat = [23, 24, 25], area_unit = "ha" }
 
 [[nodes]]
 id = "patches"
 op = "conn.nodes"
-inputs = { map = "land.map" }
+inputs = { map = "land.raster" }
 params = { habitat = [23, 24, 25], area_unit = "ha" }
 note = "Every forest patch and its area (ha)."
 
@@ -139,7 +139,7 @@ note = "The forests of 500 ha or more, each with its number."
 [[nodes]]
 id = "region"
 op = "map.calc"
-inputs = { l = "land.map" }
+inputs = { l = "land.raster" }
 params = { expression = "1" }
 note = "The region: every cell of the map."
 

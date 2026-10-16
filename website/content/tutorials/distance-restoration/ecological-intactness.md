@@ -139,34 +139,34 @@ params = { path = "land_cover.tif", band = "cropland" }
 [[nodes]]
 id = "reduction"
 op = "map.calc"
-inputs = { p = "pasture.map", c = "cropland.map" }
+inputs = { p = "pasture.raster", c = "cropland.raster" }
 params = { expression = "if p + c > 0 then (4 * p + 7 * c) / (p + c) else 0" }
 note = "Footprint removed per unit restored: 4 pasture, 7 cropland."
 
 [[nodes]]
 id = "intactness"
 op = "restoration.intactness"
-inputs = { footprint = "footprint.map" }
+inputs = { footprint = "footprint.raster" }
 params = { radius = 3 }
 
 [[nodes]]
 id = "gradient"
 op = "restoration.intactness_gradient"
-inputs = { footprint = "footprint.map", reduction = "reduction.map" }
+inputs = { footprint = "footprint.raster", reduction = "reduction.map" }
 params = { radius = 3 }
 note = "Gain in total intactness per unit of each cell restored."
 
 [[nodes]]
 id = "all_converted"
 op = "map.calc"
-inputs = { p = "pasture.map", c = "cropland.map" }
+inputs = { p = "pasture.raster", c = "cropland.raster" }
 params = { expression = "p + c" }
 note = "Every share of pasture and cropland restored."
 
 [[nodes]]
 id = "after"
 op = "restoration.intactness"
-inputs = { footprint = "footprint.map", reduction = "reduction.map", restored = "all_converted.map" }
+inputs = { footprint = "footprint.raster", reduction = "reduction.map", restored = "all_converted.map" }
 params = { radius = 3 }
 ```
 

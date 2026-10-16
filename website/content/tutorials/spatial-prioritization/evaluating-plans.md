@@ -105,13 +105,13 @@ params = { path = "cost.tif" }
 [[nodes]]
 id = "plan"
 op = "prioritize.optimize"
-inputs = { features = "features.stack", cost = "cost.map" }
+inputs = { features = "features.raster", cost = "cost.raster" }
 params = { objective = "min_set", relative_targets = 0.3, gap = 0.001 }
 
 [[nodes]]
 id = "evaluation"
 op = "prioritize.evaluate"
-inputs = { features = "features.stack", cost = "cost.map", solution = "plan.solution" }
+inputs = { features = "features.raster", cost = "cost.raster", solution = "plan.solution" }
 params = { relative_targets = 0.3, replacement = true, rank = 10, extinction_z = 0.25, gap = 0.001 }
 
 [[nodes]]
@@ -166,7 +166,7 @@ params = { path = "cost.tif" }
 [[nodes]]
 id = "calibration"
 op = "prioritize.calibrate"
-inputs = { features = "features.stack", cost = "cost.map" }
+inputs = { features = "features.raster", cost = "cost.raster" }
 params = { approach = "blended", penalty = "boundary", objective = "min_set", relative_targets = 0.3, values = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1], gap = 0.01 }
 
 [[nodes]]

@@ -26,7 +26,7 @@ use terraflux_graph::Type;
 use terraflux_ops::Registry;
 
 use crate::app::Session;
-use crate::builder::{DraggedFile, add_at, add_files, is_raster, is_vector};
+use crate::builder::{DraggedFile, add_at, add_files, is_raster, is_table, is_vector};
 use crate::metadata::Fact;
 use crate::theme;
 
@@ -44,12 +44,13 @@ enum Kind {
     Model,
     Raster,
     Vector,
+    Table,
     Other,
 }
 
 impl Kind {
     fn data(self) -> bool {
-        matches!(self, Kind::Raster | Kind::Vector)
+        matches!(self, Kind::Raster | Kind::Vector | Kind::Table)
     }
 }
 
@@ -188,6 +189,8 @@ impl Default for Files {
 fn kind_of(p: &Path, dir: bool) -> Kind {
     if dir {
         Kind::Folder
+    } else if is_table(p) {
+        Kind::Table
     } else if is_vector(p) {
         Kind::Vector
     } else if is_raster(p) {
@@ -509,6 +512,20 @@ fn describe(path: PathBuf, kind: Kind) -> Details {
             }
             Err(e) => d.error = Some(e.to_string()),
         },
+        Kind::Table => match terraflux_ops::tables::read_table(&path) {
+            Ok((t, text)) => {
+                d.facts.push(("rows".into(), t.rows.len().to_string()));
+                d.facts.push(("columns".into(), t.columns.join(", ")));
+                if !text.is_empty() {
+                    d.facts.push(("text (left out)".into(), text.join(", ")));
+                }
+                for (k, row) in t.rows.iter().take(5).enumerate() {
+                    let cells: Vec<String> = row.iter().map(|v| crate::table_view::cell(*v)).collect();
+                    d.facts.push((format!("row {}", k + 1), cells.join("  ")));
+                }
+            }
+            Err(e) => d.error = Some(e.to_string()),
+        },
         Kind::Vector => match terraflux_gdal::read_vector(&path, None) {
             Ok(v) => {
                 d.picture = vector_picture(&v);
@@ -567,6 +584,17 @@ fn icon(p: &egui::Painter, r: Rect, kind: Kind, v: &egui::Visuals) {
             for q in [a, b, d] {
                 p.circle_filled(q, s * 0.14, c);
             }
+        }
+        Kind::Table => {
+            let c = crate::editor_view::type_colour(Type::Table, v.dark_mode).unwrap_or(v.text_color());
+            let t = Rect::from_min_max(pos2(x + 1.5, y + s * 0.18), pos2(x + s - 1.5, y + s * 0.84));
+            p.rect_stroke(t, 1.5, Stroke::new(1.2, c), egui::StrokeKind::Inside);
+            p.rect_filled(Rect::from_min_max(t.min, pos2(t.right(), t.top() + s * 0.2)), 1.5, c.gamma_multiply(0.7));
+            for k in 1..3 {
+                let yy = t.top() + s * 0.2 + k as f32 * (t.height() - s * 0.2) / 3.0;
+                p.line_segment([pos2(t.left(), yy), pos2(t.right(), yy)], Stroke::new(0.8, c));
+            }
+            p.line_segment([pos2(t.center().x, t.top()), pos2(t.center().x, t.bottom())], Stroke::new(0.8, c));
         }
         Kind::Other => {
             let c = v.weak_text_color();
@@ -889,6 +917,7 @@ pub fn pane(ui: &mut Ui, f: &mut Files, s: &mut Session, r: &Registry) -> Option
             for (k, one, many) in [
                 (Kind::Raster, "raster", "rasters"),
                 (Kind::Vector, "vector", "vectors"),
+                (Kind::Table, "table", "tables"),
                 (Kind::Model, "model", "models"),
                 (Kind::Folder, "folder", "folders"),
             ] {
@@ -1348,7 +1377,9 @@ fn list(ui: &mut Ui, f: &mut Files, rows: &[Row], todo: &mut Vec<Do>) {
             }
             let hover = match e.kind {
                 Kind::Folder => "double-click to go into it, its arrow to open it here",
-                Kind::Raster | Kind::Vector => "drag it to the model, or double-click it, for a node that reads it",
+                Kind::Raster | Kind::Vector | Kind::Table => {
+                    "drag it to the model, or double-click it, for a node that reads it"
+                }
                 Kind::Model => "double-click to open the model",
                 Kind::Other => "",
             };

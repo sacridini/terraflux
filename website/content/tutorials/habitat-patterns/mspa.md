@@ -95,7 +95,7 @@ note = "CORINE Land Cover, 25 m cells."
 [[nodes]]
 id = "forest"
 op = "raster.reclassify"
-inputs = { map = "landcover.map" }
+inputs = { map = "landcover.raster" }
 params = { rules = "23 24 25 -> 2\n* -> 1" }
 note = "Broad-leaved, coniferous and mixed forest become the foreground (2), every other class the background (1)."
 
@@ -118,7 +118,7 @@ params = { title = "MSPA of CORINE's forest" }
 1. **Read the map** ([[raster.read]]). Add the node (library, subject **Data preparation**, or press `/` and type
    `read`) and choose `clc.tif` in its `path` (**Node > path > Choose...**). The node reads only the file's header
    at first, so even a large map shows at once. Its output `map` is the first band as a map.
-2. **Make the binary map** ([[raster.reclassify]]). Connect `landcover.map` to its input `map`. In the Node pane the
+2. **Make the binary map** ([[raster.reclassify]]). Connect `landcover.raster` to its input `map`. In the Node pane the
    rules are a table: the application lists the classes of the map it reads, with their share, and **A rule per
    class** fills the table so that you only type the new values. Here two rules: `23 24 25 -> 2` (the three forest
    classes become the foreground) and `* -> 1` (every other value, the background). The first rule that takes a
@@ -132,7 +132,7 @@ params = { title = "MSPA of CORINE's forest" }
 
 !!! tip "Skip the reclassification"
     [[landscape.mspa]] can read the land cover directly: set its `foreground` to `[23, 24, 25]` and connect
-    `landcover.map`. Every other class becomes background. Keep the reclassification when you want to see (and
+    `landcover.raster`. Every other class becomes background. Keep the reclassification when you want to see (and
     show) the forest map itself, or when some classes must be *missing* rather than background (water outside the
     study area, clouds): add a rule `40..44 -> 0`.
 
@@ -174,7 +174,7 @@ note = "0 missing, 1 background, 2 forest: GuidosToolbox's coding."
 [[nodes]]
 id = "mspa"
 op = "landscape.mspa"
-inputs = { map = "forest.map" }
+inputs = { map = "forest.raster" }
 params = { edge_width = 1, connectivity = 8 }
 note = "GuidosToolbox's defaults."
 

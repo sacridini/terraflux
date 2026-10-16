@@ -156,21 +156,21 @@ note = "A map of forest (2) and non-forest (1) of several billion cells: only it
 [[nodes]]
 id = "metrics"
 op = "metrics.class"
-inputs = { map = "forest.map" }
+inputs = { map = "forest.raster" }
 params = { metrics = ["ca", "np", "area_mn", "ed", "ai"], block_rows = 1024 }
 note = "The same values as on the whole map, read 1,024 rows at a time."
 
 [[nodes]]
 id = "window"
 op = "metrics.window"
-inputs = { map = "forest.map" }
+inputs = { map = "forest.raster" }
 params = { metrics = ["ed"], window = 33, path = "forest_ed33.tif" }
 note = "The edge density in 33 x 33 windows (1 km), by strips, written to a GeoTIFF."
 
 [[nodes]]
 id = "mspa"
 op = "landscape.mspa_tiled"
-inputs = { map = "forest.map" }
+inputs = { map = "forest.raster" }
 params = { foreground = 2, edge_width = 3, tile_size = 6500, overlap = 2000 }
 note = "MSPA by overlapping tiles; near the seams, objects larger than the overlap can differ."
 ```

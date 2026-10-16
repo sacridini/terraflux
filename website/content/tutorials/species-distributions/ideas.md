@@ -315,7 +315,7 @@ params = { path = "bioclim.tif" }
 [[nodes]]
 id = "data"
 op = "sdm.prepare"
-inputs = { occurrences = "records.vector", env = "climate.stack" }
+inputs = { occurrences = "records.vector", env = "climate.raster" }
 params = { background = 5000 }
 
 [[nodes]]
@@ -339,7 +339,7 @@ inputs = { model = "fit.model", env = "data.env" }
 2. **Read the climate** with [[raster.read]]: `path = bioclim.tif`; name the node `climate`. Its `stack` port holds
    the nine bands, named after the file's band names (its `map` port only the first band, bio1).
 3. **Prepare** with [[sdm.prepare]] (subject **Species distributions**): drag from `records.vector` to its
-   `occurrences` input and from `climate.stack` to `env`. Set `background = 5000`: this coarse map has fewer than
+   `occurrences` input and from `climate.raster` to `env`. Set `background = 5000`: this coarse map has fewer than
    10 000 cells of land, so the default of 10 000 points would be more than the cells available.
 4. **Fit** with [[sdm.fit]]: connect `data.records` to `records`. The defaults fit MaxNet over the folds.
 5. **Predict** with [[sdm.maxnet_predict]]: connect `fit.model` to `model` and `data.env` to `env` (the predictors

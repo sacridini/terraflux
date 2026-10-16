@@ -160,7 +160,7 @@ Add [[raster.read]] (library, subject **Data preparation**, or press `/` and typ
 
 ### 2. Build the habitat graph
 
-Add [[conn.graph_from_raster]] (library, subject **Habitat networks**) and drag from `land.map` to its input
+Add [[conn.graph_from_raster]] (library, subject **Habitat networks**) and drag from `land.raster` to its input
 `map`. This one node does three things: it finds the **patches** of habitat (groups of habitat cells that touch,
 including at a corner: `directions = 8`), measures the **attribute** of each (its area), and measures the
 **distance** between every pair of patches. Its output `graph` is a *habitat graph*, a value that only the
@@ -193,7 +193,7 @@ note = "CORINE Land Cover, cells of 100 m."
 [[nodes]]
 id = "graph"
 op = "conn.graph_from_raster"
-inputs = { map = "land.map" }
+inputs = { map = "land.raster" }
 params = { habitat = [23, 24, 25], area_unit = "ha", distance = "edge", landscape_area = 250000 }
 note = "The forest patches, their areas (ha) and the gaps between their edges (m)."
 ```
@@ -201,7 +201,7 @@ note = "The forest patches, their areas (ha) and the gaps between their edges (m
 !!! tip "See the tables behind the graph"
     A graph is not a table, but its two halves are. [[conn.nodes]] with the same `map` and `habitat` gives the
     *node table* (`id`, `attribute`: each patch and its area), and [[conn.distances]] the *pairs* (`from`, `to`,
-    `distance`). Connect them to `land.map` and double-click them to see the 154 patches and their 11,781 pairs.
+    `distance`). Connect them to `land.raster` and double-click them to see the 154 patches and their 11,781 pairs.
     They are also how a graph is written for other software: [[conn.write_conefor]] writes Conefor's node and
     connection files, and [[conn.graph]] builds a graph from tables made elsewhere.
 
@@ -234,7 +234,7 @@ note = "CORINE Land Cover, cells of 100 m."
 [[nodes]]
 id = "graph"
 op = "conn.graph_from_raster"
-inputs = { map = "land.map" }
+inputs = { map = "land.raster" }
 params = { habitat = [23, 24, 25], area_unit = "ha", distance = "edge", landscape_area = 250000 }
 note = "The forest patches, their areas (ha) and the gaps between their edges (m)."
 

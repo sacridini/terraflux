@@ -21,7 +21,7 @@ mod check;
 pub mod submodel;
 mod types;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -42,8 +42,16 @@ pub const PLUGIN: &str = "plugin.wasm";
 
 /// The operators whose `params.path` is a file: relative to the model's folder in the model file, absolute
 /// once the model is expanded to run ([`submodel::expand`]).
-pub const FILE_OPS: [&str; 7] =
-    [PLUGIN, "raster.read", "raster.write", "landscape.mspa_tiled", "vector.read", "vector.write", "table.write"];
+pub const FILE_OPS: [&str; 8] = [
+    PLUGIN,
+    "raster.read",
+    "raster.write",
+    "landscape.mspa_tiled",
+    "vector.read",
+    "vector.write",
+    "table.read",
+    "table.write",
+];
 
 /// Whether a path names data sent to a coordinator (`bundle:<hash>/...`, `blob:<hash>`), not a file here.
 pub fn is_sent(path: &str) -> bool {
@@ -343,15 +351,74 @@ impl Model {
     }
 
     pub fn from_toml(text: &str) -> Result<Model> {
-        let m: Model = toml::from_str(text)?;
+        let mut m: Model = toml::from_str(text)?;
         m.check_format()?;
+        m.upgrade();
         Ok(m)
     }
 
     pub fn from_json(text: &str) -> Result<Model> {
-        let m: Model = serde_json::from_str(text)?;
+        let mut m: Model = serde_json::from_str(text)?;
         m.check_format()?;
+        m.upgrade();
         Ok(m)
+    }
+
+    /// A model written by an older Terraflux brought up to date (done when a model is read): what read a
+    /// `raster.read`'s `map` or `stack` (the same rasters on disk as its `raster`, which feeds what takes a map,
+    /// its band chosen, or a stack) reads its `raster`.
+    pub fn upgrade(&mut self) {
+        fn ids(nodes: &[Node], read: &mut BTreeSet<String>, other: &mut BTreeSet<String>) {
+            for n in nodes {
+                if n.op == "raster.read" {
+                    read.insert(n.id.clone())
+                } else {
+                    other.insert(n.id.clone())
+                };
+                if let Some(b) = &n.body {
+                    ids(&b.nodes, read, other);
+                }
+            }
+        }
+        fn fix(r: &mut String, read: &BTreeSet<String>) {
+            if let Some((node, port)) = r.split_once('.')
+                && (port == "map" || port == "stack")
+                && read.contains(node)
+            {
+                *r = format!("{node}.raster");
+            }
+        }
+        fn walk(nodes: &mut [Node], read: &BTreeSet<String>) {
+            for n in nodes {
+                for s in n.inputs.values_mut() {
+                    if let Source::Ref(r) = s {
+                        fix(r, read);
+                    }
+                }
+                if let Some(b) = &mut n.body {
+                    walk(&mut b.nodes, read);
+                    b.carry
+                        .values_mut()
+                        .chain(b.collect.values_mut())
+                        .chain(b.outputs.values_mut())
+                        .for_each(|r| fix(r, read));
+                    if let Some(u) = &mut b.until {
+                        fix(u, read);
+                    }
+                }
+            }
+        }
+        let (mut read, mut other) = (BTreeSet::new(), BTreeSet::new());
+        ids(&self.nodes, &mut read, &mut other);
+        // (an id of a raster.read here and of another node there: left as it is)
+        read.retain(|id| !other.contains(id));
+        if read.is_empty() {
+            return;
+        }
+        walk(&mut self.nodes, &read);
+        for o in self.outputs.values_mut() {
+            fix(&mut o.from, &read);
+        }
     }
 
     pub fn to_toml(&self) -> Result<String> {
@@ -581,6 +648,38 @@ pub fn dependencies_among(node: &Node, scope: &std::collections::HashSet<&str>) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_raster_reads_map_and_stack_as_raster() {
+        let m = Model::from_toml(
+            r#"
+format = "terraflux/1"
+
+[[nodes]]
+id = "land"
+op = "raster.read"
+params = { path = "land.tif", band = "1997" }
+
+[[nodes]]
+id = "calc"
+op = "map.calc"
+inputs = { a = "land.map", b = "land.stack", c = "other.map" }
+
+[[nodes]]
+id = "other"
+op = "map.calc"
+
+[outputs.out]
+from = "land.map"
+"#,
+        )
+        .unwrap();
+        let calc = m.node("calc").unwrap();
+        assert_eq!(calc.inputs["a"], Source::Ref("land.raster".into()));
+        assert_eq!(calc.inputs["b"], Source::Ref("land.raster".into()));
+        assert_eq!(calc.inputs["c"], Source::Ref("other.map".into()), "another node's map is its own");
+        assert_eq!(m.outputs["out"].from, "land.raster");
+    }
 
     fn sample() -> Model {
         let mut m = Model::new("sample");

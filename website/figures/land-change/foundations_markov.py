@@ -30,7 +30,7 @@ params = { path = "sibuyan_landuse.tif", band = "2011" }
 [[nodes]]
 id = "chain"
 op = "markov.fit"
-inputs = { t0 = "land_1997.map", t1 = "land_2011.map", steps = 14 }
+inputs = { t0 = "land_1997.raster", t1 = "land_2011.raster", steps = 14 }
 
 [outputs.chain]
 from = "chain.markov"

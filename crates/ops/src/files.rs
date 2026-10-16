@@ -167,6 +167,9 @@ pub struct Rasters {
     pub images: Vec<Arc<File>>,
     /// The layer a map of these rasters is (the band chosen).
     pub chosen: usize,
+    /// Whether that band was asked for (`raster.read`'s `band`): a port of any value (map algebra's) takes it
+    /// alone, as a map, not every band as a stack.
+    pub picked: bool,
     /// Whether the files are of different grids (tiles of a region, say): each layer is on its file's grid, and
     /// they make no stack.
     pub mixed: bool,
@@ -318,7 +321,15 @@ impl Rasters {
             },
         };
         let mixed = images.iter().any(|i| !i.meta().grid.same_as(&grid));
-        Ok(Rasters { grid: Arc::new(grid), layers, images, chosen, mixed, whole: Arc::new(Mutex::new(HashMap::new())) })
+        Ok(Rasters {
+            grid: Arc::new(grid),
+            layers,
+            images,
+            chosen,
+            picked: band.is_some(),
+            mixed,
+            whole: Arc::new(Mutex::new(HashMap::new())),
+        })
     }
 
     /// The same rasters, another layer the map.
@@ -328,9 +339,16 @@ impl Rasters {
             layers: self.layers.clone(),
             images: self.images.clone(),
             chosen: layer.min(self.layers.len().saturating_sub(1)),
+            picked: self.picked,
             mixed: self.mixed,
             whole: self.whole.clone(),
         }
+    }
+
+    /// The same rasters, their band asked for (or not).
+    pub fn picking(mut self, picked: bool) -> Rasters {
+        self.picked = picked;
+        self
     }
 
     /// The chosen layer alone: what a map of these rasters is, on disk (a port of any value takes it as a map,
@@ -342,6 +360,7 @@ impl Rasters {
             layers: self.layers.get(k).cloned().into_iter().collect(),
             images: self.images.clone(),
             chosen: 0,
+            picked: self.picked,
             mixed: false,
             whole: self.whole.clone(),
         }
@@ -440,8 +459,9 @@ pub fn as_port(v: Value, want: Type) -> Result<Value> {
     match (v, want) {
         (Value::Raster(r), Type::Stack) => Ok(Value::Stack(r.stack()?)),
         (Value::Raster(r), Type::Raster) => Ok(Value::Raster(r)),
-        // a port of any value: every band of rasters of many (a stack), not only the first
-        (Value::Raster(r), Type::Any) if r.layers.len() > 1 => Ok(Value::Stack(r.stack()?)),
+        // a port of any value: every band of rasters of many (a stack), not only the first; the band asked for
+        // alone, a map
+        (Value::Raster(r), Type::Any) if r.layers.len() > 1 && !r.picked => Ok(Value::Stack(r.stack()?)),
         (Value::Raster(r), _) => Ok(Value::Map(r.map()?)),
         (v, _) => Ok(v),
     }
@@ -453,22 +473,24 @@ impl Operator for Read {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "raster.read",
-            "Rasters: a file, or a folder or a pattern (forest/*.tif) for every raster in it as one stack (a layer \
-             per band of each file, by the files' names; files of different grids are shown, and made one grid \
-             by raster.match before they are a stack). Only their headers are read: they are shown at once \
-             whatever their size, and read whole when a node needs a map (one band, the first by default) or a \
-             stack (every band of every file).",
+            "A raster: a file, or a folder or a pattern (forest/*.tif) for every raster in it as one stack (a \
+             layer per band of each file, by the files' names; files of different grids are shown, and made one \
+             grid by raster.match before they are a stack). Only their headers are read: they are shown at once \
+             whatever their size, and read whole when a node needs them: one band where a node takes a raster \
+             (the band chosen, else the first), every band where it takes a stack.",
             Access::Global,
         )
-        .output(PortSpec::new("raster", Type::Raster, "the rasters on disk"))
-        .output(PortSpec::new("map", Type::Map, "the band chosen, as a map"))
-        .output(PortSpec::new("stack", Type::Stack, "every band of every file, as a stack"))
+        .output(PortSpec::new("raster", Type::Raster, "the raster (or the stack of its bands, of the files)"))
         .param(PortSpec::new(
             "path",
             Type::Text,
             "a file, a folder (a stack) or a pattern, relative to the model's folder",
         ))
-        .param(PortSpec::optional("band", Type::Text, "the band of the map, by name or 0-based number"))
+        .param(PortSpec::optional(
+            "band",
+            Type::Text,
+            "the band where a node takes a raster or any value (map algebra), by name or 0-based number (default the first)",
+        ))
         .param(PortSpec::optional("nodata", Type::Number, "a no-data value replacing the files'"))
     }
 
@@ -482,14 +504,10 @@ impl Operator for Read {
             Some(serde_json::Value::String(b)) => Some(b.clone()),
             Some(v) => Some(v.to_string()),
         };
-        let r = Arc::new(Rasters::open(&path, band.as_deref(), args.opt_param::<f64>("nodata")?)?);
-        // every output is the rasters on disk: read whole only where a node needs a map or a stack; the map's,
-        // the chosen band alone
-        Ok(outputs([
-            ("raster", Value::Raster(r.clone())),
-            ("map", Value::Raster(Arc::new(r.only_chosen()))),
-            ("stack", Value::Raster(r)),
-        ]))
+        let r = Rasters::open(&path, band.as_deref(), args.opt_param::<f64>("nodata")?)?;
+        // the rasters on disk, read whole only where a node needs a map (the band chosen) or a stack (every band);
+        // the band chosen follows them through the operators that make new files of them
+        Ok(outputs([("raster", Value::Raster(Arc::new(r)))]))
     }
 }
 

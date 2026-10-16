@@ -200,7 +200,7 @@ note = "CORINE Land Cover, cells of 100 m."
 [[nodes]]
 id = "graph"
 op = "conn.graph_from_raster"
-inputs = { map = "land.map" }
+inputs = { map = "land.raster" }
 params = { habitat = [23, 24, 25], area_unit = "ha", distance = "edge", landscape_area = 250000 }
 note = "The forest patches and the gaps between them."
 

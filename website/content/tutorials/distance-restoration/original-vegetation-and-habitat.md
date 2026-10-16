@@ -124,8 +124,8 @@ and [[stack.of]] joins them into one stack, naming each layer as its input (`for
 
 ### The original vegetation
 
-Add [[restoration.original_vegetation]]. Connect `cover.stack` (the land cover read by [[raster.read]], every
-band as a layer) to `land_cover`, `past.stack` to `past` and `eco_shares.stack` to `ecoregions`. Set
+Add [[restoration.original_vegetation]]. Connect `cover.raster` (the land cover read by [[raster.read]], every
+band as a layer) to `land_cover`, `past.raster` to `past` and `eco_shares.stack` to `ecoregions`. Set
 `natural = ["forest", "savanna", "mangrove"]` and `anthropic = ["pasture", "cropland"]`. Its outputs:
 
 - `original`: the original share of each natural class (today's natural land plus the anthropic share given back).
@@ -137,7 +137,7 @@ band as a layer) to `land_cover`, `past.stack` to `past` and `eco_shares.stack` 
 
 ### The area of habitat
 
-Add [[sdm.area_of_habitat]]. Its inputs: `ranges` (a stack, one layer per species: here `ranges.stack`, the
+Add [[sdm.area_of_habitat]]. Its inputs: `ranges` (a stack, one layer per species: here `ranges.raster`, the
 features read whole), `land_cover`, and the vegetation's `original`, `restore` and `anthropic`. Its settings:
 
 - `natural`: the natural classes, as above.
@@ -176,19 +176,19 @@ params = { path = "ecoregions.tif" }
 [[nodes]]
 id = "eco_forest"
 op = "map.calc"
-inputs = { e = "ecoregions.map" }
+inputs = { e = "ecoregions.raster" }
 params = { expression = "if e == 1 then 0.31 else if e == 2 then 0.98 else if e == 3 then 0.91 else 0.2" }
 
 [[nodes]]
 id = "eco_savanna"
 op = "map.calc"
-inputs = { e = "ecoregions.map" }
+inputs = { e = "ecoregions.raster" }
 params = { expression = "if e == 1 then 0 else if e == 2 then 0.01 else if e == 3 then 0.09 else 0.8" }
 
 [[nodes]]
 id = "eco_mangrove"
 op = "map.calc"
-inputs = { e = "ecoregions.map" }
+inputs = { e = "ecoregions.raster" }
 params = { expression = "if e == 1 then 0.69 else if e == 2 then 0.01 else 0" }
 
 [[nodes]]
@@ -199,7 +199,7 @@ inputs = { forest = "eco_forest.map", savanna = "eco_savanna.map", mangrove = "e
 [[nodes]]
 id = "vegetation"
 op = "restoration.original_vegetation"
-inputs = { land_cover = "cover.stack", past = "past.stack", ecoregions = "eco_shares.stack" }
+inputs = { land_cover = "cover.raster", past = "past.raster", ecoregions = "eco_shares.stack" }
 params = { natural = ["forest", "savanna", "mangrove"], anthropic = ["pasture", "cropland"] }
 
 [[nodes]]
@@ -211,7 +211,7 @@ note = "Eight species: a cell above 0 is in the range."
 [[nodes]]
 id = "habitat"
 op = "sdm.area_of_habitat"
-inputs = { ranges = "ranges.stack", land_cover = "cover.stack", original = "vegetation.original", restore = "vegetation.restore", anthropic = "vegetation.anthropic" }
+inputs = { ranges = "ranges.raster", land_cover = "cover.raster", original = "vegetation.original", restore = "vegetation.restore", anthropic = "vegetation.anthropic" }
 params = { natural = ["forest", "savanna", "mangrove"], suitability = { jaguar = ["forest", "savanna"], lowland_tapir = ["forest"], harpy_eagle = ["forest"], maned_wolf = ["savanna"], golden_lion_tamarin = ["forest"], neotropical_otter = ["forest", "mangrove"], araucaria_forest = ["forest"], mangrove = ["mangrove"] } }
 ```
 

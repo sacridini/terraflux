@@ -158,20 +158,20 @@ params = { path = "urban.tif" }
 [[nodes]]
 id = "status"
 op = "map.calc"
-inputs = { p = "protected.map", u = "urban.map" }
+inputs = { p = "protected.raster", u = "urban.raster" }
 params = { expression = "if u > 0 then 3 else if p > 0 then 2 else 0" }
 note = "Marxan's status: 2 locked in, 3 locked out."
 
 [[nodes]]
 id = "marxan"
 op = "prioritize.marxan"
-inputs = { features = "features.stack", cost = "cost.map", status = "status.map" }
+inputs = { features = "features.raster", cost = "cost.raster", status = "status.map" }
 params = { prop = [0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3], spf = 10, blm = 0.01, num_reps = 10, num_iters = 10000000, seed = 1 }
 
 [[nodes]]
 id = "irreplaceability"
 op = "prioritize.proxirr"
-inputs = { features = "features.stack" }
+inputs = { features = "features.raster" }
 params = { prop = 0.3 }
 
 [[nodes]]
@@ -403,7 +403,7 @@ params = { path = "cost.tif" }
 [[nodes]]
 id = "blocks"
 op = "prioritize.coarsen"
-inputs = { cost = "cost.map", features = "features.stack" }
+inputs = { cost = "cost.raster", features = "features.raster" }
 params = { factor = 5 }
 
 [[nodes]]

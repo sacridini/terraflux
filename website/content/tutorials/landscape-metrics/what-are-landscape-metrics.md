@@ -175,21 +175,21 @@ note = "15 classes of land cover, 30 m."
 [[nodes]]
 id = "patches"
 op = "metrics.patch"
-inputs = { map = "cover.map" }
+inputs = { map = "cover.raster" }
 params = { metrics = ["area"], show = "area" }
 note = "A row per patch; a map of each patch's area."
 
 [[nodes]]
 id = "classes"
 op = "metrics.class"
-inputs = { map = "cover.map" }
+inputs = { map = "cover.raster" }
 params = { metrics = ["ca", "pland", "np"], show = "pland" }
 note = "A row per class."
 
 [[nodes]]
 id = "landscape"
 op = "metrics.landscape"
-inputs = { map = "cover.map" }
+inputs = { map = "cover.raster" }
 params = { metrics = ["ta", "np", "pr", "shdi"] }
 note = "One row for the map."
 ```

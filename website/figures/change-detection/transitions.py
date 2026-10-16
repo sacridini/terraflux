@@ -37,28 +37,28 @@ params = { path = "sibuyan_landuse.tif" }
 [[nodes]]
 id = "crosstab"
 op = "change.crosstab"
-inputs = { from = "land_1997.map", to = "land_2011.map" }
+inputs = { from = "land_1997.raster", to = "land_2011.raster" }
 
 [[nodes]]
 id = "transitions"
 op = "change.transitions"
-inputs = { maps = "dates.stack" }
+inputs = { maps = "dates.raster" }
 
 [[nodes]]
 id = "components"
 op = "change.components"
-inputs = { from = "land_1997.map", to = "land_2011.map" }
+inputs = { from = "land_1997.raster", to = "land_2011.raster" }
 
 [[nodes]]
 id = "suggest"
 op = "change.suggest"
-inputs = { maps = "dates.stack" }
+inputs = { maps = "dates.raster" }
 params = { least = 5 }
 
 [[nodes]]
 id = "from_to"
 op = "map.calc"
-inputs = { a = "land_1997.map", b = "land_2011.map" }
+inputs = { a = "land_1997.raster", b = "land_2011.raster" }
 params = { expression = "if a == b then 0 else a * 10 + b" }
 """
 
@@ -180,12 +180,12 @@ params = { path = "toy_t2.tif" }
 [[nodes]]
 id = "crosstab"
 op = "change.crosstab"
-inputs = { from = "t1.map", to = "t2.map" }
+inputs = { from = "t1.raster", to = "t2.raster" }
 
 [[nodes]]
 id = "components"
 op = "change.components"
-inputs = { from = "t1.map", to = "t2.map" }
+inputs = { from = "t1.raster", to = "t2.raster" }
 
 [outputs.crosstab]
 from = "crosstab.table"

@@ -314,7 +314,7 @@ fn nodes_are_selected_moved_deleted_arranged_and_opened() {
     read.pos = Some([0.0, 0.0]);
     m.nodes.push(read);
     for (k, x) in [(1usize, 300.0f32), (2, 600.0), (3, 900.0)] {
-        let from = if k == 1 { "read.map".to_string() } else { format!("n{}.map", k - 1) };
+        let from = if k == 1 { "read.raster".to_string() } else { format!("n{}.map", k - 1) };
         let mut n = Node::new(&format!("n{k}"), "map.calc").input("a", &from).param("expression", "a");
         n.pos = Some([x, 0.0]);
         m.nodes.push(n);
@@ -458,15 +458,15 @@ fn files_become_nodes_and_rasters_join_a_stack_by_a_connection() {
     // stack.of takes any maps: a connection let go on its place of a new input, or on the node, is one more
     // input, named as the node it comes from
     h.run_steps(3);
-    let from = editor(&h).screen_of_output(&raster, "map").unwrap();
+    let from = editor(&h).screen_of_output(&raster, "raster").unwrap();
     let to = editor(&h).screen_of_input("drivers", "").unwrap();
     drag(&mut h, from, to);
     let ins = &h.state().session.as_ref().unwrap().source.nodes[0].inputs;
-    assert_eq!(ins.get(&raster), Some(&terraflux_graph::Source::Ref(format!("{raster}.map"))), "{ins:?}");
+    assert_eq!(ins.get(&raster), Some(&terraflux_graph::Source::Ref(format!("{raster}.raster"))), "{ins:?}");
     let to = editor(&h).screen_of("drivers").unwrap();
     drag(&mut h, from, to);
     let ins = &h.state().session.as_ref().unwrap().source.nodes[0].inputs;
-    assert_eq!(ins.get(&format!("{raster}_2")), Some(&terraflux_graph::Source::Ref(format!("{raster}.map"))));
+    assert_eq!(ins.get(&format!("{raster}_2")), Some(&terraflux_graph::Source::Ref(format!("{raster}.raster"))));
     // a raster of the Files pane carried to the canvas: a node where it is let go
     let canvas = editor(&h).canvas().unwrap();
     let at = canvas.center() + egui::vec2(0.0, 150.0);

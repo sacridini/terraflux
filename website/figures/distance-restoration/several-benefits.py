@@ -21,7 +21,7 @@ params = { path = "carbon_potential.tif" }
 [[nodes]]
 id = "carbon"
 op = "map.calc"
-inputs = { c = "carbon_t_ha.map" }
+inputs = { c = "carbon_t_ha.raster" }
 params = { expression = "c * 100 / 1000000" }
 
 [[nodes]]
@@ -47,7 +47,7 @@ params = { path = "land_cover.tif", band = "cropland" }
 [[nodes]]
 id = "reduction"
 op = "map.calc"
-inputs = { p = "pasture.map", c = "cropland.map" }
+inputs = { p = "pasture.raster", c = "cropland.raster" }
 params = { expression = "if p + c > 0 then (4 * p + 7 * c) / (p + c) else 0" }
 
 [[nodes]]
@@ -82,10 +82,10 @@ params = { PARAMS }
 """
 SPECIES_IN = 'restorable = "vegetation.anthropic", table = "habitat.table", gain = "habitat.gain"'
 CARBON_IN = 'restorable = "vegetation.anthropic", linear = "linear.stack"'
-INTACT_IN = 'restorable = "vegetation.anthropic", hfi = "footprint.map", reduction = "reduction.map"'
+INTACT_IN = 'restorable = "vegetation.anthropic", hfi = "footprint.raster", reduction = "reduction.map"'
 ECO_IN = 'restorable = "vegetation.anthropic", table = "ecosystems.table", gain = "ecosystems.gain"'
 ALL_IN = ('restorable = "vegetation.anthropic", table = "habitat.table", gain = "habitat.gain", linear = "linear.stack", '
-          'hfi = "footprint.map", reduction = "reduction.map"')
+          'hfi = "footprint.raster", reduction = "reduction.map"')
 SC_IN = 'restorable = "vegetation.anthropic", table = "habitat.table", gain = "habitat.gain", linear = "linear.stack"'
 W = 700
 
@@ -110,7 +110,7 @@ def plan_map(w, png, legend=True):
 # ------------------------------------------------------------------ each benefit alone, 100 km2
 w_s, s_s, b_s = run("species", SPECIES_IN, "target = 100")
 w_c, s_c, b_c = run("carbon", CARBON_IN, "target = 100",
-                    {"carbon_t_ha.map": "carbon.tif", "ecosystems.table": "eco.csv", "eco_targets.targets": "eco_targets.csv"})
+                    {"carbon_t_ha.raster": "carbon.tif", "ecosystems.table": "eco.csv", "eco_targets.targets": "eco_targets.csv"})
 w_i, s_i, b_i = run("intactness", INTACT_IN, "target = 100")
 w_e, s_e, b_e = run("ecosystems", ECO_IN, "target = 100")
 best = {"species": b_s[0], "carbon": b_c[0], "intactness": b_i[0], "ecosystems": b_e[0]}
@@ -177,7 +177,7 @@ figs.write_csv(data / "sets.csv", [{"set": "%d-%d-%d" % combos[i], "species": ro
 # ------------------------------------------------------------------ budgets
 brows = []
 for budget in (1000, 2000, 4000, 6000, 8000, 10000, 12000):
-    w, s, b = run(f"budget{budget}", SPECIES_IN.replace("restorable", 'cost = "cost.map", restorable'),
+    w, s, b = run(f"budget{budget}", SPECIES_IN.replace("restorable", 'cost = "cost.raster", restorable'),
                   f"target = 100, budget = {budget}")
     brows.append({"budget": budget / 1000, "area": round(s["area"], 1), "reduction": round(s["risk_reduction"], 4),
                   "cost": round(s["cost"] / 1000, 2)})
@@ -185,14 +185,14 @@ print("budgets", brows)
 figs.write_csv(data / "budget.csv", brows)
 cost_first = float(np.nansum(figs.read(w_s / "restored.tif")[0].filled(0) *
                              figs.read(figs.WEB / ".cache/work" / SLUG / "budget1000/cost.tif")[0].filled(0)))
-w_m, s_m, b_m = run("mincost", SPECIES_IN.replace("restorable", 'cost = "cost.map", restorable'),
+w_m, s_m, b_m = run("mincost", SPECIES_IN.replace("restorable", 'cost = "cost.raster", restorable'),
                     f"target = 100, min_benefit = {0.95 * best['species']}")
 print("first plan cost", cost_first, "min cost for 95%", s_m)
 plan_map(w_m, out / "cheapest.png")
 figs.raster(w_m / "cost.tif", out / "cost.png", cmap="cividis", unit="cost (thousand USD per km²)", width=W)
 
 # ------------------------------------------------------------------ targets per region
-w_r, s_r, b_r = run("regions", SPECIES_IN.replace("restorable", 'regions = "regions.map", restorable'),
+w_r, s_r, b_r = run("regions", SPECIES_IN.replace("restorable", 'regions = "regions.raster", restorable'),
                     'target = { 1 = 30, 2 = 40, 3 = 30 }')
 r0 = figs.read(w_s / "restored.tif")[0].filled(0)
 r1 = figs.read(w_r / "restored.tif")[0].filled(0)

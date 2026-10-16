@@ -230,19 +230,19 @@ params = { path = "sibuyan_landuse.tif", band = "2011" }
 [[nodes]]
 id = "simple"
 op = "change.simple"
-inputs = { before = "before.map", after = "after.map" }
+inputs = { before = "before.raster", after = "after.raster" }
 params = { foreground = [1] }
 
 [[nodes]]
 id = "morphological"
 op = "change.morphological"
-inputs = { before = "before.map", after = "after.map" }
+inputs = { before = "before.raster", after = "after.raster" }
 params = { foreground = [1] }
 
 [[nodes]]
 id = "fad"
 op = "change.fad"
-inputs = { before = "before.map", after = "after.map" }
+inputs = { before = "before.raster", after = "after.raster" }
 params = { foreground = [1], windows = [7, 13, 27] }
 ```
 
@@ -380,13 +380,13 @@ params = { path = "sibuyan_landuse.tif", band = "2011" }
 [[nodes]]
 id = "fos_before"
 op = "fragmentation.fos"
-inputs = { map = "before.map" }
+inputs = { map = "before.raster" }
 params = { foreground = [1], window = 13 }
 
 [[nodes]]
 id = "fos_after"
 op = "fragmentation.fos"
-inputs = { map = "after.map" }
+inputs = { map = "after.raster" }
 params = { foreground = [1], window = 13 }
 
 [[nodes]]

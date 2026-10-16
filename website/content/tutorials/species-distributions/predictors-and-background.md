@@ -163,13 +163,13 @@ params = { distance = 500000 }
 [[nodes]]
 id = "vif"
 op = "sdm.vif"
-inputs = { env = "climate.stack", area = "area.area" }
+inputs = { env = "climate.raster", area = "area.area" }
 params = { seed = 1 }
 
 [[nodes]]
 id = "select"
 op = "sdm.select_predictors"
-inputs = { env = "climate.stack", area = "area.area" }
+inputs = { env = "climate.raster", area = "area.area" }
 params = { vif = 10, seed = 1 }
 ```
 

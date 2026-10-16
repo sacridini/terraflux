@@ -98,7 +98,7 @@ params = { path = "clc.tif" }
 [[nodes]]
 id = "groups"
 op = "raster.reclassify"
-inputs = { map = "landcover.map" }
+inputs = { map = "landcover.raster" }
 params = { rules = "1..11 -> 1\n12..22 -> 2\n23..25 -> 3\n26..34 -> 4\n35..39 -> 5\n40..44 -> 6" }
 note = "CORINE's level-1 groups, by the ranges of its codes."
 
@@ -165,14 +165,14 @@ params = { path = "window.tif" }
 [[nodes]]
 id = "share"
 op = "map.calc"
-inputs = { lc = "landcover.map" }
+inputs = { lc = "landcover.raster" }
 params = { expression = "nbmean(lc >= 23 and lc <= 25, 20)" }
 note = "The mean of the forest map (1/0) in the square of 41 x 41 cells (1 x 1 km) around each cell: its share of forest."
 
 [[nodes]]
 id = "edge"
 op = "map.calc"
-inputs = { lc = "landcover.map" }
+inputs = { lc = "landcover.raster" }
 params = { expression = "if lc >= 23 and lc <= 25 then (nbmin(lc >= 23 and lc <= 25, 1) == 0) + 1 else 0" }
 note = "Forest cells with a non-forest cell among their 8 neighbours are edge (2), the others interior (1); 0 is not forest."
 ```
@@ -216,7 +216,7 @@ params = { path = "orforest.tif" }
 [[nodes]]
 id = "gaps"
 op = "map.calc"
-inputs = { elevation = "elevation.map", ndvi = "ndvi.map" }
+inputs = { elevation = "elevation.raster", ndvi = "ndvi.raster" }
 params = { expression = "if ndvi < 0.4 then null else elevation" }
 note = "Gaps for the demonstration: no value where the vegetation index is low."
 

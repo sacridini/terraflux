@@ -92,13 +92,13 @@ params = {{ path = "regions.tif" }}
 [[nodes]]
 id = "regression"
 op = "glm.fit"
-inputs = {{ landscape = "lu1997.map", drivers = "drivers.stack" }}
+inputs = {{ landscape = "lu1997.raster", drivers = "drivers.raster" }}
 params = {{ formulas = {inline(formulas)} }}
 
 [[nodes]]
 id = "suitability"
 op = "glm.predict"
-inputs = {{ model = "regression.model", drivers = "drivers.stack", landscape = "lu1997.map" }}
+inputs = {{ model = "regression.model", drivers = "drivers.raster", landscape = "lu1997.raster" }}
 
 {demand_node}
 [[nodes]]
@@ -109,12 +109,12 @@ inputs = {{ seed = 1 }}
 [[nodes]]
 id = "history"
 op = "lulcc.history"
-inputs = {{ landscape = "lu1997.map" }}
+inputs = {{ landscape = "lu1997.raster" }}
 
 [[nodes]]
 id = "simulation"
 op = "control.repeat"
-inputs = {{ times = {STEPS}, landscape = "lu1997.map", history = "history.history" }}
+inputs = {{ times = {STEPS}, landscape = "lu1997.raster", history = "history.history" }}
 
 [nodes.body]
 carry = {{ landscape = "allocate.landscape", history = "allocate.history" }}
@@ -158,30 +158,30 @@ params = {{ path = "regions.tif" }}
 [[nodes]]
 id = "regression"
 op = "glm.fit"
-inputs = {{ landscape = "lu1997.map", drivers = "drivers.stack" }}
+inputs = {{ landscape = "lu1997.raster", drivers = "drivers.raster" }}
 params = {{ formulas = {inline(formulas)} }}
 
 [[nodes]]
 id = "probability"
 op = "glm.predict"
-inputs = {{ model = "regression.model", drivers = "drivers.stack", landscape = "lu1997.map" }}
+inputs = {{ model = "regression.model", drivers = "drivers.raster", landscape = "lu1997.raster" }}
 
 [[nodes]]
 id = "chains"
 op = "demand.regional"
-inputs = {{ regions = "regions.map" }}
+inputs = {{ regions = "regions.raster" }}
 params = {{ ids = [1, 2, 3], demands = {inline(demands)} }}
 
 [[nodes]]
 id = "demand"
 op = "plus.demand"
-inputs = {{ start = "lu1997.map", regional = "chains.regional" }}
+inputs = {{ start = "lu1997.raster", regional = "chains.regional" }}
 params = {{ steps = {STEPS} }}
 
 [[nodes]]
 id = "simulation"
 op = "control.repeat"
-inputs = {{ times = "demand.steps", landscape = "lu1997.map" }}
+inputs = {{ times = "demand.steps", landscape = "lu1997.raster" }}
 
 [nodes.body]
 carry = {{ landscape = "cars.landscape" }}
@@ -254,7 +254,7 @@ params = {{ table = {inline(one)} }}
     node_reg = f"""[[nodes]]
 id = "demand"
 op = "demand.regional"
-inputs = {{ regions = "regions.map" }}
+inputs = {{ regions = "regions.raster" }}
 params = {{ ids = [1, 2, 3], demands = {inline(per)} }}
 """
     # the scenario: the north keeps its forest (its forest's loss given to no class: its other classes keep

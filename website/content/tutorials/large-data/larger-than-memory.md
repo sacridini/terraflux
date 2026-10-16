@@ -113,7 +113,7 @@ params = { metrics = ["ta", "np", "lpi", "ed", "area_mn", "shdi", "contag", "ai"
 from = "metrics.table"
 ```
 
-The same model was run three times on `big.tif`: once with `landcover.map` and no `block_rows` (the whole map in
+The same model was run three times on `big.tif`: once with `landcover.raster` and no `block_rows` (the whole map in
 memory), and twice by strips of 512 and of 128 rows. The figure script measured the memory the `terraflux` process
 used at its peak:
 

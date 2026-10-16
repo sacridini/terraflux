@@ -119,7 +119,7 @@ params = { path = "clc_100m.tif" }
 [[nodes]]
 id = "resistance"
 op = "raster.reclassify"
-inputs = { map = "land.map" }
+inputs = { map = "land.raster" }
 params = { rules = "23 24 25 -> 1\n29 -> 2\n21 26 27 32 35 36 -> 5\n18 20 -> 10\n12 -> 20\n10 11 -> 30\n7 8 9 -> 50\n1 2 3 4 5 6 40 41 -> 100\n* -> 20" }
 note = "A resistance per class."
 
@@ -140,13 +140,13 @@ note = "Divided by the distance between the cells' centres."
 [[nodes]]
 id = "graph"
 op = "conn.graph_from_raster"
-inputs = { map = "land.map" }
+inputs = { map = "land.raster" }
 params = { habitat = [23, 24, 25] }
 
 [[nodes]]
 id = "patches"
 op = "conn.nodes"
-inputs = { map = "land.map" }
+inputs = { map = "land.raster" }
 params = { habitat = [23, 24, 25] }
 
 [[nodes]]

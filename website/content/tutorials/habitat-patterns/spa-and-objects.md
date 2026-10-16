@@ -101,42 +101,42 @@ note = "0 missing, 1 background, 2 forest."
 [[nodes]]
 id = "spa"
 op = "landscape.spa"
-inputs = { map = "forest.map" }
+inputs = { map = "forest.raster" }
 params = { variant = 6 }
 note = "Core, islet, edge, perforation, margin."
 
 [[nodes]]
 id = "objects"
 op = "landscape.accounting"
-inputs = { map = "forest.map" }
+inputs = { map = "forest.raster" }
 params = { thresholds = [50, 250, 1000, 5000, 20000], highlight_largest = true }
 note = "The forest's objects in six size classes."
 
 [[nodes]]
 id = "parcels"
 op = "landscape.parcellation"
-inputs = { map = "forest.map" }
+inputs = { map = "forest.raster" }
 note = "Parcels of the forest and of the background."
 
 [[nodes]]
 id = "contortion"
 op = "landscape.contortion"
-inputs = { map = "forest.map" }
+inputs = { map = "forest.raster" }
 params = { min_area = 100 }
 
 [[nodes]]
 id = "distance"
 op = "distance.euclidean"
-inputs = { map = "forest.map" }
+inputs = { map = "forest.raster" }
 
 [[nodes]]
 id = "zones"
 op = "distance.influence_zones"
-inputs = { map = "forest.map" }
+inputs = { map = "forest.raster" }
 params = { min_area = 5000 }
 ```
 
-Every tool takes the same input, `forest.map`: connect node 1's output `map` to the input `map` of each. They do not
+Every tool takes the same input, `forest.raster`: connect node 1's output `map` to the input `map` of each. They do not
 depend on each other, so Terraflux runs them in parallel. The tables they give (`stats`, `objects`, `summary`) show
 under the canvas when the node is selected, and in a model run from the command line they are written as CSV
 files when you make them outputs of the model:

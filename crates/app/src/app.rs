@@ -538,7 +538,9 @@ impl Session {
         Ok(s)
     }
 
-    fn new(source: Model, path: Option<PathBuf>) -> Result<Session, String> {
+    fn new(mut source: Model, path: Option<PathBuf>) -> Result<Session, String> {
+        // (a model made in code, as a template's, brought up to date as a model read is)
+        source.upgrade();
         let base = path.as_deref().and_then(Path::parent).map(Path::to_path_buf).unwrap_or_default();
         let shown = path.as_ref().map_or("the model".into(), |p| p.display().to_string());
         let mut model = source.clone();
@@ -2485,7 +2487,7 @@ pub(crate) fn node_panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
     ui.label(RichText::new("Inputs").strong());
     egui::Grid::new("inputs").num_columns(3).show(ui, |ui| {
         for (port, ty, required) in crate::editor::input_ports(&n, r) {
-            ui.label(if required { format!("{port} *") } else { port.clone() }).on_hover_text(format!("{ty:?}"));
+            ui.label(if required { format!("{port} *") } else { port.clone() }).on_hover_text(ty.name());
             match n.inputs.get(&port) {
                 Some(Source::Ref(reference)) => {
                     ui.label(RichText::new(format!("<- {reference}")).monospace());
@@ -2589,7 +2591,7 @@ pub(crate) fn node_panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
                     "vector.read" | "vector.write" => rfd::FileDialog::new()
                         .add_filter("Vectors", &crate::builder::VECTOR_EXTENSIONS)
                         .add_filter("Every file", &["*"]),
-                    "table.write" => rfd::FileDialog::new()
+                    "table.read" | "table.write" => rfd::FileDialog::new()
                         .add_filter("Tables", &["csv", "tsv", "txt", "json"])
                         .add_filter("Every file", &["*"]),
                     _ => rfd::FileDialog::new()

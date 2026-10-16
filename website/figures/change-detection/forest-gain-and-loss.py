@@ -60,7 +60,7 @@ def fmt(r):
 # ------------------------------------------------------------------------------------------------ the template
 tw = figs.workdir(f"{c.CATEGORY}/{SLUG}-template")
 tmpl = figs.template("forest-gain-and-loss")
-figs.run(figs.add_writes(tmpl, {"before.map": "before.tif", "after.map": "after.tif", "simple.map": "simple.tif",
+figs.run(figs.add_writes(tmpl, {"before.raster": "before.tif", "after.raster": "after.tif", "simple.map": "simple.tif",
                                 "morphological.map": "morph.tif", "simple.stats": "simple.csv",
                                 "morphological.stats": "morph.csv", "fad.stats": "fad.csv"}), tw)
 for k in ("simple.csv", "morph.csv", "fad.csv"):
@@ -106,19 +106,19 @@ params = { path = "sibuyan_landuse.tif", band = "2011" }
 [[nodes]]
 id = "simple"
 op = "change.simple"
-inputs = { before = "before.map", after = "after.map" }
+inputs = { before = "before.raster", after = "after.raster" }
 params = { foreground = [1] }
 
 [[nodes]]
 id = "morphological"
 op = "change.morphological"
-inputs = { before = "before.map", after = "after.map" }
+inputs = { before = "before.raster", after = "after.raster" }
 params = { foreground = [1] }
 
 [[nodes]]
 id = "fad"
 op = "change.fad"
-inputs = { before = "before.map", after = "after.map" }
+inputs = { before = "before.raster", after = "after.raster" }
 params = { foreground = [1], windows = [7, 13, 27] }
 
 [[nodes]]
@@ -129,13 +129,13 @@ params = { path = "sibuyan_2011_shifted.tif" }
 [[nodes]]
 id = "misregistered"
 op = "change.morphological"
-inputs = { before = "after.map", after = "shifted.map" }
+inputs = { before = "after.raster", after = "shifted.raster" }
 params = { foreground = [1] }
 
 [[nodes]]
 id = "misregistered_simple"
 op = "change.simple"
-inputs = { before = "after.map", after = "shifted.map" }
+inputs = { before = "after.raster", after = "shifted.raster" }
 params = { foreground = [1] }
 """
 writes = {"simple.map": "simple.tif", "morphological.map": "morph.tif", "misregistered.map": "misreg.tif",
@@ -199,13 +199,13 @@ params = { path = "sibuyan_landuse.tif", band = "2011" }
 [[nodes]]
 id = "fos_before"
 op = "fragmentation.fos"
-inputs = { map = "before.map" }
+inputs = { map = "before.raster" }
 params = { foreground = [1], window = WINDOW }
 
 [[nodes]]
 id = "fos_after"
 op = "fragmentation.fos"
-inputs = { map = "after.map" }
+inputs = { map = "after.raster" }
 params = { foreground = [1], window = WINDOW }
 
 [[nodes]]
@@ -263,19 +263,19 @@ params = { path = "pie_landuse.tif", band = "1999" }
 [[nodes]]
 id = "simple"
 op = "change.simple"
-inputs = { before = "before.map", after = "after.map" }
+inputs = { before = "before.raster", after = "after.raster" }
 params = { foreground = [1] }
 
 [[nodes]]
 id = "morphological"
 op = "change.morphological"
-inputs = { before = "before.map", after = "after.map" }
+inputs = { before = "before.raster", after = "after.raster" }
 params = { foreground = [1] }
 
 [[nodes]]
 id = "fad"
 op = "change.fad"
-inputs = { before = "before.map", after = "after.map" }
+inputs = { before = "before.raster", after = "after.raster" }
 params = { foreground = [1], windows = [7, 13, 27] }
 """
 w = figs.workdir(f"{c.CATEGORY}/{SLUG}-pie")
@@ -353,12 +353,12 @@ params = { path = "toy_2.tif" }
 [[nodes]]
 id = "simple"
 op = "change.simple"
-inputs = { before = "before.map", after = "after.map" }
+inputs = { before = "before.raster", after = "after.raster" }
 
 [[nodes]]
 id = "morphological"
 op = "change.morphological"
-inputs = { before = "before.map", after = "after.map" }
+inputs = { before = "before.raster", after = "after.raster" }
 """
 figs.run(figs.add_writes(TOY, {"simple.map": "simple.tif", "morphological.map": "morph.tif",
                                "morphological.stats": "morph.csv"}), tw)

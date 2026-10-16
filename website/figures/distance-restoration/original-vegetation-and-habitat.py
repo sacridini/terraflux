@@ -35,19 +35,19 @@ params = {{ path = "ecoregions.tif" }}
 [[nodes]]
 id = "eco_forest"
 op = "map.calc"
-inputs = {{ e = "ecoregions.map" }}
+inputs = {{ e = "ecoregions.raster" }}
 params = {{ expression = "if e == 1 then 0.31 else if e == 2 then 0.98 else if e == 3 then 0.91 else 0.2" }}
 
 [[nodes]]
 id = "eco_savanna"
 op = "map.calc"
-inputs = {{ e = "ecoregions.map" }}
+inputs = {{ e = "ecoregions.raster" }}
 params = {{ expression = "if e == 1 then 0 else if e == 2 then 0.01 else if e == 3 then 0.09 else 0.8" }}
 
 [[nodes]]
 id = "eco_mangrove"
 op = "map.calc"
-inputs = {{ e = "ecoregions.map" }}
+inputs = {{ e = "ecoregions.raster" }}
 params = {{ expression = "if e == 1 then 0.69 else if e == 2 then 0.01 else 0" }}
 
 [[nodes]]
@@ -58,7 +58,7 @@ inputs = {{ forest = "eco_forest.map", savanna = "eco_savanna.map", mangrove = "
 [[nodes]]
 id = "vegetation"
 op = "restoration.original_vegetation"
-inputs = {{ land_cover = "cover.stack", past = "past.stack"ECO }}
+inputs = {{ land_cover = "cover.raster", past = "past.raster"ECO }}
 params = {{ natural = ["forest", "savanna", "mangrove"], anthropic = ["pasture", "cropland"]RESTORE }}
 
 [[nodes]]
@@ -69,7 +69,7 @@ params = {{ path = "features.tif" }}
 [[nodes]]
 id = "habitat"
 op = "sdm.area_of_habitat"
-inputs = {{ ranges = "ranges.stack", land_cover = "cover.stack", original = "vegetation.original", restore = "vegetation.restore", anthropic = "vegetation.anthropic" }}
+inputs = {{ ranges = "ranges.raster", land_cover = "cover.raster", original = "vegetation.original", restore = "vegetation.restore", anthropic = "vegetation.anthropic" }}
 params = {{ natural = ["forest", "savanna", "mangrove"], suitability = {C.SUITABILITY} }}
 """
 
@@ -189,8 +189,8 @@ print("ecoregions vs flat", cmp)
 # ------------------------------------------------------------------ elevation limits
 el = figs.workdir(f"{SLUG}/elevation")
 C.serra(el, "land_cover", "past_cover", "features", "ecoregions", "elevation")
-m = model().replace('inputs = { ranges = "ranges.stack",',
-                    'inputs = { elevation = "elevation.map", ranges = "ranges.stack",')
+m = model().replace('inputs = { ranges = "ranges.raster",',
+                    'inputs = { elevation = "elevation.map", ranges = "ranges.raster",')
 m = m.replace('[[nodes]]\nid = "habitat"', '[[nodes]]\nid = "elevation"\nop = "raster.read"\n'
               'params = { path = "elevation.tif" }\n\n[[nodes]]\nid = "habitat"')
 m = m.replace('suitability = {', 'elevation_limits = [["araucaria_forest", 0.8, 1.0]], suitability = {', 1)

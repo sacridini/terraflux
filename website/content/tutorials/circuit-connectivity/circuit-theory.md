@@ -171,14 +171,14 @@ note = "Area 1 in the west, area 2 in the east."
 [[nodes]]
 id = "current"
 op = "circuit.pairwise"
-inputs = { habitat = "resistance.map", points = "focal.map" }
+inputs = { habitat = "resistance.raster", points = "focal.raster" }
 params = { cum_map = true }
 note = "1 A from area 1 to area 2: the current through every cell."
 
 [[nodes]]
 id = "omniscape"
 op = "circuit.omniscape"
-inputs = { resistance = "resistance.map" }
+inputs = { resistance = "resistance.raster" }
 params = { radius = 15, block_size = 1, flow_potential = true, normalized_current = true }
 note = "Current from every cell to those within 15 cells, over what it would be without the wall."
 
@@ -191,19 +191,19 @@ note = "The same, with 0 in the wall."
 [[nodes]]
 id = "left"
 op = "map.calc"
-inputs = { f = "focal.map" }
+inputs = { f = "focal.raster" }
 params = { expression = "f == 1" }
 
 [[nodes]]
 id = "right"
 op = "map.calc"
-inputs = { f = "focal.map" }
+inputs = { f = "focal.raster" }
 params = { expression = "f == 2" }
 
 [[nodes]]
 id = "path"
 op = "restoration.least_cost_path"
-inputs = { resistance = "open.map", a = "left.map", b = "right.map" }
+inputs = { resistance = "open.raster", a = "left.map", b = "right.map" }
 note = "The single cheapest route."
 ```
 

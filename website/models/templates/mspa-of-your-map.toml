@@ -11,7 +11,7 @@ note = "Choose your map's file (Node > path > Choose...)."
 [[nodes]]
 id = "forest"
 op = "raster.reclassify"
-inputs = { map = "read.map" }
+inputs = { map = "read.raster" }
 params = { rules = "1 -> 2\n* -> 1" }
 note = "Your forest's classes become 2 (the foreground), the rest 1 (the background): put your forest's classes in place of 1 (A rule per class lists the map's classes)."
 

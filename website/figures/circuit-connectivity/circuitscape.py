@@ -26,19 +26,19 @@ params = {{ path = "clc_100m.tif" }}
 [[nodes]]
 id = "resistance"
 op = "raster.reclassify"
-inputs = {{ map = "land.map" }}
+inputs = {{ map = "land.raster" }}
 params = {{ rules = "{RULES}" }}
 
 [[nodes]]
 id = "graph"
 op = "conn.graph_from_raster"
-inputs = {{ map = "land.map" }}
+inputs = {{ map = "land.raster" }}
 params = {{ habitat = [23, 24, 25], area_unit = "ha" }}
 
 [[nodes]]
 id = "patches"
 op = "conn.nodes"
-inputs = {{ map = "land.map" }}
+inputs = {{ map = "land.raster" }}
 params = {{ habitat = [23, 24, 25], area_unit = "ha" }}
 
 [[nodes]]

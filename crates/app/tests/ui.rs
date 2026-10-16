@@ -1352,7 +1352,10 @@ fn weights_of_evidence_are_edited_in_the_viewer() {
     m.nodes.push(Node::new("t1", "raster.read").param("path", lu).param("band", "1"));
     m.nodes.push(Node::new("drivers", "raster.read").param("path", data("sibuyan_drivers.tif").to_string_lossy()));
     m.nodes.push(
-        Node::new("fit", "woe.fit").input("t0", "t0.map").input("t1", "t1.map").input("drivers", "drivers.stack"),
+        Node::new("fit", "woe.fit")
+            .input("t0", "t0.raster")
+            .input("t1", "t1.raster")
+            .input("drivers", "drivers.raster"),
     );
     let path = d.join("woe.toml");
     m.save(&path).unwrap();

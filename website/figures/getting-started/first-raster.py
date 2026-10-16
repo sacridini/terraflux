@@ -22,7 +22,7 @@ params = {{ path = "{posix(CLC)}" }}
 [[nodes]]
 id = "legend"
 op = "raster.legend"
-inputs = {{ map = "landcover.map" }}
+inputs = {{ map = "landcover.raster" }}
 params = {{ classes = [
   {legend_rows}
 ] }}
@@ -61,12 +61,12 @@ params = {{ path = "{posix(SIBUYAN_DRIVERS)}" }}
 [[nodes]]
 id = "sibuyan_legend"
 op = "raster.legend"
-inputs = {{ map = "sibuyan.map" }}
+inputs = {{ map = "sibuyan.raster" }}
 params = {{ classes = [[1, "Forest", "#3b8a5a"], [2, "Coconut", "#d9a441"], [3, "Grassland", "#a7c957"], [4, "Rice", "#e8d36a"], [5, "Other", "#b4508a"]] }}
 '''
-model = figs.add_writes(model, {"legend.map": "landcover.tif", "elevation.map": "elevation.tif", "ndvi.map": "ndvi.tif",
-                                "sibuyan.map": "sibuyan_1997.tif", "sibuyan_no_nodata.map": "sibuyan_raw.tif",
-                                "drivers.stack": "drivers.tif", "sibuyan_legend.map": "sibuyan_legend.tif"})
+model = figs.add_writes(model, {"legend.map": "landcover.tif", "elevation.raster": "elevation.tif", "ndvi.raster": "ndvi.tif",
+                                "sibuyan.raster": "sibuyan_1997.tif", "sibuyan_no_nodata.raster": "sibuyan_raw.tif",
+                                "drivers.raster": "drivers.tif", "sibuyan_legend.map": "sibuyan_legend.tif"})
 figs.run(model, work)
 
 # ------------------------------------------------------------------ 1. the parts of a raster (a drawing)

@@ -188,7 +188,7 @@ note = "Decimal values on finer cells: bilinear (auto)."
 [[nodes]]
 id = "drivers"
 op = "stack.of"
-inputs = { landcover = "landcover.map", forest_share = "matched.raster" }
+inputs = { landcover = "landcover.raster", forest_share = "matched.raster" }
 note = "Now on one grid, the two maps can form a stack."
 ```
 

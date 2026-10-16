@@ -189,18 +189,18 @@ note = "LEAS's growth probabilities, a band per class."
 [[nodes]]
 id = "growth"
 op = "stack.classes"
-inputs = { stack = "leas.stack" }
+inputs = { stack = "leas.raster" }
 
 [[nodes]]
 id = "markov"
 op = "markov.fit"
-inputs = { t0 = "lu1985.map", t1 = "lu1991.map", steps = 6 }
+inputs = { t0 = "lu1985.raster", t1 = "lu1991.raster", steps = 6 }
 note = "Yearly rates of 1985-1991."
 
 [[nodes]]
 id = "demand"
 op = "plus.demand"
-inputs = { start = "lu1991.map", markov = "markov.markov" }
+inputs = { start = "lu1991.raster", markov = "markov.markov" }
 params = { steps = 8 }
 note = "The cells of each class, 1992 to 1999."
 ```
@@ -235,23 +235,23 @@ params = { path = "potential.tif" }
 [[nodes]]
 id = "growth"
 op = "stack.classes"
-inputs = { stack = "leas.stack" }
+inputs = { stack = "leas.raster" }
 
 [[nodes]]
 id = "markov"
 op = "markov.fit"
-inputs = { t0 = "lu1985.map", t1 = "lu1991.map", steps = 6 }
+inputs = { t0 = "lu1985.raster", t1 = "lu1991.raster", steps = 6 }
 
 [[nodes]]
 id = "demand"
 op = "plus.demand"
-inputs = { start = "lu1991.map", markov = "markov.markov" }
+inputs = { start = "lu1991.raster", markov = "markov.markov" }
 params = { steps = 8 }
 
 [[nodes]]
 id = "simulation"
 op = "control.repeat"
-inputs = { times = "demand.steps", landscape = "lu1991.map" }
+inputs = { times = "demand.steps", landscape = "lu1991.raster" }
 note = "A step per year of the demand; the map carried."
 
 [nodes.body]
@@ -306,7 +306,7 @@ params = { path = "pie_landuse.tif", band = "1999" }
 [[nodes]]
 id = "validation"
 op = "validate.three_map"
-inputs = { t0 = "lu1991.map", t1 = "lu1999.map", simulated = "simulation.landscape" }
+inputs = { t0 = "lu1991.map", t1 = "lu1999.raster", simulated = "simulation.landscape" }
 params = { factors = [1, 2, 4, 8, 16] }
 ```
 

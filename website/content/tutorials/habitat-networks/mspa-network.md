@@ -118,7 +118,7 @@ note = "CORINE Land Cover, cells of 100 m."
 [[nodes]]
 id = "mspa"
 op = "landscape.mspa"
-inputs = { map = "land.map" }
+inputs = { map = "land.raster" }
 params = { foreground = [23, 24, 25], edge_width = 1 }
 note = "Cores, bridges, branches... of the forests, with an edge of 100 m."
 

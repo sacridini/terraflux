@@ -173,7 +173,7 @@ note = "The same classes in 2011."
 [[nodes]]
 id = "crosstab"
 op = "change.crosstab"
-inputs = { from = "land_1997.map", to = "land_2011.map" }
+inputs = { from = "land_1997.raster", to = "land_2011.raster" }
 note = "Rows: the class in 1997; columns: the class in 2011; cells: how many."
 ```
 
@@ -185,7 +185,7 @@ Classes found in neither map are left out, and so are cells without a value at e
 
 The matrix counts cells. To report areas, and to handle more than two dates, add [[change.transitions]]. It takes
 the maps as one input, `maps`: a **stack** (several maps of one grid, a layer each). Add a third
-[[raster.read]] node with the same path and no band: its `stack` output holds both bands, named `1997` and `2011`.
+[[raster.read]] node with the same path and no band: its `raster` holds both bands, named `1997` and `2011`.
 Connect it to `maps`.
 
 [[change.transitions]] reads the dates from the layers' names (or from its `times` setting) and a cell's area from
@@ -223,18 +223,18 @@ note = "No band: the stack of both, layers named 1997 and 2011."
 [[nodes]]
 id = "crosstab"
 op = "change.crosstab"
-inputs = { from = "land_1997.map", to = "land_2011.map" }
+inputs = { from = "land_1997.raster", to = "land_2011.raster" }
 
 [[nodes]]
 id = "transitions"
 op = "change.transitions"
-inputs = { maps = "dates.stack" }
+inputs = { maps = "dates.raster" }
 note = "Years from the layers' names; a cell's area from the grid (250 m x 250 m)."
 
 [[nodes]]
 id = "suggest"
 op = "change.suggest"
-inputs = { maps = "dates.stack" }
+inputs = { maps = "dates.raster" }
 params = { least = 5 }
 note = "Transitions making at least 5% of the change."
 ```
@@ -281,29 +281,29 @@ params = { path = "sibuyan_landuse.tif" }
 [[nodes]]
 id = "crosstab"
 op = "change.crosstab"
-inputs = { from = "land_1997.map", to = "land_2011.map" }
+inputs = { from = "land_1997.raster", to = "land_2011.raster" }
 
 [[nodes]]
 id = "transitions"
 op = "change.transitions"
-inputs = { maps = "dates.stack" }
+inputs = { maps = "dates.raster" }
 
 [[nodes]]
 id = "components"
 op = "change.components"
-inputs = { from = "land_1997.map", to = "land_2011.map" }
+inputs = { from = "land_1997.raster", to = "land_2011.raster" }
 note = "Gain, persistence, loss; quantity, exchange, shift."
 
 [[nodes]]
 id = "suggest"
 op = "change.suggest"
-inputs = { maps = "dates.stack" }
+inputs = { maps = "dates.raster" }
 params = { least = 5 }
 
 [[nodes]]
 id = "from_to"
 op = "map.calc"
-inputs = { a = "land_1997.map", b = "land_2011.map" }
+inputs = { a = "land_1997.raster", b = "land_2011.raster" }
 params = { expression = "if a == b then 0 else a * 10 + b" }
 note = "13: forest to grassland, 42: rice to coconut... 0: no change."
 

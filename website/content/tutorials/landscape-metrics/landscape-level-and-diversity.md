@@ -233,14 +233,14 @@ params = { path = "augusta.tif" }
 [[nodes]]
 id = "level1"
 op = "raster.reclassify"
-inputs = { map = "cover.map" }
+inputs = { map = "cover.raster" }
 params = { rules = "11 -> 1\n21 22 23 24 -> 2\n31 -> 3\n41 42 43 -> 4\n52 -> 5\n71 -> 6\n81 82 -> 7\n90 95 -> 8" }
 note = "15 classes into 8."
 
 [[nodes]]
 id = "m15"
 op = "metrics.landscape"
-inputs = { map = "cover.map" }
+inputs = { map = "cover.raster" }
 params = { metrics = ["np", "ed", "lpi", "pr", "shdi", "shei", "contag", "iji", "ai", "mesh"] }
 
 [[nodes]]

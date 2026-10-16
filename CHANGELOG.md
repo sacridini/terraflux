@@ -34,6 +34,10 @@ minor versions.
   pastes them, through the system's clipboard (to another container, model or window): new nodes each time, of
   new ids (`calc`: `calc_2`), connected to each other as the originals were, where the pointer is on the canvas.
 - Space over the viewer's map hides it (what is under and over it seen alone), and shows it again.
+- `table.read`: a table from a file, comma-separated (`.csv`), tab-separated (`.tsv`, `.txt`), with `;` and a
+  decimal comma as Excel writes them where a comma marks the decimals (both found by themselves), or JSON; the
+  columns of text left out (a table is of numbers), named in a warning. The Files pane lists `.csv` and `.tsv`
+  files as tables (a node that reads them by a double click or a drag; their columns and first rows described).
 - `table.write`: a table to a file, comma-separated (`.csv`, the default), tab-separated (`.tsv`, `.txt`) or
   JSON (`.json`); the separator and the decimal mark as a spreadsheet of the place expects (`;` and `,`). In a
   batch, each run writes it in its own folder, as the other writers.
@@ -45,6 +49,12 @@ minor versions.
   held (nodes dragged) is one.
 
 ### Changed
+- `raster.read` has one output, `raster`: the file on disk, one band (`band`, else the first) where a node takes a
+  raster and every band where it takes a stack, as its `map` and `stack` outputs were. A model that read them
+  reads `raster` (brought up to date when it is read; the website's tutorials and the templates changed). The
+  viewer shows one entry per raster read among the maps over a map (three before), and the buttons of a node's
+  outputs only for a node of several. Types are named for people where the application shows them: a map in
+  memory and rasters on disk are both a raster.
 - A node added is named after its operator's whole name (`stack_of`, `raster_read`, `vector_read`,
   `landscape_mspa`), not after its last part (`of`, `read`).
 - The operators' lists (the library, the search with "/", the menu) write the whole names (`stack.of`, the

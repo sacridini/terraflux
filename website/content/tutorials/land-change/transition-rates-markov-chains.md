@@ -116,7 +116,7 @@ note = "And at its end."
 [[nodes]]
 id = "chain"
 op = "markov.fit"
-inputs = { t0 = "land_1997.map", t1 = "land_2011.map", steps = 14 }
+inputs = { t0 = "land_1997.raster", t1 = "land_2011.raster", steps = 14 }
 note = "The transition probabilities of the period and of one of its 14 yearly steps (the 14th root)."
 
 [outputs.chain]

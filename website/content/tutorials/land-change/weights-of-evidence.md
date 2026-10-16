@@ -151,20 +151,20 @@ note = "The 13 drivers, a band each; the stack output is all of them."
 [[nodes]]
 id = "chain"
 op = "markov.fit"
-inputs = { t0 = "land_1997.map", t1 = "land_2011.map", steps = 14 }
+inputs = { t0 = "land_1997.raster", t1 = "land_2011.raster", steps = 14 }
 note = "The transitions with a rate per step: those the weights are fitted for."
 
 [[nodes]]
 id = "weights"
 op = "woe.fit"
-inputs = { t0 = "land_1997.map", t1 = "land_2011.map", drivers = "drivers.stack", markov = "chain.markov" }
+inputs = { t0 = "land_1997.raster", t1 = "land_2011.raster", drivers = "drivers.raster", markov = "chain.markov" }
 params = { ranges = { dist_sea = 250, dist_roads = 250, dist_urban = 250, dist_streams = 250, elevation = 50, slope = 2, aspect = 30, pop_density = 50 }, categorical = ["diorite", "ultramafic", "sediments", "no_erosion", "moderate_erosion"] }
 note = "The weights of every transition on the ranges of every driver."
 
 [[nodes]]
 id = "probability"
 op = "woe.probability"
-inputs = { model = "weights.model", landscape = "land_1997.map", drivers = "drivers.stack" }
+inputs = { model = "weights.model", landscape = "land_1997.raster", drivers = "drivers.raster" }
 note = "The probability of each transition in each cell of its origin class."
 
 [[nodes]]
@@ -423,7 +423,7 @@ params = { path = "sibuyan_drivers.tif" }
 [[nodes]]
 id = "weights"
 op = "woe.fit"
-inputs = { t0 = "land_1997.map", t1 = "land_2011.map", drivers = "drivers.stack" }
+inputs = { t0 = "land_1997.raster", t1 = "land_2011.raster", drivers = "drivers.raster" }
 params = { transitions = [[1, 2], [1, 3], [1, 4]], ranges = { dist_roads = 250, "1->3" = { dist_roads = [0, 250, 2250, 3750, 7500] } }, weights = { "1->3" = { dist_roads = [1.155, 0.791, -1.547, -3.0] } } }
 note = "Forest to coconut, grassland and rice; forest to grassland with its own ranges of the distance to roads and its last weight given."
 ```

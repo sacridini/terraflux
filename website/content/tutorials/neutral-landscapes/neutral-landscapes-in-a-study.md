@@ -267,7 +267,7 @@ params = { path = "augusta.tif" }
 [[nodes]]
 id = "forest"
 op = "raster.reclassify"
-inputs = { map = "cover.map" }
+inputs = { map = "cover.raster" }
 params = { rules = "42 -> 2\n* -> 1" }
 note = "Evergreen forest (2) and the rest (1)."
 
@@ -280,7 +280,7 @@ params = { metrics = ["pland", "np", "ed", "ai", "lpi"], show = "ai" }
 [[nodes]]
 id = "neutral"
 op = "nlm.fbm"
-inputs = { like = "cover.map" }
+inputs = { like = "cover.raster" }
 params = { dimension = 1.5, seed = 1 }
 note = "On the real map's grid."
 
@@ -359,19 +359,19 @@ params = { path = "augusta.tif" }
 [[nodes]]
 id = "field"
 op = "nlm.gaussian_field"
-inputs = { like = "cover.map" }
+inputs = { like = "cover.raster" }
 params = { range = 8, seed = 7 }
 
 [[nodes]]
 id = "neutral"
 op = "nlm.classify"
-inputs = { map = "field.map", real = "cover.map" }
+inputs = { map = "field.map", real = "cover.raster" }
 note = "The real map's classes and shares."
 
 [[nodes]]
 id = "real_metrics"
 op = "metrics.landscape"
-inputs = { map = "cover.map" }
+inputs = { map = "cover.raster" }
 params = { metrics = ["np", "ed", "shdi", "contag"] }
 
 [[nodes]]

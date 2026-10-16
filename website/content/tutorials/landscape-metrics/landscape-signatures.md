@@ -78,7 +78,7 @@ params = { path = "clc.tif" }
 [[nodes]]
 id = "cover"
 op = "raster.reclassify"
-inputs = { map = "corine.map" }
+inputs = { map = "corine.raster" }
 params = { rules = "1..11 -> 1\n12 -> 2\n13..22 -> 3\n23..25 -> 4\n26..34 -> 5\n35..39 -> 6\n40..44 -> 7" }
 note = "1 urban, 2 arable, 3 pasture and mixed farming, 4 forest..."
 

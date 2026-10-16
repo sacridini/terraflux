@@ -83,12 +83,12 @@ params = { path = "SIM", band = "14" }
 [[nodes]]
 id = "agreement"
 op = "validate.agreement"
-inputs = { start = "$t0", observed = "$t1", simulated = "simulated.map" }
+inputs = { start = "$t0", observed = "$t1", simulated = "simulated.raster" }
 
 [[nodes]]
 id = "similarity"
 op = "validate.similarity"
-inputs = { start = "$t0", observed = "$t1", simulated = "simulated.map" }
+inputs = { start = "$t0", observed = "$t1", simulated = "simulated.raster" }
 params = { windows = [5] }
 
 [outputs.agreement]

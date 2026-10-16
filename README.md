@@ -169,7 +169,7 @@ params = { path = "forest.tif" }
 [[nodes]]
 id = "mspa"
 op = "landscape.mspa"                 # GuidosToolbox's MSPA, the same bits
-inputs = { map = "read.map" }
+inputs = { map = "read.raster" }
 params = { foreground = 1, edge_width = 2 }
 note = "The forest's core, edges and corridors."
 

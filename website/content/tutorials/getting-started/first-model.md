@@ -26,11 +26,11 @@ Node
 Port
 :   A place where data goes in or comes out. **Input ports** are on the left edge of a node, **output ports** on
     the right. [[raster.reclassify]] has one input, `map`, and one output, also called `map`; [[raster.read]] has
-    three outputs, `raster`, `map` and `stack` (see [Your first raster](../first-raster/#open-a-raster)).
+    one output, `raster` (see [Your first raster](../first-raster/#open-a-raster)).
 
 Connection
 :   A line from an output port to an input port: "give the map that `landcover` reads to `forest`". In the model
-    file a connection is written as `node.port`: the input `map` of `forest` takes `landcover.map`.
+    file a connection is written as `node.port`: the input `map` of `forest` takes `landcover.raster`.
 
 Setting
 :   A value that changes how the operator works but does not come from another node: the rules of a
@@ -91,7 +91,7 @@ MSPA works on two classes: the habitat it analyses, the *foreground*, coded 2, a
 *background*, coded 1. CORINE has three forest classes: 23 (broad-leaved), 24 (coniferous) and 25 (mixed).
 
 With `landcover` selected, press ++slash++, type `reclass` and press ++enter++. A node [[raster.reclassify]]
-appears to the right, **already connected**: its input `map` takes `landcover.map`. Rename it `forest` and type
+appears to the right, **already connected**: its input `map` takes `landcover.raster`. Rename it `forest` and type
 its rules in the Node pane:
 
 ```text
@@ -118,7 +118,7 @@ note = "CORINE Land Cover around Hanover, 25 m."
 [[nodes]]
 id = "forest"
 op = "raster.reclassify"
-inputs = { map = "landcover.map" }
+inputs = { map = "landcover.raster" }
 params = { rules = "23..25 -> 2\n* -> 1" }
 note = "CORINE's forests (23 broad-leaved, 24 coniferous, 25 mixed) become MSPA's foreground (2), the rest 1."
 ```
@@ -163,7 +163,7 @@ note = "CORINE Land Cover around Hanover, 25 m."
 [[nodes]]
 id = "forest"
 op = "raster.reclassify"
-inputs = { map = "landcover.map" }
+inputs = { map = "landcover.raster" }
 params = { rules = "23..25 -> 2\n* -> 1" }
 note = "CORINE's forests (23 broad-leaved, 24 coniferous, 25 mixed) become MSPA's foreground (2), the rest 1."
 

@@ -128,7 +128,7 @@ note = "0 missing, 1 background, 2 forest."
 [[nodes]]
 id = "mspa"
 op = "landscape.mspa"
-inputs = { map = "forest.map" }
+inputs = { map = "forest.raster" }
 params = { edge_width = 2 }
 note = "Cores (the nodes) and bridges (the links)."
 
@@ -278,24 +278,24 @@ note = "Where clearing presses, 0 to 1."
 [[nodes]]
 id = "after"
 op = "map.calc"
-inputs = { f = "before.map", p = "pressure.map" }
+inputs = { f = "before.raster", p = "pressure.map" }
 params = { expression = "if f == 2 and p > 0.8 then 1 else if f == 2 and p > 0.55 and nbsum(f == 1, 3) >= 1 then 1 else if f == 1 and p < 0.15 and nbsum(f == 2, 1) >= 4 then 2 else f" }
 note = "Date B: cleared where pressed (with your maps: a raster.read)."
 
 [[nodes]]
 id = "simple"
 op = "change.simple"
-inputs = { before = "before.map", after = "after.map" }
+inputs = { before = "before.raster", after = "after.map" }
 
 [[nodes]]
 id = "morphological"
 op = "change.morphological"
-inputs = { before = "before.map", after = "after.map" }
+inputs = { before = "before.raster", after = "after.map" }
 
 [[nodes]]
 id = "mspa_a"
 op = "landscape.mspa"
-inputs = { map = "before.map" }
+inputs = { map = "before.raster" }
 params = { edge_width = 2 }
 
 [[nodes]]
@@ -475,7 +475,7 @@ note = "Written to disk, tile by tile."
 [[nodes]]
 id = "whole"
 op = "landscape.mspa"
-inputs = { map = "forest.map" }
+inputs = { map = "forest.raster" }
 params = { edge_width = 2 }
 note = "For comparison."
 ```

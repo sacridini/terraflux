@@ -255,19 +255,19 @@ note = "The same file, its band of 2011."
 [[nodes]]
 id = "crosstab"
 op = "change.crosstab"
-inputs = { from = "land_1997.map", to = "land_2011.map" }
+inputs = { from = "land_1997.raster", to = "land_2011.raster" }
 note = "The transition matrix: the cells of each class in 1997 (rows) in each class in 2011 (columns)."
 
 [[nodes]]
 id = "components"
 op = "change.components"
-inputs = { from = "land_1997.map", to = "land_2011.map" }
+inputs = { from = "land_1997.raster", to = "land_2011.raster" }
 note = "Gain, persistence and loss of every class (Pontius)."
 
 [[nodes]]
 id = "series"
 op = "stack.of"
-inputs = { y1997 = "land_1997.map", y2011 = "land_2011.map" }
+inputs = { y1997 = "land_1997.raster", y2011 = "land_2011.raster" }
 note = "The two dates as one stack, for change.suggest."
 
 [[nodes]]
@@ -279,7 +279,7 @@ note = "The transitions worth modelling: those that make at least 1% of the chan
 [[nodes]]
 id = "changed"
 op = "map.calc"
-inputs = { a = "land_1997.map", b = "land_2011.map" }
+inputs = { a = "land_1997.raster", b = "land_2011.raster" }
 params = { expression = "if a != b then b else 0" }
 note = "Every cell that changed in its new class, 0 where nothing changed."
 

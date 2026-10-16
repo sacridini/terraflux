@@ -56,7 +56,7 @@ const SUBJECTS: [(&str, &[&str]); 21] = [
 ];
 
 /// The operators that read and write files: the subject IO.
-const IO: [&str; 5] = ["raster.read", "raster.write", "vector.read", "vector.write", "table.write"];
+const IO: [&str; 6] = ["raster.read", "raster.write", "vector.read", "vector.write", "table.read", "table.write"];
 
 /// The subjects open when the library is first shown (the others closed until opened).
 const OPEN: [&str; 2] = ["IO", "Plot"];
@@ -1113,6 +1113,11 @@ pub fn open_data(s: &mut Session, r: &Registry) {
 }
 
 /// Whether a file is of vector features, by its extension.
+/// Whether a file is a table of values (`.csv`, `.tsv`).
+pub fn is_table(p: &std::path::Path) -> bool {
+    p.extension().is_some_and(|e| ["csv", "tsv"].contains(&e.to_string_lossy().to_lowercase().as_str()))
+}
+
 pub fn is_vector(p: &std::path::Path) -> bool {
     p.extension().is_some_and(|e| VECTOR_EXTENSIONS.contains(&e.to_string_lossy().to_lowercase().as_str()))
 }
@@ -1126,7 +1131,13 @@ pub fn is_raster(p: &std::path::Path) -> bool {
 /// A node that reads a file (a raster's `raster.read`, vector features' `vector.read`), at a place of the graph or
 /// after the node selected (a file of neither kind: read as a raster, GDAL knows many more).
 pub fn add_file(s: &mut Session, r: &Registry, p: &Path, at: Option<[f32; 2]>) -> Result<String, String> {
-    let op = if is_vector(p) { "vector.read" } else { "raster.read" };
+    let op = if is_table(p) {
+        "table.read"
+    } else if is_vector(p) {
+        "vector.read"
+    } else {
+        "raster.read"
+    };
     add_at(s, r, op, &[("path", p.to_string_lossy().into_owned().into())], at)
 }
 
@@ -1713,12 +1724,15 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         ui.horizontal(|ui| {
             ui.label(RichText::new(&node).strong());
             ui.label(RichText::new(&op).monospace().weak());
-            ui.separator();
-            for p in &ports {
-                if ui.selectable_label(*p == port, p).clicked() {
-                    sh.port = p.clone();
-                    sh.band = 0;
-                    sh.chosen = false;
+            // the node's outputs to choose from, when it has several
+            if ports.len() > 1 {
+                ui.separator();
+                for p in &ports {
+                    if ui.selectable_label(*p == port, p).clicked() {
+                        sh.port = p.clone();
+                        sh.band = 0;
+                        sh.chosen = false;
+                    }
                 }
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -2049,7 +2063,8 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 for (mn, mp) in &others {
                     let at = sh.rasters.iter().position(|(a, b, _)| a == mn && b == mp);
                     let mut on = at.is_some();
-                    let label = format!("{mn}.{mp}");
+                    // (a raster read: by its node's name)
+                    let label = if mp == "raster" { mn.clone() } else { format!("{mn}.{mp}") };
                     if ui.checkbox(&mut on, label).changed() {
                         match at {
                             Some(i) if !on => {

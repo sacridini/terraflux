@@ -105,7 +105,7 @@ params = { path = "forest.tif" }
 [[nodes]]
 id = "mspa"
 op = "landscape.mspa"
-inputs = { map = "forest.map" }
+inputs = { map = "forest.raster" }
 params = { edge_width = 1, foreground = [1] }
 note = "Cores, edges, bridges..."
 ```

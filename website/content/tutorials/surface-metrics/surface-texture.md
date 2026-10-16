@@ -72,7 +72,7 @@ params = { path = "ndvi.tif" }
 [[nodes]]
 id = "habitat"
 op = "map.calc"
-inputs = { n = "ndvi.map" }
+inputs = { n = "ndvi.raster" }
 params = { expression = "if n >= 0.7 then 2 else 1" }
 note = "Forest where NDVI is 0.7 or more."
 
@@ -206,7 +206,7 @@ note = "Summer NDVI, 30 m."
 [[nodes]]
 id = "trend"
 op = "surface.fit_plane"
-inputs = { map = "ndvi.map" }
+inputs = { map = "ndvi.raster" }
 params = { order = "best" }
 note = "The best polynomial of order 0 to 3; residuals = NDVI less it."
 
@@ -256,7 +256,7 @@ params = { path = "ndvi.tif" }
 [[nodes]]
 id = "trend"
 op = "surface.fit_plane"
-inputs = { map = "ndvi.map" }
+inputs = { map = "ndvi.raster" }
 params = { order = "best" }
 
 [[nodes]]
@@ -314,7 +314,7 @@ params = { path = "ndvi.tif" }
 [[nodes]]
 id = "trend"
 op = "surface.fit_plane"
-inputs = { map = "ndvi.map" }
+inputs = { map = "ndvi.raster" }
 params = { order = "best" }
 
 [[nodes]]

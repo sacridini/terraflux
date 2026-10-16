@@ -50,7 +50,7 @@ params = {{ path = "clc_100m.tif" }}
 [[nodes]]
 id = "resistance"
 op = "raster.reclassify"
-inputs = {{ map = "land.map" }}
+inputs = {{ map = "land.raster" }}
 params = {{ rules = "{RULES}" }}
 
 [[nodes]]
@@ -73,13 +73,13 @@ params = {{ path = "forests.geojson" }}
 [[nodes]]
 id = "graph"
 op = "conn.graph_from_raster"
-inputs = {{ map = "land.map" }}
+inputs = {{ map = "land.raster" }}
 params = {{ habitat = [23, 24, 25] }}
 
 [[nodes]]
 id = "patches"
 op = "conn.nodes"
-inputs = {{ map = "land.map" }}
+inputs = {{ map = "land.raster" }}
 params = {{ habitat = [23, 24, 25] }}
 
 [[nodes]]

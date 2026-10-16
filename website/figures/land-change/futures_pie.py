@@ -96,13 +96,13 @@ params = { path = "subregions.tif" }
 [[nodes]]
 id = "dev1985"
 op = "map.calc"
-inputs = { lu = "lu1985.map" }
+inputs = { lu = "lu1985.raster" }
 params = { expression = "lu == 2" }
 
 [[nodes]]
 id = "dev1991"
 op = "map.calc"
-inputs = { lu = "lu1991.map" }
+inputs = { lu = "lu1991.raster" }
 params = { expression = "lu == 2" }
 
 [[nodes]]
@@ -114,19 +114,19 @@ params = { size = 10, method = "gravity", gamma = 1.5, scaling_factor = 1.0 }
 [[nodes]]
 id = "predictors"
 op = "stack.set"
-inputs = { stack = "drivers.stack", map = "pressure.map" }
+inputs = { stack = "drivers.raster", map = "pressure.map" }
 params = { name = "devpressure" }
 
 [[nodes]]
 id = "new_west"
 op = "map.calc"
-inputs = { a = "dev1985.map", b = "dev1991.map", c = "counties.map" }
+inputs = { a = "dev1985.map", b = "dev1991.map", c = "counties.raster" }
 params = { expression = "if a == 1 or c != 1 then null else b" }
 
 [[nodes]]
 id = "new_east"
 op = "map.calc"
-inputs = { a = "dev1985.map", b = "dev1991.map", c = "counties.map" }
+inputs = { a = "dev1985.map", b = "dev1991.map", c = "counties.raster" }
 params = { expression = "if a == 1 or c != 2 then null else b" }
 
 [[nodes]]
@@ -144,7 +144,7 @@ params = { formulas = { 1 = ["devpressure", "slope", "elevation"] } }
 [[nodes]]
 id = "library"
 op = "futures.patch_library"
-inputs = { start = "dev1985.map", end = "dev1991.map", subregions = "counties.map" }
+inputs = { start = "dev1985.map", end = "dev1991.map", subregions = "counties.raster" }
 params = { per_subregion = true }
 
 [outputs.west]
@@ -217,13 +217,13 @@ params = {{ path = "subregions.tif" }}
 [[nodes]]
 id = "developed"
 op = "map.calc"
-inputs = {{ lu = "land.map" }}
+inputs = {{ lu = "land.raster" }}
 params = {{ expression = "lu == 2" }}
 
 [[nodes]]
 id = "dev_end"
 op = "map.calc"
-inputs = {{ lu = "end.map" }}
+inputs = {{ lu = "end.raster" }}
 params = {{ expression = "lu == 2" }}
 
 [[nodes]]
@@ -235,7 +235,7 @@ params = {{ size = 10, method = "gravity", gamma = 1.5, scaling_factor = 1.0 }}
 [[nodes]]
 id = "futures"
 op = "{op}"
-inputs = {{ landscape = "developed.map", pressure = "pressure.map", drivers = "drivers.stack", subregions = "counties.map", {extra} }}
+inputs = {{ landscape = "developed.map", pressure = "pressure.map", drivers = "drivers.raster", subregions = "counties.raster", {extra} }}
 params = {inline(params)}
 """
     return text + "\n" + outs
@@ -363,19 +363,19 @@ params = {{ path = "output/maps.tif", band = "{n - 1}" }}
 [[nodes]]
 id = "observed"
 op = "map.calc"
-inputs = {{ lu = "lu.map" }}
+inputs = {{ lu = "lu.raster" }}
 params = {{ expression = "lu == 2" }}
 
 [[nodes]]
 id = "original"
 op = "map.calc"
-inputs = {{ lu = "start.map" }}
+inputs = {{ lu = "start.raster" }}
 params = {{ expression = "lu == 2" }}
 
 [[nodes]]
 id = "validation"
 op = "validate.futures"
-inputs = {{ reference = "observed.map", simulated = "sim.map", original = "original.map" }}
+inputs = {{ reference = "observed.map", simulated = "sim.raster", original = "original.map" }}
 
 [outputs.metrics]
 from = "validation.metrics"

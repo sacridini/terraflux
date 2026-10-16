@@ -125,7 +125,7 @@ params = { path = "cost.tif" }
 [[nodes]]
 id = "zonation"
 op = "prioritize.zonation"
-inputs = { features = "features.stack", cost = "cost.map" }
+inputs = { features = "features.raster", cost = "cost.raster" }
 params = { rule = "CAZ2" }
 
 [[nodes]]
@@ -195,13 +195,13 @@ params = { path = "condition.tif" }
 [[nodes]]
 id = "conditions"
 op = "stack.of"
-inputs = { condition = "condition.map" }
+inputs = { condition = "condition.raster" }
 note = "Condition maps are found by name."
 
 [[nodes]]
 id = "zonation"
 op = "prioritize.zonation"
-inputs = { features = "features.stack", cost = "cost.map", hierarchic_mask = "protected.map", condition_maps = "conditions.stack" }
+inputs = { features = "features.raster", cost = "cost.raster", hierarchic_mask = "protected.raster", condition_maps = "conditions.stack" }
 params = { rule = "CAZ2", weights = [1, 1, 1, 1, 3, 1, 1, 3], condition = ["condition", "condition", "condition", "condition", "condition", "condition", "condition", "condition"], connectivity = [{ shape = "negexp", distance = 2 }, { shape = "negexp", distance = 2 }, { shape = "negexp", distance = 2 }, { shape = "negexp", distance = 2 }, { shape = "negexp", distance = 2 }, { shape = "negexp", distance = 2 }, { shape = "negexp", distance = 2 }, { shape = "negexp", distance = 2 }] }
 
 [[nodes]]

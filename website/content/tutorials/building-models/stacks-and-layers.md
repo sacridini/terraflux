@@ -73,9 +73,9 @@ kind = "stack"
 path = "drivers.tif"
 ```
 
-**With [[raster.read]].** Its `stack` port gives every band of the file. Its `map` port gives one band (the
-`band` setting: a name such as `"slope"`, or a number from 0), which is how you take one layer out of a stack
-when you need it as a map.
+**With [[raster.read]].** Its `raster` gives every band of the file to a node that takes a stack, and one band
+(the `band` setting: a name such as `"slope"`, or a number from 0; the first by default) to a node that takes a
+raster, which is how you take one layer out of a stack when you need it as a map.
 
 The names of the layers are the names of the bands in the file (GDAL's band descriptions, which R's
 terra and Python's rasterio can write). A band without a name is called by its position from 0: `"0"`, `"1"`...
@@ -254,13 +254,13 @@ note = "Every raster of the folder landuse/: a layer per file."
 [[nodes]]
 id = "write"
 op = "raster.write"
-inputs = { value = "series.stack" }
+inputs = { value = "series.raster" }
 params = { path = "series.tif" }
 
 [[nodes]]
 id = "plot"
 op = "view.plot"
-inputs = { value = "series.stack" }
+inputs = { value = "series.raster" }
 params = { title = "Land use, 1997 and 2011" }
 ```
 

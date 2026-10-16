@@ -24,7 +24,7 @@ params = { path = "clc_100m.tif" }
 [[nodes]]
 id = "graph"
 op = "conn.graph_from_raster"
-inputs = { map = "land.map" }
+inputs = { map = "land.raster" }
 params = { habitat = [23, 24, 25], area_unit = "ha", distance = "edge", landscape_area = 250000 }
 
 [[nodes]]
@@ -54,13 +54,13 @@ params = { distance = 2000 }
 [[nodes]]
 id = "areas"
 op = "conn.nodes"
-inputs = { map = "land.map" }
+inputs = { map = "land.raster" }
 params = { habitat = [23, 24, 25], area_unit = "ha" }
 
 [[nodes]]
 id = "pairs"
 op = "conn.distances"
-inputs = { map = "land.map" }
+inputs = { map = "land.raster" }
 params = { habitat = [23, 24, 25], distance = "edge", max_distance = 2000 }
 
 [[nodes]]

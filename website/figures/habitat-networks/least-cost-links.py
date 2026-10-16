@@ -26,19 +26,19 @@ params = {{ path = "clc_100m.tif" }}
 [[nodes]]
 id = "resistance"
 op = "raster.reclassify"
-inputs = {{ map = "land.map" }}
+inputs = {{ map = "land.raster" }}
 params = {{ rules = "{RULES}" }}
 
 [[nodes]]
 id = "straight"
 op = "conn.graph_from_raster"
-inputs = {{ map = "land.map" }}
+inputs = {{ map = "land.raster" }}
 params = {{ habitat = [23, 24, 25], area_unit = "ha", distance = "edge", landscape_area = 250000 }}
 
 [[nodes]]
 id = "least_cost"
 op = "conn.graph_from_raster"
-inputs = {{ map = "land.map", resistance = "resistance.map" }}
+inputs = {{ map = "land.raster", resistance = "resistance.map" }}
 params = {{ habitat = [23, 24, 25], area_unit = "ha", distance = "least-cost", landscape_area = 250000 }}
 
 [[nodes]]
@@ -86,13 +86,13 @@ params = {{ column = "id" }}
 [[nodes]]
 id = "d_straight"
 op = "conn.distances"
-inputs = {{ map = "land.map" }}
+inputs = {{ map = "land.raster" }}
 params = {{ habitat = [23, 24, 25], distance = "edge" }}
 
 [[nodes]]
 id = "d_cost"
 op = "conn.distances"
-inputs = {{ map = "land.map", resistance = "resistance.map" }}
+inputs = {{ map = "land.raster", resistance = "resistance.map" }}
 params = {{ habitat = [23, 24, 25], distance = "least-cost" }}
 """
 figs.run(figs.add_writes(MODEL, {

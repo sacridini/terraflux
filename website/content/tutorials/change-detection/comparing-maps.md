@@ -142,24 +142,24 @@ params = { path = "simulated_2011.tif" }
 [[nodes]]
 id = "disagreement"
 op = "validate.futures"
-inputs = { reference = "observed.map", simulated = "simulated.map", original = "land_1997.map" }
+inputs = { reference = "observed.raster", simulated = "simulated.raster", original = "land_1997.raster" }
 note = "Quantity and allocation disagreement, kappa, kappa simulation."
 
 [[nodes]]
 id = "null_model"
 op = "validate.futures"
-inputs = { reference = "observed.map", simulated = "land_1997.map" }
+inputs = { reference = "observed.raster", simulated = "land_1997.raster" }
 note = "The 1997 map as a prediction of 2011."
 
 [[nodes]]
 id = "kappa"
 op = "validate.kappa"
-inputs = { reference = "observed.map", simulated = "simulated.map" }
+inputs = { reference = "observed.raster", simulated = "simulated.raster" }
 
 [[nodes]]
 id = "kappa_null"
 op = "validate.kappa"
-inputs = { reference = "observed.map", simulated = "land_1997.map" }
+inputs = { reference = "observed.raster", simulated = "land_1997.raster" }
 ```
 
 [[validate.futures]] gives two tables: `metrics`, one row with `total_quantity`, `total_allocation`, `kappa` and,
@@ -213,14 +213,14 @@ params = { path = "simulated_2011.tif" }
 [[nodes]]
 id = "components"
 op = "change.components"
-inputs = { from = "simulated.map", to = "observed.map" }
+inputs = { from = "simulated.raster", to = "observed.raster" }
 params = { analysis = "error" }
 note = "Rows: the simulated map; columns: the reference."
 
 [[nodes]]
 id = "outcome"
 op = "map.calc"
-inputs = { t0 = "land_1997.map", o = "observed.map", s = "simulated.map" }
+inputs = { t0 = "land_1997.raster", o = "observed.raster", s = "simulated.raster" }
 params = { expression = "if o != t0 and s == o then 1 else if o != t0 and s != t0 then 2 else if o != t0 then 3 else if s != t0 then 4 else 0" }
 note = "1 hit, 2 wrong hit, 3 miss, 4 false alarm, 0 persistence."
 
@@ -359,27 +359,27 @@ params = { path = "simulated_2011.tif" }
 [[nodes]]
 id = "resolutions"
 op = "change.resolutions"
-inputs = { comp = "simulated.map", ref = "observed.map" }
+inputs = { comp = "simulated.raster", ref = "observed.raster" }
 params = { factor = 2 }
 note = "Blocks of 1, 2, 4, 8... cells per side."
 
 [[nodes]]
 id = "obs_shares"
 op = "change.memberships"
-inputs = { map = "observed.map" }
+inputs = { map = "observed.raster" }
 params = { factor = 4 }
 note = "Each class's share in blocks of 4 x 4 cells (1 km)."
 
 [[nodes]]
 id = "sim_shares"
 op = "change.memberships"
-inputs = { map = "simulated.map" }
+inputs = { map = "simulated.raster" }
 params = { factor = 4 }
 
 [[nodes]]
 id = "composite"
 op = "change.composite"
-inputs = { comp = "simulated.map", ref = "observed.map" }
+inputs = { comp = "simulated.raster", ref = "observed.raster" }
 params = { factor = 4 }
 note = "Agreement of a class in a block: the smaller of its two shares."
 ```
@@ -458,20 +458,20 @@ params = { path = "simulated_2011.tif" }
 [[nodes]]
 id = "observed_forest"
 op = "map.calc"
-inputs = { m = "observed.map" }
+inputs = { m = "observed.raster" }
 params = { expression = "nbmean(m == 1, 2)" }
 note = "The forest's share in the 5 x 5 cells around."
 
 [[nodes]]
 id = "simulated_forest"
 op = "map.calc"
-inputs = { m = "simulated.map" }
+inputs = { m = "simulated.raster" }
 params = { expression = "nbmean(m == 1, 2)" }
 
 [[nodes]]
 id = "mad"
 op = "change.mad"
-inputs = { grid1 = "simulated_forest.map", grid2 = "observed_forest.map", strata = "land_1997.map" }
+inputs = { grid1 = "simulated_forest.map", grid2 = "observed_forest.map", strata = "land_1997.raster" }
 note = "Quantity, strata and element, at every resolution."
 ```
 

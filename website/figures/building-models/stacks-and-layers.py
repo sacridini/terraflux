@@ -146,7 +146,7 @@ params = { expression = "if t0 == t1 then 0 else t0 * 10 + t1" }
 """
 model = figs.add_writes(MODEL, {"habitat.stack": "habitat.tif", "with_farms.stack": "with_farms.tif",
                                 "updated.stack": "updated.tif", "gained.map": "gained.tif",
-                                "series.stack": "series.tif", "change.map": "change.tif"})
+                                "series.raster": "series.tif", "change.map": "change.tif"})
 figs.run(model, work)
 
 for f in ("habitat", "with_farms", "updated", "series"):

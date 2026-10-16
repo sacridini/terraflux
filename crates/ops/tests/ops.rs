@@ -699,13 +699,13 @@ fn rasters_are_read_and_written() {
     let whole = terraflux_raster::Raster::read(&data).unwrap();
     // read: the headers only, the file on disk; a map or a stack where a port takes one
     let read = run("raster.read", vec![], serde_json::json!({"path": data, "band": "2011"})).unwrap();
-    // the map: the band chosen alone (a port of any value takes it as a map)
-    let Value::Raster(r) = &read["map"] else { panic!() };
-    assert_eq!((r.layers.len(), r.chosen, r.layers[0].name.as_str()), (1, 0, "2011"));
-    let Value::Map(m) = as_port(read["map"].clone(), terraflux_graph::Type::Map).unwrap() else { panic!() };
+    // the band chosen where a port takes a raster, every band where it takes a stack
+    let Value::Raster(r) = &read["raster"] else { panic!() };
+    assert_eq!((r.layers.len(), r.chosen, r.layers[1].name.as_str()), (2, 1, "2011"));
+    let Value::Map(m) = as_port(read["raster"].clone(), terraflux_graph::Type::Map).unwrap() else { panic!() };
     let want = whole.bands[1].masked(whole.nodata);
     assert!(m.data.iter().zip(&want).all(|(a, b)| a == b || (a.is_nan() && b.is_nan())));
-    let Value::Stack(s) = as_port(read["stack"].clone(), terraflux_graph::Type::Stack).unwrap() else { panic!() };
+    let Value::Stack(s) = as_port(read["raster"].clone(), terraflux_graph::Type::Stack).unwrap() else { panic!() };
     assert_eq!(s.keys.len(), 2);
     assert!(Arc::ptr_eq(&m.data, &s.layers[1]), "a layer is read once");
     // written from memory, in the smallest type
@@ -741,7 +741,7 @@ fn rasters_are_read_and_written() {
     // a folder as one stack: every band of every file (a file of two bands gives two layers)
     whole.write(series.join("both.tif")).unwrap();
     let read = run("raster.read", vec![], serde_json::json!({"path": series})).unwrap();
-    let Value::Raster(r) = &read["stack"] else { panic!() };
+    let Value::Raster(r) = &read["raster"] else { panic!() };
     assert_eq!(
         r.layers.iter().map(|l| l.name.as_str()).collect::<Vec<_>>(),
         ["both 1997", "both 2011", "lu_1997", "lu_2011"]

@@ -147,7 +147,7 @@ fn steps_put_data_on_the_reference_grid() {
         &mut m,
         &r,
         &Step::DistanceToClass { classes: vec![1.0] },
-        ("land", "map"),
+        ("land", "raster"),
         None,
         &[],
         [0.0, 0.0],
@@ -169,8 +169,8 @@ fn steps_put_data_on_the_reference_grid() {
     let Value::Map(burnt) = res.get(&format!("{burnt}.map")).unwrap() else { panic!() };
     assert!(burnt.data.contains(&1.0) && burnt.data.contains(&2.0));
     let Value::Map(to_class) = res.get(&format!("{to_class}.distance")).unwrap() else { panic!() };
-    // raster.read's map stays rasters on disk until a node reads it
-    let classes = match res.get("land.map").unwrap() {
+    // raster.read's raster stays rasters on disk until a node reads it
+    let classes = match res.get("land.raster").unwrap() {
         Value::Raster(r) => r.map().unwrap(),
         Value::Map(m) => m.clone(),
         v => panic!("{:?}", v.ty()),

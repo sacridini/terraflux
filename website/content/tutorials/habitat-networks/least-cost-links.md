@@ -142,21 +142,21 @@ note = "CORINE Land Cover, cells of 100 m."
 [[nodes]]
 id = "resistance"
 op = "raster.reclassify"
-inputs = { map = "land.map" }
+inputs = { map = "land.raster" }
 params = { rules = "23 24 25 -> 1\n29 -> 2\n21 26 27 32 35 36 -> 5\n18 20 -> 10\n12 -> 20\n10 11 -> 30\n7 8 9 -> 50\n1 2 3 4 5 6 40 41 -> 100\n* -> 20" }
 note = "The cost of crossing each class, 1 (forest) to 100 (towns, water)."
 
 [[nodes]]
 id = "straight"
 op = "conn.graph_from_raster"
-inputs = { map = "land.map" }
+inputs = { map = "land.raster" }
 params = { habitat = [23, 24, 25], area_unit = "ha", distance = "edge", landscape_area = 250000 }
 note = "Gaps between edges, in metres."
 
 [[nodes]]
 id = "least_cost"
 op = "conn.graph_from_raster"
-inputs = { map = "land.map", resistance = "resistance.map" }
+inputs = { map = "land.raster", resistance = "resistance.map" }
 params = { habitat = [23, 24, 25], area_unit = "ha", distance = "least-cost", landscape_area = 250000 }
 note = "Cheapest routes between the patches' centres, in metres of forest."
 

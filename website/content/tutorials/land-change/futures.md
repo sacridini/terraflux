@@ -136,13 +136,13 @@ params = { path = "subregions.tif" }
 [[nodes]]
 id = "dev1985"
 op = "map.calc"
-inputs = { lu = "lu1985.map" }
+inputs = { lu = "lu1985.raster" }
 params = { expression = "lu == 2" }
 
 [[nodes]]
 id = "dev1991"
 op = "map.calc"
-inputs = { lu = "lu1991.map" }
+inputs = { lu = "lu1991.raster" }
 params = { expression = "lu == 2" }
 
 [[nodes]]
@@ -154,13 +154,13 @@ params = { size = 10, method = "gravity", gamma = 1.5, scaling_factor = 1.0 }
 [[nodes]]
 id = "predictors"
 op = "stack.set"
-inputs = { stack = "drivers.stack", map = "pressure.map" }
+inputs = { stack = "drivers.raster", map = "pressure.map" }
 params = { name = "devpressure" }
 
 [[nodes]]
 id = "new_west"
 op = "map.calc"
-inputs = { a = "dev1985.map", b = "dev1991.map", c = "counties.map" }
+inputs = { a = "dev1985.map", b = "dev1991.map", c = "counties.raster" }
 params = { expression = "if a == 1 or c != 1 then null else b" }
 
 [[nodes]]
@@ -172,7 +172,7 @@ params = { formulas = { 1 = ["devpressure", "slope", "elevation"] } }
 [[nodes]]
 id = "library"
 op = "futures.patch_library"
-inputs = { start = "dev1985.map", end = "dev1991.map", subregions = "counties.map" }
+inputs = { start = "dev1985.map", end = "dev1991.map", subregions = "counties.raster" }
 params = { per_subregion = true }
 ```
 
@@ -270,7 +270,7 @@ params = { path = "subregions.tif" }
 [[nodes]]
 id = "developed"
 op = "map.calc"
-inputs = { lu = "land.map" }
+inputs = { lu = "land.raster" }
 params = { expression = "lu == 2" }
 
 [[nodes]]
@@ -282,7 +282,7 @@ params = { size = 10, method = "gravity", gamma = 1.5, scaling_factor = 1.0 }
 [[nodes]]
 id = "futures"
 op = "futures.simulation"
-inputs = { landscape = "developed.map", pressure = "pressure.map", drivers = "drivers.stack", subregions = "counties.map", seed = 1 }
+inputs = { landscape = "developed.map", pressure = "pressure.map", drivers = "drivers.raster", subregions = "counties.raster", seed = 1 }
 params = { potential = { ids = [1, 2], intercept = [-3.234651, -4.223066], devpressure = [0.06569, 0.132427], predictors = ["slope", "elevation"], coefficients = [[-0.035282, 0.000257], [-0.028677, 0.004273]] }, demand = { subregions = [1, 2], rows = [[281, 257], [281, 257], [281, 257], [281, 257], [281, 257], [281, 257], [281, 257], [281, 257]], years = [1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999] }, patch_sizes = { ids = [1, 2], lists = [[1, 1, 1, 2, 3, 5, 9], [1, 1, 2, 2, 4, 7, 12]] }, neighborhood = 10, approach = "gravity", gamma = 1.5, scaling_factor = 1.0, discount_factor = 1.0, compactness_mean = 0.7, compactness_range = 0.3, num_neighbors = 4, seed_search = "probability", incentive_power = 1.0 }
 ```
 

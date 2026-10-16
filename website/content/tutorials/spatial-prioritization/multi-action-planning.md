@@ -123,7 +123,7 @@ note = "Two bands: deforestation and fire, 0 to 1."
 [[nodes]]
 id = "plan"
 op = "prioritize.actions_raster"
-inputs = { monitoring_cost = "cost.map", features = "features.stack", threats = "threats.stack" }
+inputs = { monitoring_cost = "cost.raster", features = "features.raster", threats = "threats.raster" }
 params = { action_cost = [30, 10], target_recovery = 0.3, target_conservation = 0.1, model = "minimizeCosts", gap = 0.01 }
 
 [[nodes]]

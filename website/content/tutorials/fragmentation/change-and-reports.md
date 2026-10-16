@@ -100,20 +100,20 @@ params = { rows = 1000, columns = 1000, range = 60, seed = 28 }
 [[nodes]]
 id = "after"
 op = "map.calc"
-inputs = { f = "before.map", p = "pressure.map" }
+inputs = { f = "before.raster", p = "pressure.map" }
 params = { expression = "if f == 2 and p > 0.8 then 1 else if f == 2 and p > 0.55 and nbsum(f == 1, 3) >= 1 then 1 else if f == 1 and p < 0.15 and nbsum(f == 2, 1) >= 4 then 2 else f" }
 note = "Date B (with your maps: a raster.read)."
 
 [[nodes]]
 id = "fad_change"
 op = "change.fad"
-inputs = { before = "before.map", after = "after.map" }
+inputs = { before = "before.raster", after = "after.map" }
 note = "FAD-MS at both dates; the forest moved between classes."
 
 [[nodes]]
 id = "fos_a"
 op = "fragmentation.fos"
-inputs = { map = "before.map" }
+inputs = { map = "before.raster" }
 params = { window = 27, method = "FAC" }
 
 [[nodes]]
@@ -216,14 +216,14 @@ params = { rows = 2000, columns = 2000, range = 80, seed = 5 }
 [[nodes]]
 id = "corine_b"
 op = "map.calc"
-inputs = { c = "corine.map", p = "pressure.map" }
+inputs = { c = "corine.raster", p = "pressure.map" }
 params = { expression = "if c >= 12 and c <= 22 and p > 0.5 and nbsum(c <= 11, 4) >= 8 then 2 else if c >= 23 and c <= 25 and p > 0.75 and nbsum(c <= 11, 4) >= 20 then 2 else c" }
 note = "Farmland (and a little forest) beside towns becomes discontinuous urban fabric (2)."
 
 [[nodes]]
 id = "change"
 op = "change.mosaic"
-inputs = { before = "corine.map", after = "corine_b.map" }
+inputs = { before = "corine.raster", after = "corine_b.map" }
 params = { window = 27, agriculture = [12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22], natural = [23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39], developed = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] }
 ```
 

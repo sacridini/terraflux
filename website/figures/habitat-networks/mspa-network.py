@@ -25,7 +25,7 @@ params = { path = "clc_100m.tif" }
 [[nodes]]
 id = "mspa"
 op = "landscape.mspa"
-inputs = { map = "land.map" }
+inputs = { map = "land.raster" }
 params = { foreground = [23, 24, 25], edge_width = 1 }
 
 [[nodes]]

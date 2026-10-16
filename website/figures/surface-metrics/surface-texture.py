@@ -42,7 +42,7 @@ for t in THRESHOLDS:
 [[nodes]]
 id = "habitat_{k}"
 op = "map.calc"
-inputs = {{ n = "ndvi.map" }}
+inputs = {{ n = "ndvi.raster" }}
 params = {{ expression = "if n >= {t} then 2 else 1" }}
 
 [[nodes]]
@@ -81,7 +81,7 @@ params = { path = "ndvi.tif" }
 [[nodes]]
 id = "trend"
 op = "surface.fit_plane"
-inputs = { map = "ndvi.map" }
+inputs = { map = "ndvi.raster" }
 params = { order = "best" }
 
 [[nodes]]
@@ -107,7 +107,7 @@ inputs = { map = "trend.residuals" }
 [[nodes]]
 id = "raw_metrics"
 op = "surface.metrics"
-inputs = { map = "ndvi.map" }
+inputs = { map = "ndvi.raster" }
 
 [[nodes]]
 id = "elevation"
@@ -117,7 +117,7 @@ params = { path = "elevation.tif" }
 [[nodes]]
 id = "relief"
 op = "surface.fit_plane"
-inputs = { map = "elevation.map" }
+inputs = { map = "elevation.raster" }
 
 [[nodes]]
 id = "relief_metrics"

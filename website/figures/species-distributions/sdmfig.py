@@ -109,7 +109,7 @@ def prepared(**prep) -> str:
     p = dict(CAREFUL)
     p.update(prep)
     p = {k: v for k, v in p.items() if v is not None}
-    return HEAD + READ + node("data", "sdm.prepare", {"occurrences": "records.vector", "env": "climate.stack"}, p)
+    return HEAD + READ + node("data", "sdm.prepare", {"occurrences": "records.vector", "env": "climate.raster"}, p)
 
 
 def run(model: str, w: pathlib.Path, name="model.toml"):

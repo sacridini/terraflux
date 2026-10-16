@@ -104,7 +104,7 @@ params = { measure = "slope" }
 [[nodes]]
 id = "geo_slope"
 op = "surface.terrain"
-inputs = { map = "dem.map" }
+inputs = { map = "dem.raster" }
 
 [[nodes]]
 id = "geo_gdal_slope"

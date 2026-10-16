@@ -93,7 +93,7 @@ params = { field = "id", all_touched = true }
 [[nodes]]
 id = "forest"
 op = "raster.reclassify"
-inputs = { map = "landcover.map" }
+inputs = { map = "landcover.raster" }
 params = { rules = "23..25 -> 1\\n* -> 0" }
 
 [[nodes]]

@@ -114,19 +114,19 @@ params = { path = "input.tif" }
 [[nodes]]
 id = "fos_fad"
 op = "fragmentation.fos"
-inputs = { map = "forest.map" }
+inputs = { map = "forest.raster" }
 params = { window = 27, method = "FAD", classes = 6 }
 
 [[nodes]]
 id = "fos_fed"
 op = "fragmentation.fos"
-inputs = { map = "forest.map" }
+inputs = { map = "forest.raster" }
 params = { window = 27, method = "FED", classes = 6 }
 
 [[nodes]]
 id = "fos_fac"
 op = "fragmentation.fos"
-inputs = { map = "forest.map" }
+inputs = { map = "forest.raster" }
 params = { window = 27, method = "FAC", classes = 6 }
 note = "Clustering: forest-forest pairs."
 ```
@@ -247,27 +247,27 @@ params = { path = "input.tif" }
 [[nodes]]
 id = "density"
 op = "fragmentation.fad"
-inputs = { map = "forest.map" }
+inputs = { map = "forest.raster" }
 params = { window = 7 }
 note = "Pf x 100."
 
 [[nodes]]
 id = "contagion"
 op = "fragmentation.contagion"
-inputs = { map = "forest.map" }
+inputs = { map = "forest.raster" }
 params = { window = 7 }
 note = "Pff x 100."
 
 [[nodes]]
 id = "entropy"
 op = "fragmentation.entropy"
-inputs = { map = "forest.map" }
+inputs = { map = "forest.raster" }
 note = "One number for the map."
 
 [[nodes]]
 id = "entropy_map"
 op = "fragmentation.entropy_map"
-inputs = { map = "forest.map" }
+inputs = { map = "forest.raster" }
 params = { window = 27 }
 ```
 
@@ -310,14 +310,14 @@ note = "% tree cover, 255 missing."
 [[nodes]]
 id = "fos"
 op = "fragmentation.fos"
-inputs = { map = "cover.map" }
+inputs = { map = "cover.raster" }
 params = { window = 7, method = "FAD", gray_threshold = 30 }
 note = "Forest: 30% cover or more."
 
 [[nodes]]
 id = "variability"
 op = "fragmentation.gray_convolution"
-inputs = { map = "cover.map" }
+inputs = { map = "cover.raster" }
 params = { metric = "stddev", window = 7 }
 ```
 
@@ -356,7 +356,7 @@ params = { path = "clc.tif" }
 [[nodes]]
 id = "mosaic"
 op = "fragmentation.landscape_mosaic"
-inputs = { map = "corine.map" }
+inputs = { map = "corine.raster" }
 params = { window = 27, agriculture = [12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22], natural = [23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39], developed = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] }
 note = "Water (40-44) is in none: missing."
 ```

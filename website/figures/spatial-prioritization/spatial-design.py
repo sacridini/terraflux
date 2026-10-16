@@ -145,7 +145,7 @@ params = {{ path = "{(w / 'coarse.tif').as_posix()}" }}
 [[nodes]]
 id = "evaluation"
 op = "prioritize.evaluate"
-inputs = {{ features = "blocks.features", cost = "blocks.cost", solution = "coarse.map", connectivity_data = "links.table" }}
+inputs = {{ features = "blocks.features", cost = "blocks.cost", solution = "coarse.raster", connectivity_data = "links.table" }}
 params = {{ relative_targets = 0.2 }}
 
 [outputs.eval]

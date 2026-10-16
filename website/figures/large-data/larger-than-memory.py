@@ -156,7 +156,7 @@ params = { path = "forest.tif" }
 [[nodes]]
 id = "whole"
 op = "landscape.mspa"
-inputs = { map = "forest.map" }
+inputs = { map = "forest.raster" }
 params = { edge_width = 2 }
 
 [outputs.whole]

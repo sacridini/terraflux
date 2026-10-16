@@ -159,14 +159,14 @@ note = "The drivers, a band each."
 [[nodes]]
 id = "suitability"
 op = "glm.fit"
-inputs = { landscape = "land.map", drivers = "drivers.stack" }
+inputs = { landscape = "land.raster", drivers = "drivers.raster" }
 params = { formulas = { 1 = ["dist_sea", "elevation", "slope", "dist_roads", "dist_urban"], 2 = ["dist_sea", "elevation", "slope", "dist_roads", "dist_urban"], 3 = ["dist_sea", "elevation", "slope", "dist_roads", "dist_urban"], 4 = ["dist_sea", "elevation", "slope", "dist_roads", "dist_urban"], 5 = ["dist_sea", "elevation", "slope", "dist_roads", "dist_urban"] } }
 note = "A logistic regression per land system."
 
 [[nodes]]
 id = "ages"
 op = "clumondo.ages"
-inputs = { landscape = "land.map", seed = 1 }
+inputs = { landscape = "land.raster", seed = 1 }
 params = { max_age = 10 }
 note = "Random ages from 1 to 10 years, as CLUMondo draws them."
 ```
@@ -176,7 +176,7 @@ note = "Random ages from 1 to 10 years, as CLUMondo draws them."
 A `control.repeat` node runs its **body** once per step. CLUMondo needs three things carried from one year to the
 next, and each becomes a *carried value* of the loop:
 
-- `@landscape` starts as `land.map` (1997) and comes back from `allocate.landscape`: the map of the year before.
+- `@landscape` starts as `land.raster` (1997) and comes back from `allocate.landscape`: the map of the year before.
 - `@age` starts as `ages.age` and comes back from `allocate.age`: the ages, one more where the system stayed,
   back to 1 where it changed.
 - `@elasticity` starts as `[0.0, 0.0]` and comes back from `allocate.elasticity`: the iteration variables
@@ -209,18 +209,18 @@ params = { path = "sibuyan_drivers.tif" }
 [[nodes]]
 id = "suitability"
 op = "glm.fit"
-inputs = { landscape = "land.map", drivers = "drivers.stack" }
+inputs = { landscape = "land.raster", drivers = "drivers.raster" }
 
 [[nodes]]
 id = "ages"
 op = "clumondo.ages"
-inputs = { landscape = "land.map", seed = 1 }
+inputs = { landscape = "land.raster", seed = 1 }
 params = { max_age = 10 }
 
 [[nodes]]
 id = "years"
 op = "control.repeat"
-inputs = { times = 10, landscape = "land.map", age = "ages.age", elasticity = [0.0, 0.0] }
+inputs = { times = 10, landscape = "land.raster", age = "ages.age", elasticity = [0.0, 0.0] }
 note = "Ten years; the map, the ages and the iteration variables carried."
 
 [nodes.body]
@@ -231,7 +231,7 @@ until = "allocate.stop"
 [[nodes.body.nodes]]
 id = "allocate"
 op = "clumondo.step"
-inputs = { landscape = "@landscape", age = "@age", elasticity = "@elasticity", step = "@step", model = "suitability.model", drivers = "drivers.stack" }
+inputs = { landscape = "@landscape", age = "@age", elasticity = "@elasticity", step = "@step", model = "suitability.model", drivers = "drivers.raster" }
 note = "One year of CLUMondo."
 
 [nodes.body.nodes.params.settings]
@@ -254,7 +254,7 @@ In the application, add `control.repeat` from the **Model flow** subject, then d
 the body**) to edit its body. Inside, the column on the left lists what the body can read: `@step`, the carried
 values and the outer nodes. CLUMondo's operators are not in the Land change subject of the library; type
 `clumondo` in the library's search to find them. Connect `@landscape`, `@age`, `@elasticity` and `@step` to the
-inputs of the same names, `suitability.model` to `model` and `drivers.stack` to `drivers`. Then set the loop's
+inputs of the same names, `suitability.model` to `model` and `drivers.raster` to `drivers`. Then set the loop's
 carried values and collected outputs in the Node pane of the loop.
 
 ### 5. The settings, one by one

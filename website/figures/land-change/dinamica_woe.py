@@ -36,7 +36,7 @@ params = { path = "sibuyan_drivers.tif" }
 [[nodes]]
 id = "chain"
 op = "markov.fit"
-inputs = { t0 = "land_1997.map", t1 = "land_2011.map", steps = 14 }
+inputs = { t0 = "land_1997.raster", t1 = "land_2011.raster", steps = 14 }
 """
 
 
@@ -45,13 +45,13 @@ def fit_model(ranges, categorical=dc.CATEGORICAL, extra=""):
 [[nodes]]
 id = "weights"
 op = "woe.fit"
-inputs = {{ t0 = "land_1997.map", t1 = "land_2011.map", drivers = "drivers.stack", markov = "chain.markov" }}
+inputs = {{ t0 = "land_1997.raster", t1 = "land_2011.raster", drivers = "drivers.raster", markov = "chain.markov" }}
 params = {{ ranges = {dc.toml_value(ranges)}, categorical = {dc.toml_value(categorical)} }}
 
 [[nodes]]
 id = "probability"
 op = "woe.probability"
-inputs = {{ model = "weights.model", landscape = "land_1997.map", drivers = "drivers.stack" }}
+inputs = {{ model = "weights.model", landscape = "land_1997.raster", drivers = "drivers.raster" }}
 
 [[nodes]]
 id = "write"

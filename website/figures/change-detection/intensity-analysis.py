@@ -28,12 +28,12 @@ params = { path = "pie_landuse.tif" }
 [[nodes]]
 id = "transitions"
 op = "change.transitions"
-inputs = { maps = "dates.stack" }
+inputs = { maps = "dates.raster" }
 
 [[nodes]]
 id = "intensity"
 op = "change.intensity"
-inputs = { maps = "dates.stack" }
+inputs = { maps = "dates.raster" }
 params = { gain = 2, loss = 1 }
 """
 
@@ -47,7 +47,7 @@ params = { path = "sibuyan_landuse.tif" }
 [[nodes]]
 id = "intensity"
 op = "change.intensity"
-inputs = { maps = "dates.stack" }
+inputs = { maps = "dates.raster" }
 params = { gain = GAIN, loss = 1 }
 """
 
@@ -63,7 +63,7 @@ def run(model, w, extra=None):
     return {p: c.table(w / "output" / f"{p}.csv") for p in PORTS}
 
 
-pie = run(PIE_MODEL, work, {"transitions.areas": "areas.csv", "dates.stack": "pie.tif"})
+pie = run(PIE_MODEL, work, {"transitions.areas": "areas.csv", "dates.raster": "pie.tif"})
 (work / "page_model.toml").write_text(PIE_MODEL, encoding="utf-8")
 for p in PORTS:
     print("PIE", p)

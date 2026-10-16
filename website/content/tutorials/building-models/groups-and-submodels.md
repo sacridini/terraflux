@@ -89,7 +89,7 @@ params = { path = "sibuyan_landuse.tif", band = "1997" }
 [[nodes]]
 id = "context"
 op = "control.group"
-inputs = { land = "lu1997.map" }
+inputs = { land = "lu1997.raster" }
 note = "The forest around every cell: its share in 5 x 5 cells, and the forest's edge."
 
 [nodes.body]
@@ -117,9 +117,9 @@ params = { expression = "f == 1 and s < 1" }
 Read the group from the outside in:
 
 - The node `context` is a [[control.group]]. Its **inputs** take any names: here `land`, connected to
-  `lu1997.map`. Any number of inputs can be added, maps, stacks or numbers.
+  `lu1997.raster`. Any number of inputs can be added, maps, stacks or numbers.
 - Inside the body, `@land` is that input. The body's nodes are ordinary nodes; they can also read nodes of the
-  outer model directly, such as `lu1997.map`.
+  outer model directly, such as `lu1997.raster`.
 - `body.outputs` says what the group gives: `share = "share.map"` makes the group's output `context.share` the
   map of its inner node `share`. Outside, other nodes connect to `context.share` and `context.edge` as to any
   node's outputs; the inner nodes `forest`, `share` and `edge` are not visible outside.
@@ -134,7 +134,7 @@ images:
 
 !!! app "In the application"
     Add a group from the library's subject **Model flow** ([[control.group]]). In the Node pane, **Add input**
-    gives it an input: type a name (`land`) and a reference (`lu1997.map`), or a value. **Edit the body** (or a
+    gives it an input: type a name (`land`) and a reference (`lu1997.raster`), or a value. **Edit the body** (or a
     double click on the group) takes you inside: the column on the left of the canvas lists what the body can
     read, `@land` among them, and you add nodes as at the top level. The trail in the Model pane's bar (*Top
     level / context*) takes you back. To set an output, select the group and, in the Node pane's **Body**
@@ -222,14 +222,14 @@ params = { path = "sibuyan_landuse.tif", band = "2011" }
 [[nodes]]
 id = "core1997"
 op = "control.submodel"
-inputs = { landuse = "lu1997.map" }
+inputs = { landuse = "lu1997.raster" }
 params = { path = "lib/forest_core.toml" }
 note = "The core forest of 1997."
 
 [[nodes]]
 id = "core2011"
 op = "control.submodel"
-inputs = { landuse = "lu2011.map" }
+inputs = { landuse = "lu2011.raster" }
 params = { path = "lib/forest_core.toml" }
 note = "The core forest of 2011."
 
@@ -262,7 +262,7 @@ done in 0.0 s
 
 When a submodel node is expanded, each of the submodel's inputs is filled in this order:
 
-1. **the node gives it**: `landuse = "lu1997.map"` above;
+1. **the node gives it**: `landuse = "lu1997.raster"` above;
 2. **a value input** (`kind = "value"`) the node does not give keeps the submodel's own value: a submodel can have
    defaults, such as a threshold;
 3. **a file input** (`kind = "map"` or `"stack"`) the node does not give becomes an **input of the outer model**,

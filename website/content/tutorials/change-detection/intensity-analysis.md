@@ -114,7 +114,7 @@ the times are years.
 ## Build the model
 
 The model is short. A [[raster.read]] node (library: **IO**) with `path = "pie_landuse.tif"` and no band gives,
-on its `stack` output, the three dates as layers named by their years. Connect that output to the `maps` input of
+on its `raster` output, the three dates as layers named by their years. Connect that output to the `maps` input of
 [[change.intensity]] (library: **Change detection**). Add [[change.transitions]] on the same stack to have the
 areas behind the rates, and a [[view.plot]] of the stack to see the maps.
 
@@ -139,20 +139,20 @@ note = "Three layers: 1985, 1991, 1999 (1 forest, 2 built, 3 other)."
 [[nodes]]
 id = "transitions"
 op = "change.transitions"
-inputs = { maps = "dates.stack" }
+inputs = { maps = "dates.raster" }
 note = "Every transition of each period, in km²."
 
 [[nodes]]
 id = "intensity"
 op = "change.intensity"
-inputs = { maps = "dates.stack" }
+inputs = { maps = "dates.raster" }
 params = { gain = 2, loss = 1 }
 note = "Interval, category and transition levels; built's gains, forest's losses."
 
 [[nodes]]
 id = "plot"
 op = "view.plot"
-inputs = { value = "dates.stack" }
+inputs = { value = "dates.raster" }
 params = { title = "Plum Island, 1985-1999" }
 ```
 

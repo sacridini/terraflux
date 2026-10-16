@@ -112,14 +112,14 @@ note = "0 missing, 1 background, 2 forest."
 [[nodes]]
 id = "fad"
 op = "fragmentation.fad"
-inputs = { map = "forest.map" }
+inputs = { map = "forest.raster" }
 params = { window = 27 }
 note = "The forest's share around every forest cell; its six classes."
 
 [[nodes]]
 id = "multiscale"
 op = "fragmentation.fad_multiscale"
-inputs = { map = "forest.map" }
+inputs = { map = "forest.raster" }
 note = "Windows of 7, 13, 27, 81 and 243 cells, and their average."
 
 [[nodes]]

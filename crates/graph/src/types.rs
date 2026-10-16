@@ -57,6 +57,36 @@ pub enum Type {
 }
 
 impl Type {
+    /// The type's name for people: a map in memory and rasters on disk are both a raster.
+    pub fn name(self) -> &'static str {
+        match self {
+            Type::Any => "any value",
+            Type::Number => "number",
+            Type::Integer => "whole number",
+            Type::Bool => "yes or no",
+            Type::Text => "text",
+            Type::Map | Type::Raster => "raster",
+            Type::Stack => "stack",
+            Type::Series => "series",
+            Type::Table => "table",
+            Type::Markov => "Markov chain",
+            Type::Demand => "demand",
+            Type::Regional => "regional demand",
+            Type::Glm => "regressions",
+            Type::Woe => "weights of evidence",
+            Type::Patches => "patch settings",
+            Type::Rules => "allocation rules",
+            Type::Rng => "random generator",
+            Type::Agents => "agents",
+            Type::Vector => "vector",
+            Type::BaseData => "base data",
+            Type::Tree => "tree",
+            Type::LabelMatrix => "label matrix",
+            Type::HabitatGraph => "habitat graph",
+            Type::SdmModel => "distribution model",
+        }
+    }
+
     /// Whether a value of type `self` may feed a port of type `port` (numbers and whole numbers feed each
     /// other: an operator checks at run time that a number it needs whole is one).
     pub fn fits(self, port: Type) -> bool {

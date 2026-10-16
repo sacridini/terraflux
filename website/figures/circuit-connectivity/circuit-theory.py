@@ -107,13 +107,13 @@ params = { path = "focal.tif" }
 [[nodes]]
 id = "current"
 op = "circuit.pairwise"
-inputs = { habitat = "resistance.map", points = "focal.map" }
+inputs = { habitat = "resistance.raster", points = "focal.raster" }
 params = { cum_map = true, max_map = true }
 
 [[nodes]]
 id = "omniscape"
 op = "circuit.omniscape"
-inputs = { resistance = "resistance.map" }
+inputs = { resistance = "resistance.raster" }
 params = { radius = 15, block_size = 1, flow_potential = true, normalized_current = true }
 
 [[nodes]]
@@ -124,19 +124,19 @@ params = { path = "wall_0.tif" }
 [[nodes]]
 id = "left"
 op = "map.calc"
-inputs = { f = "focal.map" }
+inputs = { f = "focal.raster" }
 params = { expression = "f == 1" }
 
 [[nodes]]
 id = "right"
 op = "map.calc"
-inputs = { f = "focal.map" }
+inputs = { f = "focal.raster" }
 params = { expression = "f == 2" }
 
 [[nodes]]
 id = "path"
 op = "restoration.least_cost_path"
-inputs = { resistance = "open.map", a = "left.map", b = "right.map" }
+inputs = { resistance = "open.raster", a = "left.map", b = "right.map" }
 """
 figs.run(figs.add_writes(WALL, {"current.cum": "current.tif", "omniscape.normalized": "normalized.tif",
                                 "path.path": "path.tif", "current.resistances": "wall_r.csv"}), work, name="wall.toml")

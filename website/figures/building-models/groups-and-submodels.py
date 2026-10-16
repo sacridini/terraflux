@@ -65,13 +65,13 @@ params = { path = "sibuyan_landuse.tif", band = "2011" }
 [[nodes]]
 id = "core1997"
 op = "control.submodel"
-inputs = { landuse = "lu1997.map" }
+inputs = { landuse = "lu1997.raster" }
 params = { path = "lib/forest_core.toml" }
 
 [[nodes]]
 id = "core2011"
 op = "control.submodel"
-inputs = { landuse = "lu2011.map" }
+inputs = { landuse = "lu2011.raster" }
 params = { path = "lib/forest_core.toml" }
 
 [[nodes]]
@@ -83,7 +83,7 @@ params = { expression = "a * 2 + b" }
 [[nodes]]
 id = "context"
 op = "control.group"
-inputs = { land = "lu1997.map" }
+inputs = { land = "lu1997.raster" }
 
 [nodes.body]
 outputs = { share = "share.map", edge = "edge.map" }

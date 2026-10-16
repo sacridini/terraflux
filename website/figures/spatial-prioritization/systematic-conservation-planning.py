@@ -49,13 +49,13 @@ params = { path = "ones.tif" }
 [[nodes]]
 id = "zonation"
 op = "prioritize.zonation"
-inputs = { features = "species.stack" }
+inputs = { features = "species.raster" }
 params = { rule = "CAZMAX" }
 
 [[nodes]]
 id = "two_sites"
 op = "prioritize.optimize"
-inputs = { features = "species.stack", cost = "cost.map" }
+inputs = { features = "species.raster", cost = "cost.raster" }
 params = { objective = "max_cover", budget = 2, gap = 0 }
 '''
     model = figs.add_writes(model, {"zonation.rank": "rank.tif", "two_sites.solution": "two.tif"})
@@ -143,7 +143,7 @@ def hotspots():
 [[nodes]]
 id = "plan"
 op = "prioritize.optimize"
-inputs = { features = "features.stack", cost = "cost.map" }
+inputs = { features = "features.stack", cost = "cost.raster" }
 params = { objective = "min_set", relative_targets = 0.3, gap = 0.001 }
 
 [outputs.summary]
@@ -174,13 +174,13 @@ from = "plan.summary"
 [[nodes]]
 id = "eval_hot"
 op = "prioritize.evaluate"
-inputs = { features = "features.stack", cost = "cost.map", solution = "hot.map" }
+inputs = { features = "features.stack", cost = "cost.raster", solution = "hot.map" }
 params = { relative_targets = 0.3 }
 
 [[nodes]]
 id = "eval_plan"
 op = "prioritize.evaluate"
-inputs = { features = "features.stack", cost = "cost.map", solution = "plan.map" }
+inputs = { features = "features.stack", cost = "cost.raster", solution = "plan.map" }
 params = { relative_targets = 0.3 }
 
 [outputs.hot]
@@ -219,12 +219,12 @@ def families():
 [[nodes]]
 id = "zonation"
 op = "prioritize.zonation"
-inputs = { features = "features.stack", cost = "cost.map" }
+inputs = { features = "features.stack", cost = "cost.raster" }
 
 [[nodes]]
 id = "plan"
 op = "prioritize.optimize"
-inputs = { features = "features.stack", cost = "cost.map" }
+inputs = { features = "features.stack", cost = "cost.raster" }
 params = { objective = "min_set", relative_targets = 0.3, gap = 0.001 }
 ''', {"zonation.rank": "rank.tif", "plan.solution": "plan.tif"})
     rank = sp.grid(w / "rank.tif")
@@ -253,7 +253,7 @@ def targets():
 [[nodes]]
 id = "plan"
 op = "prioritize.optimize"
-inputs = {{ features = "features.stack", cost = "cost.map" }}
+inputs = {{ features = "features.stack", cost = "cost.raster" }}
 params = {{ objective = "min_set", relative_targets = {t / 100}, gap = 0.005 }}
 
 [outputs.summary]

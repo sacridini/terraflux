@@ -99,7 +99,7 @@ params = { path = "carbon_potential.tif" }
 [[nodes]]
 id = "carbon"
 op = "map.calc"
-inputs = { c = "carbon_t_ha.map" }
+inputs = { c = "carbon_t_ha.raster" }
 params = { expression = "c * 100 / 1000000" }
 
 [[nodes]]
@@ -125,7 +125,7 @@ params = { path = "land_cover.tif", band = "cropland" }
 [[nodes]]
 id = "reduction"
 op = "map.calc"
-inputs = { p = "pasture.map", c = "cropland.map" }
+inputs = { p = "pasture.raster", c = "cropland.raster" }
 params = { expression = "if p + c > 0 then (4 * p + 7 * c) / (p + c) else 0" }
 ```
 
@@ -199,7 +199,7 @@ regional targets of a plan, with the ecoregions as `regions`.
 [[nodes]]
 id = "plan"
 op = "restoration.plan"
-inputs = { restorable = "vegetation.anthropic", table = "habitat.table", gain = "habitat.gain", linear = "linear.stack", hfi = "footprint.map", reduction = "reduction.map" }
+inputs = { restorable = "vegetation.anthropic", table = "habitat.table", gain = "habitat.gain", linear = "linear.stack", hfi = "footprint.raster", reduction = "reduction.map" }
 params = { target = 100, weights = [
   { extinction_risk = 3.89, carbon = 0, intactness = 0 },
   { extinction_risk = 0, carbon = 0.817, intactness = 0 },

@@ -115,13 +115,13 @@ params = { path = "cost.tif" }
 [[nodes]]
 id = "plan"
 op = "prioritize.optimize"
-inputs = { features = "features.stack", cost = "cost.map" }
+inputs = { features = "features.raster", cost = "cost.raster" }
 params = { objective = "min_set", relative_targets = 0.3, boundary_penalty = 0.01, edge_factor = 0.5, gap = 0.01 }
 
 [[nodes]]
 id = "evaluation"
 op = "prioritize.evaluate"
-inputs = { features = "features.stack", cost = "cost.map", solution = "plan.solution" }
+inputs = { features = "features.raster", cost = "cost.raster", solution = "plan.solution" }
 params = { relative_targets = 0.3 }
 
 [[nodes]]
@@ -168,7 +168,7 @@ params = { path = "cost.tif" }
 [[nodes]]
 id = "blocks"
 op = "prioritize.coarsen"
-inputs = { cost = "cost.map", features = "features.stack" }
+inputs = { cost = "cost.raster", features = "features.raster" }
 params = { factor = 3 }
 
 [[nodes]]
@@ -180,7 +180,7 @@ params = { objective = "min_set", relative_targets = 0.2, neighbors = 2, gap = 0
 [[nodes]]
 id = "fine"
 op = "prioritize.refine"
-inputs = { selection = "plan.solution", like = "cost.map" }
+inputs = { selection = "plan.solution", like = "cost.raster" }
 ```
 
 `neighbors = 2` asks for two selected neighbours (of the four sharing an edge) for every selected block; `clamp`
@@ -239,13 +239,13 @@ params = { path = "cost.tif" }
 [[nodes]]
 id = "hexagons"
 op = "prioritize.h3_units"
-inputs = { cost = "cost.map" }
+inputs = { cost = "cost.raster" }
 params = { resolution = 7 }
 
 [[nodes]]
 id = "plan"
 op = "prioritize.optimize"
-inputs = { polygons = "hexagons.units", features = "features.stack" }
+inputs = { polygons = "hexagons.units", features = "features.raster" }
 params = { objective = "min_set", relative_targets = 0.3, cost_column = "cost", gap = 0.01 }
 
 [outputs.selection]
@@ -280,18 +280,18 @@ params = { path = "cost.tif" }
 [[nodes]]
 id = "use_cost"
 op = "map.calc"
-inputs = { c = "cost.map" }
+inputs = { c = "cost.raster" }
 params = { expression = "c * 0.45" }
 
 [[nodes]]
 id = "zone_costs"
 op = "stack.of"
-inputs = { protect = "cost.map", use = "use_cost.map" }
+inputs = { protect = "cost.raster", use = "use_cost.map" }
 
 [[nodes]]
 id = "plan"
 op = "prioritize.optimize"
-inputs = { zone_costs = "zone_costs.stack", features = "features.stack" }
+inputs = { zone_costs = "zone_costs.stack", features = "features.raster" }
 params = { objective = "min_set", relative_targets = 0.3, contribution = { use = 0.5 }, gap = 0.01 }
 
 [[nodes]]

@@ -312,7 +312,7 @@ inputs = { occurrences = "records.vector" }
 [[nodes]]
 id = "cells"
 op = "sdm.one_per_cell"
-inputs = { occurrences = "clean.occurrences", raster = "climate.stack" }
+inputs = { occurrences = "clean.occurrences", raster = "climate.raster" }
 
 [[nodes]]
 id = "thin"
@@ -386,7 +386,7 @@ params = { path = "target_group_density.tif" }
 [[nodes]]
 id = "background"
 op = "sdm.background"
-inputs = { env = "climate.stack", occurrences = "thin.occurrences", bias = "group_density.map" }
+inputs = { env = "climate.stack", occurrences = "thin.occurrences", bias = "group_density.raster" }
 params = { n = 2000, seed = 1 }
 ```
 

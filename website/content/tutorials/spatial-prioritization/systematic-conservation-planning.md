@@ -247,13 +247,13 @@ note = "Thousand USD per km²; the sea has no value."
 [[nodes]]
 id = "plan"
 op = "prioritize.optimize"
-inputs = { features = "features.stack", cost = "cost.map" }
+inputs = { features = "features.raster", cost = "cost.raster" }
 params = { objective = "min_set", relative_targets = 0.3, gap = 0.001 }
 
 [[nodes]]
 id = "evaluation"
 op = "prioritize.evaluate"
-inputs = { features = "features.stack", cost = "cost.map", solution = "plan.solution" }
+inputs = { features = "features.raster", cost = "cost.raster", solution = "plan.solution" }
 params = { relative_targets = 0.3 }
 
 [[nodes]]

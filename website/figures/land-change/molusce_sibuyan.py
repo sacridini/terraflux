@@ -74,7 +74,7 @@ params = { path = "sibuyan_landuse.tif", band = "2011" }
 [[nodes]]
 id = "cross"
 op = "change.crosstab"
-inputs = { from = "lu1997.map", to = "lu2011.map" }
+inputs = { from = "lu1997.raster", to = "lu2011.raster" }
 
 [outputs.cross]
 from = "cross.table"
@@ -87,7 +87,7 @@ def model(woe: dict, counts: list, start: str, iterations: int, potential: str =
         pot = f"""[[nodes]]
 id = "weights"
 op = "molusce.total"
-inputs = {{ drivers = "drivers.stack" }}
+inputs = {{ drivers = "drivers.raster" }}
 params = {{ classes = {inline(woe["classes"])}, drivers = {inline(woe["drivers"])}, bins = {inline(woe["bins"])}, weights = {inline(woe["weights"])} }}
 """
         forecast = 'total = "weights.total"'
@@ -95,13 +95,13 @@ params = {{ classes = {inline(woe["classes"])}, drivers = {inline(woe["drivers"]
         pot = """[[nodes]]
 id = "regression"
 op = "glm.fit"
-inputs = { landscape = "start.map", drivers = "drivers.stack" }
+inputs = { landscape = "start.raster", drivers = "drivers.raster" }
 params = { formulas = { 1 = ["elevation", "slope", "dist_roads"], 2 = ["elevation", "slope", "dist_roads"], 3 = ["elevation", "slope", "dist_roads"], 4 = ["elevation", "slope", "dist_roads"], 5 = ["elevation", "slope", "dist_roads"] } }
 
 [[nodes]]
 id = "suitability"
 op = "glm.predict"
-inputs = { model = "regression.model", drivers = "drivers.stack", landscape = "start.map" }
+inputs = { model = "regression.model", drivers = "drivers.raster", landscape = "start.raster" }
 """
         forecast = 'potential = "suitability.suitability"'
     text = f"""format = "terraflux/1"
@@ -126,7 +126,7 @@ inputs = {{ seed = 1 }}
 [[nodes]]
 id = "simulation"
 op = "control.repeat"
-inputs = {{ times = {iterations}, landscape = "start.map" }}
+inputs = {{ times = {iterations}, landscape = "start.raster" }}
 
 [nodes.body]
 carry = {{ landscape = "allocate.landscape" }}
@@ -154,7 +154,7 @@ params = {{ path = "sibuyan_landuse.tif", band = "{end}" }}
 [[nodes]]
 id = "validation"
 op = "validate.three_map"
-inputs = {{ t0 = "start.map", t1 = "observed.map", simulated = "simulation.landscape" }}
+inputs = {{ t0 = "start.raster", t1 = "observed.raster", simulated = "simulation.landscape" }}
 params = {{ factors = [1, 2, 4, 8] }}
 
 [outputs.fom]
@@ -264,7 +264,7 @@ params = {{ path = "sibuyan_drivers.tif" }}
 [[nodes]]
 id = "weights"
 op = "molusce.total"
-inputs = {{ drivers = "drivers.stack" }}
+inputs = {{ drivers = "drivers.raster" }}
 params = {{ classes = {inline(woe["classes"])}, drivers = {inline(woe["drivers"])}, bins = {inline(woe["bins"])}, weights = {inline(woe["weights"])} }}
 
 [[nodes]]

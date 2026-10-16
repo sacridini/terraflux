@@ -128,14 +128,14 @@ params = { path = "augusta.tif" }
 [[nodes]]
 id = "patches"
 op = "metrics.patch"
-inputs = { map = "cover.map" }
+inputs = { map = "cover.raster" }
 params = { metrics = ["area", "perim", "shape", "frac", "core", "cai", "enn", "gyrate"], show = "shape" }
 note = "A row per patch; map: the shape index of each."
 
 [[nodes]]
 id = "classes"
 op = "metrics.class"
-inputs = { map = "cover.map" }
+inputs = { map = "cover.raster" }
 params = { metrics = ["ca", "pland", "np", "lpi", "area_mn", "area_am", "shape_mn", "shape_am", "ed", "ai", "cohesion", "enn_mn", "cai_mn"], show = "ai" }
 note = "A row per class; map: the aggregation of each."
 ```

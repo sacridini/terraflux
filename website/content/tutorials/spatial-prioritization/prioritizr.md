@@ -115,7 +115,7 @@ note = "1 in the cities."
 [[nodes]]
 id = "plan"
 op = "prioritize.optimize"
-inputs = { features = "features.stack", cost = "cost.map", locked_in = "protected.map", locked_out = "urban.map" }
+inputs = { features = "features.raster", cost = "cost.raster", locked_in = "protected.raster", locked_out = "urban.raster" }
 params = { objective = "min_set", relative_targets = 0.3, gap = 0.001 }
 
 [[nodes]]

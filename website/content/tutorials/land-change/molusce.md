@@ -154,7 +154,7 @@ params = { path = "sibuyan_drivers.tif" }
 [[nodes]]
 id = "weights"
 op = "molusce.total"
-inputs = { drivers = "drivers.stack" }
+inputs = { drivers = "drivers.raster" }
 params = { classes = [1, 2, 3, 4, 5], drivers = ["elevation", "slope", "dist_roads"], bins = { elevation = [50, 150, 300, 600], slope = [4, 10, 16, 22], dist_roads = [250, 500, 1000, 2000, 4000] }, weights = [{ from = 1, to = 1, driver = "dist_roads", categories = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0], weights = [-3.203498, -2.363637, -1.334145, -0.114809, 1.482993, 4.906252] }, { from = 1, to = 3, driver = "dist_roads", categories = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0], weights = [-0.155531, 0.439672, 0.845118, 0.715742, -1.307703, -33.191493] }] }
 
 [[nodes]]
@@ -165,7 +165,7 @@ inputs = { seed = 1 }
 [[nodes]]
 id = "simulation"
 op = "control.repeat"
-inputs = { times = 2, landscape = "start.map" }
+inputs = { times = 2, landscape = "start.raster" }
 
 [nodes.body]
 carry = { landscape = "allocate.landscape" }

@@ -116,7 +116,7 @@ params = { path = "plots.gpkg" }
 [[nodes]]
 id = "map"
 op = "view.plot"
-inputs = { value = "landcover.map" }
+inputs = { value = "landcover.raster" }
 params = { title = "Land cover" }
 
 [[nodes]]
@@ -225,7 +225,7 @@ params = { path = "reserves.gpkg" }
 [[nodes]]
 id = "forest"
 op = "raster.reclassify"
-inputs = { map = "landcover.map" }
+inputs = { map = "landcover.raster" }
 params = { rules = "23..25 -> 1\n* -> 0" }
 note = "CORINE's three forest classes (23 broad-leaved, 24 coniferous, 25 mixed) become 1, the rest 0."
 
@@ -290,7 +290,7 @@ params = { path = "plots.gpkg" }
 [[nodes]]
 id = "forest"
 op = "raster.reclassify"
-inputs = { map = "landcover.map" }
+inputs = { map = "landcover.raster" }
 params = { rules = "23..25 -> 1\n* -> 0" }
 
 [[nodes]]

@@ -27,7 +27,7 @@ params = {{ path = "clc_100m.tif" }}
 [[nodes]]
 id = "resistance"
 op = "raster.reclassify"
-inputs = {{ map = "land.map" }}
+inputs = {{ map = "land.raster" }}
 params = {{ rules = "{RULES}" }}
 """
 writes = {}

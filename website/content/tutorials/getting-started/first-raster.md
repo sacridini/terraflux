@@ -138,18 +138,19 @@ note = "CORINE Land Cover around Hanover: 2000 x 2000 cells of 25 m, EPSG:3035."
 [[nodes]]
 id = "plot"
 op = "view.plot"
-inputs = { value = "landcover.map" }
+inputs = { value = "landcover.raster" }
 params = { title = "Land cover" }
 note = "The map in a tab of its own, refreshed at every run."
 ```
 
-The node has three outputs, three ways of handing the same file to the next node:
+The node has one output, `raster`: the file **on disk**. Only its header (size, cells, coordinates) has been
+read, so a raster of any size opens at once, and the next node reads what it needs:
 
-- `raster`: the file **on disk**. Only its header (size, cells, coordinates) has been read, so a raster of any
-  size opens at once. Operators that work on files (reprojecting, resampling, clipping) take this.
-- `map`: **one band** in memory, the first unless the setting `band` says otherwise (by name, such as `1997`, or
-  by number counted from 0). Most analyses take a map.
-- `stack`: **every band** of the file in memory, as a stack of maps (see [Stacks](#stacks-many-maps-in-one-file)).
+- a node that takes a raster (most analyses) reads **one band**, the first unless the setting `band` says
+  otherwise (by name, such as `1997`, or by number counted from 0);
+- a node that takes a stack reads **every band** of the file, as a stack of maps (see
+  [Stacks](#stacks-many-maps-in-one-file));
+- the operators that work on files (reprojecting, resampling, clipping) take the file itself.
 
 Its settings, in the **Node** pane on the left, are `path` (the file, relative to the model's folder; **Choose...**
 opens a dialog), `band` and `nodata` (a value that replaces the file's own no-data value).
@@ -251,7 +252,7 @@ note = "Two bands, 1997 and 2011: the setting band chooses one by its name."
 [[nodes]]
 id = "legend"
 op = "raster.legend"
-inputs = { map = "landuse.map" }
+inputs = { map = "landuse.raster" }
 params = { classes = [[1, "Forest", "#3b8a5a"], [2, "Coconut", "#d9a441"], [3, "Grassland", "#a7c957"], [4, "Rice", "#e8d36a"], [5, "Other", "#b4508a"]] }
 note = "The classes of lulcc's Sibuyan data, with their names and colours."
 
@@ -293,8 +294,8 @@ after: { src: /img/tutorials/getting-started/first-raster/nodata_off.png, label:
 
 The file `sibuyan_drivers.tif` holds 13 bands on the same grid: the variables that explain where land use
 changed (distances to the sea, roads, towns and streams, elevation, slope, soils, erosion, population density).
-A set of maps on one grid is a **stack**, and each map a **layer**. The `stack` output of [[raster.read]] gives
-them all; the `map` output gives one. Move the slider to go through them:
+A set of maps on one grid is a **stack**, and each map a **layer**. The `raster` of [[raster.read]] is them all
+where a node takes a stack, and one of them (`band`) where it takes a raster. Move the slider to go through them:
 
 ```tfslider
 label: Band

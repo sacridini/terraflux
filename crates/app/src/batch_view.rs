@@ -638,7 +638,7 @@ fn default_output(m: &Model, r: &Registry) -> Option<String> {
 fn starts(m: &Model) -> Vec<String> {
     let mut out: Vec<String> =
         m.inputs.iter().filter(|(_, i)| matches!(i, Input::Map { .. })).map(|(k, _)| k.clone()).collect();
-    out.extend(m.nodes.iter().filter(|n| n.op == "raster.read").map(|n| format!("{}.map", n.id)));
+    out.extend(m.nodes.iter().filter(|n| n.op == "raster.read").map(|n| format!("{}.raster", n.id)));
     out
 }
 
@@ -980,7 +980,7 @@ fn calibration_ui(ui: &mut Ui, st: &mut BatchState, s: &Session, r: &Registry, k
             for (k, t) in outs.iter().filter(|(_, t)| matches!(t, Type::Series | Type::Map | Type::Stack | Type::Any)) {
                 if ui
                     .selectable_label(*k == current, k)
-                    .on_hover_text(format!("{t:?}: its last map is scored"))
+                    .on_hover_text(format!("{}: its last map is scored", t.name()))
                     .clicked()
                 {
                     st.output = Some(k.clone());
@@ -1073,7 +1073,7 @@ fn keep_ui(ui: &mut Ui, st: &mut BatchState, s: &Session, r: &Registry) {
         ui.menu_button("+", |ui| {
             for (k, t) in &outs {
                 let mut on = keep.contains(k);
-                if ui.checkbox(&mut on, format!("{k}  ({t:?})")).changed() {
+                if ui.checkbox(&mut on, format!("{k}  ({})", t.name())).changed() {
                     if on {
                         keep.insert(k.clone());
                     } else {

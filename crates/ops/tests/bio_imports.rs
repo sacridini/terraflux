@@ -69,7 +69,7 @@ fn rasters_are_landschafts() {
     for (case, c) in meta["raster"].as_object().unwrap() {
         let path = dir().join(c["file"].as_str().unwrap());
         let read = run("raster.read", vec![], serde_json::json!({ "path": path.to_string_lossy() }));
-        let Value::Raster(r) = &read["stack"] else { panic!() };
+        let Value::Raster(r) = &read["raster"] else { panic!() };
         let s = &r.stack().unwrap();
         // the labels from_raster gives the bands: their descriptions, else band<i>
         let keys = if s.layers.len() == 3 { vec!["sp_a", "sp_b", "band3"] } else { vec!["classes"] };

@@ -118,7 +118,7 @@ params = { path = "bioclim.tif" }
 [[nodes]]
 id = "data"
 op = "sdm.prepare"
-inputs = { occurrences = "records.vector", env = "climate.stack" }
+inputs = { occurrences = "records.vector", env = "climate.raster" }
 params = { thin = 50000, area = 500000, background = 2000, folds = { size = 500000, k = 5 }, seed = 1 }
 
 [[nodes]]

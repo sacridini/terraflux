@@ -114,7 +114,9 @@ fn each_file(
         }
         let _ = std::fs::remove_file(&out);
         run(&files[0], &out).map_err(Error::msg)?;
-        return Ok(Arc::new(Rasters::open(&out.to_string_lossy(), None, None)?.choose(sources.chosen)));
+        return Ok(Arc::new(
+            Rasters::open(&out.to_string_lossy(), None, None)?.choose(sources.chosen).picking(sources.picked),
+        ));
     }
     std::fs::create_dir_all(dest).map_err(|e| Error::msg(format!("{}: {e}", dest.display())))?;
     for f in &files {
@@ -123,7 +125,7 @@ fn each_file(
         let _ = std::fs::remove_file(&out);
         run(f, &out).map_err(|e| Error::msg(format!("{}: {e}", f.display())))?;
     }
-    Ok(Arc::new(Rasters::open(&dest.to_string_lossy(), None, None)?.choose(sources.chosen)))
+    Ok(Arc::new(Rasters::open(&dest.to_string_lossy(), None, None)?.choose(sources.chosen).picking(sources.picked)))
 }
 
 /// A CRS as GDAL takes it: the WKT GDAL read, else the EPSG code of the GeoTIFF keys.
@@ -463,7 +465,7 @@ impl Operator for Convert {
             }
             let _ = std::fs::remove_file(&dest);
             terraflux_gdal::translate(&files[0], &dest, &a).map_err(Error::msg)?;
-            let r = Rasters::open(&dest.to_string_lossy(), None, None)?.choose(src.chosen);
+            let r = Rasters::open(&dest.to_string_lossy(), None, None)?.choose(src.chosen).picking(src.picked);
             return Ok(outputs([("raster", Value::Raster(Arc::new(r)))]));
         }
         std::fs::create_dir_all(&dest).map_err(|e| Error::msg(format!("{}: {e}", dest.display())))?;
@@ -473,7 +475,7 @@ impl Operator for Convert {
             let _ = std::fs::remove_file(&out);
             terraflux_gdal::translate(f, &out, &a).map_err(|e| Error::msg(format!("{}: {e}", f.display())))?;
         }
-        let r = Rasters::open(&dest.to_string_lossy(), None, None)?.choose(src.chosen);
+        let r = Rasters::open(&dest.to_string_lossy(), None, None)?.choose(src.chosen).picking(src.picked);
         Ok(outputs([("raster", Value::Raster(Arc::new(r)))]))
     }
 }

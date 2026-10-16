@@ -19,7 +19,7 @@ pub struct Client {
 pub type TaskOf = (String, BTreeMap<String, serde_json::Value>);
 
 /// The operators whose `path` a model reads (sent with it).
-pub const READ_OPS: [&str; 3] = [terraflux_graph::PLUGIN, "raster.read", "vector.read"];
+pub const READ_OPS: [&str; 4] = [terraflux_graph::PLUGIN, "raster.read", "vector.read", "table.read"];
 
 impl Client {
     /// Connect to a coordinator of this version of Terraflux (plain).

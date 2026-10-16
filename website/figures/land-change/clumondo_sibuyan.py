@@ -79,19 +79,19 @@ params = {{ path = "sibuyan_drivers.tif" }}
 [[nodes]]
 id = "suitability"
 op = "glm.fit"
-inputs = {{ landscape = "land.map", drivers = "drivers.stack" }}
+inputs = {{ landscape = "land.raster", drivers = "drivers.raster" }}
 params = {{ formulas = {{ 1 = ["dist_sea", "elevation", "slope", "dist_roads", "dist_urban"], 2 = ["dist_sea", "elevation", "slope", "dist_roads", "dist_urban"], 3 = ["dist_sea", "elevation", "slope", "dist_roads", "dist_urban"], 4 = ["dist_sea", "elevation", "slope", "dist_roads", "dist_urban"], 5 = ["dist_sea", "elevation", "slope", "dist_roads", "dist_urban"] }} }}
 
 [[nodes]]
 id = "ages"
 op = "clumondo.ages"
-inputs = {{ landscape = "land.map", seed = 1 }}
+inputs = {{ landscape = "land.raster", seed = 1 }}
 params = {{ max_age = 10 }}
 
 [[nodes]]
 id = "years"
 op = "control.repeat"
-inputs = {{ times = {YEARS}, landscape = "land.map", age = "ages.age", elasticity = [0.0, 0.0] }}
+inputs = {{ times = {YEARS}, landscape = "land.raster", age = "ages.age", elasticity = [0.0, 0.0] }}
 
 [nodes.body]
 carry = {{ landscape = "allocate.landscape", age = "allocate.age", elasticity = "allocate.elasticity" }}
@@ -101,7 +101,7 @@ until = "allocate.stop"
 [[nodes.body.nodes]]
 id = "allocate"
 op = "clumondo.step"
-inputs = {{ landscape = "@landscape", age = "@age", elasticity = "@elasticity", step = "@step", model = "suitability.model", drivers = "drivers.stack" }}
+inputs = {{ landscape = "@landscape", age = "@age", elasticity = "@elasticity", step = "@step", model = "suitability.model", drivers = "drivers.raster" }}
 params = {{ settings = {inline(settings(rows, resistance))} }}
 
 [outputs.maps]

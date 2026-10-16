@@ -38,7 +38,7 @@ params = {{ path = "toy.tif" }}
 [[nodes]]
 id = "toy_rules"
 op = "raster.reclassify"
-inputs = {{ map = "toy.map" }}
+inputs = {{ map = "toy.raster" }}
 params = {{ rules = {json.dumps(TOY_RULES)} }}
 
 [[nodes]]
@@ -49,7 +49,7 @@ params = {{ path = "{posix(CLC)}" }}
 [[nodes]]
 id = "broad"
 op = "raster.reclassify"
-inputs = {{ map = "landcover.map" }}
+inputs = {{ map = "landcover.raster" }}
 params = {{ rules = {json.dumps(BROAD_RULES)} }}
 
 [[nodes]]
@@ -136,7 +136,7 @@ params = {{ path = "{posix(NDVI)}" }}
 [[nodes]]
 id = "gaps"
 op = "map.calc"
-inputs = {{ elevation = "elevation.map", ndvi = "ndvi.map" }}
+inputs = {{ elevation = "elevation.raster", ndvi = "ndvi.raster" }}
 params = {{ expression = "if ndvi < 0.4 then null else elevation" }}
 
 [[nodes]]
@@ -157,7 +157,7 @@ inputs = {{ raster = "gaps_disk.raster" }}
 params = {{ max_distance = 100, path = "filled.tif" }}
 '''
 model = figs.add_writes(model, {"toy_rules.map": "toy_out.tif", "named.map": "broad.tif", "share.map": "share.tif",
-                                "edge.map": "edge.tif", "elevation.map": "elevation.tif"})
+                                "edge.map": "edge.tif", "elevation.raster": "elevation.tif"})
 figs.run(model, work)
 
 
