@@ -115,12 +115,39 @@ depois:
    para (o `prioritize.evaluate`, o MSPA, os circuitos, o ajuste dos SDM, as métricas por blocos) é deixado
    terminar em segundo plano um segundo depois do Stop. Basta o operador chamar `ctx.stopped()` nos seus laços e
    `ctx.progress(...)`; no C++, perguntar `opt::stop_asked()` (ou um equivalente fora do `opt`).
-4. **O submódulo do landschaft:** o Terraflux usa o `a302941` (o `WatchScope`, já no `main` do landschaft pelo
-   merge `db23ef9`); o `main` está 43 commits à frente (1.50.0). Atualizar o submódulo, conferindo o Terraflux com
-   a versão nova.
+4. **O submódulo do landschaft:** o `WatchScope` já está no `main` do landschaft (merge `db23ef9`); atualizar o
+   submódulo para ele é a primeira etapa de "Integrar o landschaft 1.50.0", abaixo.
 5. **Testes instáveis vistos:** `a_computer_lends_itself_to_another_by_its_code` (`crates/app/tests/ui.rs`) falha às
    vezes na suíte inteira e passa sozinho; `the_terrain_is_landschafts` (`crates/ops/tests/surface.rs`) difere em
    1e-16 no VRM só no build de debug (passa em release).
+
+## Integrar o landschaft 1.50.0
+
+Registro de 2026-10-16. O submódulo `extern/landschaft` está no `a302941` (a base `55d03a8`, de antes da 1.47.0, e
+o `WatchScope`); o `main` do landschaft, com o merge `db23ef9`, está 43 commits à frente: a 1.50.0, cerca de 34 mil
+linhas de C++ novas em `hydro`, `serv`, `swat`, `surf` e `sim`, e três bibliotecas novas no CMake (`hydrocore`,
+`servcore`, `swatcore`). A ordem sugerida:
+
+1. **Atualizar o submódulo para o `main`** e conferir o Terraflux com ele: o `build.rs` do `terraflux-ls-sys`
+   ligando as bibliotecas novas (mesmo antes de haver operadores), a suíte inteira e os testes de paridade (os
+   ótimos do prioritizr em release, `--include-ignored`), os pacotes dos três sistemas (o CI e o WSL). Nada em
+   `src/cpp/opt` mudou desde a base além do `WatchScope`.
+2. **Novos operadores, cada um bit a bit com o landschaft:**
+   - **Hidrologia do terreno** (`hydro`): preenchimento e rompimento de depressões (menor custo), direções e
+     acumulação de fluxo (D8 e o fluxo múltiplo do pygeoprocessing), traçado dos rios, bacias, HAND, TWI, SPI e STI.
+   - **Serviços ecossistêmicos do InVEST** (`serv`): carbono, qualidade do habitat, produção anual de água e
+     hidroeletricidade, a razão de entrega de sedimentos (SDR) e o índice de conectividade.
+   - **Superfícies** (`surf`): os geomorfons (o `r.geomorphon` do GRASS), o topo de morro da APP (Lei 12.651/2012)
+     e o potencial gravitacional do Dinamica (`CalcInteractionPotentialMap`).
+   - **Simulação** (`sim`): o `ContinuousPatcher` (o `PatcherContinuousState` do Dinamica) e as estradas endógenas
+     (o construtor de estradas do Dinamica).
+   - **O SWAT+** (`swat`): o modelo de bacias portado do Fortran, bit a bit com o SWAT+ (projetos de rasters como o
+     QSWAT+ e o SWAT+ Editor, o manejo das HRUs, a rotação de culturas, o MUSLE, a calibração, as saídas). O maior:
+     pede um desenho próprio no builder (o projeto como um valor, as tabelas das saídas, os mapas das HRUs e dos
+     trechos, `run_many` nos lotes).
+3. **Tutoriais e templates** de cada um, como os do site do landschaft (a hidrologia do terreno, o SWAT+).
+4. **O paralelismo do landschaft** (`on=` para as re-soluções da priorização, os SDM e o Monte Carlo): no
+   Terraflux, os lotes distribuídos já cobrem esse uso; conferir se vale levar o `on=` às re-soluções de um nó só.
 
 ## Várias máquinas sem saber de computação
 
