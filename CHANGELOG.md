@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.83.0] - 2026-10-16
+
 ### Added
 - `stack.layer`: one layer of a stack as a map, by its name or its number from 0: a band of rasters, a layer an
   operator made (`total` of `prioritize.evaluate`'s `ferrier`), a step of a loop's series; names that are numbers
