@@ -95,6 +95,33 @@ distâncias, unidades de planejamento em polígonos, o desenho no viewer).
   corredor, avaliação de um plano, espécie num clima mais quente, fatores da mudança, autômato celular num laço,
   agentes, CRAFTY, análise e validação da mudança, terreno, carbono com incerteza, mais modelos neutros.
 
+## Paridade com o landschaft na priorização, progresso e parada
+
+Registro de 2026-10-16. O `prioritize.optimize` passou a resolver como o landschaft (o motor de corte e o de
+fecho antes do HiGHS, o Gurobi quando instalado), com barra de progresso e Stop no meio da execução. Ficou para
+depois:
+
+1. **O resto do roteamento do landschaft** (`prioritize/_milp_solve.py`), para a mesma velocidade em todos os
+   problemas:
+   - o motor de corte com zonas (`solve_zone_cut`, `opt/zones_cut.cpp`): mínimos conjuntos com zonas e
+     penalidades de borda ou conectividade, que hoje vão ao HiGHS;
+   - a busca por subconjuntos depois do motor largo (`_wide_then_subset`, `improve_subset`): `max_features` e as
+     filogenias;
+   - comparar com o landschaft, nos mesmos dados, cada objetivo e cada tipo de unidade (tabelas, polígonos, H3).
+2. **O Gurobi além do `prioritize.optimize`:** as re-soluções do `prioritize.evaluate` (custo de reposição e rank),
+   o `prioritize.calibrate` (soluções em paralelo: uma thread do Gurobi em cada), o `restoration.plan` e o
+   `prioritize.actions`.
+3. **Parar no meio e dizer quanto falta em outros operadores longos:** hoje só os solvers param; um nó que não
+   para (o `prioritize.evaluate`, o MSPA, os circuitos, o ajuste dos SDM, as métricas por blocos) é deixado
+   terminar em segundo plano um segundo depois do Stop. Basta o operador chamar `ctx.stopped()` nos seus laços e
+   `ctx.progress(...)`; no C++, perguntar `opt::stop_asked()` (ou um equivalente fora do `opt`).
+4. **O landschaft:** o `WatchScope` (commit `a302941`, no ramo `terraflux-solve-watch` do landschaft, base do
+   submódulo) ainda não está no `main` do landschaft, que já está 43 commits à frente (1.50.0). Levá-lo ao `main` e
+   atualizar o submódulo, conferindo o Terraflux com a versão nova.
+5. **Testes instáveis vistos:** `a_computer_lends_itself_to_another_by_its_code` (`crates/app/tests/ui.rs`) falha às
+   vezes na suíte inteira e passa sozinho; `the_terrain_is_landschafts` (`crates/ops/tests/surface.rs`) difere em
+   1e-16 no VRM só no build de debug (passa em release).
+
 ## Várias máquinas sem saber de computação
 
 Registro de 2026-10-14. Os lotes em várias máquinas (`serve`, `worker`, `submit`, `calibrate`, o motor por tiles
