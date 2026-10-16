@@ -21,7 +21,7 @@
 <link rel="stylesheet" href="/css/pygments.css?v={{ asset_v }}">
 {% block head %}{% endblock %}
 <script>
-(function(){try{var q=/[?&]theme=(light|dark)/.exec(location.search);var t=q?q[1]:localStorage.getItem('tf-theme');if(!t){t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}document.documentElement.setAttribute('data-theme',t)}catch(e){}})();
+(function(){try{var q=/[?&]theme=(light|dark)/.exec(location.search);var t=q?q[1]:localStorage.getItem('tf-theme');if(t!=='dark'){t='light'}document.documentElement.setAttribute('data-theme',t)}catch(e){}})();
 </script>
 </head>
 <body class="{% block bodyclass %}{% endblock %}">
