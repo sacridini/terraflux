@@ -795,8 +795,18 @@ pub fn undo_redo(s: &mut Session, redo: bool) {
     if !done {
         return;
     }
+    forget_missing(s);
+    s.edited();
+}
+
+/// After the model was replaced (undone, read again from its file): the nodes selected or shown that are no more,
+/// and the containers entered that are no more, let go.
+pub fn forget_missing(s: &mut Session) {
     s.editor.renaming = None;
     s.editor.message = None;
+    while s.source.scope(&s.editor.path).is_none() {
+        s.editor.path.pop();
+    }
     let ids: std::collections::HashSet<String> =
         s.source.scope(&s.editor.path).map(|n| n.iter().map(|n| n.id.clone()).collect()).unwrap_or_default();
     s.editor.chosen.retain(|id| ids.contains(id));
@@ -806,7 +816,6 @@ pub fn undo_redo(s: &mut Session, redo: bool) {
     if s.preview.as_ref().is_some_and(|(n, _)| s.source.node(n).is_none()) {
         s.preview = None;
     }
-    s.edited();
 }
 
 /// The nodes selected in the scope shown (else the node selected), each with its place on the canvas.
@@ -1388,6 +1397,24 @@ pub fn arrange(s: &mut Session, r: &Registry) {
 
 /// The bar above the canvas: where in the model, run up to the node, the preview kept up to date.
 fn bar(ui: &mut Ui, s: &mut Session, r: &Registry) {
+    // the model's file written by another program while this one has edits not saved
+    if s.on_disk.is_some() {
+        ui.horizontal(|ui| {
+            ui.colored_label(ui.visuals().warn_fg_color, "The model's file was changed by another program.");
+            if ui.button("Read it").on_hover_text("the model as the file has it now (ctrl+Z goes back)").clicked()
+                && let Some(m) = s.on_disk.take()
+            {
+                crate::watch::take(s, m);
+            }
+            if ui
+                .button("Keep mine")
+                .on_hover_text("keep the model as it is here (saving it replaces the file)")
+                .clicked()
+            {
+                s.on_disk = None;
+            }
+        });
+    }
     ui.horizontal(|ui| {
         if ui.selectable_label(s.editor.path.is_empty(), "Top level").clicked() {
             s.editor.path.clear();

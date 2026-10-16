@@ -2,6 +2,7 @@
 //! model file (dropped on it, "open with"), it opens the application.
 
 mod cluster;
+mod mcp;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -80,6 +81,10 @@ enum Command {
     New(Box<New>),
     /// Write a model in another format (by the extension: .toml or .json).
     Convert { from: PathBuf, to: PathBuf },
+    /// A server of the Model Context Protocol on the standard input and output: an AI assistant (Claude Desktop,
+    /// Claude Code...) builds, checks and runs models through it; the application, with the model open, shows its
+    /// edits as they are made.
+    Mcp,
     /// Run a coordinator: workers ask it for tasks, clients submit batches to it.
     Serve {
         /// The address to listen on (127.0.0.1: this machine only; 0.0.0.0:7700 for the network).
@@ -685,6 +690,7 @@ fn main() -> Result<()> {
         Command::Convert { from, to } => {
             Model::load(&from)?.save(&to)?;
         }
+        Command::Mcp => mcp::serve()?,
         Command::Resample { input, like, output, method } => {
             use terraflux_raster::resample::{Method, resample};
             let m = Method::parse(&method).with_context(|| format!("unknown method {method:?}"))?;

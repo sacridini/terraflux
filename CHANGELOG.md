@@ -6,6 +6,21 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- `terraflux mcp`: Terraflux as a server of the Model Context Protocol, for AI assistants (Claude Desktop, Claude
+  Code, any MCP client) to build models in plain words: the templates and the operators listed and described (a
+  node of a template shown for each), a model made empty or from a template, its inputs, nodes, connections,
+  settings, containers' bodies and outputs edited (each edit checked as the node editor checks it: a wrong
+  connection, a setting the operator does not have or a cycle refused with the reason, the file left as it was;
+  the problems left listed after each edit), the nodes arranged, the model checked, run and its outputs looked at
+  (a raster's size, georeference, classes or statistics; a table's first lines), and the model opened in the
+  application. New nodes are placed beside what they read; the file is written whole, so a program following it
+  never reads half a model.
+- The application follows the file of the model open: written by another program (an assistant through
+  `terraflux mcp`, a text editor), it is read again, as an edit that ctrl+Z undoes (the data read again when the
+  inputs changed). With only nodes moved here and not saved, the file's model is taken with the nodes where they
+  were moved; with other edits not saved, a bar asks whether to read it or keep the model as it is.
+
 ## [0.81.0] - 2026-10-16
 
 ### Added

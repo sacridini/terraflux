@@ -155,6 +155,23 @@ terraflux ops                       # the operators and what they do
 
 `terraflux new clue` and `terraflux new ordered` make lulcc's CLUE-S and ordered models.
 
+### With an AI assistant
+
+`terraflux mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server: an assistant such as Claude
+Desktop or Claude Code builds, checks and runs models through it, from a request in plain words, with the same
+checks as the node editor. With the model open in the application, every edit appears on the canvas as it is made
+(ctrl+Z undoes it).
+
+```bash
+claude mcp add terraflux -- terraflux mcp       # Claude Code
+```
+
+For Claude Desktop, add to its `claude_desktop_config.json` (Settings, Developer, Edit Config):
+
+```json
+{ "mcpServers": { "terraflux": { "command": "terraflux", "args": ["mcp"] } } }
+```
+
 ### Models as text
 
 A model is a graph of operators. Each node reads the model's inputs (`$name`), other nodes' outputs

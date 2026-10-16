@@ -18,6 +18,7 @@ is written; the next pages go through the commands by what they are for:
 | [Running models](/cli/models/) | `run`, `check`, `new`, `convert`, `ops`, `resample`, `app` |
 | [Batches: replicates, scenarios, calibration](/cli/batches/) | `submit`, `calibrate`, `jobs`, `results` |
 | [Many machines](/cli/distributed/) | `serve`, `worker`, `workers`, `cluster`, `cloud-init` |
+| [AI assistants](/cli/assistants/) | `mcp` |
 | [Environment and files](/cli/environment/) | the environment variables and where Terraflux keeps its files |
 
 ## Open a terminal

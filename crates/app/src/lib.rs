@@ -26,6 +26,7 @@ pub mod theme;
 pub mod undo;
 pub mod vector_tiles;
 pub mod vector_view;
+pub mod watch;
 pub mod wizard;
 pub mod woe_view;
 

@@ -510,6 +510,12 @@ pub struct Session {
     pub kinds: BTreeMap<String, crate::prepare::Kind>,
     /// The edits of the source, to undo and do again.
     pub history: crate::undo::History,
+    /// The model's file followed ([`crate::watch`]); the model another program wrote to it while this one had
+    /// edits not saved (to read it or not).
+    pub watch: Option<crate::watch::Watch>,
+    pub on_disk: Option<Model>,
+    /// The model as its file has it (read or saved last).
+    pub saved: Option<Model>,
 }
 
 impl Session {
@@ -552,7 +558,9 @@ impl Session {
             let _ = tx.send(Loaded::read(&m, &base));
         });
         let reference = crate::prepare::reference_of(&source);
+        let saved = path.as_ref().map(|_| source.clone());
         Ok(Session {
+            saved,
             history: crate::undo::History::new(&source),
             toml: None,
             reference,
@@ -614,7 +622,19 @@ impl Session {
             run_when_ready: false,
             saving: Vec::new(),
             notice: None,
+            watch: None,
+            on_disk: None,
         })
+    }
+
+    /// Read the model's data again, in a thread (its inputs changed).
+    pub fn read_data(&mut self) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (m, base) = (self.model.clone(), self.base());
+        std::thread::spawn(move || {
+            let _ = tx.send(Loaded::read(&m, &base));
+        });
+        self.loading = Some(rx);
     }
 
     /// The folder the model's paths are relative to.
@@ -710,6 +730,8 @@ impl Session {
         self.revision += 1;
         self.path = Some(path.to_path_buf());
         self.dirty = false;
+        self.saved = Some(self.source.clone());
+        self.on_disk = None;
         let mut m = self.source.clone();
         if terraflux_graph::submodel::expand(&mut m, dir).is_ok() {
             self.toml = None;
@@ -1972,6 +1994,7 @@ impl TerrafluxApp {
         }
         if let Some(s) = &mut self.session {
             s.poll();
+            crate::watch::follow(s, ui.ctx());
             s.auto_run(ui.ctx());
             if s.running() || s.loading() || s.saving() {
                 ui.ctx().request_repaint_after(Duration::from_millis(100));
