@@ -199,10 +199,8 @@ pub fn quick_add(ctx: &egui::Context, s: &mut Session, r: &Registry, lib: &Libra
                 let at = q.at.min(found.len().saturating_sub(1));
                 egui::ScrollArea::vertical().max_height(360.0).auto_shrink([false, true]).show(ui, |ui| {
                     for (k, e) in found.iter().enumerate() {
-                        let short = e.name.split_once('.').map_or(e.name.as_str(), |(_, b)| b);
                         let resp = ui.add(
-                            egui::Button::selectable(k == at, RichText::new(short).strong())
-                                .right_text(RichText::new(&e.name).size(10.5).color(ui.visuals().weak_text_color()))
+                            egui::Button::selectable(k == at, op_name(ui, &e.name, k == at))
                                 .min_size(Vec2::new(ui.available_width(), 22.0)),
                         );
                         if k == at && (up || down) {
@@ -933,14 +931,31 @@ pub fn add_at(
 /// The files of vector features the dialogs offer (GDAL reads others too).
 pub const VECTOR_EXTENSIONS: [&str; 8] = ["gpkg", "shp", "geojson", "json", "fgb", "kml", "gml", "parquet"];
 
+/// An operator's whole name as the lists write it: its subject (`stack.`) in a weaker colour than the rest (`of`);
+/// on the colour of a row `selected`, both in the selection's.
+pub fn op_name(ui: &Ui, name: &str, selected: bool) -> egui::text::LayoutJob {
+    let at = name.find('.').map_or(0, |k| k + 1);
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let v = ui.visuals();
+    let (weak, strong) = if selected {
+        (v.selection.stroke.color.gamma_multiply(0.75), v.selection.stroke.color)
+    } else {
+        (v.weak_text_color(), v.strong_text_color())
+    };
+    let mut job = egui::text::LayoutJob::default();
+    job.append(&name[..at], 0.0, egui::TextFormat::simple(font.clone(), weak));
+    job.append(&name[at..], 0.0, egui::TextFormat::simple(font, strong));
+    job
+}
+
 /// The operators as a classic menu (as Photoshop's): the favourites by colour, then a submenu per subject, its
 /// groups a level below; an operator chosen is added after the node selected. Whether one was.
 pub fn operators_menu(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library) -> bool {
     let mut chosen: Option<String> = None;
     let item = |ui: &mut Ui, e: &Entry, chosen: &mut Option<String>| {
-        let short = e.name.split_once('.').map_or(e.name.as_str(), |(_, b)| b);
         let colls = crate::settings::collections_of(&e.name);
-        let resp = ui.add(egui::Button::new(short).right_text(RichText::new(" ".repeat(3 * colls.len()))));
+        let resp = ui
+            .add(egui::Button::new(op_name(ui, &e.name, false)).right_text(RichText::new(" ".repeat(3 * colls.len()))));
         for (i, c) in colls.iter().rev().enumerate() {
             let x = resp.rect.right() - 6.0 - i as f32 * 10.0;
             let sq = egui::Rect::from_center_size(egui::pos2(x - 3.5, resp.rect.center().y), Vec2::splat(7.0));
@@ -1184,17 +1199,13 @@ fn library(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library) {
     let query = s.editor.search.trim().to_lowercase();
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         let entry = |ui: &mut Ui, e: &Entry, chosen: &mut Option<String>| {
-            // the name in one line, its prefix beside it (the whole name is both), the squares of its collections
-            // at the right
-            let (prefix, short) = e.name.split_once('.').unwrap_or(("", e.name.as_str()));
+            // the whole name in one line, the squares of its collections at the right
             let colls = crate::settings::collections_of(&e.name);
             let room = " ".repeat(3 * colls.len());
             let resp = ui.add(
-                egui::Button::selectable(false, short)
+                egui::Button::selectable(false, op_name(ui, &e.name, false))
                     .wrap_mode(egui::TextWrapMode::Extend)
-                    .right_text(
-                        RichText::new(format!("{prefix}{room}")).size(10.5).color(ui.visuals().weak_text_color()),
-                    )
+                    .right_text(RichText::new(room).size(10.5))
                     .min_size(Vec2::new(ui.available_width(), 20.0)),
             );
             for (i, c) in colls.iter().rev().enumerate() {

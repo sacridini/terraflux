@@ -238,13 +238,13 @@ fn the_editor_changes_the_graph() {
     h.run_steps(3);
     {
         let s = h.state_mut().session.as_mut().unwrap();
-        assert_eq!(s.selected.as_deref(), Some("calc"));
+        assert_eq!(s.selected.as_deref(), Some("map_calc"));
         let r = terraflux_ops::Registry::standard();
-        terraflux_app::editor::connect(&mut s.source, &r, &[], "$t0", "calc", "land").unwrap();
-        terraflux_app::editor::set_param(&mut s.source, &[], "calc", "expression", "land == 1").unwrap();
+        terraflux_app::editor::connect(&mut s.source, &r, &[], "$t0", "map_calc", "land").unwrap();
+        terraflux_app::editor::set_param(&mut s.source, &[], "map_calc", "expression", "land == 1").unwrap();
         s.edited();
-        assert!(s.model.node("calc").is_some());
-        assert!(!s.issues.iter().any(|i| i.at.starts_with("calc")), "{:?}", s.issues);
+        assert!(s.model.node("map_calc").is_some());
+        assert!(!s.issues.iter().any(|i| i.at.starts_with("map_calc")), "{:?}", s.issues);
     }
     h.run_steps(3);
     assert!(h.query_by_label("Delete node").is_some(), "the selected node's panel");
@@ -266,8 +266,8 @@ fn the_editor_changes_the_graph() {
     h.get_by_label("Save").click();
     h.run_steps(2);
     let saved = terraflux_graph::Model::load(&path).unwrap();
-    assert_eq!(saved.node("calc").unwrap().params["expression"], "land == 1");
-    assert!(saved.node("calc").unwrap().pos.is_some());
+    assert_eq!(saved.node("map_calc").unwrap().params["expression"], "land == 1");
+    assert!(saved.node("map_calc").unwrap().pos.is_some());
     assert!(!h.state().session.as_ref().unwrap().dirty);
 }
 
@@ -302,16 +302,20 @@ fn the_builder_reads_analyses_and_writes() {
         let s = h.state_mut().session.as_mut().unwrap();
         let path = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
         let read = terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into())]).unwrap();
-        assert_eq!(read, "read");
+        assert_eq!(read, "raster_read");
         // forest (class 1) as the foreground, connected to the map read
         terraflux_app::builder::add(s, &r, "landscape.mspa", &[("foreground", 1.into())]).unwrap();
-        let mspa = s.source.nodes.iter().find(|n| n.id == "mspa").unwrap();
-        assert_eq!(mspa.inputs["map"], terraflux_graph::Source::Ref("read.raster".into()), "fed by the node selected");
-        assert_eq!(s.preview, Some(("mspa".into(), "map".into())));
+        let mspa = s.source.nodes.iter().find(|n| n.id == "landscape_mspa").unwrap();
+        assert_eq!(
+            mspa.inputs["map"],
+            terraflux_graph::Source::Ref("raster_read.raster".into()),
+            "fed by the node selected"
+        );
+        assert_eq!(s.preview, Some(("landscape_mspa".into(), "map".into())));
     }
     // by itself after the edit: the read and MSPA run, the result shown
     until(&mut h, "MSPA", |a| {
-        a.session.as_ref().unwrap().status.get("mspa") == Some(&NodeStatus::Done { cached: false })
+        a.session.as_ref().unwrap().status.get("landscape_mspa") == Some(&NodeStatus::Done { cached: false })
     });
     let first = {
         let s = h.state().session.as_ref().unwrap();
@@ -323,16 +327,16 @@ fn the_builder_reads_analyses_and_writes() {
     // a wider edge: the map read comes from the cache, MSPA runs again
     {
         let s = h.state_mut().session.as_mut().unwrap();
-        terraflux_app::editor::set_param(&mut s.source, &[], "mspa", "edge_width", "3").unwrap();
+        terraflux_app::editor::set_param(&mut s.source, &[], "landscape_mspa", "edge_width", "3").unwrap();
         s.edited();
     }
     until(&mut h, "MSPA again", |a| {
         let s = a.session.as_ref().unwrap();
-        !s.running() && s.status.get("mspa") == Some(&NodeStatus::Done { cached: false })
+        !s.running() && s.status.get("landscape_mspa") == Some(&NodeStatus::Done { cached: false })
     });
     {
         let s = h.state().session.as_ref().unwrap();
-        assert_eq!(s.status.get("read"), Some(&NodeStatus::Done { cached: true }));
+        assert_eq!(s.status.get("raster_read"), Some(&NodeStatus::Done { cached: true }));
         let Some(terraflux_ops::Value::Map(m)) = s.preview_value() else { panic!() };
         assert_ne!(m.data, first.data, "a wider edge, fewer cores");
     }
@@ -343,7 +347,7 @@ fn the_builder_reads_analyses_and_writes() {
         terraflux_app::builder::add(s, &r, "raster.write", &[("path", p.into())]).unwrap();
     }
     until(&mut h, "the raster written", |a| {
-        a.session.as_ref().unwrap().status.get("write") == Some(&NodeStatus::Done { cached: false })
+        a.session.as_ref().unwrap().status.get("raster_write") == Some(&NodeStatus::Done { cached: false })
     });
     let written = terraflux_raster::Raster::read(&out).unwrap();
     assert_eq!(written.dtype, terraflux_raster::DataType::U8);
@@ -352,11 +356,11 @@ fn the_builder_reads_analyses_and_writes() {
     let model = tmp("ui-builder.toml");
     h.state_mut().session.as_mut().unwrap().save_as(&model).unwrap();
     let m = terraflux_graph::Model::load(&model).unwrap();
-    let p = m.node("read").unwrap().params["path"].as_str().unwrap().to_string();
+    let p = m.node("raster_read").unwrap().params["path"].as_str().unwrap().to_string();
     assert!(!std::path::Path::new(&p).is_absolute() && p.ends_with("sibuyan_landuse.tif"), "{p}");
     let again = terraflux_graph::Model::load_expanded(&model).unwrap();
     let r = terraflux_exec::Engine::default().run(&again, &Default::default(), &mut terraflux_exec::Quiet).unwrap();
-    assert!(r.get("mspa.map").is_some(), "the saved model runs from the command line's engine too");
+    assert!(r.get("landscape_mspa.map").is_some(), "the saved model runs from the command line's engine too");
 }
 
 /// Read, reclassify, plot: the plot's map tab opens by itself, nothing written; saved from the tab (a file, then
@@ -372,16 +376,16 @@ fn a_plot_shows_without_writing_and_saves_from_its_tab() {
         terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into())]).unwrap();
         terraflux_app::builder::add(s, &r, "raster.reclassify", &[("rules", "1 -> 1\n* -> 0".into())]).unwrap();
         terraflux_app::builder::add(s, &r, "view.plot", &[("title", "forest".into())]).unwrap();
-        let plot = s.source.nodes.iter().find(|n| n.id == "plot").unwrap();
-        assert_eq!(plot.inputs["value"], terraflux_graph::Source::Ref("reclassify.map".into()));
+        let plot = s.source.nodes.iter().find(|n| n.id == "view_plot").unwrap();
+        assert_eq!(plot.inputs["value"], terraflux_graph::Source::Ref("raster_reclassify.map".into()));
     }
-    until(&mut h, "the plot's tab", |a| a.session.as_ref().unwrap().map_tabs.values().any(|t| t.node == "plot"));
+    until(&mut h, "the plot's tab", |a| a.session.as_ref().unwrap().map_tabs.values().any(|t| t.node == "view_plot"));
     until(&mut h, "the plot", |a| !a.session.as_ref().unwrap().running());
     h.run_steps(3);
     let (id, forest) = {
         let s = h.state().session.as_ref().unwrap();
-        let (id, _) = s.map_tabs.iter().find(|(_, t)| t.node == "plot").unwrap();
-        let Some(terraflux_ops::Value::Map(m)) = s.value_of("plot", "shown") else { panic!("{:?}", s.error) };
+        let (id, _) = s.map_tabs.iter().find(|(_, t)| t.node == "view_plot").unwrap();
+        let Some(terraflux_ops::Value::Map(m)) = s.value_of("view_plot", "shown") else { panic!("{:?}", s.error) };
         assert!(m.data.iter().all(|v| v.is_nan() || *v == 0.0 || *v == 1.0));
         (*id, m)
     };
@@ -390,7 +394,7 @@ fn a_plot_shows_without_writing_and_saves_from_its_tab() {
     // saved from the tab: the same cells in the file
     let out = tmp("ui-forest.tif");
     let _ = std::fs::remove_file(&out);
-    h.state_mut().session.as_mut().unwrap().save_output("plot", "shown", &out);
+    h.state_mut().session.as_mut().unwrap().save_output("view_plot", "shown", &out);
     until(&mut h, "the file", |a| !a.session.as_ref().unwrap().saving());
     let saved = terraflux_raster::Raster::read(&out).unwrap();
     let back = saved.bands[0].masked(saved.nodata);
@@ -398,25 +402,25 @@ fn a_plot_shows_without_writing_and_saves_from_its_tab() {
     // and a write node in the model, that writes it at every run
     {
         let s = h.state_mut().session.as_mut().unwrap();
-        let id = terraflux_app::builder::add_write(s, &r, "plot", "shown", &out).unwrap();
+        let id = terraflux_app::builder::add_write(s, &r, "view_plot", "shown", &out).unwrap();
         let w = s.source.nodes.iter().find(|n| n.id == id).unwrap();
-        assert_eq!(w.inputs["value"], terraflux_graph::Source::Ref("plot.shown".into()));
+        assert_eq!(w.inputs["value"], terraflux_graph::Source::Ref("view_plot.shown".into()));
     }
     // another rule: the tab shows the new map
     {
         let s = h.state_mut().session.as_mut().unwrap();
-        s.selected = Some("plot".into());
-        s.preview = Some(("plot".into(), "shown".into()));
-        terraflux_app::editor::set_param(&mut s.source, &[], "reclassify", "rules", "1 2 -> 1\n* -> 0").unwrap();
+        s.selected = Some("view_plot".into());
+        s.preview = Some(("view_plot".into(), "shown".into()));
+        terraflux_app::editor::set_param(&mut s.source, &[], "raster_reclassify", "rules", "1 2 -> 1\n* -> 0").unwrap();
         s.edited();
     }
     h.run_steps(1);
     until(&mut h, "the new plot", |a| {
         let s = a.session.as_ref().unwrap();
-        !s.running() && s.status.contains_key("plot")
+        !s.running() && s.status.contains_key("view_plot")
     });
     let s = h.state().session.as_ref().unwrap();
-    let Some(terraflux_ops::Value::Map(m)) = s.value_of("plot", "shown") else { panic!() };
+    let Some(terraflux_ops::Value::Map(m)) = s.value_of("view_plot", "shown") else { panic!() };
     let ones = |m: &terraflux_ops::Map| m.data.iter().filter(|v| **v == 1.0).count();
     assert!(ones(&m) > ones(&forest), "class 2 joined the ones");
 }
@@ -742,19 +746,20 @@ fn keys_duplicate_copy_and_paste() {
     h.state_mut().focus(Pane::Model);
     h.run_steps(3);
     // ctrl+D: a new node beside the one selected, reading what it read
-    h.state_mut().session.as_mut().unwrap().selected = Some("mspa".into());
+    h.state_mut().session.as_mut().unwrap().selected = Some("landscape_mspa".into());
     h.run_steps(2);
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::D);
     h.run_steps(2);
     {
         let s = h.state().session.as_ref().unwrap();
-        let (a, b) = (s.source.node("mspa").unwrap(), s.source.node("mspa_2").unwrap());
+        let (a, b) = (s.source.node("landscape_mspa").unwrap(), s.source.node("landscape_mspa_2").unwrap());
         assert_eq!(a.inputs, b.inputs);
         assert_ne!(a.pos, b.pos);
-        assert_eq!(s.selected.as_deref(), Some("mspa_2"));
+        assert_eq!(s.selected.as_deref(), Some("landscape_mspa_2"));
     }
     // ctrl+C with both selected: their text in the clipboard
-    h.state_mut().session.as_mut().unwrap().editor.chosen = ["fbm".to_string(), "mspa".to_string()].into();
+    h.state_mut().session.as_mut().unwrap().editor.chosen =
+        ["nlm_fbm".to_string(), "landscape_mspa".to_string()].into();
     h.run_steps(1);
     h.event(egui::Event::Copy);
     h.step();
@@ -769,7 +774,7 @@ fn keys_duplicate_copy_and_paste() {
         })
         .expect("the nodes copied");
     // ctrl+V, twice: two new pairs, each connected within itself
-    for (fbm, mspa) in [("fbm_2", "mspa_3"), ("fbm_3", "mspa_4")] {
+    for (fbm, mspa) in [("nlm_fbm_2", "landscape_mspa_3"), ("nlm_fbm_3", "landscape_mspa_4")] {
         h.event(egui::Event::Paste(text.clone()));
         h.run_steps(2);
         let s = h.state().session.as_ref().unwrap();
@@ -797,7 +802,7 @@ fn keys_switch_close_rename_and_disconnect() {
         let r = terraflux_ops::Registry::standard();
         terraflux_app::builder::add(s, &r, "nlm.fbm", &[]).unwrap();
         terraflux_app::builder::add(s, &r, "landscape.mspa", &[]).unwrap();
-        assert!(s.source.node("mspa").unwrap().inputs.contains_key("map"), "connected when added");
+        assert!(s.source.node("landscape_mspa").unwrap().inputs.contains_key("map"), "connected when added");
     }
     h.run_steps(3);
     // Tab: from the viewer to the model, and back
@@ -816,18 +821,18 @@ fn keys_switch_close_rename_and_disconnect() {
     assert!(!h.state().is_open(Pane::Viewer));
     // ctrl+R: the node selected renamed
     h.state_mut().focus(Pane::Model);
-    h.state_mut().session.as_mut().unwrap().selected = Some("mspa".into());
+    h.state_mut().session.as_mut().unwrap().selected = Some("landscape_mspa".into());
     h.run_steps(2);
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::R);
     h.run_steps(2);
     assert!(h.state().session.as_ref().unwrap().editor.renaming.is_some());
     shot(&mut h, "12-rename");
-    h.state_mut().session.as_mut().unwrap().editor.renaming = Some(("mspa".into(), "patterns".into(), true));
+    h.state_mut().session.as_mut().unwrap().editor.renaming = Some(("landscape_mspa".into(), "patterns".into(), true));
     h.key_press(egui::Key::Enter);
     h.run_steps(3);
     {
         let s = h.state().session.as_ref().unwrap();
-        assert!(s.source.node("patterns").is_some() && s.source.node("mspa").is_none());
+        assert!(s.source.node("patterns").is_some() && s.source.node("landscape_mspa").is_none());
         assert_eq!(s.selected.as_deref(), Some("patterns"));
     }
     // a right click on the connected input
@@ -866,7 +871,7 @@ fn keys_switch_close_rename_and_disconnect() {
     h.run_steps(2);
     shot(&mut h, "13-metrics");
     let s = h.state().session.as_ref().unwrap();
-    let chosen = s.source.node("class").unwrap().params["metrics"].as_array().unwrap().clone();
+    let chosen = s.source.node("metrics_class").unwrap().params["metrics"].as_array().unwrap().clone();
     assert!(chosen.iter().any(|m| m == "ca") && chosen.iter().any(|m| m == "pland"), "{chosen:?}");
 }
 
@@ -1207,7 +1212,7 @@ fn rename_metadata_and_the_operators_menu() {
         let path = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
         terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into())]).unwrap();
     }
-    until(&mut h, "the raster read", |a| a.session.as_ref().unwrap().value_of("read", "raster").is_some());
+    until(&mut h, "the raster read", |a| a.session.as_ref().unwrap().value_of("raster_read", "raster").is_some());
     h.state_mut().focus(Pane::Model);
     h.run_steps(2);
     let canvas = h.state().session.as_ref().unwrap().editor.canvas().expect("the canvas");
@@ -1351,7 +1356,7 @@ fn the_legend_is_edited_in_the_viewer() {
         let path = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
         terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into())]).unwrap();
     }
-    until(&mut h, "the raster read", |a| a.session.as_ref().unwrap().value_of("read", "raster").is_some());
+    until(&mut h, "the raster read", |a| a.session.as_ref().unwrap().value_of("raster_read", "raster").is_some());
     h.state_mut().focus(Pane::Viewer);
     drawn(&mut h);
     h.run_steps(5);
@@ -1370,13 +1375,13 @@ fn the_legend_is_edited_in_the_viewer() {
     h.run_steps(3);
     let s = h.state().session.as_ref().unwrap();
     let n = s.source.nodes.iter().find(|n| n.op == "raster.legend").expect("raster.legend added");
-    assert_eq!(n.inputs["map"], terraflux_graph::Source::Ref("read.raster".into()));
+    assert_eq!(n.inputs["map"], terraflux_graph::Source::Ref("raster_read.raster".into()));
     let classes = terraflux_ops::legend::parse(&n.params["classes"]).unwrap();
     assert_eq!(classes[0].name, "forest");
     assert_eq!(s.selected.as_deref(), Some(n.id.as_str()));
     until(&mut h, "the legend's node run", |a| {
         let s = a.session.as_ref().unwrap();
-        !s.running() && s.value_of("legend", "map").is_some()
+        !s.running() && s.value_of("raster_legend", "map").is_some()
     });
     drawn(&mut h);
     h.run_steps(5);

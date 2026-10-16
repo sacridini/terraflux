@@ -203,9 +203,9 @@ fn the_changes_of_a_series_are_analysed() {
     }
     assert!(terraflux_graph::check(&m, &r).is_empty());
     let res = run(&m);
-    let Some(Value::Table(interval)) = res.get("intensity.interval") else { panic!() };
+    let Some(Value::Table(interval)) = res.get("change_intensity.interval") else { panic!() };
     assert_eq!(interval.rows.len(), 2, "two periods");
-    let Some(Value::Table(c)) = res.get("components.table") else { panic!() };
+    let Some(Value::Table(c)) = res.get("change_components.table") else { panic!() };
     assert_eq!(c.columns[1], "Gain");
-    assert!(matches!(res.get("count.map"), Some(Value::Map(_))));
+    assert!(matches!(res.get("change_count.map"), Some(Value::Map(_))));
 }

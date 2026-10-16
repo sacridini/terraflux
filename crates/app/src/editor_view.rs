@@ -6,7 +6,8 @@
 //! the input. Drag the background to select the nodes in a box (shift or ctrl and a click add a node or take it
 //! away, ctrl+A selects all, Esc none): dragging one of them moves them all. Drag with the middle or the right
 //! button to move the view, the wheel zooms around the pointer, Home fits the graph. Each node shows how it did
-//! in the last run: running, done (or taken from the cache), failed.
+//! in the last run: running, done (or taken from the cache), failed. A box's header is in the colour of the type
+//! it gives (a map's blue, vectors' pink...), and a box that reads or writes a file names it at its bottom.
 //!
 //! Built for graphs of many thousands of nodes:
 //! - the scene (where every box, port and connection is, a grid of the boxes to find what is under the
@@ -30,6 +31,8 @@ pub const WIDTH: f32 = 190.0;
 const HEAD: f32 = 38.0;
 const ROW: f32 = 18.0;
 const PORT: f32 = 5.0;
+/// The row at the bottom of a box that names the file it reads or writes.
+const FOOT: f32 = 20.0;
 /// The side of a cell of the grid that finds the boxes under a point, graph units.
 const CELL: f32 = 256.0;
 /// Where the column of what a scope reads begins.
@@ -275,6 +278,21 @@ struct BoxAt {
     source: bool,
     container: bool,
     note: Option<String>,
+    /// The file it reads or writes (a node's `path`, a model input's), named in the row at its bottom.
+    file: Option<String>,
+}
+
+/// The name of a file short enough for a box's row: its name without its folder, cut in the middle (the end kept,
+/// with the extension) when longer than `max` characters.
+fn file_label(path: &str, max: usize) -> String {
+    let name = path.rsplit(['/', '\\']).find(|p| !p.is_empty()).unwrap_or(path);
+    let chars: Vec<char> = name.chars().collect();
+    if chars.len() <= max {
+        return name.to_string();
+    }
+    let tail = (max / 3).max(1);
+    let head = max.saturating_sub(tail + 1);
+    chars[..head].iter().chain(['…'].iter()).chain(chars[chars.len() - tail..].iter()).collect()
 }
 
 impl BoxAt {
@@ -289,7 +307,7 @@ impl BoxAt {
 
     fn output_at(&self, i: usize) -> Pos2 {
         if self.source {
-            self.rect.right_center() + Vec2::new(0.0, HEAD / 2.0 - ROW / 2.0)
+            Pos2::new(self.rect.right(), self.rect.top() + HEAD)
         } else {
             Pos2::new(self.rect.right(), self.rect.top() + HEAD + (i as f32 + 0.5) * ROW)
         }
@@ -297,6 +315,17 @@ impl BoxAt {
 
     fn head(&self) -> Rect {
         Rect::from_min_size(self.rect.min, Vec2::new(self.rect.width(), HEAD))
+    }
+
+    /// The row naming its file, if it has one.
+    fn foot(&self) -> Option<Rect> {
+        self.file.as_ref()?;
+        Some(Rect::from_min_max(Pos2::new(self.rect.left(), self.rect.bottom() - FOOT), self.rect.max))
+    }
+
+    /// The type of what it gives first (its colour marks the box).
+    fn kind(&self) -> Option<Type> {
+        self.outputs.first().map(|(_, t)| *t)
     }
 }
 
@@ -444,7 +473,12 @@ pub fn arrange(nodes: &[Node], r: &Registry) -> HashMap<String, [f32; 2]> {
             let n = &nodes[i];
             let rows = editor::input_ports(n, r).len().max(editor::output_ports(n, r).len()).max(1);
             out.insert(n.id.clone(), [d as f32 * (WIDTH + 90.0), y]);
-            y += HEAD + rows as f32 * ROW + 6.0 + 30.0;
+            let foot = if n.params.get("path").and_then(|v| v.as_str()).is_some_and(|p| !p.trim().is_empty()) {
+                FOOT
+            } else {
+                0.0
+            };
+            y += HEAD + rows as f32 * ROW + 6.0 + foot + 30.0;
         }
     }
     out
@@ -480,7 +514,15 @@ impl Scene {
         let mut boxes: Vec<BoxAt> = Vec::with_capacity(sources.len() + nodes.len());
         let mut y = 0.0;
         for (s, t) in &sources {
-            let rect = Rect::from_min_size(Pos2::new(SOURCES_X, y), Vec2::new(WIDTH, HEAD + ROW));
+            // a model's input of a raster file: the file named at its bottom
+            let file = s.strip_prefix('$').and_then(|k| match model.inputs.get(k) {
+                Some(terraflux_graph::Input::Map { path, .. } | terraflux_graph::Input::Stack { path, .. }) => {
+                    Some(path.clone())
+                }
+                _ => None,
+            });
+            let foot = if file.is_some() { FOOT } else { 0.0 };
+            let rect = Rect::from_min_size(Pos2::new(SOURCES_X, y), Vec2::new(WIDTH, HEAD + ROW + foot));
             boxes.push(BoxAt {
                 key: s.clone(),
                 op: String::new(),
@@ -490,8 +532,9 @@ impl Scene {
                 source: true,
                 container: false,
                 note: None,
+                file,
             });
-            y += HEAD + ROW + 12.0;
+            y += HEAD + ROW + foot + 12.0;
         }
         let missing = nodes.iter().any(|n| n.pos.is_none());
         let auto = if missing { auto_positions(nodes) } else { HashMap::new() };
@@ -506,7 +549,11 @@ impl Scene {
             }
             let outputs = editor::output_ports(n, r);
             let rows = inputs.len().max(outputs.len()).max(1);
-            let rect = Rect::from_min_size(Pos2::new(p[0], p[1]), Vec2::new(WIDTH, HEAD + rows as f32 * ROW + 6.0));
+            // the file it reads or writes
+            let file = n.params.get("path").and_then(|v| v.as_str()).filter(|p| !p.trim().is_empty()).map(String::from);
+            let foot = if file.is_some() { FOOT } else { 0.0 };
+            let rect =
+                Rect::from_min_size(Pos2::new(p[0], p[1]), Vec2::new(WIDTH, HEAD + rows as f32 * ROW + 6.0 + foot));
             boxes.push(BoxAt {
                 key: n.id.clone(),
                 op: n.op.clone(),
@@ -516,6 +563,7 @@ impl Scene {
                 source: false,
                 container: n.body.is_some(),
                 note: n.note.clone(),
+                file,
             });
         }
         let index: HashMap<String, usize> = boxes.iter().enumerate().map(|(i, b)| (b.key.clone(), i)).collect();
@@ -581,6 +629,25 @@ impl Scene {
             let (border, width) =
                 if state == Some(NodeStatus::Failed) { (v.error_fg_color, 1.5) } else { (stroke, 1.0) };
             rects.push(RectInstance::new(b.rect.min.into(), b.rect.size().into(), 4.0, fill, border, width));
+            // its header in the colour of the type it gives (a map's blue, vectors' pink...): what flows from it at a
+            // glance
+            if let Some(c) = b.kind().and_then(|t| type_colour(t, v.dark_mode)) {
+                let tint = fill.lerp_to_gamma(c, if v.dark_mode { 0.22 } else { 0.18 });
+                let head = b.head().shrink(2.0);
+                rects.push(RectInstance::new(
+                    head.min.into(),
+                    head.size().into(),
+                    3.0,
+                    tint,
+                    Color32::TRANSPARENT,
+                    0.0,
+                ));
+            }
+            // the line over the row naming its file
+            if let Some(f) = b.foot() {
+                let at = [f.left() + 6.0, f.top()];
+                rects.push(RectInstance::new(at, [f.width() - 12.0, 1.0], 0.0, stroke, Color32::TRANSPARENT, 0.0));
+            }
             let dot = |c: Pos2, colour: Color32| {
                 RectInstance::new([c.x - PORT, c.y - PORT], [2.0 * PORT; 2], PORT, colour, Color32::TRANSPARENT, 0.0)
             };
@@ -978,16 +1045,27 @@ pub fn show(
                 FontId::proportional(size(14.0)),
                 v.strong_text_color(),
             );
+            if let (Some(f), Some(file)) = (b.foot(), &b.file) {
+                painter.text(
+                    screen(Pos2::new(f.left() + 8.0, f.center().y + 0.5)),
+                    Align2::LEFT_CENTER,
+                    file_label(file, 27),
+                    FontId::monospace(size(10.5)),
+                    v.weak_text_color(),
+                );
+            }
             if cam.zoom < PORTS_FROM {
                 continue;
             }
             if !b.source {
+                // the operator in the colour of the type it gives
+                let colour = b.kind().and_then(|t| type_colour(t, v.dark_mode)).unwrap_or(v.weak_text_color());
                 painter.text(
                     top + Vec2::new(8.0, 21.0) * cam.zoom,
                     Align2::LEFT_TOP,
                     &b.op,
-                    FontId::monospace(size(10.5)),
-                    v.weak_text_color(),
+                    FontId::monospace(size(11.0)),
+                    colour,
                 );
             }
             for (k, p) in b.inputs.iter().enumerate() {
@@ -1082,6 +1160,10 @@ pub fn show(
                 if let Some(note) = &scene.boxes[i].note {
                     resp.clone().on_hover_text_at_pointer(note);
                 }
+            }
+            // the file's whole path
+            Some(Hit::Body(i)) if scene.boxes[i].foot().is_some_and(|f| f.contains(to_world(p, &cam))) => {
+                resp.clone().on_hover_text_at_pointer(scene.boxes[i].file.clone().unwrap_or_default());
             }
             Some(Hit::Input(i, k)) if scene.boxes[i].inputs[k].connected => {
                 resp.clone().on_hover_text_at_pointer("drag the connection away, or right-click, to disconnect it");
