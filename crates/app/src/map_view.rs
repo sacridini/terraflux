@@ -1,5 +1,6 @@
 //! A map on the screen, of any size: zoom with the wheel around the pointer, pan by dragging, a double click
-//! fits it, B puts the satellite's imagery under it (or takes it away); the cell under the pointer is read out (row, column, map coordinates, value).
+//! fits it, B puts the satellite's imagery under it (or takes it away), space hides the map (or shows it again);
+//! the cell under the pointer is read out (row, column, map coordinates, value).
 //!
 //! The map is drawn from a pyramid of tiles (256 x 256 pixels; at level `L` a pixel is every `2^L`-th cell):
 //! only the tiles in view, at the level of the screen's resolution, are made, by threads, the last asked first
@@ -656,6 +657,10 @@ impl MapView {
         let typing = ui.ctx().memory(|m| m.focused().is_some());
         if response.hovered() && !typing && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::B)) {
             self.basemap = if self.basemap == Basemap::None { Basemap::EsriImagery } else { Basemap::None };
+        }
+        // space over the map: the map hidden (what is under it and over it seen alone), or shown again
+        if response.hovered() && !typing && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Space)) {
+            self.hide_data = !self.hide_data;
         }
         if let Some(p) = response.hover_pos() {
             let scroll = ui.input(|i| i.smooth_scroll_delta.y);

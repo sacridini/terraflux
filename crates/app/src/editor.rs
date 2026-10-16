@@ -4,6 +4,8 @@
 //! cycle, a port the operator does not have) is refused with the checker's reason, and the model stays as it
 //! was.
 
+use std::collections::{HashMap, HashSet};
+
 use terraflux_graph::{Body, GROUP, Issue, Model, Node, Ref, Severity, Source, Type, check, valid_id};
 use terraflux_ops::Registry;
 
@@ -103,6 +105,103 @@ fn for_each_ref(m: &mut Model, path: &[String], f: &mut dyn FnMut(&mut String)) 
             in_node(n, f);
         }
     }
+}
+
+/// The text of nodes copied, for the clipboard: JSON, its key telling it from other texts.
+pub fn clip_text(nodes: &[Node]) -> String {
+    serde_json::json!({ "terraflux_nodes": nodes }).to_string()
+}
+
+/// The nodes in a text of the clipboard ([`clip_text`]'s); none in another text.
+pub fn clip_nodes(text: &str) -> Option<Vec<Node>> {
+    let mut v: serde_json::Value = serde_json::from_str(text.trim()).ok()?;
+    let nodes: Vec<Node> = serde_json::from_value(v.get_mut("terraflux_nodes")?.take()).ok()?;
+    (!nodes.is_empty()).then_some(nodes)
+}
+
+/// A reference of a node pasted, followed: to a node pasted with it, its new id; to the nodes of a body pasted
+/// (`shadow`), the same; to anything else (another node, the model's input, outside a body the value of the
+/// container of the scope), kept when `outside`, else let go (false).
+fn relinked(
+    r: &mut String,
+    new: &HashMap<String, String>,
+    shadow: &HashSet<String>,
+    outside: bool,
+    inner: bool,
+) -> bool {
+    match Ref::parse(r) {
+        Ok(Ref::Port { node, port }) if !shadow.contains(&node) => match new.get(&node) {
+            Some(id) => {
+                *r = format!("{id}.{port}");
+                true
+            }
+            None => outside,
+        },
+        Ok(Ref::Input(_)) => outside,
+        Ok(Ref::Carried(_)) => inner || outside,
+        _ => true,
+    }
+}
+
+fn relink(n: &mut Node, new: &HashMap<String, String>, shadow: &HashSet<String>, outside: bool, inner: bool) {
+    n.inputs.retain(|_, s| match s {
+        Source::Ref(r) => relinked(r, new, shadow, outside, inner),
+        Source::Literal(_) => true,
+    });
+    if let Some(b) = &mut n.body {
+        let mut shadow = shadow.clone();
+        shadow.extend(b.nodes.iter().map(|x| x.id.clone()));
+        for x in &mut b.nodes {
+            relink(x, new, &shadow, outside, true);
+        }
+        for map in [&mut b.carry, &mut b.collect, &mut b.outputs] {
+            map.retain(|_, r| relinked(r, new, &shadow, outside, true));
+        }
+        if let Some(u) = &mut b.until
+            && !relinked(u, new, &shadow, outside, true)
+        {
+            b.until = None;
+        }
+    }
+}
+
+/// Add nodes to a scope as new nodes (copied, duplicated): each a fresh id from its own (`calc`: `calc_2`), the
+/// connections among them following them, moved by `offset`. Their connections from outside them are kept when
+/// `outside` (a duplicate, in the scope of the originals), else taken away (pasted, maybe in another scope or
+/// model). Their ids, in the order given.
+pub fn paste_nodes(
+    m: &mut Model,
+    path: &[String],
+    copies: &[Node],
+    offset: [f32; 2],
+    outside: bool,
+) -> Result<Vec<String>> {
+    let nodes = scope_mut(m, path)?;
+    let mut taken: HashSet<String> = nodes.iter().map(|n| n.id.clone()).collect();
+    let mut new = HashMap::new();
+    let mut ids = Vec::new();
+    for n in copies {
+        // (`calc_2` copied: `calc_3`, not `calc_2_2`)
+        let base = match n.id.rsplit_once('_') {
+            Some((b, k)) if valid_id(b) && !k.is_empty() && k.chars().all(|c| c.is_ascii_digit()) => b,
+            _ => n.id.as_str(),
+        };
+        let id = std::iter::once(base.to_string())
+            .chain((2..).map(|k| format!("{base}_{k}")))
+            .find(|id| !taken.contains(id))
+            .unwrap();
+        taken.insert(id.clone());
+        new.insert(n.id.clone(), id.clone());
+        ids.push(id);
+    }
+    for (n, id) in copies.iter().zip(&ids) {
+        let mut c = n.clone();
+        c.id = id.clone();
+        c.pos = n.pos.map(|p| [p[0] + offset[0], p[1] + offset[1]]);
+        relink(&mut c, &new, &HashSet::new(), outside, false);
+        nodes.push(c);
+    }
+    Ok(ids)
 }
 
 /// Rename a node, and every reference to it.
@@ -367,6 +466,50 @@ mod tests {
         remove_node(&mut m, &[], "algebra").unwrap();
         assert!(!m.node("fit").unwrap().inputs.contains_key("t0"));
         assert!(m.outputs.is_empty());
+    }
+
+    #[test]
+    fn nodes_are_pasted_as_new_nodes() {
+        let r = Registry::standard();
+        let mut m = model();
+        add_node(&mut m, &r, &[], "map.calc", [0.0, 0.0]).unwrap();
+        add_node(&mut m, &r, &[], "markov.fit", [200.0, 0.0]).unwrap();
+        connect(&mut m, &r, &[], "$t0", "calc", "a").unwrap();
+        connect(&mut m, &r, &[], "calc.map", "fit", "t0").unwrap();
+        connect(&mut m, &r, &[], "$t1", "fit", "t1").unwrap();
+        set_literal(&mut m, &r, &[], "fit", "steps", "14").unwrap();
+        // a duplicate of `fit` alone: a new id, what it read kept
+        let copies = vec![m.node("fit").unwrap().clone()];
+        assert_eq!(paste_nodes(&mut m, &[], &copies, [40.0, 40.0], true).unwrap(), vec!["fit_2"]);
+        let d = m.node("fit_2").unwrap();
+        assert_eq!(d.inputs["t0"], Source::Ref("calc.map".into()));
+        assert_eq!(d.inputs["steps"], Source::Literal(14.into()));
+        assert_eq!(d.pos, Some([240.0, 40.0]));
+        // both pasted through the clipboard's text: the copies connected to each other, nothing from outside them
+        let text = clip_text(&[m.node("calc").unwrap().clone(), m.node("fit_2").unwrap().clone()]);
+        assert!(clip_nodes("calc").is_none() && clip_nodes("{\"a\": 1}").is_none());
+        let copies = clip_nodes(&text).unwrap();
+        assert_eq!(paste_nodes(&mut m, &[], &copies, [0.0, 300.0], false).unwrap(), vec!["calc_2", "fit_3"]);
+        let (c, f) = (m.node("calc_2").unwrap(), m.node("fit_3").unwrap());
+        assert!(c.inputs.is_empty());
+        assert_eq!(f.inputs["t0"], Source::Ref("calc_2.map".into()));
+        assert!(!f.inputs.contains_key("t1"));
+        assert_eq!(f.inputs["steps"], Source::Literal(14.into()));
+        assert_eq!(m.nodes.len(), 5);
+        assert!(errors(&m, &r).iter().all(|i| !i.at.starts_with("calc_2") && !i.message.contains("cycle")));
+        // a container's body keeps its own connections
+        let g = add_node(&mut m, &r, &[], GROUP, [0.0, 0.0]).unwrap();
+        connect(&mut m, &r, &[], "$t0", &g, "land").unwrap();
+        let path = vec![g.clone()];
+        let inner = add_node(&mut m, &r, &path, "map.calc", [0.0, 0.0]).unwrap();
+        connect(&mut m, &r, &path, "@land", &inner, "x").unwrap();
+        set_body_map(&mut m, &r, &path, "outputs", "plus", "calc.map").unwrap();
+        let copies = vec![m.node(&g).unwrap().clone()];
+        let id = paste_nodes(&mut m, &[], &copies, [0.0, 0.0], false).unwrap().remove(0);
+        let b = m.node(&id).unwrap().body.as_ref().unwrap();
+        assert_eq!(b.nodes[0].inputs["x"], Source::Ref("@land".into()));
+        assert_eq!(b.outputs["plus"], "calc.map");
+        assert!(m.node(&id).unwrap().inputs.is_empty());
     }
 
     #[test]

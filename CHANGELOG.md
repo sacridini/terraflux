@@ -18,6 +18,10 @@ minor versions.
   (`elevation.map`: `elevation`, then `elevation_2`...). A raster joins a stack by a connection.
 - At the viewer's closest zoom each cell's value is written in it (only the cells in view, read from the map in
   memory or the tiles kept).
+- ctrl+D duplicates the nodes selected (beside them, reading what they read); ctrl+C copies them and ctrl+V
+  pastes them, through the system's clipboard (to another container, model or window): new nodes each time, of
+  new ids (`calc`: `calc_2`), connected to each other as the originals were, where the pointer is on the canvas.
+- Space over the viewer's map hides it (what is under and over it seen alone), and shows it again.
 
 ### Changed
 - The viewer is a tab beside the model's, not under it, and opens with the first data (a raster or vectors read,

@@ -727,6 +727,64 @@ fn vectors_are_drawn_with_their_attributes() {
     shot(&mut h, "22-vectors");
 }
 
+/// ctrl+D duplicates the node selected, ctrl+C and ctrl+V copy and paste the nodes selected (through the system's
+/// clipboard): new nodes each time, of new ids, connected to each other as the originals were.
+#[test]
+fn keys_duplicate_copy_and_paste() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let r = terraflux_ops::Registry::standard();
+        terraflux_app::builder::add(s, &r, "nlm.fbm", &[]).unwrap();
+        terraflux_app::builder::add(s, &r, "landscape.mspa", &[]).unwrap();
+    }
+    h.state_mut().focus(Pane::Model);
+    h.run_steps(3);
+    // ctrl+D: a new node beside the one selected, reading what it read
+    h.state_mut().session.as_mut().unwrap().selected = Some("mspa".into());
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::D);
+    h.run_steps(2);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        let (a, b) = (s.source.node("mspa").unwrap(), s.source.node("mspa_2").unwrap());
+        assert_eq!(a.inputs, b.inputs);
+        assert_ne!(a.pos, b.pos);
+        assert_eq!(s.selected.as_deref(), Some("mspa_2"));
+    }
+    // ctrl+C with both selected: their text in the clipboard
+    h.state_mut().session.as_mut().unwrap().editor.chosen = ["fbm".to_string(), "mspa".to_string()].into();
+    h.run_steps(1);
+    h.event(egui::Event::Copy);
+    h.step();
+    let text = h
+        .output()
+        .platform_output
+        .commands
+        .iter()
+        .find_map(|c| match c {
+            egui::OutputCommand::CopyText(t) => Some(t.clone()),
+            _ => None,
+        })
+        .expect("the nodes copied");
+    // ctrl+V, twice: two new pairs, each connected within itself
+    for (fbm, mspa) in [("fbm_2", "mspa_3"), ("fbm_3", "mspa_4")] {
+        h.event(egui::Event::Paste(text.clone()));
+        h.run_steps(2);
+        let s = h.state().session.as_ref().unwrap();
+        let m = s.source.node(mspa).unwrap_or_else(|| panic!("{mspa} pasted"));
+        assert_eq!(m.inputs["map"], terraflux_graph::Source::Ref(format!("{fbm}.map")));
+        assert!(s.source.node(fbm).is_some());
+        assert_eq!(s.editor.chosen, [fbm.to_string(), mspa.to_string()].into());
+    }
+    assert_eq!(h.state().session.as_ref().unwrap().source.nodes.len(), 7);
+    // text not of nodes: nothing pasted
+    h.event(egui::Event::Paste("hello".into()));
+    h.run_steps(2);
+    assert_eq!(h.state().session.as_ref().unwrap().source.nodes.len(), 7);
+}
+
 /// The keyboard: Tab to the model and back to the tab it came from, ctrl+W closes the tab in focus, ctrl+R
 /// renames the node selected; a right click on a connected input takes its connection away; the text of the
 /// model is a button of the model's tab.
@@ -1056,6 +1114,13 @@ fn maps_stack_and_cells_show_their_series() {
     h.key_press(egui::Key::B);
     h.run_steps(2);
     assert_eq!(h.state().session.as_ref().unwrap().preview_view.basemap, terraflux_app::map_view::Basemap::EsriImagery);
+    // space over the map: the map hidden, and shown again
+    h.key_press(egui::Key::Space);
+    h.run_steps(2);
+    assert!(h.state().session.as_ref().unwrap().preview_view.hide_data);
+    h.key_press(egui::Key::Space);
+    h.run_steps(2);
+    assert!(!h.state().session.as_ref().unwrap().preview_view.hide_data);
     // the wheel out, far: the view stops at about the world
     for _ in 0..60 {
         h.event(egui::Event::MouseWheel {

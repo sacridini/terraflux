@@ -1508,8 +1508,9 @@ impl TerrafluxApp {
                     ui.label(
                         RichText::new(format!(
                             "click an operator (or /) to add it    drag: select    right or middle drag: move    double \
-                             click: its map    {delete}: delete    ctrl+R: rename    ctrl+L: arrange    Tab: the model \
-                             and back    ctrl+W: close the tab    B: satellite under the map    F5: run all"
+                             click: its map    {delete}: delete    ctrl+D: duplicate    ctrl+C, ctrl+V: copy, paste    \
+                             ctrl+R: rename    ctrl+L: arrange    Tab: the model and back    ctrl+W: close the tab    \
+                             B: satellite under the map    space: hide the map    F5: run all"
                         ))
                         .color(weak),
                     );

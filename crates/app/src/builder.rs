@@ -638,7 +638,8 @@ fn runnable(s: &Session) -> Option<String> {
     s.selected.clone().filter(|id| s.editor.path.is_empty() && s.model.nodes.iter().any(|n| &n.id == id))
 }
 
-/// ctrl+enter runs up to the node selected, del deletes the nodes selected, ctrl+L arranges the nodes, ctrl+R
+/// ctrl+enter runs up to the node selected, del deletes the nodes selected, ctrl+D duplicates them, ctrl+C and
+/// ctrl+V copy and paste them, ctrl+L arranges the nodes, ctrl+R
 /// renames the node selected, "/" searches the operators to add one; with the model's canvas in focus and the
 /// pointer over it the arrows go to the node beside the one selected (kept in view) and enter shows its output:
 /// whether to show the viewer.
@@ -698,6 +699,43 @@ pub fn keys(ui: &Ui, s: &mut Session, r: &Registry, canvas: bool) -> bool {
             slash,
         )
     });
+    // ctrl+D duplicates the nodes selected; ctrl+C copies them (as text, to the system's clipboard: to another
+    // scope, model or window) and ctrl+V pastes them, with the model's tab in focus (the events taken, so that no
+    // label copies its text then)
+    let here = canvas && !typing && s.editor.quick.is_none() && s.editor.renaming.is_none() && !s.editor.text;
+    let (duplicate, copy, paste) = ui.input_mut(|i| {
+        if !here {
+            return (false, false, None);
+        }
+        let duplicate = i.consume_key(egui::Modifiers::COMMAND, egui::Key::D);
+        let copy = i.events.iter().any(|e| matches!(e, egui::Event::Copy));
+        let paste = i.events.iter().find_map(|e| match e {
+            egui::Event::Paste(t) => crate::editor::clip_nodes(t),
+            _ => None,
+        });
+        if copy && !chosen(s).is_empty() {
+            i.events.retain(|e| !matches!(e, egui::Event::Copy));
+        }
+        if paste.is_some() {
+            i.events.retain(|e| !matches!(e, egui::Event::Paste(_)));
+        }
+        (duplicate, copy, paste)
+    });
+    if duplicate {
+        let nodes = chosen(s);
+        put(s, r, &nodes, None, true);
+    }
+    if copy {
+        let nodes = chosen(s);
+        if !nodes.is_empty() {
+            ui.ctx().copy_text(crate::editor::clip_text(&nodes));
+        }
+    }
+    if let Some(nodes) = paste {
+        // where the pointer is on the canvas, else beside where they were
+        let at = ui.input(|i| i.pointer.latest_pos()).and_then(|p| s.editor.graph_at(p));
+        put(s, r, &nodes, at.map(|p| [p.x, p.y]), false);
+    }
     if search && s.editor.quick.is_none() {
         s.editor.quick = Some(Quick::default());
     }
@@ -735,6 +773,57 @@ pub fn keys(ui: &Ui, s: &mut Session, r: &Registry, canvas: bool) -> bool {
         }
     }
     show
+}
+
+/// The nodes selected in the scope shown (else the node selected), each with its place on the canvas.
+fn chosen(s: &Session) -> Vec<Node> {
+    let Some(nodes) = s.source.scope(&s.editor.path) else { return Vec::new() };
+    let mut ids: Vec<&String> = s.editor.chosen.iter().collect();
+    if ids.is_empty() {
+        ids.extend(s.selected.as_ref());
+    }
+    let auto = crate::editor_view::auto_positions(nodes);
+    nodes
+        .iter()
+        .filter(|n| ids.contains(&&n.id))
+        .map(|n| {
+            let mut c = n.clone();
+            c.pos = Some(n.pos.unwrap_or(auto[&n.id]));
+            c
+        })
+        .collect()
+}
+
+/// Add nodes copied to the scope shown, as new nodes (new ids; their connections from outside them kept when
+/// `outside`): the first of them at `at` (graph units) and the others as they were around it, else a step down
+/// and to the right of where they were (more steps while a node is there). They become the nodes selected.
+fn put(s: &mut Session, r: &Registry, copies: &[Node], at: Option<[f32; 2]>, outside: bool) {
+    let Some(first) = copies.first() else { return };
+    let from = first.pos.unwrap_or([0.0, 0.0]);
+    let path = s.editor.path.clone();
+    let offset = match at {
+        Some(p) => [p[0] - from[0], p[1] - from[1]],
+        None => {
+            let places: Vec<[f32; 2]> =
+                s.source.scope(&path).map(|n| n.iter().filter_map(|n| n.pos).collect()).unwrap_or_default();
+            let mut d = [40.0, 40.0];
+            while places.iter().any(|q| (q[0] - from[0] - d[0]).abs() < 5.0 && (q[1] - from[1] - d[1]).abs() < 5.0) {
+                d = [d[0] + 40.0, d[1] + 40.0];
+            }
+            d
+        }
+    };
+    match crate::editor::paste_nodes(&mut s.source, &path, copies, offset, outside) {
+        Ok(ids) => {
+            s.editor.chosen = ids.iter().cloned().collect();
+            if let [id] = ids.as_slice() {
+                select(s, r, id);
+            }
+            s.editor.message = None;
+            s.edited();
+        }
+        Err(e) => s.editor.message = Some(e),
+    }
 }
 
 /// The output of a node to show first: a map, a stack or a series, else the first.
@@ -1826,9 +1915,15 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                         }
                     },
                 );
+                // (the map hidden by space: here too, to show it again)
+                if v.basemap == crate::map_view::Basemap::None && v.hide_data {
+                    let mut show = false;
+                    ui.checkbox(&mut show, "show the data").on_hover_text("space over the map: hide it, or show it");
+                    v.hide_data = !show;
+                }
                 if v.basemap != crate::map_view::Basemap::None {
                     let mut show = !v.hide_data;
-                    ui.checkbox(&mut show, "show the data");
+                    ui.checkbox(&mut show, "show the data").on_hover_text("space over the map: hide it, or show it");
                     v.hide_data = !show;
                     let mut opacity = 1.0 - v.transparency;
                     // (a slider no wider than the panel, its value and name beside it)
