@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.82.0] - 2026-10-16
+
 ### Added
 - `terraflux mcp`: Terraflux as a server of the Model Context Protocol, for AI assistants (Claude Desktop, Claude
   Code, any MCP client) to build models in plain words: the templates and the operators listed and described (a
