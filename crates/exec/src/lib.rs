@@ -239,7 +239,8 @@ impl Engine {
         cache: Option<&Mutex<Cache>>,
         target: Option<&str>,
     ) -> Result<Results> {
-        terraflux_ops::threads::ensure();
+        // the solvers and kernels of the nodes with the process's threads, on whatever thread the run is
+        terraflux_ops::threads::for_this_thread();
         let among = ids(&model.nodes);
         let by_id: std::collections::HashMap<&str, &Node> = model.nodes.iter().map(|n| (n.id.as_str(), n)).collect();
         // the nodes to run: every one, or the target's ancestors
@@ -652,6 +653,22 @@ mod tests {
         r.add(Arc::new(Over));
         r.add(Arc::new(Wait));
         Engine { registry: r }
+    }
+
+    /// A model run on a thread of its own (as the application and the command line run it) has the process's
+    /// threads for its kernels and solvers, not OpenMP's one of a new thread.
+    #[test]
+    fn a_run_in_its_own_thread_has_the_threads() {
+        let n = terraflux_ops::threads::ensure();
+        let seen = std::thread::spawn(|| {
+            let mut m = Model::new("t");
+            m.nodes.push(Node::new("a", "test.add").literal("x", 1).literal("y", 2));
+            engine().run(&m, &BTreeMap::new(), &mut Quiet).unwrap();
+            terraflux_ops::threads::current()
+        })
+        .join()
+        .unwrap();
+        assert_eq!(seen, n);
     }
 
     /// An operator's progress reaches the observer; stopped while it runs, the run ends stopped, not failed.

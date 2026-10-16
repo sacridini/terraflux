@@ -2763,6 +2763,20 @@ pub mod threads {
     pub fn set_kernel_threads(n: usize) {
         crate::ffi::set_threads(n.clamp(1, most()) as i32);
     }
+
+    /// The kernels' threads of the calling thread (OpenMP's).
+    pub fn current() -> usize {
+        crate::ffi::max_threads().max(1) as usize
+    }
+
+    /// The kernels' threads for a thread that runs a model (the application's and the command line's run in a
+    /// thread of their own, whose OpenMP threads are not the process's): the threads in use, or one in a worker of
+    /// the pool of parallel tasks. Returns them.
+    pub fn for_this_thread() -> usize {
+        let n = if rayon::current_thread_index().is_some() { 1 } else { ensure() };
+        set_kernel_threads(n);
+        n
+    }
 }
 
 /// numpy's legacy generator after `numpy.random.seed(seed)` (MOLUSCE's).

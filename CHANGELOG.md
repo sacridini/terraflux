@@ -31,6 +31,11 @@ minor versions.
 - An output of a model writes one layer of a stack alone with `layer` (`[outputs.importance]`, `from =
   "evaluation.ferrier"`, `layer = "total"`), and `terraflux mcp`'s `set_output` takes it.
 
+### Fixed
+- A model run in the application or by `terraflux run` (each in a thread of its own) gave its OpenMP kernels and
+  solvers one thread, OpenMP's for a new thread: they have the threads in use again (every core but one by
+  default), as landschaft's.
+
 ### Changed
 - `prioritize.optimize` solves as landschaft does: a minimum set with boundary penalties or symmetric
   connectivity rewards on landschaft's cut engine (a Lagrangian bound by minimum cuts, repaired selections), a
