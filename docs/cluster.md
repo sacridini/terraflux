@@ -82,7 +82,7 @@ set = { "$drivers" = "drivers_2030.tif" }
 input (`simulation/allocate.prune_factor` for a node inside the loop). `--seed-input` names what holds the seed
 of replicates and calibrations: an input (`seed`), a node's (`simulation.seed`), or several, separated by commas.
 
-The files the nodes write (`raster.write`, `vector.write`) go to each task's folder, by their names.
+The files the nodes write (`raster.write`, `vector.write`, `table.write`) go to each task's folder, by their names.
 
 ### Calibration
 

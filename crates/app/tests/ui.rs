@@ -1439,6 +1439,55 @@ fn the_legend_is_edited_in_the_viewer() {
     shot(&mut h, "30-legend");
 }
 
+/// A table plotted (in a tab of its own, as the chart its settings ask) and written to a file.
+#[test]
+fn a_table_is_plotted_and_written() {
+    use terraflux_graph::Node;
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let out = tmp("written-table.csv");
+    let _ = std::fs::remove_file(&out);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source.nodes = vec![
+            Node::new("areas", "table.of")
+                .param("columns", serde_json::json!(["year", "forest", "pasture"]))
+                .param("rows", serde_json::json!([[2000, 50.5, 20], [2010, 42, 31], [2020, 35.25, 40]])),
+            Node::new("plot", "view.plot")
+                .input("table", "areas.table")
+                .param("chart", "lines")
+                .param("y", "forest, pasture"),
+            Node::new("write", "table.write")
+                .input("table", "areas.table")
+                .param("path", out.to_string_lossy().as_ref())
+                .param("separator", ";")
+                .param("decimal", ","),
+        ];
+        s.edited();
+        assert!(s.issues.is_empty(), "{:?}", s.issues);
+        s.start(Box::new(|| {}));
+    }
+    until(&mut h, "the plot's tab", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.map_tabs.values().any(|t| t.node == "plot")
+    });
+    let tab = *h.state().session.as_ref().unwrap().map_tabs.iter().find(|(_, t)| t.node == "plot").unwrap().0;
+    h.state_mut().session.as_mut().unwrap().raised.push(tab);
+    drawn(&mut h);
+    h.run_steps(4);
+    shot(&mut h, "31-table-plot");
+    // the chart the plot asks for: lines of forest and pasture along the year
+    let s = h.state().session.as_ref().unwrap();
+    let Some(terraflux_ops::Value::Table(t)) = s.value_of("plot", "shown") else { panic!("{:?}", s.error) };
+    let chart = terraflux_app::builder::plot_chart(s.model.node("plot").unwrap(), &t);
+    assert_eq!(chart.kind, terraflux_app::charts::Kind::Lines);
+    assert_eq!((chart.columns.as_slice(), chart.x), ([1, 2].as_slice(), Some(0)));
+    assert_eq!(
+        std::fs::read_to_string(&out).unwrap(),
+        "year;forest;pasture\n2000;50,5;20\n2010;42;31\n2020;35,25;40\n"
+    );
+}
+
 #[test]
 fn the_model_runs_many_times_from_its_pane() {
     let mut h = harness(new_app(Some(model())));

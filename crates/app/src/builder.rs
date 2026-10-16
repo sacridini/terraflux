@@ -56,7 +56,7 @@ const SUBJECTS: [(&str, &[&str]); 21] = [
 ];
 
 /// The operators that read and write files: the subject IO.
-const IO: [&str; 4] = ["raster.read", "raster.write", "vector.read", "vector.write"];
+const IO: [&str; 5] = ["raster.read", "raster.write", "vector.read", "vector.write", "table.write"];
 
 /// The subjects open when the library is first shown (the others closed until opened).
 const OPEN: [&str; 2] = ["IO", "Plot"];
@@ -858,6 +858,36 @@ fn put(s: &mut Session, r: &Registry, copies: &[Node], at: Option<[f32; 2]>, out
         }
         Err(e) => s.editor.message = Some(e),
     }
+}
+
+/// The chart a plot's settings ask of a table: its kind (`chart`: bars, lines, points, boxes; else lines along a
+/// date, layer, step or year when the table has one, bars when not), the columns drawn (`y`, comma-separated),
+/// along `x`, a group by `by`; what is not given as the kind suggests.
+pub fn plot_chart(n: &Node, t: &terraflux_ops::Table) -> crate::charts::Chart {
+    use crate::charts::{Chart, Kind};
+    let text = |k: &str| n.params.get(k).and_then(|v| v.as_str()).map(str::trim).filter(|v| !v.is_empty());
+    let column = |name: &str| t.columns.iter().position(|c| c.eq_ignore_ascii_case(name.trim()));
+    let along = ["date", "year", "step", "layer"].iter().any(|c| column(c).is_some());
+    let kinds = Kind::of(t);
+    let kind = match text("chart") {
+        Some(c) => kinds.iter().copied().find(|k| k.name().eq_ignore_ascii_case(c)),
+        None => Some(if along { Kind::Lines } else { Kind::Bars }).filter(|k| kinds.contains(k)),
+    };
+    let Some(kind) = kind else { return Chart::default() };
+    let mut chart = Chart::suggested(t, kind);
+    if let Some(x) = text("x").and_then(column) {
+        chart.x = Some(x);
+    }
+    if let Some(y) = text("y") {
+        let ys: Vec<usize> = y.split(',').filter_map(column).collect();
+        if !ys.is_empty() {
+            chart.columns = ys;
+        }
+    }
+    if let Some(by) = text("by").and_then(column) {
+        chart.by = Some(by);
+    }
+    chart
 }
 
 /// The output of a node to show first: a map, a stack or a series, else the first.
@@ -1841,6 +1871,18 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         if let Value::Table(t) = &value {
             // sorted, filtered and drawn as bars, the rows scrolled within
             let id = egui::Id::new(("table", salt, &node, &port));
+            // a plot's table: drawn as its settings ask, from the start and whenever they change
+            if let Some(n) = s.model.nodes.iter().find(|n| n.id == node && n.op == "view.plot") {
+                let asked = serde_json::Value::Object(n.params.clone()).to_string();
+                let key = id.with("plot settings");
+                if ui.data(|d| d.get_temp::<String>(key)).as_ref() != Some(&asked) {
+                    let st = crate::table_view::TableState { chart: plot_chart(n, t), ..Default::default() };
+                    ui.data_mut(|d| {
+                        d.insert_temp(id, st);
+                        d.insert_temp(key, asked);
+                    });
+                }
+            }
             egui::Frame::new().inner_margin(Margin::same(8)).show(ui, |ui| crate::table_view::show(ui, t, id));
             return None;
         }

@@ -111,7 +111,7 @@ pub async fn localize(
 }
 
 /// The operators that write files: in a batch, each run writes them in a folder of its own.
-pub const WRITE_OPS: [&str; 3] = ["raster.write", "vector.write", "landscape.mspa_tiled"];
+pub const WRITE_OPS: [&str; 4] = ["raster.write", "vector.write", "landscape.mspa_tiled", "table.write"];
 
 /// The files the nodes write put in `dir`, by their names (a name taken already gets the node's id before it).
 pub fn write_into(nodes: &mut [terraflux_graph::Node], dir: &Path, taken: &mut std::collections::BTreeSet<String>) {

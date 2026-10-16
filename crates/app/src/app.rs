@@ -2589,11 +2589,15 @@ pub(crate) fn node_panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
                     "vector.read" | "vector.write" => rfd::FileDialog::new()
                         .add_filter("Vectors", &crate::builder::VECTOR_EXTENSIONS)
                         .add_filter("Every file", &["*"]),
+                    "table.write" => rfd::FileDialog::new()
+                        .add_filter("Tables", &["csv", "tsv", "txt", "json"])
+                        .add_filter("Every file", &["*"]),
                     _ => rfd::FileDialog::new()
                         .add_filter("Rasters", &terraflux_ops::files::RASTER_EXTENSIONS)
                         .add_filter("Every file", &["*"]),
                 };
-                let writes = ["raster.write", "landscape.mspa_tiled", "vector.write"].contains(&n.op.as_str());
+                let writes =
+                    ["raster.write", "landscape.mspa_tiled", "vector.write", "table.write"].contains(&n.op.as_str());
                 let picked = if writes { dialog.save_file() } else { dialog.pick_file() };
                 if let Some(p) = picked {
                     let p = p.to_string_lossy().into_owned();

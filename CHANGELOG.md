@@ -34,6 +34,12 @@ minor versions.
   pastes them, through the system's clipboard (to another container, model or window): new nodes each time, of
   new ids (`calc`: `calc_2`), connected to each other as the originals were, where the pointer is on the canvas.
 - Space over the viewer's map hides it (what is under and over it seen alone), and shows it again.
+- `table.write`: a table to a file, comma-separated (`.csv`, the default), tab-separated (`.tsv`, `.txt`) or
+  JSON (`.json`); the separator and the decimal mark as a spreadsheet of the place expects (`;` and `,`). In a
+  batch, each run writes it in its own folder, as the other writers.
+- `view.plot` shows tables too (a `table` input): drawn as a chart in its tab, bars, lines, points or boxes
+  (`chart`), of the columns `y` along `x`, a group by `by`; a chart suggested when none is asked (lines along a
+  date, year, step or layer, else bars), and changed in the tab as any table's.
 - Undo and redo of the model's edits: ctrl+Z, ctrl+shift+Z or ctrl+Y, and two buttons over the canvas. Each edit
   is a step (a node added, deleted, pasted, a connection, a setting); what changes while a button of the mouse is
   held (nodes dragged) is one.

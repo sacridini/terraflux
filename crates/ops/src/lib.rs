@@ -63,6 +63,7 @@ pub mod sampling;
 pub mod sdm;
 pub mod signatures;
 pub mod surface;
+pub mod tables;
 pub mod uncertainty;
 pub mod validate;
 pub mod value;
@@ -332,6 +333,7 @@ impl Registry {
         plugin::register(&mut r);
         validate::register(&mut r);
         view::register(&mut r);
+        tables::register(&mut r);
         r
     }
 
