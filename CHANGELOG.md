@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.81.0] - 2026-10-16
+
 ### Added
 - A Files pane, in a tab beside the operators', a file manager for data:
   - back, forward and up (alt+arrows, the mouse's side buttons), the path's folders as buttons (a click on the
