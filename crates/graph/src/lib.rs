@@ -228,6 +228,10 @@ pub struct Node {
     /// Where the node editor draws it (its scope's coordinates).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pos: Option<[f32; 2]>,
+    /// The width its box was given in the node editor (dragged by its right edge); never narrower than its
+    /// texts need. None: as wide as they need.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<f32>,
 }
 
 impl Node {
@@ -240,6 +244,7 @@ impl Node {
             note: None,
             body: None,
             pos: None,
+            width: None,
         }
     }
 

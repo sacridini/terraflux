@@ -102,11 +102,12 @@ pub fn follow(s: &mut Session, ctx: &egui::Context) {
     }
 }
 
-/// A model without the places of its nodes.
+/// A model without the places (and widths) of its nodes.
 fn unplaced(m: &Model) -> Model {
     fn clear(nodes: &mut [terraflux_graph::Node]) {
         for n in nodes {
             n.pos = None;
+            n.width = None;
             if let Some(b) = &mut n.body {
                 clear(&mut b.nodes);
             }
@@ -123,6 +124,9 @@ fn keep_places(from: &[terraflux_graph::Node], into: &mut [terraflux_graph::Node
         let Some(f) = from.iter().find(|f| f.id == n.id) else { continue };
         if f.pos.is_some() {
             n.pos = f.pos;
+        }
+        if f.width.is_some() {
+            n.width = f.width;
         }
         if let (Some(fb), Some(b)) = (&f.body, &mut n.body) {
             keep_places(&fb.nodes, &mut b.nodes);

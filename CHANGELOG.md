@@ -10,6 +10,12 @@ minor versions.
 - `stack.layer`: one layer of a stack as a map, by its name or its number from 0: a band of rasters, a layer an
   operator made (`total` of `prioritize.evaluate`'s `ferrier`), a step of a loop's series; names that are numbers
   too, which an expression cannot reach.
+- The node editor's boxes are as wide as their texts need: a long name, and on every row an input's and an
+  output's names side by side (`prioritize.optimize`'s no longer run into each other); measured in the fonts
+  they are written in. Drag a box's right edge to make it wider (kept in the model as `width`, never narrower
+  than its texts), double-click the edge to bring it back; Arrange's columns and the place of a new node follow
+  the widths, and the column of what a scope reads is as wide as its longest name; a file's name at the bottom
+  of a box is cut to the box's width.
 - An output of a model writes one layer of a stack alone with `layer` (`[outputs.importance]`, `from =
   "evaluation.ferrier"`, `layer = "total"`), and `terraflux mcp`'s `set_output` takes it.
 

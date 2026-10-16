@@ -76,7 +76,9 @@ Here is the same window after a template has run, with its parts numbered:
    **Inputs** (what is connected to it), its **Settings**, and *Delete node*.
 4. **The Prepare pane**, a tab beside Node: the data of the node selected compared with the model's *reference
    grid*, and the steps that put it on that grid in a click (see [One grid for all your maps](../one-grid/)).
-5. **The Model pane**: the canvas where the nodes and their connections are drawn.
+5. **The Model pane**: the canvas where the nodes and their connections are drawn. A node is as wide as its
+   names need (an input's and an output's never run into each other); drag its right edge to make it wider, and
+   double-click the edge to bring it back to the width its names need.
 6. **The Model pane's bar**: where you are in the model (*Top level*, or inside a loop), **Run to here** (run the
    node selected and what it needs, ++ctrl+enter++), **Arrange** (tidy the nodes, ++ctrl+l++), **update after every
    edit** (run again by itself after every change) and **Text** (the model as text).

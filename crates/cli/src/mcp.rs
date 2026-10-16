@@ -731,10 +731,12 @@ fn place(m: &mut Model, path: &[String], id: &str) {
         let auto = editor_view::auto_positions(nodes);
         let at = |n: &Node| n.pos.unwrap_or(auto[&n.id]);
         let node = nodes.iter().find(|n| n.id == id).expect("the node added");
+        let width = |n: &Node| editor_view::node_width(n, editor_view::standard());
+        // what it reads: where each is, and its right edge
         let deps: Vec<[f32; 2]> = terraflux_graph::dependencies(node, nodes)
             .iter()
             .filter_map(|d| others.iter().find(|n| &n.id == d))
-            .map(|n| at(n))
+            .map(|n| [at(n)[0] + width(n), at(n)[1]])
             .collect();
         let mut p = if deps.is_empty() {
             let x = others.iter().map(|n| at(n)[0]).fold(f32::INFINITY, f32::min);
@@ -743,11 +745,14 @@ fn place(m: &mut Model, path: &[String], id: &str) {
         } else {
             let x = deps.iter().map(|p| p[0]).fold(f32::NEG_INFINITY, f32::max);
             let y = deps.iter().map(|p| p[1]).fold(f32::INFINITY, f32::min);
-            [x + editor_view::WIDTH + 60.0, y]
+            [x + 60.0, y]
         };
+        let own = width(node);
+        // out of the way of the boxes there (theirs or its own width apart, as each is left or right of it)
         while others.iter().any(|n| {
             let q = at(n);
-            (q[0] - p[0]).abs() < editor_view::WIDTH + 20.0 && (q[1] - p[1]).abs() < 110.0
+            let apart = if q[0] < p[0] { width(n) } else { own };
+            (q[0] - p[0]).abs() < apart + 20.0 && (q[1] - p[1]).abs() < 110.0
         }) {
             p[1] += 130.0;
         }

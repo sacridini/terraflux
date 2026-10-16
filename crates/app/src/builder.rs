@@ -933,7 +933,7 @@ pub fn beside(nodes: &[Node], from: Option<&str>) -> [f32; 2] {
     match from.and_then(|id| nodes.iter().find(|n| n.id == id)) {
         Some(n) => {
             let p = at(n);
-            let right = [p[0] + crate::editor_view::WIDTH + 70.0, p[1]];
+            let right = [p[0] + crate::editor_view::node_width(n, crate::editor_view::standard()) + 70.0, p[1]];
             // below what is there already
             let taken =
                 |q: [f32; 2]| nodes.iter().any(|m| (at(m)[0] - q[0]).abs() < 100.0 && (at(m)[1] - q[1]).abs() < 90.0);
@@ -1548,6 +1548,12 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
                 s.dirty = true;
                 false
             }),
+            // resized by its edge (in the scene already), or back to the width its texts need (laid out again)
+            Action::Resize(id, w) => crate::editor::resize_node(&mut s.source, &path, &id, w).map(|_| {
+                s.history.changed(&s.source);
+                s.dirty = true;
+                w.is_none()
+            }),
             Action::Connect { reference, node, port } => {
                 crate::editor::connect(&mut s.source, r, &path, &reference, &node, &port).map(|_| true)
             }
@@ -1721,8 +1727,10 @@ fn save_dialog(node: &str, maps: bool, vector: bool) -> Option<PathBuf> {
 
 /// A `raster.write` of a node's output in the model (beside the node), writing to `path` at every run.
 pub fn add_write(s: &mut Session, r: &Registry, node: &str, port: &str, path: &Path) -> Result<String, String> {
-    let at = s.source.nodes.iter().find(|n| n.id == node).and_then(|n| n.pos).unwrap_or([0.0, 0.0]);
-    let pos = [at[0] + crate::editor_view::WIDTH + 70.0, at[1] + 140.0];
+    let from = s.source.nodes.iter().find(|n| n.id == node);
+    let at = from.and_then(|n| n.pos).unwrap_or([0.0, 0.0]);
+    let width = from.map_or(crate::editor_view::WIDTH, |n| crate::editor_view::node_width(n, r));
+    let pos = [at[0] + width + 70.0, at[1] + 140.0];
     let id = crate::editor::add_node(&mut s.source, r, &[], "raster.write", pos)?;
     crate::editor::set_param(&mut s.source, &[], &id, "path", &path.to_string_lossy())?;
     crate::editor::connect(&mut s.source, r, &[], &format!("{node}.{port}"), &id, "value")?;

@@ -1,10 +1,11 @@
 //! The node editor's canvas: the nodes of a scope with their ports (inputs on the left, outputs on the right),
 //! what the scope may read on the left (the model's inputs, a container's values), the connections. Drag a
-//! node to move it, drag from an output to an input to connect them, click a node to edit it in the side
-//! panel, double-click a container to edit its body (another node: its map in a tab of its own), click an output
-//! to see it. Drag a connection off an input to take it away (onto another input: moved there), or right-click
-//! the input. Drag the background to select the nodes in a box (shift or ctrl and a click add a node or take it
-//! away, ctrl+A selects all, Esc none): dragging one of them moves them all. Drag with the middle or the right
+//! node to move it, drag its right edge to make it wider (never narrower than its texts need; a double click on
+//! the edge: as wide as they need), drag from an output to an input to connect them, click a node to edit it in
+//! the side panel, double-click a container to edit its body (another node: its map in a tab of its own), click
+//! an output to see it. Drag a connection off an input to take it away (onto another input: moved there), or
+//! right-click the input. Drag the background to select the nodes in a box (shift or ctrl and a click add a node
+//! or take it away, ctrl+A selects all, Esc none): dragging one of them moves them all. Drag with the middle or the right
 //! button to move the view, the wheel zooms around the pointer, Home fits the graph. Each node shows how it did
 //! in the last run: running, done (or taken from the cache), failed. A box that reads or writes a file names it at
 //! its bottom; the boxes of data (the model's inputs, what reads, writes, stacks or plots) may have a header in the
@@ -28,6 +29,8 @@ use terraflux_ops::Registry;
 use crate::canvas_gpu::{Canvas, EdgeInstance, RectInstance, Shapes};
 use crate::editor;
 
+/// The narrowest a box is: wider when its texts need it (a long name, an input's and an output's names side by
+/// side on a row), or when it was made wider by dragging its right edge.
 pub const WIDTH: f32 = 190.0;
 const HEAD: f32 = 38.0;
 const ROW: f32 = 18.0;
@@ -36,11 +39,83 @@ const PORT: f32 = 5.0;
 const FOOT: f32 = 20.0;
 /// The side of a cell of the grid that finds the boxes under a point, graph units.
 const CELL: f32 = 256.0;
-/// Where the column of what a scope reads begins.
-const SOURCES_X: f32 = -(WIDTH + 80.0);
+/// The space between a box's edge and a port's name, and between the names of an input and an output on a row.
+const PAD: f32 = 9.0;
+const GAP: f32 = 16.0;
+/// What the place of a new input says.
+const NEW_INPUT: &str = "+ new input";
 /// The zooms from which the nodes' names, then their ports' names and operators, are written.
 const NAMES_FROM: f32 = 0.35;
 const PORTS_FROM: f32 = 0.6;
+
+/// The fonts of a box's texts at zoom 1: its name; its operator and its ports' names; its file.
+fn name_font() -> FontId {
+    FontId::proportional(14.0)
+}
+
+fn port_font() -> FontId {
+    FontId::monospace(11.0)
+}
+
+fn file_font() -> FontId {
+    FontId::monospace(10.5)
+}
+
+/// A text's width at zoom 1 without the fonts at hand: Hack's advance for a monospace font (exact for its
+/// letters), a little more than Ubuntu's mean for a proportional one.
+pub fn estimate(text: &str, font: &FontId) -> f32 {
+    let per = if font.family == egui::FontFamily::Monospace { 0.6021 } else { 0.58 };
+    text.chars().count() as f32 * per * font.size
+}
+
+/// The width a box needs for its texts: its name (the light of its state after it), its operator, and on every
+/// row the name of an input and that of the output across from it, a gap between them; never under [`WIDTH`],
+/// rounded up to 10.
+fn fitted(
+    name: &str,
+    op: &str,
+    inputs: &[&str],
+    outputs: &[&str],
+    measure: &mut dyn FnMut(&str, &FontId) -> f32,
+) -> f32 {
+    let mut w = 8.0 + measure(name, &name_font()) + 24.0;
+    if !op.is_empty() {
+        w = w.max(8.0 + measure(op, &port_font()) + 8.0);
+    }
+    for k in 0..inputs.len().max(outputs.len()) {
+        let mut side = |s: Option<&&str>| s.filter(|s| !s.is_empty()).map_or(0.0, |s| measure(s, &port_font()));
+        let (l, r) = (side(inputs.get(k)), side(outputs.get(k)));
+        let gap = if l > 0.0 && r > 0.0 { GAP } else { 0.0 };
+        w = w.max(PAD + l + gap + r + PAD);
+    }
+    ((w / 10.0).ceil() * 10.0).max(WIDTH)
+}
+
+/// The names on a node's rows: its inputs (the place of a new one last, for an operator that takes any) and its
+/// outputs.
+fn port_names(n: &Node, r: &Registry) -> (Vec<String>, Vec<String>) {
+    let mut inputs: Vec<String> = editor::input_ports(n, r).into_iter().map(|(name, _, _)| name).collect();
+    if r.sig(&n.op).and_then(|s| s.extra).is_some() {
+        inputs.push(NEW_INPUT.to_string());
+    }
+    (inputs, editor::output_ports(n, r).into_iter().map(|(p, _)| p).collect())
+}
+
+/// The width of a node's box (its texts measured without the fonts at hand: for laying nodes out), the width
+/// it was given when wider.
+pub fn node_width(n: &Node, r: &Registry) -> f32 {
+    let (inputs, outputs) = port_names(n, r);
+    let (i, o): (Vec<&str>, Vec<&str>) =
+        (inputs.iter().map(String::as_str).collect(), outputs.iter().map(String::as_str).collect());
+    let w = fitted(&n.id, &n.op, &i, &o, &mut estimate);
+    n.width.map_or(w, |u| u.max(w))
+}
+
+/// The operators by name, for the widths of nodes laid out where no registry is at hand.
+pub fn standard() -> &'static Registry {
+    static R: std::sync::OnceLock<Registry> = std::sync::OnceLock::new();
+    R.get_or_init(Registry::standard)
+}
 
 /// The colour of a type's ports and connections, the website's graphs' own (a map blue, a stack violet, a table
 /// gold, a number green, features pink, agents ochre); `None` for the others (drawn in the theme's grey). On a
@@ -80,6 +155,9 @@ pub enum Action {
     Open(String),
     Enter(String),
     Move(String, [f32; 2]),
+    /// A node's box given a width (dragged by its right edge), or none: as wide as its texts need (a double click
+    /// on the edge).
+    Resize(String, Option<f32>),
     Connect {
         reference: String,
         node: String,
@@ -116,6 +194,8 @@ enum Drag {
     Connect(String, Pos2),
     /// The nodes selected moved: where the pointer started and each node's corner then (graph units).
     Move(Pos2, Vec<(String, Pos2)>),
+    /// A node made wider or narrower by its right edge: its id, its left edge and the width its texts need.
+    Resize(String, f32, f32),
     /// A box of selection from a corner (graph units).
     Select(Pos2),
 }
@@ -244,6 +324,20 @@ impl EditorState {
         self.on_screen(b.head().center())
     }
 
+    /// Where a node's box is on the screen (as last drawn).
+    pub fn screen_rect_of(&self, node: &str) -> Option<Rect> {
+        let s = self.scene.as_ref()?;
+        let b = &s.boxes[*s.index.get(node)?];
+        Some(Rect::from_min_max(self.on_screen(b.rect.min)?, self.on_screen(b.rect.max)?))
+    }
+
+    /// The width of a node's box (graph units) and the width its texts need.
+    pub fn width_of(&self, node: &str) -> Option<(f32, f32)> {
+        let s = self.scene.as_ref()?;
+        let b = &s.boxes[*s.index.get(node)?];
+        Some((b.rect.width(), b.fitted))
+    }
+
     /// Where a node's output port is on the screen.
     pub fn screen_of_output(&self, node: &str, port: &str) -> Option<Pos2> {
         let s = self.scene.as_ref()?;
@@ -274,6 +368,8 @@ struct BoxAt {
     op: String,
     /// graph units
     rect: Rect,
+    /// The width its texts need (it is never narrower).
+    fitted: f32,
     inputs: Vec<Port>,
     outputs: Vec<(String, Type)>,
     source: bool,
@@ -343,6 +439,8 @@ impl BoxAt {
 enum Hit {
     Output(usize, usize),
     Input(usize, usize),
+    /// A node's right edge, which resizes it.
+    Edge(usize),
     Head(usize),
     Body(usize),
 }
@@ -351,6 +449,55 @@ enum Hit {
 struct EdgeAt {
     from: (usize, usize),
     to: (usize, usize),
+}
+
+/// The rectangles the GPU draws of a box: the box, its header's colour, the line over its file, its ports and the
+/// light of its state.
+fn box_rects(b: &BoxAt, state: Option<NodeStatus>, v: &egui::Visuals, colours: bool) -> Vec<RectInstance> {
+    let mut rects = Vec::with_capacity(4 + b.inputs.len() + b.outputs.len());
+    let stroke = v.widgets.noninteractive.bg_stroke.color;
+    let fill = if b.source { v.faint_bg_color } else { v.widgets.inactive.bg_fill };
+    let (border, width) = if state == Some(NodeStatus::Failed) { (v.error_fg_color, 1.5) } else { (stroke, 1.0) };
+    rects.push(RectInstance::new(b.rect.min.into(), b.rect.size().into(), 4.0, fill, border, width));
+    // a node of data's header in the colour of the type it gives (a map's blue, vectors' pink...), when
+    // asked: what flows from it at a glance
+    if let Some(c) = b.tint().filter(|_| colours).and_then(|t| type_colour(t, v.dark_mode)) {
+        let tint = fill.lerp_to_gamma(c, if v.dark_mode { 0.22 } else { 0.18 });
+        let head = b.head().shrink(2.0);
+        rects.push(RectInstance::new(head.min.into(), head.size().into(), 3.0, tint, Color32::TRANSPARENT, 0.0));
+    }
+    // the line over the row naming its file
+    if let Some(f) = b.foot() {
+        let at = [f.left() + 6.0, f.top()];
+        rects.push(RectInstance::new(at, [f.width() - 12.0, 1.0], 0.0, stroke, Color32::TRANSPARENT, 0.0));
+    }
+    let dot = |c: Pos2, colour: Color32| {
+        RectInstance::new([c.x - PORT, c.y - PORT], [2.0 * PORT; 2], PORT, colour, Color32::TRANSPARENT, 0.0)
+    };
+    for (i, p) in b.inputs.iter().enumerate() {
+        let colour = if p.connected {
+            type_colour(p.ty, v.dark_mode).unwrap_or(v.text_color())
+        } else if p.required {
+            v.warn_fg_color
+        } else {
+            v.weak_text_color()
+        };
+        rects.push(dot(b.input_at(i), colour));
+    }
+    for (i, (_, t)) in b.outputs.iter().enumerate() {
+        rects.push(dot(b.output_at(i), type_colour(*t, v.dark_mode).unwrap_or(v.text_color())));
+    }
+    if let Some(s) = state {
+        let colour = match s {
+            NodeStatus::Running => crate::theme::accent(),
+            NodeStatus::Done { cached: false } => Color32::from_rgb(120, 220, 110),
+            NodeStatus::Done { cached: true } => Color32::from_rgb(80, 150, 75),
+            NodeStatus::Failed => v.error_fg_color,
+        };
+        let c = b.rect.right_top() + Vec2::new(-10.0, 10.0);
+        rects.push(RectInstance::new([c.x - 4.0, c.y - 4.0], [8.0; 2], 4.0, colour, Color32::TRANSPARENT, 0.0));
+    }
+    rects
 }
 
 /// A scope laid out: its boxes, a grid of them, and the shapes the GPU draws (each box's rectangles at
@@ -395,12 +542,9 @@ fn reads(n: &Node, ids: &HashMap<&str, usize>) -> Vec<usize> {
     out
 }
 
-/// Where a scope's nodes go when they have no place yet: a column per depth (the longest chain of nodes they
-/// read), in time proportional to the nodes and connections.
-pub fn auto_positions(nodes: &[Node]) -> HashMap<String, [f32; 2]> {
-    let ids: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, n)| (n.id.as_str(), i)).collect();
-    let deps: Vec<Vec<usize>> = nodes.iter().map(|n| reads(n, &ids)).collect();
-    // depths by a walk from each node (a cycle counts once)
+/// The depth of every node of a scope: the longest chain of nodes it reads (a cycle counts once), in time
+/// proportional to the nodes and connections.
+fn depths(nodes: &[Node], deps: &[Vec<usize>]) -> Vec<usize> {
     let mut depth: Vec<Option<usize>> = vec![None; nodes.len()];
     let mut on_path = vec![false; nodes.len()];
     for start in 0..nodes.len() {
@@ -424,12 +568,40 @@ pub fn auto_positions(nodes: &[Node]) -> HashMap<String, [f32; 2]> {
             }
         }
     }
+    depth.into_iter().map(|d| d.unwrap_or(0)).collect()
+}
+
+/// Where the columns of depths begin: each after the widest box of the one before and a space.
+fn columns_x(nodes: &[Node], depth: &[usize], r: &Registry, space: f32) -> Vec<f32> {
+    let columns = depth.iter().max().map_or(0, |d| d + 1);
+    let mut widest = vec![WIDTH; columns];
+    for (n, &d) in nodes.iter().zip(depth) {
+        widest[d] = widest[d].max(node_width(n, r));
+    }
+    let mut x = 0.0;
+    widest
+        .iter()
+        .map(|w| {
+            let at = x;
+            x += w + space;
+            at
+        })
+        .collect()
+}
+
+/// Where a scope's nodes go when they have no place yet: a column per depth (the longest chain of nodes they
+/// read), as wide as its widest box, in time proportional to the nodes and connections.
+pub fn auto_positions(nodes: &[Node]) -> HashMap<String, [f32; 2]> {
+    let ids: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, n)| (n.id.as_str(), i)).collect();
+    let deps: Vec<Vec<usize>> = nodes.iter().map(|n| reads(n, &ids)).collect();
+    let depth = depths(nodes, &deps);
+    let xs = columns_x(nodes, &depth, standard(), 60.0);
     let mut column: HashMap<usize, f32> = HashMap::new();
     let mut out = HashMap::new();
     for (i, n) in nodes.iter().enumerate() {
-        let d = depth[i].unwrap_or(0);
+        let d = depth[i];
         let y = column.entry(d).or_insert(0.0);
-        out.insert(n.id.clone(), [d as f32 * (WIDTH + 60.0), *y]);
+        out.insert(n.id.clone(), [xs[d], *y]);
         *y += HEAD + 6.0 * ROW + 20.0;
     }
     out
@@ -441,9 +613,9 @@ pub fn auto_positions(nodes: &[Node]) -> HashMap<String, [f32; 2]> {
 pub fn arrange(nodes: &[Node], r: &Registry) -> HashMap<String, [f32; 2]> {
     let ids: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, n)| (n.id.as_str(), i)).collect();
     let deps: Vec<Vec<usize>> = nodes.iter().map(|n| reads(n, &ids)).collect();
-    let first = auto_positions(nodes);
-    let depth: Vec<usize> = nodes.iter().map(|n| (first[&n.id][0] / (WIDTH + 60.0)).round() as usize).collect();
-    let columns = depth.iter().max().map_or(0, |d| d + 1);
+    let depth = depths(nodes, &deps);
+    let xs = columns_x(nodes, &depth, r, 90.0);
+    let columns = xs.len();
     let mut column: Vec<Vec<usize>> = vec![Vec::new(); columns];
     // a first order: as they are on the canvas
     let mut order: Vec<usize> = (0..nodes.len()).collect();
@@ -481,7 +653,7 @@ pub fn arrange(nodes: &[Node], r: &Registry) -> HashMap<String, [f32; 2]> {
         for &i in c {
             let n = &nodes[i];
             let rows = editor::input_ports(n, r).len().max(editor::output_ports(n, r).len()).max(1);
-            out.insert(n.id.clone(), [d as f32 * (WIDTH + 90.0), y]);
+            out.insert(n.id.clone(), [xs[d], y]);
             let foot = if n.params.get("path").and_then(|v| v.as_str()).is_some_and(|p| !p.trim().is_empty()) {
                 FOOT
             } else {
@@ -494,6 +666,7 @@ pub fn arrange(nodes: &[Node], r: &Registry) -> HashMap<String, [f32; 2]> {
 }
 
 impl Scene {
+    #[allow(clippy::too_many_arguments)]
     fn build(
         model: &Model,
         nodes: &[Node],
@@ -502,6 +675,7 @@ impl Scene {
         status: &BTreeStatus,
         v: &egui::Visuals,
         colours: bool,
+        measure: &mut dyn FnMut(&str, &FontId) -> f32,
     ) -> Scene {
         let ids: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, n)| (n.id.as_str(), i)).collect();
         // what the scope reads: the model's inputs, its containers' values, and the nodes outside it its nodes
@@ -522,6 +696,9 @@ impl Scene {
             }
         }
         let mut boxes: Vec<BoxAt> = Vec::with_capacity(sources.len() + nodes.len());
+        // a column as wide as the longest name of what the scope reads
+        let sources_w = sources.iter().map(|(s, _)| fitted(s, "", &[], &[], measure)).fold(WIDTH, f32::max);
+        let sources_x = -(sources_w + 80.0);
         let mut y = 0.0;
         for (s, t) in &sources {
             // a model's input of a raster file: the file named at its bottom
@@ -532,11 +709,12 @@ impl Scene {
                 _ => None,
             });
             let foot = if file.is_some() { FOOT } else { 0.0 };
-            let rect = Rect::from_min_size(Pos2::new(SOURCES_X, y), Vec2::new(WIDTH, HEAD + ROW + foot));
+            let rect = Rect::from_min_size(Pos2::new(sources_x, y), Vec2::new(sources_w, HEAD + ROW + foot));
             boxes.push(BoxAt {
                 key: s.clone(),
                 op: String::new(),
                 rect,
+                fitted: sources_w,
                 inputs: Vec::new(),
                 outputs: vec![(String::new(), *t)],
                 source: true,
@@ -559,15 +737,22 @@ impl Scene {
             }
             let outputs = editor::output_ports(n, r);
             let rows = inputs.len().max(outputs.len()).max(1);
+            // as wide as its texts need, or as it was made
+            let names: Vec<&str> =
+                inputs.iter().map(|p| if p.name.is_empty() { NEW_INPUT } else { p.name.as_str() }).collect();
+            let outs: Vec<&str> = outputs.iter().map(|(p, _)| p.as_str()).collect();
+            let need = fitted(&n.id, &n.op, &names, &outs, measure);
+            let width = n.width.map_or(need, |w| w.max(need));
             // the file it reads or writes
             let file = n.params.get("path").and_then(|v| v.as_str()).filter(|p| !p.trim().is_empty()).map(String::from);
             let foot = if file.is_some() { FOOT } else { 0.0 };
             let rect =
-                Rect::from_min_size(Pos2::new(p[0], p[1]), Vec2::new(WIDTH, HEAD + rows as f32 * ROW + 6.0 + foot));
+                Rect::from_min_size(Pos2::new(p[0], p[1]), Vec2::new(width, HEAD + rows as f32 * ROW + 6.0 + foot));
             boxes.push(BoxAt {
                 key: n.id.clone(),
                 op: n.op.clone(),
                 rect,
+                fitted: need,
                 inputs,
                 outputs,
                 source: false,
@@ -631,59 +816,10 @@ impl Scene {
         }
         let mut rects = Vec::with_capacity(boxes.len() * 6);
         let mut ranges = Vec::with_capacity(boxes.len());
-        let stroke = v.widgets.noninteractive.bg_stroke.color;
         for b in &boxes {
             let first = rects.len();
             let state = if path.is_empty() { status.get(&b.key).copied() } else { None };
-            let fill = if b.source { v.faint_bg_color } else { v.widgets.inactive.bg_fill };
-            let (border, width) =
-                if state == Some(NodeStatus::Failed) { (v.error_fg_color, 1.5) } else { (stroke, 1.0) };
-            rects.push(RectInstance::new(b.rect.min.into(), b.rect.size().into(), 4.0, fill, border, width));
-            // a node of data's header in the colour of the type it gives (a map's blue, vectors' pink...), when
-            // asked: what flows from it at a glance
-            if let Some(c) = b.tint().filter(|_| colours).and_then(|t| type_colour(t, v.dark_mode)) {
-                let tint = fill.lerp_to_gamma(c, if v.dark_mode { 0.22 } else { 0.18 });
-                let head = b.head().shrink(2.0);
-                rects.push(RectInstance::new(
-                    head.min.into(),
-                    head.size().into(),
-                    3.0,
-                    tint,
-                    Color32::TRANSPARENT,
-                    0.0,
-                ));
-            }
-            // the line over the row naming its file
-            if let Some(f) = b.foot() {
-                let at = [f.left() + 6.0, f.top()];
-                rects.push(RectInstance::new(at, [f.width() - 12.0, 1.0], 0.0, stroke, Color32::TRANSPARENT, 0.0));
-            }
-            let dot = |c: Pos2, colour: Color32| {
-                RectInstance::new([c.x - PORT, c.y - PORT], [2.0 * PORT; 2], PORT, colour, Color32::TRANSPARENT, 0.0)
-            };
-            for (i, p) in b.inputs.iter().enumerate() {
-                let colour = if p.connected {
-                    type_colour(p.ty, v.dark_mode).unwrap_or(v.text_color())
-                } else if p.required {
-                    v.warn_fg_color
-                } else {
-                    v.weak_text_color()
-                };
-                rects.push(dot(b.input_at(i), colour));
-            }
-            for (i, (_, t)) in b.outputs.iter().enumerate() {
-                rects.push(dot(b.output_at(i), type_colour(*t, v.dark_mode).unwrap_or(v.text_color())));
-            }
-            if let Some(s) = state {
-                let colour = match s {
-                    NodeStatus::Running => crate::theme::accent(),
-                    NodeStatus::Done { cached: false } => Color32::from_rgb(120, 220, 110),
-                    NodeStatus::Done { cached: true } => Color32::from_rgb(80, 150, 75),
-                    NodeStatus::Failed => v.error_fg_color,
-                };
-                let c = b.rect.right_top() + Vec2::new(-10.0, 10.0);
-                rects.push(RectInstance::new([c.x - 4.0, c.y - 4.0], [8.0; 2], 4.0, colour, Color32::TRANSPARENT, 0.0));
-            }
+            rects.extend(box_rects(b, state, v, colours));
             ranges.push(first..rects.len());
         }
         Scene {
@@ -706,24 +842,53 @@ impl Scene {
         if d == Vec2::ZERO {
             return;
         }
-        for c in cells_of(self.boxes[i].rect) {
-            if let Some(v) = self.grid.get_mut(&c) {
-                v.retain(|&j| j != i);
-            }
-        }
-        self.boxes[i].rect = self.boxes[i].rect.translate(d);
-        for c in cells_of(self.boxes[i].rect) {
-            let v = self.grid.entry(c).or_default();
-            // the grid keeps the boxes in their order (the last drawn on top)
-            let at = v.partition_point(|&j| j < i);
-            v.insert(at, i);
-        }
-        self.bounds = self.bounds.union(self.boxes[i].rect);
+        self.reshape(i, self.boxes[i].rect.translate(d));
         let shapes = Arc::make_mut(&mut self.shapes);
         for r in &mut shapes.rects[self.ranges[i].clone()] {
             r.min[0] += d.x;
             r.min[1] += d.y;
         }
+        self.follow(i, generation);
+    }
+
+    /// Give a box a width (graph units): its rectangles drawn again, its connections and its place in the grid
+    /// following, the rest as it is.
+    fn resize_box(&mut self, i: usize, width: f32, state: Option<NodeStatus>, v: &egui::Visuals, generation: u64) {
+        let b = self.boxes[i].rect;
+        if (b.width() - width).abs() < 0.01 {
+            return;
+        }
+        self.reshape(i, Rect::from_min_size(b.min, Vec2::new(width, b.height())));
+        let rects = box_rects(&self.boxes[i], state, v, self.key.4);
+        let shapes = Arc::make_mut(&mut self.shapes);
+        let range = self.ranges[i].clone();
+        // (the same shapes of the same box: only their places and sizes change)
+        if rects.len() == range.len() {
+            shapes.rects[range].copy_from_slice(&rects);
+        }
+        self.follow(i, generation);
+    }
+
+    /// A box's new rectangle, and its place in the grid.
+    fn reshape(&mut self, i: usize, rect: Rect) {
+        for c in cells_of(self.boxes[i].rect) {
+            if let Some(v) = self.grid.get_mut(&c) {
+                v.retain(|&j| j != i);
+            }
+        }
+        self.boxes[i].rect = rect;
+        for c in cells_of(rect) {
+            let v = self.grid.entry(c).or_default();
+            // the grid keeps the boxes in their order (the last drawn on top)
+            let at = v.partition_point(|&j| j < i);
+            v.insert(at, i);
+        }
+        self.bounds = self.bounds.union(rect);
+    }
+
+    /// The connections of a box to where its ports are now.
+    fn follow(&mut self, i: usize, generation: u64) {
+        let shapes = Arc::make_mut(&mut self.shapes);
         for &e in &self.touching[i] {
             let EdgeAt { from, to } = self.edges[e];
             let (f, t) = (self.boxes[from.0].output_at(from.1), self.boxes[to.0].input_at(to.1));
@@ -752,6 +917,12 @@ impl Scene {
         }
         for &i in candidates.iter().rev() {
             let b = &self.boxes[i];
+            if !b.source
+                && (p.x - b.rect.right()).abs() <= reach * 0.5
+                && (b.rect.top()..=b.rect.bottom()).contains(&p.y)
+            {
+                return Some(Hit::Edge(i));
+            }
             if b.head().contains(p) {
                 return Some(Hit::Head(i));
             }
@@ -833,7 +1004,12 @@ pub fn show(
     let colours = crate::settings::get().node_colours;
     let key = (revision, st.path.clone(), status_rev, crate::theme::current().name, colours);
     if st.scene.as_ref().is_none_or(|s| s.key != key) {
-        let mut scene = Scene::build(model, nodes, r, &st.path, status, ui.visuals(), colours);
+        // the texts measured in the fonts they are written in
+        let v = ui.visuals().clone();
+        let mut scene = ui.ctx().fonts_mut(|f| {
+            let mut measure = |s: &str, font: &FontId| s.chars().map(|c| f.glyph_width(font, c)).sum::<f32>();
+            Scene::build(model, nodes, r, &st.path, status, &v, colours, &mut measure)
+        });
         st.generation = next_generation();
         scene.key = key;
         Arc::get_mut(&mut scene.shapes).unwrap().generation = st.generation;
@@ -901,6 +1077,11 @@ pub fn show(
                 }
                 None => Drag::Select(w),
             },
+            // a node's right edge: its width
+            Some(Hit::Edge(i)) => {
+                let b = &scene.boxes[i];
+                Drag::Resize(b.key.clone(), b.rect.left(), b.fitted)
+            }
             Some(Hit::Head(i) | Hit::Body(i)) if !scene.boxes[i].source => {
                 let key = &scene.boxes[i].key;
                 if !st.chosen.contains(key) {
@@ -925,6 +1106,15 @@ pub fn show(
     }
     let pointer = resp.hover_pos().or(ui.input(|i| i.pointer.interact_pos()));
     let mut moved = Vec::new();
+    let mut resized = None;
+    if let (Some(Drag::Resize(id, left, need)), Some(q)) = (&st.drag, pointer)
+        && resp.dragged()
+    {
+        // never narrower than its texts need
+        let w = (to_world(q, cam).x - left).max(*need).round();
+        actions.push(Action::Resize(id.clone(), Some(w)));
+        resized = scene.index.get(id).map(|&i| (i, w));
+    }
     if let (Some(Drag::Move(from, corners)), Some(q)) = (&st.drag, pointer)
         && resp.dragged()
     {
@@ -987,7 +1177,7 @@ pub fn show(
             Some(Hit::Output(i, k)) if !scene.boxes[i].source => {
                 actions.push(Action::Preview(scene.boxes[i].key.clone(), scene.boxes[i].outputs[k].0.clone()));
             }
-            Some(Hit::Head(i) | Hit::Body(i) | Hit::Input(i, _)) if !scene.boxes[i].source => {
+            Some(Hit::Head(i) | Hit::Body(i) | Hit::Input(i, _) | Hit::Edge(i)) if !scene.boxes[i].source => {
                 let key = scene.boxes[i].key.clone();
                 if adding {
                     // shift or ctrl: one more, or one less
@@ -1017,11 +1207,23 @@ pub fn show(
     }
     if resp.double_clicked()
         && let Some(w) = at
-        && let Some(Hit::Head(i) | Hit::Body(i)) = scene.hit(w, reach(cam))
-        && !scene.boxes[i].source
     {
-        let b = &scene.boxes[i];
-        actions.push(if b.container { Action::Enter(b.key.clone()) } else { Action::Open(b.key.clone()) });
+        match scene.hit(w, reach(cam)) {
+            // a double click on the right edge: as wide as the texts need
+            Some(Hit::Edge(i)) => actions.push(Action::Resize(scene.boxes[i].key.clone(), None)),
+            Some(Hit::Head(i) | Hit::Body(i)) if !scene.boxes[i].source => {
+                let b = &scene.boxes[i];
+                actions.push(if b.container { Action::Enter(b.key.clone()) } else { Action::Open(b.key.clone()) });
+            }
+            _ => {}
+        }
+    }
+    // the pointer over a right edge, or dragging it: a cursor that says so
+    let on_edge = matches!(st.drag, Some(Drag::Resize(..)))
+        || (st.drag.is_none()
+            && resp.hover_pos().is_some_and(|p| matches!(scene.hit(to_world(p, cam), reach(cam)), Some(Hit::Edge(_)))));
+    if on_edge {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
     }
     let cam = *cam;
     // the nodes dragged move in the scene at once (the model's places follow through the actions)
@@ -1032,6 +1234,14 @@ pub fn show(
         for (i, p) in moved {
             scene.move_box(i, p, generation);
         }
+    }
+    // the node resized changes in the scene at once too
+    if let Some((i, w)) = resized {
+        st.generation = next_generation();
+        let generation = st.generation;
+        let state =
+            if st.path.is_empty() { status.get(&st.scene.as_ref().unwrap().boxes[i].key).copied() } else { None };
+        st.scene.as_mut().unwrap().resize_box(i, w, state, ui.visuals(), generation);
     }
     let scene = st.scene.as_ref().unwrap();
     let screen = |p: Pos2| rect.min + cam.pan + p.to_vec2() * cam.zoom;
@@ -1060,7 +1270,7 @@ pub fn show(
                 painter.text(
                     screen(Pos2::new(f.left() + 8.0, f.center().y + 0.5)),
                     Align2::LEFT_CENTER,
-                    file_label(file, 27),
+                    file_label(file, ((f.width() - 16.0) / estimate("x", &file_font())).max(8.0) as usize),
                     FontId::monospace(size(10.5)),
                     v.weak_text_color(),
                 );
@@ -1085,7 +1295,7 @@ pub fn show(
             }
             for (k, p) in b.inputs.iter().enumerate() {
                 let (name, colour) = if p.name.is_empty() {
-                    ("+ new input", v.weak_text_color())
+                    (NEW_INPUT, v.weak_text_color())
                 } else {
                     (p.name.as_str(), v.text_color())
                 };

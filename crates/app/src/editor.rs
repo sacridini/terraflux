@@ -71,6 +71,12 @@ pub fn move_node(m: &mut Model, path: &[String], id: &str, pos: [f32; 2]) -> Res
     Ok(())
 }
 
+/// Give a node's box a width in the node editor (none: as wide as its texts need).
+pub fn resize_node(m: &mut Model, path: &[String], id: &str, width: Option<f32>) -> Result<()> {
+    node_mut(m, path, id)?.width = width;
+    Ok(())
+}
+
 /// The references of a scope's nodes and of what reads their results (the enclosing body's maps, the model's
 /// outputs at the top level), to be changed together.
 fn for_each_ref(m: &mut Model, path: &[String], f: &mut dyn FnMut(&mut String)) {

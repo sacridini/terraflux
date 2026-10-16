@@ -540,3 +540,58 @@ fn a_layout_kept_with_the_viewer_in_front_shows_the_model() {
     let leaf = dock.leaf(at.node_path()).unwrap();
     assert_eq!(leaf.tabs().get(leaf.active.0), Some(&Pane::Model));
 }
+
+/// A box is as wide as its texts need (an input's and an output's names side by side never overlap), wider when
+/// its right edge is dragged, never narrower than its texts, and as wide as they need again after a double click
+/// on the edge; the columns of Arrange are as wide as their widest box.
+#[test]
+fn nodes_fit_their_texts_and_are_resized_by_their_edge() {
+    let mut m = Model::new("widths");
+    let mut calc = Node::new("calc", "map.calc").param("expression", "1");
+    calc.pos = Some([0.0, 0.0]);
+    m.nodes.push(calc);
+    let mut plan = Node::new("plan", "prioritize.optimize").input("cost", "calc.map");
+    plan.pos = Some([300.0, 0.0]);
+    m.nodes.push(plan);
+    let mut h = harness(open(&m, "canvas-widths.toml"));
+    h.run_steps(3);
+    let width = |h: &Harness<TerrafluxApp>, id: &str| editor(h).width_of(id).unwrap();
+    let saved = |h: &Harness<TerrafluxApp>, id: &str| {
+        h.state().session.as_ref().unwrap().source.nodes.iter().find(|n| n.id == id).unwrap().width
+    };
+    let (calc_w, calc_need) = width(&h, "calc");
+    assert_eq!((calc_w, calc_need), (terraflux_app::editor_view::WIDTH, terraflux_app::editor_view::WIDTH));
+    // prioritize.optimize's rows (asym_connectivity_data across from extinction_risk...) need more
+    let (plan_w, plan_need) = width(&h, "plan");
+    assert!(plan_w > terraflux_app::editor_view::WIDTH + 40.0 && plan_w == plan_need, "{plan_w}");
+    let r = terraflux_ops::Registry::standard();
+    let estimated = terraflux_app::editor_view::node_width(&m.nodes[1], &r);
+    h.render().unwrap().save(PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("canvas-widths.png")).unwrap();
+    assert!((estimated - plan_need).abs() <= 40.0, "the estimate {estimated} near the measure {plan_need}");
+    // its right edge dragged 100 points to the right: 100 / zoom wider, kept in the model
+    let edge = |h: &Harness<TerrafluxApp>, id: &str| {
+        let r = editor(h).screen_rect_of(id).unwrap();
+        egui::pos2(r.right(), r.center().y + 7.0)
+    };
+    let zoom = editor(&h).zoom();
+    let at = edge(&h, "calc");
+    drag(&mut h, at, at + egui::vec2(100.0, 0.0));
+    let w = saved(&h, "calc").expect("a width");
+    assert!((w - (calc_w + 100.0 / zoom)).abs() <= 2.0, "{w} {calc_w} {zoom}");
+    assert!((width(&h, "calc").0 - w).abs() < 0.01, "the scene follows");
+    // dragged far to the left: no narrower than its texts
+    let at = edge(&h, "plan");
+    drag(&mut h, at, at - egui::vec2(300.0, 0.0));
+    assert_eq!(saved(&h, "plan"), Some(plan_need));
+    assert_eq!(width(&h, "plan").0, plan_need);
+    // a double click on the edge: as wide as its texts need, no width kept
+    let at = edge(&h, "calc");
+    double_click(&mut h, at);
+    assert_eq!(saved(&h, "calc"), None);
+    assert_eq!(width(&h, "calc").0, terraflux_app::editor_view::WIDTH);
+    // Arrange: the next column begins after the widest box of the one before
+    let mut wide = m.clone();
+    wide.nodes.push(Node::new("after", "map.calc").input("a", "plan.solution").param("expression", "a"));
+    let places = terraflux_app::editor_view::arrange(&wide.nodes, &r);
+    assert!(places["after"][0] >= places["plan"][0] + estimated + 60.0, "{places:?}");
+}

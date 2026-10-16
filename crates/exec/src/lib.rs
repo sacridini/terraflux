@@ -117,10 +117,11 @@ fn holds_rng(v: &Value) -> bool {
     }
 }
 
-/// A node as it counts for its outputs: without its place on the canvas and its note.
+/// A node as it counts for its outputs: without its place and width on the canvas and its note.
 fn bare(n: &Node) -> Node {
     let mut n = n.clone();
     n.pos = None;
+    n.width = None;
     n.note = None;
     if let Some(b) = &mut n.body {
         b.nodes = b.nodes.iter().map(bare).collect();
