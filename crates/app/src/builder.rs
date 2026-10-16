@@ -1469,11 +1469,26 @@ fn bar(ui: &mut Ui, s: &mut Session, r: &Registry) {
         if let Some(m) = &s.editor.message {
             ui.colored_label(ui.visuals().warn_fg_color, m);
         }
+        // how far the node running is, as its operator tells it: a bar when it can say, else its words moving
+        if let (Some((at, p)), None) = (&s.task, s.stopping) {
+            let text = egui::RichText::new(format!("{at}: {}", p.text)).color(crate::theme::on_accent());
+            let bar = egui::ProgressBar::new(p.fraction.unwrap_or(0.0) as f32)
+                .desired_width(ui.available_width().max(160.0))
+                .desired_height(16.0)
+                .fill(crate::theme::accent())
+                .text(text);
+            ui.add(if p.fraction.is_none() { bar.animate(true) } else { bar }).on_hover_text(&p.text);
+        }
     });
 }
 
 fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
     let shown = s.preview.clone();
+    // the node running's share done, drawn along its bottom
+    s.editor.progress = s.task.as_ref().and_then(|(at, p)| {
+        let top = at.split('/').next().unwrap_or(at).to_string();
+        p.fraction.map(|f| (top, f as f32))
+    });
     // a file of the Files pane let go over the canvas: a node that reads it, there
     let over = ui.max_rect();
     if egui::DragAndDrop::has_payload_of_type::<DraggedFile>(ui.ctx()) {

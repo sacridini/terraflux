@@ -984,6 +984,18 @@ pub mod ffi {
         start: Vec<f64>,
     }
 
+    /// The cut or closure engine's result: its status, the selection (0/1 per unit), its objective, the bound,
+    /// the gap, the evaluations and the seconds.
+    struct EngineOut {
+        status: String,
+        x: Vec<f64>,
+        objective: f64,
+        bound: f64,
+        gap: f64,
+        evaluations: i64,
+        seconds: f64,
+    }
+
     /// The solver's result: its status (optimal, time_limit, infeasible...), the solution, its objective, the
     /// bound and the gap.
     struct SolveOut {
@@ -1173,6 +1185,11 @@ pub mod ffi {
         /// The index of two merged nodes against others (link_recalculate), called by the clustering.
         type ClusterRecalc;
         fn bio_recalculate(r: &mut ClusterRecalc, a: &str, b: &str, new_name: &str, checks: &Vec<String>) -> Vec<f64>;
+
+        /// What a solve is told as it goes (the best objective, the bound, the gap and the seconds); false
+        /// stops it.
+        type SolveWatch;
+        fn solve_watch(w: &mut SolveWatch, best: f64, bound: f64, gap: f64, seconds: f64) -> bool;
     }
 
     unsafe extern "C++" {
@@ -1838,6 +1855,55 @@ pub mod ffi {
         fn proxirr_beta_gamma(start: &[i64], alphas: &[f64]) -> Result<ProxirrOut>;
         fn opt_features(values: &[f64], layers: i64, unit: &[i64]) -> Result<FeaturesOut>;
         fn opt_solve(model: &MilpModel, settings: &SolveSettings, method: &str, n_units: i64) -> Result<SolveOut>;
+        /// landschaft's cut engine (opt/cut.cpp) on a minimum set in Marxan's form (BLM 1): a Lagrangian bound
+        /// by minimum cuts, repaired selections (`initial`: a selection to start from, or empty); the watch asked
+        /// how to go on.
+        #[allow(clippy::too_many_arguments)]
+        fn opt_solve_cut(
+            cost: &[f64],
+            status: &[i32],
+            offset: &[i64],
+            spindex: &[i32],
+            amount: &[f64],
+            target: &[f64],
+            nb_start: &[i64],
+            nb: &[i32],
+            nb_cost: &[f64],
+            gap: f64,
+            time_limit: f64,
+            initial: &[i32],
+            threads: i32,
+            watch: &mut SolveWatch,
+        ) -> Result<EngineOut>;
+        /// landschaft's closure engine (opt/closure.cpp): penalties w z_i (1 - z_j), side rows on the units
+        /// (`geq`: >=, else <=) by column; the watch asked how to go on.
+        #[allow(clippy::too_many_arguments)]
+        fn opt_solve_closure(
+            cost: &[f64],
+            fixed: &[i8],
+            pen_i: &[i32],
+            pen_j: &[i32],
+            pen_w: &[f64],
+            rhs: &[f64],
+            geq: &[u8],
+            col_start: &[i64],
+            col_row: &[i32],
+            col_val: &[f64],
+            gap: f64,
+            time_limit: f64,
+            threads: i32,
+            initial: &[u8],
+            watch: &mut SolveWatch,
+        ) -> Result<EngineOut>;
+        /// opt_solve, the watch told how it goes a few times a second (and stopping it: the status
+        /// "cancelled").
+        fn opt_solve_watched(
+            model: &MilpModel,
+            settings: &SolveSettings,
+            method: &str,
+            n_units: i64,
+            watch: &mut SolveWatch,
+        ) -> Result<SolveOut>;
         /// prioritizr's boundary of a solution (rcpp_boundary): the strictly lower triangle of the boundary
         /// matrix in compressed columns, every unit's exposed and total boundary.
         fn eval_boundary(
@@ -2755,6 +2821,14 @@ pub struct ClusterRecalc(pub Box<Recalculate>);
 
 /// (node 1, node 2, the new node, the nodes to check) to a value per node to check.
 pub type Recalculate = dyn FnMut(&str, &str, &str, &[String]) -> Vec<f64>;
+
+/// What a solve is told as it goes: the best solution's objective, the bound, the gap (NaN while there are none)
+/// and the seconds; false stops it.
+pub struct SolveWatch(pub Box<dyn FnMut(f64, f64, f64, f64) -> bool>);
+
+fn solve_watch(w: &mut SolveWatch, best: f64, bound: f64, gap: f64, seconds: f64) -> bool {
+    (w.0)(best, bound, gap, seconds)
+}
 
 // cxx passes the checks as a Vec
 #[allow(clippy::ptr_arg)]

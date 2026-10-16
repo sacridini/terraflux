@@ -27,6 +27,11 @@ pub enum Message {
         counts: Option<Vec<(f64, usize)>>,
     },
     Warning(String),
+    /// How far a node running is, as its operator tells it.
+    Progress {
+        at: String,
+        progress: terraflux_ops::Progress,
+    },
     /// A top-level node is done (its outputs in the cache), run or `cached`.
     Finished {
         at: String,
@@ -42,6 +47,8 @@ struct Sending {
     tx: Sender<Message>,
     stop: Arc<AtomicBool>,
     repaint: Box<dyn Fn() + Send>,
+    /// When progress was sent last (no more than ten times a second).
+    told: Option<std::time::Instant>,
 }
 
 impl Observer for Sending {
@@ -64,6 +71,15 @@ impl Observer for Sending {
 
     fn done(&mut self, at: &str, cached: bool) {
         let _ = self.tx.send(Message::Finished { at: at.to_string(), cached });
+        (self.repaint)();
+    }
+
+    fn progress(&mut self, at: &str, progress: &terraflux_ops::Progress) {
+        if self.told.is_some_and(|t| t.elapsed() < std::time::Duration::from_millis(100)) {
+            return;
+        }
+        self.told = Some(std::time::Instant::now());
+        let _ = self.tx.send(Message::Progress { at: at.to_string(), progress: progress.clone() });
         (self.repaint)();
     }
 
@@ -100,7 +116,7 @@ impl Run {
                     Some(i) => i,
                     None => terraflux_exec::load_inputs(&model, &base, &BTreeMap::new()).map_err(|e| e.to_string())?,
                 };
-                let mut obs = Sending { tx, stop: s, repaint };
+                let mut obs = Sending { tx, stop: s, repaint, told: None };
                 let r = Engine::default().run_with(&model, &inputs, &mut obs, Some(&cache), target.as_deref());
                 if let Err(Error::Node { at, .. }) = &r {
                     let top = at.split(['/', '.']).next().unwrap_or(at).to_string();
@@ -117,6 +133,13 @@ impl Run {
 
     pub fn stop(&self) {
         self.stop.store(true, Ordering::Relaxed);
+    }
+
+    /// Stop it and let it go without waiting: an operator that cannot stop in the middle (a long step of its own)
+    /// ends in the background, its results not shown; the run's thread ends with it.
+    pub fn detach(mut self) {
+        self.stop();
+        self.thread.take();
     }
 }
 

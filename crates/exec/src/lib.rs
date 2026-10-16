@@ -48,7 +48,9 @@ pub trait Observer {
     fn collected(&mut self, _at: &str, _step: usize, _of: usize, _values: &BTreeMap<String, Value>) {}
     /// A top-level node is done: run, or its outputs taken from the cache.
     fn done(&mut self, _at: &str, _cached: bool) {}
-    /// Whether to stop: checked before every node.
+    /// How far a node running is, as its operator tells it (a solver's gap, say).
+    fn progress(&mut self, _at: &str, _progress: &terraflux_ops::Progress) {}
+    /// Whether to stop: checked before every node, and by the operators that can stop while they run.
     fn cancelled(&mut self) -> bool {
         false
     }
@@ -442,10 +444,23 @@ impl Engine {
             .registry
             .get(&node.op)
             .ok_or_else(|| Error::Node { at: at.into(), message: format!("unknown operator {:?}", node.op) })?;
-        let mut ctx = Ctx::default();
         let args = Args { node: at, inputs: values, params: &node.params };
-        let out = op.run(&mut ctx, &args).map_err(|e| Error::Node { at: at.into(), message: e.to_string() })?;
-        for w in ctx.warnings {
+        // the operator told to report how far it is, and whether the run was stopped
+        let (out, warned, stopped) = {
+            let mut watch = |p: Option<&terraflux_ops::Progress>| {
+                if let Some(p) = p {
+                    obs.progress(at, p);
+                }
+                !obs.cancelled()
+            };
+            let mut ctx = Ctx::watched(&mut watch);
+            let out = op.run(&mut ctx, &args);
+            (out, std::mem::take(&mut ctx.warnings), ctx.was_stopped())
+        };
+        let out = out.map_err(|e| {
+            if stopped { Error::Cancelled } else { Error::Node { at: at.into(), message: e.to_string() } }
+        })?;
+        for w in warned {
             obs.warning(at, &w);
             warnings.push(format!("{at}: {w}"));
         }
@@ -611,11 +626,59 @@ mod tests {
         }
     }
 
+    /// `test.wait`: says how far it is, then waits until the run is stopped (or 10 s).
+    struct Wait;
+
+    impl Operator for Wait {
+        fn signature(&self) -> OpSignature {
+            OpSignature::new("test.wait", "", Access::None).output(PortSpec::new("done", Type::Bool, ""))
+        }
+        fn run(&self, ctx: &mut Ctx, _a: &Args) -> OpResult<Outputs> {
+            let t = std::time::Instant::now();
+            ctx.progress(Some(0.5), "half way");
+            while t.elapsed() < std::time::Duration::from_secs(10) {
+                if ctx.stopped() {
+                    return Err(terraflux_ops::Error::msg("stopped"));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            Ok([("done".to_string(), Value::Bool(true))].into())
+        }
+    }
+
     fn engine() -> Engine {
         let mut r = Registry::standard();
         r.add(Arc::new(Add));
         r.add(Arc::new(Over));
+        r.add(Arc::new(Wait));
         Engine { registry: r }
+    }
+
+    /// An operator's progress reaches the observer; stopped while it runs, the run ends stopped, not failed.
+    #[test]
+    fn a_node_reports_and_stops_in_the_middle() {
+        struct Stopping {
+            told: Vec<(String, terraflux_ops::Progress)>,
+        }
+        impl Observer for Stopping {
+            fn progress(&mut self, at: &str, p: &terraflux_ops::Progress) {
+                self.told.push((at.to_string(), p.clone()));
+            }
+            // stopped once the node said how far it is
+            fn cancelled(&mut self) -> bool {
+                !self.told.is_empty()
+            }
+        }
+        let mut m = Model::new("t");
+        m.nodes.push(Node::new("w", "test.wait"));
+        let mut obs = Stopping { told: Vec::new() };
+        let t = std::time::Instant::now();
+        let r = engine().run(&m, &BTreeMap::new(), &mut obs);
+        assert!(matches!(r, Err(Error::Cancelled)), "{:?}", r.err());
+        assert!(t.elapsed() < std::time::Duration::from_secs(5));
+        assert_eq!(obs.told[0].0, "w");
+        assert_eq!(obs.told[0].1.fraction, Some(0.5));
+        assert_eq!(obs.told[0].1.text, "half way");
     }
 
     #[test]

@@ -5,11 +5,13 @@
 //! and its results looked at. The model is a file: the application, with it open, shows every change as it is
 //! written ([`terraflux_app::watch`]).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{BufRead, Write};
 use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 use terraflux_app::{editor, editor_view};
@@ -47,9 +49,22 @@ carries, collects or gives.";
 
 type Reply = std::result::Result<String, String>;
 
+/// The server's output, shared by the runs that answer from their threads: a message per line.
+type Out = Arc<Mutex<std::io::Stdout>>;
+
+fn send(out: &Out, v: &Value) -> std::io::Result<()> {
+    let mut o = out.lock().unwrap_or_else(|e| e.into_inner());
+    writeln!(o, "{v}")?;
+    o.flush()
+}
+
+/// The server: the requests answered in their order, but run_model, which runs in a thread of its own (the other
+/// tools answered meanwhile), tells the client how it goes (progress notifications, when it gave a token) and stops
+/// when the client cancels it.
 pub fn serve() -> anyhow::Result<()> {
-    let server = Server { engine: Engine::default() };
-    let mut out = std::io::stdout().lock();
+    let server = Arc::new(Server { engine: Engine::default() });
+    let out: Out = Arc::new(Mutex::new(std::io::stdout()));
+    let runs: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>> = Arc::default();
     for line in std::io::stdin().lock().lines() {
         let line = line?;
         if line.trim().is_empty() {
@@ -61,12 +76,35 @@ pub fn serve() -> anyhow::Result<()> {
                 let r: Vec<Value> = all.into_iter().filter_map(|m| server.message(m)).collect();
                 (!r.is_empty()).then_some(Value::Array(r))
             }
+            // a run stopped by the client
+            Ok(m) if m["method"] == "notifications/cancelled" => {
+                if let Some(stop) = runs.lock().unwrap().get(&m["params"]["requestId"].to_string()) {
+                    stop.store(true, Ordering::Relaxed);
+                }
+                None
+            }
+            Ok(m) if m["method"] == "tools/call" && m["params"]["name"] == "run_model" && !m["id"].is_null() => {
+                let (server, out, runs) = (server.clone(), out.clone(), runs.clone());
+                let key = m["id"].to_string();
+                let stop = Arc::new(AtomicBool::new(false));
+                runs.lock().unwrap().insert(key.clone(), stop.clone());
+                std::thread::spawn(move || {
+                    let token = m["params"]["_meta"]["progressToken"].clone();
+                    let notify = (!token.is_null()).then(|| Notify { token, out: out.clone(), sent: 0, told: None });
+                    let mut kept = Kept { warnings: Vec::new(), notify, stop: Some(stop) };
+                    let reply = server.answer(&m, &mut kept);
+                    runs.lock().unwrap().remove(&key);
+                    if let Some(r) = reply {
+                        let _ = send(&out, &r);
+                    }
+                });
+                None
+            }
             Ok(m) => server.message(m),
             Err(e) => Some(failure(Value::Null, -32700, &format!("not JSON: {e}"))),
         };
         if let Some(r) = reply {
-            writeln!(out, "{r}")?;
-            out.flush()?;
+            send(&out, &r)?;
         }
     }
     Ok(())
@@ -83,6 +121,11 @@ struct Server {
 impl Server {
     /// The answer to a request; none to a notification (or to an answer of the client's).
     fn message(&self, m: Value) -> Option<Value> {
+        self.answer(&m, &mut Kept::default())
+    }
+
+    /// The answer to a request, a run telling `kept` how it goes.
+    fn answer(&self, m: &Value, kept: &mut Kept) -> Option<Value> {
         let id = m.get("id").cloned()?;
         let method = m.get("method").and_then(Value::as_str)?;
         let params = m.get("params").cloned().unwrap_or_else(|| json!({}));
@@ -90,7 +133,7 @@ impl Server {
             "initialize" => Ok(initialize(&params)),
             "ping" => Ok(json!({})),
             "tools/list" => Ok(json!({ "tools": tools() })),
-            "tools/call" => self.call(&params),
+            "tools/call" => self.call(&params, kept),
             _ => Err((-32601, format!("no method {method:?}"))),
         };
         Some(match result {
@@ -99,14 +142,14 @@ impl Server {
         })
     }
 
-    fn call(&self, params: &Value) -> std::result::Result<Value, (i64, String)> {
+    fn call(&self, params: &Value, kept: &mut Kept) -> std::result::Result<Value, (i64, String)> {
         let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
         if !tools().iter().any(|t| t["name"] == name) {
             return Err((-32602, format!("no tool {name:?}")));
         }
         let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
         // (a failure of an operator ends the call, not the server)
-        let (text, error) = match std::panic::catch_unwind(AssertUnwindSafe(|| self.tool(name, &args))) {
+        let (text, error) = match std::panic::catch_unwind(AssertUnwindSafe(|| self.tool(name, &args, kept))) {
             Ok(Ok(t)) => (t, false),
             Ok(Err(e)) => (e, true),
             Err(p) => {
@@ -121,7 +164,7 @@ impl Server {
         Ok(json!({ "content": [{ "type": "text", "text": text }], "isError": error }))
     }
 
-    fn tool(&self, name: &str, a: &Value) -> Reply {
+    fn tool(&self, name: &str, a: &Value, kept: &mut Kept) -> Reply {
         let r = &self.engine.registry;
         match name {
             "list_templates" => Ok(list_templates()),
@@ -158,7 +201,7 @@ impl Server {
                 Ok("the nodes put in tidy columns".into())
             }),
             "check_model" => check_model(&self.engine, a),
-            "run_model" => run_model(&self.engine, a),
+            "run_model" => run_model(&self.engine, a, kept),
             "inspect_file" => inspect_file(a),
             "open_in_app" => open_in_app(a),
             _ => Err(format!("no tool {name:?}")),
@@ -925,21 +968,66 @@ fn check_model(engine: &Engine, a: &Value) -> Reply {
     Ok(if lines.is_empty() { verdict.into() } else { format!("{verdict}\n{}", lines.join("\n")) })
 }
 
-/// What a run says, kept for the reply.
+/// What a run keeps and tells: its warnings (50 at most), its nodes and their progress as the protocol's progress
+/// notifications (when the client gave a token), and whether the client cancelled it.
 #[derive(Default)]
 struct Kept {
     warnings: Vec<String>,
+    notify: Option<Notify>,
+    stop: Option<Arc<AtomicBool>>,
+}
+
+/// Progress notifications to the client: the token it gave, how many were sent, when the last.
+struct Notify {
+    token: Value,
+    out: Out,
+    sent: u64,
+    told: Option<Instant>,
+}
+
+impl Kept {
+    /// A progress notification (an operator's no more than once a second).
+    fn tell(&mut self, message: String, always: bool) {
+        let Some(n) = self.notify.as_mut() else { return };
+        if !always && n.told.is_some_and(|t| t.elapsed() < Duration::from_secs(1)) {
+            return;
+        }
+        n.told = Some(Instant::now());
+        n.sent += 1;
+        let note = json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/progress",
+            "params": { "progressToken": n.token, "progress": n.sent, "message": message },
+        });
+        let _ = send(&n.out, &note);
+    }
 }
 
 impl Observer for Kept {
+    fn node(&mut self, at: &str) {
+        self.tell(format!("running {at}"), true);
+    }
+
+    fn step(&mut self, at: &str, step: usize, of: usize) {
+        self.tell(format!("{at}: step {step} of {of}"), false);
+    }
+
+    fn progress(&mut self, at: &str, p: &terraflux_ops::Progress) {
+        self.tell(format!("{at}: {}", p.text), false);
+    }
+
     fn warning(&mut self, at: &str, message: &str) {
         if self.warnings.len() < 50 {
             self.warnings.push(format!("{at}: {message}"));
         }
     }
+
+    fn cancelled(&mut self) -> bool {
+        self.stop.as_ref().is_some_and(|s| s.load(Ordering::Relaxed))
+    }
 }
 
-fn run_model(engine: &Engine, a: &Value) -> Reply {
+fn run_model(engine: &Engine, a: &Value, kept: &mut Kept) -> Reply {
     let path = model_path(a)?;
     load(&path)?;
     let mut m = Model::load_expanded(&path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -971,8 +1059,7 @@ fn run_model(engine: &Engine, a: &Value) -> Reply {
     }
     let t = Instant::now();
     let inputs = load_inputs(&m, &dir, &overrides).map_err(|e| format!("the inputs: {e}"))?;
-    let mut kept = Kept::default();
-    let results = engine.run(&m, &inputs, &mut kept).map_err(|e| e.to_string())?;
+    let results = engine.run(&m, &inputs, kept).map_err(|e| e.to_string())?;
     let out = opt_text(a, "out").map(absolute).unwrap_or_else(|| dir.join("output"));
     let files = write_outputs(&m, &results, &out).map_err(|e| e.to_string())?;
     let mut s = format!("Ran in {:.1} s.", t.elapsed().as_secs_f64());

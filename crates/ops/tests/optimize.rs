@@ -308,6 +308,16 @@ fn optimum_is_prioritizrs() {
     optima(|name| QUICK.contains(&name));
 }
 
+/// Gurobi (`solver = "gurobi"`), where it is installed and licensed, reaches the same optima on the quick cases.
+#[test]
+fn gurobi_reaches_prioritizrs_optima() {
+    if let Err(why) = terraflux_ops::gurobi::available() {
+        eprintln!("no Gurobi here: {why}");
+        return;
+    }
+    optima_by(|name| QUICK.contains(&name), "gurobi");
+}
+
 /// ... and on every case (minutes: cargo test --release -p terraflux-ops --test optimize -- --ignored).
 #[test]
 #[ignore = "minutes at gap 0"]
@@ -318,6 +328,43 @@ fn every_optimum_is_prioritizrs() {
 /// HiGHS at gap 0 reaches prioritizr's optimum (Gurobi's), or one better by up to 1e-5 in the objectives that
 /// maximise (where the cost only breaks ties and Gurobi stops within its tolerances), never worse.
 fn optima(which: impl Fn(&str) -> bool) {
+    optima_by(which, "highs");
+}
+
+/// A solve tells the node how it goes, and stops when the run is stopped: HiGHS and, where it is, Gurobi.
+#[test]
+fn a_solve_reports_and_stops() {
+    let inputs = inputs();
+    let registry = terraflux_ops::Registry::standard();
+    let mut solvers = vec!["highs"];
+    if terraflux_ops::gurobi::available().is_ok() {
+        solvers.push("gurobi");
+    }
+    for solver in solvers {
+        let params = serde_json::json!({"relative_targets": 0.3, "boundary_penalty": 0.5, "solver": solver});
+        let params = params.as_object().unwrap().clone();
+        let run = |watch: &mut dyn FnMut(Option<&terraflux_ops::Progress>) -> bool| {
+            let args = Args { node: "n", inputs: args_of(&inputs, NONE, None), params: &params };
+            let mut ctx = terraflux_ops::Ctx::watched(watch);
+            let out = registry.get("prioritize.optimize").unwrap().run(&mut ctx, &args);
+            (out, ctx.was_stopped())
+        };
+        // told how it goes
+        let mut told = Vec::new();
+        let (out, stopped) = run(&mut |p| {
+            told.extend(p.cloned());
+            true
+        });
+        assert!(out.is_ok() && !stopped, "{solver}");
+        assert!(!told.is_empty(), "{solver}: no progress");
+        // stopped at once: the node fails, stopped
+        let (out, stopped) = run(&mut |_| false);
+        let e = out.err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(stopped && e.contains("stopped"), "{solver}: {e}");
+    }
+}
+
+fn optima_by(which: impl Fn(&str) -> bool, solver: &str) {
     let inputs = inputs();
     let refs: BTreeMap<&str, Reference> =
         [("core", reference("core")), ("objectives", reference("objectives")), ("spatial", reference("spatial"))]
@@ -326,12 +373,12 @@ fn optima(which: impl Fn(&str) -> bool) {
     for (group, name, params, locks, targets) in cases().into_iter().filter(|c| which(c.1)) {
         let mut params = params.as_object().unwrap().clone();
         params.insert("gap".into(), 0.0.into());
+        params.insert("solver".into(), solver.into());
         let args = Args { node: "n", inputs: args_of(&inputs, locks, targets), params: &params };
-        let out = registry
-            .get("prioritize.optimize")
-            .unwrap()
-            .run(&mut terraflux_ops::Ctx::default(), &args)
-            .unwrap_or_else(|e| panic!("{name}: {e}"));
+        let mut ctx = terraflux_ops::Ctx::default();
+        let out =
+            registry.get("prioritize.optimize").unwrap().run(&mut ctx, &args).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert!(ctx.warnings.is_empty(), "{name}: {:?}", ctx.warnings);
         let Value::Table(s) = &out["summary"] else { panic!() };
         let ours = s.column("objective").unwrap()[0];
         let want = refs[group].floats(&format!("{name}/objective"))[0];

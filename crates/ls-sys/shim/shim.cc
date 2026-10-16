@@ -54,7 +54,9 @@
 #include "gtb/spa.hpp"
 #include "lsm/landscape.hpp"
 #include "opt/actions.hpp"
+#include "opt/closure.hpp"
 #include "opt/cover.hpp"
+#include "opt/cut.hpp"
 #include "opt/eval.hpp"
 #include "opt/features.hpp"
 #include "opt/marxan.hpp"
@@ -1764,7 +1766,10 @@ FeaturesOut opt_features(rust::Slice<const double> values, std::int64_t layers, 
     return out;
 }
 
-SolveOut opt_solve(const MilpModel& model, const SolveSettings& settings, rust::Str method, std::int64_t n_units) {
+namespace {
+
+SolveOut solve_with(const MilpModel& model, const SolveSettings& settings, rust::Str method, std::int64_t n_units,
+                    SolveWatch* watch) {
     opt::Model m;
     m.start.assign(model.start.begin(), model.start.end());
     m.index.assign(model.index.begin(), model.index.end());
@@ -1788,6 +1793,10 @@ SolveOut opt_solve(const MilpModel& model, const SolveSettings& settings, rust::
     o.presolve = p == "off" ? opt::Presolve::off : p == "on" ? opt::Presolve::on : opt::Presolve::choose;
     o.relaxation = settings.relaxation;
     o.start.assign(settings.start.begin(), settings.start.end());
+    opt::WatchScope scope(watch == nullptr ? opt::Watch()
+                                           : opt::Watch([watch](double best, double bound, double gap, double s) {
+                                                 return solve_watch(*watch, best, bound, gap, s);
+                                             }));
     const std::string how(method);
     opt::SolveResult r;
     if (how == "covering") {
@@ -1809,12 +1818,122 @@ SolveOut opt_solve(const MilpModel& model, const SolveSettings& settings, rust::
         r = opt::solve_highs(m, o);
     }
     SolveOut out;
-    out.status = r.status;
+    out.status = scope.stopped() ? "cancelled" : r.status;
     out.has_solution = r.has_solution;
     out.x = to_rust<double>(r.x);
     out.objective = r.objective;
     out.bound = r.bound;
     out.gap = r.gap;
+    return out;
+}
+
+}  // namespace
+
+SolveOut opt_solve(const MilpModel& model, const SolveSettings& settings, rust::Str method, std::int64_t n_units) {
+    return solve_with(model, settings, method, n_units, nullptr);
+}
+
+SolveOut opt_solve_watched(const MilpModel& model, const SolveSettings& settings, rust::Str method,
+                           std::int64_t n_units, SolveWatch& watch) {
+    return solve_with(model, settings, method, n_units, &watch);
+}
+
+namespace {
+
+// a watch scope asking Rust's watch
+opt::Watch rust_watch(SolveWatch& watch) {
+    SolveWatch* w = &watch;
+    return [w](double best, double bound, double gap, double s) { return solve_watch(*w, best, bound, gap, s); };
+}
+
+template <class T, class S>
+std::vector<T> vec_of(rust::Slice<const S> s) {
+    return std::vector<T>(s.begin(), s.end());
+}
+
+}  // namespace
+
+EngineOut opt_solve_cut(rust::Slice<const double> cost, rust::Slice<const std::int32_t> status,
+                        rust::Slice<const std::int64_t> offset, rust::Slice<const std::int32_t> spindex,
+                        rust::Slice<const double> amount, rust::Slice<const double> target,
+                        rust::Slice<const std::int64_t> nb_start, rust::Slice<const std::int32_t> nb,
+                        rust::Slice<const double> nb_cost, double gap, double time_limit,
+                        rust::Slice<const std::int32_t> initial, std::int32_t threads, SolveWatch& watch) {
+    // as landschaft's opt_solve_cut (python.cpp): no fixed boundaries, 1000 evaluations at most
+    opt::marxan::Data d;
+    d.npu = static_cast<int>(cost.size());
+    d.nsp = static_cast<int>(target.size());
+    d.cost = vec_of<double>(cost);
+    d.status = vec_of<int>(status);
+    d.offset = vec_of<std::int64_t>(offset);
+    d.spindex = vec_of<int>(spindex);
+    d.amount = vec_of<double>(amount);
+    d.target = vec_of<double>(target);
+    d.prop.assign(static_cast<std::size_t>(d.nsp), 0.0);
+    d.spf.assign(static_cast<std::size_t>(d.nsp), 1.0);
+    d.targetocc.assign(static_cast<std::size_t>(d.nsp), 0);
+    d.fixedcost.assign(static_cast<std::size_t>(d.npu), 0.0);
+    d.nb_start = vec_of<std::int64_t>(nb_start);
+    d.nb = vec_of<int>(nb);
+    d.nb_cost = vec_of<double>(nb_cost);
+    check(static_cast<int>(d.status.size()) == d.npu && static_cast<int>(d.offset.size()) == d.npu + 1 &&
+              static_cast<int>(d.nb_start.size()) == d.npu + 1,
+          "inconsistent planning-unit arrays");
+    opt::cut::Options o;
+    o.gap = gap;
+    o.time_limit = std::isfinite(time_limit) ? time_limit : -1.0;
+    o.max_evaluations = 1000;
+    o.threads = std::max(1, static_cast<int>(threads));
+    const std::vector<int> init = vec_of<int>(initial);
+    opt::WatchScope scope(rust_watch(watch));
+    const opt::cut::Result r = opt::cut::solve(d, o, init);
+    EngineOut out;
+    out.status = scope.stopped() ? "cancelled" : r.status;
+    out.x = to_rust<double>(std::vector<double>(r.x.begin(), r.x.end()));
+    out.objective = r.objective;
+    out.bound = r.bound;
+    out.gap = r.gap;
+    out.evaluations = r.evaluations;
+    out.seconds = r.seconds;
+    return out;
+}
+
+EngineOut opt_solve_closure(rust::Slice<const double> cost, rust::Slice<const std::int8_t> fixed,
+                            rust::Slice<const std::int32_t> pen_i, rust::Slice<const std::int32_t> pen_j,
+                            rust::Slice<const double> pen_w, rust::Slice<const double> rhs,
+                            rust::Slice<const std::uint8_t> geq, rust::Slice<const std::int64_t> col_start,
+                            rust::Slice<const std::int32_t> col_row, rust::Slice<const double> col_val, double gap,
+                            double time_limit, std::int32_t threads, rust::Slice<const std::uint8_t> initial,
+                            SolveWatch& watch) {
+    // as landschaft's opt_solve_closure (python.cpp), without requirements
+    opt::closure::Problem q;
+    q.n = static_cast<int>(cost.size());
+    q.cost = vec_of<double>(cost);
+    q.fixed = vec_of<std::int8_t>(fixed);
+    q.pen_i = vec_of<int>(pen_i);
+    q.pen_j = vec_of<int>(pen_j);
+    q.pen_w = vec_of<double>(pen_w);
+    q.m = static_cast<int>(rhs.size());
+    q.rhs = vec_of<double>(rhs);
+    q.geq = vec_of<std::uint8_t>(geq);
+    q.col_start = vec_of<i64>(col_start);
+    q.col_row = vec_of<int>(col_row);
+    q.col_val = vec_of<double>(col_val);
+    opt::closure::Options o;
+    o.gap = gap;
+    o.time_limit = std::isfinite(time_limit) ? time_limit : -1.0;
+    o.threads = std::max(1, static_cast<int>(threads));
+    const std::vector<std::uint8_t> init = vec_of<std::uint8_t>(initial);
+    opt::WatchScope scope(rust_watch(watch));
+    const opt::closure::Result r = opt::closure::solve(q, o, init);
+    EngineOut out;
+    out.status = scope.stopped() ? "cancelled" : r.status;
+    out.x = to_rust<double>(std::vector<double>(r.z.begin(), r.z.end()));
+    out.objective = r.objective;
+    out.bound = r.bound;
+    out.gap = r.gap;
+    out.evaluations = r.evaluations;
+    out.seconds = r.seconds;
     return out;
 }
 

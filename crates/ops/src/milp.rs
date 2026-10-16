@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 
 use terraflux_ls_sys::ffi;
 
+mod engines;
 mod zones;
 pub use zones::{
     Contribution, ZoneEvaluation, ZoneFeatures, ZoneSpatial, connectivity_zones, evaluate_zones, fake_zone_targets,
@@ -477,6 +478,21 @@ pub fn resolve_targets(spec: &TargetSpec, totals: &[f64]) -> Result<Targets, Str
     })
 }
 
+/// The solver of the integer programs: HiGHS, behind landschaft's engines, or Gurobi when it is installed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Solver {
+    #[default]
+    Highs,
+    Gurobi,
+}
+
+/// How a model is solved: by which solver, with how many threads (0: the solver's choice, every core).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Engine {
+    pub solver: Solver,
+    pub threads: usize,
+}
+
 /// A compiled model, prioritizr's compile(): min or max obj x subject to A x (sense) rhs, lb <= x <= ub, x of type
 /// vtype (B binary, C continuous).
 #[derive(Debug, Clone, PartialEq)]
@@ -495,6 +511,8 @@ pub struct Model {
     pub connected: Vec<Connected>,
     /// With zones: the planning units (in every zone; the zones' engines take them), else 0.
     pub zone_units: usize,
+    /// The solver that solves it.
+    pub engine: Engine,
 }
 
 /// One set of node columns that must form one patch, as compiled by `add_connected`: the first columns of its
@@ -561,6 +579,7 @@ impl Builder {
             col_ids: self.col_ids,
             connected: self.connected,
             zone_units: 0,
+            engine: Engine::default(),
         }
     }
 }
@@ -1264,15 +1283,43 @@ pub fn solve_from(
     time_limit: f64,
     start: &[f64],
 ) -> Result<ffi::SolveOut, String> {
-    if m.connected.is_empty() {
-        highs(m, n_units, gap, time_limit, false, start)
-    } else {
-        solve_connected(m, n_units, gap, time_limit, start)
+    if !m.connected.is_empty() {
+        return solve_connected(m, n_units, gap, time_limit, start);
     }
+    // models with pair terms on landschaft's cut and closure engines first, as landschaft solves them
+    if m.engine.solver == Solver::Highs
+        && m.zone_units == 0
+        && let Some(r) =
+            engines::highs_or_cut(m, n_units, gap, time_limit, start, |left, s| highs(m, n_units, gap, left, false, s))
+    {
+        return match r {
+            Ok(r) if r.status == "cancelled" => Err(STOPPED.into()),
+            r => r,
+        };
+    }
+    highs(m, n_units, gap, time_limit, false, start)
 }
 
-/// HiGHS behind landschaft's covering and wide engines (the relaxation: the LP).
+/// HiGHS behind landschaft's covering and wide engines, or Gurobi when the model asks for it (the relaxation: the
+/// LP).
 fn highs(
+    m: &Model,
+    n_units: usize,
+    gap: f64,
+    time_limit: f64,
+    relaxation: bool,
+    start: &[f64],
+) -> Result<ffi::SolveOut, String> {
+    let out = if m.engine.solver == Solver::Gurobi {
+        crate::gurobi::solve(m, gap, time_limit, relaxation, start, m.engine.threads)
+    } else {
+        highs_only(m, n_units, gap, time_limit, relaxation, start)
+    }?;
+    if out.status == "cancelled" { Err(STOPPED.into()) } else { Ok(out) }
+}
+
+/// HiGHS behind landschaft's engines, this thread's watch told how it goes.
+fn highs_only(
     m: &Model,
     n_units: usize,
     gap: f64,
@@ -1295,18 +1342,112 @@ fn highs(
         offset: 0.0,
     };
     let settings = ffi::SolveSettings { gap, time_limit, presolve: "choose".into(), relaxation, start: start.to_vec() };
+    let call = |how: &str, n: i64| match current_watch() {
+        Some(f) => ffi::opt_solve_watched(&model, &settings, how, n, &mut terraflux_ls_sys::SolveWatch(f)),
+        None => ffi::opt_solve(&model, &settings, how, n),
+    };
     if m.zone_units > 0 {
         // with zones: minimum sets on the zones engine, models with few columns besides the units' on the zones
         // wide engine, or HiGHS (also when a model is not of the engine's form after all)
         let how = zone_method(m);
         if how != "highs"
-            && let Ok(r) = ffi::opt_solve(&model, &settings, how, m.zone_units as i64)
+            && let Ok(r) = call(how, m.zone_units as i64)
         {
             return Ok(r);
         }
-        return ffi::opt_solve(&model, &settings, "highs", 0).map_err(|e| e.what().to_string());
+        return call("highs", 0).map_err(|e| e.what().to_string());
     }
-    ffi::opt_solve(&model, &settings, method(m, n_units), n_units as i64).map_err(|e| e.what().to_string())
+    call(method(m, n_units), n_units as i64).map_err(|e| e.what().to_string())
+}
+
+/// What a solve that stopped because the run was stopped fails with.
+pub const STOPPED: &str = "stopped";
+
+/// How a solve goes, as its solver tells it: the best solution's objective, the bound, the gap (NaN while there is
+/// no solution yet) and the seconds since it began.
+#[derive(Debug, Clone, Copy)]
+pub struct SolveProgress {
+    pub best: f64,
+    pub bound: f64,
+    pub gap: f64,
+    pub seconds: f64,
+}
+
+type WatchFn = dyn FnMut(&SolveProgress) -> bool;
+
+/// A watch as the solvers call it: (best, bound, gap, seconds) to whether to go on.
+pub(crate) type EngineWatch = dyn FnMut(f64, f64, f64, f64) -> bool;
+
+thread_local! {
+    static WATCH: std::cell::Cell<Option<*mut WatchFn>> = const { std::cell::Cell::new(None) };
+}
+
+/// `f` run with the solves it makes on this thread watched: `watch` told how each goes a few times a second, and
+/// false from it stops the solve (which fails with [`STOPPED`]).
+pub fn watching<R>(watch: &mut dyn FnMut(&SolveProgress) -> bool, f: impl FnOnce() -> R) -> R {
+    struct Restore(Option<*mut WatchFn>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            WATCH.with(|w| w.set(self.0));
+        }
+    }
+    let ptr: *mut (dyn FnMut(&SolveProgress) -> bool + '_) = watch;
+    // SAFETY: the pointer is this thread's only while `f` runs, `watch` borrowed meanwhile; `Restore` takes it
+    // back before `watch` is given back, whatever happens
+    let ptr: *mut WatchFn = unsafe { std::mem::transmute(ptr) };
+    let _restore = Restore(WATCH.with(|w| w.replace(Some(ptr))));
+    f()
+}
+
+/// A node's progress from its solves: the gap proved as it falls to the gap asked for (the share done on a log
+/// scale, from the first gap proved), the best plan and the bound; false when the run was stopped.
+pub fn reporting<'c>(ctx: &'c mut crate::Ctx<'_>, target: f64) -> impl FnMut(&SolveProgress) -> bool + 'c {
+    let mut first: Option<f64> = None;
+    let mut told = false;
+    move |s: &SolveProgress| {
+        // (an engine's loop asking only whether to go on: what was said stays)
+        if told && !s.best.is_finite() && !s.bound.is_finite() {
+            return !ctx.stopped();
+        }
+        told = true;
+        // (the cut engine tells its best plan and bound: the gap is theirs)
+        let s = &SolveProgress {
+            gap: if s.gap.is_finite() || !s.best.is_finite() || !s.bound.is_finite() {
+                s.gap
+            } else {
+                ((s.best - s.bound) / s.best.abs().max(1e-10)).max(0.0)
+            },
+            ..*s
+        };
+        let num = |x: f64| if x.abs() >= 1e5 { format!("{x:.0}") } else { format!("{x:.4}") };
+        let time = if s.seconds.is_finite() { format!(" · {:.0} s", s.seconds) } else { String::new() };
+        if !s.gap.is_finite() {
+            let bound = if s.bound.is_finite() { format!(" · bound {}", num(s.bound)) } else { String::new() };
+            return ctx.progress(None, format!("looking for a first solution{bound}{time}"));
+        }
+        // (a gap of 0 asked: the bar full at 0.01 %)
+        let aim = target.max(1e-4);
+        let g0 = *first.get_or_insert(s.gap.max(aim * 1.0001));
+        let fraction =
+            if s.gap <= aim || g0 <= aim { 1.0 } else { ((g0 / s.gap).ln() / (g0 / aim).ln()).clamp(0.0, 1.0) };
+        ctx.progress(
+            Some(fraction),
+            format!(
+                "gap {:.2}% of {:.2}% · best {} · bound {}{time}",
+                s.gap * 100.0,
+                target * 100.0,
+                num(s.best),
+                num(s.bound)
+            ),
+        )
+    }
+}
+
+/// This thread's watch as a solver calls it: (best, bound, gap, seconds) to whether to go on.
+pub(crate) fn current_watch() -> Option<Box<EngineWatch>> {
+    let p = WATCH.with(|w| w.get())?;
+    // SAFETY: called only on this thread while `watching` runs (the solvers call it from the solving thread)
+    Some(Box::new(move |best, bound, gap, seconds| unsafe { (*p)(&SolveProgress { best, bound, gap, seconds }) }))
 }
 
 /// landschaft's choice of engine with zones: zones (a minimum set: target rows and one row per unit over the units'
@@ -1693,6 +1834,7 @@ impl Model {
             // the plain MIP of the exact model (no cuts on the columns moved)
             connected: Vec::new(),
             zone_units: 0,
+            engine: self.engine,
         }
     }
 }

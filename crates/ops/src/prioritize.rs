@@ -2623,27 +2623,38 @@ impl Operator for Optimize {
         .param(PortSpec::optional("remove_duplicates", Type::Bool, "the shuffle portfolio: distinct solutions (true)"))
         .param(PortSpec::optional("gap", Type::Number, "the relative optimality gap (default 0.1, as prioritizr)"))
         .param(PortSpec::optional("time_limit", Type::Number, "seconds (default none)"))
+        .param(
+            PortSpec::optional(
+                "solver",
+                Type::Text,
+                "highs (default) or gurobi: Gurobi when it is installed and licensed (prioritizr's                  add_gurobi_solver), else HiGHS with a warning",
+            )
+            .choices(["highs", "gurobi"]),
+        )
+        .param(PortSpec::optional("threads", Type::Number, "gurobi: the threads it uses (default every core but one, as landschaft)"))
     }
 
-    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let node = args.node;
         let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
         let p = problem_of(args)?;
-        let (model, t) = milp::compile(&p).map_err(err)?;
+        let (mut model, t) = milp::compile(&p).map_err(err)?;
+        model.engine = engine_of(ctx, args)?;
         let gap: f64 = args.param("gap", 0.1)?;
         let time_limit: f64 = args.opt_param("time_limit")?.unwrap_or(f64::INFINITY);
         let n = p.units.n();
         let portfolio = portfolio_of(args)?;
-        let rs = match &portfolio {
-            Some(pf) => milp::solve_portfolio(&model, n, pf, gap, time_limit).map_err(err)?,
+        // the solves' progress shown with the node, and stopped with the run
+        let rs = milp::watching(&mut milp::reporting(ctx, gap), || match &portfolio {
+            Some(pf) => milp::solve_portfolio(&model, n, pf, gap, time_limit).map_err(err),
             None => {
                 let r = milp::solve(&model, n, gap, time_limit).map_err(err)?;
                 if !r.has_solution {
                     return Err(err(format!("no solution: {}", r.status)));
                 }
-                vec![r]
+                Ok(vec![r])
             }
-        };
+        })?;
         let u = &p.units;
         let (nu, nz, zoned) = (u.units(), u.nz(), u.zoned());
         let xs: Vec<&[f64]> = rs.iter().map(|r| &r.x[..n]).collect();
@@ -3008,6 +3019,23 @@ fn solution_of(args: &Args, u: &milp::Units) -> Result<Vec<f64>> {
         return Err(err("the solution map is not on the cost's grid"));
     }
     Ok(u.cells.iter().map(|&c| finite(sol.data[c])).collect())
+}
+
+/// The solver a node asks for (`solver`, `threads`): Gurobi when it can solve here, else HiGHS and a warning why.
+fn engine_of(ctx: &mut Ctx, args: &Args) -> Result<milp::Engine> {
+    let threads: usize = args.param("threads", 0)?;
+    let solver = match args.param("solver", "highs".to_string())?.as_str() {
+        "highs" => milp::Solver::Highs,
+        "gurobi" => match crate::gurobi::available() {
+            Ok(_) => milp::Solver::Gurobi,
+            Err(why) => {
+                ctx.warn(format!("solved by HiGHS: {why}"));
+                milp::Solver::Highs
+            }
+        },
+        other => return Err(Error::msg(format!("node {:?}: no solver {other:?} (highs or gurobi)", args.node))),
+    };
+    Ok(milp::Engine { solver, threads })
 }
 
 struct Evaluate;

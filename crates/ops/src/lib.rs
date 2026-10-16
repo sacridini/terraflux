@@ -38,6 +38,7 @@ pub mod futures_tools;
 pub mod glm;
 pub mod gtb_palettes;
 pub mod gtn;
+pub mod gurobi;
 pub mod h3;
 pub mod landscape;
 pub mod legend;
@@ -102,16 +103,60 @@ impl From<terraflux_ls_sys::Error> for Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// What an operator may report while it runs.
-#[derive(Default)]
-pub struct Ctx {
-    /// Warnings (e.g. an allocation that could not meet its demand).
-    pub warnings: Vec<String>,
+/// How far an operator is, as it tells it: the share done (none when it cannot say) and what it is doing.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Progress {
+    pub fraction: Option<f64>,
+    pub text: String,
 }
 
-impl Ctx {
+/// What an operator is told while it runs: given how far it is (or nothing, only asked), whether to go on.
+pub type Watch<'a> = &'a mut dyn FnMut(Option<&Progress>) -> bool;
+
+/// What an operator may report while it runs, and how it learns that the run was stopped.
+#[derive(Default)]
+pub struct Ctx<'a> {
+    /// Warnings (e.g. an allocation that could not meet its demand).
+    pub warnings: Vec<String>,
+    watch: Option<Watch<'a>>,
+    stopped: bool,
+}
+
+impl<'a> Ctx<'a> {
+    /// A context whose progress `watch` is told (the engine's, which shows it and says when the run is stopped).
+    pub fn watched(watch: Watch<'a>) -> Self {
+        Ctx { warnings: Vec::new(), watch: Some(watch), stopped: false }
+    }
+
     pub fn warn(&mut self, m: impl Into<String>) {
         self.warnings.push(m.into());
+    }
+
+    /// Say how far it is (shown with the node); false when the run was stopped: the operator should return (an
+    /// error is fine: the run reports it stopped).
+    pub fn progress(&mut self, fraction: Option<f64>, text: impl Into<String>) -> bool {
+        let p = Progress { fraction: fraction.map(|f| f.clamp(0.0, 1.0)), text: text.into() };
+        self.tell(Some(&p))
+    }
+
+    /// Whether the run was stopped (cheap: a long loop may ask at every turn).
+    pub fn stopped(&mut self) -> bool {
+        !self.tell(None)
+    }
+
+    /// Whether the run was stopped while this operator ran.
+    pub fn was_stopped(&self) -> bool {
+        self.stopped
+    }
+
+    fn tell(&mut self, p: Option<&Progress>) -> bool {
+        if !self.stopped
+            && let Some(w) = self.watch.as_mut()
+            && !w(p)
+        {
+            self.stopped = true;
+        }
+        !self.stopped
     }
 }
 

@@ -16,8 +16,27 @@ minor versions.
   than its texts), double-click the edge to bring it back; Arrange's columns and the place of a new node follow
   the widths, and the column of what a scope reads is as wide as its longest name; a file's name at the bottom
   of a box is cut to the box's width.
+- `prioritize.optimize` solves with Gurobi where it is installed and licensed (`solver = "gurobi"`, `threads`), as
+  prioritizr's `add_gurobi_solver`: its library loaded when a node asks for it (found by `GUROBI_HOME`, the
+  installers' folders or `TERRAFLUX_GUROBI`), nothing of Gurobi needed to build or run Terraflux; without it, HiGHS
+  solves and a warning says why.
+- How far a node is, as its operator tells it, in a bar at the top of the window: the prioritizations' gap proved
+  falling to the gap asked for, with the best plan and the bound. **Stop** interrupts a node in the middle: the
+  solvers stop (HiGHS, landschaft's engines and Gurobi), and a node that cannot stop in the middle is left to end
+  in the background a second later, its results not shown. Operators are given the means (`Ctx::progress`,
+  `Ctx::stopped`).
+- `terraflux mcp`: run_model runs in a thread of its own, so the other tools (open_in_app...) answer while a model
+  runs; it tells the client how it goes (progress notifications: the nodes, the solvers' gap) and stops when the
+  client cancels it.
 - An output of a model writes one layer of a stack alone with `layer` (`[outputs.importance]`, `from =
   "evaluation.ferrier"`, `layer = "total"`), and `terraflux mcp`'s `set_output` takes it.
+
+### Changed
+- `prioritize.optimize` solves as landschaft does: a minimum set with boundary penalties or symmetric
+  connectivity rewards on landschaft's cut engine (a Lagrangian bound by minimum cuts, repaired selections), a
+  budgeted minimisation with pair penalties on its closure engine, then HiGHS's MIP from their plan when the gap is
+  not reached and the model has at most 50,000 columns. A minimum set of 49 species with a boundary penalty and
+  locked-in areas on 85,732 cells: from 45 minutes (HiGHS's MIP alone) to 4 seconds, the same plan as landschaft.
 
 ## [0.82.0] - 2026-10-16
 

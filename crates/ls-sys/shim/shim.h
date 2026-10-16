@@ -87,6 +87,7 @@ struct BioCounts;
 struct BioJoin;
 struct BioClusterOut;
 struct ClusterRecalc;
+struct SolveWatch;
 struct NetworkOut;
 struct CsAdvancedOut;
 struct EdgesOut;
@@ -382,6 +383,22 @@ ProxirrOut proxirr_beta_gamma(rust::Slice<const std::int64_t> start, rust::Slice
 // unit of each cell, -1 none), and a model solved by HiGHS (method: highs, covering or wide)
 FeaturesOut opt_features(rust::Slice<const double> values, std::int64_t layers, rust::Slice<const std::int64_t> unit);
 SolveOut opt_solve(const MilpModel& model, const SolveSettings& settings, rust::Str method, std::int64_t n_units);
+SolveOut opt_solve_watched(const MilpModel& model, const SolveSettings& settings, rust::Str method,
+                           std::int64_t n_units, SolveWatch& watch);
+struct EngineOut;
+EngineOut opt_solve_cut(rust::Slice<const double> cost, rust::Slice<const std::int32_t> status,
+                        rust::Slice<const std::int64_t> offset, rust::Slice<const std::int32_t> spindex,
+                        rust::Slice<const double> amount, rust::Slice<const double> target,
+                        rust::Slice<const std::int64_t> nb_start, rust::Slice<const std::int32_t> nb,
+                        rust::Slice<const double> nb_cost, double gap, double time_limit,
+                        rust::Slice<const std::int32_t> initial, std::int32_t threads, SolveWatch& watch);
+EngineOut opt_solve_closure(rust::Slice<const double> cost, rust::Slice<const std::int8_t> fixed,
+                            rust::Slice<const std::int32_t> pen_i, rust::Slice<const std::int32_t> pen_j,
+                            rust::Slice<const double> pen_w, rust::Slice<const double> rhs,
+                            rust::Slice<const std::uint8_t> geq, rust::Slice<const std::int64_t> col_start,
+                            rust::Slice<const std::int32_t> col_row, rust::Slice<const double> col_val, double gap,
+                            double time_limit, std::int32_t threads, rust::Slice<const std::uint8_t> initial,
+                            SolveWatch& watch);
 
 // prioritizr's evaluation of solutions (opt::eval): the boundary of a solution (lower: the strictly lower
 // triangle of the boundary matrix in compressed columns), Ferrier's scores (rij: features x units in compressed

@@ -4209,6 +4209,7 @@ dependencies = [
  "geo",
  "h3o",
  "hex",
+ "libloading",
  "rayon",
  "regex",
  "robust",

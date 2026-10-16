@@ -771,6 +771,7 @@ impl Plan {
             col_ids: vec!["x".into(); ncol],
             connected: Vec::new(),
             zone_units: 0,
+            engine: milp::Engine::default(),
         };
         let s = milp::solve(&m, 0, 0.0, time_limit)?;
         if s.status == "infeasible" {

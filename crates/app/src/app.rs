@@ -440,6 +440,10 @@ pub struct Session {
     loading: Option<Receiver<Loaded>>,
     pub run: Option<Run>,
     pub progress: Option<(String, usize, usize)>,
+    /// How far the node running is, as its operator tells it (a solver's gap...).
+    pub task: Option<(String, terraflux_ops::Progress)>,
+    /// When Stop was pressed, while the run stops.
+    pub stopping: Option<Instant>,
     pub node: String,
     /// The map the simulation starts from, then the map of every step; the cells of each class of each.
     pub maps: Vec<Map>,
@@ -579,6 +583,8 @@ impl Session {
             loading: Some(rx),
             run: None,
             progress: None,
+            task: None,
+            stopping: None,
             node: String::new(),
             maps: Vec::new(),
             counts: Vec::new(),
@@ -914,8 +920,10 @@ impl Session {
                     if self.status.insert(top, NodeStatus::Running) != Some(NodeStatus::Running) {
                         self.status_rev += 1;
                     }
+                    self.task = None;
                     self.node = at;
                 }
+                Message::Progress { at, progress } => self.task = Some((at, progress)),
                 Message::Finished { at, cached } => {
                     // a plot that ran: its map tab, opened once
                     let plot = self.model.nodes.iter().any(|n| n.id == at && n.op == "view.plot");
@@ -954,8 +962,18 @@ impl Session {
                 self.quiet.push(id);
             }
         }
+        // stopped, and still busy in a node that cannot stop in the middle a second later: let it end in the
+        // background, its results not shown
+        if done.is_none() && self.stopping.is_some_and(|t| t.elapsed() > Duration::from_secs(1)) {
+            done = Some(Err(format!("stopped (the node {} goes on in the background until it ends)", self.node)));
+            if let Some(run) = self.run.take() {
+                run.detach();
+            }
+        }
         if let Some(r) = done {
             self.run = None;
+            self.task = None;
+            self.stopping = None;
             self.elapsed = self.started.map(|t| t.elapsed());
             self.status.retain(|_, st| *st != NodeStatus::Running);
             self.status_rev += 1;
@@ -1361,10 +1379,11 @@ impl TerrafluxApp {
                 {
                     s.start(Box::new(move || ctx.request_repaint()));
                 }
-                if ui.add_enabled(s.running(), egui::Button::new("Stop")).clicked()
+                if ui.add_enabled(s.running() && s.stopping.is_none(), egui::Button::new("Stop")).clicked()
                     && let Some(r) = &s.run
                 {
                     r.stop();
+                    s.stopping = Some(Instant::now());
                 }
                 ui.separator();
                 ui.label(RichText::new(s.title()).strong());
@@ -1382,7 +1401,10 @@ impl TerrafluxApp {
                             .text(RichText::new(format!("{at}: step {step} of {of}")).color(theme::on_accent())),
                     );
                 }
-                if s.running() {
+                if s.stopping.is_some() {
+                    ui.spinner();
+                    ui.label(RichText::new("stopping...").weak());
+                } else if s.running() {
                     ui.spinner();
                     ui.label(RichText::new(&s.node).weak());
                 } else if let Some(e) = s.elapsed {

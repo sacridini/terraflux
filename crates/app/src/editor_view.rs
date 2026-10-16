@@ -225,6 +225,8 @@ pub struct EditorState {
     pub text: bool,
     /// A node being renamed (ctrl+R): its id, the name typed, whether the field was given the focus.
     pub renaming: Option<(String, String, bool)>,
+    /// The node running and its share done, as its operator tells it (a line along its bottom).
+    pub progress: Option<(String, f32)>,
 }
 
 impl EditorState {
@@ -1355,6 +1357,18 @@ pub fn show(
                     painter.circle_filled(c, (6.0 * cam.zoom).max(3.0), glow);
                 }
             }
+        }
+        // its share done, a line along its bottom
+        if let Some((id, f)) = &st.progress
+            && let Some(&i) = scene.index.get(id.as_str())
+        {
+            let b = scene.boxes[i].rect;
+            let (l, r, y) = (screen(b.left_bottom()), screen(b.right_bottom()), screen(b.left_bottom()).y);
+            let h = (3.0 * cam.zoom).max(2.0);
+            let full = egui::Rect::from_min_max(egui::pos2(l.x + 2.0, y - h - 2.0), egui::pos2(r.x - 2.0, y - 2.0));
+            painter.rect_filled(full, h / 2.0, v.faint_bg_color);
+            let done = egui::Rect::from_min_size(full.min, egui::vec2(full.width() * f.clamp(0.0, 1.0), h));
+            painter.rect_filled(done, h / 2.0, crate::theme::accent());
         }
     }
     // a connection being drawn

@@ -298,6 +298,25 @@ under a second: the solver stopped as soon as it could prove 10 % and its first 
 The last fraction of a percent takes most of the time: proving the optimum took 98 s for 0.15 % of the cost. For
 exploring, 1 % is plenty; for a final plan, ask for 0.1 % or less and report the gap proved.
 
+### The solver
+
+HiGHS comes with Terraflux, with landschaft's engines in front of it, exactly as landschaft solves the same
+problem: a minimum set with boundary penalties (or symmetric connectivity rewards) goes first to the **cut
+engine**, which bounds the cost with minimum cuts and repairs selections until the gap asked for is proved, and to
+HiGHS's MIP only when the gap is not reached and the model is small; a budgeted minimisation with pair penalties
+goes to the closure engine. A minimum set of 49 species with a boundary penalty on 85,000 cells takes seconds
+this way, where HiGHS's MIP alone takes the better part of an hour.
+
+Where **Gurobi** is installed with a licence (academic licences are free), `solver = "gurobi"` solves the model
+with it instead, as prioritizr's `add_gurobi_solver` does, and `threads` sets how many threads it uses (every core
+but one by default). Terraflux needs nothing of Gurobi to run: it finds Gurobi's library when a node asks for it,
+by `GUROBI_HOME` (which Gurobi's installer sets), the usual folders of an installation, or `TERRAFLUX_GUROBI` (the
+library's file). When it cannot find the library or the licence, the node is solved by HiGHS and its warning says
+why. Both prove the gap asked for; within it, they may stop at different plans.
+
+While a node solves, the bar at the top of the window shows the gap proved falling towards the gap asked for, the
+best plan and the bound; **Stop** interrupts the solver.
+
 ### Decisions
 
 `decisions = "proportion"` lets the solver take any share of a unit. On rasters, a share of a cell rarely makes sense
