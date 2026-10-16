@@ -1119,9 +1119,9 @@ pub fn add_files(s: &mut Session, r: &Registry, files: &[PathBuf]) -> Option<Pat
     model
 }
 
-/// A file dragged from the Files pane (`egui`'s drag and drop).
+/// The files dragged from the Files pane (`egui`'s drag and drop).
 #[derive(Debug, Clone)]
-pub struct DraggedFile(pub PathBuf);
+pub struct DraggedFile(pub Vec<PathBuf>);
 
 fn library(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library) {
     theme::section(ui, "Data");
@@ -1415,9 +1415,13 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
             if ui.input(|i| i.pointer.any_released())
                 && let Some(f) = egui::DragAndDrop::take_payload::<DraggedFile>(ui.ctx())
             {
+                // a node each, one under the other from where they are let go
                 let at = s.editor.graph_at(p).map(|q| [q.x - crate::editor_view::WIDTH / 2.0, q.y - 19.0]);
-                if let Err(e) = add_file(s, r, &f.0, at) {
-                    s.editor.message = Some(e);
+                for (k, file) in f.0.iter().enumerate() {
+                    let at = at.map(|a| [a[0], a[1] + 150.0 * k as f32]);
+                    if let Err(e) = add_file(s, r, file, at) {
+                        s.editor.message = Some(e);
+                    }
                 }
             }
         }

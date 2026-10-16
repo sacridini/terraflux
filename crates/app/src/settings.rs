@@ -42,8 +42,10 @@ pub struct Settings {
     pub lend_code: String,
     pub lend_threads: Option<usize>,
     pub lend_idle: Option<f64>,
-    /// The folder the Files pane shows.
+    /// The folder the Files pane shows, the folders pinned to its places, the folders it showed last.
     pub files_dir: Option<PathBuf>,
+    pub files_pinned: Vec<PathBuf>,
+    pub files_recent: Vec<PathBuf>,
     /// On the model's canvas, the nodes of data (the model's inputs, what reads, writes, stacks or plots) with a
     /// header in the colour of the type they give.
     pub node_colours: bool,
@@ -64,6 +66,8 @@ impl Default for Settings {
             lend_threads: None,
             lend_idle: None,
             files_dir: None,
+            files_pinned: Vec::new(),
+            files_recent: Vec::new(),
             node_colours: false,
         }
     }

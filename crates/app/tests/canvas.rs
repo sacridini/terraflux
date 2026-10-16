@@ -472,7 +472,10 @@ fn files_become_nodes_and_rasters_join_a_stack_by_a_connection() {
     let at = canvas.center() + egui::vec2(0.0, 150.0);
     h.hover_at(at);
     h.run_steps(1);
-    egui::DragAndDrop::set_payload(&h.ctx, terraflux_app::builder::DraggedFile(inputs.join("sibuyan_drivers.tif")));
+    egui::DragAndDrop::set_payload(
+        &h.ctx,
+        terraflux_app::builder::DraggedFile(vec![inputs.join("sibuyan_drivers.tif")]),
+    );
     h.run_steps(1);
     h.drag_at(at);
     h.run_steps(1);

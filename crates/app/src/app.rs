@@ -246,6 +246,11 @@ impl egui_dock::TabViewer for Panes<'_> {
         self.app.pane(ui, *tab);
     }
 
+    fn scroll_bars(&self, tab: &Pane) -> [bool; 2] {
+        // (the Files pane scrolls its own list, what is chosen described at its bottom)
+        [*tab != Pane::Files; 2]
+    }
+
     fn context_menu(&mut self, ui: &mut Ui, tab: &mut Pane, _path: egui_dock::NodePath) {
         if self.detached {
             if ui.button("Back to the main window").clicked() {

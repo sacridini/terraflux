@@ -7,10 +7,22 @@ minor versions.
 ## [Unreleased]
 
 ### Added
-- A Files pane, in a tab beside the operators': a folder's rasters, vectors and models (every file if asked); a
-  file dragged to the model's canvas is a node that reads it where it is let go, a double click adds it after the
-  node selected, a right click reads a folder of rasters as one stack, a model is opened. The folder is kept
-  between sessions.
+- A Files pane, in a tab beside the operators', a file manager for data:
+  - back, forward and up (alt+arrows, the mouse's side buttons), the path's folders as buttons (a click on the
+    bar, or ctrl+L, to type a path, the folders that match offered, tab completing), places (folders pinned with
+    the star, the model's, home, documents, desktop, downloads, the drives, the folders seen last);
+  - a folder's rasters, vectors and models (every file if asked; hidden files and the files that go with others
+    left out), with their icons, size and age, sorted by any column (names as people sort them: `map2` before
+    `map10`), filtered by a part of the name or a pattern (`*.tif`); a folder opens in place by its arrow;
+  - a click chooses, ctrl+click one more, shift+click a range; the arrows, right and left (a folder opened or
+    closed in place) and the first letters of a name from the keyboard;
+  - the raster or vector features chosen described under the list (a picture of them, their size, coordinate
+    system, cells, bands, type, no-data; features, kinds, attributes, bounds), read in a thread;
+  - what is chosen dragged to the model's canvas is a node each that reads it, where it is let go (several at
+    once); enter or a double click adds it after the node selected; a right click reads a folder of rasters as
+    one stack, opens a model, copies the path, shows the file in the system's file manager.
+
+  The folder shown, the folders pinned and seen last are kept between sessions.
 - Rasters and vectors dragged from the system's file manager onto the main window or a window of its own: a node
   each that reads it (`raster.read` or `vector.read` by the extension); a model dropped is opened.
 - A node that takes any inputs (`stack.of`'s maps, a group's values) shows a place for one more on the canvas: a

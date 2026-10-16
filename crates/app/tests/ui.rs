@@ -1018,7 +1018,42 @@ fn the_operators_drawer_and_windows_of_their_own() {
     h.state_mut().focus(Pane::Files);
     h.run_steps(3);
     assert!(h.query_by_label_contains("sibuyan_landuse.tif").is_some(), "the folder's rasters");
+    // a raster chosen: described below the list (once read, in a thread)
+    h.get_by_label("sibuyan_landuse.tif").click();
+    let t = Instant::now();
+    while h.query_by_label("cell size").is_none() {
+        assert!(t.elapsed() < Duration::from_secs(60), "the raster described");
+        h.step();
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    h.run_steps(2);
     shot(&mut h, "20-files");
+    // another with ctrl: both chosen; enter adds a node for each
+    h.get_by_label("pie_landuse.tif").click_modifiers(egui::Modifiers::COMMAND);
+    h.run_steps(2);
+    assert!(h.query_by_label_contains("2 chosen").is_some());
+    let before = h.state().session.as_ref().unwrap().source.nodes.len();
+    h.key_press(egui::Key::Enter);
+    h.run_steps(2);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        assert_eq!(s.source.nodes.len(), before + 2);
+        let paths: Vec<&str> = s.source.nodes[before..].iter().filter_map(|n| n.params["path"].as_str()).collect();
+        assert!(
+            paths.iter().any(|p| p.ends_with("pie_landuse.tif"))
+                && paths.iter().any(|p| p.ends_with("sibuyan_landuse.tif"))
+        );
+    }
+    // alt+up: the folder above, the folder come from chosen (enter: into it again); alt+left: back
+    h.key_press_modifiers(egui::Modifiers::ALT, egui::Key::ArrowUp);
+    h.run_steps(2);
+    assert!(h.query_all_by_label("inputs").count() > 0 && h.query_by_label("sibuyan_landuse.tif").is_none());
+    h.key_press(egui::Key::Enter);
+    h.run_steps(2);
+    assert!(h.query_by_label("sibuyan_landuse.tif").is_some(), "into the folder chosen");
+    h.key_press_modifiers(egui::Modifiers::ALT, egui::Key::ArrowLeft);
+    h.run_steps(2);
+    assert!(h.query_by_label("sibuyan_landuse.tif").is_none(), "back to the folder above");
     h.state_mut().focus(Pane::Operators);
     h.run_steps(2);
     h.event(egui::Event::PointerMoved(egui::pos2(1.0, 300.0)));
