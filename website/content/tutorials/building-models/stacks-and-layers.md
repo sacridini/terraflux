@@ -1,10 +1,10 @@
 ---
 title: Stacks and layers
-description: Keep many maps of one grid together as a stack of named layers, build your own with stack.of, replace a layer with stack.set, read a folder or a time series, and give a stack's layers the meaning of classes.
+description: Keep many maps of one grid together as a stack of named layers, build your own with stack.of, replace a layer with stack.set, take one out with stack.layer, read a folder or a time series, and give a stack's layers the meaning of classes.
 order: 20
 level: beginner
 time: 35 min
-ops: [stack.of, stack.set, stack.classes, raster.read, raster.write, map.calc, dynamic.distance_to]
+ops: [stack.of, stack.set, stack.layer, stack.classes, raster.read, raster.write, map.calc, dynamic.distance_to]
 ---
 
 Many analyses need several maps at once: the drivers of a land change model, the species of a prioritization,
@@ -233,6 +233,45 @@ the map of the step before and puts it into the stack under the name the fitted 
 the new distance without knowing anything changed. The [Loops](../loops/) tutorial builds such a loop, and
 [[dynamic.share_of]] is the other common dynamic driver (the share of a class around each cell).
 
+## Take one layer out: stack.layer
+
+[[stack.layer]] gives one layer of a stack as a map, by its name or its number from 0: a band of rasters read by
+[[raster.read]], a layer of a stack an operator made, a step of a loop's series (1, 2...). Names that are numbers
+work here too (`"1997"`, a class's `"3"`), which an expression cannot reach. It is how a stack that an operator
+gives becomes the one map you write or pass on: [[prioritize.evaluate]]'s `ferrier` is Ferrier's irreplaceability
+of every feature and their `total`, and only the total is wanted.
+
+```tfgraph
+#! caption: The 2011 band of the time series as a map, without a model input of its own.
+#! highlight: y2011
+format = "terraflux/1"
+
+[[nodes]]
+id = "series"
+op = "raster.read"
+params = { path = "landuse.tif" }
+
+[[nodes]]
+id = "y2011"
+op = "stack.layer"
+inputs = { stack = "series.raster" }
+params = { layer = "2011" }
+
+[outputs.landuse_2011]
+from = "y2011.map"
+```
+
+To write one layer as an output of the model, no node is needed: `layer` in the output does the same.
+
+```toml
+[outputs.importance]
+from = "evaluation.ferrier"
+layer = "total"
+```
+
+In the application, to see the layers of a stack is no work at all: show the output and step through its layers
+with the arrows or the slider under the map.
+
 ## A folder as a stack
 
 Data often arrive as one file per date, per tile or per species. [[raster.read]] reads a folder, or a pattern
@@ -398,8 +437,8 @@ which were updated during a simulation.
   and leaves the old one, which the model goes on reading.
 - **Expecting the connection order in stack.of.** The layers are ordered by name. If a program outside
   Terraflux reads the file by band number, check the order.
-- **Numbers as names.** `"1997"`, `"0"` and `"1"` cannot be reached as `stack.layer` in an expression; read
-  the band as a map or rename the layers. In [[stack.of]], an input named by a number (`2`, `1_to_2`) also gives
+- **Numbers as names.** `"1997"`, `"0"` and `"1"` cannot be reached as `stack.layer` in an expression; take
+  the layer out with [[stack.layer]], read the band as a map or rename the layers. In [[stack.of]], an input named by a number (`2`, `1_to_2`) also gives
   its layer the meaning of a class or a transition (above).
 - **Unnamed bands.** A file written without band descriptions gives layers `"0"`, `"1"`...; an operator that
   looks for `slope` will not find it. Name the bands when you write them, or build the stack with [[stack.of]].
@@ -415,7 +454,7 @@ which were updated during a simulation.
 - [Map algebra from scratch](../map-algebra/): expressions over maps and stack layers.
 - [Loops](../loops/): carry a map and a stack along a simulation, with a driver updated at every step.
 - [Batch processing](../../large-data/batch-processing/): the same analysis on every file of a folder.
-- The operator reference: [[stack.of]], [[stack.set]], [[stack.classes]], [[raster.read]], [[raster.write]].
+- The operator reference: [[stack.of]], [[stack.set]], [[stack.layer]], [[stack.classes]], [[raster.read]], [[raster.write]].
 
 ## References
 

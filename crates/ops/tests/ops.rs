@@ -64,6 +64,32 @@ fn stacks_by_name_class_and_transition() {
 }
 
 #[test]
+fn a_layer_of_a_stack_by_name_or_number() {
+    let g = Arc::new(Grid::new(2, 1));
+    let s = Value::Stack(Stack {
+        grid: g.clone(),
+        keys: vec![Key::Name("forest".into()), Key::Class(3.0), Key::Name("total".into())],
+        layers: vec![Arc::new(vec![1.0, 2.0]), Arc::new(vec![3.0, 4.0]), Arc::new(vec![5.0, 6.0])],
+    });
+    let layer = |v: &Value, l: serde_json::Value| {
+        run("stack.layer", vec![("stack", v.clone())], serde_json::json!({ "layer": l })).map(|out| {
+            let Value::Map(m) = &out["map"] else { panic!() };
+            m.data.to_vec()
+        })
+    };
+    assert_eq!(layer(&s, "total".into()).unwrap(), [5.0, 6.0]);
+    assert_eq!(layer(&s, "3".into()).unwrap(), [3.0, 4.0], "a class's layer by its name");
+    assert_eq!(layer(&s, 0.into()).unwrap(), [1.0, 2.0], "by its 0-based number");
+    let e = layer(&s, "nope".into()).unwrap_err();
+    assert!(e.contains("forest, 3, total"), "{e}");
+    assert!(layer(&s, serde_json::Value::Null).is_err());
+    // a step of a loop's series: 1..
+    let series =
+        Value::Series(vec![Value::Map(Map::new(g.clone(), vec![7.0, 7.0])), Value::Map(Map::new(g, vec![8.0, 8.0]))]);
+    assert_eq!(layer(&series, "2".into()).unwrap(), [8.0, 8.0]);
+}
+
+#[test]
 fn cars_demand_from_an_area_demand() {
     let land = map(1, 4, &[1.0, 1.0, 2.0, f64::NAN]);
     let ok = Demand { classes: vec![1.0, 2.0], times: vec![0.0, 1.0], table: vec![vec![2.0, 1.0], vec![1.0, 2.0]] };

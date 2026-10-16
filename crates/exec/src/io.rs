@@ -235,7 +235,15 @@ pub fn write_outputs(model: &Model, results: &Results, dir: &Path) -> Result<Vec
             .get(&out.from)
             .ok_or_else(|| Error::Model(format!("the output {name:?}: {} has no value", out.from)))?;
         let path = dir.join(out.path.as_deref().unwrap_or(name));
-        files.push(write_value(v, &path, out.dtype.as_deref())?);
+        let file = match &out.layer {
+            Some(layer) => {
+                let m = terraflux_ops::dynamic::layer_of(v, layer)
+                    .map_err(|e| Error::Model(format!("the output {name:?}: {e}")))?;
+                write_value(&Value::Map(m), &path, out.dtype.as_deref())?
+            }
+            None => write_value(v, &path, out.dtype.as_deref())?,
+        };
+        files.push(file);
     }
     Ok(files)
 }

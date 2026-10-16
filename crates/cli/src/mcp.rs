@@ -330,6 +330,7 @@ fn tools() -> Vec<Value> {
                 "from": { "type": "string", "description": "node.port, of a top-level node." },
                 "path": { "type": "string", "description": "The file, relative to the output folder (default: the name and the usual extension)." },
                 "dtype": { "type": "string", "description": "The cell type of rasters: u8, i16, i32, f32, f64..." },
+                "layer": { "description": "One layer of a stack written alone (its name or 0-based number), e.g. `total` of prioritize.evaluate's ferrier." },
             }),
             &["model", "name", "from"],
             None,
@@ -865,11 +866,21 @@ fn set_output(m: &mut Model, r: &Registry, a: &Value) -> Reply {
     {
         return Err(format!("{d:?} is not a cell type (u8, i16, u16, i32, u32, f32, f64)"));
     }
+    let layer = match a.get("layer") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(s)) if s.is_empty() => None,
+        Some(Value::String(s)) => Some(s.clone()),
+        Some(v) => Some(v.to_string()),
+    };
+    let what = match &layer {
+        Some(l) => format!("the layer {l:?} of {from}"),
+        None => from.to_string(),
+    };
     m.outputs.insert(
         name.to_string(),
-        Output { from: from.to_string(), path: opt_text(a, "path").map(String::from), dtype },
+        Output { from: from.to_string(), path: opt_text(a, "path").map(String::from), dtype, layer },
     );
-    Ok(format!("the output {name} writes {from}"))
+    Ok(format!("the output {name} writes {what}"))
 }
 
 /// Every scope's nodes in tidy columns.
@@ -1172,6 +1183,19 @@ mod tests {
         assert!(!e, "{t}");
         let m = Model::load(&model).unwrap();
         assert_eq!(m.outputs["high"].from, "above.map", "the references follow a rename");
+        // one layer of a stack written alone
+        let (t, e) = call(
+            &s,
+            "add_node",
+            json!({ "model": model, "op": "stack.of", "id": "both", "inputs": { "land": "land.map", "above": "above.map" } }),
+        );
+        assert!(!e, "{t}");
+        let (t, e) = call(
+            &s,
+            "set_output",
+            json!({ "model": model, "name": "only", "from": "both.stack", "layer": "above", "dtype": "u8" }),
+        );
+        assert!(!e && t.contains("the layer \"above\""), "{t}");
         let (t, e) = call(&s, "check_model", json!({ "model": model }));
         assert!(!e && t.contains("can run"), "{t}");
         let (t, e) = call(&s, "run_model", json!({ "model": model }));
@@ -1180,6 +1204,9 @@ mod tests {
         assert!(out.exists(), "{t}");
         let (t, e) = call(&s, "inspect_file", json!({ "path": out.to_string_lossy() }));
         assert!(!e && t.contains("30 columns x 20 rows") && t.contains("classes"), "{t}");
+        let only = dir.join("output").join("only.tif");
+        let (t, e) = call(&s, "inspect_file", json!({ "path": only.to_string_lossy() }));
+        assert!(!e && t.contains("1 band(s)") && t.contains("classes"), "{t}");
         let (t, e) = call(&s, "describe_operator", json!({ "name": "map.calc" }));
         assert!(!e && t.contains("Settings"), "{t}");
         let (t, _) = call(&s, "list_operators", json!({ "query": "markov" }));

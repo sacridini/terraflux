@@ -304,6 +304,9 @@ pub struct Output {
     /// The cell type of rasters (`u8`, `i32`, `f32`...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dtype: Option<String>,
+    /// One layer of a stack (or of rasters, or a step of a series) written alone: its name or 0-based number.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layer: Option<String>,
 }
 
 impl Model {
@@ -696,7 +699,10 @@ from = "land.map"
             collect: [("maps".to_string(), "step.out".to_string())].into(),
             ..Default::default()
         }));
-        m.outputs.insert("maps".into(), Output { from: "loop.maps".into(), path: None, dtype: Some("u8".into()) });
+        m.outputs.insert(
+            "maps".into(),
+            Output { from: "loop.maps".into(), path: None, dtype: Some("u8".into()), layer: None },
+        );
         m
     }
 

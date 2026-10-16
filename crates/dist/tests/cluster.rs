@@ -205,7 +205,7 @@ from = \"is.map\"
     );
     m.outputs.insert(
         "twice".into(),
-        terraflux_graph::Output { from: "twice.map".into(), path: None, dtype: Some("u8".into()) },
+        terraflux_graph::Output { from: "twice.map".into(), path: None, dtype: Some("u8".into()), layer: None },
     );
     let path = dir.join("model.toml");
     m.save(&path).unwrap();
@@ -361,7 +361,7 @@ async fn the_files_nodes_read_and_scenarios_give_travel_with_the_model() {
         .push(terraflux_graph::Node::new("forest", "map.calc").input("lu", "read.map").param("expression", "lu == 1"));
     m.outputs.insert(
         "forest".into(),
-        terraflux_graph::Output { from: "forest.map".into(), path: None, dtype: Some("u8".into()) },
+        terraflux_graph::Output { from: "forest.map".into(), path: None, dtype: Some("u8".into()), layer: None },
     );
     let tasks: Vec<terraflux_dist::client::TaskOf> = vec![
         ("a".into(), BTreeMap::new()),

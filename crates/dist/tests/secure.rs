@@ -25,7 +25,10 @@ fn tmp(name: &str) -> PathBuf {
 fn batch(n: usize) -> Batch {
     let mut m = Model::new("noise");
     m.nodes.push(Node::new("noise", "nlm.random").param("rows", 30).param("columns", 40).param("seed", 1));
-    m.outputs.insert("noise".into(), terraflux_graph::Output { from: "noise.map".into(), path: None, dtype: None });
+    m.outputs.insert(
+        "noise".into(),
+        terraflux_graph::Output { from: "noise.map".into(), path: None, dtype: None, layer: None },
+    );
     Batch {
         name: "noise".into(),
         model: m,

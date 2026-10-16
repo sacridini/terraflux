@@ -457,8 +457,10 @@ mod tests {
         add_node(&mut m, &r, &[], "map.calc", [0.0, 0.0]).unwrap();
         connect(&mut m, &r, &[], "$t0", "map_calc", "a").unwrap();
         connect(&mut m, &r, &[], "map_calc.map", "markov_fit", "t0").unwrap();
-        m.outputs
-            .insert("out".into(), terraflux_graph::Output { from: "map_calc.map".into(), path: None, dtype: None });
+        m.outputs.insert(
+            "out".into(),
+            terraflux_graph::Output { from: "map_calc.map".into(), path: None, dtype: None, layer: None },
+        );
         rename_node(&mut m, &[], "map_calc", "algebra").unwrap();
         assert_eq!(m.node("markov_fit").unwrap().inputs["t0"], Source::Ref("algebra.map".into()));
         assert_eq!(m.outputs["out"].from, "algebra.map");

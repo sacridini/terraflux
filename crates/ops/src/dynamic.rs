@@ -1,5 +1,5 @@
 //! Dynamic variables (landschaft's `distance_to`, `share_of`): drivers computed again from the simulated map
-//! at every step, and the stacks they go into (`stack.set`, `stack.classes`).
+//! at every step, and the stacks they go into (`stack.set`, `stack.classes`) or are taken from (`stack.layer`).
 
 use std::sync::Arc;
 
@@ -271,10 +271,74 @@ impl Operator for Classes {
     }
 }
 
+/// `stack.layer`: one layer of a stack as a map.
+struct Layer;
+
+impl Operator for Layer {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "stack.layer",
+            "One layer of a stack as a map, by its name or its 0-based number: a band of rasters (the bands of a \
+             file), a layer of a stack (prioritize.evaluate's ferrier: total), a step of the series of a loop (1..).",
+            Access::Local,
+        )
+        .input(PortSpec::new("stack", Type::Raster, "a stack, the series of maps of a loop or rasters"))
+        .output(PortSpec::new("map", Type::Map, "the layer"))
+        .param(PortSpec::new("layer", Type::Any, "the layer's name, or its 0-based number"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let v = args.get("stack").ok_or_else(|| Error::msg(format!("node {:?}: no input \"stack\"", args.node)))?;
+        let layer = match args.params.get("layer") {
+            None | Some(serde_json::Value::Null) => String::new(),
+            Some(serde_json::Value::String(s)) => s.clone(),
+            Some(x) => x.to_string(),
+        };
+        if layer.is_empty() {
+            return Err(Error::msg(format!("node {:?}: give the layer's name or number", args.node)));
+        }
+        Ok(outputs([("map", Value::Map(layer_of(v, &layer)?))]))
+    }
+}
+
+/// One layer of a value as a map: by its name (a stack's key, a band's name, a step of a series: 1..), else by its
+/// 0-based number.
+pub fn layer_of(v: &Value, layer: &str) -> Result<Map> {
+    let pick = |names: &[String]| {
+        names.iter().position(|n| n == layer).or_else(|| layer.parse::<usize>().ok().filter(|&i| i < names.len()))
+    };
+    let missing = |names: &[String]| {
+        let shown: Vec<&str> = names.iter().take(12).map(String::as_str).collect();
+        let more = if names.len() > 12 { format!(" and {} more", names.len() - 12) } else { String::new() };
+        Error::msg(format!("no layer {layer:?} (the layers: {}{more})", shown.join(", ")))
+    };
+    match v {
+        Value::Stack(s) => {
+            let names: Vec<String> = s.keys.iter().map(|k| k.to_string()).collect();
+            let i = pick(&names).ok_or_else(|| missing(&names))?;
+            Ok(Map { grid: s.grid.clone(), data: s.layers[i].clone() })
+        }
+        Value::Raster(r) => {
+            let names: Vec<String> = r.layers.iter().map(|l| l.name.clone()).collect();
+            let i = pick(&names).ok_or_else(|| missing(&names))?;
+            r.choose(i).map()
+        }
+        Value::Series(items) if items.iter().all(|x| matches!(x, Value::Map(_))) => {
+            let names: Vec<String> = (1..=items.len()).map(|i| i.to_string()).collect();
+            let i = pick(&names).ok_or_else(|| missing(&names))?;
+            let Value::Map(m) = &items[i] else { unreachable!() };
+            Ok(m.clone())
+        }
+        Value::Map(m) if layer == "0" => Ok(m.clone()),
+        other => Err(Error::msg(format!("a {:?} has no layers", other.ty()))),
+    }
+}
+
 pub fn register(r: &mut Registry) {
     r.add(Arc::new(DistanceTo));
     r.add(Arc::new(ShareOf));
     r.add(Arc::new(Set));
+    r.add(Arc::new(Layer));
     r.add(Arc::new(Of));
     r.add(Arc::new(TableOf));
     r.add(Arc::new(Classes));

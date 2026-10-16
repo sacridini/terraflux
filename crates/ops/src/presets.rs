@@ -115,9 +115,9 @@ pub fn dinamica(m: &mut Model, p: &Dinamica) {
             .note("One iteration per time step, the map carried from step to step.")
             .body(body),
     );
-    m.outputs.insert("maps".into(), Output { from: "simulation.maps".into(), path: None, dtype: None });
-    m.outputs.insert("steps".into(), Output { from: "simulation.info".into(), path: None, dtype: None });
-    m.outputs.insert("weights".into(), Output { from: "woe.table".into(), path: None, dtype: None });
+    m.outputs.insert("maps".into(), Output { from: "simulation.maps".into(), path: None, dtype: None, layer: None });
+    m.outputs.insert("steps".into(), Output { from: "simulation.info".into(), path: None, dtype: None, layer: None });
+    m.outputs.insert("weights".into(), Output { from: "woe.table".into(), path: None, dtype: None, layer: None });
 }
 
 /// A CLUE-S or ordered model (lulcc's): logistic regressions, a linear demand from observed maps and
@@ -219,6 +219,6 @@ pub fn lulcc(m: &mut Model, p: &Lulcc) {
                 ..Default::default()
             }),
     );
-    m.outputs.insert("maps".into(), Output { from: "simulation.maps".into(), path: None, dtype: None });
-    m.outputs.insert("steps".into(), Output { from: "simulation.info".into(), path: None, dtype: None });
+    m.outputs.insert("maps".into(), Output { from: "simulation.maps".into(), path: None, dtype: None, layer: None });
+    m.outputs.insert("steps".into(), Output { from: "simulation.info".into(), path: None, dtype: None, layer: None });
 }

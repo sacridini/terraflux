@@ -670,7 +670,7 @@ fn start(
     let mut model = s.model.clone();
     for key in st.keep.clone().unwrap_or_else(|| default_keep(&s.model, r)) {
         let name = key.replace(['.', '/'], "_");
-        model.outputs.insert(name, terraflux_graph::Output { from: key, path: None, dtype: None });
+        model.outputs.insert(name, terraflux_graph::Output { from: key, path: None, dtype: None, layer: None });
     }
     // every run must apply to the model
     for (label, o) in &tasks {

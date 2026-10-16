@@ -313,6 +313,8 @@ Line by line:
 - Each `[[nodes]]` block is a node: its `id`, its `op`, its `inputs` (each a reference `node.port`, a model input
   `$name`, or a literal value such as `10`), its `params` (the settings) and its `note`.
 - `[outputs.mspa]` declares an **output of the model**: what `terraflux run` writes, here the map of `mspa.map`.
+  `dtype = "u8"` gives the cell type of a raster, and `layer = "total"` writes one layer of a stack alone (its
+  name or its number from 0).
 
 The order of the nodes in the file does not matter: Terraflux runs them in the order of their connections. In the
 application, a node's place on the canvas is saved as `pos = [x, y]`. Notes are shown in the Node pane under

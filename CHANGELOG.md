@@ -6,6 +6,13 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- `stack.layer`: one layer of a stack as a map, by its name or its number from 0: a band of rasters, a layer an
+  operator made (`total` of `prioritize.evaluate`'s `ferrier`), a step of a loop's series; names that are numbers
+  too, which an expression cannot reach.
+- An output of a model writes one layer of a stack alone with `layer` (`[outputs.importance]`, `from =
+  "evaluation.ferrier"`, `layer = "total"`), and `terraflux mcp`'s `set_output` takes it.
+
 ## [0.82.0] - 2026-10-16
 
 ### Added
