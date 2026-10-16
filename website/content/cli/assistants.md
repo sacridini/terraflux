@@ -5,7 +5,7 @@ description: Connect an AI assistant such as Claude to Terraflux, and build, che
 order: 35
 ---
 
-An AI assistant, such as Claude, can build a Terraflux model for you. You ask in plain words ("read my land use
+An AI assistant, such as Claude, Gemini or Codex, can build a Terraflux model for you. You ask in plain words ("read my land use
 map of 2010, find the forest, and measure how fragmented it is with MSPA"), and the assistant adds the nodes,
 connects them, sets them, checks the model and runs it. If the model is open in the application, you watch every
 node appear on the canvas as it is added, and you can change or undo anything the assistant did.
@@ -67,9 +67,44 @@ The assistant starts `terraflux mcp` by itself whenever it needs it: you only te
     `--scope user` makes Terraflux available in every folder you work in; leave it out to add it to the current
     project only. `claude mcp list` shows the servers added.
 
+=== "Gemini CLI"
+    In a terminal:
+
+    ```bash
+    gemini mcp add -s user terraflux terraflux mcp
+    ```
+
+    `-s user` makes Terraflux available in every folder; without it, it is added to the current project only
+    (its `.gemini/settings.json`). The same entry can be written by hand in `~/.gemini/settings.json`:
+
+    ```json
+    { "mcpServers": { "terraflux": { "command": "terraflux", "args": ["mcp"] } } }
+    ```
+
+=== "Codex"
+    In a terminal:
+
+    ```bash
+    codex mcp add terraflux -- terraflux mcp
+    ```
+
+    This writes the server to `~/.codex/config.toml`, which the Codex command line and its editor extension
+    share. By hand, the same entry is:
+
+    ```toml
+    [mcp_servers.terraflux]
+    command = "terraflux"
+    args = ["mcp"]
+    ```
+
 === "Other assistants"
-    Any client of the Model Context Protocol can use Terraflux. Give it the command `terraflux` (or the full path
-    to the program) with the argument `mcp`; the server speaks over the standard input and output.
+    Any client of the Model Context Protocol that starts local servers can use Terraflux. Give it the command
+    `terraflux` (or the full path to the program) with the argument `mcp`; the server speaks over the standard
+    input and output. Chat applications in a web browser usually connect only to servers on the internet, and
+    cannot start one on your computer.
+
+If the assistant says it cannot find `terraflux`, give the full path to the program instead (see the
+Claude Desktop tab for where it is installed).
 
 ## Work with it
 

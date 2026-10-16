@@ -76,6 +76,38 @@
   </div>
 </section>
 
+<section class="band assistant" id="assistants">
+  <div class="wrap split rev">
+    <div class="split-text">
+      <h2>Ask for the analysis, watch it being built</h2>
+      <p>Connect an AI assistant to Terraflux and describe what you want in plain words. The assistant adds the
+        nodes, connects and sets them, checks the model and runs it, and the graph grows on your canvas as it
+        works. Undo any step with ctrl+Z, or change it by hand.</p>
+      <ul class="ticks">
+        <li>Every edit passes the same checks as yours: a connection that does not fit is refused, with the reason.</li>
+        <li>Terraflux runs on your computer. The assistant receives the model and the summaries it asks for, not your maps.</li>
+        <li>The result is an ordinary model file that runs again without the assistant.</li>
+      </ul>
+      <a class="textlink" href="/cli/assistants/">Connect an assistant</a>
+    </div>
+    <div class="split-media">
+      <div class="ai-chat" aria-label="An example: a request to an assistant and the Terraflux tools it uses">
+        <p class="ai-ask">Read <code>landcover.tif</code>, where class 3 is forest, run MSPA with an edge width of 2
+          and open it in Terraflux.</p>
+        <ol class="ai-calls">
+          <li><code>new_model</code><span>fragmentation.toml</span></li>
+          <li><code>add_node</code><span>read &middot; raster.read</span></li>
+          <li><code>add_node</code><span>forest &middot; raster.reclassify</span></li>
+          <li><code>add_node</code><span>mspa &middot; landscape.mspa</span></li>
+          <li><code>check_model</code><span class="ai-ok">The model can run.</span></li>
+          <li><code>open_in_app</code><span>the canvas follows every edit</span></li>
+        </ol>
+      </div>
+      <p class="ai-clients"><span>Claude Desktop</span><span>Claude Code</span><span>Gemini CLI</span><span>Codex</span><span>any MCP client</span></p>
+    </div>
+  </div>
+</section>
+
 <section class="band topics">
   <div class="wrap">
     <div class="sec-head">

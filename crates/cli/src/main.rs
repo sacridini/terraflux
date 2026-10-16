@@ -81,8 +81,8 @@ enum Command {
     New(Box<New>),
     /// Write a model in another format (by the extension: .toml or .json).
     Convert { from: PathBuf, to: PathBuf },
-    /// A server of the Model Context Protocol on the standard input and output: an AI assistant (Claude Desktop,
-    /// Claude Code...) builds, checks and runs models through it; the application, with the model open, shows its
+    /// A server of the Model Context Protocol on the standard input and output: an AI assistant (Claude, Gemini
+    /// CLI, Codex...) builds, checks and runs models through it; the application, with the model open, shows its
     /// edits as they are made.
     Mcp,
     /// Run a coordinator: workers ask it for tasks, clients submit batches to it.

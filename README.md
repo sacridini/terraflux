@@ -158,12 +158,14 @@ terraflux ops                       # the operators and what they do
 ### With an AI assistant
 
 `terraflux mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server: an assistant such as Claude
-Desktop or Claude Code builds, checks and runs models through it, from a request in plain words, with the same
-checks as the node editor. With the model open in the application, every edit appears on the canvas as it is made
-(ctrl+Z undoes it).
+Desktop, Claude Code, Gemini CLI or Codex builds, checks and runs models through it, from a request in plain
+words, with the same checks as the node editor. With the model open in the application, every edit appears on the
+canvas as it is made (ctrl+Z undoes it).
 
 ```bash
-claude mcp add terraflux -- terraflux mcp       # Claude Code
+claude mcp add --scope user terraflux -- terraflux mcp    # Claude Code
+gemini mcp add -s user terraflux terraflux mcp            # Gemini CLI
+codex mcp add terraflux -- terraflux mcp                  # Codex
 ```
 
 For Claude Desktop, add to its `claude_desktop_config.json` (Settings, Developer, Edit Config):
