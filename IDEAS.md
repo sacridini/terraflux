@@ -115,9 +115,9 @@ depois:
    para (o `prioritize.evaluate`, o MSPA, os circuitos, o ajuste dos SDM, as métricas por blocos) é deixado
    terminar em segundo plano um segundo depois do Stop. Basta o operador chamar `ctx.stopped()` nos seus laços e
    `ctx.progress(...)`; no C++, perguntar `opt::stop_asked()` (ou um equivalente fora do `opt`).
-4. **O landschaft:** o `WatchScope` (commit `a302941`, no ramo `terraflux-solve-watch` do landschaft, base do
-   submódulo) ainda não está no `main` do landschaft, que já está 43 commits à frente (1.50.0). Levá-lo ao `main` e
-   atualizar o submódulo, conferindo o Terraflux com a versão nova.
+4. **O submódulo do landschaft:** o Terraflux usa o `a302941` (o `WatchScope`, já no `main` do landschaft pelo
+   merge `db23ef9`); o `main` está 43 commits à frente (1.50.0). Atualizar o submódulo, conferindo o Terraflux com
+   a versão nova.
 5. **Testes instáveis vistos:** `a_computer_lends_itself_to_another_by_its_code` (`crates/app/tests/ui.rs`) falha às
    vezes na suíte inteira e passa sozinho; `the_terrain_is_landschafts` (`crates/ops/tests/surface.rs`) difere em
    1e-16 no VRM só no build de debug (passa em release).
