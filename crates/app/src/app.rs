@@ -503,6 +503,8 @@ pub struct Session {
     pub reference: Option<(String, String)>,
     /// What the values of nodes' rasters are, as chosen in the preparation (else guessed from their type).
     pub kinds: BTreeMap<String, crate::prepare::Kind>,
+    /// The edits of the source, to undo and do again.
+    pub history: crate::undo::History,
 }
 
 impl Session {
@@ -544,6 +546,7 @@ impl Session {
         });
         let reference = crate::prepare::reference_of(&source);
         Ok(Session {
+            history: crate::undo::History::new(&source),
             toml: None,
             reference,
             kinds: BTreeMap::new(),
@@ -661,6 +664,7 @@ impl Session {
 
     /// After an edit of the source: the model run and its checks follow.
     pub fn edited(&mut self) {
+        self.history.changed(&self.source);
         self.dirty = true;
         self.fields.clear();
         self.edited_at = Some(Instant::now());
@@ -1397,6 +1401,12 @@ impl TerrafluxApp {
                     egui::Slider::new(&mut st.zoom, 0.75..=2.0)
                         .step_by(0.05)
                         .custom_formatter(|v, _| format!("{:.0} %", v * 100.0)),
+                );
+                ui.end_row();
+                ui.label("Model");
+                ui.checkbox(&mut st.node_colours, "the nodes of data in the colour of their type").on_hover_text(
+                    "the model's inputs and the nodes that read, write, stack or plot, with a header in the colour \
+                     of what they give (a map blue, vectors pink...), as their connections",
                 );
                 ui.end_row();
                 ui.label("Threads");

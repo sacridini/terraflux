@@ -636,14 +636,29 @@ fn runnable(s: &Session) -> Option<String> {
     s.selected.clone().filter(|id| s.editor.path.is_empty() && s.model.nodes.iter().any(|n| &n.id == id))
 }
 
-/// ctrl+enter runs up to the node selected, del deletes the nodes selected, ctrl+D duplicates them, ctrl+C and
-/// ctrl+V copy and paste them, ctrl+L arranges the nodes, ctrl+R
+/// ctrl+Z undoes an edit (ctrl+shift+Z, ctrl+Y: does it again), ctrl+enter runs up to the node selected, del
+/// deletes the nodes selected, ctrl+D duplicates them, ctrl+C and ctrl+V copy and paste them, ctrl+L arranges the
+/// nodes, ctrl+R
 /// renames the node selected, "/" searches the operators to add one; with the model's canvas in focus and the
 /// pointer over it the arrows go to the node beside the one selected (kept in view) and enter shows its output:
 /// whether to show the viewer.
 pub fn keys(ui: &Ui, s: &mut Session, r: &Registry, canvas: bool) -> bool {
     let typing = ui.ctx().memory(|m| m.focused().is_some());
     let mut show = false;
+    // ctrl+Z undoes the last edit of the model, ctrl+shift+Z or ctrl+Y does it again (a field typed in undoes its
+    // own text)
+    s.history.tick(&s.source, ui.input(|i| i.pointer.any_down()));
+    let (undo, redo) = ui.input_mut(|i| {
+        if typing {
+            return (false, false);
+        }
+        let redo = i.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::Z)
+            || i.consume_key(egui::Modifiers::COMMAND, egui::Key::Y);
+        (i.consume_key(egui::Modifiers::COMMAND, egui::Key::Z), redo)
+    });
+    if undo || redo {
+        undo_redo(s, redo);
+    }
     // (the pointer over the canvas: elsewhere the arrows go through the maps shown)
     let over = ui.input(|i| i.pointer.latest_pos()).is_some_and(|p| s.editor.canvas().is_some_and(|r| r.contains(p)));
     if canvas && over && !typing && s.editor.quick.is_none() && s.editor.renaming.is_none() && !s.editor.text {
@@ -771,6 +786,27 @@ pub fn keys(ui: &Ui, s: &mut Session, r: &Registry, canvas: bool) -> bool {
         }
     }
     show
+}
+
+/// The model as it was before its last edit (`redo`: the edit undone last made again); the nodes selected or shown
+/// that are no more, let go.
+pub fn undo_redo(s: &mut Session, redo: bool) {
+    let done = if redo { s.history.redo(&mut s.source) } else { s.history.undo(&mut s.source) };
+    if !done {
+        return;
+    }
+    s.editor.renaming = None;
+    s.editor.message = None;
+    let ids: std::collections::HashSet<String> =
+        s.source.scope(&s.editor.path).map(|n| n.iter().map(|n| n.id.clone()).collect()).unwrap_or_default();
+    s.editor.chosen.retain(|id| ids.contains(id));
+    if s.selected.as_ref().is_some_and(|id| !ids.contains(id)) {
+        s.selected = None;
+    }
+    if s.preview.as_ref().is_some_and(|(n, _)| s.source.node(n).is_none()) {
+        s.preview = None;
+    }
+    s.edited();
 }
 
 /// The nodes selected in the scope shown (else the node selected), each with its place on the canvas.
@@ -1338,6 +1374,20 @@ fn bar(ui: &mut Ui, s: &mut Session, r: &Registry) {
         if ui.button("Arrange").on_hover_text("put the nodes in tidy columns, by what they read (ctrl+L)").clicked() {
             arrange(s, r);
         }
+        if ui
+            .add_enabled(s.history.can_undo(), egui::Button::new("↶"))
+            .on_hover_text("undo the last edit (ctrl+Z)")
+            .clicked()
+        {
+            undo_redo(s, false);
+        }
+        if ui
+            .add_enabled(s.history.can_redo(), egui::Button::new("↷"))
+            .on_hover_text("do the edit undone again (ctrl+shift+Z, ctrl+Y)")
+            .clicked()
+        {
+            undo_redo(s, true);
+        }
         ui.checkbox(&mut s.auto, "update after every edit")
             .on_hover_text("run up to the node shown after every change of the model");
         let label = if s.editor.text { "Diagram" } else { "Text" };
@@ -1422,6 +1472,7 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
             }
             // the canvas moved the node in its scene already: no new layout
             Action::Move(id, p) => crate::editor::move_node(&mut s.source, &path, &id, p).map(|_| {
+                s.history.changed(&s.source);
                 s.dirty = true;
                 false
             }),

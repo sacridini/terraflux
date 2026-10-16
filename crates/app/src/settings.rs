@@ -44,6 +44,9 @@ pub struct Settings {
     pub lend_idle: Option<f64>,
     /// The folder the Files pane shows.
     pub files_dir: Option<PathBuf>,
+    /// On the model's canvas, the nodes of data (the model's inputs, what reads, writes, stacks or plots) with a
+    /// header in the colour of the type they give.
+    pub node_colours: bool,
 }
 
 impl Default for Settings {
@@ -61,6 +64,7 @@ impl Default for Settings {
             lend_threads: None,
             lend_idle: None,
             files_dir: None,
+            node_colours: false,
         }
     }
 }

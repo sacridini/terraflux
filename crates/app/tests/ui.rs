@@ -784,6 +784,21 @@ fn keys_duplicate_copy_and_paste() {
         assert_eq!(s.editor.chosen, [fbm.to_string(), mspa.to_string()].into());
     }
     assert_eq!(h.state().session.as_ref().unwrap().source.nodes.len(), 7);
+    // ctrl+Z: the last paste undone, then the one before; ctrl+Y and ctrl+shift+Z: done again
+    let ids = |h: &Harness<TerrafluxApp>| h.state().session.as_ref().unwrap().source.nodes.len();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!(ids(&h), 5);
+    assert!(h.state().session.as_ref().unwrap().source.node("nlm_fbm_3").is_none());
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!(ids(&h), 3);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Y);
+    h.run_steps(2);
+    assert_eq!(ids(&h), 5);
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!(ids(&h), 7);
     // text not of nodes: nothing pasted
     h.event(egui::Event::Paste("hello".into()));
     h.run_steps(2);

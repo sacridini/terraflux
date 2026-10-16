@@ -22,16 +22,19 @@ minor versions.
   pastes them, through the system's clipboard (to another container, model or window): new nodes each time, of
   new ids (`calc`: `calc_2`), connected to each other as the originals were, where the pointer is on the canvas.
 - Space over the viewer's map hides it (what is under and over it seen alone), and shows it again.
+- Undo and redo of the model's edits: ctrl+Z, ctrl+shift+Z or ctrl+Y, and two buttons over the canvas. Each edit
+  is a step (a node added, deleted, pasted, a connection, a setting); what changes while a button of the mouse is
+  held (nodes dragged) is one.
 
 ### Changed
 - A node added is named after its operator's whole name (`stack_of`, `raster_read`, `vector_read`,
   `landscape_mspa`), not after its last part (`of`, `read`).
 - The operators' lists (the library, the search with "/", the menu) write the whole names (`stack.of`, the
   subject a shade weaker), not the part after the dot.
-- On the model's canvas a node's header is in the colour of the type it gives (a map blue, vectors pink...), its
-  operator written in that colour; a node that reads or writes a file (`raster.read`, `vector.read`,
-  `raster.write`...) and a model's input of a raster name the file at their bottom (its whole path when the
-  pointer is over it).
+- On the model's canvas a node that reads or writes a file (`raster.read`, `vector.read`, `raster.write`...) and
+  a model's input of a raster name the file at their bottom (its whole path when the pointer is over it). The
+  nodes of data (the model's inputs, what reads, writes, stacks or plots) may have a header in the colour of the
+  type they give (a map blue, vectors pink...), an option of the settings (Model), off at first.
 - The viewer is a tab beside the model's, not under it, and opens with the first data (a raster or vectors read,
   a template; behind the model's tab when a model is opened). A run's plots open beside it without taking the
   front from the model.

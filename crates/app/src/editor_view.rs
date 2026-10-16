@@ -6,8 +6,9 @@
 //! the input. Drag the background to select the nodes in a box (shift or ctrl and a click add a node or take it
 //! away, ctrl+A selects all, Esc none): dragging one of them moves them all. Drag with the middle or the right
 //! button to move the view, the wheel zooms around the pointer, Home fits the graph. Each node shows how it did
-//! in the last run: running, done (or taken from the cache), failed. A box's header is in the colour of the type
-//! it gives (a map's blue, vectors' pink...), and a box that reads or writes a file names it at its bottom.
+//! in the last run: running, done (or taken from the cache), failed. A box that reads or writes a file names it at
+//! its bottom; the boxes of data (the model's inputs, what reads, writes, stacks or plots) may have a header in the
+//! colour of the type they give (a map's blue, vectors' pink...), an option of the settings.
 //!
 //! Built for graphs of many thousands of nodes:
 //! - the scene (where every box, port and connection is, a grid of the boxes to find what is under the
@@ -323,9 +324,17 @@ impl BoxAt {
         Some(Rect::from_min_max(Pos2::new(self.rect.left(), self.rect.bottom() - FOOT), self.rect.max))
     }
 
-    /// The type of what it gives first (its colour marks the box).
-    fn kind(&self) -> Option<Type> {
-        self.outputs.first().map(|(_, t)| *t)
+    /// The type of what it gives first, for a box of data (its colour marks the box): a model's input, a node that
+    /// reads or writes, makes a stack or a table of its inputs, or plots; none for the others (the functions).
+    fn tint(&self) -> Option<Type> {
+        let op = self.op.as_str();
+        let data = self.source
+            || op.ends_with(".read")
+            || op.ends_with(".write")
+            || op.starts_with("stack.")
+            || op.starts_with("view.")
+            || op == "table.of";
+        if data { self.outputs.first().map(|(_, t)| *t) } else { None }
     }
 }
 
@@ -347,7 +356,7 @@ struct EdgeAt {
 /// A scope laid out: its boxes, a grid of them, and the shapes the GPU draws (each box's rectangles at
 /// `ranges[box]`, the connections touching each box in `touching[box]`, to move a box alone).
 struct Scene {
-    key: (u64, Vec<String>, u64, &'static str),
+    key: (u64, Vec<String>, u64, &'static str, bool),
     boxes: Vec<BoxAt>,
     index: HashMap<String, usize>,
     grid: HashMap<(i32, i32), Vec<usize>>,
@@ -492,6 +501,7 @@ impl Scene {
         path: &[String],
         status: &BTreeStatus,
         v: &egui::Visuals,
+        colours: bool,
     ) -> Scene {
         let ids: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, n)| (n.id.as_str(), i)).collect();
         // what the scope reads: the model's inputs, its containers' values, and the nodes outside it its nodes
@@ -629,9 +639,9 @@ impl Scene {
             let (border, width) =
                 if state == Some(NodeStatus::Failed) { (v.error_fg_color, 1.5) } else { (stroke, 1.0) };
             rects.push(RectInstance::new(b.rect.min.into(), b.rect.size().into(), 4.0, fill, border, width));
-            // its header in the colour of the type it gives (a map's blue, vectors' pink...): what flows from it at a
-            // glance
-            if let Some(c) = b.kind().and_then(|t| type_colour(t, v.dark_mode)) {
+            // a node of data's header in the colour of the type it gives (a map's blue, vectors' pink...), when
+            // asked: what flows from it at a glance
+            if let Some(c) = b.tint().filter(|_| colours).and_then(|t| type_colour(t, v.dark_mode)) {
                 let tint = fill.lerp_to_gamma(c, if v.dark_mode { 0.22 } else { 0.18 });
                 let head = b.head().shrink(2.0);
                 rects.push(RectInstance::new(
@@ -677,7 +687,7 @@ impl Scene {
             ranges.push(first..rects.len());
         }
         Scene {
-            key: (0, Vec::new(), 0, ""),
+            key: (0, Vec::new(), 0, "", false),
             boxes,
             index,
             grid,
@@ -820,9 +830,10 @@ pub fn show(
         return actions;
     };
     // (built again when the model, the place in it, the nodes' states or the theme change)
-    let key = (revision, st.path.clone(), status_rev, crate::theme::current().name);
+    let colours = crate::settings::get().node_colours;
+    let key = (revision, st.path.clone(), status_rev, crate::theme::current().name, colours);
     if st.scene.as_ref().is_none_or(|s| s.key != key) {
-        let mut scene = Scene::build(model, nodes, r, &st.path, status, ui.visuals());
+        let mut scene = Scene::build(model, nodes, r, &st.path, status, ui.visuals(), colours);
         st.generation = next_generation();
         scene.key = key;
         Arc::get_mut(&mut scene.shapes).unwrap().generation = st.generation;
@@ -1058,8 +1069,12 @@ pub fn show(
                 continue;
             }
             if !b.source {
-                // the operator in the colour of the type it gives
-                let colour = b.kind().and_then(|t| type_colour(t, v.dark_mode)).unwrap_or(v.weak_text_color());
+                // a node of data's operator in the colour of the type it gives, when asked
+                let colour = b
+                    .tint()
+                    .filter(|_| scene.key.4)
+                    .and_then(|t| type_colour(t, v.dark_mode))
+                    .unwrap_or(v.weak_text_color());
                 painter.text(
                     top + Vec2::new(8.0, 21.0) * cam.zoom,
                     Align2::LEFT_TOP,
