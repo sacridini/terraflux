@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.98.0] - 2026-10-18
+
 ### Added
 - `conn.metapopulation`, a metapopulation in a network of habitat patches over time, Hanski's incidence function
   model as R's MetaLandSim 2.0 simulates it (spom), the same run for a seed (R's runif after set.seed): every step
