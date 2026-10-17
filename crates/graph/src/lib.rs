@@ -54,6 +54,22 @@ pub const FILE_OPS: [&str; 9] = [
     "swat.run",
 ];
 
+/// Other settings that may name a file (a text naming one; other values are left alone), treated as `path` is.
+pub const FILE_SETTINGS: [(&str, &str); 1] = [("services.habitat_quality", "threats")];
+
+/// The settings of a node that name files: `path` of the [`FILE_OPS`], and the [`FILE_SETTINGS`].
+pub fn file_settings(n: &mut Node) -> impl Iterator<Item = &mut String> {
+    let op = n.op.clone();
+    n.params.iter_mut().filter_map(move |(k, v)| {
+        let named =
+            (k == "path" && FILE_OPS.contains(&op.as_str())) || FILE_SETTINGS.iter().any(|(o, s)| *o == op && k == s);
+        match v {
+            serde_json::Value::String(p) if named && !is_sent(p) => Some(p),
+            _ => None,
+        }
+    })
+}
+
 /// Whether a path names data sent to a coordinator (`bundle:<hash>/...`, `blob:<hash>`), not a file here.
 pub fn is_sent(path: &str) -> bool {
     path.starts_with("bundle:") || path.starts_with("blob:")
@@ -62,12 +78,10 @@ pub fn is_sent(path: &str) -> bool {
 /// Make the file paths of the nodes ([`FILE_OPS`]) relative to `dir` (the folder a model is saved in).
 pub fn relative_paths(nodes: &mut [Node], dir: &Path) {
     for n in nodes.iter_mut() {
-        if FILE_OPS.contains(&n.op.as_str())
-            && let Some(serde_json::Value::String(p)) = n.params.get_mut("path")
-            && !is_sent(p)
-            && Path::new(p.as_str()).is_absolute()
-        {
-            *p = relative_path(Path::new(p.as_str()), dir);
+        for p in file_settings(n) {
+            if Path::new(p.as_str()).is_absolute() {
+                *p = relative_path(Path::new(p.as_str()), dir);
+            }
         }
         if let Some(b) = &mut n.body {
             relative_paths(&mut b.nodes, dir);

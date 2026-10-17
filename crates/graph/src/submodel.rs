@@ -12,7 +12,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::{Body, Error, FILE_OPS, GROUP, Input, Model, Node, Result, SUBMODEL, Source, relative_path};
+use crate::{Body, Error, GROUP, Input, Model, Node, Result, SUBMODEL, Source, relative_path};
 
 const DEPTH: usize = 16;
 
@@ -42,12 +42,10 @@ fn expand_nodes(
     stack: &mut Vec<PathBuf>,
 ) -> Result<()> {
     for n in nodes.iter_mut() {
-        if FILE_OPS.contains(&n.op.as_str())
-            && let Some(serde_json::Value::String(p)) = n.params.get_mut("path")
-            && !crate::is_sent(p)
-            && Path::new(p.as_str()).is_relative()
-        {
-            *p = dir.join(p.as_str()).to_string_lossy().into_owned();
+        for p in crate::file_settings(n) {
+            if Path::new(p.as_str()).is_relative() {
+                *p = dir.join(p.as_str()).to_string_lossy().into_owned();
+            }
         }
         if n.op == SUBMODEL {
             expand_node(n, dir, top, extra, stack)?;
@@ -226,5 +224,21 @@ from = "times.out"
         let mut m = Model::new("outer");
         m.nodes.push(Node::new("s", SUBMODEL).param("path", "me.toml").literal("nope", 1));
         assert!(expand(&mut m, &d).is_err());
+    }
+
+    #[test]
+    fn files_named_by_settings_follow_the_model() {
+        let d = tmp("files");
+        let mut m = Model::new("m");
+        m.nodes.push(Node::new("hq", "services.habitat_quality").param("threats", "threats.csv"));
+        m.nodes.push(
+            Node::new("hq2", "services.habitat_quality").param("threats", serde_json::json!([{"threat": "roads"}])),
+        );
+        expand(&mut m, &d).unwrap();
+        // a file named by a text is the model's folder's; a list of threats is left alone
+        assert_eq!(m.node("hq").unwrap().params["threats"], d.join("threats.csv").to_string_lossy().as_ref());
+        assert!(m.node("hq2").unwrap().params["threats"].is_array());
+        crate::relative_paths(&mut m.nodes, &d);
+        assert_eq!(m.node("hq").unwrap().params["threats"], "threats.csv");
     }
 }

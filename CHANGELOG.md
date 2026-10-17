@@ -6,6 +6,17 @@ minor versions.
 
 ## [Unreleased]
 
+### Fixed
+- `services.habitat_quality`'s `threats`, when it names InVEST's threats table, is taken from the model's folder
+  (and kept relative to it when the model is saved), as the `path` of the operators that read files; it was read
+  from the folder the program ran in (`terraflux_graph::FILE_SETTINGS`).
+
+### Added
+- The website's tutorials of the 0.86 operators: Terrain hydrology (depressions and flow; streams, watersheds and
+  HAND; wetness and connectivity; SWAT+), Ecosystem services with InVEST (the ideas, carbon, habitat quality, water
+  yield, sediment), geomorphons and the hilltops of Brazil's Forest Code, and the Dinamica series' Patcher of a
+  stock, roads that grow and gravity potentials.
+
 ## [0.86.0] - 2026-10-17
 
 ### Added
