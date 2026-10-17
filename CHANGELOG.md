@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.94.0] - 2026-10-18
+
 ### Added
 - Global sensitivity analysis as SALib 1.6 does it, the same numbers: `sensitivity.design` (Morris's trajectories
   on a grid of levels, or Saltelli's runs of a scrambled Sobol' sequence, scipy.stats.qmc's: Joe and Kuo's direction
