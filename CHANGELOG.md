@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.97.0] - 2026-10-18
+
 ### Added
 - `sdm.migrate`, a species' dispersal through the habitat suitability of successive periods as MigClim 1.6
   simulates it, the same run for a seed (its random numbers are the C runtime's rand(), ported): colonisation from
