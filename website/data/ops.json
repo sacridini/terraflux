@@ -6256,6 +6256,141 @@
   "container": false
  },
  {
+  "name": "data.download",
+  "doc": "Data downloaded on demand and warped onto a grid (gdalwarp straight from the servers: only the part the grid covers is read): WorldClim 2.1 (the 1970-2000 climate; CMIP6 futures), CHELSA 2.1 (1981-2010; CMIP6 futures), the Copernicus DEM (30 or 90 m), SoilGrids (a property at depths) and MapBiomas Brazil (land use and cover by year), or any raster a url names; a file per layer kept in the cache (Terraflux's, TERRAFLUX_CACHE), downloaded once. Classes are resampled by the most common cell, values bilinearly. The values are the servers' (CHELSA's scaled integers: × 0.1, and - 273.15 for temperatures; SoilGrids' in its mapped units).",
+  "inputs": [
+   {
+    "name": "like",
+    "type": "raster",
+    "required": false,
+    "doc": "the map whose grid to fill (else extent and cellsize)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "raster",
+    "type": "raster",
+    "required": true,
+    "doc": "the layers on the grid, a file each"
+   }
+  ],
+  "params": [
+   {
+    "name": "source",
+    "type": "text",
+    "required": false,
+    "doc": "the data (or url instead)",
+    "choices": [
+     "worldclim",
+     "worldclim_future",
+     "chelsa",
+     "chelsa_future",
+     "copernicus_dem",
+     "soilgrids",
+     "mapbiomas"
+    ]
+   },
+   {
+    "name": "variable",
+    "type": "text",
+    "required": false,
+    "doc": "worldclim: bio (default), tavg, tmin, tmax, prec, srad, wind, vapr, elev; worldclim_future: bioc (default), tmin, tmax, prec"
+   },
+   {
+    "name": "layers",
+    "type": "any",
+    "required": false,
+    "doc": "the variables' numbers (bio 1-19, months 1-12; default all)"
+   },
+   {
+    "name": "resolution",
+    "type": "text",
+    "required": false,
+    "doc": "worldclim and worldclim_future: 10m (default), 5m, 2.5m, 30s"
+   },
+   {
+    "name": "gcm",
+    "type": "text",
+    "required": false,
+    "doc": "the climate model of a future (default MPI-ESM1-2-HR)"
+   },
+   {
+    "name": "ssp",
+    "type": "text",
+    "required": false,
+    "doc": "the scenario: 126, 245 (WorldClim's default), 370 (CHELSA's), 585"
+   },
+   {
+    "name": "period",
+    "type": "text",
+    "required": false,
+    "doc": "a future's years (WorldClim 2021-2040, 2041-2060 (default), 2061-2080, 2081-2100; CHELSA 2011-2040, 2041-2070 (default), 2071-2100)"
+   },
+   {
+    "name": "dem_resolution",
+    "type": "integer",
+    "required": false,
+    "doc": "copernicus_dem: 30 or 90 m (default)"
+   },
+   {
+    "name": "property",
+    "type": "text",
+    "required": false,
+    "doc": "soilgrids: soc (default), phh2o, clay, sand, silt, bdod, cec, cfvo, nitrogen, ocd"
+   },
+   {
+    "name": "depth",
+    "type": "any",
+    "required": false,
+    "doc": "soilgrids: 0-5cm (default), 5-15cm, ... 100-200cm, or a list"
+   },
+   {
+    "name": "stat",
+    "type": "text",
+    "required": false,
+    "doc": "soilgrids: mean (default), Q0.05, Q0.5, Q0.95, uncertainty"
+   },
+   {
+    "name": "collection",
+    "type": "integer",
+    "required": false,
+    "doc": "mapbiomas: 9, 10 (default) or 11"
+   },
+   {
+    "name": "years",
+    "type": "any",
+    "required": false,
+    "doc": "mapbiomas: a year or a list (default 2023)"
+   },
+   {
+    "name": "url",
+    "type": "any",
+    "required": false,
+    "doc": "any raster GDAL reads (a URL, a path), or a list"
+   },
+   {
+    "name": "extent",
+    "type": "any",
+    "required": false,
+    "doc": "without like: [west, south, east, north], degrees"
+   },
+   {
+    "name": "cellsize",
+    "type": "number",
+    "required": false,
+    "doc": "with extent: the cells' side, degrees"
+   },
+   {
+    "name": "resampling",
+    "type": "text",
+    "required": false,
+    "doc": "auto (default), near, bilinear, cubic, average, mode... (gdalwarp's)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
   "name": "demand.from_maps",
   "doc": "The cells of each class at each step, interpolated and extrapolated linearly from observed maps (lulcc's approxExtrapDemand): negative areas set to 0, every step rounded to whole cells that add up to the cells of the first map.",
   "inputs": [
