@@ -27,7 +27,7 @@ use crate::theme;
 /// the groups of its operators.
 const SUBJECTS: [(&str, &[&str]); 26] = [
     ("IO", &[]),
-    ("Data preparation", &["raster", "vector"]),
+    ("Data preparation", &["raster", "vector", "data"]),
     ("Habitat patterns", &["landscape", "patterns"]),
     ("Fragmentation", &["fragmentation"]),
     ("Landscape metrics", &["metrics"]),

@@ -77,6 +77,11 @@ const ESSENTIALS: &[(&str, &[&str])] = &[
     ("conn.graph_from_samc", &["absorption", "dispersal_distance", "attribute", "kind", "directions"]),
     ("conn.protconn", &["resistance", "probability", "distance_type", "transboundary", "area_unit"]),
     ("conn.protconn_regions", &["resistance", "id", "probability", "distance_type", "transboundary", "area_unit"]),
+    // data
+    (
+        "data.download",
+        &["like", "source", "variable", "layers", "years", "property", "depth", "url", "extent", "cellsize"],
+    ),
     // machine learning
     ("ml.fit", &["table", "predictors", "target", "column", "task", "method", "sample", "n_estimators", "max_iter"]),
     ("ml.potential", &["landscape", "later", "drivers", "target", "classes", "method", "sample", "n_estimators"]),

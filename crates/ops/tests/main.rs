@@ -16,6 +16,7 @@ mod circuit;
 mod conn;
 mod conn_raster;
 mod conn_vector;
+mod data;
 mod cost;
 mod differ;
 mod extinction;

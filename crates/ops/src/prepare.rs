@@ -197,7 +197,7 @@ fn resolution(args: &Args) -> Result<Option<(f64, f64)>> {
     }
 }
 
-fn need_gdal(node: &str) -> Result<()> {
+pub(crate) fn need_gdal(node: &str) -> Result<()> {
     terraflux_gdal::gdal().map(|_| ()).map_err(|e| Error::msg(format!("node {node:?} needs GDAL: {e}")))
 }
 

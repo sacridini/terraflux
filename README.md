@@ -66,7 +66,7 @@ computers of a local network or on a Slurm cluster, and on maps larger than memo
 | **Species distributions** | GBIF records, CoordinateCleaner's tests, thinning, background points, spatial folds, MaxNet, GLM and random forests, evaluation and extrapolation (MESS, MOP) | dismo, ENMeval, blockCV, usdm |
 | **Agents** | Macro agents, parcel managers and CRAFTY's competition for land, in the same graph as the cellular automata | CRAFTY |
 | **Hydrology and ecosystem services** | Depressions filled and breached, flow directions and accumulation (D8, D-infinity, multiple flow), streams, HAND, watersheds, wetness indices; InVEST's carbon, habitat quality, annual water yield and sediment delivery ratio; SWAT+ watershed simulations | WhiteboxTools, pygeoprocessing, InVEST, SWAT+ |
-| **Surfaces and data** | Terrain, geomorphons, hilltops (APP de topo de morro), gravity potentials, distances, map algebra, reprojection and resampling, vectors by OGR, zonal statistics, Monte Carlo uncertainty | GDAL, GRASS, exactextractr |
+| **Surfaces and data** | Terrain, geomorphons, hilltops (APP de topo de morro), gravity potentials, distances, map algebra, reprojection and resampling, downloads of WorldClim, CHELSA, the Copernicus DEM, SoilGrids and MapBiomas, vectors by OGR, zonal statistics, Monte Carlo uncertainty | GDAL, GRASS, exactextractr |
 
 <table>
   <tr>

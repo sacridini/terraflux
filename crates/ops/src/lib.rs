@@ -28,6 +28,7 @@ pub mod clumondo;
 pub mod conn;
 pub mod cost;
 pub mod crafty;
+pub mod data;
 pub mod demand;
 pub mod differ;
 pub mod dinamica;
@@ -362,6 +363,7 @@ impl Registry {
         legend::register(&mut r);
         clumondo::register(&mut r);
         crafty::register(&mut r);
+        data::register(&mut r);
         markov::register(&mut r);
         metrics::register(&mut r);
         ml::register(&mut r);

@@ -6,6 +6,14 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- `data.download`: data downloaded on demand and warped onto a map's grid (or an extent of longitudes and
+  latitudes), GDAL reading straight from the servers only the part the grid covers: WorldClim 2.1 (the 1970-2000
+  climate, its monthly variables and elevation; the CMIP6 futures of a model, scenario and period), CHELSA 2.1
+  (1981-2010 and CMIP6 futures), the Copernicus DEM (GLO-30 or GLO-90, its tiles found and mosaicked), SoilGrids (a
+  property at depths) and MapBiomas Brazil (collections 9, 10 and 11, by year), or any raster a URL or path names;
+  a file per layer in the cache, downloaded once.
+
 ## [0.91.0] - 2026-10-17
 
 ### Added
