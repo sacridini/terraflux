@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.89.0] - 2026-10-17
+
 ### Added
 - Histogram gradient boosting (`terraflux_ops::ml::boosting`), scikit-learn's HistGradientBoostingClassifier (two
   classes or more) and HistGradientBoostingRegressor ported to the bit, without early stopping: the predictors
