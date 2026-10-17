@@ -42,7 +42,7 @@ computers of a local network or on a Slurm cluster, and on maps larger than memo
   results to the bit: GuidosToolbox, landscapemetrics, Zonation 5, Marxan, prioritizr, plangea, Dinamica EGO and
   lulcc's CLUE-S among them. Parity tests against [landschaft](https://github.com/sacridini/landschaft) run in the
   test suite.
-- **No code needed, nothing hidden.** More than 330 operators in a searchable library, 39 ready-to-run templates and
+- **No code needed, nothing hidden.** More than 340 operators in a searchable library, 40 ready-to-run templates and
   a wizard that checks and fixes the data. Every automatic choice is a visible node, with a note on why it is
   there.
 - **One model, many front-ends.** A model is a typed graph saved as readable text (TOML or JSON). The builder,
@@ -55,6 +55,7 @@ computers of a local network or on a Slurm cluster, and on maps larger than memo
 | Field | What Terraflux does | Methods of |
 |---|---|---|
 | **Land change simulation** | Dinamica EGO's model (Markov chains, weights of evidence, Expander and Patcher, the Patcher of a stock, endogenous roads), CLUE-S, ordered allocation, PLUS's land expansion analysis and CARS, cellular automata in loops, validation by fuzzy similarity | Dinamica EGO, lulcc, PLUS, landschaft |
+| **Carbon and REDD+** | Emissions and removals of land change with regrowth curves; Verra's VT0007 deforestation risk maps, their fit, allocation of the expected deforestation and assessment | IPCC, UDef-ARP |
 | **Machine learning** | Random forests and histogram gradient boosting of classes or values on tables and maps, their predictions, the predictors' importances (impurity, permutation) and partial dependence, the potential of each class to appear | scikit-learn, landschaft |
 | **Map accuracy and area** | Stratified random samples sized and drawn for a map, the error matrix, user's, producer's and overall accuracies and each class's area with confidence intervals | Olofsson et al. (2014), mapaccuracy |
 | **Habitat patterns** | MSPA (also tiled, for maps larger than memory), SPA, Accounting, FAD and FOS fragmentation, landscape mosaic, spatial entropy, change between two dates | GuidosToolbox |

@@ -224,7 +224,7 @@ fn clue_s() -> Model {
     m
 }
 
-pub const TEMPLATES: [Template; 39] = [
+pub const TEMPLATES: [Template; 40] = [
     Template {
         name: "MSPA of a forest",
         group: PATTERNS,
@@ -2463,6 +2463,80 @@ params = { title = "The points drawn, by class" }
 "#,
     },
     Template {
+        name: "REDD+ baseline (VT0007)",
+        group: LAND_CHANGE,
+        build: None,
+        about: "Verra's VT0007 as UDef-ARP: the negligible risk threshold, the vulnerability classes from the \
+                distance to the forest's edge, their deforestation density, and the expected deforestation \
+                allocated to the forest",
+        toml: r#"
+format = "terraflux/1"
+name = "REDD+ baseline (VT0007)"
+description = "Verra's VT0007 (the unplanned deforestation allocation, as Clark Labs' UDef-ARP): the distance to the forest's edge below which 99.5% of a period's deforestation happened, the forest in vulnerability classes by that distance, the relative frequency of deforestation in each class, and the jurisdiction's expected deforestation allocated to its cells by it, never more than a cell."
+
+[[nodes]]
+id = "land"
+op = "nlm.random_cluster"
+params = { rows = 200, columns = 200, p = 0.5, weights = [0.7, 0.3], seed = 31, resolution = 30 }
+note = "The jurisdiction at the start of the historical reference period: 1 forest, 2 other land, cells of 30 m (in its place, a raster.read of a forest map in an equal-area projection)."
+
+[[nodes]]
+id = "forest"
+op = "map.calc"
+inputs = { l = "land.map" }
+params = { expression = "l == 1" }
+
+[[nodes]]
+id = "edge"
+op = "dynamic.distance_to"
+inputs = { landscape = "land.map" }
+params = { classes = 2 }
+note = "Every forest cell's distance to the edge (the nearest other land), metres."
+
+[[nodes]]
+id = "noise"
+op = "nlm.random"
+params = { rows = 200, columns = 200, seed = 32, resolution = 30 }
+
+[[nodes]]
+id = "deforestation"
+op = "map.calc"
+inputs = { f = "forest.map", d = "edge.distance", e = "noise.map" }
+params = { expression = "if f == 1 and e < 0.3 * exp(0 - d / 90) then 1 else 0" }
+note = "The deforestation of the period, near the edge (in its place, the period's deforestation map: 1 deforested)."
+
+[[nodes]]
+id = "nrt"
+op = "redd.nrt"
+inputs = { distance = "edge.distance", deforestation = "deforestation.map" }
+note = "The negligible risk threshold: the distance to the edge below which 99.5% of the deforestation happened."
+
+[[nodes]]
+id = "vulnerability"
+op = "redd.vulnerability"
+inputs = { distance = "edge.distance", nrt = "nrt.nrt" }
+note = "The benchmark vulnerability: 29 classes of geometric widths from the edge to the threshold, 1 beyond it (in a real study, from the distance at the start of the period predicted)."
+
+[[nodes]]
+id = "fit"
+op = "redd.fit"
+inputs = { classes = "vulnerability.classes", deforestation = "deforestation.map" }
+note = "The relative frequency of deforestation in every class (and subdivision, when given)."
+
+[[nodes]]
+id = "allocate"
+op = "redd.allocate"
+inputs = { classes = "vulnerability.classes", table = "fit.table", expected = 60 }
+note = "The jurisdiction's expected deforestation (its activity data, 60 ha) allocated to the cells by the fitted density, never more than a cell's area."
+
+[[nodes]]
+id = "plot"
+op = "view.plot"
+inputs = { value = "allocate.density" }
+params = { title = "Expected deforestation (ha per cell)" }
+"#,
+    },
+    Template {
         name: "Terrain of a surface",
         group: SURFACES,
         build: None,
@@ -2903,6 +2977,19 @@ mod tests {
             let real = truth.data.iter().filter(|&&v| v == cls[k]).count() as f64;
             assert!((area[k] - real).abs() <= ci[k], "class {}: {} ± {} for {real}", cls[k], area[k], ci[k]);
         }
+    }
+
+    /// The REDD+ template runs: the expected deforestation allocated, no cell above its area.
+    #[test]
+    fn redd_template_runs() {
+        struct Quiet;
+        impl terraflux_exec::Observer for Quiet {}
+        let m = TEMPLATES.iter().find(|t| t.name == "REDD+ baseline (VT0007)").unwrap().model();
+        let out = terraflux_exec::Engine::default().run(&m, &Default::default(), &mut Quiet).unwrap();
+        let Some(terraflux_ops::Value::Map(d)) = out.get("allocate.density") else { panic!("no density") };
+        let total: f64 = d.data.iter().sum();
+        assert!((total - 60.0).abs() < 0.01, "{total}");
+        assert!(d.data.iter().all(|v| (0.0..=0.09 + 1e-9).contains(v)));
     }
 
     /// The species distribution model template runs: a map of suitability from 0 to 1.

@@ -231,6 +231,10 @@ destravam outros são o 1 e o 3.
    vegetação secundária, emissões comprometidas ou distribuídas no tempo) e a alocação do risco de desmatamento do
    Verra (VT0007/VM0048: o mapa de risco jurisdicional, o benchmark pela distância à borda, a alocação da
    atividade). Era um dos usos principais do Dinamica EGO no Brasil.
+   - **Feito** (0.91.0): `carbon.emissions` (os estoques por classe e as curvas de rebrota, as emissões e remoções
+     por período e transição) e o VT0007 (`redd.nrt`, `redd.vulnerability`, `redd.fit`, `redd.allocate`,
+     `redd.assess`), iguais ao UDef-ARP da Clark Labs; o template REDD+ baseline (VT0007). Falta: as emissões
+     comprometidas ou distribuídas no tempo (o decaimento da madeira morta e do solo).
 3. **O LEAS do PLUS e o aprendizado de máquina em geral** (`ml.fit`, `ml.predict`). O `cars.step` recebe a
    probabilidade de crescimento pronta: falta o LEAS (a floresta aleatória sobre as expansões entre dois mapas), e
    sem ele o PLUS fica pela metade. Um `ml.*` genérico dá também o potencial de transição como o Land Change

@@ -6,6 +6,20 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Verra's VT0007, the unplanned deforestation allocation of a jurisdiction (REDD+), as Clark Labs' UDef-ARP:
+  `redd.nrt` (the negligible risk threshold of the distance to the forest's edge), `redd.vulnerability` (the
+  benchmark classes of geometric widths from that distance, or the alternative from a map of vulnerability),
+  `redd.fit` (the relative frequency of deforestation by class and subdivision, and its density), `redd.allocate`
+  (the density of another period adjusted to the expected deforestation, or to a period's observed one, never above
+  a cell; a region the fit lacks takes its class's average) and `redd.assess` (the predicted against the actual
+  deforestation in the cells of an assessment grid: the mean and median absolute errors, the intersection over
+  union, R², the OLS and Theil-Sen lines); the same maps and tables as UDef-ARP's own functions.
+- `carbon.emissions`: the carbon emitted and removed by land change over a series of maps (the IPCC's
+  stock-difference method), a stock per class or a curve of regrowth (Chapman-Richards or linear) from the date a
+  class appears in a cell; by period, by transition, and every cell's net emission.
+- The library's subject Carbon and REDD+, and the template REDD+ baseline (VT0007).
+
 ## [0.90.0] - 2026-10-17
 
 ### Added
