@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.95.0] - 2026-10-18
+
 ### Added
 - Spatial statistics, a new subject of the library: `stats.trend`, the monotonic trend of every cell along a series
   of maps (the Mann-Kendall test with its variance corrected for ties, and Sen's slope with its intercept, as
