@@ -20512,6 +20512,151 @@
   "container": false
  },
  {
+  "name": "sensitivity.analyze",
+  "doc": "The indices of a global sensitivity analysis from its runs and their outputs (SALib's analyses, the same numbers): Morris's μ, μ* (the mean absolute elementary effect: the importance) and σ (the interactions and non-linearity) with μ*'s bootstrap interval; or Sobol's first order (S1: the share of the output's variance due to the factor alone), total (ST: with its interactions) and second order (S2: of pairs) indices with their bootstrap intervals.",
+  "inputs": [
+   {
+    "name": "design",
+    "type": "table",
+    "required": true,
+    "doc": "the runs (sensitivity.design's table)"
+   },
+   {
+    "name": "results",
+    "type": "table",
+    "required": true,
+    "doc": "the outputs of the runs, a row each in the same order"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "indices",
+    "type": "table",
+    "required": true,
+    "doc": "a row per factor (in the design's order): factor (1..), then mu, mu_star, sigma, mu_star_conf (morris) or s1, s1_conf, st, st_conf (sobol)"
+   },
+   {
+    "name": "s2",
+    "type": "table",
+    "required": false,
+    "doc": "sobol: the second order indices, a row and a column per factor"
+   },
+   {
+    "name": "s2_conf",
+    "type": "table",
+    "required": false,
+    "doc": "sobol: their intervals"
+   }
+  ],
+  "params": [
+   {
+    "name": "method",
+    "type": "text",
+    "required": true,
+    "doc": "morris or sobol",
+    "choices": [
+     "morris",
+     "sobol"
+    ]
+   },
+   {
+    "name": "column",
+    "type": "text",
+    "required": false,
+    "doc": "the results' column (default its last)"
+   },
+   {
+    "name": "levels",
+    "type": "integer",
+    "required": false,
+    "doc": "morris: the grid's levels, as the design's (default 4)"
+   },
+   {
+    "name": "second_order",
+    "type": "bool",
+    "required": false,
+    "doc": "sobol: as the design (default true)"
+   },
+   {
+    "name": "resamples",
+    "type": "integer",
+    "required": false,
+    "doc": "the bootstraps of the intervals (default 100)"
+   },
+   {
+    "name": "confidence",
+    "type": "number",
+    "required": false,
+    "doc": "the level of the intervals (default 0.95)"
+   },
+   {
+    "name": "seed",
+    "type": "integer",
+    "required": false,
+    "doc": "the seed of the bootstraps (default 1)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "sensitivity.design",
+  "doc": "The runs of a global sensitivity analysis (SALib's samplers, the same values): Morris's trajectories (a factor changed at a time on a grid of levels; n trajectories of factors + 1 runs) or Saltelli's runs of Sobol's method (a scrambled Sobol' sequence; n base points, a power of 2, of 2 × factors + 2 runs, or factors + 2 without the second order). Run the model at every row (`terraflux sensitivity`, or a loop) and give the outputs to sensitivity.analyze.",
+  "inputs": [],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per run: run, then a column per factor"
+   }
+  ],
+  "params": [
+   {
+    "name": "method",
+    "type": "text",
+    "required": true,
+    "doc": "morris or sobol",
+    "choices": [
+     "morris",
+     "sobol"
+    ]
+   },
+   {
+    "name": "factors",
+    "type": "any",
+    "required": true,
+    "doc": "the factors and their ranges: [[name, low, high], ...] (or {name: [low, high]}); a model's input ($name) or setting (node.setting) for terraflux sensitivity"
+   },
+   {
+    "name": "n",
+    "type": "integer",
+    "required": false,
+    "doc": "trajectories (morris) or base points (sobol; default 10 / 64)"
+   },
+   {
+    "name": "levels",
+    "type": "integer",
+    "required": false,
+    "doc": "morris: the grid's levels (default 4)"
+   },
+   {
+    "name": "second_order",
+    "type": "bool",
+    "required": false,
+    "doc": "sobol: the pairs' indices too (default true)"
+   },
+   {
+    "name": "seed",
+    "type": "integer",
+    "required": false,
+    "doc": "the seed of numpy's default_rng (default 1)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
   "name": "services.carbon",
   "doc": "Carbon storage of a landscape and its change between two land use maps: InVEST's carbon model (natcap.invest 3.20) bit for bit, through landschaft. Each class holds a density (t C / ha) in four pools (above and below ground biomass, soil, dead matter); the storage is their sum, the sequestration the future minus the baseline, valued with a price.",
   "inputs": [

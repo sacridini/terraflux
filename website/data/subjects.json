@@ -158,7 +158,8 @@
   {
    "title": "Uncertainty",
    "prefixes": [
-    "uncertainty"
+    "uncertainty",
+    "sensitivity"
    ]
   },
   {
