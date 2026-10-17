@@ -1,6 +1,7 @@
 //! The look of the application: flat panels, square corners, compact rows and one accent for what is selected
-//! or active (after Ableton Live's). Several themes, each a palette (the mid greys of the default, a light one,
+//! or active (after Ableton Live's). Several themes, each a palette (the mid greys of the default, two light ones,
 //! greens, near black, warm golds), chosen in the settings; the text's size and the interface's zoom with them.
+//! Every theme's text, weak text included, reads at 4.5:1 at least on its panels and canvas (WCAG's AA).
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -35,7 +36,7 @@ const fn rgb(r: u8, g: u8, b: u8) -> Color32 {
 }
 
 /// The themes.
-pub const THEMES: [Palette; 5] = [
+pub const THEMES: [Palette; 6] = [
     Palette {
         name: "Default",
         dark: true,
@@ -51,13 +52,13 @@ pub const THEMES: [Palette; 5] = [
         pressed: rgb(132, 132, 132),
         line: rgb(52, 52, 52),
         text: rgb(222, 222, 222),
-        weak: rgb(160, 160, 160),
+        weak: rgb(186, 186, 186),
     },
     // light and airy, a cool accent
     Palette {
         name: "Immaterial",
         dark: false,
-        accent: rgb(0, 148, 204),
+        accent: rgb(0, 118, 170),
         on_accent: rgb(255, 255, 255),
         bar: rgb(206, 206, 206),
         canvas: rgb(234, 234, 234),
@@ -69,7 +70,25 @@ pub const THEMES: [Palette; 5] = [
         pressed: rgb(168, 168, 168),
         line: rgb(176, 176, 176),
         text: rgb(32, 32, 32),
-        weak: rgb(108, 108, 108),
+        weak: rgb(86, 86, 86),
+    },
+    // warm paper and a forest's green: a light theme for daylight, a projector, print
+    Palette {
+        name: "Field Notes",
+        dark: false,
+        accent: rgb(26, 112, 76),
+        on_accent: rgb(255, 255, 255),
+        bar: rgb(222, 217, 205),
+        canvas: rgb(238, 234, 224),
+        well: rgb(251, 249, 244),
+        panel: rgb(231, 226, 215),
+        window: rgb(239, 235, 226),
+        raised: rgb(212, 206, 192),
+        hover: rgb(199, 192, 177),
+        pressed: rgb(184, 177, 161),
+        line: rgb(186, 179, 164),
+        text: rgb(33, 31, 27),
+        weak: rgb(92, 86, 75),
     },
     // the greens of a river's bank
     Palette {
@@ -87,7 +106,7 @@ pub const THEMES: [Palette; 5] = [
         pressed: rgb(104, 130, 118),
         line: rgb(34, 44, 40),
         text: rgb(220, 232, 224),
-        weak: rgb(148, 170, 158),
+        weak: rgb(156, 177, 165),
     },
     // stark: near black, a red accent
     Palette {
@@ -186,14 +205,15 @@ pub fn visuals() -> Visuals {
         v.warn_fg_color = rgb(255, 208, 92);
         v.error_fg_color = rgb(255, 112, 98);
     } else {
-        v.hyperlink_color = rgb(0, 102, 204);
-        v.warn_fg_color = rgb(176, 112, 0);
-        v.error_fg_color = rgb(200, 40, 30);
+        // (dark enough to read at 4.5:1 on the light panels)
+        v.hyperlink_color = rgb(0, 88, 178);
+        v.warn_fg_color = rgb(138, 84, 0);
+        v.error_fg_color = rgb(178, 30, 24);
     }
     let strong = if p.dark { Color32::WHITE } else { Color32::BLACK };
     // what is selected in a list, a tab or a text: the accent softened into the panel, its text strong; the
     // accent itself is for the main action (Run) and the node selected on the canvas
-    v.selection.bg_fill = p.accent.lerp_to_gamma(p.panel, if p.dark { 0.5 } else { 0.6 });
+    v.selection.bg_fill = p.accent.lerp_to_gamma(p.panel, 0.6);
     v.selection.stroke = Stroke::new(1.0, strong);
 
     let w = &mut v.widgets;
@@ -264,4 +284,36 @@ pub fn apply(ctx: &egui::Context) {
 pub fn section(ui: &mut egui::Ui, text: &str) {
     ui.add_space(4.0);
     ui.label(egui::RichText::new(text.to_uppercase()).size(10.5).color(weak()).strong());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// WCAG's contrast of two colours (1 to 21).
+    fn contrast(a: Color32, b: Color32) -> f32 {
+        let lum = |c: Color32| {
+            let ch = |v: u8| {
+                let v = v as f32 / 255.0;
+                if v <= 0.03928 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+            };
+            0.2126 * ch(c.r()) + 0.7152 * ch(c.g()) + 0.0722 * ch(c.b())
+        };
+        let (x, y) = (lum(a), lum(b));
+        (x.max(y) + 0.05) / (x.min(y) + 0.05)
+    }
+
+    #[test]
+    fn every_theme_reads_at_aa() {
+        for t in &THEMES {
+            for (what, bg) in [("panel", t.panel), ("canvas", t.canvas), ("bar", t.bar)] {
+                assert!(contrast(t.text, bg) > contrast(t.weak, bg), "{}: text over weak text on {what}", t.name);
+                assert!(contrast(t.weak, bg) >= 4.5, "{}: weak text on {what}: {}", t.name, contrast(t.weak, bg));
+            }
+            assert!(contrast(t.on_accent, t.accent) >= 4.5, "{}: text on the accent", t.name);
+            // what is selected: the accent softened into the panel, its text strong
+            let strong = if t.dark { Color32::WHITE } else { Color32::BLACK };
+            assert!(contrast(strong, t.accent.lerp_to_gamma(t.panel, 0.6)) >= 4.5, "{}: the selection", t.name);
+        }
+    }
 }

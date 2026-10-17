@@ -1226,7 +1226,8 @@ fn settings_themes_and_favourites() {
     h.run_steps(2);
     let ctx = h.ctx.clone();
     h.state_mut().start_template(&ctx, &terraflux_app::templates::TEMPLATES[0]);
-    h.run_steps(4);
+    // (the run over: the bar at the top as it stays)
+    drawn(&mut h);
     // (the toolbar's gear)
     h.get_by_label("⚙").click();
     h.run_steps(2);

@@ -43,6 +43,11 @@ minor versions.
   Operators menu, "/" and the commands, their pane, shown from View, taking the left edge (the layout kept of
   earlier versions is let go once). The collections of favourites are named, with their counts ("■ Red 1"), only
   those with operators shown, and a word on how to fill one when none has any.
+- Every theme's text, weak text included, reads at 4.5:1 at least on its panels, canvas and bars (WCAG's AA, kept
+  by a test): the weak text of Default, Immaterial and Riparian stronger, Immaterial's accent darker (white on it),
+  the light themes' warnings, errors and links darker; the operator, the file and the folded inputs written on a
+  node's box between the weak and the plain text. A second light theme, **Field Notes**: warm paper and a forest's
+  green, for daylight and projectors.
 
 ## [0.83.0] - 2026-10-16
 

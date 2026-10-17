@@ -1390,6 +1390,8 @@ pub fn show(
     ));
     let painter = ui.painter_at(rect);
     let v = ui.visuals().clone();
+    // the weak texts on a box: between the weak and the plain text, to read on the box's lighter grey
+    let faint = v.weak_text_color().lerp_to_gamma(v.text_color(), 0.5);
     // the texts of the boxes in view: the nodes' names never smaller than can be read (in the middle of their
     // boxes when the ports' names are not written), cut to their boxes; the operators and the ports' names when
     // the zoom makes them readable
@@ -1427,7 +1429,7 @@ pub fn show(
                     Align2::LEFT_CENTER,
                     file_label(file, ((f.width() - 16.0) / estimate("x", &file_font())).max(8.0) as usize),
                     FontId::monospace(size(10.5)),
-                    v.weak_text_color(),
+                    faint,
                 );
             }
             if !ports {
@@ -1436,11 +1438,8 @@ pub fn show(
             let top = screen(b.rect.min);
             if !b.source {
                 // a node of data's operator in the colour of the type it gives, when asked
-                let colour = b
-                    .tint()
-                    .filter(|_| scene.key.4)
-                    .and_then(|t| type_colour(t, v.dark_mode))
-                    .unwrap_or(v.weak_text_color());
+                let colour =
+                    b.tint().filter(|_| scene.key.4).and_then(|t| type_colour(t, v.dark_mode)).unwrap_or(faint);
                 painter.text(
                     top + Vec2::new(8.0, 21.0) * cam.zoom,
                     Align2::LEFT_TOP,
@@ -1450,11 +1449,8 @@ pub fn show(
                 );
             }
             for (k, p) in b.inputs.iter().enumerate() {
-                let (name, colour) = if p.name.is_empty() {
-                    (NEW_INPUT, v.weak_text_color())
-                } else {
-                    (p.name.as_str(), v.text_color())
-                };
+                let (name, colour) =
+                    if p.name.is_empty() { (NEW_INPUT, faint) } else { (p.name.as_str(), v.text_color()) };
                 painter.text(
                     screen(b.input_at(k)) + Vec2::new(9.0, 0.0) * cam.zoom,
                     Align2::LEFT_CENTER,
@@ -1469,7 +1465,7 @@ pub fn show(
                     Align2::LEFT_CENTER,
                     fold_label(b.folded.len(), b.unfolded),
                     FontId::monospace(size(10.5)),
-                    v.weak_text_color(),
+                    faint,
                 );
             }
             for (k, (name, _)) in b.outputs.iter().enumerate() {
