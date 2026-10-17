@@ -93,18 +93,17 @@ impl Pane {
     }
 }
 
-/// The panes as they first are: the operators (and the files, in a tab beside them) at the left edge, the node and
-/// the preparation of its data beside them, the model in the rest (the others from the View menu). The viewer opens
+/// The panes as they first are: the model in most of the window, the node selected at its right as an inspector
+/// (the preparation of its data and the files in tabs beside it); the others from the View menu. The viewer opens
 /// in a tab beside the model's when the first data comes (a raster or vectors read, a template); the maps of nodes
-/// open beside the viewer. The operators' pane closed, they are in a drawer at the left edge and in the toolbar.
+/// open beside the viewer. The operators are in a drawer at the window's left edge, in the Operators menu, behind
+/// "/" and in the commands (ctrl+K); their pane, shown, takes the left edge.
 pub fn default_layout() -> DockState<Pane> {
-    // the operators' and the node's panes a quarter narrower than they were (0.17 and 0.21 of the window)
-    const OPERATORS: f32 = 0.1275;
-    const NODE: f32 = 0.1556;
+    // the inspector a fifth of the window
+    const NODE: f32 = 0.2;
     let mut d = DockState::new(vec![Pane::Model]);
     let s = d.main_surface_mut();
-    let [model, _] = s.split_left(NodeIndex::root(), OPERATORS, vec![Pane::Operators, Pane::Files]);
-    let [_, _] = s.split_left(model, NODE / (1.0 - OPERATORS), vec![Pane::Node, Pane::Prepare]);
+    let [_, _] = s.split_right(NodeIndex::root(), 1.0 - NODE, vec![Pane::Node, Pane::Prepare, Pane::Files]);
     d
 }
 
@@ -130,7 +129,7 @@ fn retain_panes(dock: &mut DockState<Pane>, keep: impl FnMut(&mut Pane) -> bool)
 }
 
 /// The version of the layout kept (a layout of another version is let go).
-const LAYOUT_VERSION: u32 = 7;
+const LAYOUT_VERSION: u32 = 8;
 
 /// A window of its own (another screen): its panes in a dock.
 pub struct Detached {
@@ -2491,9 +2490,20 @@ impl TerrafluxApp {
                 &[Pane::Viewer, Pane::Model]
             }
             Pane::Viewer => &[Pane::Model],
-            Pane::Files => &[Pane::Operators],
+            Pane::Files => &[Pane::Node, Pane::Operators],
+            Pane::Prepare => &[Pane::Node],
+            Pane::Node => &[Pane::Prepare, Pane::Files],
             _ => &[],
         };
+        // the operators' pane, nowhere: at the left edge of the window
+        if pane == Pane::Operators && dock.main_surface().num_tabs() > 0 {
+            dock.main_surface_mut().split_left(NodeIndex::root(), 0.15, vec![Pane::Operators]);
+            if let Some(path) = dock.find_tab(&pane) {
+                let _ = dock.set_active_tab(path);
+                dock.set_focused_node_and_surface(path.node_path());
+            }
+            return;
+        }
         match near.iter().find_map(|n| dock.find_tab(n)).map(|p| dock.leaf_mut(p.node_path())) {
             Some(Ok(leaf)) => leaf.append_tab(pane),
             _ => dock.push_to_focused_leaf(pane),

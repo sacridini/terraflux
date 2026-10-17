@@ -1254,27 +1254,32 @@ fn library(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library) {
         Err(e) => e.to_string(),
     });
     ui.add_space(6.0);
-    // the collections of favourites, one chosen shows its operators
+    // the collections of favourites that have operators, by name and count: one chosen shows its operators
     theme::section(ui, "Favourites");
     let shown_id = egui::Id::new("collection shown");
     let mut shown: Option<u8> = ui.data(|d| d.get_temp(shown_id)).flatten();
+    let filled: Vec<(u8, usize)> = (0..crate::settings::COLLECTIONS.len() as u8)
+        .map(|k| (k, crate::settings::in_collection(k).len()))
+        .filter(|(k, count)| *count > 0 || shown == Some(*k))
+        .collect();
+    if filled.is_empty() {
+        ui.label(
+            RichText::new("Right-click an operator to put it in a collection of favourites.")
+                .size(11.0)
+                .color(ui.visuals().weak_text_color()),
+        );
+    }
     ui.horizontal_wrapped(|ui| {
-        for (k, (name, colour)) in crate::settings::COLLECTIONS.iter().enumerate() {
-            let k = k as u8;
-            let count = crate::settings::in_collection(k).len();
-            let (rect, resp) = ui.allocate_exact_size(Vec2::new(26.0, 18.0), egui::Sense::click());
+        for (k, count) in filled {
+            let (name, colour) = crate::settings::COLLECTIONS[k as usize];
             let on = shown == Some(k);
-            let fill = if count == 0 && !on { colour.gamma_multiply(0.45) } else { *colour };
-            ui.painter().rect_filled(rect.shrink(2.0), 2.0, fill);
-            if on {
-                ui.painter().rect_stroke(
-                    rect,
-                    2.0,
-                    egui::Stroke::new(1.5, ui.visuals().strong_text_color()),
-                    egui::StrokeKind::Inside,
-                );
-            }
-            if resp
+            let mut job = egui::text::LayoutJob::default();
+            let font = egui::TextStyle::Button.resolve(ui.style());
+            job.append("■ ", 0.0, egui::TextFormat::simple(font.clone(), colour));
+            let text = if on { ui.visuals().selection.stroke.color } else { ui.visuals().text_color() };
+            job.append(&format!("{name} {count}"), 0.0, egui::TextFormat::simple(font, text));
+            if ui
+                .add(egui::Button::selectable(on, job))
                 .on_hover_text(format!("{name}: {count} operators (right-click an operator to put it here)"))
                 .clicked()
             {

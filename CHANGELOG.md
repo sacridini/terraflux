@@ -38,6 +38,11 @@ minor versions.
   port's hover tells its type and whether it is needed. Zoomed out, the nodes' names stay readable (never under
   11 points, in the middle of their boxes, cut to them) where they used to vanish under 35%. Undo and Redo are
   named (their arrows were not in the font).
+- The panes as they first are: the model in most of the window and the node selected in an inspector at its right
+  (the preparation and the files in tabs beside it); the operators in their drawer at the window's left edge, the
+  Operators menu, "/" and the commands, their pane, shown from View, taking the left edge (the layout kept of
+  earlier versions is let go once). The collections of favourites are named, with their counts ("■ Red 1"), only
+  those with operators shown, and a word on how to fill one when none has any.
 
 ## [0.83.0] - 2026-10-16
 

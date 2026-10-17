@@ -987,10 +987,10 @@ fn data_is_put_on_the_reference_grid_in_a_click() {
     assert_eq!(s.selected.as_deref(), Some(n.id.as_str()));
 }
 
-/// The panes' places: the operators at the window's left edge, the node's beside them, the model in the rest;
-/// the operators' pane closed, they are in a drawer the pointer opens at the window's left edge (and closes
-/// leaving it) and in the toolbar; backspace deletes the node selected; a tab dragged out of the dock (egui_dock's
-/// floating window) becomes a window of its own.
+/// The panes' places: the model in most of the window, the node's pane at its right (the preparation and the files
+/// in tabs beside it); the operators in a drawer the pointer opens at the window's left edge (and closes leaving
+/// it) and in the toolbar, their pane, shown, at the left edge; backspace deletes the node selected; a tab dragged
+/// out of the dock (egui_dock's floating window) becomes a window of its own.
 #[test]
 fn the_operators_drawer_and_windows_of_their_own() {
     let mut h = harness(new_app(None));
@@ -998,25 +998,23 @@ fn the_operators_drawer_and_windows_of_their_own() {
     let ctx = h.ctx.clone();
     h.state_mut().start_template(&ctx, &terraflux_app::templates::TEMPLATES[0]);
     h.run_steps(4);
-    assert!(h.state().is_open(Pane::Operators), "the operators' pane at first");
+    assert!(!h.state().is_open(Pane::Operators), "the operators in their drawer at first");
     assert!(h.state().is_open(Pane::Node) && h.state().is_open(Pane::Prepare));
-    let left = |pane: Pane| {
+    let left = |h: &Harness<TerrafluxApp>, pane: Pane| {
         let dock = h.state().dock.as_ref().unwrap();
         let path = dock.find_tab(&pane).unwrap();
         dock[path.surface][path.node].rect().unwrap().left()
     };
-    let (ops, node, model) = (left(Pane::Operators), left(Pane::Node), left(Pane::Model));
-    assert!(ops < node && node < model, "operators, node, model from the left: {ops} {node} {model}");
-    // the operators about an eighth of the window, the node's pane about a sixth
+    let (model, node) = (left(&h, Pane::Model), left(&h, Pane::Node));
+    assert!(model < node, "the model, then the node from the left: {model} {node}");
+    // the node's pane a fifth of the window
     let width = h.ctx.content_rect().width();
-    assert!(((node - ops) / width - 0.1275).abs() < 0.02, "the operators' width: {}", node - ops);
-    assert!(((model - node) / width - 0.1556).abs() < 0.02, "the node's width: {}", model - node);
-    assert!(h.query_by_label("Open a raster...").is_some(), "the operators in their pane");
-    // the files in a tab beside the operators': the data of a folder, a raster carried to the model from there
+    assert!(((width - node) / width - 0.2).abs() < 0.03, "the node's width: {}", width - node);
+    // the files in a tab beside the node's: the data of a folder, a raster carried to the model from there
     {
         let dock = h.state().dock.as_ref().unwrap();
-        let (a, b) = (dock.find_tab(&Pane::Operators).unwrap(), dock.find_tab(&Pane::Files).unwrap());
-        assert_eq!((a.surface, a.node), (b.surface, b.node), "the files beside the operators");
+        let (a, b) = (dock.find_tab(&Pane::Node).unwrap(), dock.find_tab(&Pane::Files).unwrap());
+        assert_eq!((a.surface, a.node), (b.surface, b.node), "the files beside the node");
     }
     h.state_mut().files.go(data(""));
     h.state_mut().focus(Pane::Files);
@@ -1058,8 +1056,11 @@ fn the_operators_drawer_and_windows_of_their_own() {
     h.key_press_modifiers(egui::Modifiers::ALT, egui::Key::ArrowLeft);
     h.run_steps(2);
     assert!(h.query_by_label("sibuyan_landuse.tif").is_none(), "back to the folder above");
+    // the operators' pane shown: at the left edge
     h.state_mut().focus(Pane::Operators);
     h.run_steps(2);
+    assert!(left(&h, Pane::Operators) < left(&h, Pane::Model), "the operators at the left");
+    assert!(h.query_by_label("Open a raster...").is_some(), "the operators in their pane");
     h.event(egui::Event::PointerMoved(egui::pos2(1.0, 300.0)));
     h.run_steps(3);
     assert!(!h.state().drawer, "no drawer over the operators' pane");
@@ -1245,6 +1246,7 @@ fn settings_themes_and_favourites() {
     terraflux_app::settings::toggle("raster.read", 0);
     assert_eq!(terraflux_app::settings::collections_of("raster.read"), vec![0]);
     assert_eq!(terraflux_app::settings::in_collection(0), vec!["raster.read".to_string()]);
+    h.state_mut().focus(Pane::Operators);
     h.ctx.data_mut(|d| d.insert_temp(egui::Id::new("collection shown"), Some(0u8)));
     h.run_steps(3);
     shot(&mut h, "24-favourites");
