@@ -128,24 +128,24 @@ o `WatchScope`); o `main` do landschaft, com o merge `db23ef9`, está 43 commits
 linhas de C++ novas em `hydro`, `serv`, `swat`, `surf` e `sim`, e três bibliotecas novas no CMake (`hydrocore`,
 `servcore`, `swatcore`). A ordem sugerida:
 
-1. **Feito** (Unreleased). **Atualizar o submódulo para o `main`** e conferir o Terraflux com ele: o `build.rs` do `terraflux-ls-sys`
+1. **Feito** (0.86.0). **Atualizar o submódulo para o `main`** e conferir o Terraflux com ele: o `build.rs` do `terraflux-ls-sys`
    ligando as bibliotecas novas (mesmo antes de haver operadores), a suíte inteira e os testes de paridade (os
    ótimos do prioritizr em release, `--include-ignored`), os pacotes dos três sistemas (o CI e o WSL). Nada em
    `src/cpp/opt` mudou desde a base além do `WatchScope`.
 2. **Novos operadores, cada um bit a bit com o landschaft:**
-   - **Feito** (Unreleased). **Hidrologia do terreno** (`hydro`): preenchimento e rompimento de depressões (menor custo), direções e
+   - **Feito** (0.86.0). **Hidrologia do terreno** (`hydro`): preenchimento e rompimento de depressões (menor custo), direções e
      acumulação de fluxo (D8 e o fluxo múltiplo do pygeoprocessing), traçado dos rios, bacias, HAND, TWI, SPI e STI.
-   - **Feito** (Unreleased). **Serviços ecossistêmicos do InVEST** (`serv`): carbono, qualidade do habitat, produção anual de água e
+   - **Feito** (0.86.0). **Serviços ecossistêmicos do InVEST** (`serv`): carbono, qualidade do habitat, produção anual de água e
      hidroeletricidade, a razão de entrega de sedimentos (SDR) e o índice de conectividade.
-   - **Feito** (Unreleased). **Superfícies** (`surf`): os geomorfons (o `r.geomorphon` do GRASS), o topo de morro da APP (Lei 12.651/2012)
+   - **Feito** (0.86.0). **Superfícies** (`surf`): os geomorfons (o `r.geomorphon` do GRASS), o topo de morro da APP (Lei 12.651/2012)
      e o potencial gravitacional do Dinamica (`CalcInteractionPotentialMap`).
-   - **Feito** (Unreleased). **Simulação** (`sim`): o `ContinuousPatcher` (o `PatcherContinuousState` do Dinamica) e as estradas endógenas
+   - **Feito** (0.86.0). **Simulação** (`sim`): o `ContinuousPatcher` (o `PatcherContinuousState` do Dinamica) e as estradas endógenas
      (o construtor de estradas do Dinamica).
    - **O SWAT+** (`swat`): o modelo de bacias portado do Fortran, bit a bit com o SWAT+ (projetos de rasters como o
      QSWAT+ e o SWAT+ Editor, o manejo das HRUs, a rotação de culturas, o MUSLE, a calibração, as saídas). O maior:
      pede um desenho próprio no builder (o projeto como um valor, as tabelas das saídas, os mapas das HRUs e dos
      trechos, `run_many` nos lotes).
-     - **Feito** (Unreleased): rodar um projeto TxtInOut (`swat.run`: as tabelas impressas num passo e o clima).
+     - **Feito** (0.86.0): rodar um projeto TxtInOut (`swat.run`: as tabelas impressas num passo e o clima).
      - Falta: o projeto a partir de rasters (o `watershed` do QSWAT+ e o `from_tables` do SWAT+ Editor, o clima
        com o gerador, `from_rasters`) como um valor do grafo, os mapas das HRUs e dos trechos (`hru_map`,
        `channel_map`, `reach_discharge`), alterar parâmetros do projeto num nó (para os lotes e a calibração) e a

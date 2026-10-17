@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.86.0] - 2026-10-17
+
 ### Added
 - Terrain hydrology (`hydro.*`, landschaft 1.50's `ls.hydro`, bit for bit): depression filling (Priority-Flood,
   with or without the epsilon that drains the filled areas) and least-cost breaching (WhiteboxTools'
