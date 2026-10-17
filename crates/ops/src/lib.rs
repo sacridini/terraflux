@@ -78,6 +78,7 @@ pub mod services;
 pub mod signatures;
 mod sobol_directions;
 pub mod special;
+pub mod interpolation;
 pub mod stats;
 pub mod surface;
 pub mod swat;
@@ -386,6 +387,7 @@ impl Registry {
         files::register(&mut r);
         forest_code::register(&mut r);
         stats::register(&mut r);
+        interpolation::register(&mut r);
         fitted::register(&mut r);
         fragmentation::register(&mut r);
         futures::register(&mut r);

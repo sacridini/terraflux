@@ -24,6 +24,7 @@ mod forest_code;
 mod futures_tools;
 mod h3;
 mod hydro;
+mod interpolation;
 mod landforms;
 mod legend;
 mod map_validation;

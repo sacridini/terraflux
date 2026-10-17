@@ -224,7 +224,7 @@ fn clue_s() -> Model {
     m
 }
 
-pub const TEMPLATES: [Template; 42] = [
+pub const TEMPLATES: [Template; 43] = [
     Template {
         name: "MSPA of a forest",
         group: PATTERNS,
@@ -3051,6 +3051,98 @@ inputs = { value = "spots.spots" }
 params = { title = "Hot and cold spots" }
 "#,
     },
+    Template {
+        name: "Interpolation: IDW and kriging",
+        group: SURFACES,
+        build: None,
+        about: "120 points sampled from a drawn soil property, their variogram and a spherical model fitted to it, \
+                ordinary kriging with its variance and inverse distance weighting, and the errors of both",
+        toml: r#"
+format = "terraflux/1"
+name = "Interpolation: IDW and kriging"
+description = "Points of a soil property interpolated as R's gstat does: 120 points sampled from a drawn surface, their sample variogram and a spherical model fitted to it, ordinary kriging (the prediction and its variance) and inverse distance weighting, and how far each is from the surface."
+
+[[nodes]]
+id = "field"
+op = "nlm.gaussian_field"
+params = { rows = 100, columns = 100, range = 12, seed = 81 }
+
+[[nodes]]
+id = "soil"
+op = "map.calc"
+inputs = { f = "field.map" }
+params = { expression = "20 + 30 * f" }
+note = "The true surface, a soil's carbon in g/kg say (in its place, the area to interpolate: any map of it)."
+
+[[nodes]]
+id = "area"
+op = "map.calc"
+inputs = { f = "soil.map" }
+params = { expression = "f * 0 + 1" }
+
+[[nodes]]
+id = "sample"
+op = "accuracy.sample"
+inputs = { map = "area.map" }
+params = { n = 120, seed = 82 }
+note = "120 random points (in their place, the points measured: vector.read)."
+
+[[nodes]]
+id = "points"
+op = "vector.extract"
+inputs = { vector = "sample.points", map = "soil.map" }
+note = "The value at every point, its attribute value."
+
+[[nodes]]
+id = "variogram"
+op = "stats.variogram"
+inputs = { points = "points.vector" }
+params = { field = "value", model = "spherical" }
+note = "The sample variogram and a spherical model fitted to it (its table: np, dist, gamma and the model)."
+
+[[nodes]]
+id = "kriging"
+op = "stats.kriging"
+inputs = { points = "points.vector", like = "soil.map", model = "variogram.model" }
+params = { field = "value" }
+
+[[nodes]]
+id = "idw"
+op = "stats.idw"
+inputs = { points = "points.vector", like = "soil.map" }
+params = { field = "value", power = 2 }
+
+[[nodes]]
+id = "kriging_error"
+op = "map.calc"
+inputs = { k = "kriging.prediction", s = "soil.map" }
+params = { expression = "k - s" }
+
+[[nodes]]
+id = "idw_error"
+op = "map.calc"
+inputs = { i = "idw.map", s = "soil.map" }
+params = { expression = "i - s" }
+
+[[nodes]]
+id = "plot_kriging"
+op = "view.plot"
+inputs = { value = "kriging.prediction" }
+params = { title = "Ordinary kriging" }
+
+[[nodes]]
+id = "plot_variance"
+op = "view.plot"
+inputs = { value = "kriging.variance" }
+params = { title = "Kriging variance" }
+
+[[nodes]]
+id = "plot_idw"
+op = "view.plot"
+inputs = { value = "idw.map" }
+params = { title = "Inverse distance weighting" }
+"#,
+    },
 ];
 
 /// Where the user's own templates are kept (the user's application data): a model file each, named as shown.
@@ -3251,6 +3343,23 @@ mod tests {
         assert!(i.rows[0][0] > 0.3, "{:?}", i.rows[0]);
         let Some(terraflux_ops::Value::Map(c)) = out.get("lisa.clusters") else { panic!("no clusters") };
         assert!(c.data.contains(&1.0) && c.data.contains(&3.0));
+    }
+
+    /// The interpolation template runs: kriging closer to the surface than inverse distance weighting.
+    #[test]
+    fn interpolation_template_runs() {
+        struct Quiet;
+        impl terraflux_exec::Observer for Quiet {}
+        let m = TEMPLATES.iter().find(|t| t.name == "Interpolation: IDW and kriging").unwrap().model();
+        let out = terraflux_exec::Engine::default().run(&m, &Default::default(), &mut Quiet).unwrap();
+        let mae = |port: &str| {
+            let Some(terraflux_ops::Value::Map(e)) = out.get(port) else { panic!("no {port}") };
+            e.data.iter().map(|v| v.abs()).sum::<f64>() / e.data.len() as f64
+        };
+        let (k, i) = (mae("kriging_error.map"), mae("idw_error.map"));
+        assert!(k < i && k < 3.0, "{k} {i}");
+        let Some(terraflux_ops::Value::Map(v)) = out.get("kriging.variance") else { panic!("no variance") };
+        assert!(v.data.iter().all(|x| *x >= 0.0));
     }
 
     /// The species distribution model template runs: a map of suitability from 0 to 1.

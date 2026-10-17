@@ -296,7 +296,10 @@ destravam outros são o 1 e o 3.
    célula de uma série de mapas (Mann-Kendall e a inclinação de Sen), muito usada com o NDVI.
    - **Feito** (0.95.0): `stats.trend` (Mann-Kendall e a inclinação de Sen, iguais ao pymannkendall),
      `stats.moran`, `stats.lisa` e `stats.getis_ord` (iguais ao esda, contiguidade rook ou queen) e o modelo
-     "Trend and hot spots". Falta: a interpolação (IDW e krigagem ordinária).
+     "Trend and hot spots".
+   - **Feito** (0.96.0): `stats.variogram` (o variograma amostral e o ajuste do gstat, esférico, exponencial ou
+     gaussiano), `stats.kriging` (krigagem ordinária com a variância) e `stats.idw`, iguais ao gstat, e o
+     modelo "Interpolation: IDW and kriging".
 8. **O resto do InVEST:** a razão de entrega de nutrientes (NDR), a polinização e a produção sazonal de água, os
    mais pedidos depois dos quatro que já estão. Entram primeiro no landschaft, como os outros.
 9. **Dispersão de espécies no tempo.** O SDM de vários períodos com a dispersão célula a célula (como o MigClim) ou

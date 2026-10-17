@@ -6,6 +6,16 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Interpolation of points onto a map as R's gstat 2.1 does it: `stats.variogram`, the sample variogram of points
+  (gstat's classes of distance up to a cutoff) and a nugget with a spherical, exponential or Gaussian structure
+  fitted to it (fit.variogram's iterated weighted least squares, its Gauss-Newton steps, weights and stopping rule:
+  the converged fits to the bit); `stats.kriging`, ordinary kriging with every point or the nearest, the prediction
+  and its variance, under the model fitted or one given; `stats.idw`, inverse distance weighting. The points are
+  features with their values in an attribute; the result takes the cells of a map.
+- The template "Interpolation: IDW and kriging": points sampled from a drawn soil property, its variogram, kriging,
+  inverse distance weighting and their errors.
+
 ## [0.95.0] - 2026-10-18
 
 ### Added
