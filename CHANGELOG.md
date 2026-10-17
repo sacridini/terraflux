@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.88.0] - 2026-10-17
+
 ### Added
 - Machine learning (`ml.*`), scikit-learn's random forests ported to the bit (now `terraflux_ops::ml::forest`,
   shared with `sdm.fit`): `ml.fit` (RandomForestClassifier of any number of classes, or RandomForestRegressor of
