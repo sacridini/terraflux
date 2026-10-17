@@ -118,6 +118,12 @@
    ]
   },
   {
+   "title": "Machine learning",
+   "prefixes": [
+    "ml"
+   ]
+  },
+  {
    "title": "Land change simulation",
    "prefixes": [
     "markov",

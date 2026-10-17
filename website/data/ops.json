@@ -11135,6 +11135,320 @@
   "container": false
  },
  {
+  "name": "ml.fit",
+  "doc": "A random forest fitted to records (scikit-learn's RandomForestClassifier for classes, RandomForestRegressor for values, the same trees): the rows of a table, or the cells of maps (the predictors a stack, the target a map; a sample of the cells, drawn as numpy's default_rng(seed) draws it). Its predictors' importances: the mean decrease of impurity.",
+  "inputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": false,
+    "doc": "the records: the predictors and the target, a column each"
+   },
+   {
+    "name": "predictors",
+    "type": "stack",
+    "required": false,
+    "doc": "or maps: a layer per predictor (stack.of)"
+   },
+   {
+    "name": "target",
+    "type": "map",
+    "required": false,
+    "doc": "with maps: the classes or values to learn"
+   },
+   {
+    "name": "cells",
+    "type": "map",
+    "required": false,
+    "doc": "with maps: the cells to learn from (non-zero; default all)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "model",
+    "type": "ml_model",
+    "required": true,
+    "doc": "the fitted forest"
+   },
+   {
+    "name": "importance",
+    "type": "table",
+    "required": true,
+    "doc": "the importance of each predictor (they add up to 1)"
+   }
+  ],
+  "params": [
+   {
+    "name": "column",
+    "type": "text",
+    "required": false,
+    "doc": "with a table: the target's column (default target)"
+   },
+   {
+    "name": "columns",
+    "type": "any",
+    "required": false,
+    "doc": "with a table: the predictors' columns (default: all but the target's)"
+   },
+   {
+    "name": "task",
+    "type": "text",
+    "required": false,
+    "doc": "classes or values; auto (default): classes when the target holds 50 whole numbers or fewer",
+    "choices": [
+     "auto",
+     "classes",
+     "values"
+    ]
+   },
+   {
+    "name": "sample",
+    "type": "number",
+    "required": false,
+    "doc": "the records to learn from: a number (1 or more) or a share (below 1) drawn at random (default all)"
+   },
+   {
+    "name": "stratify",
+    "type": "bool",
+    "required": false,
+    "doc": "draw the sample from each class apart (default false)"
+   },
+   {
+    "name": "seed",
+    "type": "integer",
+    "required": false,
+    "doc": "the seed of the sample's draw (numpy's; default 1)"
+   },
+   {
+    "name": "n_estimators",
+    "type": "integer",
+    "required": false,
+    "doc": "the trees (default 100)"
+   },
+   {
+    "name": "max_depth",
+    "type": "integer",
+    "required": false,
+    "doc": "the trees' depth at most (default none)"
+   },
+   {
+    "name": "min_samples_split",
+    "type": "integer",
+    "required": false,
+    "doc": "the records a node needs to split (default 2)"
+   },
+   {
+    "name": "min_samples_leaf",
+    "type": "integer",
+    "required": false,
+    "doc": "the records of a leaf at least (default 1)"
+   },
+   {
+    "name": "max_features",
+    "type": "any",
+    "required": false,
+    "doc": "the predictors tried at each split: sqrt, log2, all, a number or a share (default: sqrt for classes, all for values, as scikit-learn)"
+   },
+   {
+    "name": "bootstrap",
+    "type": "bool",
+    "required": false,
+    "doc": "each tree on a bootstrap of the records (default true)"
+   },
+   {
+    "name": "random_state",
+    "type": "integer",
+    "required": false,
+    "doc": "scikit-learn's seed of the forest (default 0)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "ml.potential",
+  "doc": "The potential of each class from a random forest per class (landschaft's Estimator with scikit-learn's RandomForestClassifier, the same maps): where each class is (presence, as lulcc's models), or where it appeared between two maps among the cells without it (expansion: PLUS's land expansion analysis, LEAS, the growth probability CARS takes); with each driver's contribution (the forests' importances).",
+  "inputs": [
+   {
+    "name": "landscape",
+    "type": "map",
+    "required": true,
+    "doc": "the map at the start"
+   },
+   {
+    "name": "later",
+    "type": "map",
+    "required": false,
+    "doc": "the later map (expansion)"
+   },
+   {
+    "name": "drivers",
+    "type": "stack",
+    "required": true,
+    "doc": "the explanatory variables, a layer each"
+   },
+   {
+    "name": "cells",
+    "type": "map",
+    "required": false,
+    "doc": "the cells to learn from (non-zero; default all)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "potential",
+    "type": "stack",
+    "required": true,
+    "doc": "the probability of each class (of its presence, or of its expansion), where the drivers have values"
+   },
+   {
+    "name": "importance",
+    "type": "table",
+    "required": true,
+    "doc": "a row per class: class, then each driver's contribution (they add up to 1)"
+   },
+   {
+    "name": "model",
+    "type": "ml_model",
+    "required": true,
+    "doc": "the forests, for ml.predict on other drivers"
+   }
+  ],
+  "params": [
+   {
+    "name": "target",
+    "type": "text",
+    "required": false,
+    "doc": "expansion (where the class appeared; needs the later map) or presence (where it is); default: expansion with a later map, else presence",
+    "choices": [
+     "expansion",
+     "presence"
+    ]
+   },
+   {
+    "name": "classes",
+    "type": "any",
+    "required": false,
+    "doc": "the classes to model (default: those of the maps)"
+   },
+   {
+    "name": "sample",
+    "type": "number",
+    "required": false,
+    "doc": "the cells each class's forest learns from: a number (1 or more) or a share (below 1) drawn at random (default all)"
+   },
+   {
+    "name": "stratify",
+    "type": "bool",
+    "required": false,
+    "doc": "draw the sample from the presences and the absences apart, in their proportions (default false)"
+   },
+   {
+    "name": "balance",
+    "type": "bool",
+    "required": false,
+    "doc": "as many absences as presences (default false)"
+   },
+   {
+    "name": "seed",
+    "type": "integer",
+    "required": false,
+    "doc": "the seed of the draws (numpy's default_rng; default 1)"
+   },
+   {
+    "name": "n_estimators",
+    "type": "integer",
+    "required": false,
+    "doc": "the trees (default 100)"
+   },
+   {
+    "name": "max_depth",
+    "type": "integer",
+    "required": false,
+    "doc": "the trees' depth at most (default none)"
+   },
+   {
+    "name": "min_samples_split",
+    "type": "integer",
+    "required": false,
+    "doc": "the records a node needs to split (default 2)"
+   },
+   {
+    "name": "min_samples_leaf",
+    "type": "integer",
+    "required": false,
+    "doc": "the records of a leaf at least (default 1)"
+   },
+   {
+    "name": "max_features",
+    "type": "any",
+    "required": false,
+    "doc": "the predictors tried at each split: sqrt, log2, all, a number or a share (default: sqrt for classes, all for values, as scikit-learn)"
+   },
+   {
+    "name": "bootstrap",
+    "type": "bool",
+    "required": false,
+    "doc": "each tree on a bootstrap of the records (default true)"
+   },
+   {
+    "name": "random_state",
+    "type": "integer",
+    "required": false,
+    "doc": "scikit-learn's seed of the forest (default 0)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "ml.predict",
+  "doc": "A fitted model (ml.fit, ml.potential) on maps or on the rows of a table: the value, or the class of the largest probability (the first on ties, as scikit-learn's predict) and the probability of each class (a forest's predict_proba, or each class's potential). No value where a predictor has none.",
+  "inputs": [
+   {
+    "name": "model",
+    "type": "ml_model",
+    "required": true,
+    "doc": "the fitted model"
+   },
+   {
+    "name": "predictors",
+    "type": "stack",
+    "required": false,
+    "doc": "maps: a layer per predictor, named as in the fit"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": false,
+    "doc": "or the rows of a table, a column per predictor"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": false,
+    "doc": "with maps: the value, or the class of the largest probability"
+   },
+   {
+    "name": "probability",
+    "type": "stack",
+    "required": false,
+    "doc": "with maps: the probability of each class"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": false,
+    "doc": "with a table: its columns, then prediction and the probability of each class (p_<class>)"
+   }
+  ],
+  "params": [],
+  "access": "global",
+  "container": false
+ },
+ {
   "name": "molusce.step",
   "doc": "One iteration of MOLUSCE's Simulator: every cell is predicted the transition of largest total weight (or the class of largest potential) with a confidence (100 x the gap to the second, truncated); then for each pair of classes of the map, the cells predicted to take it with the highest confidence + U(0, 1) / 1000 change, as many as the observed cross table says.",
   "inputs": [
