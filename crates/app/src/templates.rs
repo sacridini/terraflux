@@ -224,7 +224,7 @@ fn clue_s() -> Model {
     m
 }
 
-pub const TEMPLATES: [Template; 44] = [
+pub const TEMPLATES: [Template; 45] = [
     Template {
         name: "MSPA of a forest",
         group: PATTERNS,
@@ -3224,6 +3224,72 @@ inputs = { value = "migrate.map" }
 params = { title = "MigClim's final state" }
 "#,
     },
+    Template {
+        name: "Metapopulation (incidence function model)",
+        group: SPECIES,
+        build: None,
+        about: "Hanski's incidence function model on 60 drawn patches: a century of colonisations and extinctions, \
+                the patches occupied every year and each patch's incidence, how often it holds the species",
+        toml: r#"
+format = "terraflux/1"
+name = "Metapopulation (incidence function model)"
+description = "A metapopulation in 60 habitat patches as R's MetaLandSim simulates it (spom, Hanski's incidence function model): every year an empty patch is colonised with a probability that grows with its connectivity to the occupied patches, and an occupied one goes extinct with a probability that falls with its area. A century from 40% of the patches occupied: the patches occupied every year and each patch's incidence."
+
+[[nodes]]
+id = "area_field"
+op = "nlm.gaussian_field"
+params = { rows = 100, columns = 100, range = 10, seed = 101 }
+
+[[nodes]]
+id = "patch_area"
+op = "map.calc"
+inputs = { f = "area_field.map" }
+params = { expression = "0.2 + 3 * f" }
+note = "The area of a patch found at a place, in hectares (in its place, a table of the patches: x, y, area, occupied)."
+
+[[nodes]]
+id = "draw"
+op = "nlm.random"
+params = { rows = 100, columns = 100, seed = 102 }
+
+[[nodes]]
+id = "start"
+op = "map.calc"
+inputs = { r = "draw.map" }
+params = { expression = "if r < 0.4 then 1 else 0" }
+
+[[nodes]]
+id = "attributes"
+op = "stack.of"
+inputs = { area = "patch_area.map", occupied = "start.map" }
+
+[[nodes]]
+id = "everywhere"
+op = "map.calc"
+inputs = { f = "area_field.map" }
+params = { expression = "f * 0 + 1" }
+
+[[nodes]]
+id = "places"
+op = "accuracy.sample"
+inputs = { map = "everywhere.map" }
+params = { n = 60, seed = 103 }
+note = "60 patches at random places."
+
+[[nodes]]
+id = "patches"
+op = "vector.extract"
+inputs = { vector = "places.points", map = "attributes.stack" }
+note = "Each patch's area and whether it holds the species at the start."
+
+[[nodes]]
+id = "metapopulation"
+op = "conn.metapopulation"
+inputs = { patches = "patches.vector" }
+params = { steps = 100, alpha = 0.08, x = 0.5, y = 4, e = 0.2, seed = 104 }
+note = "alpha: 1 / the mean dispersal distance (12.5 cells); e and x: the extinction of a patch of 1 ha and how it falls with area; y: the connectivity at which colonisation is even. Its tables: the patches occupied every year, and each patch's incidence."
+"#,
+    },
 ];
 
 /// Where the user's own templates are kept (the user's application data): a model file each, named as shown.
@@ -3455,6 +3521,18 @@ mod tests {
         assert!(occupied.iter().cloned().fold(0.0, f64::max) > 2.0 * occupied[0], "{occupied:?}");
         let Some(terraflux_ops::Value::Map(f)) = out.get("migrate.map") else { panic!("no map") };
         assert!(f.data.contains(&30000.0) && f.data.iter().any(|v| *v < 0.0));
+    }
+
+    /// The metapopulation template runs: the species persists a century, patches turning over.
+    #[test]
+    fn metapopulation_template_runs() {
+        struct Quiet;
+        impl terraflux_exec::Observer for Quiet {}
+        let m = TEMPLATES.iter().find(|t| t.name == "Metapopulation (incidence function model)").unwrap().model();
+        let out = terraflux_exec::Engine::default().run(&m, &Default::default(), &mut Quiet).unwrap();
+        let Some(terraflux_ops::Value::Table(t)) = out.get("metapopulation.table") else { panic!("no table") };
+        assert_eq!(t.rows.len(), 101);
+        assert!(t.rows[100][1] > 0.0 && t.rows.iter().map(|r| r[3]).sum::<f64>() > 20.0, "{:?}", t.rows[100]);
     }
 
     /// The species distribution model template runs: a map of suitability from 0 to 1.

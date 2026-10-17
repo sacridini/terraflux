@@ -30,6 +30,7 @@ mod landforms;
 mod legend;
 mod map_validation;
 mod marxan;
+mod metapopulation;
 mod metrics;
 mod ml;
 mod mspa_tiled;

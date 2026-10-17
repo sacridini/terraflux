@@ -6,6 +6,15 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- `conn.metapopulation`, a metapopulation in a network of habitat patches over time, Hanski's incidence function
+  model as R's MetaLandSim 2.0 simulates it (spom), the same run for a seed (R's runif after set.seed): every step
+  each patch's connectivity to the occupied ones (an exponential or power kernel of the distance times their
+  areas, or times the patch's own), an empty patch colonised (logistic, exponential or power in the connectivity)
+  and an occupied one lost (by its area, or with the rescue effect). The patches occupied at every step and each
+  patch's incidence. The patches come as a table (x, y, area, occupied) or as points with those attributes.
+- The template "Metapopulation (incidence function model)": a century in 60 drawn patches.
+
 ## [0.97.0] - 2026-10-18
 
 ### Added

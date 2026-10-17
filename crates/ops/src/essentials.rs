@@ -88,6 +88,10 @@ const ESSENTIALS: &[(&str, &[&str])] = &[
     // species distributions and biodiversity
     ("sdm.fit", &["predictors", "categorical", "model", "classes", "regmult", "cv"]),
     ("sdm.migrate", &["initial", "suitability", "barriers", "steps", "kernel", "ldd_frequency", "seed"]),
+    (
+        "conn.metapopulation",
+        &["patches", "steps", "alpha", "x", "y", "e", "kernel", "colonisation", "extinction", "seed"],
+    ),
     ("sdm.prepare", &["species", "thin", "area", "predictors", "background", "folds"]),
     (
         "sdm.clean_occurrences",

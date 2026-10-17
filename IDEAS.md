@@ -305,8 +305,11 @@ destravam outros são o 1 e o 3.
 9. **Dispersão de espécies no tempo.** O SDM de vários períodos com a dispersão célula a célula (como o MigClim) ou
    com uma metapopulação (o modelo de função de incidência), juntando o `sdm.*` e o `conn.*` num laço.
    - **Feito** (0.97.0): `sdm.migrate`, o autômato do MigClim 1.6 (o mesmo resultado para uma semente: o
-     `rand()` da CRT portado) e o modelo "Species migration (MigClim)". Falta: a metapopulação (o modelo de
-     função de incidência de Hanski).
+     `rand()` da CRT portado) e o modelo "Species migration (MigClim)".
+   - **Feito** (0.98.0): `conn.metapopulation`, o modelo de função de incidência de Hanski como o `spom` do
+     MetaLandSim 2.0 (o mesmo resultado para uma semente, o `runif` do R) e o modelo "Metapopulation
+     (incidence function model)". Falta juntar os dois num laço (a ocupação das manchas pelo SDM de cada
+     período).
 
 Fora dos operadores:
 - **O nó de script em Python**, previsto no plano como componente opcional e isolado (um Python embutido), nunca no

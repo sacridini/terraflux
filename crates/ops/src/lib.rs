@@ -54,6 +54,7 @@ pub mod lsm_catalog;
 pub mod lulcc;
 pub mod map_validation;
 pub mod markov;
+pub mod metapopulation;
 pub mod metrics;
 pub mod milp;
 pub mod ml;
@@ -390,6 +391,7 @@ impl Registry {
         stats::register(&mut r);
         interpolation::register(&mut r);
         dispersal::register(&mut r);
+        metapopulation::register(&mut r);
         fitted::register(&mut r);
         fragmentation::register(&mut r);
         futures::register(&mut r);
