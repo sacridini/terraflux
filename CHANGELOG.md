@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.90.0] - 2026-10-17
+
 ### Added
 - What a fitted model learnt, as scikit-learn's inspection tells it, the same numbers: `ml.importance` (the
   permutation importance of each predictor: the drop of the accuracy or of R² when its values are shuffled among the
