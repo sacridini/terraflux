@@ -1587,6 +1587,78 @@
   "container": false
  },
  {
+  "name": "carbon.emissions",
+  "doc": "The carbon emitted and removed by land change over a series of maps (the IPCC's stock-difference method): every cell's stock at every date from its class (a stock per class, tC/ha; or a curve of regrowth, Chapman-Richards or linear, from the date the class appeared in the cell, for secondary forest), a fall an emission, a rise a removal; by period, by transition, and every cell's net emission over the series. Transitions happen at the later date of a period.",
+  "inputs": [
+   {
+    "name": "maps",
+    "type": "raster",
+    "required": true,
+    "doc": "the maps of classes, a layer per date"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "periods",
+    "type": "table",
+    "required": true,
+    "doc": "a row per period: year_from, year_to, emissions, removals, net (t of CO2, or of C)"
+   },
+   {
+    "name": "transitions",
+    "type": "table",
+    "required": true,
+    "doc": "a row per period and pair of classes with cells: year_from, year_to, from, to, area_ha, emissions, removals"
+   },
+   {
+    "name": "stocks",
+    "type": "stack",
+    "required": true,
+    "doc": "the stock of every cell at every date, tC/ha"
+   },
+   {
+    "name": "net",
+    "type": "map",
+    "required": true,
+    "doc": "every cell's net emission over the series, t per hectare"
+   }
+  ],
+  "params": [
+   {
+    "name": "stock",
+    "type": "any",
+    "required": true,
+    "doc": "the stock of each class, tC/ha: {class: stock}"
+   },
+   {
+    "name": "regrowth",
+    "type": "any",
+    "required": false,
+    "doc": "the classes that grow from the date they appear: {class: {max, rate, shape, form}} (tC/ha; Chapman-Richards's max (1 - exp(-rate age))^shape, or linear: rate tC/ha a year up to max)"
+   },
+   {
+    "name": "co2",
+    "type": "bool",
+    "required": false,
+    "doc": "in tonnes of CO2 (C × 44/12; default true), else of carbon"
+   },
+   {
+    "name": "times",
+    "type": "any",
+    "required": false,
+    "doc": "the dates of the maps (default: the layers' names)"
+   },
+   {
+    "name": "cell_area",
+    "type": "number",
+    "required": false,
+    "doc": "a cell's area in m2 (default: the cells' sides)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
   "name": "cars.step",
   "doc": "One step of PLUS's CARS: iterations from the current map until every class has the cells of the step's demand, each free cell giving each class the probability of growth x neighbourhood x an adaptive coefficient (random seeds where no neighbour has the class), a roulette wheel picking the class and a decaying threshold deciding the change.",
   "inputs": [
@@ -16535,6 +16607,250 @@
     "type": "text",
     "required": false,
     "doc": "the product of GuidosToolbox the map is (MSPA, FAD...), written as landschaft_product: by default that of the operator that made it"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "redd.allocate",
+  "doc": "VT0007's allocation (UDef-ARP's prediction): the fitted relative frequency of every modelling region (a region the fit lacks takes its class's average over the subdivisions) gives each cell a density; the densities are scaled to the activity data, the expected deforestation (or a period's observed one, to confirm the model), never above a cell's area, again until the adjustment ratio is 1.00001 or less.",
+  "inputs": [
+   {
+    "name": "classes",
+    "type": "map",
+    "required": true,
+    "doc": "the vulnerability classes of the period"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the relative frequency table (redd.fit)"
+   },
+   {
+    "name": "subdivisions",
+    "type": "map",
+    "required": false,
+    "doc": "the subdivisions, as in the fit"
+   },
+   {
+    "name": "expected",
+    "type": "number",
+    "required": false,
+    "doc": "the expected deforestation, hectares"
+   },
+   {
+    "name": "deforestation",
+    "type": "map",
+    "required": false,
+    "doc": "or the period's observed deforestation (1)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "density",
+    "type": "map",
+    "required": true,
+    "doc": "the expected deforestation of each cell, hectares"
+   },
+   {
+    "name": "info",
+    "type": "table",
+    "required": true,
+    "doc": "adjustment_ratio, iterations, expected_ha, allocated_ha, filled (regions the fit lacked)"
+   }
+  ],
+  "params": [
+   {
+    "name": "max_iterations",
+    "type": "integer",
+    "required": false,
+    "doc": "the adjustments at most (default 50)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "redd.assess",
+  "doc": "VT0007's assessment of an allocation (UDef-ARP's model evaluation): the predicted and the actual deforestation in the square cells of an assessment grid wholly inside the jurisdiction (centred on the grid's nodes from the map's corner, as UDef-ARP's Thiessen polygons), and their agreement: the mean and median absolute errors (also as shares of a cell), the intersection over union, R², the ordinary least squares and Theil-Sen lines.",
+  "inputs": [
+   {
+    "name": "density",
+    "type": "map",
+    "required": true,
+    "doc": "the predicted deforestation of each cell, hectares"
+   },
+   {
+    "name": "deforestation",
+    "type": "map",
+    "required": true,
+    "doc": "the actual deforestation (1)"
+   },
+   {
+    "name": "mask",
+    "type": "map",
+    "required": false,
+    "doc": "the jurisdiction (non-zero; default all the map)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per assessment cell: cell, x, y (its centre), actual_ha, predicted_ha, residual_ha"
+   },
+   {
+    "name": "metrics",
+    "type": "table",
+    "required": true,
+    "doc": "samples, mae, mae_percent, medae, medae_percent, iou_percent, agreement, difference, r2, ols_slope, ols_intercept, theil_sen_slope, theil_sen_intercept"
+   },
+   {
+    "name": "residuals",
+    "type": "map",
+    "required": true,
+    "doc": "each assessment cell's residual (predicted - actual), ha"
+   }
+  ],
+  "params": [
+   {
+    "name": "grid_area",
+    "type": "number",
+    "required": true,
+    "doc": "the area of an assessment cell, hectares"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "redd.fit",
+  "doc": "VT0007's fit of a vulnerability map to a period's deforestation (UDef-ARP's fitting): the relative frequency of deforestation in every modelling region (a vulnerability class in a subdivision of the jurisdiction) and the density it gives every cell, in hectares.",
+  "inputs": [
+   {
+    "name": "classes",
+    "type": "map",
+    "required": true,
+    "doc": "the vulnerability classes (redd.vulnerability)"
+   },
+   {
+    "name": "deforestation",
+    "type": "map",
+    "required": true,
+    "doc": "the deforestation of the period (1)"
+   },
+   {
+    "name": "subdivisions",
+    "type": "map",
+    "required": false,
+    "doc": "the subdivisions of the jurisdiction (ids 0-999)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per modelling region: id (class × 1000 + subdivision), class, subdivision, deforested and all its cells, frequency"
+   },
+   {
+    "name": "density",
+    "type": "map",
+    "required": true,
+    "doc": "the fitted density of deforestation, hectares per cell"
+   }
+  ],
+  "params": [],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "redd.nrt",
+  "doc": "VT0007's negligible risk threshold (UDef-ARP's nrt_calculation): the distance to the forest's edge below which 99.5 % of the deforestation of a period happened, the middle of the first bin (a cell wide) where the cumulative share of the deforested cells reaches 0.995, in whole map units.",
+  "inputs": [
+   {
+    "name": "distance",
+    "type": "map",
+    "required": true,
+    "doc": "the distance of the forest's cells to the edge, in map units"
+   },
+   {
+    "name": "deforestation",
+    "type": "map",
+    "required": true,
+    "doc": "the deforestation of the period (1)"
+   },
+   {
+    "name": "mask",
+    "type": "map",
+    "required": false,
+    "doc": "the jurisdiction (non-zero; default all the map)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "nrt",
+    "type": "number",
+    "required": true,
+    "doc": "the negligible risk threshold, in map units"
+   }
+  ],
+  "params": [],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "redd.vulnerability",
+  "doc": "VT0007's vulnerability map in classes of geometric widths (UDef-ARP's geometric classification): the benchmark from the distance to the forest's edge (classes 2 to n + 1 from the edge to the negligible risk threshold, 1 beyond it), or an alternative from a map of vulnerability (a potential, a probability; classes 1 to n from the lowest), inside the jurisdiction; 0 elsewhere.",
+  "inputs": [
+   {
+    "name": "distance",
+    "type": "map",
+    "required": false,
+    "doc": "the benchmark: the distance to the forest's edge"
+   },
+   {
+    "name": "nrt",
+    "type": "number",
+    "required": false,
+    "doc": "with the distance: the negligible risk threshold"
+   },
+   {
+    "name": "vulnerability",
+    "type": "map",
+    "required": false,
+    "doc": "or an alternative: a map of vulnerability"
+   },
+   {
+    "name": "forest",
+    "type": "map",
+    "required": false,
+    "doc": "with a vulnerability: the forest (non-zero)"
+   },
+   {
+    "name": "mask",
+    "type": "map",
+    "required": false,
+    "doc": "the jurisdiction (non-zero; default all the map)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "classes",
+    "type": "map",
+    "required": true,
+    "doc": "the vulnerability class of each cell, 0 outside"
+   }
+  ],
+  "params": [
+   {
+    "name": "classes",
+    "type": "integer",
+    "required": false,
+    "doc": "the classes of geometric widths (default 29)"
    }
   ],
   "access": "global",

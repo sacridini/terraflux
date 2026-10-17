@@ -118,6 +118,13 @@
    ]
   },
   {
+   "title": "Carbon and REDD+",
+   "prefixes": [
+    "carbon",
+    "redd"
+   ]
+  },
+  {
    "title": "Machine learning",
    "prefixes": [
     "ml"
