@@ -6,6 +6,7 @@
 
 pub mod boosting;
 pub mod forest;
+pub mod inspect;
 
 use std::sync::Arc;
 
@@ -23,6 +24,7 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(Fit));
     r.add(Arc::new(Predict));
     r.add(Arc::new(Potential));
+    inspect::register(r);
 }
 
 /// A fitted model: one forest or boosting of classes or values (`ml.fit`), or one per class, each of the class

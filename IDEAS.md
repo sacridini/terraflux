@@ -255,6 +255,8 @@ destravam outros são o 1 e o 3.
      (passo 3), o `HistGradientBoosting` (passo 4) e a previsão no motor por tiles.
    - **Feito** (0.89.0): o passo 4, o `HistGradientBoostingClassifier`/`Regressor` bit a bit com o scikit-learn 1.9
      (sem early stopping), em `ml.fit` e `ml.potential` (`method = "gradient_boosting"`).
+   - **Feito** (0.90.0): o resto do passo 3, a importância por permutação (`ml.importance`) e a dependência
+     parcial (`ml.partial_dependence`, o método brute), os números do scikit-learn.
    - **O modelo como um valor do grafo** (um tipo novo, gravável e relido de um arquivo), para ajustar uma vez numa
      amostra das células e prever em mapas do tamanho do mundo: a previsão é célula a célula, então entra no motor
      por tiles sem mudança, com as árvores achatadas em vetores e as faixas em paralelo (`rayon`).

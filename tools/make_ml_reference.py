@@ -11,6 +11,9 @@ Terraflux's tests, written to tests/data/reference/ml.npz and ml.json:
 - HistGradientBoostingClassifier (two and three classes) and Regressor without early stopping, with the defaults
   and with every setting changed, their predict_proba / predict; a regressor of 210,000 records (its bins from a
   subsample).
+- On the test records: permutation_importance of the default classifier and regressor and of the multiclass
+  boosting; partial_dependence (brute) of the regressor along a predictor and along one of few values, of the
+  binary boosting and of the classifier of three classes.
 - landschaft's Estimator on the Plum Island maps (pie_landuse, pie_drivers): PLUS's land expansion analysis
   (target "expansion", 1985 to 2010, a sample of 4000 cells and a stratified one) and the presence of each class
   (a balanced sample), with RandomForestClassifier(n_estimators=10, random_state=0): the probability maps and
@@ -25,6 +28,8 @@ from pathlib import Path
 import numpy as np
 from sklearn.ensemble import (HistGradientBoostingClassifier, HistGradientBoostingRegressor,
                               RandomForestClassifier, RandomForestRegressor)
+
+from sklearn.inspection import partial_dependence, permutation_importance
 
 import landschaft as ls
 from landschaft.simulate._maps import read_map
@@ -41,21 +46,23 @@ def table_data():
     score = x[:, 0] + 0.5 * x[:, 1] ** 2 - x[:, 2] + 0.3 * g.normal(size=n)
     cls = np.where(score < -0.5, 1.0, np.where(score < 1.0, 2.0, 5.0))
     reg = np.sin(x[:, 0]) * 3 + x[:, 1] * x[:, 2] + x[:, 3] + 0.2 * g.normal(size=n)
-    return x[:600], cls[:600], reg[:600], x[600:]
+    return x[:600], cls[:600], reg[:600], x[600:], cls[600:], reg[600:]
 
 
 def main() -> None:
     arrays: dict[str, np.ndarray] = {}
     meta: dict = {}
-    x, cls, reg, test = table_data()
+    x, cls, reg, test, test_cls, test_reg = table_data()
+    models = {}
     arrays["table/x"], arrays["table/class"], arrays["table/value"], arrays["table/test"] = x, cls, reg, test
+    arrays["table/test_class"], arrays["table/test_value"] = test_cls, test_reg
 
     for name, kw in {
         "default": {"n_estimators": 30, "random_state": 3},
         "shaped": {"n_estimators": 15, "random_state": 8, "max_depth": 5, "min_samples_leaf": 3,
                    "max_features": 2, "bootstrap": False},
     }.items():
-        m = RandomForestClassifier(**kw).fit(x, cls)
+        m = models[f"classifier/{name}"] = RandomForestClassifier(**kw).fit(x, cls)
         arrays[f"classifier/{name}/proba"] = m.predict_proba(test)
         arrays[f"classifier/{name}/importance"] = m.feature_importances_
         meta[f"classifier/{name}"] = kw
@@ -63,7 +70,7 @@ def main() -> None:
         "default": {"n_estimators": 20, "random_state": 5},
         "shaped": {"n_estimators": 12, "random_state": 9, "max_features": 0.4, "min_samples_split": 6},
     }.items():
-        m = RandomForestRegressor(**kw).fit(x, reg)
+        m = models[f"regressor/{name}"] = RandomForestRegressor(**kw).fit(x, reg)
         arrays[f"regressor/{name}/predict"] = m.predict(test)
         arrays[f"regressor/{name}/importance"] = m.feature_importances_
         meta[f"regressor/{name}"] = kw
@@ -79,7 +86,7 @@ def main() -> None:
         "regression": (HistGradientBoostingRegressor, "table/value", {"max_iter": 30}),
     }.items():
         y = (cls == 2.0) * 7.0 if target == "binary" else arrays[target]
-        m = est(early_stopping=False, **kw).fit(x, y)
+        m = models[f"boosting/{name}"] = est(early_stopping=False, **kw).fit(x, y)
         out = m.predict_proba(test) if est is HistGradientBoostingClassifier else m.predict(test)
         arrays[f"boosting/{name}/predict"] = out
         if target == "binary":
@@ -91,6 +98,29 @@ def main() -> None:
     yb = big[:, 0] * 3.0 + (big[:, 1] > 0.5) - big[:, 0] * big[:, 1]
     m = HistGradientBoostingRegressor(early_stopping=False, max_iter=3, random_state=2).fit(big, yb)
     arrays["boosting/big/predict"] = m.predict(big[:: 2100])
+
+    # permutation importance and partial dependence on the test records
+    for name, model, y, kw in [
+        ("classifier", "classifier/default", test_cls, {"n_repeats": 4, "random_state": 7}),
+        ("regressor", "regressor/default", test_reg, {"n_repeats": 3, "random_state": 1}),
+        ("boosting", "boosting/multiclass", test_cls, {"n_repeats": 2, "random_state": 0}),
+    ]:
+        r = permutation_importance(models[model], test, y, **kw)
+        arrays[f"permutation/{name}/repeats"] = r.importances
+        arrays[f"permutation/{name}/mean"] = r.importances_mean
+        arrays[f"permutation/{name}/sd"] = r.importances_std
+        arrays[f"permutation/{name}/score"] = np.array([models[model].score(test, y)])
+        meta[f"permutation/{name}"] = {"model": model, **kw}
+    for name, model, feature, res in [
+        ("regressor", "regressor/default", 0, 20),
+        ("regressor_few", "regressor/default", 3, 20),
+        ("binary", "boosting/binary", 1, 15),
+        ("multiclass", "classifier/default", 2, 10),
+    ]:
+        r = partial_dependence(models[model], test, [feature], method="brute", grid_resolution=res)
+        arrays[f"dependence/{name}/grid"] = r["grid_values"][0]
+        arrays[f"dependence/{name}/average"] = r["average"]
+        meta[f"dependence/{name}"] = {"model": model, "feature": feature, "grid_resolution": res}
 
     lu = ls.load_raster(ls.simulate.example_data("pie_landuse"))
     ef = ls.load_raster(ls.simulate.example_data("pie_drivers"))

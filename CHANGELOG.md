@@ -6,6 +6,13 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- What a fitted model learnt, as scikit-learn's inspection tells it, the same numbers: `ml.importance` (the
+  permutation importance of each predictor: the drop of the accuracy or of R² when its values are shuffled among the
+  records, numpy's RandomState shuffles; the mean, the standard deviation and every shuffle) and
+  `ml.partial_dependence` (the mean prediction along a grid of a predictor's values: its distinct values, or from
+  one percentile to another as scipy's mquantiles; the value, or the probability of each class).
+
 ## [0.89.0] - 2026-10-17
 
 ### Added

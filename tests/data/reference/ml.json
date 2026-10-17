@@ -45,6 +45,41 @@
   "target": "table/value",
   "max_iter": 30
  },
+ "permutation/classifier": {
+  "model": "classifier/default",
+  "n_repeats": 4,
+  "random_state": 7
+ },
+ "permutation/regressor": {
+  "model": "regressor/default",
+  "n_repeats": 3,
+  "random_state": 1
+ },
+ "permutation/boosting": {
+  "model": "boosting/multiclass",
+  "n_repeats": 2,
+  "random_state": 0
+ },
+ "dependence/regressor": {
+  "model": "regressor/default",
+  "feature": 0,
+  "grid_resolution": 20
+ },
+ "dependence/regressor_few": {
+  "model": "regressor/default",
+  "feature": 3,
+  "grid_resolution": 20
+ },
+ "dependence/binary": {
+  "model": "boosting/binary",
+  "feature": 1,
+  "grid_resolution": 15
+ },
+ "dependence/multiclass": {
+  "model": "classifier/default",
+  "feature": 2,
+  "grid_resolution": 10
+ },
  "pie/drivers": [
   "elevation",
   "slope",

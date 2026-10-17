@@ -225,3 +225,78 @@ fn a_forest_of_maps() {
     let Value::Stack(p) = &out["probability"] else { panic!() };
     assert_eq!(p.keys, vec![Key::Class(1.0), Key::Class(2.0)]);
 }
+
+/// A model of the reference fitted again by ml.fit: classifier/…, regressor/… or boosting/….
+fn refit(z: &BTreeMap<String, Array>, meta: &serde_json::Value, model: &str) -> Value {
+    let mut params = meta[model].clone();
+    let target = match params.as_object_mut().unwrap().remove("target") {
+        Some(t) if t == "binary" => "table/binary".to_string(),
+        Some(t) => t.as_str().unwrap().to_string(),
+        None if model.starts_with("regressor") => "table/value".to_string(),
+        None => "table/class".to_string(),
+    };
+    let regression = target == "table/value";
+    params["task"] = serde_json::json!(if regression { "values" } else { "classes" });
+    if model.starts_with("boosting") {
+        params["method"] = serde_json::json!("gradient_boosting");
+    }
+    let fit =
+        run("ml.fit", vec![("table", Value::Table(records(&z["table/x"], Some(&z[target.as_str()].data))))], params);
+    fit["model"].clone()
+}
+
+#[test]
+fn permutation_importance_is_scikit_learns() {
+    let (z, meta) = reference();
+    for name in ["classifier", "regressor", "boosting"] {
+        let m = &meta[format!("permutation/{name}")];
+        let model = refit(&z, &meta, m["model"].as_str().unwrap());
+        let y = if name == "regressor" { "table/test_value" } else { "table/test_class" };
+        let out = run(
+            "ml.importance",
+            vec![("model", model), ("table", Value::Table(records(&z["table/test"], Some(&z[y].data))))],
+            serde_json::json!({"n_repeats": m["n_repeats"], "random_state": m["random_state"]}),
+        );
+        let key = |k: &str| &z[format!("permutation/{name}/{k}").as_str()].data;
+        let Value::Number(score) = out["score"] else { panic!() };
+        check(&format!("{name} score"), &[score], key("score"));
+        check(&format!("{name} mean"), &table(&out["importance"]).rows[0], key("mean"));
+        check(&format!("{name} sd"), &table(&out["sd"]).rows[0], key("sd"));
+        // repeats: a row per shuffle here, a row per predictor in scikit-learn
+        let rep = table(&out["repeats"]);
+        let r = rep.rows.len();
+        let got: Vec<f64> = (0..5).flat_map(|f| rep.rows.iter().map(move |row| row[1 + f])).collect();
+        assert_eq!(got.len(), 5 * r);
+        check(&format!("{name} repeats"), &got, key("repeats"));
+    }
+}
+
+#[test]
+fn partial_dependence_is_scikit_learns() {
+    let (z, meta) = reference();
+    for name in ["regressor", "regressor_few", "binary", "multiclass"] {
+        let m = &meta[format!("dependence/{name}")];
+        let model = refit(&z, &meta, m["model"].as_str().unwrap());
+        let feature = m["feature"].as_u64().unwrap();
+        let out = run(
+            "ml.partial_dependence",
+            vec![("model", model), ("table", Value::Table(records(&z["table/test"], None)))],
+            serde_json::json!({"predictor": format!("x{feature}"), "grid_resolution": m["grid_resolution"]}),
+        );
+        let t = table(&out["table"]);
+        let grid: Vec<f64> = t.rows.iter().map(|r| r[0]).collect();
+        check(&format!("{name} grid"), &grid, &z[format!("dependence/{name}/grid").as_str()].data);
+        let want = &z[format!("dependence/{name}/average").as_str()];
+        // scikit-learn: a row per class, a column per value of the grid
+        let got: Vec<f64> = (1..t.columns.len()).flat_map(|c| t.rows.iter().map(move |r| r[c])).collect();
+        if name == "multiclass" {
+            // numpy's means along the records of a matrix of several classes add in an order of their own
+            assert_eq!(got.len(), want.data.len());
+            for (a, b) in got.iter().zip(&want.data) {
+                assert!((a - b).abs() <= 1e-12, "{name}: {a} {b}");
+            }
+        } else {
+            check(&format!("{name} average"), &got, &want.data);
+        }
+    }
+}
