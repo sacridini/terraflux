@@ -21340,6 +21340,137 @@
   "container": false
  },
  {
+  "name": "stats.idw",
+  "doc": "Inverse distance weighting of points onto a map, as R's gstat (idw, to rounding): every cell the mean of the points' values weighted by one over the distance to a power, with every point or the nearest; a point's value at its own place.",
+  "inputs": [
+   {
+    "name": "points",
+    "type": "vector",
+    "required": true,
+    "doc": "the points, their values in an attribute"
+   },
+   {
+    "name": "like",
+    "type": "map",
+    "required": true,
+    "doc": "the map whose cells to fill (those with a value)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the values interpolated"
+   }
+  ],
+  "params": [
+   {
+    "name": "field",
+    "type": "text",
+    "required": false,
+    "doc": "the attribute of the values (default the only number)"
+   },
+   {
+    "name": "power",
+    "type": "number",
+    "required": false,
+    "doc": "the distance's power (default 2)"
+   },
+   {
+    "name": "nmax",
+    "type": "integer",
+    "required": false,
+    "doc": "the nearest points used (default all)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "stats.kriging",
+  "doc": "Ordinary kriging of points onto a map, as R's gstat (krige, to rounding): every cell the best linear unbiased prediction from the points' values under a variogram model (from stats.variogram, or given), with every point or the nearest, and the prediction's variance.",
+  "inputs": [
+   {
+    "name": "points",
+    "type": "vector",
+    "required": true,
+    "doc": "the points, their values in an attribute"
+   },
+   {
+    "name": "like",
+    "type": "map",
+    "required": true,
+    "doc": "the map whose cells to fill (those with a value)"
+   },
+   {
+    "name": "model",
+    "type": "any",
+    "required": false,
+    "doc": "the variogram model (stats.variogram's model)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "prediction",
+    "type": "map",
+    "required": true,
+    "doc": "the values predicted"
+   },
+   {
+    "name": "variance",
+    "type": "map",
+    "required": true,
+    "doc": "the prediction's variance"
+   }
+  ],
+  "params": [
+   {
+    "name": "field",
+    "type": "text",
+    "required": false,
+    "doc": "the attribute of the values (default the only number)"
+   },
+   {
+    "name": "nmax",
+    "type": "integer",
+    "required": false,
+    "doc": "the nearest points used (default all)"
+   },
+   {
+    "name": "shape",
+    "type": "text",
+    "required": false,
+    "doc": "without a model input: spherical, exponential or gaussian",
+    "choices": [
+     "spherical",
+     "exponential",
+     "gaussian"
+    ]
+   },
+   {
+    "name": "psill",
+    "type": "number",
+    "required": false,
+    "doc": "without a model input: the partial sill"
+   },
+   {
+    "name": "range",
+    "type": "number",
+    "required": false,
+    "doc": "without a model input: the range"
+   },
+   {
+    "name": "nugget",
+    "type": "number",
+    "required": false,
+    "doc": "without a model input: the nugget (default 0)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
   "name": "stats.lisa",
   "doc": "The local Moran's I of every cell (Anselin's LISA; PySAL's esda.Moran_Local, to rounding): how much it and its neighbours are alike, its quadrant (1 high among high, 2 low among high, 3 low among low, 4 high among low), its z under randomisation, a pseudo p of conditional permutations (its neighbours drawn among the other cells), and the clusters: the quadrant of the cells of p below alpha.",
   "inputs": [
@@ -21519,6 +21650,90 @@
    }
   ],
   "access": "local",
+  "container": false
+ },
+ {
+  "name": "stats.variogram",
+  "doc": "The sample variogram of points and a model fitted to it, as R's gstat (variogram and fit.variogram, to rounding): half the mean squared difference of the pairs of points in classes of distance up to a cutoff; a nugget and a spherical, exponential or Gaussian structure fitted by weighted least squares (the pairs over the squared distance as weights; a negative sill fixed at zero), for stats.kriging.",
+  "inputs": [
+   {
+    "name": "points",
+    "type": "vector",
+    "required": true,
+    "doc": "the points, their values in an attribute"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per class with pairs: np, dist, gamma, model"
+   },
+   {
+    "name": "model",
+    "type": "any",
+    "required": true,
+    "doc": "the model fitted: {model, nugget, psill, range}"
+   }
+  ],
+  "params": [
+   {
+    "name": "field",
+    "type": "text",
+    "required": false,
+    "doc": "the attribute of the values (default the only number)"
+   },
+   {
+    "name": "cutoff",
+    "type": "number",
+    "required": false,
+    "doc": "the largest distance (default a third of the diagonal)"
+   },
+   {
+    "name": "width",
+    "type": "number",
+    "required": false,
+    "doc": "the classes' width (default the cutoff / 15)"
+   },
+   {
+    "name": "model",
+    "type": "text",
+    "required": false,
+    "doc": "the structure: spherical (default), exponential, gaussian, none",
+    "choices": [
+     "spherical",
+     "exponential",
+     "gaussian",
+     "none"
+    ]
+   },
+   {
+    "name": "psill",
+    "type": "number",
+    "required": false,
+    "doc": "the partial sill to start from (default the variance)"
+   },
+   {
+    "name": "range",
+    "type": "number",
+    "required": false,
+    "doc": "the range to start from (default the cutoff / 3)"
+   },
+   {
+    "name": "nugget",
+    "type": "number",
+    "required": false,
+    "doc": "the nugget to start from (default the variance / 10)"
+   },
+   {
+    "name": "fit_nugget",
+    "type": "bool",
+    "required": false,
+    "doc": "fit the nugget (default true), else keep it"
+   }
+  ],
+  "access": "none",
   "container": false
  },
  {
