@@ -96,10 +96,14 @@ fn the_potential_is_landschafts() {
         keys: names.iter().map(|n| Key::Name(n.clone())).collect(),
         layers: names.iter().map(|n| Arc::new(z[format!("pie/driver/{n}").as_str()].data.clone())).collect(),
     };
-    for name in ["expansion", "stratified", "presence"] {
+    for name in ["expansion", "stratified", "presence", "boosting"] {
         let m = &meta[format!("pie/{name}")];
         let mut params =
             serde_json::json!({"n_estimators": 10, "random_state": 0, "target": m["target"], "seed": m["seed"]});
+        if name == "boosting" {
+            params["method"] = serde_json::json!("gradient_boosting");
+            params["max_iter"] = serde_json::json!(20);
+        }
         for k in ["sample", "stratify", "balance"] {
             if !m[k].is_null() {
                 params[k] = m[k].clone();
@@ -116,14 +120,16 @@ fn the_potential_is_landschafts() {
         for (k, c) in classes.iter().enumerate() {
             check(&format!("{name} {c}"), &p.layers[k], &z[format!("pie/{name}/{c}").as_str()].data);
         }
-        // landschaft's importance: a row per driver (sorted), a column per class
+        // landschaft's importance: a row per driver (sorted), a column per class (scikit-learn's boosting has none)
         let imp = table(&out["importance"]);
         let mut sorted = names.clone();
         sorted.sort();
         assert_eq!(imp.columns[1..], sorted[..]);
-        let want = &z[format!("pie/{name}/importance").as_str()];
-        let got: Vec<f64> = (0..sorted.len()).flat_map(|d| imp.rows.iter().map(move |r| r[1 + d])).collect();
-        check(&format!("{name} importance"), &got, &want.data);
+        if name != "boosting" {
+            let want = &z[format!("pie/{name}/importance").as_str()];
+            let got: Vec<f64> = (0..sorted.len()).flat_map(|d| imp.rows.iter().map(move |r| r[1 + d])).collect();
+            check(&format!("{name} importance"), &got, &want.data);
+        }
 
         // the model again on the drivers: the same maps
         let again = run(
@@ -136,6 +142,58 @@ fn the_potential_is_landschafts() {
             check(&format!("{name} again"), a, b);
         }
     }
+}
+
+#[test]
+fn boosting_is_scikit_learns() {
+    let (z, meta) = reference();
+    let x = &z["table/x"];
+    let test = records(&z["table/test"], None);
+    for name in ["binary", "multiclass", "shaped", "regression"] {
+        let m = &meta[format!("boosting/{name}")];
+        let mut params = m.clone();
+        let target = params.as_object_mut().unwrap().remove("target").unwrap();
+        let regression = target == "table/value";
+        params["method"] = serde_json::json!("gradient_boosting");
+        params["task"] = serde_json::json!(if regression { "values" } else { "classes" });
+        let key = if target == "binary" { "table/binary" } else { target.as_str().unwrap() };
+        let y = &z[key].data;
+        let fit = run("ml.fit", vec![("table", Value::Table(records(x, Some(y))))], params);
+        let out = run(
+            "ml.predict",
+            vec![("model", fit["model"].clone()), ("table", Value::Table(test.clone()))],
+            serde_json::json!({}),
+        );
+        let t = table(&out["table"]);
+        let want = &z[format!("boosting/{name}/predict").as_str()];
+        let got: Vec<f64> = if regression {
+            t.rows.iter().map(|r| r[5]).collect()
+        } else {
+            let k = want.shape[1];
+            t.rows.iter().flat_map(|r| r[6..6 + k].to_vec()).collect()
+        };
+        check(&format!("boosting {name}"), &got, &want.data);
+    }
+
+    // 210,000 records: the bins from a subsample of 200,000
+    let n = 210_000u64;
+    let x: Vec<[f64; 2]> =
+        (0..n).map(|i| [(i * 7919 % 100003) as f64 / 100003.0, (i * 104729 % 99991) as f64 / 99991.0]).collect();
+    let mut t = Table::new(vec!["x0".into(), "x1".into(), "target".into()]);
+    for p in &x {
+        t.rows.push(vec![p[0], p[1], p[0] * 3.0 + f64::from(u8::from(p[1] > 0.5)) - p[0] * p[1]]);
+    }
+    let fit = run(
+        "ml.fit",
+        vec![("table", Value::Table(t))],
+        serde_json::json!({"method": "gradient_boosting", "task": "values", "max_iter": 3, "random_state": 2}),
+    );
+    let mut rows = Table::new(vec!["x0".into(), "x1".into()]);
+    rows.rows = x.iter().step_by(2100).map(|p| p.to_vec()).collect();
+    let out =
+        run("ml.predict", vec![("model", fit["model"].clone()), ("table", Value::Table(rows))], serde_json::json!({}));
+    let got: Vec<f64> = table(&out["table"]).rows.iter().map(|r| r[2]).collect();
+    check("boosting of 210,000 records", &got, &z["boosting/big/predict"].data);
 }
 
 /// A forest on maps: the cells of a target learnt from a stack, and predicted back.

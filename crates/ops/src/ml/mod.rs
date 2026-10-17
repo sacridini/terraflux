@@ -1,8 +1,10 @@
-//! Machine learning on tables and maps: scikit-learn's random forests ported to the bit (`forest`), fitted to the
-//! records of a table or the cells of maps (`ml.fit`), predicted on others (`ml.predict`), and the potential of each
-//! class from a forest per class as landschaft's Estimator gives it (`ml.potential`): where each class is, or where
-//! it appeared between two maps (PLUS's land expansion analysis, LEAS), for the allocations.
+//! Machine learning on tables and maps: scikit-learn's random forests and histogram gradient boosting ported to the
+//! bit (`forest`, `boosting`), fitted to the records of a table or the cells of maps (`ml.fit`), predicted on others
+//! (`ml.predict`), and the potential of each class from a model per class as landschaft's Estimator gives it
+//! (`ml.potential`): where each class is, or where it appeared between two maps (PLUS's land expansion analysis,
+//! LEAS), for the allocations.
 
+pub mod boosting;
 pub mod forest;
 
 use std::sync::Arc;
@@ -14,6 +16,7 @@ use crate::sdm::extrapolation::Frame;
 use crate::signatures::NumpyRng;
 use crate::value::{Key, class_label};
 use crate::{Args, Ctx, Error, Map, Operator, Outputs, Registry, Result, Stack, Table, Value, outputs};
+use boosting::Boosting;
 use forest::Forest;
 
 pub fn register(r: &mut Registry) {
@@ -22,13 +25,43 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(Potential));
 }
 
-/// A fitted model: one forest of classes or values (`ml.fit`), or a forest per class, each of the class against
-/// the other cells (`ml.potential`: `target` presence or expansion).
+/// A fitted model: one forest or boosting of classes or values (`ml.fit`), or one per class, each of the class
+/// against the other cells (`ml.potential`: `target` presence or expansion; its forests or its boostings).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Model {
     Forest(Forest),
-    PerClass { target: String, classes: Vec<f64>, forests: Vec<Forest> },
+    Boosting(Boosting),
+    PerClass {
+        target: String,
+        classes: Vec<f64>,
+        #[serde(default)]
+        forests: Vec<Forest>,
+        #[serde(default)]
+        boostings: Vec<Boosting>,
+    },
+}
+
+/// One fitted model of classes or values.
+enum Fitted {
+    Forest(Forest),
+    Boosting(Boosting),
+}
+
+impl Fitted {
+    fn importances(&self) -> Vec<f64> {
+        match self {
+            Fitted::Forest(f) => f.importances(),
+            Fitted::Boosting(b) => b.importances(),
+        }
+    }
+
+    fn predictors(&self) -> &[String] {
+        match self {
+            Fitted::Forest(f) => &f.predictors,
+            Fitted::Boosting(b) => &b.predictors,
+        }
+    }
 }
 
 impl Model {
@@ -36,7 +69,10 @@ impl Model {
     pub fn predictors(&self) -> &[String] {
         match self {
             Model::Forest(f) => &f.predictors,
-            Model::PerClass { forests, .. } => &forests[0].predictors,
+            Model::Boosting(b) => &b.predictors,
+            Model::PerClass { forests, boostings, .. } => {
+                forests.first().map_or_else(|| &boostings[0].predictors, |f| &f.predictors)
+            }
         }
     }
 
@@ -44,6 +80,7 @@ impl Model {
     pub fn classes(&self) -> &[f64] {
         match self {
             Model::Forest(f) => &f.classes,
+            Model::Boosting(b) => &b.classes,
             Model::PerClass { classes, .. } => classes,
         }
     }
@@ -52,7 +89,14 @@ impl Model {
     pub fn outputs(&self, x: &Frame) -> std::result::Result<Vec<Vec<f64>>, String> {
         match self {
             Model::Forest(f) => f.outputs(x),
-            Model::PerClass { forests, .. } => forests.iter().map(|f| f.predict(x)).collect(),
+            Model::Boosting(b) => b.outputs(x),
+            Model::PerClass { forests, boostings, .. } => {
+                if forests.is_empty() {
+                    boostings.iter().map(|b| b.outputs(x).map(|mut p| p.swap_remove(1))).collect()
+                } else {
+                    forests.iter().map(|f| f.predict(x)).collect()
+                }
+            }
         }
     }
 }
@@ -61,21 +105,81 @@ fn fail(args: &Args, m: impl std::fmt::Display) -> Error {
     Error::msg(format!("node {:?}: {m}", args.node))
 }
 
-// -- the settings of a forest -------------------------------------------------------------------------------------
+// -- the settings of a model ---------------------------------------------------------------------------------------
 
 fn forest_settings(sig: OpSignature) -> OpSignature {
-    sig.param(PortSpec::optional("n_estimators", Type::Integer, "the trees (default 100)"))
-        .param(PortSpec::optional("max_depth", Type::Integer, "the trees' depth at most (default none)"))
-        .param(PortSpec::optional("min_samples_split", Type::Integer, "the records a node needs to split (default 2)"))
-        .param(PortSpec::optional("min_samples_leaf", Type::Integer, "the records of a leaf at least (default 1)"))
-        .param(PortSpec::optional(
-            "max_features",
-            Type::Any,
-            "the predictors tried at each split: sqrt, log2, all, a number or a share (default: sqrt for classes, \
-             all for values, as scikit-learn)",
-        ))
-        .param(PortSpec::optional("bootstrap", Type::Bool, "each tree on a bootstrap of the records (default true)"))
-        .param(PortSpec::optional("random_state", Type::Integer, "scikit-learn's seed of the forest (default 0)"))
+    sig.param(
+        PortSpec::optional(
+            "method",
+            Type::Text,
+            "random_forest (default; scikit-learn's RandomForest) or gradient_boosting (its HistGradientBoosting, \
+             without early stopping)",
+        )
+        .choices(["random_forest", "gradient_boosting"]),
+    )
+    .param(PortSpec::optional("n_estimators", Type::Integer, "random_forest: the trees (default 100)"))
+    .param(PortSpec::optional("max_depth", Type::Integer, "the trees' depth at most (default none)"))
+    .param(PortSpec::optional(
+        "min_samples_split",
+        Type::Integer,
+        "random_forest: the records a node needs to split (default 2)",
+    ))
+    .param(PortSpec::optional(
+        "min_samples_leaf",
+        Type::Integer,
+        "the records of a leaf at least (default: 1 for a forest, 20 for boosting)",
+    ))
+    .param(PortSpec::optional(
+        "max_features",
+        Type::Any,
+        "the predictors tried at each split: sqrt, log2, all, a number or a share (default: sqrt for classes, \
+         all for values, as scikit-learn); gradient_boosting: a share (default 1)",
+    ))
+    .param(PortSpec::optional("bootstrap", Type::Bool, "random_forest: each tree on a bootstrap (default true)"))
+    .param(PortSpec::optional("learning_rate", Type::Number, "gradient_boosting: the shrinkage of the leaves (0.1)"))
+    .param(PortSpec::optional("max_iter", Type::Integer, "gradient_boosting: the iterations (100)"))
+    .param(PortSpec::optional(
+        "max_leaf_nodes",
+        Type::Integer,
+        "gradient_boosting: the leaves of a tree at most (31; null for no limit)",
+    ))
+    .param(PortSpec::optional("l2_regularization", Type::Number, "gradient_boosting: the leaves' L2 penalty (0)"))
+    .param(PortSpec::optional("max_bins", Type::Integer, "gradient_boosting: the bins of a predictor, 2-255 (255)"))
+    .param(PortSpec::optional("random_state", Type::Integer, "scikit-learn's seed of the model (default 0)"))
+}
+
+fn boosting_settings_of(args: &Args) -> Result<boosting::Settings> {
+    let d = boosting::Settings::default();
+    Ok(boosting::Settings {
+        learning_rate: args.param("learning_rate", d.learning_rate)?,
+        max_iter: args.param("max_iter", d.max_iter)?,
+        max_leaf_nodes: args.param("max_leaf_nodes", d.max_leaf_nodes)?,
+        max_depth: args.opt_param("max_depth")?,
+        min_samples_leaf: args.param("min_samples_leaf", d.min_samples_leaf)?,
+        l2_regularization: args.param("l2_regularization", d.l2_regularization)?,
+        max_features: args.param("max_features", d.max_features)?,
+        max_bins: args.param("max_bins", d.max_bins)?,
+        random_state: args.param("random_state", d.random_state)?,
+    })
+}
+
+/// A model of the node's method fitted to the records: of classes, or of values (`regression`).
+fn fit_model(args: &Args, x: &Frame, y: &[f64], regression: bool) -> Result<Fitted> {
+    let method: String = args.param("method", "random_forest".to_string())?;
+    let fitted = match method.as_str() {
+        "random_forest" => {
+            let s = settings_of(args, regression)?;
+            if regression { forest::regressor(x, y, None, &s) } else { forest::classifier(x, y, None, &s) }
+                .map(Fitted::Forest)
+        }
+        "gradient_boosting" => {
+            let s = boosting_settings_of(args)?;
+            if regression { boosting::regressor(x, y, &s) } else { boosting::classifier(x, y, &s) }
+                .map(Fitted::Boosting)
+        }
+        m => return Err(fail(args, format!("method: random_forest or gradient_boosting, not {m:?}"))),
+    };
+    fitted.map_err(|e| fail(args, e))
 }
 
 fn settings_of(args: &Args, regression: bool) -> Result<forest::Settings> {
@@ -209,10 +313,11 @@ impl Operator for Fit {
         forest_settings(
             OpSignature::new(
                 "ml.fit",
-                "A random forest fitted to records (scikit-learn's RandomForestClassifier for classes, \
-                 RandomForestRegressor for values, the same trees): the rows of a table, or the cells of maps (the \
-                 predictors a stack, the target a map; a sample of the cells, drawn as numpy's default_rng(seed) \
-                 draws it). Its predictors' importances: the mean decrease of impurity.",
+                "A random forest or a histogram gradient boosting fitted to records (scikit-learn's \
+                 RandomForestClassifier and HistGradientBoostingClassifier for classes, their regressors for values, \
+                 the same trees): the rows of a table, or the cells of maps (the predictors a stack, the target a \
+                 map; a sample of the cells, drawn as numpy's default_rng(seed) draws it). Its predictors' \
+                 importances: a forest's mean decrease of impurity, a boosting's share of the gain of its splits.",
                 Access::Global,
             )
             .input(PortSpec::optional(
@@ -335,11 +440,13 @@ impl Operator for Fit {
                 (frame, pick.iter().map(|&k| y[k]).collect())
             }
         };
-        let s = settings_of(args, regression)?;
-        let f = if regression { forest::regressor(&x, &y, None, &s) } else { forest::classifier(&x, &y, None, &s) }
-            .map_err(|e| fail(args, e))?;
-        let importance = importance_table(&f.predictors, &[(None, f.importances())]);
-        Ok(outputs([("model", Value::MlModel(Arc::new(Model::Forest(f)))), ("importance", Value::Table(importance))]))
+        let f = fit_model(args, &x, &y, regression)?;
+        let importance = importance_table(f.predictors(), &[(None, f.importances())]);
+        let model = match f {
+            Fitted::Forest(f) => Model::Forest(f),
+            Fitted::Boosting(b) => Model::Boosting(b),
+        };
+        Ok(outputs([("model", Value::MlModel(Arc::new(model))), ("importance", Value::Table(importance))]))
     }
 }
 
@@ -446,11 +553,11 @@ impl Operator for Potential {
         forest_settings(
             OpSignature::new(
                 "ml.potential",
-                "The potential of each class from a random forest per class (landschaft's Estimator with \
-                 scikit-learn's RandomForestClassifier, the same maps): where each class is (presence, as lulcc's \
-                 models), or where it appeared between two maps among the cells without it (expansion: PLUS's land \
-                 expansion analysis, LEAS, the growth probability CARS takes); with each driver's contribution (the \
-                 forests' importances).",
+                "The potential of each class from a model per class (landschaft's Estimator with scikit-learn's \
+                 RandomForestClassifier, or HistGradientBoostingClassifier, the same maps): where each class is \
+                 (presence, as lulcc's models), or where it appeared between two maps among the cells without it \
+                 (expansion: PLUS's land expansion analysis, LEAS, the growth probability CARS takes); with each \
+                 driver's contribution (the models' importances).",
                 Access::Global,
             )
             .input(PortSpec::new("landscape", Type::Map, "the map at the start"))
@@ -534,9 +641,8 @@ impl Operator for Potential {
         };
         let sample: Option<f64> = args.opt_param("sample")?;
         let (stratify, balance): (bool, bool) = (args.param("stratify", false)?, args.param("balance", false)?);
-        let s = settings_of(args, false)?;
         let mut rng = NumpyRng::new(args.param("seed", 1)?);
-        let mut forests = Vec::with_capacity(classes.len());
+        let (mut forests, mut boostings) = (Vec::new(), Vec::new());
         let mut importance = Vec::with_capacity(classes.len());
         for (k, &c) in classes.iter().enumerate() {
             if !ctx.progress(Some(k as f64 / classes.len() as f64), format!("class {}", class_label(c))) {
@@ -559,12 +665,14 @@ impl Operator for Potential {
                     ),
                 ));
             }
-            let f =
-                forest::classifier(&frame_of(&names, &layers, &idx), &labels, None, &s).map_err(|e| fail(args, e))?;
+            let f = fit_model(args, &frame_of(&names, &layers, &idx), &labels, false)?;
             importance.push((Some(c), f.importances()));
-            forests.push(f);
+            match f {
+                Fitted::Forest(f) => forests.push(f),
+                Fitted::Boosting(b) => boostings.push(b),
+            }
         }
-        let model = Model::PerClass { target, classes: classes.clone(), forests };
+        let model = Model::PerClass { target, classes: classes.clone(), forests, boostings };
         let all: Vec<usize> = (0..n).collect();
         let cols = model.outputs(&frame_of(&names, &layers, &all)).map_err(|e| fail(args, e))?;
         let potential = Stack {

@@ -21,6 +21,30 @@
   "max_features": 0.4,
   "min_samples_split": 6
  },
+ "boosting/binary": {
+  "target": "binary",
+  "max_iter": 30
+ },
+ "boosting/multiclass": {
+  "target": "table/class",
+  "max_iter": 25
+ },
+ "boosting/shaped": {
+  "target": "table/class",
+  "max_iter": 15,
+  "learning_rate": 0.2,
+  "max_leaf_nodes": 8,
+  "min_samples_leaf": 10,
+  "l2_regularization": 1.0,
+  "max_bins": 32,
+  "max_features": 0.5,
+  "max_depth": 4,
+  "random_state": 4
+ },
+ "boosting/regression": {
+  "target": "table/value",
+  "max_iter": 30
+ },
  "pie/drivers": [
   "elevation",
   "slope",
@@ -86,6 +110,26 @@
    "1": 2618,
    "2": 1974,
    "3": 1542
+  }
+ },
+ "pie/boosting": {
+  "target": "expansion",
+  "sample": 4000,
+  "seed": 4,
+  "classes": [
+   1,
+   2,
+   3
+  ],
+  "drivers": [
+   "dist_built_1985",
+   "elevation",
+   "slope"
+  ],
+  "train": {
+   "1": 4000,
+   "2": 4000,
+   "3": 4000
   }
  }
 }

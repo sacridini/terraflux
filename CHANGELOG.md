@@ -6,6 +6,16 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Histogram gradient boosting (`terraflux_ops::ml::boosting`), scikit-learn's HistGradientBoostingClassifier (two
+  classes or more) and HistGradientBoostingRegressor ported to the bit, without early stopping: the predictors
+  binned by numpy's quantiles (from a subsample of 200,000 records when there are more), the gradients and hessians
+  of the half squared error, binomial or multinomial loss as float32, the trees grown best leaf first from
+  histograms (Python's heap breaking the ties of gain), the leaves shrunk by the learning rate; the same
+  predictions as scikit-learn 1.9. `ml.fit` and `ml.potential` take it with `method = "gradient_boosting"`
+  (`learning_rate`, `max_iter`, `max_leaf_nodes`, `l2_regularization`, `max_bins`, a share of the predictors per
+  split); its importances are each predictor's share of the gain of its splits.
+
 ## [0.88.0] - 2026-10-17
 
 ### Added

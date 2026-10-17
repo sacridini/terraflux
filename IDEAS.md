@@ -120,6 +120,8 @@ depois:
 5. **Testes instáveis vistos:** `a_computer_lends_itself_to_another_by_its_code` (`crates/app/tests/ui.rs`) falha às
    vezes na suíte inteira e passa sozinho; `the_terrain_is_landschafts` (`crates/ops/tests/surface.rs`) difere em
    1e-16 no VRM só no build de debug (passa em release).
+   `a_model_runs_and_every_tab_draws` (`crates/app/tests/ui.rs`, o `can_run()` logo depois de abrir o modelo) falha
+   às vezes no `cargo test --workspace` e passa no programa `ui` sozinho.
 
 ## Integrar o landschaft 1.50.0
 
@@ -251,6 +253,8 @@ destravam outros são o 1 e o 3.
      landschaft; o modelo como um valor (`ml_model`, gravado em JSON); as árvores crescidas e as células previstas
      em paralelo; o template PLUS (LEAS and CARS). Falta: a importância por permutação e a dependência parcial
      (passo 3), o `HistGradientBoosting` (passo 4) e a previsão no motor por tiles.
+   - **Feito** (0.89.0): o passo 4, o `HistGradientBoostingClassifier`/`Regressor` bit a bit com o scikit-learn 1.9
+     (sem early stopping), em `ml.fit` e `ml.potential` (`method = "gradient_boosting"`).
    - **O modelo como um valor do grafo** (um tipo novo, gravável e relido de um arquivo), para ajustar uma vez numa
      amostra das células e prever em mapas do tamanho do mundo: a previsão é célula a célula, então entra no motor
      por tiles sem mudança, com as árvores achatadas em vetores e as faixas em paralelo (`rayon`).
