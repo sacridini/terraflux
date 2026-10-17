@@ -4620,6 +4620,162 @@
   "container": false
  },
  {
+  "name": "conn.metapopulation",
+  "doc": "A metapopulation in a network of habitat patches over time, Hanski's incidence function model as R's MetaLandSim (spom) simulates it, the same run for a seed: every step, each patch's connectivity to the occupied patches (a kernel of the distance times their areas), an empty patch colonised with a probability that grows with it, an occupied one lost with a probability that falls with its area (and with the rescue effect, with its colonisation). Every patch's final occupancy and incidence (the share of steps occupied), and the patches occupied at every step.",
+  "inputs": [
+   {
+    "name": "patches",
+    "type": "any",
+    "required": true,
+    "doc": "the patches: a table (x, y, area, occupied) or points"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "patches",
+    "type": "table",
+    "required": true,
+    "doc": "per patch: patch, x, y, area, occupied (at the end), incidence (the share of steps occupied)"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "per step (0 the start): step, occupied, occupied_area, colonised, extinct"
+   }
+  ],
+  "params": [
+   {
+    "name": "steps",
+    "type": "integer",
+    "required": false,
+    "doc": "the steps (default 100)"
+   },
+   {
+    "name": "alpha",
+    "type": "number",
+    "required": true,
+    "doc": "the kernel's α: 1 / the mean dispersal distance"
+   },
+   {
+    "name": "x",
+    "type": "number",
+    "required": true,
+    "doc": "extinction's scaling with area (x)"
+   },
+   {
+    "name": "y",
+    "type": "number",
+    "required": true,
+    "doc": "colonisation's y"
+   },
+   {
+    "name": "e",
+    "type": "number",
+    "required": true,
+    "doc": "extinction's e: the probability of a patch of area 1"
+   },
+   {
+    "name": "b",
+    "type": "number",
+    "required": false,
+    "doc": "the sources' areas' exponent in the connectivity (default 1)"
+   },
+   {
+    "name": "kernel",
+    "type": "text",
+    "required": false,
+    "doc": "exponential (default) or power: 1 / (1 + α d^beta)",
+    "choices": [
+     "exponential",
+     "power"
+    ]
+   },
+   {
+    "name": "beta",
+    "type": "number",
+    "required": false,
+    "doc": "the power kernel's beta (default 1)"
+   },
+   {
+    "name": "connectivity",
+    "type": "text",
+    "required": false,
+    "doc": "plain (default) or area: times the patch's area^c1",
+    "choices": [
+     "plain",
+     "area"
+    ]
+   },
+   {
+    "name": "c1",
+    "type": "number",
+    "required": false,
+    "doc": "with area connectivity: the exponent"
+   },
+   {
+    "name": "colonisation",
+    "type": "text",
+    "required": false,
+    "doc": "logistic (default, S²/(S²+y²)), exponential (1 - exp(-y S)) or power (S^z/(S^z + 1/c2))",
+    "choices": [
+     "logistic",
+     "exponential",
+     "power"
+    ]
+   },
+   {
+    "name": "c2",
+    "type": "number",
+    "required": false,
+    "doc": "with power colonisation: c2"
+   },
+   {
+    "name": "z",
+    "type": "number",
+    "required": false,
+    "doc": "with power colonisation: z"
+   },
+   {
+    "name": "extinction",
+    "type": "text",
+    "required": false,
+    "doc": "area (default, min(1, e/A^x)), exponential (1 - exp(-e/A^x)) or rescue (e/A^x (1 - C)^r)",
+    "choices": [
+     "area",
+     "exponential",
+     "rescue"
+    ]
+   },
+   {
+    "name": "r",
+    "type": "number",
+    "required": false,
+    "doc": "with the rescue effect: its exponent"
+   },
+   {
+    "name": "area",
+    "type": "text",
+    "required": false,
+    "doc": "the patches' area column or attribute (default area)"
+   },
+   {
+    "name": "occupied",
+    "type": "text",
+    "required": false,
+    "doc": "the occupancy column or attribute (default occupied)"
+   },
+   {
+    "name": "seed",
+    "type": "integer",
+    "required": false,
+    "doc": "R's set.seed (default 1)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
   "name": "conn.node_importance",
   "doc": "Every node's importance (Conefor's dI, Makurhini's MK_dPCIIC): the share of each index lost without it and the intra, flux and connector fractions of dIIC and dPC; the betweenness BC, BC(IIC) and BC(PC) when asked for. On a graph with nodes to restore, the gain of adding each (Makurhini's dIICres and dPCres, or Conefor's d*add). A row per node and distance. As in Conefor and Makurhini, a node is taken out of the graph as it is: the distances between the others are not measured again, so with least-cost distances the detours it forces are missed.",
   "inputs": [
