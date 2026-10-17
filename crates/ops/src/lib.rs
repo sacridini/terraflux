@@ -31,6 +31,7 @@ pub mod crafty;
 pub mod data;
 pub mod demand;
 pub mod differ;
+pub mod dispersal;
 pub mod dinamica;
 pub mod dynamic;
 pub mod essentials;
@@ -388,6 +389,7 @@ impl Registry {
         forest_code::register(&mut r);
         stats::register(&mut r);
         interpolation::register(&mut r);
+        dispersal::register(&mut r);
         fitted::register(&mut r);
         fragmentation::register(&mut r);
         futures::register(&mut r);

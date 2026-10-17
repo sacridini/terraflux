@@ -6,6 +6,15 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- `sdm.migrate`, a species' dispersal through the habitat suitability of successive periods as MigClim 1.6
+  simulates it, the same run for a seed (its random numbers are the C runtime's rand(), ported): colonisation from
+  occupied cells within a dispersal kernel's reach, weighted by the source's propagule production while it matures
+  and by the sink's suitability; weak or strong barriers; long-distance dispersal; cells that turn unsuitable kept
+  until the period ends. The final state with MigClim's codes, the cells occupied, the state after every step and
+  the statistics of every step.
+- The template "Species migration (MigClim)": three periods of a moving climate, a river as a barrier.
+
 ## [0.96.0] - 2026-10-18
 
 ### Added

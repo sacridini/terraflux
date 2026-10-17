@@ -120,10 +120,10 @@ pub fn mann_kendall(series: &[f64], alpha: f64) -> MannKendall {
 }
 
 /// A series' grid and layers.
-type Layers = (Arc<terraflux_raster::Grid>, Vec<Arc<Vec<f64>>>);
+pub(crate) type Layers = (Arc<terraflux_raster::Grid>, Vec<Arc<Vec<f64>>>);
 
 /// The layers of a series of maps on one grid (a stack, maps along a loop, rasters on disk).
-fn layers_of(args: &Args, port: &str) -> Result<Layers> {
+pub(crate) fn layers_of(args: &Args, port: &str) -> Result<Layers> {
     match args.get(port) {
         Some(Value::Stack(s)) => Ok((s.grid.clone(), s.layers.clone())),
         Some(Value::Raster(r)) => {

@@ -87,6 +87,7 @@ const ESSENTIALS: &[(&str, &[&str])] = &[
     ("ml.potential", &["landscape", "later", "drivers", "target", "classes", "method", "sample", "n_estimators"]),
     // species distributions and biodiversity
     ("sdm.fit", &["predictors", "categorical", "model", "classes", "regmult", "cv"]),
+    ("sdm.migrate", &["initial", "suitability", "barriers", "steps", "kernel", "ldd_frequency", "seed"]),
     ("sdm.prepare", &["species", "thin", "area", "predictors", "background", "folds"]),
     (
         "sdm.clean_occurrences",

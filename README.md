@@ -42,7 +42,7 @@ computers of a local network or on a Slurm cluster, and on maps larger than memo
   results to the bit: GuidosToolbox, landscapemetrics, Zonation 5, Marxan, prioritizr, plangea, Dinamica EGO and
   lulcc's CLUE-S among them. Parity tests against [landschaft](https://github.com/sacridini/landschaft) run in the
   test suite.
-- **No code needed, nothing hidden.** More than 340 operators in a searchable library, 43 ready-to-run templates and
+- **No code needed, nothing hidden.** More than 340 operators in a searchable library, 44 ready-to-run templates and
   a wizard that checks and fixes the data. Every automatic choice is a visible node, with a note on why it is
   there.
 - **One model, many front-ends.** A model is a typed graph saved as readable text (TOML or JSON). The builder,
@@ -64,7 +64,7 @@ computers of a local network or on a Slurm cluster, and on maps larger than memo
 | **Connectivity** | Habitat graphs and Conefor's indices, MSPA networks, circuit theory, least-cost paths and corridors, random walks | Conefor, Circuitscape, Omniscape, gdistance |
 | **Conservation planning** | Zonation 5 rankings and projects, Marxan reserves, prioritizr's integer programs solved by HiGHS, irreplaceability, multi-action planning | Zonation, Marxan, prioritizr, ProxIRR, prioriactions |
 | **Restoration** | Ecological intactness, restoration plans under area targets and budgets, trade-off curves | plangea |
-| **Species distributions** | GBIF records, CoordinateCleaner's tests, thinning, background points, spatial folds, MaxNet, GLM and random forests, evaluation and extrapolation (MESS, MOP) | dismo, ENMeval, blockCV, usdm |
+| **Species distributions** | GBIF records, CoordinateCleaner's tests, thinning, background points, spatial folds, MaxNet, GLM and random forests, evaluation and extrapolation (MESS, MOP), dispersal through the periods of a changing climate | dismo, ENMeval, blockCV, usdm, MigClim |
 | **Agents** | Macro agents, parcel managers and CRAFTY's competition for land, in the same graph as the cellular automata | CRAFTY |
 | **Hydrology and ecosystem services** | Depressions filled and breached, flow directions and accumulation (D8, D-infinity, multiple flow), streams, HAND, watersheds, wetness indices; InVEST's carbon, habitat quality, annual water yield and sediment delivery ratio; SWAT+ watershed simulations | WhiteboxTools, pygeoprocessing, InVEST, SWAT+ |
 | **Surfaces and data** | Terrain, geomorphons, Brazil's Forest Code (APPs of rivers, lakes, springs, slopes and hilltops; Reserva Legal balances), gravity potentials, distances, map algebra, reprojection and resampling, downloads of WorldClim, CHELSA, the Copernicus DEM, SoilGrids and MapBiomas, vectors by OGR, zonal statistics, Monte Carlo uncertainty, global sensitivity (Morris, Sobol) | GDAL, GRASS, exactextractr |

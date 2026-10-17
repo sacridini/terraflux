@@ -19,6 +19,7 @@ mod conn_vector;
 mod data;
 mod cost;
 mod differ;
+mod dispersal;
 mod extinction;
 mod forest_code;
 mod futures_tools;

@@ -224,7 +224,7 @@ fn clue_s() -> Model {
     m
 }
 
-pub const TEMPLATES: [Template; 43] = [
+pub const TEMPLATES: [Template; 44] = [
     Template {
         name: "MSPA of a forest",
         group: PATTERNS,
@@ -3143,6 +3143,87 @@ inputs = { value = "idw.map" }
 params = { title = "Inverse distance weighting" }
 "#,
     },
+    Template {
+        name: "Species migration (MigClim)",
+        group: SPECIES,
+        build: None,
+        about: "A species following its climate across three periods (MigClim's cellular automaton): dispersal \
+                within a kernel's reach and by long jumps, a river it hardly crosses, the cells it reaches, those \
+                it loses and those suitable it never reaches",
+        toml: r#"
+format = "terraflux/1"
+name = "Species migration (MigClim)"
+description = "A species' dispersal as MigClim simulates it: three periods of habitat suitability whose optimum moves across a drawn landscape, a kernel of dispersal of four cells, long-distance dispersal, propagule production that grows over the first years of a population, and a river as a barrier. The final map tells the cells colonised (by step), lost, and suitable but out of reach."
+
+[[nodes]]
+id = "gradient"
+op = "nlm.planar_gradient"
+params = { rows = 80, columns = 100, direction = 90, seed = 91 }
+note = "A gradient across the map (a temperature, say)."
+
+[[nodes]]
+id = "noise"
+op = "nlm.gaussian_field"
+params = { rows = 80, columns = 100, range = 6, seed = 92 }
+
+[[nodes]]
+id = "period1"
+op = "map.calc"
+inputs = { g = "gradient.map", n = "noise.map" }
+params = { expression = "max(0, min(1000, round(1000 - abs(g - 0.25) * 3500 + (n - 0.5) * 500)))" }
+note = "The suitability of a period, 0 to 1000: its optimum moving up the gradient (in their place, a species distribution model's predictions for each period, times 1000)."
+
+[[nodes]]
+id = "period2"
+op = "map.calc"
+inputs = { g = "gradient.map", n = "noise.map" }
+params = { expression = "max(0, min(1000, round(1000 - abs(g - 0.45) * 3500 + (n - 0.5) * 500)))" }
+
+[[nodes]]
+id = "period3"
+op = "map.calc"
+inputs = { g = "gradient.map", n = "noise.map" }
+params = { expression = "max(0, min(1000, round(1000 - abs(g - 0.65) * 3500 + (n - 0.5) * 500)))" }
+
+[[nodes]]
+id = "suitability"
+op = "stack.of"
+inputs = { p1 = "period1.map", p2 = "period2.map", p3 = "period3.map" }
+
+[[nodes]]
+id = "initial"
+op = "map.calc"
+inputs = { s = "period1.map", g = "gradient.map" }
+params = { expression = "if s > 600 and g < 0.3 then 1 else 0" }
+note = "Where the species is now: suitable cells at the lower end of the gradient."
+
+[[nodes]]
+id = "river"
+op = "map.calc"
+inputs = { g = "gradient.map" }
+params = { expression = "if abs(g - 0.4) < 0.006 then 1 else 0" }
+note = "A river across the gradient, a barrier."
+
+[[nodes]]
+id = "migrate"
+op = "sdm.migrate"
+inputs = { initial = "initial.map", suitability = "suitability.stack", barriers = "river.map" }
+params = { steps = 5, kernel = [1.0, 0.4, 0.16, 0.06], ini_maturity = 1, full_maturity = 3, propagules = [0.4, 0.8], ldd_frequency = 0.05, ldd_min = 6, ldd_max = 15, barrier_type = "weak", seed = 93 }
+note = "Five dispersal steps per period; table: the cells occupied, colonised and lost at every step."
+
+[[nodes]]
+id = "plot_final"
+op = "view.plot"
+inputs = { value = "migrate.occupied" }
+params = { title = "Occupied at the end" }
+
+[[nodes]]
+id = "plot_states"
+op = "view.plot"
+inputs = { value = "migrate.map" }
+params = { title = "MigClim's final state" }
+"#,
+    },
 ];
 
 /// Where the user's own templates are kept (the user's application data): a model file each, named as shown.
@@ -3360,6 +3441,20 @@ mod tests {
         assert!(k < i && k < 3.0, "{k} {i}");
         let Some(terraflux_ops::Value::Map(v)) = out.get("kriging.variance") else { panic!("no variance") };
         assert!(v.data.iter().all(|x| *x >= 0.0));
+    }
+
+    /// The migration template runs: the species spreads, and loses cells, and suitable cells stay out of reach.
+    #[test]
+    fn migration_template_runs() {
+        struct Quiet;
+        impl terraflux_exec::Observer for Quiet {}
+        let m = TEMPLATES.iter().find(|t| t.name == "Species migration (MigClim)").unwrap().model();
+        let out = terraflux_exec::Engine::default().run(&m, &Default::default(), &mut Quiet).unwrap();
+        let Some(terraflux_ops::Value::Table(t)) = out.get("migrate.table") else { panic!("no table") };
+        let occupied: Vec<f64> = t.rows.iter().map(|r| r[5]).collect();
+        assert!(occupied.iter().cloned().fold(0.0, f64::max) > 2.0 * occupied[0], "{occupied:?}");
+        let Some(terraflux_ops::Value::Map(f)) = out.get("migrate.map") else { panic!("no map") };
+        assert!(f.data.contains(&30000.0) && f.data.iter().any(|v| *v < 0.0));
     }
 
     /// The species distribution model template runs: a map of suitability from 0 to 1.
