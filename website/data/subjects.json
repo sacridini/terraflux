@@ -83,6 +83,12 @@
    ]
   },
   {
+   "title": "Spatial statistics",
+   "prefixes": [
+    "stats"
+   ]
+  },
+  {
    "title": "Large data & batch",
    "prefixes": [
     "batch"

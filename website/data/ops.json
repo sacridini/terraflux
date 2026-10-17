@@ -21288,6 +21288,240 @@
   "container": false
  },
  {
+  "name": "stats.getis_ord",
+  "doc": "Getis and Ord's Gi* of every cell (PySAL's esda.G_Local with star and row-standardised weights, to rounding): the share of the map's total around the cell, itself included, its z and p, and the hot and cold spots at 90, 95 and 99% confidence (as ArcGIS's Gi_Bin: 1 to 3 hot, -1 to -3 cold).",
+  "inputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the values (positive)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "g",
+    "type": "map",
+    "required": true,
+    "doc": "Gi*"
+   },
+   {
+    "name": "z",
+    "type": "map",
+    "required": true,
+    "doc": "its z"
+   },
+   {
+    "name": "p",
+    "type": "map",
+    "required": true,
+    "doc": "its one-sided p (of |z|)"
+   },
+   {
+    "name": "spots",
+    "type": "map",
+    "required": true,
+    "doc": "3, 2, 1 hot spots at 99, 95, 90%; -1 to -3 cold; 0 none"
+   }
+  ],
+  "params": [
+   {
+    "name": "contiguity",
+    "type": "text",
+    "required": false,
+    "doc": "the neighbours: queen (default, 8) or rook (4)",
+    "choices": [
+     "queen",
+     "rook"
+    ]
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "stats.lisa",
+  "doc": "The local Moran's I of every cell (Anselin's LISA; PySAL's esda.Moran_Local, to rounding): how much it and its neighbours are alike, its quadrant (1 high among high, 2 low among high, 3 low among low, 4 high among low), its z under randomisation, a pseudo p of conditional permutations (its neighbours drawn among the other cells), and the clusters: the quadrant of the cells of p below alpha.",
+  "inputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the values"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "i",
+    "type": "map",
+    "required": true,
+    "doc": "the local Moran's I"
+   },
+   {
+    "name": "quadrant",
+    "type": "map",
+    "required": true,
+    "doc": "1 high-high, 2 low-high, 3 low-low, 4 high-low"
+   },
+   {
+    "name": "z",
+    "type": "map",
+    "required": true,
+    "doc": "its z under randomisation"
+   },
+   {
+    "name": "p",
+    "type": "map",
+    "required": true,
+    "doc": "the pseudo p of the permutations"
+   },
+   {
+    "name": "clusters",
+    "type": "map",
+    "required": true,
+    "doc": "the quadrant where p < alpha, 0 elsewhere"
+   }
+  ],
+  "params": [
+   {
+    "name": "permutations",
+    "type": "integer",
+    "required": false,
+    "doc": "per cell (default 99; 0 none)"
+   },
+   {
+    "name": "alpha",
+    "type": "number",
+    "required": false,
+    "doc": "the significance of the clusters (default 0.05)"
+   },
+   {
+    "name": "seed",
+    "type": "integer",
+    "required": false,
+    "doc": "the seed of the permutations (default 1)"
+   },
+   {
+    "name": "contiguity",
+    "type": "text",
+    "required": false,
+    "doc": "the neighbours: queen (default, 8) or rook (4)",
+    "choices": [
+     "queen",
+     "rook"
+    ]
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "stats.moran",
+  "doc": "The global Moran's I of a map (PySAL's esda.Moran, to rounding): how much neighbouring cells are alike, over the contiguity of the cells with a value (row-standardised weights); its expectation, variance, z and two-sided p under normality and under randomisation, and a pseudo p of random permutations of the values.",
+  "inputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the values"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "I, EI, VI_norm, z_norm, p_norm, VI_rand, z_rand, p_rand, p_sim, n"
+   }
+  ],
+  "params": [
+   {
+    "name": "permutations",
+    "type": "integer",
+    "required": false,
+    "doc": "the random permutations (default 999; 0 none)"
+   },
+   {
+    "name": "seed",
+    "type": "integer",
+    "required": false,
+    "doc": "the seed of the permutations (default 1)"
+   },
+   {
+    "name": "contiguity",
+    "type": "text",
+    "required": false,
+    "doc": "the neighbours: queen (default, 8) or rook (4)",
+    "choices": [
+     "queen",
+     "rook"
+    ]
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "stats.trend",
+  "doc": "The monotonic trend of every cell along a series of maps (pymannkendall's original_test, the same numbers): the Mann-Kendall test (S, its variance corrected for ties, z, the two-sided p, Kendall's tau, increasing or decreasing at alpha) and Sen's slope (the median of the slopes between every pair of dates, per step of the series) with its intercept; the missing values of a cell left out.",
+  "inputs": [
+   {
+    "name": "maps",
+    "type": "raster",
+    "required": true,
+    "doc": "the maps, a layer per date (a stack, a loop's series, rasters)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "slope",
+    "type": "map",
+    "required": true,
+    "doc": "Sen's slope, per step"
+   },
+   {
+    "name": "intercept",
+    "type": "map",
+    "required": true,
+    "doc": "its intercept, at the first step"
+   },
+   {
+    "name": "p",
+    "type": "map",
+    "required": true,
+    "doc": "the Mann-Kendall test's two-sided p"
+   },
+   {
+    "name": "z",
+    "type": "map",
+    "required": true,
+    "doc": "its z"
+   },
+   {
+    "name": "tau",
+    "type": "map",
+    "required": true,
+    "doc": "Kendall's tau"
+   },
+   {
+    "name": "trend",
+    "type": "map",
+    "required": true,
+    "doc": "1 increasing, -1 decreasing, 0 none (at alpha)"
+   }
+  ],
+  "params": [
+   {
+    "name": "alpha",
+    "type": "number",
+    "required": false,
+    "doc": "the significance level (default 0.05)"
+   }
+  ],
+  "access": "local",
+  "container": false
+ },
+ {
   "name": "surface.aacf",
   "doc": "The areal autocorrelation function of a surface, geodiv's aacf: 1 at zero lag in the centre; on the largest square without missing cells around the centre when there are some.",
   "inputs": [
