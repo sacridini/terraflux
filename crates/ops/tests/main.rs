@@ -20,6 +20,7 @@ mod data;
 mod cost;
 mod differ;
 mod extinction;
+mod forest_code;
 mod futures_tools;
 mod h3;
 mod hydro;

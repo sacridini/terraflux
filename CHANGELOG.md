@@ -6,6 +6,17 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Brazil's Forest Code (Lei 12.651/2012 with Lei 12.727/2012): `forest_code.app` (the Áreas de Preservação
+  Permanente of art. 4: the margins of rivers from the channel's edge by their width, of natural lakes by their area
+  (urban zones' 30 m), springs, veredas, slopes above 45°, hilltops, land above 1,800 m and protected classes such
+  as mangroves; in the rural areas consolidated by 22 July 2008, art. 61-A's narrower margins by the property's
+  fiscal modules) and `forest_code.reserve` (every property's Reserva Legal: art. 12's share, the native vegetation
+  counted outside and, as art. 15 allows, inside the APPs, the deficit or surplus; art. 67's properties of up to 4
+  fiscal modules keep the vegetation of 2008). Exact Euclidean distances (Felzenszwalb and Huttenlocher) with the
+  nearest feature of every cell. The library's subject Forest Code (Brazil) and the template Forest Code: APP and
+  Reserva Legal.
+
 ## [0.92.0] - 2026-10-17
 
 ### Added

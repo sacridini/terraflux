@@ -35,6 +35,7 @@ pub mod dinamica;
 pub mod dynamic;
 pub mod essentials;
 pub mod files;
+pub mod forest_code;
 pub mod fitted;
 pub mod fragmentation;
 pub mod futures;
@@ -378,6 +379,7 @@ impl Registry {
         dinamica::register(&mut r);
         dynamic::register(&mut r);
         files::register(&mut r);
+        forest_code::register(&mut r);
         fitted::register(&mut r);
         fragmentation::register(&mut r);
         futures::register(&mut r);

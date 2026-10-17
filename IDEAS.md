@@ -277,6 +277,10 @@ destravam outros são o 1 e o 3.
 5. **O Código Florestal completo.** Há o topo de morro (`surface.hilltop`); faltam as APPs dos rios pela largura (os
    rios do `hydro.streams`), as nascentes, as declividades acima de 45°, as bordas de tabuleiro, e o déficit e o
    excedente de Reserva Legal por imóvel do CAR (o SICAR como entrada), como nos trabalhos do Soares-Filho.
+   - **Feito** (0.93.0): `forest_code.app` (as APPs do art. 4º e as faixas do art. 61-A nas áreas consolidadas) e
+     `forest_code.reserve` (o balanço da Reserva Legal: arts. 12, 15 e 67), com o template Forest Code: APP and
+     Reserva Legal. Falta: as bordas de tabuleiros e chapadas (a linha de ruptura do relevo), o limite do
+     art. 61-B (10 % e 20 % do imóvel) e a compensação da Reserva Legal entre imóveis (art. 66).
 6. **Análise de sensibilidade global.** O "Executar várias vezes" tem réplicas, cenários e calibração; faltam os
    desenhos de Morris e de Sobol (as amostras de Saltelli) e os índices (efeitos elementares; primeira ordem e
    totais com intervalos por bootstrap), sobre os lotes e a distribuição que já existem. Referência: o SALib.

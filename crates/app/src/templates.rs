@@ -224,7 +224,7 @@ fn clue_s() -> Model {
     m
 }
 
-pub const TEMPLATES: [Template; 40] = [
+pub const TEMPLATES: [Template; 41] = [
     Template {
         name: "MSPA of a forest",
         group: PATTERNS,
@@ -2537,6 +2537,110 @@ params = { title = "Expected deforestation (ha per cell)" }
 "#,
     },
     Template {
+        name: "Forest Code: APP and Reserva Legal",
+        group: CONSERVATION,
+        build: None,
+        about: "Brazil's Forest Code on a drawn landscape: the APPs of its rivers (traced from the relief), slopes and \
+                heights, narrower in the farmland consolidated by 2008, and every property's Reserva Legal balance",
+        toml: r#"
+format = "terraflux/1"
+name = "Forest Code: APP and Reserva Legal"
+description = "Brazil's Forest Code (Lei 12.651/2012) on a drawn landscape of cells of 30 m: the rivers traced from the relief and their margins by width (art. 4), the slopes above 45° and the land above 1,800 m; in the farmland consolidated by 22 July 2008, art. 61-A's narrower margins by each property's fiscal modules; and every property's Reserva Legal: its 20% of native vegetation against what it has, the APPs counted (art. 15)."
+
+[[nodes]]
+id = "relief"
+op = "nlm.fbm"
+params = { rows = 150, columns = 150, dimension = 1.3, seed = 51, resolution = 30 }
+
+[[nodes]]
+id = "dem"
+op = "map.calc"
+inputs = { f = "relief.map" }
+params = { expression = "400 + 1600 * f" }
+note = "The elevation, 400 to 2,000 m (in its place, a DEM: raster.read, or data.download's Copernicus DEM)."
+
+[[nodes]]
+id = "filled"
+op = "hydro.fill"
+inputs = { dem = "dem.map" }
+
+[[nodes]]
+id = "accumulation"
+op = "hydro.flow_accumulation"
+inputs = { dem = "filled.map" }
+
+[[nodes]]
+id = "rivers"
+op = "hydro.streams"
+inputs = { accumulation = "accumulation.map" }
+params = { threshold = 150 }
+note = "The rivers: the cells draining 150 cells or more (in their place, a map of the rivers; their width as river_width)."
+
+[[nodes]]
+id = "slope"
+op = "raster.terrain"
+inputs = { raster = "dem.map" }
+params = { measure = "slope" }
+
+[[nodes]]
+id = "cover"
+op = "nlm.random_cluster"
+params = { rows = 150, columns = 150, p = 0.5, weights = [0.55, 0.45], seed = 52, resolution = 30 }
+note = "The land cover: 1 native vegetation, 2 farmland (in its place, a land cover map such as MapBiomas')."
+
+[[nodes]]
+id = "vegetation"
+op = "map.calc"
+inputs = { c = "cover.map" }
+params = { expression = "c == 1" }
+
+[[nodes]]
+id = "farmland"
+op = "map.calc"
+inputs = { c = "cover.map" }
+params = { expression = "c == 2" }
+note = "The farmland, taken as consolidated by 22 July 2008 (in its place, the land use of 2008)."
+
+[[nodes]]
+id = "strips"
+op = "nlm.planar_gradient"
+params = { rows = 150, columns = 150, direction = 90, seed = 53, resolution = 30 }
+
+[[nodes]]
+id = "properties"
+op = "map.calc"
+inputs = { g = "strips.map" }
+params = { expression = "min(floor(g * 6) + 1, 6)" }
+note = "Six rural properties of 337.5 ha (in their place, the CAR's properties: vector.rasterize of SICAR's polygons)."
+
+[[nodes]]
+id = "app"
+op = "forest_code.app"
+inputs = { rivers = "rivers.map", slope = "slope.raster", elevation = "dem.map", properties = "properties.map", consolidated = "farmland.map" }
+params = { fiscal_module = 50 }
+note = "The APPs: river margins of 30 m (the rivers taken as under 10 m wide), narrower in the consolidated farmland (properties of 6.75 fiscal modules of 50 ha: 20 m), slopes above 45° and land above 1,800 m."
+
+[[nodes]]
+id = "reserve"
+op = "forest_code.reserve"
+inputs = { properties = "properties.map", vegetation = "vegetation.map", app = "app.app" }
+params = { share = 20, fiscal_module = 50 }
+note = "Every property's Reserva Legal: 20% of its area in native vegetation (outside the Amazon), its vegetation in the APPs counted."
+
+[[nodes]]
+id = "plot_app"
+op = "view.plot"
+inputs = { value = "app.app" }
+params = { title = "APP: 1 river, 5 slope, 7 altitude" }
+
+[[nodes]]
+id = "plot_balance"
+op = "view.plot"
+inputs = { value = "reserve.balance" }
+params = { title = "Reserva Legal: surplus (+) or deficit (-), ha" }
+"#,
+    },
+    Template {
         name: "Terrain of a surface",
         group: SURFACES,
         build: None,
@@ -2990,6 +3094,19 @@ mod tests {
         let total: f64 = d.data.iter().sum();
         assert!((total - 60.0).abs() < 0.01, "{total}");
         assert!(d.data.iter().all(|v| (0.0..=0.09 + 1e-9).contains(v)));
+    }
+
+    /// The Forest Code template runs: river margins found, six properties balanced.
+    #[test]
+    fn forest_code_template_runs() {
+        struct Quiet;
+        impl terraflux_exec::Observer for Quiet {}
+        let m = TEMPLATES.iter().find(|t| t.name == "Forest Code: APP and Reserva Legal").unwrap().model();
+        let out = terraflux_exec::Engine::default().run(&m, &Default::default(), &mut Quiet).unwrap();
+        let Some(terraflux_ops::Value::Map(app)) = out.get("app.app") else { panic!("no app") };
+        assert!(app.data.iter().filter(|&&v| v == 1.0).count() > 100);
+        let Some(terraflux_ops::Value::Table(t)) = out.get("reserve.table") else { panic!("no table") };
+        assert_eq!(t.rows.len(), 6);
     }
 
     /// The species distribution model template runs: a map of suitability from 0 to 1.
