@@ -8,7 +8,8 @@
    "title": "Data preparation",
    "prefixes": [
     "raster",
-    "vector"
+    "vector",
+    "data"
    ]
   },
   {
@@ -122,6 +123,12 @@
    "prefixes": [
     "carbon",
     "redd"
+   ]
+  },
+  {
+   "title": "Forest Code (Brazil)",
+   "prefixes": [
+    "forest_code"
    ]
   },
   {
