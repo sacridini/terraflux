@@ -70,13 +70,13 @@ fn save(h: &mut Harness<TerrafluxApp>, name: &str) {
     img.save(images().join(name)).unwrap();
 }
 
-/// The panes for a picture: the operators and the node at the left, the model over `below` (the first in front).
+/// The panes for a picture, as the application first has them: the model over `below` (the first in front), the
+/// node in the inspector at the right (the operators in their drawer).
 fn layout(below: Vec<Pane>) -> DockState<Pane> {
     let mut d = DockState::new(vec![Pane::Model]);
     let s = d.main_surface_mut();
-    let [model, _] = s.split_left(NodeIndex::root(), 0.15, vec![Pane::Operators, Pane::Files]);
-    let [model, _] = s.split_left(model, 0.2, vec![Pane::Node, Pane::Prepare]);
-    s.split_below(model, 0.36, below);
+    let [model, _] = s.split_right(NodeIndex::root(), 0.78, vec![Pane::Node, Pane::Prepare, Pane::Files]);
+    s.split_below(model, 0.4, below);
     d
 }
 
