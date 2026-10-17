@@ -6,7 +6,7 @@ minor versions.
 
 ## [Unreleased]
 
-## [0.93.0] - 2026-10-18
+## [0.93.0] - 2026-10-17
 
 ### Added
 - Brazil's Forest Code (Lei 12.651/2012 with Lei 12.727/2012): `forest_code.app` (the Áreas de Preservação
