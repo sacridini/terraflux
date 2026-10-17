@@ -7311,6 +7311,198 @@
   "container": false
  },
  {
+  "name": "forest_code.app",
+  "doc": "The Áreas de Preservação Permanente of Brazil's Forest Code (Lei 12.651/2012, art. 4): the margins of rivers from the channel's edge by their width (30 m below 10 m wide, 50 m to 50, 100 m to 200, 200 m to 600, 500 m beyond), of natural lakes by their area (100 m, 50 m up to 20 ha; 30 m in urban zones), 50 m around springs and from veredas, slopes above 45°, hilltops, land above 1,800 m and protected classes (mangroves, restingas); in rural areas consolidated by 22 July 2008, art. 61-A's narrower margins by the property's fiscal modules (rivers and lakes 5, 8 and 15 m up to 1, 2 and 4 modules, lakes 30 m and rivers the programme's width beyond; springs 15 m; veredas 30 or 50 m). In map units of metres.",
+  "inputs": [
+   {
+    "name": "rivers",
+    "type": "map",
+    "required": false,
+    "doc": "the rivers' channels (non-zero)"
+   },
+   {
+    "name": "river_width",
+    "type": "map",
+    "required": false,
+    "doc": "the width of the river at its cells, metres"
+   },
+   {
+    "name": "lakes",
+    "type": "map",
+    "required": false,
+    "doc": "the natural lakes and lagoons (non-zero)"
+   },
+   {
+    "name": "urban",
+    "type": "map",
+    "required": false,
+    "doc": "the urban zones (non-zero): lakes' margins of 30 m"
+   },
+   {
+    "name": "springs",
+    "type": "vector",
+    "required": false,
+    "doc": "the springs (points)"
+   },
+   {
+    "name": "veredas",
+    "type": "map",
+    "required": false,
+    "doc": "the veredas' flooded areas (non-zero)"
+   },
+   {
+    "name": "slope",
+    "type": "map",
+    "required": false,
+    "doc": "the slope, degrees (above 45°)"
+   },
+   {
+    "name": "elevation",
+    "type": "map",
+    "required": false,
+    "doc": "the elevation, metres (above 1,800 m)"
+   },
+   {
+    "name": "hilltops",
+    "type": "map",
+    "required": false,
+    "doc": "the hilltops' APPs (surface.hilltop, non-zero)"
+   },
+   {
+    "name": "landcover",
+    "type": "map",
+    "required": false,
+    "doc": "the land cover, for the protected classes"
+   },
+   {
+    "name": "properties",
+    "type": "map",
+    "required": false,
+    "doc": "the rural properties (ids), for the consolidated areas"
+   },
+   {
+    "name": "consolidated",
+    "type": "map",
+    "required": false,
+    "doc": "the rural areas consolidated by 2008 (non-zero)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "app",
+    "type": "map",
+    "required": true,
+    "doc": "the APP of every cell: 1 river, 2 lake, 3 spring, 4 vereda, 5 slope, 6 hilltop, 7 altitude, 8 protected class (the first that applies); 0 none"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per kind: kind (1-8), cells, area_ha (overlaps in each)"
+   }
+  ],
+  "params": [
+   {
+    "name": "river_width",
+    "type": "number",
+    "required": false,
+    "doc": "the rivers' width without a map, metres (default 5)"
+   },
+   {
+    "name": "protected_classes",
+    "type": "any",
+    "required": false,
+    "doc": "the classes of landcover that are APP (a list)"
+   },
+   {
+    "name": "fiscal_module",
+    "type": "number",
+    "required": false,
+    "doc": "the fiscal module, hectares (with consolidated)"
+   },
+   {
+    "name": "over_four_modules",
+    "type": "number",
+    "required": false,
+    "doc": "the river margin of consolidated areas of properties above 4 modules, metres (default 20: the PRA's, 20 to 100)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "forest_code.reserve",
+  "doc": "The balance of every rural property's Reserva Legal (Lei 12.651/2012): the share of its area it must keep in native vegetation (art. 12: 80% in the Amazon's forests, 35% in its cerrado, 20% in its campos gerais and the rest of the country; a map of the share, or one for all), its native vegetation counted outside the APPs and, as art. 15 allows, inside them, and its deficit or surplus; the properties of up to 4 fiscal modules on 22 July 2008 keep only the vegetation they had then (art. 67).",
+  "inputs": [
+   {
+    "name": "properties",
+    "type": "map",
+    "required": true,
+    "doc": "the rural properties (ids)"
+   },
+   {
+    "name": "vegetation",
+    "type": "map",
+    "required": true,
+    "doc": "the native vegetation (non-zero)"
+   },
+   {
+    "name": "share",
+    "type": "map",
+    "required": false,
+    "doc": "the Reserva Legal's share of every cell, percent"
+   },
+   {
+    "name": "app",
+    "type": "map",
+    "required": false,
+    "doc": "the APPs (forest_code.app; non-zero)"
+   },
+   {
+    "name": "vegetation_2008",
+    "type": "map",
+    "required": false,
+    "doc": "the native vegetation of 22 July 2008 (art. 67)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per property: property, area_ha, modules, native_ha, app_ha, app_native_ha, share, required_ha, counted_ha, deficit_ha, surplus_ha"
+   },
+   {
+    "name": "balance",
+    "type": "map",
+    "required": true,
+    "doc": "every property's surplus (positive) or deficit (negative), ha"
+   }
+  ],
+  "params": [
+   {
+    "name": "share",
+    "type": "number",
+    "required": false,
+    "doc": "the share without a map, percent (default 20)"
+   },
+   {
+    "name": "fiscal_module",
+    "type": "number",
+    "required": false,
+    "doc": "the fiscal module, hectares (default 0: no art. 67)"
+   },
+   {
+    "name": "count_app",
+    "type": "bool",
+    "required": false,
+    "doc": "count the native vegetation of the APPs (art. 15; true)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
   "name": "fragmentation.clustering",
   "doc": "Foreground area clustering (FAC) in a moving window, as GuidosToolbox (SpatCon's rule 76): the share (%) of the edges in the window with data that join foreground to foreground; 101 background, 102 missing. The foreground is the classes given, or the map is coded 0 missing, 1 background, 2 foreground.",
   "inputs": [
