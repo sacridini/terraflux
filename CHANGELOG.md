@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.84.0] - 2026-10-17
+
 ### Added
 - The palette of commands (ctrl+K, ctrl+shift+P; View > Commands): everything the application does, found by
   typing: its actions (run, save, arrange, undo...), the panes, the models opened last, the templates, the nodes of
