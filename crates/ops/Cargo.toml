@@ -6,6 +6,8 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+# the integration tests listed below (tests/main.rs gathers most into one program)
+autotests = false
 
 [dependencies]
 cxx.workspace = true
@@ -30,3 +32,11 @@ sha2 = "0.11"
 
 [dev-dependencies]
 hex = "0.4"
+
+[[test]]
+name = "ops"
+path = "tests/main.rs"
+
+[[test]]
+name = "circuit_ini"
+path = "tests/circuit_ini.rs"

@@ -1,7 +1,7 @@
 //! The builder's canvas with large graphs: laid out in time proportional to its nodes, drawn by the GPU, its
 //! frames short whatever the size of the graph.
 //!
-//! The timings: `cargo test --release -p terraflux-app --test canvas -- --ignored --nocapture`.
+//! The timings: `cargo test --release -p terraflux-app --test app canvas:: -- --ignored --nocapture`.
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};

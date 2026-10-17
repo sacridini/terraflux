@@ -42,8 +42,11 @@ minor versions.
 
 ### Changed
 - landschaft is at its 1.50.0 (the submodule; its `hydrocore` and `servcore` linked).
-- Debug builds keep line tables only, and the dependencies no debug information: `target/debug` had grown to
-  350 GB of test programs' debug information.
+- Debug and release builds keep line tables only (backtraces with their lines), the dependencies of debug builds
+  no debug information; and the integration tests of `terraflux-ops`, `terraflux-exec` and `terraflux-app` are
+  one program per crate (`tests/main.rs`, a module per file; `circuit_ini`, `ui` and `readme_images` programs of
+  their own), not one per file each linking landschaft's C++ whole: `target` had grown to 400 GB. A test is now
+  run as `cargo test -p terraflux-ops --test ops hydro::`.
 
 ## [0.85.0] - 2026-10-17
 

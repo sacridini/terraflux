@@ -6,6 +6,8 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+# the integration tests listed below (tests/main.rs gathers most into one program)
+autotests = false
 
 [dependencies]
 bytemuck = { version = "1", features = ["derive"] }
@@ -29,3 +31,15 @@ rstar = "0.12"
 egui_kittest = { version = "0.36", features = ["wgpu"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[[test]]
+name = "app"
+path = "tests/main.rs"
+
+[[test]]
+name = "ui"
+path = "tests/ui.rs"
+
+[[test]]
+name = "readme_images"
+path = "tests/readme_images.rs"

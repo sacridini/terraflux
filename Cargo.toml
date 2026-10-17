@@ -32,5 +32,7 @@ debug = "line-tables-only"
 [profile.dev.package."*"]
 debug = false
 
+# Release builds keep line tables only too (backtraces with their lines): full debug information made a PDB of
+# about 110 MB for every program, test programs included.
 [profile.release]
-debug = 1
+debug = "line-tables-only"

@@ -6,6 +6,8 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+# the integration tests listed below (tests/main.rs gathers most into one program)
+autotests = false
 
 [dependencies]
 serde.workspace = true
@@ -15,3 +17,7 @@ terraflux-gdal = { path = "../gdal" }
 terraflux-graph = { path = "../graph" }
 terraflux-ops = { path = "../ops" }
 terraflux-raster = { path = "../raster" }
+
+[[test]]
+name = "exec"
+path = "tests/main.rs"

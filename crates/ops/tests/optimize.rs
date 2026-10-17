@@ -318,7 +318,7 @@ fn gurobi_reaches_prioritizrs_optima() {
     optima_by(|name| QUICK.contains(&name), "gurobi");
 }
 
-/// ... and on every case (minutes: cargo test --release -p terraflux-ops --test optimize -- --ignored).
+/// ... and on every case (minutes: cargo test --release -p terraflux-ops --test ops optimize:: -- --ignored).
 #[test]
 #[ignore = "minutes at gap 0"]
 fn every_optimum_is_prioritizrs() {
