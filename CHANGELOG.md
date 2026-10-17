@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.92.0] - 2026-10-17
+
 ### Added
 - `data.download`: data downloaded on demand and warped onto a map's grid (or an extent of longitudes and
   latitudes), GDAL reading straight from the servers only the part the grid covers: WorldClim 2.1 (the 1970-2000
