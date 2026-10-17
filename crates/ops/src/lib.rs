@@ -70,6 +70,8 @@ pub mod sdm;
 pub mod services;
 pub mod signatures;
 pub mod surface;
+pub mod swat;
+pub mod swat_tables;
 pub mod tables;
 pub mod uncertainty;
 pub mod validate;
@@ -348,6 +350,7 @@ impl Registry {
         surface::register(&mut r);
         landforms::register(&mut r);
         roads::register(&mut r);
+        swat::register(&mut r);
         hydro::register(&mut r);
         services::register(&mut r);
         legend::register(&mut r);

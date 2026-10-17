@@ -1,0 +1,34 @@
+{
+ "landschaft": "1.49.0",
+ "steps": [
+  "day",
+  "month",
+  "year",
+  "aa"
+ ],
+ "cases": [
+  {
+   "name": "year",
+   "step": "year"
+  },
+  {
+   "name": "day",
+   "step": "day"
+  },
+  {
+   "name": "month",
+   "step": "month",
+   "tables": [
+    "hru_ls",
+    "channel_sd",
+    "basin_wb"
+   ],
+   "nyskip": 1
+  },
+  {
+   "name": "aa_plant",
+   "step": "aa",
+   "c_factor": "plant"
+  }
+ ]
+}

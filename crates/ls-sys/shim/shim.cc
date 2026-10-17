@@ -98,6 +98,8 @@
 #include "sim/continuous.hpp"
 #include "sim/roads.hpp"
 #include "hydro/hydro.hpp"
+#include <map>
+#include "swat/swat.hpp"
 #include "serv/sdr.hpp"
 #include "serv/services.hpp"
 #include "sim/plus.hpp"
@@ -4684,6 +4686,59 @@ rust::Vec<double> surf_gravity_fft(rust::Slice<const double> mass, rust::Slice<c
     out.reserve(n);
     for (int r = 0; r < ny; ++r)
         for (int c = 0; c < nx; ++c) out.push_back(a[at(r + ny - 1, c + nx - 1)] / static_cast<double>(cells));
+    return out;
+}
+
+// -- SWAT+ (landschaft's ls.hydro.swat) -------------------------------------------------------------------------
+
+namespace {
+
+// the records of a tag, grouped: (year, day, object) keys and the values, padded with 0 to the widest record
+SwatRecords swat_records(int tag, const std::vector<const swat::DumpRecord*>& recs) {
+    SwatRecords out;
+    out.tag = tag;
+    std::size_t width = 0;
+    for (const swat::DumpRecord* r : recs) width = std::max(width, r->values.size());
+    out.width = static_cast<std::int32_t>(width);
+    for (const swat::DumpRecord* r : recs) {
+        out.keys.push_back(r->yrc);
+        out.keys.push_back(r->day);
+        out.keys.push_back(r->id);
+        for (std::size_t j = 0; j < width; ++j) out.values.push_back(j < r->values.size() ? r->values[j] : 0.0f);
+    }
+    return out;
+}
+
+rust::Vec<SwatRecords> swat_by_tag(const std::vector<swat::DumpRecord>& all) {
+    std::map<int, std::vector<const swat::DumpRecord*>> by_tag;
+    for (const swat::DumpRecord& r : all) by_tag[r.tag].push_back(&r);
+    rust::Vec<SwatRecords> out;
+    for (const auto& [tag, recs] : by_tag) out.push_back(swat_records(tag, recs));
+    return out;
+}
+
+}  // namespace
+
+SwatOut swat_run(const rust::Vec<rust::String>& names, rust::Slice<const std::uint8_t> data,
+                 rust::Slice<const std::int64_t> offsets, bool c_factor_plant) {
+    check(offsets.size() == names.size() + 1, "an offset per file and one more");
+    swat::Sim s;
+    for (std::size_t k = 0; k < names.size(); ++k) {
+        const auto a = static_cast<std::size_t>(offsets[k]), b = static_cast<std::size_t>(offsets[k + 1]);
+        check(a <= b && b <= data.size(), "a file's offsets are outside the data");
+        s.files.add(std::string(names[k]), std::string(reinterpret_cast<const char*>(data.data()) + a, b - a));
+    }
+    // the daily weather (the reference's tag 1) besides what SWAT+ prints
+    s.dump_tags.insert(1);
+    swat::RunOptions opt;
+    opt.dump = true;
+    opt.c_factor_plant = c_factor_plant;
+    swat::run(s, opt);
+    SwatOut out;
+    out.prints = swat_by_tag(s.prints);
+    out.dumps = swat_by_tag(s.dumps);
+    for (const std::string& w : s.warnings) out.warnings.push_back(rust::String(w));
+    for (int i = 1; i <= s.db_mx.wst; ++i) out.stations.push_back(rust::String(s.wst(i).name));
     return out;
 }
 

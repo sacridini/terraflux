@@ -434,6 +434,8 @@ struct GeomorphonsOut;
 struct HilltopsOut;
 struct ContinuousOut;
 struct FrictionOut;
+struct SwatRecords;
+struct SwatOut;
 ActionsModel actions_compile(const ActionsInput& input, const ActionsSettings& settings);
 SolveOut actions_solve(const ActionsInput& input, const ActionsSettings& settings, double gap, double time_limit,
                        rust::Slice<const double> start);
@@ -834,5 +836,9 @@ rust::Vec<std::int64_t> sim_destinations(rust::Slice<const double> attraction, s
 rust::Vec<std::uint8_t> sim_pathways(rust::Slice<const std::uint8_t> network, rust::Slice<const std::uint8_t> sources,
                                      rust::Slice<const double> cost, rust::Slice<const std::uint8_t> dir,
                                      std::int64_t ny, std::int64_t nx, bool lottery, std::uint64_t seed);
+
+// SWAT+ (landschaft's ls.hydro.swat): a project's files (names, their bytes one after the other, offsets)
+SwatOut swat_run(const rust::Vec<rust::String>& names, rust::Slice<const std::uint8_t> data,
+                 rust::Slice<const std::int64_t> offsets, bool c_factor_plant);
 
 }  // namespace tfx

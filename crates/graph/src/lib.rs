@@ -42,7 +42,7 @@ pub const PLUGIN: &str = "plugin.wasm";
 
 /// The operators whose `params.path` is a file: relative to the model's folder in the model file, absolute
 /// once the model is expanded to run ([`submodel::expand`]).
-pub const FILE_OPS: [&str; 8] = [
+pub const FILE_OPS: [&str; 9] = [
     PLUGIN,
     "raster.read",
     "raster.write",
@@ -51,6 +51,7 @@ pub const FILE_OPS: [&str; 8] = [
     "vector.write",
     "table.read",
     "table.write",
+    "swat.run",
 ];
 
 /// Whether a path names data sent to a coordinator (`bundle:<hash>/...`, `blob:<hash>`), not a file here.

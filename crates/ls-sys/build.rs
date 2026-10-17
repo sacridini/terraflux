@@ -30,6 +30,7 @@ fn main() {
     println!("cargo:rerun-if-changed={}", source.join("src").join("cpp").join("surf").display());
     println!("cargo:rerun-if-changed={}", source.join("src").join("cpp").join("hydro").display());
     println!("cargo:rerun-if-changed={}", source.join("src").join("cpp").join("serv").display());
+    println!("cargo:rerun-if-changed={}", source.join("src").join("cpp").join("swat").display());
 
     let target = std::env::var("TARGET").unwrap();
     if target.contains("msvc") && std::env::var_os("CMAKE").is_none() {
@@ -65,6 +66,7 @@ fn main() {
         "surfcore",
         "hydrocore",
         "servcore",
+        "swatcore",
         "simcore",
         "costcore",
         "biocore",

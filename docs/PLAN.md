@@ -790,6 +790,11 @@ Pendências:
   `dinamica.roads`, as sementes dos passos como as do landschaft), bit a bit com ele
   (`tools/make_landforms_reference.py`: os casos do r.geomorphon do landschaft, um cone, o srtm deles e um canto de
   orelevation, cidades, um estoque de biomassa, uma rede de estradas).
+- **O landschaft 1.50.0: o SWAT+, primeira parte (2026-10-17):** o `swatcore` ligado; `swat.run` roda um projeto
+  TxtInOut (pasta ou zip, lido como o `load_txtinout` do landschaft: as saídas de rodadas antigas fora, fins de
+  linha LF) com o `print.prt` reescrito para as tabelas e o passo escolhidos (`set_print`) e dá as tabelas do SWAT+
+  (`swat_tables.rs`, gerado do `_tables.py` do landschaft) e o clima diário, bit a bit com o landschaft no exemplo
+  de Hubbard Brook (`tools/make_swat_reference.py`). O `swat.run` entrou nos `FILE_OPS`.
 
 Pendências gerais, depois das fases:
 - reprojeção (PROJ), vetores e distâncias com um clique (feito: o painel Prepare);

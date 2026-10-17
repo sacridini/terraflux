@@ -34,7 +34,7 @@ const SUBJECTS: [(&str, &[&str]); 23] = [
     ("Habitat networks", &["networks", "conn"]),
     ("Circuit connectivity", &["circuit"]),
     ("Surface metrics", &["surface"]),
-    ("Terrain hydrology", &["hydro"]),
+    ("Terrain hydrology", &["hydro", "swat"]),
     ("Grid distances", &["cost"]),
     ("Distance & restoration", &["distance", "restoration"]),
     ("Change detection", &["change"]),

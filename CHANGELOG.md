@@ -33,6 +33,11 @@ minor versions.
   models: `dinamica.cost_map` (CalcCostMap), `dinamica.destinations` (CalcDestinationMap), `dinamica.pathways`
   (CalcPathwayMap) and `dinamica.roads` (a step of road building, with the distance to the roads as a dynamic
   variable).
+- SWAT+ (landschaft 1.50's port of SWAT+ 62.0.1, bit for bit): `swat.run` simulates a project (a TxtInOut folder,
+  or a zip of one) and gives the tables SWAT+ prints at a step (day, month, year, average annual): the water,
+  nutrient, losses and plant balances of the HRUs and of the basin, the SWAT-DEG channels, the aquifers, and the
+  daily weather of each station; a spin-up, MUSLE's C of SWAT+ 62 or of the plants. Its folder is a file setting
+  (chosen in the Node pane, kept relative to the model).
 - The library's subjects Terrain hydrology and Ecosystem services.
 
 ### Changed

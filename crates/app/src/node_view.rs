@@ -492,6 +492,7 @@ fn value_cell(
             "table.read" | "table.write" => rfd::FileDialog::new()
                 .add_filter("Tables", &["csv", "tsv", "txt", "json"])
                 .add_filter("Every file", &["*"]),
+            "swat.run" => rfd::FileDialog::new().add_filter("A zipped TxtInOut folder", &["zip"]),
             _ => rfd::FileDialog::new()
                 .add_filter("Rasters", &terraflux_ops::files::RASTER_EXTENSIONS)
                 .add_filter("Every file", &["*"]),
@@ -503,10 +504,17 @@ fn value_cell(
             change = Some(crate::editor::set_param(&mut s.source, path, &n.id, name, &p));
         }
     }
-    // a folder: every raster in it, as one stack
+    // a folder: every raster in it, as one stack; SWAT+'s TxtInOut
     if name == "path"
-        && n.op == "raster.read"
-        && ui.button("A folder...").on_hover_text("every raster of a folder, as one stack").clicked()
+        && (n.op == "raster.read" || n.op == "swat.run")
+        && ui
+            .button("A folder...")
+            .on_hover_text(if n.op == "swat.run" {
+                "a TxtInOut folder (with file.cio)"
+            } else {
+                "every raster of a folder, as one stack"
+            })
+            .clicked()
         && let Some(p) = rfd::FileDialog::new().pick_folder()
     {
         let p = p.to_string_lossy().into_owned();

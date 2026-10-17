@@ -1246,6 +1246,23 @@ pub mod ffi {
         cells: i64,
     }
 
+    /// The records SWAT+ keeps of a tag: (year, day of the year, object) keys and `width` values each.
+    struct SwatRecords {
+        tag: i32,
+        width: i32,
+        keys: Vec<i32>,
+        values: Vec<f32>,
+    }
+
+    /// A SWAT+ run: what it printed and its daily records (the weather, tag 1) by tag, its warnings and the
+    /// weather stations.
+    struct SwatOut {
+        prints: Vec<SwatRecords>,
+        dumps: Vec<SwatRecords>,
+        warnings: Vec<String>,
+        stations: Vec<String>,
+    }
+
     /// Dinamica's cost map from the nearest source and the predecessor directions (empty when not asked for).
     struct FrictionOut {
         cost: Vec<f64>,
@@ -3005,6 +3022,8 @@ pub mod ffi {
             dy: f64,
             seed: u64,
         ) -> Result<Vec<i64>>;
+        /// Run a SWAT+ project (its files: names, their bytes one after the other, the offsets of each).
+        fn swat_run(names: &Vec<String>, data: &[u8], offsets: &[i64], c_factor_plant: bool) -> Result<SwatOut>;
         /// Dinamica EGO's CalcPathwayMap: the new path cells (cost or dir empty).
         #[allow(clippy::too_many_arguments)]
         fn sim_pathways(
