@@ -1,5 +1,208 @@
 [
  {
+  "name": "accuracy.assess",
+  "doc": "The accuracy and the area of a map's classes from a stratified random sample labelled with the reference class (Olofsson et al. 2014): the error matrix in shares of the area, the user's, producer's and overall accuracies, and each class's area estimated from the sample instead of counted on the map, with standard errors and confidence intervals; as R's mapaccuracy: olofsson when the strata are the map's classes, stehman2014 for strata of their own (a map of strata, or the finite population correction).",
+  "inputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the classified map: its class at each point and its cells by class"
+   },
+   {
+    "name": "points",
+    "type": "vector",
+    "required": false,
+    "doc": "the sample's points with their reference class (accuracy.sample's, labelled)"
+   },
+   {
+    "name": "samples",
+    "type": "table",
+    "required": false,
+    "doc": "the sample as a table instead: columns map and reference (and stratum, with strata)"
+   },
+   {
+    "name": "strata",
+    "type": "map",
+    "required": false,
+    "doc": "the strata of the sample when they are not the map's classes (e.g. an older map, or a buffer around change)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per class: class, map_cells, samples, user_accuracy, user_se, user_ci, producer_accuracy, producer_se, producer_ci, area_share, area_share_se, area_cells, area_cells_ci, area_ha, area_ha_ci (the _ci the half-widths of the confidence intervals)"
+   },
+   {
+    "name": "overall",
+    "type": "table",
+    "required": true,
+    "doc": "overall_accuracy, overall_se, overall_ci, samples, cells, confidence"
+   },
+   {
+    "name": "matrix",
+    "type": "table",
+    "required": true,
+    "doc": "the error matrix in shares of the area: a row per class of the map, a column per reference class"
+   },
+   {
+    "name": "counts",
+    "type": "table",
+    "required": true,
+    "doc": "the error matrix in sample units"
+   }
+  ],
+  "params": [
+   {
+    "name": "reference",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the reference class (default reference)"
+   },
+   {
+    "name": "estimator",
+    "type": "text",
+    "required": false,
+    "doc": "olofsson (the strata are the map's classes), stehman (strata of their own, the finite population correction); auto (default): stehman with strata, else olofsson",
+    "choices": [
+     "auto",
+     "olofsson",
+     "stehman"
+    ]
+   },
+   {
+    "name": "confidence",
+    "type": "number",
+    "required": false,
+    "doc": "the level of the confidence intervals (default 0.95)"
+   },
+   {
+    "name": "cell_area",
+    "type": "number",
+    "required": false,
+    "doc": "a cell's area in m2 (default: the cells' sides)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "accuracy.sample",
+  "doc": "A stratified random sample of a map's cells for its accuracy and area (Olofsson et al. 2014): in every stratum its share of cells drawn without replacement, as numpy's default_rng(seed).choice of the stratum's cells, stratum after stratum (increasing); the points at the cells' centres, by stratum and cell. Give each point its reference class (the column reference, from imagery or the field) and take them to accuracy.assess.",
+  "inputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the strata: the classified map, or a map of strata"
+   },
+   {
+    "name": "sizes",
+    "type": "table",
+    "required": false,
+    "doc": "the sample of each stratum: columns stratum and n (accuracy.sample_size's table)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "points",
+    "type": "vector",
+    "required": true,
+    "doc": "the points: id, stratum, row, col, x, y and reference (empty, to be filled)"
+   },
+   {
+    "name": "cells",
+    "type": "map",
+    "required": true,
+    "doc": "the stratum of the cells drawn, missing elsewhere"
+   }
+  ],
+  "params": [
+   {
+    "name": "n",
+    "type": "any",
+    "required": false,
+    "doc": "the sample of each stratum instead of sizes: a number for all, or {stratum: n}"
+   },
+   {
+    "name": "seed",
+    "type": "integer",
+    "required": false,
+    "doc": "the seed of numpy's generator (default 1)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "accuracy.sample_size",
+  "doc": "The size of a stratified random sample for the accuracy and the area of a map, and its share of each stratum (Olofsson et al. 2014): n = (Σ W_i S_i / S(Ô))², W_i a stratum's share of the map, S_i = √(U_i (1 − U_i)) from the user's accuracy expected of it, S(Ô) the standard error wanted of the overall accuracy. Shared with a minimum in every stratum (the good practice when some classes are rare, such as change: the rest in proportion to the areas), in proportion, equally or by Neyman's allocation.",
+  "inputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the strata: the classified map, or a map of strata"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per stratum: stratum, cells, weight, user_accuracy, sd, n"
+   },
+   {
+    "name": "n",
+    "type": "integer",
+    "required": true,
+    "doc": "the size of the sample"
+   }
+  ],
+  "params": [
+   {
+    "name": "user_accuracy",
+    "type": "any",
+    "required": false,
+    "doc": "the user's accuracy expected of each stratum: a number for all (default 0.9), or {class: accuracy} (the others 0.9); lower for the classes hard to map, such as change (Olofsson's 0.6 to 0.7)"
+   },
+   {
+    "name": "standard_error",
+    "type": "number",
+    "required": false,
+    "doc": "the standard error wanted of the overall accuracy (default 0.01)"
+   },
+   {
+    "name": "n",
+    "type": "integer",
+    "required": false,
+    "doc": "the size of the sample, instead of the formula's"
+   },
+   {
+    "name": "allocation",
+    "type": "text",
+    "required": false,
+    "doc": "how the sample is shared among the strata (default minimum)",
+    "choices": [
+     "minimum",
+     "proportional",
+     "equal",
+     "neyman"
+    ]
+   },
+   {
+    "name": "minimum",
+    "type": "integer",
+    "required": false,
+    "doc": "the sample of every stratum at least, or all its cells (allocation minimum; default 50; Olofsson suggests 50 to 100)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
   "name": "agents.map",
   "doc": "An attribute of the agents painted on their parcels: each cell takes the value of the agent whose `id` is the cell's parcel (missing where none).",
   "inputs": [

@@ -1,0 +1,54 @@
+format = "terraflux/1"
+name = "Accuracy and area of a map"
+description = "The accuracy and the area of a classified map from a stratified random sample (Olofsson et al. 2014): the sample's size and its share of each class, the points drawn, their reference classes, and from them the error matrix, the user's, producer's and overall accuracies and the area of each class, with 95% confidence intervals."
+
+[[nodes]]
+id = "truth"
+op = "nlm.random_cluster"
+params = { rows = 200, columns = 200, p = 0.5, weights = [0.6, 0.3, 0.1], seed = 21 }
+note = "What is on the ground: 1 forest, 2 farming, 3 water. Known here only to label the points; in a real study, imagery or field visits tell each point's class."
+
+[[nodes]]
+id = "noise"
+op = "nlm.random"
+params = { rows = 200, columns = 200, seed = 22 }
+
+[[nodes]]
+id = "classified"
+op = "map.calc"
+inputs = { t = "truth.map", e = "noise.map" }
+params = { expression = "if e > 0.9 then (if t == 3 then 1 else t + 1) else t" }
+note = "The map to assess: the truth with a tenth of its cells in another class (in its place, a raster.read of your map)."
+
+[[nodes]]
+id = "size"
+op = "accuracy.sample_size"
+inputs = { map = "classified.map" }
+params = { user_accuracy = { "3" = 0.7 }, standard_error = 0.015, minimum = 50 }
+note = "How many points for a standard error of 0.015 in the overall accuracy, water (rare, expected harder) with a user's accuracy of 0.7 and at least 50 points in every class."
+
+[[nodes]]
+id = "sample"
+op = "accuracy.sample"
+inputs = { map = "classified.map", sizes = "size.table" }
+params = { seed = 1 }
+note = "The points, drawn at random in each class of the map. In a real study: vector.write them, give each its class in the column reference (from imagery or the field), and vector.read them back."
+
+[[nodes]]
+id = "labelled"
+op = "vector.extract"
+inputs = { vector = "sample.points", map = "truth.map" }
+note = "Here the reference class is read from the truth (the column value)."
+
+[[nodes]]
+id = "assess"
+op = "accuracy.assess"
+inputs = { map = "classified.map", points = "labelled.vector" }
+params = { reference = "value" }
+note = "The accuracies and each class's area estimated from the sample, with 95% confidence intervals: the area counted on a map with errors is biased, the estimate is not."
+
+[[nodes]]
+id = "plot"
+op = "view.plot"
+inputs = { value = "sample.cells" }
+params = { title = "The points drawn, by class" }

@@ -76,6 +76,12 @@
    ]
   },
   {
+   "title": "Map accuracy and area",
+   "prefixes": [
+    "accuracy"
+   ]
+  },
+  {
    "title": "Large data & batch",
    "prefixes": [
     "batch"
