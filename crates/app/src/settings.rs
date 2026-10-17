@@ -49,6 +49,8 @@ pub struct Settings {
     /// On the model's canvas, the nodes of data (the model's inputs, what reads, writes, stacks or plots) with a
     /// header in the colour of the type they give.
     pub node_colours: bool,
+    /// The models opened or saved last, the last first.
+    pub recent_models: Vec<PathBuf>,
 }
 
 impl Default for Settings {
@@ -69,6 +71,7 @@ impl Default for Settings {
             files_pinned: Vec::new(),
             files_recent: Vec::new(),
             node_colours: false,
+            recent_models: Vec::new(),
         }
     }
 }
@@ -117,6 +120,21 @@ pub fn update(f: impl FnOnce(&mut Settings)) {
 /// The folder of the user's application data (where the settings are).
 pub fn data_dir() -> PathBuf {
     file().and_then(|f| f.parent().map(PathBuf::from)).unwrap_or_else(|| std::env::temp_dir().join("Terraflux"))
+}
+
+/// The models opened or saved last, the last first (those whose file is gone left out).
+pub fn recent_models() -> Vec<PathBuf> {
+    get().recent_models.into_iter().filter(|p| p.is_file()).collect()
+}
+
+/// A model opened or saved: first of the recent ones (ten kept).
+pub fn opened_model(path: &std::path::Path) {
+    let path = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    update(|s| {
+        s.recent_models.retain(|p| *p != path);
+        s.recent_models.insert(0, path);
+        s.recent_models.truncate(10);
+    });
 }
 
 /// The threads asked for in the settings.

@@ -263,7 +263,11 @@ fn the_editor_changes_the_graph() {
     h.get_by_label("Top level").click();
     h.run_steps(2);
     assert!(h.state().session.as_ref().unwrap().editor.path.is_empty());
-    h.get_by_label("Save").click();
+    // File > Save
+    h.get_by_label("File").click();
+    h.run_steps(2);
+    // (its label has its shortcut too; Save as is after it)
+    h.query_all_by_label_contains("Save").next().expect("File's Save").click();
     h.run_steps(2);
     let saved = terraflux_graph::Model::load(&path).unwrap();
     assert_eq!(saved.node("map_calc").unwrap().params["expression"], "land == 1");
@@ -1222,8 +1226,8 @@ fn settings_themes_and_favourites() {
     let ctx = h.ctx.clone();
     h.state_mut().start_template(&ctx, &terraflux_app::templates::TEMPLATES[0]);
     h.run_steps(4);
-    // (the toolbar's first of the labels "Settings": the node's settings are another)
-    h.query_all_by_label("Settings").next().unwrap().click();
+    // (the toolbar's gear)
+    h.get_by_label("⚙").click();
     h.run_steps(2);
     assert!(h.state().settings_open);
     assert!(h.query_by_label("Theme").is_some() && h.query_by_label("Threads").is_some());
@@ -1765,4 +1769,46 @@ fn the_viewer_comes_with_the_data_and_the_cells_show_their_values() {
     assert_eq!(zoom, terraflux_app::map_view::MAX_ZOOM);
     drawn(&mut h);
     shot(&mut h, "22-cell-values");
+}
+
+/// The palette of commands (ctrl+K): a node found by its name and gone to, an operator added by its name; F1 shows
+/// the shortcuts.
+#[test]
+fn the_commands_find_nodes_and_operators() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let ctx = h.ctx.clone();
+    h.state_mut().start_template(&ctx, &terraflux_app::templates::TEMPLATES[0]);
+    h.run_steps(4);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::K);
+    h.run_steps(2);
+    assert!(h.state().commands.is_some());
+    h.event(egui::Event::Text("go to forest".into()));
+    h.run_steps(2);
+    shot(&mut h, "30-commands");
+    h.key_press(egui::Key::Enter);
+    h.run_steps(2);
+    assert!(h.state().commands.is_none());
+    assert_eq!(h.state().session.as_ref().unwrap().selected.as_deref(), Some("forest"));
+    // an operator, after the node selected
+    let before = h.state().session.as_ref().unwrap().source.nodes.len();
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::P);
+    h.run_steps(2);
+    h.event(egui::Event::Text("add raster.reclassify".into()));
+    h.run_steps(2);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(2);
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.source.nodes.len(), before + 1);
+    assert!(s.source.nodes.iter().any(|n| n.op == "raster.reclassify" && n.id != "forest"));
+    // escape closes it, doing nothing
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::K);
+    h.run_steps(2);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert!(h.state().commands.is_none());
+    h.key_press(egui::Key::F1);
+    h.run_steps(2);
+    assert!(h.state().shortcuts_open && h.query_by_label("Keyboard shortcuts").is_some());
+    shot(&mut h, "31-shortcuts");
 }

@@ -170,7 +170,12 @@ pub fn layout_file() -> Option<PathBuf> {
 struct Keys {
     run: bool,
     save: bool,
+    save_as: bool,
     open: bool,
+    open_model: bool,
+    new: bool,
+    commands: bool,
+    shortcuts: bool,
     tab: bool,
     close: bool,
 }
@@ -179,10 +184,17 @@ impl Keys {
     /// The keys of the window `ui` is in, taken.
     fn read(ui: &mut Ui) -> Keys {
         let typing = ui.ctx().memory(|m| m.focused().is_some());
+        let shift = egui::Modifiers::COMMAND | egui::Modifiers::SHIFT;
+        // (with shift first: a shortcut without it takes the key with shift too)
         ui.input_mut(|i| Keys {
             run: i.consume_key(egui::Modifiers::NONE, egui::Key::F5),
+            save_as: i.consume_key(shift, egui::Key::S),
             save: i.consume_key(egui::Modifiers::COMMAND, egui::Key::S),
+            open_model: i.consume_key(shift, egui::Key::O),
             open: i.consume_key(egui::Modifiers::COMMAND, egui::Key::O),
+            new: i.consume_key(egui::Modifiers::COMMAND, egui::Key::N),
+            commands: i.consume_key(shift, egui::Key::P) || i.consume_key(egui::Modifiers::COMMAND, egui::Key::K),
+            shortcuts: i.consume_key(egui::Modifiers::NONE, egui::Key::F1),
             tab: !typing && i.consume_key(egui::Modifiers::NONE, egui::Key::Tab),
             close: i.consume_key(egui::Modifiers::COMMAND, egui::Key::W),
         })
@@ -1125,12 +1137,18 @@ pub struct TerrafluxApp {
     pub batch: crate::batch_view::BatchState,
     /// The application's pool of workers, shared or not, and this computer lent to another.
     pub computers: crate::computers::Computers,
+    /// The palette of commands, while it is open (ctrl+K).
+    pub commands: Option<crate::commands::Commands>,
+    /// The window of the keyboard's shortcuts is open (F1).
+    pub shortcuts_open: bool,
+    /// The main window's title, as last given to it.
+    window_title: String,
 }
 
 /// A row of a list: a name, selected or not, and a note on the right.
 fn row(ui: &mut Ui, selected: bool, name: &str, note: &str) -> egui::Response {
     let note = RichText::new(note).size(11.0).color(if selected {
-        theme::on_accent()
+        ui.visuals().selection.stroke.color
     } else {
         ui.visuals().weak_text_color()
     });
@@ -1176,6 +1194,9 @@ impl TerrafluxApp {
             files: crate::files_view::Files::default(),
             batch: crate::batch_view::BatchState::new(),
             computers: crate::computers::Computers::new(),
+            commands: None,
+            shortcuts_open: false,
+            window_title: String::new(),
         };
         if let Some(p) = model {
             app.open(&p);
@@ -1186,6 +1207,7 @@ impl TerrafluxApp {
     pub fn open(&mut self, path: &Path) {
         match Session::open(path) {
             Ok(s) => {
+                crate::settings::opened_model(path);
                 self.session = Some(s);
                 self.message = None;
                 self.focus(Pane::Model);
@@ -1238,83 +1260,189 @@ impl TerrafluxApp {
                 .set_file_name("model.toml")
                 .save_file(),
         };
-        if let Some(p) = path
-            && let Err(e) = s.save_as(&p)
-        {
-            s.editor.message = Some(e);
+        if let Some(p) = path {
+            match s.save_as(&p) {
+                Ok(()) => crate::settings::opened_model(&p),
+                Err(e) => s.editor.message = Some(e),
+            }
         }
     }
 
-    fn toolbar(&mut self, ui: &mut Ui) {
-        let mut save = None;
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("TERRAFLUX").strong().size(13.0).color(theme::accent()));
-            ui.separator();
-            if ui.button("New").on_hover_text("a new model in the builder").clicked() {
-                self.wizard = None;
-                self.session = Some(Session::blank());
-                self.focus(Pane::Model);
-            }
-            if ui.button("Open...").clicked()
-                && let Some(p) = rfd::FileDialog::new().add_filter("Terraflux model", &["toml", "json"]).pick_file()
-            {
-                self.wizard = None;
-                self.open(&p);
-            }
-            ui.menu_button("Templates", |ui| {
-                ui.label(RichText::new("Models to start from, run at once").weak().size(11.0));
-                for g in crate::templates::GROUPS {
-                    ui.menu_button(g, |ui| {
-                        for t in crate::templates::TEMPLATES.iter().filter(|t| t.group == g) {
-                            if ui.button(t.name).on_hover_text(t.about).clicked() {
-                                self.start_template(ui.ctx(), t);
-                                ui.close();
-                            }
-                        }
-                    });
-                }
-                // the user's own: a model saved as a template, opened as a new model
-                ui.separator();
-                ui.label(RichText::new("Yours").weak().size(11.0));
-                let mut remove = None;
-                for (name, path) in crate::templates::user_templates() {
-                    ui.horizontal(|ui| {
-                        if ui.button(&name).on_hover_text(path.display().to_string()).clicked() {
-                            match terraflux_graph::Model::load(&path) {
-                                Ok(m) => self.start_model(ui.ctx(), m),
-                                Err(e) => self.message = Some(format!("{}: {e}", path.display())),
-                            }
-                            ui.close();
-                        }
-                        if ui.small_button("x").on_hover_text("remove this template").clicked() {
-                            remove = Some(path.clone());
-                        }
-                    });
-                }
-                if let Some(p) = remove {
-                    let _ = std::fs::remove_file(p);
-                }
-                if let Some(s) = &self.session {
-                    ui.horizontal(|ui| {
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.template_name).hint_text("name").desired_width(140.0),
-                        );
-                        let base = s.path.as_deref().and_then(Path::parent);
-                        if ui.button("Save this model as a template").clicked() {
-                            let name = if self.template_name.trim().is_empty() {
-                                s.source.name.clone().unwrap_or_else(|| "model".into())
-                            } else {
-                                self.template_name.clone()
-                            };
-                            match crate::templates::save_user_template(&s.source, base, &name) {
-                                Ok(p) => self.message = Some(format!("saved the template {}", p.display())),
-                                Err(e) => self.message = Some(e),
-                            }
-                            self.template_name.clear();
-                        }
-                    });
+    /// A new model in the builder.
+    fn new_model(&mut self) {
+        self.wizard = None;
+        self.session = Some(Session::blank());
+        self.focus(Pane::Model);
+    }
+
+    /// Open a model chosen in a dialog.
+    fn open_dialog(&mut self) {
+        if let Some(p) = rfd::FileDialog::new().add_filter("Terraflux model", &["toml", "json"]).pick_file() {
+            self.wizard = None;
+            self.open(&p);
+        }
+    }
+
+    /// Run the whole model.
+    fn run_all(&mut self, ctx: &egui::Context) {
+        if let Some(s) = &mut self.session
+            && s.can_run()
+        {
+            let ctx = ctx.clone();
+            s.start(Box::new(move || ctx.request_repaint()));
+        }
+    }
+
+    /// Stop the run.
+    fn stop_run(&mut self) {
+        if let Some(s) = &mut self.session
+            && s.stopping.is_none()
+            && let Some(r) = &s.run
+        {
+            r.stop();
+            s.stopping = Some(Instant::now());
+        }
+    }
+
+    /// The model's file: new, open (the models opened last too), save, save as.
+    fn file_menu(&mut self, ui: &mut Ui, save: &mut Option<bool>) {
+        let c = crate::commands::cmd();
+        ui.set_min_width(220.0);
+        if ui.add(egui::Button::new("New model").shortcut_text(format!("{c}N"))).clicked() {
+            self.new_model();
+            ui.close();
+        }
+        if ui.add(egui::Button::new("Open...").shortcut_text(format!("{c}shift+O"))).clicked() {
+            ui.close();
+            self.open_dialog();
+        }
+        let recent = crate::settings::recent_models();
+        ui.add_enabled_ui(!recent.is_empty(), |ui| {
+            ui.menu_button("Open recent", |ui| {
+                for p in recent {
+                    let name = p.file_name().map_or(p.display().to_string(), |n| n.to_string_lossy().into_owned());
+                    if ui.button(name).on_hover_text(p.display().to_string()).clicked() {
+                        ui.close();
+                        self.wizard = None;
+                        self.open(&p);
+                    }
                 }
             });
+        });
+        ui.separator();
+        let (can, editing) =
+            self.session.as_ref().map_or((false, false), |s| (s.dirty || s.path.is_none(), self.wizard.is_none()));
+        if ui.add_enabled(can && editing, egui::Button::new("Save").shortcut_text(format!("{c}S"))).clicked() {
+            *save = Some(false);
+            ui.close();
+        }
+        if ui.add_enabled(editing, egui::Button::new("Save as...").shortcut_text(format!("{c}shift+S"))).clicked() {
+            *save = Some(true);
+            ui.close();
+        }
+        ui.separator();
+        if let Some(s) = &mut self.session
+            && ui.add(egui::Button::new("Open a raster or vectors...").shortcut_text(format!("{c}O"))).clicked()
+        {
+            ui.close();
+            crate::builder::open_data(s, &self.registry);
+        }
+    }
+
+    /// The templates by group, and the user's own (a model saved as a template).
+    fn templates_menu(&mut self, ui: &mut Ui) {
+        ui.label(RichText::new("Models to start from, run at once").weak().size(11.0));
+        for g in crate::templates::GROUPS {
+            ui.menu_button(g, |ui| {
+                for t in crate::templates::TEMPLATES.iter().filter(|t| t.group == g) {
+                    if ui.button(t.name).on_hover_text(t.about).clicked() {
+                        self.start_template(ui.ctx(), t);
+                        ui.close();
+                    }
+                }
+            });
+        }
+        // the user's own: a model saved as a template, opened as a new model
+        ui.separator();
+        ui.label(RichText::new("Yours").weak().size(11.0));
+        let mut remove = None;
+        for (name, path) in crate::templates::user_templates() {
+            ui.horizontal(|ui| {
+                if ui.button(&name).on_hover_text(path.display().to_string()).clicked() {
+                    match terraflux_graph::Model::load(&path) {
+                        Ok(m) => self.start_model(ui.ctx(), m),
+                        Err(e) => self.message = Some(format!("{}: {e}", path.display())),
+                    }
+                    ui.close();
+                }
+                if ui.small_button("x").on_hover_text("remove this template").clicked() {
+                    remove = Some(path.clone());
+                }
+            });
+        }
+        if let Some(p) = remove {
+            let _ = std::fs::remove_file(p);
+        }
+        if let Some(s) = &self.session {
+            ui.horizontal(|ui| {
+                ui.add(egui::TextEdit::singleline(&mut self.template_name).hint_text("name").desired_width(140.0));
+                let base = s.path.as_deref().and_then(Path::parent);
+                if ui.button("Save this model as a template").clicked() {
+                    let name = if self.template_name.trim().is_empty() {
+                        s.source.name.clone().unwrap_or_else(|| "model".into())
+                    } else {
+                        self.template_name.clone()
+                    };
+                    match crate::templates::save_user_template(&s.source, base, &name) {
+                        Ok(p) => self.message = Some(format!("saved the template {}", p.display())),
+                        Err(e) => self.message = Some(e),
+                    }
+                    self.template_name.clear();
+                }
+            });
+        }
+    }
+
+    /// The panes on or off, the layout as it first was, the commands and the shortcuts.
+    fn view_menu(&mut self, ui: &mut Ui) {
+        let c = crate::commands::cmd();
+        for p in Pane::ALL {
+            let mut open = self.is_open(p);
+            if ui.checkbox(&mut open, p.title()).changed() {
+                if open {
+                    self.focus(p);
+                } else {
+                    self.close(p);
+                }
+            }
+        }
+        ui.separator();
+        if ui.button("Reset the layout").clicked() {
+            self.windows.clear();
+            self.dock = Some(default_layout());
+            ui.close();
+        }
+        ui.separator();
+        if ui.add(egui::Button::new("Commands...").shortcut_text(format!("{c}K"))).clicked() {
+            self.commands = Some(Default::default());
+            ui.close();
+        }
+        if ui.add(egui::Button::new("Keyboard shortcuts").shortcut_text("F1")).clicked() {
+            self.shortcuts_open = true;
+            ui.close();
+        }
+    }
+
+    /// The bar at the top: the menus at the left; running the model, its name and how the run goes in the middle;
+    /// the tools and the settings at the right.
+    fn toolbar(&mut self, ui: &mut Ui) {
+        let mut save = None;
+        let (mut run, mut stop) = (false, false);
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("TERRAFLUX").strong().size(13.0).color(theme::accent()));
+            ui.add_space(6.0);
+            ui.menu_button("File", |ui| self.file_menu(ui, &mut save));
+            ui.menu_button("Templates", |ui| self.templates_menu(ui));
             if let Some(s) = &mut self.session {
                 ui.menu_button("Operators", |ui| {
                     crate::builder::operators_menu(ui, s, &self.registry, &self.library);
@@ -1322,71 +1450,27 @@ impl TerrafluxApp {
                 .response
                 .on_hover_text("add an operator after the node selected (also at the window's left edge, and \"/\")");
             }
-            if ui.button("Settings").on_hover_text("the theme, the text's size, the threads...").clicked() {
-                self.settings_open = !self.settings_open;
-            }
-            if ui
-                .button("Many runs...")
-                .on_hover_text("the model run many times: replicates, scenarios, calibration")
-                .clicked()
-            {
-                self.focus(Pane::Batch);
-            }
-            if ui
-                .button("Computers...")
-                .on_hover_text("other computers helping with the runs, this one helping another")
-                .clicked()
-            {
-                self.focus(Pane::Computers);
-            }
-            if ui.button("Wizard...").on_hover_text("a land change model from your maps, step by step").clicked() {
-                self.wizard = Some(Wizard::default());
-            }
-            ui.menu_button("View", |ui| {
-                // a pane on or off
-                for p in Pane::ALL {
-                    let mut open = self.is_open(p);
-                    if ui.checkbox(&mut open, p.title()).changed() {
-                        if open {
-                            self.focus(p);
-                        } else {
-                            self.close(p);
-                        }
-                    }
-                }
-                ui.separator();
-                if ui.button("Reset the layout").clicked() {
-                    self.windows.clear();
-                    self.dock = Some(default_layout());
-                    ui.close();
-                }
-            });
-            let ctx = ui.ctx().clone();
-            if let Some(s) = &mut self.session
+            ui.menu_button("View", |ui| self.view_menu(ui));
+            ui.separator();
+            if let Some(s) = &self.session
                 && self.wizard.is_none()
             {
-                if ui.add_enabled(s.dirty || s.path.is_none(), egui::Button::new("Save")).clicked() {
-                    save = Some(false);
-                }
-                if ui.button("Save as...").clicked() {
-                    save = Some(true);
-                }
-                ui.separator();
-                if ui
+                run = ui
                     .add_enabled(s.can_run(), accent_button("Run", s.can_run()))
                     .on_hover_text("run the whole model (F5)")
-                    .clicked()
-                {
-                    s.start(Box::new(move || ctx.request_repaint()));
-                }
-                if ui.add_enabled(s.running() && s.stopping.is_none(), egui::Button::new("Stop")).clicked()
-                    && let Some(r) = &s.run
-                {
-                    r.stop();
-                    s.stopping = Some(Instant::now());
-                }
+                    .clicked();
+                stop = ui.add_enabled(s.running() && s.stopping.is_none(), egui::Button::new("Stop")).clicked();
                 ui.separator();
-                ui.label(RichText::new(s.title()).strong());
+                // the model's name, a dot when it has edits not saved
+                let title = ui.label(RichText::new(s.title()).strong());
+                if let Some(p) = &s.path {
+                    title.on_hover_text(p.display().to_string());
+                }
+                if s.dirty {
+                    let (r, resp) = ui.allocate_exact_size(Vec2::splat(10.0), egui::Sense::hover());
+                    ui.painter().circle_filled(r.center(), 3.5, ui.visuals().warn_fg_color);
+                    resp.on_hover_text(format!("not saved ({}S saves it)", crate::commands::cmd()));
+                }
                 if s.loading() {
                     ui.spinner();
                     ui.label(RichText::new("reading the data...").weak());
@@ -1411,9 +1495,147 @@ impl TerrafluxApp {
                     ui.label(RichText::new(format!("done in {:.2} s", e.as_secs_f64())).weak());
                 }
             }
+            // the tools and the settings, at the right
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui
+                    .add(egui::Button::new(RichText::new("⚙").size(15.0)).frame(false))
+                    .on_hover_text("Settings: the theme, the text's size, the threads...")
+                    .clicked()
+                {
+                    self.settings_open = !self.settings_open;
+                }
+                ui.separator();
+                if ui
+                    .button("Computers...")
+                    .on_hover_text("other computers helping with the runs, this one helping another")
+                    .clicked()
+                {
+                    self.focus(Pane::Computers);
+                }
+                if ui
+                    .button("Many runs...")
+                    .on_hover_text("the model run many times: replicates, scenarios, calibration")
+                    .clicked()
+                {
+                    self.focus(Pane::Batch);
+                }
+                if ui.button("Wizard...").on_hover_text("a land change model from your maps, step by step").clicked() {
+                    self.wizard = Some(Wizard::default());
+                }
+            });
         });
+        if run {
+            self.run_all(ui.ctx());
+        }
+        if stop {
+            self.stop_run();
+        }
         if let Some(choose) = save {
             self.save(choose);
+        }
+    }
+
+    /// Everything the palette of commands offers: the actions, the models opened last, the templates, the nodes of
+    /// the scope shown and the operators.
+    fn command_list(&self) -> Vec<crate::commands::Command> {
+        use crate::commands::{Command, Do, cmd};
+        let c = cmd();
+        let action = |label: &str, key: String, act: Do| Command::new(label, "action", key, act);
+        let mut all = vec![
+            action("Run the whole model", "F5".into(), Do::Run),
+            action("Run up to the node selected", format!("{c}enter"), Do::RunToHere),
+            action("Stop the run", String::new(), Do::Stop),
+            action("Save the model", format!("{c}S"), Do::Save),
+            action("Save the model as...", format!("{c}shift+S"), Do::SaveAs),
+            action("New model", format!("{c}N"), Do::New),
+            action("Open a model...", format!("{c}shift+O"), Do::Open),
+            action("Open a raster or vectors...", format!("{c}O"), Do::OpenData),
+            action("Add an operator", "/".into(), Do::Add(String::new())),
+            action("Arrange the nodes", format!("{c}L"), Do::Arrange),
+            action("Undo", format!("{c}Z"), Do::Undo),
+            action("Redo", format!("{c}shift+Z"), Do::Redo),
+            action("The model as text, or as a diagram", String::new(), Do::Text),
+            action("Wizard: a land change model from your maps", String::new(), Do::Wizard),
+            action("Settings", String::new(), Do::Settings),
+            action("Keyboard shortcuts", "F1".into(), Do::Shortcuts),
+            action("Reset the layout", String::new(), Do::ResetLayout),
+        ];
+        for p in Pane::ALL {
+            all.push(Command::new(format!("Show {}", p.title()), "pane", String::new(), Do::Pane(p)));
+        }
+        for p in crate::settings::recent_models() {
+            let name = p.file_name().map_or(p.display().to_string(), |n| n.to_string_lossy().into_owned());
+            all.push(Command::new(format!("Open {name}"), "recent", p.display().to_string(), Do::OpenRecent(p)));
+        }
+        for (k, t) in crate::templates::TEMPLATES.iter().enumerate() {
+            all.push(Command::new(t.name, "template", t.group, Do::Template(k)));
+        }
+        if let Some(s) = &self.session
+            && let Some(nodes) = s.source.scope(&s.editor.path)
+        {
+            for n in nodes {
+                all.push(Command::new(format!("Go to {}", n.id), "node", n.op.clone(), Do::GoTo(n.id.clone())));
+            }
+        }
+        for e in &self.library.entries {
+            all.push(Command::new(format!("Add {}", e.name), "operator", e.doc.clone(), Do::Add(e.name.clone())));
+        }
+        all
+    }
+
+    /// Do what a command of the palette asks.
+    fn command(&mut self, ctx: &egui::Context, d: crate::commands::Do) {
+        use crate::commands::Do;
+        match d {
+            Do::New => self.new_model(),
+            Do::Open => self.open_dialog(),
+            Do::OpenRecent(p) => {
+                self.wizard = None;
+                self.open(&p);
+            }
+            Do::Save => self.save(false),
+            Do::SaveAs => self.save(true),
+            Do::Run => self.run_all(ctx),
+            Do::Stop => self.stop_run(),
+            Do::Settings => self.settings_open = true,
+            Do::Shortcuts => self.shortcuts_open = true,
+            Do::Wizard => self.wizard = Some(Wizard::default()),
+            Do::Pane(p) => self.focus(p),
+            Do::ResetLayout => {
+                self.windows.clear();
+                self.dock = Some(default_layout());
+            }
+            Do::Template(k) => self.start_template(ctx, &crate::templates::TEMPLATES[k]),
+            d => {
+                let Some(s) = &mut self.session else { return };
+                let r = &self.registry;
+                let model = matches!(d, Do::GoTo(_) | Do::Add(_) | Do::Arrange);
+                match d {
+                    Do::OpenData => crate::builder::open_data(s, r),
+                    Do::RunToHere => crate::builder::run_selected(ctx, s),
+                    Do::Arrange => crate::builder::arrange(s, r),
+                    Do::Undo => crate::builder::undo_redo(s, false),
+                    Do::Redo => crate::builder::undo_redo(s, true),
+                    Do::Text => s.editor.text = !s.editor.text,
+                    // (none: the search of the operators)
+                    Do::Add(op) if op.is_empty() => s.editor.quick = Some(Default::default()),
+                    Do::Add(op) => {
+                        if let Err(e) = crate::builder::add(s, r, &op, &[]) {
+                            s.editor.message = Some(e);
+                        }
+                    }
+                    Do::GoTo(id) => {
+                        s.editor.text = false;
+                        crate::builder::select(s, r, &id);
+                        s.editor.chosen = [id.clone()].into();
+                        s.editor.reveal(&id);
+                    }
+                    _ => {}
+                }
+                if model {
+                    self.focus(Pane::Model);
+                }
+            }
         }
     }
 
@@ -1546,8 +1768,9 @@ impl TerrafluxApp {
         }
     }
 
-    /// The bar at the bottom: the cell under the pointer, else how to move around.
-    fn status(&self, ui: &mut Ui) {
+    /// The bar at the bottom: the cell under the pointer, else what the keys and the mouse do in the pane in
+    /// focus; at the right, the warnings and what was just done.
+    fn status(&self, ui: &mut Ui, focused: Option<Pane>) {
         ui.horizontal(|ui| {
             let weak = ui.visuals().weak_text_color();
             match &self.hover {
@@ -1565,16 +1788,7 @@ impl TerrafluxApp {
                     );
                 }
                 None if self.session.is_some() => {
-                    let delete = if cfg!(target_os = "macos") { "⌫" } else { "del" };
-                    ui.label(
-                        RichText::new(format!(
-                            "click an operator (or /) to add it    drag: select    right or middle drag: move    double \
-                             click: its map    {delete}: delete    ctrl+D: duplicate    ctrl+C, ctrl+V: copy, paste    \
-                             ctrl+R: rename    ctrl+L: arrange    Tab: the model and back    ctrl+W: close the tab    \
-                             B: satellite under the map    space: hide the map    F5: run all"
-                        ))
-                        .color(weak),
-                    );
+                    ui.label(RichText::new(hints(focused)).color(weak));
                 }
                 None => {}
             }
@@ -1586,18 +1800,15 @@ impl TerrafluxApp {
             if let Some(s) = &self.session {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if let Some(b) = batch {
-                        ui.label(RichText::new(b).color(theme::accent()));
+                        ui.label(RichText::new(b).strong());
                         ui.separator();
                     }
                     // a word of what was done (a file saved), for a while
                     if let Some((text, at)) = &s.notice
                         && at.elapsed() < Duration::from_secs(8)
                     {
-                        ui.label(RichText::new(text).color(theme::accent()));
+                        ui.label(RichText::new(text).strong());
                         ui.separator();
-                    }
-                    if s.dirty {
-                        ui.label(RichText::new("not saved").color(ui.visuals().warn_fg_color));
                     }
                     if !s.warnings.is_empty() {
                         ui.label(
@@ -1921,10 +2132,23 @@ impl TerrafluxApp {
         self.app_keys(ui.ctx(), &keys);
     }
 
-    /// What the keys of any window ask of the application: run, save, open data.
+    /// What the keys of any window ask of the application: run, save, open data or a model, a new model, the
+    /// commands, the shortcuts.
     fn app_keys(&mut self, ctx: &egui::Context, keys: &Keys) {
-        if keys.save {
-            self.save(false);
+        if keys.save || keys.save_as {
+            self.save(keys.save_as);
+        }
+        if keys.new {
+            self.new_model();
+        }
+        if keys.open_model {
+            self.open_dialog();
+        }
+        if keys.commands {
+            self.commands = if self.commands.is_some() { None } else { Some(Default::default()) };
+        }
+        if keys.shortcuts {
+            self.shortcuts_open = !self.shortcuts_open;
         }
         if let Some(s) = &mut self.session {
             if keys.open {
@@ -1934,6 +2158,18 @@ impl TerrafluxApp {
                 let ctx = ctx.clone();
                 s.start(Box::new(move || ctx.request_repaint()));
             }
+        }
+    }
+
+    /// The main window's title: the model's name, a dot when it has edits not saved.
+    fn window_title(&mut self, ctx: &egui::Context) {
+        let title = match &self.session {
+            Some(s) => format!("{}{} - Terraflux", s.title(), if s.dirty { " ●" } else { "" }),
+            None => "Terraflux".to_string(),
+        };
+        if title != self.window_title {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
+            self.window_title = title;
         }
     }
 
@@ -2045,7 +2281,11 @@ impl TerrafluxApp {
         }
         let bar = egui::Frame::new().fill(theme::bar()).inner_margin(Margin::symmetric(8, 5));
         egui::Panel::top("toolbar").frame(bar).show(ui, |ui| self.toolbar(ui));
-        egui::Panel::bottom("status").frame(bar.inner_margin(Margin::symmetric(8, 3))).show(ui, |ui| self.status(ui));
+        let focused = self.focused();
+        egui::Panel::bottom("status")
+            .frame(bar.inner_margin(Margin::symmetric(8, 3)))
+            .show(ui, |ui| self.status(ui, focused));
+        self.window_title(ui.ctx());
         if let Some(w) = &mut self.wizard {
             let mut close = false;
             let mut created = None;
@@ -2088,6 +2328,15 @@ impl TerrafluxApp {
                 });
         }
         self.settings_window(ui.ctx());
+        let mut shortcuts = self.shortcuts_open;
+        crate::commands::shortcuts_window(ui.ctx(), &mut shortcuts);
+        self.shortcuts_open = shortcuts;
+        if self.commands.is_some() {
+            let all = self.command_list();
+            if let Some(d) = crate::commands::show(ui.ctx(), &mut self.commands, &all) {
+                self.command(ui.ctx(), d);
+            }
+        }
         self.take_dropped(ui);
         let area = ui.available_rect_before_wrap();
         egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::bar())).show(ui, |ui| self.docks(ui));
@@ -2478,6 +2727,23 @@ impl TerrafluxApp {
 impl eframe::App for TerrafluxApp {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         self.frame(ui);
+    }
+}
+
+/// What the keys and the mouse do in a pane, for the status bar: the canvas's, the maps', else the application's.
+fn hints(focused: Option<Pane>) -> String {
+    let c = crate::commands::cmd();
+    match focused {
+        Some(Pane::Model) => format!(
+            "click: select    drag: a box of nodes    right or middle drag: move    double click: its map    /: add an \
+             operator    {c}enter: run to it    {c}K: commands    F1: shortcuts"
+        ),
+        Some(Pane::Viewer | Pane::Map(_) | Pane::Simulation) => {
+            "wheel: zoom    drag: move    double click: the whole map    B: satellite under the map    space: hide the \
+             map    F1: shortcuts"
+                .to_string()
+        }
+        _ => format!("/: add an operator    F5: run all    {c}K: commands    Tab: the model and back    F1: shortcuts"),
     }
 }
 

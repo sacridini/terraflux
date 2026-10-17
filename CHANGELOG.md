@@ -6,6 +6,26 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- The palette of commands (ctrl+K, ctrl+shift+P; View > Commands): everything the application does, found by
+  typing: its actions (run, save, arrange, undo...), the panes, the models opened last, the templates, the nodes of
+  the scope shown (to go to one) and the operators (to add one after the node selected). The arrows choose, enter
+  does it.
+- The keyboard's shortcuts in a window of their own (F1; View > Keyboard shortcuts), by where they work.
+- File > Open recent: the ten models opened or saved last. New shortcuts: ctrl+N (a new model), ctrl+shift+O (open
+  a model), ctrl+shift+S (save it as).
+
+### Changed
+- The bar at the top in three parts: the menus at the left (File: new, open, recent, save, save as, open data;
+  Templates; Operators; View), running the model in the middle (Run, Stop, the model's name with a dot while it
+  has edits not saved, how the run goes), the tools at the right (Wizard, Many runs, Computers) and the settings
+  in a gear. The window's title names the model, with the dot too.
+- The status bar says what the keys and the mouse do in the pane in focus (the canvas's, the maps', else the
+  application's) instead of every shortcut at once; "not saved" left it for the title.
+- The accent is kept for the main action (Run) and for the node selected on the canvas: what is selected in a
+  list or a tab is the accent softened into the panel, "Open a raster..." and "Run to here" are plain buttons,
+  and the place in the model is a trail of links (Top level › growth) rather than buttons.
+
 ## [0.83.0] - 2026-10-16
 
 ### Added

@@ -190,9 +190,11 @@ pub fn visuals() -> Visuals {
         v.warn_fg_color = rgb(176, 112, 0);
         v.error_fg_color = rgb(200, 40, 30);
     }
-    v.selection.bg_fill = p.accent;
-    v.selection.stroke = Stroke::new(1.0, p.on_accent);
     let strong = if p.dark { Color32::WHITE } else { Color32::BLACK };
+    // what is selected in a list, a tab or a text: the accent softened into the panel, its text strong; the
+    // accent itself is for the main action (Run) and the node selected on the canvas
+    v.selection.bg_fill = p.accent.lerp_to_gamma(p.panel, if p.dark { 0.5 } else { 0.6 });
+    v.selection.stroke = Stroke::new(1.0, strong);
 
     let w = &mut v.widgets;
     w.noninteractive.bg_fill = p.panel;

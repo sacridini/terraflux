@@ -16,7 +16,7 @@ use terraflux_graph::{Node, Type};
 use terraflux_ops::landscape::Product;
 use terraflux_ops::{Map, Registry, Value};
 
-use crate::app::{Look, Session, accent_button, node_panel};
+use crate::app::{Look, Session, node_panel};
 use crate::editor_view::{Action, NodeStatus};
 use crate::map_view::{Hover, Source, SourceKey, class_counts, legend};
 use crate::palette::{Coloring, Ramp};
@@ -631,6 +631,16 @@ pub(crate) fn run_to(ui: &Ui, s: &mut Session, target: Option<String>) {
     s.start_to(target, Box::new(move || ctx.request_repaint()));
 }
 
+/// Run up to the node selected, when it is a top-level node.
+pub fn run_selected(ctx: &egui::Context, s: &mut Session) {
+    if let Some(target) = runnable(s)
+        && s.can_run_to()
+    {
+        let ctx = ctx.clone();
+        s.start_to(Some(target), Box::new(move || ctx.request_repaint()));
+    }
+}
+
 /// The selected node, when it is a top-level node (those run on their own).
 fn runnable(s: &Session) -> Option<String> {
     s.selected.clone().filter(|id| s.editor.path.is_empty() && s.model.nodes.iter().any(|n| &n.id == id))
@@ -1176,7 +1186,7 @@ pub struct DraggedFile(pub Vec<PathBuf>);
 fn library(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library) {
     theme::section(ui, "Data");
     let wide = Vec2::new(ui.available_width(), 24.0);
-    if ui.add(accent_button("Open a raster...", true).min_size(wide)).clicked()
+    if ui.add(egui::Button::new("Open a raster...").min_size(wide)).clicked()
         && let Some(p) = rfd::FileDialog::new()
             .set_title("A raster")
             .add_filter("Rasters", &terraflux_ops::files::RASTER_EXTENSIONS)
@@ -1416,13 +1426,31 @@ fn bar(ui: &mut Ui, s: &mut Session, r: &Registry) {
         });
     }
     ui.horizontal(|ui| {
-        if ui.selectable_label(s.editor.path.is_empty(), "Top level").clicked() {
+        // where in the model: the containers entered, each a step back up (the last, where it is, not a link)
+        let depth = s.editor.path.len();
+        let crumb = |ui: &mut Ui, text: &str, here: bool| {
+            if here {
+                ui.label(RichText::new(text).strong());
+                false
+            } else {
+                ui.add(
+                    egui::Label::new(RichText::new(text).color(ui.visuals().weak_text_color()))
+                        .sense(egui::Sense::click()),
+                )
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .on_hover_text("back up here")
+                .clicked()
+            }
+        };
+        if crumb(ui, "Top level", depth == 0) {
             s.editor.path.clear();
             s.selected = None;
         }
-        for k in 0..s.editor.path.len() {
-            ui.label("/");
-            if ui.selectable_label(k + 1 == s.editor.path.len(), &s.editor.path[k]).clicked() {
+        for k in 0..depth {
+            // (the path cut short by a click this frame)
+            let Some(name) = s.editor.path.get(k).cloned() else { break };
+            ui.label(RichText::new("›").color(ui.visuals().weak_text_color()));
+            if crumb(ui, &name, k + 1 == depth) {
                 s.editor.path.truncate(k + 1);
                 s.selected = None;
             }
@@ -1431,7 +1459,7 @@ fn bar(ui: &mut Ui, s: &mut Session, r: &Registry) {
         let target = runnable(s);
         let can = target.is_some() && s.can_run_to();
         if ui
-            .add_enabled(can, accent_button("Run to here", can))
+            .add_enabled(can, egui::Button::new("Run to here"))
             .on_hover_text(
                 "run the node selected and what it needs; what did not change comes from the cache (ctrl+enter)",
             )

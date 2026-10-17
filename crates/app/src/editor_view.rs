@@ -1331,13 +1331,18 @@ pub fn show(
             let b = &scene.boxes[i];
             let r = Rect::from_min_max(screen(b.rect.min), screen(b.rect.max));
             let width = if selected == Some(k.as_str()) { 2.5 } else { 1.5 };
-            painter.rect_stroke(r, 4.0 * cam.zoom, Stroke::new(width, v.selection.bg_fill), egui::StrokeKind::Inside);
+            painter.rect_stroke(
+                r,
+                4.0 * cam.zoom,
+                Stroke::new(width, crate::theme::accent()),
+                egui::StrokeKind::Inside,
+            );
         }
     }
     if let Some(r) = boxed {
         let r = Rect::from_min_max(screen(r.min), screen(r.max));
-        painter.rect_filled(r, 0.0, v.selection.bg_fill.gamma_multiply(0.08));
-        painter.rect_stroke(r, 0.0, Stroke::new(1.0, v.selection.bg_fill), egui::StrokeKind::Inside);
+        painter.rect_filled(r, 0.0, crate::theme::accent().gamma_multiply(0.08));
+        painter.rect_stroke(r, 0.0, Stroke::new(1.0, crate::theme::accent()), egui::StrokeKind::Inside);
     }
     if let Some((node, port)) = shown
         && let Some(&i) = scene.index.get(node)
