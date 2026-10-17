@@ -1823,3 +1823,35 @@ fn the_commands_find_nodes_and_operators() {
     assert!(h.state().shortcuts_open && h.query_by_label("Keyboard shortcuts").is_some());
     shot(&mut h, "31-shortcuts");
 }
+
+/// An operator of many settings: its essential ones shown, the others folded as advanced (the count of those the
+/// model gives in the fold's title, open then); a setting given marked, and back to its default by its menu.
+#[test]
+fn many_settings_fold_as_advanced() {
+    use terraflux_graph::Node;
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source.nodes = vec![Node::new("plan", "prioritize.optimize").param("objective", "min_set")];
+        s.edited();
+        terraflux_app::builder::select(s, &terraflux_ops::Registry::standard(), "plan");
+    }
+    h.state_mut().focus(Pane::Node);
+    h.run_steps(3);
+    shot(&mut h, "32-essentials");
+    assert!(h.query_by_label("Objective").is_some() && h.query_by_label("Solver").is_some(), "essential");
+    assert!(h.query_by_label("Number solutions").is_none(), "advanced, folded");
+    assert!(h.query_by_label("Advanced (39)").is_some(), "48 settings, 9 essential");
+    // a node with an advanced setting given: counted, its fold open when it is selected
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source.nodes.push(Node::new("plan2", "prioritize.optimize").param("number_solutions", 5));
+        s.edited();
+        terraflux_app::builder::select(s, &terraflux_ops::Registry::standard(), "plan2");
+    }
+    h.run_steps(3);
+    assert!(h.query_by_label("Advanced (39 · 1 given)").is_some());
+    assert!(h.query_by_label("Number solutions").is_some(), "open with a setting given");
+    shot(&mut h, "32b-essentials-given");
+}

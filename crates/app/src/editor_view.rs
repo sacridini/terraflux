@@ -112,14 +112,16 @@ fn port_names(n: &Node, r: &Registry) -> (Vec<String>, Vec<String>) {
     (inputs, editor::output_ports(n, r).into_iter().map(|(p, _)| p).collect())
 }
 
-/// A node's inputs as its box shows them: those it needs, those given (connected or a value), the optional others
-/// when `unfolded`, and the place of a new one (an operator that takes any); the optional ones not shown.
+/// A node's inputs as its box shows them: those it needs, those given (connected or a value), its operator's
+/// essential ones, the optional others when `unfolded`, and the place of a new one (an operator that takes any);
+/// the optional ones not shown.
 fn shown_inputs(n: &Node, r: &Registry, unfolded: bool) -> (Vec<Port>, Vec<(String, Type)>) {
     let mut shown = Vec::new();
     let mut folded = Vec::new();
+    let essentials = terraflux_ops::essentials::essentials(&n.op).unwrap_or_default();
     for (name, ty, required) in editor::input_ports(n, r) {
         let connected = n.inputs.contains_key(&name);
-        if required || connected || unfolded {
+        if required || connected || unfolded || essentials.contains(&name.as_str()) {
             shown.push(Port { connected, name, ty, required });
         } else {
             folded.push((name, ty));

@@ -2562,7 +2562,6 @@ pub fn choice_param(
     let options: Vec<String> =
         if spec.choices.is_empty() { vec!["true".into(), "false".into()] } else { spec.choices.clone() };
     let mut out = None;
-    ui.label(crate::node_view::label_of(&spec.name)).on_hover_text(format!("{}: {}", spec.name, spec.doc));
     let shown = if current.is_empty() { "default".to_string() } else { current.to_string() };
     egui::ComboBox::from_id_salt(("param", &n.id, &spec.name))
         .selected_text(shown)
@@ -2630,8 +2629,6 @@ pub fn metrics_param(
     };
     let mut set: Vec<&'static str> = chosen.clone();
     let mut changed = false;
-    ui.label(crate::node_view::label_of(param))
-        .on_hover_text(format!("{param}: the {level} metrics measured, {empty} by default, by type or one by one"));
     egui::ComboBox::from_id_salt((param, &n.id))
         .selected_text(shown)
         .width(ui.available_width() - 8.0)

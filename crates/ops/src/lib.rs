@@ -30,6 +30,7 @@ pub mod demand;
 pub mod differ;
 pub mod dinamica;
 pub mod dynamic;
+pub mod essentials;
 pub mod files;
 pub mod fitted;
 pub mod fragmentation;

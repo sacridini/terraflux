@@ -1,7 +1,9 @@
 //! The side panel of the node selected (the Node pane): its name and operator, the problems found in it, what it
-//! does (its first sentence, the rest a click away), then what is edited: its inputs (those it needs and those
-//! given first, the optional others folded away), its settings (named in words, lists and tables of values edited
-//! item by item), a container's body, and the note of why it is there. Every field is editable.
+//! does (its first sentence, the rest a click away), then what is edited: its inputs (those it needs, those given
+//! and the essential ones first, the optional others folded away), its settings (a row each, named in words at the
+//! left, a dot before those given, right-click: back to the default; lists and tables of values edited item by
+//! item), a container's body, and the note of why it is there. An operator of many settings shows its essential
+//! ones ([`terraflux_ops::essentials`]) and folds the others as advanced. Every field is editable.
 
 use std::collections::BTreeMap;
 
@@ -19,6 +21,29 @@ pub fn label_of(name: &str) -> String {
         Some(f) => f.to_uppercase().chain(c).collect(),
         None => String::new(),
     }
+}
+
+/// What a setting is when not given, as its doc says it, for the hint of its empty field: "default 0.1" from "the
+/// relative optimality gap (default 0.1, as prioritizr)", "0.5" from "the weight of edges to no unit (0.5)"; else
+/// nothing (what it does is on the hover of its name).
+pub fn default_of(doc: &str) -> String {
+    if let Some(at) = doc.find("(default ") {
+        let rest = &doc[at + 1..];
+        let end = rest.find([')', ',', ';', ':']).unwrap_or(rest.len());
+        let d = rest[..end].trim();
+        if d.chars().count() <= 32 {
+            return d.to_string();
+        }
+    }
+    // a value in brackets at the end: one word or number ("(0.5)", "(true)")
+    if let Some(inner) = doc.trim_end().strip_suffix(')').and_then(|d| d.rsplit_once('(')).map(|(_, v)| v.trim())
+        && !inner.is_empty()
+        && !inner.contains(' ')
+        && inner.chars().count() <= 14
+    {
+        return inner.to_string();
+    }
+    String::new()
 }
 
 /// The first sentence of what an operator does (up to a full stop followed by a capital, at most about 140
@@ -112,24 +137,37 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
     }
     ui.separator();
     ui.label(RichText::new("Inputs").strong());
-    // those it needs and those given, then the optional others folded away
+    // those it needs, those given and the essential ones, then the optional others folded away
+    let essentials = terraflux_ops::essentials::essentials(&n.op);
+    let essential = |name: &str| essentials.is_some_and(|e| e.contains(&name));
     let ports = crate::editor::input_ports(&n, r);
     let (shown, folded): (Vec<_>, Vec<_>) =
-        ports.into_iter().partition(|(port, _, required)| *required || n.inputs.contains_key(port));
-    let mut input_rows = |ui: &mut Ui, rows: &[(String, terraflux_graph::Type, bool)], salt: &str| {
-        egui::Grid::new(("inputs", salt)).num_columns(3).show(ui, |ui| {
-            for (port, ty, required) in rows {
-                ui.label(if *required { format!("{port} *") } else { port.clone() }).on_hover_text(format!(
-                    "{} ({})",
-                    ty.name(),
-                    if *required { "needed" } else { "optional" }
-                ));
+        ports.into_iter().partition(|(port, _, required)| *required || n.inputs.contains_key(port) || essential(port));
+    // a row each: its name at the left, what feeds it (cut to the pane) or its value at the right
+    let label_w = (ui.available_width() * 0.46).clamp(72.0, 160.0);
+    let mut input_rows = |ui: &mut Ui, rows: &[(String, terraflux_graph::Type, bool)]| {
+        for (port, ty, required) in rows {
+            ui.horizontal(|ui| {
+                let name = if *required { format!("{port} *") } else { port.clone() };
+                let need = if *required { "needed" } else { "optional" };
+                ui.allocate_ui_with_layout(
+                    egui::vec2(label_w, 20.0),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        ui.set_min_width(label_w);
+                        ui.add(egui::Label::new(name).truncate())
+                            .on_hover_text(format!("{port}: {} ({need})", ty.name()));
+                    },
+                );
                 match n.inputs.get(port) {
                     Some(Source::Ref(reference)) => {
-                        ui.label(RichText::new(format!("<- {reference}")).monospace());
-                        if ui.small_button("x").on_hover_text("disconnect").clicked() {
-                            change = Some(crate::editor::disconnect(&mut s.source, &path, &n.id, port));
-                        }
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.small_button("x").on_hover_text("disconnect").clicked() {
+                                change = Some(crate::editor::disconnect(&mut s.source, &path, &n.id, port));
+                            }
+                            ui.add(egui::Label::new(RichText::new(format!("<- {reference}")).monospace()).truncate())
+                                .on_hover_text(reference);
+                        });
                     }
                     other => {
                         let init = match other {
@@ -138,27 +176,28 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
                         };
                         let key = format!("in.{port}");
                         let mut text = field(s, &key, init.clone());
-                        let resp =
-                            ui.add(egui::TextEdit::singleline(&mut text).desired_width(120.0).hint_text("value"));
+                        let edit = egui::TextEdit::singleline(&mut text)
+                            .desired_width(ui.available_width())
+                            .hint_text("value");
+                        let resp = ui.add(edit);
                         s.fields.insert(key, text.clone());
                         if resp.lost_focus() && text != init {
                             change = Some(crate::editor::set_literal(&mut s.source, r, &path, &n.id, port, &text));
                         }
                     }
                 }
-                ui.end_row();
-            }
-        });
+            });
+        }
     };
     if shown.is_empty() && folded.is_empty() {
         ui.label(RichText::new("none").color(ui.visuals().weak_text_color()));
     }
-    input_rows(ui, &shown, "shown");
+    input_rows(ui, &shown);
     if !folded.is_empty() {
         egui::CollapsingHeader::new(RichText::new(format!("Optional inputs ({})", folded.len())).size(11.5))
             .id_salt(("optional inputs", &n.op))
             .default_open(false)
-            .show(ui, |ui| input_rows(ui, &folded, "folded"));
+            .show(ui, |ui| input_rows(ui, &folded));
     }
     if sig.as_ref().is_some_and(|g| g.extra.is_some() || g.container) {
         ui.horizontal_wrapped(|ui| {
@@ -190,10 +229,35 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
     if !params.is_empty() {
         ui.separator();
         ui.label(RichText::new("Settings").strong());
-        for (name, doc, spec) in params {
-            if let Some(c) = setting(ui, s, &n, &path, &name, &doc, spec.as_ref()) {
+        // an operator of many settings: those it needs and its essential ones, the others folded as advanced
+        // (a name of the list that is an input's is the input's: `features` of prioritize.optimize)
+        let input = |name: &str| sig.as_ref().is_some_and(|g| g.inputs.iter().any(|i| i.name == name));
+        let (main, advanced): (Vec<_>, Vec<_>) = params.into_iter().partition(|(name, _, spec)| {
+            essentials.is_none() || spec.as_ref().is_none_or(|p| p.required) || (essential(name) && !input(name))
+        });
+        for (name, doc, spec) in &main {
+            if let Some(c) = setting(ui, s, &n, &path, name, doc, spec.as_ref(), label_w) {
                 change = Some(c);
             }
+        }
+        if !advanced.is_empty() {
+            let given = advanced.iter().filter(|(name, _, _)| n.params.contains_key(name)).count();
+            let title = if given > 0 {
+                format!("Advanced ({} · {given} given)", advanced.len())
+            } else {
+                format!("Advanced ({})", advanced.len())
+            };
+            ui.add_space(2.0);
+            egui::CollapsingHeader::new(RichText::new(title).size(11.5))
+                .id_salt(("advanced settings", &n.id))
+                .default_open(given > 0)
+                .show(ui, |ui| {
+                    for (name, doc, spec) in &advanced {
+                        if let Some(c) = setting(ui, s, &n, &path, name, doc, spec.as_ref(), label_w) {
+                            change = Some(c);
+                        }
+                    }
+                });
         }
     }
     if let Some(b) = &n.body {
@@ -270,9 +334,57 @@ fn field(s: &mut Session, key: &str, init: String) -> String {
     s.fields.entry(key.to_string()).or_insert(init).clone()
 }
 
-/// A setting: its name in words (its own name and what it does on hover), and its value: a list to choose from,
-/// the metrics of landscape metrics, a reclassification's table of rules, a list or a table of values edited item
-/// by item, else a text; a file's path chosen in a dialog. What it changed, if anything.
+/// A setting's name at the left of its row, as wide as `width` (cut to it): a dot before it when the model gives
+/// it, what it is on hover, a right-click to take it back to its default.
+fn name_cell(
+    ui: &mut Ui,
+    s: &mut Session,
+    n: &Node,
+    path: &[String],
+    name: &str,
+    doc: &str,
+    width: f32,
+) -> Option<Result<(), String>> {
+    let given = n.params.contains_key(name);
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(width, 20.0), egui::Sense::click());
+    // (named for screen readers, as a label is)
+    let words = label_of(name);
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &words));
+    let mut x = rect.left();
+    if given {
+        ui.painter().circle_filled(egui::pos2(x + 3.0, rect.center().y), 3.0, crate::theme::accent());
+        x += 10.0;
+    }
+    let colour = ui.visuals().text_color();
+    let mut job =
+        egui::text::LayoutJob::simple_singleline(words.clone(), egui::TextStyle::Body.resolve(ui.style()), colour);
+    job.wrap = egui::text::TextWrapping {
+        max_width: (rect.right() - x - 4.0).max(8.0),
+        max_rows: 1,
+        break_anywhere: true,
+        overflow_character: Some('…'),
+    };
+    let galley = ui.painter().layout_job(job);
+    ui.painter().galley(egui::pos2(x, rect.center().y - galley.size().y / 2.0), galley, colour);
+    let mut hover = if doc.is_empty() { name.to_string() } else { format!("{name}: {doc}") };
+    if given {
+        hover.push_str("\n\nGiven in the model (right-click: back to the default)");
+    }
+    let mut out = None;
+    resp.on_hover_text(hover).context_menu(|ui| {
+        if ui.add_enabled(given, egui::Button::new("Back to the default")).clicked() {
+            out = Some(crate::editor::set_param(&mut s.source, path, &n.id, name, ""));
+            ui.close();
+        }
+    });
+    out
+}
+
+/// A setting, a row: its name at the left ([`name_cell`]), at the right what edits its value: a list to choose
+/// from, the metrics of landscape metrics, a text (a file's path chosen in a dialog too); a list or a table of
+/// values (item by item) and a reclassification's table of rules under their names, the pane's width. What it
+/// changed, if anything.
+#[allow(clippy::too_many_arguments)]
 fn setting(
     ui: &mut Ui,
     s: &mut Session,
@@ -281,13 +393,11 @@ fn setting(
     name: &str,
     doc: &str,
     spec: Option<&terraflux_graph::PortSpec>,
+    label_w: f32,
 ) -> Option<Result<(), String>> {
-    // the metrics of the landscape metrics: all, by type, or one by one
-    if ["metrics", "landscape_metrics", "class_metrics"].contains(&name) && n.op.starts_with("metrics.") {
-        return crate::builder::metrics_param(ui, s, n, path, name);
-    }
     // a reclassification's rules: a table of them, from the values of the map it reads
     if n.op == "raster.reclassify" && name == "rules" {
+        ui.label(label_of(name)).on_hover_text(doc);
         return crate::builder::reclassify_rules(ui, s, n, path);
     }
     let init = n
@@ -298,34 +408,76 @@ fn setting(
             v => v.to_string(),
         })
         .unwrap_or_default();
-    // a few values to choose from (a yes or no among them)
-    if let Some(spec) = spec.filter(|p| p.ty == terraflux_graph::Type::Bool || !p.choices.is_empty()) {
-        return crate::builder::choice_param(ui, s, n, path, spec, &init);
-    }
-    let hover = if doc.is_empty() { name.to_string() } else { format!("{name}: {doc}") };
-    // a list or a table of plain values, item by item (or as text, when asked)
+    // a list or a table of plain values, item by item (or as text, when asked), under its name
     let raw_key = format!("raw.{name}");
     let raw = s.fields.get(&raw_key).is_some_and(|v| v == "1");
-    if let Some(v) = n.params.get(name).filter(|v| items(v).is_some()) {
-        ui.horizontal(|ui| {
-            ui.label(label_of(name)).on_hover_text(&hover);
-            let toggle = ui
-                .add(egui::Button::new(RichText::new("{ }").monospace().size(10.0)).small().selected(raw))
-                .on_hover_text(if raw { "item by item" } else { "as text (JSON)" });
-            if toggle.clicked() {
-                s.fields.insert(raw_key.clone(), if raw { "0" } else { "1" }.into());
+    let list = n.params.get(name).filter(|v| items(v).is_some()).cloned();
+    let mut change = None;
+    ui.horizontal_top(|ui| {
+        if let Some(c) = name_cell(ui, s, n, path, name, doc, label_w) {
+            change = Some(c);
+        }
+        ui.vertical(|ui| {
+            ui.set_width(ui.available_width());
+            let c = value_cell(ui, s, n, path, name, doc, spec, &init, list.is_some(), raw);
+            if c.is_some() {
+                change = c;
             }
         });
-        if !raw {
-            return values(ui, s, n, path, name, v);
+    });
+    if let (Some(v), false) = (&list, raw) {
+        let c = values(ui, s, n, path, name, v);
+        if c.is_some() {
+            change = c;
         }
-    } else {
-        ui.label(label_of(name)).on_hover_text(&hover);
+    }
+    change
+}
+
+/// What edits a setting's value, at the right of its row. A list edited item by item (under the row): a button
+/// to edit it as text instead.
+#[allow(clippy::too_many_arguments)]
+fn value_cell(
+    ui: &mut Ui,
+    s: &mut Session,
+    n: &Node,
+    path: &[String],
+    name: &str,
+    doc: &str,
+    spec: Option<&terraflux_graph::PortSpec>,
+    init: &str,
+    list: bool,
+    raw: bool,
+) -> Option<Result<(), String>> {
+    // the metrics of the landscape metrics: all, by type, or one by one
+    if ["metrics", "landscape_metrics", "class_metrics"].contains(&name) && n.op.starts_with("metrics.") {
+        return crate::builder::metrics_param(ui, s, n, path, name);
+    }
+    // a few values to choose from (a yes or no among them)
+    if let Some(spec) = spec.filter(|p| p.ty == terraflux_graph::Type::Bool || !p.choices.is_empty()) {
+        return crate::builder::choice_param(ui, s, n, path, spec, init);
+    }
+    if list {
+        let toggle = ui
+            .add(egui::Button::new(RichText::new("{ }").monospace().size(10.0)).small().selected(raw))
+            .on_hover_text(if raw { "item by item" } else { "as text (JSON)" });
+        if toggle.clicked() {
+            s.fields.insert(format!("raw.{name}"), if raw { "0" } else { "1" }.into());
+        }
+        if !raw {
+            return None;
+        }
     }
     let mut change = None;
     let key = format!("param.{name}");
-    let mut text = field(s, &key, init.clone());
-    let resp = ui.add(egui::TextEdit::multiline(&mut text).desired_rows(1).desired_width(f32::INFINITY).hint_text(doc));
+    let mut text = field(s, &key, init.to_string());
+    // (a long value on as many lines as it needs; a short one, or none, on one)
+    let edit = if text.len() > 40 || text.contains('\n') {
+        egui::TextEdit::multiline(&mut text).desired_rows(1)
+    } else {
+        egui::TextEdit::singleline(&mut text)
+    };
+    let resp = ui.add(edit.desired_width(ui.available_width()).hint_text(default_of(doc)));
     s.fields.insert(key, text.clone());
     if resp.lost_focus() && text != init {
         change = Some(crate::editor::set_param(&mut s.source, path, &n.id, name, &text));
@@ -475,6 +627,16 @@ mod tests {
         let long = "word ".repeat(80);
         let (short, more) = first_sentence(&long);
         assert!(more && short.ends_with('…') && short.chars().count() <= 142);
+    }
+
+    #[test]
+    fn defaults_from_docs() {
+        assert_eq!(default_of("the relative optimality gap (default 0.1, as prioritizr)"), "default 0.1");
+        assert_eq!(default_of("seconds (default none)"), "default none");
+        assert_eq!(default_of("the weight of edges to no unit (0.5)"), "0.5");
+        assert_eq!(default_of("the objectives with a budget: the cost they may spend"), "");
+        assert_eq!(default_of("a share of each feature's total (or one for all)"), "");
+        assert_eq!(default_of("[{feature, zone (a name or names; default every zone)}]"), "");
     }
 
     #[test]

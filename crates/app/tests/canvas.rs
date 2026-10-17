@@ -617,16 +617,17 @@ fn optional_inputs_fold_and_a_connection_dropped_on_a_node_picks_one() {
     m.nodes.push(zon);
     let mut h = harness(open(&m, "canvas-fold.toml"));
     h.run_steps(3);
-    // folded: the input it needs shown, the optional ones not
+    // folded: the input it needs and its essential ones shown, the other optional ones not
     assert!(editor(&h).screen_of_input("zon", "features").is_some());
-    assert!(editor(&h).screen_of_input("zon", "cost").is_none());
+    assert!(editor(&h).screen_of_input("zon", "cost").is_some(), "an essential input");
+    assert!(editor(&h).screen_of_input("zon", "areas").is_none());
     let fold = editor(&h).screen_of_fold("zon").expect("the row of the optional inputs");
     click(&mut h, fold);
-    assert!(editor(&h).screen_of_input("zon", "cost").is_some(), "unfolded");
+    assert!(editor(&h).screen_of_input("zon", "areas").is_some(), "unfolded");
     h.render().unwrap().save(PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("canvas-unfolded.png")).unwrap();
     let fold = editor(&h).screen_of_fold("zon").unwrap();
     click(&mut h, fold);
-    assert!(editor(&h).screen_of_input("zon", "cost").is_none(), "folded again");
+    assert!(editor(&h).screen_of_input("zon", "areas").is_none(), "folded again");
     // the model's map let go on the node's header: the inputs it fits, in a list
     let from = editor(&h).screen_of_output("$t0", "").unwrap();
     let to = editor(&h).screen_of("zon").unwrap();
@@ -634,12 +635,12 @@ fn optional_inputs_fold_and_a_connection_dropped_on_a_node_picks_one() {
     h.run_steps(2);
     h.render().unwrap().save(PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("canvas-pick.png")).unwrap();
     use egui_kittest::kittest::Queryable;
-    h.query_all_by_label_contains("cost  ·").next().expect("cost in the list").click();
+    h.query_all_by_label_contains("areas  ·").next().expect("areas in the list").click();
     h.run_steps(3);
     let s = h.state().session.as_ref().unwrap();
-    assert_eq!(s.source.nodes[0].inputs.get("cost"), Some(&terraflux_graph::Source::Ref("$t0".into())));
+    assert_eq!(s.source.nodes[0].inputs.get("areas"), Some(&terraflux_graph::Source::Ref("$t0".into())));
     // given, it is shown though its others stay folded
-    assert!(editor(&h).screen_of_input("zon", "cost").is_some());
+    assert!(editor(&h).screen_of_input("zon", "areas").is_some());
     // zoomed far out: the names still read, in the middle of their boxes
     h.state_mut().session.as_mut().unwrap().editor.look(egui::vec2(300.0, 300.0), 0.25);
     h.run_steps(2);

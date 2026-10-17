@@ -9,6 +9,13 @@ minor versions.
 ### Changed
 - The operators' pane closed, a strip at the window's left edge says they are there ("OPERATORS ›" along it): the
   pointer over it brings their drawer out, a click opens their pane.
+- The Node pane of an operator of many settings shows its essential ones and folds the others as advanced
+  ("Advanced (39)"; with the count of those the model gives, "39 · 1 given", open then): the inputs and settings
+  most models set, listed for the 34 operators of ten settings or more in `terraflux_ops::essentials` (a test keeps
+  every name one of its operator's); the boxes of the canvas show the essential inputs too. A setting is a row: its
+  name at the left (what it does on hover), its value at the right, the empty field hinting its default ("default
+  0.1"); a dot marks the settings the model gives, and a right-click on the name takes one back to its default.
+  The inputs are rows too, what feeds them cut to the pane.
 
 ## [0.84.0] - 2026-10-17
 
