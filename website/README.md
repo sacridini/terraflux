@@ -14,6 +14,7 @@ pip install -r website/requirements.txt
 python website/build.py              # website/dist
 python website/build.py --serve      # and serve it on http://localhost:8000, rebuilt when a file changes
 python website/build.py --check      # also check every model graph with `terraflux check` (needs the binary)
+python website/build.py --offline    # a copy to read without a server or a network, and its zip (to share)
 ```
 
 GitHub Actions (`.github/workflows/website.yml`) builds and publishes it on GitHub Pages at every push to `main`

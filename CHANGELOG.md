@@ -16,6 +16,9 @@ minor versions.
   HAND; wetness and connectivity; SWAT+), Ecosystem services with InVEST (the ideas, carbon, habitat quality, water
   yield, sediment), geomorphons and the hilltops of Brazil's Forest Code, and the Dinamica series' Patcher of a
   stock, roads that grow and gravity potentials.
+- The website to read offline: `python website/build.py --offline` makes a copy that opens from the disk, without a
+  server or a network (links to each page's index.html, the search as a script, KaTeX and the fonts within, the
+  images in WebP only), and its zip (43 MB), to share.
 
 ## [0.86.0] - 2026-10-17
 

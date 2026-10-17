@@ -71,7 +71,16 @@
   var index = null, sel = 0, results = [];
   function loadIndex() {
     if (index) return Promise.resolve(index);
-    return fetch(ROOT + "search.json").then(function (r) { return r.json(); }).then(function (d) {
+    // opened from the disk (the offline site), where fetch is refused: the index as a script (search.js)
+    var got = location.protocol === "file:" ? new Promise(function (ok, fail) {
+      if (window.TF_SEARCH) return ok(window.TF_SEARCH);
+      var s = document.createElement("script");
+      s.src = ROOT + "search.js";
+      s.onload = function () { ok(window.TF_SEARCH || []); };
+      s.onerror = fail;
+      document.head.appendChild(s);
+    }) : fetch(ROOT + "search.json").then(function (r) { return r.json(); });
+    return got.then(function (d) {
       index = d.map(function (e) { e._t = e.t.toLowerCase(); e._h = (e.h || "").toLowerCase(); e._x = (e.x || "").toLowerCase(); return e; });
       return index;
     });

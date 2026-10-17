@@ -37,6 +37,7 @@ from pygments.formatters import HtmlFormatter
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent
 sys.path.insert(0, str(HERE))
+from lib import offline as OFFLINE  # noqa: E402
 from lib.tfgraph import GraphError, Renderer, esc  # noqa: E402
 
 CONTENT = HERE / "content"
@@ -728,7 +729,7 @@ def check_graphs():
     print(f"--check: {len(GRAPHS)} graphs, {bad} with errors")
 
 
-def build(out: pathlib.Path, only: str | None = None, check=False):
+def build(out: pathlib.Path, only: str | None = None, check=False, offline=False):
     t0 = time.time()
     WARNINGS.clear()
     GRAPHS.clear()
@@ -772,8 +773,13 @@ def build(out: pathlib.Path, only: str | None = None, check=False):
     search = []
 
     def write(url: str, html_text: str):
-        html_text = picture(html_text, out)
+        if offline:
+            html_text = OFFLINE.webp_only(OFFLINE.external(html_text), out)
+        else:
+            html_text = picture(html_text, out)
         html_text = relativize(html_text, url)
+        if offline:
+            html_text = OFFLINE.links(html_text)
         d = out / url.strip("/")
         d.mkdir(parents=True, exist_ok=True)
         (d / "index.html").write_text(html_text, encoding="utf-8")
@@ -815,6 +821,20 @@ def build(out: pathlib.Path, only: str | None = None, check=False):
         for o in g["ops"]:
             search.append({"u": url.lstrip("/") + "#" + op_anchor(o["name"]), "t": o["name"], "s": "Operators: " + g["title"],
                            "h": "", "x": o["doc"]})
+    if offline:
+        # files to open from the disk: the search as a script, KaTeX and the fonts within, the images in WebP only
+        (out / "search.js").write_text(OFFLINE.search_script(search), encoding="utf-8")
+        OFFLINE.vendor(out, HERE / ".cache" / "vendor")
+        freed = OFFLINE.drop_png(out)
+        (out / "README.txt").write_text(
+            f"Terraflux {SITE['version']}: the website, to read without a network.\n\n"
+            "Open index.html in a web browser (double-click it). Every page, figure, formula and the search work "
+            "from these files.\n\nThe site online: " + SITE["url"] + "\n", encoding="utf-8")
+        for w in WARNINGS:
+            print("WARNING", w)
+        print(f"built {len(pages)} pages, {len(opgroups)} operator pages to read offline into {out} in "
+              f"{time.time() - t0:.1f} s ({freed / 1e6:.0f} MB of PNG left out; {len(WARNINGS)} warnings)")
+        return
     # the page GitHub Pages shows for any missing address: links from the site's root, by <base>
     (out / "404.html").write_text(relativize(env.get_template("404.html").render(root=SITE["url"], page=None), "/"),
                                   encoding="utf-8")
@@ -843,7 +863,7 @@ PARITY = [
     ("gdistance", "Least-cost and random-walk distances", "van Etten 2017"),
     ("Zonation 5", "Priority ranking of a landscape", "Moilanen et al. 2022"),
     ("Marxan and prioritizr", "Reserve selection, integer programming", "Ball et al. 2009; Hanson et al. 2025"),
-    ("plangea", "Restoration for species, carbon and intactness", "Strassburg et al. 2020"),
+    ("InVEST", "Carbon, habitat quality, water yield and sediment", "Nelson et al. 2009"),
     ("MaxNet and ENMeval", "Species distribution models", "Phillips et al. 2017"),
     ("Biodiverse", "Endemism and phylogenetic diversity", "Laffan et al. 2010"),
     ("Dinamica EGO", "Weights of evidence, Expander and Patcher", "Soares-Filho et al. 2002"),
@@ -933,10 +953,19 @@ def main():
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--only")
     ap.add_argument("--clean", action="store_true")
+    ap.add_argument("--offline", action="store_true",
+                    help="the site to open from the disk, without a server or a network, and a zip of it (default "
+                         "folder: website/.cache/offline/terraflux-website-<version>)")
     a = ap.parse_args()
+    if a.offline and a.out == HERE / "dist":
+        a.out = HERE / ".cache" / "offline" / f"terraflux-website-{SITE['version']}"
+        a.clean = True
     if a.clean and a.out.exists():
         shutil.rmtree(a.out)
-    build(a.out, a.only, a.check)
+    build(a.out, a.only, a.check, a.offline)
+    if a.offline:
+        zipped = shutil.make_archive(str(a.out), "zip", root_dir=a.out.parent, base_dir=a.out.name)
+        print(f"{zipped}: {pathlib.Path(zipped).stat().st_size / 1e6:.0f} MB")
     if a.serve:
         serve(a.out, a.port, a.only)
 
