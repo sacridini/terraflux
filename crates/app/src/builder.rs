@@ -16,7 +16,7 @@ use terraflux_graph::{Node, Type};
 use terraflux_ops::landscape::Product;
 use terraflux_ops::{Map, Registry, Value};
 
-use crate::app::{Look, Session, node_panel};
+use crate::app::{Look, Session};
 use crate::editor_view::{Action, NodeStatus};
 use crate::map_view::{Hover, Source, SourceKey, class_counts, legend};
 use crate::palette::{Coloring, Ramp};
@@ -477,7 +477,7 @@ pub fn operators_pane(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library)
 /// The node selected: what it does, its inputs and settings.
 pub fn node_pane(ui: &mut Ui, s: &mut Session, r: &Registry) {
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-        egui::Frame::new().inner_margin(Margin::same(8)).show(ui, |ui| node_panel(ui, s, r));
+        egui::Frame::new().inner_margin(Margin::same(8)).show(ui, |ui| crate::node_view::panel(ui, s, r));
     });
 }
 
@@ -2525,7 +2525,7 @@ pub fn choice_param(
     let options: Vec<String> =
         if spec.choices.is_empty() { vec!["true".into(), "false".into()] } else { spec.choices.clone() };
     let mut out = None;
-    ui.label(&spec.name).on_hover_text(&spec.doc);
+    ui.label(crate::node_view::label_of(&spec.name)).on_hover_text(format!("{}: {}", spec.name, spec.doc));
     let shown = if current.is_empty() { "default".to_string() } else { current.to_string() };
     egui::ComboBox::from_id_salt(("param", &n.id, &spec.name))
         .selected_text(shown)
@@ -2593,7 +2593,8 @@ pub fn metrics_param(
     };
     let mut set: Vec<&'static str> = chosen.clone();
     let mut changed = false;
-    ui.label(param).on_hover_text(format!("the {level} metrics measured: {empty} by default, by type or one by one"));
+    ui.label(crate::node_view::label_of(param))
+        .on_hover_text(format!("{param}: the {level} metrics measured, {empty} by default, by type or one by one"));
     egui::ComboBox::from_id_salt((param, &n.id))
         .selected_text(shown)
         .width(ui.available_width() - 8.0)

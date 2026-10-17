@@ -16,6 +16,7 @@ pub mod files_view;
 pub mod legend_view;
 pub mod map_view;
 pub mod metadata;
+pub mod node_view;
 pub mod palette;
 pub mod prepare;
 pub mod prepare_view;

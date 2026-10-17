@@ -25,6 +25,12 @@ minor versions.
 - The accent is kept for the main action (Run) and for the node selected on the canvas: what is selected in a
   list or a tab is the accent softened into the panel, "Open a raster..." and "Run to here" are plain buttons,
   and the place in the model is a trail of links (Top level › growth) rather than buttons.
+- The Node pane puts first what is edited: the problems found in the node under its name, then the first sentence
+  of what its operator does (the rest a click away), its inputs (those it needs and those given; the optional
+  others folded, "Optional inputs (9)"), its settings named in words ("Gray threshold"; the name and what it does
+  on hover), a container's body, and last the note of why it is there. A setting that is a list of numbers or texts
+  (`weights = [2.0, 1.0, 1.0, 1.5]`) or a table of them by name is edited item by item, with a row to add one and
+  a button to take one away; `{ }` edits it as text.
 
 ## [0.83.0] - 2026-10-16
 
