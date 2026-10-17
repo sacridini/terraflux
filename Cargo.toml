@@ -24,5 +24,13 @@ thiserror = "2"
 toml = "1"
 weezl = "0.1"
 
+# Debug builds keep line tables only (backtraces with their lines), and the dependencies none: the debug
+# information of the many test programs was most of target/debug's size.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
 [profile.release]
 debug = 1

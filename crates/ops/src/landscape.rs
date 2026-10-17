@@ -160,7 +160,23 @@ pub enum Product {
     Isochrone,
     /// A resistance (GTB's Restoration Planner): missing 0, habitat 2, the background 3-100.
     Resistance,
+    /// The landforms of the geomorphons, 1 (flat) to 10 (pit), in GRASS's colours.
+    Geomorphons,
 }
+
+/// The geomorphons' landforms with r.geomorphon's colours.
+const GEOMORPHONS: [(u8, &str, [u8; 3]); 10] = [
+    (1, "Flat", [220, 220, 220]),
+    (2, "Peak", [56, 0, 0]),
+    (3, "Ridge", [200, 0, 0]),
+    (4, "Shoulder", [255, 80, 20]),
+    (5, "Spur", [250, 210, 60]),
+    (6, "Slope", [255, 255, 60]),
+    (7, "Hollow", [180, 230, 20]),
+    (8, "Footslope", [60, 250, 150]),
+    (9, "Valley", [0, 0, 255]),
+    (10, "Pit", [0, 0, 56]),
+];
 
 /// landschaft's names of its products (`landschaft_product`, written in its GeoTIFFs).
 const TAGS: [(&str, Product); 21] = [
@@ -231,6 +247,7 @@ impl Product {
             ("networks.gtn_importance", "map") => Product::GtnImportance,
             ("restoration.isochrone", "map") => Product::Isochrone,
             ("restoration.resistance", "map") => Product::Resistance,
+            ("surface.geomorphons", "forms") => Product::Geomorphons,
             _ => return None,
         })
     }
@@ -244,6 +261,7 @@ impl Product {
             Product::Spa => find(&SPA_CLASSES),
             Product::Accounting => find(&ACCOUNTING_CLASSES),
             Product::FadClasses => FAD_CLASSES.iter().find(|(k, ..)| *k == b).map(|(_, n, _)| n.to_string()),
+            Product::Geomorphons => GEOMORPHONS.iter().find(|(k, ..)| *k == b).map(|(_, n, _)| n.to_string()),
             Product::Density { five } => Some(
                 match b {
                     0..=9 => "Rare (0-9%)",
@@ -381,6 +399,7 @@ impl Product {
             Product::Isochrone => gtb_palettes::ENTROPY[b],
             Product::Resistance => gtb_palettes::RESISTANCE[b],
             Product::FadClasses => FAD_CLASSES.iter().find(|(k, ..)| *k as usize == b)?.2,
+            Product::Geomorphons => GEOMORPHONS.iter().find(|(k, ..)| *k as usize == b)?.2,
             Product::Density { five: false } => gtb_palettes::FAD[b],
             Product::Density { five: true } => gtb_palettes::FAD5[b],
             Product::Connectivity => gtb_palettes::ENTROPY[b],

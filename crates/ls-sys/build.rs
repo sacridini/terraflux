@@ -27,6 +27,9 @@ fn main() {
     println!("cargo:rerun-if-changed={}", source.join("src").join("cpp").join("rest").display());
     println!("cargo:rerun-if-changed={}", source.join("src").join("cpp").join("opt").display());
     println!("cargo:rerun-if-changed={}", source.join("src").join("cpp").join("prio").display());
+    println!("cargo:rerun-if-changed={}", source.join("src").join("cpp").join("surf").display());
+    println!("cargo:rerun-if-changed={}", source.join("src").join("cpp").join("hydro").display());
+    println!("cargo:rerun-if-changed={}", source.join("src").join("cpp").join("serv").display());
 
     let target = std::env::var("TARGET").unwrap();
     if target.contains("msvc") && std::env::var_os("CMAKE").is_none() {
@@ -60,6 +63,8 @@ fn main() {
     for lib in [
         "sdmcore",
         "surfcore",
+        "hydrocore",
+        "servcore",
         "simcore",
         "costcore",
         "biocore",

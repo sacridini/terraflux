@@ -6,6 +6,40 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Terrain hydrology (`hydro.*`, landschaft 1.50's `ls.hydro`, bit for bit): depression filling (Priority-Flood,
+  with or without the epsilon that drains the filled areas) and least-cost breaching (WhiteboxTools'
+  BreachDepressionsLeastCost); flow directions (D8 as ESRI's codes, D-infinity azimuths, pygeoprocessing's
+  multiple flow directions packed as the InVEST models route); flow accumulation (D8, D-infinity, FD8, Quinn's,
+  pygeoprocessing's MFD; in cells, area or specific contributing area; with weights); streams by a threshold or
+  traced as InVEST traces them; the distance to them along the MFD; HAND; stream links with their table
+  (downstream link, length, elevations, Strahler order) and outlets snapped to them; watersheds; the wetness,
+  stream power and sediment transport indices; the index of connectivity of Borselli et al. (2008).
+- Ecosystem services, InVEST's models (natcap.invest 3.20) as landschaft reimplements them, the same float32 bits:
+  `services.carbon` (storage, its pools, the sequestration and its net present value, the totals),
+  `services.habitat_quality` (degradation by threat and in all, quality, rarity; access from a raster or
+  polygons), `services.water_yield` (the Budyko curve, actual and potential evapotranspiration, the tables of
+  watersheds and subwatersheds with consumption, realized supply and hydropower) and `services.sdr` (USLE, the
+  sediment delivery ratio, export, deposition, avoided erosion and export, by watershed). numpy's own float32
+  exp, sin and cos (its AVX2 kernels, not the C library's) are ported for them (`terraflux_ops::npmath`).
+- Landforms and potentials of a surface (landschaft 1.50's, bit for bit): `surface.geomorphons` (GRASS's
+  r.geomorphon 8.4 with four of its errors corrected: the ten landforms, named and in GRASS's colours in the viewer,
+  the ternary and binary patterns, the measures, the share of each form), `surface.hilltop` (the hilltops of
+  Brazil's Forest Code, APP de topo de morro of Lei 12.651/2012: every summit with its base, height and slope, the
+  protected upper part of the hills that qualify) and `surface.gravity` (Dinamica EGO's
+  CalcInteractionPotentialMap, by direct sums or an FFT).
+- Dinamica EGO's functors of landschaft 1.50, bit for bit: `dinamica.continuous_patcher` (PatcherContinuousState:
+  patches that take a stock, biomass or timber, up to a quota, step by step) and the road constructor of the Amazon
+  models: `dinamica.cost_map` (CalcCostMap), `dinamica.destinations` (CalcDestinationMap), `dinamica.pathways`
+  (CalcPathwayMap) and `dinamica.roads` (a step of road building, with the distance to the roads as a dynamic
+  variable).
+- The library's subjects Terrain hydrology and Ecosystem services.
+
+### Changed
+- landschaft is at its 1.50.0 (the submodule; its `hydrocore` and `servcore` linked).
+- Debug builds keep line tables only, and the dependencies no debug information: `target/debug` had grown to
+  350 GB of test programs' debug information.
+
 ## [0.85.0] - 2026-10-17
 
 ### Changed

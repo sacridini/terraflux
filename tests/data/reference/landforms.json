@@ -1,0 +1,308 @@
+{
+ "landschaft": "1.49.0",
+ "geomorphons": {
+  "default": {
+   "transform": [
+    300000.0,
+    30.0,
+    0.0,
+    7400000.0,
+    0.0,
+    -30.0
+   ],
+   "settings": {
+    "search": 3,
+    "skip": 0,
+    "flat": 1.0,
+    "dist": 0.0,
+    "units": "cells",
+    "comparison": "anglev1",
+    "extended": false,
+    "measures": true
+   }
+  },
+  "search10_skip2_dist": {
+   "transform": [
+    300000.0,
+    30.0,
+    0.0,
+    7400000.0,
+    0.0,
+    -30.0
+   ],
+   "settings": {
+    "search": 10,
+    "skip": 2,
+    "flat": 1.5,
+    "dist": 5.0,
+    "units": "cells",
+    "comparison": "anglev1",
+    "extended": false,
+    "measures": true
+   }
+  },
+  "extended_anglev2": {
+   "transform": [
+    300000.0,
+    30.0,
+    0.0,
+    7400000.0,
+    0.0,
+    -30.0
+   ],
+   "settings": {
+    "search": 16,
+    "skip": 0,
+    "flat": 1.0,
+    "dist": 0.0,
+    "units": "cells",
+    "comparison": "anglev2",
+    "extended": true,
+    "measures": true
+   }
+  },
+  "extended_skip": {
+   "transform": [
+    300000.0,
+    30.0,
+    0.0,
+    7400000.0,
+    0.0,
+    -30.0
+   ],
+   "settings": {
+    "search": 16,
+    "skip": 3,
+    "flat": 1.0,
+    "dist": 0.0,
+    "units": "cells",
+    "comparison": "anglev1",
+    "extended": true,
+    "measures": true
+   }
+  },
+  "ties_anglev2_distance": {
+   "transform": [
+    300000.0,
+    30.0,
+    0.0,
+    7400000.0,
+    0.0,
+    -30.0
+   ],
+   "settings": {
+    "search": 8,
+    "skip": 1,
+    "flat": 0.8,
+    "dist": 0.0,
+    "units": "cells",
+    "comparison": "anglev2_distance",
+    "extended": false,
+    "measures": true
+   }
+  },
+  "ties_anglev1": {
+   "transform": [
+    300000.0,
+    30.0,
+    0.0,
+    7400000.0,
+    0.0,
+    -30.0
+   ],
+   "settings": {
+    "search": 8,
+    "skip": 0,
+    "flat": 0.8,
+    "dist": 3.0,
+    "units": "cells",
+    "comparison": "anglev1",
+    "extended": false,
+    "measures": true
+   }
+  },
+  "holes": {
+   "transform": [
+    300000.0,
+    25.0,
+    0.0,
+    7400000.0,
+    0.0,
+    -25.0
+   ],
+   "settings": {
+    "search": 6,
+    "skip": 1,
+    "flat": 1.0,
+    "dist": 0.0,
+    "units": "cells",
+    "comparison": "anglev1",
+    "extended": false,
+    "measures": true
+   }
+  },
+  "map_units": {
+   "transform": [
+    300000.0,
+    20.0,
+    0.0,
+    7400000.0,
+    0.0,
+    -30.0
+   ],
+   "settings": {
+    "search": 250,
+    "skip": 40,
+    "flat": 2.0,
+    "dist": 150.0,
+    "units": "map",
+    "comparison": "anglev2",
+    "extended": false,
+    "measures": true
+   }
+  },
+  "terraces_extended": {
+   "transform": [
+    300000.0,
+    10.0,
+    0.0,
+    7400000.0,
+    0.0,
+    -10.0
+   ],
+   "settings": {
+    "search": 12,
+    "skip": 0,
+    "flat": 1.0,
+    "dist": 0.0,
+    "units": "cells",
+    "comparison": "anglev1",
+    "extended": true,
+    "measures": true
+   }
+  }
+ },
+ "hilltop": [
+  {
+   "name": "cone",
+   "transform": [
+    0.0,
+    10.0,
+    0.0,
+    1000.0,
+    0.0,
+    -10.0
+   ],
+   "settings": {},
+   "plain": false
+  },
+  {
+   "name": "srtm",
+   "transform": [
+    300000.0,
+    30.0,
+    0.0,
+    7400000.0,
+    0.0,
+    -30.0
+   ],
+   "settings": {
+    "min_height": 20.0,
+    "min_slope": 5.0,
+    "slope": "line",
+    "fraction": 0.5
+   },
+   "plain": true
+  },
+  {
+   "name": "srtm_mean",
+   "transform": [
+    300000.0,
+    30.0,
+    0.0,
+    7400000.0,
+    0.0,
+    -30.0
+   ],
+   "settings": {
+    "min_height": 15.0,
+    "min_slope": 3.0
+   },
+   "plain": false
+  },
+  {
+   "name": "lonlat",
+   "settings": {
+    "min_height": 40.0,
+    "min_slope": 4.0
+   },
+   "plain": false
+  }
+ ],
+ "gravity": [
+  {
+   "name": "cells",
+   "settings": {},
+   "mask": false
+  },
+  {
+   "name": "map",
+   "settings": {
+    "unit": "map",
+    "exponent": 1.5
+   },
+   "mask": false
+  },
+  {
+   "name": "mask",
+   "settings": {
+    "exponent": 2.5
+   },
+   "mask": true
+  },
+  {
+   "name": "fft",
+   "settings": {
+    "method": "fft"
+   },
+   "mask": false
+  }
+ ],
+ "roads": {
+  "builder": {
+   "quadrants": [
+    2,
+    3
+   ],
+   "distance": [
+    800.0,
+    2500.0
+   ],
+   "spacing": 600.0
+  }
+ },
+ "gravity_transform": [
+  500000.0,
+  30.0,
+  0.0,
+  8000000.0,
+  0.0,
+  -30.0
+ ],
+ "stock_transform": [
+  600000.0,
+  30.0,
+  0.0,
+  9000000.0,
+  0.0,
+  -30.0
+ ],
+ "roads_transform": [
+  700000.0,
+  100.0,
+  0.0,
+  9100000.0,
+  0.0,
+  -100.0
+ ]
+}

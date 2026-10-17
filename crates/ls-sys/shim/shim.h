@@ -428,6 +428,12 @@ struct ActionsSettings;
 struct ActionsModel;
 struct ActionsBenefit;
 struct ActionsPairs;
+struct HydroLinks;
+struct ServClasses;
+struct GeomorphonsOut;
+struct HilltopsOut;
+struct ContinuousOut;
+struct FrictionOut;
 ActionsModel actions_compile(const ActionsInput& input, const ActionsSettings& settings);
 SolveOut actions_solve(const ActionsInput& input, const ActionsSettings& settings, double gap, double time_limit,
                        rust::Slice<const double> start);
@@ -726,5 +732,107 @@ PathsOut cost_paths(rust::Slice<const double> values, rust::Slice<const double> 
 rust::Vec<double> io_extract(rust::Slice<const double> values, std::int32_t bands, std::int32_t ny, std::int32_t nx,
                              rust::Slice<const double> gt, rust::Slice<const double> x, rust::Slice<const double> y,
                              bool bilinear, std::int32_t row0, std::int32_t ny_total);
+
+// terrain hydrology (landschaft's hydro); an empty optional raster is none
+rust::Vec<double> hydro_fill(rust::Slice<const double> z, std::int32_t ny, std::int32_t nx, bool epsilon);
+rust::Vec<double> hydro_breach(rust::Slice<const double> z, std::int32_t ny, std::int32_t nx, double dx, double dy,
+                               std::int32_t max_length, double max_cost, bool min_dist, double small_num,
+                               bool fill_rest);
+rust::Vec<std::int8_t> hydro_d8(rust::Slice<const double> z, std::int32_t ny, std::int32_t nx, double dx, double dy,
+                                bool resolve_flats, std::int32_t threads);
+rust::Vec<std::int8_t> hydro_flat_directions(rust::Slice<const double> z, rust::Slice<const std::int8_t> dir,
+                                             std::int32_t ny, std::int32_t nx, double dx, double dy);
+rust::Vec<double> hydro_d8_accumulation(rust::Slice<const std::int8_t> dir, rust::Slice<const double> weight,
+                                        std::int32_t ny, std::int32_t nx);
+rust::Vec<double> hydro_dinf(rust::Slice<const double> z, std::int32_t ny, std::int32_t nx, double dx, double dy,
+                             rust::Slice<const std::int8_t> flats, std::int32_t threads);
+rust::Vec<double> hydro_dinf_accumulation(rust::Slice<const double> angle, rust::Slice<const double> weight,
+                                          std::int32_t ny, std::int32_t nx);
+rust::Vec<double> hydro_mfd_accumulation(rust::Slice<const double> z, std::int32_t ny, std::int32_t nx, double dx,
+                                         double dy, double exponent, bool quinn, rust::Slice<const std::int8_t> flats,
+                                         rust::Slice<const double> weight);
+rust::Vec<std::int32_t> hydro_mfd_directions(rust::Slice<const double> z, std::int32_t ny, std::int32_t nx,
+                                             std::int32_t block);
+rust::Vec<double> hydro_mfd_packed_accumulation(rust::Slice<const std::int32_t> dir, rust::Slice<const double> weight,
+                                                std::int32_t ny, std::int32_t nx);
+rust::Vec<double> hydro_mfd_distance_to_channel(rust::Slice<const std::int32_t> dir,
+                                                rust::Slice<const std::uint8_t> channel,
+                                                rust::Slice<const double> weight, std::int32_t ny, std::int32_t nx);
+rust::Vec<std::uint8_t> hydro_mfd_streams(rust::Slice<const double> acc, rust::Slice<const std::int32_t> dir,
+                                          std::int32_t ny, std::int32_t nx, double threshold, double trace,
+                                          std::int32_t block);
+rust::Vec<std::uint8_t> hydro_pgp_d8(rust::Slice<const double> z, std::int32_t ny, std::int32_t nx,
+                                     std::int32_t block);
+rust::Vec<double> hydro_pgp_d8_accumulation(rust::Slice<const std::uint8_t> dir, rust::Slice<const double> weight,
+                                            std::int32_t ny, std::int32_t nx);
+rust::Vec<double> hydro_pgp_d8_distance_to_channel(rust::Slice<const std::uint8_t> dir,
+                                                   rust::Slice<const std::uint8_t> channel,
+                                                   rust::Slice<const double> weight, std::int32_t ny, std::int32_t nx);
+rust::Vec<double> hydro_hand(rust::Slice<const double> z, rust::Slice<const std::int8_t> dir,
+                             rust::Slice<const std::uint8_t> streams, std::int32_t ny, std::int32_t nx);
+HydroLinks hydro_stream_links(rust::Slice<const std::int8_t> dir, rust::Slice<const std::uint8_t> stream,
+                              rust::Slice<const std::uint8_t> breaks, std::int32_t ny, std::int32_t nx);
+rust::Vec<std::int32_t> hydro_watersheds(rust::Slice<const std::int8_t> dir, rust::Slice<const std::int32_t> seeds,
+                                         std::int32_t ny, std::int32_t nx);
+
+// ecosystem services (landschaft's serv: InVEST's models)
+ServClasses serv_classify(rust::Slice<const std::int64_t> lulc, rust::Slice<const std::uint8_t> valid,
+                          rust::Slice<const std::int64_t> codes, std::int32_t threads);
+rust::Vec<float> serv_carbon_pools(rust::Slice<const std::int32_t> cls, rust::Slice<const float> pools,
+                                   std::int32_t threads);
+double serv_total(rust::Slice<const float> x, std::int32_t threads);
+rust::Vec<float> serv_distance_transform(rust::Slice<const std::uint8_t> region, std::int32_t ny, std::int32_t nx,
+                                         std::int32_t threads);
+rust::Vec<float> serv_threat_degradation(rust::Slice<const float> dist, rust::Slice<const float> given,
+                                         rust::Slice<const std::int32_t> cls, rust::Slice<const float> sens,
+                                         rust::Slice<const float> access, double max_px, bool exponential,
+                                         double weight, rust::Slice<float> total, std::int32_t threads);
+rust::Vec<float> serv_quality(rust::Slice<const float> total, rust::Slice<const std::int32_t> cls,
+                              rust::Slice<const float> habitat, double ksq, std::int32_t threads);
+rust::Vec<float> serv_water_fraction(rust::Slice<const std::int32_t> cls, rust::Slice<const float> kc,
+                                     rust::Slice<const float> root, rust::Slice<const float> veg,
+                                     rust::Slice<const double> eto, rust::Slice<const double> precip,
+                                     rust::Slice<const double> soil, rust::Slice<const double> pawc, double z,
+                                     bool wide, std::int32_t threads);
+rust::Vec<double> serv_water_yield(rust::Slice<const float> fractp, rust::Slice<const double> precip, bool wide,
+                                   std::int32_t threads);
+rust::Vec<double> serv_potential_et(rust::Slice<const std::int32_t> cls, rust::Slice<const float> kc,
+                                    rust::Slice<const double> eto, bool wide, std::int32_t threads);
+rust::Vec<float> serv_pgp_slope(rust::Slice<const double> z, std::int32_t ny, std::int32_t nx, double xcell,
+                                double ycell, std::int32_t threads);
+rust::Vec<float> serv_sediment_deposition(rust::Slice<const std::int32_t> mfd, rust::Slice<const std::uint8_t> d8,
+                                          rust::Slice<const float> e_prime, rust::Slice<const float> sdr,
+                                          std::int32_t ny, std::int32_t nx, std::int32_t block);
+
+// surfaces: geomorphons, hilltops, gravity
+GeomorphonsOut surf_geomorphons(rust::Slice<const float> z, std::int32_t ny, std::int32_t nx, double north,
+                                double west, double ns_res, double ew_res, std::int32_t search_cells,
+                                std::int32_t skip_cells, double search_distance, double flat_threshold,
+                                double flat_distance, double flat_height, double max_resolution, bool extended,
+                                std::int32_t comparison, std::uint32_t outputs);
+HilltopsOut surf_hilltops(rust::Slice<const double> z, rust::Slice<const double> slope,
+                          rust::Slice<const std::uint8_t> plain, std::int32_t ny, std::int32_t nx, double dx, double dy,
+                          double min_height, double min_slope, bool line_slope, double fraction);
+rust::Vec<double> surf_gravity(rust::Slice<const double> mass, rust::Slice<const double> mask, std::int32_t ny,
+                               std::int32_t nx, double beta, double dx, double dy, double self_distance);
+rust::Vec<double> surf_gravity_fft(rust::Slice<const double> mass, rust::Slice<const double> weights, std::int32_t ny,
+                                   std::int32_t nx);
+rust::Vec<double> surf_gravity_weights(std::int32_t ny, std::int32_t nx, double beta, double dx, double dy,
+                                       double self_distance);
+
+// simulation: the Patcher of a continuous state, endogenous roads
+ContinuousOut sim_continuous_patches(rust::Slice<const double> stock, rust::Slice<const double> probability,
+                                     std::int64_t ny, std::int64_t nx, double quota, double mean, double variance,
+                                     double isometry, double prune_factor, std::int32_t win_rows,
+                                     std::int32_t win_cols, std::uint64_t seed);
+FrictionOut sim_friction_cost(rust::Slice<const std::uint8_t> source, rust::Slice<const double> friction,
+                              std::int64_t ny, std::int64_t nx, double diagonal, bool directions);
+rust::Vec<std::int64_t> sim_destinations(rust::Slice<const double> attraction, std::int64_t ny, std::int64_t nx,
+                                         std::int32_t horizontal, std::int32_t vertical, std::int32_t per_quadrant,
+                                         double min_distance, std::int32_t max_attempts, double dx, double dy,
+                                         std::uint64_t seed);
+rust::Vec<std::uint8_t> sim_pathways(rust::Slice<const std::uint8_t> network, rust::Slice<const std::uint8_t> sources,
+                                     rust::Slice<const double> cost, rust::Slice<const std::uint8_t> dir,
+                                     std::int64_t ny, std::int64_t nx, bool lottery, std::uint64_t seed);
 
 }  // namespace tfx

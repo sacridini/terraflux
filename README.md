@@ -54,7 +54,7 @@ computers of a local network or on a Slurm cluster, and on maps larger than memo
 
 | Field | What Terraflux does | Methods of |
 |---|---|---|
-| **Land change simulation** | Dinamica EGO's model (Markov chains, weights of evidence, Expander and Patcher), CLUE-S, ordered allocation, PLUS's CARS, cellular automata in loops, validation by fuzzy similarity | Dinamica EGO, lulcc, landschaft |
+| **Land change simulation** | Dinamica EGO's model (Markov chains, weights of evidence, Expander and Patcher, the Patcher of a stock, endogenous roads), CLUE-S, ordered allocation, PLUS's CARS, cellular automata in loops, validation by fuzzy similarity | Dinamica EGO, lulcc, landschaft |
 | **Habitat patterns** | MSPA (also tiled, for maps larger than memory), SPA, Accounting, FAD and FOS fragmentation, landscape mosaic, spatial entropy, change between two dates | GuidosToolbox |
 | **Landscape metrics** | Patch, class and landscape metrics, moving windows, sample plots, time series, spatial signatures with PCA, NMF and clustering | landscapemetrics, FRAGSTATS |
 | **Connectivity** | Habitat graphs and Conefor's indices, MSPA networks, circuit theory, least-cost paths and corridors, random walks | Conefor, Circuitscape, Omniscape, gdistance |
@@ -62,7 +62,8 @@ computers of a local network or on a Slurm cluster, and on maps larger than memo
 | **Restoration** | Ecological intactness, restoration plans under area targets and budgets, trade-off curves | plangea |
 | **Species distributions** | GBIF records, CoordinateCleaner's tests, thinning, background points, spatial folds, MaxNet, GLM and random forests, evaluation and extrapolation (MESS, MOP) | dismo, ENMeval, blockCV, usdm |
 | **Agents** | Macro agents, parcel managers and CRAFTY's competition for land, in the same graph as the cellular automata | CRAFTY |
-| **Surfaces and data** | Terrain, distances, map algebra, reprojection and resampling, vectors by OGR, zonal statistics, Monte Carlo uncertainty | GDAL, exactextractr |
+| **Hydrology and ecosystem services** | Depressions filled and breached, flow directions and accumulation (D8, D-infinity, multiple flow), streams, HAND, watersheds, wetness indices; InVEST's carbon, habitat quality, annual water yield and sediment delivery ratio | WhiteboxTools, pygeoprocessing, InVEST |
+| **Surfaces and data** | Terrain, geomorphons, hilltops (APP de topo de morro), gravity potentials, distances, map algebra, reprojection and resampling, vectors by OGR, zonal statistics, Monte Carlo uncertainty | GDAL, GRASS, exactextractr |
 
 <table>
   <tr>

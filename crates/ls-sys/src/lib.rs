@@ -1192,6 +1192,66 @@ pub mod ffi {
         fn solve_watch(w: &mut SolveWatch, best: f64, bound: f64, gap: f64, seconds: f64) -> bool;
     }
 
+    /// The links of a stream network: the link of each cell (1..n, 0 off the streams), each link's first and last
+    /// cell and the link its last cell drains into (0: none).
+    struct HydroLinks {
+        link: Vec<i32>,
+        start: Vec<i64>,
+        end: Vec<i64>,
+        down: Vec<i32>,
+    }
+
+    /// The class index of every cell of a land use map (-1 missing, -2 unknown code), and the first cell of an
+    /// unknown code (-1: none).
+    struct ServClasses {
+        classes: Vec<i32>,
+        first: i64,
+    }
+
+    /// Geomorphons: forms (0 none), ternary, positive and negative patterns (negative: none), and the measures
+    /// (intensity, exposition, range, variance, elongation, azimuth, extend, width) one after the other, of
+    /// `lengths` values each (0 when not asked for).
+    struct GeomorphonsOut {
+        forms: Vec<i32>,
+        ternary: Vec<i32>,
+        positive: Vec<i32>,
+        negative: Vec<i32>,
+        measures: Vec<f64>,
+        lengths: Vec<i64>,
+    }
+
+    /// Hilltops: by summit (highest first), and the qualifying hill whose upper part holds each cell (-1: none).
+    struct HilltopsOut {
+        summit: Vec<i64>,
+        base_cell: Vec<i64>,
+        cells: Vec<i64>,
+        top: Vec<f64>,
+        base: Vec<f64>,
+        height: Vec<f64>,
+        mean_slope: Vec<f64>,
+        line_slope: Vec<f64>,
+        threshold: Vec<f64>,
+        kind: Vec<i32>,
+        qualifies: Vec<u8>,
+        label: Vec<i32>,
+    }
+
+    /// The Patcher of a continuous state: the stock taken from each cell, the patch of each cell taken, the quota
+    /// left (negative when exceeded), the patches and cells.
+    struct ContinuousOut {
+        taken: Vec<f64>,
+        patch: Vec<i32>,
+        remaining: f64,
+        patches: i64,
+        cells: i64,
+    }
+
+    /// Dinamica's cost map from the nearest source and the predecessor directions (empty when not asked for).
+    struct FrictionOut {
+        cost: Vec<f64>,
+        dir: Vec<u8>,
+    }
+
     unsafe extern "C++" {
         include!("terraflux-ls-sys/shim/shim.h");
 
@@ -2704,6 +2764,259 @@ pub mod ffi {
             row0: i32,
             ny_total: i32,
         ) -> Result<Vec<f64>>;
+
+        /// Priority-Flood depression filling (NaN = missing); epsilon: Priority-Flood+epsilon.
+        fn hydro_fill(z: &[f64], ny: i32, nx: i32, epsilon: bool) -> Result<Vec<f64>>;
+        /// Least-cost depression breaching (WhiteboxTools' BreachDepressionsLeastCost).
+        #[allow(clippy::too_many_arguments)]
+        fn hydro_breach(
+            z: &[f64],
+            ny: i32,
+            nx: i32,
+            dx: f64,
+            dy: f64,
+            max_length: i32,
+            max_cost: f64,
+            min_dist: bool,
+            small_num: f64,
+            fill_rest: bool,
+        ) -> Result<Vec<f64>>;
+        /// D8 directions: 0 NE, 1 E, ... 7 N; -1 no flow; -2 missing.
+        fn hydro_d8(
+            z: &[f64],
+            ny: i32,
+            nx: i32,
+            dx: f64,
+            dy: f64,
+            resolve_flats: bool,
+            threads: i32,
+        ) -> Result<Vec<i8>>;
+        /// The D8 directions of the flat cells (Barnes et al. 2014), -1 elsewhere.
+        fn hydro_flat_directions(z: &[f64], dir: &[i8], ny: i32, nx: i32, dx: f64, dy: f64) -> Result<Vec<i8>>;
+        /// D8 flow accumulation (weights empty: 1 per cell).
+        fn hydro_d8_accumulation(dir: &[i8], weight: &[f64], ny: i32, nx: i32) -> Result<Vec<f64>>;
+        /// D-infinity azimuths (degrees clockwise from north; -1 no flow; NaN missing).
+        fn hydro_dinf(z: &[f64], ny: i32, nx: i32, dx: f64, dy: f64, flats: &[i8], threads: i32) -> Result<Vec<f64>>;
+        /// D-infinity flow accumulation.
+        fn hydro_dinf_accumulation(angle: &[f64], weight: &[f64], ny: i32, nx: i32) -> Result<Vec<f64>>;
+        /// Multiple flow direction accumulation (FD8, or Quinn's).
+        #[allow(clippy::too_many_arguments)]
+        fn hydro_mfd_accumulation(
+            z: &[f64],
+            ny: i32,
+            nx: i32,
+            dx: f64,
+            dy: f64,
+            exponent: f64,
+            quinn: bool,
+            flats: &[i8],
+            weight: &[f64],
+        ) -> Result<Vec<f64>>;
+        /// pygeoprocessing's multiple flow directions (eight packed 4-bit weights).
+        fn hydro_mfd_directions(z: &[f64], ny: i32, nx: i32, block: i32) -> Result<Vec<i32>>;
+        /// pygeoprocessing's multiple flow accumulation.
+        fn hydro_mfd_packed_accumulation(dir: &[i32], weight: &[f64], ny: i32, nx: i32) -> Result<Vec<f64>>;
+        /// pygeoprocessing's distance to channel along the multiple flow directions.
+        fn hydro_mfd_distance_to_channel(
+            dir: &[i32],
+            channel: &[u8],
+            weight: &[f64],
+            ny: i32,
+            nx: i32,
+        ) -> Result<Vec<f64>>;
+        /// pygeoprocessing's stream extraction from the MFD accumulation (1 stream, 0 not, 255 missing).
+        #[allow(clippy::too_many_arguments)]
+        fn hydro_mfd_streams(
+            acc: &[f64],
+            dir: &[i32],
+            ny: i32,
+            nx: i32,
+            threshold: f64,
+            trace: f64,
+            block: i32,
+        ) -> Result<Vec<u8>>;
+        /// pygeoprocessing's D8 (0 E ... 7 SE, 128 missing).
+        fn hydro_pgp_d8(z: &[f64], ny: i32, nx: i32, block: i32) -> Result<Vec<u8>>;
+        /// pygeoprocessing's D8 accumulation.
+        fn hydro_pgp_d8_accumulation(dir: &[u8], weight: &[f64], ny: i32, nx: i32) -> Result<Vec<f64>>;
+        /// pygeoprocessing's D8 distance to channel.
+        fn hydro_pgp_d8_distance_to_channel(
+            dir: &[u8],
+            channel: &[u8],
+            weight: &[f64],
+            ny: i32,
+            nx: i32,
+        ) -> Result<Vec<f64>>;
+        /// Height above the nearest drainage along the D8 directions.
+        fn hydro_hand(z: &[f64], dir: &[i8], streams: &[u8], ny: i32, nx: i32) -> Result<Vec<f64>>;
+        /// The links of a stream network along D8 directions (breaks empty: none).
+        fn hydro_stream_links(dir: &[i8], stream: &[u8], breaks: &[u8], ny: i32, nx: i32) -> Result<HydroLinks>;
+        /// The seed each cell drains to along the D8 directions (0: none).
+        fn hydro_watersheds(dir: &[i8], seeds: &[i32], ny: i32, nx: i32) -> Result<Vec<i32>>;
+
+        /// The class index of every cell (-1 missing, -2 a code not in `codes`) and the first of unknown code.
+        fn serv_classify(lulc: &[i64], valid: &[u8], codes: &[i64], threads: i32) -> Result<ServClasses>;
+        /// InVEST's carbon pools (k x 4) by cell: above, below, soil, dead and total, one after the other.
+        fn serv_carbon_pools(cls: &[i32], pools: &[f32], threads: i32) -> Result<Vec<f32>>;
+        /// The sum of the non-NaN values in float64, in a fixed order.
+        fn serv_total(x: &[f32], threads: i32) -> f64;
+        /// pygeoprocessing's Euclidean distance transform (float32, pixels) to the non-zero cells.
+        fn serv_distance_transform(region: &[u8], ny: i32, nx: i32, threads: i32) -> Result<Vec<f32>>;
+        /// One threat's degradation by cell, added to `total` (given, access: empty for none).
+        #[allow(clippy::too_many_arguments)]
+        fn serv_threat_degradation(
+            dist: &[f32],
+            given: &[f32],
+            cls: &[i32],
+            sens: &[f32],
+            access: &[f32],
+            max_px: f64,
+            exponential: bool,
+            weight: f64,
+            total: &mut [f32],
+            threads: i32,
+        ) -> Result<Vec<f32>>;
+        /// Habitat quality h (1 - d^2.5 / (d^2.5 + k^2.5)) by cell.
+        fn serv_quality(total: &[f32], cls: &[i32], habitat: &[f32], ksq: f64, threads: i32) -> Result<Vec<f32>>;
+        /// InVEST's fractp (AET / P), computed in float64 if wide else float32.
+        #[allow(clippy::too_many_arguments)]
+        fn serv_water_fraction(
+            cls: &[i32],
+            kc: &[f32],
+            root: &[f32],
+            veg: &[f32],
+            eto: &[f64],
+            precip: &[f64],
+            soil: &[f64],
+            pawc: &[f64],
+            z: f64,
+            wide: bool,
+            threads: i32,
+        ) -> Result<Vec<f32>>;
+        /// Water yield and actual evapotranspiration, one after the other.
+        fn serv_water_yield(fractp: &[f32], precip: &[f64], wide: bool, threads: i32) -> Result<Vec<f64>>;
+        /// Potential evapotranspiration eto * kc.
+        fn serv_potential_et(cls: &[i32], kc: &[f32], eto: &[f64], wide: bool, threads: i32) -> Result<Vec<f64>>;
+        /// pygeoprocessing's percent slope (float32, NaN missing).
+        fn serv_pgp_slope(z: &[f64], ny: i32, nx: i32, xcell: f64, ycell: f64, threads: i32) -> Result<Vec<f32>>;
+        /// InVEST's sediment deposition and flux, one after the other (MFD directions, or D8 when mfd is empty).
+        #[allow(clippy::too_many_arguments)]
+        fn serv_sediment_deposition(
+            mfd: &[i32],
+            d8: &[u8],
+            e_prime: &[f32],
+            sdr: &[f32],
+            ny: i32,
+            nx: i32,
+            block: i32,
+        ) -> Result<Vec<f32>>;
+
+        /// Geomorphons (GRASS's r.geomorphon).
+        #[allow(clippy::too_many_arguments)]
+        fn surf_geomorphons(
+            z: &[f32],
+            ny: i32,
+            nx: i32,
+            north: f64,
+            west: f64,
+            ns_res: f64,
+            ew_res: f64,
+            search_cells: i32,
+            skip_cells: i32,
+            search_distance: f64,
+            flat_threshold: f64,
+            flat_distance: f64,
+            flat_height: f64,
+            max_resolution: f64,
+            extended: bool,
+            comparison: i32,
+            outputs: u32,
+        ) -> Result<GeomorphonsOut>;
+        /// Hilltops (APP de topo de morro, Lei 12.651/2012); plain empty for none.
+        #[allow(clippy::too_many_arguments)]
+        fn surf_hilltops(
+            z: &[f64],
+            slope: &[f64],
+            plain: &[u8],
+            ny: i32,
+            nx: i32,
+            dx: f64,
+            dy: f64,
+            min_height: f64,
+            min_slope: f64,
+            line_slope: bool,
+            fraction: f64,
+        ) -> Result<HilltopsOut>;
+        /// Gravitational interaction potential: the sum of m / d^beta over the source cells (mask empty: none).
+        #[allow(clippy::too_many_arguments)]
+        fn surf_gravity(
+            mass: &[f64],
+            mask: &[f64],
+            ny: i32,
+            nx: i32,
+            beta: f64,
+            dx: f64,
+            dy: f64,
+            self_distance: f64,
+        ) -> Result<Vec<f64>>;
+        /// The gravitational potential as a convolution of the masses (no value: 0) with the weight table, by R's
+        /// FFT.
+        fn surf_gravity_fft(mass: &[f64], weights: &[f64], ny: i32, nx: i32) -> Result<Vec<f64>>;
+        /// The 1 / d^beta table by offset (|di|, |dj|).
+        fn surf_gravity_weights(ny: i32, nx: i32, beta: f64, dx: f64, dy: f64, self_distance: f64) -> Result<Vec<f64>>;
+
+        /// The Patcher of a continuous state (Dinamica EGO's PatcherContinuousState).
+        #[allow(clippy::too_many_arguments)]
+        fn sim_continuous_patches(
+            stock: &[f64],
+            probability: &[f64],
+            ny: i64,
+            nx: i64,
+            quota: f64,
+            mean: f64,
+            variance: f64,
+            isometry: f64,
+            prune_factor: f64,
+            win_rows: i32,
+            win_cols: i32,
+            seed: u64,
+        ) -> Result<ContinuousOut>;
+        /// Dinamica EGO's CalcCostMap: the cost from the nearest source and the directions to the predecessors.
+        fn sim_friction_cost(
+            source: &[u8],
+            friction: &[f64],
+            ny: i64,
+            nx: i64,
+            diagonal: f64,
+            directions: bool,
+        ) -> Result<FrictionOut>;
+        /// Dinamica EGO's CalcDestinationMap: destinations drawn by attraction in quadrants (cells, in draw order).
+        #[allow(clippy::too_many_arguments)]
+        fn sim_destinations(
+            attraction: &[f64],
+            ny: i64,
+            nx: i64,
+            horizontal: i32,
+            vertical: i32,
+            per_quadrant: i32,
+            min_distance: f64,
+            max_attempts: i32,
+            dx: f64,
+            dy: f64,
+            seed: u64,
+        ) -> Result<Vec<i64>>;
+        /// Dinamica EGO's CalcPathwayMap: the new path cells (cost or dir empty).
+        #[allow(clippy::too_many_arguments)]
+        fn sim_pathways(
+            network: &[u8],
+            sources: &[u8],
+            cost: &[f64],
+            dir: &[u8],
+            ny: i64,
+            nx: i64,
+            lottery: bool,
+            seed: u64,
+        ) -> Result<Vec<u8>>;
     }
 }
 

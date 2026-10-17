@@ -25,7 +25,7 @@ use crate::theme;
 /// The subjects of the library: landschaft's (the sections of its reference, in its order), then the
 /// model's own (map algebra, the flow of a model); with the operators' prefixes in each and, within a subject,
 /// the groups of its operators.
-const SUBJECTS: [(&str, &[&str]); 21] = [
+const SUBJECTS: [(&str, &[&str]); 23] = [
     ("IO", &[]),
     ("Data preparation", &["raster", "vector"]),
     ("Habitat patterns", &["landscape", "patterns"]),
@@ -34,6 +34,7 @@ const SUBJECTS: [(&str, &[&str]); 21] = [
     ("Habitat networks", &["networks", "conn"]),
     ("Circuit connectivity", &["circuit"]),
     ("Surface metrics", &["surface"]),
+    ("Terrain hydrology", &["hydro"]),
     ("Grid distances", &["cost"]),
     ("Distance & restoration", &["distance", "restoration"]),
     ("Change detection", &["change"]),
@@ -42,6 +43,7 @@ const SUBJECTS: [(&str, &[&str]); 21] = [
     ("Biodiversity analysis", &["bio"]),
     ("Spatial prioritization", &["prioritize"]),
     ("Species distributions", &["sdm"]),
+    ("Ecosystem services", &["services"]),
     (
         "Land change simulation",
         &[

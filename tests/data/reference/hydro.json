@@ -1,0 +1,295 @@
+{
+ "landschaft": "1.49.0",
+ "dems": [
+  {
+   "name": "oregon",
+   "extent": [
+    0.0,
+    6600.0,
+    0.0,
+    5400.0
+   ],
+   "lonlat": false,
+   "outlets": [
+    [
+     261.0,
+     3678.0
+    ],
+    [
+     3831.0,
+     1848.0
+    ]
+   ],
+   "snap": 60.0
+  },
+  {
+   "name": "holes",
+   "extent": [
+    0.0,
+    6600.0,
+    0.0,
+    5400.0
+   ],
+   "lonlat": false,
+   "outlets": [
+    [
+     711.0,
+     3738.0
+    ],
+    [
+     5961.0,
+     1878.0
+    ]
+   ],
+   "snap": 60.0
+  },
+  {
+   "name": "walk",
+   "extent": [
+    0.0,
+    4800.0,
+    0.0,
+    3000.0
+   ],
+   "lonlat": false,
+   "outlets": [
+    [
+     2061.0,
+     1965.0
+    ],
+    [
+     861.0,
+     964.9999999999998
+    ]
+   ],
+   "snap": 60.0
+  },
+  {
+   "name": "terraces",
+   "extent": [
+    0.0,
+    6600.0,
+    0.0,
+    5400.0
+   ],
+   "lonlat": false,
+   "outlets": [
+    [
+     591.0,
+     3618.0
+    ],
+    [
+     2121.0,
+     1818.0
+    ]
+   ],
+   "snap": 60.0
+  },
+  {
+   "name": "lonlat",
+   "extent": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "lonlat": true
+  }
+ ],
+ "cases": [
+  [
+   "fill",
+   "fill",
+   {
+    "weights": false
+   }
+  ],
+  [
+   "fill_eps",
+   "fill",
+   {
+    "drain_flats": true,
+    "weights": false
+   }
+  ],
+  [
+   "breach",
+   "breach",
+   {
+    "weights": false
+   }
+  ],
+  [
+   "breach_len",
+   "breach",
+   {
+    "max_length": 5,
+    "min_dist": false,
+    "flat_increment": 0.01,
+    "fill_rest": false,
+    "weights": false
+   }
+  ],
+  [
+   "d8",
+   "flow_direction",
+   {
+    "weights": false
+   }
+  ],
+  [
+   "d8_raw",
+   "flow_direction",
+   {
+    "flats": false,
+    "weights": false
+   }
+  ],
+  [
+   "dinf",
+   "flow_direction",
+   {
+    "method": "dinf",
+    "weights": false
+   }
+  ],
+  [
+   "mfd",
+   "flow_direction",
+   {
+    "method": "mfd",
+    "weights": false
+   }
+  ],
+  [
+   "acc_d8",
+   "flow_accumulation",
+   {
+    "weights": false
+   }
+  ],
+  [
+   "acc_d8_sca",
+   "flow_accumulation",
+   {
+    "units": "sca",
+    "weights": false
+   }
+  ],
+  [
+   "acc_dinf",
+   "flow_accumulation",
+   {
+    "method": "dinf",
+    "units": "area",
+    "weights": false
+   }
+  ],
+  [
+   "acc_fd8",
+   "flow_accumulation",
+   {
+    "method": "fd8",
+    "weights": false
+   }
+  ],
+  [
+   "acc_quinn",
+   "flow_accumulation",
+   {
+    "method": "quinn",
+    "exponent": 1.5,
+    "flats": false,
+    "weights": false
+   }
+  ],
+  [
+   "acc_mfd",
+   "flow_accumulation",
+   {
+    "method": "mfd",
+    "weights": false
+   }
+  ],
+  [
+   "acc_w",
+   "flow_accumulation",
+   {
+    "method": "fd8",
+    "weights": true
+   }
+  ],
+  [
+   "hand",
+   "hand",
+   {
+    "threshold": 20,
+    "weights": false
+   }
+  ],
+  [
+   "twi",
+   "twi",
+   {
+    "weights": false
+   }
+  ],
+  [
+   "twi_min",
+   "twi",
+   {
+    "min_slope": 0.001,
+    "method": "d8",
+    "weights": false
+   }
+  ],
+  [
+   "spi",
+   "spi",
+   {
+    "method": "quinn",
+    "weights": false
+   }
+  ],
+  [
+   "sti",
+   "sti",
+   {
+    "sca_exponent": 0.5,
+    "slope_exponent": 1.2,
+    "weights": false
+   }
+  ],
+  [
+   "ic",
+   "connectivity_index",
+   {
+    "threshold": 30,
+    "weights": false
+   }
+  ],
+  [
+   "ic_d8",
+   "connectivity_index",
+   {
+    "threshold": 30,
+    "method": "d8",
+    "weights": false
+   }
+  ]
+ ],
+ "links_columns": [
+  "link",
+  "downstream",
+  "outlet",
+  "start_row",
+  "start_col",
+  "end_row",
+  "end_col",
+  "cells",
+  "length",
+  "z_start",
+  "z_end",
+  "order"
+ ]
+}

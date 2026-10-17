@@ -775,6 +775,22 @@ Pendências:
   landschaft foi para o C++ dele (`sim/molusce.cpp`, a vizinhança e as preferências do CLUMondo). Os casos de
   `tests/data/bridge` saem do `tools/make_reference.py bridge`.
 
+- **O landschaft 1.50.0: hidrologia e InVEST (2026-10-17):** o submódulo no `main` do landschaft (`hydrocore` e
+  `servcore` ligados pelo `build.rs`); `hydro.*` (13 operadores: preenchimento, rompimento, direções, acumulações,
+  rios, distância a eles, HAND, trechos com a tabela e as saídas, bacias, TWI, SPI, STI, índice de conectividade) e
+  `services.*` (carbono, qualidade do habitat, produção de água, SDR), cada um bit a bit com o landschaft nos dados
+  de referência dele (os DEMs das referências do WhiteboxTools e do pygeoprocessing, um canto de orelevation em
+  longitude e latitude, os casos do InVEST); `tests/data/reference/hydro.*` e `services.*` saem de
+  `tools/make_hydro_reference.py` e `tools/make_services_reference.py`. O que o landschaft faz no numpy foi para o
+  Rust com a mesma aritmética: float32 onde o InVEST é float32, o `exp`, o `sin` e o `cos` float32 do numpy
+  (os kernels AVX2 dele, `terraflux_ops::npmath`) e os atalhos do `np.power` (0,5, 2, -1).
+- **O landschaft 1.50.0: superfícies e funtores do Dinamica (2026-10-17):** `surface.geomorphons` (com os nomes e as
+  cores do GRASS no visualizador), `surface.hilltop`, `surface.gravity` (a FFT pela do R, do landschaft, no shim),
+  `dinamica.continuous_patcher` e as estradas (`dinamica.cost_map`, `dinamica.destinations`, `dinamica.pathways`,
+  `dinamica.roads`, as sementes dos passos como as do landschaft), bit a bit com ele
+  (`tools/make_landforms_reference.py`: os casos do r.geomorphon do landschaft, um cone, o srtm deles e um canto de
+  orelevation, cidades, um estoque de biomassa, uma rede de estradas).
+
 Pendências gerais, depois das fases:
 - reprojeção (PROJ), vetores e distâncias com um clique (feito: o painel Prepare);
 - editor de legenda, gráficos editáveis do WoE e assistente de análise das mudanças;

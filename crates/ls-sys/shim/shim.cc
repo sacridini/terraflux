@@ -72,6 +72,7 @@
 #include "rest/intactness.hpp"
 #include "lsm/rmath.hpp"
 #include "nlm/models.hpp"
+#include "nlm/rfft.hpp"
 #include <Eigen/SparseCore>
 #include <Eigen/SparseLU>
 
@@ -94,6 +95,11 @@
 #include "sim/observed.hpp"
 #include "sim/ordered.hpp"
 #include "sim/patches.hpp"
+#include "sim/continuous.hpp"
+#include "sim/roads.hpp"
+#include "hydro/hydro.hpp"
+#include "serv/sdr.hpp"
+#include "serv/services.hpp"
 #include "sim/plus.hpp"
 #include "sim/rglm.hpp"
 #include "sim/rules.hpp"
@@ -4203,6 +4209,482 @@ rust::Vec<double> io_extract(rust::Slice<const double> values, std::int32_t band
     check(row0 >= 0 && row0 + ny <= ny_total, "the block's rows lie in the grid");
     return to_rust<double>(lsio::extract(values.data(), bands, ny, nx, false, 0.0, gt.data(), x.data(), y.data(),
                                          static_cast<i64>(x.size()), bilinear, row0, ny_total));
+}
+
+// -- terrain hydrology (landschaft's hydro) ------------------------------------------------------------------
+
+namespace {
+
+hydro::Grid hydro_grid(rust::Slice<const double> z, std::int32_t ny, std::int32_t nx, double dx, double dy) {
+    check(ny >= 0 && nx >= 0 && z.size() == static_cast<std::size_t>(ny) * nx, "the DEM differs in size from ny x nx");
+    hydro::Grid g;
+    g.z = z.data();
+    g.ny = ny;
+    g.nx = nx;
+    g.dx = dx;
+    g.dy = dy;
+    return g;
+}
+
+// an optional raster: empty for none, else ny x nx
+template <class T>
+const T* optional(rust::Slice<const T> v, std::int32_t ny, std::int32_t nx, const char* what) {
+    if (v.empty()) return nullptr;
+    check(v.size() == static_cast<std::size_t>(ny) * nx, what);
+    return v.data();
+}
+
+template <class T>
+const T* sized(rust::Slice<const T> v, std::int32_t ny, std::int32_t nx, const char* what) {
+    check(ny >= 0 && nx >= 0 && v.size() == static_cast<std::size_t>(ny) * nx, what);
+    return v.data();
+}
+
+}  // namespace
+
+rust::Vec<double> hydro_fill(rust::Slice<const double> z, std::int32_t ny, std::int32_t nx, bool epsilon) {
+    return to_rust<double>(hydro::fill(hydro_grid(z, ny, nx, 1.0, 1.0), epsilon));
+}
+
+rust::Vec<double> hydro_breach(rust::Slice<const double> z, std::int32_t ny, std::int32_t nx, double dx, double dy,
+                               std::int32_t max_length, double max_cost, bool min_dist, double small_num,
+                               bool fill_rest) {
+    return to_rust<double>(
+        hydro::breach(hydro_grid(z, ny, nx, dx, dy), max_length, max_cost, min_dist, small_num, fill_rest));
+}
+
+rust::Vec<std::int8_t> hydro_d8(rust::Slice<const double> z, std::int32_t ny, std::int32_t nx, double dx, double dy,
+                                bool resolve_flats, std::int32_t threads) {
+    return to_rust<std::int8_t>(hydro::d8(hydro_grid(z, ny, nx, dx, dy), resolve_flats, threads));
+}
+
+rust::Vec<std::int8_t> hydro_flat_directions(rust::Slice<const double> z, rust::Slice<const std::int8_t> dir,
+                                             std::int32_t ny, std::int32_t nx, double dx, double dy) {
+    const hydro::Grid g = hydro_grid(z, ny, nx, dx, dy);
+    sized(dir, ny, nx, "the directions differ in size from the DEM");
+    return to_rust<std::int8_t>(hydro::flat_directions(g, to_std(dir)));
+}
+
+rust::Vec<double> hydro_d8_accumulation(rust::Slice<const std::int8_t> dir, rust::Slice<const double> weight,
+                                        std::int32_t ny, std::int32_t nx) {
+    return to_rust<double>(hydro::d8_accumulation(sized(dir, ny, nx, "the directions differ in size from ny x nx"),
+                                                  optional(weight, ny, nx, "the weights differ in size"), ny, nx));
+}
+
+rust::Vec<double> hydro_dinf(rust::Slice<const double> z, std::int32_t ny, std::int32_t nx, double dx, double dy,
+                             rust::Slice<const std::int8_t> flats, std::int32_t threads) {
+    const hydro::Grid g = hydro_grid(z, ny, nx, dx, dy);
+    return to_rust<double>(hydro::dinf(g, optional(flats, ny, nx, "the flat directions differ in size"), threads));
+}
+
+rust::Vec<double> hydro_dinf_accumulation(rust::Slice<const double> angle, rust::Slice<const double> weight,
+                                          std::int32_t ny, std::int32_t nx) {
+    return to_rust<double>(hydro::dinf_accumulation(sized(angle, ny, nx, "the azimuths differ in size from ny x nx"),
+                                                    optional(weight, ny, nx, "the weights differ in size"), ny, nx));
+}
+
+rust::Vec<double> hydro_mfd_accumulation(rust::Slice<const double> z, std::int32_t ny, std::int32_t nx, double dx,
+                                         double dy, double exponent, bool quinn, rust::Slice<const std::int8_t> flats,
+                                         rust::Slice<const double> weight) {
+    const hydro::Grid g = hydro_grid(z, ny, nx, dx, dy);
+    return to_rust<double>(hydro::mfd_accumulation(g, exponent, quinn,
+                                                   optional(flats, ny, nx, "the flat directions differ in size"),
+                                                   optional(weight, ny, nx, "the weights differ in size")));
+}
+
+rust::Vec<std::int32_t> hydro_mfd_directions(rust::Slice<const double> z, std::int32_t ny, std::int32_t nx,
+                                             std::int32_t block) {
+    return to_rust<std::int32_t>(hydro::mfd_directions(hydro_grid(z, ny, nx, 1.0, 1.0), block));
+}
+
+rust::Vec<double> hydro_mfd_packed_accumulation(rust::Slice<const std::int32_t> dir, rust::Slice<const double> weight,
+                                                std::int32_t ny, std::int32_t nx) {
+    return to_rust<double>(
+        hydro::mfd_packed_accumulation(sized(dir, ny, nx, "the directions differ in size from ny x nx"),
+                                       optional(weight, ny, nx, "the weights differ in size"), ny, nx));
+}
+
+rust::Vec<double> hydro_mfd_distance_to_channel(rust::Slice<const std::int32_t> dir,
+                                                rust::Slice<const std::uint8_t> channel,
+                                                rust::Slice<const double> weight, std::int32_t ny, std::int32_t nx) {
+    return to_rust<double>(hydro::mfd_distance_to_channel(
+        sized(dir, ny, nx, "the directions differ in size from ny x nx"),
+        sized(channel, ny, nx, "the channels differ in size"), optional(weight, ny, nx, "the weights differ in size"),
+        ny, nx));
+}
+
+rust::Vec<std::uint8_t> hydro_mfd_streams(rust::Slice<const double> acc, rust::Slice<const std::int32_t> dir,
+                                          std::int32_t ny, std::int32_t nx, double threshold, double trace,
+                                          std::int32_t block) {
+    return to_rust<std::uint8_t>(hydro::mfd_streams(sized(acc, ny, nx, "the accumulation differs in size"),
+                                                    sized(dir, ny, nx, "the directions differ in size"), ny, nx,
+                                                    threshold, trace, block));
+}
+
+rust::Vec<std::uint8_t> hydro_pgp_d8(rust::Slice<const double> z, std::int32_t ny, std::int32_t nx,
+                                     std::int32_t block) {
+    return to_rust<std::uint8_t>(hydro::pgp_d8_directions(hydro_grid(z, ny, nx, 1.0, 1.0), block));
+}
+
+rust::Vec<double> hydro_pgp_d8_accumulation(rust::Slice<const std::uint8_t> dir, rust::Slice<const double> weight,
+                                            std::int32_t ny, std::int32_t nx) {
+    return to_rust<double>(hydro::pgp_d8_accumulation(sized(dir, ny, nx, "the directions differ in size"),
+                                                      optional(weight, ny, nx, "the weights differ in size"), ny, nx));
+}
+
+rust::Vec<double> hydro_pgp_d8_distance_to_channel(rust::Slice<const std::uint8_t> dir,
+                                                   rust::Slice<const std::uint8_t> channel,
+                                                   rust::Slice<const double> weight, std::int32_t ny,
+                                                   std::int32_t nx) {
+    return to_rust<double>(hydro::pgp_d8_distance_to_channel(
+        sized(dir, ny, nx, "the directions differ in size"), sized(channel, ny, nx, "the channels differ in size"),
+        optional(weight, ny, nx, "the weights differ in size"), ny, nx));
+}
+
+rust::Vec<double> hydro_hand(rust::Slice<const double> z, rust::Slice<const std::int8_t> dir,
+                             rust::Slice<const std::uint8_t> streams, std::int32_t ny, std::int32_t nx) {
+    const hydro::Grid g = hydro_grid(z, ny, nx, 1.0, 1.0);
+    return to_rust<double>(hydro::hand(g, sized(dir, ny, nx, "the directions differ in size from the DEM"),
+                                       sized(streams, ny, nx, "the streams differ in size from the DEM")));
+}
+
+HydroLinks hydro_stream_links(rust::Slice<const std::int8_t> dir, rust::Slice<const std::uint8_t> stream,
+                              rust::Slice<const std::uint8_t> breaks, std::int32_t ny, std::int32_t nx) {
+    const hydro::StreamLinks r =
+        hydro::stream_links(sized(dir, ny, nx, "the directions differ in size"),
+                            sized(stream, ny, nx, "the streams differ in size"),
+                            optional(breaks, ny, nx, "the breaks differ in size"), ny, nx);
+    HydroLinks out;
+    out.link = to_rust<std::int32_t>(r.link);
+    out.start = to_rust<std::int64_t>(r.start);
+    out.end = to_rust<std::int64_t>(r.end);
+    out.down = to_rust<std::int32_t>(r.down);
+    return out;
+}
+
+rust::Vec<std::int32_t> hydro_watersheds(rust::Slice<const std::int8_t> dir, rust::Slice<const std::int32_t> seeds,
+                                         std::int32_t ny, std::int32_t nx) {
+    return to_rust<std::int32_t>(hydro::watersheds(sized(dir, ny, nx, "the directions differ in size"),
+                                                   sized(seeds, ny, nx, "the seeds differ in size"), ny, nx));
+}
+
+// -- ecosystem services (landschaft's serv: InVEST's models) ----------------------------------------------------
+
+ServClasses serv_classify(rust::Slice<const std::int64_t> lulc, rust::Slice<const std::uint8_t> valid,
+                          rust::Slice<const std::int64_t> codes, std::int32_t threads) {
+    check(lulc.size() == valid.size(), "the mask differs in size from the map");
+    ServClasses out;
+    std::vector<std::int32_t> cls(lulc.size());
+    out.first = serv::classify(lulc.data(), valid.data(), static_cast<i64>(lulc.size()), codes.data(),
+                               static_cast<int>(codes.size()), cls.data(), threads);
+    out.classes = to_rust<std::int32_t>(cls);
+    return out;
+}
+
+rust::Vec<float> serv_carbon_pools(rust::Slice<const std::int32_t> cls, rust::Slice<const float> pools,
+                                   std::int32_t threads) {
+    check(pools.size() % 4 == 0, "the pools are k x 4");
+    const std::size_t n = cls.size();
+    std::vector<float> out(5 * n);
+    float* ptr[5];
+    for (std::size_t p = 0; p < 5; ++p) ptr[p] = out.data() + p * n;
+    serv::carbon_pools(cls.data(), static_cast<i64>(n), pools.data(), ptr, threads);
+    return to_rust<float>(out);
+}
+
+double serv_total(rust::Slice<const float> x, std::int32_t threads) {
+    return serv::total(x.data(), static_cast<i64>(x.size()), threads);
+}
+
+rust::Vec<float> serv_distance_transform(rust::Slice<const std::uint8_t> region, std::int32_t ny, std::int32_t nx,
+                                         std::int32_t threads) {
+    std::vector<float> out(static_cast<std::size_t>(ny) * nx);
+    serv::distance_transform(sized(region, ny, nx, "the region differs in size"), ny, nx, out.data(), threads);
+    return to_rust<float>(out);
+}
+
+rust::Vec<float> serv_threat_degradation(rust::Slice<const float> dist, rust::Slice<const float> given,
+                                         rust::Slice<const std::int32_t> cls, rust::Slice<const float> sens,
+                                         rust::Slice<const float> access, double max_px, bool exponential,
+                                         double weight, rust::Slice<float> total, std::int32_t threads) {
+    const std::size_t n = cls.size();
+    check(dist.size() == n && total.size() == n, "the distance and the total differ in size from the map");
+    check(given.empty() || given.size() == n, "the decay differs in size from the map");
+    check(access.empty() || access.size() == n, "the access differs in size from the map");
+    std::vector<float> deg(n);
+    serv::threat_degradation(dist.data(), given.empty() ? nullptr : given.data(), cls.data(), sens.data(),
+                             access.empty() ? nullptr : access.data(), max_px, exponential, weight,
+                             static_cast<i64>(n), deg.data(), total.data(), threads);
+    return to_rust<float>(deg);
+}
+
+rust::Vec<float> serv_quality(rust::Slice<const float> total, rust::Slice<const std::int32_t> cls,
+                              rust::Slice<const float> habitat, double ksq, std::int32_t threads) {
+    check(total.size() == cls.size(), "the degradation differs in size from the map");
+    std::vector<float> out(cls.size());
+    serv::quality(total.data(), cls.data(), habitat.data(), ksq, static_cast<i64>(cls.size()), out.data(), threads);
+    return to_rust<float>(out);
+}
+
+namespace {
+
+template <class T>
+std::vector<T> cast(rust::Slice<const double> v) {
+    std::vector<T> out;
+    out.reserve(v.size());
+    for (double x : v) out.push_back(static_cast<T>(x));
+    return out;
+}
+
+template <class T>
+rust::Vec<float> water_fraction_t(rust::Slice<const std::int32_t> cls, rust::Slice<const float> kc,
+                                  rust::Slice<const float> root, rust::Slice<const float> veg,
+                                  rust::Slice<const double> eto, rust::Slice<const double> precip,
+                                  rust::Slice<const double> soil, rust::Slice<const double> pawc, double z,
+                                  std::int32_t threads) {
+    const std::size_t n = cls.size();
+    check(eto.size() == n && precip.size() == n && soil.size() == n && pawc.size() == n,
+          "the rasters differ in size from the land use map");
+    const auto e = cast<T>(eto), p = cast<T>(precip), s = cast<T>(soil), w = cast<T>(pawc);
+    std::vector<float> out(n);
+    serv::water_fraction<T>(cls.data(), kc.data(), root.data(), veg.data(), e.data(), p.data(), s.data(), w.data(), z,
+                            static_cast<i64>(n), out.data(), threads);
+    return to_rust<float>(out);
+}
+
+template <class U>
+rust::Vec<double> water_yield_t(rust::Slice<const float> fractp, rust::Slice<const double> precip,
+                                std::int32_t threads) {
+    const std::size_t n = fractp.size();
+    check(precip.size() == n, "the precipitation differs in size from the map");
+    const auto p = cast<U>(precip);
+    std::vector<U> wy(n), aet(n);
+    serv::water_yield<U>(fractp.data(), p.data(), static_cast<i64>(n), wy.data(), aet.data(), threads);
+    std::vector<double> out(wy.begin(), wy.end());
+    out.insert(out.end(), aet.begin(), aet.end());
+    return to_rust<double>(out);
+}
+
+template <class V>
+rust::Vec<double> potential_et_t(rust::Slice<const std::int32_t> cls, rust::Slice<const float> kc,
+                                 rust::Slice<const double> eto, std::int32_t threads) {
+    const std::size_t n = cls.size();
+    check(eto.size() == n, "the reference evapotranspiration differs in size from the map");
+    const auto e = cast<V>(eto);
+    std::vector<V> out(n);
+    serv::potential_et<V>(cls.data(), kc.data(), e.data(), static_cast<i64>(n), out.data(), threads);
+    return to_rust<double, V>(out);
+}
+
+}  // namespace
+
+rust::Vec<float> serv_water_fraction(rust::Slice<const std::int32_t> cls, rust::Slice<const float> kc,
+                                     rust::Slice<const float> root, rust::Slice<const float> veg,
+                                     rust::Slice<const double> eto, rust::Slice<const double> precip,
+                                     rust::Slice<const double> soil, rust::Slice<const double> pawc, double z,
+                                     bool wide, std::int32_t threads) {
+    return wide ? water_fraction_t<double>(cls, kc, root, veg, eto, precip, soil, pawc, z, threads)
+                : water_fraction_t<float>(cls, kc, root, veg, eto, precip, soil, pawc, z, threads);
+}
+
+rust::Vec<double> serv_water_yield(rust::Slice<const float> fractp, rust::Slice<const double> precip, bool wide,
+                                   std::int32_t threads) {
+    return wide ? water_yield_t<double>(fractp, precip, threads) : water_yield_t<float>(fractp, precip, threads);
+}
+
+rust::Vec<double> serv_potential_et(rust::Slice<const std::int32_t> cls, rust::Slice<const float> kc,
+                                    rust::Slice<const double> eto, bool wide, std::int32_t threads) {
+    return wide ? potential_et_t<double>(cls, kc, eto, threads) : potential_et_t<float>(cls, kc, eto, threads);
+}
+
+rust::Vec<float> serv_pgp_slope(rust::Slice<const double> z, std::int32_t ny, std::int32_t nx, double xcell,
+                                double ycell, std::int32_t threads) {
+    std::vector<float> out(static_cast<std::size_t>(ny) * nx);
+    serv::pgp_slope(sized(z, ny, nx, "the DEM differs in size from ny x nx"), ny, nx, xcell, ycell, out.data(),
+                    threads);
+    return to_rust<float>(out);
+}
+
+rust::Vec<float> serv_sediment_deposition(rust::Slice<const std::int32_t> mfd, rust::Slice<const std::uint8_t> d8,
+                                          rust::Slice<const float> e_prime, rust::Slice<const float> sdr,
+                                          std::int32_t ny, std::int32_t nx, std::int32_t block) {
+    const std::size_t n = static_cast<std::size_t>(ny) * nx;
+    check(e_prime.size() == n && sdr.size() == n, "E' and the SDR differ in size from the directions");
+    std::vector<float> out(2 * n);
+    if (mfd.empty())
+        serv::sediment_deposition_d8(sized(d8, ny, nx, "the directions differ in size"), e_prime.data(), sdr.data(),
+                                     ny, nx, block, out.data(), out.data() + n);
+    else
+        serv::sediment_deposition_mfd(sized(mfd, ny, nx, "the directions differ in size"), e_prime.data(),
+                                      sdr.data(), ny, nx, block, out.data(), out.data() + n);
+    return to_rust<float>(out);
+}
+
+// -- surfaces: geomorphons, hilltops, gravity ----------------------------------------------------------------------
+
+GeomorphonsOut surf_geomorphons(rust::Slice<const float> z, std::int32_t ny, std::int32_t nx, double north,
+                                double west, double ns_res, double ew_res, std::int32_t search_cells,
+                                std::int32_t skip_cells, double search_distance, double flat_threshold,
+                                double flat_distance, double flat_height, double max_resolution, bool extended,
+                                std::int32_t comparison, std::uint32_t outputs) {
+    sized(z, ny, nx, "the DEM differs in size from ny x nx");
+    surf::GeomorphonParams p{north,         west,          ns_res,         ew_res,
+                             search_cells,  skip_cells,    search_distance, flat_threshold,
+                             flat_distance, flat_height,   max_resolution, extended,
+                             comparison,    outputs};
+    const surf::Geomorphons g = surf::geomorphons(z.data(), ny, nx, p);
+    GeomorphonsOut out;
+    out.forms = to_rust<std::int32_t>(g.forms);
+    out.ternary = to_rust<std::int32_t>(g.ternary);
+    out.positive = to_rust<std::int32_t>(g.positive);
+    out.negative = to_rust<std::int32_t>(g.negative);
+    // the measures one after the other (intensity, exposition, range, variance, elongation, azimuth, extend,
+    // width), each empty or of every cell
+    for (const auto* v : {&g.intensity, &g.exposition, &g.range, &g.variance, &g.elongation, &g.azimuth, &g.extend,
+                          &g.width}) {
+        out.lengths.push_back(static_cast<std::int64_t>(v->size()));
+        for (float x : *v) out.measures.push_back(static_cast<double>(x));
+    }
+    return out;
+}
+
+HilltopsOut surf_hilltops(rust::Slice<const double> z, rust::Slice<const double> slope,
+                          rust::Slice<const std::uint8_t> plain, std::int32_t ny, std::int32_t nx, double dx, double dy,
+                          double min_height, double min_slope, bool line_slope, double fraction) {
+    sized(z, ny, nx, "the DEM differs in size from ny x nx");
+    sized(slope, ny, nx, "the slope differs in shape from the DEM");
+    const surf::Hilltops r = surf::hilltops(z.data(), slope.data(), optional(plain, ny, nx, "the plain mask differs"),
+                                            ny, nx, dx, dy, min_height, min_slope, line_slope, fraction);
+    HilltopsOut out;
+    for (const auto& h : r.hills) {
+        out.summit.push_back(h.summit);
+        out.base_cell.push_back(h.base_cell);
+        out.cells.push_back(h.cells);
+        out.top.push_back(h.top);
+        out.base.push_back(h.base);
+        out.height.push_back(h.height);
+        out.mean_slope.push_back(h.mean_slope);
+        out.line_slope.push_back(h.line_slope);
+        out.threshold.push_back(h.qualifies ? h.threshold : std::numeric_limits<double>::quiet_NaN());
+        out.kind.push_back(h.kind);
+        out.qualifies.push_back(h.qualifies ? 1 : 0);
+    }
+    out.label = to_rust<std::int32_t>(r.label);
+    return out;
+}
+
+rust::Vec<double> surf_gravity(rust::Slice<const double> mass, rust::Slice<const double> mask, std::int32_t ny,
+                               std::int32_t nx, double beta, double dx, double dy, double self_distance) {
+    return to_rust<double>(surf::gravity(sized(mass, ny, nx, "the sources differ in size from ny x nx"),
+                                         optional(mask, ny, nx, "the mask differs in shape from the sources"), ny, nx,
+                                         beta, dx, dy, self_distance));
+}
+
+rust::Vec<double> surf_gravity_weights(std::int32_t ny, std::int32_t nx, double beta, double dx, double dy,
+                                       double self_distance) {
+    return to_rust<double>(surf::gravity_weights(ny, nx, beta, dx, dy, self_distance));
+}
+
+// -- simulation: the Patcher of a continuous state, endogenous roads ---------------------------------------------
+
+ContinuousOut sim_continuous_patches(rust::Slice<const double> stock, rust::Slice<const double> probability,
+                                     std::int64_t ny, std::int64_t nx, double quota, double mean, double variance,
+                                     double isometry, double prune_factor, std::int32_t win_rows,
+                                     std::int32_t win_cols, std::uint64_t seed) {
+    check(ny >= 0 && nx >= 0 && stock.size() == static_cast<std::size_t>(ny * nx),
+          "the stock differs in size from ny x nx");
+    check(probability.size() == stock.size(), "the probability map differs in shape from the stock");
+    const sim::ContinuousResult r = sim::continuous_patches(ny, nx, stock.data(), probability.data(), quota, mean,
+                                                            variance, isometry, prune_factor, win_rows, win_cols, seed);
+    ContinuousOut out;
+    out.taken = to_rust<double>(r.taken);
+    out.patch = to_rust<std::int32_t>(r.patch);
+    out.remaining = r.remaining;
+    out.patches = r.patches;
+    out.cells = r.cells;
+    return out;
+}
+
+FrictionOut sim_friction_cost(rust::Slice<const std::uint8_t> source, rust::Slice<const double> friction,
+                              std::int64_t ny, std::int64_t nx, double diagonal, bool directions) {
+    check(ny >= 0 && nx >= 0 && source.size() == static_cast<std::size_t>(ny * nx),
+          "the sources differ in size from ny x nx");
+    check(friction.size() == source.size(), "the friction differs in shape from the sources");
+    const sim::FrictionCost r = sim::friction_cost(ny, nx, source.data(), friction.data(), diagonal, directions);
+    FrictionOut out;
+    out.cost = to_rust<double>(r.cost);
+    out.dir = to_rust<std::uint8_t>(r.dir);
+    return out;
+}
+
+rust::Vec<std::int64_t> sim_destinations(rust::Slice<const double> attraction, std::int64_t ny, std::int64_t nx,
+                                         std::int32_t horizontal, std::int32_t vertical, std::int32_t per_quadrant,
+                                         double min_distance, std::int32_t max_attempts, double dx, double dy,
+                                         std::uint64_t seed) {
+    check(ny >= 0 && nx >= 0 && attraction.size() == static_cast<std::size_t>(ny * nx),
+          "the attraction differs in size from ny x nx");
+    return to_rust<std::int64_t>(sim::destinations(ny, nx, attraction.data(), horizontal, vertical, per_quadrant,
+                                                   min_distance, max_attempts, dx, dy, seed));
+}
+
+rust::Vec<std::uint8_t> sim_pathways(rust::Slice<const std::uint8_t> network, rust::Slice<const std::uint8_t> sources,
+                                     rust::Slice<const double> cost, rust::Slice<const std::uint8_t> dir,
+                                     std::int64_t ny, std::int64_t nx, bool lottery, std::uint64_t seed) {
+    check(ny >= 0 && nx >= 0, "a negative size");
+    const std::size_t n = static_cast<std::size_t>(ny * nx);
+    check(network.size() == n && sources.size() == n, "the network and the sources differ in size from ny x nx");
+    check(cost.empty() != dir.empty(), "give the costs or the directions");
+    check(cost.empty() || cost.size() == n, "the cost map differs in shape from the network");
+    check(dir.empty() || dir.size() == n, "the direction map differs in shape from the network");
+    return to_rust<std::uint8_t>(sim::pathways(ny, nx, network.data(), sources.data(),
+                                               cost.empty() ? nullptr : cost.data(),
+                                               dir.empty() ? nullptr : dir.data(), lottery, seed));
+}
+
+namespace {
+
+// the least length >= n whose only prime factors are 2, 3 and 5 (a fast length of R's mixed-radix FFT)
+int fast_length(int n) {
+    for (int m = std::max(n, 1);; ++m) {
+        int k = m;
+        for (int p : {2, 3, 5})
+            while (k % p == 0) k /= p;
+        if (k == 1) return m;
+    }
+}
+
+}  // namespace
+
+rust::Vec<double> surf_gravity_fft(rust::Slice<const double> mass, rust::Slice<const double> weights, std::int32_t ny,
+                                   std::int32_t nx) {
+    const std::size_t n = static_cast<std::size_t>(ny) * nx;
+    check(ny > 0 && nx > 0 && mass.size() == n && weights.size() == n, "the masses and weights differ from ny x nx");
+    // the potential as a linear convolution of the masses with the mirrored weight table: a circular one of at
+    // least 2n - 1 cells on each side keeps the cells wanted free of wrapping
+    const int pr = fast_length(2 * ny - 1), pc = fast_length(2 * nx - 1);
+    const std::size_t cells = static_cast<std::size_t>(pr) * pc;
+    std::vector<double> a(2 * cells, 0.0), k(2 * cells, 0.0);
+    auto at = [pr](int r, int c) { return 2 * (static_cast<std::size_t>(c) * pr + r); };  // column-major
+    for (int r = 0; r < ny; ++r)
+        for (int c = 0; c < nx; ++c) a[at(r, c)] = mass[static_cast<std::size_t>(r) * nx + c];
+    // k[di + ny - 1, dj + nx - 1] = the weight of the offset (|di|, |dj|)
+    for (int di = 1 - ny; di < ny; ++di)
+        for (int dj = 1 - nx; dj < nx; ++dj)
+            k[at(di + ny - 1, dj + nx - 1)] = weights[static_cast<std::size_t>(std::abs(di)) * nx + std::abs(dj)];
+    nlm::r_fft2(a, pr, pc, false, true);
+    nlm::r_fft2(k, pr, pc, false, true);
+    for (std::size_t i = 0; i < cells; ++i) {
+        const double re = a[2 * i] * k[2 * i] - a[2 * i + 1] * k[2 * i + 1];
+        const double im = a[2 * i] * k[2 * i + 1] + a[2 * i + 1] * k[2 * i];
+        a[2 * i] = re;
+        a[2 * i + 1] = im;
+    }
+    nlm::r_fft2(a, pr, pc, true, true);
+    rust::Vec<double> out;
+    out.reserve(n);
+    for (int r = 0; r < ny; ++r)
+        for (int c = 0; c < nx; ++c) out.push_back(a[at(r + ny - 1, c + nx - 1)] / static_cast<double>(cells));
+    return out;
 }
 
 }  // namespace tfx
