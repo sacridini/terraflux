@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.93.0] - 2026-10-18
+
 ### Added
 - Brazil's Forest Code (Lei 12.651/2012 with Lei 12.727/2012): `forest_code.app` (the Áreas de Preservação
   Permanente of art. 4: the margins of rivers from the channel's edge by their width, of natural lakes by their area
