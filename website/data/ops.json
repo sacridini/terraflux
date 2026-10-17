@@ -19546,6 +19546,130 @@
   "container": false
  },
  {
+  "name": "sdm.migrate",
+  "doc": "A species' dispersal through the habitat suitability of successive periods (MigClim 1.6's cellular automaton, the same run for a seed): every step, a suitable empty cell is colonised from an occupied cell within the kernel's distance with the kernel's probability (times the source's propagule production while it matures, times the sink's suitability), unless barriers lie between; long-distance dispersal to random cells; cells that turn unsuitable stay until their period ends. The final map is MigClim's: 1 the initial cells, a step's number (period × 100 + step) where it colonised, 30000 suitable but not reached, below 0 lost, 0 absent.",
+  "inputs": [
+   {
+    "name": "initial",
+    "type": "map",
+    "required": true,
+    "doc": "the initial distribution: 1 present, 0 absent"
+   },
+   {
+    "name": "suitability",
+    "type": "raster",
+    "required": true,
+    "doc": "the habitat suitability of each period, 0 to 1000 (a stack, a loop's series, rasters)"
+   },
+   {
+    "name": "barriers",
+    "type": "map",
+    "required": false,
+    "doc": "the barriers (1)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the final state (MigClim's codes)"
+   },
+   {
+    "name": "occupied",
+    "type": "map",
+    "required": true,
+    "doc": "1 where the species is at the end, 0 elsewhere"
+   },
+   {
+    "name": "steps",
+    "type": "stack",
+    "required": true,
+    "doc": "the state after every dispersal step"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "per step: period, step, step_id, unlimited, no_dispersal, occupied, absent, colonized, decolonized, ldd"
+   }
+  ],
+  "params": [
+   {
+    "name": "steps",
+    "type": "integer",
+    "required": false,
+    "doc": "dispersal steps per period (default 1)"
+   },
+   {
+    "name": "kernel",
+    "type": "any",
+    "required": true,
+    "doc": "the probability of colonisation at 1, 2... cells: [1, 0.4, 0.1]"
+   },
+   {
+    "name": "ini_maturity",
+    "type": "integer",
+    "required": false,
+    "doc": "the age a cell first disperses (default 1)"
+   },
+   {
+    "name": "full_maturity",
+    "type": "integer",
+    "required": false,
+    "doc": "the age it fully disperses (default 1)"
+   },
+   {
+    "name": "propagules",
+    "type": "any",
+    "required": false,
+    "doc": "the propagule production of the ages from ini_maturity to full_maturity (default 1 each)"
+   },
+   {
+    "name": "threshold",
+    "type": "integer",
+    "required": false,
+    "doc": "suitability below it 0, else 1000 (default 0: none)"
+   },
+   {
+    "name": "ldd_frequency",
+    "type": "number",
+    "required": false,
+    "doc": "long-distance dispersal's frequency (default 0)"
+   },
+   {
+    "name": "ldd_min",
+    "type": "integer",
+    "required": false,
+    "doc": "its smallest distance in cells (default 10)"
+   },
+   {
+    "name": "ldd_max",
+    "type": "integer",
+    "required": false,
+    "doc": "its largest distance in cells (default 15)"
+   },
+   {
+    "name": "barrier_type",
+    "type": "text",
+    "required": false,
+    "doc": "strong (default: two of five lines) or weak (all five)",
+    "choices": [
+     "strong",
+     "weak"
+    ]
+   },
+   {
+    "name": "seed",
+    "type": "integer",
+    "required": false,
+    "doc": "the seed of the C runtime's rand() (default 1)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
   "name": "sdm.mop",
   "doc": "The mobility-oriented parity of new conditions (landschaft's mop, the mop package): the mean distance of each to its nearest reference conditions (Euclidean or Mahalanobis), and where the predictors fall outside the reference's ranges (basic; simple: how many; detailed: which, below and above, as sums of 2^k).",
   "inputs": [
