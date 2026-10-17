@@ -561,13 +561,19 @@ fn nodes_fit_their_texts_and_are_resized_by_their_edge() {
     };
     let (calc_w, calc_need) = width(&h, "calc");
     assert_eq!((calc_w, calc_need), (terraflux_app::editor_view::WIDTH, terraflux_app::editor_view::WIDTH));
-    // prioritize.optimize's rows (asym_connectivity_data across from extinction_risk...) need more
-    let (plan_w, plan_need) = width(&h, "plan");
-    assert!(plan_w > terraflux_app::editor_view::WIDTH + 40.0 && plan_w == plan_need, "{plan_w}");
+    // its optional inputs folded: as wide as the rows shown need, which the estimate of the layout follows
+    let (folded_w, folded_need) = width(&h, "plan");
+    assert_eq!(folded_w, folded_need);
     let r = terraflux_ops::Registry::standard();
     let estimated = terraflux_app::editor_view::node_width(&m.nodes[1], &r);
+    assert!((estimated - folded_need).abs() <= 40.0, "the estimate {estimated} near the measure {folded_need}");
+    // unfolded, prioritize.optimize's rows (asym_connectivity_data across from extinction_risk...) need more
+    h.state_mut().session.as_mut().unwrap().editor.toggle_fold("plan");
+    h.run_steps(2);
+    let (plan_w, plan_need) = width(&h, "plan");
+    assert!(plan_w > terraflux_app::editor_view::WIDTH + 40.0 && plan_w == plan_need, "{plan_w}");
+    assert!(plan_w > folded_w, "{plan_w} unfolded, {folded_w} folded");
     h.render().unwrap().save(PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("canvas-widths.png")).unwrap();
-    assert!((estimated - plan_need).abs() <= 40.0, "the estimate {estimated} near the measure {plan_need}");
     // its right edge dragged 100 points to the right: 100 / zoom wider, kept in the model
     let edge = |h: &Harness<TerrafluxApp>, id: &str| {
         let r = editor(h).screen_rect_of(id).unwrap();
@@ -594,4 +600,48 @@ fn nodes_fit_their_texts_and_are_resized_by_their_edge() {
     wide.nodes.push(Node::new("after", "map.calc").input("a", "plan.solution").param("expression", "a"));
     let places = terraflux_app::editor_view::arrange(&wide.nodes, &r);
     assert!(places["after"][0] >= places["plan"][0] + estimated + 60.0, "{places:?}");
+}
+
+/// A node's optional inputs are folded in a row a click unfolds (and folds again); a connection let go on the node
+/// rather than on an input offers the free inputs it fits, and goes to the one chosen.
+#[test]
+fn optional_inputs_fold_and_a_connection_dropped_on_a_node_picks_one() {
+    let data = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/inputs/sibuyan_landuse.tif");
+    let mut m = Model::new("fold");
+    m.inputs.insert(
+        "t0".into(),
+        terraflux_graph::Input::Map { path: data.to_string_lossy().into_owned(), band: None, nodata: None, note: None },
+    );
+    let mut zon = Node::new("zon", "prioritize.zonation");
+    zon.pos = Some([0.0, 0.0]);
+    m.nodes.push(zon);
+    let mut h = harness(open(&m, "canvas-fold.toml"));
+    h.run_steps(3);
+    // folded: the input it needs shown, the optional ones not
+    assert!(editor(&h).screen_of_input("zon", "features").is_some());
+    assert!(editor(&h).screen_of_input("zon", "cost").is_none());
+    let fold = editor(&h).screen_of_fold("zon").expect("the row of the optional inputs");
+    click(&mut h, fold);
+    assert!(editor(&h).screen_of_input("zon", "cost").is_some(), "unfolded");
+    h.render().unwrap().save(PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("canvas-unfolded.png")).unwrap();
+    let fold = editor(&h).screen_of_fold("zon").unwrap();
+    click(&mut h, fold);
+    assert!(editor(&h).screen_of_input("zon", "cost").is_none(), "folded again");
+    // the model's map let go on the node's header: the inputs it fits, in a list
+    let from = editor(&h).screen_of_output("$t0", "").unwrap();
+    let to = editor(&h).screen_of("zon").unwrap();
+    drag(&mut h, from, to);
+    h.run_steps(2);
+    h.render().unwrap().save(PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("canvas-pick.png")).unwrap();
+    use egui_kittest::kittest::Queryable;
+    h.query_all_by_label_contains("cost  ·").next().expect("cost in the list").click();
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.source.nodes[0].inputs.get("cost"), Some(&terraflux_graph::Source::Ref("$t0".into())));
+    // given, it is shown though its others stay folded
+    assert!(editor(&h).screen_of_input("zon", "cost").is_some());
+    // zoomed far out: the names still read, in the middle of their boxes
+    h.state_mut().session.as_mut().unwrap().editor.look(egui::vec2(300.0, 300.0), 0.25);
+    h.run_steps(2);
+    h.render().unwrap().save(PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("canvas-far.png")).unwrap();
 }

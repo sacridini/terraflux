@@ -31,6 +31,13 @@ minor versions.
   on hover), a container's body, and last the note of why it is there. A setting that is a list of numbers or texts
   (`weights = [2.0, 1.0, 1.0, 1.5]`) or a table of them by name is edited item by item, with a row to add one and
   a button to take one away; `{ }` edits it as text.
+- The canvas: a box shows the inputs its node needs and those given, its optional others folded in a row ("+ 10
+  optional", the names on hover) that a click unfolds and folds again; a connection let go on a node rather than on
+  an input goes to the free input it fits, or to the one chosen in a list when several do. A node with problems (an
+  input it needs not given, the data's, the run's error) has a mark, red or amber, that tells them on hover; a
+  port's hover tells its type and whether it is needed. Zoomed out, the nodes' names stay readable (never under
+  11 points, in the middle of their boxes, cut to them) where they used to vanish under 35%. Undo and Redo are
+  named (their arrows were not in the font).
 
 ## [0.83.0] - 2026-10-16
 

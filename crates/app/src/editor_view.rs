@@ -7,9 +7,15 @@
 //! right-click the input. Drag the background to select the nodes in a box (shift or ctrl and a click add a node
 //! or take it away, ctrl+A selects all, Esc none): dragging one of them moves them all. Drag with the middle or the right
 //! button to move the view, the wheel zooms around the pointer, Home fits the graph. Each node shows how it did
-//! in the last run: running, done (or taken from the cache), failed. A box that reads or writes a file names it at
+//! in the last run: running, done (or taken from the cache), failed; a node with problems (an input it needs not
+//! given, the run's error) has a mark that tells them on hover. A box that reads or writes a file names it at
 //! its bottom; the boxes of data (the model's inputs, what reads, writes, stacks or plots) may have a header in the
 //! colour of the type they give (a map's blue, vectors' pink...), an option of the settings.
+//!
+//! A box shows the inputs its node needs and those given; its optional others are folded in a row ("+ 9
+//! optional") that a click unfolds. A connection let go on a node rather than on an input goes to the free input it
+//! fits, or to the one chosen in a list when several fit. Zoomed out, the ports' names give way and the nodes' names
+//! stay readable (never smaller than a size that can be read, cut to their box).
 //!
 //! Built for graphs of many thousands of nodes:
 //! - the scene (where every box, port and connection is, a grid of the boxes to find what is under the
@@ -44,9 +50,12 @@ const PAD: f32 = 9.0;
 const GAP: f32 = 16.0;
 /// What the place of a new input says.
 const NEW_INPUT: &str = "+ new input";
-/// The zooms from which the nodes' names, then their ports' names and operators, are written.
-const NAMES_FROM: f32 = 0.35;
+/// The zoom from which the ports' names and the operators are written (below it, the nodes' names alone, in the
+/// middle of their boxes).
 const PORTS_FROM: f32 = 0.6;
+/// The smallest size a node's name is written at, and the narrowest box on the screen it is written in.
+const NAME_MIN: f32 = 11.0;
+const NAME_ROOM: f32 = 40.0;
 
 /// The fonts of a box's texts at zoom 1: its name; its operator and its ports' names; its file.
 fn name_font() -> FontId {
@@ -91,14 +100,46 @@ fn fitted(
     ((w / 10.0).ceil() * 10.0).max(WIDTH)
 }
 
-/// The names on a node's rows: its inputs (the place of a new one last, for an operator that takes any) and its
-/// outputs.
+/// The names on a node's rows, its optional inputs folded: its inputs (the place of a new one, for an operator
+/// that takes any; the row of the folded ones) and its outputs.
 fn port_names(n: &Node, r: &Registry) -> (Vec<String>, Vec<String>) {
-    let mut inputs: Vec<String> = editor::input_ports(n, r).into_iter().map(|(name, _, _)| name).collect();
-    if r.sig(&n.op).and_then(|s| s.extra).is_some() {
-        inputs.push(NEW_INPUT.to_string());
+    let (shown, folded) = shown_inputs(n, r, false);
+    let mut inputs: Vec<String> =
+        shown.into_iter().map(|p| if p.name.is_empty() { NEW_INPUT.to_string() } else { p.name }).collect();
+    if !folded.is_empty() {
+        inputs.push(fold_label(folded.len(), false));
     }
     (inputs, editor::output_ports(n, r).into_iter().map(|(p, _)| p).collect())
+}
+
+/// A node's inputs as its box shows them: those it needs, those given (connected or a value), the optional others
+/// when `unfolded`, and the place of a new one (an operator that takes any); the optional ones not shown.
+fn shown_inputs(n: &Node, r: &Registry, unfolded: bool) -> (Vec<Port>, Vec<(String, Type)>) {
+    let mut shown = Vec::new();
+    let mut folded = Vec::new();
+    for (name, ty, required) in editor::input_ports(n, r) {
+        let connected = n.inputs.contains_key(&name);
+        if required || connected || unfolded {
+            shown.push(Port { connected, name, ty, required });
+        } else {
+            folded.push((name, ty));
+        }
+    }
+    if let Some(ty) = r.sig(&n.op).and_then(|s| s.extra) {
+        shown.push(Port { name: String::new(), ty, required: false, connected: false });
+    }
+    (shown, folded)
+}
+
+/// The words of the row that folds a node's optional inputs: how many there are, or that a click folds them.
+fn fold_label(folded: usize, unfolded: bool) -> String {
+    if unfolded { "- fewer".to_string() } else { format!("+ {folded} optional") }
+}
+
+/// The rows of a node's box, its optional inputs folded (for laying nodes out).
+fn rows_of(n: &Node, r: &Registry) -> usize {
+    let (shown, folded) = shown_inputs(n, r, false);
+    (shown.len() + usize::from(!folded.is_empty())).max(editor::output_ports(n, r).len()).max(1)
 }
 
 /// The width of a node's box (its texts measured without the fonts at hand: for laying nodes out), the width
@@ -227,9 +268,31 @@ pub struct EditorState {
     pub renaming: Option<(String, String, bool)>,
     /// The node running and its share done, as its operator tells it (a line along its bottom).
     pub progress: Option<(String, f32)>,
+    /// The nodes whose optional inputs are unfolded, and a counter of their changes (the scene made again then).
+    pub unfolded: HashSet<String>,
+    folds: u64,
+    /// A connection let go on a node that several of its free inputs fit: the list to choose one from.
+    picking: Option<Pick>,
+}
+
+/// The inputs of a node a connection may go to, offered where it was let go.
+#[derive(Debug, Clone)]
+struct Pick {
+    reference: String,
+    node: String,
+    ports: Vec<(String, Type)>,
+    at: Pos2,
 }
 
 impl EditorState {
+    /// Unfold a node's optional inputs, or fold them.
+    pub fn toggle_fold(&mut self, node: &str) {
+        if !self.unfolded.remove(node) {
+            self.unfolded.insert(node.to_string());
+        }
+        self.folds += 1;
+    }
+
     /// Fit the graph in the view at the next frame.
     pub fn fit(&mut self) {
         self.fit = true;
@@ -347,6 +410,13 @@ impl EditorState {
         self.on_screen(b.output_at(b.outputs.iter().position(|(p, _)| p == port)?))
     }
 
+    /// Where the row that folds or unfolds a node's optional inputs is on the screen.
+    pub fn screen_of_fold(&self, node: &str) -> Option<Pos2> {
+        let s = self.scene.as_ref()?;
+        let b = &s.boxes[*s.index.get(node)?];
+        self.on_screen(b.fold()?.center())
+    }
+
     /// Where a node's input port is on the screen.
     pub fn screen_of_input(&self, node: &str, port: &str) -> Option<Pos2> {
         let s = self.scene.as_ref()?;
@@ -379,6 +449,9 @@ struct BoxAt {
     note: Option<String>,
     /// The file it reads or writes (a node's `path`, a model input's), named in the row at its bottom.
     file: Option<String>,
+    /// Its optional inputs not shown, and whether they are unfolded (shown, the row then folds them).
+    folded: Vec<(String, Type)>,
+    unfolded: bool,
 }
 
 /// The name of a file short enough for a box's row: its name without its folder, cut in the middle (the end kept,
@@ -416,6 +489,15 @@ impl BoxAt {
         Rect::from_min_size(self.rect.min, Vec2::new(self.rect.width(), HEAD))
     }
 
+    /// The row that folds or unfolds its optional inputs, under its inputs, if it has optional inputs.
+    fn fold(&self) -> Option<Rect> {
+        if self.folded.is_empty() && !self.unfolded {
+            return None;
+        }
+        let y = self.rect.top() + HEAD + self.inputs.len() as f32 * ROW;
+        Some(Rect::from_min_size(Pos2::new(self.rect.left(), y), Vec2::new(self.rect.width() * 0.6, ROW)))
+    }
+
     /// The row naming its file, if it has one.
     fn foot(&self) -> Option<Rect> {
         self.file.as_ref()?;
@@ -444,6 +526,8 @@ enum Hit {
     /// A node's right edge, which resizes it.
     Edge(usize),
     Head(usize),
+    /// The row that folds or unfolds a node's optional inputs.
+    Fold(usize),
     Body(usize),
 }
 
@@ -505,7 +589,7 @@ fn box_rects(b: &BoxAt, state: Option<NodeStatus>, v: &egui::Visuals, colours: b
 /// A scope laid out: its boxes, a grid of them, and the shapes the GPU draws (each box's rectangles at
 /// `ranges[box]`, the connections touching each box in `touching[box]`, to move a box alone).
 struct Scene {
-    key: (u64, Vec<String>, u64, &'static str, bool),
+    key: (u64, Vec<String>, u64, &'static str, bool, u64),
     boxes: Vec<BoxAt>,
     index: HashMap<String, usize>,
     grid: HashMap<(i32, i32), Vec<usize>>,
@@ -654,7 +738,7 @@ pub fn arrange(nodes: &[Node], r: &Registry) -> HashMap<String, [f32; 2]> {
         let mut y = 0.0;
         for &i in c {
             let n = &nodes[i];
-            let rows = editor::input_ports(n, r).len().max(editor::output_ports(n, r).len()).max(1);
+            let rows = rows_of(n, r);
             out.insert(n.id.clone(), [xs[d], y]);
             let foot = if n.params.get("path").and_then(|v| v.as_str()).is_some_and(|p| !p.trim().is_empty()) {
                 FOOT
@@ -677,6 +761,7 @@ impl Scene {
         status: &BTreeStatus,
         v: &egui::Visuals,
         colours: bool,
+        unfolded: &HashSet<String>,
         measure: &mut dyn FnMut(&str, &FontId) -> f32,
     ) -> Scene {
         let ids: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, n)| (n.id.as_str(), i)).collect();
@@ -723,6 +808,8 @@ impl Scene {
                 container: false,
                 note: None,
                 file,
+                folded: Vec::new(),
+                unfolded: false,
             });
             y += HEAD + ROW + foot + 12.0;
         }
@@ -730,18 +817,17 @@ impl Scene {
         let auto = if missing { auto_positions(nodes) } else { HashMap::new() };
         for n in nodes {
             let p = n.pos.unwrap_or_else(|| auto[&n.id]);
-            let mut inputs: Vec<Port> = editor::input_ports(n, r)
-                .into_iter()
-                .map(|(name, ty, required)| Port { connected: n.inputs.contains_key(&name), name, ty, required })
-                .collect();
-            if let Some(ty) = r.sig(&n.op).and_then(|s| s.extra) {
-                inputs.push(Port { name: String::new(), ty, required: false, connected: false });
-            }
+            let open = unfolded.contains(&n.id);
+            let (inputs, folded) = shown_inputs(n, r, open);
+            // (unfolded, it had some to fold)
+            let open = open && inputs.iter().any(|p| !p.required && !p.connected && !p.name.is_empty());
             let outputs = editor::output_ports(n, r);
-            let rows = inputs.len().max(outputs.len()).max(1);
+            let fold = (!folded.is_empty() || open).then(|| fold_label(folded.len(), open));
+            let rows = (inputs.len() + usize::from(fold.is_some())).max(outputs.len()).max(1);
             // as wide as its texts need, or as it was made
-            let names: Vec<&str> =
+            let mut names: Vec<&str> =
                 inputs.iter().map(|p| if p.name.is_empty() { NEW_INPUT } else { p.name.as_str() }).collect();
+            names.extend(fold.as_deref());
             let outs: Vec<&str> = outputs.iter().map(|(p, _)| p.as_str()).collect();
             let need = fitted(&n.id, &n.op, &names, &outs, measure);
             let width = n.width.map_or(need, |w| w.max(need));
@@ -761,6 +847,8 @@ impl Scene {
                 container: n.body.is_some(),
                 note: n.note.clone(),
                 file,
+                folded,
+                unfolded: open,
             });
         }
         let index: HashMap<String, usize> = boxes.iter().enumerate().map(|(i, b)| (b.key.clone(), i)).collect();
@@ -825,7 +913,7 @@ impl Scene {
             ranges.push(first..rects.len());
         }
         Scene {
-            key: (0, Vec::new(), 0, "", false),
+            key: (0, Vec::new(), 0, "", false, 0),
             boxes,
             index,
             grid,
@@ -906,6 +994,16 @@ impl Scene {
         self.edges.iter().find(|e| e.to == (i, k)).map(|e| e.from)
     }
 
+    /// The type of what a reference gives (an output of a box of the scene), if known.
+    fn output_type(&self, reference: &str) -> Option<Type> {
+        let (i, k) = self.index.get(reference).map(|&i| (i, 0)).or_else(|| {
+            let (node, port) = reference.split_once('.')?;
+            let i = *self.index.get(node)?;
+            Some((i, self.boxes[i].outputs.iter().position(|(p, _)| p == port)?))
+        })?;
+        self.boxes[i].outputs.get(k).map(|(_, t)| *t)
+    }
+
     fn hit(&self, p: Pos2, reach: f32) -> Option<Hit> {
         let candidates = self.grid.get(&cell(p))?;
         for &i in candidates.iter().rev() {
@@ -927,6 +1025,9 @@ impl Scene {
             }
             if b.head().contains(p) {
                 return Some(Hit::Head(i));
+            }
+            if b.fold().is_some_and(|f| f.contains(p)) {
+                return Some(Hit::Fold(i));
             }
             if b.rect.contains(p) {
                 return Some(Hit::Body(i));
@@ -996,6 +1097,7 @@ pub fn show(
     revision: u64,
     status_rev: u64,
     shown: Option<(&str, &str)>,
+    problems: &HashMap<String, Vec<(bool, String)>>,
 ) -> Vec<Action> {
     let mut actions = Vec::new();
     let Some(nodes) = model.scope(&st.path) else {
@@ -1004,13 +1106,13 @@ pub fn show(
     };
     // (built again when the model, the place in it, the nodes' states or the theme change)
     let colours = crate::settings::get().node_colours;
-    let key = (revision, st.path.clone(), status_rev, crate::theme::current().name, colours);
+    let key = (revision, st.path.clone(), status_rev, crate::theme::current().name, colours, st.folds);
     if st.scene.as_ref().is_none_or(|s| s.key != key) {
         // the texts measured in the fonts they are written in
         let v = ui.visuals().clone();
         let mut scene = ui.ctx().fonts_mut(|f| {
             let mut measure = |s: &str, font: &FontId| s.chars().map(|c| f.glyph_width(font, c)).sum::<f32>();
-            Scene::build(model, nodes, r, &st.path, status, &v, colours, &mut measure)
+            Scene::build(model, nodes, r, &st.path, status, &v, colours, &st.unfolded, &mut measure)
         });
         st.generation = next_generation();
         scene.key = key;
@@ -1084,7 +1186,7 @@ pub fn show(
                 let b = &scene.boxes[i];
                 Drag::Resize(b.key.clone(), b.rect.left(), b.fitted)
             }
-            Some(Hit::Head(i) | Hit::Body(i)) if !scene.boxes[i].source => {
+            Some(Hit::Head(i) | Hit::Body(i) | Hit::Fold(i)) if !scene.boxes[i].source => {
                 let key = &scene.boxes[i].key;
                 if !st.chosen.contains(key) {
                     if !adding {
@@ -1148,6 +1250,32 @@ pub fn show(
                     let names: Vec<&str> = scene.boxes[i].inputs.iter().map(|p| p.name.as_str()).collect();
                     Some((i, new_input(reference, &names)))
                 }
+                // on a node: the free input of its (shown or folded) that what is dragged fits; a list when several do
+                Some(Hit::Head(i) | Hit::Body(i) | Hit::Fold(i)) if !scene.boxes[i].source => {
+                    let b = &scene.boxes[i];
+                    let ty = scene.output_type(reference);
+                    let free: Vec<(String, Type)> = b
+                        .inputs
+                        .iter()
+                        .filter(|p| !p.connected && !p.name.is_empty())
+                        .map(|p| (p.name.clone(), p.ty))
+                        .chain(b.folded.iter().cloned())
+                        .filter(|(_, t)| ty.is_none_or(|ty| ty.fits(*t)))
+                        .collect();
+                    match free.as_slice() {
+                        [(port, _)] => Some((i, port.clone())),
+                        [] => None,
+                        _ => {
+                            st.picking = Some(Pick {
+                                reference: reference.clone(),
+                                node: b.key.clone(),
+                                ports: free,
+                                at: pointer.unwrap_or_default(),
+                            });
+                            None
+                        }
+                    }
+                }
                 _ => None,
             };
             if let Some((i, port)) = port {
@@ -1178,6 +1306,14 @@ pub fn show(
         match scene.hit(w, reach(cam)) {
             Some(Hit::Output(i, k)) if !scene.boxes[i].source => {
                 actions.push(Action::Preview(scene.boxes[i].key.clone(), scene.boxes[i].outputs[k].0.clone()));
+            }
+            Some(Hit::Fold(i)) => {
+                let key = scene.boxes[i].key.clone();
+                if !st.unfolded.remove(&key) {
+                    st.unfolded.insert(key);
+                }
+                st.folds += 1;
+                ui.ctx().request_repaint();
             }
             Some(Hit::Head(i) | Hit::Body(i) | Hit::Input(i, _) | Hit::Edge(i)) if !scene.boxes[i].source => {
                 let key = scene.boxes[i].key.clone();
@@ -1254,21 +1390,38 @@ pub fn show(
     ));
     let painter = ui.painter_at(rect);
     let v = ui.visuals().clone();
-    // the texts of the boxes in view, when they can be read
+    // the texts of the boxes in view: the nodes' names never smaller than can be read (in the middle of their
+    // boxes when the ports' names are not written), cut to their boxes; the operators and the ports' names when
+    // the zoom makes them readable
     let view = Rect::from_min_max(to_world(rect.min, &cam), to_world(rect.max, &cam));
-    if cam.zoom >= NAMES_FROM {
-        let size = |s: f32| ((s * cam.zoom) * 2.0).round() / 2.0;
-        for i in scene.within(view) {
+    let size = |s: f32| ((s * cam.zoom) * 2.0).round() / 2.0;
+    let in_view = scene.within(view);
+    let ports = cam.zoom >= PORTS_FROM;
+    // (zoomed far out over thousands of nodes, the boxes alone)
+    if in_view.len() <= 600 || ports {
+        for &i in &in_view {
             let b = &scene.boxes[i];
-            let top = screen(b.rect.min);
-            painter.text(
-                top + Vec2::new(8.0, 5.0) * cam.zoom,
-                Align2::LEFT_TOP,
-                &b.key,
-                FontId::proportional(size(14.0)),
-                v.strong_text_color(),
-            );
-            if let (Some(f), Some(file)) = (b.foot(), &b.file) {
+            let on_screen = Rect::from_min_max(screen(b.rect.min), screen(b.rect.max));
+            if on_screen.width() < NAME_ROOM {
+                continue;
+            }
+            let font = FontId::proportional(size(14.0).max(NAME_MIN));
+            let room = on_screen.width() - 16.0 * cam.zoom.max(0.5) - if ports { 14.0 * cam.zoom } else { 0.0 };
+            let mut job = egui::text::LayoutJob::simple_singleline(b.key.clone(), font, v.strong_text_color());
+            job.wrap = egui::text::TextWrapping {
+                max_width: room.max(8.0),
+                max_rows: 1,
+                break_anywhere: true,
+                overflow_character: Some('…'),
+            };
+            let galley = painter.layout_job(job);
+            let at = if ports {
+                screen(b.rect.min) + Vec2::new(8.0, 5.0) * cam.zoom
+            } else {
+                Pos2::new(on_screen.left() + 8.0 * cam.zoom.max(0.5), on_screen.center().y - galley.size().y / 2.0)
+            };
+            painter.with_clip_rect(on_screen.expand(2.0).intersect(rect)).galley(at, galley, v.strong_text_color());
+            if let (Some(f), Some(file), true) = (b.foot(), &b.file, ports || cam.zoom >= 0.35) {
                 painter.text(
                     screen(Pos2::new(f.left() + 8.0, f.center().y + 0.5)),
                     Align2::LEFT_CENTER,
@@ -1277,9 +1430,10 @@ pub fn show(
                     v.weak_text_color(),
                 );
             }
-            if cam.zoom < PORTS_FROM {
+            if !ports {
                 continue;
             }
+            let top = screen(b.rect.min);
             if !b.source {
                 // a node of data's operator in the colour of the type it gives, when asked
                 let colour = b
@@ -1309,6 +1463,15 @@ pub fn show(
                     colour,
                 );
             }
+            if let Some(f) = b.fold() {
+                painter.text(
+                    screen(Pos2::new(f.left() + 9.0, f.center().y)),
+                    Align2::LEFT_CENTER,
+                    fold_label(b.folded.len(), b.unfolded),
+                    FontId::monospace(size(10.5)),
+                    v.weak_text_color(),
+                );
+            }
             for (k, (name, _)) in b.outputs.iter().enumerate() {
                 if !name.is_empty() {
                     painter.text(
@@ -1320,6 +1483,19 @@ pub fn show(
                     );
                 }
             }
+        }
+    }
+    // the marks of the nodes with problems: red for an error, amber for a warning, at the left of the light of
+    // their state
+    for &i in &in_view {
+        let b = &scene.boxes[i];
+        let Some(list) = problems.get(&b.key) else { continue };
+        let error = list.iter().any(|(e, _)| *e);
+        let c = screen(b.rect.right_top() + Vec2::new(-26.0, 10.0));
+        let radius = (6.0 * cam.zoom).max(3.5);
+        painter.circle_filled(c, radius, if error { v.error_fg_color } else { v.warn_fg_color });
+        if radius >= 5.0 {
+            painter.text(c, Align2::CENTER_CENTER, "!", FontId::proportional(radius * 1.6), Color32::BLACK);
         }
     }
     // the nodes selected (the one in the inspector more marked), the output shown, the nodes running (a light
@@ -1401,21 +1577,75 @@ pub fn show(
     {
         match scene.hit(to_world(p, &cam), reach(&cam)) {
             Some(Hit::Head(i)) => {
-                if let Some(note) = &scene.boxes[i].note {
-                    resp.clone().on_hover_text_at_pointer(note);
+                let b = &scene.boxes[i];
+                let mut text: Vec<String> =
+                    problems.get(&b.key).into_iter().flatten().map(|(_, m)| format!("⚠ {m}")).collect();
+                text.extend(b.note.clone());
+                if !text.is_empty() {
+                    resp.clone().on_hover_text_at_pointer(text.join("\n"));
                 }
+            }
+            Some(Hit::Fold(i)) => {
+                let b = &scene.boxes[i];
+                let text = if b.unfolded {
+                    "fold the optional inputs not given".to_string()
+                } else {
+                    let names: Vec<&str> = b.folded.iter().map(|(n, _)| n.as_str()).collect();
+                    format!("optional inputs: {} (a click shows them)", names.join(", "))
+                };
+                resp.clone().on_hover_text_at_pointer(text);
+            }
+            Some(Hit::Output(i, k)) => {
+                let b = &scene.boxes[i];
+                let (name, ty) = &b.outputs[k];
+                let name = if name.is_empty() { b.key.as_str() } else { name.as_str() };
+                let what = if b.source { "drag it to an input" } else { "a click shows it; drag it to an input" };
+                resp.clone().on_hover_text_at_pointer(format!("{name}: {}\n{what}", ty.name()));
             }
             // the file's whole path
             Some(Hit::Body(i)) if scene.boxes[i].foot().is_some_and(|f| f.contains(to_world(p, &cam))) => {
                 resp.clone().on_hover_text_at_pointer(scene.boxes[i].file.clone().unwrap_or_default());
             }
-            Some(Hit::Input(i, k)) if scene.boxes[i].inputs[k].connected => {
-                resp.clone().on_hover_text_at_pointer("drag the connection away, or right-click, to disconnect it");
+            Some(Hit::Input(i, k)) if !scene.boxes[i].inputs[k].name.is_empty() => {
+                let p = &scene.boxes[i].inputs[k];
+                let need = if p.required { "needed" } else { "optional" };
+                let what = if p.connected {
+                    "drag the connection away, or right-click, to disconnect it"
+                } else {
+                    "drop a connection here"
+                };
+                resp.clone().on_hover_text_at_pointer(format!("{}: {} ({need})\n{what}", p.name, p.ty.name()));
             }
             Some(Hit::Input(i, k)) if scene.boxes[i].inputs[k].name.is_empty() => {
                 resp.clone().on_hover_text_at_pointer("drop a connection here (or on the node) for one more input");
             }
             _ => {}
+        }
+    }
+    // a connection let go on a node several of whose inputs fit: the input chosen in a list
+    if let Some(pick) = st.picking.clone() {
+        let area = egui::Area::new(egui::Id::new("pick an input"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(pick.at)
+            .show(ui.ctx(), |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.label(egui::RichText::new(format!("{} into {}'s", pick.reference, pick.node)).strong());
+                    for (port, ty) in &pick.ports {
+                        let text = egui::RichText::new(format!("{port}  ·  {}", ty.name())).monospace();
+                        if ui.add(egui::Button::new(text).frame(false)).clicked() {
+                            actions.push(Action::Connect {
+                                reference: pick.reference.clone(),
+                                node: pick.node.clone(),
+                                port: port.clone(),
+                            });
+                            st.picking = None;
+                        }
+                    }
+                });
+            });
+        let away = ui.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer();
+        if away || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            st.picking = None;
         }
     }
     // the zoom, in the corner

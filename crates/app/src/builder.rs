@@ -1471,14 +1471,14 @@ fn bar(ui: &mut Ui, s: &mut Session, r: &Registry) {
             arrange(s, r);
         }
         if ui
-            .add_enabled(s.history.can_undo(), egui::Button::new("↶"))
+            .add_enabled(s.history.can_undo(), egui::Button::new("Undo"))
             .on_hover_text("undo the last edit (ctrl+Z)")
             .clicked()
         {
             undo_redo(s, false);
         }
         if ui
-            .add_enabled(s.history.can_redo(), egui::Button::new("↷"))
+            .add_enabled(s.history.can_redo(), egui::Button::new("Redo"))
             .on_hover_text("do the edit undone again (ctrl+shift+Z, ctrl+Y)")
             .clicked()
         {
@@ -1537,6 +1537,7 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
             }
         }
     }
+    let problems = problems(s);
     let actions = crate::editor_view::show(
         ui,
         &s.source,
@@ -1547,6 +1548,7 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
         s.revision,
         s.status_rev,
         shown.as_ref().map(|(n, p)| (n.as_str(), p.as_str())),
+        &problems,
     );
     if s.source.nodes.is_empty() && s.editor.path.is_empty() {
         ui.painter().text(
@@ -1613,6 +1615,36 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
             Err(e) => s.editor.message = Some(e),
         }
     }
+}
+
+/// The problems of the boxes of the scope shown, by box: the checks' errors and warnings of each node (of its
+/// body's too, for a container), those of the data of the model's inputs, and the run's error at the node that
+/// failed. Whether each is an error, and what it says.
+fn problems(s: &Session) -> std::collections::HashMap<String, Vec<(bool, String)>> {
+    use terraflux_exec::lint::Level;
+    let mut out: std::collections::HashMap<String, Vec<(bool, String)>> = Default::default();
+    let prefix = if s.editor.path.is_empty() { String::new() } else { format!("{}/", s.editor.path.join("/")) };
+    for i in &s.issues {
+        let head = i.at.split('.').next().unwrap_or("");
+        if let Some(rest) = head.strip_prefix(&prefix) {
+            let id = rest.split('/').next().unwrap_or(rest);
+            let error = i.severity == terraflux_graph::Severity::Error;
+            out.entry(id.to_string()).or_default().push((error, i.message.clone()));
+        }
+    }
+    for f in s.findings.iter().filter(|f| f.level != Level::Info) {
+        let input = f.at.split('/').next().unwrap_or(&f.at);
+        out.entry(input.to_string()).or_default().push((f.level == Level::Error, f.message.clone()));
+    }
+    if s.editor.path.is_empty() {
+        for (id, st) in &s.status {
+            if *st == NodeStatus::Failed {
+                let e = s.error.clone().unwrap_or_else(|| "it failed in the last run".into());
+                out.entry(id.clone()).or_default().push((true, e));
+            }
+        }
+    }
+    out
 }
 
 /// What the node shown gives: a map (with its legend), the maps of a stack or of a loop's steps one at a time,
