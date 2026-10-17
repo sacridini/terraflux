@@ -12,6 +12,7 @@
 //! step, calling the same C++ kernels (through `terraflux-ls-sys`), so that
 //! a model gives the same maps here as in Python with the same seed.
 
+pub mod accuracy;
 pub mod actions;
 pub mod actions_raster;
 pub mod agents;
@@ -333,6 +334,7 @@ impl Registry {
         r.add(Arc::new(Group));
         r.add(Arc::new(Submodel));
         r.add(Arc::new(RngNew));
+        accuracy::register(&mut r);
         agents::register(&mut r);
         algebra::register(&mut r);
         change::register(&mut r);

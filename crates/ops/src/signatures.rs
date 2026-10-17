@@ -194,6 +194,55 @@ impl NumpyRng {
         (self.next_u64() >> 11) as f64 * (1.0 / 9007199254740992.0)
     }
 
+    /// `choice(pop, size, replace=False)`: `size` distinct indices below `pop` in numpy's order: a tail shuffle of
+    /// the whole range when the sample is a large share of a large population, else Floyd's algorithm over a hash
+    /// set, then shuffled.
+    pub fn choice_distinct(&mut self, pop: usize, size: usize) -> Vec<usize> {
+        assert!(size <= pop, "choice: a sample larger than the population");
+        let (pop, size) = (pop as u64, size as u64);
+        let mut idx: Vec<u64>;
+        if pop > 10_000 && size > pop / 50 {
+            idx = (0..pop).collect();
+            let first = (pop - size).max(1);
+            for i in (first..pop).rev() {
+                let j = self.integers(i + 1);
+                idx.swap(i as usize, j as usize);
+            }
+            idx.drain(..(pop - size) as usize);
+        } else {
+            idx = vec![0; size as usize];
+            let mut mask = (1.2 * size as f64) as u64;
+            for s in [1, 2, 4, 8, 16, 32] {
+                mask |= mask >> s;
+            }
+            let mut set = vec![u64::MAX; (mask + 1) as usize];
+            for j in pop - size..pop {
+                let val = self.integers(j + 1);
+                let mut loc = (val & mask) as usize;
+                while set[loc] != u64::MAX && set[loc] != val {
+                    loc = (loc + 1) & mask as usize;
+                }
+                let k = (j + size - pop) as usize;
+                if set[loc] == u64::MAX {
+                    set[loc] = val;
+                    idx[k] = val;
+                } else {
+                    loc = (j & mask) as usize;
+                    while set[loc] != u64::MAX {
+                        loc = (loc + 1) & mask as usize;
+                    }
+                    set[loc] = j;
+                    idx[k] = j;
+                }
+            }
+            for i in (1..size).rev() {
+                let j = self.integers(i + 1);
+                idx.swap(i as usize, j as usize);
+            }
+        }
+        idx.into_iter().map(|v| v as usize).collect()
+    }
+
     /// `choice(len(p), p=p)`: an index drawn by its probability (the cumulative sum, searched for a uniform).
     pub fn choice(&mut self, p: &[f64]) -> usize {
         let mut cdf = Vec::with_capacity(p.len());

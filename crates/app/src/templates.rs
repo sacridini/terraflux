@@ -158,7 +158,7 @@ fn clue_s() -> Model {
     m
 }
 
-pub const TEMPLATES: [Template; 37] = [
+pub const TEMPLATES: [Template; 38] = [
     Template {
         name: "MSPA of a forest",
         group: PATTERNS,
@@ -2327,6 +2327,69 @@ params = { title = "Hits (1), misses (2), false alarms (3)" }
 "#,
     },
     Template {
+        name: "Accuracy and area of a map",
+        group: LAND_CHANGE,
+        build: None,
+        about: "the good practices of Olofsson et al. (2014): the size of a stratified sample, the points drawn, \
+                their reference classes, then the accuracies and each class's area with confidence intervals",
+        toml: r#"
+format = "terraflux/1"
+name = "Accuracy and area of a map"
+description = "The accuracy and the area of a classified map from a stratified random sample (Olofsson et al. 2014): the sample's size and its share of each class, the points drawn, their reference classes, and from them the error matrix, the user's, producer's and overall accuracies and the area of each class, with 95% confidence intervals."
+
+[[nodes]]
+id = "truth"
+op = "nlm.random_cluster"
+params = { rows = 200, columns = 200, p = 0.5, weights = [0.6, 0.3, 0.1], seed = 21 }
+note = "What is on the ground: 1 forest, 2 farming, 3 water. Known here only to label the points; in a real study, imagery or field visits tell each point's class."
+
+[[nodes]]
+id = "noise"
+op = "nlm.random"
+params = { rows = 200, columns = 200, seed = 22 }
+
+[[nodes]]
+id = "classified"
+op = "map.calc"
+inputs = { t = "truth.map", e = "noise.map" }
+params = { expression = "if e > 0.9 then (if t == 3 then 1 else t + 1) else t" }
+note = "The map to assess: the truth with a tenth of its cells in another class (in its place, a raster.read of your map)."
+
+[[nodes]]
+id = "size"
+op = "accuracy.sample_size"
+inputs = { map = "classified.map" }
+params = { user_accuracy = { "3" = 0.7 }, standard_error = 0.015, minimum = 50 }
+note = "How many points for a standard error of 0.015 in the overall accuracy, water (rare, expected harder) with a user's accuracy of 0.7 and at least 50 points in every class."
+
+[[nodes]]
+id = "sample"
+op = "accuracy.sample"
+inputs = { map = "classified.map", sizes = "size.table" }
+params = { seed = 1 }
+note = "The points, drawn at random in each class of the map. In a real study: vector.write them, give each its class in the column reference (from imagery or the field), and vector.read them back."
+
+[[nodes]]
+id = "labelled"
+op = "vector.extract"
+inputs = { vector = "sample.points", map = "truth.map" }
+note = "Here the reference class is read from the truth (the column value)."
+
+[[nodes]]
+id = "assess"
+op = "accuracy.assess"
+inputs = { map = "classified.map", points = "labelled.vector" }
+params = { reference = "value" }
+note = "The accuracies and each class's area estimated from the sample, with 95% confidence intervals: the area counted on a map with errors is biased, the estimate is not."
+
+[[nodes]]
+id = "plot"
+op = "view.plot"
+inputs = { value = "sample.cells" }
+params = { title = "The points drawn, by class" }
+"#,
+    },
+    Template {
         name: "Terrain of a surface",
         group: SURFACES,
         build: None,
@@ -2745,6 +2808,27 @@ mod tests {
             };
             let counts: Vec<usize> = maps.iter().map(farming).collect();
             assert!(counts[2] > counts[0], "{name}: farming grows ({counts:?})");
+        }
+    }
+
+    /// The accuracy template runs: the overall accuracy near the nine tenths of cells kept, and the area of every
+    /// class estimated from the sample within its confidence interval of the truth's.
+    #[test]
+    fn accuracy_template_runs() {
+        struct Quiet;
+        impl terraflux_exec::Observer for Quiet {}
+        let m = TEMPLATES.iter().find(|t| t.name == "Accuracy and area of a map").unwrap().model();
+        let out = terraflux_exec::Engine::default().run(&m, &Default::default(), &mut Quiet).unwrap();
+        let Some(terraflux_ops::Value::Table(o)) = out.get("assess.overall") else { panic!("no overall") };
+        let overall = o.column("overall_accuracy").unwrap()[0];
+        assert!((0.85..0.95).contains(&overall), "{overall}");
+        let Some(terraflux_ops::Value::Map(truth)) = out.get("truth.map") else { panic!("no truth") };
+        let Some(terraflux_ops::Value::Table(t)) = out.get("assess.table") else { panic!("no table") };
+        let (cls, area, ci) =
+            (t.column("class").unwrap(), t.column("area_cells").unwrap(), t.column("area_cells_ci").unwrap());
+        for k in 0..cls.len() {
+            let real = truth.data.iter().filter(|&&v| v == cls[k]).count() as f64;
+            assert!((area[k] - real).abs() <= ci[k], "class {}: {} ± {} for {real}", cls[k], area[k], ci[k]);
         }
     }
 

@@ -3,6 +3,7 @@
 //! `circuit_ini` is a program of its own: it changes the process's folder (Circuitscape's INI files name theirs
 //! relative to it).
 
+mod accuracy;
 mod actions;
 mod actions_raster;
 mod batch;

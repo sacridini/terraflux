@@ -12,6 +12,15 @@ minor versions.
   from the folder the program ran in (`terraflux_graph::FILE_SETTINGS`).
 
 ### Added
+- The accuracy and the area of a map from a stratified random sample, the good practices of Olofsson et al. (2014):
+  `accuracy.sample_size` (the size that gives the overall accuracy a standard error, from the user's accuracy
+  expected of each class, and its share of each stratum: a minimum in every one, the rest in proportion; in
+  proportion, equally or by Neyman's allocation), `accuracy.sample` (the points drawn in each stratum without
+  replacement as numpy's `default_rng(seed).choice`, to be labelled with their reference class) and
+  `accuracy.assess` (the error matrix in shares of the area, the user's, producer's and overall accuracies and each
+  class's area estimated from the sample, with standard errors and confidence intervals; R's mapaccuracy, its
+  `olofsson` and, for strata of their own, `stehman2014`, to 1e-12). The library's subject Map accuracy and area,
+  and the template Accuracy and area of a map.
 - The website's tutorials of the 0.86 operators: Terrain hydrology (depressions and flow; streams, watersheds and
   HAND; wetness and connectivity; SWAT+), Ecosystem services with InVEST (the ideas, carbon, habitat quality, water
   yield, sediment), geomorphons and the hilltops of Brazil's Forest Code, and the Dinamica series' Patcher of a

@@ -208,3 +208,71 @@ clara entraram em 0.80.0. Estes ficaram para decidir:
 5. **As configurações de um submodelo como entradas.** Hoje uma configuração não pode ler uma entrada (`edge_width =
    "$x"`; o `check` acusa desde 0.80.0), então um submodelo não expõe as suas. Pede um desenho: as referências nas
    configurações entrando nas dependências, no cache, na expansão dos submodelos e nos lotes distribuídos.
+
+## O que ainda falta entre os operadores
+
+Registro de 2026-10-17. Uma revisão dos 326 operadores (0.86.0) atrás do que quem trabalha com mudança de uso e
+conservação espera encontrar e ainda não está no Terraflux. A ordem é a de importância; os mais baratos e que
+destravam outros são o 1 e o 3.
+
+1. **Estimativa de área e acurácia por amostragem** (Olofsson et al. 2014, as "boas práticas"). O `validate.*`
+   compara mapa com mapa (kappa, quantidade e alocação, os três mapas), mas não há o fluxo que revisores e o IPCC
+   pedem: o desenho da amostra estratificada (o tamanho e a alocação por estrato), a matriz de confusão dos pontos
+   de referência, a área ajustada com o intervalo de confiança, as acurácias do usuário e do produtor com o erro
+   padrão. Referências: o `mapaccuracy` do R, o AREA2 do Google Earth Engine.
+   - **Feito** (0.87.0): `accuracy.sample_size` (a fórmula de Olofsson e as alocações: mínimo por estrato,
+     proporcional, igual, Neyman), `accuracy.sample` (os pontos sorteados como o `default_rng(seed).choice` do
+     numpy) e `accuracy.assess` (o `olofsson` e o `stehman2014` do mapaccuracy, a 1e-12; os intervalos de confiança),
+     com o template Accuracy and area of a map.
+2. **Emissões da mudança de uso e linhas de base de REDD+.** O `services.carbon` dá o estoque; faltam as emissões e
+   remoções por transição ao longo do tempo (os fatores por par de classes, IPCC Tier 1 e 2, as curvas de rebrota da
+   vegetação secundária, emissões comprometidas ou distribuídas no tempo) e a alocação do risco de desmatamento do
+   Verra (VT0007/VM0048: o mapa de risco jurisdicional, o benchmark pela distância à borda, a alocação da
+   atividade). Era um dos usos principais do Dinamica EGO no Brasil.
+3. **O LEAS do PLUS e o aprendizado de máquina em geral** (`ml.fit`, `ml.predict`). O `cars.step` recebe a
+   probabilidade de crescimento pronta: falta o LEAS (a floresta aleatória sobre as expansões entre dois mapas), e
+   sem ele o PLUS fica pela metade. Um `ml.*` genérico dá também o potencial de transição como o Land Change
+   Modeler, a classificação supervisionada de imagens e modelos para qualquer tabela.
+   - **Em Rust, sem Python.** O executável não leva Python (ver `docs/PLAN.md`), e o `ml.predict` precisa rodar no
+     motor por tiles e nos workers dos lotes distribuídos, onde não haveria Python nem scikit-learn instalados. A
+     floresta aleatória já está em Rust: `crates/ops/src/sdm/forest.rs` é o `RandomForestClassifier` do
+     scikit-learn 1.9 portado bit a bit (o construtor em profundidade, o `rand_r`, a introsort, o MT19937 do
+     numpy). O scikit-learn fica como a referência dos testes de paridade, gerada à parte e guardada no
+     repositório, como as do landschaft. Crates como `linfa` e `smartcore` não dariam os mesmos bits.
+   - **Os passos:** (1) tirar a floresta do `sdm` para um módulo `ml` comum, o `sdm.fit` usando-o; (2) várias
+     classes (hoje os nós guardam `[f64; 2]`: o Gini com `n` classes, como o do scikit-learn) e regressão
+     (`RandomForestRegressor`, o critério do erro quadrático); (3) a importância das variáveis (a de impureza e a
+     de permutação) e a dependência parcial; (4) o `HistGradientBoostingClassifier`/`Regressor`, que costuma
+     ganhar da floresta em tabelas: o binning, os histogramas por variável (a soma de cada um em ordem fixa, então
+     dá para igualar os bits), gradientes em float32 e o `exp` do numpy (o `npmath` já tem o de float32); (5) o
+     LEAS e o potencial de transição sobre o `ml`.
+   - **O modelo como um valor do grafo** (um tipo novo, gravável e relido de um arquivo), para ajustar uma vez numa
+     amostra das células e prever em mapas do tamanho do mundo: a previsão é célula a célula, então entra no motor
+     por tiles sem mudança, com as árvores achatadas em vetores e as faixas em paralelo (`rayon`).
+   - **A rede neural (MLP) do Land Change Modeler** fica por último: o `MLPClassifier` do scikit-learn multiplica
+     matrizes pelo BLAS, cuja ordem das somas muda com o processador, então só daria igualdade dentro de uma
+     tolerância. Em tabelas, a floresta e o boosting costumam ser melhores.
+4. **Dados de entrada com um clique** (`data.download`). Há o `sdm.download_gbif`, mas não as variáveis: o WorldClim
+   e o CHELSA (atuais e futuros do CMIP6), o MapBiomas (coleções por bioma, estado ou município), o Copernicus DEM,
+   o SoilGrids e catálogos STAC (o Planetary Computer), recortados para a área e a grade do modelo. Atende ao
+   princípio da preparação guiada para quem tem pouca experiência; o painel Prepare poderia oferecê-los.
+5. **O Código Florestal completo.** Há o topo de morro (`surface.hilltop`); faltam as APPs dos rios pela largura (os
+   rios do `hydro.streams`), as nascentes, as declividades acima de 45°, as bordas de tabuleiro, e o déficit e o
+   excedente de Reserva Legal por imóvel do CAR (o SICAR como entrada), como nos trabalhos do Soares-Filho.
+6. **Análise de sensibilidade global.** O "Executar várias vezes" tem réplicas, cenários e calibração; faltam os
+   desenhos de Morris e de Sobol (as amostras de Saltelli) e os índices (efeitos elementares; primeira ordem e
+   totais com intervalos por bootstrap), sobre os lotes e a distribuição que já existem. Referência: o SALib.
+7. **Estatística espacial e interpolação.** Nenhum operador interpola: IDW e krigagem ordinária (o variograma
+   ajustado) para estações de clima e amostras de solo. Nem mede a autocorrelação local: o I de Moran global, o
+   LISA e o Gi* de Getis-Ord (os hotspots de desmatamento), referências no PySAL (`esda`). E a tendência célula a
+   célula de uma série de mapas (Mann-Kendall e a inclinação de Sen), muito usada com o NDVI.
+8. **O resto do InVEST:** a razão de entrega de nutrientes (NDR), a polinização e a produção sazonal de água, os
+   mais pedidos depois dos quatro que já estão. Entram primeiro no landschaft, como os outros.
+9. **Dispersão de espécies no tempo.** O SDM de vários períodos com a dispersão célula a célula (como o MigClim) ou
+   com uma metapopulação (o modelo de função de incidência), juntando o `sdm.*` e o `conn.*` num laço.
+
+Fora dos operadores:
+- **O nó de script em Python**, previsto no plano como componente opcional e isolado (um Python embutido), nunca no
+  laço da simulação.
+- **Animações das simulações:** os mapas coletados num `control.repeat` exportados em GIF ou MP4, com a legenda e o
+  passo.
