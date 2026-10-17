@@ -11136,7 +11136,7 @@
  },
  {
   "name": "ml.fit",
-  "doc": "A random forest fitted to records (scikit-learn's RandomForestClassifier for classes, RandomForestRegressor for values, the same trees): the rows of a table, or the cells of maps (the predictors a stack, the target a map; a sample of the cells, drawn as numpy's default_rng(seed) draws it). Its predictors' importances: the mean decrease of impurity.",
+  "doc": "A random forest or a histogram gradient boosting fitted to records (scikit-learn's RandomForestClassifier and HistGradientBoostingClassifier for classes, their regressors for values, the same trees): the rows of a table, or the cells of maps (the predictors a stack, the target a map; a sample of the cells, drawn as numpy's default_rng(seed) draws it). Its predictors' importances: a forest's mean decrease of impurity, a boosting's share of the gain of its splits.",
   "inputs": [
    {
     "name": "table",
@@ -11220,10 +11220,20 @@
     "doc": "the seed of the sample's draw (numpy's; default 1)"
    },
    {
+    "name": "method",
+    "type": "text",
+    "required": false,
+    "doc": "random_forest (default; scikit-learn's RandomForest) or gradient_boosting (its HistGradientBoosting, without early stopping)",
+    "choices": [
+     "random_forest",
+     "gradient_boosting"
+    ]
+   },
+   {
     "name": "n_estimators",
     "type": "integer",
     "required": false,
-    "doc": "the trees (default 100)"
+    "doc": "random_forest: the trees (default 100)"
    },
    {
     "name": "max_depth",
@@ -11235,31 +11245,61 @@
     "name": "min_samples_split",
     "type": "integer",
     "required": false,
-    "doc": "the records a node needs to split (default 2)"
+    "doc": "random_forest: the records a node needs to split (default 2)"
    },
    {
     "name": "min_samples_leaf",
     "type": "integer",
     "required": false,
-    "doc": "the records of a leaf at least (default 1)"
+    "doc": "the records of a leaf at least (default: 1 for a forest, 20 for boosting)"
    },
    {
     "name": "max_features",
     "type": "any",
     "required": false,
-    "doc": "the predictors tried at each split: sqrt, log2, all, a number or a share (default: sqrt for classes, all for values, as scikit-learn)"
+    "doc": "the predictors tried at each split: sqrt, log2, all, a number or a share (default: sqrt for classes, all for values, as scikit-learn); gradient_boosting: a share (default 1)"
    },
    {
     "name": "bootstrap",
     "type": "bool",
     "required": false,
-    "doc": "each tree on a bootstrap of the records (default true)"
+    "doc": "random_forest: each tree on a bootstrap (default true)"
+   },
+   {
+    "name": "learning_rate",
+    "type": "number",
+    "required": false,
+    "doc": "gradient_boosting: the shrinkage of the leaves (0.1)"
+   },
+   {
+    "name": "max_iter",
+    "type": "integer",
+    "required": false,
+    "doc": "gradient_boosting: the iterations (100)"
+   },
+   {
+    "name": "max_leaf_nodes",
+    "type": "integer",
+    "required": false,
+    "doc": "gradient_boosting: the leaves of a tree at most (31; null for no limit)"
+   },
+   {
+    "name": "l2_regularization",
+    "type": "number",
+    "required": false,
+    "doc": "gradient_boosting: the leaves' L2 penalty (0)"
+   },
+   {
+    "name": "max_bins",
+    "type": "integer",
+    "required": false,
+    "doc": "gradient_boosting: the bins of a predictor, 2-255 (255)"
    },
    {
     "name": "random_state",
     "type": "integer",
     "required": false,
-    "doc": "scikit-learn's seed of the forest (default 0)"
+    "doc": "scikit-learn's seed of the model (default 0)"
    }
   ],
   "access": "global",
@@ -11267,7 +11307,7 @@
  },
  {
   "name": "ml.potential",
-  "doc": "The potential of each class from a random forest per class (landschaft's Estimator with scikit-learn's RandomForestClassifier, the same maps): where each class is (presence, as lulcc's models), or where it appeared between two maps among the cells without it (expansion: PLUS's land expansion analysis, LEAS, the growth probability CARS takes); with each driver's contribution (the forests' importances).",
+  "doc": "The potential of each class from a model per class (landschaft's Estimator with scikit-learn's RandomForestClassifier, or HistGradientBoostingClassifier, the same maps): where each class is (presence, as lulcc's models), or where it appeared between two maps among the cells without it (expansion: PLUS's land expansion analysis, LEAS, the growth probability CARS takes); with each driver's contribution (the models' importances).",
   "inputs": [
    {
     "name": "landscape",
@@ -11356,10 +11396,20 @@
     "doc": "the seed of the draws (numpy's default_rng; default 1)"
    },
    {
+    "name": "method",
+    "type": "text",
+    "required": false,
+    "doc": "random_forest (default; scikit-learn's RandomForest) or gradient_boosting (its HistGradientBoosting, without early stopping)",
+    "choices": [
+     "random_forest",
+     "gradient_boosting"
+    ]
+   },
+   {
     "name": "n_estimators",
     "type": "integer",
     "required": false,
-    "doc": "the trees (default 100)"
+    "doc": "random_forest: the trees (default 100)"
    },
    {
     "name": "max_depth",
@@ -11371,31 +11421,61 @@
     "name": "min_samples_split",
     "type": "integer",
     "required": false,
-    "doc": "the records a node needs to split (default 2)"
+    "doc": "random_forest: the records a node needs to split (default 2)"
    },
    {
     "name": "min_samples_leaf",
     "type": "integer",
     "required": false,
-    "doc": "the records of a leaf at least (default 1)"
+    "doc": "the records of a leaf at least (default: 1 for a forest, 20 for boosting)"
    },
    {
     "name": "max_features",
     "type": "any",
     "required": false,
-    "doc": "the predictors tried at each split: sqrt, log2, all, a number or a share (default: sqrt for classes, all for values, as scikit-learn)"
+    "doc": "the predictors tried at each split: sqrt, log2, all, a number or a share (default: sqrt for classes, all for values, as scikit-learn); gradient_boosting: a share (default 1)"
    },
    {
     "name": "bootstrap",
     "type": "bool",
     "required": false,
-    "doc": "each tree on a bootstrap of the records (default true)"
+    "doc": "random_forest: each tree on a bootstrap (default true)"
+   },
+   {
+    "name": "learning_rate",
+    "type": "number",
+    "required": false,
+    "doc": "gradient_boosting: the shrinkage of the leaves (0.1)"
+   },
+   {
+    "name": "max_iter",
+    "type": "integer",
+    "required": false,
+    "doc": "gradient_boosting: the iterations (100)"
+   },
+   {
+    "name": "max_leaf_nodes",
+    "type": "integer",
+    "required": false,
+    "doc": "gradient_boosting: the leaves of a tree at most (31; null for no limit)"
+   },
+   {
+    "name": "l2_regularization",
+    "type": "number",
+    "required": false,
+    "doc": "gradient_boosting: the leaves' L2 penalty (0)"
+   },
+   {
+    "name": "max_bins",
+    "type": "integer",
+    "required": false,
+    "doc": "gradient_boosting: the bins of a predictor, 2-255 (255)"
    },
    {
     "name": "random_state",
     "type": "integer",
     "required": false,
-    "doc": "scikit-learn's seed of the forest (default 0)"
+    "doc": "scikit-learn's seed of the model (default 0)"
    }
   ],
   "access": "global",
