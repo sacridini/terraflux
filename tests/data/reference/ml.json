@@ -1,0 +1,91 @@
+{
+ "classifier/default": {
+  "n_estimators": 30,
+  "random_state": 3
+ },
+ "classifier/shaped": {
+  "n_estimators": 15,
+  "random_state": 8,
+  "max_depth": 5,
+  "min_samples_leaf": 3,
+  "max_features": 2,
+  "bootstrap": false
+ },
+ "regressor/default": {
+  "n_estimators": 20,
+  "random_state": 5
+ },
+ "regressor/shaped": {
+  "n_estimators": 12,
+  "random_state": 9,
+  "max_features": 0.4,
+  "min_samples_split": 6
+ },
+ "pie/drivers": [
+  "elevation",
+  "slope",
+  "dist_built_1985"
+ ],
+ "pie/expansion": {
+  "target": "expansion",
+  "sample": 4000,
+  "seed": 1,
+  "classes": [
+   1,
+   2,
+   3
+  ],
+  "drivers": [
+   "dist_built_1985",
+   "elevation",
+   "slope"
+  ],
+  "train": {
+   "1": 4000,
+   "2": 4000,
+   "3": 4000
+  }
+ },
+ "pie/stratified": {
+  "target": "expansion",
+  "sample": 0.05,
+  "stratify": true,
+  "seed": 2,
+  "classes": [
+   1,
+   2,
+   3
+  ],
+  "drivers": [
+   "dist_built_1985",
+   "elevation",
+   "slope"
+  ],
+  "train": {
+   "1": 3228,
+   "2": 3822,
+   "3": 4306
+  }
+ },
+ "pie/presence": {
+  "target": "presence",
+  "sample": 3000,
+  "balance": true,
+  "seed": 3,
+  "classes": [
+   1,
+   2,
+   3
+  ],
+  "drivers": [
+   "dist_built_1985",
+   "elevation",
+   "slope"
+  ],
+  "train": {
+   "1": 2618,
+   "2": 1974,
+   "3": 1542
+  }
+ }
+}

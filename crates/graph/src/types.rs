@@ -54,6 +54,8 @@ pub enum Type {
     HabitatGraph,
     /// A fitted species distribution model (MaxNet).
     SdmModel,
+    /// A fitted machine learning model (random forests).
+    MlModel,
 }
 
 impl Type {
@@ -84,6 +86,7 @@ impl Type {
             Type::LabelMatrix => "label matrix",
             Type::HabitatGraph => "habitat graph",
             Type::SdmModel => "distribution model",
+            Type::MlModel => "fitted model",
         }
     }
 

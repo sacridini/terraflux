@@ -52,6 +52,7 @@ pub mod map_validation;
 pub mod markov;
 pub mod metrics;
 pub mod milp;
+pub mod ml;
 pub mod molusce;
 pub mod mspa_tiled;
 pub mod nlm;
@@ -360,6 +361,7 @@ impl Registry {
         crafty::register(&mut r);
         markov::register(&mut r);
         metrics::register(&mut r);
+        ml::register(&mut r);
         molusce::register(&mut r);
         nlm::register(&mut r);
         conn::register(&mut r);

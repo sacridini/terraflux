@@ -26,6 +26,7 @@ mod legend;
 mod map_validation;
 mod marxan;
 mod metrics;
+mod ml;
 mod mspa_tiled;
 mod nlm;
 mod ops;

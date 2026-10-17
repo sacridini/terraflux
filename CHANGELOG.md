@@ -6,6 +6,17 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Machine learning (`ml.*`), scikit-learn's random forests ported to the bit (now `terraflux_ops::ml::forest`,
+  shared with `sdm.fit`): `ml.fit` (RandomForestClassifier of any number of classes, or RandomForestRegressor of
+  values, on the rows of a table or the cells of maps, a sample of them drawn as numpy draws it; the predictors'
+  importances, the mean decrease of impurity), `ml.predict` (the class or the value and each class's probability, on
+  maps or a table) and `ml.potential` (landschaft's Estimator: a forest per class of where it is, or where it
+  appeared between two maps: PLUS's land expansion analysis, LEAS, the growth probability `cars.step` takes; with
+  each driver's contribution), each the same numbers as scikit-learn 1.9 and landschaft. The trees are grown and the
+  cells predicted in parallel (the same bits). A fitted model is a value of its own (`ml_model`), written as JSON.
+  The library's subject Machine learning, and the template PLUS (LEAS and CARS).
+
 ## [0.87.0] - 2026-10-17
 
 ### Fixed

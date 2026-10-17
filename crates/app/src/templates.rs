@@ -112,6 +112,72 @@ fn dinamica() -> Model {
     m
 }
 
+/// PLUS on the data drawn: the land expansion analysis (a random forest per class) and CARS in a loop.
+fn plus() -> Model {
+    let mut m = Model::new("PLUS (LEAS and CARS)");
+    m.description = Some(
+        "PLUS (Liang et al. 2021): its land expansion analysis (LEAS, a random forest per class of where it \
+         appeared between two dates of land use drawn by chance, 2000 and 2010) gives each class's growth \
+         probability, and CARS allocates three steps of 10 years from 2010, the demand projected by the Markov \
+         chain of the period."
+            .into(),
+    );
+    land_change_data(&mut m);
+    m.nodes.push(
+        Node::new("leas", "ml.potential")
+            .input("landscape", "land_2000.map")
+            .input("later", "land_2010.map")
+            .input("drivers", "drivers.stack")
+            .param("classes", serde_json::json!([2]))
+            .param("n_estimators", 50)
+            .param("seed", 1)
+            .note(
+                "PLUS's land expansion analysis: for every class that grows (here farming, the only one), a random \
+                 forest of where it appeared between the two dates (among the cells without it) on the drivers. \
+                 potential is its growth probability, importance each driver's contribution.",
+            ),
+    );
+    m.nodes.push(
+        Node::new("markov", "markov.fit")
+            .input("t0", "land_2000.map")
+            .input("t1", "land_2010.map")
+            .literal("steps", 1)
+            .note("The transition probabilities of the period, which project the demand."),
+    );
+    m.nodes.push(
+        Node::new("demand", "plus.demand")
+            .input("start", "land_2010.map")
+            .input("markov", "markov.markov")
+            .param("steps", 3)
+            .note("The cells of each class at each of three steps: the Markov chain projected from 2010 (PLUS's default)."),
+    );
+    let body = terraflux_graph::Body {
+        nodes: vec![
+            Node::new("cars", "cars.step")
+                .input("landscape", "@landscape")
+                .input("probability", "leas.potential")
+                .input("demand", "demand.demand")
+                .input("step", "@step")
+                .literal("seed", 7)
+                .param("step_size", 50)
+                .note("CARS: the classes compete for the cells by their growth probability, their neighbours and the gap to the demand, and random seeds start new patches."),
+        ],
+        carry: [("landscape".to_string(), "cars.landscape".to_string())].into(),
+        collect: [("maps".to_string(), "cars.landscape".to_string()), ("info".to_string(), "cars.info".to_string())]
+            .into(),
+        ..Default::default()
+    };
+    m.nodes.push(
+        Node::new("simulation", "control.repeat")
+            .input("times", "demand.steps")
+            .input("landscape", "land_2010.map")
+            .note("One iteration per step, the map carried from step to step.")
+            .body(body),
+    );
+    m.nodes.push(Node::new("plot", "view.plot").input("value", "simulation.maps").param("title", "Simulated land use"));
+    m
+}
+
 /// CLUE-S (lulcc's CluesModel) on the data drawn: logistic regressions, a linear demand, CLUE's allocation.
 fn clue_s() -> Model {
     let mut m = Model::new("CLUE-S");
@@ -158,7 +224,7 @@ fn clue_s() -> Model {
     m
 }
 
-pub const TEMPLATES: [Template; 38] = [
+pub const TEMPLATES: [Template; 39] = [
     Template {
         name: "MSPA of a forest",
         group: PATTERNS,
@@ -1046,6 +1112,13 @@ params = { title = "Fractal" }
                 drawn by chance, run three steps ahead",
         toml: "",
         build: Some(clue_s),
+    },
+    Template {
+        name: "PLUS (LEAS and CARS)",
+        group: LAND_CHANGE,
+        about: "PLUS on two dates of land use drawn by chance: the land expansion analysis (a random forest per                 class) gives the growth probabilities, CARS allocates three steps ahead",
+        toml: "",
+        build: Some(plus),
     },
     Template {
         name: "Forest gain and loss",
@@ -2793,7 +2866,7 @@ mod tests {
     fn land_change_templates_run() {
         struct Quiet;
         impl terraflux_exec::Observer for Quiet {}
-        for name in ["Dinamica EGO", "CLUE-S"] {
+        for name in ["Dinamica EGO", "CLUE-S", "PLUS (LEAS and CARS)"] {
             let m = TEMPLATES.iter().find(|t| t.name == name).unwrap().model();
             let out = terraflux_exec::Engine::default()
                 .run(&m, &Default::default(), &mut Quiet)

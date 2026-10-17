@@ -1,12 +1,14 @@
-//! scikit-learn's RandomForestClassifier (1.9) for presence and background: the trees grown as its Cython grows
-//! them (the depth-first builder, the best splitter with its Fisher-Yates draw of the features by its rand_r,
-//! its introsort of the values, the Gini criterion updated from the cheaper side), each from a bootstrap of the
-//! records drawn by numpy's legacy RandomState (MT19937) with the seeds the forest draws; the presence's
-//! probability averaged over the trees in their order. The same trees and probabilities as scikit-learn's.
+//! scikit-learn's random forests (1.9), RandomForestClassifier and RandomForestRegressor: the trees grown as its
+//! Cython grows them (the depth-first builder, the best splitter with its Fisher-Yates draw of the features by its
+//! rand_r, its introsort of the values, Gini's impurity of the classes or the squared error of the values updated
+//! from the cheaper side), each from a bootstrap of the records drawn by numpy's legacy RandomState (MT19937) with
+//! the seeds the forest draws; the classes' probabilities (or the values) averaged over the trees in their order,
+//! and the mean decrease of impurity of each predictor. The same trees, predictions and importances as
+//! scikit-learn's.
 
 use serde::{Deserialize, Serialize};
 
-use super::extrapolation::Frame;
+use crate::sdm::extrapolation::Frame;
 
 /// numpy's legacy MT19937 (RandomState), seeded with an integer as RandomState(seed) seeds it.
 pub struct Mt19937 {
@@ -207,14 +209,19 @@ fn simultaneous_sort(v: &mut [f32], s: &mut [usize]) {
 
 // ------------------------------------------------------------------ the tree
 
-/// A node: its children (none for a leaf), the feature and threshold of its split, the presence's probability.
+/// A node: its children (none for a leaf), the feature and threshold of its split, its value (the classes'
+/// shares, or the mean of the values), its impurity and the weight of its records.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Node {
     pub left: i32,
     pub right: i32,
     pub feature: i32,
     pub threshold: f64,
-    pub value: [f64; 2],
+    pub value: Vec<f64>,
+    #[serde(default)]
+    pub impurity: f64,
+    #[serde(default)]
+    pub weight: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -223,8 +230,8 @@ pub struct Tree {
 }
 
 impl Tree {
-    /// The classes' probabilities of a row (its values as floats, as scikit-learn's trees take them).
-    fn leaf(&self, row: &[f32]) -> &[f64; 2] {
+    /// The value of a row's leaf (its values as floats, as scikit-learn's trees take them).
+    fn leaf(&self, row: &[f32]) -> &[f64] {
         let mut k = 0usize;
         loop {
             let n = &self.nodes[k];
@@ -234,13 +241,41 @@ impl Tree {
             k = if f64::from(row[n.feature as usize]) <= n.threshold { n.left as usize } else { n.right as usize };
         }
     }
+
+    /// compute_feature_importances: the weighted decrease of impurity at the splits on each feature, over the
+    /// root's weight, normalised to add up to 1.
+    fn importances(&self, features: usize) -> Vec<f64> {
+        let mut imp = vec![0.0; features];
+        for n in &self.nodes {
+            if n.left >= 0 {
+                let (l, r) = (&self.nodes[n.left as usize], &self.nodes[n.right as usize]);
+                imp[n.feature as usize] += n.weight * n.impurity - l.weight * l.impurity - r.weight * r.impurity;
+            }
+        }
+        let root = self.nodes[0].weight;
+        imp.iter_mut().for_each(|v| *v /= root);
+        let total = crate::change::numpy_sum(&imp);
+        if total > 0.0 {
+            imp.iter_mut().for_each(|v| *v /= total);
+        }
+        imp
+    }
 }
 
-/// The Gini criterion of the samples of a node, its left part [start, pos) and right part [pos, end).
+/// What the trees learn: the class of each record (its index among the classes) or its value.
+#[derive(Clone, Copy)]
+enum Target<'a> {
+    Classes(&'a [usize]),
+    Values(&'a [f64]),
+}
+
+/// The criterion of the samples of a node, its left part [start, pos) and right part [pos, end): Gini's impurity
+/// of the classes (the weights of each), or the squared error of the values (their weighted sum, and of squares).
 struct Criterion {
-    sum_total: [f64; 2],
-    sum_left: [f64; 2],
-    sum_right: [f64; 2],
+    sum_total: Vec<f64>,
+    sum_left: Vec<f64>,
+    sum_right: Vec<f64>,
+    sq_sum_total: f64,
     weighted_n_samples: f64,
     weighted_n_node_samples: f64,
     weighted_n_left: f64,
@@ -251,13 +286,37 @@ struct Criterion {
 }
 
 impl Criterion {
-    fn init(&mut self, y: &[usize], w: &[f64], samples: &[usize], start: usize, end: usize) {
+    fn new(k: usize) -> Self {
+        Criterion {
+            sum_total: vec![0.0; k],
+            sum_left: vec![0.0; k],
+            sum_right: vec![0.0; k],
+            sq_sum_total: 0.0,
+            weighted_n_samples: 0.0,
+            weighted_n_node_samples: 0.0,
+            weighted_n_left: 0.0,
+            weighted_n_right: 0.0,
+            start: 0,
+            end: 0,
+            pos: 0,
+        }
+    }
+
+    fn init(&mut self, y: Target, w: &[f64], samples: &[usize], start: usize, end: usize) {
         self.start = start;
         self.end = end;
         self.weighted_n_node_samples = 0.0;
-        self.sum_total = [0.0; 2];
+        self.sum_total.iter_mut().for_each(|v| *v = 0.0);
+        self.sq_sum_total = 0.0;
         for &i in &samples[start..end] {
-            self.sum_total[y[i]] += w[i];
+            match y {
+                Target::Classes(c) => self.sum_total[c[i]] += w[i],
+                Target::Values(v) => {
+                    let wy = w[i] * v[i];
+                    self.sum_total[0] += wy;
+                    self.sq_sum_total += wy * v[i];
+                }
+            }
             self.weighted_n_node_samples += w[i];
         }
         self.reset();
@@ -265,65 +324,99 @@ impl Criterion {
 
     fn reset(&mut self) {
         self.pos = self.start;
-        self.sum_left = [0.0; 2];
-        self.sum_right = self.sum_total;
+        self.sum_left.iter_mut().for_each(|v| *v = 0.0);
+        self.sum_right.copy_from_slice(&self.sum_total);
         self.weighted_n_left = 0.0;
         self.weighted_n_right = self.weighted_n_node_samples;
     }
 
     fn reverse_reset(&mut self) {
         self.pos = self.end;
-        self.sum_right = [0.0; 2];
-        self.sum_left = self.sum_total;
+        self.sum_right.iter_mut().for_each(|v| *v = 0.0);
+        self.sum_left.copy_from_slice(&self.sum_total);
         self.weighted_n_right = 0.0;
         self.weighted_n_left = self.weighted_n_node_samples;
     }
 
-    fn update(&mut self, y: &[usize], w: &[f64], samples: &[usize], new_pos: usize) {
+    fn update(&mut self, y: Target, w: &[f64], samples: &[usize], new_pos: usize) {
         let pos = self.pos;
         if new_pos - pos <= self.end - new_pos {
             for &i in &samples[pos..new_pos] {
-                self.sum_left[y[i]] += w[i];
+                match y {
+                    Target::Classes(c) => self.sum_left[c[i]] += w[i],
+                    Target::Values(v) => self.sum_left[0] += w[i] * v[i],
+                }
                 self.weighted_n_left += w[i];
             }
         } else {
             self.reverse_reset();
             for p in (new_pos..self.end).rev() {
                 let i = samples[p];
-                self.sum_left[y[i]] -= w[i];
+                match y {
+                    Target::Classes(c) => self.sum_left[c[i]] -= w[i],
+                    Target::Values(v) => self.sum_left[0] -= w[i] * v[i],
+                }
                 self.weighted_n_left -= w[i];
             }
         }
         self.weighted_n_right = self.weighted_n_node_samples - self.weighted_n_left;
-        for c in 0..2 {
+        for c in 0..self.sum_total.len() {
             self.sum_right[c] = self.sum_total[c] - self.sum_left[c];
         }
         self.pos = new_pos;
     }
 
-    fn node_impurity(&self) -> f64 {
-        let mut sq = 0.0;
-        for c in self.sum_total {
-            sq += c * c;
+    fn node_impurity(&self, y: Target) -> f64 {
+        let wn = self.weighted_n_node_samples;
+        match y {
+            Target::Classes(_) => {
+                let mut sq = 0.0;
+                for c in &self.sum_total {
+                    sq += c * c;
+                }
+                1.0 - sq / (wn * wn)
+            }
+            Target::Values(_) => {
+                let m = self.sum_total[0] / wn;
+                self.sq_sum_total / wn - m * m
+            }
         }
-        1.0 - sq / (self.weighted_n_node_samples * self.weighted_n_node_samples)
     }
 
-    fn children_impurity(&self) -> (f64, f64) {
-        let (mut sl, mut sr) = (0.0, 0.0);
-        for c in 0..2 {
-            sl += self.sum_left[c] * self.sum_left[c];
-            sr += self.sum_right[c] * self.sum_right[c];
+    fn children_impurity(&self, y: Target, w: &[f64], samples: &[usize]) -> (f64, f64) {
+        let (wl, wr) = (self.weighted_n_left, self.weighted_n_right);
+        match y {
+            Target::Classes(_) => {
+                let (mut sl, mut sr) = (0.0, 0.0);
+                for c in 0..self.sum_total.len() {
+                    sl += self.sum_left[c] * self.sum_left[c];
+                    sr += self.sum_right[c] * self.sum_right[c];
+                }
+                (1.0 - sl / (wl * wl), 1.0 - sr / (wr * wr))
+            }
+            Target::Values(v) => {
+                let mut sq_left = 0.0;
+                for &i in &samples[self.start..self.pos] {
+                    sq_left += w[i] * v[i] * v[i];
+                }
+                let sq_right = self.sq_sum_total - sq_left;
+                let (ml, mr) = (self.sum_left[0] / wl, self.sum_right[0] / wr);
+                (sq_left / wl - ml * ml, sq_right / wr - mr * mr)
+            }
         }
-        (
-            1.0 - sl / (self.weighted_n_left * self.weighted_n_left),
-            1.0 - sr / (self.weighted_n_right * self.weighted_n_right),
-        )
     }
 
-    fn proxy_impurity_improvement(&self) -> f64 {
-        let (il, ir) = self.children_impurity();
-        -self.weighted_n_right * ir - self.weighted_n_left * il
+    fn proxy_impurity_improvement(&self, y: Target, w: &[f64], samples: &[usize]) -> f64 {
+        match y {
+            Target::Classes(_) => {
+                let (il, ir) = self.children_impurity(y, w, samples);
+                -self.weighted_n_right * ir - self.weighted_n_left * il
+            }
+            Target::Values(_) => {
+                self.sum_left[0] * self.sum_left[0] / self.weighted_n_left
+                    + self.sum_right[0] * self.sum_right[0] / self.weighted_n_right
+            }
+        }
     }
 
     fn impurity_improvement(&self, parent: f64, il: f64, ir: f64) -> f64 {
@@ -333,8 +426,8 @@ impl Criterion {
                 - (self.weighted_n_left / self.weighted_n_node_samples * il))
     }
 
-    fn node_value(&self) -> [f64; 2] {
-        [self.sum_total[0] / self.weighted_n_node_samples, self.sum_total[1] / self.weighted_n_node_samples]
+    fn node_value(&self) -> Vec<f64> {
+        self.sum_total.iter().map(|s| s / self.weighted_n_node_samples).collect()
     }
 }
 
@@ -354,7 +447,8 @@ pub struct Settings {
     pub max_depth: Option<usize>,
     pub min_samples_split: usize,
     pub min_samples_leaf: usize,
-    /// "sqrt" (the default), "log2", "all", a number of features or a share of them.
+    /// "sqrt" (the classifier's default), "log2", "all", a number of features or a share of them (the
+    /// regressor's default: 1.0, all).
     pub max_features: serde_json::Value,
     pub bootstrap: bool,
     pub random_state: u32,
@@ -376,7 +470,7 @@ impl Default for Settings {
 
 struct Grower<'a> {
     x: &'a [Vec<f32>],
-    y: &'a [usize],
+    y: Target<'a>,
     w: &'a [f64],
     max_features: usize,
     min_samples_leaf: usize,
@@ -451,7 +545,7 @@ impl Grower<'_> {
                 if self.crit.weighted_n_left < 0.0 || self.crit.weighted_n_right < 0.0 {
                     continue;
                 }
-                let proxy = self.crit.proxy_impurity_improvement();
+                let proxy = self.crit.proxy_impurity_improvement(self.y, self.w, &self.samples);
                 if proxy > best_proxy {
                     best_proxy = proxy;
                     best.feature = feature;
@@ -474,7 +568,7 @@ impl Grower<'_> {
             }
             self.crit.reset();
             self.crit.update(self.y, self.w, &self.samples, best.pos);
-            let (il, ir) = self.crit.children_impurity();
+            let (il, ir) = self.crit.children_impurity(self.y, self.w, &self.samples);
             best.impurity_left = il;
             best.impurity_right = ir;
             best.improvement = self.crit.impurity_improvement(impurity, il, ir);
@@ -517,7 +611,7 @@ impl Grower<'_> {
                 || self.crit.weighted_n_node_samples < 0.0;
             let mut impurity = r.impurity;
             if first {
-                impurity = self.crit.node_impurity();
+                impurity = self.crit.node_impurity(self.y);
                 first = false;
             }
             is_leaf = is_leaf || impurity <= EPSILON;
@@ -537,9 +631,18 @@ impl Grower<'_> {
                 }
             }
             let value = self.crit.node_value();
+            let weight = self.crit.weighted_n_node_samples;
             match split.filter(|_| !is_leaf) {
                 Some(s) => {
-                    nodes.push(Node { left: -1, right: -1, feature: s.feature as i32, threshold: s.threshold, value });
+                    nodes.push(Node {
+                        left: -1,
+                        right: -1,
+                        feature: s.feature as i32,
+                        threshold: s.threshold,
+                        value,
+                        impurity,
+                        weight,
+                    });
                     stack.push(Rec {
                         start: s.pos,
                         end: r.end,
@@ -557,18 +660,25 @@ impl Grower<'_> {
                         n_constant,
                     });
                 }
-                None => nodes.push(Node { left: -1, right: -1, feature: -2, threshold: -2.0, value }),
+                None => nodes.push(Node { left: -1, right: -1, feature: -2, threshold: -2.0, value, impurity, weight }),
             }
         }
         Tree { nodes }
     }
 }
 
-/// A fitted forest: its trees and predictors.
+fn presence() -> Vec<f64> {
+    vec![0.0, 1.0]
+}
+
+/// A fitted forest: its predictors and trees, and its classes (none for a regression).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Forest {
     pub predictors: Vec<String>,
     pub trees: Vec<Tree>,
+    /// The classes, increasing (a node's value holds their shares); none: the trees give values.
+    #[serde(default = "presence")]
+    pub classes: Vec<f64>,
 }
 
 fn max_features_of(v: &serde_json::Value, n: usize) -> Result<usize, String> {
@@ -589,12 +699,47 @@ fn max_features_of(v: &serde_json::Value, n: usize) -> Result<usize, String> {
 /// RandomForestClassifier.fit on the records (presence 1, background 0), with their weights (scikit-learn's
 /// sample_weight: the bootstraps drawn with them, or the trees weighted by them without bootstraps).
 pub fn fit(x: &Frame, y: &[f64], weights: Option<&[f64]>, s: &Settings) -> Result<Forest, String> {
-    let n = y.len();
-    if n == 0 {
-        return Err("no records".into());
-    }
     if y.iter().any(|v| *v != 0.0 && *v != 1.0) || !y.contains(&0.0) || !y.contains(&1.0) {
         return Err("a forest needs presences (1) and background or absences (0)".into());
+    }
+    classifier(x, y, weights, s)
+}
+
+/// RandomForestClassifier.fit: the classes are the distinct values of `y`, increasing.
+pub fn classifier(x: &Frame, y: &[f64], weights: Option<&[f64]>, s: &Settings) -> Result<Forest, String> {
+    if y.iter().any(|v| !v.is_finite()) {
+        return Err("the classes have missing values".into());
+    }
+    let mut classes = y.to_vec();
+    classes.sort_by(f64::total_cmp);
+    classes.dedup();
+    if classes.len() < 2 {
+        return Err("a classifier needs two classes or more".into());
+    }
+    let codes: Vec<usize> = y.iter().map(|v| classes.partition_point(|c| c < v)).collect();
+    let trees = grow(x, Target::Classes(&codes), classes.len(), weights, s)?;
+    Ok(Forest { predictors: x.names.clone(), trees, classes })
+}
+
+/// RandomForestRegressor.fit (the squared error; scikit-learn's max_features for it is 1.0, all).
+pub fn regressor(x: &Frame, y: &[f64], weights: Option<&[f64]>, s: &Settings) -> Result<Forest, String> {
+    if y.iter().any(|v| !v.is_finite()) {
+        return Err("the values have missing values".into());
+    }
+    let trees = grow(x, Target::Values(y), 1, weights, s)?;
+    Ok(Forest { predictors: x.names.clone(), trees, classes: Vec::new() })
+}
+
+/// BaseForest.fit: the trees' seeds drawn from the forest's, each tree grown from its bootstrap (in parallel:
+/// each from its own seed, the same trees).
+fn grow(x: &Frame, y: Target, k: usize, weights: Option<&[f64]>, s: &Settings) -> Result<Vec<Tree>, String> {
+    use rayon::prelude::*;
+    let n = match y {
+        Target::Classes(c) => c.len(),
+        Target::Values(v) => v.len(),
+    };
+    if n == 0 {
+        return Err("no records".into());
     }
     if s.n_estimators == 0 || s.min_samples_leaf == 0 || s.min_samples_split < 2 {
         return Err("n_estimators and min_samples_leaf: 1 or more; min_samples_split: 2 or more".into());
@@ -603,7 +748,6 @@ pub fn fit(x: &Frame, y: &[f64], weights: Option<&[f64]>, s: &Settings) -> Resul
     if cols.iter().flatten().any(|v| !v.is_finite()) {
         return Err("the records' predictors have missing values".into());
     }
-    let classes: Vec<usize> = y.iter().map(|v| *v as usize).collect();
     let nf = cols.len();
     let max_features = max_features_of(&s.max_features, nf)?;
     let max_depth = s.max_depth.unwrap_or(i32::MAX as usize);
@@ -629,89 +773,124 @@ pub fn fit(x: &Frame, y: &[f64], weights: Option<&[f64]>, s: &Settings) -> Resul
         c
     });
     let mut forest_rng = Mt19937::new(s.random_state);
-    let mut trees = Vec::with_capacity(s.n_estimators);
-    for _ in 0..s.n_estimators {
-        let seed = forest_rng.randint(0, i64::from(i32::MAX)) as u32;
-        let w: Vec<f64> = if s.bootstrap {
-            let mut r = Mt19937::new(seed);
-            let mut counts = vec![0.0f64; n];
-            for _ in 0..n {
-                let k = match &cdf {
-                    // searchsorted(side = right): the cells of the cdf at or below the draw
-                    Some(c) => {
-                        let u = r.random_sample();
-                        c.partition_point(|v| *v <= u).min(n - 1)
-                    }
-                    None => r.randint(0, n as i64) as usize,
-                };
-                counts[k] += 1.0;
-            }
-            counts
-        } else {
-            weights.map_or_else(|| vec![1.0; n], <[f64]>::to_vec)
-        };
-        let rand = Mt19937::new(seed).randint(0, i64::from(RAND_R_MAX)) as u32;
-        let samples: Vec<usize> = (0..n).filter(|&i| w[i] != 0.0).collect();
-        let weighted: f64 = w.iter().fold(0.0, |a, b| a + b);
-        let g = Grower {
-            x: &cols,
-            y: &classes,
-            w: &w,
-            max_features,
-            min_samples_leaf: s.min_samples_leaf,
-            min_samples_split,
-            max_depth,
-            rand,
-            values: vec![0.0; n],
-            samples,
-            features: (0..nf).collect(),
-            constant: vec![0; nf],
-            crit: Criterion {
-                sum_total: [0.0; 2],
-                sum_left: [0.0; 2],
-                sum_right: [0.0; 2],
-                weighted_n_samples: 0.0,
-                weighted_n_node_samples: 0.0,
-                weighted_n_left: 0.0,
-                weighted_n_right: 0.0,
-                start: 0,
-                end: 0,
-                pos: 0,
-            },
-        };
-        trees.push(g.grow(weighted));
-    }
-    Ok(Forest { predictors: x.names.clone(), trees })
+    let seeds: Vec<u32> = (0..s.n_estimators).map(|_| forest_rng.randint(0, i64::from(i32::MAX)) as u32).collect();
+    Ok(seeds
+        .into_par_iter()
+        .map(|seed| {
+            let w: Vec<f64> = if s.bootstrap {
+                let mut r = Mt19937::new(seed);
+                let mut counts = vec![0.0f64; n];
+                for _ in 0..n {
+                    let k = match &cdf {
+                        // searchsorted(side = right): the cells of the cdf at or below the draw
+                        Some(c) => {
+                            let u = r.random_sample();
+                            c.partition_point(|v| *v <= u).min(n - 1)
+                        }
+                        None => r.randint(0, n as i64) as usize,
+                    };
+                    counts[k] += 1.0;
+                }
+                counts
+            } else {
+                weights.map_or_else(|| vec![1.0; n], <[f64]>::to_vec)
+            };
+            let rand = Mt19937::new(seed).randint(0, i64::from(RAND_R_MAX)) as u32;
+            let samples: Vec<usize> = (0..n).filter(|&i| w[i] != 0.0).collect();
+            let weighted: f64 = w.iter().fold(0.0, |a, b| a + b);
+            let g = Grower {
+                x: &cols,
+                y,
+                w: &w,
+                max_features,
+                min_samples_leaf: s.min_samples_leaf,
+                min_samples_split,
+                max_depth,
+                rand,
+                values: vec![0.0; n],
+                samples,
+                features: (0..nf).collect(),
+                constant: vec![0; nf],
+                crit: Criterion::new(k),
+            };
+            g.grow(weighted)
+        })
+        .collect())
 }
 
 impl Forest {
-    /// predict_proba's presence column: the trees' probabilities added in their order, over their number.
-    pub fn predict(&self, x: &Frame) -> Result<Vec<f64>, String> {
-        let cols: Vec<Vec<f32>> = self
-            .predictors
+    /// Whether the trees give values (a regression), not classes.
+    pub fn is_regression(&self) -> bool {
+        self.classes.is_empty()
+    }
+
+    /// The predictors' columns as floats, in the forest's order.
+    fn columns(&self, x: &Frame) -> Result<Vec<Vec<f32>>, String> {
+        self.predictors
             .iter()
             .map(|p| {
                 let j = x.names.iter().position(|q| q == p).ok_or_else(|| format!("no predictor {p:?}"))?;
                 Ok(x.columns[j].iter().map(|v| *v as f32).collect())
             })
-            .collect::<Result<_, String>>()?;
+            .collect()
+    }
+
+    /// The trees' values of every row added in their order, over their number (predict_proba, or predict of a
+    /// regression): a column per class (one for a regression); NaN where a predictor has no value. The rows in
+    /// parallel.
+    pub fn outputs(&self, x: &Frame) -> Result<Vec<Vec<f64>>, String> {
+        use rayon::prelude::*;
+        let cols = self.columns(x)?;
         let n = cols.first().map_or(0, Vec::len);
-        let mut out = vec![0.0; n];
-        let mut row = vec![0f32; cols.len()];
-        for tree in &self.trees {
-            for (i, o) in out.iter_mut().enumerate() {
-                for (r, c) in row.iter_mut().zip(&cols) {
-                    *r = c[i];
-                }
-                *o += tree.leaf(&row)[1];
+        let k = self.classes.len().max(1);
+        let trees = self.trees.len() as f64;
+        let rows: Vec<Vec<f64>> = (0..n)
+            .into_par_iter()
+            .map_init(
+                || vec![0f32; cols.len()],
+                |row, i| {
+                    for (r, c) in row.iter_mut().zip(&cols) {
+                        *r = c[i];
+                    }
+                    if row.iter().any(|v| v.is_nan()) {
+                        return vec![f64::NAN; k];
+                    }
+                    let mut acc = vec![0.0; k];
+                    for tree in &self.trees {
+                        for (a, v) in acc.iter_mut().zip(tree.leaf(row)) {
+                            *a += v;
+                        }
+                    }
+                    acc.iter_mut().for_each(|a| *a /= trees);
+                    acc
+                },
+            )
+            .collect();
+        Ok((0..k).map(|c| rows.iter().map(|r| r[c]).collect()).collect())
+    }
+
+    /// predict_proba's presence column (the class 1).
+    pub fn predict(&self, x: &Frame) -> Result<Vec<f64>, String> {
+        let c = self.classes.iter().position(|&c| c == 1.0).ok_or("the forest has no class 1")?;
+        Ok(self.outputs(x)?.swap_remove(c))
+    }
+
+    /// feature_importances_: the trees' (but those of a single node) mean decrease of impurity of each predictor,
+    /// normalised to add up to 1.
+    pub fn importances(&self) -> Vec<f64> {
+        let nf = self.predictors.len();
+        let all: Vec<Vec<f64>> = self.trees.iter().filter(|t| t.nodes.len() > 1).map(|t| t.importances(nf)).collect();
+        if all.is_empty() {
+            return vec![0.0; nf];
+        }
+        let mut mean = all[0].clone();
+        for t in &all[1..] {
+            for (m, v) in mean.iter_mut().zip(t) {
+                *m += v;
             }
         }
-        let k = self.trees.len() as f64;
-        // no value where a predictor has none
-        Ok(out
-            .into_iter()
-            .enumerate()
-            .map(|(i, v)| if cols.iter().any(|c| c[i].is_nan()) { f64::NAN } else { v / k })
-            .collect())
+        mean.iter_mut().for_each(|m| *m /= all.len() as f64);
+        let total = crate::change::numpy_sum(&mean);
+        mean.iter().map(|m| m / total).collect()
     }
 }

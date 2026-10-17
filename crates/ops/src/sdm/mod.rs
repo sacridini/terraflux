@@ -7,7 +7,7 @@ pub mod clean;
 pub mod evaluate;
 pub mod extrapolation;
 pub mod folds;
-pub mod forest;
+pub use crate::ml::forest;
 pub mod gbif;
 pub mod logistic;
 pub mod maxnet;

@@ -397,6 +397,8 @@ pub enum Value {
     HabitatGraph(Arc<crate::conn::HabitatGraph>),
     /// A fitted species distribution model.
     SdmModel(Arc<crate::sdm::model::Model>),
+    /// A fitted machine learning model.
+    MlModel(Arc<crate::ml::Model>),
 }
 
 impl Value {
@@ -426,6 +428,7 @@ impl Value {
             Value::LabelMatrix(_) => Type::LabelMatrix,
             Value::HabitatGraph(_) => Type::HabitatGraph,
             Value::SdmModel(_) => Type::SdmModel,
+            Value::MlModel(_) => Type::MlModel,
         }
     }
 

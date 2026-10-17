@@ -246,6 +246,11 @@ destravam outros são o 1 e o 3.
      ganhar da floresta em tabelas: o binning, os histogramas por variável (a soma de cada um em ordem fixa, então
      dá para igualar os bits), gradientes em float32 e o `exp` do numpy (o `npmath` já tem o de float32); (5) o
      LEAS e o potencial de transição sobre o `ml`.
+   - **Feito** (0.88.0): os passos 1, 2 e 5, e a importância de impureza do 3: `ml.fit`, `ml.predict` e
+     `ml.potential` (o `Estimator` do landschaft: presença ou expansão, o LEAS), bit a bit com o scikit-learn 1.9 e o
+     landschaft; o modelo como um valor (`ml_model`, gravado em JSON); as árvores crescidas e as células previstas
+     em paralelo; o template PLUS (LEAS and CARS). Falta: a importância por permutação e a dependência parcial
+     (passo 3), o `HistGradientBoosting` (passo 4) e a previsão no motor por tiles.
    - **O modelo como um valor do grafo** (um tipo novo, gravável e relido de um arquivo), para ajustar uma vez numa
      amostra das células e prever em mapas do tamanho do mundo: a previsão é célula a célula, então entra no motor
      por tiles sem mudança, com as árvores achatadas em vetores e as faixas em paralelo (`rayon`).

@@ -77,6 +77,9 @@ const ESSENTIALS: &[(&str, &[&str])] = &[
     ("conn.graph_from_samc", &["absorption", "dispersal_distance", "attribute", "kind", "directions"]),
     ("conn.protconn", &["resistance", "probability", "distance_type", "transboundary", "area_unit"]),
     ("conn.protconn_regions", &["resistance", "id", "probability", "distance_type", "transboundary", "area_unit"]),
+    // machine learning
+    ("ml.fit", &["table", "predictors", "target", "column", "task", "sample", "n_estimators"]),
+    ("ml.potential", &["landscape", "later", "drivers", "target", "classes", "sample", "n_estimators"]),
     // species distributions and biodiversity
     ("sdm.fit", &["predictors", "categorical", "model", "classes", "regmult", "cv"]),
     ("sdm.prepare", &["species", "thin", "area", "predictors", "background", "folds"]),
