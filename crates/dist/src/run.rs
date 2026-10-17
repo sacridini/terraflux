@@ -145,7 +145,9 @@ pub async fn submit(c: &mut Client, b: &Batch, progress: &mut dyn FnMut(Progress
     let eval = match &b.evaluation {
         Some(e) => {
             let mut e = e.clone();
-            e.observed = c.send(&e.observed, &b.base).await?;
+            if e.measure.is_none() {
+                e.observed = c.send(&e.observed, &b.base).await?;
+            }
             Some(e)
         }
         None => None,

@@ -691,6 +691,8 @@ fn start(
                 observed: observed.to_string_lossy().into_owned(),
                 band: st.bands.get(st.band).cloned(),
                 start,
+                measure: None,
+                statistic: None,
                 windows: vec![1, 3, 5, 7, 9, 11],
             })
         }

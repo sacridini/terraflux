@@ -73,8 +73,10 @@ pub mod restoration_plan;
 pub mod roads;
 pub mod sampling;
 pub mod sdm;
+pub mod sensitivity;
 pub mod services;
 pub mod signatures;
+mod sobol_directions;
 pub mod surface;
 pub mod swat;
 pub mod swat_tables;
@@ -372,6 +374,7 @@ impl Registry {
         nlm::register(&mut r);
         conn::register(&mut r);
         sdm::register(&mut r);
+        sensitivity::register(&mut r);
         demand::register(&mut r);
         glm::register(&mut r);
         woe::register(&mut r);

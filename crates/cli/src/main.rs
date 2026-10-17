@@ -184,6 +184,9 @@ enum Command {
     },
     /// Calibrate settings of a model against an observed map, here or on a coordinator's workers.
     Calibrate(Box<cluster::Calibrate>),
+    /// A global sensitivity analysis of a model's output to its settings (Morris or Sobol, as SALib), here or on
+    /// a coordinator's workers.
+    Sensitivity(Box<cluster::Sensitivity>),
     /// Clusters and servers reached by SSH: saved once, used by `submit --on`, `calibrate --on`, `results --on`.
     #[command(subcommand)]
     Cluster(cluster::ClusterCommand),
@@ -557,6 +560,7 @@ fn main() -> Result<()> {
             rt()?.block_on(cluster::submit(&model, tasks, &out, &at, detach))?;
         }
         Command::Calibrate(a) => rt()?.block_on(cluster::calibrate(&a))?,
+        Command::Sensitivity(a) => rt()?.block_on(cluster::sensitivity(&a))?,
         Command::App { model } => app(model)?,
         Command::Run { model, out, set, quiet, tiled, tile, radius, disk, coordinator, code, shared_disk } => {
             let mut m = Model::load_expanded(&model).with_context(|| format!("reading {}", model.display()))?;

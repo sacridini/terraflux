@@ -387,6 +387,8 @@ pub async fn calibrate(a: &Calibrate) -> Result<()> {
         observed: std::path::absolute(&file)?.to_string_lossy().into_owned(),
         band,
         start: a.start.clone(),
+        measure: None,
+        statistic: None,
         windows: vec![1, 3, 5, 7, 9, 11],
     };
     let tasks = batch::calibration_tasks(&candidates, &a.seeds, &batch::seed_keys(&a.seed_input));
@@ -422,6 +424,162 @@ pub async fn calibrate(a: &Calibrate) -> Result<()> {
     if status.failed > 0 {
         eprintln!("{} runs failed:\n  {}", status.failed, status.errors.join("\n  "));
     }
+    Ok(())
+}
+
+#[derive(Args)]
+pub struct Sensitivity {
+    /// The model (.toml or .json).
+    pub model: PathBuf,
+    /// A factor and its range: `node.setting=from:to` or `$input=from:to`.
+    #[arg(long = "param", required = true)]
+    pub params: Vec<String>,
+    /// `morris` (elementary effects) or `sobol` (variance-based indices of Saltelli's runs).
+    #[arg(long, default_value = "morris")]
+    pub method: String,
+    /// Morris's trajectories (default 10) or Sobol's base points, a power of 2 (default 64).
+    #[arg(long)]
+    pub n: Option<usize>,
+    /// Morris's levels of the grid.
+    #[arg(long, default_value_t = 4)]
+    pub levels: usize,
+    /// Sobol: only the first and total order indices (factors + 2 runs per base point, not 2 x factors + 2).
+    #[arg(long)]
+    pub first_order_only: bool,
+    /// The output measured: `node.port` (a number, a table's first row, or a map).
+    #[arg(long)]
+    pub output: String,
+    /// Of a map: mean (default), sum, min or max; of a table: its column (default its last).
+    #[arg(long)]
+    pub statistic: Option<String>,
+    /// The bootstraps of the indices' intervals.
+    #[arg(long, default_value_t = 100)]
+    pub resamples: usize,
+    /// The seed of the design and of the bootstraps.
+    #[arg(long, default_value_t = 1)]
+    pub seed: u64,
+    /// The seed every run of the model takes.
+    #[arg(long, default_value_t = 1)]
+    pub model_seed: i64,
+    /// What holds the model's seed: an input (`seed`), a node's (`simulation.seed`), or several, separated by commas.
+    #[arg(long, default_value = "seed")]
+    pub seed_input: String,
+    #[arg(short, long, default_value = "sensitivity")]
+    pub out: PathBuf,
+    #[command(flatten)]
+    pub at: Where,
+}
+
+/// A sensitivity analysis: the design's runs of the model (each measuring its output on the worker), then the
+/// indices; `design.csv` (the runs and their outputs) and `indices.csv` (with `s2.csv` of Sobol's pairs).
+pub async fn sensitivity(a: &Sensitivity) -> Result<()> {
+    use terraflux_ops::sensitivity as sens;
+    let model = Model::load_expanded(&a.model).with_context(|| format!("reading {}", a.model.display()))?;
+    let base = a.model.parent().map(Path::to_path_buf).unwrap_or_default();
+    let factors: Vec<Param> = a
+        .params
+        .iter()
+        .map(|p| Param::parse(p, 2).map(|p| p.typed_by(&model)))
+        .collect::<terraflux_dist::Result<_>>()?;
+    if let Some(p) = factors.iter().find(|p| p.from >= p.to) {
+        bail!("{}: its range must go from a value to a larger one", p.key);
+    }
+    for p in factors.iter().filter(|p| p.integer) {
+        eprintln!("note: {} takes whole numbers; the design's values are rounded for it", p.key);
+    }
+    let bounds: Vec<(f64, f64)> = factors.iter().map(|p| (p.from, p.to)).collect();
+    let second = !a.first_order_only;
+    let rows = match a.method.as_str() {
+        "morris" => sens::morris_sample(&bounds, a.n.unwrap_or(10), a.levels, a.seed),
+        "sobol" => sens::saltelli_sample(&bounds, a.n.unwrap_or(64), second, a.seed).map_err(anyhow::Error::msg)?,
+        m => bail!("unknown method {m:?} (morris or sobol)"),
+    };
+    let candidates: Vec<std::collections::BTreeMap<String, serde_json::Value>> = rows
+        .iter()
+        .map(|r| {
+            factors
+                .iter()
+                .zip(r)
+                .map(|(p, v)| {
+                    let v = if p.integer { serde_json::json!(v.round() as i64) } else { serde_json::json!(v) };
+                    (p.key.clone(), v)
+                })
+                .collect()
+        })
+        .collect();
+    for c in &candidates {
+        model.clone().apply(c)?;
+    }
+    let eval = Evaluation {
+        output: a.output.clone(),
+        observed: String::new(),
+        band: None,
+        start: String::new(),
+        measure: Some(a.output.clone()),
+        statistic: a.statistic.clone(),
+        windows: Vec::new(),
+    };
+    // the seed where the model has it
+    let keys: Vec<String> = batch::seed_keys(&a.seed_input)
+        .into_iter()
+        .filter(|k| model.clone().apply(&[(k.clone(), serde_json::json!(a.model_seed))].into()).is_ok())
+        .collect();
+    let tasks = batch::calibration_tasks(&candidates, &[a.model_seed], &keys);
+    eprintln!("sensitivity ({}): {} runs of {} factors", a.method, tasks.len(), factors.len());
+    let labels: Vec<String> = tasks.iter().map(|(l, _)| l.clone()).collect();
+    let b =
+        Batch { name: "sensitivity".into(), model: model.clone(), base, tasks, files: false, evaluation: Some(eval) };
+    let o = run::run(&run::Start::New(Box::new(b)), &place(&a.at).await?, None, &AtomicBool::new(false), &mut progress)
+        .await?;
+    let metrics = batch::metrics_of(&labels, &o.results);
+    let y: Vec<f64> = metrics.iter().map(|m| m.as_ref().map_or(f64::NAN, |m| m.value)).collect();
+    std::fs::create_dir_all(&a.out)?;
+    let keys: Vec<String> = factors.iter().map(|p| p.key.clone()).collect();
+    let mut csv = format!("run,{},{}\n", keys.join(","), a.output);
+    for (k, (r, v)) in rows.iter().zip(&y).enumerate() {
+        let vals: Vec<String> = r.iter().chain(std::iter::once(v)).map(|x| format!("{x}")).collect();
+        csv.push_str(&format!("{},{}\n", k + 1, vals.join(",")));
+    }
+    std::fs::write(a.out.join("design.csv"), csv)?;
+    if let Some(k) = y.iter().position(|v| v.is_nan()) {
+        bail!(
+            "run {} gave no {} ({} runs failed:\n  {}); the design is in {}",
+            k + 1,
+            a.output,
+            o.status.failed,
+            o.status.errors.join("\n  "),
+            a.out.join("design.csv").display()
+        );
+    }
+    let mut table = String::new();
+    match a.method.as_str() {
+        "morris" => {
+            let m = sens::morris_analyze(&rows, &y, a.levels, a.resamples, 0.95, a.seed).map_err(anyhow::Error::msg)?;
+            table.push_str("factor,mu,mu_star,sigma,mu_star_conf\n");
+            for (k, key) in keys.iter().enumerate() {
+                table.push_str(&format!("{key},{},{},{},{}\n", m.mu[k], m.mu_star[k], m.sigma[k], m.mu_star_conf[k]));
+            }
+        }
+        _ => {
+            let s =
+                sens::sobol_analyze(&y, keys.len(), second, a.resamples, 0.95, a.seed).map_err(anyhow::Error::msg)?;
+            table.push_str("factor,s1,s1_conf,st,st_conf\n");
+            for (k, key) in keys.iter().enumerate() {
+                table.push_str(&format!("{key},{},{},{},{}\n", s.s1[k], s.s1_conf[k], s.st[k], s.st_conf[k]));
+            }
+            if second {
+                let mut s2 = format!("factor,{}\n", keys.join(","));
+                for (k, key) in keys.iter().enumerate() {
+                    let v: Vec<String> = s.s2[k].iter().map(|x| format!("{x}")).collect();
+                    s2.push_str(&format!("{key},{}\n", v.join(",")));
+                }
+                std::fs::write(a.out.join("s2.csv"), s2)?;
+            }
+        }
+    }
+    std::fs::write(a.out.join("indices.csv"), &table)?;
+    eprint!("{table}");
+    eprintln!("wrote {} and {}", a.out.join("design.csv").display(), a.out.join("indices.csv").display());
     Ok(())
 }
 

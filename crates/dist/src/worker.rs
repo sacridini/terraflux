@@ -97,7 +97,7 @@ pub async fn localize(
             *p = f.clone();
         }
     });
-    if let Some(e) = eval {
+    if let Some(e) = eval.filter(|e| e.measure.is_none()) {
         e.observed = bundle::local(client, cache, &e.observed).await?;
     }
     for v in overrides.values_mut() {

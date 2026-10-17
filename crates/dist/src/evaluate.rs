@@ -1,5 +1,5 @@
 //! What a calibration measures on the worker: the last simulated map against an observed one, so that only
-//! numbers travel back.
+//! numbers travel back; or (a sensitivity analysis) a number of an output.
 
 use std::collections::BTreeMap;
 
@@ -28,6 +28,12 @@ pub struct Evaluation {
     /// The windows of the fuzzy similarity.
     #[serde(default = "windows")]
     pub windows: Vec<i32>,
+    /// Instead of the comparison, the number of an output (`node.port`): a number, a table's column (`statistic`,
+    /// its first row) or a map's statistic (`statistic`: mean (default), sum, min, max).
+    #[serde(default)]
+    pub measure: Option<String>,
+    #[serde(default)]
+    pub statistic: Option<String>,
 }
 
 fn maps() -> String {
@@ -68,6 +74,13 @@ pub struct Metrics {
     pub false_alarms: i64,
     pub wrong_hits: i64,
     pub similarity: Vec<Similarity>,
+    /// The number measured (a sensitivity analysis's), NaN for a comparison.
+    #[serde(default = "nan", deserialize_with = "nullable")]
+    pub value: f64,
+}
+
+fn nan() -> f64 {
+    f64::NAN
 }
 
 impl Metrics {
@@ -75,6 +88,7 @@ impl Metrics {
     pub fn get(&self, name: &str) -> Option<f64> {
         match name {
             "fom" | "figure_of_merit" => Some(self.figure_of_merit),
+            "value" => Some(self.value),
             "overall" => Some(self.overall),
             _ => {
                 let w: i32 = name.strip_prefix("similarity:")?.parse().ok()?;
@@ -107,7 +121,49 @@ pub fn first_map(v: &Value) -> Option<Map> {
     }
 }
 
+/// The number of a value: itself, a table's column (its first row) or a map's statistic.
+pub fn measure(v: &Value, statistic: Option<&str>) -> Result<f64> {
+    let stat = statistic.unwrap_or("mean");
+    match v {
+        Value::Number(_) | Value::Integer(_) => Ok(v.as_number().unwrap()),
+        Value::Table(t) => {
+            let c = match statistic {
+                Some(c) => t.column(c).ok_or_else(|| Error::Other(format!("the table has no column {c:?}")))?,
+                None => {
+                    t.columns.last().and_then(|c| t.column(c)).ok_or_else(|| Error::Other("an empty table".into()))?
+                }
+            };
+            c.first().copied().ok_or_else(|| Error::Other("the table has no row".into()))
+        }
+        _ => {
+            let m = last_map(v).ok_or_else(|| Error::Other(format!("a {:?} is not measured", v.ty())))?;
+            let cells: Vec<f64> = m.data.iter().copied().filter(|x| !x.is_nan()).collect();
+            let sum: f64 = cells.iter().sum();
+            Ok(match stat {
+                "mean" => sum / cells.len() as f64,
+                "sum" => sum,
+                "min" => cells.iter().copied().fold(f64::INFINITY, f64::min),
+                "max" => cells.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+                s => return Err(Error::Other(format!("statistic {s:?}: mean, sum, min or max of a map"))),
+            })
+        }
+    }
+}
+
 pub fn evaluate(e: &Evaluation, results: &Results, inputs: &BTreeMap<String, Value>) -> Result<Metrics> {
+    if let Some(output) = &e.measure {
+        let v = results.get(output).ok_or_else(|| Error::Other(format!("the model gives no {output}")))?;
+        return Ok(Metrics {
+            figure_of_merit: f64::NAN,
+            overall: f64::NAN,
+            hits: 0,
+            misses: 0,
+            false_alarms: 0,
+            wrong_hits: 0,
+            similarity: Vec::new(),
+            value: measure(v, e.statistic.as_deref())?,
+        });
+    }
     let sim =
         results.get(&e.output).and_then(last_map).ok_or_else(|| Error::Other(format!("{} gives no map", e.output)))?;
     let start = match inputs.get(e.start.trim_start_matches('$')) {
@@ -147,5 +203,6 @@ pub fn evaluate(e: &Evaluation, results: &Results, inputs: &BTreeMap<String, Val
             .iter()
             .map(|r| Similarity { window: r[0] as i32, simulated: r[1], observed: r[2], minimum: r[3] })
             .collect(),
+        value: f64::NAN,
     })
 }

@@ -6,6 +6,20 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Global sensitivity analysis as SALib 1.6 does it, the same numbers: `sensitivity.design` (Morris's trajectories
+  on a grid of levels, or Saltelli's runs of a scrambled Sobol' sequence, scipy.stats.qmc's: Joe and Kuo's direction
+  numbers, the linear matrix scrambling and the digital shift) and `sensitivity.analyze` (Morris's μ, μ*, σ and μ*'s
+  bootstrap interval; Sobol's first, total and second order indices with their intervals; scipy's normal quantile,
+  Cephes' ndtri). `terraflux sensitivity model --param node.setting=from:to --method morris|sobol --output
+  node.port` runs the design's runs here or on a coordinator's workers (clusters and clouds as `submit`), each
+  measuring the output on the worker (a number, a table's column, a map's mean, sum, min or max), and writes the
+  design with the outputs and the indices.
+
+### Fixed
+- `ml.partial_dependence` of a classifier of three classes or more is now scikit-learn's to the bit (numpy's mean
+  down the columns of the probabilities adds in order), not to rounding.
+
 ## [0.93.0] - 2026-10-17
 
 ### Added

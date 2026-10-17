@@ -52,6 +52,7 @@ mod sdm_points;
 mod sdm_predictors;
 mod sdm_prepare;
 mod sdm_workflow;
+mod sensitivity;
 mod services;
 mod signatures;
 mod surface;

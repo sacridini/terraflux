@@ -269,8 +269,12 @@ impl Operator for PartialDependence {
             }
             eval.columns[f].iter_mut().for_each(|c| *c = v);
             let out = model.outputs(&eval).map_err(|e| fail(args, e))?;
+            // numpy's mean along the records: pairwise of one column (a value, the second class of two), in order
+            // down the columns of a matrix of several classes
+            let mean =
+                |c: &Vec<f64>| if classes.len() > 2 { c.iter().fold(0.0, |a, b| a + b) / n } else { numpy_sum(c) / n };
             let take = if classes.len() == 2 { &out[1..] } else { &out[..] };
-            t.rows.push(std::iter::once(v).chain(take.iter().map(|c| numpy_sum(c) / n)).collect());
+            t.rows.push(std::iter::once(v).chain(take.iter().map(mean)).collect());
         }
         Ok(outputs([("table", Value::Table(t))]))
     }

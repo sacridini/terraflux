@@ -97,6 +97,8 @@ async fn calibration_finds_the_setting_of_the_observed_map() {
         observed: c.upload(&observed).await.unwrap(),
         band: None,
         start: "t0".into(),
+        measure: None,
+        statistic: None,
         windows: vec![1, 5],
     };
     let candidates = grid(&[Param::parse("patches.isometry=0.5:2.5:5", 5).unwrap()]);
@@ -394,5 +396,60 @@ async fn the_files_nodes_read_and_scenarios_give_travel_with_the_model() {
     let (r1, r2) = (&src.bands[0], &src.bands[1]);
     assert_eq!(forest(&a), r1.data.iter().filter(|v| **v == 1.0).count());
     assert_eq!(forest(&b), r2.data.iter().filter(|v| **v == 1.0).count());
+    local.shutdown();
+}
+
+/// A sensitivity analysis's runs measure an output on the workers: the mean of a map a·f + b² for the factors of
+/// a Morris design.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_sensitivity_measures_an_output_on_the_workers() {
+    use terraflux_graph::Node;
+    let mut m = Model::new("sensitivity");
+    for (k, v) in [("a", 0.5), ("b", 1.0)] {
+        m.inputs.insert(k.into(), Input::Value { value: v.into(), note: None });
+    }
+    m.nodes.push(Node::new("field", "nlm.random").param("rows", 20).param("columns", 20).param("seed", 3));
+    m.nodes.push(
+        Node::new("calc", "map.calc")
+            .input("a", "$a")
+            .input("b", "$b")
+            .input("f", "field.map")
+            .param("expression", "a * f + b * b"),
+    );
+    let rows = terraflux_ops::sensitivity::morris_sample(&[(0.0, 1.0), (0.0, 2.0)], 2, 4, 1);
+    let tasks: Vec<(String, BTreeMap<String, serde_json::Value>)> = rows
+        .iter()
+        .enumerate()
+        .map(|(k, r)| (format!("run_{k}"), [("$a".to_string(), r[0].into()), ("$b".to_string(), r[1].into())].into()))
+        .collect();
+    let eval = Evaluation {
+        output: "calc.map".into(),
+        observed: String::new(),
+        band: None,
+        start: String::new(),
+        windows: Vec::new(),
+        measure: Some("calc.map".into()),
+        statistic: Some("mean".into()),
+    };
+    // the field's mean, from a run with a = 1 and b = 0
+    let one: BTreeMap<String, serde_json::Value> =
+        [("$a".to_string(), 1.0.into()), ("$b".to_string(), 0.0.into())].into();
+    let (metrics, _, _) = run_task(m.clone(), &one, Some(&eval), &tmp("sensitivity-one"), false).unwrap();
+    let mean_f = serde_json::from_str::<Metrics>(&metrics).unwrap().value;
+    assert!((0.3..0.7).contains(&mean_f), "{mean_f}");
+
+    let local = Local::start(2, tmp("cache-sensitivity"), Options::default()).await.unwrap();
+    let mut c = Client::connect(&local.url).await.unwrap();
+    let bundled = c.bundle(&m, std::path::Path::new("")).await.unwrap();
+    let job = c.submit("sensitivity", &bundled, &tasks, false, Some(&eval)).await.unwrap();
+    let s = c.wait(&job, |_| {}).await.unwrap();
+    assert_eq!((s.done, s.failed), (tasks.len() as u32, 0), "{:?}", s.errors);
+    let labels: Vec<String> = tasks.iter().map(|(l, _)| l.clone()).collect();
+    let metrics = terraflux_dist::batch::metrics_of(&labels, &c.results(&job).await.unwrap());
+    for (r, mt) in rows.iter().zip(&metrics) {
+        let v = mt.as_ref().unwrap().value;
+        let want = r[0] * mean_f + r[1] * r[1];
+        assert!((v - want).abs() < 1e-9, "{r:?}: {v} {want}");
+    }
     local.shutdown();
 }

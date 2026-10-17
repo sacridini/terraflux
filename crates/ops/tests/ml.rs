@@ -289,14 +289,6 @@ fn partial_dependence_is_scikit_learns() {
         let want = &z[format!("dependence/{name}/average").as_str()];
         // scikit-learn: a row per class, a column per value of the grid
         let got: Vec<f64> = (1..t.columns.len()).flat_map(|c| t.rows.iter().map(move |r| r[c])).collect();
-        if name == "multiclass" {
-            // numpy's means along the records of a matrix of several classes add in an order of their own
-            assert_eq!(got.len(), want.data.len());
-            for (a, b) in got.iter().zip(&want.data) {
-                assert!((a - b).abs() <= 1e-12, "{name}: {a} {b}");
-            }
-        } else {
-            check(&format!("{name} average"), &got, &want.data);
-        }
+        check(&format!("{name} average"), &got, &want.data);
     }
 }

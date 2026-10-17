@@ -55,7 +55,7 @@ const SUBJECTS: [(&str, &[&str]); 27] = [
             "crafty", "validate",
         ],
     ),
-    ("Uncertainty", &["uncertainty"]),
+    ("Uncertainty", &["uncertainty", "sensitivity"]),
     ("Map algebra", &["map", "stack"]),
     ("Plot", &["view"]),
     ("Model flow", &["control", "rng", "plugin"]),
