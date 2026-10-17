@@ -224,7 +224,7 @@ fn clue_s() -> Model {
     m
 }
 
-pub const TEMPLATES: [Template; 41] = [
+pub const TEMPLATES: [Template; 42] = [
     Template {
         name: "MSPA of a forest",
         group: PATTERNS,
@@ -2922,6 +2922,135 @@ inputs = { value = "classes.classes" }
 params = { title = "Three classes" }
 "#,
     },
+    Template {
+        name: "Trend and hot spots",
+        group: SURFACES,
+        build: None,
+        about: "The trend of every cell along five years of a drawn NDVI (Mann-Kendall and Sen's slope), how much \
+                neighbouring cells change alike (Moran's I), where (LISA's clusters), and the hot and cold spots \
+                of the last year (Getis-Ord's Gi*)",
+        toml: r#"
+format = "terraflux/1"
+name = "Trend and hot spots"
+description = "Five years of a drawn NDVI: the monotonic trend of every cell (the Mann-Kendall test and Sen's slope, as pymannkendall), the global Moran's I of the slopes, LISA's clusters of greening and browning, and the hot and cold spots of the last year by Getis and Ord's Gi* (as PySAL's esda)."
+
+[[nodes]]
+id = "base"
+op = "nlm.gaussian_field"
+params = { rows = 100, columns = 100, range = 8, seed = 70 }
+
+[[nodes]]
+id = "change"
+op = "nlm.gaussian_field"
+params = { rows = 100, columns = 100, range = 20, seed = 76 }
+note = "Where the vegetation greens (high) or browns (low) over the years."
+
+[[nodes]]
+id = "noise1"
+op = "nlm.random"
+params = { rows = 100, columns = 100, seed = 71 }
+
+[[nodes]]
+id = "ndvi1"
+op = "map.calc"
+inputs = { b = "base.map", c = "change.map", e = "noise1.map" }
+params = { expression = "0.3 + 0.4 * b + 0.00 * (c - 0.5) + 0.08 * (e - 0.5)" }
+note = "The NDVI of a year: a level that stays, a change that grows year by year, noise (in their place, a series of NDVI maps: raster.read)."
+
+[[nodes]]
+id = "noise2"
+op = "nlm.random"
+params = { rows = 100, columns = 100, seed = 72 }
+
+[[nodes]]
+id = "ndvi2"
+op = "map.calc"
+inputs = { b = "base.map", c = "change.map", e = "noise2.map" }
+params = { expression = "0.3 + 0.4 * b + 0.06 * (c - 0.5) + 0.08 * (e - 0.5)" }
+
+[[nodes]]
+id = "noise3"
+op = "nlm.random"
+params = { rows = 100, columns = 100, seed = 73 }
+
+[[nodes]]
+id = "ndvi3"
+op = "map.calc"
+inputs = { b = "base.map", c = "change.map", e = "noise3.map" }
+params = { expression = "0.3 + 0.4 * b + 0.12 * (c - 0.5) + 0.08 * (e - 0.5)" }
+
+[[nodes]]
+id = "noise4"
+op = "nlm.random"
+params = { rows = 100, columns = 100, seed = 74 }
+
+[[nodes]]
+id = "ndvi4"
+op = "map.calc"
+inputs = { b = "base.map", c = "change.map", e = "noise4.map" }
+params = { expression = "0.3 + 0.4 * b + 0.18 * (c - 0.5) + 0.08 * (e - 0.5)" }
+
+[[nodes]]
+id = "noise5"
+op = "nlm.random"
+params = { rows = 100, columns = 100, seed = 75 }
+
+[[nodes]]
+id = "ndvi5"
+op = "map.calc"
+inputs = { b = "base.map", c = "change.map", e = "noise5.map" }
+params = { expression = "0.3 + 0.4 * b + 0.24 * (c - 0.5) + 0.08 * (e - 0.5)" }
+
+[[nodes]]
+id = "series"
+op = "stack.of"
+inputs = { y1 = "ndvi1.map", y2 = "ndvi2.map", y3 = "ndvi3.map", y4 = "ndvi4.map", y5 = "ndvi5.map" }
+note = "The years, a layer each."
+
+[[nodes]]
+id = "trend"
+op = "stats.trend"
+inputs = { maps = "series.stack" }
+params = { alpha = 0.1 }
+note = "Every cell's Mann-Kendall test and Sen's slope; trend 1 greening, -1 browning at 10%."
+
+[[nodes]]
+id = "moran"
+op = "stats.moran"
+inputs = { map = "trend.slope" }
+note = "How much neighbouring cells' slopes are alike: I near 0 random, near 1 clustered."
+
+[[nodes]]
+id = "lisa"
+op = "stats.lisa"
+inputs = { map = "trend.slope" }
+note = "The clusters: 1 greening among greening, 3 browning among browning, 2 and 4 outliers."
+
+[[nodes]]
+id = "spots"
+op = "stats.getis_ord"
+inputs = { map = "ndvi5.map" }
+note = "The hot and cold spots of the last year's NDVI, at 90, 95 and 99%."
+
+[[nodes]]
+id = "plot_slope"
+op = "view.plot"
+inputs = { value = "trend.slope" }
+params = { title = "Sen's slope" }
+
+[[nodes]]
+id = "plot_clusters"
+op = "view.plot"
+inputs = { value = "lisa.clusters" }
+params = { title = "LISA's clusters" }
+
+[[nodes]]
+id = "plot_spots"
+op = "view.plot"
+inputs = { value = "spots.spots" }
+params = { title = "Hot and cold spots" }
+"#,
+    },
 ];
 
 /// Where the user's own templates are kept (the user's application data): a model file each, named as shown.
@@ -3107,6 +3236,21 @@ mod tests {
         assert!(app.data.iter().filter(|&&v| v == 1.0).count() > 100);
         let Some(terraflux_ops::Value::Table(t)) = out.get("reserve.table") else { panic!("no table") };
         assert_eq!(t.rows.len(), 6);
+    }
+
+    /// The trend template runs: cells greening and browning, clustered.
+    #[test]
+    fn trend_template_runs() {
+        struct Quiet;
+        impl terraflux_exec::Observer for Quiet {}
+        let m = TEMPLATES.iter().find(|t| t.name == "Trend and hot spots").unwrap().model();
+        let out = terraflux_exec::Engine::default().run(&m, &Default::default(), &mut Quiet).unwrap();
+        let Some(terraflux_ops::Value::Map(t)) = out.get("trend.trend") else { panic!("no trend") };
+        assert!(t.data.contains(&1.0) && t.data.contains(&-1.0));
+        let Some(terraflux_ops::Value::Table(i)) = out.get("moran.table") else { panic!("no moran") };
+        assert!(i.rows[0][0] > 0.3, "{:?}", i.rows[0]);
+        let Some(terraflux_ops::Value::Map(c)) = out.get("lisa.clusters") else { panic!("no clusters") };
+        assert!(c.data.contains(&1.0) && c.data.contains(&3.0));
     }
 
     /// The species distribution model template runs: a map of suitability from 0 to 1.

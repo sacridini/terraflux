@@ -122,6 +122,8 @@ depois:
    1e-16 no VRM só no build de debug (passa em release).
    `a_model_runs_and_every_tab_draws` (`crates/app/tests/ui.rs`, o `can_run()` logo depois de abrir o modelo) falha
    às vezes no `cargo test --workspace` e passa no programa `ui` sozinho.
+   `settings_themes_and_favourites` (`crates/app/tests/ui.rs`) falha na suíte do `ui` com várias threads (as
+   coleções das configurações são globais) e passa com `--test-threads 1`.
 
 ## Integrar o landschaft 1.50.0
 
@@ -292,6 +294,9 @@ destravam outros são o 1 e o 3.
    ajustado) para estações de clima e amostras de solo. Nem mede a autocorrelação local: o I de Moran global, o
    LISA e o Gi* de Getis-Ord (os hotspots de desmatamento), referências no PySAL (`esda`). E a tendência célula a
    célula de uma série de mapas (Mann-Kendall e a inclinação de Sen), muito usada com o NDVI.
+   - **Feito** (0.95.0): `stats.trend` (Mann-Kendall e a inclinação de Sen, iguais ao pymannkendall),
+     `stats.moran`, `stats.lisa` e `stats.getis_ord` (iguais ao esda, contiguidade rook ou queen) e o modelo
+     "Trend and hot spots". Falta: a interpolação (IDW e krigagem ordinária).
 8. **O resto do InVEST:** a razão de entrega de nutrientes (NDR), a polinização e a produção sazonal de água, os
    mais pedidos depois dos quatro que já estão. Entram primeiro no landschaft, como os outros.
 9. **Dispersão de espécies no tempo.** O SDM de vários períodos com a dispersão célula a célula (como o MigClim) ou

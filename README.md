@@ -42,7 +42,7 @@ computers of a local network or on a Slurm cluster, and on maps larger than memo
   results to the bit: GuidosToolbox, landscapemetrics, Zonation 5, Marxan, prioritizr, plangea, Dinamica EGO and
   lulcc's CLUE-S among them. Parity tests against [landschaft](https://github.com/sacridini/landschaft) run in the
   test suite.
-- **No code needed, nothing hidden.** More than 340 operators in a searchable library, 41 ready-to-run templates and
+- **No code needed, nothing hidden.** More than 340 operators in a searchable library, 42 ready-to-run templates and
   a wizard that checks and fixes the data. Every automatic choice is a visible node, with a note on why it is
   there.
 - **One model, many front-ends.** A model is a typed graph saved as readable text (TOML or JSON). The builder,
@@ -58,6 +58,7 @@ computers of a local network or on a Slurm cluster, and on maps larger than memo
 | **Carbon and REDD+** | Emissions and removals of land change with regrowth curves; Verra's VT0007 deforestation risk maps, their fit, allocation of the expected deforestation and assessment | IPCC, UDef-ARP |
 | **Machine learning** | Random forests and histogram gradient boosting of classes or values on tables and maps, their predictions, the predictors' importances (impurity, permutation) and partial dependence, the potential of each class to appear | scikit-learn, landschaft |
 | **Map accuracy and area** | Stratified random samples sized and drawn for a map, the error matrix, user's, producer's and overall accuracies and each class's area with confidence intervals | Olofsson et al. (2014), mapaccuracy |
+| **Spatial statistics** | Every cell's trend along a series of maps (Mann-Kendall, Sen's slope), global and local Moran's I (LISA's clusters), Getis-Ord's Gi* hot and cold spots | pymannkendall, PySAL's esda |
 | **Habitat patterns** | MSPA (also tiled, for maps larger than memory), SPA, Accounting, FAD and FOS fragmentation, landscape mosaic, spatial entropy, change between two dates | GuidosToolbox |
 | **Landscape metrics** | Patch, class and landscape metrics, moving windows, sample plots, time series, spatial signatures with PCA, NMF and clustering | landscapemetrics, FRAGSTATS |
 | **Connectivity** | Habitat graphs and Conefor's indices, MSPA networks, circuit theory, least-cost paths and corridors, random walks | Conefor, Circuitscape, Omniscape, gdistance |

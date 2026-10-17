@@ -6,6 +6,16 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Spatial statistics, a new subject of the library: `stats.trend`, the monotonic trend of every cell along a series
+  of maps (the Mann-Kendall test with its variance corrected for ties, and Sen's slope with its intercept, as
+  pymannkendall's original_test: the same numbers); `stats.moran`, the global Moran's I of a map with its inference
+  under normality and randomisation and a pseudo p of permutations; `stats.lisa`, the local Moran's I of every cell,
+  its quadrant, z and the clusters of a pseudo p of conditional permutations; `stats.getis_ord`, Getis and Ord's Gi*
+  with its z, p and the hot and cold spots at 90, 95 and 99% (PySAL's esda, to rounding; rook or queen contiguity of
+  the cells with a value, row-standardised). scipy's normal distribution (Cephes' ndtr, erf and erfc) to the bit.
+- The template "Trend and hot spots": five years of a drawn NDVI, its trend, LISA's clusters and Gi*'s hot spots.
+
 ## [0.94.0] - 2026-10-18
 
 ### Added

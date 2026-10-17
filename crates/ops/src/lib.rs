@@ -77,6 +77,8 @@ pub mod sensitivity;
 pub mod services;
 pub mod signatures;
 mod sobol_directions;
+pub mod special;
+pub mod stats;
 pub mod surface;
 pub mod swat;
 pub mod swat_tables;
@@ -383,6 +385,7 @@ impl Registry {
         dynamic::register(&mut r);
         files::register(&mut r);
         forest_code::register(&mut r);
+        stats::register(&mut r);
         fitted::register(&mut r);
         fragmentation::register(&mut r);
         futures::register(&mut r);

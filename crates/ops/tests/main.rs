@@ -55,6 +55,7 @@ mod sdm_workflow;
 mod sensitivity;
 mod services;
 mod signatures;
+mod stats;
 mod surface;
 mod swat;
 mod tiled_metrics;
