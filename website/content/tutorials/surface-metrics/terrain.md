@@ -146,9 +146,9 @@ canopy height: for those, see the next part, [Surface metrics: texture without p
 
 <div class="steps" markdown>
 
-1. In the operators' library, open the subject **Data preparation** (or press `/` and type *read*) and click
+1. In the operators' library, open the subject **IO** (or press `/` and type *read*) and click
    [[raster.read]]. In the Node pane, set **path** to `elevation.tif`. Rename the node `dem` (++ctrl+r++).
-2. With `dem` selected, click [[raster.reproject]] in the same subject: it comes connected to `dem`'s
+2. With `dem` selected, click [[raster.reproject]] in **Data preparation**: it comes connected to `dem`'s
    `raster` output. Set **crs** to `EPSG:32610`, **resolution** to `30`, **resampling** to `bilinear` and
    **extent** to `[500010, 4760850, 508110, 4771920]`. Rename it `elevation`.
 3. Press ++ctrl+enter++ to run to the node and see the map under the canvas.
@@ -696,6 +696,10 @@ The windows of TRI and VRM work the same way: at 3 × 3 cells they describe the 
 
 ## Going further
 
+- [Landforms with geomorphons](../geomorphons/): name each cell's landform (ridge, slope, valley...) from the
+  terrain seen around it, at the scale of a search radius.
+- [Hilltops protected by Brazil's Forest Code](../hilltops/): the APP de topo de morro of Lei 12.651/2012, hill
+  by hill.
 - [Surface metrics: texture without patches](../surface-texture/): describe any continuous surface (greenness,
   canopy height, the elevation itself) by its roughness, the shape of its distribution and its spatial
   structure, in one number or in moving windows.

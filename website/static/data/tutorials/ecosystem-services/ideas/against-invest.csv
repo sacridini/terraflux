@@ -1,0 +1,16 @@
+model,map,cells,identical,max_diff
+services.carbon,carbon storage,4569,4569,0.0
+services.carbon,sequestration,4516,4516,0.0
+services.carbon,net present value,4516,4516,0.0
+services.habitat_quality,degradation,4776,4776,0.0
+services.habitat_quality,quality,4776,4776,0.0
+services.habitat_quality,"quality, future",4776,4776,0.0
+services.habitat_quality,rarity,4776,4776,0.0
+services.water_yield,AET / P,3462,3462,0.0
+services.water_yield,actual evapotranspiration,3462,3462,0.0
+services.water_yield,water yield,3462,3462,0.0
+services.sdr,soil loss (USLE),4498,4498,0.0
+services.sdr,index of connectivity,4406,4406,0.0
+services.sdr,sediment delivery ratio,4646,4646,0.0
+services.sdr,sediment export,4406,4406,0.0
+services.sdr,sediment deposition,4646,4646,0.0

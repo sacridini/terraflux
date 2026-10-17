@@ -50,6 +50,13 @@
    ]
   },
   {
+   "title": "Terrain hydrology",
+   "prefixes": [
+    "hydro",
+    "swat"
+   ]
+  },
+  {
    "title": "Grid distances",
    "prefixes": [
     "cost"
@@ -96,6 +103,12 @@
    "title": "Species distributions",
    "prefixes": [
     "sdm"
+   ]
+  },
+  {
+   "title": "Ecosystem services",
+   "prefixes": [
+    "services"
    ]
   },
   {

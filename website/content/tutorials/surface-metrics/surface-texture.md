@@ -553,6 +553,8 @@ how much the results depend on it.
 
 - [Terrain from an elevation model](../terrain/): slope, topographic position, ruggedness and heat load, cell by
   cell.
+- [Landforms with geomorphons](../geomorphons/) and [hilltops protected by Brazil's Forest
+  Code](../hilltops/): the terrain's forms.
 - [Landscape metrics](../../landscape-metrics/): the patch-mosaic counterpart, for maps of classes.
 - [Neutral landscape models](../../neutral-landscapes/): Gaussian fields and fractal surfaces of known
   structure, to test what a metric responds to.

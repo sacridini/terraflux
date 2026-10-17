@@ -1,0 +1,6 @@
+hill,top,base,base_kind,height,mean_slope,line_slope,qualifies,threshold,app_ha
+A,1063.2,691.3,plain,372.0,30.4,30.1,yes,939.3,17.6
+B,973.0,788.7,saddle,184.3,30.5,29.6,yes,911.6,5.3
+C,813.7,647.9,saddle,165.8,31.5,31.7,yes,758.5,3.3
+D,903.8,696.2,plain,207.7,13.8,14.0,no,,0.0
+E,713.5,635.5,saddle,77.9,30.4,33.0,no,,0.0

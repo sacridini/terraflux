@@ -1,0 +1,7 @@
+class,precipitation,aet,wyield,aet_share
+Forest,1563,852,711,0.55
+Pasture,1467,765,702,0.53
+Cropland,1509,704,806,0.47
+Eucalyptus,1503,956,547,0.64
+Urban,1418,365,1053,0.26
+Water,1376,1230,146,0.9

@@ -64,7 +64,8 @@ tutorial_categories:
   - { slug: landscape-metrics, title: Landscape metrics, cells: "110110001", prefixes: [metrics], blurb: "FRAGSTATS' and landscapemetrics' metrics per patch, class and landscape, in windows and signatures." }
   - { slug: habitat-networks, title: Habitat networks, cells: "100010001", prefixes: [networks, conn], blurb: "Habitat as a graph: Conefor's connectivity indices, ProtConn and the importance of each patch." }
   - { slug: circuit-connectivity, title: Circuit connectivity, cells: "100111001", prefixes: [circuit], blurb: "Circuitscape and Omniscape: movement as electrical current through a landscape of resistance." }
-  - { slug: surface-metrics, title: Surface metrics, cells: "001011111", prefixes: [surface], blurb: "Terrain and continuous surfaces: slope, curvature, roughness and texture." }
+  - { slug: surface-metrics, title: Surface metrics, cells: "001011111", prefixes: [surface], blurb: "Terrain and continuous surfaces: slope, curvature, roughness, texture, landforms and protected hilltops." }
+  - { slug: terrain-hydrology, title: Terrain hydrology, cells: "001011112", prefixes: [hydro, swat], blurb: "How water moves over a terrain: depressions, flow directions and accumulation, streams, watersheds, HAND, wetness indices and SWAT+." }
   - { slug: grid-distances, title: Grid distances, cells: "100110111", prefixes: [cost], blurb: "Least-cost paths, cost distances and random walks across a landscape, as R's gdistance." }
   - { slug: distance-restoration, title: Distance and restoration, cells: "111110100", prefixes: [distance, restoration], blurb: "Distances, ecological intactness and where restoration does most for species, as plangea." }
   - { slug: change-detection, title: Change detection, cells: "112122222", prefixes: [change], blurb: "What changed between two maps, how fast and how intensely: transitions, intensity analysis and diffeR." }
@@ -72,6 +73,7 @@ tutorial_categories:
   - { slug: biodiversity, title: Biodiversity analysis, cells: "011101110", prefixes: [bio], blurb: "Biodiverse's analyses: richness, endemism, phylogenetic diversity and clusters of regions." }
   - { slug: spatial-prioritization, title: Spatial prioritization, cells: "122121111", prefixes: [prioritize], blurb: "Zonation, Marxan, prioritizr and prioriactions: where to protect, restore and act." }
   - { slug: species-distributions, title: Species distributions, cells: "010111010", prefixes: [sdm], blurb: "From GBIF records to a distribution model, its evaluation and its projection to other climates." }
+  - { slug: ecosystem-services, title: Ecosystem services, cells: "121212121", prefixes: [services], blurb: "InVEST's models: carbon storage, habitat quality, annual water yield and sediment retention." }
   - { slug: land-change, title: Land change simulation, cells: "111122222", prefixes: [markov, woe, patches, dinamica, glm, lulcc, demand, plus, cars, dynamic, agents, crafty, validate, clumondo, molusce, futures], blurb: "Dinamica EGO, CLUE-S, PLUS and agents: calibrate, simulate and validate the future of a landscape." }
   - { slug: uncertainty, title: Uncertainty, cells: "120201021", prefixes: [uncertainty], blurb: "Monte Carlo and the propagation of uncertainty through a model." }
   - { slug: large-data, title: Large data and batches, cells: "222222222", prefixes: [batch], blurb: "Rasters larger than memory and the same analysis over hundreds of files." }

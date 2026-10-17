@@ -6094,6 +6094,395 @@
   "container": false
  },
  {
+  "name": "dinamica.continuous_patcher",
+  "doc": "Dinamica EGO's Patcher of a continuous state (PatcherContinuousState), landschaft's ContinuousPatcher: new patches (logging, clearing, harvest) that take the stock of their cells (biomass, carbon, timber) until a quota is met. Seeds drawn among the cells with stock and probability ranked from the highest (prune_factor x quota of stock), in proportion to the probability; lognormal patch sizes grown as the Patcher's.",
+  "inputs": [
+   {
+    "name": "stock",
+    "type": "map",
+    "required": true,
+    "doc": "the stock of each cell (per hectare, cell or area unit: unit)"
+   },
+   {
+    "name": "probability",
+    "type": "map",
+    "required": true,
+    "doc": "the probability of each cell (no value or <= 0: never)"
+   },
+   {
+    "name": "quota",
+    "type": "number",
+    "required": true,
+    "doc": "the stock to take, in the stock's units times the area unit"
+   },
+   {
+    "name": "step",
+    "type": "integer",
+    "required": false,
+    "doc": "the step of a simulation (1, 2...; none: the seed as is)"
+   },
+   {
+    "name": "seed",
+    "type": "integer",
+    "required": false,
+    "doc": "the seed (1)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "stock",
+    "type": "map",
+    "required": true,
+    "doc": "the stock left (0 where taken)"
+   },
+   {
+    "name": "probability",
+    "type": "map",
+    "required": true,
+    "doc": "the probability, 0 where taken"
+   },
+   {
+    "name": "taken",
+    "type": "map",
+    "required": true,
+    "doc": "the stock taken from each cell"
+   },
+   {
+    "name": "patch",
+    "type": "map",
+    "required": true,
+    "doc": "the patch of each cell taken (1, 2...), 0 elsewhere"
+   },
+   {
+    "name": "info",
+    "type": "table",
+    "required": true,
+    "doc": "quota, taken, remaining (negative: exceeded), patches, cells"
+   }
+  ],
+  "params": [
+   {
+    "name": "mean",
+    "type": "number",
+    "required": false,
+    "doc": "the mean patch size, in unit (1)"
+   },
+   {
+    "name": "variance",
+    "type": "number",
+    "required": false,
+    "doc": "the variance of the patch sizes (0)"
+   },
+   {
+    "name": "isometry",
+    "type": "number",
+    "required": false,
+    "doc": "0 single cells, 1 the probabilities, 2 compact (1)"
+   },
+   {
+    "name": "unit",
+    "type": "text",
+    "required": false,
+    "doc": "of the patch sizes and the stock's area: hectares (default, Dinamica's), cells or area",
+    "choices": [
+     "hectares",
+     "cells",
+     "area"
+    ]
+   },
+   {
+    "name": "prune_factor",
+    "type": "number",
+    "required": false,
+    "doc": "the stock ranked, times the quota (10)"
+   },
+   {
+    "name": "window",
+    "type": "any",
+    "required": false,
+    "doc": "the neighbour window of growth [rows, columns] ([3, 3])"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "dinamica.cost_map",
+  "doc": "The cost of reaching every cell from the nearest source over a friction surface, Dinamica EGO's CalcCostMap (landschaft's friction_cost): a step into a cell costs its friction (x sqrt 2 on a diagonal), 8 neighbours, Dijkstra's sums; and the direction of each cell's predecessor (1 NW, 2 N, 3 NE, 4 E, 5 SE, 6 S, 7 SW, 8 W; 0 at the sources, 255 unreached).",
+  "inputs": [
+   {
+    "name": "sources",
+    "type": "map",
+    "required": true,
+    "doc": "the sources (a value other than 0)"
+   },
+   {
+    "name": "friction",
+    "type": "map",
+    "required": true,
+    "doc": "the effort to cross each cell (> 0; no value: impassable)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "cost",
+    "type": "map",
+    "required": true,
+    "doc": "the cost (no value where unreached)"
+   },
+   {
+    "name": "direction",
+    "type": "map",
+    "required": true,
+    "doc": "the predecessors' directions"
+   }
+  ],
+  "params": [
+   {
+    "name": "diagonal",
+    "type": "bool",
+    "required": false,
+    "doc": "diagonal steps cost sqrt(2) times more (default true)"
+   },
+   {
+    "name": "relative",
+    "type": "bool",
+    "required": false,
+    "doc": "frictions per map unit, times the cell size"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "dinamica.destinations",
+  "doc": "Cells drawn by attraction in quadrants of a map, Dinamica EGO's CalcDestinationMap (landschaft's destinations): in each of the horizontal x vertical parts, up to per_quadrant cells in proportion to their attraction, a draw closer than min_distance to an earlier one drawn again.",
+  "inputs": [
+   {
+    "name": "attraction",
+    "type": "map",
+    "required": true,
+    "doc": "how attractive each cell is (no value or <= 0: never)"
+   },
+   {
+    "name": "seed",
+    "type": "integer",
+    "required": false,
+    "doc": "the seed (1)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the attraction of the destinations, no value elsewhere"
+   }
+  ],
+  "params": [
+   {
+    "name": "quadrants",
+    "type": "any",
+    "required": false,
+    "doc": "[horizontal, vertical] divisions ([1, 1])"
+   },
+   {
+    "name": "per_quadrant",
+    "type": "integer",
+    "required": false,
+    "doc": "destinations per quadrant (1)"
+   },
+   {
+    "name": "min_distance",
+    "type": "number",
+    "required": false,
+    "doc": "between destinations, map units (0)"
+   },
+   {
+    "name": "max_attempts",
+    "type": "integer",
+    "required": false,
+    "doc": "draws of a destination (15)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "dinamica.pathways",
+  "doc": "Paths from source cells to a network, Dinamica EGO's CalcPathwayMap (landschaft's pathways): from each source (row order) to the cheapest of its 8 neighbours until a cell of cost <= 0 (the network), or along the directions of a cost map until the network.",
+  "inputs": [
+   {
+    "name": "network",
+    "type": "map",
+    "required": true,
+    "doc": "the network (a value other than 0)"
+   },
+   {
+    "name": "sources",
+    "type": "map",
+    "required": true,
+    "doc": "where paths start (a value other than 0), e.g. destinations"
+   },
+   {
+    "name": "cost",
+    "type": "map",
+    "required": false,
+    "doc": "the cost of reaching the network (<= 0 on it)"
+   },
+   {
+    "name": "directions",
+    "type": "map",
+    "required": false,
+    "doc": "or the directions of a cost map"
+   },
+   {
+    "name": "seed",
+    "type": "integer",
+    "required": false,
+    "doc": "for the lottery (1)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the network with the new paths (no value elsewhere)"
+   }
+  ],
+  "params": [
+   {
+    "name": "lottery",
+    "type": "bool",
+    "required": false,
+    "doc": "ties between cheapest neighbours drawn at random"
+   },
+   {
+    "name": "merge",
+    "type": "bool",
+    "required": false,
+    "doc": "the network with the new paths (default true), or only them"
+   },
+   {
+    "name": "value",
+    "type": "number",
+    "required": false,
+    "doc": "of the new path cells (1)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "dinamica.roads",
+  "doc": "A step of endogenous road building, Dinamica EGO's road constructor (landschaft's RoadBuilder.step): the attraction kept where the distance to the roads is within distance (and the mask allows), destinations drawn in quadrants, each joined to the network down the cost of reaching it over the friction; the network with the new roads, and the distance to them (a dynamic variable).",
+  "inputs": [
+   {
+    "name": "network",
+    "type": "map",
+    "required": true,
+    "doc": "the roads (a value other than 0)"
+   },
+   {
+    "name": "friction",
+    "type": "map",
+    "required": true,
+    "doc": "the effort to build across each cell (> 0; no value: never)"
+   },
+   {
+    "name": "attraction",
+    "type": "map",
+    "required": true,
+    "doc": "how attractive each cell is as a road's end"
+   },
+   {
+    "name": "mask",
+    "type": "map",
+    "required": false,
+    "doc": "where roads may end (non-zero)"
+   },
+   {
+    "name": "step",
+    "type": "integer",
+    "required": false,
+    "doc": "the step of a simulation (1, 2...; none: the seed as is)"
+   },
+   {
+    "name": "seed",
+    "type": "integer",
+    "required": false,
+    "doc": "the seed (1)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "network",
+    "type": "map",
+    "required": true,
+    "doc": "the network with the new roads"
+   },
+   {
+    "name": "distance",
+    "type": "map",
+    "required": true,
+    "doc": "the distance to the roads, map units"
+   }
+  ],
+  "params": [
+   {
+    "name": "quadrants",
+    "type": "any",
+    "required": false,
+    "doc": "[horizontal, vertical] divisions ([2, 10])"
+   },
+   {
+    "name": "distance",
+    "type": "any",
+    "required": false,
+    "doc": "[least, most] distance from the roads of a new end ([1500, 3000])"
+   },
+   {
+    "name": "spacing",
+    "type": "number",
+    "required": false,
+    "doc": "the least distance between destinations of a step (1000)"
+   },
+   {
+    "name": "per_quadrant",
+    "type": "integer",
+    "required": false,
+    "doc": "destinations per quadrant (1)"
+   },
+   {
+    "name": "max_attempts",
+    "type": "integer",
+    "required": false,
+    "doc": "draws of a destination (15)"
+   },
+   {
+    "name": "lottery",
+    "type": "bool",
+    "required": false,
+    "doc": "ties drawn at random (default true)"
+   },
+   {
+    "name": "diagonal",
+    "type": "bool",
+    "required": false,
+    "doc": "diagonal steps cost sqrt(2) times more (default true)"
+   },
+   {
+    "name": "relative",
+    "type": "bool",
+    "required": false,
+    "doc": "frictions per map unit"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
   "name": "dinamica.step",
   "doc": "One step of Dinamica's Expander and Patcher: the changes of each transition (its rate per step times the cells of its origin class) split between the Expander, which grows existing patches, and the Patcher, which seeds new ones, with lognormal patch sizes shaped by the isometry.",
   "inputs": [
@@ -7671,6 +8060,641 @@
   ],
   "params": [],
   "access": "local",
+  "container": false
+ },
+ {
+  "name": "hydro.breach",
+  "doc": "Remove the depressions of a DEM by cutting channels through their rims (least-cost breaching, WhiteboxTools' BreachDepressionsLeastCost after Lindsay & Dhun 2015): each pit, from the lowest, joined to the nearest cell it can drain to by the channel of least cost; often changes the terrain less than filling.",
+  "inputs": [
+   {
+    "name": "dem",
+    "type": "map",
+    "required": true,
+    "doc": "the elevations (no value: missing), best with depressions filled"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the breached DEM"
+   }
+  ],
+  "params": [
+   {
+    "name": "max_length",
+    "type": "integer",
+    "required": false,
+    "doc": "the longest channel, in cells (100)"
+   },
+   {
+    "name": "max_cost",
+    "type": "number",
+    "required": false,
+    "doc": "the costliest channel to cut (default: any)"
+   },
+   {
+    "name": "min_dist",
+    "type": "bool",
+    "required": false,
+    "doc": "count the channel's length in its cost, preferring shorter channels (default true)"
+   },
+   {
+    "name": "flat_increment",
+    "type": "number",
+    "required": false,
+    "doc": "the drop per cell along a channel (default: from the elevations, as WhiteboxTools)"
+   },
+   {
+    "name": "fill_rest",
+    "type": "bool",
+    "required": false,
+    "doc": "fill the depressions no channel could solve (default true)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "hydro.connectivity_index",
+  "doc": "The index of connectivity (Borselli et al. 2008) as InVEST's sediment delivery ratio model computes it: log10 of the upslope over the downslope component, the weight (a land use's USLE C) and pygeoprocessing's slope along its routing; no value on the streams.",
+  "inputs": [
+   {
+    "name": "dem",
+    "type": "map",
+    "required": true,
+    "doc": "the elevations (no value: missing), best with depressions filled"
+   },
+   {
+    "name": "weight",
+    "type": "map",
+    "required": true,
+    "doc": "the weight W of each cell (USLE C)"
+   },
+   {
+    "name": "streams",
+    "type": "map",
+    "required": false,
+    "doc": "1 on the streams (else from the threshold)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the index"
+   }
+  ],
+  "params": [
+   {
+    "name": "threshold",
+    "type": "number",
+    "required": false,
+    "doc": "the flow accumulation (cells) of a stream, without streams"
+   },
+   {
+    "name": "method",
+    "type": "text",
+    "required": false,
+    "doc": "the routing: mfd (default) or d8",
+    "choices": [
+     "mfd",
+     "d8"
+    ]
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "hydro.distance_to_channel",
+  "doc": "The mean distance water travels from each cell to a stream along pygeoprocessing's multiple flow directions (InVEST's sediment delivery model's downslope component): in cell lengths, or in the units of the weights; 0 on the streams, no value where no flow reaches one.",
+  "inputs": [
+   {
+    "name": "dem",
+    "type": "map",
+    "required": true,
+    "doc": "the elevations (no value: missing), best with depressions filled"
+   },
+   {
+    "name": "streams",
+    "type": "map",
+    "required": true,
+    "doc": "1 on the stream cells"
+   },
+   {
+    "name": "weights",
+    "type": "map",
+    "required": false,
+    "doc": "the length of each step onto a cell"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the distance"
+   }
+  ],
+  "params": [],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "hydro.fill",
+  "doc": "Fill the depressions of a DEM so that water flows from every cell to the edge: each depression raised to where it would spill over (Priority-Flood, Barnes, Lehman & Mulla 2014; the DEM of WhiteboxTools' FillDepressions), through landschaft's C++.",
+  "inputs": [
+   {
+    "name": "dem",
+    "type": "map",
+    "required": true,
+    "doc": "the elevations (no value: missing), best with depressions filled"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the filled DEM"
+   }
+  ],
+  "params": [
+   {
+    "name": "drain_flats",
+    "type": "bool",
+    "required": false,
+    "doc": "raise each filled cell by the smallest step above the cell it drains to (Priority-Flood+epsilon), so filled areas slope towards their outlet"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "hydro.flow_accumulation",
+  "doc": "The area that drains through each cell (itself included): all to the steepest neighbour (d8), split between the two cells of the D-infinity azimuth (dinf), among the lower neighbours by slope^exponent (fd8, Freeman 1991) or by slope times contour length (quinn, Quinn et al. 1991), or pygeoprocessing's multiple flow directions (mfd, the InVEST models'). WhiteboxTools' accumulations cell for cell.",
+  "inputs": [
+   {
+    "name": "dem",
+    "type": "map",
+    "required": true,
+    "doc": "the elevations (no value: missing), best with depressions filled"
+   },
+   {
+    "name": "weights",
+    "type": "map",
+    "required": false,
+    "doc": "what each cell contributes instead of 1"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the accumulation"
+   }
+  ],
+  "params": [
+   {
+    "name": "method",
+    "type": "text",
+    "required": false,
+    "doc": "d8 (default), dinf, fd8, quinn or mfd",
+    "choices": [
+     "d8",
+     "dinf",
+     "fd8",
+     "quinn",
+     "mfd"
+    ]
+   },
+   {
+    "name": "flats",
+    "type": "bool",
+    "required": false,
+    "doc": "drain flat areas towards lower terrain and away from higher terrain (Barnes et al. 2014; default true)"
+   },
+   {
+    "name": "units",
+    "type": "text",
+    "required": false,
+    "doc": "cells (default), area (map units squared; m² for longitude / latitude) or sca (the area per unit contour width)",
+    "choices": [
+     "cells",
+     "area",
+     "sca"
+    ]
+   },
+   {
+    "name": "exponent",
+    "type": "number",
+    "required": false,
+    "doc": "of fd8 (1.1) and quinn (1)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "hydro.flow_direction",
+  "doc": "The direction each cell drains to: D8 (O'Callaghan & Mark 1984) as ESRI's codes (1 E, 2 SE, 4 S, 8 SW, 16 W, 32 NW, 64 N, 128 NE; 0 no flow), D-infinity (Tarboton 1997) as the azimuth in degrees clockwise from north (-1 no flow), or pygeoprocessing's multiple flow directions (the InVEST models' routing) as eight packed 4-bit weights.",
+  "inputs": [
+   {
+    "name": "dem",
+    "type": "map",
+    "required": true,
+    "doc": "the elevations (no value: missing), best with depressions filled"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the codes or azimuths"
+   }
+  ],
+  "params": [
+   {
+    "name": "method",
+    "type": "text",
+    "required": false,
+    "doc": "d8 (default), dinf or mfd",
+    "choices": [
+     "d8",
+     "dinf",
+     "mfd"
+    ]
+   },
+   {
+    "name": "flats",
+    "type": "bool",
+    "required": false,
+    "doc": "drain flat areas towards lower terrain and away from higher terrain (Barnes et al. 2014; default true)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "hydro.hand",
+  "doc": "Height Above the Nearest Drainage (HAND; Rennó et al. 2008, Nobre et al. 2011): the height of each cell above the stream cell its water reaches along the D8 directions; 0 on the streams, no value where it reaches none.",
+  "inputs": [
+   {
+    "name": "dem",
+    "type": "map",
+    "required": true,
+    "doc": "the elevations (no value: missing), best with depressions filled"
+   },
+   {
+    "name": "streams",
+    "type": "map",
+    "required": false,
+    "doc": "the drainage: non-zero on the stream cells"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the height in the DEM's units"
+   }
+  ],
+  "params": [
+   {
+    "name": "flats",
+    "type": "bool",
+    "required": false,
+    "doc": "drain flat areas towards lower terrain and away from higher terrain (Barnes et al. 2014; default true)"
+   },
+   {
+    "name": "threshold",
+    "type": "number",
+    "required": false,
+    "doc": "or the drainage as the cells of D8 accumulation (cells) of at least this"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "hydro.spi",
+  "doc": "Stream power index a x tan(slope) (Moore, Grayson & Ladson 1991), WhiteboxTools' StreamPowerIndex: the erosive power of overland flow. a: the specific contributing area of a multiple-flow accumulation by default; the slope: Horn's gradient of the DEM.",
+  "inputs": [
+   {
+    "name": "dem",
+    "type": "map",
+    "required": true,
+    "doc": "the elevations (no value: missing), best with depressions filled"
+   },
+   {
+    "name": "sca",
+    "type": "map",
+    "required": false,
+    "doc": "a specific contributing area to use instead"
+   },
+   {
+    "name": "slope",
+    "type": "map",
+    "required": false,
+    "doc": "a slope in degrees to use instead"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the SPI"
+   }
+  ],
+  "params": [
+   {
+    "name": "method",
+    "type": "text",
+    "required": false,
+    "doc": "the accumulation of a: fd8 (default), quinn, dinf, d8 or mfd",
+    "choices": [
+     "d8",
+     "dinf",
+     "fd8",
+     "quinn",
+     "mfd"
+    ]
+   },
+   {
+    "name": "flats",
+    "type": "bool",
+    "required": false,
+    "doc": "drain flat areas towards lower terrain and away from higher terrain (Barnes et al. 2014; default true)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "hydro.sti",
+  "doc": "Sediment transport index (m + 1) (a / 22.13)^m (sin(slope) / 0.0896)^n (Moore & Burch 1986), WhiteboxTools' SedimentTransportIndex: the LS factor of the USLE from the contributing area. a: the specific contributing area of a multiple-flow accumulation by default; the slope: Horn's gradient of the DEM.",
+  "inputs": [
+   {
+    "name": "dem",
+    "type": "map",
+    "required": true,
+    "doc": "the elevations (no value: missing), best with depressions filled"
+   },
+   {
+    "name": "sca",
+    "type": "map",
+    "required": false,
+    "doc": "a specific contributing area to use instead"
+   },
+   {
+    "name": "slope",
+    "type": "map",
+    "required": false,
+    "doc": "a slope in degrees to use instead"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the STI"
+   }
+  ],
+  "params": [
+   {
+    "name": "method",
+    "type": "text",
+    "required": false,
+    "doc": "the accumulation of a: fd8 (default), quinn, dinf, d8 or mfd",
+    "choices": [
+     "d8",
+     "dinf",
+     "fd8",
+     "quinn",
+     "mfd"
+    ]
+   },
+   {
+    "name": "flats",
+    "type": "bool",
+    "required": false,
+    "doc": "drain flat areas towards lower terrain and away from higher terrain (Barnes et al. 2014; default true)"
+   },
+   {
+    "name": "sca_exponent",
+    "type": "number",
+    "required": false,
+    "doc": "m (0.4)"
+   },
+   {
+    "name": "slope_exponent",
+    "type": "number",
+    "required": false,
+    "doc": "n (1.3)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "hydro.stream_links",
+  "doc": "The links of a stream network: the stretches between sources, junctions and outlets along the D8 directions, numbered 1, 2... in the raster order of their first cells; and their table (downstream link, whether it ends at an outlet, first and last cell, cells, length, elevations, Strahler order).",
+  "inputs": [
+   {
+    "name": "dem",
+    "type": "map",
+    "required": true,
+    "doc": "the elevations (no value: missing), best with depressions filled"
+   },
+   {
+    "name": "streams",
+    "type": "map",
+    "required": true,
+    "doc": "1 on the stream cells"
+   },
+   {
+    "name": "outlets",
+    "type": "vector",
+    "required": false,
+    "doc": "points where a link must end (gauges, dams, the outlet), each snapped to the nearest stream cell"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the link of each stream cell, 0 elsewhere"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per link"
+   }
+  ],
+  "params": [
+   {
+    "name": "snap",
+    "type": "number",
+    "required": false,
+    "doc": "the largest move of an outlet, map units (300 m; 3 cells without a projection)"
+   },
+   {
+    "name": "flats",
+    "type": "bool",
+    "required": false,
+    "doc": "drain flat areas towards lower terrain and away from higher terrain (Barnes et al. 2014; default true)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "hydro.streams",
+  "doc": "The stream cells: those whose flow accumulation is at least a threshold; or, with the DEM and trace, pygeoprocessing's stream extraction from the mfd accumulation as InVEST's sediment model runs it (trace 0.7): cells of the threshold traced up from the outlets, tributaries down to trace x threshold kept where they join one.",
+  "inputs": [
+   {
+    "name": "accumulation",
+    "type": "map",
+    "required": true,
+    "doc": "a flow accumulation"
+   },
+   {
+    "name": "dem",
+    "type": "map",
+    "required": false,
+    "doc": "the (filled) DEM whose mfd directions are traced"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "1 on the streams, 0 elsewhere"
+   }
+  ],
+  "params": [
+   {
+    "name": "threshold",
+    "type": "number",
+    "required": true,
+    "doc": "the smallest accumulation of a stream, in its units"
+   },
+   {
+    "name": "trace",
+    "type": "number",
+    "required": false,
+    "doc": "0 to 1, with the DEM (InVEST's: 0.7)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "hydro.twi",
+  "doc": "Topographic wetness index ln(a / tan(slope)) (Beven & Kirkby 1979), WhiteboxTools' WetnessIndex: high where much area drains through a gentle slope; a proxy of soil moisture. a: the specific contributing area of a multiple-flow accumulation by default; the slope: Horn's gradient of the DEM.",
+  "inputs": [
+   {
+    "name": "dem",
+    "type": "map",
+    "required": true,
+    "doc": "the elevations (no value: missing), best with depressions filled"
+   },
+   {
+    "name": "sca",
+    "type": "map",
+    "required": false,
+    "doc": "a specific contributing area to use instead"
+   },
+   {
+    "name": "slope",
+    "type": "map",
+    "required": false,
+    "doc": "a slope in degrees to use instead"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the TWI"
+   }
+  ],
+  "params": [
+   {
+    "name": "method",
+    "type": "text",
+    "required": false,
+    "doc": "the accumulation of a: fd8 (default), quinn, dinf, d8 or mfd",
+    "choices": [
+     "d8",
+     "dinf",
+     "fd8",
+     "quinn",
+     "mfd"
+    ]
+   },
+   {
+    "name": "flats",
+    "type": "bool",
+    "required": false,
+    "doc": "drain flat areas towards lower terrain and away from higher terrain (Barnes et al. 2014; default true)"
+   },
+   {
+    "name": "min_slope",
+    "type": "number",
+    "required": false,
+    "doc": "a floor for tan(slope), so flat cells get a value (0: they have none)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "hydro.watersheds",
+  "doc": "The area draining to each seed: every cell labelled with the first seed below it along the D8 directions (seeds keep their own label); 0 where its path reaches none.",
+  "inputs": [
+   {
+    "name": "dem",
+    "type": "map",
+    "required": true,
+    "doc": "the elevations (no value: missing), best with depressions filled"
+   },
+   {
+    "name": "seeds",
+    "type": "map",
+    "required": true,
+    "doc": "positive whole labels on the cells water drains to (stream links, outlets, lakes), 0 elsewhere"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the label of the seed each cell drains to"
+   }
+  ],
+  "params": [
+   {
+    "name": "flats",
+    "type": "bool",
+    "required": false,
+    "doc": "drain flat areas towards lower terrain and away from higher terrain (Barnes et al. 2014; default true)"
+   }
+  ],
+  "access": "global",
   "container": false
  },
  {
@@ -13410,6 +14434,22 @@
     "type": "number",
     "required": false,
     "doc": "seconds (default none)"
+   },
+   {
+    "name": "solver",
+    "type": "text",
+    "required": false,
+    "doc": "highs (default) or gurobi: Gurobi when it is installed and licensed (prioritizr's                  add_gurobi_solver), else HiGHS with a warning",
+    "choices": [
+     "highs",
+     "gurobi"
+    ]
+   },
+   {
+    "name": "threads",
+    "type": "number",
+    "required": false,
+    "doc": "gurobi: the threads it uses (default every core but one, as landschaft)"
    }
   ],
   "access": "global",
@@ -14478,26 +15518,14 @@
  },
  {
   "name": "raster.read",
-  "doc": "Rasters: a file, or a folder or a pattern (forest/*.tif) for every raster in it as one stack (a layer per band of each file, by the files' names; files of different grids are shown, and made one grid by raster.match before they are a stack). Only their headers are read: they are shown at once whatever their size, and read whole when a node needs a map (one band, the first by default) or a stack (every band of every file).",
+  "doc": "A raster: a file, or a folder or a pattern (forest/*.tif) for every raster in it as one stack (a layer per band of each file, by the files' names; files of different grids are shown, and made one grid by raster.match before they are a stack). Only their headers are read: they are shown at once whatever their size, and read whole when a node needs them: one band where a node takes a raster (the band chosen, else the first), every band where it takes a stack.",
   "inputs": [],
   "outputs": [
    {
     "name": "raster",
     "type": "raster",
     "required": true,
-    "doc": "the rasters on disk"
-   },
-   {
-    "name": "map",
-    "type": "map",
-    "required": true,
-    "doc": "the band chosen, as a map"
-   },
-   {
-    "name": "stack",
-    "type": "stack",
-    "required": true,
-    "doc": "every band of every file, as a stack"
+    "doc": "the raster (or the stack of its bands, of the files)"
    }
   ],
   "params": [
@@ -14511,7 +15539,7 @@
     "name": "band",
     "type": "text",
     "required": false,
-    "doc": "the band of the map, by name or 0-based number"
+    "doc": "the band where a node takes a raster or any value (map algebra), by name or 0-based number (default the first)"
    },
    {
     "name": "nodata",
@@ -18130,6 +19158,531 @@
   "container": false
  },
  {
+  "name": "services.carbon",
+  "doc": "Carbon storage of a landscape and its change between two land use maps: InVEST's carbon model (natcap.invest 3.20) bit for bit, through landschaft. Each class holds a density (t C / ha) in four pools (above and below ground biomass, soil, dead matter); the storage is their sum, the sequestration the future minus the baseline, valued with a price.",
+  "inputs": [
+   {
+    "name": "lulc",
+    "type": "map",
+    "required": true,
+    "doc": "the baseline land use (class codes; projected, metres)"
+   },
+   {
+    "name": "pools",
+    "type": "table",
+    "required": true,
+    "doc": "by class: lucode, c_above, c_below, c_soil, c_dead (Mg C / ha)"
+   },
+   {
+    "name": "future",
+    "type": "map",
+    "required": false,
+    "doc": "the alternate (future) land use, on the same grid"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "storage",
+    "type": "map",
+    "required": true,
+    "doc": "the baseline's carbon, t / ha (float32)"
+   },
+   {
+    "name": "pools",
+    "type": "stack",
+    "required": true,
+    "doc": "each pool's map (c_above, c_below, c_soil, c_dead)"
+   },
+   {
+    "name": "storage_future",
+    "type": "map",
+    "required": true,
+    "doc": "the future's carbon (with future)"
+   },
+   {
+    "name": "pools_future",
+    "type": "stack",
+    "required": true,
+    "doc": "the future's pools (with future)"
+   },
+   {
+    "name": "change",
+    "type": "map",
+    "required": true,
+    "doc": "sequestration: future minus baseline (with future)"
+   },
+   {
+    "name": "npv",
+    "type": "map",
+    "required": true,
+    "doc": "the change's net present value per ha (with a price)"
+   },
+   {
+    "name": "totals",
+    "type": "table",
+    "required": true,
+    "doc": "tons of carbon: baseline, alternate, change; npv in currency"
+   }
+  ],
+  "params": [
+   {
+    "name": "price",
+    "type": "number",
+    "required": false,
+    "doc": "of a ton of carbon (valuation of the change)"
+   },
+   {
+    "name": "discount_rate",
+    "type": "number",
+    "required": false,
+    "doc": "per year, percent"
+   },
+   {
+    "name": "rate_change",
+    "type": "number",
+    "required": false,
+    "doc": "of the price per year, percent (0)"
+   },
+   {
+    "name": "year",
+    "type": "integer",
+    "required": false,
+    "doc": "of the baseline map"
+   },
+   {
+    "name": "future_year",
+    "type": "integer",
+    "required": false,
+    "doc": "of the future map"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "services.habitat_quality",
+  "doc": "Habitat degradation, quality and rarity: InVEST's habitat quality model (natcap.invest 3.20) bit for bit, through landschaft. Each threat degrades the habitat around it, decaying linearly or exponentially with the distance to its nearest cell up to its maximum distance, weighed by its weight, the sensitivity of the cell's class and the access; quality h (1 - D^2.5 / (D^2.5 + k^2.5)). With a base map, the rarity of each class.",
+  "inputs": [
+   {
+    "name": "lulc",
+    "type": "map",
+    "required": true,
+    "doc": "the current land use (class codes; projected, metres)"
+   },
+   {
+    "name": "sensitivity",
+    "type": "table",
+    "required": true,
+    "doc": "by class: lucode, habitat (0 to 1) and a column per threat (its sensitivity, 0 to 1)"
+   },
+   {
+    "name": "threat_maps",
+    "type": "stack",
+    "required": true,
+    "doc": "the current map of each threat, by its name (0 to 1)"
+   },
+   {
+    "name": "future",
+    "type": "map",
+    "required": false,
+    "doc": "a future land use"
+   },
+   {
+    "name": "future_threat_maps",
+    "type": "stack",
+    "required": false,
+    "doc": "the future's threat maps"
+   },
+   {
+    "name": "base",
+    "type": "map",
+    "required": false,
+    "doc": "a base land use, for the rarity"
+   },
+   {
+    "name": "base_threat_maps",
+    "type": "stack",
+    "required": false,
+    "doc": "the base's threat maps (optional)"
+   },
+   {
+    "name": "access",
+    "type": "any",
+    "required": false,
+    "doc": "accessibility to threats, 0 to 1: a raster, or polygons with an access attribute (1 outside)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "quality",
+    "type": "map",
+    "required": true,
+    "doc": "the current habitat quality"
+   },
+   {
+    "name": "degradation",
+    "type": "map",
+    "required": true,
+    "doc": "the current total degradation"
+   },
+   {
+    "name": "threats",
+    "type": "stack",
+    "required": true,
+    "doc": "the current degradation of each threat"
+   },
+   {
+    "name": "quality_future",
+    "type": "map",
+    "required": true,
+    "doc": "with a future"
+   },
+   {
+    "name": "degradation_future",
+    "type": "map",
+    "required": true,
+    "doc": "with a future"
+   },
+   {
+    "name": "quality_base",
+    "type": "map",
+    "required": true,
+    "doc": "with the base's threat maps"
+   },
+   {
+    "name": "degradation_base",
+    "type": "map",
+    "required": true,
+    "doc": "with the base's threat maps"
+   },
+   {
+    "name": "rarity",
+    "type": "map",
+    "required": true,
+    "doc": "the rarity of the current classes (with a base)"
+   },
+   {
+    "name": "rarity_future",
+    "type": "map",
+    "required": true,
+    "doc": "of the future classes (with a base and a future)"
+   },
+   {
+    "name": "rarity_table",
+    "type": "table",
+    "required": true,
+    "doc": "scenario (0 current, 1 future), lucode, rarity"
+   }
+  ],
+  "params": [
+   {
+    "name": "threats",
+    "type": "any",
+    "required": true,
+    "doc": "a list of {threat, max_dist (metres), weight (0 to 1), decay (linear or exponential)}, or InVEST's threats table (a file)"
+   },
+   {
+    "name": "half_saturation",
+    "type": "number",
+    "required": true,
+    "doc": "k, often half the highest degradation"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "services.sdr",
+  "doc": "Sediment export, deposition and retention: InVEST's sediment delivery ratio model (natcap.invest 3.20), through landschaft. The soil loss of the RUSLE (R K LS C P, the LS of Desmet & Govers from the flow accumulation) and the share that reaches a stream, SDR = SDR_max / (1 + exp((IC_0 - IC) / k)) of the index of connectivity (Borselli et al. 2008); the DEM filled and routed by pygeoprocessing's algorithms, as InVEST.",
+  "inputs": [
+   {
+    "name": "dem",
+    "type": "map",
+    "required": true,
+    "doc": "elevations (projected, metres)"
+   },
+   {
+    "name": "erosivity",
+    "type": "map",
+    "required": true,
+    "doc": "rainfall erosivity R (MJ mm / ha h yr)"
+   },
+   {
+    "name": "erodibility",
+    "type": "map",
+    "required": true,
+    "doc": "soil erodibility K (t ha h / ha MJ mm)"
+   },
+   {
+    "name": "lulc",
+    "type": "map",
+    "required": true,
+    "doc": "land use (class codes)"
+   },
+   {
+    "name": "biophysical",
+    "type": "table",
+    "required": true,
+    "doc": "by class: lucode, usle_c, usle_p"
+   },
+   {
+    "name": "watersheds",
+    "type": "vector",
+    "required": true,
+    "doc": "the watershed polygons (the model runs inside them)"
+   },
+   {
+    "name": "drainage",
+    "type": "map",
+    "required": false,
+    "doc": "other cells that drain to the streams (1)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "usle",
+    "type": "map",
+    "required": true,
+    "doc": "soil loss, t / ha / yr"
+   },
+   {
+    "name": "sed_export",
+    "type": "map",
+    "required": true,
+    "doc": "the soil loss that reaches the streams"
+   },
+   {
+    "name": "sed_deposition",
+    "type": "map",
+    "required": true,
+    "doc": "sediment from upslope the cell traps"
+   },
+   {
+    "name": "avoided_export",
+    "type": "map",
+    "required": true,
+    "doc": "total retention"
+   },
+   {
+    "name": "avoided_erosion",
+    "type": "map",
+    "required": true,
+    "doc": "RKLS - USLE"
+   },
+   {
+    "name": "rkls",
+    "type": "map",
+    "required": true,
+    "doc": "the soil loss of bare soil"
+   },
+   {
+    "name": "sdr",
+    "type": "map",
+    "required": true,
+    "doc": "the sediment delivery ratio"
+   },
+   {
+    "name": "ic",
+    "type": "map",
+    "required": true,
+    "doc": "the index of connectivity"
+   },
+   {
+    "name": "stream",
+    "type": "map",
+    "required": true,
+    "doc": "the streams (1)"
+   },
+   {
+    "name": "drains_to_stream",
+    "type": "map",
+    "required": true,
+    "doc": "1 where the flow reaches a stream"
+   },
+   {
+    "name": "watershed_table",
+    "type": "table",
+    "required": true,
+    "doc": "by watershed: usle_tot, sed_export, sed_dep, avoid_exp, avoid_eros (t / yr)"
+   }
+  ],
+  "params": [
+   {
+    "name": "threshold",
+    "type": "number",
+    "required": true,
+    "doc": "the flow accumulation (cells) of a stream"
+   },
+   {
+    "name": "k",
+    "type": "number",
+    "required": false,
+    "doc": "Borselli's k (2)"
+   },
+   {
+    "name": "ic_0",
+    "type": "number",
+    "required": false,
+    "doc": "Borselli's IC_0 (0.5)"
+   },
+   {
+    "name": "sdr_max",
+    "type": "number",
+    "required": false,
+    "doc": "the largest SDR (0.8)"
+   },
+   {
+    "name": "l_max",
+    "type": "number",
+    "required": false,
+    "doc": "the largest L factor (122)"
+   },
+   {
+    "name": "method",
+    "type": "text",
+    "required": false,
+    "doc": "the routing: mfd (default) or d8",
+    "choices": [
+     "mfd",
+     "d8"
+    ]
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "services.water_yield",
+  "doc": "Annual water yield, consumption and hydropower: InVEST's annual water yield model (natcap.invest 3.20) bit for bit, through landschaft. The water balance of each cell on the Budyko curve (Fu and Zhang): AET / P from the potential evapotranspiration Kc ET0, the plant available water and the seasonality Z; the yield P - AET. With watersheds, their means and volumes; with a demand table, the consumption and the realized supply; with a valuation table, the hydropower energy and value.",
+  "inputs": [
+   {
+    "name": "lulc",
+    "type": "map",
+    "required": true,
+    "doc": "the land use (class codes; projected, metres)"
+   },
+   {
+    "name": "biophysical",
+    "type": "table",
+    "required": true,
+    "doc": "by class: lucode, lulc_veg (1 or 0), root_depth (mm), kc"
+   },
+   {
+    "name": "precipitation",
+    "type": "map",
+    "required": true,
+    "doc": "annual precipitation, mm"
+   },
+   {
+    "name": "eto",
+    "type": "map",
+    "required": true,
+    "doc": "annual reference evapotranspiration, mm"
+   },
+   {
+    "name": "depth",
+    "type": "map",
+    "required": true,
+    "doc": "depth to the root restricting layer, mm"
+   },
+   {
+    "name": "pawc",
+    "type": "map",
+    "required": true,
+    "doc": "plant available water content, 0 to 1"
+   },
+   {
+    "name": "watersheds",
+    "type": "vector",
+    "required": false,
+    "doc": "polygons with a ws_id"
+   },
+   {
+    "name": "subwatersheds",
+    "type": "vector",
+    "required": false,
+    "doc": "polygons with a subws_id"
+   },
+   {
+    "name": "demand",
+    "type": "table",
+    "required": false,
+    "doc": "by class: lucode, demand (m³ per year and cell)"
+   },
+   {
+    "name": "valuation",
+    "type": "table",
+    "required": false,
+    "doc": "by watershed: ws_id, efficiency, fraction, height, kw_price, cost, time_span, discount"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "wyield",
+    "type": "map",
+    "required": true,
+    "doc": "water yield, mm"
+   },
+   {
+    "name": "aet",
+    "type": "map",
+    "required": true,
+    "doc": "actual evapotranspiration, mm"
+   },
+   {
+    "name": "pet",
+    "type": "map",
+    "required": true,
+    "doc": "potential evapotranspiration, mm"
+   },
+   {
+    "name": "fractp",
+    "type": "map",
+    "required": true,
+    "doc": "AET / P"
+   },
+   {
+    "name": "demand_map",
+    "type": "map",
+    "required": true,
+    "doc": "consumptive use per cell, m³ / year (with demand)"
+   },
+   {
+    "name": "watershed_table",
+    "type": "table",
+    "required": true,
+    "doc": "by watershed: means, volumes, supply, hydropower"
+   },
+   {
+    "name": "subwatershed_table",
+    "type": "table",
+    "required": true,
+    "doc": "by subwatershed"
+   }
+  ],
+  "params": [
+   {
+    "name": "seasonality",
+    "type": "number",
+    "required": true,
+    "doc": "Z, about 1 to 30"
+   },
+   {
+    "name": "precision",
+    "type": "text",
+    "required": false,
+    "doc": "InVEST's arithmetic: float32 (its float32 rasters), float64, or auto (default: float64 when a raster has a value float32 cannot hold)",
+    "choices": [
+     "auto",
+     "float32",
+     "float64"
+    ]
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
   "name": "stack.classes",
   "doc": "A stack whose layers are named by class (\"1\", \"2\"...) or transition (\"1_to_3\") as the suitability of each class or the probability of each transition (e.g. computed elsewhere and read from a file).",
   "inputs": [
@@ -18150,6 +19703,36 @@
   ],
   "params": [],
   "access": "none",
+  "container": false
+ },
+ {
+  "name": "stack.layer",
+  "doc": "One layer of a stack as a map, by its name or its 0-based number: a band of rasters (the bands of a file), a layer of a stack (prioritize.evaluate's ferrier: total), a step of the series of a loop (1..).",
+  "inputs": [
+   {
+    "name": "stack",
+    "type": "raster",
+    "required": true,
+    "doc": "a stack, the series of maps of a loop or rasters"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the layer"
+   }
+  ],
+  "params": [
+   {
+    "name": "layer",
+    "type": "any",
+    "required": true,
+    "doc": "the layer's name, or its 0-based number"
+   }
+  ],
+  "access": "local",
   "container": false
  },
  {
@@ -18349,6 +19932,286 @@
     "type": "any",
     "required": false,
     "doc": "0 to 6, or \"best\" (default)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "surface.geomorphons",
+  "doc": "Landforms of a DEM by geomorphons (Jasiewicz & Stepinski 2013), GRASS's r.geomorphon (8.4) bit for bit with four of its errors corrected, through landschaft's C++: from each cell the terrain is looked at along 8 directions up to the search radius; the signs (higher, level, lower) name the landform (1 flat, 2 peak, 3 ridge, 4 shoulder, 5 spur, 6 slope, 7 hollow, 8 footslope, 9 valley, 10 pit) and one of 498 patterns. A projected DEM.",
+  "inputs": [
+   {
+    "name": "dem",
+    "type": "map",
+    "required": true,
+    "doc": "the DEM (projected; read as float32, as GRASS reads it)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "forms",
+    "type": "map",
+    "required": true,
+    "doc": "the landform of each cell, 1 to 10"
+   },
+   {
+    "name": "ternary",
+    "type": "map",
+    "required": true,
+    "doc": "the ternary pattern (0 to 6560, 498 codes)"
+   },
+   {
+    "name": "positive",
+    "type": "map",
+    "required": true,
+    "doc": "the directions higher than the threshold, as 8 bits"
+   },
+   {
+    "name": "negative",
+    "type": "map",
+    "required": true,
+    "doc": "the directions lower than the threshold, as 8 bits"
+   },
+   {
+    "name": "share",
+    "type": "table",
+    "required": true,
+    "doc": "form, cells, share"
+   },
+   {
+    "name": "intensity",
+    "type": "map",
+    "required": true,
+    "doc": "a measure of the geomorphon (with measures)"
+   },
+   {
+    "name": "exposition",
+    "type": "map",
+    "required": true,
+    "doc": "a measure of the geomorphon (with measures)"
+   },
+   {
+    "name": "range",
+    "type": "map",
+    "required": true,
+    "doc": "a measure of the geomorphon (with measures)"
+   },
+   {
+    "name": "variance",
+    "type": "map",
+    "required": true,
+    "doc": "a measure of the geomorphon (with measures)"
+   },
+   {
+    "name": "elongation",
+    "type": "map",
+    "required": true,
+    "doc": "a measure of the geomorphon (with measures)"
+   },
+   {
+    "name": "azimuth",
+    "type": "map",
+    "required": true,
+    "doc": "a measure of the geomorphon (with measures)"
+   },
+   {
+    "name": "extend",
+    "type": "map",
+    "required": true,
+    "doc": "a measure of the geomorphon (with measures)"
+   },
+   {
+    "name": "width",
+    "type": "map",
+    "required": true,
+    "doc": "a measure of the geomorphon (with measures)"
+   }
+  ],
+  "params": [
+   {
+    "name": "search",
+    "type": "number",
+    "required": false,
+    "doc": "the outer search radius, in cells or map units (3)"
+   },
+   {
+    "name": "skip",
+    "type": "number",
+    "required": false,
+    "doc": "the inner radius not looked at (0)"
+   },
+   {
+    "name": "flat",
+    "type": "number",
+    "required": false,
+    "doc": "the flatness threshold, degrees (1)"
+   },
+   {
+    "name": "dist",
+    "type": "number",
+    "required": false,
+    "doc": "the flatness distance (0: none)"
+   },
+   {
+    "name": "units",
+    "type": "text",
+    "required": false,
+    "doc": "of search, skip and dist: cells (default) or map",
+    "choices": [
+     "cells",
+     "map"
+    ]
+   },
+   {
+    "name": "comparison",
+    "type": "text",
+    "required": false,
+    "doc": "how the angles decide a direction (anglev1)",
+    "choices": [
+     "anglev1",
+     "anglev2",
+     "anglev2_distance"
+    ]
+   },
+   {
+    "name": "extended",
+    "type": "bool",
+    "required": false,
+    "doc": "the extended correction (-e): ridges, peaks, shoulders and footslopes looked at again within half the radius"
+   },
+   {
+    "name": "measures",
+    "type": "bool",
+    "required": false,
+    "doc": "also the measures (intensity, exposition...)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "surface.gravity",
+  "doc": "Gravitational interaction potential of source cells, Dinamica EGO's CalcInteractionPotentialMap (landschaft's): every cell the sum over the sources of their mass over the distance to them raised to the exponent, P = sum m / d^beta (a source's own cell at one cell); a pressure of towns, markets or roads, a driver of land change.",
+  "inputs": [
+   {
+    "name": "sources",
+    "type": "map",
+    "required": true,
+    "doc": "the masses (no value or 0: not a source)"
+   },
+   {
+    "name": "mask",
+    "type": "map",
+    "required": false,
+    "doc": "the potential is missing where this is"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the potential"
+   }
+  ],
+  "params": [
+   {
+    "name": "exponent",
+    "type": "number",
+    "required": false,
+    "doc": "the distance decay beta (2; 0: none)"
+   },
+   {
+    "name": "unit",
+    "type": "text",
+    "required": false,
+    "doc": "distances in cells (default, Dinamica's) or map units",
+    "choices": [
+     "cells",
+     "map"
+    ]
+   },
+   {
+    "name": "method",
+    "type": "text",
+    "required": false,
+    "doc": "direct (every pair, in a fixed order), fft (a convolution, about 1e-15 of the largest term off), or auto (default: direct up to 2000 sources or 1e8 pairs)",
+    "choices": [
+     "auto",
+     "direct",
+     "fft"
+    ]
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "surface.hilltop",
+  "doc": "Hilltops as permanent protection areas (APP de topo de morro, Lei 12.651/2012, art. 4, IX), landschaft's open implementation: every summit with its base (the saddle to higher terrain, the plain or water body it meets, or the lowest cell of its area), its height and slope; the hills at least min_height high and steeper than min_slope protected above base + fraction x height.",
+  "inputs": [
+   {
+    "name": "dem",
+    "type": "map",
+    "required": true,
+    "doc": "the DEM (metres), projected or in longitude / latitude"
+   },
+   {
+    "name": "plain",
+    "type": "map",
+    "required": false,
+    "doc": "plains and water bodies (non-zero): a hill's base where met"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "app",
+    "type": "map",
+    "required": true,
+    "doc": "1 in the upper part of the hills that qualify, 0 elsewhere"
+   },
+   {
+    "name": "hill",
+    "type": "map",
+    "required": true,
+    "doc": "the hill whose upper part holds each cell"
+   },
+   {
+    "name": "hills",
+    "type": "table",
+    "required": true,
+    "doc": "per summit, highest first: hill, x, y, top, base, base_kind (0 saddle, 1 plain, 2 lowest), base_x, base_y, height, mean_slope, line_slope, area, area_ha, qualifies, threshold, app_cells"
+   }
+  ],
+  "params": [
+   {
+    "name": "min_height",
+    "type": "number",
+    "required": false,
+    "doc": "the least height of a hill, m (100)"
+   },
+   {
+    "name": "min_slope",
+    "type": "number",
+    "required": false,
+    "doc": "the slope a hill must exceed, degrees (25)"
+   },
+   {
+    "name": "slope",
+    "type": "text",
+    "required": false,
+    "doc": "mean (of the hill's cells, default) or line (summit to base)",
+    "choices": [
+     "mean",
+     "line"
+    ]
+   },
+   {
+    "name": "fraction",
+    "type": "number",
+    "required": false,
+    "doc": "where the APP starts, of the height (2/3)"
    }
   ],
   "access": "global",
@@ -18853,6 +20716,123 @@
   "container": false
  },
  {
+  "name": "swat.run",
+  "doc": "Simulate a SWAT+ project (a TxtInOut folder or a zip of one) as SWAT+ 62.0.1 does, through landschaft's port of it (bit for bit with SWAT+ for what the port covers: measured and generated weather, HRUs with snow, ET, curve number runoff, MUSLE erosion, percolation, lateral flow, nutrients, plant growth and management, routing units, aquifers, SWAT-DEG channels). The tables SWAT+ prints, at a step: a row per date (year, day of the year) and object (HRU, channel, aquifer; the basin's by date).",
+  "inputs": [],
+  "outputs": [
+   {
+    "name": "weather",
+    "type": "table",
+    "required": true,
+    "doc": "the daily weather of each station (year, day, station)"
+   },
+   {
+    "name": "hru_wb",
+    "type": "table",
+    "required": true,
+    "doc": "what SWAT+ prints (columns and units as its own)"
+   },
+   {
+    "name": "hru_nb",
+    "type": "table",
+    "required": true,
+    "doc": "what SWAT+ prints (columns and units as its own)"
+   },
+   {
+    "name": "hru_ls",
+    "type": "table",
+    "required": true,
+    "doc": "what SWAT+ prints (columns and units as its own)"
+   },
+   {
+    "name": "hru_pw",
+    "type": "table",
+    "required": true,
+    "doc": "what SWAT+ prints (columns and units as its own)"
+   },
+   {
+    "name": "basin_wb",
+    "type": "table",
+    "required": true,
+    "doc": "what SWAT+ prints (columns and units as its own)"
+   },
+   {
+    "name": "basin_nb",
+    "type": "table",
+    "required": true,
+    "doc": "what SWAT+ prints (columns and units as its own)"
+   },
+   {
+    "name": "basin_ls",
+    "type": "table",
+    "required": true,
+    "doc": "what SWAT+ prints (columns and units as its own)"
+   },
+   {
+    "name": "basin_pw",
+    "type": "table",
+    "required": true,
+    "doc": "what SWAT+ prints (columns and units as its own)"
+   },
+   {
+    "name": "channel_sd",
+    "type": "table",
+    "required": true,
+    "doc": "what SWAT+ prints (columns and units as its own)"
+   },
+   {
+    "name": "aquifer",
+    "type": "table",
+    "required": true,
+    "doc": "what SWAT+ prints (columns and units as its own)"
+   }
+  ],
+  "params": [
+   {
+    "name": "path",
+    "type": "text",
+    "required": true,
+    "doc": "the TxtInOut folder (with file.cio) or a zip of it"
+   },
+   {
+    "name": "step",
+    "type": "text",
+    "required": false,
+    "doc": "of the tables: day, month, year (default) or aa (average annual)",
+    "choices": [
+     "day",
+     "month",
+     "year",
+     "aa"
+    ]
+   },
+   {
+    "name": "tables",
+    "type": "any",
+    "required": false,
+    "doc": "the tables printed (default every one): hru_wb, hru_nb, hru_ls, hru_pw, basin_wb, basin_nb, basin_ls, basin_pw, channel_sd, aquifer"
+   },
+   {
+    "name": "nyskip",
+    "type": "integer",
+    "required": false,
+    "doc": "years simulated before printing (spin-up)"
+   },
+   {
+    "name": "c_factor",
+    "type": "text",
+    "required": false,
+    "doc": "MUSLE's C: swatplus (default, SWAT+ 62's from APEX) or plant (the plants' minimum, SWAT+'s earlier method)",
+    "choices": [
+     "swatplus",
+     "plant"
+    ]
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
   "name": "table.of",
   "doc": "A table written in the settings: its columns' names and its rows of numbers (null: no value), such as the small tables a planning problem takes.",
   "inputs": [],
@@ -18879,6 +20859,83 @@
    }
   ],
   "access": "local",
+  "container": false
+ },
+ {
+  "name": "table.read",
+  "doc": "A table from a file: comma-separated values (.csv), tab-separated (.tsv, .txt), with ; as Excel writes them where a comma marks the decimals (the separator and the decimal mark found by themselves), or JSON (.json, a list of rows). A header names the columns; an empty value, or NA, is none. The columns of text (names, not numbers) are left out: a table is of numbers.",
+  "inputs": [],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the table"
+   }
+  ],
+  "params": [
+   {
+    "name": "path",
+    "type": "text",
+    "required": true,
+    "doc": "the file, relative to the model's folder"
+   },
+   {
+    "name": "separator",
+    "type": "text",
+    "required": false,
+    "doc": "between the values: , ; or tab (default: found)"
+   },
+   {
+    "name": "decimal",
+    "type": "text",
+    "required": false,
+    "doc": "the decimal mark: . or , (default: found)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "table.write",
+  "doc": "Write a table to a file, its format by the extension: comma-separated values (.csv, the default), tab-separated (.tsv, .txt) or JSON (.json, a list of rows); a value missing is left empty (null in JSON). For a spreadsheet that reads a comma as the decimal mark: separator ; and decimal ,.",
+  "inputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the table"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "path",
+    "type": "text",
+    "required": true,
+    "doc": "the file written"
+   }
+  ],
+  "params": [
+   {
+    "name": "path",
+    "type": "text",
+    "required": true,
+    "doc": "the file, relative to the model's folder"
+   },
+   {
+    "name": "separator",
+    "type": "text",
+    "required": false,
+    "doc": "between the values: , ; or tab (default by the extension)"
+   },
+   {
+    "name": "decimal",
+    "type": "text",
+    "required": false,
+    "doc": "the decimal mark: . (default) or ,"
+   }
+  ],
+  "access": "none",
   "container": false
  },
  {
@@ -19986,7 +22043,7 @@
  },
  {
   "name": "view.plot",
-  "doc": "Show a map, a stack, the maps of a loop, rasters on disk or vector features in a map tab of its own, refreshed at every run, without writing anything; save it from the tab if it is worth keeping. Plots stack: a plot's shown connected to another's under is drawn beneath it (maps over maps, vectors over them), as many as wanted.",
+  "doc": "Show a map, a stack, the maps of a loop, rasters on disk, vector features or a table in a tab of its own, refreshed at every run, without writing anything; save it from the tab if it is worth keeping. A table is drawn as a chart: bars, lines, points or boxes (chart), of the columns y along x, a group by by (a chart suggested when none is given; changed in the tab too). Plots stack: a plot's shown connected to another's under is drawn beneath it (maps over maps, vectors over them), as many as wanted.",
   "inputs": [
    {
     "name": "value",
@@ -20001,6 +22058,12 @@
     "doc": "vector features to show (over the map, if any)"
    },
    {
+    "name": "table",
+    "type": "table",
+    "required": false,
+    "doc": "a table to show, drawn as a chart"
+   },
+   {
     "name": "under",
     "type": "raster",
     "required": false,
@@ -20010,9 +22073,9 @@
   "outputs": [
    {
     "name": "shown",
-    "type": "raster",
+    "type": "any",
     "required": true,
-    "doc": "the same value (the map, else the features), as shown"
+    "doc": "the same value (the map, else the features, else the table), as shown"
    }
   ],
   "params": [
@@ -20027,6 +22090,30 @@
     "type": "number",
     "required": false,
     "doc": "drawn over another plot: how opaque, 0 to 1 (1)"
+   },
+   {
+    "name": "chart",
+    "type": "text",
+    "required": false,
+    "doc": "a table's chart: bars, lines, points or boxes (default: suggested)"
+   },
+   {
+    "name": "x",
+    "type": "text",
+    "required": false,
+    "doc": "a table's chart: the column along the x axis"
+   },
+   {
+    "name": "y",
+    "type": "text",
+    "required": false,
+    "doc": "a table's chart: the columns drawn, by name (comma-separated)"
+   },
+   {
+    "name": "by",
+    "type": "text",
+    "required": false,
+    "doc": "a table's chart: the column whose values make the groups"
    }
   ],
   "access": "none",

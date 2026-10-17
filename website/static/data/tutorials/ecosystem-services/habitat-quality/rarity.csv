@@ -1,0 +1,13 @@
+scenario,class,rarity
+current (2020),Forest,0.593
+current (2020),Pasture,0.473
+current (2020),Cropland,0.289
+current (2020),Eucalyptus,0.0
+current (2020),Urban,0.111
+current (2020),Water,0.5
+future (2040),Forest,0.679
+future (2040),Pasture,0.505
+future (2040),Cropland,0.192
+future (2040),Eucalyptus,0.0
+future (2040),Urban,0.052
+future (2040),Water,0.5

@@ -1,0 +1,7 @@
+class,c_above,c_below,c_soil,c_dead,total
+Forest,140,35,95,12,282
+Pasture,3,6,60,0.5,69.5
+Cropland,4,1,45,0.5,50.5
+Eucalyptus,75,18,70,6,169
+Urban,5,1,30,0,36
+Water,0,0,0,0,0

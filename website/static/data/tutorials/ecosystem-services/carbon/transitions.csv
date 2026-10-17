@@ -1,0 +1,12 @@
+from,to,hectares,t_C
+Forest,Pasture,532.2,-113086.0
+Forest,Cropland,82.0,-18981.0
+Pasture,Cropland,568.0,-10792.0
+Forest,Urban,13.1,-3232.0
+Pasture,Urban,32.7,-1094.0
+Forest,Eucalyptus,9.0,-1017.0
+Cropland,Urban,26.7,-388.0
+Cropland,Eucalyptus,2.9,341.0
+Pasture,Eucalyptus,19.1,1898.0
+Pasture,Forest,80.4,17079.0
+Cropland,Forest,74.5,17251.0

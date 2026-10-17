@@ -1,0 +1,5 @@
+column,meaning,value,unit
+baseline,Baseline (2020),583479.6,t C
+alternate,Alternate (2040),471459.3,t C
+change,Change (2040 - 2020),-112020.3,t C
+npv,Net present value of the change,-3664555.4,currency

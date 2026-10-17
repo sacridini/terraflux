@@ -1,0 +1,11 @@
+form,name,cells,share (%)
+1,Flat,0,0.0
+2,Peak,1360,1.38
+3,Ridge,10864,11.05
+4,Shoulder,185,0.19
+5,Spur,21324,21.68
+6,Slope,35567,36.16
+7,Hollow,17978,18.28
+8,Footslope,284,0.29
+9,Valley,9708,9.87
+10,Pit,1086,1.1
