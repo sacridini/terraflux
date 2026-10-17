@@ -1722,9 +1722,51 @@ impl TerrafluxApp {
         self.settings_open = open;
     }
 
+    /// The strip at the window's left edge while the operators' pane is closed: their name written along it, the
+    /// pointer over it brings their drawer out, a click opens their pane. Where it is.
+    fn operators_strip(&mut self, ui: &mut Ui) -> egui::Rect {
+        let open = self.drawer;
+        let (rect, clicked) = egui::Panel::left("operators strip")
+            .exact_size(20.0)
+            .resizable(false)
+            .show_separator_line(false)
+            .frame(egui::Frame::new().fill(theme::bar()))
+            .show(ui, |ui| {
+                let (rect, resp) = ui.allocate_exact_size(ui.available_size(), egui::Sense::click());
+                let hot = open || resp.hovered();
+                let v = ui.visuals();
+                let (fill, text) = if hot {
+                    (v.widgets.hovered.bg_fill, v.strong_text_color())
+                } else {
+                    (v.widgets.inactive.weak_bg_fill, v.text_color())
+                };
+                let tab = egui::Rect::from_min_size(rect.min + Vec2::new(2.0, 6.0), Vec2::new(16.0, 112.0));
+                ui.painter().rect_filled(tab, 3.0, fill);
+                // the word along it, bottom to top
+                let galley = ui.painter().layout_no_wrap(
+                    "OPERATORS  ›".to_string(),
+                    egui::FontId::proportional(10.5),
+                    text,
+                );
+                let at = egui::pos2(tab.center().x - galley.size().y / 2.0, tab.center().y + galley.size().x / 2.0);
+                ui.painter().add(egui::epaint::TextShape::new(at, galley, text).with_angle(-std::f32::consts::FRAC_PI_2));
+                let c = crate::commands::cmd();
+                let resp = resp.on_hover_text(format!(
+                    "The operators: here to see them, a click keeps their pane open (also \"/\", {c}K and the                      Operators menu)"
+                ));
+                (rect, resp.clicked())
+            })
+            .inner;
+        if clicked {
+            self.drawer = false;
+            self.focus(Pane::Operators);
+        }
+        rect
+    }
+
     /// The operators' drawer, while their pane is closed: out over the panes while the pointer is at the window's
     /// left edge or over it, in again when the pointer leaves it.
-    fn drawer(&mut self, ctx: &egui::Context, area: egui::Rect) {
+    fn drawer(&mut self, ctx: &egui::Context, area: egui::Rect, strip: Option<egui::Rect>) {
         const WIDTH: f32 = 280.0;
         if self.is_open(Pane::Operators) {
             self.drawer = false;
@@ -1734,7 +1776,9 @@ impl TerrafluxApp {
         let pointer = ctx.input(|i| i.pointer.latest_pos());
         let dragging = ctx.dragged_id().is_some();
         if let Some(p) = pointer {
-            if !self.drawer && !dragging && p.x <= area.left() + 3.0 && area.y_range().contains(p.y) {
+            // (up to the strip's right side: the window's edge too)
+            let at_edge = p.x <= strip.map_or(area.left() + 3.0, |r| r.right());
+            if !self.drawer && !dragging && at_edge && area.y_range().contains(p.y) {
                 self.drawer = true;
             } else if self.drawer
                 && (p.x > area.left() + WIDTH + 24.0 || !area.y_range().contains(p.y))
@@ -2337,9 +2381,11 @@ impl TerrafluxApp {
             }
         }
         self.take_dropped(ui);
+        // the operators' pane closed: a strip at the window's left edge says they are there
+        let strip = (self.session.is_some() && !self.is_open(Pane::Operators)).then(|| self.operators_strip(ui));
         let area = ui.available_rect_before_wrap();
         egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::bar())).show(ui, |ui| self.docks(ui));
-        self.drawer(ui.ctx(), area);
+        self.drawer(ui.ctx(), area, strip);
         // Tab is ours: no field keeps the focus egui gave it
         if std::mem::take(&mut self.tabbed) {
             ui.ctx().memory_mut(|m| {

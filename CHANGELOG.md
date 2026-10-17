@@ -6,6 +6,10 @@ minor versions.
 
 ## [Unreleased]
 
+### Changed
+- The operators' pane closed, a strip at the window's left edge says they are there ("OPERATORS ›" along it): the
+  pointer over it brings their drawer out, a click opens their pane.
+
 ## [0.84.0] - 2026-10-17
 
 ### Added

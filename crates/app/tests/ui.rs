@@ -1107,6 +1107,14 @@ fn the_operators_drawer_and_windows_of_their_own() {
     h.run_steps(3);
     assert_eq!(h.state().detached(), vec![Pane::Viewer]);
     assert!(h.state().dock.as_ref().unwrap().iter_surfaces_indexed().all(|(i, s)| i.is_main() || s.is_empty()));
+    // a click on the strip at the left edge: the operators' pane, the strip gone
+    h.event(egui::Event::PointerMoved(egui::pos2(700.0, 300.0)));
+    h.run_steps(2);
+    h.drag_at(egui::pos2(18.0, 100.0));
+    h.run_steps(1);
+    h.drop_at(egui::pos2(18.0, 100.0));
+    h.run_steps(3);
+    assert!(h.state().is_open(Pane::Operators), "the strip opens the operators' pane");
 }
 
 /// Maps stacked in the viewer: a plot of the land use with a plot of roads over it (its under), another map over
