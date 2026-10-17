@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.87.0] - 2026-10-17
+
 ### Fixed
 - `services.habitat_quality`'s `threats`, when it names InVEST's threats table, is taken from the model's folder
   (and kept relative to it when the model is saved), as the `path` of the operators that read files; it was read
