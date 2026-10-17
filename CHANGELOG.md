@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.96.0] - 2026-10-18
+
 ### Added
 - Interpolation of points onto a map as R's gstat 2.1 does it: `stats.variogram`, the sample variogram of points
   (gstat's classes of distance up to a cutoff) and a nugget with a spherical, exponential or Gaussian structure
