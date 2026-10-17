@@ -11306,6 +11306,120 @@
   "container": false
  },
  {
+  "name": "ml.importance",
+  "doc": "The permutation importance of each predictor of a fitted model (scikit-learn's permutation_importance, the same numbers): how much its score (a classifier's accuracy, a regressor's R²) drops when the predictor's values are shuffled among the records, shuffle after shuffle (numpy's RandomState); best on records the model did not learn from.",
+  "inputs": [
+   {
+    "name": "model",
+    "type": "ml_model",
+    "required": true,
+    "doc": "the fitted model (ml.fit)"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the records: the predictors and the target, a column each"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "importance",
+    "type": "table",
+    "required": true,
+    "doc": "the mean drop of the score, a column per predictor"
+   },
+   {
+    "name": "sd",
+    "type": "table",
+    "required": true,
+    "doc": "its standard deviation over the shuffles"
+   },
+   {
+    "name": "repeats",
+    "type": "table",
+    "required": true,
+    "doc": "the drop at every shuffle: repeat, then a column per predictor"
+   },
+   {
+    "name": "score",
+    "type": "number",
+    "required": true,
+    "doc": "the score on the records as they are"
+   }
+  ],
+  "params": [
+   {
+    "name": "column",
+    "type": "text",
+    "required": false,
+    "doc": "the target's column (default target)"
+   },
+   {
+    "name": "n_repeats",
+    "type": "integer",
+    "required": false,
+    "doc": "the shuffles of each predictor (default 5)"
+   },
+   {
+    "name": "random_state",
+    "type": "integer",
+    "required": false,
+    "doc": "the seed of the shuffles (default 0)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "ml.partial_dependence",
+  "doc": "How a fitted model's prediction follows a predictor (scikit-learn's partial_dependence, its brute method): every record with the predictor set to each value of a grid (its distinct values when fewer than the grid's resolution, else from one percentile of it to another, as scipy's mquantiles), the predictions averaged: the value of a regressor, the probability of each class of a classifier (the second of two).",
+  "inputs": [
+   {
+    "name": "model",
+    "type": "ml_model",
+    "required": true,
+    "doc": "the fitted model (ml.fit)"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the records, a column per predictor"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per value of the grid: the predictor's value, then the mean prediction (value, or p_<class>)"
+   }
+  ],
+  "params": [
+   {
+    "name": "predictor",
+    "type": "text",
+    "required": true,
+    "doc": "the predictor followed"
+   },
+   {
+    "name": "grid_resolution",
+    "type": "integer",
+    "required": false,
+    "doc": "the values of the grid (default 100)"
+   },
+   {
+    "name": "percentiles",
+    "type": "any",
+    "required": false,
+    "doc": "the grid's ends, as shares (default [0.05, 0.95])"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
   "name": "ml.potential",
   "doc": "The potential of each class from a model per class (landschaft's Estimator with scikit-learn's RandomForestClassifier, or HistGradientBoostingClassifier, the same maps): where each class is (presence, as lulcc's models), or where it appeared between two maps among the cells without it (expansion: PLUS's land expansion analysis, LEAS, the growth probability CARS takes); with each driver's contribution (the models' importances).",
   "inputs": [
