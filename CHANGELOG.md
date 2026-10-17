@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.91.0] - 2026-10-17
+
 ### Added
 - Verra's VT0007, the unplanned deforestation allocation of a jurisdiction (REDD+), as Clark Labs' UDef-ARP:
   `redd.nrt` (the negligible risk threshold of the distance to the forest's edge), `redd.vulnerability` (the
