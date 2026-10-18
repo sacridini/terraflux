@@ -46,6 +46,10 @@ const SUBJECTS: [(&str, &[&str]); 31] = [
             "raster.label",
             "raster.expand",
             "raster.shrink",
+            "raster.contour",
+            "raster.viewshed",
+            "raster.cell_area",
+            "raster.classify",
         ],
     ),
     (
@@ -60,6 +64,7 @@ const SUBJECTS: [(&str, &[&str]); 31] = [
             "vector.reproject",
             "vector.from_table",
             "vector.points",
+            "vector.density",
         ],
     ),
     ("Habitat patterns", &["landscape", "patterns"]),

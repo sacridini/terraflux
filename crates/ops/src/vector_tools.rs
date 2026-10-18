@@ -748,7 +748,7 @@ impl Operator for Points {
             "Points inside polygons, as QGIS's Random Points Inside Polygons and Regular Points: `random`, n points \
              in every polygon drawn uniformly over its area (numpy's generator of the seed); `regular`, the points \
              of a grid of a spacing (from the polygons' lower left corner, half a spacing in) inside each. Each \
-             point with the number of its polygon (feature) and the polygon's attributes.",
+             point with the number of its polygon (polygon) and the polygon's attributes.",
             Access::None,
         )
         .input(PortSpec::new("vector", Type::Vector, "the polygons"))
@@ -814,8 +814,8 @@ impl Operator for Points {
         }
         let from: Vec<usize> = points.iter().map(|p| p.0).collect();
         let mut attributes =
-            vec![("feature".to_string(), Column::Numbers(from.iter().map(|i| (i + 1) as f64).collect()))];
-        attributes.extend(v.select(&from).attributes.into_iter().filter(|(n, _)| n != "feature"));
+            vec![("polygon".to_string(), Column::Numbers(from.iter().map(|i| (i + 1) as f64).collect()))];
+        attributes.extend(v.select(&from).attributes.into_iter().filter(|(n, _)| n != "polygon"));
         attributes.push(("x".into(), Column::Numbers(points.iter().map(|p| p.1[0]).collect())));
         attributes.push(("y".into(), Column::Numbers(points.iter().map(|p| p.1[1]).collect())));
         let out_v = Vector {
@@ -947,7 +947,7 @@ mod tests {
         let o = run(&Points, vec![("vector", v.clone())], serde_json::json!({ "n": 50, "seed": 3 })).unwrap();
         let p = vector(&o);
         assert_eq!(p.len(), 100);
-        let f = numbers(&p, "feature");
+        let f = numbers(&p, "polygon");
         for (g, k) in p.geometries.iter().zip(f) {
             let Geometry::Point(q) = g else { panic!() };
             if k == 1.0 {

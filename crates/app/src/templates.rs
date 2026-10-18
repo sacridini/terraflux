@@ -224,7 +224,7 @@ fn clue_s() -> Model {
     m
 }
 
-pub const TEMPLATES: [Template; 49] = [
+pub const TEMPLATES: [Template; 50] = [
     Template {
         name: "MSPA of a forest",
         group: PATTERNS,
@@ -959,6 +959,94 @@ op = "table.aggregate"
 inputs = { table = "pieces.table" }
 params = { by = "zone", columns = ["area"], stats = ["sum"] }
 note = "The forest's area in every square."
+"#,
+    },
+    Template {
+        name: "Spatial analysis: density, contours, viewshed and classes",
+        group: SURFACES,
+        build: None,
+        about: "the classic tools of spatial analysis on a terrain and villages: the villages' kernel density and \
+                count per cell, the terrain's contour lines, what three villages see, its classes by natural \
+                breaks, and the true area of its cells",
+        toml: r#"
+format = "terraflux/1"
+name = "Spatial analysis: density, contours, viewshed and classes"
+description = "Villages on a terrain: their kernel density and count per cell (vector.density), the terrain's contours (raster.contour), what three villages see from a tower (raster.viewshed), the terrain in classes by Jenks's natural breaks (raster.classify) and the true area of every cell (raster.cell_area)."
+
+[[nodes]]
+id = "surface"
+op = "nlm.gaussian_field"
+params = { rows = 120, columns = 120, range = 20, seed = 4 }
+
+[[nodes]]
+id = "elevation"
+op = "map.calc"
+inputs = { s = "surface.map" }
+params = { expression = "200 + 800 * s" }
+note = "A terrain of 200 to 1000 m drawn by chance (in its place, a raster.read of a DEM)."
+
+[[nodes]]
+id = "region"
+op = "vector.grid_zones"
+inputs = { map = "elevation.map" }
+params = { size = 120 }
+note = "The map's extent as a polygon."
+
+[[nodes]]
+id = "villages"
+op = "vector.points"
+inputs = { vector = "region.zones" }
+params = { method = "random", n = 60, seed = 4 }
+note = "Sixty villages drawn by chance (in their place, a vector.read or vector.from_table of yours)."
+
+[[nodes]]
+id = "density"
+op = "vector.density"
+inputs = { vector = "villages.vector", map = "elevation.map" }
+params = { kernel = "quartic", radius = 15 }
+note = "The villages' kernel density (quartic, a radius of 15 cells): villages per square unit of the map."
+
+[[nodes]]
+id = "count"
+op = "vector.density"
+inputs = { vector = "villages.vector", map = "elevation.map" }
+params = { kernel = "count" }
+note = "The villages in every cell."
+
+[[nodes]]
+id = "contours"
+op = "raster.contour"
+inputs = { map = "elevation.map" }
+params = { interval = 100 }
+note = "A contour line every 100 m."
+
+[[nodes]]
+id = "towers"
+op = "vector.filter"
+inputs = { vector = "villages.vector" }
+params = { expression = "feature <= 3" }
+note = "Three villages with a watchtower."
+
+[[nodes]]
+id = "seen"
+op = "raster.viewshed"
+inputs = { map = "elevation.map", points = "towers.vector" }
+params = { observer_height = 20, radius = 50 }
+note = "How many towers see every cell, from 20 m up and 50 cells away at most."
+
+[[nodes]]
+id = "classes"
+op = "raster.classify"
+inputs = { map = "elevation.map" }
+params = { method = "jenks", n = 5 }
+note = "The terrain in five classes by Jenks's natural breaks (quantiles, equal intervals, standard deviations alike)."
+
+[[nodes]]
+id = "cell_area"
+op = "raster.cell_area"
+inputs = { map = "elevation.map" }
+params = { units = "m2" }
+note = "Every cell's true area: on a map of longitudes and latitudes, smaller towards the poles."
 "#,
     },
     Template {
@@ -4052,6 +4140,30 @@ mod table_template_tests {
         let total: f64 = area.rows.iter().map(|r| r[sum]).sum();
         let want: f64 = forest.rows.iter().map(|r| r[cells]).sum();
         assert!((total - want).abs() < 1e-6, "{total} {want}");
+    }
+
+    #[test]
+    fn the_spatial_analysis_template_runs() {
+        let t = super::TEMPLATES.iter().find(|t| t.name.starts_with("Spatial analysis:")).unwrap();
+        let m = t.model();
+        let r = match terraflux_exec::Engine::default().run(&m, &Default::default(), &mut terraflux_exec::Quiet) {
+            Ok(r) => r,
+            Err(e) => panic!("{e}"),
+        };
+        let map = |n: &str| match r.get(n) {
+            Some(terraflux_ops::Value::Map(m)) => m.data.to_vec(),
+            other => panic!("{n}: {other:?}"),
+        };
+        assert_eq!(map("count.map").iter().sum::<f64>(), 60.0);
+        assert!(map("density.map").iter().sum::<f64>() > 30.0);
+        let seen = map("seen.map");
+        assert!(seen.iter().any(|v| *v > 0.0) && seen.iter().all(|v| (0.0..=3.0).contains(v)));
+        let classes = map("classes.map");
+        assert!(classes.iter().all(|c| (1.0..=5.0).contains(c)));
+        match r.get("contours.vector") {
+            Some(terraflux_ops::Value::Vector(v)) => assert!(v.len() >= 5, "{}", v.len()),
+            other => panic!("contours: {other:?}"),
+        }
     }
 
     #[test]

@@ -569,7 +569,8 @@ em 1.5.0: `table.filter`, `calc`, `aggregate`, `join`, `sort`, `select`, `pivot`
    tools: polygons, overlay and points.
 4. **Análise espacial clássica:** densidade de kernel de pontos e contagem de pontos por célula, curvas de nível,
    viewshed, a área real de cada célula numa grade lat/lon, classificação por quebras (quantis, intervalos iguais,
-   Jenks, desvio padrão).
+   Jenks, desvio padrão). **Feito** (Unreleased): `vector.density` (kernels e contagem por célula),
+   `raster.contour`, `raster.viewshed`, `raster.cell_area` e `raster.classify`, e o template Spatial analysis.
 
 ## O que ainda falta entre os operadores
 

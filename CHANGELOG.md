@@ -31,6 +31,13 @@ minor versions.
   in every polygon), `vector.reproject`, `vector.from_table` (points from a table's x and y) and `vector.points`
   (random or regular points inside polygons); the library's subject Vector analysis, and the template Vector tools:
   polygons, overlay and points.
+- Classic spatial analysis: `vector.density` (the kernel density of points, quartic as ArcGIS's or triweight,
+  Epanechnikov, triangular, uniform, per square unit, hectare or km², Silverman's radius by default; or the points
+  in each cell counted), `raster.contour` (contour lines at an interval or at levels, as gdal_contour),
+  `raster.viewshed` (how many observers see each cell, their height and the target's, a reach, the earth's
+  curvature), `raster.cell_area` (the true area of every cell, on the WGS84 ellipsoid for longitudes and latitudes)
+  and `raster.classify` (quantiles, equal intervals, Jenks's natural breaks, standard deviations or breaks given,
+  with a table of the classes); the template Spatial analysis: density, contours, viewshed and classes.
 - A cell explained by an assistant through `terraflux mcp` (Claude Code, Claude Desktop...): Explain with an MCP
   assistant in a cell's menu (a right click) keeps its trace for it and copies a request to paste; the server's
   prompt `explain_cell` (a slash command in Claude Code) brings it the trace and the question.
