@@ -554,22 +554,22 @@ em 1.5.0: `table.filter`, `calc`, `aggregate`, `join`, `sort`, `select`, `pivot`
    moda, a camada do máximo), zonal com zonas em raster (`raster.zonal`, com o mapa de cada célula recebendo a
    estatística da sua zona) e a área de cada classe por zona (`raster.tabulate`), `raster.correlation`
    (correlação e covariância entre mapas, a matriz de uma pilha), a correlação e a regressão local em janela móvel
-   entre dois mapas, `raster.standardize` (z-score, mín-máx, percentis). **Feito** (Unreleased): os sete, o
+   entre dois mapas, `raster.standardize` (z-score, mín-máx, percentis). **Feito** (1.6.0): os sete, o
    assunto Raster analysis da biblioteca e o template Raster statistics: summaries, zones and correlation.
 2. **Vizinhança e limpeza de mapas de classes:** estatística focal geral (média, mediana, moda, sd, variedade,
    amplitude, percentil; janela quadrada, circular, anelar ou gaussiana), filtro de maioria e sieve (as manchas
    menores que N células, como o `gdal_sieve`), `raster.label` (as manchas como um raster de ids), crescer e
-   encolher uma classe N células. **Feito** (Unreleased): `raster.focal`, `raster.majority`, `raster.sieve`,
+   encolher uma classe N células. **Feito** (1.6.0): `raster.focal`, `raster.majority`, `raster.sieve`,
    `raster.label`, `raster.expand` e `raster.shrink`, e o template Cleaning a map of classes.
 3. **Vetor:** `vector.polygonize` (raster em polígonos), `vector.filter` e `vector.calc` (atributos),
    `vector.geometry` (área, perímetro, comprimento, centróide), overlay (interseção, união, diferença), join
    espacial (contar pontos por polígono, os atributos de quem contém), `vector.reproject`, `vector.from_table`
-   (pontos das colunas x e y), pontos aleatórios ou regulares dentro de polígonos. **Feito** (Unreleased): os nove
+   (pontos das colunas x e y), pontos aleatórios ou regulares dentro de polígonos. **Feito** (1.6.0): os nove
    (`vector.overlay` e `vector.spatial_join` pelo GEOS do GDAL), o assunto Vector analysis e o template Vector
    tools: polygons, overlay and points.
 4. **Análise espacial clássica:** densidade de kernel de pontos e contagem de pontos por célula, curvas de nível,
    viewshed, a área real de cada célula numa grade lat/lon, classificação por quebras (quantis, intervalos iguais,
-   Jenks, desvio padrão). **Feito** (Unreleased): `vector.density` (kernels e contagem por célula),
+   Jenks, desvio padrão). **Feito** (1.6.0): `vector.density` (kernels e contagem por célula),
    `raster.contour`, `raster.viewshed`, `raster.cell_area` e `raster.classify`, e o template Spatial analysis.
 
 ## O que ainda falta entre os operadores

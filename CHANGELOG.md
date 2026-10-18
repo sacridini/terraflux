@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-18
+
 ### Added
 - Statistics of rasters: `raster.stats` (a map, or every layer of a stack or of a series, summarised as a table:
   count, nodata, sum, mean, std, min, percentiles, max..., and a histogram), `stack.reduce` (a statistic of the
