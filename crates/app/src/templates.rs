@@ -224,7 +224,7 @@ fn clue_s() -> Model {
     m
 }
 
-pub const TEMPLATES: [Template; 47] = [
+pub const TEMPLATES: [Template; 48] = [
     Template {
         name: "MSPA of a forest",
         group: PATTERNS,
@@ -781,6 +781,92 @@ id = "plot_zones"
 op = "view.plot"
 inputs = { table = "by_zone.table" }
 params = { title = "Mean rainfall by zone", chart = "bars", x = "zone", y = "mean" }
+"#,
+    },
+    Template {
+        name: "Cleaning a map of classes: filter, sieve, label and grow",
+        group: METRICS,
+        build: None,
+        about: "a classified map rid of its specks as before its patches are measured: smoothed in a window, \
+                cleaned by the majority filter, its patches under a size merged into their neighbours, numbered, \
+                and a class grown and shrunk by a cell",
+        toml: r#"
+format = "terraflux/1"
+name = "Cleaning a map of classes: filter, sieve, label and grow"
+description = "A classification full of specks (a satellite image's, say) cleaned: the majority filter (raster.majority), the patches of fewer than 20 cells merged into their largest neighbour (raster.sieve, as gdal_sieve), the patches numbered (raster.label), a class grown and shrunk (raster.expand, raster.shrink), and a smoothing in a window (raster.focal)."
+
+[[nodes]]
+id = "field"
+op = "nlm.gaussian_field"
+params = { rows = 150, columns = 150, range = 12, seed = 5 }
+
+[[nodes]]
+id = "noise"
+op = "nlm.random"
+params = { rows = 150, columns = 150, seed = 6 }
+
+[[nodes]]
+id = "classified"
+op = "map.calc"
+inputs = { field = "field.map", noise = "noise.map" }
+params = { expression = "if field + 0.35 * noise < 0.55 then 1 else if field + 0.35 * noise < 0.8 then 2 else 3" }
+note = "A land cover classified pixel by pixel, with the specks of a classification (1 forest, 2 farming, 3 town)."
+
+[[nodes]]
+id = "smooth"
+op = "raster.focal"
+inputs = { map = "field.map" }
+params = { stat = "mean", shape = "circle", radius = 3 }
+note = "A surface smoothed: the mean in a circle of 3 cells (median, std, a Gaussian kernel... the same way)."
+
+[[nodes]]
+id = "filtered"
+op = "raster.majority"
+inputs = { map = "classified.map" }
+params = { neighbours = 8, replace = "majority", iterations = 2 }
+note = "Every cell given the class most of its neighbours hold, twice."
+
+[[nodes]]
+id = "sieved"
+op = "raster.sieve"
+inputs = { map = "filtered.map" }
+params = { threshold = 20, neighbours = 4 }
+note = "The patches of fewer than 20 cells merged into the largest one they touch, as gdal_sieve."
+
+[[nodes]]
+id = "patches"
+op = "raster.label"
+inputs = { map = "sieved.map" }
+params = { neighbours = 4 }
+note = "Every patch numbered, with a table of its class, cells and area."
+
+[[nodes]]
+id = "town_grown"
+op = "raster.expand"
+inputs = { map = "sieved.map" }
+params = { classes = [3], cells = 2 }
+note = "The town grown two cells into what is around it."
+
+[[nodes]]
+id = "forest_core"
+op = "raster.shrink"
+inputs = { map = "sieved.map" }
+params = { classes = [1], cells = 1 }
+note = "The forest shrunk by a cell: its edge given to its neighbours."
+
+[[nodes]]
+id = "before"
+op = "metrics.class"
+inputs = { map = "classified.map" }
+params = { metrics = ["np", "area_mn"] }
+note = "The patches of each class before the cleaning..."
+
+[[nodes]]
+id = "after"
+op = "metrics.class"
+inputs = { map = "sieved.map" }
+params = { metrics = ["np", "area_mn"] }
+note = "...and after it: far fewer, larger."
 "#,
     },
     Template {
@@ -3818,6 +3904,33 @@ mod table_template_tests {
         assert_eq!(matrix.columns, ["layer", "elevation", "rain"]);
         assert!(matrix.rows[0][2] > 0.5, "{:?}", matrix.rows);
         assert!(matches!(r.get("scaled.map"), Some(terraflux_ops::Value::Stack(_))));
+    }
+
+    #[test]
+    fn the_cleaning_template_runs() {
+        let t = super::TEMPLATES.iter().find(|t| t.name.starts_with("Cleaning a map")).unwrap();
+        let m = t.model();
+        let r = match terraflux_exec::Engine::default().run(&m, &Default::default(), &mut terraflux_exec::Quiet) {
+            Ok(r) => r,
+            Err(e) => panic!("{e}"),
+        };
+        let table = |n: &str| match r.get(n) {
+            Some(terraflux_ops::Value::Table(t)) => t.clone(),
+            other => panic!("{n}: {other:?}"),
+        };
+        let patches = |n: &str| {
+            let t = table(n);
+            let np = t.columns.iter().position(|c| c == "np").unwrap();
+            t.rows.iter().map(|r| r[np]).sum::<f64>()
+        };
+        assert!(
+            patches("after.table") * 5.0 < patches("before.table"),
+            "{} {}",
+            patches("after.table"),
+            patches("before.table")
+        );
+        let labels = table("patches.table");
+        assert!(labels.rows.iter().all(|r| r[2] >= 20.0), "{:?}", labels.rows);
     }
 
     #[test]

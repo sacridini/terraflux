@@ -559,7 +559,8 @@ em 1.5.0: `table.filter`, `calc`, `aggregate`, `join`, `sort`, `select`, `pivot`
 2. **Vizinhança e limpeza de mapas de classes:** estatística focal geral (média, mediana, moda, sd, variedade,
    amplitude, percentil; janela quadrada, circular, anelar ou gaussiana), filtro de maioria e sieve (as manchas
    menores que N células, como o `gdal_sieve`), `raster.label` (as manchas como um raster de ids), crescer e
-   encolher uma classe N células.
+   encolher uma classe N células. **Feito** (Unreleased): `raster.focal`, `raster.majority`, `raster.sieve`,
+   `raster.label`, `raster.expand` e `raster.shrink`, e o template Cleaning a map of classes.
 3. **Vetor:** `vector.polygonize` (raster em polígonos), `vector.filter` e `vector.calc` (atributos),
    `vector.geometry` (área, perímetro, comprimento, centróide), overlay (interseção, união, diferença), join
    espacial (contar pontos por polígono, os atributos de quem contém), `vector.reproject`, `vector.from_table`

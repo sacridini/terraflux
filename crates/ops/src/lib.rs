@@ -70,6 +70,7 @@ pub mod prepare;
 pub mod presets;
 pub mod prioritize;
 pub mod prioritize_tools;
+pub mod raster_neighbours;
 pub mod raster_stats;
 pub mod redd;
 pub mod restoration;
@@ -420,6 +421,7 @@ impl Registry {
         tables::register(&mut r);
         table_ops::register(&mut r);
         raster_stats::register(&mut r);
+        raster_neighbours::register(&mut r);
         r
     }
 

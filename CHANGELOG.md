@@ -17,6 +17,12 @@ minor versions.
   in a moving window) and `raster.standardize` (z-score, min-max or a percentile stretch, with each layer's centre
   and scale); the library's subject Raster analysis, and the template Raster statistics: summaries, zones and
   correlation.
+- Neighbourhoods and the cleaning of maps of classes: `raster.focal` (a statistic in a moving window around every
+  cell: mean, median, majority, std, variety, range, a percentile...; a square, a circle, an annulus or a Gaussian
+  kernel), `raster.majority` (the majority filter, as ArcGIS's), `raster.sieve` (the patches under a size merged
+  into their largest neighbour, as gdal_sieve), `raster.label` (the patches numbered, as r.clump, with a table of
+  their cells and area), `raster.expand` and `raster.shrink` (classes grown or shrunk a number of cells); the
+  template Cleaning a map of classes: filter, sieve, label and grow.
 - A cell explained by an assistant through `terraflux mcp` (Claude Code, Claude Desktop...): Explain with an MCP
   assistant in a cell's menu (a right click) keeps its trace for it and copies a request to paste; the server's
   prompt `explain_cell` (a slash command in Claude Code) brings it the trace and the question.

@@ -98,7 +98,7 @@ fn stat_names(args: &Args, name: &str, default: &[&str]) -> Result<Vec<(String, 
 }
 
 /// A percentile (0-100) of values sorted, interpolated linearly (numpy's).
-fn percentile(sorted: &[f64], q: f64) -> f64 {
+pub(crate) fn percentile(sorted: &[f64], q: f64) -> f64 {
     let n = sorted.len();
     if n == 0 {
         return f64::NAN;
@@ -111,7 +111,7 @@ fn percentile(sorted: &[f64], q: f64) -> f64 {
 }
 
 /// A statistic (by `stat_code`) of the values with one, sorted, and the count of those without.
-fn statistic(code: (i32, f64), sorted: &[f64], missing: usize) -> f64 {
+pub(crate) fn statistic(code: (i32, f64), sorted: &[f64], missing: usize) -> f64 {
     let n = sorted.len();
     if n == 0 {
         return match code.0 {
@@ -163,7 +163,7 @@ fn statistic(code: (i32, f64), sorted: &[f64], missing: usize) -> f64 {
 }
 
 /// The values of a layer with one, sorted, and the count of those without.
-fn sorted_values(data: &[f64]) -> (Vec<f64>, usize) {
+pub(crate) fn sorted_values(data: &[f64]) -> (Vec<f64>, usize) {
     let mut v: Vec<f64> = data.iter().copied().filter(|x| !x.is_nan()).collect();
     let missing = data.len() - v.len();
     v.par_sort_unstable_by(f64::total_cmp);
@@ -362,7 +362,7 @@ fn zones_of(zones: &Map) -> (Vec<f64>, Vec<Option<usize>>) {
 }
 
 /// The grid of a map against another's, or why they differ.
-fn same_grid(node: &str, a: &Grid, b: &Grid, what: &str) -> Result<()> {
+pub(crate) fn same_grid(node: &str, a: &Grid, b: &Grid, what: &str) -> Result<()> {
     if a.width != b.width || a.height != b.height {
         return Err(Error::msg(format!(
             "node {node:?}: {what} are of different sizes ({}x{} and {}x{} cells): raster.match makes them one grid",
