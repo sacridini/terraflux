@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-18
+
 ### Added
 - A model read in stages. ctrl+G puts the nodes selected into a group (what read them from outside reads the
   group's outputs, named after them; refused when it would make a cycle) and ctrl+shift+G takes a group apart;
