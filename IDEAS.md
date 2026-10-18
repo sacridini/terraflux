@@ -118,7 +118,10 @@ mudar o motor. Só a fase 1 acrescenta campos opcionais ao formato.
 reais (um CLUE-S completo, uma priorização com zonas, um SWAT com calibração) para ver se ela dá conta: a ordem
 das etapas, o que cabe num passo, onde a miniatura ajuda e onde atrapalha.
 
-**Fase 1: o porquê, além do quê (formato).**
+**Fase 1: o porquê, além do quê (formato).** **Feito** (Unreleased): os campos no nó e no modelo, as ferramentas
+do MCP e do assistente (`set_model_info` nova), o aviso do `add_node` e do `check_model` (fora os nós copiados de
+um template), o assistente assinando o que muda (autor e pedido), o registro no painel Node e o do modelo sem nó
+selecionado.
 - Campos opcionais no nó, ao lado da `note`:
   - `why`: a justificativa da escolha;
   - `refs`: artigos, métodos, a documentação do operador;
@@ -145,7 +148,12 @@ das etapas, o que cabe num passo, onde a miniatura ajuda e onde atrapalha.
 - **Exportação** como relatório (HTML e PDF): o registro auditável de um processamento.
 - O canvas vira a vista avançada, para quem quiser os fios.
 
-**Fase 3: revisão das mudanças do agente.**
+**Fase 3: revisão das mudanças do agente.** **Feito** (Unreleased): o painel Changes, aberto pelas mudanças do
+assistente e pelas do arquivo escritas por outro programa (o `terraflux mcp`); o diff semântico (nós, conexões,
+configurações, registro, entradas e saídas, antes e depois), os mapas antes e agora lado a lado, os nós mudados
+contornados no canvas, aceitar ou rejeitar por mudança ou tudo de uma vez; comparar com o arquivo salvo, outro
+arquivo ou o último commit. Falta: comparar com um commit qualquer (hoje só o último) e as tabelas lado a lado
+(hoje em palavras).
 - Hoje, quando o agente edita, o modelo é recarregado e dá para desfazer, mas não dá para ver *o que mudou*.
   O `watch.rs` passa a abrir uma revisão como a de um pull request:
   - um diff semântico do grafo: nós adicionados, removidos e alterados, conexões refeitas, parâmetros com o antes e

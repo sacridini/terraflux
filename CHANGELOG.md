@@ -6,6 +6,22 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- The model as the record of its choices: optional fields of a node beside its `note` (`why`, `refs`,
+  `assumptions`, `alternatives`) and of the model (`request`, `summary`, `author`), in the format `terraflux/1`
+  (older models stay valid; none changes what a node gives, nor runs it again). The tools of `terraflux mcp` and
+  of the assistant take them (`add_node`, `edit_node`, `new_model`, the new `set_model_info`); `add_node` asks for
+  a note and a why when they are missing, and `check_model` advises of the nodes made without them (those copied
+  from a template aside). The assistant signs what it changes (its model and server among the authors, the first
+  question of the conversation as the request). The Node pane shows and edits the record, and the model's own when
+  no node is selected; the canvas shows a node's why with its note.
+- The review of a model's changes (the Changes pane), as a pull request's: what the assistant changes, or another
+  program writes to the model's file (an assistant through `terraflux mcp`), listed as nodes added, removed and
+  changed, with each connection, setting and record before and after, and the model's inputs, outputs and record;
+  the maps a changed node gives before and now side by side; the changed nodes outlined on the canvas. Each change
+  accepted or rejected (an edit that ctrl+Z undoes), or all at once; the assistant's pane says how many are to
+  review. File, Compare lists the differences with the saved file, another file or the last commit (git).
+
 ## [0.99.0] - 2026-10-18
 
 ### Added

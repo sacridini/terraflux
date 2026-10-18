@@ -252,12 +252,7 @@ fn new_model(r: &Registry, a: &Value) -> Reply {
         Some(name) => tools::template_model(r, name)?,
         None => Model::new(&path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()),
     };
-    if let Some(n) = opt_text(a, "name") {
-        m.name = Some(n.to_string());
-    }
-    if let Some(d) = opt_text(a, "description") {
-        m.description = Some(d.to_string());
-    }
+    tools::model_info(&mut m, a);
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
@@ -406,6 +401,53 @@ mod tests {
         assert!(!m.nodes.is_empty() && m.nodes.iter().all(|n| n.pos.is_some()), "arranged");
         let (t, e) = call(&s, "check_model", json!({ "model": model }));
         assert!(!e && t.contains("can run"), "{t}");
+        assert!(!t.contains("advice"), "a template's nodes are not asked for a why: {t}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_model_records_its_choices() {
+        let s = Server { engine: Engine::default() };
+        let dir = std::env::temp_dir().join(format!("terraflux-mcp-r-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let model = dir.join("r.toml").to_string_lossy().into_owned();
+        let (t, e) = call(
+            &s,
+            "new_model",
+            json!({ "model": model, "request": "where does the forest stay whole?", "author": "an agent" }),
+        );
+        assert!(!e, "{t}");
+        // a node without its reasons: added, and asked for them; check_model advises
+        let (t, e) = call(&s, "add_node", json!({ "model": model, "op": "nlm.random", "id": "land" }));
+        assert!(!e && t.contains("a note and a why"), "{t}");
+        let (t, _) = call(&s, "check_model", json!({ "model": model }));
+        assert!(t.contains("can run") && t.contains("advice: nodes without a why") && t.contains("land"), "{t}");
+        let (t, e) = call(
+            &s,
+            "edit_node",
+            json!({
+                "model": model, "node": "land", "note": "a landscape to try the model on",
+                "why": "no data yet", "refs": ["Saura and Martinez-Millan (2000)"],
+                "assumptions": "no structure\nuniform values", "alternatives": ["nlm.gaussian_field: too smooth"],
+            }),
+        );
+        assert!(!e, "{t}");
+        let (t, _) = call(&s, "check_model", json!({ "model": model }));
+        assert!(!t.contains("advice"), "{t}");
+        let (t, e) = call(&s, "set_model_info", json!({ "model": model, "summary": "a first try", "author": "" }));
+        assert!(!e && t.contains("summary"), "{t}");
+        let m = Model::load(&model).unwrap();
+        let n = m.node("land").unwrap();
+        assert_eq!(n.why.as_deref(), Some("no data yet"));
+        assert_eq!(n.refs, ["Saura and Martinez-Millan (2000)"]);
+        assert_eq!(n.assumptions, ["no structure", "uniform values"], "a text of a line each");
+        assert_eq!(n.alternatives.len(), 1);
+        assert_eq!(m.request.as_deref(), Some("where does the forest stay whole?"));
+        assert_eq!((m.summary.as_deref(), m.author.as_deref()), (Some("a first try"), None), "empty: removed");
+        // a list of the wrong kind: refused, the file as it was
+        let (_, e) = call(&s, "edit_node", json!({ "model": model, "node": "land", "refs": [1, 2] }));
+        assert!(e);
+        assert_eq!(Model::load(&model).unwrap(), m);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

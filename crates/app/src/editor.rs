@@ -300,6 +300,27 @@ pub fn set_note(m: &mut Model, path: &[String], node: &str, text: &str) -> Resul
     Ok(())
 }
 
+/// Set why a node was chosen (empty text: none).
+pub fn set_why(m: &mut Model, path: &[String], node: &str, text: &str) -> Result<()> {
+    let n = node_mut(m, path, node)?;
+    let t = text.trim();
+    n.why = if t.is_empty() { None } else { Some(t.to_string()) };
+    Ok(())
+}
+
+/// Set a list of a node's record (`refs`, `assumptions`, `alternatives`) from a text of an item a line.
+pub fn set_list(m: &mut Model, path: &[String], node: &str, list: &str, text: &str) -> Result<()> {
+    let n = node_mut(m, path, node)?;
+    let items: Vec<String> = text.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect();
+    match list {
+        "refs" => n.refs = items,
+        "assumptions" => n.assumptions = items,
+        "alternatives" => n.alternatives = items,
+        other => return Err(format!("a node has no list {other:?}")),
+    }
+    Ok(())
+}
+
 /// Set a setting (empty text: remove it).
 pub fn set_param(m: &mut Model, path: &[String], node: &str, name: &str, text: &str) -> Result<()> {
     let n = node_mut(m, path, node)?;

@@ -139,6 +139,8 @@ pub fn take(s: &mut Session, m: Model) {
     let inputs = m.inputs != s.source.inputs;
     let saved = s.path.as_ref().and_then(|p| Model::load(p).ok());
     s.on_disk = None;
+    // what another program changed (an assistant through terraflux mcp): to review
+    crate::review::begin(s, "another program (an assistant through terraflux mcp, an editor)", true);
     s.source = m;
     crate::builder::forget_missing(s);
     s.edited();

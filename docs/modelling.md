@@ -23,7 +23,15 @@ The **Graph** tab of the application edits the model:
   move it; its place is saved in the model (`pos`).
 - **The side panel:** click a node to edit it there. You can rename it (its references follow), type the
   value of an input, change its settings, add inputs (map algebra, groups, plugins), set a container's
-  outputs, or delete it.
+  outputs, or delete it. Below them is the node's record: its note (what it is for), why it was chosen, the
+  references it rests on, its assumptions and the alternatives set aside. With no node selected, the panel shows
+  the model's record: its name, description, the request it answers, a summary of the conversation that led to
+  it, and its author.
+- **The record in the file:** `note`, `why`, `refs`, `assumptions` and `alternatives` on a node; `request`,
+  `summary` and `author` on the model. All are optional, none changes what the model gives (a node whose record
+  changes does not run again), and models without them stay valid.
+- **Reviewing changes:** what an assistant changes is listed in the **Changes** pane, each change accepted or
+  rejected; File, Compare lists the differences with the saved file, another file or the last commit.
 - **Containers:** double-click a container, or use **Edit the body**, to edit its body. The trail in the bar
   takes you back up.
 - **Saving:** **Save** writes the model where it was read, as written, with its submodels kept as

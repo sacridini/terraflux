@@ -22,6 +22,7 @@ pub mod node_view;
 pub mod palette;
 pub mod prepare;
 pub mod prepare_view;
+pub mod review;
 pub mod runner;
 pub mod settings;
 pub mod table_view;

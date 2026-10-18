@@ -2,8 +2,11 @@
 //! does (its first sentence, the rest a click away), then what is edited: its inputs (those it needs, those given
 //! and the essential ones first, the optional others folded away), its settings (a row each, named in words at the
 //! left, a dot before those given, right-click: back to the default; lists and tables of values edited item by
-//! item), a container's body, and the note of why it is there. An operator of many settings shows its essential
-//! ones ([`terraflux_ops::essentials`]) and folds the others as advanced. Every field is editable.
+//! item), a container's body, and its record: the note of what it is for, why it was chosen, the references, the
+//! assumptions and the alternatives set aside. An operator of many settings shows its essential ones
+//! ([`terraflux_ops::essentials`]) and folds the others as advanced. Every field is editable. With no node
+//! selected, the model's record: its name, description, the request it answers, the summary of the conversation
+//! that led to it, its author.
 
 use std::collections::BTreeMap;
 
@@ -89,6 +92,7 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
             )
             .color(ui.visuals().weak_text_color()),
         );
+        model_record(ui, s);
         return;
     };
     let Some(n) = s.source.scope(&path).and_then(|v| v.iter().find(|n| n.id == id)).cloned() else {
@@ -299,21 +303,33 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
             s.fields.clear();
         }
     }
-    // why the node is there, written by whoever built the model (or the wizard): edited in place
+    // the record of the choice, written by whoever built the model (a person, the wizard, an agent): edited in
+    // place
     ui.separator();
-    ui.label(RichText::new("Why").strong());
-    let init = n.note.clone().unwrap_or_default();
-    let mut text = field(s, "note", init.clone());
-    let resp = ui.add(
-        egui::TextEdit::multiline(&mut text)
-            .desired_rows(2)
-            .desired_width(f32::INFINITY)
-            .hint_text("why this node is here (a note for whoever reads the model)"),
-    );
-    s.fields.insert("note".into(), text.clone());
-    if resp.lost_focus() && text != init {
-        change = Some(crate::editor::set_note(&mut s.source, &path, &n.id, &text));
+    let note = n.note.clone().unwrap_or_default();
+    if let Some(t) = text_field(ui, s, "note", "Note", "what this node is for (shown on the canvas)", note, 2) {
+        change = Some(crate::editor::set_note(&mut s.source, &path, &n.id, &t));
     }
+    let why = n.why.clone().unwrap_or_default();
+    if let Some(t) = text_field(ui, s, "why", "Why", "why this operator and these settings", why, 2) {
+        change = Some(crate::editor::set_why(&mut s.source, &path, &n.id, &t));
+    }
+    let lists = [
+        ("refs", "References", "papers, methods, documentation: one a line", &n.refs),
+        ("assumptions", "Assumptions", "what the choice assumes: one a line", &n.assumptions),
+        ("alternatives", "Alternatives", "what was set aside, and why: one a line", &n.alternatives),
+    ];
+    let given = lists.iter().any(|(_, _, _, l)| !l.is_empty());
+    egui::CollapsingHeader::new(RichText::new("References, assumptions, alternatives").strong())
+        .id_salt(("node record", &n.id))
+        .default_open(given)
+        .show(ui, |ui| {
+            for (key, label, hint, list) in lists {
+                if let Some(t) = text_field(ui, s, key, label, hint, list.join("\n"), 2) {
+                    change = Some(crate::editor::set_list(&mut s.source, &path, &n.id, key, &t));
+                }
+            }
+        });
     ui.separator();
     if ui.button("Delete node").clicked() {
         change = Some(crate::editor::remove_node(&mut s.source, &path, &n.id).map(|_| s.selected = None));
@@ -332,6 +348,50 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
 /// A field's text as typed so far (`init` until it is typed in).
 fn field(s: &mut Session, key: &str, init: String) -> String {
     s.fields.entry(key.to_string()).or_insert(init).clone()
+}
+
+/// A text of a few lines under its label, kept as it is typed: the text when it is left changed.
+fn text_field(
+    ui: &mut Ui,
+    s: &mut Session,
+    key: &str,
+    label: &str,
+    hint: &str,
+    init: String,
+    rows: usize,
+) -> Option<String> {
+    ui.label(RichText::new(label).strong());
+    let mut text = field(s, key, init.clone());
+    let resp =
+        ui.add(egui::TextEdit::multiline(&mut text).desired_rows(rows).desired_width(f32::INFINITY).hint_text(hint));
+    s.fields.insert(key.into(), text.clone());
+    (resp.lost_focus() && text != init).then_some(text)
+}
+
+/// The model's record: its name, description, the request it answers, the summary of the conversation that led
+/// to it, its author.
+fn model_record(ui: &mut Ui, s: &mut Session) {
+    ui.add_space(8.0);
+    crate::theme::section(ui, "The model");
+    let m = &s.source;
+    let fields = [
+        ("name", "Name", "the model's name", m.name.clone(), 1),
+        ("description", "Description", "what the model does", m.description.clone(), 3),
+        ("request", "Request", "the request it answers, in the words of whoever asked", m.request.clone(), 2),
+        ("summary", "Summary", "the conversation that led to it, in short", m.summary.clone(), 3),
+        ("author", "Author", "a person, an agent, or both", m.author.clone(), 1),
+    ];
+    let mut changed = None;
+    for (key, label, hint, value, rows) in fields {
+        if let Some(t) = text_field(ui, s, &format!("model {key}"), label, hint, value.unwrap_or_default(), rows) {
+            changed = Some((key, t));
+        }
+    }
+    if let Some((key, t)) = changed {
+        crate::tools::model_info(&mut s.source, &serde_json::json!({ key: t }));
+        s.fields.clear();
+        s.edited();
+    }
 }
 
 /// A setting's name at the left of its row, as wide as `width` (cut to it): a dot before it when the model gives

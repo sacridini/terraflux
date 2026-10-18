@@ -54,6 +54,10 @@ with the reason and the file is left as it was. The reply to an edit lists the p
 - Files: a raster.read node reads a raster (setting `path`) and gives `raster`; give absolute paths (they are \
 stored relative to the model's folder). The model's outputs (set_output) are what run_model writes; \
 raster.write and table.write nodes write files too.
+- The model is the record of its choices: give each node you add a `note` (what it is for) and a `why` (why this \
+operator and these settings), and `refs`, `assumptions` and `alternatives` when there are; give the model the \
+user's `request` in the user's words, a `summary` of the conversation and its `author` (new_model, \
+set_model_info).
 - check_model checks the model and its data; run_model runs it and writes its outputs; inspect_file summarises a \
 raster (size, classes, statistics) or shows a table.
 - open_in_app opens the model in Terraflux's application. The application follows the file: what is edited after \
@@ -81,14 +85,17 @@ the problems the model still has (a model being built has some: inputs not conne
 - show_model gives the model as text; check_model checks it and its data; run_model runs it in the application \
 (its maps shown there) and summarises what its outputs gave; inspect_file summarises a raster or shows a table.
 - Files: a raster.read node reads a raster (setting `path`); give absolute paths.
-- Give each node you add a `note`: why it is there.
+- The model is the record of its choices: give each node you add a `note` (what it is for) and a `why` (why \
+this operator and these settings), and `refs`, `assumptions` and `alternatives` when there are. When you have \
+built or changed the model, give it a `summary` of what was asked and done (set_model_info).
 - Explain the model from its operators' documentation (below, and describe_operator), its nodes' notes and settings, not from memory: an operator's name may mean something else here.
 ",
     containers!()
 );
 
 /// The tools that change a model.
-pub const EDITS: [&str; 9] = [
+pub const EDITS: [&str; 10] = [
+    "set_model_info",
     "set_input",
     "remove_input",
     "add_node",
@@ -156,6 +163,14 @@ pub fn functions(tools: &[Value]) -> Vec<Value> {
 /// fails: change a copy).
 pub fn edit(name: &str, m: &mut Model, r: &Registry, dir: &Path, a: &Value) -> Reply {
     match name {
+        "set_model_info" => {
+            let set = model_info(m, a);
+            Ok(if set.is_empty() {
+                "nothing given to set".into()
+            } else {
+                format!("set the model's {}", set.join(", "))
+            })
+        }
         "set_input" => set_input(m, a, dir),
         "remove_input" => {
             let name = text(a, "name")?.trim_start_matches('$');
@@ -235,6 +250,13 @@ pub fn check_model(r: &Registry, source: &Model, dir: &Path) -> Reply {
                 errors |= f.level == terraflux_exec::lint::Level::Error;
                 lines.push(f.to_string());
             }
+        }
+    }
+    let (no_note, no_why) = unrecorded(source);
+    for (what, ids) in [("a note (what it is for)", no_note), ("a why (why this operator and these settings)", no_why)]
+    {
+        if !ids.is_empty() {
+            lines.push(format!("advice: nodes without {what}: {} (edit_node gives it)", ids.join(", ")));
         }
     }
     let verdict = if errors { "The model has errors: it does not run." } else { "The model can run." };
@@ -438,6 +460,18 @@ fn all() -> Vec<Value> {
         "description": "Setting -> value (JSON: a number, a text, a list, an object); null removes it. See describe_operator.",
     });
     let read_only = json!({ "readOnlyHint": true });
+    let list = |what: &str| json!({ "type": "array", "items": { "type": "string" }, "description": what });
+    let record = json!({
+        "why": { "type": "string", "description": "Why this operator and these settings (empty: none)." },
+        "refs": list("Papers, methods, documentation the choice rests on (empty: none)."),
+        "assumptions": list("What the choice assumes (empty: none)."),
+        "alternatives": list("What was considered and set aside, and why (empty: none)."),
+    });
+    let about = json!({
+        "request": { "type": "string", "description": "The user's request, in the user's words." },
+        "summary": { "type": "string", "description": "A summary of the conversation that led to the model." },
+        "author": { "type": "string", "description": "Who made it: a person, an agent (which), or both." },
+    });
     let tool = |name: &str, description: &str, properties: Value, required: &[&str], annotations: Option<&Value>| {
         let mut t = json!({
             "name": name,
@@ -479,7 +513,24 @@ fn all() -> Vec<Value> {
                 "template": { "type": "string", "description": "A template's name (list_templates)." },
                 "name": { "type": "string" },
                 "description": { "type": "string" },
+                "request": about["request"],
+                "summary": about["summary"],
+                "author": about["author"],
                 "overwrite": { "type": "boolean" },
+            }),
+            &["model"],
+            None,
+        ),
+        tool(
+            "set_model_info",
+            "Set what the model says of itself: its name, description, the user's request, a summary of the conversation that led to it, its author. Empty: removed.",
+            json!({
+                "model": model,
+                "name": { "type": "string" },
+                "description": { "type": "string" },
+                "request": about["request"],
+                "summary": about["summary"],
+                "author": about["author"],
             }),
             &["model"],
             None,
@@ -524,7 +575,11 @@ fn all() -> Vec<Value> {
                 "id": { "type": "string", "description": "The node's id: a letter, then letters, digits, _ or -." },
                 "inputs": inputs,
                 "settings": settings,
-                "note": { "type": "string", "description": "Why the node is there (shown to whoever reads the model)." },
+                "note": { "type": "string", "description": "What the node is for here, in a sentence (shown on the canvas)." },
+                "why": record["why"],
+                "refs": record["refs"],
+                "assumptions": record["assumptions"],
+                "alternatives": record["alternatives"],
                 "scope": scope,
             }),
             &["model", "op"],
@@ -532,13 +587,17 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "edit_node",
-            "Change a node: connect or disconnect its inputs, change its settings or its note, rename it (the references to it follow).",
+            "Change a node: connect or disconnect its inputs, change its settings, its note or its record (why, refs, assumptions, alternatives), rename it (the references to it follow).",
             json!({
                 "model": model,
                 "node": { "type": "string" },
                 "inputs": inputs,
                 "settings": settings,
                 "note": { "type": "string", "description": "Empty: no note." },
+                "why": record["why"],
+                "refs": record["refs"],
+                "assumptions": record["assumptions"],
+                "alternatives": record["alternatives"],
                 "rename": { "type": "string" },
                 "scope": scope,
             }),
@@ -925,10 +984,116 @@ fn add_node(m: &mut Model, r: &Registry, a: &Value) -> Reply {
     if let Some(note) = opt_text(a, "note") {
         editor::set_note(m, &path, &id, note)?;
     }
+    set_record(m, &path, &id, a)?;
     set_settings(m, r, &path, &id, a.get("settings"))?;
     set_inputs(m, r, &path, &id, a.get("inputs"))?;
     place(m, &path, &id);
-    Ok(format!("added {id} ({op}); {}", outputs_of(m, r, &path, &id)))
+    let n = m.scope(&path).and_then(|n| n.iter().find(|n| n.id == id)).expect("the node added");
+    let missing: Vec<&str> =
+        [("a note", n.note.is_none()), ("a why", n.why.is_none())].into_iter().filter(|x| x.1).map(|x| x.0).collect();
+    let ask = if missing.is_empty() {
+        String::new()
+    } else {
+        format!(" Give it {} (edit_node): the model is the record of its choices.", missing.join(" and "))
+    };
+    Ok(format!("added {id} ({op}); {}.{ask}", outputs_of(m, r, &path, &id)))
+}
+
+/// A list of texts given: a list, or a text of a line each (null, empty: none).
+fn texts(v: &Value, key: &str) -> std::result::Result<Vec<String>, String> {
+    let all: Vec<String> = match v {
+        Value::Null => Vec::new(),
+        Value::String(s) => s.lines().map(String::from).collect(),
+        Value::Array(items) => items
+            .iter()
+            .map(|x| match x {
+                Value::String(s) => Ok(s.clone()),
+                other => Err(format!("`{key}` is a list of texts, not {other}")),
+            })
+            .collect::<std::result::Result<_, _>>()?,
+        other => return Err(format!("`{key}` is a list of texts, not {other}")),
+    };
+    Ok(all.into_iter().map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect())
+}
+
+/// A node's record given (`why`, `refs`, `assumptions`, `alternatives`; empty: none).
+fn set_record(m: &mut Model, path: &[String], id: &str, a: &Value) -> std::result::Result<(), String> {
+    let n = m.scope_mut(path).and_then(|n| n.iter_mut().find(|n| n.id == id)).ok_or("no such node")?;
+    if let Some(w) = a.get("why") {
+        let w = w.as_str().ok_or("`why` is a text")?.trim();
+        n.why = (!w.is_empty()).then(|| w.to_string());
+    }
+    for (key, list) in
+        [("refs", &mut n.refs), ("assumptions", &mut n.assumptions), ("alternatives", &mut n.alternatives)]
+    {
+        if let Some(v) = a.get(key) {
+            *list = texts(v, key)?;
+        }
+    }
+    Ok(())
+}
+
+/// What the model says of itself, given (`name`, `description`, `request`, `summary`, `author`; empty: none):
+/// the fields set.
+pub fn model_info(m: &mut Model, a: &Value) -> Vec<&'static str> {
+    let mut set = Vec::new();
+    for (key, field) in [
+        ("name", &mut m.name),
+        ("description", &mut m.description),
+        ("request", &mut m.request),
+        ("summary", &mut m.summary),
+        ("author", &mut m.author),
+    ] {
+        if let Some(t) = a.get(key).and_then(Value::as_str) {
+            let t = t.trim();
+            *field = (!t.is_empty()).then(|| t.to_string());
+            set.push(key);
+        }
+    }
+    set
+}
+
+/// The nodes (of every scope; `outer/inner` for one in a body) made here, not copied from a template, that do not
+/// say what they are for (a note), and those that do not say why (a why).
+pub fn unrecorded(m: &Model) -> (Vec<String>, Vec<String>) {
+    use std::collections::HashSet;
+    use std::sync::OnceLock;
+    type Copied = HashSet<(String, String)>;
+    static COPIED: OnceLock<Copied> = OnceLock::new();
+    fn gather(nodes: &[Node], into: &mut Copied) {
+        for n in nodes {
+            into.insert((n.id.clone(), n.op.clone()));
+            if let Some(b) = &n.body {
+                gather(&b.nodes, into);
+            }
+        }
+    }
+    fn walk(nodes: &[Node], at: &str, copied: &Copied, no_note: &mut Vec<String>, no_why: &mut Vec<String>) {
+        for n in nodes {
+            let id = if at.is_empty() { n.id.clone() } else { format!("{at}/{}", n.id) };
+            if !copied.contains(&(n.id.clone(), n.op.clone())) {
+                if n.note.is_none() {
+                    no_note.push(id.clone());
+                }
+                if n.why.is_none() {
+                    no_why.push(id.clone());
+                }
+            }
+            if let Some(b) = &n.body {
+                walk(&b.nodes, &id, copied, no_note, no_why);
+            }
+        }
+    }
+    let copied = COPIED.get_or_init(|| {
+        let mut all = HashSet::new();
+        for t in crate::templates::TEMPLATES {
+            gather(&t.model().nodes, &mut all);
+        }
+        all
+    });
+    let (mut no_note, mut no_why) = (Vec::new(), Vec::new());
+    walk(&m.nodes, "", copied, &mut no_note, &mut no_why);
+    (no_note, no_why)
 }
 
 fn edit_node(m: &mut Model, r: &Registry, a: &Value) -> Reply {
@@ -945,6 +1110,7 @@ fn edit_node(m: &mut Model, r: &Registry, a: &Value) -> Reply {
     if let Some(note) = a.get("note").and_then(Value::as_str) {
         editor::set_note(m, &path, &id, note)?;
     }
+    set_record(m, &path, &id, a)?;
     if let Some(new) = opt_text(a, "rename") {
         editor::rename_node(m, &path, &id, new)?;
         id = new.to_string();

@@ -55,6 +55,32 @@ pub struct Chat {
     testing: Option<Receiver<llm::Checks>>,
     tested: llm::Checks,
     note: Option<String>,
+    /// What the model changed by the assistant is signed with: the assistant (its model and server), and the
+    /// first question of the conversation (the request, when the model has none).
+    stamp: Stamp,
+}
+
+/// The assistant's mark on the model it changes: the author, the request.
+#[derive(Default, Clone)]
+struct Stamp {
+    who: String,
+    asked: String,
+}
+
+impl Stamp {
+    /// The model signed: the assistant among its authors, the request it answers (when it has none).
+    fn on(&self, m: &mut Model) {
+        if !self.who.is_empty() {
+            m.author = match m.author.take() {
+                None => Some(self.who.clone()),
+                Some(a) if a.contains(&self.who) => Some(a),
+                Some(a) => Some(format!("{a}; {}", self.who)),
+            };
+        }
+        if m.request.is_none() && !self.asked.is_empty() {
+            m.request = Some(self.asked.clone());
+        }
+    }
 }
 
 /// The thread answering: what it sends, and the flag that stops it.
@@ -124,6 +150,10 @@ impl Chat {
         if text.is_empty() || self.busy() {
             return;
         }
+        if !self.history.iter().any(|m| m["role"] == "user") {
+            self.stamp.asked = text.clone();
+        }
+        self.stamp.who = format!("Terraflux's assistant ({} on {})", p.model.trim(), p.name);
         self.items.push(Item::User(text.clone()));
         let question = json!({ "role": "user", "content": text });
         self.history.push(question);
@@ -232,8 +262,8 @@ impl Chat {
                 self.follow_run(s, ctx);
                 return;
             }
-            "new_model" => Answer::Done(new_model(s, r, &a.args)),
-            edit if tools::EDITS.contains(&edit) => Answer::Done(change(s, r, edit, &a.args)),
+            "new_model" => Answer::Done(new_model(s, r, &a.args, &self.stamp)),
+            edit if tools::EDITS.contains(&edit) => Answer::Done(change(s, r, edit, &a.args, &self.stamp)),
             other => Answer::Done(Err(format!("no tool {other:?}"))),
         };
         let _ = a.reply.send(answer);
@@ -360,10 +390,15 @@ fn context(s: &Session) -> String {
 
 /// A change of the model open by one of the [`tools::EDITS`]: made on a copy, taken when it worked (an edit of
 /// its own), the node it touched selected.
-fn change(s: &mut Session, r: &Registry, name: &str, a: &Value) -> Reply {
+fn change(s: &mut Session, r: &Registry, name: &str, a: &Value, stamp: &Stamp) -> Reply {
     let mut m = s.source.clone();
     let before: Vec<String> = m.nodes.iter().map(|n| n.id.clone()).collect();
     let done = tools::edit(name, &mut m, r, &s.base(), a)?;
+    // (the author and request given by the model itself kept)
+    if name != "set_model_info" || (a.get("author").is_none() && a.get("request").is_none()) {
+        stamp.on(&mut m);
+    }
+    crate::review::begin(s, &stamp.who, false);
     s.source = m;
     crate::builder::forget_missing(s);
     s.edited();
@@ -381,7 +416,7 @@ fn change(s: &mut Session, r: &Registry, name: &str, a: &Value) -> Reply {
 }
 
 /// A new model in place of the one open (an edit of its own: ctrl+Z goes back).
-fn new_model(s: &mut Session, r: &Registry, a: &Value) -> Reply {
+fn new_model(s: &mut Session, r: &Registry, a: &Value, stamp: &Stamp) -> Reply {
     if !s.source.nodes.is_empty() && !a.get("overwrite").and_then(Value::as_bool).unwrap_or(false) {
         return Err(format!(
             "the model open has {} nodes: give overwrite: true to replace it (the user can undo it)",
@@ -392,10 +427,12 @@ fn new_model(s: &mut Session, r: &Registry, a: &Value) -> Reply {
         Some(name) => tools::template_model(r, name)?,
         None => Model::new("Untitled"),
     };
-    m.name = tools::opt_text(a, "name").map(String::from).or(m.name).or(Some("Untitled".into()));
-    if let Some(d) = tools::opt_text(a, "description") {
-        m.description = Some(d.to_string());
+    tools::model_info(&mut m, a);
+    if m.name.is_none() {
+        m.name = Some("Untitled".into());
     }
+    stamp.on(&mut m);
+    crate::review::begin(s, &stamp.who, false);
     let inputs = m.inputs != s.source.inputs;
     s.source = m;
     crate::builder::forget_missing(s);
@@ -569,15 +606,20 @@ impl Job {
     }
 }
 
-/// The assistant's pane: its server at the top (and its settings), the conversation, the question typed.
-pub fn pane(ui: &mut Ui, c: &mut Chat, s: &mut Session) {
+/// The assistant's pane: its server at the top (and its settings), the conversation, the changes to review, the
+/// question typed. Whether the review of the changes is asked for.
+pub fn pane(ui: &mut Ui, c: &mut Chat, s: &mut Session) -> bool {
     let fill = ui.visuals().panel_fill;
+    let mut review = false;
     egui::Panel::top("assistant bar")
         .frame(egui::Frame::new().fill(fill).inner_margin(Margin::symmetric(8, 5)))
         .show(ui, |ui| bar(ui, c));
     egui::Panel::bottom("assistant input")
         .frame(egui::Frame::new().fill(fill).inner_margin(Margin::symmetric(8, 4)))
-        .show(ui, |ui| input(ui, c, s));
+        .show(ui, |ui| {
+            review = to_review(ui, s);
+            input(ui, c, s);
+        });
     egui::CentralPanel::default().frame(egui::Frame::new().fill(fill).inner_margin(Margin::symmetric(8, 0))).show(
         ui,
         |ui| {
@@ -588,6 +630,29 @@ pub fn pane(ui: &mut Ui, c: &mut Chat, s: &mut Session) {
             }
         },
     );
+    review
+}
+
+/// The changes made to the model and not reviewed yet: how many, to review, accept or reject. Whether the review
+/// is asked for.
+fn to_review(ui: &mut Ui, s: &mut Session) -> bool {
+    let n = crate::review::changes(s).len();
+    if n == 0 {
+        return false;
+    }
+    let mut asked = false;
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(format!("{n} change(s) to review")).color(crate::review::CHANGED));
+        asked = ui.button("Review").on_hover_text("each change, before and after").clicked();
+        if ui.button("Accept all").clicked() {
+            crate::review::accept_all(s);
+        }
+        if ui.button("Reject all").on_hover_text("the model as it was (ctrl+Z goes back)").clicked() {
+            crate::review::reject_all(s);
+        }
+    });
+    ui.separator();
+    asked
 }
 
 fn bar(ui: &mut Ui, c: &mut Chat) {
@@ -1000,26 +1065,34 @@ mod tests {
     fn the_tools_change_the_model_open() {
         let r = Registry::standard();
         let mut s = Session::blank();
+        let stamp = Stamp { who: "the assistant (qwen)".into(), asked: "a landscape, please".into() };
         let added = change(
             &mut s,
             &r,
             "add_node",
-            &json!({ "op": "nlm.random", "id": "land", "settings": { "rows": 10, "columns": 10 } }),
+            &json!({ "op": "nlm.random", "id": "land", "settings": { "rows": 10, "columns": 10 }, "why": "no data" }),
+            &stamp,
         )
         .unwrap();
         assert!(added.contains("land.map"), "{added}");
         assert!(s.history.can_undo() && s.dirty);
         assert_eq!(s.selected.as_deref(), Some("land"), "the node added is selected");
+        assert_eq!(s.source.node("land").unwrap().why.as_deref(), Some("no data"));
+        // signed: the assistant the author, the first question the request
+        assert_eq!(s.source.author.as_deref(), Some("the assistant (qwen)"));
+        assert_eq!(s.source.request.as_deref(), Some("a landscape, please"));
+        s.source.author = Some("Ana".into());
+        change(&mut s, &r, "edit_node", &json!({ "node": "land", "note": "the land" }), &stamp).unwrap();
+        assert_eq!(s.source.author.as_deref(), Some("Ana; the assistant (qwen)"), "both");
         // a wrong change: refused, the model as it was
         let before = s.source.clone();
-        assert!(
-            change(&mut s, &r, "add_node", &json!({ "op": "map.calc", "inputs": { "x": "nothing.map" } })).is_err()
-        );
+        let wrong = json!({ "op": "map.calc", "inputs": { "x": "nothing.map" } });
+        assert!(change(&mut s, &r, "add_node", &wrong, &stamp).is_err());
         assert_eq!(s.source, before);
         // a new model only when asked to replace the one open
-        assert!(new_model(&mut s, &r, &json!({})).is_err());
+        assert!(new_model(&mut s, &r, &json!({}), &stamp).is_err());
         let t = crate::templates::TEMPLATES[0].name;
-        new_model(&mut s, &r, &json!({ "template": t, "overwrite": true })).unwrap();
+        new_model(&mut s, &r, &json!({ "template": t, "overwrite": true }), &stamp).unwrap();
         assert!(!s.source.nodes.is_empty() && s.source.node("land").is_none());
         let told = context(&s);
         assert!(told.contains("```toml") && !told.contains("pos = "), "{told}");

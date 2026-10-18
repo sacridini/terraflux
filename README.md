@@ -195,6 +195,14 @@ small model, "Few tools" offers only those to explain, change settings, run and 
 
 ![The assistant explaining a node, answered by the HU Berlin's Qwen](docs/images/assistant.png)
 
+What an assistant changes (in the application, or through `terraflux mcp` with the model open) comes to the
+**Changes** pane as a pull request's review: the nodes added, removed and changed, each connection and setting
+before and after, the maps the changed nodes give before and now side by side, the changed nodes outlined on the
+canvas. Each change is accepted or rejected, or all at once. File, Compare lists the same way the differences
+with the saved file, another file or the last commit.
+
+![The review of a change made by the assistant](docs/images/review.png)
+
 ### Models as text
 
 A model is a graph of operators. Each node reads the model's inputs (`$name`), other nodes' outputs
@@ -212,6 +220,8 @@ op = "landscape.mspa"                 # GuidosToolbox's MSPA, the same bits
 inputs = { map = "read.raster" }
 params = { foreground = 1, edge_width = 2 }
 note = "The forest's core, edges and corridors."
+why = "Core and corridors are what a species of the interior moves through."
+refs = ["Soille and Vogt (2009), Morphological segmentation of binary patterns"]
 
 [[nodes]]
 id = "write"
@@ -219,6 +229,11 @@ op = "raster.write"
 inputs = { value = "mspa.map" }
 params = { path = "forest_mspa.tif" }
 ```
+
+A model is also the record of its choices: besides its `note`, a node may say `why` it was chosen, the `refs` it
+rests on, its `assumptions` and the `alternatives` set aside; the model, the `request` it answers, a `summary` of
+the conversation that led to it and its `author` (a person, an agent, or both). None of them changes what the model
+gives; the assistants fill them, and the Node pane shows and edits them.
 
 Map algebra (`map.calc`), reusable submodels (`control.submodel`), loops and sandboxed WebAssembly plugins
 (`plugin.wasm`) change a model's logic: see [`docs/modelling.md`](docs/modelling.md).

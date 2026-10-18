@@ -57,13 +57,15 @@ pub enum Pane {
     Computers,
     /// A chat with a model that explains, changes and runs the model open.
     Assistant,
+    /// The review of the model's changes (an assistant's, or the differences with another version).
+    Review,
     /// A node's output in a tab of its own (opened by a double click on the node; one per node, brought to the
     /// front when it is open already).
     Map(u64),
 }
 
 impl Pane {
-    pub const ALL: [Pane; 12] = [
+    pub const ALL: [Pane; 13] = [
         Pane::Model,
         Pane::Operators,
         Pane::Files,
@@ -76,6 +78,7 @@ impl Pane {
         Pane::Batch,
         Pane::Computers,
         Pane::Assistant,
+        Pane::Review,
     ];
 
     pub fn title(self) -> &'static str {
@@ -92,6 +95,7 @@ impl Pane {
             Pane::Batch => "Many runs",
             Pane::Computers => "Computers",
             Pane::Assistant => "Assistant",
+            Pane::Review => "Changes",
             Pane::Map(_) => "Map",
         }
     }
@@ -536,6 +540,8 @@ pub struct Session {
     pub on_disk: Option<Model>,
     /// The model as its file has it (read or saved last).
     pub saved: Option<Model>,
+    /// The review of the changes going on (an assistant's, or the differences with another version).
+    pub review: Option<crate::review::Review>,
 }
 
 impl Session {
@@ -646,6 +652,7 @@ impl Session {
             notice: None,
             watch: None,
             on_disk: None,
+            review: None,
         })
     }
 
@@ -1353,6 +1360,12 @@ impl TerrafluxApp {
         {
             ui.close();
             crate::builder::open_data(s, &self.registry);
+        }
+        ui.separator();
+        if let Some(s) = &mut self.session {
+            ui.menu_button("Compare", |ui| {
+                crate::review::compare_menu(ui, s);
+            });
         }
     }
 
@@ -2315,11 +2328,16 @@ impl TerrafluxApp {
             crate::watch::follow(s, ui.ctx());
             s.auto_run(ui.ctx());
             self.chat.poll(s, &self.registry, ui.ctx());
+            crate::review::follow(s);
             if s.running() || s.loading() || s.saving() {
                 ui.ctx().request_repaint_after(Duration::from_millis(100));
             }
         }
         self.open_viewer();
+        // a review begun by another program (or asked for): its pane in front
+        if self.session.as_mut().and_then(|s| s.review.as_mut()).is_some_and(|r| std::mem::take(&mut r.show)) {
+            self.focus(Pane::Review);
+        }
         // a batch goes on whether its pane is shown or not
         self.batch.poll();
         if self.batch.running() {
@@ -2445,7 +2463,12 @@ impl TerrafluxApp {
             }
             Pane::Batch => crate::batch_view::pane(ui, &mut self.batch, s, r, &mut self.computers),
             Pane::Computers => crate::computers::pane(ui, &mut self.computers),
-            Pane::Assistant => crate::chat::pane(ui, &mut self.chat, s),
+            Pane::Assistant => {
+                if crate::chat::pane(ui, &mut self.chat, s) {
+                    self.focus(Pane::Review);
+                }
+            }
+            Pane::Review => crate::review::pane(ui, s, r),
             Pane::Map(id) => {
                 let Some(mut shown) = s.map_tabs.remove(&id) else {
                     ui.label(RichText::new("This map's node is gone.").weak());
@@ -2558,7 +2581,7 @@ impl TerrafluxApp {
             Pane::Files => &[Pane::Node, Pane::Operators],
             Pane::Prepare => &[Pane::Node],
             Pane::Node => &[Pane::Prepare, Pane::Files],
-            Pane::Assistant => &[Pane::Node, Pane::Prepare, Pane::Files],
+            Pane::Assistant | Pane::Review => &[Pane::Node, Pane::Prepare, Pane::Files],
             _ => &[],
         };
         // the operators' pane, nowhere: at the left edge of the window

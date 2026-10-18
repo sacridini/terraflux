@@ -275,6 +275,8 @@ pub struct EditorState {
     folds: u64,
     /// A connection let go on a node that several of its free inputs fit: the list to choose one from.
     picking: Option<Pick>,
+    /// The nodes marked (of the top level), in a colour each: those changed in a review ([`crate::review`]).
+    pub marks: HashMap<String, Color32>,
 }
 
 /// The inputs of a node a connection may go to, offered where it was let go.
@@ -847,7 +849,10 @@ impl Scene {
                 outputs,
                 source: false,
                 container: n.body.is_some(),
-                note: n.note.clone(),
+                note: [n.note.clone(), n.why.as_ref().map(|w| format!("Why: {w}"))]
+                    .into_iter()
+                    .flatten()
+                    .reduce(|a, b| format!("{a}\n{b}")),
                 file,
                 folded,
                 unfolded: open,
@@ -1494,6 +1499,18 @@ pub fn show(
         painter.circle_filled(c, radius, if error { v.error_fg_color } else { v.warn_fg_color });
         if radius >= 5.0 {
             painter.text(c, Align2::CENTER_CENTER, "!", FontId::proportional(radius * 1.6), Color32::BLACK);
+        }
+    }
+    // the nodes changed in a review going on, outlined in the colour of their change
+    if st.path.is_empty() {
+        for (k, colour) in &st.marks {
+            if let Some(&i) = scene.index.get(k.as_str())
+                && scene.boxes[i].rect.intersects(view)
+            {
+                let b = &scene.boxes[i];
+                let r = Rect::from_min_max(screen(b.rect.min), screen(b.rect.max));
+                painter.rect_stroke(r, 4.0 * cam.zoom, Stroke::new(2.5, *colour), egui::StrokeKind::Outside);
+            }
         }
     }
     // the nodes selected (the one in the inspector more marked), the output shown, the nodes running (a light

@@ -117,6 +117,15 @@ pub struct Model {
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// The request the model answers, in the words of whoever asked for it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request: Option<String>,
+    /// A summary of the conversation that led to the model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    /// Who made it: a person, an agent, or both.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
     /// The data the model reads, by name (`$name` in the nodes).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub inputs: BTreeMap<String, Input>,
@@ -237,6 +246,17 @@ pub struct Node {
     /// Why the node is there or why its settings (written by the wizards).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    /// The record of the choice, beside the note: why this operator and these settings, the references it rests
+    /// on (papers, methods, the operator's documentation), its assumptions, and the alternatives considered and
+    /// set aside (and why). None of them changes what the node gives.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub refs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub assumptions: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub alternatives: Vec<String>,
     /// The nodes of a container.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body: Option<Body>,
@@ -257,6 +277,10 @@ impl Node {
             inputs: BTreeMap::new(),
             params: serde_json::Map::new(),
             note: None,
+            why: None,
+            refs: Vec::new(),
+            assumptions: Vec::new(),
+            alternatives: Vec::new(),
             body: None,
             pos: None,
             width: None,
@@ -283,6 +307,23 @@ impl Node {
     pub fn note(mut self, note: &str) -> Self {
         self.note = Some(note.to_string());
         self
+    }
+
+    pub fn why(mut self, why: &str) -> Self {
+        self.why = Some(why.to_string());
+        self
+    }
+
+    /// The node without its record (the note, why, references, assumptions, alternatives): what counts for its
+    /// outputs.
+    pub fn unrecorded(&self) -> Node {
+        let mut n = self.clone();
+        n.note = None;
+        n.why = None;
+        n.refs.clear();
+        n.assumptions.clear();
+        n.alternatives.clear();
+        n
     }
 
     pub fn body(mut self, body: Body) -> Self {
@@ -335,6 +376,9 @@ impl Model {
             format: FORMAT.to_string(),
             name: Some(name.to_string()),
             description: None,
+            request: None,
+            summary: None,
+            author: None,
             inputs: BTreeMap::new(),
             nodes: Vec::new(),
             outputs: BTreeMap::new(),
@@ -712,7 +756,13 @@ from = "land.map"
         );
         m.inputs.insert("seed".into(), Input::Value { value: 7.into(), note: None });
         m.nodes.push(Node::new("b", "x.op").input("a", "a.out").literal("k", 3));
-        m.nodes.push(Node::new("a", "x.op").input("t", "$t0").param("steps", 14).note("why"));
+        let mut a = Node::new("a", "x.op").input("t", "$t0").param("steps", 14).note("what").why("because");
+        a.refs = vec!["Soares-Filho et al. (2002)".into()];
+        a.assumptions = vec!["the drivers do not change".into()];
+        a.alternatives = vec!["CLUE-S: no demand by class".into()];
+        m.nodes.push(a);
+        m.request = Some("a model of the deforestation".into());
+        m.author = Some("an agent".into());
         m.nodes.push(Node::new("loop", "control.repeat").input("land", "$t0").literal("times", 3).body(Body {
             nodes: vec![Node::new("step", "x.op").input("land", "@land").input("p", "b.out")],
             carry: [("land".to_string(), "step.out".to_string())].into(),

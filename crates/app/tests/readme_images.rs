@@ -193,3 +193,42 @@ fn assistant_image() {
     }
     save(&mut h, "assistant.png");
 }
+
+/// The review of what the assistant changed (the Humboldt-Universität's model, from its network or VPN): the
+/// change before and after, the node marked on the canvas.
+#[test]
+#[ignore = "the README's pictures: run with --ignored (the HU Berlin's network)"]
+fn review_image() {
+    let mut h = harness();
+    terraflux_app::settings::update(|s| s.provider = Some(0));
+    template(&mut h, "Fragmentation of a forest", "fos", "plot_fos");
+    {
+        let ctx = h.ctx.clone();
+        let a = h.state_mut();
+        let s = a.session.as_ref().unwrap();
+        a.chat.send(
+            "Make the window of the node fos 13 cells instead of 27, and record why in the node.".into(),
+            s,
+            &ctx,
+        );
+    }
+    let t = Instant::now();
+    while h.state().chat.busy() && t.elapsed() < Duration::from_secs(100) {
+        h.step();
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    for i in &h.state().chat.items {
+        println!("{i:?}");
+    }
+    settled(&mut h);
+    {
+        let a = h.state_mut();
+        let mut d = DockState::new(vec![Pane::Model]);
+        let s = d.main_surface_mut();
+        let [model, _] = s.split_right(NodeIndex::root(), 0.6, vec![Pane::Review, Pane::Assistant, Pane::Node]);
+        let below: Vec<Pane> = a.session.as_ref().unwrap().map_tabs.keys().map(|&id| Pane::Map(id)).collect();
+        s.split_below(model, 0.45, below);
+        a.dock = Some(d);
+    }
+    save(&mut h, "review.png");
+}
