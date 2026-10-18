@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-18
+
 ### Added
 - Tables worked on, as dplyr and tidyr do (the tables of metrics, transitions, zonal statistics, evaluations):
   `table.filter` (the rows where an expression is true: class == 3 and area > 10), `table.calc` (a column computed
