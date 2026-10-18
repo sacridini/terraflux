@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-18
+
 ### Added
 - The assistant is told of the problems that come up, for it to fix them: in a conversation going on, a run that
   fails (whoever started it) and the model's errors when an answer of its ends are sent to it on their own, each
