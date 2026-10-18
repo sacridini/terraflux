@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-18
+
 ### Added
 - The model as the record of its choices: optional fields of a node beside its `note` (`why`, `refs`,
   `assumptions`, `alternatives`) and of the model (`request`, `summary`, `author`), in the format `terraflux/1`
