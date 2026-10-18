@@ -217,6 +217,13 @@ and differences; `terraflux run model.toml --scenario name` runs one.
 
 ![A species distribution model read as a document](docs/images/document.png)
 
+**Why does this cell have this value?** Click a cell of any map, then **Trace this cell**: the Trace pane walks
+back through the graph and shows, node by node, the value each gave there and how (map algebra's expression with
+the values in place of its names, the cells around for a neighbourhood, the layers a model weighs, a loop's value
+step by step; inside the loops on demand). **Ask the assistant why** has the assistant explain the trace in
+words; its tool `trace_cell` (in the application and in `terraflux mcp`) gives an assistant the same chain, so it
+explains a result from what made it rather than from what the model should do.
+
 ### Models as text
 
 A model is a graph of operators. Each node reads the model's inputs (`$name`), other nodes' outputs

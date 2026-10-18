@@ -207,7 +207,15 @@ subtração dos valores).
 - O painel se liga aos cenários e à calibração do `batch_view`: salvar um conjunto de parâmetros como cenário e
   comparar cenários lado a lado (mapas, tabelas, diferenças).
 
-**Fase 7: rastreio de uma célula.**
+**Fase 7: rastreio de uma célula.** **Feito** (Unreleased): o painel Trace (uma célula clicada num mapa, "Trace
+this cell"): a cadeia de valores para trás, um cartão por nó com o valor ali e como foi feito (a expressão do
+`map.calc` com os valores no lugar dos nomes, a janela de células de um operador de vizinhança, as camadas que um
+modelo pesa, um laço passo a passo, os grupos atravessados), as entradas clicáveis e uma frase no topo; "Trace
+inside the loops" roda o modelo de novo guardando os valores do corpo dos laços na célula (o `Observer::body` do
+motor). Com o assistente: "Ask the assistant why" manda o rastreio ao chat, e a ferramenta `trace_cell` (no app e
+no `terraflux mcp`, com `inside_loops`) dá a mesma cadeia a qualquer agente. O rastreio é do app; a IA só explica
+o que ele deu. Falta: a célula marcada nos mapas de cada passo ao selecionar um cartão, a mancha inteira de um
+operador de manchas (hoje a janela ao redor) e a demanda do passo numa alocação explicada em palavras.
 - Clicar num pixel do resultado mostra a cadeia de valores que o produziu, por exemplo: "esta célula virou cidade
   porque a adequação era 0,71, tinha 4 vizinhos urbanos e o limiar no passo 12 era 0,50".
 - **Implementação.** Percorrer o grafo para trás a partir do nó mostrado e ler o valor da célula na saída em cache

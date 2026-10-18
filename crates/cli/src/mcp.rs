@@ -167,6 +167,10 @@ impl Server {
                 let path = model_path(a)?;
                 tools::run_model(&self.engine, &load(&path)?, &folder(&path), a, watcher)
             }
+            "trace_cell" => {
+                let path = model_path(a)?;
+                tools::trace_cell_run(&self.engine, &load(&path)?, &folder(&path), a, watcher)
+            }
             "inspect_file" => tools::inspect_file(a),
             "open_in_app" => open_in_app(a),
             edit if tools::EDITS.contains(&edit) => change(a, r, |m, r, dir| tools::edit(edit, m, r, dir, a)),
@@ -452,6 +456,30 @@ mod tests {
         assert!(!e, "{t}");
         let m = Model::load(&model).unwrap();
         assert!(m.parameters.is_empty() && m.scenarios.len() == 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_cell_is_traced() {
+        let s = Server { engine: Engine::default() };
+        let dir = std::env::temp_dir().join(format!("terraflux-mcp-tr-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let model = dir.join("t.toml").to_string_lossy().into_owned();
+        let (t, e) = call(&s, "new_model", json!({ "model": model, "template": "CLUE-S" }));
+        assert!(!e, "{t}");
+        let (t, e) = call(&s, "trace_cell", json!({ "model": model, "node": "simulation", "row": 40, "col": 60 }));
+        assert!(!e, "{t}");
+        assert!(t.starts_with("Here simulation.maps is "), "{t}");
+        assert!(t.contains("with the values here: if "), "{t}");
+        assert!(!t.contains("in the loop,"), "{t}");
+        let (t, e) = call(
+            &s,
+            "trace_cell",
+            json!({ "model": model, "node": "simulation", "row": 40, "col": 60, "inside_loops": true }),
+        );
+        assert!(!e && t.contains("in the loop, allocate.landscape"), "{t}");
+        assert!(call(&s, "trace_cell", json!({ "model": model, "node": "simulation", "row": 4000, "col": 0 })).1);
+        assert!(call(&s, "trace_cell", json!({ "model": model, "node": "nope", "row": 1, "col": 1 })).1);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

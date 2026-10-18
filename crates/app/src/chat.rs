@@ -69,6 +69,8 @@ pub struct Chat {
     told_times: usize,
     told_run: Option<std::time::Instant>,
     answered: bool,
+    /// The values inside the loops kept by the Trace pane's last run, for trace_cell.
+    pub kept: crate::trace::Kept,
 }
 
 /// The assistant's mark on the model it changes: the author, the request.
@@ -325,6 +327,11 @@ impl Chat {
                 return;
             }
             "new_model" => Answer::Done(new_model(s, r, &a.args, &self.stamp)),
+            // the values of the last run in the application (inside the loops: the Trace pane's run)
+            "trace_cell" => {
+                let values = |n: &str, p: &str| s.value_of(n, p);
+                Answer::Done(tools::trace_cell(&s.source, r, &values, &self.kept, &a.args))
+            }
             edit if tools::EDITS.contains(&edit) => Answer::Done(change(s, r, edit, &a.args, &self.stamp)),
             other => Answer::Done(Err(format!("no tool {other:?}"))),
         };

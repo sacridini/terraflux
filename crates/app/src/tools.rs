@@ -38,7 +38,10 @@ preparation, model, validation, results, each with a note; or group_nodes for gr
 note of what it is for). The application then shows a block per stage, and the model's document a section per \
 group.
 - The values a user is to change (a rate, a threshold, a demand) go in the model's form of parameters \
-(set_parameter: a label, a unit, a range and a help each), and named sets of them in scenarios (set_scenario)."
+(set_parameter: a label, a unit, a range and a help each), and named sets of them in scenarios (set_scenario).
+- Why a cell of a result has its value: trace_cell gives the chain of values that made it (expressions with the \
+values in place, the cells around, what a model weighs, a loop step by step). Explain a result from it, not from \
+what the model should do."
     };
 }
 
@@ -324,6 +327,92 @@ fn set_scenario(m: &mut Model, a: &Value) -> Reply {
         None => m.scenarios.push(s),
     }
     Ok(format!("the scenario {name} is kept (run_model with `scenario` runs it)"))
+}
+
+/// The trace of a cell ([`crate::trace`]): what a node gives at a place (`row` and `col` of its map, or `x` and
+/// `y` in its coordinates) and the chain of values that made it, from the values of a run.
+pub fn trace_cell(
+    m: &Model,
+    r: &Registry,
+    values: crate::trace::Values,
+    kept: &crate::trace::Kept,
+    a: &Value,
+) -> Reply {
+    let (node, port, grid, cell) = trace_place(m, r, values, a)?;
+    let t = crate::trace::trace(m, r, values, kept, &node, &port, &grid, cell);
+    Ok(format!(
+        "{}
+
+{}",
+        t.sentence(),
+        t.text()
+    ))
+}
+
+/// The node, port, grid and cell (row, column) a trace is asked of.
+type TracePlace = (String, String, Arc<terraflux_raster::Grid>, (usize, usize));
+
+/// The node, port, grid and cell a trace is asked of ([`trace_cell`]'s arguments).
+fn trace_place(
+    m: &Model,
+    r: &Registry,
+    values: crate::trace::Values,
+    a: &Value,
+) -> std::result::Result<TracePlace, String> {
+    let node = text(a, "node")?;
+    let n = m.node(node).ok_or_else(|| format!("no node {node:?} at the top level"))?;
+    // (none given: its first output that is a series of maps, a loop's, else a map)
+    let port = match opt_text(a, "port") {
+        Some(p) => p.to_string(),
+        None => {
+            let maps: Vec<(String, bool)> = crate::editor::output_ports(n, r)
+                .into_iter()
+                .filter_map(|(p, _)| {
+                    let v = values(node, &p)?;
+                    crate::trace::grid_of(&v)?;
+                    Some((p, matches!(v, terraflux_ops::Value::Series(_))))
+                })
+                .collect();
+            maps.iter()
+                .find(|(_, series)| *series)
+                .or(maps.first())
+                .map(|(p, _)| p.clone())
+                .or_else(|| crate::builder::first_output(n, r))
+                .ok_or_else(|| format!("{node} gives nothing to trace"))?
+        }
+    };
+    let v = values(node, &port).ok_or_else(|| format!("{node}.{port} has not run: run the model first"))?;
+    let grid = crate::trace::grid_of(&v).ok_or_else(|| format!("{node}.{port} is not a map: no cell to trace"))?;
+    let cell = match (a.get("row").and_then(Value::as_u64), a.get("col").and_then(Value::as_u64)) {
+        (Some(row), Some(col)) if (row as usize) < grid.height && (col as usize) < grid.width => {
+            (row as usize, col as usize)
+        }
+        (Some(_), Some(_)) => return Err(format!("the map has {} rows and {} columns", grid.height, grid.width)),
+        _ => {
+            let (x, y) = (a.get("x").and_then(Value::as_f64), a.get("y").and_then(Value::as_f64));
+            let (Some(x), Some(y)) = (x, y) else { return Err("give row and col, or x and y".into()) };
+            crate::trace::cell_of(&grid, x, y).ok_or("the place is outside the map")?
+        }
+    };
+    Ok((node.to_string(), port, grid, cell))
+}
+
+/// [`trace_cell`] of a model's file (`terraflux mcp`): the model run up to the node first; with `inside_loops`,
+/// run again keeping its loops' values at the cell.
+pub fn trace_cell_run(engine: &Engine, source: &Model, dir: &Path, a: &Value, watcher: &mut Watcher) -> Reply {
+    let node = text(a, "node")?;
+    let mut m = source.clone();
+    terraflux_graph::submodel::expand(&mut m, dir).map_err(|e| e.to_string())?;
+    let inputs = load_inputs(&m, dir, &BTreeMap::new()).map_err(|e| format!("the inputs: {e}"))?;
+    let results = engine.run_with(&m, &inputs, watcher, None, Some(node)).map_err(|e| e.to_string())?;
+    let values = |n: &str, p: &str| results.values.get(n)?.get(p).cloned();
+    let mut kept = crate::trace::Kept::new();
+    if a.get("inside_loops").and_then(Value::as_bool) == Some(true) {
+        let (_, _, grid, (row, col)) = trace_place(source, &engine.registry, &values, a)?;
+        let (x, y) = crate::trace::centre(&grid, row, col);
+        kept = crate::trace::keep_loops(source, dir, x, y)?;
+    }
+    trace_cell(source, &engine.registry, &values, &kept, a)
 }
 
 /// A template's model (by its name), brought up to date and arranged.
@@ -873,6 +962,22 @@ fn all() -> Vec<Value> {
             json!({ "model": model, "name": { "type": "string" } }),
             &["model", "name"],
             None,
+        ),
+        tool(
+            "trace_cell",
+            "Why a cell of a result has its value: what a node gives at a place and the chain of values that made it, back through the graph (map algebra's expressions with the values there, the cells around for a neighbourhood, the layers a model weighs, a loop's value at every step). Give row and col of the node's map, or x and y in its coordinates. Explain from it, not from memory.",
+            json!({
+                "model": model,
+                "node": { "type": "string", "description": "A top-level node (a group: its output, traced into its body)." },
+                "port": { "type": "string", "description": "Its output (default: its first map)." },
+                "row": { "type": "integer" },
+                "col": { "type": "integer" },
+                "x": { "type": "number" },
+                "y": { "type": "number" },
+                "inside_loops": { "type": "boolean", "description": "Run the model again keeping its loops' values at the cell, step by step (slower)." },
+            }),
+            &["model", "node"],
+            Some(&read_only),
         ),
         tool(
             "inspect_file",

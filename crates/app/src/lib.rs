@@ -33,6 +33,8 @@ pub mod table_view;
 pub mod templates;
 pub mod theme;
 pub mod tools;
+pub mod trace;
+pub mod trace_view;
 pub mod undo;
 pub mod vector_tiles;
 pub mod vector_view;

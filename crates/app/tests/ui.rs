@@ -731,6 +731,44 @@ fn parameters_and_scenarios_from_their_pane() {
     assert!(h.query_all_by_label_contains("short patches").count() >= 2, "in the pane and the document");
 }
 
+/// Why a cell has its value: a cell of a map's tab clicked, then Trace this cell: its pane with the chain of
+/// values, map algebra's expression with the values in place; inside the loop when asked; to the assistant.
+#[test]
+fn a_cell_is_traced_from_its_map() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let ctx = h.ctx.clone();
+    let t = terraflux_app::templates::TEMPLATES.iter().find(|t| t.name == "CLUE-S").unwrap();
+    h.state_mut().start_template(&ctx, t);
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("simulation", "maps").is_some()
+    });
+    let id = h.state_mut().session.as_mut().unwrap().open_map("simulation", "maps");
+    h.run_steps(3);
+    h.state_mut().focus(Pane::Map(id));
+    h.state_mut().session.as_mut().unwrap().map_tabs.get_mut(&id).unwrap().view.picked = Some((40, 60));
+    h.run_steps(3);
+    h.get_by_label("Trace this cell").click();
+    h.run_steps(4);
+    assert!(h.state().is_open(Pane::Trace));
+    let t = h.state().trace.trace.clone().expect("traced");
+    assert_eq!(t.cell, (40, 60));
+    assert!(h.query_by_label_contains("Here simulation.maps is").is_some());
+    assert!(h.query_all_by_label_contains("here: if ").next().is_some(), "the expression with the values");
+    // inside the loop
+    h.get_by_label("Trace inside the loops").click_accesskit();
+    until(&mut h, "the run kept", |a| a.trace.kept.is_some() || a.trace.error.is_some());
+    assert!(h.state().trace.error.is_none(), "{:?}", h.state().trace.error);
+    h.run_steps(4);
+    assert!(h.query_all_by_label_contains("in the loop, allocate.landscape").next().is_some());
+    shot(&mut h, "46-trace");
+    // to the assistant (no server chosen: its settings shown)
+    h.get_by_label("Ask the assistant why").click();
+    h.run_steps(3);
+    assert!(h.state().is_open(Pane::Assistant));
+}
+
 /// GuidosToolbox's fragmentation in the builder: FAD-MS's average shown in GTB's colours, its legend in the
 /// classes of a density (rare to intact) rather than a line per value; FOS in 5 classes.
 #[test]

@@ -1913,6 +1913,17 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                         }
                     });
                 });
+                // the cell clicked: why it has its value
+                if let (Some((row, col)), Some(grid)) = (sh.view.picked, value.as_ref().and_then(crate::trace::grid_of))
+                    && ui
+                        .button("Trace this cell")
+                        .on_hover_text(format!(
+                            "why the cell at row {row}, column {col} has its value: the chain of values that made it"
+                        ))
+                        .clicked()
+                {
+                    s.trace_asked = Some((node.clone(), port.clone(), grid, (row, col)));
+                }
                 ui.separator();
                 let weak = ui.visuals().weak_text_color();
                 match s.status.get(&node) {

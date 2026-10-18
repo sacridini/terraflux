@@ -48,6 +48,8 @@ pub trait Observer {
     fn collected(&mut self, _at: &str, _step: usize, _of: usize, _values: &BTreeMap<String, Value>) {}
     /// A top-level node is done: run, or its outputs taken from the cache.
     fn done(&mut self, _at: &str, _cached: bool) {}
+    /// What the nodes of a loop's body gave at a step, by node (a cell's trace keeps its values).
+    fn body(&mut self, _at: &str, _step: usize, _results: &BTreeMap<String, Outputs>) {}
     /// How far a node running is, as its operator tells it (a solver's gap, say).
     fn progress(&mut self, _at: &str, _progress: &terraflux_ops::Progress) {}
     /// Whether to stop: checked before every node, and by the operators that can stop while they run.
@@ -534,6 +536,7 @@ impl Engine {
             c.insert("step".into(), Value::Integer(step as i64));
             let mut child = Env { parent: Some(env), results: BTreeMap::new(), carried: c };
             self.run_scope(&body.nodes, &mut child, inputs, at, obs, warnings)?;
+            obs.body(at, step, &child.results);
             if let Some(r) = &body.until {
                 let stop = self.resolve(&Source::Ref(r.clone()), &child, inputs, &format!("{at}/until"))?;
                 match stop {

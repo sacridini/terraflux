@@ -1,0 +1,303 @@
+//! The Trace pane: why a cell of a result has its value ([`crate::trace`]). A cell clicked on a map (the viewer, a
+//! map's tab), then Trace this cell: the chain of values that made it, back through the graph, a card per node (its
+//! value there, how it was made: map algebra's expression with the values in place of its names, the cells around,
+//! what a model weighs, a loop step by step), its inputs a click away; a sentence of it at the top. Trace inside the
+//! loops runs the model again keeping their bodies' values at the cell. Ask the assistant why sends the trace to the
+//! assistant, which explains it (and may trace more: its tool trace_cell).
+
+use std::sync::Arc;
+use std::sync::mpsc::{Receiver, channel};
+
+use egui::{Margin, RichText, Ui};
+use terraflux_ops::Registry;
+
+use crate::app::Session;
+use crate::theme;
+use crate::trace::{At, How, Kept, Trace};
+
+/// A trace asked for: the node and port of a map, its grid, the cell (row, column).
+pub type Ask = (String, String, Arc<terraflux_raster::Grid>, (usize, usize));
+
+/// The pane's state (the application's).
+#[derive(Default)]
+pub struct State {
+    asked: Option<Ask>,
+    pub trace: Option<Trace>,
+    /// The model's revision and the nodes' states it was traced at (traced again when they change).
+    made: Option<(u64, u64)>,
+    /// What a run kept inside the loops, at the place (x, y) it was asked for.
+    pub kept: Option<(f64, f64, Kept)>,
+    running: Option<Receiver<Result<Kept, String>>>,
+    pub error: Option<String>,
+    /// The card to bring into view (an input's node clicked).
+    focus: Option<usize>,
+}
+
+impl State {
+    /// Trace a cell of a node's map.
+    pub fn ask(&mut self, a: Ask) {
+        self.asked = Some(a);
+        self.made = None;
+        self.error = None;
+        self.focus = None;
+    }
+
+    pub fn running(&self) -> bool {
+        self.running.is_some()
+    }
+
+    /// The trace made again when the model or its run changed (not while it runs).
+    fn refresh(&mut self, s: &Session, r: &Registry) {
+        let Some((node, port, grid, cell)) = self.asked.clone() else { return };
+        let now = (s.revision, s.status_rev);
+        if self.made == Some(now) || s.running() {
+            return;
+        }
+        self.made = Some(now);
+        let values = |n: &str, p: &str| s.value_of(n, p);
+        let (x, y) = crate::trace::centre(&grid, cell.0, cell.1);
+        let kept = match &self.kept {
+            Some((kx, ky, k)) if *kx == x && *ky == y => k.clone(),
+            _ => Kept::new(),
+        };
+        self.trace = Some(crate::trace::trace(&s.source, r, &values, &kept, &node, &port, &grid, cell));
+    }
+}
+
+/// What the pane asks of the application.
+pub enum Asked {
+    /// The trace to the assistant, with the question.
+    Assistant(String),
+}
+
+fn weak(t: impl Into<String>) -> RichText {
+    RichText::new(t.into()).color(theme::weak())
+}
+
+/// A value at the cell, strong.
+fn value(v: &Option<At>) -> RichText {
+    match v {
+        Some(a) => RichText::new(a.text()).strong(),
+        None => weak("no value kept"),
+    }
+}
+
+/// The Trace pane.
+pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) -> Option<Asked> {
+    let got = st.running.as_ref().map(|rx| match rx.try_recv() {
+        Ok(k) => Some(k),
+        Err(std::sync::mpsc::TryRecvError::Empty) => None,
+        Err(std::sync::mpsc::TryRecvError::Disconnected) => Some(Err("the run stopped".into())),
+    });
+    if let Some(Some(k)) = got {
+        st.running = None;
+        match k {
+            Ok(k) => {
+                if let Some(t) = &st.trace {
+                    st.kept = Some((t.x, t.y, k));
+                }
+                st.made = None;
+            }
+            Err(e) => st.error = Some(e),
+        }
+    }
+    st.refresh(s, r);
+    let mut asked = None;
+    let mut select: Option<(Vec<String>, String)> = None;
+    egui::ScrollArea::vertical().id_salt("trace pane").auto_shrink([false, false]).show(ui, |ui| {
+        egui::Frame::new().inner_margin(Margin::same(8)).show(ui, |ui| {
+            theme::section(ui, "Trace of a cell");
+            let Some(t) = st.trace.clone() else {
+                ui.label(weak(
+                    "Why a cell has its value: click a cell of a map (in the viewer or a map's tab), then Trace this \
+                     cell. The chain of values that made it shows here, node by node.",
+                ));
+                return;
+            };
+            let Some(first) = t.steps.first() else { return };
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new(format!("{}.{}", first.node, first.port)).strong());
+                ui.label(weak(format!(
+                    "at row {}, column {} (x {}, y {})",
+                    t.cell.0,
+                    t.cell.1,
+                    crate::report::cell(t.x),
+                    crate::report::cell(t.y)
+                )));
+            });
+            ui.horizontal_wrapped(|ui| {
+                if ui
+                    .add(crate::app::accent_button("Ask the assistant why", true))
+                    .on_hover_text("the trace to the assistant, to explain it in words (and trace more if it needs)")
+                    .clicked()
+                {
+                    asked = Some(Asked::Assistant(format!(
+                        "Why does {}.{} have this value at row {}, column {}? Explain it from its trace, step by step, \
+                         in words (trace_cell traces other cells or nodes):\n\n{}",
+                        first.node,
+                        first.port,
+                        t.cell.0,
+                        t.cell.1,
+                        t.text()
+                    )));
+                }
+                let loops = s.source.nodes.iter().any(has_loop);
+                if loops
+                    && ui
+                        .add_enabled(!st.running() && !s.running(), egui::Button::new("Trace inside the loops"))
+                        .on_hover_text(
+                            "run the model again keeping what the nodes of its loops give at this cell, step by step",
+                        )
+                        .clicked()
+                {
+                    let (m, base, x, y) = (s.source.clone(), s.base(), t.x, t.y);
+                    let (tx, rx) = channel();
+                    let ctx = ui.ctx().clone();
+                    std::thread::spawn(move || {
+                        let _ = tx.send(crate::trace::keep_loops(&m, &base, x, y));
+                        ctx.request_repaint();
+                    });
+                    st.running = Some(rx);
+                }
+                if st.running() {
+                    ui.spinner();
+                    ui.label(weak("running again...").small());
+                }
+                if ui.button("Copy").on_hover_text("the trace as text").clicked() {
+                    ui.ctx().copy_text(format!("{}\n\n{}", t.sentence(), t.text()));
+                }
+            });
+            if let Some(e) = &st.error {
+                ui.colored_label(ui.visuals().error_fg_color, e);
+            }
+            ui.add_space(4.0);
+            ui.label(RichText::new(t.sentence()).italics());
+            ui.add_space(6.0);
+            for (k, step) in t.steps.iter().enumerate() {
+                let resp = egui::Frame::new()
+                    .fill(theme::well())
+                    .corner_radius(4.0)
+                    .inner_margin(Margin::same(6))
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(RichText::new(format!("{}.", k + 1)).strong());
+                            if ui
+                                .link(RichText::new(format!("{}.{}", step.node, step.port)).strong())
+                                .on_hover_text("select it")
+                                .clicked()
+                            {
+                                select = Some((step.path.clone(), step.node.clone()));
+                            }
+                            ui.label(weak(&step.op).monospace().small());
+                            if !step.path.is_empty() {
+                                ui.label(weak(format!("in {}", step.path.join("/"))).small());
+                            }
+                            ui.label("=");
+                            ui.label(value(&step.value));
+                        });
+                        if let Some(n) = &step.note {
+                            ui.label(RichText::new(n).italics().small());
+                        }
+                        how_ui(ui, &step.how);
+                        for i in &step.inputs {
+                            ui.horizontal_wrapped(|ui| {
+                                ui.spacing_mut().item_spacing.x = 4.0;
+                                ui.label(weak(&i.port).small());
+                                ui.label(weak("from").small());
+                                match i.step {
+                                    Some(j) => {
+                                        if ui
+                                            .link(RichText::new(&i.from).small())
+                                            .on_hover_text("to its card")
+                                            .clicked()
+                                        {
+                                            st.focus = Some(j);
+                                        }
+                                    }
+                                    None => {
+                                        ui.label(RichText::new(&i.from).small());
+                                    }
+                                }
+                                ui.label(weak("=").small());
+                                ui.label(value(&i.value).small());
+                            });
+                        }
+                        for (what, values) in &step.body {
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label(weak(format!("in the loop, {what}:")).small());
+                                ui.label(RichText::new(crate::trace::steps_text(values)).small());
+                            });
+                        }
+                    });
+                if st.focus == Some(k) {
+                    resp.response.scroll_to_me(Some(egui::Align::TOP));
+                    st.focus = None;
+                }
+                ui.add_space(4.0);
+            }
+            if t.cut {
+                ui.label(weak("(the trace stops here: the graph goes on)").small());
+            }
+        });
+    });
+    if let Some((path, id)) = select {
+        s.editor.path = path.clone();
+        if path.is_empty() {
+            crate::builder::select(s, r, &id);
+        } else {
+            s.fields.clear();
+            s.selected = Some(id.clone());
+        }
+        s.editor.reveal(&id);
+    }
+    asked
+}
+
+/// Whether a node is, or holds, a loop.
+fn has_loop(n: &terraflux_graph::Node) -> bool {
+    n.op == "control.repeat" || n.body.as_ref().is_some_and(|b| b.nodes.iter().any(has_loop))
+}
+
+/// How a node made its value, in a few lines.
+fn how_ui(ui: &mut Ui, how: &How) {
+    match how {
+        How::Data => {
+            ui.label(weak("data: read or drawn, from no other node").small());
+        }
+        How::Expression { text, with_values } => {
+            for (label, t) in [("", text), ("here: ", with_values)] {
+                egui::Frame::new().fill(theme::bar()).corner_radius(3.0).inner_margin(Margin::same(4)).show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.label(RichText::new(format!("{label}{t}")).monospace().small());
+                });
+            }
+        }
+        How::Window { radius, windows } => {
+            ui.label(weak(format!("from the cells within {radius} of this one (it at the centre):")).small());
+            for (port, rows) in windows {
+                ui.label(RichText::new(port).small());
+                egui::Grid::new(ui.next_auto_id()).spacing([6.0, 1.0]).show(ui, |ui| {
+                    let mid = rows.len() / 2;
+                    for (i, row) in rows.iter().enumerate() {
+                        for (j, v) in row.iter().enumerate() {
+                            let t = RichText::new(crate::report::cell(*v)).monospace().small();
+                            ui.label(if i == mid && j == mid { t.strong().color(theme::accent()) } else { t });
+                        }
+                        ui.end_row();
+                    }
+                });
+            }
+        }
+        How::Whole(what) => {
+            ui.label(weak(format!("from the whole map: {what}")).small());
+        }
+        How::Loop => {
+            ui.label(weak("a loop: its value at every step").small());
+        }
+        How::Group => {
+            ui.label(weak("a group: what its body gave").small());
+        }
+        How::Local => {}
+    }
+}

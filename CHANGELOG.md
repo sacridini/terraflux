@@ -6,6 +6,20 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Why a cell has its value (the Trace pane): a cell of a map clicked, then Trace this cell, and the chain of values
+  that made it, back through the graph: a card per node with its value there and how it was made (map algebra's
+  expression with the values in place of its names, the window of cells a neighbourhood's operator reads, the
+  layers a model weighs, a loop's value step by step, through groups), its inputs a click away, a sentence of it at
+  the top. Trace inside the loops runs the model again keeping what their bodies give at the cell, step by step.
+- The trace with the assistant: Ask the assistant why sends it to the chat, to be explained in words; the tool
+  `trace_cell` (in the application, and in `terraflux mcp` with `inside_loops`) gives an assistant the same chain,
+  and the assistants are told to explain results from it.
+
+### Fixed
+- A pane brought to the front by another while the panes were drawn did not come (the assistant's Changes, among
+  others).
+
 ## [1.3.0] - 2026-10-18
 
 ### Added

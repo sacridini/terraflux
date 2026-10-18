@@ -63,13 +63,15 @@ pub enum Pane {
     Review,
     /// The model's parameters as a form, and its scenarios saved, applied and compared.
     Parameters,
+    /// Why a cell of a result has its value: the chain of values that made it.
+    Trace,
     /// A node's output in a tab of its own (opened by a double click on the node; one per node, brought to the
     /// front when it is open already).
     Map(u64),
 }
 
 impl Pane {
-    pub const ALL: [Pane; 15] = [
+    pub const ALL: [Pane; 16] = [
         Pane::Model,
         Pane::Document,
         Pane::Operators,
@@ -85,6 +87,7 @@ impl Pane {
         Pane::Assistant,
         Pane::Review,
         Pane::Parameters,
+        Pane::Trace,
     ];
 
     pub fn title(self) -> &'static str {
@@ -104,6 +107,7 @@ impl Pane {
             Pane::Assistant => "Assistant",
             Pane::Review => "Changes",
             Pane::Parameters => "Parameters",
+            Pane::Trace => "Trace",
             Pane::Map(_) => "Map",
         }
     }
@@ -473,6 +477,8 @@ pub struct Session {
     /// The top-level nodes the run goes through, and those done (run or taken from the cache).
     pub run_total: usize,
     pub run_done: usize,
+    /// A cell's trace asked for (a map's cell clicked, then Trace this cell).
+    pub trace_asked: Option<crate::trace_view::Ask>,
     /// How far the node running is, as its operator tells it (a solver's gap...).
     pub task: Option<(String, terraflux_ops::Progress)>,
     /// When Stop was pressed, while the run stops.
@@ -620,6 +626,7 @@ impl Session {
             progress: None,
             run_total: 0,
             run_done: 0,
+            trace_asked: None,
             task: None,
             stopping: None,
             node: String::new(),
@@ -1214,6 +1221,12 @@ pub struct TerrafluxApp {
     pub batch: crate::batch_view::BatchState,
     /// The Parameters pane's state.
     pub params: crate::params_view::State,
+    /// The Trace pane's state.
+    pub trace: crate::trace_view::State,
+    /// The dock is being drawn (taken out of the application meanwhile): the panes asked for then, brought to the
+    /// front once it is back.
+    in_dock: bool,
+    deferred: Vec<Pane>,
     /// The application's pool of workers, shared or not, and this computer lent to another.
     pub computers: crate::computers::Computers,
     /// The assistant: its conversation and its server.
@@ -1275,6 +1288,9 @@ impl TerrafluxApp {
             files: crate::files_view::Files::default(),
             batch: crate::batch_view::BatchState::new(),
             params: crate::params_view::State::default(),
+            trace: crate::trace_view::State::default(),
+            in_dock: false,
+            deferred: Vec::new(),
             computers: crate::computers::Computers::new(),
             chat: crate::chat::Chat::default(),
             commands: None,
@@ -2459,6 +2475,11 @@ impl TerrafluxApp {
                 ui.ctx().request_repaint_after(Duration::from_millis(100));
             }
         }
+        // a cell's trace asked for: in its pane
+        if let Some(a) = self.session.as_mut().and_then(|s| s.trace_asked.take()) {
+            self.trace.ask(a);
+            self.focus(Pane::Trace);
+        }
         self.open_viewer();
         // a review begun by another program (or asked for): its pane in front
         if self.session.as_mut().and_then(|s| s.review.as_mut()).is_some_and(|r| std::mem::take(&mut r.show)) {
@@ -2601,6 +2622,16 @@ impl TerrafluxApp {
                 }
             }
             Pane::Review => crate::review::pane(ui, s, r),
+            Pane::Trace => {
+                let asked = crate::trace_view::pane(ui, &mut self.trace, s, r);
+                if let Some((_, _, k)) = &self.trace.kept {
+                    self.chat.kept = k.clone();
+                }
+                if let Some(crate::trace_view::Asked::Assistant(text)) = asked {
+                    self.chat.send(text, s, ui.ctx());
+                    self.focus(Pane::Assistant);
+                }
+            }
             Pane::Parameters => match crate::params_view::pane(ui, &mut self.params, s, r) {
                 Some(crate::params_view::Asked::ManyRuns) => {
                     crate::params_view::to_batch(&mut self.batch, &s.source);
@@ -2702,6 +2733,11 @@ impl TerrafluxApp {
 
     /// Show a pane: its tab brought to the front where it is (and given the focus), or opened in the main window.
     pub fn focus(&mut self, pane: Pane) {
+        // (asked for by a pane while the dock is drawn: once it is back)
+        if self.in_dock {
+            self.deferred.push(pane);
+            return;
+        }
         let dock = self.dock.get_or_insert_with(default_layout);
         if let Some(path) = dock.find_tab(&pane) {
             let _ = dock.set_active_tab(path);
@@ -2726,6 +2762,7 @@ impl TerrafluxApp {
             Pane::Node => &[Pane::Prepare, Pane::Parameters],
             Pane::Parameters => &[Pane::Node, Pane::Prepare],
             Pane::Review => &[Pane::Assistant],
+            Pane::Trace => &[Pane::Assistant, Pane::Review],
             _ => &[],
         };
         let found = near.iter().find_map(|n| dock.find_tab(n));
@@ -2733,7 +2770,7 @@ impl TerrafluxApp {
         // review of its changes at the right, the node at the left of the model
         let edge = match pane {
             Pane::Operators | Pane::Files => Some((true, 0.15)),
-            Pane::Assistant | Pane::Review => Some((false, 0.74)),
+            Pane::Assistant | Pane::Review | Pane::Trace => Some((false, 0.74)),
             Pane::Node | Pane::Prepare | Pane::Parameters => Some((true, 0.2)),
             _ => None,
         };
@@ -2899,14 +2936,20 @@ impl TerrafluxApp {
         let mut moves = Moves::default();
         let mut dock = self.dock.take().unwrap_or_else(default_layout);
         let style = dock_style(ui);
+        self.in_dock = true;
         egui_dock::DockArea::new(&mut dock)
             .id(egui::Id::new("main dock"))
             .style(style.clone())
             .show_leaf_collapse_buttons(false)
             .show_inside(ui, &mut Panes { app: self, moves: &mut moves, detached: false });
+        self.in_dock = false;
         // tabs dragged out of the dock (egui_dock's floating windows): windows of their own, to take anywhere
         let floating = floating_tabs(&mut dock);
         self.dock = Some(dock);
+        // the panes a pane asked for while the dock was drawn
+        for p in std::mem::take(&mut self.deferred) {
+            self.focus(p);
+        }
         // (their windows shown from the next frame: their panes were drawn in the dock's floating window in this
         // one)
         let mut windows = std::mem::take(&mut self.windows);
