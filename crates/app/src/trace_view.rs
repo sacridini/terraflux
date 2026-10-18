@@ -197,36 +197,32 @@ pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) -> Optio
                             ui.label(value(&step.value));
                         });
                         if let Some(n) = &step.note {
-                            ui.label(RichText::new(n).italics().small());
+                            ui.label(RichText::new(n).italics());
                         }
                         how_ui(ui, &step.how);
                         for i in &step.inputs {
                             ui.horizontal_wrapped(|ui| {
                                 ui.spacing_mut().item_spacing.x = 4.0;
-                                ui.label(weak(&i.port).small());
-                                ui.label(weak("from").small());
+                                ui.label(weak(&i.port));
+                                ui.label(weak("from"));
                                 match i.step {
                                     Some(j) => {
-                                        if ui
-                                            .link(RichText::new(&i.from).small())
-                                            .on_hover_text("to its card")
-                                            .clicked()
-                                        {
+                                        if ui.link(RichText::new(&i.from)).on_hover_text("to its card").clicked() {
                                             st.focus = Some(j);
                                         }
                                     }
                                     None => {
-                                        ui.label(RichText::new(&i.from).small());
+                                        ui.label(RichText::new(&i.from));
                                     }
                                 }
-                                ui.label(weak("=").small());
-                                ui.label(value(&i.value).small());
+                                ui.label(weak("="));
+                                ui.label(value(&i.value));
                             });
                         }
                         for (what, values) in &step.body {
                             ui.horizontal_wrapped(|ui| {
-                                ui.label(weak(format!("in the loop, {what}:")).small());
-                                ui.label(RichText::new(crate::trace::steps_text(values)).small());
+                                ui.label(weak(format!("in the loop, {what}:")));
+                                ui.label(RichText::new(crate::trace::steps_text(values)));
                             });
                         }
                     });
@@ -263,25 +259,25 @@ fn has_loop(n: &terraflux_graph::Node) -> bool {
 fn how_ui(ui: &mut Ui, how: &How) {
     match how {
         How::Data => {
-            ui.label(weak("data: read or drawn, from no other node").small());
+            ui.label(weak("data: read or drawn, from no other node"));
         }
         How::Expression { text, with_values } => {
             for (label, t) in [("", text), ("here: ", with_values)] {
                 egui::Frame::new().fill(theme::bar()).corner_radius(3.0).inner_margin(Margin::same(4)).show(ui, |ui| {
                     ui.set_width(ui.available_width());
-                    ui.label(RichText::new(format!("{label}{t}")).monospace().small());
+                    ui.label(RichText::new(format!("{label}{t}")).monospace());
                 });
             }
         }
         How::Window { radius, windows } => {
-            ui.label(weak(format!("from the cells within {radius} of this one (it at the centre):")).small());
+            ui.label(weak(format!("from the cells within {radius} of this one (it at the centre):")));
             for (port, rows) in windows {
-                ui.label(RichText::new(port).small());
+                ui.label(RichText::new(port));
                 egui::Grid::new(ui.next_auto_id()).spacing([6.0, 1.0]).show(ui, |ui| {
                     let mid = rows.len() / 2;
                     for (i, row) in rows.iter().enumerate() {
                         for (j, v) in row.iter().enumerate() {
-                            let t = RichText::new(crate::report::cell(*v)).monospace().small();
+                            let t = RichText::new(crate::report::cell(*v)).monospace();
                             ui.label(if i == mid && j == mid { t.strong().color(theme::accent()) } else { t });
                         }
                         ui.end_row();
@@ -290,13 +286,13 @@ fn how_ui(ui: &mut Ui, how: &How) {
             }
         }
         How::Whole(what) => {
-            ui.label(weak(format!("from the whole map: {what}")).small());
+            ui.label(weak(format!("from the whole map: {what}")));
         }
         How::Loop => {
-            ui.label(weak("a loop: its value at every step").small());
+            ui.label(weak("a loop: its value at every step"));
         }
         How::Group => {
-            ui.label(weak("a group: what its body gave").small());
+            ui.label(weak("a group: what its body gave"));
         }
         How::Local => {}
     }
