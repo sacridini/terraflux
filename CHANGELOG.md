@@ -6,6 +6,22 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- The assistant (View, Assistant): a chat beside the graph with a model that explains, changes and runs the
+  model open, with the tools of `terraflux mcp` called in the application. Each change is an edit of its own
+  (ctrl+Z undoes it) with the node it touched selected; a run goes in the application, its maps shown there, and
+  the assistant is told what the outputs gave. "Explain" asks about the node selected. The model is told the
+  model open, its operators' documentation and the node selected.
+- The assistant talks to any server of OpenAI's chat completions API with tool calling, streamed: a university's
+  (the HU Berlin's KI-Service, from its network or VPN; the GWDG's Chat AI), one on this computer (Ollama,
+  LM Studio) or a commercial provider (OpenAI, Anthropic). A server's address, model, key (kept in the system's
+  store of credentials, never in the settings or a model), thinking (Qwen 3 on vLLM) and a small set of tools for
+  small models; "Test the connection" checks that the server answers, has the model and lets it call tools.
+
+### Changed
+- The tools of `terraflux mcp` live in the application's library (`terraflux_app::tools`), shared by the server
+  and the assistant; the server's tools and answers are as they were.
+
 ## [0.98.0] - 2026-10-18
 
 ### Added

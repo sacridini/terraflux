@@ -157,3 +157,39 @@ fn readme_images() {
         save(&mut h, "basemap.png");
     }
 }
+
+/// The assistant explaining a node, answered by the Humboldt-Universität's model (from its network or VPN):
+/// `cargo test --release -p terraflux-app --test readme_images assistant -- --ignored`.
+#[test]
+#[ignore = "the README's pictures: run with --ignored (the HU Berlin's network)"]
+fn assistant_image() {
+    let mut h = harness();
+    terraflux_app::settings::update(|s| s.provider = Some(0));
+    template(&mut h, "Fragmentation of a forest", "fos", "plot_fos");
+    {
+        let a = h.state_mut();
+        let mut d = DockState::new(vec![Pane::Model]);
+        let s = d.main_surface_mut();
+        let [model, _] = s.split_right(NodeIndex::root(), 0.6, vec![Pane::Assistant, Pane::Node]);
+        let below: Vec<Pane> = a.session.as_ref().unwrap().map_tabs.keys().map(|&id| Pane::Map(id)).collect();
+        s.split_below(model, 0.45, below);
+        a.dock = Some(d);
+        let ctx = h.ctx.clone();
+        let a = h.state_mut();
+        let s = a.session.as_ref().unwrap();
+        a.chat.send(
+            "What does this model do? And explain the node fos: what it reads and what it gives.".into(),
+            s,
+            &ctx,
+        );
+    }
+    let t = Instant::now();
+    while h.state().chat.busy() && t.elapsed() < Duration::from_secs(100) {
+        h.step();
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    for i in &h.state().chat.items {
+        println!("{i:?}");
+    }
+    save(&mut h, "assistant.png");
+}

@@ -26,6 +26,18 @@ terraflux-ops = { path = "../ops" }
 terraflux-raster = { path = "../raster" }
 tiny-skia = "0.12"
 rstar = "0.12"
+# the assistant's chat models: their APIs over HTTPS (the system's certificates trusted too)
+ureq = { version = "3", default-features = false, features = ["rustls", "platform-verifier"] }
+
+# the keys of the assistant's chat models, in the system's store of credentials
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+keyring = { version = "3", features = ["async-secret-service", "async-io", "crypto-rust"] }
 
 [dev-dependencies]
 egui_kittest = { version = "0.36", features = ["wgpu"] }

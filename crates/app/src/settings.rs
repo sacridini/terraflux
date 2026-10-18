@@ -1,6 +1,7 @@
 //! The user's settings, kept between sessions in the user's application data (`Terraflux/settings.json`): the
 //! theme, the text's size and the interface's zoom, the threads the functions use by default, and the operators
-//! in each collection of favourites (coloured, as Ableton Live's collections).
+//! in each collection of favourites (coloured, as Ableton Live's collections), the assistant's servers of chat
+//! models.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -51,6 +52,10 @@ pub struct Settings {
     pub node_colours: bool,
     /// The models opened or saved last, the last first.
     pub recent_models: Vec<PathBuf>,
+    /// The assistant's servers of chat models (their keys in the system's store of credentials), and the one
+    /// chosen (none: not chosen yet).
+    pub providers: Vec<crate::llm::Provider>,
+    pub provider: Option<usize>,
 }
 
 impl Default for Settings {
@@ -72,6 +77,8 @@ impl Default for Settings {
             files_recent: Vec::new(),
             node_colours: false,
             recent_models: Vec::new(),
+            providers: crate::llm::presets(),
+            provider: None,
         }
     }
 }

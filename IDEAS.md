@@ -187,7 +187,12 @@ das etapas, o que cabe num passo, onde a miniatura ajuda e onde atrapalha.
 - É a pergunta mais comum de quem audita um modelo espacial, e nenhuma ferramenta do gênero responde bem: é o que
   pode diferenciar o Terraflux.
 
-**Fase 8: o agente dentro do app.**
+**Fase 8: o agente dentro do app.** **Feito** (Unreleased): o painel Assistant, com as ferramentas do MCP no
+processo (as edições no modelo aberto, cada uma desfeita com ctrl+Z, o nó tocado selecionado; o run no app), o
+botão Explain do nó selecionado, o cliente da API compatível com a da OpenAI (streaming, tool calling, o
+pensamento do Qwen), os servidores conhecidos, a chave no cofre do sistema, "testar conexão" e o conjunto reduzido
+de ferramentas. Testado com o Qwen da HU Berlin (`llm3`, pela VPN). Faltam: destacar os nós durante a edição além
+da seleção, a revisão da fase 3, a avaliação.
 - Um painel de conversa ao lado do grafo, com as mesmas ferramentas do `terraflux mcp` chamadas dentro do
   processo.
 - Clicar num nó e perguntar "por que isso?" ou "o que acontece se eu mudar este limiar?".

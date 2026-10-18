@@ -179,6 +179,22 @@ For Claude Desktop, add to its `claude_desktop_config.json` (Settings, Developer
 { "mcpServers": { "terraflux": { "command": "terraflux", "args": ["mcp"] } } }
 ```
 
+The application has an assistant of its own too (View, Assistant): a chat beside the graph with the same tools,
+on the model open. Ask what a model or a node does ("Explain" asks about the node selected), for a change, or for
+a run and what it gave; each change shows on the canvas at once and ctrl+Z undoes it. The assistant talks to any
+server of OpenAI's chat completions API with tool calling:
+
+- a university's open models: the HU Berlin's KI-Service (Qwen, from its network or VPN, no key), the GWDG's
+  Chat AI;
+- a model on this computer, offline: Ollama, LM Studio, llama.cpp's server;
+- a commercial provider: OpenAI, Anthropic.
+
+Its settings take the server's address, its model and, when it asks for one, a key, kept in the system's store of
+credentials. "Test the connection" says whether the server answers, has the model and lets it call tools. For a
+small model, "Few tools" offers only those to explain, change settings, run and check.
+
+![The assistant explaining a node, answered by the HU Berlin's Qwen](docs/images/assistant.png)
+
 ### Models as text
 
 A model is a graph of operators. Each node reads the model's inputs (`$name`), other nodes' outputs

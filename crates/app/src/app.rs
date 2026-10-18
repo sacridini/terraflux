@@ -55,13 +55,15 @@ pub enum Pane {
     Batch,
     /// Other computers helping this one, this one helping another.
     Computers,
+    /// A chat with a model that explains, changes and runs the model open.
+    Assistant,
     /// A node's output in a tab of its own (opened by a double click on the node; one per node, brought to the
     /// front when it is open already).
     Map(u64),
 }
 
 impl Pane {
-    pub const ALL: [Pane; 11] = [
+    pub const ALL: [Pane; 12] = [
         Pane::Model,
         Pane::Operators,
         Pane::Files,
@@ -73,6 +75,7 @@ impl Pane {
         Pane::Validation,
         Pane::Batch,
         Pane::Computers,
+        Pane::Assistant,
     ];
 
     pub fn title(self) -> &'static str {
@@ -88,6 +91,7 @@ impl Pane {
             Pane::Validation => "Validation",
             Pane::Batch => "Many runs",
             Pane::Computers => "Computers",
+            Pane::Assistant => "Assistant",
             Pane::Map(_) => "Map",
         }
     }
@@ -1136,6 +1140,8 @@ pub struct TerrafluxApp {
     pub batch: crate::batch_view::BatchState,
     /// The application's pool of workers, shared or not, and this computer lent to another.
     pub computers: crate::computers::Computers,
+    /// The assistant: its conversation and its server.
+    pub chat: crate::chat::Chat,
     /// The palette of commands, while it is open (ctrl+K).
     pub commands: Option<crate::commands::Commands>,
     /// The window of the keyboard's shortcuts is open (F1).
@@ -1193,6 +1199,7 @@ impl TerrafluxApp {
             files: crate::files_view::Files::default(),
             batch: crate::batch_view::BatchState::new(),
             computers: crate::computers::Computers::new(),
+            chat: crate::chat::Chat::default(),
             commands: None,
             shortcuts_open: false,
             window_title: String::new(),
@@ -1504,6 +1511,13 @@ impl TerrafluxApp {
                     self.settings_open = !self.settings_open;
                 }
                 ui.separator();
+                if ui
+                    .button("Assistant...")
+                    .on_hover_text("a chat with a model (of a university, this computer or a provider) that explains, changes and runs the model")
+                    .clicked()
+                {
+                    self.focus(Pane::Assistant);
+                }
                 if ui
                     .button("Computers...")
                     .on_hover_text("other computers helping with the runs, this one helping another")
@@ -2297,6 +2311,7 @@ impl TerrafluxApp {
             s.poll();
             crate::watch::follow(s, ui.ctx());
             s.auto_run(ui.ctx());
+            self.chat.poll(s, &self.registry, ui.ctx());
             if s.running() || s.loading() || s.saving() {
                 ui.ctx().request_repaint_after(Duration::from_millis(100));
             }
@@ -2427,6 +2442,7 @@ impl TerrafluxApp {
             }
             Pane::Batch => crate::batch_view::pane(ui, &mut self.batch, s, r, &mut self.computers),
             Pane::Computers => crate::computers::pane(ui, &mut self.computers),
+            Pane::Assistant => crate::chat::pane(ui, &mut self.chat, s),
             Pane::Map(id) => {
                 let Some(mut shown) = s.map_tabs.remove(&id) else {
                     ui.label(RichText::new("This map's node is gone.").weak());
@@ -2539,6 +2555,7 @@ impl TerrafluxApp {
             Pane::Files => &[Pane::Node, Pane::Operators],
             Pane::Prepare => &[Pane::Node],
             Pane::Node => &[Pane::Prepare, Pane::Files],
+            Pane::Assistant => &[Pane::Node, Pane::Prepare, Pane::Files],
             _ => &[],
         };
         // the operators' pane, nowhere: at the left edge of the window
