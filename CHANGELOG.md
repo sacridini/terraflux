@@ -7,6 +7,16 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- Statistics of rasters: `raster.stats` (a map, or every layer of a stack or of a series, summarised as a table:
+  count, nodata, sum, mean, std, min, percentiles, max..., and a histogram), `stack.reduce` (a statistic of the
+  layers at every cell: mean, std, min, max, median, sum, count, majority, a percentile, the layer of the largest
+  or smallest), `raster.zonal` (the statistics of a map in the zones of a map of zone ids, as a table and as a map
+  of every cell given its zone's), `raster.tabulate` (the cells, area, hectares or share of every class in every
+  zone), `raster.correlation` (Pearson's or Spearman's correlation and the covariance between maps, the matrix of a
+  stack, the line of each pair), `raster.local_correlation` (the correlation, slope, intercept and r² of two maps
+  in a moving window) and `raster.standardize` (z-score, min-max or a percentile stretch, with each layer's centre
+  and scale); the library's subject Raster analysis, and the template Raster statistics: summaries, zones and
+  correlation.
 - A cell explained by an assistant through `terraflux mcp` (Claude Code, Claude Desktop...): Explain with an MCP
   assistant in a cell's menu (a right click) keeps its trace for it and copies a request to paste; the server's
   prompt `explain_cell` (a slash command in Claude Code) brings it the trace and the question.

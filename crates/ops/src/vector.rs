@@ -405,7 +405,7 @@ impl Operator for Rasterize {
 }
 
 /// landschaft's statistics of zones by name, and their codes in lsio::zonal_stats.
-fn stat_code(s: &str) -> Option<(i32, f64)> {
+pub(crate) fn stat_code(s: &str) -> Option<(i32, f64)> {
     Some(match s {
         "count" => (0, 0.0),
         "nodata" => (1, 0.0),

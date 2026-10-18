@@ -224,7 +224,7 @@ fn clue_s() -> Model {
     m
 }
 
-pub const TEMPLATES: [Template; 46] = [
+pub const TEMPLATES: [Template; 47] = [
     Template {
         name: "MSPA of a forest",
         group: PATTERNS,
@@ -647,6 +647,140 @@ id = "plot_worth"
 op = "view.plot"
 inputs = { table = "total.table" }
 params = { title = "Worth of each class", chart = "bars", x = "class", y = "worth" }
+"#,
+    },
+    Template {
+        name: "Raster statistics: summaries, zones and correlation",
+        group: SURFACES,
+        build: None,
+        about: "the statistics of rasters: a map summarised with its histogram, three years reduced cell by cell, \
+                the mean of each zone as a table and as a map, the hectares of each class by zone, the correlation \
+                of two drivers over the map and in a moving window, and the drivers put on one scale",
+        toml: r#"
+format = "terraflux/1"
+name = "Raster statistics: summaries, zones and correlation"
+description = "A rainfall map summarised (raster.stats), three years of it reduced at every cell (stack.reduce), its mean in every zone of a map of zones (raster.zonal), the land cover's hectares by zone (raster.tabulate), its correlation with the elevation over the map (raster.correlation) and in a moving window (raster.local_correlation), and both on a common scale (raster.standardize)."
+
+[[nodes]]
+id = "surface"
+op = "nlm.gaussian_field"
+params = { rows = 120, columns = 120, range = 20, seed = 4 }
+
+[[nodes]]
+id = "elevation"
+op = "map.calc"
+inputs = { s = "surface.map" }
+params = { expression = "200 + 800 * s" }
+note = "An elevation of 200 to 1000 m drawn by chance (in its place, a raster.read of a DEM)."
+
+[[nodes]]
+id = "noise"
+op = "nlm.gaussian_field"
+params = { rows = 120, columns = 120, range = 6, seed = 9 }
+
+[[nodes]]
+id = "rain"
+op = "map.calc"
+inputs = { elevation = "elevation.map", noise = "noise.map" }
+params = { expression = "600 + 0.8 * elevation + 400 * noise" }
+note = "A year's rainfall (mm), wetter up the hills."
+
+[[nodes]]
+id = "summary"
+op = "raster.stats"
+inputs = { map = "rain.map" }
+params = { bins = 12 }
+note = "The rainfall summarised: its mean, standard deviation, percentiles..., and its histogram."
+
+[[nodes]]
+id = "dry"
+op = "map.calc"
+inputs = { rain = "rain.map", noise = "noise.map" }
+params = { expression = "rain * (0.7 + 0.2 * noise)" }
+note = "A dry year."
+
+[[nodes]]
+id = "wet"
+op = "map.calc"
+inputs = { rain = "rain.map" }
+params = { expression = "rain * 1.25" }
+note = "A wet year."
+
+[[nodes]]
+id = "years"
+op = "stack.of"
+inputs = { y2020 = "rain.map", y2021 = "dry.map", y2022 = "wet.map" }
+
+[[nodes]]
+id = "mean_rain"
+op = "stack.reduce"
+inputs = { maps = "years.stack" }
+params = { stat = "mean" }
+note = "The mean of the three years at every cell."
+
+[[nodes]]
+id = "spread"
+op = "stack.reduce"
+inputs = { maps = "years.stack" }
+params = { stat = "std" }
+note = "How much a cell's rainfall changes from year to year."
+
+[[nodes]]
+id = "zones"
+op = "nlm.random_cluster"
+params = { rows = 120, columns = 120, p = 0.55, weights = [0.3, 0.3, 0.4], seed = 21 }
+note = "Three zones (in their place, municipalities or watersheds rasterized by vector.rasterize)."
+
+[[nodes]]
+id = "by_zone"
+op = "raster.zonal"
+inputs = { map = "mean_rain.map", zones = "zones.map" }
+params = { stats = ["count", "mean", "min", "max", "std"], to_map = "mean" }
+note = "The rainfall of each zone, and a map of every cell given its zone's mean."
+
+[[nodes]]
+id = "cover"
+op = "nlm.random_cluster"
+params = { rows = 120, columns = 120, p = 0.5, weights = [0.5, 0.3, 0.2], seed = 12 }
+note = "A land cover: 1 forest, 2 farming, 3 water."
+
+[[nodes]]
+id = "hectares"
+op = "raster.tabulate"
+inputs = { zones = "zones.map", classes = "cover.map" }
+params = { units = "share" }
+note = "The share of each class in every zone (units = hectares for its area, of a map in metres)."
+
+[[nodes]]
+id = "drivers"
+op = "stack.of"
+inputs = { elevation = "elevation.map", rain = "mean_rain.map" }
+
+[[nodes]]
+id = "correlation"
+op = "raster.correlation"
+inputs = { x = "drivers.stack" }
+note = "How strongly rainfall goes with the elevation over the whole map."
+
+[[nodes]]
+id = "local"
+op = "raster.local_correlation"
+inputs = { x = "elevation.map", y = "mean_rain.map" }
+params = { radius = 5, shape = "circle" }
+note = "The same in a circle of 5 cells around every cell: where the relation holds and where it does not."
+
+[[nodes]]
+id = "scaled"
+op = "raster.standardize"
+inputs = { map = "drivers.stack" }
+params = { method = "zscore" }
+note = "Both drivers as z-scores, to be compared or combined (a model's predictors)."
+
+[[nodes]]
+id = "plot_zones"
+op = "view.plot"
+inputs = { table = "by_zone.table" }
+params = { title = "Mean rainfall by zone", chart = "bars", x = "zone", y = "mean" }
 "#,
     },
     Template {
@@ -3663,6 +3797,29 @@ mod tests {
 
 #[cfg(test)]
 mod table_template_tests {
+    #[test]
+    fn the_raster_statistics_template_runs() {
+        let t = super::TEMPLATES.iter().find(|t| t.name.starts_with("Raster statistics:")).unwrap();
+        let m = t.model();
+        let r = match terraflux_exec::Engine::default().run(&m, &Default::default(), &mut terraflux_exec::Quiet) {
+            Ok(r) => r,
+            Err(e) => panic!("{e}"),
+        };
+        let table = |n: &str| match r.get(n) {
+            Some(terraflux_ops::Value::Table(t)) => t.clone(),
+            other => panic!("{n}: {other:?}"),
+        };
+        assert_eq!(table("summary.table").rows.len(), 1);
+        assert_eq!(table("summary.histogram").rows.len(), 12);
+        assert_eq!(table("by_zone.table").rows.len(), 3);
+        let shares = table("hectares.table");
+        assert!(shares.rows.iter().all(|r| (r[r.len() - 1] - 1.0).abs() < 1e-9), "{:?}", shares.rows);
+        let matrix = table("correlation.matrix");
+        assert_eq!(matrix.columns, ["layer", "elevation", "rain"]);
+        assert!(matrix.rows[0][2] > 0.5, "{:?}", matrix.rows);
+        assert!(matches!(r.get("scaled.map"), Some(terraflux_ops::Value::Stack(_))));
+    }
+
     #[test]
     fn the_tables_template_runs() {
         let t = super::TEMPLATES.iter().find(|t| t.name.starts_with("Tables:")).unwrap();

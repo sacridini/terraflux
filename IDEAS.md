@@ -544,6 +544,30 @@ Registro de 2026-10-16. O aplicativo avisa quando há uma versão nova e a insta
 1. Verificar, avisar, baixar, conferir a assinatura e instalar o `.msi` (2 a 3 dias).
 2. A troca no macOS e no zip/tar.gz, o repositório apt.
 
+## Ferramentas gerais de raster, vetor e análise
+
+Registro de 2026-10-18. As ferramentas de todo dia de um SIG que faltavam entre os operadores (as de tabela entraram
+em 1.5.0: `table.filter`, `calc`, `aggregate`, `join`, `sort`, `select`, `pivot`). Em blocos, nesta ordem:
+
+1. **Estatística de rasters:** `raster.stats` (resumo de um mapa ou de cada camada: n, média, sd, mín, máx,
+   percentis, histograma), `stack.reduce` (por célula sobre uma pilha: média, sd, mín, máx, mediana, soma, válidos,
+   moda, a camada do máximo), zonal com zonas em raster (`raster.zonal`, com o mapa de cada célula recebendo a
+   estatística da sua zona) e a área de cada classe por zona (`raster.tabulate`), `raster.correlation`
+   (correlação e covariância entre mapas, a matriz de uma pilha), a correlação e a regressão local em janela móvel
+   entre dois mapas, `raster.standardize` (z-score, mín-máx, percentis). **Feito** (Unreleased): os sete, o
+   assunto Raster analysis da biblioteca e o template Raster statistics: summaries, zones and correlation.
+2. **Vizinhança e limpeza de mapas de classes:** estatística focal geral (média, mediana, moda, sd, variedade,
+   amplitude, percentil; janela quadrada, circular, anelar ou gaussiana), filtro de maioria e sieve (as manchas
+   menores que N células, como o `gdal_sieve`), `raster.label` (as manchas como um raster de ids), crescer e
+   encolher uma classe N células.
+3. **Vetor:** `vector.polygonize` (raster em polígonos), `vector.filter` e `vector.calc` (atributos),
+   `vector.geometry` (área, perímetro, comprimento, centróide), overlay (interseção, união, diferença), join
+   espacial (contar pontos por polígono, os atributos de quem contém), `vector.reproject`, `vector.from_table`
+   (pontos das colunas x e y), pontos aleatórios ou regulares dentro de polígonos.
+4. **Análise espacial clássica:** densidade de kernel de pontos e contagem de pontos por célula, curvas de nível,
+   viewshed, a área real de cada célula numa grade lat/lon, classificação por quebras (quantis, intervalos iguais,
+   Jenks, desvio padrão).
+
 ## O que ainda falta entre os operadores
 
 Registro de 2026-10-17. Uma revisão dos 326 operadores (0.86.0) atrás do que quem trabalha com mudança de uso e

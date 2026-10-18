@@ -25,9 +25,23 @@ use crate::theme;
 /// The subjects of the library: landschaft's (the sections of its reference, in its order), then the
 /// model's own (map algebra, the flow of a model); with the operators' prefixes in each and, within a subject,
 /// the groups of its operators.
-const SUBJECTS: [(&str, &[&str]); 29] = [
+/// The subjects of the library and the operators of each: by the prefix of their names, or by name (before the
+/// prefixes).
+const SUBJECTS: [(&str, &[&str]); 30] = [
     ("IO", &[]),
     ("Data preparation", &["raster", "vector", "data"]),
+    (
+        "Raster analysis",
+        &[
+            "raster.stats",
+            "stack.reduce",
+            "raster.zonal",
+            "raster.tabulate",
+            "raster.correlation",
+            "raster.local_correlation",
+            "raster.standardize",
+        ],
+    ),
     ("Habitat patterns", &["landscape", "patterns"]),
     ("Fragmentation", &["fragmentation"]),
     ("Landscape metrics", &["metrics"]),
@@ -105,7 +119,8 @@ impl Library {
                 let subject = if IO.contains(&g.name.as_str()) {
                     "IO"
                 } else {
-                    SUBJECTS.iter().find(|(_, p)| p.contains(&prefix)).map_or("Other", |(s, _)| s)
+                    let named = SUBJECTS.iter().find(|(_, p)| p.contains(&g.name.as_str()));
+                    named.or_else(|| SUBJECTS.iter().find(|(_, p)| p.contains(&prefix))).map_or("Other", |(s, _)| s)
                 };
                 Entry { group: group(prefix), name: g.name, doc: g.doc, subject }
             })
