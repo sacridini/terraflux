@@ -590,6 +590,9 @@ destravam outros são o 1 e o 3.
      modelo "Interpolation: IDW and kriging".
 8. **O resto do InVEST:** a razão de entrega de nutrientes (NDR), a polinização e a produção sazonal de água, os
    mais pedidos depois dos quatro que já estão. Entram primeiro no landschaft, como os outros.
+   - **Decidido** (2026-10-18): primeiro no landschaft (`ls.services`, o C++ em `src/cpp/serv`, bit a bit com o
+     natcap.invest), depois aqui pelo `terraflux-ls-sys`, como os quatro de `services.rs`. Registrado no
+     IDEAS do landschaft ("Do Terraflux para o landschaft", item 4).
 9. **Dispersão de espécies no tempo.** O SDM de vários períodos com a dispersão célula a célula (como o MigClim) ou
    com uma metapopulação (o modelo de função de incidência), juntando o `sdm.*` e o `conn.*` num laço.
    - **Feito** (0.97.0): `sdm.migrate`, o autômato do MigClim 1.6 (o mesmo resultado para uma semente: o
