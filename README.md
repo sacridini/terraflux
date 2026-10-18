@@ -144,7 +144,7 @@ terraflux app model.toml      # with a model
 ```
 
 Start from **Templates** (each runs as soon as it opens, its data drawn by neutral landscape models), open a raster
-with **Open a raster...** or drop one on the window, then click operators in the library: each comes connected to
+with **File > Open a raster or vectors...** (ctrl+O), from the **Files** drawer or by dropping one on the window, then click operators in the library: each comes connected to
 the node selected. Press `/` to search the operators from the keyboard.
 
 The same work from the command line:

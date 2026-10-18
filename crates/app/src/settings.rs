@@ -34,6 +34,8 @@ pub struct Settings {
     pub threads: Option<usize>,
     /// The collections each operator is in (indices of [`COLLECTIONS`]).
     pub favourites: BTreeMap<String, Vec<u8>>,
+    /// The names given to the collections, by index (none: its colour's).
+    pub collection_names: BTreeMap<u8, String>,
     /// Other computers may work for this one's batches: those given its code.
     pub share: bool,
     pub share_code: Option<String>,
@@ -66,6 +68,7 @@ impl Default for Settings {
             zoom: 1.0,
             threads: None,
             favourites: BTreeMap::new(),
+            collection_names: BTreeMap::new(),
             share: false,
             share_code: None,
             lend: false,
@@ -168,6 +171,29 @@ pub fn toggle(op: &str, collection: u8) {
             }
         }
         s.favourites.retain(|_, c| !c.is_empty());
+    });
+}
+
+/// A collection's name: the one given to it, else its colour's.
+pub fn collection_name(collection: u8) -> String {
+    global()
+        .lock()
+        .unwrap()
+        .collection_names
+        .get(&collection)
+        .cloned()
+        .unwrap_or_else(|| COLLECTIONS.get(collection as usize).map_or("", |c| c.0).to_string())
+}
+
+/// Name a collection (an empty name: its colour's again).
+pub fn rename_collection(collection: u8, name: &str) {
+    update(|s| {
+        let name = name.trim();
+        if name.is_empty() || COLLECTIONS.get(collection as usize).is_some_and(|c| c.0 == name) {
+            s.collection_names.remove(&collection);
+        } else {
+            s.collection_names.insert(collection, name.to_string());
+        }
     });
 }
 

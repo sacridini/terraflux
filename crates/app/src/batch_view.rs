@@ -1111,10 +1111,11 @@ fn running_ui(ui: &mut Ui, r: &Running) {
     } else {
         String::new()
     };
-    ui.add(
-        egui::ProgressBar::new(frac)
-            .fill(theme::accent())
-            .text(RichText::new(format!("{} of {} runs", done + failed, r.total)).color(theme::on_accent())),
+    theme::progress(
+        ui,
+        Some(frac),
+        &format!("{} of {} runs", done + failed, r.total),
+        (ui.available_width() - 120.0).max(80.0),
     );
     ui.label(
         RichText::new(format!(

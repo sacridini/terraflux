@@ -171,8 +171,8 @@ an Internet connection, and a map with a coordinate system. See
 ### A file does not open
 
 Terraflux reads every format its GDAL reads. A GeoTIFF that opens in QGIS opens in Terraflux; if one does not,
-check its path (paths in a model are relative to the model's folder) and open it alone with **Open a raster...**
-to see the message.
+check its path (paths in a model are relative to the model's folder) and open it alone with **File > Open a raster or
+vectors...** to see the message.
 
 ## Where Terraflux keeps its things
 

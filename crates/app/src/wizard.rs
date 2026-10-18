@@ -58,7 +58,7 @@ pub struct Picked {
 
 impl Picked {
     pub fn read(path: &Path) -> Result<Picked, String> {
-        let r = Raster::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let r = terraflux_ops::files::read_raster(path).map_err(|e| format!("{}: {e}", path.display()))?;
         let mut classes: Vec<f64> = Vec::new();
         for v in r.bands[0].masked(r.nodata) {
             if v.is_nan() || v.fract() != 0.0 {

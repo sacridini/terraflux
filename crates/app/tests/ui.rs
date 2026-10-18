@@ -984,7 +984,7 @@ fn keys_duplicate_copy_and_paste() {
     assert_eq!(h.state().session.as_ref().unwrap().source.nodes.len(), 7);
 }
 
-/// The keyboard: Tab to the model and back to the tab it came from, ctrl+W closes the tab in focus, ctrl+R
+/// The keyboard: Tab to the model and to the last map seen, ctrl+W closes the tab in focus, ctrl+R
 /// renames the node selected; a right click on a connected input takes its connection away; the text of the
 /// model is a button of the model's tab.
 #[test]
@@ -1003,6 +1003,15 @@ fn keys_switch_close_rename_and_disconnect() {
     h.state_mut().focus(Pane::Viewer);
     h.run_steps(2);
     assert_eq!(h.state_mut().focused(), Some(Pane::Viewer));
+    h.key_press(egui::Key::Tab);
+    h.run_steps(2);
+    assert_eq!(h.state_mut().focused(), Some(Pane::Model));
+    h.key_press(egui::Key::Tab);
+    h.run_steps(2);
+    assert_eq!(h.state_mut().focused(), Some(Pane::Viewer));
+    // from a pane of another kind: to the model, then to the last map seen (not back to it)
+    h.state_mut().focus(Pane::Document);
+    h.run_steps(2);
     h.key_press(egui::Key::Tab);
     h.run_steps(2);
     assert_eq!(h.state_mut().focused(), Some(Pane::Model));
@@ -1162,9 +1171,10 @@ fn data_is_put_on_the_reference_grid_in_a_click() {
     assert_eq!(s.selected.as_deref(), Some(n.id.as_str()));
 }
 
-/// The panes' places: the model in most of the window, the node's pane at its right (the preparation and the files
-/// in tabs beside it); the operators in a drawer the pointer opens at the window's left edge (and closes leaving
-/// it) and in the toolbar, their pane, shown, at the left edge; backspace deletes the node selected; a tab dragged
+/// The panes' places: the model in most of the window, the node's pane at its left (the preparation in a tab beside
+/// it), nothing at the right; the operators and the files in drawers the pointer opens at the window's left edge
+/// (and closes leaving it), the operators in the toolbar too, their panes, shown, at the left edge; the assistant
+/// at the right; backspace deletes the node selected; a tab dragged
 /// out of the dock (egui_dock's floating window) becomes a window of its own.
 #[test]
 fn the_operators_drawer_and_windows_of_their_own() {
@@ -1175,23 +1185,31 @@ fn the_operators_drawer_and_windows_of_their_own() {
     h.run_steps(4);
     assert!(!h.state().is_open(Pane::Operators), "the operators in their drawer at first");
     assert!(h.state().is_open(Pane::Node) && h.state().is_open(Pane::Prepare));
-    let left = |h: &Harness<TerrafluxApp>, pane: Pane| {
+    assert!(!h.state().is_open(Pane::Files) && !h.state().is_open(Pane::Assistant), "nothing more at first");
+    let rect = |h: &Harness<TerrafluxApp>, pane: Pane| {
         let dock = h.state().dock.as_ref().unwrap();
         let path = dock.find_tab(&pane).unwrap();
-        dock[path.surface][path.node].rect().unwrap().left()
+        dock[path.surface][path.node].rect().unwrap()
     };
-    let (model, node) = (left(&h, Pane::Model), left(&h, Pane::Node));
-    assert!(model < node, "the model, then the node from the left: {model} {node}");
-    // the node's pane a fifth of the window
+    let left = |h: &Harness<TerrafluxApp>, pane: Pane| rect(h, pane).left();
+    let (model, node) = (rect(&h, Pane::Model), rect(&h, Pane::Node));
+    assert!(node.left() < model.left(), "the node, then the model from the left: {node:?} {model:?}");
+    // the node's pane a fifth of the window, the model to the right edge
     let width = h.ctx.content_rect().width();
-    assert!(((width - node) / width - 0.2).abs() < 0.03, "the node's width: {}", width - node);
-    // the files in a tab beside the node's: the data of a folder, a raster carried to the model from there
-    {
-        let dock = h.state().dock.as_ref().unwrap();
-        let (a, b) = (dock.find_tab(&Pane::Node).unwrap(), dock.find_tab(&Pane::Files).unwrap());
-        assert_eq!((a.surface, a.node), (b.surface, b.node), "the files beside the node");
-    }
+    assert!((node.width() / width - 0.2).abs() < 0.03, "the node's width: {}", node.width());
+    assert!(width - model.right() < 12.0, "nothing at the right: {}", width - model.right());
+    // the files' drawer: the pointer over its tab of the strip
     h.state_mut().files.go(data(""));
+    let files_tab = egui::pos2(8.0, rect(&h, Pane::Model).top() + 180.0);
+    h.event(egui::Event::PointerMoved(files_tab));
+    h.run_steps(3);
+    assert_eq!(h.state().drawer, Some(Pane::Files), "the files' drawer");
+    assert!(h.query_by_label_contains("sibuyan_landuse.tif").is_some(), "the folder's rasters in it");
+    shot(&mut h, "20-files-drawer");
+    h.event(egui::Event::PointerMoved(egui::pos2(700.0, 300.0)));
+    h.run_steps(3);
+    assert_eq!(h.state().drawer, None);
+    // the files' pane: the data of a folder, a raster carried to the model from there
     h.state_mut().focus(Pane::Files);
     h.run_steps(3);
     assert!(h.query_by_label_contains("sibuyan_landuse.tif").is_some(), "the folder's rasters");
@@ -1235,10 +1253,11 @@ fn the_operators_drawer_and_windows_of_their_own() {
     h.state_mut().focus(Pane::Operators);
     h.run_steps(2);
     assert!(left(&h, Pane::Operators) < left(&h, Pane::Model), "the operators at the left");
-    assert!(h.query_by_label("Open a raster...").is_some(), "the operators in their pane");
+    assert!(h.query_by_label("FAVOURITES").is_some(), "the operators in their pane, from the favourites");
+    assert!(h.query_by_label("Open a raster...").is_none(), "no buttons of data");
     h.event(egui::Event::PointerMoved(egui::pos2(1.0, 300.0)));
     h.run_steps(3);
-    assert!(!h.state().drawer, "no drawer over the operators' pane");
+    assert!(h.state().drawer.is_none(), "no drawer over the operators' pane");
     shot(&mut h, "20-panes");
     // the operators' pane closed: the drawer
     {
@@ -1250,16 +1269,25 @@ fn the_operators_drawer_and_windows_of_their_own() {
     h.run_steps(4);
     assert!(!h.state().is_open(Pane::Operators));
     assert!(h.query_by_label("Operators").is_some(), "the toolbar's menu");
-    assert!(h.query_by_label("Open a raster...").is_none());
+    assert!(h.query_by_label("FAVOURITES").is_none());
     // the pointer at the left edge: the drawer
     h.event(egui::Event::PointerMoved(egui::pos2(1.0, 300.0)));
     h.run_steps(3);
-    assert!(h.state().drawer);
-    assert!(h.query_by_label("Open a raster...").is_some(), "the operators in the drawer");
+    assert_eq!(h.state().drawer, Some(Pane::Operators));
+    assert!(h.query_by_label("FAVOURITES").is_some(), "the operators in the drawer");
     shot(&mut h, "20-drawer");
     h.event(egui::Event::PointerMoved(egui::pos2(700.0, 300.0)));
     h.run_steps(3);
-    assert!(!h.state().drawer, "away from it, it goes in");
+    assert!(h.state().drawer.is_none(), "away from it, it goes in");
+    // the assistant: at the right, alone
+    h.state_mut().focus(Pane::Assistant);
+    h.run_steps(2);
+    assert!(left(&h, Pane::Assistant) > left(&h, Pane::Model), "the assistant at the right");
+    {
+        let dock = h.state().dock.as_ref().unwrap();
+        let (a, b) = (dock.find_tab(&Pane::Assistant).unwrap(), dock.find_tab(&Pane::Node).unwrap());
+        assert_ne!((a.surface, a.node), (b.surface, b.node), "not with the node");
+    }
     // backspace deletes
     let n = h.state().session.as_ref().unwrap().source.nodes.len();
     {

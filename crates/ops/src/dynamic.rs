@@ -271,14 +271,14 @@ impl Operator for Classes {
     }
 }
 
-/// `stack.layer`: one layer of a stack as a map.
+/// `stack.extract_layer`: one layer of a stack taken out as a map.
 struct Layer;
 
 impl Operator for Layer {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
-            "stack.layer",
-            "One layer of a stack as a map, by its name or its 0-based number: a band of rasters (the bands of a \
+            "stack.extract_layer",
+            "Take one layer out of a stack as a map, by its name or its 0-based number: a band of rasters (the bands of a \
              file), a layer of a stack (prioritize.evaluate's ferrier: total), a step of the series of a loop (1..).",
             Access::Local,
         )

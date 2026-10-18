@@ -116,9 +116,9 @@ adds a node of the operator [[raster.read]].
 <div class="steps" markdown>
 
 1. Start a new model with **New** in the toolbar.
-2. Open the raster: **Open a raster...** at the top of the **Operators** pane (the drawer that slides out when
-   the pointer touches the window's left edge), or ++ctrl+o++, or **Operators > Open a raster or vectors...** in
-   the toolbar. Choose `clc.tif`.
+2. Open the raster: ++ctrl+o++ (**File > Open a raster or vectors...**, or **Operators > Open a raster or
+   vectors...** in the toolbar), or drag it from the **Files** drawer (its tab at the window's left edge, under
+   the operators'). Choose `clc.tif`.
 3. A node `raster.read` appears on the canvas, already selected. Its map is shown in the **Viewer** under the
    canvas at once.
 

@@ -367,10 +367,15 @@ impl MapView {
         if self.basemap == Basemap::None {
             return;
         }
+        const NO_CRS: &str = "the map has no CRS: no basemap";
         let Some(crs) = crs_of(grid) else {
-            self.base.error = Some("the map has no CRS: no basemap".into());
+            self.base.error = Some(NO_CRS.into());
             return;
         };
+        // (a map without one shown before: its word goes)
+        if self.base.error.as_deref() == Some(NO_CRS) {
+            self.base.error = None;
+        }
         let view = crate::basemap::View {
             transform: grid.transform,
             rect,

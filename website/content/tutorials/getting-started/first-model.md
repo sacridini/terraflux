@@ -78,7 +78,7 @@ way to write the methods section of a paper: every step and every setting is in 
 <div class="steps" markdown>
 
 1. Click **New** in the toolbar: an empty model.
-2. Press ++ctrl+o++ (or **Open a raster...** at the top of the operators' drawer) and choose `clc.tif`.
+2. Press ++ctrl+o++ (or **File > Open a raster or vectors...**) and choose `clc.tif`.
 3. A node `raster.read` appears, selected, and its map is shown in the Viewer.
 4. Rename it: press ++ctrl+r++, type `landcover`, press ++enter++. Names are what connections refer to, so short,
    meaningful names make a model readable.

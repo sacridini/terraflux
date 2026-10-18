@@ -1080,13 +1080,13 @@ pub fn operators_menu(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library)
     ui.separator();
     ui.menu_button("Favourites", |ui| {
         let mut any = false;
-        for (k, (name, colour)) in crate::settings::COLLECTIONS.iter().enumerate() {
+        for (k, (_, colour)) in crate::settings::COLLECTIONS.iter().enumerate() {
             let ops = crate::settings::in_collection(k as u8);
             if ops.is_empty() {
                 continue;
             }
             any = true;
-            let label = RichText::new(format!("■  {name}")).color(*colour);
+            let label = RichText::new(format!("■  {}", crate::settings::collection_name(k as u8))).color(*colour);
             ui.menu_button(label, |ui| {
                 for e in lib.entries.iter().filter(|e| ops.contains(&e.name)) {
                     item(ui, e, &mut chosen);
@@ -1205,77 +1205,8 @@ pub fn add_files(s: &mut Session, r: &Registry, files: &[PathBuf]) -> Option<Pat
 pub struct DraggedFile(pub Vec<PathBuf>);
 
 fn library(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library) {
-    theme::section(ui, "Data");
-    let wide = Vec2::new(ui.available_width(), 24.0);
-    if ui.add(egui::Button::new("Open a raster...").min_size(wide)).clicked()
-        && let Some(p) = rfd::FileDialog::new()
-            .set_title("A raster")
-            .add_filter("Rasters", &terraflux_ops::files::RASTER_EXTENSIONS)
-            .add_filter("Every file", &["*"])
-            .pick_file()
-    {
-        let path = p.to_string_lossy().into_owned();
-        if let Err(e) = add(s, r, "raster.read", &[("path", path.into())]) {
-            s.editor.message = Some(e);
-        }
-    }
-    if ui
-        .add(egui::Button::new("Open vectors...").min_size(wide))
-        .on_hover_text("vector features (GeoPackage, Shapefile, GeoJSON...), read by GDAL")
-        .clicked()
-        && let Some(p) = rfd::FileDialog::new()
-            .set_title("Vector features")
-            .add_filter("Vectors", &VECTOR_EXTENSIONS)
-            .add_filter("Every file", &["*"])
-            .pick_file()
-    {
-        let path = p.to_string_lossy().into_owned();
-        if let Err(e) = add(s, r, "vector.read", &[("path", path.into())]) {
-            s.editor.message = Some(e);
-        }
-    }
-    if ui
-        .add(egui::Button::new("Open a folder as a stack...").min_size(wide))
-        .on_hover_text(
-            "every raster of a folder as one stack: a layer per band of each file, by the files' names (of one grid \
-             to be a stack; else shown one by one)",
-        )
-        .clicked()
-        && let Some(p) = rfd::FileDialog::new().set_title("A folder of rasters").pick_folder()
-    {
-        let path = p.to_string_lossy().into_owned();
-        if let Err(e) = add(s, r, "raster.read", &[("path", path.into())]) {
-            s.editor.message = Some(e);
-        }
-    }
-    let can_save = s.selected.is_some();
-    if ui
-        .add_enabled(can_save, egui::Button::new("Save as a raster...").min_size(wide))
-        .on_hover_text("write what the node selected gives to a GeoTIFF file")
-        .on_disabled_hover_text("select the node whose map to save")
-        .clicked()
-        && let Some(p) = rfd::FileDialog::new()
-            .set_title("Save the map")
-            .add_filter("GeoTIFF", &["tif"])
-            .set_file_name("map.tif")
-            .save_file()
-    {
-        let path = p.to_string_lossy().into_owned();
-        if let Err(e) = add(s, r, "raster.write", &[("path", path.into())]) {
-            s.editor.message = Some(e);
-        }
-    }
-    // which GDAL reads the other formats and does the warping, if any
-    let gdal = match terraflux_gdal::gdal() {
-        Ok(g) => RichText::new(format!("GDAL {} · {} formats", g.version, g.drivers)).weak(),
-        Err(_) => RichText::new("no GDAL: GeoTIFF only").color(ui.visuals().warn_fg_color),
-    };
-    ui.label(gdal.size(10.5)).on_hover_text(match terraflux_gdal::gdal() {
-        Ok(g) => g.library.display().to_string(),
-        Err(e) => e.to_string(),
-    });
-    ui.add_space(6.0);
-    // the collections of favourites that have operators, by name and count: one chosen shows its operators
+    // the collections of favourites that have operators, by name and count: one chosen shows its operators; a
+    // right click names it
     theme::section(ui, "Favourites");
     let shown_id = egui::Id::new("collection shown");
     let mut shown: Option<u8> = ui.data(|d| d.get_temp(shown_id)).flatten();
@@ -1285,27 +1216,46 @@ fn library(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library) {
         .collect();
     if filled.is_empty() {
         ui.label(
-            RichText::new("Right-click an operator to put it in a collection of favourites.")
-                .size(11.0)
-                .color(ui.visuals().weak_text_color()),
+            RichText::new(
+                "Right-click an operator to put it in a collection of favourites, and a collection to name it.",
+            )
+            .size(11.0)
+            .color(ui.visuals().weak_text_color()),
         );
     }
     ui.horizontal_wrapped(|ui| {
         for (k, count) in filled {
-            let (name, colour) = crate::settings::COLLECTIONS[k as usize];
+            let colour = crate::settings::COLLECTIONS[k as usize].1;
+            let name = crate::settings::collection_name(k);
             let on = shown == Some(k);
             let mut job = egui::text::LayoutJob::default();
             let font = egui::TextStyle::Button.resolve(ui.style());
             job.append("■ ", 0.0, egui::TextFormat::simple(font.clone(), colour));
             let text = if on { ui.visuals().selection.stroke.color } else { ui.visuals().text_color() };
             job.append(&format!("{name} {count}"), 0.0, egui::TextFormat::simple(font, text));
-            if ui
-                .add(egui::Button::selectable(on, job))
-                .on_hover_text(format!("{name}: {count} operators (right-click an operator to put it here)"))
-                .clicked()
-            {
+            let resp = ui.add(egui::Button::selectable(on, job)).on_hover_text(format!(
+                "{name}: {count} operators (right-click an operator to put it here; right-click here to name it)"
+            ));
+            if resp.clicked() {
                 shown = if on { None } else { Some(k) };
             }
+            resp.context_menu(|ui| {
+                ui.label(RichText::new("The collection's name").weak().size(11.0));
+                let key = format!("collection name {k}");
+                let mut text = s.fields.entry(key.clone()).or_insert_with(|| name.clone()).clone();
+                let edit = ui.add(egui::TextEdit::singleline(&mut text).desired_width(160.0));
+                s.fields.insert(key.clone(), text.clone());
+                if edit.lost_focus() || ui.button("Rename").clicked() {
+                    crate::settings::rename_collection(k, &text);
+                    s.fields.remove(&key);
+                    ui.close();
+                }
+                if ui.button("Its colour's name").clicked() {
+                    crate::settings::rename_collection(k, "");
+                    s.fields.remove(&key);
+                    ui.close();
+                }
+            });
         }
     });
     ui.data_mut(|d| d.insert_temp(shown_id, shown));
@@ -1337,12 +1287,12 @@ fn library(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library) {
             }
             resp.context_menu(|ui| {
                 ui.label(RichText::new("Favourites").weak().size(11.0));
-                for (k, (name, colour)) in crate::settings::COLLECTIONS.iter().enumerate() {
+                for (k, (_, colour)) in crate::settings::COLLECTIONS.iter().enumerate() {
                     let mut on = colls.contains(&(k as u8));
                     ui.horizontal(|ui| {
                         let (rect, _) = ui.allocate_exact_size(Vec2::splat(10.0), egui::Sense::hover());
                         ui.painter().rect_filled(rect, 1.0, *colour);
-                        if ui.checkbox(&mut on, *name).changed() {
+                        if ui.checkbox(&mut on, crate::settings::collection_name(k as u8)).changed() {
                             crate::settings::toggle(&e.name, k as u8);
                         }
                     });
@@ -1579,13 +1529,7 @@ fn bar(ui: &mut Ui, s: &mut Session, r: &Registry) {
         }
         // how far the node running is, as its operator tells it: a bar when it can say, else its words moving
         if let (Some((at, p)), None) = (&s.task, s.stopping) {
-            let text = egui::RichText::new(format!("{at}: {}", p.text)).color(crate::theme::on_accent());
-            let bar = egui::ProgressBar::new(p.fraction.unwrap_or(0.0) as f32)
-                .desired_width(ui.available_width().max(160.0))
-                .desired_height(16.0)
-                .fill(crate::theme::accent())
-                .text(text);
-            ui.add(if p.fraction.is_none() { bar.animate(true) } else { bar }).on_hover_text(&p.text);
+            crate::theme::progress(ui, p.fraction.map(|f| f as f32), &format!("{at}: {}", p.text), 160.0);
         }
     });
 }

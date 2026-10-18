@@ -6,6 +6,32 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- The assistant is told of the problems that come up, for it to fix them: in a conversation going on, a run that
+  fails (whoever started it) and the model's errors when an answer of its ends are sent to it on their own, each
+  once and a few times one after another at most until the user writes ("fix problems" in its bar turns it off).
+- The collections of favourites are named (a right click on one), not only by their colours.
+
+### Changed
+- The panes as they first are: the node's pane (and Prepare) at the left of the model, nothing at the right; the
+  files in a drawer of their own at the window's left edge, as the operators (a tab each on the strip); the
+  assistant at the right when it opens, not with the node's pane. A layout kept of another version is let go.
+- The operators' pane begins with the favourites: the buttons to open rasters, vectors and folders and to save a
+  raster are gone (File, Open a raster or vectors, ctrl+O, and the Files drawer open data), and GDAL's version is
+  in the Settings.
+- Tab goes between the model and the last map seen (a map's tab or the viewer), and from any other pane to the
+  model.
+- `stack.layer` is `stack.extract_layer` (a model that names the old one reads as before).
+- The run's progress: the whole run (its nodes done, and the share of the one running: a loop's steps, what its
+  operator tells), begun anew at every run and gone once it ends; its words beside the bar, readable whatever the
+  bar shows under them (the bars of a node's progress and of Many runs too).
+
+### Fixed
+- A GeoTIFF of a projection of its own (no EPSG code: a country's Albers, ArcGIS's projections) had no coordinate
+  system for the basemap and the warping: its WKT now comes from GDAL. And the basemap's "no CRS" stayed after a map
+  of one was shown again.
+- The run's progress bar showed the last loop of an earlier run, and did not move in a model without loops.
+
 ## [1.2.0] - 2026-10-18
 
 ### Added

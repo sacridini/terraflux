@@ -280,6 +280,20 @@ pub fn apply(ctx: &egui::Context) {
     apply_with(ctx, 1.0);
 }
 
+/// A bar of how far something is (`fraction`: 0 to 1; none: it cannot say, the bar moves) `width` points wide,
+/// and its words beside it in the text's colour, readable whatever the bar shows under them.
+pub fn progress(ui: &mut egui::Ui, fraction: Option<f32>, text: &str, width: f32) -> egui::Response {
+    ui.horizontal(|ui| {
+        let bar =
+            egui::ProgressBar::new(fraction.unwrap_or(0.0)).desired_width(width).desired_height(6.0).fill(accent());
+        let bar = ui.add(if fraction.is_none() { bar.animate(true) } else { bar });
+        ui.add(egui::Label::new(egui::RichText::new(text).size(12.0)).truncate());
+        bar
+    })
+    .inner
+    .on_hover_text(text)
+}
+
 /// A heading of a side panel: small capitals in the weak colour.
 pub fn section(ui: &mut egui::Ui, text: &str) {
     ui.add_space(4.0);

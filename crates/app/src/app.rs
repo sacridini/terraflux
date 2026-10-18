@@ -110,18 +110,19 @@ impl Pane {
 }
 
 /// The panes as they first are: the model in most of the window (its document in a tab beside it), the node
-/// selected at its right as an inspector (the preparation of its data, the files and the assistant in tabs beside
-/// it); the others from the View menu.
+/// selected at its left as an inspector (the preparation of its data in a tab beside it), nothing at the right
+/// (the assistant goes there when it opens); the others from the View menu.
 /// The viewer opens in a tab behind the model's when the first data comes (a raster or vectors read, a template);
-/// the maps of nodes open beside the viewer. The operators are in a drawer at the window's left edge, in the Operators menu, behind
-/// "/" and in the commands (ctrl+K); their pane, shown, takes the left edge.
+/// the maps of nodes open beside the viewer. The operators and the files are in drawers at the window's left edge
+/// (the operators also in the Operators menu, behind "/" and in the commands, ctrl+K); their panes, shown, take
+/// the left edge.
 pub fn default_layout() -> DockState<Pane> {
     // the inspector a fifth of the window
     const NODE: f32 = 0.2;
     let mut d = DockState::new(vec![Pane::Model, Pane::Document]);
     let s = d.main_surface_mut();
-    let [_, _] =
-        s.split_right(NodeIndex::root(), 1.0 - NODE, vec![Pane::Node, Pane::Prepare, Pane::Files, Pane::Assistant]);
+    // (split_left: the new node's share)
+    let [_, _] = s.split_left(NodeIndex::root(), NODE, vec![Pane::Node, Pane::Prepare]);
     d
 }
 
@@ -147,7 +148,7 @@ fn retain_panes(dock: &mut DockState<Pane>, keep: impl FnMut(&mut Pane) -> bool)
 }
 
 /// The version of the layout kept (a layout of another version is let go).
-const LAYOUT_VERSION: u32 = 10;
+const LAYOUT_VERSION: u32 = 11;
 
 /// A window of its own (another screen): its panes in a dock.
 pub struct Detached {
@@ -469,6 +470,9 @@ pub struct Session {
     loading: Option<Receiver<Loaded>>,
     pub run: Option<Run>,
     pub progress: Option<(String, usize, usize)>,
+    /// The top-level nodes the run goes through, and those done (run or taken from the cache).
+    pub run_total: usize,
+    pub run_done: usize,
     /// How far the node running is, as its operator tells it (a solver's gap...).
     pub task: Option<(String, terraflux_ops::Progress)>,
     /// When Stop was pressed, while the run stops.
@@ -614,6 +618,8 @@ impl Session {
             loading: Some(rx),
             run: None,
             progress: None,
+            run_total: 0,
+            run_done: 0,
             task: None,
             stopping: None,
             node: String::new(),
@@ -815,6 +821,26 @@ impl Session {
         self.status.retain(|_, st| *st != NodeStatus::Failed);
         self.status_rev += 1;
         self.target = target.clone();
+        // how far the run is: none of its nodes done
+        self.progress = None;
+        self.run_done = 0;
+        self.node.clear();
+        self.run_total = match &target {
+            None => self.model.nodes.len(),
+            Some(t) => {
+                let among = terraflux_graph::ids(&self.model.nodes);
+                let mut seen = std::collections::BTreeSet::new();
+                let mut todo = vec![t.clone()];
+                while let Some(id) = todo.pop() {
+                    if let Some(n) = self.model.nodes.iter().find(|n| n.id == id)
+                        && seen.insert(id)
+                    {
+                        todo.extend(terraflux_graph::dependencies_among(n, &among));
+                    }
+                }
+                seen.len()
+            }
+        };
         self.maps.truncate(1);
         self.counts.truncate(1);
         self.tables.clear();
@@ -964,6 +990,7 @@ impl Session {
                     }
                     self.status.insert(at, NodeStatus::Done { cached });
                     self.status_rev += 1;
+                    self.run_done += 1;
                 }
                 Message::Failed(at) => {
                     self.status.insert(at, NodeStatus::Failed);
@@ -1005,6 +1032,7 @@ impl Session {
         if let Some(r) = done {
             self.run = None;
             self.task = None;
+            self.progress = None;
             self.stopping = None;
             self.elapsed = self.started.map(|t| t.elapsed());
             self.status.retain(|_, st| *st != NodeStatus::Running);
@@ -1015,6 +1043,34 @@ impl Session {
             }
             self.outputs.retain(|id, _| self.model.nodes.iter().any(|n| n.id == *id));
         }
+    }
+
+    /// How far the run is (0 to 1) and in words: the top-level nodes done, with the share of the one running (a
+    /// loop's steps, or what its operator tells), and what runs.
+    pub fn run_progress(&self) -> (f32, String) {
+        let top = |at: &str| at.split('/').next().unwrap_or(at).to_string();
+        let running = top(&self.node);
+        let mut part = 0.0;
+        let mut text = if self.node.is_empty() { "starting".to_string() } else { self.node.clone() };
+        if let Some((at, step, of)) = &self.progress
+            && top(at) == running
+        {
+            part = *step as f32 / (*of).max(1) as f32;
+            text = format!("{at}: step {step} of {of}");
+        }
+        if let Some((at, p)) = &self.task
+            && top(at) == running
+        {
+            if let Some(f) = p.fraction {
+                part = f as f32;
+            }
+            if !p.text.is_empty() {
+                text = format!("{at}: {}", p.text);
+            }
+        }
+        let total = self.run_total.max(1) as f32;
+        let done = (self.run_done as f32 + part.clamp(0.0, 1.0)).min(total);
+        (done / total, format!("{text} ({} of {} nodes)", self.run_done.min(self.run_total), self.run_total))
     }
 
     /// The cells of each class at each step (rows: steps).
@@ -1140,12 +1196,13 @@ pub struct TerrafluxApp {
     styled: Option<(String, u32, u32)>,
     /// The settings' window is open.
     pub settings_open: bool,
-    /// The pane Tab went to the model from (Tab again goes back to it).
+    /// The map seen last (a map's tab or the viewer): Tab goes from the model to it and back.
     tab_back: Option<Pane>,
     /// Tab was taken this frame: the keyboard's focus it may have given a field is let go at the frame's end.
     tabbed: bool,
-    /// The operators' drawer is out (their pane closed, the pointer went to the window's left edge).
-    pub drawer: bool,
+    /// The drawer out (the operators' or the files', its pane closed: the pointer went to its tab at the window's
+    /// left edge).
+    pub drawer: Option<Pane>,
     /// The viewer was opened when the first data came (not again, if it is closed after).
     viewer_opened: bool,
     /// The window to be maximized, at its third frame (the frames drawn so far): on Windows the window shown
@@ -1212,7 +1269,7 @@ impl TerrafluxApp {
             settings_open: false,
             tab_back: None,
             tabbed: false,
-            drawer: false,
+            drawer: None,
             viewer_opened: false,
             maximize: None,
             files: crate::files_view::Files::default(),
@@ -1511,23 +1568,14 @@ impl TerrafluxApp {
                     ui.spinner();
                     ui.label(RichText::new("reading the data...").weak());
                 }
-                if let Some((at, step, of)) = &s.progress {
-                    let frac = *step as f32 / (*of).max(1) as f32;
-                    ui.add(
-                        egui::ProgressBar::new(frac)
-                            .desired_width(180.0)
-                            .desired_height(14.0)
-                            .fill(theme::accent())
-                            .text(RichText::new(format!("{at}: step {step} of {of}")).color(theme::on_accent())),
-                    );
+                if s.running() && s.stopping.is_none() {
+                    let (frac, text) = s.run_progress();
+                    theme::progress(ui, Some(frac), &text, 140.0);
                 }
                 if s.stopping.is_some() {
                     ui.spinner();
                     ui.label(RichText::new("stopping...").weak());
-                } else if s.running() {
-                    ui.spinner();
-                    ui.label(RichText::new(&s.node).weak());
-                } else if let Some(e) = s.elapsed {
+                } else if let Some(e) = s.elapsed.filter(|_| !s.running()) {
                     ui.label(RichText::new(format!("done in {:.2} s", e.as_secs_f64())).weak());
                 }
             }
@@ -1753,12 +1801,24 @@ impl TerrafluxApp {
                 });
                 ui.end_row();
             });
+            // which GDAL reads the other formats and does the warping, if any
+            ui.add_space(6.0);
+            match terraflux_gdal::gdal() {
+                Ok(g) => ui
+                    .label(RichText::new(format!("GDAL {} · {} formats", g.version, g.drivers)).weak().size(11.0))
+                    .on_hover_text(g.library.display().to_string()),
+                Err(e) => ui
+                    .label(RichText::new("no GDAL: GeoTIFF only").color(ui.visuals().warn_fg_color).size(11.0))
+                    .on_hover_text(e.to_string()),
+            };
             ui.add_space(6.0);
             if ui.button("Back to the defaults").clicked() {
                 let favourites = std::mem::take(&mut st.favourites);
+                let collection_names = std::mem::take(&mut st.collection_names);
                 // the computers' choices are not looks: they stay
                 st = crate::settings::Settings {
                     favourites,
+                    collection_names,
                     share: st.share,
                     share_code: st.share_code.clone(),
                     lend: st.lend,
@@ -1773,76 +1833,108 @@ impl TerrafluxApp {
         self.settings_open = open;
     }
 
-    /// The strip at the window's left edge while the operators' pane is closed: their name written along it, the
-    /// pointer over it brings their drawer out, a click opens their pane. Where it is.
-    fn operators_strip(&mut self, ui: &mut Ui) -> egui::Rect {
+    /// The strip at the window's left edge while the operators' or the files' pane is closed: a tab each, its name
+    /// written along it; the pointer over a tab brings its drawer out, a click opens its pane. Where it is, and
+    /// where its tabs are.
+    fn drawers_strip(&mut self, ui: &mut Ui) -> (egui::Rect, Vec<(Pane, egui::Rect)>) {
         let open = self.drawer;
-        let (rect, clicked) = egui::Panel::left("operators strip")
+        let closed: Vec<Pane> = [Pane::Operators, Pane::Files].into_iter().filter(|p| !self.is_open(*p)).collect();
+        let c = crate::commands::cmd();
+        let (rect, tabs, clicked) = egui::Panel::left("drawers strip")
             .exact_size(20.0)
             .resizable(false)
             .show_separator_line(false)
             .frame(egui::Frame::new().fill(theme::bar()))
             .show(ui, |ui| {
-                let (rect, resp) = ui.allocate_exact_size(ui.available_size(), egui::Sense::click());
-                let hot = open || resp.hovered();
-                let v = ui.visuals();
-                let (fill, text) = if hot {
-                    (v.widgets.hovered.bg_fill, v.strong_text_color())
-                } else {
-                    (v.widgets.inactive.weak_bg_fill, v.text_color())
-                };
-                let tab = egui::Rect::from_min_size(rect.min + Vec2::new(2.0, 6.0), Vec2::new(16.0, 112.0));
-                ui.painter().rect_filled(tab, 3.0, fill);
-                // the word along it, bottom to top
-                let galley = ui.painter().layout_no_wrap(
-                    "OPERATORS  ›".to_string(),
-                    egui::FontId::proportional(10.5),
-                    text,
-                );
-                let at = egui::pos2(tab.center().x - galley.size().y / 2.0, tab.center().y + galley.size().x / 2.0);
-                ui.painter().add(egui::epaint::TextShape::new(at, galley, text).with_angle(-std::f32::consts::FRAC_PI_2));
-                let c = crate::commands::cmd();
-                let resp = resp.on_hover_text(format!(
-                    "The operators: here to see them, a click keeps their pane open (also \"/\", {c}K and the                      Operators menu)"
-                ));
-                (rect, resp.clicked())
+                let (rect, _) = ui.allocate_exact_size(ui.available_size(), egui::Sense::hover());
+                let mut tabs = Vec::new();
+                let mut clicked = None;
+                let mut top = rect.min.y + 6.0;
+                for pane in closed {
+                    let (word, long, hint) = match pane {
+                        Pane::Operators => (
+                            "OPERATORS  ›",
+                            112.0,
+                            format!(
+                                "The operators: here to see them, a click keeps their pane open (also \"/\", {c}K and \
+                                 the Operators menu)"
+                            ),
+                        ),
+                        _ => (
+                            "FILES  ›",
+                            72.0,
+                            "The computer's folders: here to see them and drag data to the model, a click keeps their \
+                             pane open"
+                                .to_string(),
+                        ),
+                    };
+                    let tab = egui::Rect::from_min_size(egui::pos2(rect.min.x + 2.0, top), Vec2::new(16.0, long));
+                    top += long + 8.0;
+                    let resp = ui.interact(tab, ui.id().with(("drawer tab", pane)), egui::Sense::click());
+                    let hot = open == Some(pane) || resp.hovered();
+                    let v = ui.visuals();
+                    let (fill, text) = if hot {
+                        (v.widgets.hovered.bg_fill, v.strong_text_color())
+                    } else {
+                        (v.widgets.inactive.weak_bg_fill, v.text_color())
+                    };
+                    ui.painter().rect_filled(tab, 3.0, fill);
+                    // the word along it, bottom to top
+                    let galley = ui.painter().layout_no_wrap(word.to_string(), egui::FontId::proportional(10.5), text);
+                    let at = egui::pos2(tab.center().x - galley.size().y / 2.0, tab.center().y + galley.size().x / 2.0);
+                    ui.painter()
+                        .add(egui::epaint::TextShape::new(at, galley, text).with_angle(-std::f32::consts::FRAC_PI_2));
+                    if resp.on_hover_text(hint).clicked() {
+                        clicked = Some(pane);
+                    }
+                    tabs.push((pane, tab));
+                }
+                (rect, tabs, clicked)
             })
             .inner;
-        if clicked {
-            self.drawer = false;
-            self.focus(Pane::Operators);
+        if let Some(p) = clicked {
+            self.drawer = None;
+            self.focus(p);
         }
-        rect
+        (rect, tabs)
     }
 
-    /// The operators' drawer, while their pane is closed: out over the panes while the pointer is at the window's
-    /// left edge or over it, in again when the pointer leaves it.
-    fn drawer(&mut self, ctx: &egui::Context, area: egui::Rect, strip: Option<egui::Rect>) {
-        const WIDTH: f32 = 280.0;
-        if self.is_open(Pane::Operators) {
-            self.drawer = false;
-            return;
+    /// The drawer of the operators or of the files, while their pane is closed: out over the panes while the
+    /// pointer is over its tab of the strip at the window's left edge (the operators' along the rest of the edge)
+    /// or over the drawer, in again when the pointer leaves it (not while something is dragged out of it).
+    fn drawer(&mut self, ctx: &egui::Context, area: egui::Rect, strip: Option<(egui::Rect, Vec<(Pane, egui::Rect)>)>) {
+        const WIDTH: f32 = 300.0;
+        if self.drawer.is_some_and(|p| self.is_open(p)) {
+            self.drawer = None;
         }
         let Some(s) = &mut self.session else { return };
         let pointer = ctx.input(|i| i.pointer.latest_pos());
         let dragging = ctx.dragged_id().is_some();
         if let Some(p) = pointer {
             // (up to the strip's right side: the window's edge too)
-            let at_edge = p.x <= strip.map_or(area.left() + 3.0, |r| r.right());
-            if !self.drawer && !dragging && at_edge && area.y_range().contains(p.y) {
-                self.drawer = true;
-            } else if self.drawer
+            let edge = strip.as_ref().map_or(area.left() + 3.0, |(r, _)| r.right());
+            let at_edge = p.x <= edge && area.y_range().contains(p.y);
+            let tabs = strip.as_ref().map(|(_, t)| t.as_slice()).unwrap_or(&[]);
+            // over a tab: its drawer; elsewhere along the edge: the operators', when theirs is closed
+            let under = tabs
+                .iter()
+                .find(|(_, r)| r.y_range().contains(p.y))
+                .map(|(pane, _)| *pane)
+                .or_else(|| tabs.iter().any(|(pane, _)| *pane == Pane::Operators).then_some(Pane::Operators));
+            if !dragging && at_edge && under.is_some() && under != self.drawer {
+                self.drawer = under;
+            } else if self.drawer.is_some()
+                && !dragging
                 && (p.x > area.left() + WIDTH + 24.0 || !area.y_range().contains(p.y))
                 && !ctx.any_popup_open()
             {
-                self.drawer = false;
+                self.drawer = None;
             }
         }
-        if !self.drawer {
-            return;
-        }
+        let Some(pane) = self.drawer else { return };
         let before = s.revision;
-        egui::Area::new(egui::Id::new("operators drawer")).fixed_pos(area.min).order(egui::Order::Foreground).show(
+        let mut open = None;
+        egui::Area::new(egui::Id::new(("drawer", pane))).fixed_pos(area.min).order(egui::Order::Foreground).show(
             ctx,
             |ui| {
                 egui::Frame::new()
@@ -1852,13 +1944,23 @@ impl TerrafluxApp {
                     .show(ui, |ui| {
                         ui.set_width(WIDTH);
                         ui.set_height(area.height());
-                        crate::builder::operators_pane(ui, s, &self.registry, &self.library);
+                        if pane == Pane::Operators {
+                            crate::builder::operators_pane(ui, s, &self.registry, &self.library);
+                        } else if let Some(crate::files_view::Asked::Open(p)) =
+                            crate::files_view::pane(ui, &mut self.files, s, &self.registry)
+                        {
+                            open = Some(p);
+                        }
                     });
             },
         );
         // an operator added: the drawer goes in
-        if s.revision != before {
-            self.drawer = false;
+        if pane == Pane::Operators && s.revision != before {
+            self.drawer = None;
+        }
+        if let Some(p) = open {
+            self.drawer = None;
+            self.open(&p);
         }
     }
 
@@ -2193,26 +2295,27 @@ impl TerrafluxApp {
 
     /// The keys of the whole application, in the main window when it has the focus (a window of its own takes
     /// its keys itself): F5 runs the model, ctrl+S saves it, ctrl+O opens a raster or vectors, Tab goes to the
-    /// model and back to the tab it came from, ctrl+W closes the tab in focus.
+    /// model and to the last map seen, ctrl+W closes the tab in focus.
     fn keys(&mut self, ui: &mut Ui) {
         if !ui.input(|i| i.focused) {
             return;
+        }
+        // the map seen last: a map's tab, or the viewer
+        if let Some(p @ (Pane::Map(_) | Pane::Viewer)) = self.focused() {
+            self.tab_back = Some(p);
         }
         let keys = Keys::read(ui);
         if keys.tab {
             self.tabbed = true;
             match self.focused() {
                 Some(Pane::Model) => {
-                    if let Some(back) = self.tab_back.take()
+                    if let Some(back) = self.tab_back
                         && self.is_open(back)
                     {
                         self.focus(back);
                     }
                 }
-                other => {
-                    self.tab_back = other;
-                    self.focus(Pane::Model);
-                }
+                _ => self.focus(Pane::Model),
             }
         }
         if keys.close
@@ -2440,8 +2543,9 @@ impl TerrafluxApp {
             }
         }
         self.take_dropped(ui);
-        // the operators' pane closed: a strip at the window's left edge says they are there
-        let strip = (self.session.is_some() && !self.is_open(Pane::Operators)).then(|| self.operators_strip(ui));
+        // the operators' or the files' pane closed: a strip at the window's left edge says they are there
+        let strip = (self.session.is_some() && !(self.is_open(Pane::Operators) && self.is_open(Pane::Files)))
+            .then(|| self.drawers_strip(ui));
         let area = ui.available_rect_before_wrap();
         egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::bar())).show(ui, |ui| self.docks(ui));
         self.drawer(ui.ctx(), area, strip);
@@ -2617,15 +2721,32 @@ impl TerrafluxApp {
                 &[Pane::Viewer, Pane::Model]
             }
             Pane::Viewer | Pane::Document => &[Pane::Model],
-            Pane::Files => &[Pane::Node, Pane::Operators],
+            Pane::Files => &[Pane::Operators],
             Pane::Prepare => &[Pane::Node],
-            Pane::Node => &[Pane::Prepare, Pane::Files],
-            Pane::Assistant | Pane::Review | Pane::Parameters => &[Pane::Node, Pane::Prepare, Pane::Files],
+            Pane::Node => &[Pane::Prepare, Pane::Parameters],
+            Pane::Parameters => &[Pane::Node, Pane::Prepare],
+            Pane::Review => &[Pane::Assistant],
             _ => &[],
         };
-        // the operators' pane, nowhere: at the left edge of the window
-        if pane == Pane::Operators && dock.main_surface().num_tabs() > 0 {
-            dock.main_surface_mut().split_left(NodeIndex::root(), 0.15, vec![Pane::Operators]);
+        let found = near.iter().find_map(|n| dock.find_tab(n));
+        // nowhere to go with: the operators and the files at the left edge of the window, the assistant and the
+        // review of its changes at the right, the node at the left of the model
+        let edge = match pane {
+            Pane::Operators | Pane::Files => Some((true, 0.15)),
+            Pane::Assistant | Pane::Review => Some((false, 0.74)),
+            Pane::Node | Pane::Prepare | Pane::Parameters => Some((true, 0.2)),
+            _ => None,
+        };
+        if let (None, Some((left, fraction))) = (found, edge)
+            && dock.main_surface().num_tabs() > 0
+        {
+            let s = dock.main_surface_mut();
+            if left {
+                // (split_left: the new node's share; split_right: the old one's)
+                s.split_left(NodeIndex::root(), fraction, vec![pane]);
+            } else {
+                s.split_right(NodeIndex::root(), fraction, vec![pane]);
+            }
             if let Some(path) = dock.find_tab(&pane) {
                 let _ = dock.set_active_tab(path);
                 dock.set_focused_node_and_surface(path.node_path());
@@ -2881,6 +3002,8 @@ fn hints(focused: Option<Pane>) -> String {
              map    F1: shortcuts"
                 .to_string()
         }
-        _ => format!("/: add an operator    F5: run all    {c}K: commands    Tab: the model and back    F1: shortcuts"),
+        _ => format!(
+            "/: add an operator    F5: run all    {c}K: commands    Tab: the model and the last map    F1: shortcuts"
+        ),
     }
 }

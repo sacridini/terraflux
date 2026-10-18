@@ -227,9 +227,10 @@ Hover over the name of a setting to read what it means. Every setting of every o
 
 Terraflux has about 300 operators. There are three ways to add one to a model.
 
-**The drawer.** Move the pointer to the left edge of the window: the **Operators** drawer slides out. At its top
-are **Open a raster...** (++ctrl+o++), **Open vectors...**, **Open a folder as a stack...** and **Save as a
-raster...**; below, your favourites and the operators by subject, with a search box. Click an operator and a new
+**The drawer.** Move the pointer to the left edge of the window: the **Operators** drawer slides out (the
+**Files** drawer has its own tab below it). At its top are your favourites, then the operators by subject, with a
+search box; files are opened with ++ctrl+o++ (**File > Open a raster or vectors...**) or dragged from the
+**Files** drawer. Click an operator and a new
 node appears, **already connected** to the node selected, so a chain is built click after click.
 
 **The Operators menu** in the toolbar holds the same library.

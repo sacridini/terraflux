@@ -10,8 +10,8 @@ use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 
 use crate::change::numpy_sum;
 use crate::signatures::NumpyRng;
-pub use crate::special::ndtri;
 use crate::sobol_directions::{POLY, VINIT};
+pub use crate::special::ndtri;
 use crate::{Args, Ctx, Error, Operator, Outputs, Registry, Result, Table, Value, outputs};
 
 pub fn register(r: &mut Registry) {

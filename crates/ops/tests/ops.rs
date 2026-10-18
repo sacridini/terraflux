@@ -72,7 +72,7 @@ fn a_layer_of_a_stack_by_name_or_number() {
         layers: vec![Arc::new(vec![1.0, 2.0]), Arc::new(vec![3.0, 4.0]), Arc::new(vec![5.0, 6.0])],
     });
     let layer = |v: &Value, l: serde_json::Value| {
-        run("stack.layer", vec![("stack", v.clone())], serde_json::json!({ "layer": l })).map(|out| {
+        run("stack.extract_layer", vec![("stack", v.clone())], serde_json::json!({ "layer": l })).map(|out| {
             let Value::Map(m) = &out["map"] else { panic!() };
             m.data.to_vec()
         })
@@ -1072,4 +1072,27 @@ fn reports_are_landschafts() {
         let Value::Text(report) = &out["report"] else { panic!() };
         assert_eq!(report, case["text"].as_str().unwrap(), "{tool} {params}");
     }
+}
+
+/// A GeoTIFF of a projection of its own (no EPSG code: an Albers of a country, a projection of ArcGIS) read by
+/// Terraflux itself: its coordinate system known all the same (its WKT from GDAL), for the basemap and the
+/// warping.
+#[test]
+fn a_projection_without_a_code_is_known() {
+    if terraflux_gdal::gdal().is_err() {
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("terraflux-own-crs-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let src = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/inputs/sibuyan_landuse.tif");
+    let albers = dir.join("albers.tif");
+    let srs = "+proj=aea +lat_0=-12 +lon_0=-54 +lat_1=-2 +lat_2=-22 +x_0=5000000 +y_0=10000000 +ellps=GRS80 +units=m +no_defs";
+    terraflux_gdal::translate(&src, &albers, &["-a_srs".into(), srs.into()]).unwrap();
+    let f = terraflux_ops::files::File::open(&albers).unwrap();
+    assert!(matches!(f, terraflux_ops::files::File::Own(_)), "a GeoTIFF Terraflux reads itself");
+    let geo = &f.meta().grid.geo;
+    assert_eq!(geo.epsg(), None, "no code");
+    let wkt = geo.wkt.as_deref().expect("its coordinate system all the same");
+    assert!(wkt.contains("Albers"), "{wkt}");
+    let _ = std::fs::remove_dir_all(&dir);
 }

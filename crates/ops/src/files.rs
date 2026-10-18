@@ -28,6 +28,26 @@ pub fn register(r: &mut Registry) {
 /// The most cells a map read whole may have (16 GB as numbers); larger rasters are shown and copied, not held.
 pub const MOST_CELLS: usize = 2_000_000_000;
 
+/// A GeoTIFF of a projection of its own (no EPSG code: a country's Albers, ArcGIS's), read by Terraflux itself:
+/// its keys do not name the projection, its WKT from GDAL does (when GDAL is there).
+pub fn own_crs(path: &Path, geo: &mut terraflux_raster::GeoTags) {
+    if geo.wkt.is_none()
+        && geo.epsg().is_none()
+        && geo.geokeys.is_some()
+        && let Ok(d) = terraflux_gdal::Dataset::open(path)
+    {
+        geo.wkt = d.meta.grid.geo.wkt.clone();
+    }
+}
+
+/// A raster read whole by Terraflux itself (GeoTIFF), its coordinate system known when it has no EPSG code
+/// ([`own_crs`]).
+pub fn read_raster(path: &Path) -> std::result::Result<terraflux_raster::Raster, terraflux_raster::Error> {
+    let mut r = terraflux_raster::Raster::read(path)?;
+    own_crs(path, &mut r.grid.geo);
+    Ok(r)
+}
+
 /// A raster file: read by Terraflux itself (GeoTIFF: the fastest, exactly), or by GDAL (any other format, and
 /// TIFFs Terraflux does not read, such as JPEG-compressed ones).
 pub enum File {
@@ -40,7 +60,10 @@ impl File {
         let tiff = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("tif") || e.eq_ignore_ascii_case("tiff"));
         let own = if tiff { Some(Image::open(path)) } else { None };
         match own {
-            Some(Ok(i)) => Ok(File::Own(i)),
+            Some(Ok(mut i)) => {
+                own_crs(path, &mut i.meta.grid.geo);
+                Ok(File::Own(i))
+            }
             other => match terraflux_gdal::Dataset::open(path) {
                 Ok(d) => Ok(File::Gdal(d)),
                 Err(e) => Err(Error::msg(match other {

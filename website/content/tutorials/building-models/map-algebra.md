@@ -123,7 +123,7 @@ path = "drivers.tif"
 ```
 
 !!! app "In the application"
-    Click **Open a raster...** at the top of the library (or press ++ctrl+o++): the file becomes a
+    Press ++ctrl+o++ (**File > Open a raster or vectors...**) or drag the file from the **Files** drawer: it becomes a
     [[raster.read]] node, whose `map` port gives one band (the `band` setting, the first by default) and whose
     `stack` port gives every band.
 

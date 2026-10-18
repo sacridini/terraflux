@@ -209,7 +209,7 @@ pub fn shortcuts() -> Vec<(&'static str, Vec<(String, &'static str)>)> {
                 (format!("{c}O"), "open a raster or vectors (a node that reads it)"),
                 (format!("{c}S, {c}shift+S"), "save the model, save it as"),
                 (format!("{c}Z, {c}shift+Z"), "undo, do again"),
-                ("Tab".into(), "to the model and back"),
+                ("Tab".into(), "to the model and to the last map seen"),
                 (format!("{c}W"), "close the tab"),
                 ("F1".into(), "these shortcuts"),
             ],

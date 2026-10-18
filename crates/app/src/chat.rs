@@ -23,6 +23,9 @@ use crate::tools::{self, Reply};
 /// The rounds of tools in an answer, at most (a model going round in circles is stopped).
 const ROUNDS: usize = 40;
 
+/// The problems told to the assistant on their own one after another, at most (until the user writes).
+const TOLD: usize = 3;
+
 /// The model's text given whole in the system's message, up to this many characters (else its nodes, and
 /// show_model for the rest).
 const WHOLE: usize = 12_000;
@@ -58,6 +61,14 @@ pub struct Chat {
     /// What the model changed by the assistant is signed with: the assistant (its model and server), and the
     /// first question of the conversation (the request, when the model has none).
     stamp: Stamp,
+    /// Not to tell the assistant of the problems that come up (by default it is told, in a conversation going on).
+    pub quiet: bool,
+    /// The problems told last, how many times one after another since the user wrote, the run whose failure was
+    /// told, and whether an answer just ended (the model's errors told then).
+    told: Option<String>,
+    told_times: usize,
+    told_run: Option<std::time::Instant>,
+    answered: bool,
 }
 
 /// The assistant's mark on the model it changes: the author, the request.
@@ -137,6 +148,7 @@ impl Chat {
 
     /// Ask the model of the provider chosen (none chosen: its settings shown).
     pub fn send(&mut self, text: String, s: &Session, ctx: &egui::Context) {
+        self.told_times = 0;
         match Chat::provider() {
             Some(p) => self.send_to(&p, text, s, ctx),
             None => self.setup = true,
@@ -247,10 +259,60 @@ impl Chat {
         if done {
             self.worker = None;
             mend(&mut self.history);
+            self.answered = true;
         }
         if self.busy() {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
+        self.tell_problems(s, ctx);
+    }
+
+    /// In a conversation going on, the problems that came up told to the assistant, for it to fix them: a run that
+    /// failed (whoever started it), and the model's errors when an answer of its ends. Each told once, and not more
+    /// than a few times one after another until the user writes.
+    fn tell_problems(&mut self, s: &Session, ctx: &egui::Context) {
+        if Chat::provider().is_none() {
+            return;
+        }
+        if let Some(text) = self.problems_to_tell(s)
+            && let Some(p) = Chat::provider()
+        {
+            self.send_to(&p, text, s, ctx);
+        }
+    }
+
+    /// What to tell the assistant of the problems that came up ([`Chat::tell_problems`]), counted as told.
+    fn problems_to_tell(&mut self, s: &Session) -> Option<String> {
+        if self.quiet || self.busy() || self.run.is_some() || self.history.is_empty() || s.running() || s.loading() {
+            return None;
+        }
+        let mut lines = Vec::new();
+        if let Some(e) = &s.error
+            && s.started.is_some()
+            && s.started != self.told_run
+        {
+            self.told_run = s.started;
+            lines.push(format!("The run failed: {e}"));
+        }
+        if std::mem::take(&mut self.answered) {
+            let errors = problems(s);
+            if !errors.is_empty() && !lines.iter().any(|l| errors.contains(l)) {
+                lines.extend(errors);
+            }
+        }
+        if lines.is_empty() {
+            return None;
+        }
+        let text = format!(
+            "(Told by the application, on its own.) Problems came up in the model:\n{}\nFix them, then check the model.",
+            lines.join("\n")
+        );
+        if self.told.as_deref() == Some(text.as_str()) || self.told_times >= TOLD {
+            return None;
+        }
+        self.told = Some(text.clone());
+        self.told_times += 1;
+        Some(text)
     }
 
     /// A tool done on the model open.
@@ -291,6 +353,8 @@ impl Chat {
             return;
         }
         let w = self.run.take().expect("the run asked for");
+        // (the assistant hears of this run's failure in the answer to its tool)
+        self.told_run = s.started;
         let _ = w.reply.send(Answer::Done(ran(s)));
     }
 
@@ -449,13 +513,20 @@ fn new_model(s: &mut Session, r: &Registry, a: &Value, stamp: &Stamp) -> Reply {
 }
 
 /// Why the model open cannot run.
-fn cannot_run(s: &Session) -> String {
-    let mut lines = vec!["The model has errors: it does not run.".to_string()];
+/// The model's errors: of its graph, its data, the run.
+fn problems(s: &Session) -> Vec<String> {
+    let mut lines = Vec::new();
     if let Some(e) = &s.load_error {
         lines.push(format!("error: its data: {e}"));
     }
     lines.extend(s.issues.iter().filter(|i| i.severity == Severity::Error).map(|i| i.to_string()));
     lines.extend(s.findings.iter().filter(|f| f.level == terraflux_exec::lint::Level::Error).map(|f| f.to_string()));
+    lines
+}
+
+fn cannot_run(s: &Session) -> String {
+    let mut lines = vec!["The model has errors: it does not run.".to_string()];
+    lines.extend(problems(s));
     lines.join("\n")
 }
 
@@ -684,6 +755,14 @@ fn bar(ui: &mut Ui, c: &mut Chat) {
             }
             if ui.button("New").on_hover_text("a new conversation").clicked() {
                 c.clear();
+            }
+            let mut tell = !c.quiet;
+            if ui
+                .checkbox(&mut tell, "fix problems")
+                .on_hover_text("tell the assistant of the problems that come up (a run that fails, the model's errors after its answer) for it to fix them, in a conversation going on")
+                .changed()
+            {
+                c.quiet = !tell;
             }
         });
     });
@@ -1059,6 +1138,40 @@ mod tests {
         assert_eq!(h[3]["tool_call_id"], "b");
         mend(&mut h);
         assert_eq!(h.len(), 4, "mended once");
+    }
+
+    #[test]
+    fn the_problems_that_come_up_are_told() {
+        let mut c = Chat::default();
+        let mut s = Session::blank();
+        while s.loading() {
+            s.poll();
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        s.error = Some("node x: no input".into());
+        s.started = Some(std::time::Instant::now());
+        assert!(c.problems_to_tell(&s).is_none(), "no conversation going on");
+        c.history.push(json!({ "role": "user", "content": "hi" }));
+        let t = c.problems_to_tell(&s).unwrap();
+        assert!(t.contains("The run failed: node x: no input"), "{t}");
+        assert!(c.problems_to_tell(&s).is_none(), "a failure told once");
+        // an answer ended, the model in error
+        s.issues.push(terraflux_graph::Issue { severity: Severity::Error, at: "a".into(), message: "needs b".into() });
+        c.answered = true;
+        assert!(c.problems_to_tell(&s).unwrap().contains("needs b"));
+        c.answered = true;
+        assert!(c.problems_to_tell(&s).is_none(), "the same problems not told again");
+        s.issues[0].message = "needs c".into();
+        c.answered = true;
+        assert!(c.problems_to_tell(&s).is_some());
+        // three times one after another: no more until the user writes
+        s.issues[0].message = "needs d".into();
+        c.answered = true;
+        assert!(c.problems_to_tell(&s).is_none());
+        c.told_times = 0;
+        c.quiet = true;
+        c.answered = true;
+        assert!(c.problems_to_tell(&s).is_none(), "not told when asked not to");
     }
 
     #[test]

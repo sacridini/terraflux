@@ -89,6 +89,9 @@ pub fn relative_paths(nodes: &mut [Node], dir: &Path) {
     }
 }
 
+/// Operators renamed, their old names and new ones: a model written with an old name reads with the new.
+pub const RENAMED: [(&str, &str); 1] = [("stack.layer", "stack.extract_layer")];
+
 /// The version of the model format this crate reads and writes.
 pub const FORMAT: &str = "terraflux/1";
 
@@ -491,6 +494,18 @@ impl Model {
     /// `raster.read`'s `map` or `stack` (the same rasters on disk as its `raster`, which feeds what takes a map,
     /// its band chosen, or a stack) reads its `raster`.
     pub fn upgrade(&mut self) {
+        // the operators renamed: their new names
+        fn rename(nodes: &mut [Node]) {
+            for n in nodes {
+                if let Some((_, new)) = RENAMED.iter().find(|(old, _)| *old == n.op) {
+                    n.op = new.to_string();
+                }
+                if let Some(b) = &mut n.body {
+                    rename(&mut b.nodes);
+                }
+            }
+        }
+        rename(&mut self.nodes);
         fn ids(nodes: &[Node], read: &mut BTreeSet<String>, other: &mut BTreeSet<String>) {
             for n in nodes {
                 if n.op == "raster.read" {
@@ -846,6 +861,28 @@ from = "land.map"
             values: [("a.steps".to_string(), serde_json::json!(40))].into(),
         });
         m
+    }
+
+    #[test]
+    fn renamed_operators_read_with_their_new_names() {
+        let m = Model::from_toml(
+            r#"
+format = "terraflux/1"
+[[nodes]]
+id = "one"
+op = "stack.layer"
+params = { layer = "a" }
+[[nodes]]
+id = "loop"
+op = "control.repeat"
+[[nodes.body.nodes]]
+id = "inner"
+op = "stack.layer"
+"#,
+        )
+        .unwrap();
+        assert_eq!(m.nodes[0].op, "stack.extract_layer");
+        assert_eq!(m.nodes[1].body.as_ref().unwrap().nodes[0].op, "stack.extract_layer");
     }
 
     #[test]

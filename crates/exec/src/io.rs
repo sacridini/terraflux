@@ -26,7 +26,8 @@ impl Files {
         if let Some(r) = self.cache.get(&p) {
             return Ok(r.clone());
         }
-        let r = Raster::read(&p).map_err(|e| Error::Model(format!("{}: {e}", p.display())))?;
+        // (its coordinate system known when it has no EPSG code)
+        let r = terraflux_ops::files::read_raster(&p).map_err(|e| Error::Model(format!("{}: {e}", p.display())))?;
         let g = Arc::new(r.grid.clone());
         let entry = (Arc::new(r), g);
         self.cache.insert(p, entry.clone());
