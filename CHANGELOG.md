@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-18
+
 ### Added
 - The model read as a document (the Document pane, a tab beside the model's): the same graph as the methods
   section of a paper, for whoever reads, checks and decides rather than builds. The top-level nodes in five stages
