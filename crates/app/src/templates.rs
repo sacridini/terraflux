@@ -224,7 +224,7 @@ fn clue_s() -> Model {
     m
 }
 
-pub const TEMPLATES: [Template; 48] = [
+pub const TEMPLATES: [Template; 49] = [
     Template {
         name: "MSPA of a forest",
         group: PATTERNS,
@@ -867,6 +867,98 @@ op = "metrics.class"
 inputs = { map = "sieved.map" }
 params = { metrics = ["np", "area_mn"] }
 note = "...and after it: far fewer, larger."
+"#,
+    },
+    Template {
+        name: "Vector tools: polygons, overlay and points",
+        group: METRICS,
+        build: None,
+        about: "the vector tools at work: a land cover's forest turned into polygons and measured, the large ones \
+                kept, plots drawn inside them, the plots counted in squares, and the forest cut by the squares",
+        toml: r#"
+format = "terraflux/1"
+name = "Vector tools: polygons, overlay and points"
+description = "A land cover's forest as polygons (vector.polygonize), measured (vector.geometry), the large patches kept (vector.filter) and given a column (vector.calc), random plots inside them (vector.points), counted in squares (vector.spatial_join), and the forest cut by the squares (vector.overlay)."
+
+[[nodes]]
+id = "cover"
+op = "nlm.random_cluster"
+params = { rows = 100, columns = 100, p = 0.5, weights = [0.5, 0.3, 0.2], seed = 12 }
+note = "A land cover: 1 forest, 2 farming, 3 water (in its place, a raster.read of yours)."
+
+[[nodes]]
+id = "clean"
+op = "raster.sieve"
+inputs = { map = "cover.map" }
+params = { threshold = 8 }
+note = "Its specks merged into their neighbours first: fewer, simpler polygons."
+
+[[nodes]]
+id = "polygons"
+op = "vector.polygonize"
+inputs = { map = "clean.map" }
+note = "A polygon per patch, with its value, cells and area."
+
+[[nodes]]
+id = "measured"
+op = "vector.geometry"
+inputs = { vector = "polygons.vector" }
+note = "Each polygon's area, perimeter and centroid as attributes."
+
+[[nodes]]
+id = "forest"
+op = "vector.filter"
+inputs = { vector = "measured.vector" }
+params = { expression = "value == 1 and area >= 40" }
+note = "The forest patches of 40 cells or more."
+
+[[nodes]]
+id = "shape"
+op = "vector.calc"
+inputs = { vector = "forest.vector" }
+params = { column = "edge_ratio", expression = "perimeter / area" }
+note = "A column computed from the others: the edge per unit of area."
+
+[[nodes]]
+id = "plots"
+op = "vector.points"
+inputs = { vector = "shape.vector" }
+params = { method = "random", n = 3, seed = 2 }
+note = "Three field plots drawn inside every large patch, with its attributes."
+
+[[nodes]]
+id = "squares"
+op = "vector.grid_zones"
+inputs = { map = "cover.map" }
+params = { size = 25 }
+note = "Squares of 25 cells' side over the map."
+
+[[nodes]]
+id = "plots_per_square"
+op = "vector.spatial_join"
+inputs = { vector = "squares.zones", other = "plots.vector" }
+params = { mode = "summary", fields = ["edge_ratio"] }
+note = "The plots in every square counted, and their patches' edge ratio averaged."
+
+[[nodes]]
+id = "forest_by_square"
+op = "vector.overlay"
+inputs = { vector = "shape.vector", other = "squares.zones" }
+params = { how = "intersection" }
+note = "The forest cut by the squares: a piece per patch and square, with the attributes of both."
+
+[[nodes]]
+id = "pieces"
+op = "vector.geometry"
+inputs = { vector = "forest_by_square.vector" }
+note = "The area of every piece."
+
+[[nodes]]
+id = "forest_area"
+op = "table.aggregate"
+inputs = { table = "pieces.table" }
+params = { by = "zone", columns = ["area"], stats = ["sum"] }
+note = "The forest's area in every square."
 "#,
     },
     Template {
@@ -3931,6 +4023,35 @@ mod table_template_tests {
         );
         let labels = table("patches.table");
         assert!(labels.rows.iter().all(|r| r[2] >= 20.0), "{:?}", labels.rows);
+    }
+
+    #[test]
+    fn the_vector_template_runs() {
+        if terraflux_gdal::gdal().is_err() {
+            return;
+        }
+        let t = super::TEMPLATES.iter().find(|t| t.name.starts_with("Vector tools:")).unwrap();
+        let m = t.model();
+        let r = match terraflux_exec::Engine::default().run(&m, &Default::default(), &mut terraflux_exec::Quiet) {
+            Ok(r) => r,
+            Err(e) => panic!("{e}"),
+        };
+        let table = |n: &str| match r.get(n) {
+            Some(terraflux_ops::Value::Table(t)) => t.clone(),
+            other => panic!("{n}: {other:?}"),
+        };
+        let forest = table("shape.table");
+        assert!(!forest.rows.is_empty());
+        assert_eq!(table("plots.table").rows.len(), 3 * forest.rows.len());
+        let counted = table("plots_per_square.table");
+        let count = counted.columns.iter().position(|c| c == "count").unwrap();
+        assert_eq!(counted.rows.iter().map(|r| r[count]).sum::<f64>(), (3 * forest.rows.len()) as f64);
+        let area = table("forest_area.table");
+        let sum = area.columns.iter().position(|c| c == "area_sum").unwrap();
+        let cells = forest.columns.iter().position(|c| c == "cells").unwrap();
+        let total: f64 = area.rows.iter().map(|r| r[sum]).sum();
+        let want: f64 = forest.rows.iter().map(|r| r[cells]).sum();
+        assert!((total - want).abs() < 1e-6, "{total} {want}");
     }
 
     #[test]

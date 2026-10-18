@@ -250,7 +250,12 @@ impl Operator for Majority {
 
 /// The patches of a map: the groups of connected cells of one value (cells without one in none), numbered 0.. in
 /// the order of their first cell: the patch of every cell, and each patch's value and cells.
-fn patches(data: &[f64], w: usize, h: usize, around: &[(isize, isize)]) -> (Vec<Option<usize>>, Vec<f64>, Vec<usize>) {
+pub(crate) fn patches(
+    data: &[f64],
+    w: usize,
+    h: usize,
+    around: &[(isize, isize)],
+) -> (Vec<Option<usize>>, Vec<f64>, Vec<usize>) {
     let mut id: Vec<Option<usize>> = vec![None; data.len()];
     let (mut values, mut sizes) = (Vec::new(), Vec::new());
     let mut stack = Vec::new();

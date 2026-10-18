@@ -564,7 +564,9 @@ em 1.5.0: `table.filter`, `calc`, `aggregate`, `join`, `sort`, `select`, `pivot`
 3. **Vetor:** `vector.polygonize` (raster em polígonos), `vector.filter` e `vector.calc` (atributos),
    `vector.geometry` (área, perímetro, comprimento, centróide), overlay (interseção, união, diferença), join
    espacial (contar pontos por polígono, os atributos de quem contém), `vector.reproject`, `vector.from_table`
-   (pontos das colunas x e y), pontos aleatórios ou regulares dentro de polígonos.
+   (pontos das colunas x e y), pontos aleatórios ou regulares dentro de polígonos. **Feito** (Unreleased): os nove
+   (`vector.overlay` e `vector.spatial_join` pelo GEOS do GDAL), o assunto Vector analysis e o template Vector
+   tools: polygons, overlay and points.
 4. **Análise espacial clássica:** densidade de kernel de pontos e contagem de pontos por célula, curvas de nível,
    viewshed, a área real de cada célula numa grade lat/lon, classificação por quebras (quantis, intervalos iguais,
    Jenks, desvio padrão).

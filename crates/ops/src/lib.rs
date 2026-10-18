@@ -94,6 +94,7 @@ pub mod validate;
 pub mod value;
 pub mod vector;
 pub mod vector_tiled;
+pub mod vector_tools;
 pub mod view;
 pub mod woe;
 mod ziggurat;
@@ -422,6 +423,7 @@ impl Registry {
         table_ops::register(&mut r);
         raster_stats::register(&mut r);
         raster_neighbours::register(&mut r);
+        vector_tools::register(&mut r);
         r
     }
 

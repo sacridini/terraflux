@@ -524,7 +524,7 @@ fn zonal_table(
 }
 
 /// Columns added to features (replacing those of the same name), and their attributes as a table.
-fn with_columns(v: &Vector, columns: Vec<(String, Vec<f64>)>) -> (Vector, Table) {
+pub(crate) fn with_columns(v: &Vector, columns: Vec<(String, Vec<f64>)>) -> (Vector, Table) {
     let mut out = v.clone();
     for (name, values) in columns {
         match out.attributes.iter_mut().find(|(n, _)| *n == name) {

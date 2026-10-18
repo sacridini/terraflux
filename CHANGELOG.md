@@ -23,6 +23,14 @@ minor versions.
   into their largest neighbour, as gdal_sieve), `raster.label` (the patches numbered, as r.clump, with a table of
   their cells and area), `raster.expand` and `raster.shrink` (classes grown or shrunk a number of cells); the
   template Cleaning a map of classes: filter, sieve, label and grow.
+- Vector tools: `vector.polygonize` (a map of classes as polygons, a patch each with its holes, as
+  gdal_polygonize), `vector.filter` and `vector.calc` (features kept or given an attribute by an expression over
+  their attributes), `vector.geometry` (area, perimeter, length and centroid; geodesic areas), `vector.overlay`
+  (intersection, union and difference of two layers of polygons, as geopandas' overlay), `vector.spatial_join` (the
+  attributes of the feature met, or the features met counted and their attributes summed and averaged: the points
+  in every polygon), `vector.reproject`, `vector.from_table` (points from a table's x and y) and `vector.points`
+  (random or regular points inside polygons); the library's subject Vector analysis, and the template Vector tools:
+  polygons, overlay and points.
 - A cell explained by an assistant through `terraflux mcp` (Claude Code, Claude Desktop...): Explain with an MCP
   assistant in a cell's menu (a right click) keeps its trace for it and copies a request to paste; the server's
   prompt `explain_cell` (a slash command in Claude Code) brings it the trace and the question.

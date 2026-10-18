@@ -54,7 +54,7 @@ fn index(t: &Table, name: &str, node: &str) -> Result<usize> {
 }
 
 /// An expression's value at every row of a table: its columns by name, the node's numbers by port.
-fn evaluate(args: &Args, t: &Table, text: &str) -> Result<Vec<f64>> {
+pub(crate) fn evaluate(args: &Args, t: &Table, text: &str) -> Result<Vec<f64>> {
     let node = args.node;
     let e = parse(text).map_err(|x| Error::msg(format!("node {node:?}: the expression: {}", x.0)))?;
     if e.radius() > 0 {
@@ -74,7 +74,7 @@ fn evaluate(args: &Args, t: &Table, text: &str) -> Result<Vec<f64>> {
         scope.maps.insert(c.as_str(), values.as_slice());
     }
     for (port, v) in &args.inputs {
-        if matches!(v, Value::Table(_)) {
+        if matches!(v, Value::Table(_) | Value::Vector(_)) {
             continue;
         }
         let x = v.as_number().ok_or_else(|| {
