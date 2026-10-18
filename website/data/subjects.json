@@ -176,6 +176,12 @@
    ]
   },
   {
+   "title": "Tables",
+   "prefixes": [
+    "table"
+   ]
+  },
+  {
    "title": "Plot",
    "prefixes": [
     "view"

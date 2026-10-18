@@ -23061,6 +23061,175 @@
   "container": false
  },
  {
+  "name": "table.aggregate",
+  "doc": "Rows grouped by the values of some columns and summarised, as dplyr's group_by and summarise: a row per group (the groups in the order of their values), its columns n (the rows in the group) and, for every column summarised and statistic, column_statistic (area_sum, area_mean). Missing values are left out of the statistics; sd is the sample's (n - 1, as R's sd). Without columns to group by, the whole table is one group.",
+  "inputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the table"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per group"
+   }
+  ],
+  "params": [
+   {
+    "name": "by",
+    "type": "any",
+    "required": false,
+    "doc": "the columns to group by: a name, names separated by commas or a list (none: one group)"
+   },
+   {
+    "name": "columns",
+    "type": "any",
+    "required": false,
+    "doc": "the columns summarised (default: every other)"
+   },
+   {
+    "name": "stats",
+    "type": "any",
+    "required": false,
+    "doc": "the statistics: sum, mean, count, min, max, sd, median (default sum)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "table.calc",
+  "doc": "A column computed row by row from an expression over the others, as a spreadsheet's field calculator or dplyr's mutate: the expressions of map algebra (area / 10000, if class == 1 then cells else 0), the node's other inputs as numbers by their names. A column of the same name is replaced, else it is added at the end.",
+  "inputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the table"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the table with the column"
+   }
+  ],
+  "params": [
+   {
+    "name": "column",
+    "type": "text",
+    "required": true,
+    "doc": "the column's name"
+   },
+   {
+    "name": "expression",
+    "type": "text",
+    "required": true,
+    "doc": "its value at every row, e.g. area / 10000"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "extra": "any"
+ },
+ {
+  "name": "table.filter",
+  "doc": "The rows of a table where an expression is true, as dplyr's filter: the columns by their names, the expressions of map algebra (class == 3 and area > 10; isnull(x) for a missing value), the node's other inputs as numbers by their names. A row where the expression is missing is left out.",
+  "inputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the table"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "its rows where the expression is true"
+   }
+  ],
+  "params": [
+   {
+    "name": "expression",
+    "type": "text",
+    "required": true,
+    "doc": "what a row kept is, e.g. class == 3 and area > 10"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "extra": "any"
+ },
+ {
+  "name": "table.join",
+  "doc": "Two tables joined by key columns, as dplyr's joins: every row of the left with each row of the right of the same key (left: the left's rows without one kept, the right's columns missing; inner: only the rows of keys in both; full: the right's rows without one added too). The right's other columns follow the left's; one of a name the left has takes a suffix.",
+  "inputs": [
+   {
+    "name": "left",
+    "type": "table",
+    "required": true,
+    "doc": "the left table"
+   },
+   {
+    "name": "right",
+    "type": "table",
+    "required": true,
+    "doc": "the right table"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the tables joined"
+   }
+  ],
+  "params": [
+   {
+    "name": "on",
+    "type": "any",
+    "required": true,
+    "doc": "the key columns, of the same names in both: a name, names separated by commas or a list"
+   },
+   {
+    "name": "right_on",
+    "type": "any",
+    "required": false,
+    "doc": "the right's key columns, when they are named otherwise (as many as on)"
+   },
+   {
+    "name": "how",
+    "type": "text",
+    "required": false,
+    "doc": "left, inner or full (default left)",
+    "choices": [
+     "left",
+     "inner",
+     "full"
+    ]
+   },
+   {
+    "name": "suffix",
+    "type": "text",
+    "required": false,
+    "doc": "added to a right's column of a name the left has (default _right)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
   "name": "table.of",
   "doc": "A table written in the settings: its columns' names and its rows of numbers (null: no value), such as the small tables a planning problem takes.",
   "inputs": [],
@@ -23087,6 +23256,88 @@
    }
   ],
   "access": "local",
+  "container": false
+ },
+ {
+  "name": "table.pivot",
+  "doc": "A table from long to wide or back, as tidyr's pivot_wider and pivot_longer. Wider: a row per value of the id columns, a column per value of the names column (named prefix and the value: to_1, to_2...) holding the values column (transitions from, to, cells into a matrix). Longer: the columns given (or every column but the id ones) into rows of two columns, the names and the values; a table's values being numbers, the name of a column is the number in it (2011 of y2011 with prefix y; 1 of to_1), else its place among them (1, 2...).",
+  "inputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the table"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the table pivoted"
+   }
+  ],
+  "params": [
+   {
+    "name": "direction",
+    "type": "text",
+    "required": true,
+    "doc": "wider or longer",
+    "choices": [
+     "wider",
+     "longer"
+    ]
+   },
+   {
+    "name": "id",
+    "type": "any",
+    "required": false,
+    "doc": "the columns that make a row (wider), or kept as they are (longer)"
+   },
+   {
+    "name": "names",
+    "type": "text",
+    "required": false,
+    "doc": "wider: the column whose values become columns"
+   },
+   {
+    "name": "values",
+    "type": "text",
+    "required": false,
+    "doc": "wider: the column whose values fill them"
+   },
+   {
+    "name": "prefix",
+    "type": "text",
+    "required": false,
+    "doc": "the new columns' names before the value (wider), or before the number in the names (longer) (default: the names column's name and _)"
+   },
+   {
+    "name": "fill",
+    "type": "number",
+    "required": false,
+    "doc": "wider: the value of a combination absent (default none)"
+   },
+   {
+    "name": "columns",
+    "type": "any",
+    "required": false,
+    "doc": "longer: the columns turned into rows (default every one but the id ones)"
+   },
+   {
+    "name": "names_to",
+    "type": "text",
+    "required": false,
+    "doc": "longer: the column of the names (default name)"
+   },
+   {
+    "name": "values_to",
+    "type": "text",
+    "required": false,
+    "doc": "longer: the column of the values (default value)"
+   }
+  ],
+  "access": "none",
   "container": false
  },
  {
@@ -23119,6 +23370,90 @@
     "type": "text",
     "required": false,
     "doc": "the decimal mark: . or , (default: found)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "table.select",
+  "doc": "Columns of a table chosen (in the order given), left out, or renamed, as dplyr's select and rename.",
+  "inputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the table"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "its columns chosen"
+   }
+  ],
+  "params": [
+   {
+    "name": "columns",
+    "type": "any",
+    "required": false,
+    "doc": "the columns kept, in this order (default every one)"
+   },
+   {
+    "name": "drop",
+    "type": "any",
+    "required": false,
+    "doc": "the columns left out"
+   },
+   {
+    "name": "rename",
+    "type": "any",
+    "required": false,
+    "doc": "new names: { old = \"new\", ... }"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "table.sort",
+  "doc": "The rows of a table sorted by some columns (the first, then the next where it ties; missing values last), as dplyr's arrange, and the first rows kept (top: the ten largest patches, say).",
+  "inputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the table"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "its rows sorted"
+   }
+  ],
+  "params": [
+   {
+    "name": "by",
+    "type": "any",
+    "required": true,
+    "doc": "the columns to sort by: a name, names separated by commas or a list"
+   },
+   {
+    "name": "descending",
+    "type": "bool",
+    "required": false,
+    "doc": "from the largest (default false)"
+   },
+   {
+    "name": "top",
+    "type": "integer",
+    "required": false,
+    "doc": "the first rows kept (default every row)"
    }
   ],
   "access": "none",
