@@ -160,6 +160,25 @@ fn readme_images() {
 
 /// The assistant explaining a node, answered by the Humboldt-Universität's model (from its network or VPN):
 /// `cargo test --release -p terraflux-app --test readme_images assistant -- --ignored`.
+/// The model read as a document: a species distribution model, its steps with their notes and settings in words,
+/// the maps of the run beside them, a step selected.
+#[test]
+#[ignore = "the README's pictures: run with --ignored"]
+fn document_image() {
+    let mut h = harness();
+    let t = terraflux_app::templates::TEMPLATES.iter().find(|t| t.name == "A species in a warmer climate").unwrap();
+    let ctx = h.ctx.clone();
+    h.state_mut().start_template(&ctx, t);
+    settled(&mut h);
+    let a = h.state_mut();
+    let s = a.session.as_mut().unwrap();
+    terraflux_app::builder::select(s, &terraflux_ops::Registry::standard(), "suitability");
+    let mut d = DockState::new(vec![Pane::Document, Pane::Model]);
+    let _ = d.main_surface_mut().split_right(NodeIndex::root(), 0.74, vec![Pane::Node, Pane::Prepare, Pane::Files]);
+    a.dock = Some(d);
+    save(&mut h, "document.png");
+}
+
 #[test]
 #[ignore = "the README's pictures: run with --ignored (the HU Berlin's network)"]
 fn assistant_image() {

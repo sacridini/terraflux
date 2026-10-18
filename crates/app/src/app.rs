@@ -36,6 +36,8 @@ use crate::wizard::{Outcome, Wizard};
 pub enum Pane {
     /// The model's graph.
     Model,
+    /// The model read as a document: its stages and steps, in words, with the maps of the last run.
+    Document,
     /// The operators' library.
     Operators,
     /// The computer's folders: data dragged to the model.
@@ -65,8 +67,9 @@ pub enum Pane {
 }
 
 impl Pane {
-    pub const ALL: [Pane; 13] = [
+    pub const ALL: [Pane; 14] = [
         Pane::Model,
+        Pane::Document,
         Pane::Operators,
         Pane::Files,
         Pane::Node,
@@ -84,6 +87,7 @@ impl Pane {
     pub fn title(self) -> &'static str {
         match self {
             Pane::Model => "Model",
+            Pane::Document => "Document",
             Pane::Operators => "Operators",
             Pane::Files => "Files",
             Pane::Node => "Node",
@@ -101,15 +105,16 @@ impl Pane {
     }
 }
 
-/// The panes as they first are: the model in most of the window, the node selected at its right as an inspector
-/// (the preparation of its data, the files and the assistant in tabs beside it); the others from the View menu.
+/// The panes as they first are: the model in most of the window (its document in a tab beside it), the node
+/// selected at its right as an inspector (the preparation of its data, the files and the assistant in tabs beside
+/// it); the others from the View menu.
 /// The viewer opens in a tab behind the model's when the first data comes (a raster or vectors read, a template);
 /// the maps of nodes open beside the viewer. The operators are in a drawer at the window's left edge, in the Operators menu, behind
 /// "/" and in the commands (ctrl+K); their pane, shown, takes the left edge.
 pub fn default_layout() -> DockState<Pane> {
     // the inspector a fifth of the window
     const NODE: f32 = 0.2;
-    let mut d = DockState::new(vec![Pane::Model]);
+    let mut d = DockState::new(vec![Pane::Model, Pane::Document]);
     let s = d.main_surface_mut();
     let [_, _] =
         s.split_right(NodeIndex::root(), 1.0 - NODE, vec![Pane::Node, Pane::Prepare, Pane::Files, Pane::Assistant]);
@@ -138,7 +143,7 @@ fn retain_panes(dock: &mut DockState<Pane>, keep: impl FnMut(&mut Pane) -> bool)
 }
 
 /// The version of the layout kept (a layout of another version is let go).
-const LAYOUT_VERSION: u32 = 9;
+const LAYOUT_VERSION: u32 = 10;
 
 /// A window of its own (another screen): its panes in a dock.
 pub struct Detached {
@@ -1366,6 +1371,10 @@ impl TerrafluxApp {
             ui.menu_button("Compare", |ui| {
                 crate::review::compare_menu(ui, s);
             });
+            if ui.button("Export report...").on_hover_text("the model as a document: HTML or PDF").clicked() {
+                ui.close();
+                crate::document_view::export(s, &self.registry);
+            }
         }
     }
 
@@ -2439,6 +2448,7 @@ impl TerrafluxApp {
         let (r, lib) = (&self.registry, &self.library);
         match pane {
             Pane::Model => crate::builder::model_pane(ui, s, r),
+            Pane::Document => crate::document_view::pane(ui, s, r),
             Pane::Operators => crate::builder::operators_pane(ui, s, r, lib),
             Pane::Files => {
                 if let Some(crate::files_view::Asked::Open(p)) = crate::files_view::pane(ui, &mut self.files, s, r) {
@@ -2577,7 +2587,7 @@ impl TerrafluxApp {
             Pane::Simulation | Pane::Areas | Pane::Validation | Pane::Batch | Pane::Computers | Pane::Map(_) => {
                 &[Pane::Viewer, Pane::Model]
             }
-            Pane::Viewer => &[Pane::Model],
+            Pane::Viewer | Pane::Document => &[Pane::Model],
             Pane::Files => &[Pane::Node, Pane::Operators],
             Pane::Prepare => &[Pane::Node],
             Pane::Node => &[Pane::Prepare, Pane::Files],

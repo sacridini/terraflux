@@ -6,6 +6,22 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- The model read as a document (the Document pane, a tab beside the model's): the same graph as the methods
+  section of a paper, for whoever reads, checks and decides rather than builds. The top-level nodes in five stages
+  (data, preparation, model, validation, results; the analysis when there is no model), each stage in the order of
+  the dependencies with the ties broken by where the nodes are on the canvas; a step each, with its note, why,
+  inputs, settings in words (the operator's own description, and the default when the value differs), map
+  algebra's expression with its variables linked to their nodes, references, assumptions and alternatives; the
+  data of one kind in a row, the plumbing (stacks, generators) in a line; a loop's or group's body within it, with
+  what it carries, collects and gives; the plots as numbered figures of the steps they show; the maps, series and
+  tables of the last run beside the steps. A step's name selects its node; a setting of a single value is edited in
+  place (ctrl+Z undoes it) and the model runs again. The design, drawn first by hand on three models, is in
+  `docs/DOCUMENT_VIEW.md`.
+- Reports: the document written as one HTML page (its images in it, read without Terraflux) or as a PDF, from the
+  pane, File, Export report, or `terraflux report model.toml [-o report.pdf] [--run]` (`--run`: the maps and tables
+  of the steps in it).
+
 ## [1.0.0] - 2026-10-18
 
 ### Added

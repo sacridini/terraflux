@@ -560,6 +560,56 @@ fn templates_run_and_the_keyboard_adds_operators() {
     assert_eq!(s.source.nodes.len(), n);
 }
 
+/// The model read as a document: its stages, the steps with their notes and settings in words, the loop's body
+/// within it, the plot as a figure; a step's name selects its node, a setting edited in place runs the model again.
+#[test]
+fn the_model_reads_as_a_document() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let ctx = h.ctx.clone();
+    let t = terraflux_app::templates::TEMPLATES.iter().find(|t| t.name == "CLUE-S").unwrap();
+    h.state_mut().start_template(&ctx, t);
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("simulation", "maps").is_some()
+    });
+    h.state_mut().focus(Pane::Document);
+    h.run_steps(4);
+    for label in ["1. Data", "2. Preparation", "3. Model", "Figure 1.", "Repeated", "3.4.1"] {
+        assert!(h.query_by_label_contains(label).is_some(), "{label}");
+    }
+    assert!(h.query_by_label_contains("the range of the autocorrelation, in cells").is_some(), "settings in words");
+    shot(&mut h, "40-document");
+    h.get_all_by_label("regression").next().unwrap().click_accesskit();
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.selected.as_deref(), Some("regression"), "a step's name selects its node");
+    assert!(s.editor.path.is_empty());
+    // a setting changed in place: an edit of the model (undone by ctrl+Z), the model run again
+    assert!(!s.history.can_undo(), "a template just opened");
+    fn range<'a>(h: &'a Harness<'static, TerrafluxApp>) -> egui_kittest::Node<'a> {
+        use egui_kittest::kittest::NodeT;
+        let mut fields =
+            h.get_all_by_value("25").filter(|n| n.accesskit_node().role() == egui::accesskit::Role::TextInput);
+        let f = fields.next().expect("the range's field");
+        assert!(fields.next().is_none());
+        f
+    }
+    range(&h).scroll_to_me();
+    h.run_steps(2);
+    let field = range(&h);
+    field.focus();
+    field.type_text("0");
+    h.run_steps(1);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    let aptitude = s.source.nodes.iter().find(|n| n.id == "aptitude").unwrap();
+    assert_eq!(aptitude.params["range"], 250, "{:?}", aptitude.params);
+    assert!(s.history.can_undo());
+    until(&mut h, "the run again", |a| !a.session.as_ref().unwrap().running());
+}
+
 /// GuidosToolbox's fragmentation in the builder: FAD-MS's average shown in GTB's colours, its legend in the
 /// classes of a density (rare to intact) rather than a line per value; FOS in 5 classes.
 #[test]

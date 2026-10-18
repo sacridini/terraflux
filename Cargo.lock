@@ -4529,6 +4529,7 @@ dependencies = [
  "egui_plot",
  "image",
  "keyring",
+ "miniz_oxide 0.8.9",
  "rfd",
  "rstar",
  "serde",

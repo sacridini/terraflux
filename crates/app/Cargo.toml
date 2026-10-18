@@ -25,6 +25,8 @@ terraflux-graph = { path = "../graph" }
 terraflux-ops = { path = "../ops" }
 terraflux-raster = { path = "../raster" }
 tiny-skia = "0.12"
+# the images of the PDF reports, deflated
+miniz_oxide = "0.8"
 rstar = "0.12"
 # the assistant's chat models: their APIs over HTTPS (the system's certificates trusted too)
 ureq = { version = "3", default-features = false, features = ["rustls", "platform-verifier"] }

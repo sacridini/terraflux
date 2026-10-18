@@ -114,7 +114,8 @@ O grafo continua sendo a **fonte única da verdade**. O que muda é a interface.
 60 nós. Ela precisa servir a quem **lê, confere e decide**. Tudo abaixo são vistas novas sobre o mesmo grafo, sem
 mudar o motor. Só a fase 1 acrescenta campos opcionais ao formato.
 
-**Fase 0: protótipo antes de código.** Desenhar à mão a vista documento (fase 2) de dois ou três modelos grandes
+**Fase 0: protótipo antes de código.** **Feito** (Unreleased): os protótipos de três modelos e as decisões em
+`docs/DOCUMENT_VIEW.md`. Desenhar à mão a vista documento (fase 2) de dois ou três modelos grandes
 reais (um CLUE-S completo, uma priorização com zonas, um SWAT com calibração) para ver se ela dá conta: a ordem
 das etapas, o que cabe num passo, onde a miniatura ajuda e onde atrapalha.
 
@@ -135,7 +136,14 @@ selecionado.
 - O `check_model` avisa (sem recusar) quando um nó feito pelo agente vem sem `note` ou sem `why`.
 - O formato continua `terraflux/1`: são campos opcionais e os modelos antigos seguem válidos.
 
-**Fase 2: a vista documento (a vista principal do usuário final).**
+**Fase 2: a vista documento (a vista principal do usuário final).** **Feito** (Unreleased): o painel Document
+(as cinco etapas, a ordem das dependências e do canvas, os passos com nota, porquê, entradas, parâmetros em
+palavras, expressões ligadas aos nós e o registro; os dados de um tipo numa linha, o encanamento numa linha; o
+corpo dos laços e grupos dentro do passo; os `view.plot` como figuras numeradas; os mapas e tabelas do último run;
+selecionar e editar no lugar) e o relatório em HTML e PDF (o painel, File › Export report, `terraflux report`).
+Falta: os grupos como seções (com a fase 4; hoje um grupo é um passo com o corpo dentro), frases escritas à mão por
+operador para os parâmetros, editar no lugar listas e tabelas (hoje pelo painel Node) e as cores das paletas do
+viewer nas miniaturas.
 - **O que ela mostra.** O mesmo grafo como uma seção de métodos de artigo, com as etapas em ordem topológica:
   dados → preparo → modelo → validação → resultados. Cada passo traz:
   - a nota e o porquê;

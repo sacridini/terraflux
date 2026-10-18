@@ -71,6 +71,17 @@ enum Command {
     },
     /// Check a model and its data without running it.
     Check { model: PathBuf },
+    /// Write a model as a document: its data, preparation, model, validation and results, step by step, with the
+    /// note, why and settings of each (an HTML page, or a PDF by the extension).
+    Report {
+        model: PathBuf,
+        /// The report's file, .html or .pdf (default: the model's name and .html, next to it).
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+        /// Run the model first: the maps and tables of the steps in the report.
+        #[arg(long)]
+        run: bool,
+    },
     /// List the operators (`--json`: their full signatures).
     Ops {
         #[arg(long)]
@@ -646,6 +657,25 @@ fn main() -> Result<()> {
                 }
                 eprintln!("done in {:.1} s", t.elapsed().as_secs_f64());
             }
+        }
+        Command::Report { model, out, run } => {
+            let source = Model::load(&model).with_context(|| format!("reading {}", model.display()))?;
+            let dir = model.parent().map(Path::to_path_buf).unwrap_or_default();
+            let results = if run {
+                let m = Model::load_expanded(&model)?;
+                let inputs = load_inputs(&m, &dir, &BTreeMap::new())?;
+                let mut progress = Progress { quiet: false, start: Instant::now() };
+                Some(engine.run(&m, &inputs, &mut progress)?)
+            } else {
+                None
+            };
+            let doc = terraflux_app::document::Document::of(&source, &engine.registry);
+            let values = |n: &str, p: &str| results.as_ref()?.values.get(n)?.get(p).cloned();
+            let first = |n: &str| terraflux_app::document::only_output(&source, &engine.registry, n);
+            let out = out.unwrap_or_else(|| model.with_extension("html"));
+            terraflux_app::report::write(&out, &doc, &values, &first)
+                .with_context(|| format!("writing {}", out.display()))?;
+            eprintln!("wrote {}", out.display());
         }
         Command::Check { model } => {
             let m = Model::load_expanded(&model)?;

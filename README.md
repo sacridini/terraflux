@@ -155,6 +155,7 @@ terraflux new dinamica --t0 landuse.tif:1997 --t1 landuse.tif:2011 --drivers dri
 terraflux check model.toml          # every operator, reference and connection checked
 terraflux run model.toml            # output/maps.tif (a band per step), steps.csv, weights.csv
 terraflux run model.toml --set seed=7 --out other
+terraflux report model.toml --run   # model.html: the model as a document, its maps in it (-o report.pdf: a PDF)
 terraflux ops                       # the operators and what they do
 ```
 
@@ -202,6 +203,14 @@ canvas. Each change is accepted or rejected, or all at once. File, Compare lists
 with the saved file, another file or the last commit.
 
 ![The review of a change made by the assistant](docs/images/review.png)
+
+The **Document** pane reads the same graph as the methods section of a paper, for whoever checks a model rather
+than builds it: its data, preparation, model, validation and results, a step per node with its note, why and
+settings in words, map algebra's expressions linked to the nodes they read, loops with their bodies, the plots as
+numbered figures and the maps and tables of the last run. A step's name selects its node; its settings are edited
+in place. File, Export report writes it as one HTML page or a PDF, as does `terraflux report model.toml`.
+
+![A species distribution model read as a document](docs/images/document.png)
 
 ### Models as text
 
