@@ -224,7 +224,7 @@ fn clue_s() -> Model {
     m
 }
 
-pub const TEMPLATES: [Template; 45] = [
+pub const TEMPLATES: [Template; 46] = [
     Template {
         name: "MSPA of a forest",
         group: PATTERNS,
@@ -535,6 +535,118 @@ id = "plot_window"
 op = "view.plot"
 inputs = { value = "window.maps" }
 params = { title = "Diversity around each cell" }
+"#,
+    },
+    Template {
+        name: "Tables: filter, summarise, join and pivot",
+        group: METRICS,
+        build: None,
+        about: "the tables operators give worked on as in a spreadsheet: a land cover's patches filtered, a column \
+                computed, summarised by class, joined to a table of values, the largest kept, and its change from \
+                one date to the next turned into a matrix",
+        toml: r#"
+format = "terraflux/1"
+name = "Tables: filter, summarise, join and pivot"
+description = "A land cover's patches (metrics.patch) and its transitions (change.transitions) worked on as tables: filtered, a column computed, summarised by class, joined to the value of each class, sorted, reshaped into a matrix."
+
+[[nodes]]
+id = "cover"
+op = "nlm.random_cluster"
+params = { rows = 120, columns = 120, p = 0.5, weights = [0.45, 0.35, 0.2], seed = 12 }
+note = "A land cover of three classes drawn by chance: 1 forest, 2 farming, 3 water. In its place, a raster.read of a map of yours."
+
+[[nodes]]
+id = "later"
+op = "map.calc"
+inputs = { cover = "cover.map" }
+params = { expression = "if cover == 1 and nbsum(cover == 2, 1) >= 3 then 2 else cover" }
+note = "Ten years later: farming grown into the forest beside it."
+
+[[nodes]]
+id = "patches"
+op = "metrics.patch"
+inputs = { map = "cover.map" }
+params = { metrics = ["area", "perim", "shape"] }
+note = "A row per patch: its class, area (hectares), perimeter (metres) and shape."
+
+[[nodes]]
+id = "large"
+op = "table.filter"
+inputs = { table = "patches.table" }
+params = { expression = "area >= 0.005" }
+note = "The patches of 50 cells or more (0.005 ha at cells of 1 m): the small ones left out."
+
+[[nodes]]
+id = "edge"
+op = "table.calc"
+inputs = { table = "large.table" }
+params = { column = "edge_per_ha", expression = "perim / area" }
+note = "A column computed from the others, as a spreadsheet's: the metres of edge per hectare."
+
+[[nodes]]
+id = "by_class"
+op = "table.aggregate"
+inputs = { table = "edge.table" }
+params = { by = "class", columns = ["area", "edge_per_ha"], stats = ["sum", "mean", "max"] }
+note = "A row per class: its patches (n), their area in all, on average and the largest, and their edge per hectare."
+
+[[nodes]]
+id = "values"
+op = "table.of"
+params = { columns = ["class", "value_per_ha"], rows = [[1, 1200], [2, 300], [3, 50]] }
+note = "What a hectare of each class is worth (in its place, a table.read of yours)."
+
+[[nodes]]
+id = "worth"
+op = "table.join"
+inputs = { left = "by_class.table", right = "values.table" }
+params = { on = "class", how = "left" }
+note = "Each class's summary beside its value per hectare, by the class."
+
+[[nodes]]
+id = "total"
+op = "table.calc"
+inputs = { table = "worth.table" }
+params = { column = "worth", expression = "area_sum * value_per_ha" }
+note = "What the large patches of each class are worth."
+
+[[nodes]]
+id = "largest"
+op = "table.sort"
+inputs = { table = "edge.table" }
+params = { by = "area", descending = true, top = 10 }
+note = "The ten largest patches."
+
+[[nodes]]
+id = "short"
+op = "table.select"
+inputs = { table = "largest.table" }
+params = { columns = ["class", "area", "edge_per_ha"], rename = { area = "hectares" } }
+note = "Only the columns to report, one renamed."
+
+[[nodes]]
+id = "dates"
+op = "stack.of"
+inputs = { t2000 = "cover.map", t2010 = "later.map" }
+
+[[nodes]]
+id = "change"
+op = "change.transitions"
+inputs = { maps = "dates.stack" }
+note = "A row per pair of classes (from, to) with its cells, from one date to the next."
+
+[[nodes]]
+id = "matrix"
+op = "table.pivot"
+inputs = { table = "change.one_step" }
+params = { direction = "wider", id = "from", names = "to", values = "cells", fill = 0 }
+note = "The transitions as a matrix: a row per class before, a column per class after (to_1, to_2...)."
+
+[[nodes]]
+id = "plot_worth"
+op = "view.plot"
+inputs = { table = "total.table" }
+params = { title = "Worth of each class", chart = "bars", x = "class", y = "worth" }
 "#,
     },
     Template {
@@ -3546,5 +3658,32 @@ mod tests {
         assert!(p.data.iter().all(|v| (0.0..=1.0).contains(v)));
         let Some(terraflux_ops::Value::Table(t)) = out.get("data.records") else { panic!("no records") };
         assert!(t.columns.contains(&"fold".to_string()) && t.rows.len() > 800);
+    }
+}
+
+#[cfg(test)]
+mod table_template_tests {
+    #[test]
+    fn the_tables_template_runs() {
+        let t = super::TEMPLATES.iter().find(|t| t.name.starts_with("Tables:")).unwrap();
+        let m = t.model();
+        let r = terraflux_exec::Engine::default().run(&m, &Default::default(), &mut terraflux_exec::Quiet);
+        let r = match r {
+            Ok(r) => r,
+            Err(e) => panic!("{e}"),
+        };
+        let table = |n: &str| match r.get(&format!("{n}.table")) {
+            Some(terraflux_ops::Value::Table(t)) => t.clone(),
+            other => panic!("{n}: {other:?}"),
+        };
+        let total = table("total");
+        assert!(total.columns.ends_with(&["value_per_ha".to_string(), "worth".to_string()]), "{:?}", total.columns);
+        assert_eq!(total.rows.len(), 3);
+        let short = table("short");
+        assert_eq!(short.columns, ["class", "hectares", "edge_per_ha"]);
+        assert!(short.rows.len() <= 10);
+        let matrix = table("matrix");
+        assert_eq!(matrix.columns[0], "from");
+        assert!(matrix.columns.iter().any(|c| c == "to_2"), "{:?}", matrix.columns);
     }
 }

@@ -6,6 +6,15 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Tables worked on, as dplyr and tidyr do (the tables of metrics, transitions, zonal statistics, evaluations):
+  `table.filter` (the rows where an expression is true: class == 3 and area > 10), `table.calc` (a column computed
+  from the others, the expressions of map algebra), `table.aggregate` (grouped by columns and summarised: sum, mean,
+  count, min, max, sd, median), `table.join` (two tables by key columns: left, inner, full), `table.sort` (sorted,
+  the first rows kept), `table.select` (columns chosen, dropped, renamed) and `table.pivot` (long to wide, as the
+  transitions into a matrix, and back); the library's subject Tables, and the template Tables: filter, summarise,
+  join and pivot.
+
 ## [1.4.0] - 2026-10-18
 
 ### Added

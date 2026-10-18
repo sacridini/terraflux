@@ -85,6 +85,7 @@ pub mod stats;
 pub mod surface;
 pub mod swat;
 pub mod swat_tables;
+pub mod table_ops;
 pub mod tables;
 pub mod uncertainty;
 pub mod validate;
@@ -416,6 +417,7 @@ impl Registry {
         validate::register(&mut r);
         view::register(&mut r);
         tables::register(&mut r);
+        table_ops::register(&mut r);
         r
     }
 
