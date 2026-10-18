@@ -95,6 +95,143 @@ distâncias, unidades de planejamento em polígonos, o desenho no viewer).
   corredor, avaliação de um plano, espécie num clima mais quente, fatores da mudança, autômato celular num laço,
   agentes, CRAFTY, análise e validação da mudança, terreno, carbono com incerteza, mais modelos neutros.
 
+## O modelo como registro do que um agente fez: ler, conferir, decidir
+
+Registro de 2026-10-18 (conversa na sessão do landschaft).
+
+**A premissa.** Num mundo em que quase ninguém programa e muitas vezes nem monta o modelo à mão, quem monta é um
+agente (pelo `terraflux mcp`). O modelo do Terraflux passa a ser o **registro da lógica** de um processamento,
+sem depender de código em Python ou R. Para isso o formato atual já é o certo, e melhor que um script:
+
+- tem vocabulário fechado e tipado: o agente só usa operadores que existem, e uma conexão errada é recusada na hora;
+- cada nó tem uma nota, ou seja, a intenção fica junto da lógica;
+- o arquivo é declarativo, versionado (`terraflux/1`) e comparável por diff;
+- roda sem Python e sem R, e os resultados intermediários podem ser inspecionados;
+- o `watch.rs` já segue as edições do agente, com ctrl+Z para desfazer.
+
+O grafo continua sendo a **fonte única da verdade**. O que muda é a interface. Hoje ela foi feita para quem
+**monta**, e o canvas de nós vira um emaranhado de fios para quem só precisa entender e auditar um modelo de 40 a
+60 nós. Ela precisa servir a quem **lê, confere e decide**. Tudo abaixo são vistas novas sobre o mesmo grafo, sem
+mudar o motor. Só a fase 1 acrescenta campos opcionais ao formato.
+
+**Fase 0: protótipo antes de código.** Desenhar à mão a vista documento (fase 2) de dois ou três modelos grandes
+reais (um CLUE-S completo, uma priorização com zonas, um SWAT com calibração) para ver se ela dá conta: a ordem
+das etapas, o que cabe num passo, onde a miniatura ajuda e onde atrapalha.
+
+**Fase 1: o porquê, além do quê (formato).**
+- Campos opcionais no nó, ao lado da `note`:
+  - `why`: a justificativa da escolha;
+  - `refs`: artigos, métodos, a documentação do operador;
+  - `assumptions`: as premissas;
+  - `alternatives`: o que foi considerado e descartado, e por quê.
+- No nível do modelo:
+  - `request`: o pedido original do usuário, nas palavras dele;
+  - `summary`: um resumo da conversa que levou ao modelo;
+  - `author`: pessoa, agente ou os dois.
+- As ferramentas MCP aceitam e preenchem esses campos.
+- O `check_model` avisa (sem recusar) quando um nó feito pelo agente vem sem `note` ou sem `why`.
+- O formato continua `terraflux/1`: são campos opcionais e os modelos antigos seguem válidos.
+
+**Fase 2: a vista documento (a vista principal do usuário final).**
+- **O que ela mostra.** O mesmo grafo como uma seção de métodos de artigo, com as etapas em ordem topológica:
+  dados → preparo → modelo → validação → resultados. Cada passo traz:
+  - a nota e o porquê;
+  - os parâmetros em linguagem natural, tirados da descrição do operador ("alcance de 30 células", e não
+    `range = 30`);
+  - as expressões do `map.calc` com os nomes ligados aos nós de origem;
+  - uma miniatura do resultado, tirada do cache do runner.
+- **Edição.** Clicar num passo abre o nó. Os parâmetros podem ser mudados ali mesmo, e o modelo roda de novo como
+  no builder.
+- **Exportação** como relatório (HTML e PDF): o registro auditável de um processamento.
+- O canvas vira a vista avançada, para quem quiser os fios.
+
+**Fase 3: revisão das mudanças do agente.**
+- Hoje, quando o agente edita, o modelo é recarregado e dá para desfazer, mas não dá para ver *o que mudou*.
+  O `watch.rs` passa a abrir uma revisão como a de um pull request:
+  - um diff semântico do grafo: nós adicionados, removidos e alterados, conexões refeitas, parâmetros com o antes e
+    o depois;
+  - os mapas e tabelas afetados antes e depois, lado a lado;
+  - aceitar ou rejeitar por mudança, ou tudo de uma vez.
+- A mesma vista serve para comparar duas versões quaisquer do arquivo, por exemplo dois commits.
+
+**Fase 4: hierarquia e zoom semântico.**
+- Etapas por `control.group`. As orientações do `terraflux mcp` pedem ao agente que sempre agrupe por etapa.
+- O nível de cima do canvas mostra de 5 a 7 blocos, cada um com a sua nota, e abre um bloco por vez.
+- Com zoom afastado, o canvas mostra só as etapas; com zoom aproximado, os nós.
+
+**Fase 5: verificações visíveis.**
+- Operadores `check.*` que não mudam os dados e dão um selo verde ou vermelho com a razão:
+  - área conservada entre passos;
+  - sem nulos inesperados;
+  - valores dentro de uma faixa;
+  - acurácia acima de um mínimo;
+  - soma de demandas igual à alocada.
+- O agente as escreve junto com o modelo.
+- Os selos aparecem na vista documento e no canvas, e um resumo no topo mostra de relance se o modelo está
+  saudável.
+
+**Fase 6: parâmetros como painel.**
+- As entradas `$nome` do modelo ganham tipo, faixa, unidade e texto de ajuda (no formato, como os demais campos
+  opcionais). Viram um formulário simples, com controles deslizantes e escolhas, para o usuário mudar um cenário
+  sem tocar no grafo.
+- O painel se liga aos cenários e à calibração do `batch_view`: salvar um conjunto de parâmetros como cenário e
+  comparar cenários lado a lado (mapas, tabelas, diferenças).
+
+**Fase 7: rastreio de uma célula.**
+- Clicar num pixel do resultado mostra a cadeia de valores que o produziu, por exemplo: "esta célula virou cidade
+  porque a adequação era 0,71, tinha 4 vizinhos urbanos e o limiar no passo 12 era 0,50".
+- **Implementação.** Percorrer o grafo para trás a partir do nó mostrado e ler o valor da célula na saída em cache
+  de cada nó de origem. Nos laços, usar os passos coletados (com uma opção de coletar todos ao rastrear). Para o
+  `map.calc`, mostrar a expressão com os valores substituídos. Operadores de vizinhança e globais (`nbsum`,
+  manchas, alocação) mostram o valor e uma explicação curta do que entra nele (a janela, a mancha, a demanda).
+- É a pergunta mais comum de quem audita um modelo espacial, e nenhuma ferramenta do gênero responde bem: é o que
+  pode diferenciar o Terraflux.
+
+**Fase 8: o agente dentro do app.**
+- Um painel de conversa ao lado do grafo, com as mesmas ferramentas do `terraflux mcp` chamadas dentro do
+  processo.
+- Clicar num nó e perguntar "por que isso?" ou "o que acontece se eu mudar este limiar?".
+- O agente destaca os nós que está mexendo, e cada edição passa pela revisão da fase 3.
+- O agente externo pelo MCP continua.
+- **Qualquer provedor, inclusive o da universidade.** Quase ninguém na academia tem chave de API de um provedor
+  comercial, mas muitas universidades hospedam modelos abertos (Qwen, Llama, Mistral). O chat é então um cliente da
+  **API compatível com a da OpenAI** (`/v1/chat/completions` com *tool calling*), que o vLLM, o LiteLLM, o Ollama,
+  o llama.cpp server e os serviços acadêmicos falam. Nas configurações:
+  - o endereço (`base_url`);
+  - a chave, quando o servidor pede;
+  - o nome do modelo.
+
+  O mesmo cliente serve para o servidor da universidade, para um Ollama no próprio computador (offline, sem
+  chave), para a API do Claude e para outros provedores. A chave fica no cofre de credenciais do sistema, nunca no
+  arquivo do modelo.
+- **Servidores acadêmicos conhecidos** (a confirmar com cada centro de computação):
+  - o KI-Service da HU Berlin, com modelos abertos locais e APIs para desenvolvimentos próprios (a página não diz
+    quais modelos nem quem tem acesso);
+  - o Chat AI da GWDG (Academic Cloud), com Qwen e outros modelos, API compatível com a da OpenAI para quem pedir;
+  - o AI-ToolLab da Goethe-Universität, por um gateway LiteLLM.
+
+  O que perguntar a cada um: se a API é compatível com a da OpenAI e aceita tool calling (no vLLM depende do
+  `--tool-call-parser` do servidor), como se obtém um token (o chat web costuma usar SSO), e se a API só responde
+  de dentro da rede ou pela VPN. Um botão "testar conexão" confere as três coisas e diz o que falhou.
+- **Modelos menores.** Um Qwen de 30B é mais fraco que um modelo de fronteira em longas sequências de chamadas de
+  ferramentas. O desenho ajuda:
+  - o verificador recusa edições erradas com o motivo, e o modelo se corrige;
+  - os templates são o ponto de partida, então o agente adapta em vez de criar do zero;
+  - as descrições dos operadores vêm sob demanda (`describe_operator`), não o catálogo inteiro, para caber em
+    janelas de contexto menores;
+  - um conjunto reduzido de ferramentas para modelos pequenos (explicar, ajustar parâmetros, rodar, conferir);
+  - a revisão da fase 3 garante que nada entra sem o usuário ver.
+
+  Expectativa: explicar nós, ajustar parâmetros e montar fluxos pequenos e médios funciona bem; montar modelos
+  grandes inteiros ainda pede um modelo de fronteira.
+- **Avaliação.** Um conjunto fixo de tarefas (montar um template a partir da descrição, corrigir um modelo
+  quebrado, explicar um resultado) roda contra cada modelo configurado e mede a taxa de sucesso. Isso mostra ao
+  usuário o que esperar do modelo da sua universidade.
+
+**Ordem e prioridade.** As fases 1 a 3 dão o maior ganho, porque fazem do arquivo um registro auditável e dão
+confiança no que o agente faz. A 7 é o diferencial. A 4 e a 5 são baratas e podem entrar em paralelo. Tudo isso é
+independente do port do landschaft para Rust (`RUST_PORT.md` no landschaft) e vale igual na versão web.
+
 ## Paridade com o landschaft na priorização, progresso e parada
 
 Registro de 2026-10-16. O `prioritize.optimize` passou a resolver como o landschaft (o motor de corte e o de
@@ -212,6 +349,157 @@ clara entraram em 0.80.0. Estes ficaram para decidir:
 5. **As configurações de um submodelo como entradas.** Hoje uma configuração não pode ler uma entrada (`edge_width =
    "$x"`; o `check` acusa desde 0.80.0), então um submodelo não expõe as suas. Pede um desenho: as referências nas
    configurações entrando nas dependências, no cache, na expansão dos submodelos e nos lotes distribuídos.
+6. **Regras do CLUE-S e a alocação ordenada** (vistas nos tutoriais `clue-s-rules` e `ordered-allocation`):
+   células restritas ainda são convertidas pelas regras de vizinhança (com limiar 0,9 para a floresta, as 6.727
+   células do bloco restrito mudaram); as regras de vizinhança também convertem as células que a classe já tem e
+   não passam no limiar; a alocação ordenada estocástica não atende à demanda quando uma classe que cresce é
+   servida depois das que encolhem (no Plum Island, todas as ordens menos 2,1,3, inclusive a 1,2,3 padrão do
+   Wizard; a determinística atende sempre). Conferir com o código do lulcc antes de mudar.
+
+## Terraflux Server: a interface no navegador, o motor no servidor
+
+Registro de 2026-10-15. Um "RStudio Server do Terraflux": a interface no navegador com a fluidez do desktop
+(60 fps), o motor (Rust, o C++ do landschaft, o GDAL, o HiGHS) nativo no servidor. Não exige reescrever o C++ nem
+levar tudo para WASM: só a interface vai para o navegador.
+
+**Por que fica fluido.** Quem desenha cada quadro é a GPU de quem usa (o egui em WASM, sobre WebGPU ou WebGL2): o
+canvas dos nós, os painéis e o arrastar e o zoom dos mapas são locais. Do servidor vêm só dados novos (tiles que
+faltam, resultados), como num mapa web: a rede atrasa a chegada dos dados, não os quadros. É o oposto de
+transmitir a tela (noVNC, Kasm), em que cada quadro é vídeo.
+
+**Arquitetura.** O `terraflux-app` depende hoje direto de `ops`, `exec`, `gdal` e `dist` (20 dos 26 arquivos):
+separá-lo em
+- `terraflux-client`: a interface egui (editor, painéis, viewer, Wizard, Many runs), para o navegador (WASM) e para
+  o desktop;
+- `terraflux-protocol`: o que trafega (o modelo em TOML, comandos, eventos de progresso, tiles, estatísticas);
+- `terraflux-server`: sessões, execução, cache, serviço de tiles, arquivos.
+
+Entre a interface e o motor, um trait `Backend` (rodar até um nó, cancelar, progresso, pedir tiles e estatísticas,
+listar, enviar e baixar arquivos, abrir e salvar modelos, lançar lotes) com duas implementações: `Local` (o que o
+app faz hoje, no mesmo processo: o desktop não muda) e `Remote` (por WebSocket, ou gRPC-web com o `tonic` que já
+existe).
+
+**Mapas sem perder fluidez.**
+- Tiles com os valores (float32, ou inteiros para classes), comprimidos (zstd), não imagens; a pirâmide de níveis
+  no servidor, com a lógica que o viewer já tem (só o que está à vista, na resolução da tela, o nível grosseiro
+  enquanto o fino chega).
+- As cores na GPU do cliente (rampas, legendas e opacidade num shader): trocar a paleta é instantâneo; o valor
+  sob o cursor lido do tile local.
+- O que é pesado no servidor (contagem das classes, histogramas, métricas), em números.
+- Os mapas de fundo direto dos provedores pelo navegador, ou por um proxy no servidor quando o CORS não deixar.
+- No navegador o WASM do egui tem uma thread só: o que o app faz hoje em threads (colorir, contar as classes) vai
+  para shaders, Web Workers ou o servidor.
+
+**O servidor.**
+- `terraflux server --listen ...` no binário que já existe, ao lado de `app`, `serve` e `worker`: serve a interface
+  WASM e a API; imagem Docker; TLS por um proxy (Caddy, nginx).
+- Sessões como as do RStudio: um processo por usuário (uma falha não derruba os outros), a pasta de trabalho de
+  cada um, limites de CPU e memória, fim por inatividade, modelo e layout lembrados entre visitas.
+- Execução longa que segue com o navegador fechado (o mecanismo de retomar lotes já existe) e é reaberta depois.
+- O Many runs pelo coordenador do `terraflux-dist` que já existe, com clusters (Slurm) e nuvem.
+- Autenticação: no início um token ou o código de pareamento atual; depois o login da instituição (OIDC) pelo
+  proxy.
+- Um navegador dos arquivos do servidor no lugar do `rfd`, com envio e download.
+
+**Windows, macOS e Linux.** O binário já é empacotado para os três com o GDAL, as peças novas (tokio, axum ou
+tonic) também rodam nos três, e o servidor não precisa de GPU (o desenho é no navegador).
+
+| Sistema | Uso mais natural | Como serviço | Vários usuários isolados |
+|---|---|---|---|
+| Linux | servidor do laboratório ou da instituição, nuvem, cluster | systemd, Docker | o melhor caso: um processo por usuário com a conta dele, limites por cgroups ou contêiner |
+| Windows | a estação forte do grupo servindo os notebooks | Windows Service | funciona com um processo por sessão; rodar cada sessão como outro usuário do Windows dá mais trabalho: uso pessoal ou grupo pequeno de confiança |
+| macOS | o Mac forte servindo o notebook ou o iPad | launchd | como no Windows: uso pessoal ou grupo pequeno |
+
+**Escopo recomendado.**
+- O modo pessoal ou de grupo nos três sistemas: um processo, autenticação por token ou pelo código de pareamento,
+  a pasta de trabalho do próprio usuário. Cobre "a minha máquina forte, acessada do navegador de qualquer lugar".
+- O modo multiusuário completo (contas separadas, cotas, Docker, login institucional) só no Linux, ao menos no
+  início: é onde laboratórios e instituições hospedam esse tipo de serviço.
+
+**Também: abrir este Terraflux no navegador.** Um botão no app desktop que serve a sessão aberta a outro aparelho
+da rede (ou de fora, com a máquina alcançável) por um código, como o painel Computers. O uso principal é a própria
+pessoa: o computador forte fica no laboratório com o modelo e os dados, e ela continua a mesma sessão do notebook
+em casa ou numa reunião, pelo navegador; o trabalho é feito na máquina do laboratório. Difere do "Emprestar este
+computador" de hoje, em que a máquina só roda tarefas dos lotes de outra pessoa, sem interface. Dar o código a um
+colega para ele abrir a sessão também seria possível, mas é um uso secundário. Nos três sistemas, sem instalar
+nada além do app.
+
+**Pontos técnicos.** (1) Desacoplar o app do motor: o maior trabalho, verificável pelos testes de interface
+(`egui_kittest`), o desktop sem mudar. (2) A thread única do navegador. (3) WebGPU nos navegadores modernos,
+WebGL2 como reserva (o wgpu já faz). (4) Isolar usuários e caminhos de arquivos (os plugins WASM já rodam em
+sandbox).
+
+**Fases.**
+1. A separação cliente e backend, com o `Local`: o desktop igual.
+2. O cliente compilando para WASM: sem as dependências do motor, do GDAL, do `rfd` e das threads.
+3. O servidor mínimo, um usuário: rodar modelos, tiles, arquivos, progresso. Com 1 a 3, um protótipo num servidor
+   de laboratório.
+4. Multiusuário: sessões por processo, autenticação, persistência, limites, Docker.
+5. Lotes, clusters e nuvem pelo coordenador que já existe.
+
+Hoje, sem mudar código, dá para chegar perto transmitindo o app do servidor (Xvfb e renderização por software,
+noVNC, Xpra, Guacamole, KasmVNC, Selkies; vários usuários com JupyterHub e `jupyter-remote-desktop-proxy`, ou
+Kasm Workspaces): funciona já, com todos os operadores, mas é vídeo da tela (latência, banda, menos nitidez).
+
+## Terraflux no navegador, sem servidor (Lite), e todo em Rust
+
+Registro de 2026-10-15. Discutido como possível, sem nada a fazer por ora.
+
+- **Lite no site da documentação.** O motor compilado para WASM rodaria os exemplos dos tutoriais na própria
+  página (um botão "Rodar no navegador" sob cada grafo, as configurações mexidas pelo leitor), hospedado no GitHub
+  Pages: só arquivos estáticos. Uma thread (o Pages não deixa pôr os cabeçalhos COOP/COEP; há o contorno do
+  `coi-serviceworker`), mapas pequenos; os templates desenham os próprios dados, sem arquivos a baixar.
+- **O C++ pelo Emscripten.** O Rust tem o alvo `wasm32-unknown-emscripten`, em que o `emcc` liga tudo: o
+  landschaft (os `#pragma omp` são ignorados sem `-fopenmp`, as chamadas `omp_*` estão protegidas por `_OPENMP`),
+  os shims do `cxx`, o Eigen e o HiGHS num `.wasm` só. Pede: o CMake do `terraflux-ls-sys` com o `emcmake`,
+  exceções do C++ no WASM (`-fwasm-exceptions`), um modo sem `rayon`, deixar de fora o GDAL, o `terraflux-dist` e
+  a interface egui (o `wasm-bindgen` não roda nesse alvo: a ponte com o JavaScript por funções C exportadas,
+  `ccall`/`cwrap`), e o sistema de arquivos em memória do Emscripten para as entradas e saídas. Mais rápido de ter
+  que portar, mas frágil e maior (10 a 30 MB antes de comprimir).
+- **Todo em Rust.** Portar as ~72 mil linhas de C++ do landschaft daria um build só com `cargo`, um paralelismo só
+  (`rayon`), segurança de memória e o alvo `wasm32-unknown-unknown` (inclusive a interface egui no navegador);
+  custa meses, a igualdade bit a bit é difícil (a ordem das somas, o `exp` e o `log` de cada sistema, o Eigen), o
+  landschaft usa o mesmo C++ (o caminho limpo seria o núcleo em Rust e o landschaft por PyO3), e o HiGHS e o GDAL
+  não têm equivalentes em Rust. Se for feito, aos poucos, kernel por kernel, com os testes de paridade.
+
+## Atualização automática
+
+Registro de 2026-10-16. O aplicativo avisa quando há uma versão nova e a instala com um clique, nunca sozinho.
+
+**Como funcionaria.**
+1. **Verificar:** ao abrir (no máximo uma vez por dia, numa thread), o app lê um manifesto pequeno
+   (`latest.json`: a versão, o resumo do CHANGELOG, o endereço e o SHA-256 de cada pacote, uma assinatura) e, se
+   houver versão nova, mostra um aviso discreto: "Terraflux 0.81.0 disponível · Ver novidades · Atualizar".
+2. **Baixar e conferir:** o pacote baixado em segundo plano, o SHA-256 e a assinatura conferidos com uma chave
+   pública embutida no binário (ed25519/minisign) antes de qualquer instalação: o app executa o que baixa.
+3. **Instalar, por pacote:**
+   - Windows `.msi`: o mais simples. O `installer/terraflux.wxs` já tem o `UpgradeCode` fixo e o `MajorUpgrade`:
+     o app fecha e roda `msiexec /i terraflux-<versão>-x64.msi /passive` (pede administrador, a instalação é por
+     máquina).
+   - Windows `.zip` e Linux `.tar.gz`: o app troca o próprio executável e a pasta ao lado (no Windows, renomeando
+     o `.exe` em uso; o crate `self-replace`).
+   - macOS: o zip baixado, o app fecha e substitui `/Applications/Terraflux.app` (baixado pelo próprio app, o
+     arquivo não ganha a marca de quarentena: a assinatura ad hoc não atrapalha).
+   - Linux `.deb`: não pelo app (pediria root); um repositório apt (no GitHub Pages) e o `apt upgrade`; o app só
+     avisa.
+4. **Linha de comando:** `terraflux update`, para quem usa só o terminal; nos clusters, nada automático.
+
+**Antes.**
+- **Releases públicos:** hoje o repositório é privado (o site com `releases_public: false`) e o app não baixaria
+  sem um token. Tornar os releases públicos, um repositório público só de binários, ou o manifesto e os pacotes
+  no GitHub Pages.
+- **Reprodutibilidade:** uma versão nova pode mudar resultados. Desligar a verificação nas Settings, "pular esta
+  versão", as novidades sempre à vista, nada instalado sem pedir; a versão do Terraflux gravada nos metadados das
+  saídas.
+- **Lotes distribuídos:** coordenador e workers na mesma versão; o coordenador recusa um worker de outra versão
+  dizendo qual instalar.
+- **Tamanho:** os pacotes trazem o GDAL (dezenas de MB). Depois: baixar só o executável quando o GDAL não mudou.
+- **Release:** o `latest.json` gerado e assinado pelo processo de release; a chave de assinatura fora do
+  repositório.
+
+**Fases.**
+1. Verificar, avisar, baixar, conferir a assinatura e instalar o `.msi` (2 a 3 dias).
+2. A troca no macOS e no zip/tar.gz, o repositório apt.
 
 ## O que ainda falta entre os operadores
 
