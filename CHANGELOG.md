@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [0.99.0] - 2026-10-18
+
 ### Added
 - The assistant (View, Assistant): a chat beside the graph with a model that explains, changes and runs the
   model open, with the tools of `terraflux mcp` called in the application. Each change is an edit of its own
@@ -21,6 +23,8 @@ minor versions.
 ### Changed
 - The tools of `terraflux mcp` live in the application's library (`terraflux_app::tools`), shared by the server
   and the assistant; the server's tools and answers are as they were.
+- The viewer opens in a tab behind the model's graph when the first data comes (a template, a file read): the
+  graph stays in front. The assistant is a tab of the inspector at the right (the layout kept is reset once).
 
 ## [0.98.0] - 2026-10-18
 
