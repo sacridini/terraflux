@@ -1,5 +1,7 @@
 # The website (website/) built and published on GitHub Pages at every push to main that changes it.
-# Pages must be enabled with "GitHub Actions" as the source (Settings > Pages).
+# Pages must be enabled with "GitHub Actions" as the source (Settings > Pages), and the repository variable
+# PAGES_ENABLED set to true (Settings > Secrets and variables > Actions > Variables): until then the site is built
+# (and checked) at every push, not published.
 name: website
 
 on:
@@ -36,6 +38,7 @@ jobs:
 
   deploy:
     needs: build
+    if: vars.PAGES_ENABLED == 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
