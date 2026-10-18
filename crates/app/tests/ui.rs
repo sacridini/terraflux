@@ -452,6 +452,8 @@ fn a_basemap_shows_under_the_data() {
         )
         .unwrap();
     }
+    h.run_steps(2);
+    h.state_mut().focus(Pane::Viewer);
     until(&mut h, "the map with a CRS", |a| {
         let s = a.session.as_ref().unwrap();
         !s.running() && s.preview_value().is_some()
@@ -487,6 +489,8 @@ fn templates_run_and_the_keyboard_adds_operators() {
     h.run_steps(2);
     let ctx = h.ctx.clone();
     h.state_mut().start_template(&ctx, &terraflux_app::templates::TEMPLATES[0]);
+    // (the viewer opens behind the graph)
+    h.state_mut().focus(Pane::Viewer);
     until(&mut h, "the template's plot", |a| a.session.as_ref().unwrap().map_tabs.values().any(|t| t.node == "plot"));
     until(&mut h, "the run", |a| {
         let s = a.session.as_ref().unwrap();
@@ -1756,12 +1760,13 @@ fn the_viewer_comes_with_the_data_and_the_cells_show_their_values() {
             .unwrap();
     }
     h.run_steps(2);
-    assert_eq!(h.state_mut().focused(), Some(Pane::Viewer), "the viewer, in front");
+    assert_eq!(h.state_mut().focused(), Some(Pane::Model), "the viewer behind the model's graph");
     {
         let dock = h.state().dock.as_ref().unwrap();
         let (a, b) = (dock.find_tab(&Pane::Model).unwrap(), dock.find_tab(&Pane::Viewer).unwrap());
         assert_eq!((a.surface, a.node), (b.surface, b.node), "in a tab beside the model's");
     }
+    h.state_mut().focus(Pane::Viewer);
     drawn(&mut h);
     until(&mut h, "the map drawn", |a| a.session.as_ref().unwrap().preview_view.rect().is_some());
     let rect = h.state().session.as_ref().unwrap().preview_view.rect().unwrap();

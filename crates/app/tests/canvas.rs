@@ -452,9 +452,9 @@ fn files_become_nodes_and_rasters_join_a_stack_by_a_connection() {
     let tif = inputs.join("sibuyan_landuse.tif").to_string_lossy().into_owned();
     assert_eq!(read, [("raster.read", tif.as_str()), ("vector.read", geojson.to_str().unwrap())]);
     let raster = s.source.nodes[1].id.clone();
-    // the first data: the viewer, in a tab beside the model's, in front
-    assert_eq!(h.state_mut().focused(), Some(Pane::Viewer));
-    h.state_mut().focus(Pane::Model);
+    // the first data: the viewer, in a tab beside the model's, behind it
+    assert!(h.state().is_open(Pane::Viewer));
+    assert_eq!(h.state_mut().focused(), Some(Pane::Model));
     // stack.of takes any maps: a connection let go on its place of a new input, or on the node, is one more
     // input, named as the node it comes from
     h.run_steps(3);

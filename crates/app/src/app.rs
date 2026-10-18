@@ -98,16 +98,17 @@ impl Pane {
 }
 
 /// The panes as they first are: the model in most of the window, the node selected at its right as an inspector
-/// (the preparation of its data and the files in tabs beside it); the others from the View menu. The viewer opens
-/// in a tab beside the model's when the first data comes (a raster or vectors read, a template); the maps of nodes
-/// open beside the viewer. The operators are in a drawer at the window's left edge, in the Operators menu, behind
+/// (the preparation of its data, the files and the assistant in tabs beside it); the others from the View menu.
+/// The viewer opens in a tab behind the model's when the first data comes (a raster or vectors read, a template);
+/// the maps of nodes open beside the viewer. The operators are in a drawer at the window's left edge, in the Operators menu, behind
 /// "/" and in the commands (ctrl+K); their pane, shown, takes the left edge.
 pub fn default_layout() -> DockState<Pane> {
     // the inspector a fifth of the window
     const NODE: f32 = 0.2;
     let mut d = DockState::new(vec![Pane::Model]);
     let s = d.main_surface_mut();
-    let [_, _] = s.split_right(NodeIndex::root(), 1.0 - NODE, vec![Pane::Node, Pane::Prepare, Pane::Files]);
+    let [_, _] =
+        s.split_right(NodeIndex::root(), 1.0 - NODE, vec![Pane::Node, Pane::Prepare, Pane::Files, Pane::Assistant]);
     d
 }
 
@@ -133,7 +134,7 @@ fn retain_panes(dock: &mut DockState<Pane>, keep: impl FnMut(&mut Pane) -> bool)
 }
 
 /// The version of the layout kept (a layout of another version is let go).
-const LAYOUT_VERSION: u32 = 8;
+const LAYOUT_VERSION: u32 = 9;
 
 /// A window of its own (another screen): its panes in a dock.
 pub struct Detached {
@@ -1220,7 +1221,7 @@ impl TerrafluxApp {
                 // a model of data: its viewer beside it, the graph in front
                 self.viewer_opened = false;
                 if self.has_data() {
-                    self.add_viewer(false);
+                    self.add_viewer();
                 }
             }
             Err(e) => self.message = Some(e),
@@ -1251,8 +1252,8 @@ impl TerrafluxApp {
         self.session = Some(s);
         self.message = None;
         self.focus(Pane::Model);
-        // what it makes, in the viewer
-        self.add_viewer(true);
+        // what it makes, in the viewer (behind the graph)
+        self.add_viewer();
     }
 
     /// Save the model (asking where when it has no file yet).
@@ -2265,7 +2266,7 @@ impl TerrafluxApp {
     /// a model with inputs, a template started.
     fn open_viewer(&mut self) {
         if !self.viewer_opened && self.has_data() {
-            self.add_viewer(true);
+            self.add_viewer();
         }
     }
 
@@ -2276,16 +2277,18 @@ impl TerrafluxApp {
         })
     }
 
-    /// The viewer's tab opened beside the model's (if it is not open), in front or behind the tab in front.
-    fn add_viewer(&mut self, front: bool) {
+    /// The viewer's tab opened beside the model's (if it is not open), behind it: the graph stays in front, and the
+    /// focus where it was.
+    fn add_viewer(&mut self) {
         self.viewer_opened = true;
         if self.is_open(Pane::Viewer) {
             return;
         }
         let before = self.focused();
         self.focus(Pane::Viewer);
-        if !front {
-            self.focus(before.filter(|p| *p != Pane::Viewer).unwrap_or(Pane::Model));
+        self.focus(Pane::Model);
+        if let Some(b) = before.filter(|p| !matches!(p, Pane::Viewer | Pane::Model)) {
+            self.focus(b);
         }
     }
 
@@ -2675,7 +2678,7 @@ impl TerrafluxApp {
             }
             self.viewer_opened = false;
             if self.has_data() {
-                self.add_viewer(false);
+                self.add_viewer();
             }
         }
         self.layout_file = Some(path);

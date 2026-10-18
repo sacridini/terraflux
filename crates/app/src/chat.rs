@@ -950,9 +950,12 @@ fn input(ui: &mut Ui, c: &mut Chat, s: &mut Session) {
                 c.stop();
             }
         } else {
-            send |= ui.add(crate::app::accent_button("Send", !c.input.trim().is_empty())).clicked();
+            send |= ui.add(crate::app::accent_button("Send", true)).clicked();
             if let Some(id) = s.selected.clone()
-                && ui.button(format!("Explain {id}")).on_hover_text("what the node selected does, and why").clicked()
+                && ui
+                    .add(crate::app::accent_button(&format!("Explain {id}"), true))
+                    .on_hover_text("what the node selected does, and why")
+                    .clicked()
             {
                 c.input =
                     format!("Explain the node {id}: what it does, why it is there, what it reads and what it gives.");
