@@ -15,8 +15,9 @@ use crate::app::Session;
 use crate::theme;
 use crate::trace::{At, How, Kept, Trace};
 
-/// A trace asked for: the node and port of a map, its grid, the cell (row, column).
-pub type Ask = (String, String, Arc<terraflux_raster::Grid>, (usize, usize));
+/// A trace asked for: the node and port of a map, its grid, the cell (row, column), and whether the assistant is to
+/// explain it.
+pub type Ask = (String, String, Arc<terraflux_raster::Grid>, (usize, usize), bool);
 
 /// The pane's state (the application's).
 #[derive(Default)]
@@ -31,11 +32,14 @@ pub struct State {
     pub error: Option<String>,
     /// The card to bring into view (an input's node clicked).
     focus: Option<usize>,
+    /// The trace to the assistant once it is made.
+    explain: bool,
 }
 
 impl State {
     /// Trace a cell of a node's map.
     pub fn ask(&mut self, a: Ask) {
+        self.explain = a.4;
         self.asked = Some(a);
         self.made = None;
         self.error = None;
@@ -48,7 +52,7 @@ impl State {
 
     /// The trace made again when the model or its run changed (not while it runs).
     fn refresh(&mut self, s: &Session, r: &Registry) {
-        let Some((node, port, grid, cell)) = self.asked.clone() else { return };
+        let Some((node, port, grid, cell, _)) = self.asked.clone() else { return };
         let now = (s.revision, s.status_rev);
         if self.made == Some(now) || s.running() {
             return;
@@ -60,7 +64,10 @@ impl State {
             Some((kx, ky, k)) if *kx == x && *ky == y => k.clone(),
             _ => Kept::new(),
         };
-        self.trace = Some(crate::trace::trace(&s.source, r, &values, &kept, &node, &port, &grid, cell));
+        let t = crate::trace::trace(&s.source, r, &values, &kept, &node, &port, &grid, cell);
+        // (the last trace, for an assistant through terraflux mcp: last_trace)
+        crate::trace::save_last(s.path.as_deref(), &t);
+        self.trace = Some(t);
     }
 }
 
@@ -103,6 +110,13 @@ pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) -> Optio
     }
     st.refresh(s, r);
     let mut asked = None;
+    // asked for with the assistant (a right click on a cell): to it, once traced
+    if st.explain
+        && let Some(t) = &st.trace
+    {
+        st.explain = false;
+        asked = Some(Asked::Assistant(question(t)));
+    }
     let mut select: Option<(Vec<String>, String)> = None;
     egui::ScrollArea::vertical().id_salt("trace pane").auto_shrink([false, false]).show(ui, |ui| {
         egui::Frame::new().inner_margin(Margin::same(8)).show(ui, |ui| {
@@ -131,15 +145,7 @@ pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) -> Optio
                     .on_hover_text("the trace to the assistant, to explain it in words (and trace more if it needs)")
                     .clicked()
                 {
-                    asked = Some(Asked::Assistant(format!(
-                        "Why does {}.{} have this value at row {}, column {}? Explain it from its trace, step by step, \
-                         in words (trace_cell traces other cells or nodes):\n\n{}",
-                        first.node,
-                        first.port,
-                        t.cell.0,
-                        t.cell.1,
-                        t.text()
-                    )));
+                    asked = Some(Asked::Assistant(question(&t)));
                 }
                 let loops = s.source.nodes.iter().any(has_loop);
                 if loops
@@ -248,6 +254,18 @@ pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) -> Optio
         s.editor.reveal(&id);
     }
     asked
+}
+
+/// The question to the assistant of a trace: why the cell has its value, from the trace.
+fn question(t: &Trace) -> String {
+    let (node, port) = t.steps.first().map_or(("", ""), |s| (s.node.as_str(), s.port.as_str()));
+    format!(
+        "Why does {node}.{port} have this value at row {}, column {}? Explain it from its trace, step by step, in \
+         words (trace_cell traces other cells or nodes):\n\n{}",
+        t.cell.0,
+        t.cell.1,
+        t.text()
+    )
 }
 
 /// Whether a node is, or holds, a loop.

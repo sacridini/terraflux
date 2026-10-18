@@ -217,12 +217,19 @@ and differences; `terraflux run model.toml --scenario name` runs one.
 
 ![A species distribution model read as a document](docs/images/document.png)
 
-**Why does this cell have this value?** Click a cell of any map, then **Trace this cell**: the Trace pane walks
+**Why does this cell have this value?** Right-click a cell of any map, then **Trace this cell** (or **Ask the
+assistant why**): the Trace pane walks
 back through the graph and shows, node by node, the value each gave there and how (map algebra's expression with
 the values in place of its names, the cells around for a neighbourhood, the layers a model weighs, a loop's value
 step by step; inside the loops on demand). **Ask the assistant why** has the assistant explain the trace in
 words; its tool `trace_cell` (in the application and in `terraflux mcp`) gives an assistant the same chain, so it
-explains a result from what made it rather than from what the model should do.
+explains a result from what made it rather than from what the model should do; `last_trace` gives an assistant
+through `terraflux mcp` the cell you traced last.
+
+**Why did it fail?** When a run fails, the status bar says so and the **Problems** pane explains it: the node that
+failed, its message and what it was given side by side (each input's grid: size, cells, coordinate system, what
+differs marked), with what likely does not fit and what puts it right (raster.match, raster.reproject); then the
+graph's checks and the data's findings, each a click away from its node. The assistant is told the same.
 
 ### Models as text
 

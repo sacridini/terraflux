@@ -2097,3 +2097,137 @@ fn many_settings_fold_as_advanced() {
     assert!(h.query_by_label("Number solutions").is_some(), "open with a setting given");
     shot(&mut h, "32b-essentials-given");
 }
+
+/// The assistant's answers wrap at the pane's sides: long lines, a list, code and a tool's call.
+#[test]
+fn the_assistants_text_wraps() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    terraflux_app::settings::update(|s| s.provider = Some(0));
+    h.state_mut().focus(Pane::Assistant);
+    {
+        let long = "The model reads the land use of 2000 and 2010, fits a logistic regression of every class on its drivers and allocates the demand of each step by the suitability plus an iteration variable, which is a long sentence that has to wrap at the side of the pane rather than run out of it.";
+        let c = &mut h.state_mut().chat;
+        c.items.push(terraflux_app::chat::Item::User("what does it do? ".repeat(12)));
+        c.items.push(terraflux_app::chat::Item::Assistant {
+            text: format!("{long}\n\n- **first**: {long}\n- `code` {long}\n\n```\n{}\n```", "x".repeat(300)),
+            thinking: String::new(),
+        });
+        c.items.push(terraflux_app::chat::Item::Tool {
+            name: "edit_node".into(),
+            args: "{\"node\": \"a\", \"settings\": {\"expression\": \"".to_string() + &"a + ".repeat(60) + "1\"}}",
+            result: Some(("done ".repeat(60), false)),
+        });
+    }
+    h.run_steps(4);
+    let pane = {
+        let dock = h.state().dock.as_ref().unwrap();
+        let path = dock.find_tab(&Pane::Assistant).unwrap();
+        dock[path.surface][path.node].rect().unwrap()
+    };
+    // every label within the pane
+    for n in h.query_all_by_label_contains("wrap at the side") {
+        let r = n.rect();
+        assert!(r.right() <= pane.right() + 1.0, "a line out of the pane: {r:?} {pane:?}");
+    }
+    shot(&mut h, "47-assistant-wrap");
+    terraflux_app::settings::update(|s| s.provider = None);
+}
+
+/// A right click on a cell of a map: its menu traces the cell, or has the assistant explain it (the trace kept for
+/// an assistant through terraflux mcp too).
+#[test]
+fn a_right_click_traces_a_cell() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let ctx = h.ctx.clone();
+    let t = terraflux_app::templates::TEMPLATES.iter().find(|t| t.name == "Neutral landscapes").unwrap();
+    h.state_mut().start_template(&ctx, t);
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("field", "map").is_some()
+    });
+    let id = h.state_mut().session.as_mut().unwrap().open_map("field", "map");
+    h.run_steps(3);
+    h.state_mut().focus(Pane::Map(id));
+    h.run_steps(3);
+    until(&mut h, "the map drawn", |a| a.session.as_ref().unwrap().map_tabs[&id].view.rect().is_some());
+    drawn(&mut h);
+    let rect = h.state().session.as_ref().unwrap().map_tabs[&id].view.rect().unwrap();
+    let at = rect.center();
+    h.event(egui::Event::PointerMoved(at));
+    h.run_steps(1);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(1);
+    }
+    h.run_steps(2);
+    assert!(h.state().session.as_ref().unwrap().map_tabs[&id].view.picked.is_some(), "the cell picked");
+    shot(&mut h, "48-right-click");
+    h.get_by_label("Ask the assistant why").click_accesskit();
+    h.run_steps(4);
+    assert!(h.state().is_open(Pane::Trace) && h.state().is_open(Pane::Assistant));
+    assert!(h.state().trace.trace.is_some());
+    let last = terraflux_app::trace::last().expect("the last trace kept");
+    assert!(last.contains("Here field.map is"), "{last}");
+}
+
+/// A run that fails: the status bar says so, the Problems pane explains it (what the node was given side by side,
+/// the maps of different sizes), the node's pane asks why.
+#[test]
+fn a_failure_is_explained() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source = terraflux_graph::Model::from_toml(
+            r#"
+format = "terraflux/1"
+[[nodes]]
+id = "small"
+op = "nlm.random"
+params = { rows = 10, columns = 10, seed = 1 }
+[[nodes]]
+id = "big"
+op = "nlm.random"
+params = { rows = 20, columns = 10, seed = 2 }
+[[nodes]]
+id = "sum"
+op = "map.calc"
+inputs = { a = "small.map", b = "big.map" }
+params = { expression = "a + b" }
+"#,
+        )
+        .unwrap();
+        s.edited();
+        s.run_when_ready = true;
+    }
+    h.run_steps(2);
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.error.is_some()
+    });
+    h.run_steps(2);
+    h.get_by_label("the run failed: why?").click();
+    h.run_steps(3);
+    assert!(h.state().is_open(Pane::Problems));
+    assert!(h.query_by_label("The last run failed").is_some());
+    assert!(h.query_all_by_label_contains("different sizes").next().is_some(), "what does not fit");
+    assert!(h.query_all_by_label_contains("10 x 20 cells").next().is_some(), "the grids side by side");
+    shot(&mut h, "49-problems");
+    // the node's pane: why it failed
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        terraflux_app::builder::select(s, &terraflux_ops::Registry::standard(), "sum");
+    }
+    h.state_mut().focus(Pane::Node);
+    h.run_steps(3);
+    h.get_by_label("Why it failed").click();
+    h.run_steps(3);
+    assert!(h.state().is_open(Pane::Problems));
+}

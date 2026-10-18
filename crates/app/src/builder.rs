@@ -1922,7 +1922,13 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                         ))
                         .clicked()
                 {
-                    s.trace_asked = Some((node.clone(), port.clone(), grid, (row, col)));
+                    s.trace_asked = Some((node.clone(), port.clone(), grid, (row, col), false));
+                }
+                // asked for from the map's menu (a right click on a cell)
+                if let Some(explain) = sh.view.trace_request.take()
+                    && let (Some(cell), Some(grid)) = (sh.view.picked, value.as_ref().and_then(crate::trace::grid_of))
+                {
+                    s.trace_asked = Some((node.clone(), port.clone(), grid, cell, explain));
                 }
                 ui.separator();
                 let weak = ui.visuals().weak_text_color();

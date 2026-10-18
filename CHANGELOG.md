@@ -15,10 +15,22 @@ minor versions.
 - The trace with the assistant: Ask the assistant why sends it to the chat, to be explained in words; the tool
   `trace_cell` (in the application, and in `terraflux mcp` with `inside_loops`) gives an assistant the same chain,
   and the assistants are told to explain results from it.
+- A right click on a cell of a map (the viewer, a map's tab): Trace this cell, or Ask the assistant why. The last
+  trace made is kept for an assistant through `terraflux mcp` too (its tool `last_trace`).
+- Why a node failed (the Problems pane): the last run's failure explained (the node and its message, what it was
+  given side by side: where each input comes from, what it is, its grid's size, cells and coordinate system, what
+  differs from the first marked; what likely does not fit and what puts it right, raster.match or
+  raster.reproject), then the graph's checks, the data's findings and the run's warnings, each a click away from
+  its node. Opened from the status bar ("the run failed: why?", the problems counted) and from the node's pane (Why
+  it failed); Ask the assistant sends a failure, explained, to the assistant. The assistant is told the same when a
+  run fails, and `run_model` (in the application and in `terraflux mcp`) answers a failure with it.
 
 ### Fixed
 - A pane brought to the front by another while the panes were drawn did not come (the assistant's Changes, among
   others).
+- The assistant's text ran out of its pane's side when something in it was wider (a tool's call): the panes that
+  scroll by themselves (the assistant, the document, a trace, the parameters, the changes, the problems) wrap at
+  their sides; a tool's call is cut to the pane's width, and "fix problems" is beside Send.
 
 ## [1.3.0] - 2026-10-18
 

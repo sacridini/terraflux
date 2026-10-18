@@ -171,6 +171,8 @@ impl Server {
                 let path = model_path(a)?;
                 tools::trace_cell_run(&self.engine, &load(&path)?, &folder(&path), a, watcher)
             }
+            "last_trace" => terraflux_app::trace::last()
+                .ok_or_else(|| "no cell traced yet in the application (a right click on a cell of a map)".to_string()),
             "inspect_file" => tools::inspect_file(a),
             "open_in_app" => open_in_app(a),
             edit if tools::EDITS.contains(&edit) => change(a, r, |m, r, dir| tools::edit(edit, m, r, dir, a)),
@@ -480,6 +482,35 @@ mod tests {
         assert!(!e && t.contains("in the loop, allocate.landscape"), "{t}");
         assert!(call(&s, "trace_cell", json!({ "model": model, "node": "simulation", "row": 4000, "col": 0 })).1);
         assert!(call(&s, "trace_cell", json!({ "model": model, "node": "nope", "row": 1, "col": 1 })).1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_failure_is_explained() {
+        let s = Server { engine: Engine::default() };
+        let dir = std::env::temp_dir().join(format!("terraflux-mcp-f-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let model = dir.join("f.toml").to_string_lossy().into_owned();
+        let (t, e) = call(&s, "new_model", json!({ "model": model }));
+        assert!(!e, "{t}");
+        for (id, rows) in [("small", 10), ("big", 20)] {
+            let (t, e) = call(
+                &s,
+                "add_node",
+                json!({ "model": model, "op": "nlm.random", "id": id, "settings": { "rows": rows, "columns": 10 } }),
+            );
+            assert!(!e, "{t}");
+        }
+        let (t, e) = call(
+            &s,
+            "add_node",
+            json!({ "model": model, "op": "map.calc", "id": "sum", "inputs": { "a": "small.map", "b": "big.map" }, "settings": { "expression": "a + b" } }),
+        );
+        assert!(!e, "{t}");
+        let (t, e) = call(&s, "run_model", json!({ "model": model }));
+        assert!(e, "{t}");
+        assert!(t.contains("The node sum (map.calc) failed") && t.contains("What it was given"), "{t}");
+        assert!(t.contains("10 x 20 cells") && t.contains("raster.match"), "{t}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

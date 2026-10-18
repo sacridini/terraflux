@@ -41,7 +41,11 @@ group.
 (set_parameter: a label, a unit, a range and a help each), and named sets of them in scenarios (set_scenario).
 - Why a cell of a result has its value: trace_cell gives the chain of values that made it (expressions with the \
 values in place, the cells around, what a model weighs, a loop step by step). Explain a result from it, not from \
-what the model should do."
+what the model should do.
+- When a run fails, its answer says which node failed, its message and what it was given side by side (each \
+input's grid: size, cells, coordinate system) with what likely does not fit: read them before changing anything, \
+look at the inputs it names (inspect_file, describe_operator), and put right what does not fit (raster.match for \
+maps of different grids, raster.reproject for other coordinate systems), then run again."
     };
 }
 
@@ -563,7 +567,23 @@ pub fn run_model(engine: &Engine, source: &Model, dir: &Path, a: &Value, watcher
     }
     let t = Instant::now();
     let inputs = load_inputs(&m, dir, &overrides).map_err(|e| format!("the inputs: {e}"))?;
-    let results = engine.run(&m, &inputs, watcher).map_err(|e| e.to_string())?;
+    // (what ran before a failure kept, to explain it: what the node that failed was given)
+    let cache = std::sync::Mutex::new(terraflux_exec::Cache::default());
+    let results = engine.run_with(&m, &inputs, watcher, Some(&cache), None).map_err(|e| {
+        let e = e.to_string();
+        let c = cache.lock().unwrap();
+        let values = |n: &str, p: &str| c.outputs(n)?.get(p).cloned();
+        match crate::diagnose::failed_at(&e)
+            .and_then(|(at, message)| crate::diagnose::diagnose(&m, &at, &message, &values))
+        {
+            Some(d) => format!(
+                "The run failed.
+{}",
+                d.text()
+            ),
+            None => e,
+        }
+    })?;
     let out = opt_text(a, "out").map(absolute).unwrap_or_else(|| dir.join("output"));
     let files = write_outputs(&m, &results, &out).map_err(|e| e.to_string())?;
     let mut s = format!("Ran in {:.1} s.", t.elapsed().as_secs_f64());
@@ -977,6 +997,13 @@ fn all() -> Vec<Value> {
                 "inside_loops": { "type": "boolean", "description": "Run the model again keeping its loops' values at the cell, step by step (slower)." },
             }),
             &["model", "node"],
+            Some(&read_only),
+        ),
+        tool(
+            "last_trace",
+            "The trace of the cell the user traced last in the application (a right click on a cell of a map, Trace this cell): the model's file, then why the cell has its value, node by node. Explain it to the user, or trace more with trace_cell.",
+            json!({}),
+            &[],
             Some(&read_only),
         ),
         tool(

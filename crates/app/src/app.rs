@@ -65,13 +65,15 @@ pub enum Pane {
     Parameters,
     /// Why a cell of a result has its value: the chain of values that made it.
     Trace,
+    /// What is wrong with the model: a run's failure explained, the graph's checks, the data's.
+    Problems,
     /// A node's output in a tab of its own (opened by a double click on the node; one per node, brought to the
     /// front when it is open already).
     Map(u64),
 }
 
 impl Pane {
-    pub const ALL: [Pane; 16] = [
+    pub const ALL: [Pane; 17] = [
         Pane::Model,
         Pane::Document,
         Pane::Operators,
@@ -88,6 +90,7 @@ impl Pane {
         Pane::Review,
         Pane::Parameters,
         Pane::Trace,
+        Pane::Problems,
     ];
 
     pub fn title(self) -> &'static str {
@@ -108,6 +111,7 @@ impl Pane {
             Pane::Review => "Changes",
             Pane::Parameters => "Parameters",
             Pane::Trace => "Trace",
+            Pane::Problems => "Problems",
             Pane::Map(_) => "Map",
         }
     }
@@ -281,8 +285,12 @@ impl egui_dock::TabViewer for Panes<'_> {
     }
 
     fn scroll_bars(&self, tab: &Pane) -> [bool; 2] {
-        // (the Files pane scrolls its own list, what is chosen described at its bottom)
-        [*tab != Pane::Files; 2]
+        // (the panes that scroll by themselves: the Files pane's list, what is chosen described at its bottom; the
+        // texts of the assistant, the document, a trace, the parameters and the changes, which wrap at the pane's
+        // sides only without a scroll of the dock around them)
+        let own =
+            [Pane::Files, Pane::Assistant, Pane::Document, Pane::Trace, Pane::Parameters, Pane::Review, Pane::Problems];
+        [!own.contains(tab); 2]
     }
 
     fn context_menu(&mut self, ui: &mut Ui, tab: &mut Pane, _path: egui_dock::NodePath) {
@@ -479,6 +487,8 @@ pub struct Session {
     pub run_done: usize,
     /// A cell's trace asked for (a map's cell clicked, then Trace this cell).
     pub trace_asked: Option<crate::trace_view::Ask>,
+    /// The Problems pane asked for (why a node failed).
+    pub ask_problems: bool,
     /// How far the node running is, as its operator tells it (a solver's gap...).
     pub task: Option<(String, terraflux_ops::Progress)>,
     /// When Stop was pressed, while the run stops.
@@ -627,6 +637,7 @@ impl Session {
             run_total: 0,
             run_done: 0,
             trace_asked: None,
+            ask_problems: false,
             task: None,
             stopping: None,
             node: String::new(),
@@ -1982,7 +1993,9 @@ impl TerrafluxApp {
 
     /// The bar at the bottom: the cell under the pointer, else what the keys and the mouse do in the pane in
     /// focus; at the right, the warnings and what was just done.
-    fn status(&self, ui: &mut Ui, focused: Option<Pane>) {
+    /// (Whether the problems are asked for.)
+    fn status(&self, ui: &mut Ui, focused: Option<Pane>) -> bool {
+        let mut problems = false;
         ui.horizontal(|ui| {
             let weak = ui.visuals().weak_text_color();
             match &self.hover {
@@ -2022,14 +2035,28 @@ impl TerrafluxApp {
                         ui.label(RichText::new(text).strong());
                         ui.separator();
                     }
-                    if !s.warnings.is_empty() {
-                        ui.label(
-                            RichText::new(format!("{} warnings", s.warnings.len())).color(ui.visuals().warn_fg_color),
-                        );
+                    // the problems, a click away
+                    let (errors, warnings) = crate::problems_view::counts(s);
+                    if errors + warnings > 0 {
+                        let (text, colour) = if s.error.is_some() {
+                            ("the run failed: why?".to_string(), ui.visuals().error_fg_color)
+                        } else if errors > 0 {
+                            (format!("{errors} problems, {warnings} warnings"), ui.visuals().error_fg_color)
+                        } else {
+                            (format!("{warnings} warnings"), ui.visuals().warn_fg_color)
+                        };
+                        if ui
+                            .add(egui::Button::new(RichText::new(text).color(colour)).frame(false))
+                            .on_hover_text("the Problems pane: each explained, a click away from its node")
+                            .clicked()
+                        {
+                            problems = true;
+                        }
                     }
                 });
             }
         });
+        problems
     }
 
     fn map_tab(&mut self, ui: &mut Ui) {
@@ -2475,10 +2502,13 @@ impl TerrafluxApp {
                 ui.ctx().request_repaint_after(Duration::from_millis(100));
             }
         }
-        // a cell's trace asked for: in its pane
+        // a cell's trace asked for: in its pane; the problems asked for: theirs
         if let Some(a) = self.session.as_mut().and_then(|s| s.trace_asked.take()) {
             self.trace.ask(a);
             self.focus(Pane::Trace);
+        }
+        if self.session.as_mut().is_some_and(|s| std::mem::take(&mut s.ask_problems)) {
+            self.focus(Pane::Problems);
         }
         self.open_viewer();
         // a review begun by another program (or asked for): its pane in front
@@ -2508,9 +2538,12 @@ impl TerrafluxApp {
         let bar = egui::Frame::new().fill(theme::bar()).inner_margin(Margin::symmetric(8, 5));
         egui::Panel::top("toolbar").frame(bar).show(ui, |ui| self.toolbar(ui));
         let focused = self.focused();
-        egui::Panel::bottom("status")
+        let problems = egui::Panel::bottom("status")
             .frame(bar.inner_margin(Margin::symmetric(8, 3)))
             .show(ui, |ui| self.status(ui, focused));
+        if problems.inner {
+            self.focus(Pane::Problems);
+        }
         self.window_title(ui.ctx());
         if let Some(w) = &mut self.wizard {
             let mut close = false;
@@ -2622,6 +2655,12 @@ impl TerrafluxApp {
                 }
             }
             Pane::Review => crate::review::pane(ui, s, r),
+            Pane::Problems => {
+                if let Some(crate::problems_view::Asked::Assistant(text)) = crate::problems_view::pane(ui, s, r) {
+                    self.chat.send(text, s, ui.ctx());
+                    self.focus(Pane::Assistant);
+                }
+            }
             Pane::Trace => {
                 let asked = crate::trace_view::pane(ui, &mut self.trace, s, r);
                 if let Some((_, _, k)) = &self.trace.kept {
@@ -2763,6 +2802,7 @@ impl TerrafluxApp {
             Pane::Parameters => &[Pane::Node, Pane::Prepare],
             Pane::Review => &[Pane::Assistant],
             Pane::Trace => &[Pane::Assistant, Pane::Review],
+            Pane::Problems => &[Pane::Trace, Pane::Assistant, Pane::Review],
             _ => &[],
         };
         let found = near.iter().find_map(|n| dock.find_tab(n));
@@ -2770,7 +2810,7 @@ impl TerrafluxApp {
         // review of its changes at the right, the node at the left of the model
         let edge = match pane {
             Pane::Operators | Pane::Files => Some((true, 0.15)),
-            Pane::Assistant | Pane::Review | Pane::Trace => Some((false, 0.74)),
+            Pane::Assistant | Pane::Review | Pane::Trace | Pane::Problems => Some((false, 0.74)),
             Pane::Node | Pane::Prepare | Pane::Parameters => Some((true, 0.2)),
             _ => None,
         };

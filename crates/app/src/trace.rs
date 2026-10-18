@@ -518,6 +518,24 @@ pub fn keep_loops(m: &Model, base: &std::path::Path, x: f64, y: f64) -> Result<K
     Ok(keeper.kept)
 }
 
+/// The file the application keeps the last trace in (beside its settings), for an assistant through `terraflux
+/// mcp` ([`last`]).
+pub fn last_file() -> Option<std::path::PathBuf> {
+    Some(crate::settings::file()?.parent()?.join("last_trace.txt"))
+}
+
+/// Keep a trace as the last one made: the model's file, then its words.
+pub fn save_last(model: Option<&std::path::Path>, t: &Trace) {
+    let Some(f) = last_file() else { return };
+    let model = model.map_or("a model not saved".to_string(), |p| p.display().to_string());
+    let _ = std::fs::write(f, format!("model: {model}\n\n{}\n\n{}", t.sentence(), t.text()));
+}
+
+/// The last trace made in the application (the model's file first), if any.
+pub fn last() -> Option<String> {
+    std::fs::read_to_string(last_file()?).ok()
+}
+
 impl Trace {
     /// The trace in a few lines of words: where, what the node asked about is there, and every step with how it
     /// made its value (for the pane's summary, a report, an assistant).

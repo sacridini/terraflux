@@ -294,7 +294,11 @@ impl Chat {
             && s.started != self.told_run
         {
             self.told_run = s.started;
-            lines.push(format!("The run failed: {e}"));
+            // (explained: what the node that failed was given, side by side)
+            lines.push(match crate::problems_view::last_failure(s) {
+                Some(d) => d.text(),
+                None => format!("The run failed: {e}"),
+            });
         }
         if std::mem::take(&mut self.answered) {
             let errors = problems(s);
@@ -541,7 +545,14 @@ fn cannot_run(s: &Session) -> String {
 /// (else its last nodes) gave.
 fn ran(s: &Session) -> Reply {
     if let Some(e) = &s.error {
-        return Err(format!("The run failed: {e}"));
+        return Err(match crate::problems_view::last_failure(s) {
+            Some(d) => format!(
+                "The run failed.
+{}",
+                d.text()
+            ),
+            None => format!("The run failed: {e}"),
+        });
     }
     let mut t = format!("Ran in {:.1} s.", s.elapsed.map_or(0.0, |d| d.as_secs_f64()));
     let failed: Vec<&String> = s.status.iter().filter(|(_, st)| **st == NodeStatus::Failed).map(|(n, _)| n).collect();
@@ -658,6 +669,9 @@ impl Job {
             "list_operators" => Ok(tools::list_operators(r, tools::opt_text(a, "query"))),
             "describe_operator" => tools::describe_operator(r, tools::text(a, "name")?),
             "inspect_file" => tools::inspect_file(a),
+            "last_trace" => {
+                crate::trace::last().ok_or_else(|| "no cell traced yet (a right click on a cell of a map)".to_string())
+            }
             name => match self.ask(name, a)? {
                 Answer::Done(reply) => reply,
                 Answer::Model(m, dir) => match name {
@@ -762,14 +776,6 @@ fn bar(ui: &mut Ui, c: &mut Chat) {
             }
             if ui.button("New").on_hover_text("a new conversation").clicked() {
                 c.clear();
-            }
-            let mut tell = !c.quiet;
-            if ui
-                .checkbox(&mut tell, "fix problems")
-                .on_hover_text("tell the assistant of the problems that come up (a run that fails, the model's errors after its answer) for it to fix them, in a conversation going on")
-                .changed()
-            {
-                c.quiet = !tell;
             }
         });
     });
@@ -988,8 +994,11 @@ fn show_item(ui: &mut Ui, k: usize, item: &Item) {
                 Some((_, false)) => (theme::accent(), "⚙"),
                 Some((_, true)) => (ui.visuals().error_fg_color, "✖"),
             };
-            let short: String = args.chars().take(90).collect();
-            let more = if args.chars().count() > 90 { "…" } else { "" };
+            // (as much of the call as fits the pane's width on one line)
+            let room = ((ui.available_width() - 48.0) / 7.5).max(12.0) as usize;
+            let room = room.saturating_sub(name.chars().count() + 3);
+            let short: String = args.chars().take(room).collect();
+            let more = if args.chars().count() > room { "…" } else { "" };
             egui::CollapsingHeader::new(
                 RichText::new(format!("{mark} {name} {short}{more}")).color(colour).small().monospace(),
             )
@@ -1113,11 +1122,16 @@ fn input(ui: &mut Ui, c: &mut Chat, s: &mut Session) {
                 send = true;
             }
         }
-        if let Some(p) = Chat::provider() {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(RichText::new(&p.name).weak().small());
-            });
-        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let mut tell = !c.quiet;
+            if ui
+                .checkbox(&mut tell, RichText::new("fix problems").small())
+                .on_hover_text("tell the assistant of the problems that come up (a run that fails, the model's errors after its answer) for it to fix them, in a conversation going on")
+                .changed()
+            {
+                c.quiet = !tell;
+            }
+        });
     });
     ui.add_space(2.0);
     if send && !c.input.trim().is_empty() {

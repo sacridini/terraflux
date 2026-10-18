@@ -346,6 +346,9 @@ pub struct MapView {
     world: Option<(u64, Option<f64>)>,
     /// The cell clicked (row, column): its values along a stack's layers are shown beside the map.
     pub picked: Option<(usize, usize)>,
+    /// The trace of the cell picked asked for from its menu (a right click): `true` to have the assistant explain
+    /// it.
+    pub trace_request: Option<bool>,
     /// Where the view was drawn last.
     rect: Option<Rect>,
 }
@@ -817,8 +820,28 @@ impl MapView {
             }
             response.clone().on_hover_text_at_pointer(text);
         }
-        if response.clicked() && !blank {
+        if (response.clicked() || response.secondary_clicked()) && !blank {
             self.picked = inside.then_some((c.y as usize, c.x as usize));
+        }
+        // a right click: why the cell has its value
+        if self.picked.is_some() && !blank {
+            response.context_menu(|ui| {
+                if let Some((row, col)) = self.picked {
+                    ui.label(egui::RichText::new(format!("row {row}, column {col}")).weak().small());
+                }
+                if ui.button("Trace this cell").on_hover_text("the chain of values that made it").clicked() {
+                    self.trace_request = Some(false);
+                    ui.close();
+                }
+                if ui
+                    .button("Ask the assistant why")
+                    .on_hover_text("its trace explained in words by the assistant (an assistant through terraflux mcp reads it with last_trace)")
+                    .clicked()
+                {
+                    self.trace_request = Some(true);
+                    ui.close();
+                }
+            });
         }
         // close enough to see the cells: the one under the pointer outlined
         if inside && !blank && self.zoom >= 6.0 {
