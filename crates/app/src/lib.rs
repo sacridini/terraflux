@@ -22,6 +22,7 @@ pub mod map_view;
 pub mod metadata;
 pub mod node_view;
 pub mod palette;
+pub mod params_view;
 pub mod prepare;
 pub mod prepare_view;
 pub mod report;

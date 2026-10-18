@@ -209,6 +209,11 @@ than builds it: its data, preparation, model, validation and results, a step per
 settings in words, map algebra's expressions linked to the nodes they read, loops with their bodies, the plots as
 numbered figures and the maps and tables of the last run. A step's name selects its node; its settings are edited
 in place. File, Export report writes it as one HTML page or a PDF, as does `terraflux report model.toml`.
+**Group the model by stage** (ctrl+K) puts it in a group per stage, each with a note: a few blocks on the
+canvas, opened one at a time, and a section per stage in the document; zoomed out, a model without groups shows
+its stages framed and named. The **Parameters** pane shows the values a user is to change as a form (sliders,
+choices, a unit and a help each), keeps them as named scenarios and compares scenarios side by side, their maps
+and differences; `terraflux run model.toml --scenario name` runs one.
 
 ![A species distribution model read as a document](docs/images/document.png)
 
@@ -297,7 +302,7 @@ maps = S.terraflux("dinamica.json")                            # run by Terraflu
 
 | | |
 |---|---|
-| [`docs/modelling.md`](docs/modelling.md) | The node editor, map algebra, groups, submodels and plugins |
+| [`docs/modelling.md`](docs/modelling.md) | The node editor, map algebra, groups, submodels, parameters and scenarios, plugins |
 | [`docs/agents.md`](docs/agents.md) | Agents and CRAFTY's competition for land |
 | [`docs/cluster.md`](docs/cluster.md) | Batches, coordinators, workers and clusters |
 | [`website/`](website/) | The documentation website: a quickstart, 99 tutorials for ecologists in 18 fields, the CLI and operator references (`python website/build.py`) |

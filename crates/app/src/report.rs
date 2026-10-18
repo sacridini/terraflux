@@ -303,7 +303,7 @@ impl Html<'_> {
     }
 
     fn step(&mut self, s: &Step, num: &str) {
-        let anchor = if s.path.is_empty() { format!(r#" id="{}""#, esc(&s.id)) } else { String::new() };
+        let anchor = if s.value.is_some() { format!(r#" id="{}""#, esc(&s.id)) } else { String::new() };
         if s.size == Size::Line {
             let _ = write!(
                 self.out,
@@ -385,11 +385,11 @@ impl Html<'_> {
         self.list("References", &s.refs);
         self.list("Assumptions", &s.assumptions);
         self.list("Alternatives", &s.alternatives);
-        if s.path.is_empty()
-            && let Some((port, _)) = &s.shows
+        if let Some((port, _)) = &s.shows
+            && let Some((node, key)) = s.value_key(port)
         {
             let side = if matches!(s.stage, Stage::Data | Stage::Preparation) { STEP / 2 } else { STEP };
-            match (self.values)(&s.id, port).and_then(|v| visual(&v, side)) {
+            match (self.values)(&node, &key).and_then(|v| visual(&v, side)) {
                 Some(v) => {
                     let h = html_visual(&v, &format!("{}.{port}", s.id), side);
                     let _ = write!(self.out, r#"<div class="thumb">{h}</div>"#);
@@ -483,7 +483,8 @@ impl Html<'_> {
             self.out.push_str("</td><td>");
             for s in row.iter().take(4) {
                 if let Some((port, _)) = &s.shows
-                    && let Some(v) = (self.values)(&s.id, port).and_then(|v| visual(&v, 96))
+                    && let Some((node, key)) = s.value_key(port)
+                    && let Some(v) = (self.values)(&node, &key).and_then(|v| visual(&v, 96))
                     && matches!(v.shown, Shown::Picture(_))
                 {
                     self.out.push_str(&html_visual(&v, &s.id, 72));
@@ -536,10 +537,48 @@ pub fn html(doc: &Document, values: Values, first: &dyn Fn(&str) -> Option<Strin
         }
         h.out.push_str("</table>");
     }
+    if !doc.parameters.is_empty() {
+        k += 1;
+        let _ = write!(
+            h.out,
+            "<h2>{k}. Parameters</h2><table><tr><th>Parameter</th><th>Value</th><th>Range</th><th>What it is</th></tr>"
+        );
+        for p in &doc.parameters {
+            let unit = p.unit.as_ref().map(|u| format!(" {}", esc(u))).unwrap_or_default();
+            let _ = write!(
+                h.out,
+                r#"<tr><td><b title="{}">{}</b></td><td>{}{unit}</td><td>{}</td><td>{}</td></tr>"#,
+                esc(&p.key),
+                esc(&p.label),
+                esc(&p.value),
+                esc(p.range.as_deref().unwrap_or("")),
+                esc(p.help.as_deref().unwrap_or(""))
+            );
+        }
+        h.out.push_str("</table>");
+    }
+    if !doc.scenarios.is_empty() {
+        k += 1;
+        let _ = write!(h.out, "<h2>{k}. Scenarios</h2><table><tr><th>Scenario</th><th>Values</th><th>Note</th></tr>");
+        for sc in &doc.scenarios {
+            let v: Vec<String> = sc.values.iter().map(|(l, v)| format!("{} <b>{}</b>", esc(l), esc(v))).collect();
+            let _ = write!(
+                h.out,
+                "<tr><td><b>{}</b></td><td>{}</td><td><i>{}</i></td></tr>",
+                esc(&sc.name),
+                v.join("; "),
+                esc(sc.note.as_deref().unwrap_or(""))
+            );
+        }
+        h.out.push_str("</table>");
+    }
     for sec in &doc.sections {
         k += 1;
         let num = k.to_string();
         let _ = write!(h.out, "<h2>{num}. {}</h2>", esc(&sec.title));
+        if let Some(n) = &sec.note {
+            let _ = write!(h.out, r#"<p class="lead">{}</p>"#, esc(n));
+        }
         if sec.stage == Stage::Data {
             h.data(sec, &num);
         } else {
@@ -1110,11 +1149,11 @@ impl PdfReport<'_> {
         self.list("References", &s.refs, indent);
         self.list("Assumptions", &s.assumptions, indent);
         self.list("Alternatives", &s.alternatives, indent);
-        if s.path.is_empty()
-            && let Some((port, _)) = &s.shows
+        if let Some((port, _)) = &s.shows
+            && let Some((node, key)) = s.value_key(port)
         {
             let small = matches!(s.stage, Stage::Data | Stage::Preparation);
-            match (self.values)(&s.id, port).and_then(|v| visual(&v, STEP)) {
+            match (self.values)(&node, &key).and_then(|v| visual(&v, STEP)) {
                 Some(v) => self.pdf.visual(&v, if small { 110.0 } else { 180.0 }, indent),
                 None => self.pdf.paragraph(&[run(Font::Italic, "Not run.")], 9.0, indent, 0.45),
             }
@@ -1176,10 +1215,45 @@ pub fn pdf(doc: &Document, values: Values, first: &dyn Fn(&str) -> Option<String
             p.pdf.paragraph(&runs, 9.5, 0.0, 0.0);
         }
     }
+    if !doc.parameters.is_empty() {
+        k += 1;
+        p.heading(&format!("{k}. Parameters"));
+        for x in &doc.parameters {
+            let mut runs = vec![
+                run(Font::Bold, format!("{}: ", x.label)),
+                run(
+                    Font::Regular,
+                    format!("{}{}", x.value, x.unit.as_ref().map(|u| format!(" {u}")).unwrap_or_default()),
+                ),
+            ];
+            if let Some(r) = &x.range {
+                runs.push(run(Font::Italic, format!(" ({r})")));
+            }
+            if let Some(h) = &x.help {
+                runs.push(run(Font::Regular, format!(" — {h}")));
+            }
+            p.pdf.paragraph(&runs, 9.5, 0.0, 0.0);
+        }
+    }
+    if !doc.scenarios.is_empty() {
+        k += 1;
+        p.heading(&format!("{k}. Scenarios"));
+        for sc in &doc.scenarios {
+            let v: Vec<String> = sc.values.iter().map(|(l, v)| format!("{l} {v}")).collect();
+            let mut runs = vec![run(Font::Bold, format!("{}: ", sc.name)), run(Font::Regular, v.join("; "))];
+            if let Some(n) = &sc.note {
+                runs.push(run(Font::Italic, format!(" — {n}")));
+            }
+            p.pdf.paragraph(&runs, 9.5, 0.0, 0.0);
+        }
+    }
     for sec in &doc.sections {
         k += 1;
         let num = k.to_string();
         p.heading(&format!("{num}. {}", sec.title));
+        if let Some(n) = &sec.note {
+            p.pdf.paragraph(&[run(Font::Italic, n.clone())], 10.0, 0.0, 0.35);
+        }
         if sec.stage == Stage::Data {
             for (j, row) in data_rows(&sec.steps).iter().enumerate() {
                 let ids: Vec<&str> = row.iter().map(|s| s.id.as_str()).collect();

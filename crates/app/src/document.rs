@@ -2,14 +2,15 @@
 //! top-level nodes in five stages (data, preparation, model, validation, results), each stage in the order of the
 //! dependencies with the ties broken by where the nodes are on the canvas (left to right, then top to bottom: the
 //! order the author laid them out in); a step each, with its note, why, settings in words, inputs, expression and
-//! record; a container's body as steps within it; the plots as the figures of the steps they show. Built from the
-//! model and the operators' signatures alone: the Document pane draws it with the values of the last run, and the
-//! report writes it ([`crate::report`]).
+//! record; a container's body as steps within it; the plots as the figures of the steps they show. A model whose
+//! top level is in groups (`control.group`, one per stage: [`group_by_stage`]) reads a section per group, its note
+//! under its title. Built from the model and the operators' signatures alone: the Document pane draws it with the
+//! values of the last run, and the report writes it ([`crate::report`]).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde_json::Value as Json;
-use terraflux_graph::{Input, Model, Node, OpSignature, Ref, Source, Type};
+use terraflux_graph::{GROUP, Input, Model, Node, OpSignature, Ref, Source, Type};
 use terraflux_ops::Registry;
 
 use crate::node_view::{default_of, label_of};
@@ -59,6 +60,8 @@ pub enum Size {
 pub enum From {
     /// An output of a node (in the same scope).
     Node { node: String, port: String },
+    /// A group's output, named by the node of its body that gives it (`path`: the groups it is in).
+    Within { group: String, port: String, path: Vec<String>, node: String },
     /// An input of the model (`$name`).
     Input(String),
     /// A value carried along a loop, or a group's input (`@name`).
@@ -91,6 +94,7 @@ impl From {
                     format!("{node}.{port}")
                 }
             }
+            From::Within { node, .. } => node.clone(),
             From::Input(n) => format!("${n}"),
             From::Carried(n) => format!("@{n}"),
             From::Value(v) => v.clone(),
@@ -100,7 +104,7 @@ impl From {
     /// The node it comes from.
     pub fn node(&self) -> Option<&str> {
         match self {
-            From::Node { node, .. } => Some(node),
+            From::Node { node, .. } | From::Within { node, .. } => Some(node),
             _ => None,
         }
     }
@@ -140,6 +144,8 @@ pub struct Figure {
     /// What it shows: a node and its port.
     pub node: String,
     pub port: String,
+    /// The port of the step it is shown with that gives it (a group's output is a port of a node in its body).
+    pub step_port: String,
     pub caption: String,
     /// Its number in the document (1, 2...).
     pub number: usize,
@@ -185,14 +191,27 @@ pub struct Step {
     /// The output whose value is shown with it (a map, rasters, a stack, a series or a table), and its type.
     pub shows: Option<(String, Type)>,
     pub body: Option<Body>,
+    /// Where the values it gave are kept after a run: a top-level node's own (its id, no prefix), or the top-level
+    /// group it is in (its id, and `inner.` before the port: a group keeps what its body gave); none in a loop.
+    pub value: Option<(String, String)>,
 }
 
-/// A stage of the document and its steps.
+impl Step {
+    /// The node and port its output `port` is kept at after a run.
+    pub fn value_key(&self, port: &str) -> Option<(String, String)> {
+        self.value.as_ref().map(|(node, prefix)| (node.clone(), format!("{prefix}{port}")))
+    }
+}
+
+/// A part of the document and its steps: a stage, or a group of the top level.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Section {
     pub stage: Stage,
-    /// The stage's title (the preparation is the analysis when there is no model).
+    /// The stage's title (the preparation is the analysis when there is no model), or the group's.
     pub title: String,
+    /// The group it is (its id), and its note.
+    pub group: Option<String>,
+    pub note: Option<String>,
     pub steps: Vec<Step>,
 }
 
@@ -205,6 +224,27 @@ pub struct InputRow {
     /// The file, or the value in words.
     pub value: String,
     pub note: Option<String>,
+}
+
+/// A parameter of the model ([`terraflux_graph::Parameter`]) as the document tells it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParamRow {
+    pub key: String,
+    pub label: String,
+    /// Its value now, in words ("default": the operator's).
+    pub value: String,
+    pub unit: Option<String>,
+    /// "5 to 50, by 1", or the choices.
+    pub range: Option<String>,
+    pub help: Option<String>,
+}
+
+/// A scenario of the model: its name, note and values (by the parameters' labels).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScenarioRow {
+    pub name: String,
+    pub note: Option<String>,
+    pub values: Vec<(String, String)>,
 }
 
 /// An output of the model.
@@ -224,6 +264,9 @@ pub struct Document {
     pub summary: Option<String>,
     pub author: Option<String>,
     pub inputs: Vec<InputRow>,
+    /// The values offered to change a scenario, and the scenarios kept.
+    pub parameters: Vec<ParamRow>,
+    pub scenarios: Vec<ScenarioRow>,
     pub sections: Vec<Section>,
     /// The plots of what is not a step (a model's input): shown with the results.
     pub figures: Vec<Figure>,
@@ -320,22 +363,38 @@ pub fn reading_order(nodes: &[Node]) -> Vec<&Node> {
         .collect();
     let auto =
         if nodes.iter().any(|n| n.pos.is_none()) { crate::editor_view::auto_positions(nodes) } else { HashMap::new() };
+    // (a float as a whole number of the same order)
+    let ord = |f: f32| {
+        let b = f.to_bits();
+        if b & 0x8000_0000 != 0 { !b } else { b | 0x8000_0000 }
+    };
     let key = |i: usize| {
         let [x, y] = nodes[i].pos.or_else(|| auto.get(&nodes[i].id).copied()).unwrap_or([f32::MAX, f32::MAX]);
-        (x, y, i)
+        std::cmp::Reverse((ord(x), ord(y), i))
     };
+    // the nodes whose dependencies are all out, the first by their place, in time n log n
+    let mut waiting: Vec<usize> = vec![0; nodes.len()];
+    let mut dependents: Vec<Vec<usize>> = vec![Vec::new(); nodes.len()];
+    for (i, d) in deps.iter().enumerate() {
+        let mut d: Vec<usize> = d.iter().copied().filter(|&j| j != i).collect();
+        d.sort_unstable();
+        d.dedup();
+        waiting[i] = d.len();
+        for j in d {
+            dependents[j].push(i);
+        }
+    }
+    let mut ready: std::collections::BinaryHeap<_> = (0..nodes.len()).filter(|&i| waiting[i] == 0).map(key).collect();
     let mut done = vec![false; nodes.len()];
     let mut out = Vec::with_capacity(nodes.len());
-    loop {
-        let ready = (0..nodes.len())
-            .filter(|&i| !done[i] && deps[i].iter().all(|&d| done[d] || d == i))
-            .min_by(|&a, &b| key(a).partial_cmp(&key(b)).unwrap_or(std::cmp::Ordering::Equal));
-        match ready {
-            Some(i) => {
-                done[i] = true;
-                out.push(&nodes[i]);
+    while let Some(std::cmp::Reverse((_, _, i))) = ready.pop() {
+        done[i] = true;
+        out.push(&nodes[i]);
+        for &j in &dependents[i] {
+            waiting[j] -= 1;
+            if waiting[j] == 0 {
+                ready.push(key(j));
             }
-            None => break,
         }
     }
     // (a cycle: the rest as written)
@@ -360,19 +419,31 @@ pub fn stages(nodes: &[Node]) -> HashMap<String, Stage> {
         }
     }
     // before one
+    let mut dependents: HashMap<&str, Vec<&str>> = HashMap::new();
+    for (id, d) in &deps {
+        for x in d {
+            dependents.entry(x.as_str()).or_default().push(id);
+        }
+    }
     let mut before: HashSet<String> = HashSet::new();
     for n in order.iter().rev() {
-        let feeds = |m: &Node| {
-            deps[m.id.as_str()].contains(&n.id) && (analysis.contains(m.id.as_str()) || before.contains(&m.id))
-        };
-        if nodes.iter().any(feeds) {
+        let feeds = |m: &&str| analysis.contains(m) || before.contains(*m);
+        if dependents.get(n.id.as_str()).is_some_and(|ms| ms.iter().any(feeds)) {
             before.insert(n.id.clone());
         }
     }
     let mut stages: HashMap<String, Stage> = nodes
         .iter()
         .map(|n| {
-            let stage = if is_result(&n.op) {
+            // a group: the model when it holds some of it, else the latest stage of its body (data alone is data;
+            // preparation alone, by where the group is)
+            let inner = (n.op == GROUP && !is_analysis(n))
+                .then(|| n.body.as_ref().and_then(|b| stages(&b.nodes).into_values().max()))
+                .flatten()
+                .filter(|s| *s != Stage::Preparation);
+            let stage = if let Some(s) = inner {
+                s
+            } else if is_result(&n.op) {
                 Stage::Results
             } else if is_validation(&n.op) {
                 Stage::Validation
@@ -479,7 +550,8 @@ fn shown_output(n: &Node, sig: Option<&OpSignature>) -> Option<(String, Type)> {
     outs.iter().find(|(_, t)| map(*t)).or_else(|| outs.iter().find(|(_, t)| *t == Type::Table)).cloned()
 }
 
-fn step(n: &Node, path: &[String], stage: Stage, r: &Registry) -> Step {
+/// The step of a node; `value`: where what it gives is kept after a run ([`Step::value`]).
+fn step(n: &Node, path: &[String], stage: Stage, r: &Registry, value: Option<(String, String)>) -> Step {
     let sig = r.sig(&n.op).map(|s| s.as_ref());
     let carried: HashSet<&str> =
         n.body.as_ref().map(|b| b.carry.keys().map(String::as_str).collect()).unwrap_or_default();
@@ -506,7 +578,7 @@ fn step(n: &Node, path: &[String], stage: Stage, r: &Registry) -> Step {
         .filter(|k| !(expression.is_some() && k.as_str() == "expression") && !(file.is_some() && k.as_str() == "path"))
         .map(|k| setting(k, &n.params[k], sig.and_then(|s| s.params.iter().find(|p| &p.name == k))))
         .collect();
-    let size = if stage == Stage::Data && path.is_empty() {
+    let size = if stage == Stage::Data && value.is_some() {
         Size::Data
     } else if is_plumbing(&n.op) && n.why.is_none() && n.body.is_none() {
         Size::Line
@@ -521,7 +593,17 @@ fn step(n: &Node, path: &[String], stage: Stage, r: &Registry) -> Step {
             collect: b.collect.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
             outputs: b.outputs.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
             until: b.until.clone(),
-            steps: reading_order(&b.nodes).into_iter().map(|m| step(m, &inner, stage, r)).collect(),
+            steps: reading_order(&b.nodes)
+                .into_iter()
+                .map(|m| {
+                    // what a group's body gave is kept with the group's outputs; a loop's, step by step, is not
+                    let kept = value
+                        .as_ref()
+                        .filter(|_| n.op == GROUP)
+                        .map(|(node, prefix)| (node.clone(), format!("{prefix}{}.", m.id)));
+                    step(m, &inner, stage, r, kept)
+                })
+                .collect(),
         }
     });
     Step {
@@ -542,6 +624,49 @@ fn step(n: &Node, path: &[String], stage: Stage, r: &Registry) -> Step {
         figures: Vec::new(),
         shows: if size == Size::Line { None } else { shown_output(n, sig) },
         body,
+        value,
+    }
+}
+
+/// The step a node's output is shown with, and its port: the node itself, or the node in a group's body that gives
+/// the group's output (through groups within groups).
+fn giver(nodes: &[Node], node: &str, port: &str) -> (Vec<String>, String, String) {
+    let (mut path, mut node, mut port) = (Vec::new(), node.to_string(), port.to_string());
+    let mut scope = nodes;
+    while let Some(n) = scope.iter().find(|n| n.id == node)
+        && n.op == GROUP
+        && let Some(b) = &n.body
+        && let Some(Ok(Ref::Port { node: inner, port: p })) = b.outputs.get(&port).map(|r| Ref::parse(r))
+    {
+        path.push(node);
+        (node, port) = (inner, p);
+        scope = &b.nodes;
+    }
+    (path, node, port)
+}
+
+/// The step of a path and id among steps and their bodies'.
+fn find_step<'a>(steps: &'a mut [Step], path: &[String], id: &str) -> Option<&'a mut Step> {
+    for s in steps {
+        if s.path == path && s.id == id {
+            return Some(s);
+        }
+        if let Some(b) = &mut s.body
+            && let Some(found) = find_step(&mut b.steps, path, id)
+        {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// Every step and its body's, in order, to change.
+fn each_step(steps: &mut [Step], f: &mut dyn FnMut(&mut Step)) {
+    for s in steps {
+        f(s);
+        if let Some(b) = &mut s.body {
+            each_step(&mut b.steps, f);
+        }
     }
 }
 
@@ -562,45 +687,90 @@ impl Document {
         let stage = stages(&m.nodes);
         let plots: BTreeMap<&str, &Node> =
             m.nodes.iter().filter(|n| n.op == "view.plot").map(|n| (n.id.as_str(), n)).collect();
+        let order = reading_order(&m.nodes);
         let mut sections: Vec<Section> = Vec::new();
         for st in Stage::ALL {
-            let steps: Vec<Step> = reading_order(&m.nodes)
-                .into_iter()
-                .filter(|n| stage[&n.id] == st && !plots.contains_key(n.id.as_str()))
-                .map(|n| step(n, &[], st, r))
+            // the stage's nodes outside groups, a section; each group, a section of its own; in the reading order
+            // of their first nodes
+            let mut parts: Vec<(usize, Section)> = Vec::new();
+            let loose: Vec<(usize, &Node)> = order
+                .iter()
+                .enumerate()
+                .filter(|(_, n)| stage[&n.id] == st && !plots.contains_key(n.id.as_str()) && n.op != GROUP)
+                .map(|(k, n)| (k, *n))
                 .collect();
-            if !steps.is_empty() {
-                sections.push(Section { stage: st, title: st.title().to_string(), steps });
+            if let Some((first, _)) = loose.first() {
+                let steps =
+                    loose.iter().map(|(_, n)| step(n, &[], st, r, Some((n.id.clone(), String::new())))).collect();
+                parts.push((
+                    *first,
+                    Section { stage: st, title: st.title().to_string(), group: None, note: None, steps },
+                ));
             }
+            for (k, g) in order.iter().enumerate().filter(|(_, n)| stage[&n.id] == st && n.op == GROUP) {
+                let at = vec![g.id.clone()];
+                let steps = reading_order(g.body.as_ref().map_or(&[][..], |b| &b.nodes))
+                    .into_iter()
+                    .map(|n| step(n, &at, st, r, Some((g.id.clone(), format!("{}.", n.id)))))
+                    .collect();
+                let section = Section {
+                    stage: st,
+                    title: label_of(&g.id),
+                    group: Some(g.id.clone()),
+                    note: g.note.clone().filter(|t| !t.trim().is_empty()),
+                    steps,
+                };
+                parts.push((k, section));
+            }
+            parts.sort_by_key(|(k, _)| *k);
+            sections.extend(parts.into_iter().map(|(_, s)| s));
         }
         // without a model, what is done to the data is the analysis
         if !sections.iter().any(|s| s.stage == Stage::Model)
-            && let Some(p) = sections.iter_mut().find(|s| s.stage == Stage::Preparation)
+            && let Some(p) = sections.iter_mut().find(|s| s.stage == Stage::Preparation && s.group.is_none())
         {
             p.title = "Analysis".into();
         }
-        // the plots: the figures of the steps they show, numbered in the document's order
+        // the plots: the figures of the steps they show (the node in a group's body that gives what is shown),
+        // numbered in the document's order
         let mut loose = Vec::new();
-        for n in reading_order(&m.nodes) {
+        for n in &order {
             let Some(plot) = plots.get(n.id.as_str()) else { continue };
             let Some((node, port)) = plotted(plot) else { continue };
             let caption = plot.params.get("title").map(words).unwrap_or_else(|| format!("{node}.{port}"));
-            let f = Figure { plot: plot.id.clone(), node: node.clone(), port, caption, number: 0 };
-            match sections.iter_mut().flat_map(|s| s.steps.iter_mut()).find(|s| s.id == node) {
+            let (path, id, step_port) = giver(&m.nodes, &node, &port);
+            let f = Figure { plot: plot.id.clone(), node: node.clone(), port, step_port, caption, number: 0 };
+            let found = sections.iter_mut().find_map(|s| find_step(&mut s.steps, &path, &id));
+            match found {
                 Some(s) => s.figures.push(f),
                 None => loose.push(f),
             }
         }
+        // what a group gives, named by the node of its body that gives it
+        for sec in &mut sections {
+            each_step(&mut sec.steps, &mut |s| {
+                for l in &mut s.inputs {
+                    if let From::Node { node, port } = &l.from {
+                        let (path, id, _) = giver(&m.nodes, node, port);
+                        if !path.is_empty() {
+                            l.from = From::Within { group: node.clone(), port: port.clone(), path, node: id };
+                        }
+                    }
+                }
+            });
+        }
         let mut number = 0;
-        for s in sections.iter_mut().flat_map(|s| s.steps.iter_mut()) {
-            for f in &mut s.figures {
-                number += 1;
-                f.number = number;
-            }
-            // (the output shown by a figure is not shown twice)
-            if s.shows.as_ref().is_some_and(|(p, _)| s.figures.iter().any(|f| &f.port == p)) {
-                s.shows = None;
-            }
+        for sec in &mut sections {
+            each_step(&mut sec.steps, &mut |s| {
+                for f in &mut s.figures {
+                    number += 1;
+                    f.number = number;
+                }
+                // (the output shown by a figure is not shown twice)
+                if s.shows.as_ref().is_some_and(|(p, _)| s.figures.iter().any(|f| &f.step_port == p)) {
+                    s.shows = None;
+                }
+            });
         }
         for f in &mut loose {
             number += 1;
@@ -629,6 +799,52 @@ impl Document {
                         Input::Value { value, note } => ("a value", words(value), note),
                     };
                     InputRow { name: k.clone(), kind, value, note: note.clone() }
+                })
+                .collect(),
+            parameters: m
+                .parameters
+                .iter()
+                .map(|p| {
+                    let num = |x: f64| words(&serde_json::json!(x));
+                    let range = if !p.choices.is_empty() {
+                        Some(p.choices.iter().map(words).collect::<Vec<_>>().join(", "))
+                    } else {
+                        match (p.min, p.max) {
+                            (Some(a), Some(b)) => Some(format!(
+                                "{} to {}{}",
+                                num(a),
+                                num(b),
+                                p.step.map(|s| format!(", by {}", num(s))).unwrap_or_default()
+                            )),
+                            (Some(a), None) => Some(format!("at least {}", num(a))),
+                            (None, Some(b)) => Some(format!("at most {}", num(b))),
+                            _ => None,
+                        }
+                    };
+                    ParamRow {
+                        key: p.key.clone(),
+                        label: p.label.clone().unwrap_or_else(|| p.key.clone()),
+                        value: m.setting(&p.key).map_or_else(|| "default".to_string(), words),
+                        unit: p.unit.clone(),
+                        range,
+                        help: p.help.clone(),
+                    }
+                })
+                .collect(),
+            scenarios: m
+                .scenarios
+                .iter()
+                .map(|sc| ScenarioRow {
+                    name: sc.name.clone(),
+                    note: sc.note.clone(),
+                    values: sc
+                        .values
+                        .iter()
+                        .map(|(k, v)| {
+                            let label = m.parameters.iter().find(|p| &p.key == k).and_then(|p| p.label.clone());
+                            (label.unwrap_or_else(|| k.clone()), words(v))
+                        })
+                        .collect(),
                 })
                 .collect(),
             sections,
@@ -664,6 +880,60 @@ impl Document {
     pub fn unexplained(&self) -> usize {
         self.steps().iter().filter(|s| s.size == Size::Card && (s.note.is_none() || s.why.is_none())).count()
     }
+}
+
+/// What a stage's group is for, its note when [`group_by_stage`] makes it.
+fn stage_note(st: Stage, analysis: bool) -> &'static str {
+    match st {
+        Stage::Data => "The data: what the model reads or draws.",
+        Stage::Preparation if analysis => "The analysis: what is done to the data.",
+        Stage::Preparation => "The data prepared for the model.",
+        Stage::Model => "The model: what is fitted, simulated or optimised.",
+        Stage::Validation => "The model checked.",
+        Stage::Results => "What comes of the model.",
+    }
+}
+
+/// Put the top-level nodes of a model in a group per stage (`data`, `preparation` or `analysis`, `model`,
+/// `validation`, `results`), each with a note saying what it is for, and lay them out again: the canvas shows a
+/// few blocks, opened one at a time, and the document a section per group. The plots, the files written and the
+/// random generators stay at the top level, as a stage of one node. The groups made, by id; refused when the top
+/// level has groups already.
+pub fn group_by_stage(m: &mut Model, r: &Registry) -> Result<Vec<String>, String> {
+    if m.nodes.iter().any(|n| n.op == GROUP) {
+        return Err("the model is in groups already (ungroup them first)".into());
+    }
+    let stage = stages(&m.nodes);
+    let analysis = !stage.values().any(|s| *s == Stage::Model);
+    let order: Vec<String> = reading_order(&m.nodes).into_iter().map(|n| n.id.clone()).collect();
+    let mut made = Vec::new();
+    let mut copy = m.clone();
+    for st in Stage::ALL {
+        // (a group giving a random generator would run every time: they stay out, as the plots and writes)
+        let ids: Vec<String> = order
+            .iter()
+            .filter(|id| stage[*id] == st)
+            .filter(|id| !copy.node(id).is_some_and(|n| is_result(&n.op) || n.op.starts_with("rng.")))
+            .cloned()
+            .collect();
+        if ids.len() < 2 {
+            continue;
+        }
+        let name = if st == Stage::Preparation && analysis { "analysis" } else { st.title() }.to_lowercase();
+        let id = if copy.node(&name).is_some() { format!("{name}_stage") } else { name };
+        crate::editor::group_nodes(&mut copy, r, &[], &ids, &id, Some(stage_note(st, analysis)))?;
+        made.push(id);
+    }
+    if made.is_empty() {
+        return Err("no stage has two nodes to group".into());
+    }
+    for (id, pos) in crate::editor_view::arrange(&copy.nodes, r) {
+        if let Some(n) = copy.nodes.iter_mut().find(|n| n.id == id) {
+            n.pos = Some(pos);
+        }
+    }
+    *m = copy;
+    Ok(made)
 }
 
 /// The output of a top-level node when it has only one: a reference to it names the node alone.
@@ -804,6 +1074,62 @@ mod tests {
         assert_eq!(range.1, "15, 20, 6");
         let rows_setting = settings.iter().find(|(l, _)| l == "rows").unwrap();
         assert_eq!(rows_setting.1, "40");
+    }
+
+    #[test]
+    fn a_model_grouped_by_stage_reads_and_runs_the_same() {
+        let r = Registry::standard();
+        let m = template("CLUE-S");
+        let mut g = m.clone();
+        let made = group_by_stage(&mut g, &r).unwrap();
+        assert_eq!(made, ["data", "preparation", "model"]);
+        assert!(group_by_stage(&mut g.clone(), &r).is_err(), "grouped already");
+        let ids: Vec<&str> = g.nodes.iter().map(|n| n.id.as_str()).collect();
+        assert_eq!(ids.len(), 5, "{ids:?}");
+        assert!(ids.contains(&"plot") && ids.contains(&"rng"), "the plot and the generator at the top level");
+        assert!(terraflux_graph::check(&g, &r).iter().all(|i| i.severity != terraflux_graph::Severity::Error));
+        assert_eq!(g.node("model").unwrap().note.as_deref(), Some(stage_note(Stage::Model, false)));
+        assert_eq!(g.outputs["maps"].from, "model.simulation_maps");
+        // a section per group, its steps those of its body, the plot the figure of the loop inside it
+        let d = Document::of(&g, &r);
+        let titles: Vec<(&str, Option<&str>)> =
+            d.sections.iter().map(|s| (s.title.as_str(), s.group.as_deref())).collect();
+        assert_eq!(
+            titles,
+            [
+                ("Data", Some("data")),
+                ("Preparation", None),
+                ("Preparation", Some("preparation")),
+                ("Model", Some("model"))
+            ],
+            "the generator alone in its stage"
+        );
+        assert_eq!(d.sections[0].steps[0].size, Size::Data);
+        let sim = d.steps().into_iter().find(|s| s.id == "simulation").unwrap();
+        assert_eq!(sim.path, ["model"]);
+        assert_eq!(sim.figures.len(), 1);
+        assert_eq!((sim.figures[0].node.as_str(), sim.figures[0].port.as_str()), ("model", "simulation_maps"));
+        assert_eq!(sim.value_key("maps"), Some(("model".to_string(), "simulation.maps".to_string())));
+        // the same maps, and what the groups' bodies gave kept with them
+        let engine = terraflux_exec::Engine::default();
+        let a = engine.run(&m, &Default::default(), &mut terraflux_exec::Quiet).unwrap();
+        let b = engine.run(&g, &Default::default(), &mut terraflux_exec::Quiet).unwrap();
+        let maps = |v: &terraflux_ops::Value| match v {
+            terraflux_ops::Value::Series(s) => s
+                .iter()
+                .map(|m| match m {
+                    terraflux_ops::Value::Map(m) => m.data.as_ref().clone(),
+                    _ => panic!(),
+                })
+                .collect::<Vec<_>>(),
+            _ => panic!(),
+        };
+        assert_eq!(maps(a.get("simulation.maps").unwrap()), maps(b.get("model.simulation_maps").unwrap()));
+        let (node, port) = sim.value_key("maps").unwrap();
+        assert!(b.values[&node].contains_key(&port));
+        let suit = d.steps().into_iter().find(|s| s.id == "aptitude").unwrap();
+        let (node, port) = suit.value_key("map").unwrap();
+        assert!(b.values[&node].contains_key(&port), "{node} {port}");
     }
 
     #[test]

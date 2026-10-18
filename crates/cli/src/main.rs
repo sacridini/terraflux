@@ -40,6 +40,9 @@ enum Command {
         /// (`node.setting=value`); e.g. `--set seed=7`, `--set patches.isometry=2`.
         #[arg(long = "set", value_name = "NAME=VALUE")]
         set: Vec<String>,
+        /// Run a scenario of the model (its values, before any --set).
+        #[arg(long)]
+        scenario: Option<String>,
         /// Print only errors.
         #[arg(short, long)]
         quiet: bool,
@@ -573,8 +576,24 @@ fn main() -> Result<()> {
         Command::Calibrate(a) => rt()?.block_on(cluster::calibrate(&a))?,
         Command::Sensitivity(a) => rt()?.block_on(cluster::sensitivity(&a))?,
         Command::App { model } => app(model)?,
-        Command::Run { model, out, set, quiet, tiled, tile, radius, disk, coordinator, code, shared_disk } => {
+        Command::Run {
+            model,
+            out,
+            set,
+            scenario,
+            quiet,
+            tiled,
+            tile,
+            radius,
+            disk,
+            coordinator,
+            code,
+            shared_disk,
+        } => {
             let mut m = Model::load_expanded(&model).with_context(|| format!("reading {}", model.display()))?;
+            if let Some(name) = &scenario {
+                m = m.with_scenario(name)?;
+            }
             let dir = model.parent().map(Path::to_path_buf).unwrap_or_default();
             if tiled {
                 let mut o = BTreeMap::new();

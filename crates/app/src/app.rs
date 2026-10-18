@@ -61,13 +61,15 @@ pub enum Pane {
     Assistant,
     /// The review of the model's changes (an assistant's, or the differences with another version).
     Review,
+    /// The model's parameters as a form, and its scenarios saved, applied and compared.
+    Parameters,
     /// A node's output in a tab of its own (opened by a double click on the node; one per node, brought to the
     /// front when it is open already).
     Map(u64),
 }
 
 impl Pane {
-    pub const ALL: [Pane; 14] = [
+    pub const ALL: [Pane; 15] = [
         Pane::Model,
         Pane::Document,
         Pane::Operators,
@@ -82,6 +84,7 @@ impl Pane {
         Pane::Computers,
         Pane::Assistant,
         Pane::Review,
+        Pane::Parameters,
     ];
 
     pub fn title(self) -> &'static str {
@@ -100,6 +103,7 @@ impl Pane {
             Pane::Computers => "Computers",
             Pane::Assistant => "Assistant",
             Pane::Review => "Changes",
+            Pane::Parameters => "Parameters",
             Pane::Map(_) => "Map",
         }
     }
@@ -1151,6 +1155,8 @@ pub struct TerrafluxApp {
     pub files: crate::files_view::Files,
     /// The model run many times (replicates, scenarios, calibration).
     pub batch: crate::batch_view::BatchState,
+    /// The Parameters pane's state.
+    pub params: crate::params_view::State,
     /// The application's pool of workers, shared or not, and this computer lent to another.
     pub computers: crate::computers::Computers,
     /// The assistant: its conversation and its server.
@@ -1211,6 +1217,7 @@ impl TerrafluxApp {
             maximize: None,
             files: crate::files_view::Files::default(),
             batch: crate::batch_view::BatchState::new(),
+            params: crate::params_view::State::default(),
             computers: crate::computers::Computers::new(),
             chat: crate::chat::Chat::default(),
             commands: None,
@@ -1588,6 +1595,9 @@ impl TerrafluxApp {
             action("Open a raster or vectors...", format!("{c}O"), Do::OpenData),
             action("Add an operator", "/".into(), Do::Add(String::new())),
             action("Arrange the nodes", format!("{c}L"), Do::Arrange),
+            action("Group the nodes selected", format!("{c}G"), Do::Group),
+            action("Ungroup the group selected", format!("{c}shift+G"), Do::Ungroup),
+            action("Group the model by stage (data, preparation, model...)", String::new(), Do::GroupByStage),
             action("Undo", format!("{c}Z"), Do::Undo),
             action("Redo", format!("{c}shift+Z"), Do::Redo),
             action("The model as text, or as a diagram", String::new(), Do::Text),
@@ -1645,11 +1655,15 @@ impl TerrafluxApp {
             d => {
                 let Some(s) = &mut self.session else { return };
                 let r = &self.registry;
-                let model = matches!(d, Do::GoTo(_) | Do::Add(_) | Do::Arrange);
+                let model =
+                    matches!(d, Do::GoTo(_) | Do::Add(_) | Do::Arrange | Do::Group | Do::Ungroup | Do::GroupByStage);
                 match d {
                     Do::OpenData => crate::builder::open_data(s, r),
                     Do::RunToHere => crate::builder::run_selected(ctx, s),
                     Do::Arrange => crate::builder::arrange(s, r),
+                    Do::Group => crate::builder::group_selected(s, r),
+                    Do::Ungroup => crate::builder::ungroup_selected(s, r),
+                    Do::GroupByStage => crate::builder::group_by_stage(s, r),
                     Do::Undo => crate::builder::undo_redo(s, false),
                     Do::Redo => crate::builder::undo_redo(s, true),
                     Do::Text => s.editor.text = !s.editor.text,
@@ -2448,7 +2462,11 @@ impl TerrafluxApp {
         let (r, lib) = (&self.registry, &self.library);
         match pane {
             Pane::Model => crate::builder::model_pane(ui, s, r),
-            Pane::Document => crate::document_view::pane(ui, s, r),
+            Pane::Document => {
+                if crate::document_view::pane(ui, s, r) {
+                    self.focus(Pane::Parameters);
+                }
+            }
             Pane::Operators => crate::builder::operators_pane(ui, s, r, lib),
             Pane::Files => {
                 if let Some(crate::files_view::Asked::Open(p)) = crate::files_view::pane(ui, &mut self.files, s, r) {
@@ -2479,6 +2497,17 @@ impl TerrafluxApp {
                 }
             }
             Pane::Review => crate::review::pane(ui, s, r),
+            Pane::Parameters => match crate::params_view::pane(ui, &mut self.params, s, r) {
+                Some(crate::params_view::Asked::ManyRuns) => {
+                    crate::params_view::to_batch(&mut self.batch, &s.source);
+                    self.focus(Pane::Batch);
+                }
+                Some(crate::params_view::Asked::Calibrate) => {
+                    crate::params_view::to_calibration(&mut self.batch, &s.source);
+                    self.focus(Pane::Batch);
+                }
+                None => {}
+            },
             Pane::Map(id) => {
                 let Some(mut shown) = s.map_tabs.remove(&id) else {
                     ui.label(RichText::new("This map's node is gone.").weak());
@@ -2591,7 +2620,7 @@ impl TerrafluxApp {
             Pane::Files => &[Pane::Node, Pane::Operators],
             Pane::Prepare => &[Pane::Node],
             Pane::Node => &[Pane::Prepare, Pane::Files],
-            Pane::Assistant | Pane::Review => &[Pane::Node, Pane::Prepare, Pane::Files],
+            Pane::Assistant | Pane::Review | Pane::Parameters => &[Pane::Node, Pane::Prepare, Pane::Files],
             _ => &[],
         };
         // the operators' pane, nowhere: at the left edge of the window

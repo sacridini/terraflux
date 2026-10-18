@@ -80,6 +80,40 @@ impl<'a> Checker<'a> {
         self.issues.push(Issue { severity: Severity::Warning, at: at.to_string(), message });
     }
 
+    /// Why a key of a parameter or scenario (`$input`, `node.setting`, `container/node.setting`) names nothing the
+    /// model has: none when it names an input of a value, or a setting or an input of a node's operator.
+    fn unknown_key(&self, key: &str) -> Option<String> {
+        if let Some(name) = key.strip_prefix('$') {
+            return match self.model.inputs.get(name) {
+                Some(Input::Value { .. }) => None,
+                Some(_) => Some(format!("${name} is a file, not a value")),
+                None => Some(format!("the model has no input ${name}")),
+            };
+        }
+        let Some((path, name)) = key.rsplit_once('.') else {
+            return Some(format!("{key:?}: give $input or node.setting"));
+        };
+        let mut nodes = &self.model.nodes;
+        let mut node = None;
+        for id in path.split('/') {
+            let Some(n) = nodes.iter().find(|n| n.id == id) else {
+                return Some(format!("the model has no node {path:?}"));
+            };
+            node = Some(n);
+            nodes = match &n.body {
+                Some(b) => &b.nodes,
+                None => nodes,
+            };
+        }
+        let n = node?;
+        let sig = self.signature(&n.op)?;
+        let known = sig.params.iter().any(|p| p.name == name)
+            || sig.input_spec(name).is_some()
+            || n.inputs.contains_key(name)
+            || n.params.contains_key(name);
+        (!known).then(|| format!("{} ({}) has no setting {name:?}", n.id, n.op))
+    }
+
     fn input_type(&self, name: &str) -> Option<Type> {
         Some(match self.model.inputs.get(name)? {
             Input::Map { .. } => Type::Map,
@@ -324,6 +358,16 @@ pub fn check(model: &Model, catalog: &dyn Catalog) -> Vec<Issue> {
     for (name, out) in &model.outputs {
         c.check_ref(&format!("outputs.{name}"), &out.from, Type::Any, &scopes);
     }
+    // what the parameters and scenarios change: a warning when it is not in the model (a node renamed away)
+    let keys =
+        model.parameters.iter().map(|p| (format!("parameters.{}", p.key), &p.key)).chain(
+            model.scenarios.iter().flat_map(|s| s.values.keys().map(move |k| (format!("scenarios.{}", s.name), k))),
+        );
+    for (at, key) in keys {
+        if let Some(why) = c.unknown_key(key) {
+            c.warn(&at, why);
+        }
+    }
     let mut issues = c.issues;
     issues.sort_by_key(|i| std::cmp::Reverse(i.severity));
     issues
@@ -439,5 +483,28 @@ from = "sim.maps"
         let all = check(&m, &Ops);
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].severity, Severity::Warning);
+    }
+
+    #[test]
+    fn parameters_name_what_the_model_has() {
+        let mut m = model(GOOD);
+        assert!(check(&m, &Ops).is_empty());
+        // (a node of a loop's body)
+        let step = "sim/s";
+        m.inputs.insert("rate".into(), Input::Value { value: 0.5.into(), note: None });
+        for key in ["$rate", &format!("{step}.k"), &format!("{step}.n")] {
+            m.parameters.push(crate::Parameter { key: key.to_string(), ..Default::default() });
+        }
+        assert!(check(&m, &Ops).is_empty(), "{:?}", check(&m, &Ops));
+        m.parameters.push(crate::Parameter { key: "$nothing".into(), ..Default::default() });
+        m.parameters.push(crate::Parameter { key: format!("{step}.zz"), ..Default::default() });
+        m.scenarios.push(crate::Scenario {
+            name: "s".into(),
+            note: None,
+            values: [("gone.k".to_string(), serde_json::json!(1)), ("$t0".to_string(), serde_json::json!(1))].into(),
+        });
+        let all = check(&m, &Ops);
+        assert_eq!(all.len(), 4, "{all:?}");
+        assert!(all.iter().all(|i| i.severity == Severity::Warning));
     }
 }

@@ -733,6 +733,20 @@ pub fn keys(ui: &Ui, s: &mut Session, r: &Registry, canvas: bool) -> bool {
     // scope, model or window) and ctrl+V pastes them, with the model's tab in focus (the events taken, so that no
     // label copies its text then)
     let here = canvas && !typing && s.editor.quick.is_none() && s.editor.renaming.is_none() && !s.editor.text;
+    // ctrl+G groups the nodes selected, ctrl+shift+G takes the group selected apart
+    let (group, ungroup) = ui.input_mut(|i| {
+        if !here {
+            return (false, false);
+        }
+        let ungroup = i.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::G);
+        (i.consume_key(egui::Modifiers::COMMAND, egui::Key::G), ungroup)
+    });
+    if group {
+        group_selected(s, r);
+    }
+    if ungroup {
+        ungroup_selected(s, r);
+    }
     let (duplicate, copy, paste) = ui.input_mut(|i| {
         if !here {
             return (false, false, None);
@@ -1415,6 +1429,60 @@ pub fn arrange(s: &mut Session, r: &Registry) {
     s.dirty = true;
     s.revision += 1;
     s.editor.fit();
+}
+
+/// Put the nodes selected (those chosen, else the one in the inspector) into a new group of the scope shown
+/// (ctrl+G), and select it.
+pub fn group_selected(s: &mut Session, r: &Registry) {
+    let mut ids: Vec<String> = s.editor.chosen.iter().cloned().collect();
+    if ids.is_empty() {
+        ids.extend(s.selected.clone());
+    }
+    let path = s.editor.path.clone();
+    let Some(scope) = s.source.scope(&path) else { return };
+    // in the order of the scope
+    ids.sort_by_key(|id| scope.iter().position(|n| &n.id == id));
+    let id = (1..)
+        .map(|k| if k == 1 { "group".to_string() } else { format!("group_{k}") })
+        .find(|id| !scope.iter().any(|n| &n.id == id))
+        .unwrap();
+    match crate::editor::group_nodes(&mut s.source, r, &path, &ids, &id, None) {
+        Ok(()) => {
+            s.editor.chosen.clear();
+            s.edited();
+            s.selected = Some(id);
+        }
+        Err(e) => s.editor.message = Some(e),
+    }
+}
+
+/// Take the nodes of the group selected out into the scope shown (ctrl+shift+G).
+pub fn ungroup_selected(s: &mut Session, r: &Registry) {
+    let Some(id) = s.selected.clone() else { return };
+    let path = s.editor.path.clone();
+    match crate::editor::ungroup(&mut s.source, r, &path, &id) {
+        Ok(()) => {
+            s.selected = None;
+            s.editor.chosen.clear();
+            s.edited();
+        }
+        Err(e) => s.editor.message = Some(e),
+    }
+}
+
+/// Put the model's top level in a group per stage (data, preparation, model, validation, results), laid out again.
+pub fn group_by_stage(s: &mut Session, r: &Registry) {
+    match crate::document::group_by_stage(&mut s.source, r) {
+        Ok(made) => {
+            s.editor.path.clear();
+            s.selected = None;
+            s.editor.chosen.clear();
+            s.edited();
+            s.editor.fit();
+            s.notice = Some((format!("grouped by stage: {}", made.join(", ")), std::time::Instant::now()));
+        }
+        Err(e) => s.editor.message = Some(e),
+    }
 }
 
 /// The bar above the canvas: where in the model, run up to the node, the preview kept up to date.

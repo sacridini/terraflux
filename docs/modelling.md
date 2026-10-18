@@ -6,6 +6,7 @@ let you change what a model does without changing Terraflux:
 - the node editor;
 - map algebra;
 - groups and submodels;
+- parameters and scenarios;
 - plugins in WebAssembly.
 
 ## The node editor
@@ -66,7 +67,15 @@ A missing value makes the result missing; `isnull` tests for it, and `coalesce` 
 
 A `control.group` runs its body once. Its inputs (any names) are `@name` inside, and its outputs are
 references of its body (`body.outputs`). A group gathers a few nodes into one, for instance to compute a
-dynamic variable.
+dynamic variable. Its body also reads the nodes around it (`node.port`), as a loop's does.
+
+In the editor, ctrl+G puts the nodes selected into a new group (what read them from outside reads the group's
+outputs, named after them) and ctrl+shift+G takes a group apart. **Group the model by stage** (ctrl+K) puts the
+top level in a group per stage (data, preparation, model, validation, results), each with a note of what it is
+for; the plots, the files written and the random generators stay outside. The canvas then shows a few blocks
+linked by what they read, their notes under them, each opened by itself (a double click); zoomed out, a model
+without groups shows its stages framed and named. A group keeps what its body gave in a run, so the Document pane
+shows its steps' maps; it runs again whole when one of its nodes changes.
 
 A `control.submodel` uses another model file as one node:
 
@@ -84,6 +93,34 @@ other model's outputs become the node's (`forest.map`).
 
 Before a run, every submodel is expanded into a group (`terraflux run`, `check`, `submit` and the application
 do it). Submodels may use submodels, but never themselves.
+
+## Parameters and scenarios
+
+A model's **parameters** are the values its users change: an input of a value (`$name`) or a node's setting or
+literal input (`node.setting`, `container/node.setting`), each with what a form needs. They change nothing by
+themselves; the Parameters pane shows them as a form (a slider for a number in a range, a list for a few choices,
+a box for yes or no), and each change is an edit of the model that runs it again.
+
+```toml
+[[parameters]]
+key = "aptitude.range"
+label = "Range of the suitability"
+unit = "cells"
+min = 5
+max = 50
+step = 5
+help = "How far apart suited cells are."
+
+[[scenarios]]
+name = "patchy"
+note = "A suitability of small patches."
+values = { "aptitude.range" = 5 }
+```
+
+**Scenarios** are named sets of those values. The pane saves the values now as one, applies one in a click,
+compares those checked side by side (each run up to an output chosen: its maps, tables or numbers in a column per
+scenario, and their differences from the first), and sends them to Many runs (as its table of scenarios, or the
+parameters of a range as its calibration). `terraflux run model.toml --scenario patchy` runs one.
 
 ## Plugins: `plugin.wasm`
 

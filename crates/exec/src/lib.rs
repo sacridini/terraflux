@@ -491,6 +491,15 @@ impl Engine {
                 self.resolve(&Source::Ref(r.clone()), &child, inputs, &format!("{at}/outputs.{name}"))?,
             );
         }
+        // what the body's nodes gave too, as `node.port` (no reference names them: the application shows a group's
+        // steps with them), its random generators aside (a group holding one would never be kept)
+        for (id, outs) in &child.results {
+            for (port, v) in outs {
+                if !holds_rng(v) {
+                    out.entry(format!("{id}.{port}")).or_insert_with(|| v.clone());
+                }
+            }
+        }
         Ok(out)
     }
 
@@ -764,6 +773,8 @@ mod tests {
         let r = engine().run(&m, &BTreeMap::new(), &mut Quiet).unwrap();
         assert_eq!(r.get("after.sum").unwrap().as_number(), Some(14.0));
         assert_eq!(r.get("loop.total").unwrap().as_number(), Some(3.0));
+        // what the group's nodes gave, kept with its outputs
+        assert_eq!(r.values["g"]["inc.sum"].as_number(), Some(4.0));
 
         // the same group as a submodel file
         let d = std::env::temp_dir().join(format!("terraflux-exec-sub-{}", std::process::id()));

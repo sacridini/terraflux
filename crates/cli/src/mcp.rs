@@ -389,6 +389,73 @@ mod tests {
     }
 
     #[test]
+    fn a_model_is_grouped_by_stage() {
+        let s = Server { engine: Engine::default() };
+        let dir = std::env::temp_dir().join(format!("terraflux-mcp-g-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let model = dir.join("g.toml").to_string_lossy().into_owned();
+        let (t, e) = call(&s, "new_model", json!({ "model": model, "template": "CLUE-S" }));
+        assert!(!e, "{t}");
+        let (t, e) = call(&s, "group_by_stage", json!({ "model": model }));
+        assert!(!e && t.contains("data, preparation, model"), "{t}");
+        assert!(call(&s, "group_by_stage", json!({ "model": model })).1, "grouped already");
+        let m = Model::load(&model).unwrap();
+        assert!(m.node("model").is_some_and(|g| g.op == terraflux_graph::GROUP && g.note.is_some()));
+        // a group taken apart, and made again by hand
+        let (t, e) = call(&s, "ungroup", json!({ "model": model, "node": "data" }));
+        assert!(!e, "{t}");
+        let (t, e) = call(
+            &s,
+            "group_nodes",
+            json!({ "model": model, "nodes": ["land_2000", "aptitude", "roughness"], "id": "inputs", "note": "The maps drawn." }),
+        );
+        assert!(!e && t.contains("inputs.land_2000"), "{t}");
+        let (t, e) = call(&s, "check_model", json!({ "model": model }));
+        assert!(!e && t.contains("can run"), "{t}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn parameters_and_scenarios() {
+        let s = Server { engine: Engine::default() };
+        let dir = std::env::temp_dir().join(format!("terraflux-mcp-p-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let model = dir.join("p.toml").to_string_lossy().into_owned();
+        let (t, e) = call(&s, "new_model", json!({ "model": model, "template": "Neutral landscapes" }));
+        assert!(!e, "{t}");
+        let (t, e) = call(
+            &s,
+            "set_parameter",
+            json!({ "model": model, "key": "field.range", "unit": "cells", "min": 2, "max": 60, "step": 1 }),
+        );
+        assert!(!e && t.contains("now 20"), "{t}");
+        assert!(call(&s, "set_parameter", json!({ "model": model, "key": "field.nope" })).1, "no such setting");
+        assert!(call(&s, "set_parameter", json!({ "model": model, "key": "gone.range" })).1, "no such node");
+        let m = Model::load(&model).unwrap();
+        let p = &m.parameters[0];
+        assert_eq!(p.label.as_deref(), Some("The range of the autocorrelation, in cells"));
+        assert_eq!((p.min, p.max, p.unit.as_deref()), (Some(2.0), Some(60.0), Some("cells")));
+        assert!(p.help.as_deref().is_some_and(|h| h.contains("autocorrelation")));
+        let (t, e) =
+            call(&s, "set_scenario", json!({ "model": model, "name": "coarse", "values": { "field.range": 50 } }));
+        assert!(!e, "{t}");
+        let (t, e) = call(&s, "set_scenario", json!({ "model": model, "name": "now", "note": "as it is" }));
+        assert!(!e, "{t}");
+        let m = Model::load(&model).unwrap();
+        assert_eq!(m.scenarios[1].values["field.range"], 20, "the parameters' values now");
+        let (t, e) = call(&s, "run_model", json!({ "model": model, "scenario": "coarse" }));
+        assert!(!e, "{t}");
+        assert!(call(&s, "run_model", json!({ "model": model, "scenario": "nope" })).1);
+        let (t, e) = call(&s, "remove_scenario", json!({ "model": model, "name": "now" }));
+        assert!(!e, "{t}");
+        let (t, e) = call(&s, "remove_parameter", json!({ "model": model, "key": "field.range" }));
+        assert!(!e, "{t}");
+        let m = Model::load(&model).unwrap();
+        assert!(m.parameters.is_empty() && m.scenarios.len() == 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn a_template_is_copied() {
         let s = Server { engine: Engine::default() };
         let dir = std::env::temp_dir().join(format!("terraflux-mcp-t-{}", std::process::id()));

@@ -53,6 +53,8 @@ const NEW_INPUT: &str = "+ new input";
 /// The zoom from which the ports' names and the operators are written (below it, the nodes' names alone, in the
 /// middle of their boxes).
 const PORTS_FROM: f32 = 0.6;
+/// The zoom under which the canvas frames and names the model's stages (and writes its groups' notes).
+const STAGES_UNDER: f32 = 0.35;
 /// The smallest size a node's name is written at, and the narrowest box on the screen it is written in.
 const NAME_MIN: f32 = 11.0;
 const NAME_ROOM: f32 = 40.0;
@@ -602,6 +604,9 @@ struct Scene {
     ranges: Vec<std::ops::Range<usize>>,
     edges: Vec<EdgeAt>,
     touching: Vec<Vec<usize>>,
+    /// The stage of each box of the top level, when it has no groups (the model's inputs are data): what the
+    /// canvas frames when zoomed out.
+    stage_of: Vec<Option<crate::document::Stage>>,
 }
 
 fn cell(p: Pos2) -> (i32, i32) {
@@ -911,6 +916,39 @@ impl Scene {
                 }
             }
         }
+        // what a container's body reads around it (no input of the container gives it): a thinner line to the
+        // container's side, after the connections (it is not one to take off, and follows the boxes once dropped)
+        for (k, n) in nodes.iter().enumerate() {
+            let Some(body) = &n.body else { continue };
+            let own: HashSet<&str> = body.nodes.iter().map(|m| m.id.as_str()).collect();
+            let given: HashSet<&String> =
+                n.inputs.values().filter_map(|s| if let Source::Ref(r) = s { Some(r) } else { None }).collect();
+            let mut seen = HashSet::new();
+            for reference in terraflux_graph::references(n) {
+                if given.contains(&reference) || !seen.insert(reference.clone()) {
+                    continue;
+                }
+                let Ok(Ref::Port { node, port: out }) = Ref::parse(&reference) else { continue };
+                if own.contains(node.as_str()) {
+                    continue;
+                }
+                let Some((s, o)) = index
+                    .get(node.as_str())
+                    .and_then(|&s| boxes[s].outputs.iter().position(|(p, _)| *p == out).map(|o| (s, o)))
+                else {
+                    continue;
+                };
+                let b = &boxes[sources.len() + k];
+                let from = boxes[s].output_at(o);
+                let to = Pos2::new(b.rect.left(), b.rect.top() + HEAD / 2.0);
+                edges.push(EdgeInstance {
+                    from: [from.x, from.y],
+                    to: [to.x, to.y],
+                    color: line.gamma_multiply(0.55).to_array(),
+                    width: 1.0,
+                });
+            }
+        }
         let mut rects = Vec::with_capacity(boxes.len() * 6);
         let mut ranges = Vec::with_capacity(boxes.len());
         for b in &boxes {
@@ -919,6 +957,15 @@ impl Scene {
             rects.extend(box_rects(b, state, v, colours));
             ranges.push(first..rects.len());
         }
+        let stage_of = if path.is_empty() && !nodes.iter().any(|n| n.op == terraflux_graph::GROUP) {
+            let stages = crate::document::stages(nodes);
+            boxes
+                .iter()
+                .map(|b| if b.source { Some(crate::document::Stage::Data) } else { stages.get(&b.key).copied() })
+                .collect()
+        } else {
+            vec![None; boxes.len()]
+        };
         Scene {
             key: (0, Vec::new(), 0, "", false, 0),
             boxes,
@@ -929,6 +976,7 @@ impl Scene {
             ranges,
             edges: edges_at,
             touching,
+            stage_of,
         }
     }
 
@@ -1089,6 +1137,55 @@ pub fn new_input(reference: &str, taken: &[&str]) -> String {
         .map(|k| if k == 1 { base.clone() } else { format!("{base}_{k}") })
         .find(|n| !taken.contains(&n.as_str()))
         .unwrap()
+}
+
+/// Zoomed out (`frames`): a frame around the boxes of each stage of the top level, its name above it (a model
+/// without groups). A group's note under its box, when its box is wide enough on the screen.
+fn stages_and_notes(
+    painter: &egui::Painter,
+    scene: &Scene,
+    screen: &dyn Fn(Pos2) -> Pos2,
+    view: Rect,
+    frames_shown: bool,
+    v: &egui::Visuals,
+) {
+    let mut frames: Vec<(crate::document::Stage, Rect)> = Vec::new();
+    for (b, st) in scene.boxes.iter().zip(&scene.stage_of) {
+        let Some(st) = st else { continue };
+        match frames.iter_mut().find(|(s, _)| s == st) {
+            Some((_, r)) => *r = r.union(b.rect),
+            None => frames.push((*st, b.rect)),
+        }
+    }
+    frames.sort_by_key(|(s, _)| *s);
+    for (k, (st, r)) in frames.iter().enumerate() {
+        if !frames_shown || !r.intersects(view) {
+            continue;
+        }
+        let colour = crate::palette::class_colour(k);
+        let on = Rect::from_min_max(screen(r.min), screen(r.max)).expand(10.0);
+        painter.rect_filled(on, 8.0, colour.gamma_multiply(0.06));
+        painter.rect_stroke(on, 8.0, Stroke::new(1.5, colour.gamma_multiply(0.7)), egui::StrokeKind::Outside);
+        painter.text(
+            on.left_top() + Vec2::new(2.0, -4.0),
+            Align2::LEFT_BOTTOM,
+            st.title(),
+            FontId::proportional(15.0),
+            colour,
+        );
+    }
+    for b in scene.boxes.iter().filter(|b| b.op == terraflux_graph::GROUP && b.rect.intersects(view)) {
+        let Some(note) = &b.note else { continue };
+        let on = Rect::from_min_max(screen(b.rect.min), screen(b.rect.max));
+        if on.width() < 90.0 {
+            continue;
+        }
+        let mut job =
+            egui::text::LayoutJob::simple(note.clone(), FontId::proportional(11.5), v.weak_text_color(), on.width());
+        job.wrap.max_rows = 3;
+        let galley = painter.layout_job(job);
+        painter.galley(on.left_bottom() + Vec2::new(2.0, 4.0), galley, v.weak_text_color());
+    }
 }
 
 /// Draw the scope; what the user did. `revision` and `status_rev` change when the model and the nodes' states
@@ -1501,6 +1598,8 @@ pub fn show(
             painter.text(c, Align2::CENTER_CENTER, "!", FontId::proportional(radius * 1.6), Color32::BLACK);
         }
     }
+    // zoomed out, the model's stages (each framed and named); the groups' notes
+    stages_and_notes(&painter, scene, &screen, view, cam.zoom < STAGES_UNDER, &v);
     // the nodes changed in a review going on, outlined in the colour of their change
     if st.path.is_empty() {
         for (k, colour) in &st.marks {

@@ -792,7 +792,14 @@ fn interrupted_ui(ui: &mut Ui, st: &mut BatchState, computers: &mut Computers) {
 }
 
 /// A setting chosen from the model's, by a part of its name; whether it changed.
-fn knob_picker(ui: &mut Ui, id: &str, knobs: &[Knob], current: &mut String, filter: &mut String, hint: &str) -> bool {
+pub(crate) fn knob_picker(
+    ui: &mut Ui,
+    id: &str,
+    knobs: &[Knob],
+    current: &mut String,
+    filter: &mut String,
+    hint: &str,
+) -> bool {
     let mut changed = false;
     let text = if current.is_empty() { hint.to_string() } else { current.clone() };
     egui::ComboBox::from_id_salt(id).selected_text(text).width(220.0).height(360.0).show_ui(ui, |ui| {

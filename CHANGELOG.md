@@ -6,6 +6,37 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- A model read in stages. ctrl+G puts the nodes selected into a group (what read them from outside reads the
+  group's outputs, named after them; refused when it would make a cycle) and ctrl+shift+G takes a group apart;
+  **Group the model by stage** (ctrl+K) puts the top level in a group per stage (data, preparation, model,
+  validation, results), each with a note, the plots, files written and random generators left outside, and lays it
+  out again. The canvas shows the groups as blocks linked by what their bodies read (a thinner line), their notes
+  under them; zoomed out, a model without groups shows its stages framed and named. The Document pane and the
+  reports read a section per group (its note under its title), what a group gives named by the node of its body
+  that gives it, and the plots of a group's output as the figures of that node.
+- The tools of `terraflux mcp` and of the assistant: `group_nodes`, `ungroup` and `group_by_stage`; the assistants
+  are told to put a model built in a group per stage.
+- Parameters as a form (the Parameters pane): the values a user is to change, kept in the model (`parameters`,
+  optional in `terraflux/1`: an input of a value or a node's setting or literal input, with its label, unit,
+  range, step, choices and help; a setting cannot read an input, so a parameter names it directly). A slider for a
+  number in a range, a list for a few choices, a box for yes or no, a field for the others; each change an edit
+  (ctrl+Z) and the model run again. A setting of the model added from a list, its label and help taken from its
+  operator's description.
+- Scenarios (`scenarios` in the model: named sets of the parameters' values, with a note): the values now saved
+  under a name, a scenario applied in a click, sent to Many runs as its table of scenarios, the parameters of a
+  range sent to its calibration, and scenarios compared side by side: each run to an output chosen, its maps (or
+  tables, or numbers) in a column per scenario with their differences from the first. `terraflux run --scenario
+  name`; `set_parameter`, `remove_parameter`, `set_scenario`, `remove_scenario` and `run_model`'s `scenario` for
+  the assistants. The Document pane and the reports list the parameters and the scenarios; `check` warns of a
+  parameter or a scenario that names nothing the model has.
+
+### Changed
+- A group keeps what the nodes of its body gave with its outputs (as `node.port`, which no reference names): the
+  Document pane and the reports show its steps' maps after a run.
+- The document's order and stages are found in time proportional to the nodes and connections (the canvas uses
+  them).
+
 ## [1.1.0] - 2026-10-18
 
 ### Added

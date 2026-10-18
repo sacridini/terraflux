@@ -141,7 +141,7 @@ selecionado.
 palavras, expressões ligadas aos nós e o registro; os dados de um tipo numa linha, o encanamento numa linha; o
 corpo dos laços e grupos dentro do passo; os `view.plot` como figuras numeradas; os mapas e tabelas do último run;
 selecionar e editar no lugar) e o relatório em HTML e PDF (o painel, File › Export report, `terraflux report`).
-Falta: os grupos como seções (com a fase 4; hoje um grupo é um passo com o corpo dentro), frases escritas à mão por
+Falta: frases escritas à mão por
 operador para os parâmetros, editar no lugar listas e tabelas (hoje pelo painel Node) e as cores das paletas do
 viewer nas miniaturas.
 - **O que ela mostra.** O mesmo grafo como uma seção de métodos de artigo, com as etapas em ordem topológica:
@@ -170,7 +170,13 @@ arquivo ou o último commit. Falta: comparar com um commit qualquer (hoje só o 
   - aceitar ou rejeitar por mudança, ou tudo de uma vez.
 - A mesma vista serve para comparar duas versões quaisquer do arquivo, por exemplo dois commits.
 
-**Fase 4: hierarquia e zoom semântico.**
+**Fase 4: hierarquia e zoom semântico.** **Feito** (Unreleased): agrupar os nós selecionados (ctrl+G) e desfazer
+um grupo (ctrl+shift+G); "Group the model by stage" (um grupo por etapa, cada um com a sua nota); os grupos como
+blocos ligados pelo que os corpos leem, com as notas embaixo; com zoom afastado, as etapas emolduradas e nomeadas
+num modelo sem grupos; uma seção do documento por grupo; o grupo guardando o que o corpo deu (as miniaturas dos
+passos); `group_nodes`, `ungroup` e `group_by_stage` no MCP e no assistente, com a orientação de agrupar por
+etapa. Falta: ver no viewer o mapa de um nó de dentro de um grupo (hoje pelo documento), o cache por nó dentro de
+um grupo (hoje o grupo roda inteiro quando um nó muda).
 - Etapas por `control.group`. As orientações do `terraflux mcp` pedem ao agente que sempre agrupe por etapa.
 - O nível de cima do canvas mostra de 5 a 7 blocos, cada um com a sua nota, e abre um bloco por vez.
 - Com zoom afastado, o canvas mostra só as etapas; com zoom aproximado, os nós.
@@ -186,7 +192,15 @@ arquivo ou o último commit. Falta: comparar com um commit qualquer (hoje só o 
 - Os selos aparecem na vista documento e no canvas, e um resumo no topo mostra de relance se o modelo está
   saudável.
 
-**Fase 6: parâmetros como painel.**
+**Fase 6: parâmetros como painel.** **Feito** (Unreleased): `parameters` e `scenarios` no formato (opcionais); o
+painel Parameters (deslizante numa faixa, escolhas, sim ou não, campo; cada mudança uma edição que roda o modelo
+de novo); salvar os valores como cenário, aplicar um cenário, mandar os cenários ao Many runs e as faixas à sua
+calibração, comparar cenários lado a lado (mapas, tabelas, números e as diferenças do primeiro); `terraflux run
+--scenario`; as ferramentas `set_parameter`, `remove_parameter`, `set_scenario` e `remove_scenario`; o documento
+e os relatórios com os parâmetros e cenários. Um parâmetro é uma entrada `$nome` ou uma configuração de nó
+(`nó.configuração`), porque uma configuração ainda não lê uma entrada (decisão pendente 5). Falta: a comparação
+pelos lotes distribuídos (hoje no app, um cenário depois do outro) e as diferenças em mapas de classes (hoje a
+subtração dos valores).
 - As entradas `$nome` do modelo ganham tipo, faixa, unidade e texto de ajuda (no formato, como os demais campos
   opcionais). Viram um formulário simples, com controles deslizantes e escolhas, para o usuário mudar um cenário
   sem tocar no grafo.

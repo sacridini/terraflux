@@ -283,8 +283,9 @@ O painel Document (`crates/app/src/document.rs` monta o documento, `document_vie
 - **Nenhum passo antes do que ele usa**: depois da classificação por operador e posição, a etapa de um nó é ao
   menos a mais tardia das etapas de que ele depende. Ex.: no template de acurácia, o `map.calc` que rotula a
   amostra sorteada por `accuracy.sample` é validação também.
-- **Os grupos** (`control.group`) são por ora um passo com o corpo dentro, como um laço; as seções por grupo vêm
-  com a fase 4.
+- **Os grupos** (`control.group`) do nível de cima são seções (fase 4), com a nota do grupo sob o título; o que
+  um grupo dá é nomeado pelo nó do corpo que o dá. Os grupos guardam o que o corpo deu (as portas ocultas
+  `nó.porta`), então os passos de um grupo têm miniaturas.
 - **Um nó sozinho nomeia a sua saída** só quando ele tem uma saída; senão `nó.porta` (um laço que coleta `maps` e
   `info`).
 - **Os números** como se escrevem (0.000005, não 5e-6; 1916.4 nas tabelas).

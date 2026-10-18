@@ -70,14 +70,23 @@ struct Asked {
     select: Option<(Vec<String>, String)>,
     /// a setting changed: the step's path and id, the setting and its text
     set: Option<(Vec<String>, String, String, String)>,
+    /// the Parameters pane to the front
+    parameters: bool,
 }
 
 fn link(ui: &mut Ui, s: &Session, r: &Registry, f: &From, path: &[String], asked: &mut Asked) {
     let text = f.text(|n| crate::document::only_output(&s.source, r, n));
     match f.node() {
         Some(n) => {
+            // the node in the step's scope, else around it (a group's body reads the nodes around the group), or
+            // in the body of the group that gives what is read
+            let at = match f {
+                From::Within { path, .. } => path.clone(),
+                _ if s.source.scope(path).is_some_and(|sc| sc.iter().any(|x| x.id == n)) => path.to_vec(),
+                _ => Vec::new(),
+            };
             if ui.link(RichText::new(text).strong()).on_hover_text("select it").clicked() {
-                asked.select = Some((path.to_vec(), n.to_string()));
+                asked.select = Some((at, n.to_string()));
             }
         }
         None => {
@@ -236,7 +245,7 @@ fn body_ui(ui: &mut Ui, s: &mut Session, r: &Registry, b: &Body, num: &str, step
         let top = line.top();
         ui.vertical(|ui| {
             for (k, inner_step) in b.steps.iter().enumerate() {
-                step_ui(ui, s, r, inner_step, &format!("{num}.{}", k + 1), asked);
+                step_ui(ui, s, r, inner_step, &format!("{num}.{}", k + 1), true, asked);
             }
             let bottom = ui.min_rect().bottom();
             ui.painter().line_segment(
@@ -257,7 +266,8 @@ fn title_ui(ui: &mut Ui, step: &Step, num: &str, size: f32, asked: &mut Asked) {
     });
 }
 
-fn step_ui(ui: &mut Ui, s: &mut Session, r: &Registry, step: &Step, num: &str, asked: &mut Asked) {
+/// A step: a line, or a card (`nested`: within its container's card, without a frame of its own).
+fn step_ui(ui: &mut Ui, s: &mut Session, r: &Registry, step: &Step, num: &str, nested: bool, asked: &mut Asked) {
     let selected = s.selected.as_deref() == Some(step.id.as_str()) && s.editor.path == step.path;
     if step.size == Size::Line {
         ui.horizontal_wrapped(|ui| {
@@ -282,7 +292,7 @@ fn step_ui(ui: &mut Ui, s: &mut Session, r: &Registry, step: &Step, num: &str, a
         return;
     }
     let stroke = if selected { egui::Stroke::new(1.5, theme::accent()) } else { egui::Stroke::NONE };
-    let inner = !step.path.is_empty();
+    let inner = nested;
     let frame = egui::Frame::new()
         .fill(if inner { Color32::TRANSPARENT } else { theme::well() })
         .stroke(stroke)
@@ -354,10 +364,12 @@ fn step_ui(ui: &mut Ui, s: &mut Session, r: &Registry, step: &Step, num: &str, a
         list(ui, "References", &step.refs);
         list(ui, "Assumptions", &step.assumptions);
         list(ui, "Alternatives", &step.alternatives);
-        if !inner && let Some((port, _)) = &step.shows {
+        if let Some((port, _)) = &step.shows
+            && let Some((node, key)) = step.value_key(port)
+        {
             ui.add_space(4.0);
             let w = if matches!(step.stage, Stage::Preparation) { 110.0 } else { 200.0 };
-            shown(ui, s, &step.id, port, w);
+            shown(ui, s, &node, &key, w);
         }
         for f in &step.figures {
             figure_ui(ui, s, r, f, asked);
@@ -406,7 +418,8 @@ fn data_ui(ui: &mut Ui, s: &mut Session, r: &Registry, sec: &Section, num: &str,
                 // the maps of the row, small
                 for st in row.iter().take(4) {
                     if let Some((port, _)) = &st.shows
-                        && let Some(Ok((t, _))) = picture(ui, s, &st.id, port)
+                        && let Some((node, key)) = st.value_key(port)
+                        && let Some(Ok((t, _))) = picture(ui, s, &node, &key)
                     {
                         let size = t.size_vec2();
                         ui.add(egui::Image::new((t.id(), size * (40.0 / size.x.max(1.0))))).on_hover_text(&st.id);
@@ -420,7 +433,7 @@ fn data_ui(ui: &mut Ui, s: &mut Session, r: &Registry, sec: &Section, num: &str,
                                 ui.label(",");
                             }
                             if ui.link(RichText::new(&st.id).strong()).on_hover_text("select it").clicked() {
-                                asked.select = Some((Vec::new(), st.id.clone()));
+                                asked.select = Some((st.path.clone(), st.id.clone()));
                             }
                         }
                         ui.label(weak(&row[0].op).monospace().small());
@@ -480,8 +493,8 @@ pub fn export(s: &mut Session, r: &Registry) {
     s.notice = Some((said, std::time::Instant::now()));
 }
 
-/// The Document pane.
-pub fn pane(ui: &mut Ui, s: &mut Session, r: &Registry) {
+/// The Document pane; whether the Parameters pane is asked for.
+pub fn pane(ui: &mut Ui, s: &mut Session, r: &Registry) -> bool {
     let doc = Document::of(&s.source, r);
     let mut asked = Asked::default();
     egui::Frame::new().inner_margin(Margin::symmetric(10, 6)).show(ui, |ui| {
@@ -543,15 +556,64 @@ pub fn pane(ui: &mut Ui, s: &mut Session, r: &Registry) {
                     }
                 });
             }
+            if !doc.parameters.is_empty() {
+                k += 1;
+                heading(ui, format!("{k}. Parameters"));
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(weak("The values to change a scenario with:").small());
+                    if ui.link(weak("the Parameters pane").small()).clicked() {
+                        asked.parameters = true;
+                    }
+                });
+                egui::Grid::new("document parameters").striped(true).show(ui, |ui| {
+                    for p in &doc.parameters {
+                        ui.label(RichText::new(&p.label).strong()).on_hover_text(&p.key);
+                        ui.label(format!(
+                            "{}{}",
+                            p.value,
+                            p.unit.as_ref().map(|u| format!(" {u}")).unwrap_or_default()
+                        ));
+                        ui.label(weak(p.range.as_deref().unwrap_or("")).small());
+                        ui.label(RichText::new(p.help.as_deref().unwrap_or("")).small());
+                        ui.end_row();
+                    }
+                });
+            }
+            if !doc.scenarios.is_empty() {
+                k += 1;
+                heading(ui, format!("{k}. Scenarios"));
+                for sc in &doc.scenarios {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(RichText::new(&sc.name).strong());
+                        let v: Vec<String> = sc.values.iter().map(|(l, v)| format!("{l} {v}")).collect();
+                        ui.label(v.join(" · "));
+                    });
+                    if let Some(n) = &sc.note {
+                        ui.label(RichText::new(n).italics().small());
+                    }
+                }
+            }
             for sec in &doc.sections {
                 k += 1;
                 let num = k.to_string();
                 heading(ui, format!("{num}. {}", sec.title));
+                // a group's section: its note, and the group a click away
+                if let Some(g) = &sec.group {
+                    ui.horizontal_wrapped(|ui| {
+                        if let Some(n) = &sec.note {
+                            ui.label(RichText::new(n).italics());
+                        }
+                        if ui.link(weak(format!("the group {g}")).small()).on_hover_text("select it").clicked() {
+                            asked.select = Some((Vec::new(), g.clone()));
+                        }
+                    });
+                    ui.add_space(4.0);
+                }
                 if sec.stage == Stage::Data {
                     data_ui(ui, s, r, sec, &num, &mut asked);
                 } else {
                     for (j, st) in sec.steps.iter().enumerate() {
-                        step_ui(ui, s, r, st, &format!("{num}.{}", j + 1), &mut asked);
+                        step_ui(ui, s, r, st, &format!("{num}.{}", j + 1), false, &mut asked);
                     }
                 }
                 if sec.stage == Stage::Results {
@@ -601,4 +663,5 @@ pub fn pane(ui: &mut Ui, s: &mut Session, r: &Registry) {
             Err(e) => s.editor.message = Some(e),
         }
     }
+    asked.parameters
 }

@@ -360,6 +360,144 @@ pub fn set_body_map(
     })
 }
 
+/// Put nodes of a scope into a new group (`control.group`) of that scope, where the first of them was: what they
+/// read stays as it is (a body reads the nodes around it), what read them from outside reads the group's outputs,
+/// one per port read (`node`, or `node_port` when several of its ports are). Refused when it would make a cycle (a
+/// node outside both reading one of them and read by another).
+pub fn group_nodes(
+    m: &mut Model,
+    r: &Registry,
+    path: &[String],
+    ids: &[String],
+    id: &str,
+    note: Option<&str>,
+) -> Result<()> {
+    if ids.is_empty() {
+        return Err("no nodes to group".into());
+    }
+    if !valid_id(id) {
+        return Err(format!("{id:?} is not a valid id (a letter, then letters, digits, _ or -)"));
+    }
+    let scope = m.scope(path).ok_or_else(|| format!("no container {}", path.join("/")))?;
+    if scope.iter().any(|n| n.id == id) {
+        return Err(format!("a node is already named {id:?}"));
+    }
+    for i in ids {
+        if !scope.iter().any(|n| &n.id == i) {
+            return Err(format!("no node {i:?}"));
+        }
+    }
+    let moved: HashSet<&str> = ids.iter().map(String::as_str).collect();
+    // where the group goes: the corner of its nodes' places (the canvas's when they have none)
+    let auto = crate::editor_view::auto_positions(scope);
+    let place: HashMap<String, [f32; 2]> = scope
+        .iter()
+        .map(|n| (n.id.clone(), n.pos.or_else(|| auto.get(&n.id).copied()).unwrap_or([0.0, 0.0])))
+        .collect();
+    let corner = ids.iter().map(|i| place[i]).fold([f32::MAX, f32::MAX], |c, p| [c[0].min(p[0]), c[1].min(p[1])]);
+    guarded(m, r, &[prefix(path) + id], |c| {
+        let nodes = scope_mut(c, path)?;
+        let first = nodes.iter().position(|n| moved.contains(n.id.as_str())).unwrap_or(nodes.len());
+        let (mut body, kept): (Vec<Node>, Vec<Node>) = nodes.drain(..).partition(|n| moved.contains(n.id.as_str()));
+        *nodes = kept;
+        // the ports of the grouped nodes read from outside, and the outputs they become
+        let mut read: Vec<(String, String)> = Vec::new();
+        for_each_ref(c, path, &mut |rf| {
+            if let Ok(Ref::Port { node, port }) = Ref::parse(rf)
+                && moved.contains(node.as_str())
+                && !read.contains(&(node.clone(), port.clone()))
+            {
+                read.push((node, port));
+            }
+        });
+        let name = |node: &str, port: &str| {
+            if read.iter().filter(|(n, _)| n == node).count() == 1 {
+                node.to_string()
+            } else {
+                format!("{node}_{port}")
+            }
+        };
+        let outputs: std::collections::BTreeMap<String, String> =
+            read.iter().map(|(n, p)| (name(n, p), format!("{n}.{p}"))).collect();
+        let renamed: HashMap<String, String> =
+            read.iter().map(|(n, p)| (format!("{n}.{p}"), format!("{id}.{}", name(n, p)))).collect();
+        for_each_ref(c, path, &mut |rf| {
+            if let Some(new) = renamed.get(rf.as_str()) {
+                *rf = new.clone();
+            }
+        });
+        for n in body.iter_mut() {
+            let p = place[&n.id];
+            n.pos = Some([p[0] - corner[0], p[1] - corner[1]]);
+        }
+        let mut g = Node::new(id, GROUP).body(Body { nodes: body, outputs, ..Default::default() });
+        g.note = note.map(String::from);
+        g.pos = Some(corner);
+        let nodes = scope_mut(c, path)?;
+        nodes.insert(first.min(nodes.len()), g);
+        Ok(())
+    })
+}
+
+/// Take the nodes of a group out into its scope, where it was: what read the group's outputs reads the nodes that
+/// gave them, and its inputs (`@name` inside) are what they were given. Refused when a node of its body has the
+/// name of one around it.
+pub fn ungroup(m: &mut Model, r: &Registry, path: &[String], id: &str) -> Result<()> {
+    let scope = m.scope(path).ok_or_else(|| format!("no container {}", path.join("/")))?;
+    let g = scope.iter().find(|n| n.id == id).ok_or_else(|| format!("no node {id:?}"))?;
+    if g.op != GROUP {
+        return Err(format!("{id:?} is not a group"));
+    }
+    let body = g.body.clone().unwrap_or_default();
+    if let Some(n) = body.nodes.iter().find(|n| scope.iter().any(|o| o.id == n.id)) {
+        return Err(format!("a node outside the group is named {:?} too: rename one first", n.id));
+    }
+    let given = g.inputs.clone();
+    let corner = g.pos.unwrap_or([0.0, 0.0]);
+    let moved: Vec<String> = body.nodes.iter().map(|n| prefix(path) + &n.id).collect();
+    /// The group's inputs given in place of `@name`, in the body's own containers too unless one gives its own.
+    fn give(n: &mut Node, given: &std::collections::BTreeMap<String, Source>) {
+        for s in n.inputs.values_mut() {
+            if let Source::Ref(rf) = s
+                && let Some(v) = rf.strip_prefix('@').and_then(|name| given.get(name))
+            {
+                *s = v.clone();
+            }
+        }
+        if let Some(b) = &mut n.body {
+            let own: HashSet<&String> =
+                if n.op == GROUP { n.inputs.keys().collect() } else { b.carry.keys().collect() };
+            let inner: std::collections::BTreeMap<String, Source> = given
+                .iter()
+                .filter(|(k, _)| !own.contains(k) && (n.op == GROUP || k.as_str() != "step"))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            for x in b.nodes.iter_mut() {
+                give(x, &inner);
+            }
+        }
+    }
+    guarded(m, r, &moved, |c| {
+        let nodes = scope_mut(c, path)?;
+        let at = nodes.iter().position(|n| n.id == id).ok_or_else(|| format!("no node {id:?}"))?;
+        nodes.remove(at);
+        let mut out = body.nodes.clone();
+        for n in out.iter_mut() {
+            give(n, &given);
+            let p = n.pos.unwrap_or([0.0, 0.0]);
+            n.pos = Some([p[0] + corner[0], p[1] + corner[1]]);
+        }
+        nodes.splice(at..at, out);
+        let from = format!("{id}.");
+        for_each_ref(c, path, &mut |rf| {
+            if let Some(inner) = rf.strip_prefix(&from).and_then(|name| body.outputs.get(name)) {
+                *rf = inner.clone();
+            }
+        });
+        Ok(())
+    })
+}
+
 /// What a node may read in a scope besides the scope's nodes: the model's inputs, and in a body the values
 /// its containers give (a loop's step and carried values, a group's inputs), with their types when known.
 pub fn sources(m: &Model, r: &Registry, path: &[String]) -> Vec<(String, Type)> {
@@ -540,6 +678,59 @@ mod tests {
         assert_eq!(b.nodes[0].inputs["x"], Source::Ref("@land".into()));
         assert_eq!(b.outputs["plus"], "map_calc.map");
         assert!(m.node(&id).unwrap().inputs.is_empty());
+    }
+
+    #[test]
+    fn nodes_are_grouped_and_ungrouped() {
+        let r = Registry::standard();
+        let mut m = model();
+        for (k, op) in ["map.calc", "map.calc", "markov.fit"].iter().enumerate() {
+            add_node(&mut m, &r, &[], op, [k as f32 * 200.0, 0.0]).unwrap();
+        }
+        connect(&mut m, &r, &[], "$t0", "map_calc", "a").unwrap();
+        connect(&mut m, &r, &[], "map_calc.map", "map_calc_2", "b").unwrap();
+        connect(&mut m, &r, &[], "map_calc_2.map", "markov_fit", "t0").unwrap();
+        connect(&mut m, &r, &[], "$t1", "markov_fit", "t1").unwrap();
+        set_param(&mut m, &[], "map_calc", "expression", "a + 1").unwrap();
+        set_param(&mut m, &[], "map_calc_2", "expression", "b * 2").unwrap();
+        set_literal(&mut m, &r, &[], "markov_fit", "steps", "14").unwrap();
+        m.outputs.insert(
+            "calc".into(),
+            terraflux_graph::Output { from: "map_calc_2.map".into(), path: None, dtype: None, layer: None },
+        );
+        let before = m.clone();
+        let ids = vec!["map_calc".to_string(), "map_calc_2".to_string()];
+        group_nodes(&mut m, &r, &[], &ids, "prepare", Some("The maps prepared.")).unwrap();
+        let g = m.node("prepare").unwrap();
+        assert_eq!(g.op, GROUP);
+        assert_eq!(g.note.as_deref(), Some("The maps prepared."));
+        assert_eq!(g.pos, Some([0.0, 0.0]));
+        let b = g.body.as_ref().unwrap();
+        assert_eq!(b.nodes.len(), 2);
+        assert_eq!(b.nodes[1].pos, Some([200.0, 0.0]));
+        assert_eq!(b.outputs["map_calc_2"], "map_calc_2.map");
+        assert_eq!(m.node("markov_fit").unwrap().inputs["t0"], Source::Ref("prepare.map_calc_2".into()));
+        assert_eq!(m.outputs["calc"].from, "prepare.map_calc_2");
+        assert!(errors(&before, &r).is_empty(), "{:?}", errors(&before, &r));
+        assert!(errors(&m, &r).is_empty(), "{:?}", errors(&m, &r));
+        // a name taken: refused, the model as it was
+        let grouped = m.clone();
+        assert!(group_nodes(&mut m, &r, &[], &["markov_fit".to_string()], "prepare", None).is_err());
+        assert_eq!(m, grouped);
+        // and back
+        ungroup(&mut m, &r, &[], "prepare").unwrap();
+        let ids: Vec<&str> = m.nodes.iter().map(|n| n.id.as_str()).collect();
+        assert_eq!(ids, ["map_calc", "map_calc_2", "markov_fit"]);
+        assert_eq!(m.nodes[..2], before.nodes[..2]);
+        assert_eq!(m.node("markov_fit").unwrap().inputs["t0"], Source::Ref("map_calc_2.map".into()));
+        assert_eq!(m.outputs["calc"].from, "map_calc_2.map");
+        assert!(ungroup(&mut m, &r, &[], "markov_fit").is_err(), "not a group");
+        // the ends of a chain grouped, its middle left out: a cycle
+        let mut c = before.clone();
+        let ends = vec!["map_calc".to_string(), "markov_fit".to_string()];
+        let e = group_nodes(&mut c, &r, &[], &ends, "ends", None).unwrap_err();
+        assert!(e.contains("cycle"), "{e}");
+        assert_eq!(c, before);
     }
 
     #[test]

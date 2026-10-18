@@ -135,6 +135,49 @@ pub struct Model {
     /// What the model writes, by name.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub outputs: BTreeMap<String, Output>,
+    /// The values offered in a form to change a scenario without touching the graph, in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parameters: Vec<Parameter>,
+    /// Sets of the parameters' values kept by name, to run and compare.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scenarios: Vec<Scenario>,
+}
+
+/// A value of the model offered in a form: an input of a value (`$name`), or a node's setting or literal input
+/// (`node.setting`, `container/node.setting`: a setting cannot read an input), with what the form needs to show
+/// and bound it. None of it changes what the model gives.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Parameter {
+    /// What it changes: `$name` or `node.setting` (as [`Model::apply`] takes it).
+    pub key: String,
+    /// Its name in the form (default: the key).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
+    /// The range a number is chosen in (a slider when both are given), and its step.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step: Option<f64>,
+    /// The values it takes, when they are a few.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub choices: Vec<serde_json::Value>,
+    /// What it is and how it acts on the model, for whoever changes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub help: Option<String>,
+}
+
+/// A named set of values of the model's parameters (by key, as [`Model::apply`] takes them).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Scenario {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    #[serde(default)]
+    pub values: BTreeMap<String, serde_json::Value>,
 }
 
 /// Data a model reads: a raster file (one band, or every band), a table, or a value.
@@ -382,7 +425,20 @@ impl Model {
             inputs: BTreeMap::new(),
             nodes: Vec::new(),
             outputs: BTreeMap::new(),
+            parameters: Vec::new(),
+            scenarios: Vec::new(),
         }
+    }
+
+    /// The model with a scenario's values (by its name).
+    pub fn with_scenario(&self, name: &str) -> Result<Model> {
+        let s = self.scenarios.iter().find(|s| s.name == name).ok_or_else(|| {
+            let known: Vec<&str> = self.scenarios.iter().map(|s| s.name.as_str()).collect();
+            Error::Model(format!("no scenario {name:?} (the model's: {})", known.join(", ")))
+        })?;
+        let mut m = self.clone();
+        m.apply(&s.values)?;
+        Ok(m)
     }
 
     /// Read a model from TOML (`.toml`) or JSON (any other extension).
@@ -773,7 +829,32 @@ from = "land.map"
             "maps".into(),
             Output { from: "loop.maps".into(), path: None, dtype: Some("u8".into()), layer: None },
         );
+        m.parameters.push(Parameter {
+            key: "a.steps".into(),
+            label: Some("Steps".into()),
+            unit: Some("years".into()),
+            min: Some(1.0),
+            max: Some(50.0),
+            step: Some(1.0),
+            help: Some("how long the simulation runs".into()),
+            ..Default::default()
+        });
+        m.parameters.push(Parameter { key: "$seed".into(), choices: vec![7.into(), 8.into()], ..Default::default() });
+        m.scenarios.push(Scenario {
+            name: "long".into(),
+            note: Some("forty steps".into()),
+            values: [("a.steps".to_string(), serde_json::json!(40))].into(),
+        });
         m
+    }
+
+    #[test]
+    fn scenarios_change_the_model() {
+        let m = sample();
+        let long = m.with_scenario("long").unwrap();
+        assert_eq!(long.node("a").unwrap().params["steps"], 40);
+        assert_eq!(m.node("a").unwrap().params["steps"], 14);
+        assert!(m.with_scenario("short").is_err());
     }
 
     #[test]

@@ -610,6 +610,127 @@ fn the_model_reads_as_a_document() {
     until(&mut h, "the run again", |a| !a.session.as_ref().unwrap().running());
 }
 
+/// A model in stages: zoomed out, the canvas frames and names each stage; grouped by stage, it shows a block per
+/// stage with its note, and the document a section per group, the maps of the groups' steps kept from the run.
+#[test]
+fn the_model_reads_in_stages() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let ctx = h.ctx.clone();
+    let t = terraflux_app::templates::TEMPLATES.iter().find(|t| t.name == "A species in a warmer climate").unwrap();
+    h.state_mut().start_template(&ctx, t);
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("mess", "result").is_some()
+    });
+    h.state_mut().focus(Pane::Model);
+    h.run_steps(2);
+    let zoom_out = |h: &mut Harness<TerrafluxApp>| {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.editor.look(egui::vec2(60.0, 120.0), 0.25);
+        h.run_steps(3);
+    };
+    zoom_out(&mut h);
+    assert!(h.query_by_label("Preparation").is_none(), "the frames' names are painted, not widgets");
+    shot(&mut h, "42-stages");
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        terraflux_app::builder::group_by_stage(s, &terraflux_ops::Registry::standard());
+        assert!(s.editor.message.is_none(), "{:?}", s.editor.message);
+        let groups: Vec<&str> =
+            s.source.nodes.iter().filter(|n| n.op == terraflux_graph::GROUP).map(|n| n.id.as_str()).collect();
+        // (the template has a node named data; the results are a node alone, out of groups)
+        assert_eq!(groups, ["data_stage", "preparation", "model", "validation"]);
+        assert!(s.history.can_undo());
+        s.run_when_ready = true;
+    }
+    h.run_steps(2);
+    until(&mut h, "the grouped model's run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("model", "fit.model").is_some()
+    });
+    h.state_mut().session.as_mut().unwrap().editor.look(egui::vec2(30.0, 120.0), 0.7);
+    h.run_steps(3);
+    assert!(h.state().session.as_ref().unwrap().editor.message.is_none());
+    shot(&mut h, "43-groups");
+    h.state_mut().focus(Pane::Document);
+    h.run_steps(4);
+    for label in ["the group model", "The model: what is fitted, simulated or optimised.", "Figure 1."] {
+        assert!(h.query_by_label_contains(label).is_some(), "{label}");
+    }
+    assert!(h.query_by_label_contains("Not run.").is_none(), "the groups' steps shown from their run");
+    shot(&mut h, "44-document-groups");
+}
+
+/// The model's parameters as a form: a setting offered with its range and help, its values kept as scenarios,
+/// a scenario applied (an edit, the model run again) and two compared side by side with their difference.
+#[test]
+fn parameters_and_scenarios_from_their_pane() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let ctx = h.ctx.clone();
+    let t = terraflux_app::templates::TEMPLATES.iter().find(|t| t.name == "Neutral landscapes").unwrap();
+    h.state_mut().start_template(&ctx, t);
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("field", "map").is_some()
+    });
+    {
+        let r = terraflux_ops::Registry::standard();
+        let s = h.state_mut().session.as_mut().unwrap();
+        let mut p = terraflux_app::params_view::parameter(&s.source, &r, "field.range");
+        (p.min, p.max, p.step, p.unit) = (Some(2.0), Some(60.0), Some(1.0), Some("cells".into()));
+        s.source.parameters.push(p);
+        s.source.scenarios.push(terraflux_graph::Scenario {
+            name: "fine".into(),
+            note: Some("short patches".into()),
+            values: [("field.range".to_string(), serde_json::json!(5))].into(),
+        });
+        s.edited();
+    }
+    h.state_mut().focus(Pane::Parameters);
+    h.run_steps(3);
+    assert!(h.query_all_by_label_contains("The range of the autocorrelation, in cells").next().is_some());
+    // the values now, kept as a scenario
+    h.state_mut().params.name = "coarse".into();
+    h.get_by_label("Save the values").click();
+    h.run_steps(2);
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.source.scenarios.len(), 2);
+    assert_eq!(s.source.scenarios[1].values["field.range"], 20);
+    // both side by side, the field's map
+    {
+        let a = h.state_mut();
+        a.params.chosen = ["fine".to_string(), "coarse".to_string()].into();
+        a.params.output = Some("field.map".into());
+    }
+    h.run_steps(1);
+    h.get_by_label("Compare").click();
+    until(&mut h, "the comparison", |a| a.params.compared.is_some());
+    h.run_steps(3);
+    let (_, compared) = h.state().params.compared.as_ref().unwrap();
+    assert_eq!(compared.len(), 2);
+    assert!(
+        compared.iter().all(|(_, v)| v.is_ok()),
+        "{:?}",
+        compared.iter().map(|(n, v)| (n, v.is_ok())).collect::<Vec<_>>()
+    );
+    assert!(h.query_by_label_contains("the others less this one").is_some());
+    shot(&mut h, "45-parameters");
+    // a scenario applied: an edit of the model, run again
+    h.get_all_by_label("Apply").next().unwrap().click();
+    h.run_steps(2);
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.source.node("field").unwrap().params["range"], 5);
+    assert!(s.history.can_undo());
+    until(&mut h, "the run again", |a| !a.session.as_ref().unwrap().running());
+    // the document tells them
+    h.state_mut().focus(Pane::Document);
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("Scenarios").is_some());
+    assert!(h.query_all_by_label_contains("short patches").count() >= 2, "in the pane and the document");
+}
+
 /// GuidosToolbox's fragmentation in the builder: FAD-MS's average shown in GTB's colours, its legend in the
 /// classes of a density (rare to intact) rather than a line per value; FOS in 5 classes.
 #[test]

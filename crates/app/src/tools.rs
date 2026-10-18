@@ -32,7 +32,13 @@ macro_rules! containers {
     () => {
         "- Containers (control.repeat: a loop of steps; control.group) hold a body of nodes: give `scope` (the \
 container's id; `outer/inner` for one in another's body) to edit inside it, and edit_container for what the body \
-carries, collects or gives."
+carries, collects or gives.
+- A model is read in stages: once it is built, put its top level in a group per stage (group_by_stage: data, \
+preparation, model, validation, results, each with a note; or group_nodes for groups of your own, each with a \
+note of what it is for). The application then shows a block per stage, and the model's document a section per \
+group.
+- The values a user is to change (a rate, a threshold, a demand) go in the model's form of parameters \
+(set_parameter: a label, a unit, a range and a help each), and named sets of them in scenarios (set_scenario)."
     };
 }
 
@@ -94,7 +100,7 @@ built or changed the model, give it a `summary` of what was asked and done (set_
 );
 
 /// The tools that change a model.
-pub const EDITS: [&str; 10] = [
+pub const EDITS: [&str; 17] = [
     "set_model_info",
     "set_input",
     "remove_input",
@@ -105,6 +111,13 @@ pub const EDITS: [&str; 10] = [
     "set_output",
     "remove_output",
     "arrange",
+    "group_nodes",
+    "ungroup",
+    "group_by_stage",
+    "set_parameter",
+    "remove_parameter",
+    "set_scenario",
+    "remove_scenario",
 ];
 
 /// The tools given to a small model (fewer to choose from, a shorter request): to explain a model, change its
@@ -195,8 +208,122 @@ pub fn edit(name: &str, m: &mut Model, r: &Registry, dir: &Path, a: &Value) -> R
             arrange(&mut m.nodes, r);
             Ok("the nodes put in tidy columns".into())
         }
+        "group_nodes" => {
+            let ids: Vec<String> = a
+                .get("nodes")
+                .and_then(Value::as_array)
+                .ok_or("give `nodes`: the ids of the nodes to group")?
+                .iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect();
+            let id = text(a, "id")?;
+            editor::group_nodes(m, r, &scope(a), &ids, id, opt_text(a, "note"))?;
+            if let Some(why) = opt_text(a, "why") {
+                editor::set_why(m, &scope(a), id, why)?;
+            }
+            let outs = m.scope(&scope(a)).and_then(|n| n.iter().find(|n| n.id == id)).and_then(|g| g.body.as_ref());
+            let outs: Vec<String> =
+                outs.map(|b| b.outputs.keys().map(|k| format!("{id}.{k}")).collect()).unwrap_or_default();
+            Ok(format!(
+                "grouped {} into {id}; what read them from outside reads {}",
+                ids.join(", "),
+                if outs.is_empty() { "nothing".to_string() } else { outs.join(", ") }
+            ))
+        }
+        "ungroup" => {
+            let id = text(a, "node")?;
+            editor::ungroup(m, r, &scope(a), id)?;
+            Ok(format!("took the nodes of {id} out of it"))
+        }
+        "group_by_stage" => {
+            let made = crate::document::group_by_stage(m, r)?;
+            Ok(format!("grouped the top level by stage: {}", made.join(", ")))
+        }
+        "set_parameter" => set_parameter(m, r, a),
+        "remove_parameter" => {
+            let key = text(a, "key")?;
+            let before = m.parameters.len();
+            m.parameters.retain(|p| p.key != key);
+            if m.parameters.len() == before {
+                return Err(format!("no parameter {key:?}"));
+            }
+            Ok(format!("took {key} out of the parameters (the model keeps its value)"))
+        }
+        "set_scenario" => set_scenario(m, a),
+        "remove_scenario" => {
+            let name = text(a, "name")?;
+            let before = m.scenarios.len();
+            m.scenarios.retain(|s| s.name != name);
+            if m.scenarios.len() == before {
+                return Err(format!("no scenario {name:?}"));
+            }
+            Ok(format!("removed the scenario {name}"))
+        }
         _ => Err(format!("no tool {name:?} changes a model")),
     }
+}
+
+/// Add a parameter to the model's form, or change one: what it changes (`$input`, `node.setting`), its label,
+/// unit, range, step, choices and help; `value` sets its value too.
+fn set_parameter(m: &mut Model, r: &Registry, a: &Value) -> Reply {
+    let key = text(a, "key")?.to_string();
+    let mut p = match m.parameters.iter().find(|p| p.key == key) {
+        Some(p) => p.clone(),
+        None => crate::params_view::parameter(m, r, &key),
+    };
+    if let Some(t) = opt_text(a, "label") {
+        p.label = Some(t.to_string());
+    }
+    if let Some(t) = opt_text(a, "unit") {
+        p.unit = Some(t.to_string());
+    }
+    if let Some(t) = opt_text(a, "help") {
+        p.help = Some(t.to_string());
+    }
+    for (name, slot) in [("min", &mut p.min), ("max", &mut p.max), ("step", &mut p.step)] {
+        if let Some(x) = a.get(name).and_then(Value::as_f64) {
+            *slot = Some(x);
+        }
+    }
+    if let Some(c) = a.get("choices").and_then(Value::as_array) {
+        p.choices = c.clone();
+    }
+    let mut c = m.clone();
+    match c.parameters.iter_mut().find(|x| x.key == key) {
+        Some(x) => *x = p,
+        None => c.parameters.push(p),
+    }
+    if let Some(v) = a.get("value") {
+        c.apply(&[(key.clone(), v.clone())].into()).map_err(|e| e.to_string())?;
+    }
+    if let Some(i) = check(&c, r).into_iter().find(|i| i.at == format!("parameters.{key}")) {
+        return Err(i.message);
+    }
+    *m = c;
+    let now = m.setting(&key).map_or("the operator's default".to_string(), Value::to_string);
+    Ok(format!("the parameter {key} is in the form (now {now})"))
+}
+
+/// Keep a scenario: a name and the values it gives (by key; none given: the parameters' values now).
+fn set_scenario(m: &mut Model, a: &Value) -> Reply {
+    let name = text(a, "name")?.to_string();
+    let values: BTreeMap<String, Value> = match a.get("values").and_then(Value::as_object) {
+        Some(o) => o.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+        None => m.parameters.iter().filter_map(|p| Some((p.key.clone(), m.setting(&p.key)?.clone()))).collect(),
+    };
+    if values.is_empty() {
+        return Err("give `values` (key -> value), or set_parameter first".into());
+    }
+    // (the values must apply)
+    m.clone().apply(&values).map_err(|e| e.to_string())?;
+    let note = opt_text(a, "note").map(String::from);
+    let at = m.scenarios.iter().position(|s| s.name == name);
+    let s = terraflux_graph::Scenario { name: name.clone(), note, values };
+    match at {
+        Some(k) => m.scenarios[k] = s,
+        None => m.scenarios.push(s),
+    }
+    Ok(format!("the scenario {name} is kept (run_model with `scenario` runs it)"))
 }
 
 /// A template's model (by its name), brought up to date and arranged.
@@ -315,7 +442,10 @@ impl Observer for Watcher {
 /// Run a model (of the folder `dir`) and write its outputs (`out`, default: the folder `output` in `dir`; `set`:
 /// inputs and settings for this run only).
 pub fn run_model(engine: &Engine, source: &Model, dir: &Path, a: &Value, watcher: &mut Watcher) -> Reply {
-    let mut m = source.clone();
+    let mut m = match opt_text(a, "scenario") {
+        Some(name) => source.with_scenario(name).map_err(|e| e.to_string())?,
+        None => source.clone(),
+    };
     terraflux_graph::submodel::expand(&mut m, dir).map_err(|e| e.to_string())?;
     // `name`: an input replaced; `node.setting`: a node's setting (as a scenario's)
     let mut overrides = BTreeMap::new();
@@ -654,6 +784,34 @@ fn all() -> Vec<Value> {
             None,
         ),
         tool(
+            "group_nodes",
+            "Put nodes of a scope into a new group (control.group): a block of the canvas, opened by itself, and a section of the model's document. What read them from outside reads the group's outputs (named after the nodes); refused when it would make a cycle.",
+            json!({
+                "model": model,
+                "scope": scope,
+                "nodes": { "type": "array", "items": { "type": "string" }, "description": "The ids of the nodes to group." },
+                "id": { "type": "string", "description": "The group's id (a stage's name: data, preparation, model, validation, results...)." },
+                "note": { "type": "string", "description": "What the group is for." },
+                "why": { "type": "string", "description": "Why these nodes go together." },
+            }),
+            &["model", "nodes", "id", "note"],
+            None,
+        ),
+        tool(
+            "ungroup",
+            "Take the nodes of a group out into its scope (what read the group's outputs reads them).",
+            json!({ "model": model, "scope": scope, "node": { "type": "string", "description": "The group's id." } }),
+            &["model", "node"],
+            None,
+        ),
+        tool(
+            "group_by_stage",
+            "Put the model's top level in a group per stage (data, preparation, model, validation, results), each with a note, and lay it out again: plots, files written and random generators stay outside. Refused when the top level has groups already.",
+            json!({ "model": model }),
+            &["model"],
+            None,
+        ),
+        tool(
             "check_model",
             "Check the model and its data without running it: the errors and warnings of the graph, and what was found in the data.",
             json!({ "model": model }),
@@ -667,8 +825,53 @@ fn all() -> Vec<Value> {
                 "model": model,
                 "out": { "type": "string", "description": "The folder of the outputs." },
                 "set": { "type": "object", "description": "For this run only: input -> value or file (`seed`), node.setting -> value (`patches.isometry`)." },
+                "scenario": { "type": "string", "description": "A scenario of the model (set_scenario) to run." },
             }),
             &["model"],
+            None,
+        ),
+        tool(
+            "set_parameter",
+            "Offer a value of the model in its form of parameters (the application's Parameters pane), to change a scenario without touching the graph: an input of a value (`$name`) or a node's setting or literal input (`node.setting`, `container/node.setting`), with its label, unit, range, step, choices and help; `value` sets it too. Called again, it changes what is given.",
+            json!({
+                "model": model,
+                "key": { "type": "string", "description": "`$name` or `node.setting`." },
+                "label": { "type": "string" },
+                "unit": { "type": "string" },
+                "min": { "type": "number" },
+                "max": { "type": "number" },
+                "step": { "type": "number" },
+                "choices": { "type": "array", "description": "The values it takes, when they are a few." },
+                "help": { "type": "string", "description": "What it is and how it acts on the model." },
+                "value": { "description": "Its value now." },
+            }),
+            &["model", "key"],
+            None,
+        ),
+        tool(
+            "remove_parameter",
+            "Take a value out of the model's form of parameters (the model keeps the value).",
+            json!({ "model": model, "key": { "type": "string" } }),
+            &["model", "key"],
+            None,
+        ),
+        tool(
+            "set_scenario",
+            "Keep a scenario: a name, a note and the values it gives (key -> value, as set_parameter's keys; none: the parameters' values now). run_model with `scenario` runs it; the application compares scenarios side by side.",
+            json!({
+                "model": model,
+                "name": { "type": "string" },
+                "note": { "type": "string", "description": "What the scenario stands for." },
+                "values": { "type": "object" },
+            }),
+            &["model", "name"],
+            None,
+        ),
+        tool(
+            "remove_scenario",
+            "Forget a scenario of the model.",
+            json!({ "model": model, "name": { "type": "string" } }),
+            &["model", "name"],
             None,
         ),
         tool(
