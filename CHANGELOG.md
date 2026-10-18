@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-18
+
 ### Added
 - Why a cell has its value (the Trace pane): a cell of a map clicked, then Trace this cell, and the chain of values
   that made it, back through the graph: a card per node with its value there and how it was made (map algebra's
