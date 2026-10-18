@@ -15,9 +15,17 @@ use crate::app::Session;
 use crate::theme;
 use crate::trace::{At, How, Kept, Trace};
 
-/// A trace asked for: the node and port of a map, its grid, the cell (row, column), and whether the assistant is to
-/// explain it.
-pub type Ask = (String, String, Arc<terraflux_raster::Grid>, (usize, usize), bool);
+/// Who explains a trace asked for: nobody (the Trace pane), the application's assistant, or an assistant through
+/// `terraflux mcp` (the trace kept for it, a request to paste copied).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Explain {
+    Here,
+    Assistant,
+    Mcp,
+}
+
+/// A trace asked for: the node and port of a map, its grid, the cell (row, column), and who explains it.
+pub type Ask = (String, String, Arc<terraflux_raster::Grid>, (usize, usize), Explain);
 
 /// The pane's state (the application's).
 #[derive(Default)]
@@ -32,14 +40,14 @@ pub struct State {
     pub error: Option<String>,
     /// The card to bring into view (an input's node clicked).
     focus: Option<usize>,
-    /// The trace to the assistant once it is made.
-    explain: bool,
+    /// Who explains the trace once it is made.
+    explain: Option<Explain>,
 }
 
 impl State {
     /// Trace a cell of a node's map.
     pub fn ask(&mut self, a: Ask) {
-        self.explain = a.4;
+        self.explain = Some(a.4);
         self.asked = Some(a);
         self.made = None;
         self.error = None;
@@ -111,11 +119,22 @@ pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) -> Optio
     st.refresh(s, r);
     let mut asked = None;
     // asked for with the assistant (a right click on a cell): to it, once traced
-    if st.explain
+    if let Some(e) = st.explain
         && let Some(t) = &st.trace
     {
-        st.explain = false;
-        asked = Some(Asked::Assistant(question(t)));
+        st.explain = None;
+        match e {
+            Explain::Assistant => asked = Some(Asked::Assistant(question(t))),
+            // (kept already for last_trace: a request to paste in the assistant)
+            Explain::Mcp => {
+                ui.ctx().copy_text(MCP_REQUEST.to_string());
+                s.notice = Some((
+                    "traced, and a request copied: paste it in your assistant (or run its prompt explain_cell)".into(),
+                    std::time::Instant::now(),
+                ));
+            }
+            Explain::Here => {}
+        }
     }
     let mut select: Option<(Vec<String>, String)> = None;
     egui::ScrollArea::vertical().id_salt("trace pane").auto_shrink([false, false]).show(ui, |ui| {
@@ -255,6 +274,10 @@ pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) -> Optio
     }
     asked
 }
+
+/// What is copied for an assistant through `terraflux mcp` to explain the cell traced.
+pub const MCP_REQUEST: &str = "Explain why the cell I traced in Terraflux has its value: read its trace with the terraflux tool last_trace, then \
+go through it step by step, in words.";
 
 /// The question to the assistant of a trace: why the cell has its value, from the trace.
 fn question(t: &Trace) -> String {

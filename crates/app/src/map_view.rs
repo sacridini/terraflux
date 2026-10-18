@@ -346,9 +346,8 @@ pub struct MapView {
     world: Option<(u64, Option<f64>)>,
     /// The cell clicked (row, column): its values along a stack's layers are shown beside the map.
     pub picked: Option<(usize, usize)>,
-    /// The trace of the cell picked asked for from its menu (a right click): `true` to have the assistant explain
-    /// it.
-    pub trace_request: Option<bool>,
+    /// The trace of the cell picked asked for from its menu (a right click), and who explains it.
+    pub trace_request: Option<crate::trace_view::Explain>,
     /// Where the view was drawn last.
     rect: Option<Rect>,
 }
@@ -797,6 +796,35 @@ impl MapView {
             let r = if r.width() < 6.0 { Rect::from_center_size(r.center(), Vec2::splat(6.0)) } else { r };
             painter.rect_stroke(r, 0.0, egui::Stroke::new(2.0, crate::theme::accent()), egui::StrokeKind::Outside);
         }
+        // a right click: why the cell has its value (its menu drawn whether or not the pointer is over the map:
+        // it stays open while the pointer goes to it; the cell picked by the click that opens it, below)
+        if !blank {
+            response.context_menu(|ui| {
+                if let Some((row, col)) = self.picked {
+                    ui.label(egui::RichText::new(format!("row {row}, column {col}")).weak().small());
+                }
+                if ui.button("Trace this cell").on_hover_text("the chain of values that made it").clicked() {
+                    self.trace_request = Some(crate::trace_view::Explain::Here);
+                    ui.close();
+                }
+                if ui
+                    .button("Ask the assistant why")
+                    .on_hover_text("its trace explained in words by the application's assistant")
+                    .clicked()
+                {
+                    self.trace_request = Some(crate::trace_view::Explain::Assistant);
+                    ui.close();
+                }
+                if ui
+                    .button("Explain with an MCP assistant")
+                    .on_hover_text("for an assistant through terraflux mcp (Claude Code, Claude Desktop...): the trace kept for it, and a request to paste copied (or its prompt explain_cell)")
+                    .clicked()
+                {
+                    self.trace_request = Some(crate::trace_view::Explain::Mcp);
+                    ui.close();
+                }
+            });
+        }
         let p = response.hover_pos()?;
         let c = self.to_cell(rect, p);
         let g = &source.grid().transform;
@@ -822,26 +850,6 @@ impl MapView {
         }
         if (response.clicked() || response.secondary_clicked()) && !blank {
             self.picked = inside.then_some((c.y as usize, c.x as usize));
-        }
-        // a right click: why the cell has its value
-        if self.picked.is_some() && !blank {
-            response.context_menu(|ui| {
-                if let Some((row, col)) = self.picked {
-                    ui.label(egui::RichText::new(format!("row {row}, column {col}")).weak().small());
-                }
-                if ui.button("Trace this cell").on_hover_text("the chain of values that made it").clicked() {
-                    self.trace_request = Some(false);
-                    ui.close();
-                }
-                if ui
-                    .button("Ask the assistant why")
-                    .on_hover_text("its trace explained in words by the assistant (an assistant through terraflux mcp reads it with last_trace)")
-                    .clicked()
-                {
-                    self.trace_request = Some(true);
-                    ui.close();
-                }
-            });
         }
         // close enough to see the cells: the one under the pointer outlined
         if inside && !blank && self.zoom >= 6.0 {

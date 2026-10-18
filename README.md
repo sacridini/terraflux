@@ -224,7 +224,8 @@ the values in place of its names, the cells around for a neighbourhood, the laye
 step by step; inside the loops on demand). **Ask the assistant why** has the assistant explain the trace in
 words; its tool `trace_cell` (in the application and in `terraflux mcp`) gives an assistant the same chain, so it
 explains a result from what made it rather than from what the model should do; `last_trace` gives an assistant
-through `terraflux mcp` the cell you traced last.
+through `terraflux mcp` the cell you traced last, and its prompt `explain_cell` (a slash command in Claude Code)
+asks it to explain that cell (the cell's menu, **Explain with an MCP assistant**, copies such a request too).
 
 **Why did it fail?** When a run fails, the status bar says so and the **Problems** pane explains it: the node that
 failed, its message and what it was given side by side (each input's grid: size, cells, coordinate system, what

@@ -2169,7 +2169,15 @@ fn a_right_click_traces_a_cell() {
     h.run_steps(2);
     assert!(h.state().session.as_ref().unwrap().map_tabs[&id].view.picked.is_some(), "the cell picked");
     shot(&mut h, "48-right-click");
-    h.get_by_label("Ask the assistant why").click_accesskit();
+    assert!(h.query_by_label("Explain with an MCP assistant").is_some(), "the option for an assistant through mcp");
+    // the pointer to the menu, a few frames, then a click: the menu stays while the pointer goes to it
+    let button = h.get_by_label("Ask the assistant why").rect().center();
+    for k in 1..=4 {
+        h.event(egui::Event::PointerMoved(at + (button - at) * (k as f32 / 4.0)));
+        h.run_steps(2);
+    }
+    assert!(h.query_by_label("Ask the assistant why").is_some(), "the menu still open over it");
+    h.get_by_label("Ask the assistant why").click();
     h.run_steps(4);
     assert!(h.state().is_open(Pane::Trace) && h.state().is_open(Pane::Assistant));
     assert!(h.state().trace.trace.is_some());

@@ -118,6 +118,12 @@ impl Server {
             "ping" => Ok(json!({})),
             "tools/list" => Ok(json!({ "tools": tools::catalogue(false) })),
             "tools/call" => self.call(&params, watcher),
+            "prompts/list" => Ok(json!({ "prompts": [{
+                "name": "explain_cell",
+                "description": "Explain why the cell traced last in Terraflux's application (a right click on a cell of a map) has its value, from its trace.",
+                "arguments": [],
+            }] })),
+            "prompts/get" => explain_cell(&params),
             _ => Err((-32601, format!("no method {method:?}"))),
         };
         Some(match result {
@@ -186,7 +192,7 @@ fn initialize(params: &Value) -> Value {
     let version = VERSIONS.iter().find(|v| **v == asked).unwrap_or(&VERSIONS[0]);
     json!({
         "protocolVersion": version,
-        "capabilities": { "tools": {} },
+        "capabilities": { "tools": {}, "prompts": {} },
         "serverInfo": { "name": "terraflux", "title": "Terraflux", "version": env!("CARGO_PKG_VERSION") },
         "instructions": INSTRUCTIONS,
     })
@@ -271,6 +277,27 @@ fn new_model(r: &Registry, a: &Value) -> Reply {
     Ok(format!("{s}\n{}", tools::problems(&m, &folder(&path), r)))
 }
 
+/// The prompt `explain_cell`: the last trace made in the application, and the question.
+fn explain_cell(params: &Value) -> std::result::Result<Value, (i64, String)> {
+    if params.get("name").and_then(Value::as_str) != Some("explain_cell") {
+        return Err((-32602, "no such prompt".into()));
+    }
+    let text = match terraflux_app::trace::last() {
+        Some(t) => format!(
+            "Explain to me, in words, why this cell of my model has its value: go through its trace, step by step, \
+             from the result back to the data, saying what each step did to it; trace other cells or nodes with \
+             trace_cell when it helps.\n\n{t}"
+        ),
+        None => "No cell has been traced yet in Terraflux's application: right-click a cell of a map there (Trace \
+                 this cell), then ask again."
+            .into(),
+    };
+    Ok(json!({
+        "description": "Why the cell traced last has its value",
+        "messages": [{ "role": "user", "content": { "type": "text", "text": text } }],
+    }))
+}
+
 fn open_in_app(a: &Value) -> Reply {
     let path = model_path(a)?;
     load(&path)?;
@@ -323,6 +350,17 @@ mod tests {
             .message(json!({ "jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": { "name": "nope" } }))
             .unwrap();
         assert_eq!(bad["error"]["code"], -32602);
+        // the prompt that explains the cell traced last in the application
+        let prompts = s.message(json!({ "jsonrpc": "2.0", "id": 4, "method": "prompts/list" })).unwrap();
+        assert_eq!(prompts["result"]["prompts"][0]["name"], "explain_cell");
+        let p = s
+            .message(
+                json!({ "jsonrpc": "2.0", "id": 5, "method": "prompts/get", "params": { "name": "explain_cell" } }),
+            )
+            .unwrap();
+        let text = p["result"]["messages"][0]["content"]["text"].as_str().unwrap();
+        assert!(text.contains("trace") || text.contains("traced"), "{text}");
+        assert_eq!(init["result"]["capabilities"]["prompts"], json!({}));
     }
 
     #[test]

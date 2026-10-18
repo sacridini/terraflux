@@ -6,6 +6,15 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- A cell explained by an assistant through `terraflux mcp` (Claude Code, Claude Desktop...): Explain with an MCP
+  assistant in a cell's menu (a right click) keeps its trace for it and copies a request to paste; the server's
+  prompt `explain_cell` (a slash command in Claude Code) brings it the trace and the question.
+
+### Fixed
+- The menu of a right click on a map's cell went as soon as the pointer moved to it: it stays now until an item is
+  chosen (or a click elsewhere).
+
 ## [1.5.0] - 2026-10-18
 
 ### Added

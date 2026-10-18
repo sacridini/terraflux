@@ -1923,7 +1923,8 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                         ))
                         .clicked()
                 {
-                    s.trace_asked = Some((node.clone(), port.clone(), grid, (row, col), false));
+                    s.trace_asked =
+                        Some((node.clone(), port.clone(), grid, (row, col), crate::trace_view::Explain::Here));
                 }
                 // asked for from the map's menu (a right click on a cell)
                 if let Some(explain) = sh.view.trace_request.take()
