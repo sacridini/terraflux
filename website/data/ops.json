@@ -16485,6 +16485,119 @@
   "container": false
  },
  {
+  "name": "raster.cell_area",
+  "doc": "The true area of every cell of a map's grid, as terra's cellSize: on a grid of longitudes and latitudes the area of the cell on the WGS84 ellipsoid (exact, by its latitudes: smaller towards the poles), on a projected grid its width times its height (in metres by the grid's unit). In square metres, hectares or km²: a map of classes times it is each cell's area of the class.",
+  "inputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "a map on whose grid the areas are made"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the area of every cell"
+   }
+  ],
+  "params": [
+   {
+    "name": "units",
+    "type": "text",
+    "required": false,
+    "doc": "m2 (default), hectares or km2",
+    "choices": [
+     "m2",
+     "hectares",
+     "km2"
+    ]
+   },
+   {
+    "name": "geographic",
+    "type": "text",
+    "required": false,
+    "doc": "auto (by the coordinate system, default), yes or no",
+    "choices": [
+     "auto",
+     "yes",
+     "no"
+    ]
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "raster.classify",
+  "doc": "A map's values in classes 1.. by breaks, as a GIS's graduated symbology or classInt: quantiles (each class a share of the cells), equal intervals, Jenks's natural breaks (of at most `sample` values spread evenly over the sorted cells), standard deviations (breaks at the mean and every `sd_width` standard deviations from it, as QGIS's), or the breaks given. A class holds the values above its lower break up to its upper one (the first its lower too), as R's cut.",
+  "inputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the values"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the class of every cell"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per class: class, from, to, cells, share"
+   }
+  ],
+  "params": [
+   {
+    "name": "method",
+    "type": "text",
+    "required": false,
+    "doc": "quantile (default), equal, jenks, sd or breaks",
+    "choices": [
+     "quantile",
+     "equal",
+     "jenks",
+     "sd",
+     "breaks"
+    ]
+   },
+   {
+    "name": "n",
+    "type": "integer",
+    "required": false,
+    "doc": "the classes (5)"
+   },
+   {
+    "name": "breaks",
+    "type": "any",
+    "required": false,
+    "doc": "breaks: the values between classes"
+   },
+   {
+    "name": "sd_width",
+    "type": "number",
+    "required": false,
+    "doc": "sd: the classes' width in standard deviations (1)"
+   },
+   {
+    "name": "sample",
+    "type": "integer",
+    "required": false,
+    "doc": "jenks: at most so many values (10000)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
   "name": "raster.clip",
   "doc": "Rasters cut to an extent in their own coordinates (GDAL's gdal_translate), their cells as they are.",
   "inputs": [
@@ -16518,6 +16631,54 @@
    }
   ],
   "access": "global",
+  "container": false
+ },
+ {
+  "name": "raster.contour",
+  "doc": "The contour lines of a map, as gdal_contour: lines through the places of equal value, at every multiple of an interval from a base (or at the levels given), traced by marching squares between the cells' centres (linear between two), each line's level as an attribute; the squares of a cell without a value left out.",
+  "inputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the map (an elevation, say)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the lines, each with its level"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the feature (1..) and its level"
+   }
+  ],
+  "params": [
+   {
+    "name": "interval",
+    "type": "number",
+    "required": false,
+    "doc": "the distance between levels (e.g. 10 m)"
+   },
+   {
+    "name": "base",
+    "type": "number",
+    "required": false,
+    "doc": "a level the others are multiples of the interval from (0)"
+   },
+   {
+    "name": "levels",
+    "type": "any",
+    "required": false,
+    "doc": "the levels, in place of an interval"
+   }
+  ],
+  "access": "none",
   "container": false
  },
  {
@@ -16581,6 +16742,106 @@
   "container": false
  },
  {
+  "name": "raster.correlation",
+  "doc": "The correlation and covariance between maps over their cells, as terra's layerCor or R's cor: between every two layers of a stack (or of a series of maps), and those of `y` when given; Pearson's or Spearman's (of the ranks, ties given their mean rank). Every pair over the cells where both have a value; with the least squares line of the second on the first.",
+  "inputs": [
+   {
+    "name": "x",
+    "type": "any",
+    "required": true,
+    "doc": "a map, a stack or a series of maps"
+   },
+   {
+    "name": "y",
+    "type": "any",
+    "required": false,
+    "doc": "another map or stack (of the same grid)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "matrix",
+    "type": "table",
+    "required": true,
+    "doc": "the correlations: a row per layer (1..), a column per layer by its name"
+   },
+   {
+    "name": "covariance",
+    "type": "table",
+    "required": true,
+    "doc": "the covariances (n - 1), as the matrix"
+   },
+   {
+    "name": "pairs",
+    "type": "table",
+    "required": true,
+    "doc": "a row per pair of layers: x, y (the layers), n (cells), correlation, covariance, slope, intercept, r2"
+   }
+  ],
+  "params": [
+   {
+    "name": "method",
+    "type": "text",
+    "required": false,
+    "doc": "pearson (default) or spearman",
+    "choices": [
+     "pearson",
+     "spearman"
+    ]
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "raster.expand",
+  "doc": "Classes of a map grown a number of cells into the others, as ArcGIS's Expand: a cell a step, every cell beside one of the classes taking the most common of them around it (a tie: the smallest). The cells without a value stay so, unless `into_missing`.",
+  "inputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the classes"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the classes grown"
+   }
+  ],
+  "params": [
+   {
+    "name": "classes",
+    "type": "any",
+    "required": true,
+    "doc": "the classes grown (one or a list)"
+   },
+   {
+    "name": "cells",
+    "type": "integer",
+    "required": false,
+    "doc": "how many cells (1)"
+   },
+   {
+    "name": "neighbours",
+    "type": "integer",
+    "required": false,
+    "doc": "4 or 8 (default)"
+   },
+   {
+    "name": "into_missing",
+    "type": "bool",
+    "required": false,
+    "doc": "into the cells without a value too (false)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
   "name": "raster.fill",
   "doc": "The cells without a value filled from the cells around them (gdal_fillnodata: inverse distance weighting, up to a distance), then smoothed if asked.",
   "inputs": [
@@ -16623,6 +16884,114 @@
   "container": false
  },
  {
+  "name": "raster.focal",
+  "doc": "A statistic of the cells in a moving window around every cell, as terra's focal or GRASS's r.neighbors: the mean, median, majority (the mode), standard deviation, variety (unique), range, minimum, maximum, sum, count, a percentile... (the statistics of vector.zonal) over the window's cells with a value; the window a square, a circle, an annulus (a ring between two radii) or a Gaussian kernel (the mean or sum weighted by exp(-d² / 2σ²)). No value where the cell has none, unless `fill`.",
+  "inputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the map"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the statistic of every cell's window"
+   }
+  ],
+  "params": [
+   {
+    "name": "stat",
+    "type": "text",
+    "required": false,
+    "doc": "mean (default), median, majority, minority, std, var, unique (variety), range, min, max, sum, count, nodata, percentile_<p>"
+   },
+   {
+    "name": "shape",
+    "type": "text",
+    "required": false,
+    "doc": "square (default), circle, annulus or gaussian",
+    "choices": [
+     "square",
+     "circle",
+     "annulus",
+     "gaussian"
+    ]
+   },
+   {
+    "name": "radius",
+    "type": "integer",
+    "required": false,
+    "doc": "the window's radius in cells (1: 3 x 3)"
+   },
+   {
+    "name": "inner",
+    "type": "integer",
+    "required": false,
+    "doc": "annulus: the inner radius, its cells left out (radius / 2)"
+   },
+   {
+    "name": "sigma",
+    "type": "number",
+    "required": false,
+    "doc": "gaussian: the standard deviation in cells (radius / 2)"
+   },
+   {
+    "name": "fill",
+    "type": "bool",
+    "required": false,
+    "doc": "a value also where the cell has none (false)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "raster.label",
+  "doc": "The patches of a map numbered, as GRASS's r.clump or scipy's label: every group of connected cells of one value given an id (1.., in the order of their first cell, row by row), with a table of each patch's value, cells and area. Only the classes given, when given; the cells without a value in none.",
+  "inputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the classes"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the id of every cell's patch"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per patch: id, value, cells, area (map units squared)"
+   }
+  ],
+  "params": [
+   {
+    "name": "neighbours",
+    "type": "integer",
+    "required": false,
+    "doc": "4 (default) or 8"
+   },
+   {
+    "name": "classes",
+    "type": "any",
+    "required": false,
+    "doc": "the classes labelled (default every one)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
   "name": "raster.legend",
   "doc": "The names and colours of a map's classes: the map shown with them, and carried with it (the maps made from it that keep its classes, the GeoTIFF it is written to); the viewer's legend editor writes them here. Rasters on disk are shown so, not read.",
   "inputs": [
@@ -16647,6 +17016,128 @@
     "type": "any",
     "required": true,
     "doc": "[[value, \"name\", \"#rrggbb\"], ...]"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "raster.local_correlation",
+  "doc": "The correlation and the least squares line between two maps in a moving window around every cell (geographically local regression, as terra's focalPairs or focalReg): Pearson's correlation, the slope and intercept of y on x and r², over the cells of the window where both have a value. No value where a map has none at the cell, or the window fewer than `min_cells` pairs.",
+  "inputs": [
+   {
+    "name": "x",
+    "type": "map",
+    "required": true,
+    "doc": "the first map"
+   },
+   {
+    "name": "y",
+    "type": "map",
+    "required": true,
+    "doc": "the second map (of the same grid)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "correlation",
+    "type": "map",
+    "required": true,
+    "doc": "Pearson's correlation in the window"
+   },
+   {
+    "name": "slope",
+    "type": "map",
+    "required": true,
+    "doc": "the slope of y on x"
+   },
+   {
+    "name": "intercept",
+    "type": "map",
+    "required": true,
+    "doc": "the intercept of y on x"
+   },
+   {
+    "name": "r2",
+    "type": "map",
+    "required": true,
+    "doc": "the share of y's variance the line explains"
+   }
+  ],
+  "params": [
+   {
+    "name": "radius",
+    "type": "integer",
+    "required": false,
+    "doc": "the window's radius in cells (3: 7 x 7)"
+   },
+   {
+    "name": "shape",
+    "type": "text",
+    "required": false,
+    "doc": "square (default) or circle",
+    "choices": [
+     "square",
+     "circle"
+    ]
+   },
+   {
+    "name": "min_cells",
+    "type": "integer",
+    "required": false,
+    "doc": "the fewest pairs of a window (3)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "raster.majority",
+  "doc": "A map of classes cleaned by the majority filter, as ArcGIS's Majority Filter: a cell takes the most common class of its neighbours (with a value) when more than half of them hold it (`replace` majority) or at least half (half); a tie between classes keeps the cell. Repeated `iterations` times, each on the map the one before left.",
+  "inputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the classes"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the classes filtered"
+   }
+  ],
+  "params": [
+   {
+    "name": "neighbours",
+    "type": "integer",
+    "required": false,
+    "doc": "4 or 8 (default): the cells around, or a diamond and a square of the radius"
+   },
+   {
+    "name": "radius",
+    "type": "integer",
+    "required": false,
+    "doc": "the neighbourhood's radius in cells (1)"
+   },
+   {
+    "name": "replace",
+    "type": "text",
+    "required": false,
+    "doc": "majority (more than half, default) or half (at least half)",
+    "choices": [
+     "majority",
+     "half"
+    ]
+   },
+   {
+    "name": "iterations",
+    "type": "integer",
+    "required": false,
+    "doc": "the times the filter is applied (1)"
    }
   ],
   "access": "none",
@@ -16990,6 +17481,227 @@
   "container": false
  },
  {
+  "name": "raster.shrink",
+  "doc": "Classes of a map shrunk a number of cells, as ArcGIS's Shrink: a cell a step, every cell of the classes beside another value taking the most common of those around it (a tie: the smallest). A cell beside none but cells without a value stays.",
+  "inputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the classes"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the classes shrunk"
+   }
+  ],
+  "params": [
+   {
+    "name": "classes",
+    "type": "any",
+    "required": true,
+    "doc": "the classes shrunk (one or a list)"
+   },
+   {
+    "name": "cells",
+    "type": "integer",
+    "required": false,
+    "doc": "how many cells (1)"
+   },
+   {
+    "name": "neighbours",
+    "type": "integer",
+    "required": false,
+    "doc": "4 or 8 (default)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "raster.sieve",
+  "doc": "The patches smaller than a size merged into their largest neighbour, as gdal_sieve (GDALSieveFilter): a map of classes rid of its specks, the smallest patches first, each taking the value of the largest patch it touches (a patch grown by the merge counts as its new size). A patch touching none (all around without a value) stays. The cells without a value stay so.",
+  "inputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the classes"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the classes sieved"
+   }
+  ],
+  "params": [
+   {
+    "name": "threshold",
+    "type": "integer",
+    "required": true,
+    "doc": "the fewest cells of a patch kept"
+   },
+   {
+    "name": "neighbours",
+    "type": "integer",
+    "required": false,
+    "doc": "4 (default) or 8: the cells of a patch connected"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "raster.standardize",
+  "doc": "A map (or every layer of a stack, or every map of a series) put on a common scale, for drivers and predictors compared or combined: the z-score ((x - mean) / std, the std of the population), min-max to 0-1, or the percentile stretch to 0-1 between two percentiles (the values beyond them 0 or 1). A layer of one value is all 0. The centre and scale of each layer in a table, to standardize other maps the same way (map.calc).",
+  "inputs": [
+   {
+    "name": "map",
+    "type": "any",
+    "required": true,
+    "doc": "a map, a stack or a series of maps"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "any",
+    "required": true,
+    "doc": "the same, standardized: a map, a stack or a series"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per layer (1..): center and scale, the value standardized (x - center) / scale"
+   }
+  ],
+  "params": [
+   {
+    "name": "method",
+    "type": "text",
+    "required": false,
+    "doc": "zscore (default), minmax or percentile",
+    "choices": [
+     "zscore",
+     "minmax",
+     "percentile"
+    ]
+   },
+   {
+    "name": "low",
+    "type": "number",
+    "required": false,
+    "doc": "percentile: the lower percentile (2)"
+   },
+   {
+    "name": "high",
+    "type": "number",
+    "required": false,
+    "doc": "percentile: the upper percentile (98)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "raster.stats",
+  "doc": "A summary of a map, or of every layer of a stack or of a series of maps, as tables: the cells with a value (count) and without (nodata), the sum, mean, standard deviation, minimum, percentiles and maximum (the statistics of vector.zonal over the whole map), and a histogram of bins of equal width.",
+  "inputs": [
+   {
+    "name": "map",
+    "type": "any",
+    "required": true,
+    "doc": "a map, a stack or a series of maps"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per layer (1.., in the stack's order): its statistics"
+   },
+   {
+    "name": "histogram",
+    "type": "table",
+    "required": true,
+    "doc": "a row per layer and bin: layer, bin (1..), from, to, count and share of the cells with a value"
+   }
+  ],
+  "params": [
+   {
+    "name": "stats",
+    "type": "any",
+    "required": false,
+    "doc": "the statistics: count, nodata, sum, mean, min, max, range, std, var, median, majority, minority, unique, percentile_<p> (default count, nodata, sum, mean, std, min, percentiles 5, 25, 50, 75, 95, max)"
+   },
+   {
+    "name": "bins",
+    "type": "integer",
+    "required": false,
+    "doc": "the histogram's bins (20)"
+   },
+   {
+    "name": "range",
+    "type": "any",
+    "required": false,
+    "doc": "the histogram's [from, to] (default each layer's minimum and maximum); values outside left out"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "raster.tabulate",
+  "doc": "The area of every class of a map in every zone of another, as ArcGIS's Tabulate Area or a cross tabulation: a row per zone, a column per class (class_<k>) and the zone's total; in cells, in area (the map's units squared), in hectares (of a map in metres) or as each class's share of the zone. Cells without a zone or a class left out.",
+  "inputs": [
+   {
+    "name": "zones",
+    "type": "map",
+    "required": true,
+    "doc": "the zone of every cell (its id)"
+   },
+   {
+    "name": "classes",
+    "type": "map",
+    "required": true,
+    "doc": "the class of every cell"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "zone, class_<k> for every class, total"
+   }
+  ],
+  "params": [
+   {
+    "name": "units",
+    "type": "text",
+    "required": false,
+    "doc": "cells (default), area, hectares or share",
+    "choices": [
+     "cells",
+     "area",
+     "hectares",
+     "share"
+    ]
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
   "name": "raster.terrain",
   "doc": "A measure of a surface such as an elevation model (gdaldem): slope (degrees, or percent with the option -p), aspect, hillshade, TRI (terrain ruggedness), TPI (topographic position) or roughness. For a surface in degrees of latitude and longitude, the option -s 111120 gives the slope in metres.",
   "inputs": [
@@ -17039,6 +17751,72 @@
   "access": {
    "halo": 1
   },
+  "container": false
+ },
+ {
+  "name": "raster.viewshed",
+  "doc": "What can be seen from observers over an elevation map, as gdal_viewshed or GRASS's r.viewshed: a cell is seen when the line of sight from an observer's eye (the ground plus its height) to the cell (plus the target's height) passes above every cell between, traced along rays to the edge of each observer's reach (Franklin and Ray's R2); with `curvature`, the earth's curvature and refraction lowering the far cells (GDAL's coefficient, 0.85714). The map counts the observers seeing each cell (one observer: 1 seen, 0 not).",
+  "inputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the elevation (in the units of the map's coordinates)"
+   },
+   {
+    "name": "points",
+    "type": "vector",
+    "required": false,
+    "doc": "the observers (or x and y)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "how many observers see every cell"
+   }
+  ],
+  "params": [
+   {
+    "name": "x",
+    "type": "number",
+    "required": false,
+    "doc": "the observer's x, without points"
+   },
+   {
+    "name": "y",
+    "type": "number",
+    "required": false,
+    "doc": "the observer's y, without points"
+   },
+   {
+    "name": "observer_height",
+    "type": "number",
+    "required": false,
+    "doc": "the eye above the ground (2, as GDAL's)"
+   },
+   {
+    "name": "target_height",
+    "type": "number",
+    "required": false,
+    "doc": "what is seen above the ground (0)"
+   },
+   {
+    "name": "radius",
+    "type": "number",
+    "required": false,
+    "doc": "how far an observer sees, in map units (the whole map)"
+   },
+   {
+    "name": "curvature",
+    "type": "bool",
+    "required": false,
+    "doc": "the earth's curvature and refraction (false)"
+   }
+  ],
+  "access": "none",
   "container": false
  },
  {
@@ -17093,6 +17871,54 @@
    }
   ],
   "access": "global",
+  "container": false
+ },
+ {
+  "name": "raster.zonal",
+  "doc": "Statistics of a map (or of every layer of a stack) in the zones of a map of zone ids (municipalities, watersheds, classes rasterized), as GRASS's r.univar by zones or terra's zonal: a row per zone, and a map of every cell given its zone's statistic (zonal statistics as a raster). The statistics of vector.zonal; the cells without a zone or without a value left out.",
+  "inputs": [
+   {
+    "name": "map",
+    "type": "any",
+    "required": true,
+    "doc": "a map, a stack or a series of maps"
+   },
+   {
+    "name": "zones",
+    "type": "map",
+    "required": true,
+    "doc": "the zone of every cell (its id)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per zone (increasing): zone, then every statistic (of every layer: <layer>_<statistic>)"
+   },
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "every cell given its zone's statistic `to_map` (of the first layer)"
+   }
+  ],
+  "params": [
+   {
+    "name": "stats",
+    "type": "any",
+    "required": false,
+    "doc": "count, nodata, sum, mean, min, max, range, std, var, median, majority, minority, unique, percentile_<p> (default count, mean, min, max, std)"
+   },
+   {
+    "name": "to_map",
+    "type": "text",
+    "required": false,
+    "doc": "the statistic of the map (mean)"
+   }
+  ],
+  "access": "none",
   "container": false
  },
  {
@@ -21532,6 +22358,54 @@
   "extra": "map"
  },
  {
+  "name": "stack.reduce",
+  "doc": "A statistic of a stack's layers (or of a series of maps) at every cell, as terra's app or a cell statistics tool: the mean, standard deviation, minimum, maximum, median, sum, count of layers with a value, majority (the mode), a percentile... over the layers with a value at the cell (none: missing), or the layer (1.., in the stack's order) of the largest or smallest value (argmax, argmin; a tie: the first).",
+  "inputs": [
+   {
+    "name": "maps",
+    "type": "any",
+    "required": true,
+    "doc": "a stack or a series of maps"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the statistic at every cell"
+   }
+  ],
+  "params": [
+   {
+    "name": "stat",
+    "type": "text",
+    "required": false,
+    "doc": "mean (default), std, var, min, max, range, median, sum, count, nodata, majority, minority, unique, percentile_<p>, argmax, argmin",
+    "choices": [
+     "mean",
+     "std",
+     "var",
+     "min",
+     "max",
+     "range",
+     "median",
+     "sum",
+     "count",
+     "nodata",
+     "majority",
+     "minority",
+     "unique",
+     "percentile_90",
+     "argmax",
+     "argmin"
+    ]
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
   "name": "stack.set",
   "doc": "A stack with a map in the layer of a name (replacing the layer of that name, else added at the end): a dynamic variable in place of the static driver of the same name.",
   "inputs": [
@@ -24125,6 +24999,49 @@
   "container": false
  },
  {
+  "name": "vector.calc",
+  "doc": "An attribute computed for every feature from an expression over the others, as QGIS's field calculator: the attributes that are numbers by their names, the expressions of map algebra (area / 10000, if class == 1 then 1 else 0), the node's other inputs as numbers by their names. An attribute of the same name is replaced, else it is added.",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the features"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the features with the attribute"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes"
+   }
+  ],
+  "params": [
+   {
+    "name": "column",
+    "type": "text",
+    "required": true,
+    "doc": "the attribute's name"
+   },
+   {
+    "name": "expression",
+    "type": "text",
+    "required": true,
+    "doc": "its value, e.g. area / 10000"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "extra": "any"
+ },
+ {
   "name": "vector.clip",
   "doc": "Features cut to the area of a mask (the union of its polygons; GEOS through GDAL, as geopandas' clip): each feature's part inside it, those outside it left out, their attributes kept.",
   "inputs": [
@@ -24150,6 +25067,73 @@
    }
   ],
   "params": [],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "vector.density",
+  "doc": "The density of points on a map's grid, as ArcGIS's Kernel Density or QGIS's Heatmap: each point (its weight an attribute, or 1) spread by a kernel over a radius, the kernel's integral the weight, so the map is points per square map unit (or per hectare, per km²); quartic (biweight, the default, ArcGIS's), triweight, Epanechnikov, triangular or uniform; or the points in each cell counted (count; with a field, their sum). Without a radius ArcGIS's default (Silverman's rule). The points are reprojected to the map; distances in its units (a map in metres for densities per area).",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the points"
+   },
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "a map on whose grid the density is made"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the density (or count) of every cell"
+   }
+  ],
+  "params": [
+   {
+    "name": "kernel",
+    "type": "text",
+    "required": false,
+    "doc": "quartic (default), triweight, epanechnikov, triangular, uniform or count",
+    "choices": [
+     "quartic",
+     "triweight",
+     "epanechnikov",
+     "triangular",
+     "uniform",
+     "count"
+    ]
+   },
+   {
+    "name": "radius",
+    "type": "number",
+    "required": false,
+    "doc": "the kernel's radius in map units (Silverman's rule)"
+   },
+   {
+    "name": "field",
+    "type": "text",
+    "required": false,
+    "doc": "the attribute weighting each point (none: 1)"
+   },
+   {
+    "name": "units",
+    "type": "text",
+    "required": false,
+    "doc": "per square map unit (default), per hectare or per km²",
+    "choices": [
+     "map",
+     "hectares",
+     "km2"
+    ]
+   }
+  ],
   "access": "none",
   "container": false
  },
@@ -24338,6 +25322,127 @@
   "container": false
  },
  {
+  "name": "vector.filter",
+  "doc": "The features where an expression over their attributes is true, as QGIS's Select by Expression or geopandas' query: the attributes that are numbers by their names (feature: the number 1..), the expressions of map algebra (area > 10000 and class == 2), the node's other inputs as numbers by their names. A feature where it is missing is left out.",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the features"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the features kept"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes"
+   }
+  ],
+  "params": [
+   {
+    "name": "expression",
+    "type": "text",
+    "required": true,
+    "doc": "what a feature kept is, e.g. area > 10000"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "extra": "any"
+ },
+ {
+  "name": "vector.from_table",
+  "doc": "Points from a table's columns of coordinates, as QGIS's Create Points Layer from Table or geopandas' points_from_xy: a point per row with an x and a y, the other columns its attributes, in the coordinate system given.",
+  "inputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the table"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the points"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes"
+   }
+  ],
+  "params": [
+   {
+    "name": "x",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the x (or longitude) (x)"
+   },
+   {
+    "name": "y",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the y (or latitude) (y)"
+   },
+   {
+    "name": "crs",
+    "type": "text",
+    "required": false,
+    "doc": "their coordinate system: EPSG:4326, a WKT... (none: unknown)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "vector.geometry",
+  "doc": "The measures of every feature's geometry as attributes, as QGIS's Add Geometry Attributes: the area and perimeter of polygons (their holes left out of the area, their rings in the perimeter), the length of lines, and the centroid (x, y: of the area, the length or the points), in the features' units; with `geodesic`, the areas in square metres on the WGS84 ellipsoid (GDAL 3.9 or later).",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the features"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the features with area, perimeter, length, x and y"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes"
+   }
+  ],
+  "params": [
+   {
+    "name": "geodesic",
+    "type": "bool",
+    "required": false,
+    "doc": "the areas on the ellipsoid, in m² (false)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
   "name": "vector.grid_zones",
   "doc": "Square zones tiling a map, as landschaft's grid_zones: squares of a side (map units) from the map's top-left corner, partial squares at its right and bottom, row by row; for metrics.sample and metrics.series by zones.",
   "inputs": [
@@ -24404,6 +25509,153 @@
     "type": "text",
     "required": false,
     "doc": "the table's column (default zone, feature, plot_id or id if it has one, else its first)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "vector.overlay",
+  "doc": "Two layers of polygons overlaid, as geopandas' overlay or QGIS's Intersection, Union and Difference (GEOS through GDAL): the intersection (a polygon where a feature of each meets, with the attributes of both), the union (those, and the parts of each layer the other does not cover, with only their own attributes) or the difference (each feature of the first less the second's). The second layer is reprojected to the first's.",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the first layer of polygons"
+   },
+   {
+    "name": "other",
+    "type": "vector",
+    "required": true,
+    "doc": "the second layer of polygons"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the polygons overlaid"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes"
+   }
+  ],
+  "params": [
+   {
+    "name": "how",
+    "type": "text",
+    "required": false,
+    "doc": "intersection (default), union or difference",
+    "choices": [
+     "intersection",
+     "union",
+     "difference"
+    ]
+   },
+   {
+    "name": "suffix",
+    "type": "text",
+    "required": false,
+    "doc": "after a name of the second layer the first has (_2)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "vector.points",
+  "doc": "Points inside polygons, as QGIS's Random Points Inside Polygons and Regular Points: `random`, n points in every polygon drawn uniformly over its area (numpy's generator of the seed); `regular`, the points of a grid of a spacing (from the polygons' lower left corner, half a spacing in) inside each. Each point with the number of its polygon (polygon) and the polygon's attributes.",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the polygons"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the points"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes, x and y"
+   }
+  ],
+  "params": [
+   {
+    "name": "method",
+    "type": "text",
+    "required": false,
+    "doc": "random (default) or regular",
+    "choices": [
+     "random",
+     "regular"
+    ]
+   },
+   {
+    "name": "n",
+    "type": "integer",
+    "required": false,
+    "doc": "random: the points in every polygon (10)"
+   },
+   {
+    "name": "spacing",
+    "type": "number",
+    "required": false,
+    "doc": "regular: the distance between points (map units)"
+   },
+   {
+    "name": "seed",
+    "type": "integer",
+    "required": false,
+    "doc": "random: the generator's seed (1)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "vector.polygonize",
+  "doc": "A map of classes as polygons, as gdal_polygonize (GDALPolygonize): a polygon (with its holes) per patch, the connected cells of one value, its value, cells and area as attributes, in the order of their first cell; the cells without a value in none. The patches' cells joined by their sides (4) or also by their corners (8).",
+  "inputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the classes (or any values: a polygon per patch of one)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the polygons: value, cells, area"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the feature (1..) and its value, cells and area"
+   }
+  ],
+  "params": [
+   {
+    "name": "neighbours",
+    "type": "integer",
+    "required": false,
+    "doc": "4 (default, as GDAL's) or 8"
    }
   ],
   "access": "none",
@@ -24518,6 +25770,106 @@
    }
   ],
   "access": "global",
+  "container": false
+ },
+ {
+  "name": "vector.reproject",
+  "doc": "Features in another coordinate system, their coordinates transformed by PROJ through GDAL (as geopandas' to_crs): to an EPSG code, a WKT or a PROJ string, or to the coordinate system of a map or of other features (`like`).",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the features"
+   },
+   {
+    "name": "like",
+    "type": "any",
+    "required": false,
+    "doc": "a map or features whose coordinate system to take"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the features reprojected"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes"
+   }
+  ],
+  "params": [
+   {
+    "name": "crs",
+    "type": "text",
+    "required": false,
+    "doc": "the coordinate system: EPSG:4326, a WKT..."
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "vector.spatial_join",
+  "doc": "The features of a layer joined to those of another where they meet, as geopandas' sjoin or QGIS's Join Attributes by Location (GEOS's intersects through GDAL): each feature takes the attributes of the first feature of the other layer it meets (`attributes`: the polygon holding a point), or the count of those it meets and the sum and mean of their attributes `fields` (`summary`: the points in every polygon counted). The other layer is reprojected to the first's.",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the features joined to (points, or polygons counted)"
+   },
+   {
+    "name": "other",
+    "type": "vector",
+    "required": true,
+    "doc": "the features joined (polygons, or points to count)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the features with the other's attributes, or count, sums, means"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes"
+   }
+  ],
+  "params": [
+   {
+    "name": "mode",
+    "type": "text",
+    "required": false,
+    "doc": "attributes (default) or summary",
+    "choices": [
+     "attributes",
+     "summary"
+    ]
+   },
+   {
+    "name": "fields",
+    "type": "any",
+    "required": false,
+    "doc": "summary: the other's attributes summed and averaged"
+   },
+   {
+    "name": "suffix",
+    "type": "text",
+    "required": false,
+    "doc": "attributes: after a name the first layer has (_2)"
+   }
+  ],
+  "access": "none",
   "container": false
  },
  {

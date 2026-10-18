@@ -13,6 +13,43 @@
    ]
   },
   {
+   "title": "Raster analysis",
+   "prefixes": [
+    "raster.stats",
+    "stack.reduce",
+    "raster.zonal",
+    "raster.tabulate",
+    "raster.correlation",
+    "raster.local_correlation",
+    "raster.standardize",
+    "raster.focal",
+    "raster.majority",
+    "raster.sieve",
+    "raster.label",
+    "raster.expand",
+    "raster.shrink",
+    "raster.contour",
+    "raster.viewshed",
+    "raster.cell_area",
+    "raster.classify"
+   ]
+  },
+  {
+   "title": "Vector analysis",
+   "prefixes": [
+    "vector.polygonize",
+    "vector.filter",
+    "vector.calc",
+    "vector.geometry",
+    "vector.overlay",
+    "vector.spatial_join",
+    "vector.reproject",
+    "vector.from_table",
+    "vector.points",
+    "vector.density"
+   ]
+  },
+  {
    "title": "Habitat patterns",
    "prefixes": [
     "landscape",
