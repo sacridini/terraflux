@@ -6,6 +6,18 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-10-19
+
+### Fixed
+- Vector layers draw as quickly zoomed in as zoomed out. A tile no longer goes through every vertex of the
+  features over it: the runs of their vertices off the tile, or smaller than a pixel, are drawn as one line each.
+  A tile deep in a municipality of 100 000 vertices is drawn about 30 times quicker.
+
+### Changed
+- On macOS the release build's line tables go into a `.dSYM` (`.cargo/config.toml`), not into object files left
+  in `target/` (about 2 GB at each build). `tools/make-macos-app.py` removes the workspace's crates of earlier
+  builds before building, which cargo never does.
+
 ## [1.7.0] - 2026-10-19
 
 ### Added
