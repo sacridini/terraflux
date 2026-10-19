@@ -7,3 +7,8 @@ jobs = 4
 RUST_TEST_THREADS = "2"
 TERRAFLUX_THREADS = "4"
 OMP_NUM_THREADS = "4"
+
+# On macOS the line tables go into a .dSYM made at the link, not into the object files left in target/ (about
+# 2 GB at each build, and the program only points to them there).
+[target.'cfg(target_os = "macos")']
+rustflags = ["-C", "split-debuginfo=packed"]

@@ -194,6 +194,8 @@ def main():
     arch = {"arm64": "arm64", "x86_64": "x64"}.get(platform.machine(), platform.machine())
     target = Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "target"))
     if not a.skip_build:
+        # The workspace's crates built before (other versions, other features) removed: cargo never does.
+        run("cargo", "clean", "--release", "--workspace", "--manifest-path", ROOT / "Cargo.toml")
         run("cargo", "build", "--release", "-p", "terraflux-cli", "--manifest-path", ROOT / "Cargo.toml")
     exe = target / "release" / "terraflux"
     if not exe.exists():
