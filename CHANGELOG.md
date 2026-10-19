@@ -6,6 +6,29 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-10-19
+
+### Added
+- A node that takes one map, given many layers (a stack, the bands of a file, a folder of maps, a loop's series),
+  runs once per layer: its maps come out as a stack of the same layer names (a series for a loop's), its tables
+  as one table with a column `layer` (the year of names such as `forest_2010`), its other values as a series.
+  Stacks given together are paired layer by layer. The canvas marks such a node ×N.
+- `raster.write` with `{name}` in its path writes a file per layer, named after it
+  (`mspa/{name}_mspa.tif`).
+
+### Changed
+- A file of several bands connected to a port of one map no longer gives that port its first band only: the
+  node runs on every band. `raster.read`'s `band` chooses one. Where a port still takes one map alone
+  (`stack.of`, `agents.parcels`, the inputs of groups), the bands left out are told in a warning.
+- The rasters the preparation operators make without a `path` are kept in Terraflux's cache (`prepare`), made
+  once and used again while their sources and settings are the same, instead of a new copy at every run in the
+  temporary folder; the old copies there are removed. The caches of rasters made, of data downloaded and of the
+  workers are held under 10 GB each (`TERRAFLUX_CACHE_GB`, **Settings > Cache**, which also empties them).
+- The tiled engine's layers on disk (`--disk`) are removed as soon as the run no longer needs them, instead of
+  every step's staying after the run.
+- Builds take four jobs at a time (`.cargo/config.toml`), and landschaft's C++ is built once per profile
+  (`target/<profile>/landschaft`), not again for every change of the crate's hash.
+
 ## [1.6.0] - 2026-10-18
 
 ### Added
