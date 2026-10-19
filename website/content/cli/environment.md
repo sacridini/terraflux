@@ -33,7 +33,8 @@ To keep one for good, add it to your shell's profile, or on Windows to the user'
 |---|---|
 | `TERRAFLUX_THREADS` | The threads every command may use, as `--threads` (by default all the cores but one). Terraflux's own tasks, landschaft's OpenMP kernels and the workers of a local batch share them. |
 | `TERRAFLUX_GDAL` | The GDAL library to load. By default Terraflux loads the `gdal` folder next to the program (the installers bring it), then an installed GDAL. Without any, GeoTIFF is still read and written by Terraflux itself. |
-| `TERRAFLUX_CACHE` | Where data downloaded on first use is kept (reference data of species distribution models). By default the system's cache folder. |
+| `TERRAFLUX_CACHE` | Where Terraflux's caches are kept: the rasters the preparation operators make without a `path` (`prepare`), the data downloaded (`data`, and the reference data of species distribution models). By default the system's cache folder. |
+| `TERRAFLUX_CACHE_GB` | The size, in gigabytes, each cache (`prepare`, `data`, a worker's data) is held under, the least recently used removed first (10 by default; 0 for no limit). In the application, **Settings > Cache**. |
 | `TERRAFLUX_CACHE_MB` | The memory, in megabytes, of the tiles of the tiled engine's layers kept decoded (2048 by default). More helps large tiled runs on machines with memory to spare. |
 | `TERRAFLUX_SSH` | The SSH program used to reach clusters and servers (by default the system's `ssh`). |
 | `TERRAFLUX_SETTINGS` | The application's settings file, instead of the one in the user's application data. Useful to keep a separate setup, for teaching for example. |

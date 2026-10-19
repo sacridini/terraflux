@@ -464,12 +464,24 @@ pub struct Layer {
     on_disk: Mutex<Vec<bool>>,
     /// the layer's number in the cache of tiles
     id: u64,
+    /// Whether this process made it ([`Layer::new`]): its folder then goes with it (a step's layers lived for
+    /// the run only, and stayed on disk: hundreds of GB of a long run); not one written by others.
+    owned: bool,
 }
 
 impl Drop for Layer {
     fn drop(&mut self) {
-        if self.disk.is_some() {
+        if let Some(d) = &self.disk {
             tile_cache().forget(self.id);
+            if self.owned {
+                let _ = std::fs::remove_dir_all(d);
+                // the step's folders it was in, once empty (`step_001/probability`)
+                for up in d.ancestors().skip(1).take(2) {
+                    if std::fs::remove_dir(up).is_err() {
+                        break;
+                    }
+                }
+            }
         }
     }
 }
@@ -492,6 +504,7 @@ impl Layer {
             disk,
             on_disk: Mutex::new(vec![false; n]),
             id: next_layer_id(),
+            owned: true,
         })
     }
 
@@ -505,6 +518,7 @@ impl Layer {
             disk: Some(dir),
             on_disk: Mutex::new(vec![false; n]),
             id: next_layer_id(),
+            owned: false,
         }
     }
 

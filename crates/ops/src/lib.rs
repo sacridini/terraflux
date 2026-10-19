@@ -19,6 +19,7 @@ pub mod agents;
 pub mod algebra;
 pub mod batch;
 pub mod bio;
+pub mod cache;
 pub mod carbon;
 pub mod change;
 pub mod change_analysis;

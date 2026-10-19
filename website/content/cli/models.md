@@ -56,7 +56,7 @@ within tiles: keep `--tile` fixed when you compare runs.
 
 ```bash
 terraflux run model.toml --tiled                            # tiles of 1024 cells, layers in memory
-terraflux run model.toml --tiled --tile 2048 --disk layers  # the steps' layers kept on disk
+terraflux run model.toml --tiled --tile 2048 --disk layers  # the steps' layers on disk while they are needed
 terraflux run model.toml --tiled --disk layers --coordinator http://server:7700   # tiles on many machines
 ```
 

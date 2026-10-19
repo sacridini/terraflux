@@ -198,8 +198,18 @@ fn tell(opts: &Options, f: impl FnOnce(&mut Status)) {
     }
 }
 
+/// The worker's cache (the blobs fetched, the bundles unpacked, the tiles of the layers) held under the size of
+/// Terraflux's caches, the least recently used removed first; only what no task used for an hour (the workers of
+/// a machine share it).
+fn tidy(opts: &Options) {
+    let dirs = ["blobs", "bundles", "layers"].map(|d| opts.cache.join(d));
+    let refs: Vec<&std::path::Path> = dirs.iter().map(PathBuf::as_path).collect();
+    terraflux_ops::cache::prune_all(&refs, terraflux_ops::cache::limit(), &[], Duration::from_secs(3600));
+}
+
 /// Ask for tasks and run them until `stop`; reconnects when the coordinator goes away.
 pub async fn run(url: &str, opts: Options, stop: Arc<AtomicBool>) -> Result<()> {
+    tidy(&opts);
     let mut told = String::new();
     while !stop.load(Ordering::Relaxed) {
         if let Ended::Refused(why) = serve(url, &opts, &stop).await
@@ -216,6 +226,7 @@ pub async fn run(url: &str, opts: Options, stop: Arc<AtomicBool>) -> Result<()> 
 /// Find the coordinator of a pairing code on the local network (its beacons heard at `on`) and work for it
 /// until `stop`; found again when it goes away.
 pub async fn run_found(code: Code, mut opts: Options, stop: Arc<AtomicBool>, on: std::net::SocketAddr) -> Result<()> {
+    tidy(&opts);
     opts.code = Some(code.clone());
     while !stop.load(Ordering::Relaxed) {
         tell(&opts, |s| {

@@ -1214,6 +1214,9 @@ pub struct TerrafluxApp {
     styled: Option<(String, u32, u32)>,
     /// The settings' window is open.
     pub settings_open: bool,
+    /// The bytes in the caches (rasters made, data downloaded), measured when (counted again every few seconds
+    /// while the settings show it).
+    cache_used: Option<(Instant, u64)>,
     /// The map seen last (a map's tab or the viewer): Tab goes from the model to it and back.
     tab_back: Option<Pane>,
     /// Tab was taken this frame: the keyboard's focus it may have given a field is let go at the frame's end.
@@ -1274,6 +1277,7 @@ impl TerrafluxApp {
     pub fn new(model: Option<PathBuf>) -> Self {
         let registry = Registry::standard();
         let library = Library::new(&registry);
+        terraflux_ops::cache::set_limit(crate::settings::get().cache_gb);
         let mut app = TerrafluxApp {
             template_name: String::new(),
             session: Some(Session::blank()),
@@ -1291,6 +1295,7 @@ impl TerrafluxApp {
             hover: None,
             styled: None,
             settings_open: false,
+            cache_used: None,
             tab_back: None,
             tabbed: false,
             drawer: None,
@@ -1827,6 +1832,38 @@ impl TerrafluxApp {
                     );
                 });
                 ui.end_row();
+                ui.label("Cache");
+                ui.vertical(|ui| {
+                    let mut gb = st.cache_gb.unwrap_or(terraflux_ops::cache::DEFAULT_GB);
+                    ui.add(egui::Slider::new(&mut gb, 1.0..=200.0).logarithmic(true).suffix(" GB").max_decimals(0));
+                    st.cache_gb = (gb != terraflux_ops::cache::DEFAULT_GB).then_some(gb);
+                    let dirs = terraflux_ops::cache::emptied();
+                    if self.cache_used.is_none_or(|(t, _)| t.elapsed() > Duration::from_secs(3)) {
+                        let used = dirs.iter().map(|d| terraflux_ops::cache::size(d)).sum();
+                        self.cache_used = Some((Instant::now(), used));
+                    }
+                    let used = self.cache_used.map_or(0, |(_, b)| b);
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(format!("{:.2} GB used", used as f64 / 1e9)).size(11.0));
+                        if ui.add_enabled(used > 0, egui::Button::new("Empty")).clicked() {
+                            for d in &dirs {
+                                terraflux_ops::cache::clear(d);
+                            }
+                            self.cache_used = None;
+                        }
+                    })
+                    .response
+                    .on_hover_text(terraflux_ops::cache::root().display().to_string());
+                    ui.label(
+                        RichText::new(
+                            "the rasters made without a file (reprojected, clipped...) and the data downloaded: kept \
+                             to be used again, the least recently used removed beyond this size",
+                        )
+                        .weak()
+                        .size(11.0),
+                    );
+                });
+                ui.end_row();
             });
             // which GDAL reads the other formats and does the warping, if any
             ui.add_space(6.0);
@@ -1856,6 +1893,7 @@ impl TerrafluxApp {
                 };
             }
         });
+        terraflux_ops::cache::set_limit(st.cache_gb);
         crate::settings::update(|s| *s = st);
         self.settings_open = open;
     }

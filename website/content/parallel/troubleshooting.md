@@ -78,7 +78,7 @@ The logs: `submit` prints the progress and each failure; `tasks.csv` has a row p
 | `the tiled Expander and Patcher take a 3 x 3 window` | `window` other than `[3, 3]` | use the default window |
 | Maps differ between tile sizes | the patches measured by [[patches.observe]] within tiles | give them with [[patches.settings]] |
 | Many machines are slower than one | each pass is a round trip through the coordinator | use many machines only for maps that do not fit on one |
-| The disk fills | `--disk` keeps every layer of every step | a larger disk: budget several times the land use map's size per step |
+| The disk fills | `--disk` holds the layers of two steps at a time (a probability per transition, the Expander's and the Patcher's maps) | a larger disk: budget the land use map's size times twice (transitions + 2) |
 
 ## Reading a batch's traces
 

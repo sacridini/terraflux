@@ -33,7 +33,31 @@ fn rasters_of(v: &Value, node: &str) -> Result<Arc<Rasters>> {
     match v {
         Value::Raster(r) => Ok(r.clone()),
         Value::Map(_) | Value::Stack(_) => {
-            let path = cache_dir().join(format!("{}-{node}-in.tif", std::process::id()));
+            // named by its cells and grid: written once, the same name for the same map at every run (what is made
+            // of it is then found in the cache too)
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            let layers: Vec<&[f64]> = match v {
+                Value::Map(m) => vec![m.data.as_slice()],
+                Value::Stack(s) => s.layers.iter().map(|l| l.as_slice()).collect(),
+                _ => unreachable!(),
+            };
+            for l in &layers {
+                l.iter().for_each(|x| x.to_bits().hash(&mut h));
+            }
+            let grid = match v {
+                Value::Map(m) => &m.grid,
+                Value::Stack(s) => &s.grid,
+                _ => unreachable!(),
+            };
+            format!("{:?}{}{}{:?}", grid.transform, grid.width, grid.height, crs_of(grid)).hash(&mut h);
+            if let Value::Stack(s) = v {
+                s.keys.iter().for_each(|k| k.to_string().hash(&mut h));
+            }
+            let path = cache_dir().join(format!("in-{:016x}.tif", h.finish()));
+            if path.is_file() {
+                crate::cache::touch(&path);
+                return Ok(Arc::new(Rasters::open(&path.to_string_lossy(), None, None)?));
+            }
             let raster = match v {
                 Value::Map(m) => Raster {
                     grid: (*m.grid).clone(),
@@ -57,7 +81,7 @@ fn rasters_of(v: &Value, node: &str) -> Result<Arc<Rasters>> {
             let refs: Vec<&[f64]> = raster.bands.iter().map(|b| b.data.as_slice()).collect();
             let (dtype, nodata) = DataType::fitting(&refs, None);
             let raster = Raster { dtype, nodata, ..raster };
-            write_with_crs(&raster, &path)?;
+            made(&Dest { path: path.clone(), cached: true }, |to| write_with_crs(&raster, to))?;
             Ok(Arc::new(Rasters::open(&path.to_string_lossy(), None, None)?))
         }
         v => Err(Error::msg(format!("node {node:?}: a {:?} is not a raster", v.ty()))),
@@ -75,57 +99,125 @@ pub fn write_with_crs(r: &Raster, path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// The folder of the rasters made without a path.
+/// The folder of the rasters made without a path: `prepare` in Terraflux's cache, held under its size
+/// ([`crate::cache`]).
 pub fn cache_dir() -> PathBuf {
-    let d = std::env::temp_dir().join("terraflux-cache");
+    let d = crate::cache::root().join("prepare");
     let _ = std::fs::create_dir_all(&d);
+    forget_old_cache();
     d
 }
 
-/// Where a node's rasters go: the path given, else the cache (named by the inputs' files and the settings).
-fn destination(args: &Args, sources: &Rasters, what: &str) -> Result<PathBuf> {
+/// The rasters the versions before 1.7 made without a path, in the temporary folder and never removed: removed
+/// once (the workers' data there, `blobs`, `bundles`, `layers` and `out`, left).
+fn forget_old_cache() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let old = std::env::temp_dir().join("terraflux-cache");
+        for e in std::fs::read_dir(&old).into_iter().flatten().flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if !["blobs", "bundles", "layers", "out"].contains(&name.as_str()) {
+                let p = e.path();
+                let _ = if p.is_dir() { std::fs::remove_dir_all(&p) } else { std::fs::remove_file(&p) };
+            }
+        }
+    });
+}
+
+/// Where a node's rasters go: a path given (made again at every run), or the cache.
+struct Dest {
+    path: PathBuf,
+    /// In the cache: made once, while it is there taken as it is.
+    cached: bool,
+}
+
+/// Where a node's rasters go: the path given, else the cache, named by all that makes them: the operator, the
+/// files they come from (one of the cache by its name, which says what made it; another by its path, size and
+/// time), the settings and the utility's arguments (`args`: what the inputs other than the rasters, a grid to
+/// match, add).
+fn destination(args: &Args, sources: &Rasters, what: &str, tool: &[String]) -> Result<Dest> {
     if let Some(p) = args.opt_param::<String>("path")?.filter(|p| !p.is_empty()) {
-        return Ok(PathBuf::from(p));
+        return Ok(Dest { path: PathBuf::from(p), cached: false });
     }
+    let cache = cache_dir();
     let mut h = std::collections::hash_map::DefaultHasher::new();
     what.hash(&mut h);
     for f in &sources.images {
-        f.path().hash(&mut h);
-        if let Ok(m) = std::fs::metadata(f.path()) {
+        let p = f.path();
+        p.hash(&mut h);
+        if !p.starts_with(&cache)
+            && let Ok(m) = std::fs::metadata(&p)
+        {
             (m.len(), m.modified().ok()).hash(&mut h);
         }
     }
     serde_json::to_string(args.params).unwrap_or_default().hash(&mut h);
-    Ok(cache_dir().join(format!("{what}-{:016x}", h.finish())))
+    tool.hash(&mut h);
+    Ok(Dest { path: cache.join(format!("{what}-{:016x}", h.finish())), cached: true })
+}
+
+/// A file or a folder made by `make` (given where to write it): in the cache, taken as it is when it is there,
+/// else made under another name and renamed when whole (so that a file there is never half-made), the cache then
+/// held under its size; at a path given, made again.
+fn made(dest: &Dest, make: impl FnOnce(&Path) -> Result<()>) -> Result<()> {
+    let out = &dest.path;
+    if dest.cached && out.exists() {
+        crate::cache::touch(out);
+        return Ok(());
+    }
+    if let Some(d) = out.parent().filter(|d| !d.as_os_str().is_empty()) {
+        std::fs::create_dir_all(d).map_err(|e| Error::msg(format!("{}: {e}", d.display())))?;
+    }
+    let remove = |p: &Path| {
+        let _ = if p.is_dir() { std::fs::remove_dir_all(p) } else { std::fs::remove_file(p) };
+    };
+    if !dest.cached {
+        remove(out);
+        return make(out);
+    }
+    let name = out.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let part = out.with_file_name(format!(".part-{}-{name}", std::process::id()));
+    remove(&part);
+    if let Err(e) = make(&part) {
+        remove(&part);
+        return Err(e);
+    }
+    remove(out);
+    std::fs::rename(&part, out).map_err(|e| Error::msg(format!("{}: {e}", out.display())))?;
+    if let Some(dir) = out.parent() {
+        crate::cache::prune(dir, crate::cache::limit(), &[out]);
+    }
+    Ok(())
 }
 
 /// Run a GDAL utility on every file of rasters (a file: `dest` is the file; a series: `dest` a folder of files
 /// of the same names); the rasters made, opened.
 fn each_file(
     sources: &Rasters,
-    dest: &Path,
+    dest: &Dest,
     run: &dyn Fn(&Path, &Path) -> std::result::Result<(), String>,
 ) -> Result<Arc<Rasters>> {
     let files: Vec<PathBuf> = sources.images.iter().map(|f| f.path()).collect();
     if files.len() == 1 {
-        let out = if dest.extension().is_none() { dest.with_extension("tif") } else { dest.to_path_buf() };
-        if let Some(d) = out.parent().filter(|d| !d.as_os_str().is_empty()) {
-            std::fs::create_dir_all(d).map_err(|e| Error::msg(format!("{}: {e}", d.display())))?;
-        }
-        let _ = std::fs::remove_file(&out);
-        run(&files[0], &out).map_err(Error::msg)?;
+        let path = if dest.path.extension().is_none() { dest.path.with_extension("tif") } else { dest.path.clone() };
+        made(&Dest { path: path.clone(), cached: dest.cached }, |to| run(&files[0], to).map_err(Error::msg))?;
         return Ok(Arc::new(
-            Rasters::open(&out.to_string_lossy(), None, None)?.choose(sources.chosen).picking(sources.picked),
+            Rasters::open(&path.to_string_lossy(), None, None)?.choose(sources.chosen).picking(sources.picked),
         ));
     }
-    std::fs::create_dir_all(dest).map_err(|e| Error::msg(format!("{}: {e}", dest.display())))?;
-    for f in &files {
-        let name = f.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-        let out = dest.join(format!("{name}.tif"));
-        let _ = std::fs::remove_file(&out);
-        run(f, &out).map_err(|e| Error::msg(format!("{}: {e}", f.display())))?;
-    }
-    Ok(Arc::new(Rasters::open(&dest.to_string_lossy(), None, None)?.choose(sources.chosen).picking(sources.picked)))
+    made(dest, |dir| {
+        std::fs::create_dir_all(dir).map_err(|e| Error::msg(format!("{}: {e}", dir.display())))?;
+        for f in &files {
+            let name = f.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+            let out = dir.join(format!("{name}.tif"));
+            let _ = std::fs::remove_file(&out);
+            run(f, &out).map_err(|e| Error::msg(format!("{}: {e}", f.display())))?;
+        }
+        Ok(())
+    })?;
+    Ok(Arc::new(
+        Rasters::open(&dest.path.to_string_lossy(), None, None)?.choose(sources.chosen).picking(sources.picked),
+    ))
 }
 
 /// A CRS as GDAL takes it: the WKT GDAL read, else the EPSG code of the GeoTIFF keys.
@@ -263,7 +355,7 @@ impl Operator for Reproject {
             a.extend(e.iter().map(|v| v.to_string()));
         }
         a.extend(extra(args)?);
-        let dest = destination(args, &src, "reproject")?;
+        let dest = destination(args, &src, "reproject", &a)?;
         let out = each_file(&src, &dest, &|from, to| terraflux_gdal::warp(&[from], to, &a))?;
         Ok(outputs([("raster", Value::Raster(out))]))
     }
@@ -315,7 +407,7 @@ impl Operator for Match {
         if let Some(c) = args.opt_param::<String>("source_crs")?.filter(|c| !c.trim().is_empty()) {
             a.extend(strings(&["-s_srs", &c]));
         }
-        let dest = destination(args, &src, "match")?;
+        let dest = destination(args, &src, "match", &a)?;
         let out = each_file(&src, &dest, &|from, to| terraflux_gdal::warp(&[from], to, &a))?;
         Ok(outputs([("raster", Value::Raster(out))]))
     }
@@ -356,7 +448,7 @@ impl Operator for Clip {
             "-co",
             "BIGTIFF=IF_SAFER",
         ]);
-        let dest = destination(args, &src, "clip")?;
+        let dest = destination(args, &src, "clip", &a)?;
         let out = each_file(&src, &dest, &|from, to| terraflux_gdal::translate(from, to, &a))?;
         Ok(outputs([("raster", Value::Raster(out))]))
     }
@@ -397,7 +489,7 @@ impl Operator for Resample {
         let mut a = strings(&["-r", &resampling(args, &src, coarser)?, "-tr", &x.to_string(), &y.to_string()]);
         a.extend(strings(&["-multi", "-wo", "NUM_THREADS=ALL_CPUS"]));
         a.extend(tiff_options());
-        let dest = destination(args, &src, "resample")?;
+        let dest = destination(args, &src, "resample", &a)?;
         let out = each_file(&src, &dest, &|from, to| terraflux_gdal::warp(&[from], to, &a))?;
         Ok(outputs([("raster", Value::Raster(out))]))
     }
@@ -455,27 +547,26 @@ impl Operator for Convert {
         a.extend(extra(args)?);
         let ext = extension(&format);
         let files: Vec<PathBuf> = src.images.iter().map(|f| f.path()).collect();
-        let mut dest = destination(args, &src, "convert")?;
+        let mut dest = destination(args, &src, "convert", &a)?;
         if files.len() == 1 {
-            if dest.extension().is_none() {
-                dest = dest.with_extension(ext);
+            if dest.path.extension().is_none() {
+                dest.path = dest.path.with_extension(ext);
             }
-            if let Some(d) = dest.parent().filter(|d| !d.as_os_str().is_empty()) {
-                std::fs::create_dir_all(d).map_err(|e| Error::msg(format!("{}: {e}", d.display())))?;
-            }
-            let _ = std::fs::remove_file(&dest);
-            terraflux_gdal::translate(&files[0], &dest, &a).map_err(Error::msg)?;
-            let r = Rasters::open(&dest.to_string_lossy(), None, None)?.choose(src.chosen).picking(src.picked);
+            made(&dest, |to| terraflux_gdal::translate(&files[0], to, &a).map_err(Error::msg))?;
+            let r = Rasters::open(&dest.path.to_string_lossy(), None, None)?.choose(src.chosen).picking(src.picked);
             return Ok(outputs([("raster", Value::Raster(Arc::new(r)))]));
         }
-        std::fs::create_dir_all(&dest).map_err(|e| Error::msg(format!("{}: {e}", dest.display())))?;
-        for f in &files {
-            let name = f.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-            let out = dest.join(format!("{name}.{ext}"));
-            let _ = std::fs::remove_file(&out);
-            terraflux_gdal::translate(f, &out, &a).map_err(|e| Error::msg(format!("{}: {e}", f.display())))?;
-        }
-        let r = Rasters::open(&dest.to_string_lossy(), None, None)?.choose(src.chosen).picking(src.picked);
+        made(&dest, |dir| {
+            std::fs::create_dir_all(dir).map_err(|e| Error::msg(format!("{}: {e}", dir.display())))?;
+            for f in &files {
+                let name = f.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+                let out = dir.join(format!("{name}.{ext}"));
+                let _ = std::fs::remove_file(&out);
+                terraflux_gdal::translate(f, &out, &a).map_err(|e| Error::msg(format!("{}: {e}", f.display())))?;
+            }
+            Ok(())
+        })?;
+        let r = Rasters::open(&dest.path.to_string_lossy(), None, None)?.choose(src.chosen).picking(src.picked);
         Ok(outputs([("raster", Value::Raster(Arc::new(r)))]))
     }
 }
@@ -512,15 +603,12 @@ impl Operator for Mosaic {
         if let Some((x, y)) = resolution(args)? {
             a.extend(strings(&["-tr", &x.to_string(), &y.to_string()]));
         }
-        let dest = destination(args, &src, "mosaic")?.with_extension("tif");
-        if let Some(d) = dest.parent().filter(|d| !d.as_os_str().is_empty()) {
-            std::fs::create_dir_all(d).map_err(|e| Error::msg(format!("{}: {e}", d.display())))?;
-        }
-        let _ = std::fs::remove_file(&dest);
+        let mut dest = destination(args, &src, "mosaic", &a)?;
+        dest.path = dest.path.with_extension("tif");
         let files: Vec<PathBuf> = src.images.iter().map(|f| f.path()).collect();
         let refs: Vec<&Path> = files.iter().map(PathBuf::as_path).collect();
-        terraflux_gdal::warp(&refs, &dest, &a).map_err(Error::msg)?;
-        let r = Rasters::open(&dest.to_string_lossy(), None, None)?;
+        made(&dest, |to| terraflux_gdal::warp(&refs, to, &a).map_err(Error::msg))?;
+        let r = Rasters::open(&dest.path.to_string_lossy(), None, None)?;
         Ok(outputs([("raster", Value::Raster(Arc::new(r)))]))
     }
 }
@@ -553,7 +641,7 @@ impl Operator for Terrain {
         let mut a = strings(&["-b", &(src.layers[src.chosen].band + 1).to_string(), "-compute_edges"]);
         a.extend(tiff_options());
         a.extend(extra(args)?);
-        let dest = destination(args, &src, &format!("terrain-{measure}"))?;
+        let dest = destination(args, &src, &format!("terrain-{measure}"), &a)?;
         let out = each_file(&src, &dest, &|from, to| terraflux_gdal::dem(from, to, &measure, &a))?;
         Ok(outputs([("raster", Value::Raster(Arc::new(out.choose(0))))]))
     }
@@ -580,7 +668,7 @@ impl Operator for Fill {
         need_gdal(args.node)?;
         let src = rasters_of(args.get("raster").ok_or_else(|| Error::msg("connect the rasters"))?, args.node)?;
         let (d, k): (f64, usize) = (args.param("max_distance", 100.0)?, args.param("smoothing", 0)?);
-        let dest = destination(args, &src, "fill")?;
+        let dest = destination(args, &src, "fill", &[])?;
         let out = each_file(&src, &dest, &|from, to| terraflux_gdal::fill_nodata(from, to, d, k))?;
         Ok(outputs([("raster", Value::Raster(out))]))
     }
@@ -628,10 +716,10 @@ impl Operator for Proximity {
         }
         let layer = &src.layers[src.chosen];
         let file = src.images[layer.image].path();
-        let dest = destination(args, &src, "proximity")?.with_extension("tif");
-        let _ = std::fs::remove_file(&dest);
-        terraflux_gdal::proximity(&file, layer.band + 1, &dest, &options).map_err(Error::msg)?;
-        let r = Rasters::open(&dest.to_string_lossy(), None, None)?;
+        let mut dest = destination(args, &src, "proximity", &[layer.band.to_string()])?;
+        dest.path = dest.path.with_extension("tif");
+        made(&dest, |to| terraflux_gdal::proximity(&file, layer.band + 1, to, &options).map_err(Error::msg))?;
+        let r = Rasters::open(&dest.path.to_string_lossy(), None, None)?;
         Ok(outputs([("raster", Value::Raster(Arc::new(r)))]))
     }
 }

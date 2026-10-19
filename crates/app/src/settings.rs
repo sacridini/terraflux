@@ -58,6 +58,8 @@ pub struct Settings {
     /// chosen (none: not chosen yet).
     pub providers: Vec<crate::llm::Provider>,
     pub provider: Option<usize>,
+    /// The size each cache of rasters made and data downloaded is held under, in gigabytes (none: 10; 0: no limit).
+    pub cache_gb: Option<f64>,
 }
 
 impl Default for Settings {
@@ -82,6 +84,7 @@ impl Default for Settings {
             recent_models: Vec::new(),
             providers: crate::llm::presets(),
             provider: None,
+            cache_gb: None,
         }
     }
 }

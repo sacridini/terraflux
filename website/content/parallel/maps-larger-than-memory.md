@@ -206,7 +206,8 @@ and for MSPA, look at the seams of the tiles.
   needs it; out-of-core work is limited to the operators above.
 - **Slow disks**: out-of-core work reads and writes much; a network disk or a USB drive makes it crawl. Use a local
   SSD, or `--shared-disk` on a cluster's parallel file system.
-- **Too little disk** for `--disk`: every layer of every step, tile by tile.
+- **Too little disk** for `--disk`: the layers of a step (a probability per transition, the Expander's and the
+  Patcher's maps), tile by tile, while the step and the next need them; they are removed after.
 
 ## Going further
 

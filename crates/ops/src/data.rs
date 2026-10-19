@@ -384,6 +384,11 @@ impl Operator for Download {
             }
             std::fs::rename(&tmp, &out).map_err(|e| fail(format!("{}: {e}", out.display())))?;
         }
+        // used now; the downloads of other grids held under the cache's size, the least recently used removed
+        crate::cache::touch(&dir);
+        if let Some(all) = dir.parent() {
+            crate::cache::prune(all, crate::cache::limit(), &[&dir]);
+        }
         let path = if layers.len() == 1 { dir.join(format!("{}.tif", layers[0].name)) } else { dir };
         Ok(outputs([("raster", Value::Raster(Arc::new(Rasters::open(&path.to_string_lossy(), None, None)?)))]))
     }
