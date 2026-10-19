@@ -1,8 +1,10 @@
 //! Vector features drawn over a grid as tiles, so that layers of millions of features draw and move as smoothly as
 //! a map: a layer is prepared once on a thread of its own (reprojected to the grid's coordinate system, its
-//! vertices put in the grid's cells, an R-tree of its features' boxes), then threads rasterize the tiles in view
-//! (256 x 256 pixels, antialiased by tiny-skia) from the features the tree finds over each, every vertex closer than
-//! a pixel to the last drawn skipped and features smaller than a pixel drawn as a dot. The screen only draws
+//! vertices put in the grid's cells, an R-tree of its features' boxes, the box of every run of 64 vertices), then
+//! threads rasterize the tiles in view (256 x 256 pixels, antialiased by tiny-skia) from the features the tree finds
+//! over each, every vertex closer than a pixel to the last drawn skipped, a run off the tile or smaller than a pixel
+//! drawn as one line (a tile deep in a feature of a hundred thousand vertices draws the few over it, not them all)
+//! and features smaller than a pixel drawn as a dot. The screen only draws
 //! textures; until a tile comes the finest coarser one kept is shown, stretched. The feature under the pointer is
 //! found by the tree too.
 
@@ -22,6 +24,9 @@ const TILE: usize = 256;
 const KEPT: usize = 512;
 /// The finest level: a tile's pixel 1/256 of a cell.
 const FINEST: i32 = -8;
+/// The vertices of a run of a part, boxed: a tile draws a run away from it, or smaller than a pixel, as the line
+/// from its first vertex to its last.
+const RUN: usize = 64;
 
 /// How a layer is drawn: a colour, or the colours of an attribute's values (classes, or a ramp of numbers).
 #[derive(Debug, Clone, PartialEq)]
@@ -76,6 +81,10 @@ pub struct Layer {
     features: Vec<Feature>,
     parts: Vec<u32>,
     xy: Vec<[f64; 2]>,
+    /// The box of every run of `RUN` vertices of the parts (the last vertex of one the first of the next), and
+    /// the first run of each part: `runs[run_of[k]..run_of[k + 1]]` the runs of part k.
+    runs: Vec<[f64; 4]>,
+    run_of: Vec<u32>,
     tree: RTree<GeomWithData<Rectangle<[f64; 2]>, u32>>,
     /// The box of every feature, cells.
     pub bounds: Option<[f64; 4]>,
@@ -158,7 +167,23 @@ pub fn prepare(v: &Arc<Vector>, grid: &Grid) -> Result<Layer, String> {
         [l[0], l[1], u[0], u[1]]
     });
     let tree = RTree::bulk_load(boxes);
-    Ok(Layer { vector: v.clone(), features, parts, xy, tree, bounds })
+    let mut runs = Vec::with_capacity(xy.len() / RUN + parts.len());
+    let mut run_of = Vec::with_capacity(parts.len());
+    for w in parts.windows(2) {
+        run_of.push(runs.len() as u32);
+        let (mut i, b) = (w[0] as usize, w[1] as usize);
+        while i + 1 < b {
+            let j = (i + RUN).min(b - 1);
+            let mut bbox = [f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY];
+            for p in &xy[i..=j] {
+                bbox = [bbox[0].min(p[0]), bbox[1].min(p[1]), bbox[2].max(p[0]), bbox[3].max(p[1])];
+            }
+            runs.push(bbox);
+            i = j;
+        }
+    }
+    run_of.push(runs.len() as u32);
+    Ok(Layer { vector: v.clone(), features, parts, xy, runs, run_of, tree, bounds })
 }
 
 fn crs_of(g: &Grid) -> Option<String> {
@@ -273,15 +298,24 @@ pub fn rasterize(
                 pb.push_circle(x, y, 2.0 + style.width);
                 continue;
             }
-            // the vertices a pixel apart at least
+            // the vertices a pixel apart at least; a run off the tile or smaller than a pixel the line from its
+            // first vertex to its last, within its box: off the tile still, the fill over the tile the same
             let (x, y) = at(&pts[0]);
             pb.move_to(x, y);
             let mut last = (x, y);
-            for (i, p) in pts.iter().enumerate().skip(1) {
-                let (x, y) = at(p);
-                if (x - last.0).abs() >= 0.5 || (y - last.1).abs() >= 0.5 || i == pts.len() - 1 {
-                    pb.line_to(x, y);
-                    last = (x, y);
+            let runs = &layer.runs[layer.run_of[part as usize] as usize..layer.run_of[part as usize + 1] as usize];
+            for (k, r) in runs.iter().enumerate() {
+                let (i, j) = (a + k * RUN, (a + (k + 1) * RUN).min(b - 1));
+                let off =
+                    r[2] < env.lower()[0] || r[0] > env.upper()[0] || r[3] < env.lower()[1] || r[1] > env.upper()[1];
+                let tiny = (r[2] - r[0]) * px < 0.5 && (r[3] - r[1]) * px < 0.5;
+                let from = if off || tiny { j } else { i + 1 };
+                for (n, p) in layer.xy[from..=j].iter().enumerate() {
+                    let (x, y) = at(p);
+                    if (x - last.0).abs() >= 0.5 || (y - last.1).abs() >= 0.5 || from + n == b - 1 {
+                        pb.line_to(x, y);
+                        last = (x, y);
+                    }
                 }
             }
             if f.kind == Kind::Polygon {

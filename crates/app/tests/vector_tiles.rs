@@ -1,5 +1,6 @@
 //! Vector layers drawn as tiles: the features under a point (polygons with holes, lines, points), the tiles of
-//! them, a layer of a quarter of a million polygons prepared and drawn in a few hundred milliseconds (release), and
+//! them, a layer of a quarter of a million polygons prepared and drawn in a few hundred milliseconds (release), a
+//! tile deep in a polygon of 400 000 vertices drawn in a few milliseconds (its fill and hole the same), and
 //! the viewer drawn off screen (pictures terraflux-vectors-*.png in the temporary folder): vectors alone, and the
 //! clusters of zones over their map.
 
@@ -86,6 +87,54 @@ fn a_large_layer_is_quick() {
     assert!(fine.pixels.iter().any(|p| p.a() > 0));
     if !cfg!(debug_assertions) {
         assert!(prepared.as_secs_f64() < 2.0 && whole.as_secs_f64() < 2.0 && detail.as_secs_f64() < 0.5);
+    }
+}
+
+#[test]
+fn a_tile_of_a_large_polygon_draws_what_is_over_it() {
+    // a disc of 200 000 vertices, a hole of as many in its middle
+    let ring = |r: f64| -> Vec<[f64; 2]> {
+        (0..=200_000)
+            .map(|k| {
+                let a = k as f64 / 200_000.0 * std::f64::consts::TAU;
+                [r * a.cos(), r * a.sin()]
+            })
+            .collect()
+    };
+    let v = Arc::new(Vector {
+        geometries: vec![Geometry::Polygon(vec![ring(1000.0), ring(500.0)])],
+        attributes: Vec::new(),
+        crs: None,
+    });
+    let grid = grid_over(&v);
+    let layer = prepare(&v, &grid).unwrap();
+    let style = Style { fill: 1.0, width: 0.0, ..Style::default() };
+    let colours = vec![style.colour];
+    let t = grid.transform;
+    // a tile of the level -4 (16 cells), deep in: its runs off it drawn as lines, its fill the same
+    let tile = |x: f64, y: f64| {
+        let c = [(x - t[0]) / t[1], (y - t[3]) / t[5]];
+        let t0 = Instant::now();
+        let img = rasterize(&layer, &colours, &style, -4, (c[0] / 16.0).floor() as i64, (c[1] / 16.0).floor() as i64);
+        (img.expect("the polygon over the tile"), t0.elapsed())
+    };
+    let (inside, took) = tile(750.0, 0.0);
+    assert!(inside.pixels.iter().all(|p| p.a() > 0), "the tile between the hole and the border filled");
+    let (hole, _) = tile(0.0, 250.0);
+    assert!(hole.pixels.iter().all(|p| p.a() == 0), "the hole empty");
+    let (border, _) = tile(1000.0, 0.0);
+    let filled = border.pixels.iter().filter(|p| p.a() > 0).count();
+    assert!(filled > 0 && filled < 256 * 256, "the border across the tile");
+    // outlined, on the border
+    let outlined = Style::default();
+    let c = [(1000.0 - t[0]) / t[1], (0.0 - t[3]) / t[5]];
+    let t0 = Instant::now();
+    let img = rasterize(&layer, &colours, &outlined, -4, (c[0] / 16.0).floor() as i64, (c[1] / 16.0).floor() as i64);
+    let outline = t0.elapsed();
+    assert!(img.unwrap().pixels.iter().any(|p| p.a() > 0));
+    eprintln!("a tile of 400 000 vertices: filled in {took:?}, outlined in {outline:?}");
+    if !cfg!(debug_assertions) {
+        assert!(took.as_secs_f64() < 0.005 && outline.as_secs_f64() < 0.005, "a tile of 400 000 vertices");
     }
 }
 
