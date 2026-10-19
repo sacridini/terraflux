@@ -19,6 +19,7 @@ pub mod editor_view;
 pub mod files_view;
 pub mod legend_view;
 pub mod llm;
+pub mod logo;
 pub mod map_view;
 pub mod metadata;
 pub mod node_view;
@@ -73,7 +74,8 @@ pub fn run(model: Option<PathBuf>) -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 820.0])
-            .with_title("Terraflux"),
+            .with_title("Terraflux")
+            .with_icon(logo::window_icon()),
         wgpu_options: wgpu_options(),
         ..Default::default()
     };

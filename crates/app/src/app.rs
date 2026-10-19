@@ -1564,7 +1564,9 @@ impl TerrafluxApp {
         let mut save = None;
         let (mut run, mut stop) = (false, false);
         ui.horizontal(|ui| {
-            ui.label(RichText::new("TERRAFLUX").strong().size(13.0).color(theme::accent()));
+            let (mark, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
+            crate::logo::paint_mark(ui.painter(), mark, theme::accent(), theme::current().text);
+            ui.label(crate::logo::wordmark(14.0, theme::current().text, theme::accent()));
             ui.add_space(6.0);
             ui.menu_button("File", |ui| self.file_menu(ui, &mut save));
             ui.menu_button("Templates", |ui| self.templates_menu(ui));
@@ -3038,7 +3040,8 @@ impl TerrafluxApp {
             let title = w.dock.iter_all_tabs().map(|(_, t)| t.title()).collect::<Vec<_>>().join(", ");
             let mut builder = egui::ViewportBuilder::default()
                 .with_title(format!("Terraflux - {title}"))
-                .with_inner_size([960.0, 720.0]);
+                .with_inner_size([960.0, 720.0])
+                .with_icon(crate::logo::window_icon());
             if let Some(at) = w.at.take() {
                 builder = builder.with_position(at);
             }

@@ -62,8 +62,9 @@ try {
     if ($LASTEXITCODE) { throw "the WiX firewall extension could not be added" }
     $msi = "$out\terraflux-$version-x64.msi"
     $stageFull = (Resolve-Path $stage).Path
+    $icon = (Resolve-Path assets\logo\terraflux.ico).Path
     dotnet wix build installer\terraflux.wxs -arch x64 -ext WixToolset.Firewall.wixext -d "Version=$version" `
-        -d "Stage=$stageFull" -o $msi
+        -d "Stage=$stageFull" -d "Icon=$icon" -o $msi
     if ($LASTEXITCODE) { throw "wix build failed" }
     foreach ($f in $msi, $zip) { "{0} ({1:N0} MB)" -f $f, ((Get-Item $f).Length / 1MB) }
 }

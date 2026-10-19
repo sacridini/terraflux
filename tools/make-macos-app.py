@@ -144,6 +144,8 @@ def info_plist(version, minimum):
     <string>io.github.sacridini.terraflux</string>
     <key>CFBundleExecutable</key>
     <string>terraflux</string>
+    <key>CFBundleIconFile</key>
+    <string>terraflux</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -210,6 +212,7 @@ def main():
     for f in ("LICENSE", "README.md", "CHANGELOG.md"):
         shutil.copyfile(ROOT / f, resources / f)
     (contents / "PkgInfo").write_text("APPL????")
+    shutil.copyfile(ROOT / "assets" / "logo" / "terraflux.icns", resources / "terraflux.icns")
 
     minimum = newest_minos([exe])
     if not a.no_gdal:

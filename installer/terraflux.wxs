@@ -2,9 +2,9 @@
 <!--
   Terraflux's Windows installer (WiX 5): terraflux.exe, the Visual C++ and OpenMP runtimes next to it, and GDAL in
   the folder `gdal`, in Program Files\Terraflux; a shortcut in the Start menu and the folder on the PATH (for
-  `terraflux run`); a rule of the Windows firewall that lets the computers of the local network reach Terraflux
-  (other computers helping with its runs, found by its beacons; only those given its code get in). Built by
-  tools\make-installer.ps1, which stages the files and gives Version and Stage.
+  `terraflux run`), with the application's icon; a rule of the Windows firewall that lets the computers of the
+  local network reach Terraflux (other computers helping with its runs, found by its beacons; only those given
+  its code get in). Built by tools\make-installer.ps1, which stages the files and gives Version, Stage and Icon.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall">
   <Package
@@ -19,6 +19,8 @@
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
 
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/sacridini/terraflux" />
+    <Icon Id="terraflux.ico" SourceFile="$(var.Icon)" />
+    <Property Id="ARPPRODUCTICON" Value="terraflux.ico" />
     <Property Id="ARPNOMODIFY" Value="1" />
 
     <StandardDirectory Id="ProgramFiles64Folder">
@@ -48,6 +50,7 @@
             Name="Terraflux"
             Description="Land use and land cover change modelling"
             Target="[INSTALLFOLDER]terraflux.exe"
+            Icon="terraflux.ico"
             WorkingDirectory="INSTALLFOLDER" />
         <RegistryValue Root="HKLM" Key="Software\Terraflux" Name="StartMenu" Type="integer" Value="1" KeyPath="yes" />
       </Component>

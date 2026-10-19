@@ -30,6 +30,7 @@ import tarfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+LOGO = ROOT / "assets" / "logo"
 # the system's own libraries, never brought: the C library and its parts, the C++ and GCC runtimes the program
 # is built against
 SYSTEM = re.compile(
@@ -118,6 +119,7 @@ Name=Terraflux
 GenericName=Land change modelling
 Comment=Land change models, landscape analysis and spatial prioritization
 Exec={exe} %f
+Icon={icon}
 Terminal=false
 Categories=Science;Geography;Education;
 Keywords=land use;land change;GIS;landscape;prioritization;
@@ -129,7 +131,8 @@ set -e
 here="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p "$HOME/.local/bin" "$HOME/.local/share/applications"
 ln -sf "$here/terraflux" "$HOME/.local/bin/terraflux"
-sed "s|@EXE@|$here/terraflux|" "$here/terraflux.desktop.in" > "$HOME/.local/share/applications/terraflux.desktop"
+sed -e "s|@EXE@|$here/terraflux|" -e "s|@ICON@|$here/terraflux.png|" "$here/terraflux.desktop.in" \\
+    > "$HOME/.local/share/applications/terraflux.desktop"
 echo "terraflux linked in $HOME/.local/bin (put it on the PATH if it is not) and added to the menu"
 """
 
@@ -236,7 +239,8 @@ def main():
                 break
     elf = [prog, *folder.joinpath("lib").glob("*"), *folder.joinpath("gdal").rglob("*.so*")]
     glibc = glibc_needed([f for f in elf if f.is_file()])
-    (folder / "terraflux.desktop.in").write_text(DESKTOP.format(exe="@EXE@"))
+    shutil.copyfile(LOGO / "png" / "terraflux-icon-256.png", folder / "terraflux.png")
+    (folder / "terraflux.desktop.in").write_text(DESKTOP.format(exe="@EXE@", icon="@ICON@"))
     (folder / "install.sh").write_text(INSTALL)
     (folder / "install.sh").chmod(0o755)
     print(f"{folder} (glibc {glibc} or later)")
@@ -253,11 +257,16 @@ def main():
         shutil.copytree(folder, opt, symlinks=True)
         (opt / "install.sh").unlink()
         (opt / "terraflux.desktop.in").unlink()
+        (opt / "terraflux.png").unlink()
         (root / "usr" / "bin").mkdir(parents=True)
         (root / "usr" / "bin" / "terraflux").symlink_to("../../opt/terraflux/terraflux")
         apps = root / "usr" / "share" / "applications"
         apps.mkdir(parents=True)
-        (apps / "terraflux.desktop").write_text(DESKTOP.format(exe="/opt/terraflux/terraflux"))
+        (apps / "terraflux.desktop").write_text(DESKTOP.format(exe="/opt/terraflux/terraflux", icon="terraflux"))
+        for n in (48, 64, 128, 256, 512):
+            icons = root / "usr" / "share" / "icons" / "hicolor" / f"{n}x{n}" / "apps"
+            icons.mkdir(parents=True)
+            shutil.copyfile(LOGO / "png" / f"terraflux-icon-{n}.png", icons / "terraflux.png")
         size_kb = sum(f.stat().st_size for f in root.rglob("*") if f.is_file()) // 1024
         (root / "DEBIAN").mkdir()
         (root / "DEBIAN" / "control").write_text(control(version, deb_arch, glibc, size_kb))
