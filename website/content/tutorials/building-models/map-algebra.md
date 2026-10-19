@@ -124,10 +124,9 @@ path = "drivers.tif"
 
 !!! app "In the application"
     Press ++ctrl+o++ (**File > Open a raster or vectors...**) or drag the file from the **Files** drawer: it becomes a
-    [[raster.read]] node, whose `map` port gives one band (the `band` setting, the first by default) and whose
-    `stack` port gives every band.
+    [[raster.read]] node, whose `raster` port gives every band (or only the one its `band` setting chooses).
 
-    Connect the `stack` port to an input of [[map.calc]] and the expression reads its layers by name
+    Connect it to an input of [[map.calc]] and the expression reads its layers by name
     (`d.elevation`), as it does with a stack declared as an input of the model.
 
 ### Step 2: a score for elevation

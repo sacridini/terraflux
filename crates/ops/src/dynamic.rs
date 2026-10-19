@@ -407,6 +407,7 @@ impl Operator for Of {
             Access::Local,
         )
         .extra(Type::Map)
+        .together()
         .output(PortSpec::new("stack", Type::Stack, "the maps' stack"))
     }
 

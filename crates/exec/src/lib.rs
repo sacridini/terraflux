@@ -423,25 +423,75 @@ impl Engine {
         for (port, src) in &node.inputs {
             values.insert(port.clone(), self.resolve(src, env, inputs, &format!("{at}.{port}"))?);
         }
-        // rasters on disk are read whole where a port takes a map or a stack (a container's values: maps)
         let sig = self.registry.sig(&node.op).cloned();
-        for (port, v) in values.iter_mut() {
-            if matches!(v, Value::Raster(_)) {
-                let want = sig
-                    .as_ref()
-                    .and_then(|s| s.input_spec(port).map(|p| p.ty).or(s.extra))
-                    .unwrap_or(terraflux_graph::Type::Map);
-                let raster = std::mem::replace(v, Value::Bool(false));
-                *v = terraflux_ops::files::as_port(raster, want)
-                    .map_err(|e| Error::Node { at: format!("{at}.{port}"), message: e.to_string() })?;
+        // many layers where a port takes one map (a stack's, a series of maps', the bands of rasters on disk): the
+        // node runs once per layer
+        if let Some(s) = &sig {
+            let many: Vec<(String, Vec<(String, Value)>)> = values
+                .iter()
+                .filter(|(p, _)| s.per_layer(p))
+                .filter_map(|(p, v)| terraflux_ops::files::layers(v).map(|l| (p.clone(), l)))
+                .collect();
+            if !many.is_empty() {
+                return self.per_layer(node, s, values, many, at, obs, warnings);
             }
         }
+        self.read_rasters(sig.as_deref(), &mut values, at, obs, warnings)?;
         if node.op == "control.repeat" {
             return self.repeat(node, env, values, inputs, at, obs, warnings);
         }
         if node.op == terraflux_graph::GROUP {
             return self.group(node, env, values, inputs, at, obs, warnings);
         }
+        let (out, warned) = self.run_op(node, values, at, obs, None)?;
+        for w in warned {
+            obs.warning(at, &w);
+            warnings.push(format!("{at}: {w}"));
+        }
+        // an output missing matters only to what reads it (some are given only with some settings or inputs): its
+        // reader is told, by `resolve`
+        Ok(out)
+    }
+
+    /// Rasters on disk read whole where a port takes a map or a stack (a container's values: maps); told when a
+    /// port of one map is given many bands and takes only the one chosen.
+    fn read_rasters(
+        &self,
+        sig: Option<&terraflux_graph::OpSignature>,
+        values: &mut BTreeMap<String, Value>,
+        at: &str,
+        obs: &mut dyn Observer,
+        warnings: &mut Vec<String>,
+    ) -> Result<()> {
+        for (port, v) in values.iter_mut() {
+            let Value::Raster(r) = v else { continue };
+            let want = sig.and_then(|s| s.input_type(port)).unwrap_or(terraflux_graph::Type::Map);
+            if want == terraflux_graph::Type::Map && r.layers.len() > 1 && !r.picked {
+                let w = format!(
+                    "{port} takes one map: of the {} layers given, only {:?} is used (raster.read's band chooses it)",
+                    r.layers.len(),
+                    r.layers[r.chosen].name
+                );
+                obs.warning(at, &w);
+                warnings.push(format!("{at}: {w}"));
+            }
+            let raster = std::mem::replace(v, Value::Bool(false));
+            *v = terraflux_ops::files::as_port(raster, want)
+                .map_err(|e| Error::Node { at: format!("{at}.{port}"), message: e.to_string() })?;
+        }
+        Ok(())
+    }
+
+    /// An operator run on its values, with its warnings; `part`: the layer it runs on (its place, the number of
+    /// layers, its name), which its progress tells.
+    fn run_op(
+        &self,
+        node: &Node,
+        values: BTreeMap<String, Value>,
+        at: &str,
+        obs: &mut dyn Observer,
+        part: Option<(usize, usize, &str)>,
+    ) -> Result<(Outputs, Vec<String>)> {
         let op = self
             .registry
             .get(&node.op)
@@ -450,8 +500,16 @@ impl Engine {
         // the operator told to report how far it is, and whether the run was stopped
         let (out, warned, stopped) = {
             let mut watch = |p: Option<&terraflux_ops::Progress>| {
-                if let Some(p) = p {
-                    obs.progress(at, p);
+                match (p, part) {
+                    (Some(p), None) => obs.progress(at, p),
+                    (Some(p), Some((i, n, name))) => obs.progress(
+                        at,
+                        &terraflux_ops::Progress {
+                            fraction: Some((i as f64 + p.fraction.unwrap_or(0.0)) / n as f64),
+                            text: format!("{name} ({} of {n}): {}", i + 1, p.text),
+                        },
+                    ),
+                    (None, _) => {}
                 }
                 !obs.cancelled()
             };
@@ -462,13 +520,82 @@ impl Engine {
         let out = out.map_err(|e| {
             if stopped { Error::Cancelled } else { Error::Node { at: at.into(), message: e.to_string() } }
         })?;
-        for w in warned {
+        Ok((out, warned))
+    }
+
+    /// A node given many layers where it takes one map, run once per layer: the layers of its ports given many
+    /// paired (as many on each), the maps given alone taken by every run. Its outputs gathered ([`gather`]); a
+    /// warning told once, with the layers that gave it.
+    #[allow(clippy::too_many_arguments)]
+    fn per_layer(
+        &self,
+        node: &Node,
+        sig: &terraflux_graph::OpSignature,
+        values: BTreeMap<String, Value>,
+        many: Vec<(String, Vec<(String, Value)>)>,
+        at: &str,
+        obs: &mut dyn Observer,
+        warnings: &mut Vec<String>,
+    ) -> Result<Outputs> {
+        let n = many[0].1.len();
+        if let Some((p, l)) = many.iter().find(|(_, l)| l.len() != n) {
+            return Err(Error::Node {
+                at: at.into(),
+                message: format!(
+                    "it runs once per layer, pairing the layers of its inputs: {} has {n}, {p} has {} (give them as \
+                     many layers, or one map, which every layer takes)",
+                    many[0].0,
+                    l.len()
+                ),
+            });
+        }
+        let names: Vec<String> = many[0].1.iter().map(|(name, _)| name.clone()).collect();
+        let series = many.iter().any(|(p, _)| matches!(values.get(p), Some(Value::Series(_))));
+        let mut outs = Vec::with_capacity(n);
+        let mut told: Vec<(String, Vec<usize>)> = Vec::new();
+        for (i, name) in names.iter().enumerate() {
+            if obs.cancelled() {
+                return Err(Error::Cancelled);
+            }
+            obs.progress(
+                at,
+                &terraflux_ops::Progress {
+                    fraction: Some(i as f64 / n as f64),
+                    text: format!("{name} ({} of {n})", i + 1),
+                },
+            );
+            let mut v = values.clone();
+            for (p, l) in &many {
+                v.insert(p.clone(), l[i].1.clone());
+            }
+            let layer = |e: Error| match e {
+                Error::Node { at, message } => {
+                    Error::Node { at, message: format!("layer {name:?} ({} of {n}): {message}", i + 1) }
+                }
+                e => e,
+            };
+            self.read_rasters(Some(sig), &mut v, at, obs, warnings).map_err(layer)?;
+            let (out, warned) = self.run_op(node, v, at, obs, Some((i, n, name))).map_err(layer)?;
+            for w in warned {
+                match told.iter_mut().find(|(t, _)| *t == w) {
+                    Some((_, ls)) => ls.push(i),
+                    None => told.push((w, vec![i])),
+                }
+            }
+            outs.push(out);
+        }
+        for (w, ls) in told {
+            let whose = if ls.len() == n {
+                "every layer".to_string()
+            } else {
+                let some: Vec<&str> = ls.iter().map(|&i| names[i].as_str()).collect();
+                format!("layer{} {}", if some.len() > 1 { "s" } else { "" }, some.join(", "))
+            };
+            let w = format!("{w} ({whose})");
             obs.warning(at, &w);
             warnings.push(format!("{at}: {w}"));
         }
-        // an output missing matters only to what reads it (some are given only with some settings or inputs): its
-        // reader is told, by `resolve`
-        Ok(out)
+        Ok(gather(outs, &names, series))
     }
 
     /// A group: its body once, its inputs carried inside, its outputs from `body.outputs`.
@@ -573,6 +700,62 @@ impl Engine {
         }
         Ok(out)
     }
+}
+
+/// The outputs of a node run once per layer, by output: its maps a stack of the layers' names (a series when it
+/// was given a loop's series, or when they are of different grids), its tables one table ([`tables`]), its other
+/// values a series. An output some layers did not give is left out.
+fn gather(outs: Vec<Outputs>, names: &[String], series: bool) -> Outputs {
+    let mut gathered = Outputs::new();
+    let Some(first) = outs.first() else { return gathered };
+    for k in first.keys().filter(|k| outs.iter().all(|o| o.contains_key(*k))) {
+        let all: Vec<&Value> = outs.iter().map(|o| &o[k]).collect();
+        let maps: Option<Vec<&terraflux_ops::Map>> =
+            all.iter().map(|v| if let Value::Map(m) = v { Some(m) } else { None }).collect();
+        let v = match maps {
+            Some(maps) if !series && maps.iter().all(|m| m.grid.same_as(&maps[0].grid)) => {
+                Value::Stack(terraflux_ops::Stack {
+                    grid: maps[0].grid.clone(),
+                    keys: names.iter().map(|n| terraflux_ops::Key::Name(n.clone())).collect(),
+                    layers: maps.iter().map(|m| m.data.clone()).collect(),
+                })
+            }
+            _ if all.iter().all(|v| matches!(v, Value::Table(_))) => Value::Table(tables(&all, names)),
+            _ => Value::Series(all.into_iter().cloned().collect()),
+        };
+        gathered.insert(k.clone(), v);
+    }
+    gathered
+}
+
+/// The tables of the layers as one, each row after a column `layer` (`input_layer` when they have one): the
+/// layers' names when they are numbers, else the number each ends with when they all end with a different one
+/// (the year of `forest_2010`), else their places (1, 2...).
+fn tables(all: &[&Value], names: &[String]) -> terraflux_ops::Table {
+    let trailing = |n: &str| {
+        let digits: String = n.chars().rev().take_while(char::is_ascii_digit).collect();
+        digits.chars().rev().collect::<String>().parse::<f64>().ok()
+    };
+    let distinct = |v: &Vec<f64>| v.iter().enumerate().all(|(i, x)| !v[..i].contains(x));
+    let at: Vec<f64> = names
+        .iter()
+        .map(|n| n.trim().parse::<f64>().ok())
+        .collect::<Option<Vec<f64>>>()
+        .or_else(|| names.iter().map(|n| trailing(n)).collect::<Option<Vec<f64>>>().filter(distinct))
+        .unwrap_or_else(|| (1..=names.len()).map(|i| i as f64).collect());
+    let parts: Vec<terraflux_ops::Table> = all
+        .iter()
+        .zip(&at)
+        .filter_map(|(v, &x)| {
+            let Value::Table(t) = v else { return None };
+            let column = if t.columns.iter().any(|c| c == "layer") { "input_layer" } else { "layer" };
+            Some(terraflux_ops::Table {
+                columns: std::iter::once(column.to_string()).chain(t.columns.iter().cloned()).collect(),
+                rows: t.rows.iter().map(|r| std::iter::once(x).chain(r.iter().copied()).collect()).collect(),
+            })
+        })
+        .collect();
+    terraflux_ops::Table::concat(&parts)
 }
 
 /// raster.write of a map an operator made as a product of GuidosToolbox (MSPA, FAD...): the product's tag given to

@@ -1,10 +1,10 @@
 ---
 title: Stacks and layers
-description: Keep many maps of one grid together as a stack of named layers, build your own with stack.of, replace a layer with stack.set, take one out with stack.extract_layer, read a folder or a time series, and give a stack's layers the meaning of classes.
+description: Keep many maps of one grid together as a stack of named layers, build your own with stack.of, replace a layer with stack.set, take one out with stack.extract_layer, read a folder or a time series, run an analysis once per layer, and give a stack's layers the meaning of classes.
 order: 20
 level: beginner
-time: 35 min
-ops: [stack.of, stack.set, stack.extract_layer, stack.classes, raster.read, raster.write, map.calc, dynamic.distance_to]
+time: 40 min
+ops: [stack.of, stack.set, stack.extract_layer, stack.classes, raster.read, raster.write, map.calc, dynamic.distance_to, landscape.mspa]
 ---
 
 Many analyses need several maps at once: the drivers of a land change model, the species of a prioritization,
@@ -73,9 +73,10 @@ kind = "stack"
 path = "drivers.tif"
 ```
 
-**With [[raster.read]].** Its `raster` gives every band of the file to a node that takes a stack, and one band
-(the `band` setting: a name such as `"slope"`, or a number from 0; the first by default) to a node that takes a
-raster, which is how you take one layer out of a stack when you need it as a map.
+**With [[raster.read]].** Its `raster` gives every band of the file to a node that takes a stack. A node that
+takes one map runs once per band ([below](#one-analysis-for-every-layer)), unless the `band` setting chooses one
+(a name such as `"slope"`, or a number from 0): that is how you take one layer out of a file when you need it as
+a map.
 
 The names of the layers are the names of the bands in the file (GDAL's band descriptions, which R's
 terra and Python's rasterio can write). A band without a name is called by its position from 0: `"0"`, `"1"`...
@@ -305,6 +306,53 @@ params = { title = "Land use, 1997 and 2011" }
 
 The files of a folder may be of different grids (tiles to join, maps from different sources). Terraflux shows
 them one by one, and [[raster.match]] puts them on one grid before they can be used as a stack.
+
+## One analysis for every layer
+
+Most analyses take one map: MSPA, a reclassification, a fragmentation index. Give such a node a stack (the
+bands of a file, a folder of years, a stack an operator made) and it **runs once per layer**, with no loop to
+build: its maps come out as a stack with the same layer names, its tables as one table, its numbers as a series.
+Here MSPA of the forest of every year of the folder `landuse/`, written as a file per year:
+
+```tfgraph
+#! caption: MSPA of every map of a folder: the node runs once per layer, and raster.write with {name} in its path writes a file per layer, named after it.
+#! highlight: mspa, write
+format = "terraflux/1"
+
+[[nodes]]
+id = "years"
+op = "raster.read"
+params = { path = "landuse" }
+note = "A layer per file: landuse_1997, landuse_2011."
+
+[[nodes]]
+id = "mspa"
+op = "landscape.mspa"
+inputs = { map = "years.raster" }
+params = { foreground = [1] }
+note = "Runs twice, once per year: its map is a stack of two layers."
+
+[[nodes]]
+id = "write"
+op = "raster.write"
+inputs = { value = "mspa.map" }
+params = { path = "mspa/{name}_mspa.tif" }
+note = "mspa/landuse_1997_mspa.tif and mspa/landuse_2011_mspa.tif."
+```
+
+What to know:
+
+- **The application shows it.** After a run, the node carries **×2** (the number of layers it ran on) at the top
+  right, and its progress says which layer it is on.
+- **Several stacks are paired** layer by layer: a node given two stacks of 10 layers runs 10 times, the first layer
+  of one with the first of the other. Stacks of different lengths are refused, with the two counts. A single map
+  given with a stack is used with every layer (a mask, a resistance).
+- **Tables get a column `layer`**: the year when the layers' names are years or end with one (`landuse_1997`
+  gives 1997), else the layer's place (1, 2...). That is the table to report, one row per year.
+- **One layer only?** Set `band` in [[raster.read]], or take it out with [[stack.extract_layer]].
+- **Without {name}**, [[raster.write]] writes the stack as one file of a band per layer.
+- **For more than one node per layer** (a chain that must stay together, a region at a time, the rows of a
+  table), see [Loops](../loops/) and [Batch processing](../../large-data/batch-processing/).
 
 ## The bands of a time series
 

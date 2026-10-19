@@ -95,9 +95,10 @@ impl Type {
     pub fn fits(self, port: Type) -> bool {
         let numeric = |t: Type| matches!(t, Type::Integer | Type::Number);
         // rasters on disk feed maps and stacks (read when the node runs); maps, stacks and series of maps feed
-        // what takes rasters
+        // what takes rasters; stacks and series feed what takes a map (the node runs once per layer)
         let raster = (self == Type::Raster && matches!(port, Type::Map | Type::Stack))
-            || (port == Type::Raster && matches!(self, Type::Map | Type::Stack | Type::Series));
+            || (port == Type::Raster && matches!(self, Type::Map | Type::Stack | Type::Series))
+            || (port == Type::Map && matches!(self, Type::Stack | Type::Series));
         self == port || self == Type::Any || port == Type::Any || (numeric(self) && numeric(port)) || raster
     }
 }
@@ -161,6 +162,10 @@ pub struct OpSignature {
     /// Inputs of any other name the operator takes, of this type (map algebra's variables).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extra: Option<Type>,
+    /// Whether its maps are taken together (a stack made of them): given many layers where it takes a map, it
+    /// does not run once per layer ([`OpSignature::per_layer`]).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub together: bool,
 }
 
 impl OpSignature {
@@ -174,6 +179,7 @@ impl OpSignature {
             access,
             container: false,
             extra: None,
+            together: false,
         }
     }
 
@@ -203,8 +209,26 @@ impl OpSignature {
         self
     }
 
+    /// Its maps are taken together: many layers where it takes a map are refused, not run one at a time.
+    pub fn together(mut self) -> Self {
+        self.together = true;
+        self
+    }
+
     pub fn input_spec(&self, name: &str) -> Option<&PortSpec> {
         self.inputs.iter().find(|p| p.name == name)
+    }
+
+    /// The type of an input port: its own, or that of the inputs of any name.
+    pub fn input_type(&self, name: &str) -> Option<Type> {
+        self.input_spec(name).map(|p| p.ty).or(self.extra)
+    }
+
+    /// Whether the input takes one map and, given many layers (a stack, a series of maps, the bands of rasters on
+    /// disk), the node runs once per layer: a map port of an operator that is not a container and does not take
+    /// its maps together.
+    pub fn per_layer(&self, name: &str) -> bool {
+        !self.container && !self.together && self.input_type(name) == Some(Type::Map)
     }
 
     pub fn output_spec(&self, name: &str) -> Option<&PortSpec> {

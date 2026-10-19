@@ -336,8 +336,8 @@ inputs = { model = "fit.model", env = "data.env" }
    the CSV as features with the columns of the file; the SDM nodes find the coordinates in the columns named
    `lon` and `lat` by themselves (they also recognise `x`/`y`, `longitude`/`latitude` and GBIF's
    `decimalLongitude`/`decimalLatitude`). Connect its **vector** port, which carries every column.
-2. **Read the climate** with [[raster.read]]: `path = bioclim.tif`; name the node `climate`. Its `stack` port holds
-   the nine bands, named after the file's band names (its `map` port only the first band, bio1).
+2. **Read the climate** with [[raster.read]]: `path = bioclim.tif`; name the node `climate`. Its `raster` port holds
+   the nine bands, named after the file's band names.
 3. **Prepare** with [[sdm.prepare]] (subject **Species distributions**): drag from `records.vector` to its
    `occurrences` input and from `climate.raster` to `env`. Set `background = 5000`: this coarse map has fewer than
    10 000 cells of land, so the default of 10 000 points would be more than the cells available.

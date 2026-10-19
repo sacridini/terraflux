@@ -1603,6 +1603,7 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
         }
     }
     let problems = problems(s);
+    let layers = per_layer(s, r);
     let actions = crate::editor_view::show(
         ui,
         &s.source,
@@ -1614,6 +1615,7 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
         s.status_rev,
         shown.as_ref().map(|(n, p)| (n.as_str(), p.as_str())),
         &problems,
+        &layers,
     );
     if s.source.nodes.is_empty() && s.editor.path.is_empty() {
         ui.painter().text(
@@ -1685,6 +1687,30 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
 /// The problems of the boxes of the scope shown, by box: the checks' errors and warnings of each node (of its
 /// body's too, for a container), those of the data of the model's inputs, and the run's error at the node that
 /// failed. Whether each is an error, and what it says.
+/// The top-level nodes that ran once per layer in the last run, with the number of layers: an output of one value
+/// (a map, a number...) that gave a stack or a series.
+fn per_layer(s: &Session, r: &Registry) -> std::collections::HashMap<String, usize> {
+    if !s.editor.path.is_empty() {
+        return Default::default();
+    }
+    s.source
+        .nodes
+        .iter()
+        .filter_map(|n| {
+            let (sig, out) = (r.sig(&n.op)?, s.outputs.get(&n.id)?);
+            let many =
+                sig.outputs.iter().filter(|p| !matches!(p.ty, Type::Stack | Type::Series | Type::Raster | Type::Any));
+            many.into_iter()
+                .find_map(|p| match out.get(&p.name)? {
+                    Value::Stack(st) => Some(st.layers.len()),
+                    Value::Series(v) => Some(v.len()),
+                    _ => None,
+                })
+                .map(|k| (n.id.clone(), k))
+        })
+        .collect()
+}
+
 fn problems(s: &Session) -> std::collections::HashMap<String, Vec<(bool, String)>> {
     use terraflux_exec::lint::Level;
     let mut out: std::collections::HashMap<String, Vec<(bool, String)>> = Default::default();

@@ -117,7 +117,8 @@ params = { title = "MSPA of CORINE's forest" }
 
 1. **Read the map** ([[raster.read]]). Add the node (library, subject **Data preparation**, or press `/` and type
    `read`) and choose `clc.tif` in its `path` (**Node > path > Choose...**). The node reads only the file's header
-   at first, so even a large map shows at once. Its output `map` is the first band as a map.
+   at first, so even a large map shows at once. A file of several bands (or a folder of years) makes MSPA run
+   once per band: see [One analysis for every layer](../../building-models/stacks-and-layers/#one-analysis-for-every-layer).
 2. **Make the binary map** ([[raster.reclassify]]). Connect `landcover.raster` to its input `map`. In the Node pane the
    rules are a table: the application lists the classes of the map it reads, with their share, and **A rule per
    class** fills the table so that you only type the new values. Here two rules: `23 24 25 -> 2` (the three forest

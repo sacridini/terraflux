@@ -60,6 +60,8 @@ struct Checker<'a> {
     issues: Vec<Issue>,
     /// the signatures asked of the catalog, once each
     sigs: RefCell<HashMap<String, Option<Rc<OpSignature>>>>,
+    /// whether each node runs once per layer ([`Checker::per_layer`]), found once, by the node's address
+    layered: RefCell<HashMap<usize, Option<Type>>>,
 }
 
 impl<'a> Checker<'a> {
@@ -188,7 +190,12 @@ impl<'a> Checker<'a> {
     fn port_type(&self, n: &'a Node, port: &str, scopes: &[Scope<'a>]) -> Result<Type, String> {
         let sig = self.signature(&n.op).ok_or_else(|| format!("unknown operator {:?}", n.op))?;
         if let Some(p) = sig.output_spec(port) {
-            return Ok(p.ty);
+            // run once per layer: its maps a stack (a series of a loop's), its tables one, its other values a series
+            return Ok(match (self.per_layer(n, &sig, scopes), p.ty) {
+                (None, t) | (Some(_), t @ Type::Table) => t,
+                (Some(many), Type::Map) => many,
+                (Some(_), _) => Type::Series,
+            });
         }
         if sig.container
             && let Some(b) = &n.body
@@ -211,13 +218,38 @@ impl<'a> Checker<'a> {
         Err(format!("node {:?} ({}) has no output {port:?}", n.id, n.op))
     }
 
-    fn check_ref(&mut self, at: &str, text: &str, want: Type, scopes: &[Scope<'a>]) {
+    /// Whether a node runs once per layer, and the type of the layers it is given (a stack, or a series when one
+    /// of them is): a port of one map given a stack or a series of maps (rasters on disk are only known to be many
+    /// bands when they are read).
+    fn per_layer(&self, n: &'a Node, sig: &OpSignature, scopes: &[Scope<'a>]) -> Option<Type> {
+        let key = n as *const Node as usize;
+        if let Some(t) = self.layered.borrow().get(&key) {
+            return *t;
+        }
+        let mut many = None;
+        for (_, src) in n.inputs.iter().filter(|(p, _)| sig.per_layer(p)) {
+            match self.source_type(Some(src), scopes) {
+                Ok(Type::Series) => many = Some(Type::Series),
+                Ok(Type::Stack) => many = many.or(Some(Type::Stack)),
+                _ => {}
+            }
+        }
+        self.layered.borrow_mut().insert(key, many);
+        many
+    }
+
+    /// A reference checked against the type of its port; `one_map`: the port takes one map alone (its operator
+    /// takes its maps together, or is a container), not a stack's layers one at a time.
+    fn check_ref(&mut self, at: &str, text: &str, want: Type, scopes: &[Scope<'a>], one_map: bool) {
         match Ref::parse(text) {
             Err(e) => self.error(at, e.to_string()),
             Ok(r) => match self.type_of(&r, scopes) {
                 Err(e) => self.error(at, e),
                 Ok(t) if !t.fits(want) => {
                     self.error(at, format!("{text} gives a {t:?}, the port takes a {want:?}"));
+                }
+                Ok(t @ (Type::Stack | Type::Series)) if one_map && want == Type::Map => {
+                    self.error(at, format!("{text} gives a {t:?}: the port takes one map, not its layers one by one"));
                 }
                 Ok(_) => {}
             },
@@ -252,7 +284,7 @@ impl<'a> Checker<'a> {
                     }
                 };
                 match src {
-                    Source::Ref(r) => self.check_ref(&format!("{at}.{port}"), r, want, scopes),
+                    Source::Ref(r) => self.check_ref(&format!("{at}.{port}"), r, want, scopes, !sig.per_layer(port)),
                     Source::Literal(v) => {
                         let t = literal_type(v);
                         if !t.fits(want) {
@@ -308,16 +340,16 @@ impl<'a> Checker<'a> {
         scopes.push(Scope::new(&b.nodes, Some(n)));
         self.check_scope(scopes, at);
         for (name, r) in &b.carry {
-            self.check_ref(&format!("{at}/carry.{name}"), r, Type::Any, scopes);
+            self.check_ref(&format!("{at}/carry.{name}"), r, Type::Any, scopes, false);
         }
         for (name, r) in &b.collect {
-            self.check_ref(&format!("{at}/collect.{name}"), r, Type::Any, scopes);
+            self.check_ref(&format!("{at}/collect.{name}"), r, Type::Any, scopes, false);
         }
         for (name, r) in &b.outputs {
-            self.check_ref(&format!("{at}/outputs.{name}"), r, Type::Any, scopes);
+            self.check_ref(&format!("{at}/outputs.{name}"), r, Type::Any, scopes, false);
         }
         if let Some(r) = &b.until {
-            self.check_ref(&format!("{at}/until"), r, Type::Bool, scopes);
+            self.check_ref(&format!("{at}/until"), r, Type::Bool, scopes, false);
         }
         scopes.pop();
     }
@@ -347,7 +379,13 @@ fn literal_type(v: &serde_json::Value) -> Type {
 
 /// The problems of a model: errors stop it from running, warnings do not.
 pub fn check(model: &Model, catalog: &dyn Catalog) -> Vec<Issue> {
-    let mut c = Checker { model, catalog, issues: Vec::new(), sigs: RefCell::new(HashMap::new()) };
+    let mut c = Checker {
+        model,
+        catalog,
+        issues: Vec::new(),
+        sigs: RefCell::new(HashMap::new()),
+        layered: RefCell::new(HashMap::new()),
+    };
     for name in model.inputs.keys() {
         if !valid_id(name) {
             c.error("", format!("{name:?} is not a valid input name"));
@@ -356,7 +394,7 @@ pub fn check(model: &Model, catalog: &dyn Catalog) -> Vec<Issue> {
     let mut scopes = vec![Scope::new(&model.nodes, None)];
     c.check_scope(&mut scopes, "");
     for (name, out) in &model.outputs {
-        c.check_ref(&format!("outputs.{name}"), &out.from, Type::Any, &scopes);
+        c.check_ref(&format!("outputs.{name}"), &out.from, Type::Any, &scopes, false);
     }
     // what the parameters and scenarios change: a warning when it is not in the model (a node renamed away)
     let keys =
@@ -395,6 +433,18 @@ mod tests {
                 "control.repeat" => OpSignature::new("control.repeat", "", Access::None)
                     .input(PortSpec::new("times", Type::Integer, ""))
                     .container(),
+                "layers" => {
+                    OpSignature::new("layers", "", Access::None).output(PortSpec::new("stack", Type::Stack, ""))
+                }
+                "classes" => OpSignature::new("classes", "", Access::Global)
+                    .input(PortSpec::new("map", Type::Map, ""))
+                    .output(PortSpec::new("map", Type::Map, ""))
+                    .output(PortSpec::new("share", Type::Number, ""))
+                    .output(PortSpec::new("table", Type::Table, "")),
+                "takes_stack" => OpSignature::new("takes_stack", "", Access::Local)
+                    .input(PortSpec::new("stack", Type::Stack, ""))
+                    .input(PortSpec::optional("n", Type::Number, "")),
+                "of" => OpSignature::new("of", "", Access::Local).extra(Type::Map).together(),
                 _ => return None,
             })
         }
@@ -453,6 +503,46 @@ from = "sim.maps"
         let m = model(&GOOD.replace("model = \"woe.model\"", "model = \"$t0\""));
         let e = errors(&m);
         assert!(e.iter().any(|x| x.contains("gives a Map, the port takes a Woe")), "{e:?}");
+    }
+
+    /// A stack where a port takes one map: the node runs once per layer, its maps a stack, its tables a table,
+    /// its other values a series; refused by an operator that takes its maps together.
+    #[test]
+    fn a_stack_runs_a_map_port_once_per_layer() {
+        let m = model(
+            r#"
+[[nodes]]
+id = "s"
+op = "layers"
+[[nodes]]
+id = "c"
+op = "classes"
+inputs = { map = "s.stack" }
+[[nodes]]
+id = "again"
+op = "classes"
+inputs = { map = "c.map" }
+[[nodes]]
+id = "use"
+op = "takes_stack"
+inputs = { stack = "again.map", n = "c.share" }
+"#,
+        );
+        let e = errors(&m);
+        assert_eq!(e.len(), 1, "{e:?}");
+        assert!(e[0].contains("use.n: c.share gives a Series"), "{e:?}");
+        let together = model(
+            r#"
+[[nodes]]
+id = "s"
+op = "layers"
+[[nodes]]
+id = "o"
+op = "of"
+inputs = { a = "s.stack" }
+"#,
+        );
+        assert!(errors(&together).iter().any(|x| x.contains("takes one map")), "{:?}", errors(&together));
     }
 
     #[test]

@@ -1202,6 +1202,7 @@ pub fn show(
     status_rev: u64,
     shown: Option<(&str, &str)>,
     problems: &HashMap<String, Vec<(bool, String)>>,
+    layers: &HashMap<String, usize>,
 ) -> Vec<Action> {
     let mut actions = Vec::new();
     let Some(nodes) = model.scope(&st.path) else {
@@ -1598,6 +1599,21 @@ pub fn show(
             painter.text(c, Align2::CENTER_CENTER, "!", FontId::proportional(radius * 1.6), Color32::BLACK);
         }
     }
+    // the nodes that ran once per layer: ×12, at the left of the marks of problems
+    if ports {
+        for &i in &in_view {
+            let b = &scene.boxes[i];
+            let Some(n) = layers.get(&b.key) else { continue };
+            let left = if problems.contains_key(&b.key) { 36.0 } else { 20.0 };
+            painter.text(
+                screen(b.rect.right_top() + Vec2::new(-left, 10.0)),
+                Align2::RIGHT_CENTER,
+                format!("×{n}"),
+                FontId::monospace(size(11.0)),
+                crate::theme::accent(),
+            );
+        }
+    }
     // zoomed out, the model's stages (each framed and named); the groups' notes
     stages_and_notes(&painter, scene, &screen, view, cam.zoom < STAGES_UNDER, &v);
     // the nodes changed in a review going on, outlined in the colour of their change
@@ -1694,6 +1710,12 @@ pub fn show(
                 let b = &scene.boxes[i];
                 let mut text: Vec<String> =
                     problems.get(&b.key).into_iter().flatten().map(|(_, m)| format!("⚠ {m}")).collect();
+                if let Some(n) = layers.get(&b.key) {
+                    text.push(format!(
+                        "×{n}: given {n} layers where it takes one map, it ran once per layer (its maps a stack, \
+                         its tables one with a column layer)"
+                    ));
+                }
                 text.extend(b.note.clone());
                 if !text.is_empty() {
                     resp.clone().on_hover_text_at_pointer(text.join("\n"));

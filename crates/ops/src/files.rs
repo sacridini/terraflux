@@ -490,6 +490,34 @@ pub fn as_port(v: Value, want: Type) -> Result<Value> {
     }
 }
 
+/// The layers of a value, by name, where one map is taken (a node runs once per layer, `raster.write` writes a file
+/// per layer): a stack's, the bands of rasters on disk (each alone; none when one was chosen, `raster.read`'s
+/// `band`), the maps of a series (a loop's steps, named 1, 2...); none for one map.
+pub fn layers(v: &Value) -> Option<Vec<(String, Value)>> {
+    match v {
+        Value::Stack(s) => Some(
+            s.keys
+                .iter()
+                .zip(&s.layers)
+                .map(|(k, l)| (k.to_string(), Value::Map(Map { grid: s.grid.clone(), data: l.clone() })))
+                .collect(),
+        ),
+        Value::Raster(r) if r.layers.len() > 1 && !r.picked => Some(
+            r.layers
+                .iter()
+                .enumerate()
+                .map(|(i, l)| (l.name.clone(), Value::Raster(Arc::new(r.choose(i).only_chosen()))))
+                .collect(),
+        ),
+        Value::Series(items)
+            if !items.is_empty() && items.iter().all(|v| matches!(v, Value::Map(_) | Value::Raster(_))) =>
+        {
+            Some(items.iter().enumerate().map(|(i, v)| ((i + 1).to_string(), v.clone())).collect())
+        }
+        _ => None,
+    }
+}
+
 struct Read;
 
 impl Operator for Read {
@@ -542,12 +570,17 @@ impl Operator for Write {
             "raster.write",
             "Write a map, a stack (a band per map), the series of maps of a loop (a band per step) or rasters on \
              disk (copied in blocks, whatever their size) to a GeoTIFF file, in the smallest type that holds the \
-             values unless one is given.",
+             values unless one is given. With {name} in the file's name, a file per layer, {name} the layer's name \
+             (mspa/{name}_mspa.tif: forest_2010_mspa.tif, forest_2020_mspa.tif...).",
             Access::Global,
         )
         .input(PortSpec::new("value", Type::Raster, "a map, a stack, a series of maps or rasters"))
-        .output(PortSpec::new("path", Type::Text, "the file written"))
-        .param(PortSpec::new("path", Type::Text, "the file, relative to the model's folder (.tif)"))
+        .output(PortSpec::new("path", Type::Text, "the file written (with {name}: a series of the files)"))
+        .param(PortSpec::new(
+            "path",
+            Type::Text,
+            "the file, relative to the model's folder (.tif); {name} in it: a file per layer, named by it",
+        ))
         .param(
             PortSpec::optional("type", Type::Text, "the cell type: u8, i16, i32, f32, f64...")
                 .choices(["u8", "i8", "u16", "i16", "u32", "i32", "u64", "i64", "f32", "f64"]),
@@ -570,48 +603,85 @@ impl Operator for Write {
             None => None,
         };
         let value = args.get("value").ok_or_else(|| Error::msg(format!("node {:?}: connect a value", args.node)))?;
-        let path = Path::new(&path).with_extension("tif");
-        if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
-            std::fs::create_dir_all(dir).map_err(|e| Error::msg(format!("{}: {e}", dir.display())))?;
-        }
         let product: Option<String> = args.opt_param::<String>("product")?.filter(|p| !p.is_empty());
-        if let Value::Raster(r) = value {
-            copy_as(r, &path, wanted, product.as_deref())?;
-            return Ok(outputs([("path", Value::Text(path.to_string_lossy().into_owned()))]));
+        // a file per layer, `{name}` its name
+        if path.contains("{name}") {
+            let each = layers(value).unwrap_or_else(|| {
+                let name = match value {
+                    Value::Raster(r) => r.layers.get(r.chosen).map_or("1".into(), |l| l.name.clone()),
+                    _ => "1".into(),
+                };
+                vec![(name, value.clone())]
+            });
+            let written = each
+                .iter()
+                .map(|(name, v)| {
+                    let p = path.replace("{name}", &file_name(name));
+                    write_raster(args.node, &p, v, wanted, product.as_deref()).map(Value::Text)
+                })
+                .collect::<Result<Vec<_>>>()?;
+            return Ok(outputs([("path", Value::Series(written))]));
         }
-        let (grid, layers): (_, Vec<(Option<String>, &[f64])>) = match value {
-            Value::Map(m) => (&*m.grid, vec![(None, m.data.as_slice())]),
-            Value::Stack(s) => {
-                (&*s.grid, s.keys.iter().zip(&s.layers).map(|(k, l)| (Some(k.to_string()), l.as_slice())).collect())
-            }
-            Value::Series(items) if !items.is_empty() && items.iter().all(|v| matches!(v, Value::Map(_))) => {
-                let Value::Map(first) = &items[0] else { unreachable!() };
-                let layers = items
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(i, v)| match v {
-                        Value::Map(m) => Some((Some(format!("{}", i + 1)), m.data.as_slice())),
-                        _ => None,
-                    })
-                    .collect();
-                (&*first.grid, layers)
-            }
-            v => return Err(Error::msg(format!("node {:?}: a {:?} is not a raster", args.node, v.ty()))),
-        };
-        let refs: Vec<&[f64]> = layers.iter().map(|(_, d)| *d).collect();
-        let (dtype, nodata) = DataType::fitting(&refs, wanted);
-        // the product the values are, not that of the maps they were made from
-        let mut grid = grid.clone();
-        grid.geo.set_item("landschaft_product", product.as_deref());
-        let raster = Raster {
-            grid,
-            bands: layers.into_iter().map(|(name, d)| Band { name, data: d.to_vec() }).collect(),
-            dtype,
-            nodata,
-        };
-        crate::prepare::write_with_crs(&raster, &path)?;
-        Ok(outputs([("path", Value::Text(path.to_string_lossy().into_owned()))]))
+        let written = write_raster(args.node, &path, value, wanted, product.as_deref())?;
+        Ok(outputs([("path", Value::Text(written))]))
     }
+}
+
+/// A layer's name as a file's: the characters a file name cannot hold made `_`.
+fn file_name(name: &str) -> String {
+    name.chars()
+        .map(|c| if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') { '_' } else { c })
+        .collect()
+}
+
+/// A map, a stack, a series of maps or rasters on disk written to a GeoTIFF (`path` made a .tif): the file written.
+fn write_raster(
+    node: &str,
+    path: &str,
+    value: &Value,
+    wanted: Option<DataType>,
+    product: Option<&str>,
+) -> Result<String> {
+    let path = Path::new(path).with_extension("tif");
+    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+        std::fs::create_dir_all(dir).map_err(|e| Error::msg(format!("{}: {e}", dir.display())))?;
+    }
+    if let Value::Raster(r) = value {
+        copy_as(r, &path, wanted, product)?;
+        return Ok(path.to_string_lossy().into_owned());
+    }
+    let (grid, layers): (_, Vec<(Option<String>, &[f64])>) = match value {
+        Value::Map(m) => (&*m.grid, vec![(None, m.data.as_slice())]),
+        Value::Stack(s) => {
+            (&*s.grid, s.keys.iter().zip(&s.layers).map(|(k, l)| (Some(k.to_string()), l.as_slice())).collect())
+        }
+        Value::Series(items) if !items.is_empty() && items.iter().all(|v| matches!(v, Value::Map(_))) => {
+            let Value::Map(first) = &items[0] else { unreachable!() };
+            let layers = items
+                .iter()
+                .enumerate()
+                .filter_map(|(i, v)| match v {
+                    Value::Map(m) => Some((Some(format!("{}", i + 1)), m.data.as_slice())),
+                    _ => None,
+                })
+                .collect();
+            (&*first.grid, layers)
+        }
+        v => return Err(Error::msg(format!("node {node:?}: a {:?} is not a raster", v.ty()))),
+    };
+    let refs: Vec<&[f64]> = layers.iter().map(|(_, d)| *d).collect();
+    let (dtype, nodata) = DataType::fitting(&refs, wanted);
+    // the product the values are, not that of the maps they were made from
+    let mut grid = grid.clone();
+    grid.geo.set_item("landschaft_product", product);
+    let raster = Raster {
+        grid,
+        bands: layers.into_iter().map(|(name, d)| Band { name, data: d.to_vec() }).collect(),
+        dtype,
+        nodata,
+    };
+    crate::prepare::write_with_crs(&raster, &path)?;
+    Ok(path.to_string_lossy().into_owned())
 }
 
 /// A GeoTIFF written row by row, in order, never whole in memory: the rows are kept until they make a row of TIFF

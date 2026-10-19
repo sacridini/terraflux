@@ -410,8 +410,9 @@ template *MSPA of your map* does with an empty `path`).
 
 ## Common pitfalls
 
-- **A node runs on the wrong band.** [[raster.read]]'s `map` is the first band unless `band` says otherwise. Check
-  the band in **Metadata**.
+- **A node runs on every band.** Given a file of several bands, a node that takes one map runs once per band
+  (×2, ×3... on the node). To use one band only, choose it in [[raster.read]]'s `band`; check the bands in
+  **Metadata**.
 - **The foreground's code.** MSPA without a `foreground` setting expects 2 for the habitat and 1 for the rest
   (0 for no data); a reclassification to 0 and 1 gives an empty result. Either reclassify to 1 and 2, or give
   `foreground` the forest's classes and skip the reclassification.

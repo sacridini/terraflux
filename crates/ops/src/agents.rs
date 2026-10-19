@@ -129,6 +129,7 @@ impl Operator for Parcels {
         )
         .input(PortSpec::new("parcels", Type::Map, "the parcel id of each cell (missing: no parcel)"))
         .extra(Type::Map)
+        .together()
         .output(PortSpec::new("agents", Type::Agents, "an agent per parcel"))
     }
 
