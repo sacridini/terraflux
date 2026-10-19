@@ -49,6 +49,13 @@ fn main() {
     println!("cargo:rerun-if-env-changed=OpenMP_ROOT");
 
     let mut cfg = cmake::Config::new(&source);
+    // one build of landschaft per profile, `target/<profile>/landschaft`, not one per hash of this crate: a new
+    // toolchain, lock file or feature made a new full C++ build (about 1 GB) each time, the old ones never removed.
+    // Cargo's lock on the profile's folder keeps two builds from writing it at once
+    let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
+    if let Some(profile) = out.ancestors().nth(3) {
+        cfg.out_dir(profile.join("landschaft"));
+    }
     // the MILP prioritization too (optcore, with HiGHS)
     cfg.define("LANDSCHAFT_PYTHON", "OFF").define("LANDSCHAFT_MILP", "ON").profile("Release");
     if let Some(eigen) = std::env::var_os("LANDSCHAFT_EIGEN_DIR") {

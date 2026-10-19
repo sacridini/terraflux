@@ -1,3 +1,7 @@
+# Builds never take every core: four compilers at a time (landschaft's C++ too, through cargo's NUM_JOBS).
+[build]
+jobs = 4
+
 # Tests never take every core: two at a time, four threads each (kernels and parallel tasks).
 [env]
 RUST_TEST_THREADS = "2"
