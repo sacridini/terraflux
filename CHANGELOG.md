@@ -6,6 +6,13 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Packages for Fedora (`.rpm`, also openSUSE) and Arch Linux (`.pkg.tar.zst`), with the `.deb`: the same folder in
+  `/opt/terraflux`, the command in `/usr/bin`, an entry in the menu (`tools/make-linux-package.py`, with
+  [nfpm](https://nfpm.goreleaser.com)). At every release each Linux package is installed in a container of Ubuntu
+  24.04, Debian 13, Fedora or Arch and runs a model with its GDAL before it is published; the website's downloads
+  list them. The release workflow run without a tag builds and tries the packages without publishing them.
+
 ## [1.7.2] - 2026-10-20
 
 ### Added

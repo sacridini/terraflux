@@ -1,7 +1,9 @@
-# Terraflux's packages for Windows, macOS and Linux, built at every tag vX.Y.Z and published as that tag's release
-# on GitHub, with the version's changes from CHANGELOG.md; then the website is rebuilt, its downloads pointing to it.
+# Terraflux's packages for Windows, macOS and Linux (.deb, .rpm, Arch's, a tar.gz), built at every tag vX.Y.Z, the
+# Linux ones installed and tried in containers of their distributions, and published as that tag's release on GitHub,
+# with the version's changes from CHANGELOG.md; then the website is rebuilt, its downloads pointing to it.
 #
-# Built again for a tag (the packages replaced): Actions > release > Run workflow, with the tag.
+# Built again for a tag (the packages replaced): Actions > release > Run workflow, with the tag. Without a tag, the
+# branch's packages are built and tried, not published (they are the run's artifacts).
 name: release
 
 on:
@@ -10,15 +12,15 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "The tag to build and publish (vX.Y.Z)"
-        required: true
+        description: "The tag to build and publish (vX.Y.Z); none: the branch built and tried, not published"
+        required: false
 
 permissions:
   contents: write
   actions: write
 
 env:
-  TAG: ${{ inputs.tag || github.ref_name }}
+  TAG: ${{ inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
   CARGO_TERM_COLOR: always
 
 concurrency:
@@ -31,7 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ env.TAG }}
+          ref: ${{ env.TAG || github.sha }}
           submodules: recursive
       - run: rustup update stable --no-self-update && rustup default stable
       - uses: Swatinem/rust-cache@v2
@@ -62,7 +64,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ env.TAG }}
+          ref: ${{ env.TAG || github.sha }}
           submodules: recursive
       - run: rustup update stable --no-self-update && rustup default stable
       - uses: Swatinem/rust-cache@v2
@@ -85,13 +87,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ env.TAG }}
+          ref: ${{ env.TAG || github.sha }}
           submodules: recursive
       - run: rustup update stable --no-self-update && rustup default stable
       - uses: Swatinem/rust-cache@v2
         with:
           key: release
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libgdal-dev patchelf
+      # nfpm makes the .rpm and the Arch package
+      - run: >-
+          curl -sSfL https://github.com/goreleaser/nfpm/releases/download/v2.47.0/nfpm_2.47.0_Linux_x86_64.tar.gz
+          | sudo tar -xz -C /usr/local/bin nfpm
       - run: python3 tools/make-linux-package.py
       - uses: actions/upload-artifact@v4
         with:
@@ -99,10 +105,79 @@ jobs:
           path: |
             target/linux/*.tar.gz
             target/linux/*.deb
+            target/linux/*.rpm
+            target/linux/*.pkg.tar.zst
           if-no-files-found: error
 
+  # each Linux package installed in a container of its distributions, and a model run with it (GDAL and PROJ too)
+  linux-test:
+    needs: linux
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: ubuntu:24.04
+            package: .deb
+            install: apt-get update && apt-get install -y --no-install-recommends ./dist/terraflux_*_amd64.deb
+          - image: debian:13
+            package: .deb
+            install: apt-get update && apt-get install -y --no-install-recommends ./dist/terraflux_*_amd64.deb
+          - image: fedora:latest
+            package: .rpm
+            install: dnf install -y --setopt=install_weak_deps=False ./dist/terraflux-*.x86_64.rpm
+          - image: archlinux:latest
+            package: .pkg.tar.zst
+            install: pacman -Syu --noconfirm && pacman -U --noconfirm ./dist/terraflux-*.pkg.tar.zst
+          - image: fedora:latest
+            package: tar.gz
+            install: >-
+              tar -xzf dist/terraflux-*-linux-x64.tar.gz -C /opt
+              && ln -s /opt/terraflux-*-linux-x64/terraflux /usr/local/bin/terraflux
+    container: ${{ matrix.image }}
+    name: linux-test (${{ matrix.image }}, ${{ matrix.package }})
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux
+          path: dist
+      - name: Install
+        shell: bash
+        run: ${{ matrix.install }}
+      - name: Try
+        shell: bash
+        run: |
+          command -v terraflux
+          terraflux --version
+          mkdir -p "$RUNNER_TEMP/smoke"
+          # a map drawn at random, reprojected by the package's GDAL (gdalwarp, PROJ's database), written
+          cat > "$RUNNER_TEMP/smoke/smoke.toml" <<'EOF'
+          format = "terraflux/1"
+          name = "Package test"
+
+          [[nodes]]
+          id = "map"
+          op = "nlm.random"
+          params = { rows = 50, columns = 50, seed = 1 }
+
+          [[nodes]]
+          id = "geo"
+          op = "raster.reproject"
+          inputs = { raster = "map.map" }
+          params = { source_crs = "EPSG:32633", crs = "EPSG:4326", path = "geo.tif" }
+
+          [[nodes]]
+          id = "write"
+          op = "raster.write"
+          inputs = { value = "geo.raster" }
+          params = { path = "out.tif" }
+          EOF
+          terraflux run "$RUNNER_TEMP/smoke/smoke.toml"
+          test -s "$RUNNER_TEMP/smoke/out.tif"
+
   publish:
-    needs: [windows, macos, linux]
+    needs: [windows, macos, linux, linux-test]
+    if: inputs.tag != '' || github.ref_type == 'tag'
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}

@@ -68,11 +68,13 @@ SUBJECTS = json.loads((DATA / "subjects.json").read_text(encoding="utf-8"))
 SITE["version"] = CLI.get("version", "0.0.0")
 # The downloads are those of the latest release published on GitHub (TERRAFLUX_RELEASE, given by the website's
 # workflow), older than the operators' data while a new release's packages are still being built.
+# TERRAFLUX_RELEASE_FILES (its files' names, one a line) leaves out the packages it does not have (made since).
 if os.environ.get("TERRAFLUX_RELEASE"):
     SITE["release"] = os.environ["TERRAFLUX_RELEASE"].removeprefix("v")
     SITE["releases_public"] = True
 else:
     SITE["release"] = SITE["version"]
+RELEASE_FILES = set(os.environ.get("TERRAFLUX_RELEASE_FILES", "").split())
 
 
 def subject_of(op: str) -> str:
@@ -627,8 +629,11 @@ def downloads():
         files = []
         for f in d["files"]:
             name = f["name"].format(version=v)
+            if RELEASE_FILES and name not in RELEASE_FILES:
+                continue
             files.append({**f, "name": name, "url": base + name, "note": f.get("note", "").format(version=v)})
-        out.append({**d, "files": files})
+        if files:
+            out.append({**d, "files": files})
     return out
 
 

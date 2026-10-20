@@ -108,7 +108,9 @@ Python nor a GDAL of your own).
 | **Windows** 10 and 11, 64-bit | `terraflux-<version>-x64.msi` | Start menu shortcut, `terraflux` on the `PATH` |
 | | `terraflux-<version>-windows-x64.zip` | Portable: unpack anywhere |
 | **macOS**, Apple silicon | `terraflux-<version>-macos-arm64.dmg` | Drag `Terraflux.app` to Applications |
-| **Linux** x86-64, glibc 2.39+ (Ubuntu 24.04+) | `terraflux_<version>_amd64.deb` | `sudo apt install ./terraflux_<version>_amd64.deb` |
+| **Linux** x86-64, glibc 2.39+ (Ubuntu 24.04+, Debian 13+, Fedora 40+, Arch) | `terraflux_<version>_amd64.deb` | `sudo apt install ./terraflux_<version>_amd64.deb` |
+| | `terraflux-<version>-1.x86_64.rpm` | Fedora, openSUSE: `sudo dnf install ./terraflux-<version>-1.x86_64.rpm` |
+| | `terraflux-<version>-1-x86_64.pkg.tar.zst` | Arch: `sudo pacman -U terraflux-<version>-1-x86_64.pkg.tar.zst` |
 | | `terraflux-<version>-linux-x64.tar.gz` | Unpack and run `install.sh`, no root needed |
 
 > [!NOTE]
@@ -123,12 +125,15 @@ tools\make-installer.ps1                # Windows: the MSI (WiX 5) and the zip, 
 
 ```bash
 python3 tools/make-macos-app.py         # macOS: Terraflux.app, the dmg and the zip, in target/macos
-python3 tools/make-linux-package.py     # Linux: the folder, the tar.gz and the .deb, in target/linux
+python3 tools/make-linux-package.py     # Linux: the folder, the tar.gz, the .deb, the .rpm and Arch's, in target/linux
 ```
 
 Each script starts from the release build and bundles a GDAL: on Windows the one in `C:\Program Files\GDAL`
 (`-Gdal` another), on macOS Homebrew's (`--gdal` another prefix), on Linux the system's (`--gdal` another
-prefix; patchelf and dpkg-deb are needed). Build the Linux packages on the oldest distribution to support.
+prefix; patchelf is needed, dpkg-deb for the .deb and [nfpm](https://nfpm.goreleaser.com) for the .rpm and
+Arch's package). Build the Linux packages on the oldest distribution to support. At every tag `vX.Y.Z` GitHub
+Actions makes them all (`.github/workflows/release.yml`), tries the Linux ones installed in containers of Ubuntu,
+Debian, Fedora and Arch, and publishes them as the tag's release.
 Ubuntu's GDAL 3.8 lacks geodesic areas, which some landscape metrics and species distribution steps need:
 GDAL 3.9 or later is recommended.
 

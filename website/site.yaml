@@ -33,9 +33,11 @@ downloads:
       - { name: "terraflux-{version}-macos-arm64.zip", kind: "Application (.zip)" }
   - os: linux
     label: Linux
-    detail: x86-64, glibc 2.39 or newer (Ubuntu 24.04+)
+    detail: x86-64, glibc 2.39 or newer (Ubuntu 24.04+, Debian 13+, Fedora 40+, Arch)
     files:
       - { name: "terraflux_{version}_amd64.deb", kind: "Debian / Ubuntu (.deb)", primary: true, note: "sudo apt install ./terraflux_{version}_amd64.deb" }
+      - { name: "terraflux-{version}-1.x86_64.rpm", kind: "Fedora / openSUSE (.rpm)", note: "sudo dnf install ./terraflux-{version}-1.x86_64.rpm" }
+      - { name: "terraflux-{version}-1-x86_64.pkg.tar.zst", kind: "Arch Linux (.pkg.tar.zst)", note: "sudo pacman -U terraflux-{version}-1-x86_64.pkg.tar.zst" }
       - { name: "terraflux-{version}-linux-x64.tar.gz", kind: "Archive (.tar.gz)", note: "Unpack and run install.sh, no root needed" }
 
 # The bar at the top of every page.

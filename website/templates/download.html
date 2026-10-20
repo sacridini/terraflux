@@ -51,7 +51,7 @@
       </ol>
       {% else %}
       <ol>
-        <li>On Debian or Ubuntu: <code>sudo apt install ./terraflux_{{ site.release }}_amd64.deb</code>. Terraflux goes to <code>/opt/terraflux</code>, the command to <code>/usr/bin</code>.</li>
+        <li>On Debian or Ubuntu: <code>sudo apt install ./terraflux_{{ site.release }}_amd64.deb</code>. On Fedora: <code>sudo dnf install ./terraflux-{{ site.release }}-1.x86_64.rpm</code> (openSUSE: <code>sudo zypper install</code>). On Arch: <code>sudo pacman -U terraflux-{{ site.release }}-1-x86_64.pkg.tar.zst</code>. Terraflux goes to <code>/opt/terraflux</code>, the command to <code>/usr/bin</code>, with an entry in the menu.</li>
         <li>Anywhere else, unpack the <code>.tar.gz</code> and run <code>./install.sh</code>: it links the command into <code>~/.local/bin</code> and adds Terraflux to the menu, without root.</li>
         <li>The application needs the desktop's own libraries (EGL or Vulkan, and <code>libxkbcommon-x11</code> or Wayland); the command line needs none.</li>
       </ol>

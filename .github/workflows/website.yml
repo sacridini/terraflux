@@ -39,6 +39,13 @@ jobs:
           tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName 2>/dev/null || true)"
           echo "latest release: ${tag:-none}"
           echo "TERRAFLUX_RELEASE=$tag" >> "$GITHUB_ENV"
+          if [ -n "$tag" ]; then
+            {
+              echo "TERRAFLUX_RELEASE_FILES<<EOF"
+              gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name'
+              echo "EOF"
+            } >> "$GITHUB_ENV"
+          fi
       # the operators' and commands' data and the figures are committed: no Rust build is needed here
       - run: python website/build.py --clean
       - uses: actions/upload-pages-artifact@v3

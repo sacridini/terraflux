@@ -4,6 +4,8 @@
     terraflux-<version>-linux-<arch>/          the program's folder (terraflux is the application and the command)
     terraflux-<version>-linux-<arch>.tar.gz    the folder, to unpack anywhere (its install.sh links it for the user)
     terraflux_<version>_<debian arch>.deb      the same folder in /opt/terraflux, the command in /usr/bin, a menu entry
+    terraflux-<version>-1.<rpm arch>.rpm       the same for Fedora, openSUSE...
+    terraflux-<version>-1-<arch>.pkg.tar.zst   the same for Arch Linux (pacman -U)
 
 The folder holds terraflux (the release build without its debugging information; its runtime libraries that are
 not the system's, as libgomp, in lib/) and a GDAL: its library and every library it needs but the system's own
@@ -14,12 +16,14 @@ supported.
 
     python3 tools/make-linux-package.py                    # the system's GDAL (apt install libgdal-dev)
     python3 tools/make-linux-package.py --gdal /opt/gdal   # another GDAL's prefix (its lib/ and share/)
-    python3 tools/make-linux-package.py --skip-build --no-deb
+    python3 tools/make-linux-package.py --skip-build --no-deb --no-rpm --no-arch
 
-patchelf is needed (apt install patchelf, or pip install patchelf); dpkg-deb for the .deb.
+patchelf is needed (apt install patchelf, or pip install patchelf); dpkg-deb for the .deb; nfpm
+(https://nfpm.goreleaser.com) for the .rpm and the Arch package.
 """
 
 import argparse
+import json
 import os
 import platform
 import re
@@ -155,6 +159,38 @@ Description: land change models, landscape analysis and spatial prioritization
 """
 
 
+# the libraries of the application's desktop on Fedora (the command line needs none; an Arch desktop has them)
+RPM_RECOMMENDS = ["mesa-libEGL", "vulkan-loader", "libX11", "libXcursor", "libXi", "libxkbcommon-x11",
+                  "libwayland-client"]
+
+
+def nfpm_config(version, deb_arch, glibc, root, files):
+    """nfpm's settings (JSON being YAML) for the .rpm and the Arch package of the tree `root`: /opt/terraflux,
+    the link in /usr/bin and `files` (the menu entry and the icons), not the folders of the system."""
+    contents = [
+        {"src": str(root / "opt" / "terraflux"), "dst": "/opt/terraflux", "type": "tree"},
+        {"src": "/opt/terraflux/terraflux", "dst": "/usr/bin/terraflux", "type": "symlink"},
+    ]
+    contents += [{"src": str(root / f), "dst": "/" + f.as_posix()} for f in files]
+    return {
+        "name": "terraflux",
+        "arch": deb_arch,
+        "platform": "linux",
+        "version": version,
+        "release": 1,
+        "maintainer": "Eduardo Lacerda",
+        "description": "Land change models, landscape analysis and spatial prioritization. It brings its own GDAL.",
+        "homepage": "https://github.com/sacridini/terraflux",
+        "license": "GPL-3.0-or-later",
+        "contents": contents,
+        "overrides": {
+            "rpm": {"depends": [f"glibc >= {glibc}", "libstdc++", "libgcc"], "recommends": RPM_RECOMMENDS},
+            "archlinux": {"depends": [f"glibc>={glibc}", "gcc-libs"]},
+        },
+        "archlinux": {"packager": "Eduardo Lacerda"},
+    }
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--gdal", type=Path,
@@ -164,6 +200,9 @@ def main():
     ap.add_argument("--patchelf", default=shutil.which("patchelf") or "patchelf")
     ap.add_argument("--skip-build", action="store_true")
     ap.add_argument("--no-deb", action="store_true")
+    ap.add_argument("--no-rpm", action="store_true")
+    ap.add_argument("--no-arch", action="store_true", help="no Arch Linux package")
+    ap.add_argument("--nfpm", default=shutil.which("nfpm") or "nfpm", help="nfpm, which makes the .rpm and the Arch package")
     a = ap.parse_args()
     if not sys.platform.startswith("linux"):
         raise SystemExit("the Linux package is made on Linux")
@@ -249,8 +288,15 @@ def main():
     with tarfile.open(tgz, "w:gz") as t:
         t.add(folder, arcname=name)
     made = [tgz]
-    if not a.no_deb and shutil.which("dpkg-deb"):
-        root = out / "deb"
+    want_deb = not a.no_deb and shutil.which("dpkg-deb") is not None
+    nfpm = shutil.which(a.nfpm) or (a.nfpm if Path(a.nfpm).is_file() else None)
+    formats = [f for f, off in (("rpm", a.no_rpm), ("archlinux", a.no_arch)) if not off]
+    if formats and nfpm is None:
+        print("no nfpm: no .rpm nor Arch package (https://nfpm.goreleaser.com, or --nfpm <path>)")
+        formats = []
+    if want_deb or formats:
+        # the tree of the packages: the folder in /opt/terraflux, the command in /usr/bin, the menu entry, the icons
+        root = out / "pkgroot"
         if root.exists():
             shutil.rmtree(root)
         opt = root / "opt" / "terraflux"
@@ -258,23 +304,37 @@ def main():
         (opt / "install.sh").unlink()
         (opt / "terraflux.desktop.in").unlink()
         (opt / "terraflux.png").unlink()
-        (root / "usr" / "bin").mkdir(parents=True)
-        (root / "usr" / "bin" / "terraflux").symlink_to("../../opt/terraflux/terraflux")
-        apps = root / "usr" / "share" / "applications"
-        apps.mkdir(parents=True)
-        (apps / "terraflux.desktop").write_text(DESKTOP.format(exe="/opt/terraflux/terraflux", icon="terraflux"))
+        files = [Path("usr/share/applications/terraflux.desktop")]
+        (root / files[0]).parent.mkdir(parents=True)
+        (root / files[0]).write_text(DESKTOP.format(exe="/opt/terraflux/terraflux", icon="terraflux"))
         for n in (48, 64, 128, 256, 512):
-            icons = root / "usr" / "share" / "icons" / "hicolor" / f"{n}x{n}" / "apps"
-            icons.mkdir(parents=True)
-            shutil.copyfile(LOGO / "png" / f"terraflux-icon-{n}.png", icons / "terraflux.png")
-        size_kb = sum(f.stat().st_size for f in root.rglob("*") if f.is_file()) // 1024
-        (root / "DEBIAN").mkdir()
-        (root / "DEBIAN" / "control").write_text(control(version, deb_arch, glibc, size_kb))
-        deb = out / f"terraflux_{version}_{deb_arch}.deb"
-        deb.unlink(missing_ok=True)
-        run("dpkg-deb", "--root-owner-group", "-Zxz", "--build", root, deb, capture=True)
+            icon = Path(f"usr/share/icons/hicolor/{n}x{n}/apps/terraflux.png")
+            (root / icon).parent.mkdir(parents=True)
+            shutil.copyfile(LOGO / "png" / f"terraflux-icon-{n}.png", root / icon)
+            files.append(icon)
+        if want_deb:
+            (root / "usr" / "bin").mkdir(parents=True)
+            (root / "usr" / "bin" / "terraflux").symlink_to("../../opt/terraflux/terraflux")
+            size_kb = sum(f.stat().st_size for f in root.rglob("*") if f.is_file()) // 1024
+            (root / "DEBIAN").mkdir()
+            (root / "DEBIAN" / "control").write_text(control(version, deb_arch, glibc, size_kb))
+            deb = out / f"terraflux_{version}_{deb_arch}.deb"
+            deb.unlink(missing_ok=True)
+            run("dpkg-deb", "--root-owner-group", "-Zxz", "--build", root, deb, capture=True)
+            made.append(deb)
+        if formats:
+            config = out / "nfpm.yaml"
+            config.write_text(json.dumps(nfpm_config(version, deb_arch, glibc, root, files), indent=2))
+            rpm_arch = {"amd64": "x86_64", "arm64": "aarch64"}.get(deb_arch, deb_arch)
+            names = {"rpm": f"terraflux-{version}-1.{rpm_arch}.rpm",
+                     "archlinux": f"terraflux-{version}-1-{rpm_arch}.pkg.tar.zst"}
+            for fmt in formats:
+                pkg = out / names[fmt]
+                pkg.unlink(missing_ok=True)
+                run(nfpm, "package", "--config", config, "--packager", fmt, "--target", pkg, capture=True)
+                made.append(pkg)
+            config.unlink()
         shutil.rmtree(root)
-        made.append(deb)
     for f in made:
         print(f"{f} ({f.stat().st_size / 2**20:.0f} MB)")
 
