@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.7.2] - 2026-10-20
+
 ### Added
 - The packages of every release are built by GitHub Actions at its tag `vX.Y.Z` (`.github/workflows/release.yml`):
   the MSI and the zip for Windows, the disk image and the zip for macOS (Apple silicon), the `.deb` and the
