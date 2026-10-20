@@ -6,6 +6,16 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- The packages of every release are built by GitHub Actions at its tag `vX.Y.Z` (`.github/workflows/release.yml`):
+  the MSI and the zip for Windows, the disk image and the zip for macOS (Apple silicon), the `.deb` and the
+  archive for Linux, published as the tag's release with its changes and their checksums (`SHA256SUMS.txt`).
+  The website is published on GitHub Pages after each release, its downloads those of the latest one.
+
+### Fixed
+- Terraflux builds on macOS again: landschaft's reading of SWAT+ files used `std::from_chars` of reals, which
+  Apple's libc++ does not have (`strtof`/`strtod` there, the same values).
+
 ## [1.7.1] - 2026-10-19
 
 ### Fixed
