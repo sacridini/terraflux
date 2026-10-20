@@ -66,6 +66,13 @@ OPS = {o["name"]: o for o in json.loads((DATA / "ops.json").read_text(encoding="
 CLI = json.loads((DATA / "cli.json").read_text(encoding="utf-8"))
 SUBJECTS = json.loads((DATA / "subjects.json").read_text(encoding="utf-8"))
 SITE["version"] = CLI.get("version", "0.0.0")
+# The downloads are those of the latest release published on GitHub (TERRAFLUX_RELEASE, given by the website's
+# workflow), older than the operators' data while a new release's packages are still being built.
+if os.environ.get("TERRAFLUX_RELEASE"):
+    SITE["release"] = os.environ["TERRAFLUX_RELEASE"].removeprefix("v")
+    SITE["releases_public"] = True
+else:
+    SITE["release"] = SITE["version"]
 
 
 def subject_of(op: str) -> str:
@@ -612,7 +619,7 @@ def prev_next(page: Page, pages: list[Page], cats):
 
 
 def downloads():
-    v = SITE["version"]
+    v = SITE["release"]
     tag = SITE["release_tag"].format(version=v)
     base = SITE["release_base"].format(tag=tag, version=v)
     out = []

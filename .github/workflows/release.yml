@@ -1,0 +1,136 @@
+# Terraflux's packages for Windows, macOS and Linux, built at every tag vX.Y.Z and published as that tag's release
+# on GitHub, with the version's changes from CHANGELOG.md; then the website is rebuilt, its downloads pointing to it.
+#
+# Built again for a tag (the packages replaced): Actions > release > Run workflow, with the tag.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The tag to build and publish (vX.Y.Z)"
+        required: true
+
+permissions:
+  contents: write
+  actions: write
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+  CARGO_TERM_COLOR: always
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+          submodules: recursive
+      - run: rustup update stable --no-self-update && rustup default stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release
+      # GDAL of GISInternals (the same as C:\Program Files\GDAL), its core MSI unpacked without installing it
+      - name: GDAL
+        shell: pwsh
+        run: |
+          $url = "https://download.gisinternals.com/sdk/downloads/release-1944-x64-gdal-3-12-1-mapserver-8-6-0/gdal-3.12.1-1944-x64-core.msi"
+          Invoke-WebRequest $url -OutFile "$env:RUNNER_TEMP\gdal.msi"
+          Start-Process msiexec -ArgumentList "/a `"$env:RUNNER_TEMP\gdal.msi`" /qn TARGETDIR=`"$env:RUNNER_TEMP\gdal`"" -Wait
+          if (-not (Test-Path "$env:RUNNER_TEMP\gdal\PFiles\GDAL\gdal.dll")) { throw "GDAL was not unpacked" }
+      - name: Package
+        shell: pwsh
+        run: tools\make-installer.ps1 -Gdal "$env:RUNNER_TEMP\gdal\PFiles\GDAL"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            target/installer/*.msi
+            target/installer/*.zip
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-14
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+          submodules: recursive
+      - run: rustup update stable --no-self-update && rustup default stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release
+      - run: brew install gdal libomp
+      - run: python3 tools/make-macos-app.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: |
+            target/macos/*.dmg
+            target/macos/*.zip
+          if-no-files-found: error
+
+  linux:
+    # the oldest glibc the package asks for is this Ubuntu's (2.39)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+          submodules: recursive
+      - run: rustup update stable --no-self-update && rustup default stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libgdal-dev patchelf
+      - run: python3 tools/make-linux-package.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: |
+            target/linux/*.tar.gz
+            target/linux/*.deb
+          if-no-files-found: error
+
+  publish:
+    needs: [windows, macos, linux]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      # the release's notes: the version's section of CHANGELOG.md
+      - name: Notes
+        run: |
+          v="${TAG#v}"
+          awk -v v="$v" '/^## \[/ { if (on) exit; if (index($0, "## [" v "]") == 1) { on = 1; next } } on' CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "Terraflux $v." > notes.md
+          cat notes.md
+      - name: Release
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --title "Terraflux ${TAG#v}" --notes-file notes.md --verify-tag
+          fi
+      - name: Website
+        run: gh workflow run website.yml --ref main

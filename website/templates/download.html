@@ -1,19 +1,18 @@
 {% extends "base.html" %}
 {% set title = "Download" %}
-{% block description %}Download Terraflux {{ site.version }} for Windows, macOS and Linux. GDAL and every library it needs are included.{% endblock %}
+{% block description %}Download Terraflux {{ site.release }} for Windows, macOS and Linux. GDAL and every library it needs are included.{% endblock %}
 {% block bodyclass %}download-page{% endblock %}
 {% block main %}
 <section class="dl-hero">
   <div class="wrap">
     <h1>Download Terraflux</h1>
-    <p class="lede">Version {{ site.version }}. Each package brings GDAL, PROJ and the runtimes Terraflux needs:
+    <p class="lede">Version {{ site.release }}. Each package brings GDAL, PROJ and the runtimes Terraflux needs:
       you do not need Python, R or a GIS installed.</p>
     {% if not site.releases_public %}
     <div class="notice-box" role="note">
       <strong>The first public release is on its way.</strong>
-      <span>Terraflux's repository is not public yet. The links below point to where the packages of each release
-        will be published on GitHub, and will work as soon as it opens. To follow the project, watch the
-        <a href="{{ site.repo }}">repository</a>.</span>
+      <span>Its packages are being built. The links below point to where they will be published on GitHub, and
+        will work as soon as they are. To follow the project, watch the <a href="{{ site.repo }}">repository</a>.</span>
     </div>
     {% endif %}
     <div class="dl-detected" hidden>
@@ -52,7 +51,7 @@
       </ol>
       {% else %}
       <ol>
-        <li>On Debian or Ubuntu: <code>sudo apt install ./terraflux_{{ site.version }}_amd64.deb</code>. Terraflux goes to <code>/opt/terraflux</code>, the command to <code>/usr/bin</code>.</li>
+        <li>On Debian or Ubuntu: <code>sudo apt install ./terraflux_{{ site.release }}_amd64.deb</code>. Terraflux goes to <code>/opt/terraflux</code>, the command to <code>/usr/bin</code>.</li>
         <li>Anywhere else, unpack the <code>.tar.gz</code> and run <code>./install.sh</code>: it links the command into <code>~/.local/bin</code> and adds Terraflux to the menu, without root.</li>
         <li>The application needs the desktop's own libraries (EGL or Vulkan, and <code>libxkbcommon-x11</code> or Wayland); the command line needs none.</li>
       </ol>

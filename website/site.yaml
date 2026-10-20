@@ -12,8 +12,9 @@ url: https://sacridini.github.io/terraflux/
 license: GPL-3.0-or-later
 author: Eduardo Lacerda
 
-# Downloads. While the repository is private, `releases_public: false` keeps the buttons in place and says that
-# the first public release is on its way; set it to true when releases are published on GitHub.
+# Downloads, published on GitHub by .github/workflows/release.yml at every tag vX.Y.Z. The website's workflow links
+# them to the latest release (TERRAFLUX_RELEASE), and marks them public; built without it, `releases_public: false`
+# keeps the buttons in place and says that the first release is on its way.
 releases_public: false
 release_tag: "v{version}"
 release_base: "https://github.com/sacridini/terraflux/releases/download/{tag}/"

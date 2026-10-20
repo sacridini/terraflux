@@ -1,7 +1,8 @@
-# The website (website/) built and published on GitHub Pages at every push to main that changes it.
-# Pages must be enabled with "GitHub Actions" as the source (Settings > Pages), and the repository variable
-# PAGES_ENABLED set to true (Settings > Secrets and variables > Actions > Variables): until then the site is built
-# (and checked) at every push, not published.
+# The website (website/) built and published on GitHub Pages at every push to main that changes it, and after every
+# release (release.yml runs it), its downloads those of the latest release.
+# Pages are enabled with "GitHub Actions" as the source (Settings > Pages), and the repository variable PAGES_ENABLED
+# set to true (Settings > Secrets and variables > Actions > Variables): without it the site is only built (and
+# checked).
 name: website
 
 on:
@@ -30,6 +31,14 @@ jobs:
           cache: pip
           cache-dependency-path: website/requirements.txt
       - run: pip install -r website/requirements.txt
+      # the downloads: the latest release published (none: the site says the first one is on its way)
+      - name: Latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName 2>/dev/null || true)"
+          echo "latest release: ${tag:-none}"
+          echo "TERRAFLUX_RELEASE=$tag" >> "$GITHUB_ENV"
       # the operators' and commands' data and the figures are committed: no Rust build is needed here
       - run: python website/build.py --clean
       - uses: actions/upload-pages-artifact@v3
