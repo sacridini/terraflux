@@ -6414,7 +6414,7 @@
  },
  {
   "name": "data.download",
-  "doc": "Data downloaded on demand and warped onto a grid (gdalwarp straight from the servers: only the part the grid covers is read): WorldClim 2.1 (the 1970-2000 climate; CMIP6 futures), CHELSA 2.1 (1981-2010; CMIP6 futures), the Copernicus DEM (30 or 90 m), SoilGrids (a property at depths) and MapBiomas Brazil (land use and cover by year), or any raster a url names; a file per layer kept in the cache (Terraflux's, TERRAFLUX_CACHE), downloaded once. Classes are resampled by the most common cell, values bilinearly. The values are the servers' (CHELSA's scaled integers: × 0.1, and - 273.15 for temperatures; SoilGrids' in its mapped units).",
+  "doc": "Data downloaded on demand and warped onto a grid (gdalwarp straight from the servers: only the part the grid covers is read): WorldClim 2.1 (the 1970-2000 climate; CMIP6 futures), CHELSA 2.1 (1981-2010; CMIP6 futures), the Copernicus DEM (30 or 90 m), SoilGrids (a property at depths) and MapBiomas Brazil (land use and cover by year), Hydrography90m (the river network of the world at 90 m: its sub-catchments, segments, basins, flow directions and accumulation, stream orders, slopes and distances), or any raster a url names; a file per layer kept in the cache (Terraflux's, TERRAFLUX_CACHE), downloaded once. Classes are resampled by the most common cell, values bilinearly. The values are the servers' (CHELSA's scaled integers: × 0.1, and - 273.15 for temperatures; SoilGrids' in its mapped units).",
   "inputs": [
    {
     "name": "like",
@@ -6444,14 +6444,15 @@
      "chelsa_future",
      "copernicus_dem",
      "soilgrids",
-     "mapbiomas"
+     "mapbiomas",
+     "hydrography90m"
     ]
    },
    {
     "name": "variable",
     "type": "text",
     "required": false,
-    "doc": "worldclim: bio (default), tavg, tmin, tmax, prec, srad, wind, vapr, elev; worldclim_future: bioc (default), tmin, tmax, prec"
+    "doc": "worldclim: bio (default), tavg, tmin, tmax, prec, srad, wind, vapr, elev; worldclim_future: bioc (default), tmin, tmax, prec; hydrography90m: sub_catchment (default), segment, basin, outlet, direction, accumulation, order_strahler... (hydrographr's names)"
    },
    {
     "name": "layers",
@@ -6542,6 +6543,54 @@
     "type": "text",
     "required": false,
     "doc": "auto (default), near, bilinear, cubic, average, mode... (gdalwarp's)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "data.environment90m",
+  "doc": "The environment of every sub-catchment of a map of Hydrography90m's sub-catchments (data.download's hydrography90m), from Environment90m (Garcia Marquez et al. 2025), as hydrographr's download_env90m_tables: the climate (CHELSA's bio01 to bio19, observed 1981-2010 and projected), the land cover (ESA CCI's share of each class by year), the soil (SoilGrids), the elevation (MERIT DEM), the aridity and evapotranspiration (CGIAR) and the hydrography's variables, each summarised over the sub-catchment, in the units of their sources (CHELSA's temperatures in tenths of a kelvin: x 0.1 - 273.15 for degrees). The tables of the tiles over the map downloaded once into the cache (some are hundreds of MB), the rows of the map's sub-catchments kept.",
+  "inputs": [
+   {
+    "name": "sub_catchments",
+    "type": "map",
+    "required": true,
+    "doc": "the sub-catchment of each cell (Hydrography90m's ids)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per sub-catchment of the map: subcID, then <variable>_<statistic> for each variable and statistic"
+   },
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the column to_map on the cells of each sub-catchment"
+   }
+  ],
+  "params": [
+   {
+    "name": "variables",
+    "type": "any",
+    "required": true,
+    "doc": "the variables, a name or a list, as hydrographr's: bio01_1981-2010_observed, bio12_2071-2100_gfdl-esm4_ssp370_v2_1, c10_2020 (land cover class 10 in 2020), clyppt (clay), elev, garid (aridity), slope_grad_dw_cel..."
+   },
+   {
+    "name": "stats",
+    "type": "any",
+    "required": false,
+    "doc": "min, max, range, mean (default), sd, or a list"
+   },
+   {
+    "name": "to_map",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the map (the first after subcID)"
    }
   ],
   "access": "global",
