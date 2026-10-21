@@ -15,6 +15,11 @@ minor versions.
   links; `hydro.upstream_catchment` gives the catchment of every point as a polygon with the point's attributes, and
   the map of the catchments nested between one point and the next. In Rust, over the D8 directions of `hydro`. The
   template Rivers: the land upstream and the gauges' catchments.
+- Packages for Fedora (`.rpm`, also openSUSE) and Arch Linux (`.pkg.tar.zst`), with the `.deb`: the same folder in
+  `/opt/terraflux`, the command in `/usr/bin`, an entry in the menu (`tools/make-linux-package.py`, with
+  [nfpm](https://nfpm.goreleaser.com)). At every release each Linux package is installed in a container of Ubuntu
+  24.04, Debian 13, Fedora or Arch and runs a model with its GDAL before it is published; the website's downloads
+  list them. The release workflow run without a tag builds and tries the packages without publishing them.
 
 ### Changed
 - The Assistant pane looks like a terminal: the conversation in a fixed font on one ground, each line marked in its
@@ -22,11 +27,6 @@ minor versions.
   result, a click opening it whole, ∴ the thinking); a prompt where enter sends, up and down bring back what was
   typed and esc stops the answer; commands after a slash: /new, /stop, /review, /accept, /reject, /explain, /setup
   and /help.
-- Packages for Fedora (`.rpm`, also openSUSE) and Arch Linux (`.pkg.tar.zst`), with the `.deb`: the same folder in
-  `/opt/terraflux`, the command in `/usr/bin`, an entry in the menu (`tools/make-linux-package.py`, with
-  [nfpm](https://nfpm.goreleaser.com)). At every release each Linux package is installed in a container of Ubuntu
-  24.04, Debian 13, Fedora or Arch and runs a model with its GDAL before it is published; the website's downloads
-  list them. The release workflow run without a tag builds and tries the packages without publishing them.
 
 ## [1.7.2] - 2026-10-20
 
