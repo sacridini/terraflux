@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-10-21
+
 ### Added
 - Debugging a model: a node turned off without being taken away (`bypass`; B on the canvas): it does not run, each
   of its outputs the first of its inputs of the same type, its box faint; how long every node took and about how
