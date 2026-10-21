@@ -35,6 +35,7 @@ pub mod differ;
 pub mod dinamica;
 pub mod dispersal;
 pub mod dynamic;
+pub mod env90m;
 pub mod essentials;
 pub mod files;
 pub mod fitted;
@@ -382,6 +383,7 @@ impl Registry {
         clumondo::register(&mut r);
         crafty::register(&mut r);
         data::register(&mut r);
+        env90m::register(&mut r);
         markov::register(&mut r);
         metrics::register(&mut r);
         ml::register(&mut r);

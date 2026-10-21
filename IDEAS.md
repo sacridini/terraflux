@@ -719,6 +719,13 @@ falta é tratar a rede como um **grafo de trechos**, a partir da tabela do `stre
 4. **O Hydrography90m e o Environment90m no `data.download`:** a rede, as sub-bacias e as variáveis ambientais por
    sub-bacia do mundo inteiro a 90 m, sem derivar do DEM, como as fontes que já estão lá. Conferir antes se o
    servidor deixa o GDAL ler só a janela da grade (os tiles de 20° são grandes).
+   - **Feito** (1.10.0): o servidor do IGB (um Nextcloud) atende pedidos por faixas (HTTP 206), e os tiles são
+     GeoTIFF em blocos de 256: o `data.download` com `source = "hydrography90m"` lê só a janela de cada uma das
+     variáveis em tiles (sub-bacias, segmentos, bacias, direções, acumulação, ordens, declividades, distâncias,
+     índices de fluxo) dos tiles sobre a grade. O Environment90m vem em tabelas por sub-bacia (zips por tile e
+     variável), não em rasters: o `data.environment90m` baixa uma vez para o cache as tabelas das variáveis pedidas
+     (clima observado e projetado do CHELSA, cobertura do ESA CCI por ano, SoilGrids, MERIT DEM, CGIAR, a própria
+     hidrografia) nos tiles do mapa de sub-bacias e dá a tabela das sub-bacias do mapa e o mapa de uma coluna.
 5. **SDM de água doce** (`get_modelfit_table`, `get_predict_table`): o `sdm.*` com a sub-bacia como unidade em vez
    da célula, com as variáveis a montante do item 1. Sai quase de graça depois dos itens 1 e 2.
 

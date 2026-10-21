@@ -6,6 +6,15 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Hydrography90m and Environment90m, the river network of the world at 90 m and its environment per
+  sub-catchment: `data.download` with `source = "hydrography90m"` reads only the window of the grid from the tiles of
+  any of its variables (sub-catchments, segments, basins, outlets, flow directions and accumulation, stream orders,
+  slopes, distances, flow indices); `data.environment90m` gives the climate (CHELSA, observed and projected), land
+  cover (ESA CCI by year), soil (SoilGrids), elevation (MERIT DEM), aridity (CGIAR) and hydrography of every
+  sub-catchment of a map (their min, max, range, mean or sd), the tables of the tiles downloaded once into the cache,
+  and a column on the map.
+
 ## [1.9.0] - 2026-10-21
 
 ### Added

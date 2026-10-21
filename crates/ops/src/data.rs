@@ -17,8 +17,16 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(Download));
 }
 
-const SOURCES: [&str; 7] =
-    ["worldclim", "worldclim_future", "chelsa", "chelsa_future", "copernicus_dem", "soilgrids", "mapbiomas"];
+const SOURCES: [&str; 8] = [
+    "worldclim",
+    "worldclim_future",
+    "chelsa",
+    "chelsa_future",
+    "copernicus_dem",
+    "soilgrids",
+    "mapbiomas",
+    "hydrography90m",
+];
 
 /// A layer to fetch: its name (the file's), the GDAL path of its source and whether it holds classes.
 #[derive(Debug, Clone, PartialEq)]
@@ -150,6 +158,84 @@ pub fn mapbiomas(collection: u32, years: &[u32]) -> std::result::Result<Vec<Laye
         .collect()
 }
 
+/// Hydrography90m's files on the IGB Berlin's server, by their path.
+const H90M: &str = "https://public.igb-berlin.de/index.php/s/agciopgzXjWswF4/download?path=";
+
+/// Hydrography90m's variables in tiles (hydrographr's download_tiles), by the folder that holds them.
+pub const H90M_VARIABLES: [(&str, &[&str]); 6] = [
+    ("r.watershed", &["sub_catchment", "segment", "basin", "outlet", "direction", "accumulation", "depression"]),
+    ("r.stream.order", &["order_strahler", "order_shreve", "order_horton", "order_hack", "order_topo"]),
+    ("r.stream.slope", &["slope_grad_dw_cel", "slope_elv_dw_cel", "slope_curv_max_dw_cel", "slope_curv_min_dw_cel"]),
+    (
+        "r.stream.distance",
+        &[
+            "stream_dist_up_near",
+            "stream_dist_up_farth",
+            "stream_dist_dw_near",
+            "stream_dist_proximity",
+            "outlet_dist_dw_basin",
+            "outlet_dist_dw_scatch",
+            "stream_diff_up_near",
+            "stream_diff_up_farth",
+            "stream_diff_dw_near",
+            "outlet_diff_dw_basin",
+            "outlet_diff_dw_scatch",
+        ],
+    ),
+    (
+        "r.stream.channel",
+        &[
+            "channel_grad_dw_seg",
+            "channel_grad_up_seg",
+            "channel_grad_up_cel",
+            "channel_curv_cel",
+            "channel_elv_dw_seg",
+            "channel_elv_up_seg",
+            "channel_elv_up_cel",
+            "channel_elv_dw_cel",
+            "channel_dist_dw_seg",
+            "channel_dist_up_seg",
+            "channel_dist_up_cel",
+        ],
+    ),
+    ("flow.index", &["cti", "spi", "sti"]),
+];
+
+/// The 20° tiles of Hydrography90m and Environment90m over a box of longitudes and latitudes: hXXvYY, h00v00 the
+/// one from 180° W and 85° N, their numbers stepping by 2 every 20°.
+pub fn h90m_tiles(lon: [f64; 2], lat: [f64; 2]) -> Vec<String> {
+    let span = |a: f64, b: f64, n: i32| -> (i32, i32) {
+        ((a / 20.0).floor().clamp(0.0, (n - 1) as f64) as i32, ((b / 20.0).ceil() as i32 - 1).clamp(0, n - 1))
+    };
+    let (c0, c1) = span(lon[0] + 180.0, lon[1] + 180.0, 18);
+    let (r0, r1) = span(85.0 - lat[1], 85.0 - lat[0], 7);
+    let mut out = Vec::new();
+    for r in r0..=r1 {
+        for c in c0..=c1 {
+            out.push(format!("h{:02}v{:02}", 2 * c, 2 * r));
+        }
+    }
+    out
+}
+
+/// The paths of a Hydrography90m variable's tiles (whether they exist or not: the sea has none), and whether its
+/// values are classes (ids, directions, orders).
+pub fn hydrography90m(variable: &str, tiles: &[String]) -> std::result::Result<(Vec<String>, bool), String> {
+    let folder = H90M_VARIABLES.iter().find(|(_, vs)| vs.contains(&variable)).map(|(f, _)| *f).ok_or_else(|| {
+        let all: Vec<&str> = H90M_VARIABLES.iter().flat_map(|(_, v)| v.iter().copied()).collect();
+        format!("hydrography90m: variable {variable:?} is not one of {}", all.join(", "))
+    })?;
+    let classes = folder == "r.stream.order"
+        || ["sub_catchment", "segment", "basin", "outlet", "direction", "depression"].contains(&variable);
+    let paths = tiles
+        .iter()
+        .map(|t| {
+            curl(&format!("{H90M}{}", format!("/{folder}/{variable}_tiles20d/{variable}_{t}.tif").replace('/', "%2F")))
+        })
+        .collect();
+    Ok((paths, classes))
+}
+
 /// The grid to fill: a map's (any raster input), or an extent of longitudes and latitudes at a cell size.
 fn grid_of(args: &Args) -> Result<Grid> {
     let fail = |m: &str| Error::msg(format!("node {:?}: {m}", args.node));
@@ -176,7 +262,7 @@ fn grid_of(args: &Args) -> Result<Grid> {
 }
 
 /// The longitudes and latitudes a grid spans (its edges sampled, in WGS 84).
-fn lonlat_box(g: &Grid) -> Result<([f64; 2], [f64; 2])> {
+pub(crate) fn lonlat_box(g: &Grid) -> Result<([f64; 2], [f64; 2])> {
     let t = g.transform;
     let (w, h) = (g.width as f64, g.height as f64);
     let (mut xs, mut ys) = (Vec::new(), Vec::new());
@@ -248,6 +334,16 @@ fn layers_of(args: &Args, g: &Grid) -> Result<Vec<Layer>> {
             let years = numbers(args, "years", 2023..=2023)?;
             mapbiomas(args.param("collection", 10)?, &years).map_err(fail)?
         }
+        "hydrography90m" => {
+            let v = text(args, "variable", "sub_catchment")?;
+            let (lon, lat) = lonlat_box(g)?;
+            let (paths, classes) = hydrography90m(&v, &h90m_tiles(lon, lat)).map_err(fail)?;
+            let tiles: Vec<String> = paths.into_iter().filter(|p| terraflux_gdal::Dataset::open(p).is_ok()).collect();
+            if tiles.is_empty() {
+                return Err(fail("Hydrography90m has no tile over the grid (all sea?)".into()));
+            }
+            vec![Layer { name: v, path: tiles.join("|"), classes }]
+        }
         "" => {
             let urls: Vec<String> = match args.params.get("url") {
                 Some(serde_json::Value::String(s)) => vec![s.clone()],
@@ -275,7 +371,9 @@ impl Operator for Download {
             "Data downloaded on demand and warped onto a grid (gdalwarp straight from the servers: only the part \
              the grid covers is read): WorldClim 2.1 (the 1970-2000 climate; CMIP6 futures), CHELSA 2.1 \
              (1981-2010; CMIP6 futures), the Copernicus DEM (30 or 90 m), SoilGrids (a property at depths) and \
-             MapBiomas Brazil (land use and cover by year), or any raster a url names; a file per layer kept in \
+             MapBiomas Brazil (land use and cover by year), Hydrography90m (the river network of the world at 90 m: \
+             its sub-catchments, segments, basins, flow directions and accumulation, stream orders, slopes and \
+             distances), or any raster a url names; a file per layer kept in \
              the cache (Terraflux's, TERRAFLUX_CACHE), downloaded once. Classes are resampled by the most common \
              cell, values bilinearly. The values are the servers' (CHELSA's scaled integers: × 0.1, and - 273.15 \
              for temperatures; SoilGrids' in its mapped units).",
@@ -288,7 +386,8 @@ impl Operator for Download {
             "variable",
             Type::Text,
             "worldclim: bio (default), tavg, tmin, tmax, prec, srad, wind, vapr, elev; worldclim_future: bioc \
-             (default), tmin, tmax, prec",
+             (default), tmin, tmax, prec; hydrography90m: sub_catchment (default), segment, basin, outlet, direction, \
+             accumulation, order_strahler... (hydrographr's names)",
         ))
         .param(PortSpec::optional("layers", Type::Any, "the variables' numbers (bio 1-19, months 1-12; default all)"))
         .param(PortSpec::optional(

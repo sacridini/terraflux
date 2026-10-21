@@ -4,7 +4,9 @@
 
 use std::sync::Arc;
 
-use terraflux_ops::data::{chelsa, copernicus_tiles, mapbiomas, soilgrids, worldclim, worldclim_future};
+use terraflux_ops::data::{
+    chelsa, copernicus_tiles, h90m_tiles, hydrography90m, mapbiomas, soilgrids, worldclim, worldclim_future,
+};
 use terraflux_ops::{Args, Ctx, Map, Outputs, Registry, Value};
 use terraflux_raster::{DataType, Grid, Raster};
 
@@ -55,6 +57,21 @@ fn the_sources_paths() {
             && m[0].path.ends_with("collection11/lulc/coverage/brazil_coverage/brazil_coverage-col11_2025.tif")
     );
     assert!(mapbiomas(8, &[2000]).is_err());
+    // Hydrography90m's tiles of 20 degrees: h10v04 from 80 to 60 W and 45 to 25 N
+    assert_eq!(h90m_tiles([-79.0, -61.0], [26.0, 44.0]), ["h10v04"]);
+    assert_eq!(h90m_tiles([-47.2, -46.8], [-23.0, -22.7]), ["h12v10"]);
+    assert_eq!(h90m_tiles([-61.0, -59.0], [44.0, 46.0]), ["h10v02", "h12v02", "h10v04", "h12v04"]);
+    assert_eq!(h90m_tiles([-180.0, 180.0], [-60.0, 85.0]).len(), 18 * 7);
+    let (paths, classes) = hydrography90m("sub_catchment", &["h12v10".into()]).unwrap();
+    assert!(classes);
+    assert_eq!(
+        paths[0],
+        "/vsicurl/https://public.igb-berlin.de/index.php/s/agciopgzXjWswF4/download?path=%2Fr.watershed%2Fsub_catchment_tiles20d%2Fsub_catchment_h12v10.tif"
+    );
+    let (paths, classes) = hydrography90m("slope_grad_dw_cel", &["h00v00".into()]).unwrap();
+    assert!(!classes && paths[0].contains("%2Fr.stream.slope%2Fslope_grad_dw_cel_tiles20d%2F"));
+    assert!(hydrography90m("order_strahler", &[]).unwrap().1);
+    assert!(hydrography90m("rivers", &[]).is_err());
 }
 
 #[test]
@@ -136,4 +153,47 @@ fn downloads_mapbiomas() {
 fn downloads_worldclim() {
     let l = window(serde_json::json!({"source": "worldclim", "layers": [1]}));
     assert!(l[0].1.iter().all(|x| (10.0..30.0).contains(x)), "{:?}", &l[0].1[..4]);
+}
+
+#[test]
+#[ignore = "downloads from Hydrography90m"]
+fn downloads_hydrography90m() {
+    let l = window(serde_json::json!({"source": "hydrography90m", "variable": "sub_catchment"}));
+    // whole ids of sub-catchments, many of them in a window of 40 x 30 km
+    let ids: std::collections::BTreeSet<u64> = l[0].1.iter().filter(|x| x.is_finite()).map(|x| *x as u64).collect();
+    assert!(l[0].1.iter().all(|x| x.is_nan() || (*x > 0.0 && x.fract() == 0.0)), "{:?}", &l[0].1[..4]);
+    assert!(ids.len() > 20, "{} sub-catchments", ids.len());
+}
+
+#[test]
+#[ignore = "downloads from Hydrography90m and Environment90m"]
+fn downloads_environment90m() {
+    let l = window(serde_json::json!({"source": "hydrography90m", "variable": "sub_catchment"}));
+    let Value::Raster(r) = &run(
+        "data.download",
+        vec![],
+        serde_json::json!({"source": "hydrography90m", "variable": "sub_catchment", "extent": [-47.2, -23.0, -46.8, -22.7], "cellsize": 0.01}),
+    )["raster"] else {
+        panic!()
+    };
+    let subc = r.map().unwrap();
+    assert_eq!(subc.data.as_ref(), &l[0].1);
+    let out = run(
+        "data.environment90m",
+        vec![("sub_catchments", Value::Map(subc.clone()))],
+        serde_json::json!({"variables": ["bio01_1981-2010_observed", "elev"], "stats": ["mean", "sd"]}),
+    );
+    let Value::Table(t) = &out["table"] else { panic!() };
+    assert_eq!(
+        t.columns,
+        ["subcID", "bio01_1981-2010_observed_mean", "bio01_1981-2010_observed_sd", "elev_mean", "elev_sd"]
+    );
+    // Campinas: about 20 degrees C (CHELSA's tenths of a Kelvin above 0 C: 2930 or so) and 500 to 1100 m
+    let (temp, elev) = (t.column("bio01_1981-2010_observed_mean").unwrap(), t.column("elev_mean").unwrap());
+    let known = temp.iter().filter(|x| x.is_finite()).count();
+    assert!(known * 10 >= t.rows.len() * 9, "{known} of {}", t.rows.len());
+    assert!(elev.iter().filter(|x| x.is_finite()).all(|x| (400.0..1300.0).contains(x)), "{elev:?}");
+    let Value::Map(m) = &out["map"] else { panic!() };
+    assert!(m.data.iter().any(|x| x.is_finite()));
+    println!("{} sub-catchments; bio01 {:?}", t.rows.len(), &temp[..3]);
 }
