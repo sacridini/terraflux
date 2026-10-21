@@ -97,6 +97,7 @@ pub mod tables;
 pub mod uncertainty;
 pub mod validate;
 pub mod value;
+pub mod values;
 pub mod vector;
 pub mod vector_tiled;
 pub mod vector_tools;
@@ -354,6 +355,7 @@ impl Registry {
         r.add(Arc::new(Repeat));
         r.add(Arc::new(Group));
         r.add(Arc::new(Each));
+        r.add(Arc::new(Switch));
         r.add(Arc::new(Submodel));
         r.add(Arc::new(RngNew));
         accuracy::register(&mut r);
@@ -433,6 +435,7 @@ impl Registry {
         raster_stats::register(&mut r);
         raster_neighbours::register(&mut r);
         vector_tools::register(&mut r);
+        values::register(&mut r);
         raster_analysis::register(&mut r);
         r
     }
@@ -508,6 +511,31 @@ impl Operator for Each {
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         Err(Error::msg(format!("node {:?}: control.each is run by the engine", args.node)))
+    }
+}
+
+/// `control.switch`: the engine runs the branch of its case; the operator only declares it.
+pub struct Switch;
+
+impl Operator for Switch {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            terraflux_graph::SWITCH,
+            "Run one branch, chosen by the value of `case`: its body holds a group per branch, the one whose id is \
+             the case (maxent, rf, glm; case_1 for the number 1, true or false for a yes or no) runs, or the group \
+             otherwise when none is; the others do not. Every branch gives the same outputs, the switch's. Its \
+             other inputs are @name inside, as a group's. With a parameter or a scenario giving the case, the \
+             choice of a method is a scenario to compare.",
+            Access::None,
+        )
+        .input(PortSpec::new("case", Type::Any, "the branch to run: its id (a text, a number, true or false)"))
+        .output(PortSpec::new("branch", Type::Text, "the id of the branch that ran"))
+        .extra(Type::Any)
+        .container()
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        Err(Error::msg(format!("node {:?}: control.switch is run by the engine", args.node)))
     }
 }
 

@@ -125,6 +125,60 @@ column `item` first (the year of `forest_2010`, the number a name ends with, or 
 a series. Each element runs alone: nothing is carried from one to the next (that is `control.repeat`). A node of
 one map given a stack runs once per layer by itself; `control.each` is for a body of several nodes.
 
+## Choosing a branch: `control.switch`
+
+A `control.switch` runs one of its branches: its body holds a group per branch, and the one whose id is the value
+of its input `case` runs (`maxent`, `rf`; `case_2` for the number 2, `true` or `false` for a yes or no), or the
+group `otherwise` when none is; the others do not run. Every branch gives the same outputs, which are the switch's
+(`suitability.map`), with `branch`, the id of the one that ran. Its other inputs are `@name` inside, as a group's.
+
+```toml
+[[nodes]]
+id = "suitability"
+op = "control.switch"
+inputs = { case = "$method", farm = "farmland.map" }
+[[nodes.body.nodes]]
+id = "distance"
+op = "control.group"
+inputs = { f = "@farm" }
+[nodes.body.nodes.body]
+outputs = { map = "near.map" }
+# ... the nodes of the branch
+[[nodes.body.nodes]]
+id = "neighbourhood"
+op = "control.group"
+inputs = { f = "@farm" }
+[nodes.body.nodes.body]
+outputs = { map = "share.map" }
+# ...
+```
+
+With the case an input of the model, a parameter (`choices = ["distance", "neighbourhood"]`) chooses the method, and
+a scenario for each compares them side by side (the template Choose the method: a switch and its scenarios).
+
+## Numbers and texts: `value.calc`
+
+`value.calc` makes a number or a text that is not a map from its inputs: `expression` in map algebra's syntax and
+functions over the inputs that are numbers (true and false as 1 and 0; a table's value as `table.column`, of the row
+`row`, 1 the first and -1 the last), and `text` a template of the inputs, `{name}` replaced by each one's value and
+`{value}` by the expression's (`{{` and `}}` for braces):
+
+```toml
+[[nodes]]
+id = "path"
+op = "value.calc"
+inputs = { species = "@name", step = "@step" }
+params = { text = "out/{species}_{step}.tif" }
+
+[[nodes]]
+id = "write"
+op = "raster.write"
+inputs = { value = "model.map" }
+params = { path = { from = "path.text" } }
+```
+
+Its value and its text are what settings read, the case of a switch, a threshold derived from a table.
+
 ## Settings that read values
 
 A setting holds a value of its own, or reads one when the model runs: `"$name"` (an input of a value of the

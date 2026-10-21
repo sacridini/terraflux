@@ -39,6 +39,10 @@ pub const GROUP: &str = "control.group";
 /// names, tables one table, the rest a series).
 pub const EACH: &str = "control.each";
 
+/// The container that runs one of its branches: groups in its body, the one whose id is its case's value (or
+/// `case_<value>` for a number; `otherwise` for the rest); its outputs the branch's, every branch giving the same.
+pub const SWITCH: &str = "control.switch";
+
 /// A node that stands for another model file (`params.path`), expanded into a group before a run
 /// ([`submodel::expand`]).
 pub const SUBMODEL: &str = "control.submodel";

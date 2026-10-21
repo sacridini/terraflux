@@ -145,8 +145,8 @@ impl<'a> Checker<'a> {
                     let Some(c) = sc.container else { continue };
                     any = true;
                     let outside = &scopes[..i];
-                    if c.op == crate::GROUP {
-                        if let Some(s) = c.inputs.get(n) {
+                    if c.op == crate::GROUP || c.op == crate::SWITCH {
+                        if let Some(s) = c.inputs.get(n).filter(|_| !(c.op == crate::SWITCH && n == "case")) {
                             return self.source_type(Some(s), outside);
                         }
                         continue;
@@ -215,6 +215,18 @@ impl<'a> Checker<'a> {
         if sig.container
             && let Some(b) = &n.body
         {
+            // a switch gives what its branches give (the first's types)
+            if n.op == crate::SWITCH
+                && let Some(first) = b.nodes.first()
+                && first.body.as_ref().is_some_and(|fb| fb.outputs.contains_key(port))
+            {
+                let mut inner: Vec<Scope<'a>> = scopes
+                    .iter()
+                    .map(|s| Scope { nodes: s.nodes, container: s.container, index: s.index.clone() })
+                    .collect();
+                inner.push(Scope::new(&b.nodes, Some(n)));
+                return self.port_type(first, port, &inner);
+            }
             if let Some(r) = b.collect.get(port) {
                 if n.op != crate::EACH {
                     return Ok(Type::Series);
@@ -365,6 +377,43 @@ impl<'a> Checker<'a> {
     }
 
     fn check_body(&mut self, n: &'a Node, b: &'a Body, scopes: &mut Vec<Scope<'a>>, at: &str) {
+        if n.op == crate::SWITCH {
+            if !b.carry.is_empty() || !b.collect.is_empty() || b.until.is_some() || !b.outputs.is_empty() {
+                self.error(
+                    at,
+                    "control.switch gives its branches' outputs: it carries, collects and gives nothing of its own"
+                        .into(),
+                );
+            }
+            if b.nodes.is_empty() {
+                self.error(at, "control.switch needs its branches: a group each in its body".into());
+            }
+            let outputs = |g: &Node| -> BTreeSet<String> {
+                g.body.as_ref().map(|gb| gb.outputs.keys().cloned().collect()).unwrap_or_default()
+            };
+            for g in &b.nodes {
+                if g.op != crate::GROUP {
+                    self.error(
+                        &format!("{at}/{}", g.id),
+                        "a branch of control.switch is a group (control.group)".into(),
+                    );
+                } else if let Some(first) = b.nodes.first()
+                    && outputs(g) != outputs(first)
+                {
+                    let names = |s: BTreeSet<String>| s.into_iter().collect::<Vec<_>>().join(", ");
+                    self.error(
+                        &format!("{at}/{}", g.id),
+                        format!(
+                            "every branch gives the same outputs: {} gives {}, {} gives {}",
+                            g.id,
+                            names(outputs(g)),
+                            first.id,
+                            names(outputs(first))
+                        ),
+                    );
+                }
+            }
+        }
         if n.op == crate::EACH && (!b.carry.is_empty() || b.until.is_some() || !b.outputs.is_empty()) {
             self.error(
                 at,

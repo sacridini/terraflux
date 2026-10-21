@@ -30,7 +30,8 @@ loop, `@step`, a group's input) or is a literal value. Settings are the operator
 /// Containers (told to every assistant).
 macro_rules! containers {
     () => {
-        "- Containers (control.repeat: a loop of steps; control.each: the body once per element of a collection, @item, @index and @name inside, what it collects gathered; control.group) hold a body of nodes: give `scope` (the \
+        "- Containers (control.repeat: a loop of steps; control.each: the body once per element of a collection, @item, @index and @name inside, what it collects gathered; control.switch: a group per branch in its body, the \
+one named as its case runs; control.group) hold a body of nodes: give `scope` (the \
 container's id; `outer/inner` for one in another's body) to edit inside it, and edit_container for what the body \
 carries, collects or gives.
 - A model is read in stages: once it is built, put its top level in a group per stage (group_by_stage: data, \

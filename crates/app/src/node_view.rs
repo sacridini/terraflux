@@ -286,6 +286,8 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
             vec![("outputs", &b.outputs)]
         } else if n.op == terraflux_graph::EACH {
             vec![("collect", &b.collect)]
+        } else if n.op == terraflux_graph::SWITCH {
+            Vec::new()
         } else {
             vec![("carry", &b.carry), ("collect", &b.collect)]
         };

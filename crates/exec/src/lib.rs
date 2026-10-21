@@ -182,6 +182,8 @@ fn fingerprint(
 /// A value as a setting holds it: a number, a whole number, true or false, a text (none for maps, tables...).
 fn setting_value(v: &Value) -> Option<serde_json::Value> {
     Some(match v {
+        // (a whole number as a whole number: a setting of whole numbers takes it)
+        Value::Number(x) if x.fract() == 0.0 && x.abs() < 9e15 => (*x as i64).into(),
         Value::Number(x) => serde_json::json!(x),
         Value::Integer(i) => (*i).into(),
         Value::Bool(b) => (*b).into(),
@@ -490,6 +492,9 @@ impl Engine {
         if node.op == terraflux_graph::EACH {
             return self.each(node, env, values, inputs, at, obs, warnings);
         }
+        if node.op == terraflux_graph::SWITCH {
+            return self.switch(node, env, values, inputs, at, obs, warnings);
+        }
         self.read_rasters(sig.as_deref(), &mut values, at, obs, warnings)?;
         if node.op == "control.repeat" {
             return self.repeat(node, env, values, inputs, at, obs, warnings);
@@ -683,6 +688,60 @@ impl Engine {
                 }
             }
         }
+        Ok(out)
+    }
+
+    /// A switch: the branch of its case run (a group of its body: the one named as the case, `case_<n>` for a
+    /// number, else `otherwise`), its outputs the switch's, and the id of the branch.
+    #[allow(clippy::too_many_arguments)]
+    fn switch(
+        &self,
+        node: &Node,
+        env: &Env,
+        mut values: BTreeMap<String, Value>,
+        inputs: &BTreeMap<String, Value>,
+        at: &str,
+        obs: &mut dyn Observer,
+        warnings: &mut Vec<String>,
+    ) -> Result<Outputs> {
+        let body = node.body.as_ref().ok_or_else(|| Error::Node { at: at.into(), message: "no body".into() })?;
+        let case = values.remove("case").ok_or_else(|| Error::Node { at: at.into(), message: "no case".into() })?;
+        let text = match &case {
+            Value::Text(t) => t.clone(),
+            Value::Bool(b) => b.to_string(),
+            Value::Json(serde_json::Value::String(s)) => s.clone(),
+            v => match v.as_number() {
+                Some(x) => terraflux_ops::values::number_text(x),
+                None => {
+                    return Err(Error::Node {
+                        at: format!("{at}.case"),
+                        message: format!("the case is a text, a number or true or false, not a {:?}", v.ty()),
+                    });
+                }
+            },
+        };
+        let wanted = [text.clone(), format!("case_{text}")];
+        let branch = body
+            .nodes
+            .iter()
+            .find(|n| wanted.contains(&n.id))
+            .or_else(|| body.nodes.iter().find(|n| n.id == "otherwise"))
+            .ok_or_else(|| {
+                let ids: Vec<&str> = body.nodes.iter().map(|n| n.id.as_str()).collect();
+                Error::Node {
+                    at: at.into(),
+                    message: format!(
+                        "no branch for the case {text:?} (its branches: {}; otherwise for the rest)",
+                        ids.join(", ")
+                    ),
+                }
+            })?;
+        self.read_rasters(None, &mut values, at, obs, warnings)?;
+        let child = Env { parent: Some(env), results: BTreeMap::new(), carried: values };
+        let inner = format!("{at}/{}", branch.id);
+        obs.node(&inner);
+        let mut out = self.run_node(branch, &child, inputs, &inner, obs, warnings)?;
+        out.insert("branch".into(), Value::Text(branch.id.clone()));
         Ok(out)
     }
 

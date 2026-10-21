@@ -224,7 +224,7 @@ fn clue_s() -> Model {
     m
 }
 
-pub const TEMPLATES: [Template; 53] = [
+pub const TEMPLATES: [Template; 54] = [
     Template {
         name: "MSPA of a forest",
         group: PATTERNS,
@@ -3443,6 +3443,121 @@ params = { title = "Each year's statistics" }
 "#,
     },
     Template {
+        name: "Choose the method: a switch and its scenarios",
+        group: LAND_CHANGE,
+        build: None,
+        about: "Two ways to the same result in one model, the one run chosen by a parameter (control.switch): the \
+                suitability for farming as distance or as neighbourhood, a scenario for each, the name of the result \
+                made from the method (value.calc)",
+        toml: r#"
+format = "terraflux/1"
+name = "Choose the method: a switch and its scenarios"
+description = "Two methods for one result in one model, as control.switch does: the suitability of the land for new farming either by the distance to the farmland there is or by the share of farmland around each cell, only the branch chosen run. The method is a parameter of the model, and each choice a scenario to compare side by side; value.calc makes the title of the result from it, and its weight is a setting that reads an input."
+
+[inputs.method]
+kind = "value"
+value = "distance"
+note = "How the suitability is found: distance or neighbourhood (the switch's case)."
+
+[inputs.weight]
+kind = "value"
+value = 0.8
+note = "How much the suitability counts against the slope (0 to 1): a setting reads it."
+
+[[parameters]]
+key = "$method"
+label = "Method"
+choices = ["distance", "neighbourhood"]
+help = "Which branch of the switch runs."
+
+[[parameters]]
+key = "$weight"
+label = "Weight of the suitability"
+min = 0
+max = 1
+step = 0.1
+
+[[scenarios]]
+name = "by distance"
+values = { "$method" = "distance" }
+
+[[scenarios]]
+name = "by neighbourhood"
+values = { "$method" = "neighbourhood" }
+
+[[nodes]]
+id = "land"
+op = "nlm.random_cluster"
+params = { rows = 100, columns = 100, p = 0.5, weights = [0.6, 0.4], seed = 91, resolution = 30 }
+note = "The land: 1 forest, 2 farmland (in its place, a land cover map)."
+
+[[nodes]]
+id = "relief"
+op = "nlm.fbm"
+params = { rows = 100, columns = 100, dimension = 1.4, seed = 92, resolution = 30 }
+
+[[nodes]]
+id = "farmland"
+op = "map.calc"
+inputs = { l = "land.map" }
+params = { expression = "l == 2" }
+
+[[nodes]]
+id = "suitability"
+op = "control.switch"
+inputs = { case = "$method", farm = "farmland.map" }
+note = "Only the branch the method names runs: both give a map `map`, the suitability from 0 to 1."
+[[nodes.body.nodes]]
+id = "distance"
+op = "control.group"
+inputs = { f = "@farm" }
+note = "Near the farmland there is: 1 on it, falling with the distance."
+[nodes.body.nodes.body]
+outputs = { map = "near.map" }
+[[nodes.body.nodes.body.nodes]]
+id = "away"
+op = "dynamic.distance_to"
+inputs = { landscape = "@f" }
+params = { classes = 1 }
+[[nodes.body.nodes.body.nodes]]
+id = "near"
+op = "map.calc"
+inputs = { d = "away.distance" }
+params = { expression = "1 / (1 + d / 300)" }
+[[nodes.body.nodes]]
+id = "neighbourhood"
+op = "control.group"
+inputs = { f = "@farm" }
+note = "The share of farmland in the 7 x 7 cells around each cell."
+[nodes.body.nodes.body]
+outputs = { map = "share.map" }
+[[nodes.body.nodes.body.nodes]]
+id = "share"
+op = "map.calc"
+inputs = { f = "@f" }
+params = { expression = "nbmean(f, 3)" }
+
+[[nodes]]
+id = "combined"
+op = "map.calc"
+inputs = { s = "suitability.map", r = "relief.map", w = "$weight" }
+params = { expression = "w * s + (1 - w) * (1 - r)" }
+note = "The suitability weighed against the slope (the relief as its stand-in)."
+
+[[nodes]]
+id = "title"
+op = "value.calc"
+inputs = { method = "suitability.branch", weight = "$weight" }
+params = { text = "Suitability by {method} (weight {weight})" }
+
+[[nodes]]
+id = "plot"
+op = "view.plot"
+inputs = { value = "combined.map" }
+params = { title = { from = "title.text" } }
+"#,
+    },
+    Template {
         name: "Terrain of a surface",
         group: SURFACES,
         build: None,
@@ -4287,6 +4402,24 @@ mod tests {
         assert_eq!(s.keys.len(), 3);
         let Some(terraflux_ops::Value::Table(t)) = out.get("by_year.stats") else { panic!("no table") };
         assert_eq!(t.column("item").unwrap(), [2000.0, 2010.0, 2020.0]);
+    }
+
+    /// The switch template runs each of its methods: only the branch chosen, and the title made from it.
+    #[test]
+    fn switch_template_runs() {
+        struct Quiet;
+        impl terraflux_exec::Observer for Quiet {}
+        let name = "Choose the method: a switch and its scenarios";
+        let m = TEMPLATES.iter().find(|t| t.name == name).unwrap().model();
+        for method in ["distance", "neighbourhood"] {
+            let inputs =
+                std::collections::BTreeMap::from([("method".to_string(), terraflux_ops::Value::Text(method.into()))]);
+            let out = terraflux_exec::Engine::default().run(&m, &inputs, &mut Quiet).unwrap();
+            let Some(terraflux_ops::Value::Text(t)) = out.get("title.text") else { panic!("no title") };
+            assert_eq!(t, &format!("Suitability by {method} (weight 0.8)"));
+            let Some(terraflux_ops::Value::Map(c)) = out.get("combined.map") else { panic!("no map") };
+            assert!(c.data.iter().all(|x| (0.0..=1.0).contains(x)), "{method}");
+        }
     }
 
     /// The accuracy template runs: the overall accuracy near the nine tenths of cells kept, and the area of every

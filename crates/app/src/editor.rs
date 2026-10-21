@@ -540,6 +540,8 @@ pub fn sources(m: &Model, r: &Registry, path: &[String]) -> Vec<(String, Type)> 
         let Some(b) = &c.body else { continue };
         if c.op == GROUP {
             out.extend(c.inputs.keys().map(|k| (format!("@{k}"), Type::Any)));
+        } else if c.op == terraflux_graph::SWITCH {
+            out.extend(c.inputs.keys().filter(|k| *k != "case").map(|k| (format!("@{k}"), Type::Any)));
         } else if c.op == terraflux_graph::EACH {
             out.extend([("@item".into(), Type::Any), ("@index".into(), Type::Integer), ("@name".into(), Type::Text)]);
             out.extend(c.inputs.keys().filter(|k| *k != "over").map(|k| (format!("@{k}"), Type::Any)));
@@ -574,9 +576,16 @@ pub fn output_ports(n: &Node, r: &Registry) -> Vec<(String, Type)> {
         out.extend(sig.outputs.iter().map(|p| (p.name.clone(), p.ty)));
     }
     if let Some(b) = &n.body {
+        let collected = if n.op == terraflux_graph::EACH { Type::Any } else { Type::Series };
         out.extend(b.carry.keys().map(|k| (k.clone(), Type::Any)));
-        out.extend(b.collect.keys().map(|k| (k.clone(), Type::Series)));
+        out.extend(b.collect.keys().map(|k| (k.clone(), collected)));
         out.extend(b.outputs.keys().map(|k| (k.clone(), Type::Any)));
+        // a switch: its branches' outputs (the first's names)
+        if n.op == terraflux_graph::SWITCH
+            && let Some(first) = b.nodes.first().and_then(|g| g.body.as_ref())
+        {
+            out.extend(first.outputs.keys().map(|k| (k.clone(), Type::Any)));
+        }
     }
     out
 }

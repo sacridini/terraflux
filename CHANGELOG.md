@@ -6,6 +6,14 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- `control.switch`: one branch of a model run, chosen by its case, a group per branch in its body (the one named as
+  the case, `case_<n>` for a number, `otherwise` for the rest), its outputs the branch's, every branch giving the
+  same ones; with the case an input, a parameter chooses the method and each choice is a scenario. `value.calc`: a
+  number from an expression in map algebra's syntax over the node's inputs (a table's value as `table.column`), and a
+  text with them in it (`out/{species}_{step}.tif`), for the settings that read values. The template Choose the
+  method: a switch and its scenarios.
+
 ## [1.12.0] - 2026-10-21
 
 ### Added

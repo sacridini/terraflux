@@ -774,9 +774,15 @@ escolha, abstração) sem código.
      também no executor (como o CLI e o app já faziam). O template "For each year: one analysis per map".
 3. **Condicional** (`control.switch`): um ramo escolhido por um parâmetro (`method = "maxent" | "rf" | "glm"`), só ele
    rodado. Com os parâmetros e cenários, a escolha do método vira um cenário comparável (no Document e no Compare).
+   - **Feito** (1.13.0): o `control.switch`, um grupo por ramo no corpo; roda o de id igual ao caso (`case_<n>` para
+     um número, `true`/`false`, `otherwise` para o resto), as saídas as do ramo (todos dão as mesmas, conferido no
+     `check`) e `branch`, o id do que rodou. O template "Choose the method: a switch and its scenarios".
 4. **Valores escalares e textos** (`value.calc`): números que não são mapas e textos montados, com a sintaxe do
    `map.calc` e interpolação de texto: o caminho `out/{species}_{step}.tif` num laço, um número de uma tabela que
    alimenta uma configuração.
+   - **Feito** (1.13.0): o `value.calc`, `expression` com o avaliador do `map.calc` numa célula (as entradas
+     números, verdadeiro e falso como 1 e 0, uma tabela como `t.coluna` da linha `row`) e `text` com `{nome}` e
+     `{value}`. Um número inteiro chega inteiro às configurações de inteiros.
 5. **Submodelos como operadores de verdade:** com o item 1, um submodelo na biblioteca com descrição, portas
    tipadas, configurações e versão; bibliotecas de submodelos (do usuário, do grupo, compartilhadas). A comunidade
    estende a ferramenta sem escrever Rust.
