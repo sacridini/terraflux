@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-10-21
+
 ### Added
 - Hydrography90m and Environment90m, the river network of the world at 90 m and its environment per
   sub-catchment: `data.download` with `source = "hydrography90m"` reads only the window of the grid from the tiles of
