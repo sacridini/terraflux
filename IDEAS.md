@@ -735,3 +735,64 @@ itens 1 e 2 (pequenos, sobre o `stream_links`), depois o 3 com o DCI, e um templ
 barragens". **Decidido** (2026-10-21): direto em Rust (`crates/ops/src/rivers.rs`), sobre as direções D8 do
 landschaft; no landschaft entram depois, já em Rust e não em C++ (registrado no IDEAS dele, item 11 de "Do Terraflux
 para o landschaft").
+
+## A linguagem do grafo: o que falta além dos operadores
+
+Registro de 2026-10-21. A biblioteca de operadores já é ampla; a linguagem que os liga ainda é simples: o
+`control.repeat` (com `carry`, `collect` e `until`), o `control.group`, o `control.submodel`, o `map.calc`, o
+`batch.run` (um operador sobre vários arquivos), o `plugin.wasm` (célula a célula) e um nó de um mapa rodado uma vez
+por camada de uma pilha (×N no canvas). Basta para um modelo linear; para os fluxos de trabalho reais faltam peças.
+Os itens 1 a 3 juntos fazem do grafo uma linguagem completa (sequência, repetição, iteração sobre coleções,
+escolha, abstração) sem código.
+
+**Na lógica dos nós:**
+
+1. **Configurações que leem valores** (`edge_width = "$x"`; a decisão pendente 5 de "Decisões pendentes de uma
+   revisão"). Trava o resto: um submodelo não expõe as suas configurações (não serve como operador reutilizável), um
+   laço não varia uma configuração a cada passo (um limiar que muda com o ano), a calibração e os parâmetros só
+   alcançam configurações fixas, e um valor não alimenta várias configurações ao mesmo tempo. As referências nas
+   configurações entram nas dependências, no cache, na expansão dos submodelos e nos lotes distribuídos.
+2. **Um laço "para cada"** (`control.each`): um corpo inteiro de nós para cada elemento de uma coleção (cada arquivo
+   de uma pasta, camada de uma pilha, linha de uma tabela, polígono ou região, espécie), os resultados coletados numa
+   pilha ou numa tabela. O caso mais comum: 30 espécies, 50 municípios, 38 anos de MapBiomas. Pede um tipo de
+   coleção genérico (o `Series` hoje é só os passos de um laço).
+3. **Condicional** (`control.switch`): um ramo escolhido por um parâmetro (`method = "maxent" | "rf" | "glm"`), só ele
+   rodado. Com os parâmetros e cenários, a escolha do método vira um cenário comparável (no Document e no Compare).
+4. **Valores escalares e textos** (`value.calc`): números que não são mapas e textos montados, com a sintaxe do
+   `map.calc` e interpolação de texto: o caminho `out/{species}_{step}.tif` num laço, um número de uma tabela que
+   alimenta uma configuração.
+5. **Submodelos como operadores de verdade:** com o item 1, um submodelo na biblioteca com descrição, portas
+   tipadas, configurações e versão; bibliotecas de submodelos (do usuário, do grupo, compartilhadas). A comunidade
+   estende a ferramenta sem escrever Rust.
+6. **Plugins além da célula:** uma segunda interface do `plugin.wasm` que receba o mapa inteiro ou uma janela de
+   vizinhança, dê várias saídas e trabalhe com tabelas. Opcional: um nó `script.python`/`script.r` para quem os tem
+   instalados, marcado como não portátil para os lotes distribuídos (vai contra o "sem Python", mas é a saída de
+   emergência que todo usuário avançado procura).
+7. **Depuração do grafo:** desativar ou contornar um nó (bypass) sem apagá-lo; congelar o resultado de um nó caro
+   entre sessões; tempo e memória por nó (o perfil da execução); um laço passo a passo, como um breakpoint (o Trace
+   já mostra os valores, falta controlar a execução); um nó `check.assert` que falha quando uma condição não vale (a
+   demanda atendida, a soma das áreas).
+8. **Testes de modelos** (`terraflux test`): asserções e saídas esperadas guardadas com o modelo, um template ou um
+   modelo publicado conferido a cada versão nova do Terraflux.
+
+**Fora do grafo:**
+
+- **Reprodutibilidade:** um manifesto gravado com as saídas (a versão do Terraflux, os hashes dos dados de entrada,
+  a semente, os parâmetros, o cenário) e um `terraflux run --reproduce manifest.json`. O cache em disco já existe;
+  falta o registro.
+- **Execução incremental entre sessões pela linha de comando**, como o `targets` do R: só o que mudou rodado de
+  novo, com o cache persistente.
+- **Integração com o ecossistema:** um provedor de Processing para o QGIS (os modelos do Terraflux como algoritmos do
+  QGIS; provavelmente o maior multiplicador de adoção) e uma API Python para montar e rodar grafos, além do caminho
+  do landschaft.
+- **Dados em nuvem:** STAC e o Planetary Computer (já na lista do `data.download`, item 4 de "O que ainda falta entre
+  os operadores").
+- **A interface em português e espanhol:** com o Código Florestal e o MapBiomas entre os operadores, o público
+  latino-americano é óbvio, e o aplicativo não tem i18n.
+- **Datas como tipo:** séries com datas reais, não só passos numerados (clima, MapBiomas, séries de mudança).
+- **Atualização automática:** desenhada em "Atualização automática".
+
+**A ordem:** (1) as configurações que leem valores, que destravam os itens 2 a 5; (2) o `control.each` com um tipo
+de coleção; (3) o `control.switch` e o `value.calc` com interpolação de texto, pequenos depois dos dois primeiros;
+(4) o bypass, o congelamento e o perfil por nó, muito ganho no dia a dia com pouco custo; (5) o manifesto de
+reprodutibilidade e o `terraflux test`.
