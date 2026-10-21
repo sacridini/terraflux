@@ -224,7 +224,7 @@ fn clue_s() -> Model {
     m
 }
 
-pub const TEMPLATES: [Template; 52] = [
+pub const TEMPLATES: [Template; 53] = [
     Template {
         name: "MSPA of a forest",
         group: PATTERNS,
@@ -3370,6 +3370,79 @@ params = { title = "3 km above and below each dam" }
 "#,
     },
     Template {
+        name: "For each year: one analysis per map (control.each)",
+        group: LAND_CHANGE,
+        build: None,
+        about: "A body of nodes run once for each map of a stack (the years of a land cover series): the forest of \
+                each year, its share by a threshold read from the model's inputs, gathered as a stack and a table",
+        toml: r#"
+format = "terraflux/1"
+name = "For each year: one analysis per map (control.each)"
+description = "One analysis repeated for each map of a series, as control.each does: three land covers drawn for 2000, 2010 and 2020 (in their place, a folder of MapBiomas years read by raster.read), and for each of them the forest, its patches above a size and their statistics; what each year gives is gathered as a stack of the years' names and one table with the year first. The smallest patch kept is an input the body's setting reads."
+
+[inputs.min_patch]
+kind = "value"
+value = 20
+note = "The smallest patch of forest kept, in cells: a setting of the body reads it."
+
+[[nodes]]
+id = "cover_2000"
+op = "nlm.random_cluster"
+params = { rows = 80, columns = 80, p = 0.55, weights = [0.65, 0.35], seed = 81, resolution = 30 }
+
+[[nodes]]
+id = "cover_2010"
+op = "nlm.random_cluster"
+params = { rows = 80, columns = 80, p = 0.55, weights = [0.55, 0.45], seed = 82, resolution = 30 }
+
+[[nodes]]
+id = "cover_2020"
+op = "nlm.random_cluster"
+params = { rows = 80, columns = 80, p = 0.55, weights = [0.45, 0.55], seed = 83, resolution = 30 }
+
+[[nodes]]
+id = "years"
+op = "stack.of"
+inputs = { forest_2000 = "cover_2000.map", forest_2010 = "cover_2010.map", forest_2020 = "cover_2020.map" }
+note = "The land cover of each year as one stack: 1 forest, 2 farmland (in its place, raster.read of a folder of years)."
+
+[[nodes]]
+id = "by_year"
+op = "control.each"
+inputs = { over = "years.stack" }
+note = "The body below once for each year: @item is the year's map, @name its name."
+[nodes.body]
+collect = { forest = "kept.map", stats = "stats.table" }
+[[nodes.body.nodes]]
+id = "forest"
+op = "map.calc"
+inputs = { cover = "@item" }
+params = { expression = "cover == 1" }
+[[nodes.body.nodes]]
+id = "kept"
+op = "raster.sieve"
+inputs = { map = "forest.map" }
+params = { threshold = "$min_patch" }
+note = "The forest without its patches smaller than the input min_patch (the setting reads it)."
+[[nodes.body.nodes]]
+id = "stats"
+op = "raster.stats"
+inputs = { map = "kept.map" }
+
+[[nodes]]
+id = "plot_forest"
+op = "view.plot"
+inputs = { value = "by_year.forest" }
+params = { title = "The forest of each year (patches of 20 cells or more)" }
+
+[[nodes]]
+id = "plot_stats"
+op = "view.plot"
+inputs = { table = "by_year.stats" }
+params = { title = "Each year's statistics" }
+"#,
+    },
+    Template {
         name: "Terrain of a surface",
         group: SURFACES,
         build: None,
@@ -4199,6 +4272,21 @@ mod tests {
         assert!(rank.contains(&1.0), "{rank:?}");
         let Some(terraflux_ops::Value::Table(d)) = out.get("distances.table") else { panic!("no distances") };
         assert_eq!(d.rows.len(), 15);
+    }
+
+    /// The template of control.each runs: a stack of the three years, one table with the year first.
+    #[test]
+    fn each_template_runs() {
+        struct Quiet;
+        impl terraflux_exec::Observer for Quiet {}
+        let name = "For each year: one analysis per map (control.each)";
+        let m = TEMPLATES.iter().find(|t| t.name == name).unwrap().model();
+        let inputs = std::collections::BTreeMap::from([("min_patch".to_string(), terraflux_ops::Value::Integer(20))]);
+        let out = terraflux_exec::Engine::default().run(&m, &inputs, &mut Quiet).unwrap();
+        let Some(terraflux_ops::Value::Stack(s)) = out.get("by_year.forest") else { panic!("no stack") };
+        assert_eq!(s.keys.len(), 3);
+        let Some(terraflux_ops::Value::Table(t)) = out.get("by_year.stats") else { panic!("no table") };
+        assert_eq!(t.column("item").unwrap(), [2000.0, 2010.0, 2020.0]);
     }
 
     /// The accuracy template runs: the overall accuracy near the nine tenths of cells kept, and the area of every

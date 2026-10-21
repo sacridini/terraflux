@@ -151,6 +151,21 @@ impl<'a> Checker<'a> {
                         }
                         continue;
                     }
+                    if c.op == crate::EACH {
+                        return match n.as_str() {
+                            "item" => Ok(match self.source_type(c.inputs.get("over"), outside)? {
+                                Type::Stack | Type::Raster | Type::Map => Type::Map,
+                                t @ (Type::Table | Type::Vector) => t,
+                                _ => Type::Any,
+                            }),
+                            "index" => Ok(Type::Integer),
+                            "name" => Ok(Type::Text),
+                            _ => match c.inputs.get(n) {
+                                Some(s) => self.source_type(Some(s), outside),
+                                None => Err(format!("@{n} is not an input of {:?} (@item, @index, @name)", c.id)),
+                            },
+                        };
+                    }
                     if n == "step" {
                         return Ok(Type::Integer);
                     }
@@ -200,8 +215,22 @@ impl<'a> Checker<'a> {
         if sig.container
             && let Some(b) = &n.body
         {
-            if b.collect.contains_key(port) {
-                return Ok(Type::Series);
+            if let Some(r) = b.collect.get(port) {
+                if n.op != crate::EACH {
+                    return Ok(Type::Series);
+                }
+                // what each element gave, gathered: maps a stack, tables a table, the rest a series
+                let mut inner: Vec<Scope<'a>> = scopes
+                    .iter()
+                    .map(|s| Scope { nodes: s.nodes, container: s.container, index: s.index.clone() })
+                    .collect();
+                inner.push(Scope::new(&b.nodes, Some(n)));
+                let t = Ref::parse(r).map_err(|e| e.to_string()).and_then(|r| self.type_of(&r, &inner))?;
+                return Ok(match t {
+                    Type::Map => Type::Stack,
+                    Type::Table => Type::Table,
+                    _ => Type::Series,
+                });
             }
             if b.carry.contains_key(port) {
                 return self.source_type(n.inputs.get(port), scopes);
@@ -336,6 +365,12 @@ impl<'a> Checker<'a> {
     }
 
     fn check_body(&mut self, n: &'a Node, b: &'a Body, scopes: &mut Vec<Scope<'a>>, at: &str) {
+        if n.op == crate::EACH && (!b.carry.is_empty() || b.until.is_some() || !b.outputs.is_empty()) {
+            self.error(
+                at,
+                "control.each collects what its elements give; it carries nothing, and has no until or outputs".into(),
+            );
+        }
         for name in b.carry.keys() {
             if !valid_id(name) || name == "step" {
                 self.error(at, format!("{name:?} cannot be carried"));

@@ -540,6 +540,9 @@ pub fn sources(m: &Model, r: &Registry, path: &[String]) -> Vec<(String, Type)> 
         let Some(b) = &c.body else { continue };
         if c.op == GROUP {
             out.extend(c.inputs.keys().map(|k| (format!("@{k}"), Type::Any)));
+        } else if c.op == terraflux_graph::EACH {
+            out.extend([("@item".into(), Type::Any), ("@index".into(), Type::Integer), ("@name".into(), Type::Text)]);
+            out.extend(c.inputs.keys().filter(|k| *k != "over").map(|k| (format!("@{k}"), Type::Any)));
         } else {
             out.push(("@step".into(), Type::Integer));
             out.extend(b.carry.keys().map(|k| (format!("@{k}"), Type::Any)));

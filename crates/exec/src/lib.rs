@@ -254,6 +254,23 @@ impl Engine {
     ) -> Result<Results> {
         // the solvers and kernels of the nodes with the process's threads, on whatever thread the run is
         terraflux_ops::threads::for_this_thread();
+        // an input of a value not given: the model's own value
+        let defaults: Vec<(String, Value)> = model
+            .inputs
+            .iter()
+            .filter(|(k, _)| !inputs.contains_key(*k))
+            .filter_map(|(k, i)| match i {
+                terraflux_graph::Input::Value { value, .. } => Some((k.clone(), Value::from_json(value))),
+                _ => None,
+            })
+            .collect();
+        let with_defaults;
+        let inputs = if defaults.is_empty() {
+            inputs
+        } else {
+            with_defaults = inputs.clone().into_iter().chain(defaults).collect::<BTreeMap<_, _>>();
+            &with_defaults
+        };
         let among = ids(&model.nodes);
         let by_id: std::collections::HashMap<&str, &Node> = model.nodes.iter().map(|n| (n.id.as_str(), n)).collect();
         // the nodes to run: every one, or the target's ancestors
@@ -470,6 +487,9 @@ impl Engine {
                 return self.per_layer(node, s, values, many, at, obs, warnings);
             }
         }
+        if node.op == terraflux_graph::EACH {
+            return self.each(node, env, values, inputs, at, obs, warnings);
+        }
         self.read_rasters(sig.as_deref(), &mut values, at, obs, warnings)?;
         if node.op == "control.repeat" {
             return self.repeat(node, env, values, inputs, at, obs, warnings);
@@ -629,7 +649,7 @@ impl Engine {
             obs.warning(at, &w);
             warnings.push(format!("{at}: {w}"));
         }
-        Ok(gather(outs, &names, series))
+        Ok(gather(outs, &names, series, "layer"))
     }
 
     /// A group: its body once, its inputs carried inside, its outputs from `body.outputs`.
@@ -664,6 +684,69 @@ impl Engine {
             }
         }
         Ok(out)
+    }
+
+    /// A loop over a collection: the body once per element (`@item`, `@index`, `@name`; the node's other inputs as
+    /// a group's), what it collects gathered as a node run once per layer gathers its outputs ([`gather`]).
+    #[allow(clippy::too_many_arguments)]
+    fn each(
+        &self,
+        node: &Node,
+        env: &Env,
+        mut values: BTreeMap<String, Value>,
+        inputs: &BTreeMap<String, Value>,
+        at: &str,
+        obs: &mut dyn Observer,
+        warnings: &mut Vec<String>,
+    ) -> Result<Outputs> {
+        let body = node.body.as_ref().ok_or_else(|| Error::Node { at: at.into(), message: "no body".into() })?;
+        let over = values
+            .remove("over")
+            .ok_or_else(|| Error::Node { at: at.into(), message: "nothing to go over (over)".into() })?;
+        let kind = over.ty();
+        let items = elements(over).ok_or_else(|| Error::Node {
+            at: format!("{at}.over"),
+            message: format!("control.each goes over a stack, a series, a table, vectors or a list, not a {kind:?}"),
+        })?;
+        self.read_rasters(None, &mut values, at, obs, warnings)?;
+        let n = items.len();
+        let names: Vec<String> = items.iter().map(|(name, _)| name.clone()).collect();
+        let mut gathered = Vec::with_capacity(n);
+        for (i, (name, item)) in items.into_iter().enumerate() {
+            if obs.cancelled() {
+                return Err(Error::Cancelled);
+            }
+            let item = match item {
+                Value::Raster(r) => {
+                    Value::Map(r.map().map_err(|e| Error::Node { at: at.into(), message: e.to_string() })?)
+                }
+                v => v,
+            };
+            let mut c = values.clone();
+            c.insert("item".into(), item);
+            c.insert("index".into(), Value::Integer(i as i64 + 1));
+            c.insert("name".into(), Value::Text(name.clone()));
+            let mut child = Env { parent: Some(env), results: BTreeMap::new(), carried: c };
+            let element = |e: Error| match e {
+                Error::Node { at, message } => {
+                    Error::Node { at, message: format!("{name:?} ({} of {n}): {message}", i + 1) }
+                }
+                e => e,
+            };
+            self.run_scope(&body.nodes, &mut child, inputs, at, obs, warnings).map_err(element)?;
+            obs.body(at, i + 1, &child.results);
+            let mut now = Outputs::new();
+            for (k, r) in &body.collect {
+                let v = self
+                    .resolve(&Source::Ref(r.clone()), &child, inputs, &format!("{at}/collect.{k}"))
+                    .map_err(element)?;
+                now.insert(k.clone(), v);
+            }
+            obs.collected(at, i + 1, n, &now);
+            gathered.push(now);
+            obs.step(at, i + 1, n);
+        }
+        Ok(gather(gathered, &names, false, "item"))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -736,10 +819,56 @@ impl Engine {
     }
 }
 
+/// The elements of a collection, by name: the layers of a stack or of rasters on disk, the maps of a series, the
+/// items of any other series (named 1, 2...), the rows of a table (each a table of one row, named by its first
+/// column), vectors' features (each alone, named by their attribute `name` when it is a text, else 1, 2...) and
+/// the values of a list (named by them); none for anything else.
+fn elements(v: Value) -> Option<Vec<(String, Value)>> {
+    if let Some(l) = terraflux_ops::files::layers(&v) {
+        return Some(l);
+    }
+    let number = |x: f64| if x.fract() == 0.0 && x.abs() < 1e15 { format!("{}", x as i64) } else { x.to_string() };
+    Some(match v {
+        Value::Series(items) => items.into_iter().enumerate().map(|(i, v)| ((i + 1).to_string(), v)).collect(),
+        Value::Table(t) => t
+            .rows
+            .iter()
+            .map(|row| {
+                let name = row.first().map_or(String::new(), |x| number(*x));
+                (name, Value::Table(terraflux_ops::Table { columns: t.columns.clone(), rows: vec![row.clone()] }))
+            })
+            .collect(),
+        Value::Vector(v) => {
+            let names = v.attributes.iter().find_map(|(n, c)| match c {
+                terraflux_raster::vector::Column::Texts(t) if n == "name" => Some(t.clone()),
+                _ => None,
+            });
+            (0..v.len())
+                .map(|i| {
+                    let name = names.as_ref().map_or_else(|| (i + 1).to_string(), |t| t[i].clone());
+                    (name, Value::Vector(std::sync::Arc::new(v.select(&[i]))))
+                })
+                .collect()
+        }
+        Value::Json(serde_json::Value::Array(a)) => a
+            .iter()
+            .map(|x| {
+                let name = match x {
+                    serde_json::Value::String(s) => s.clone(),
+                    serde_json::Value::Number(n) => n.as_f64().map_or_else(|| n.to_string(), number),
+                    x => x.to_string(),
+                };
+                (name, Value::from_json(x))
+            })
+            .collect(),
+        _ => return None,
+    })
+}
+
 /// The outputs of a node run once per layer, by output: its maps a stack of the layers' names (a series when it
 /// was given a loop's series, or when they are of different grids), its tables one table ([`tables`]), its other
 /// values a series. An output some layers did not give is left out.
-fn gather(outs: Vec<Outputs>, names: &[String], series: bool) -> Outputs {
+fn gather(outs: Vec<Outputs>, names: &[String], series: bool, column: &str) -> Outputs {
     let mut gathered = Outputs::new();
     let Some(first) = outs.first() else { return gathered };
     for k in first.keys().filter(|k| outs.iter().all(|o| o.contains_key(*k))) {
@@ -754,7 +883,7 @@ fn gather(outs: Vec<Outputs>, names: &[String], series: bool) -> Outputs {
                     layers: maps.iter().map(|m| m.data.clone()).collect(),
                 })
             }
-            _ if all.iter().all(|v| matches!(v, Value::Table(_))) => Value::Table(tables(&all, names)),
+            _ if all.iter().all(|v| matches!(v, Value::Table(_))) => Value::Table(tables(&all, names, column)),
             _ => Value::Series(all.into_iter().cloned().collect()),
         };
         gathered.insert(k.clone(), v);
@@ -762,10 +891,10 @@ fn gather(outs: Vec<Outputs>, names: &[String], series: bool) -> Outputs {
     gathered
 }
 
-/// The tables of the layers as one, each row after a column `layer` (`input_layer` when they have one): the
+/// The tables of the layers as one, each row after a column `name` (`layer`, or `item` of control.each; `input_<name>` when they have one): the
 /// layers' names when they are numbers, else the number each ends with when they all end with a different one
 /// (the year of `forest_2010`), else their places (1, 2...).
-fn tables(all: &[&Value], names: &[String]) -> terraflux_ops::Table {
+fn tables(all: &[&Value], names: &[String], name: &str) -> terraflux_ops::Table {
     let trailing = |n: &str| {
         let digits: String = n.chars().rev().take_while(char::is_ascii_digit).collect();
         digits.chars().rev().collect::<String>().parse::<f64>().ok()
@@ -782,7 +911,7 @@ fn tables(all: &[&Value], names: &[String]) -> terraflux_ops::Table {
         .zip(&at)
         .filter_map(|(v, &x)| {
             let Value::Table(t) = v else { return None };
-            let column = if t.columns.iter().any(|c| c == "layer") { "input_layer" } else { "layer" };
+            let column = if t.columns.iter().any(|c| c == name) { format!("input_{name}") } else { name.to_string() };
             Some(terraflux_ops::Table {
                 columns: std::iter::once(column.to_string()).chain(t.columns.iter().cloned()).collect(),
                 rows: t.rows.iter().map(|r| std::iter::once(x).chain(r.iter().copied()).collect()).collect(),
@@ -1060,7 +1189,14 @@ from = \"inc.sum\"
     #[test]
     fn missing_inputs_are_refused() {
         let mut m = Model::new("t");
-        m.inputs.insert("x".into(), terraflux_graph::Input::Value { value: 1.into(), note: None });
+        m.inputs.insert(
+            "x".into(),
+            terraflux_graph::Input::Map { path: "x.tif".into(), band: None, nodata: None, note: None },
+        );
         assert!(engine().run(&m, &BTreeMap::new(), &mut Quiet).is_err());
+        // an input of a value not given: its own value in the model
+        let mut m = Model::new("t");
+        m.inputs.insert("k".into(), terraflux_graph::Input::Value { value: 1.into(), note: None });
+        assert!(engine().run(&m, &BTreeMap::new(), &mut Quiet).is_ok());
     }
 }

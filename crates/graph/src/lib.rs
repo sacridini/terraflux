@@ -33,6 +33,12 @@ pub use types::{Access, OpSignature, PortSpec, Type};
 /// (`body.outputs`), as submodels become.
 pub const GROUP: &str = "control.group";
 
+/// The container that runs its body once for each element of a collection (`over`: the layers of a stack, the
+/// items of a series, the rows of a table, the features of vectors, the values of a list): `@item`, `@index` and
+/// `@name` inside, its other inputs `@name` as a group's; what it collects gathered (maps a stack of the elements'
+/// names, tables one table, the rest a series).
+pub const EACH: &str = "control.each";
+
 /// A node that stands for another model file (`params.path`), expanded into a group before a run
 /// ([`submodel::expand`]).
 pub const SUBMODEL: &str = "control.submodel";

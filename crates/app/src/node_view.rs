@@ -284,6 +284,8 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
         ui.label(RichText::new("Body").strong());
         let maps: Vec<(&str, &BTreeMap<String, String>)> = if n.op == terraflux_graph::GROUP {
             vec![("outputs", &b.outputs)]
+        } else if n.op == terraflux_graph::EACH {
+            vec![("collect", &b.collect)]
         } else {
             vec![("carry", &b.carry), ("collect", &b.collect)]
         };

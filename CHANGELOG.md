@@ -6,6 +6,17 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- `control.each`, a loop over a collection: its body runs once for each layer of a stack (a folder of rasters, the
+  bands of a file), item of a series, row of a table, feature of vectors or value of a list, with `@item`, `@index`
+  and `@name` inside (its other inputs as a group's); what it collects is gathered, maps as a stack of the elements'
+  names, tables as one table with a column `item` first, the rest as a series. The template For each year: one
+  analysis per map (control.each).
+
+### Changed
+- An input of a value that a run is not given takes the model's own value in the engine too (as the command line
+  and the application already did).
+
 ## [1.11.0] - 2026-10-21
 
 ### Added

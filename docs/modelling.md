@@ -94,6 +94,37 @@ other model's outputs become the node's (`forest.map`).
 Before a run, every submodel is expanded into a group (`terraflux run`, `check`, `submit` and the application
 do it). Submodels may use submodels, but never themselves.
 
+## Loops over collections: `control.each`
+
+A `control.each` runs its body once for each element of a collection: the layers of a stack (a folder of rasters,
+the bands of a file, 38 years of MapBiomas), the items of a series, the rows of a table (each a table of one row),
+the features of vectors (each alone: 50 municipalities) or the values of a list (30 species). Inside, `@item` is
+the element, `@index` its place (1, 2...) and `@name` its name (a layer's name, a feature's attribute `name`, the
+first column of a row, the value of a list); its other inputs are `@name` as a group's.
+
+```toml
+[[nodes]]
+id = "by_year"
+op = "control.each"
+inputs = { over = "years.raster", threshold = 0.4 }
+[nodes.body]
+collect = { forest = "forest.map", areas = "areas.table" }
+[[nodes.body.nodes]]
+id = "forest"
+op = "map.calc"
+inputs = { cover = "@item", t = "@threshold" }
+params = { expression = "cover > t" }
+[[nodes.body.nodes]]
+id = "areas"
+op = "raster.stats"
+inputs = { map = "forest.map" }
+```
+
+What it collects is gathered: maps a stack of the elements' names (`by_year.forest`), tables one table with a
+column `item` first (the year of `forest_2010`, the number a name ends with, or the element's place), other values
+a series. Each element runs alone: nothing is carried from one to the next (that is `control.repeat`). A node of
+one map given a stack runs once per layer by itself; `control.each` is for a body of several nodes.
+
 ## Settings that read values
 
 A setting holds a value of its own, or reads one when the model runs: `"$name"` (an input of a value of the

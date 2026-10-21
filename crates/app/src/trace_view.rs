@@ -293,7 +293,9 @@ fn question(t: &Trace) -> String {
 
 /// Whether a node is, or holds, a loop.
 fn has_loop(n: &terraflux_graph::Node) -> bool {
-    n.op == "control.repeat" || n.body.as_ref().is_some_and(|b| b.nodes.iter().any(has_loop))
+    n.op == "control.repeat"
+        || n.op == terraflux_graph::EACH
+        || n.body.as_ref().is_some_and(|b| b.nodes.iter().any(has_loop))
 }
 
 /// How a node made its value, in a few lines.

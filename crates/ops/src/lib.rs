@@ -353,6 +353,7 @@ impl Registry {
         let mut r = Registry::empty();
         r.add(Arc::new(Repeat));
         r.add(Arc::new(Group));
+        r.add(Arc::new(Each));
         r.add(Arc::new(Submodel));
         r.add(Arc::new(RngNew));
         accuracy::register(&mut r);
@@ -481,6 +482,32 @@ impl Operator for Repeat {
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         Err(Error::msg(format!("node {:?}: control.repeat is run by the engine", args.node)))
+    }
+}
+
+/// `control.each`: the engine runs its body once per element; the operator only declares it.
+pub struct Each;
+
+impl Operator for Each {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            terraflux_graph::EACH,
+            "Run the body once for each element of a collection: the layers of a stack (a folder of rasters, the \
+             bands of a file), the items of a series, the rows of a table (each a table of one row), the features \
+             of vectors (each alone) or the values of a list (species, years, file names). Inside, @item is the \
+             element, @index its place (1..) and @name its name (a layer's, a feature's name or the first column's \
+             value, the value of a list); the other inputs are @name as a group's. Each collected reference \
+             gathers what every element gave: maps a stack of the elements' names, tables one table (a column for \
+             the element), other values a series.",
+            Access::None,
+        )
+        .input(PortSpec::new("over", Type::Any, "the collection: a stack, a series, a table, vectors or a list"))
+        .extra(Type::Any)
+        .container()
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        Err(Error::msg(format!("node {:?}: control.each is run by the engine", args.node)))
     }
 }
 

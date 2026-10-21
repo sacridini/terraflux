@@ -765,6 +765,13 @@ escolha, abstração) sem código.
    de uma pasta, camada de uma pilha, linha de uma tabela, polígono ou região, espécie), os resultados coletados numa
    pilha ou numa tabela. O caso mais comum: 30 espécies, 50 municípios, 38 anos de MapBiomas. Pede um tipo de
    coleção genérico (o `Series` hoje é só os passos de um laço).
+   - **Feito** (1.12.0): o `control.each` vai sobre o que já é coleção, sem um tipo novo: as camadas de uma pilha
+     (uma pasta, as bandas de um arquivo), os itens de uma série, as linhas de uma tabela (cada uma uma tabela de uma
+     linha), as feições de um vetor (cada uma sozinha) e os valores de uma lista. Dentro, `@item`, `@index` e
+     `@name`, e as outras entradas como as de um grupo; o que coleta é juntado como o de um nó rodado por camada:
+     mapas numa pilha com os nomes, tabelas numa só com a coluna `item`, o resto numa série. Sem `carry` (cada
+     elemento sozinho: isso é o `control.repeat`). Uma entrada de valor não dada passa a valer o valor do modelo
+     também no executor (como o CLI e o app já faziam). O template "For each year: one analysis per map".
 3. **Condicional** (`control.switch`): um ramo escolhido por um parâmetro (`method = "maxent" | "rf" | "glm"`), só ele
    rodado. Com os parâmetros e cenários, a escolha do método vira um cenário comparável (no Document e no Compare).
 4. **Valores escalares e textos** (`value.calc`): números que não são mapas e textos montados, com a sintaxe do
