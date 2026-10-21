@@ -8822,6 +8822,72 @@
   "container": false
  },
  {
+  "name": "hydro.along_network",
+  "doc": "The stretches of river up and down from every point within a distance along the network, as hydrographr's get_buffer_along_the_network: downstream along the D8 directions, upstream along every stream that flows into it (a buffer that follows the river, not a circle: the reach of a fish, of a spill below a mine). Each cell given the point nearest to it along the network.",
+  "inputs": [
+   {
+    "name": "dem",
+    "type": "map",
+    "required": true,
+    "doc": "the elevations (no value: missing), best with depressions filled"
+   },
+   {
+    "name": "points",
+    "type": "vector",
+    "required": true,
+    "doc": "the points, moved onto the streams"
+   },
+   {
+    "name": "streams",
+    "type": "map",
+    "required": true,
+    "doc": "the streams: non-zero on their cells"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the point (1..) of each cell within reach, 0 elsewhere"
+   },
+   {
+    "name": "distance",
+    "type": "map",
+    "required": true,
+    "doc": "the distance along the network to that point (map units; m for longitude / latitude)"
+   }
+  ],
+  "params": [
+   {
+    "name": "flats",
+    "type": "bool",
+    "required": false,
+    "doc": "drain flat areas towards lower terrain and away from higher terrain (Barnes et al. 2014; default true)"
+   },
+   {
+    "name": "upstream",
+    "type": "number",
+    "required": false,
+    "doc": "how far upstream (0)"
+   },
+   {
+    "name": "downstream",
+    "type": "number",
+    "required": false,
+    "doc": "how far downstream (0)"
+   },
+   {
+    "name": "snap",
+    "type": "number",
+    "required": false,
+    "doc": "the largest move of a point onto the streams, map units (300 m; 3 cells without a projection)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
   "name": "hydro.breach",
   "doc": "Remove the depressions of a DEM by cutting channels through their rims (least-cost breaching, WhiteboxTools' BreachDepressionsLeastCost after Lindsay & Dhun 2015): each pit, from the lowest, joined to the nearest cell it can drain to by the channel of least cost; often changes the terrain less than filling.",
   "inputs": [
@@ -8876,6 +8942,29 @@
   "container": false
  },
  {
+  "name": "hydro.centrality",
+  "doc": "The place of every link in its river network, as hydrographr's get_centrality on the graph of the links: the links flowing into it, its degree, its Shreve magnitude (the sources above it), the length of river above it, and its betweenness (the pairs of links whose path goes through it) and closeness (one over the sum of the steps to every other link of its network), igraph's on the undirected graph.",
+  "inputs": [
+   {
+    "name": "links",
+    "type": "table",
+    "required": true,
+    "doc": "the links' table of hydro.stream_links (link, downstream, length)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "link, downstream, upstream, degree, magnitude, upstream_length, betweenness, closeness"
+   }
+  ],
+  "params": [],
+  "access": "none",
+  "container": false
+ },
+ {
   "name": "hydro.connectivity_index",
   "doc": "The index of connectivity (Borselli et al. 2008) as InVEST's sediment delivery ratio model computes it: log10 of the upslope over the downslope component, the weight (a land use's USLE C) and pygeoprocessing's slope along its routing; no value on the streams.",
   "inputs": [
@@ -8922,6 +9011,94 @@
      "mfd",
      "d8"
     ]
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "hydro.dci",
+  "doc": "The dendritic connectivity index of a river network cut by barriers (Cote et al. 2009), as R's riverconn: the network split into segments at each dam, weir or culvert, each segment weighted by its length (or its habitat); the potamodromous DCI (the chance that a fish can swim between two points of the river, 0 to 100) and the diadromous one (between the mouth and a point), from the passability of each barrier up and down. For every barrier, the DCI if it were removed and its gain (riverconn's d_index, percent): which dams to remove first.",
+  "inputs": [
+   {
+    "name": "dem",
+    "type": "map",
+    "required": true,
+    "doc": "the elevations (no value: missing), best with depressions filled"
+   },
+   {
+    "name": "streams",
+    "type": "map",
+    "required": true,
+    "doc": "the river network: non-zero on its cells (hydro.streams, the links)"
+   },
+   {
+    "name": "barriers",
+    "type": "vector",
+    "required": true,
+    "doc": "the barriers as points, moved onto the streams; their passability from the attributes pass_u and pass_d, or passability (0 to 1)"
+   },
+   {
+    "name": "weights",
+    "type": "map",
+    "required": false,
+    "doc": "the habitat of each cell: a segment weighs the length of its cells times this (default 1)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per network with barriers: network (its mouth segment), segments, barriers, weight, dci_p, dci_d"
+   },
+   {
+    "name": "barriers",
+    "type": "vector",
+    "required": true,
+    "doc": "the barriers moved, their attributes and segment, network, pass_u, pass_d, dci_p_removed, d_index (the percent the DCI of its network grows when it is removed), rank (1 the largest)"
+   },
+   {
+    "name": "segments",
+    "type": "map",
+    "required": true,
+    "doc": "the segment of each stream cell (1..), 0 elsewhere"
+   },
+   {
+    "name": "reach",
+    "type": "map",
+    "required": true,
+    "doc": "on each stream cell, riverconn's reach index of its segment, 0 to 100: the share of its network a fish there can reach"
+   }
+  ],
+  "params": [
+   {
+    "name": "flats",
+    "type": "bool",
+    "required": false,
+    "doc": "drain flat areas towards lower terrain and away from higher terrain (Barnes et al. 2014; default true)"
+   },
+   {
+    "name": "passability",
+    "type": "number",
+    "required": false,
+    "doc": "of the barriers without pass_u, pass_d or passability attributes (0: impassable)"
+   },
+   {
+    "name": "direction",
+    "type": "text",
+    "required": false,
+    "doc": "symmetric (default: the product of the passabilities up and down at every barrier, Cote's) or asymmetric (up through a barrier going upstream, down going downstream)",
+    "choices": [
+     "symmetric",
+     "asymmetric"
+    ]
+   },
+   {
+    "name": "snap",
+    "type": "number",
+    "required": false,
+    "doc": "the largest move of a barrier onto the streams, map units (300 m; 3 cells without a projection)"
    }
   ],
   "access": "global",
@@ -9136,6 +9313,54 @@
     "type": "number",
     "required": false,
     "doc": "or the drainage as the cells of D8 accumulation (cells) of at least this"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "hydro.network_distance",
+  "doc": "The distance along the river network between every two points, as hydrographr's get_distance: down the D8 directions from each to where their waters meet (fish swimming between two gauges, two populations), and the straight distance; whether one drains into the other. Points in different basins are not connected.",
+  "inputs": [
+   {
+    "name": "dem",
+    "type": "map",
+    "required": true,
+    "doc": "the elevations (no value: missing), best with depressions filled"
+   },
+   {
+    "name": "streams",
+    "type": "map",
+    "required": false,
+    "doc": "the streams the points are moved onto (non-zero on their cells); without them, the cell each falls in"
+   },
+   {
+    "name": "points",
+    "type": "vector",
+    "required": true,
+    "doc": "the points (moved onto the streams when they are given)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per two points: from, to (1..), network (map units; m for longitude / latitude; no value when not connected), euclidean, connected (1 or 0), flow (1 when one drains into the other)"
+   }
+  ],
+  "params": [
+   {
+    "name": "flats",
+    "type": "bool",
+    "required": false,
+    "doc": "drain flat areas towards lower terrain and away from higher terrain (Barnes et al. 2014; default true)"
+   },
+   {
+    "name": "snap",
+    "type": "number",
+    "required": false,
+    "doc": "the largest move of a point onto the streams, map units (300 m; 3 cells without a projection)"
    }
   ],
   "access": "global",
