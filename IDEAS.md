@@ -678,3 +678,45 @@ Fora dos operadores:
   laço da simulação.
 - **Animações das simulações:** os mapas coletados num `control.repeat` exportados em GIF ou MP4, com a legenda e o
   passo.
+
+## Rios como rede (do hydrographr)
+
+Registro de 2026-10-19. Uma leitura do [hydrographr](https://glowabio.github.io/hydrographr/) (o pacote do R do
+Hydrography90m) atrás do que serviria ao Terraflux. A família `hydro` já vai do DEM à bacia (`fill`, `breach`,
+`flow_direction`, `flow_accumulation` com pesos, `streams`, `stream_links` com o trecho a jusante e a ordem de
+Strahler, `watersheds`), e o recorte, a junção, a reclassificação, o nodata e a estatística zonal já existem. O que
+falta é tratar a rede como um **grafo de trechos**, a partir da tabela do `stream_links`. Em ordem de valor:
+
+1. **Variáveis a montante por trecho ou ponto** (o `get_upstream_variable`): a média, a soma ou a proporção de cada
+   classe na bacia a montante de cada trecho ("% de floresta a montante", "área urbana a montante"). É o cruzamento
+   do uso do solo com a água, o núcleo do Terraflux. Hoje sai em parte do `flow_accumulation` com pesos dividido
+   pela área; falta o operador que dê a tabela por trecho e as proporções das classes.
+   - **Feito** (Unreleased): `hydro.upstream`, por trecho do `stream_links` ou por ponto: as estatísticas de mapas
+     (contagem, soma, média, mínimo, máximo, desvio padrão) e a proporção de cada classe na terra a montante, a
+     área, o trecho ou o ponto abaixo; o mapa de uma coluna pintado nos trechos. O template "Rivers: the land
+     upstream and the gauges' catchments".
+2. **Pontos na rede e a bacia de cada ponto** (o `snap_to_network`, por distância ou por um fluxo acumulado mínimo,
+   e o `get_upstream_catchment`): estações fluviométricas, barragens, ocorrências de peixes. O `stream_links` já
+   ajusta os exutórios por dentro; faltam um `hydro.snap` à parte e um `hydro.upstream_catchment` que dê a bacia de
+   cada ponto em polígonos.
+   - **Feito** (Unreleased): `hydro.snap` (pela distância, ou o rio mais próximo com um fluxo acumulado mínimo) e
+     `hydro.upstream_catchment` (um polígono por ponto, as bacias de pontos um acima do outro sobrepostas, e o mapa
+     das bacias encaixadas entre um ponto e o seguinte).
+3. **Conectividade dos rios:** a distância ao longo da rede entre pontos (`get_distance`), os vizinhos de um trecho,
+   as faixas a montante e a jusante (`get_buffer_along_the_network`), a centralidade (`get_centrality`) e o
+   preenchimento das lacunas entre trechos de habitat (`fill_habitat_gaps`). Encaixa na família `conn`: um
+   `conn.graph_from_streams` sobre a tabela dos trechos dá a centralidade e a importância dos nós que já existem.
+   Indo além do hydrographr, o **DCI** (Dendritic Connectivity Index, Cote et al. 2009) com as barragens como
+   barreiras, e com o `prioritize.*`, quais barragens remover: o diferencial mais forte.
+4. **O Hydrography90m e o Environment90m no `data.download`:** a rede, as sub-bacias e as variáveis ambientais por
+   sub-bacia do mundo inteiro a 90 m, sem derivar do DEM, como as fontes que já estão lá. Conferir antes se o
+   servidor deixa o GDAL ler só a janela da grade (os tiles de 20° são grandes).
+5. **SDM de água doce** (`get_modelfit_table`, `get_predict_table`): o `sdm.*` com a sub-bacia como unidade em vez
+   da célula, com as variáveis a montante do item 1. Sai quase de graça depois dos itens 1 e 2.
+
+Fora: as sub-bacias de Pfafstetter, os lagos (as interseções com a rede e as bacias dos lagos), os ids dos tiles e
+das unidades regionais (internos ao Hydrography90m) e as funções `api_*` (o servidor deles). Por onde começar: os
+itens 1 e 2 (pequenos, sobre o `stream_links`), depois o 3 com o DCI, e um template "Rios: uso do solo a montante e
+barragens". **Decidido** (2026-10-21): direto em Rust (`crates/ops/src/rivers.rs`), sobre as direções D8 do
+landschaft; no landschaft entram depois, já em Rust e não em C++ (registrado no IDEAS dele, item 11 de "Do Terraflux
+para o landschaft").

@@ -42,6 +42,7 @@ mod protconn;
 mod proxirr;
 mod redd;
 mod restoration;
+mod rivers;
 mod sampling;
 mod sdm_area;
 mod sdm_clean;

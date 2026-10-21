@@ -224,7 +224,7 @@ fn clue_s() -> Model {
     m
 }
 
-pub const TEMPLATES: [Template; 50] = [
+pub const TEMPLATES: [Template; 51] = [
     Template {
         name: "MSPA of a forest",
         group: PATTERNS,
@@ -3153,6 +3153,114 @@ params = { title = "Reserva Legal: surplus (+) or deficit (-), ha" }
 "#,
     },
     Template {
+        name: "Rivers: the land upstream and the gauges' catchments",
+        group: CONSERVATION,
+        build: None,
+        about: "Rivers as a network on a drawn landscape: the share of forest and the mean slope upstream of every                 link, gauges moved onto the rivers and the catchment of each",
+        toml: r#"
+format = "terraflux/1"
+name = "Rivers: the land upstream and the gauges' catchments"
+description = "Rivers as a network, as hydrographr does on the Hydrography90m, on a drawn landscape of cells of 30 m: the rivers traced from the relief and cut into links; the land upstream of every link summarised, its mean slope and the share of each land cover (how much forest drains into each stretch); five gauges moved onto the nearest large river and the catchment of each, a polygon per gauge and the catchments nested between one gauge and the next."
+
+[[nodes]]
+id = "relief"
+op = "nlm.fbm"
+params = { rows = 150, columns = 150, dimension = 1.3, seed = 61, resolution = 30 }
+
+[[nodes]]
+id = "dem"
+op = "map.calc"
+inputs = { f = "relief.map" }
+params = { expression = "300 + 900 * f" }
+note = "The elevation, 300 to 1,200 m (in its place, a DEM: raster.read, or data.download's Copernicus DEM)."
+
+[[nodes]]
+id = "filled"
+op = "hydro.fill"
+inputs = { dem = "dem.map" }
+
+[[nodes]]
+id = "accumulation"
+op = "hydro.flow_accumulation"
+inputs = { dem = "filled.map" }
+
+[[nodes]]
+id = "rivers"
+op = "hydro.streams"
+inputs = { accumulation = "accumulation.map" }
+params = { threshold = 150 }
+note = "The rivers: the cells draining 150 cells or more."
+
+[[nodes]]
+id = "links"
+op = "hydro.stream_links"
+inputs = { dem = "filled.map", streams = "rivers.map" }
+note = "The rivers cut into links, between sources, junctions and outlets."
+
+[[nodes]]
+id = "cover"
+op = "nlm.random_cluster"
+params = { rows = 150, columns = 150, p = 0.5, weights = [0.5, 0.3, 0.2], seed = 62, resolution = 30 }
+note = "The land cover: 1 forest, 2 pasture, 3 cropland (in its place, a land cover map such as MapBiomas')."
+
+[[nodes]]
+id = "slope"
+op = "raster.terrain"
+inputs = { raster = "dem.map" }
+params = { measure = "slope" }
+
+[[nodes]]
+id = "upstream"
+op = "hydro.upstream"
+inputs = { dem = "filled.map", links = "links.map", values = "slope.raster", classes = "cover.map" }
+params = { stats = ["mean", "max"], to_map = "share_1" }
+note = "The land upstream of every link: its mean and largest slope, the share of each land cover; the map, the share of forest on each link."
+
+[[nodes]]
+id = "area"
+op = "map.calc"
+inputs = { d = "dem.map" }
+params = { expression = "d * 0 + 1" }
+
+[[nodes]]
+id = "outline"
+op = "vector.polygonize"
+inputs = { map = "area.map" }
+
+[[nodes]]
+id = "sites"
+op = "vector.points"
+inputs = { vector = "outline.vector" }
+params = { n = 5, seed = 63 }
+note = "Five gauges drawn at random (in their place, vector.read of the gauges, dams or records of a species)."
+
+[[nodes]]
+id = "gauges"
+op = "hydro.snap"
+inputs = { points = "sites.vector", streams = "rivers.map", accumulation = "accumulation.map" }
+params = { distance = 3000, min_accumulation = 300 }
+note = "Each gauge moved onto the nearest river draining 300 cells or more, within 3 km."
+
+[[nodes]]
+id = "catchments"
+op = "hydro.upstream_catchment"
+inputs = { dem = "filled.map", points = "gauges.vector" }
+note = "The catchment of each gauge: a polygon each, and the map of the catchments between one gauge and the next."
+
+[[nodes]]
+id = "plot_forest"
+op = "view.plot"
+inputs = { value = "upstream.map" }
+params = { title = "Share of forest upstream of each link" }
+
+[[nodes]]
+id = "plot_catchments"
+op = "view.plot"
+inputs = { value = "catchments.map", features = "catchments.vector" }
+params = { title = "The gauges' catchments, nested" }
+"#,
+    },
+    Template {
         name: "Terrain of a surface",
         group: SURFACES,
         build: None,
@@ -3940,6 +4048,30 @@ mod tests {
             let counts: Vec<usize> = maps.iter().map(farming).collect();
             assert!(counts[2] > counts[0], "{name}: farming grows ({counts:?})");
         }
+    }
+
+    /// The rivers template runs: a row per link with its shares of the land cover, every gauge on a river with a
+    /// catchment.
+    #[test]
+    fn rivers_template_runs() {
+        struct Quiet;
+        impl terraflux_exec::Observer for Quiet {}
+        let name = "Rivers: the land upstream and the gauges' catchments";
+        let m = TEMPLATES.iter().find(|t| t.name == name).unwrap().model();
+        let out = terraflux_exec::Engine::default().run(&m, &Default::default(), &mut Quiet).unwrap();
+        let Some(terraflux_ops::Value::Table(t)) = out.get("upstream.table") else { panic!("no upstream") };
+        assert!(t.rows.len() > 5, "{} links", t.rows.len());
+        for r in &t.rows {
+            let shares: f64 = ["share_1", "share_2", "share_3"]
+                .iter()
+                .map(|c| r[t.columns.iter().position(|x| x == c).unwrap()])
+                .sum();
+            assert!((shares - 1.0).abs() < 1e-9, "{r:?}");
+        }
+        let Some(terraflux_ops::Value::Table(g)) = out.get("gauges.table") else { panic!("no gauges") };
+        assert_eq!(g.column("snapped").unwrap(), [1.0; 5]);
+        let Some(terraflux_ops::Value::Table(c)) = out.get("catchments.table") else { panic!("no catchments") };
+        assert!(c.column("cells").unwrap().iter().all(|n| *n >= 300.0), "{:?}", c.column("cells"));
     }
 
     /// The accuracy template runs: the overall accuracy near the nine tenths of cells kept, and the area of every

@@ -133,7 +133,7 @@ type Edge = (usize, (isize, isize));
 
 /// The polygons of the patches of a map: per patch (in the order of its first cell, row by row), its value, its
 /// cells and its rings in columns and rows of the grid's corners, outer rings first of each polygon.
-fn polygons_of(data: &[f64], w: usize, h: usize, eight: bool) -> Vec<(f64, usize, Polygons)> {
+pub(crate) fn polygons_of(data: &[f64], w: usize, h: usize, eight: bool) -> Vec<(f64, usize, Polygons)> {
     const FOUR: [(isize, isize); 4] = [(-1, 0), (0, -1), (0, 1), (1, 0)];
     const EIGHT: [(isize, isize); 8] = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)];
     let (id, values, sizes) = patches(data, w, h, if eight { &EIGHT } else { &FOUR });

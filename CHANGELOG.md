@@ -7,6 +7,14 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- Rivers as a network, as hydrographr does on the Hydrography90m: `hydro.snap` moves points (gauges, dams,
+  records of a species) onto the streams, to the nearest stream cell or the nearest of a river with a flow
+  accumulation of at least a minimum; `hydro.upstream` summarises the land upstream of every link of
+  `hydro.stream_links`, or of every point, its cells and area, the count, sum, mean, min, max and standard deviation
+  of maps and the share of each class of a map (the forest upstream of each stretch), with a column painted on the
+  links; `hydro.upstream_catchment` gives the catchment of every point as a polygon with the point's attributes, and
+  the map of the catchments nested between one point and the next. In Rust, over the D8 directions of `hydro`. The
+  template Rivers: the land upstream and the gauges' catchments.
 - Packages for Fedora (`.rpm`, also openSUSE) and Arch Linux (`.pkg.tar.zst`), with the `.deb`: the same folder in
   `/opt/terraflux`, the command in `/usr/bin`, an entry in the menu (`tools/make-linux-package.py`, with
   [nfpm](https://nfpm.goreleaser.com)). At every release each Linux package is installed in a container of Ubuntu

@@ -625,7 +625,7 @@ const DROW: [i64; 8] = [-1, 0, 1, 1, 1, 0, -1, -1];
 const DCOL: [i64; 8] = [1, 1, 1, 0, -1, -1, -1, 0];
 
 /// The cell each cell drains to (-1: none, off the map or missing), as landschaft's _down.
-fn down(d: &[i8], ny: i64, nx: i64) -> Vec<i64> {
+pub(crate) fn down(d: &[i8], ny: i64, nx: i64) -> Vec<i64> {
     let mut out = vec![-1; d.len()];
     for (i, &k) in d.iter().enumerate() {
         if k < 0 {
