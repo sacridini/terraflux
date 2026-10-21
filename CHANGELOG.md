@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-10-21
+
 ### Added
 - `control.switch`: one branch of a model run, chosen by its case, a group per branch in its body (the one named as
   the case, `case_<n>` for a number, `otherwise` for the rest), its outputs the branch's, every branch giving the
