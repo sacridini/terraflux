@@ -5557,6 +5557,23 @@
   "container": false
  },
  {
+  "name": "control.each",
+  "doc": "Run the body once for each element of a collection: the layers of a stack (a folder of rasters, the bands of a file), the items of a series, the rows of a table (each a table of one row), the features of vectors (each alone) or the values of a list (species, years, file names). Inside, @item is the element, @index its place (1..) and @name its name (a layer's, a feature's name or the first column's value, the value of a list); the other inputs are @name as a group's. Each collected reference gathers what every element gave: maps a stack of the elements' names, tables one table (a column for the element), other values a series.",
+  "inputs": [
+   {
+    "name": "over",
+    "type": "any",
+    "required": true,
+    "doc": "the collection: a stack, a series, a table, vectors or a list"
+   }
+  ],
+  "outputs": [],
+  "params": [],
+  "access": "none",
+  "container": true,
+  "extra": "any"
+ },
+ {
   "name": "control.group",
   "doc": "Run the body once: its inputs (any names) are @name inside, its outputs the references of body.outputs. Submodels become groups.",
   "inputs": [],
