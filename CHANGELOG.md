@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-10-21
+
 ### Added
 - Rivers as a network, as hydrographr does on the Hydrography90m: `hydro.snap` moves points (gauges, dams,
   records of a species) onto the streams, to the nearest stream cell or the nearest of a river with a flow
