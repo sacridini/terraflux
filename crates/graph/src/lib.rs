@@ -227,6 +227,29 @@ pub enum Source {
     Literal(serde_json::Value),
 }
 
+/// The reference a setting reads instead of holding a value: `"$input"` or `"@carried"` written as the setting,
+/// or `{ from = "node.port" }` (any reference: a text such as `"a.b"` stays a text).
+pub fn setting_ref(v: &serde_json::Value) -> Option<&str> {
+    match v {
+        serde_json::Value::String(s) if s.starts_with(['$', '@']) && Ref::parse(s).is_ok() => Some(s),
+        serde_json::Value::Object(o) if o.len() == 1 => o.get("from")?.as_str(),
+        _ => None,
+    }
+}
+
+/// [`setting_ref`], to change the reference (a node renamed, a submodel's inputs).
+pub fn setting_ref_mut(v: &mut serde_json::Value) -> Option<&mut String> {
+    setting_ref(v)?;
+    match v {
+        serde_json::Value::String(s) => Some(s),
+        serde_json::Value::Object(o) => match o.get_mut("from") {
+            Some(serde_json::Value::String(s)) => Some(s),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 /// A reference parsed.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Ref {
@@ -743,6 +766,7 @@ pub fn references(node: &Node) -> Vec<String> {
             Source::Literal(_) => None,
         })
         .collect();
+    out.extend(node.params.values().filter_map(setting_ref).map(String::from));
     if let Some(b) = &node.body {
         for n in &b.nodes {
             out.extend(references(n));

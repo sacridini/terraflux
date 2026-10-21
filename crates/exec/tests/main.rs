@@ -9,6 +9,7 @@ mod parity;
 mod per_layer;
 mod ports;
 mod product;
+mod settings;
 
 /// Every file of `tests` is a module here (or a program of its own in Cargo.toml): with `autotests = false` a file
 /// left out would not run.

@@ -86,6 +86,7 @@ fn for_each_ref(m: &mut Model, path: &[String], f: &mut dyn FnMut(&mut String)) 
                 f(r);
             }
         }
+        n.params.values_mut().filter_map(terraflux_graph::setting_ref_mut).for_each(&mut *f);
         if let Some(b) = &mut n.body {
             for x in b.nodes.iter_mut() {
                 in_node(x, f);
@@ -154,6 +155,8 @@ fn relink(n: &mut Node, new: &HashMap<String, String>, shadow: &HashSet<String>,
         Source::Ref(r) => relinked(r, new, shadow, outside, inner),
         Source::Literal(_) => true,
     });
+    n.params
+        .retain(|_, v| terraflux_graph::setting_ref_mut(v).is_none_or(|r| relinked(r, new, shadow, outside, inner)));
     if let Some(b) = &mut n.body {
         let mut shadow = shadow.clone();
         shadow.extend(b.nodes.iter().map(|x| x.id.clone()));
@@ -243,6 +246,8 @@ pub fn remove_node(m: &mut Model, path: &[String], id: &str) -> Result<()> {
     let reads = |s: &Source| matches!(s, Source::Ref(r) if r.starts_with(&from));
     for n in scope_mut(m, path)?.iter_mut() {
         n.inputs.retain(|_, s| !reads(s));
+        // (a setting that read it goes back to its default)
+        n.params.retain(|_, v| !terraflux_graph::setting_ref(v).is_some_and(|r| r.starts_with(&from)));
     }
     if path.is_empty() {
         m.outputs.retain(|_, o| !o.from.starts_with(&from));
@@ -439,6 +444,16 @@ pub fn group_nodes(
     })
 }
 
+/// What a setting holds to read a source: its value, or the reference (`"$input"`, `"@carried"`, `{ from =
+/// "node.port" }`).
+pub fn setting_of(src: &Source) -> serde_json::Value {
+    match src {
+        Source::Literal(v) => v.clone(),
+        Source::Ref(r) if r.starts_with(['$', '@']) => r.clone().into(),
+        Source::Ref(r) => serde_json::json!({ "from": r }),
+    }
+}
+
 /// Take the nodes of a group out into its scope, where it was: what read the group's outputs reads the nodes that
 /// gave them, and its inputs (`@name` inside) are what they were given. Refused when a node of its body has the
 /// name of one around it.
@@ -462,6 +477,13 @@ pub fn ungroup(m: &mut Model, r: &Registry, path: &[String], id: &str) -> Result
                 && let Some(v) = rf.strip_prefix('@').and_then(|name| given.get(name))
             {
                 *s = v.clone();
+            }
+        }
+        for v in n.params.values_mut() {
+            if let Some(src) =
+                terraflux_graph::setting_ref(v).and_then(|r| r.strip_prefix('@')).and_then(|name| given.get(name))
+            {
+                *v = setting_of(src);
             }
         }
         if let Some(b) = &mut n.body {
@@ -626,13 +648,17 @@ mod tests {
             "out".into(),
             terraflux_graph::Output { from: "map_calc.map".into(), path: None, dtype: None, layer: None },
         );
+        // a setting that reads a node's output follows it too
+        set_param(&mut m, &[], "markov_fit", "steps", r#"{"from": "map_calc.map"}"#).unwrap();
         rename_node(&mut m, &[], "map_calc", "algebra").unwrap();
         assert_eq!(m.node("markov_fit").unwrap().inputs["t0"], Source::Ref("algebra.map".into()));
+        assert_eq!(m.node("markov_fit").unwrap().params["steps"], serde_json::json!({ "from": "algebra.map" }));
         assert_eq!(m.outputs["out"].from, "algebra.map");
         assert!(rename_node(&mut m, &[], "algebra", "markov_fit").is_err());
         assert!(rename_node(&mut m, &[], "algebra", "1bad").is_err());
         remove_node(&mut m, &[], "algebra").unwrap();
         assert!(!m.node("markov_fit").unwrap().inputs.contains_key("t0"));
+        assert!(!m.node("markov_fit").unwrap().params.contains_key("steps"), "back to its default");
         assert!(m.outputs.is_empty());
     }
 

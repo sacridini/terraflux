@@ -94,6 +94,32 @@ other model's outputs become the node's (`forest.map`).
 Before a run, every submodel is expanded into a group (`terraflux run`, `check`, `submit` and the application
 do it). Submodels may use submodels, but never themselves.
 
+## Settings that read values
+
+A setting holds a value of its own, or reads one when the model runs: `"$name"` (an input of a value of the
+model), `"@step"` or `"@name"` (a loop's step or carried value, a group's input), or `{ from = "node.port" }`
+(another node's number, true or false, or text; written so because a text such as `"a.b"` stays a text).
+
+```toml
+[[nodes.body.nodes]]
+id = "growth"
+op = "hydro.streams"
+inputs = { accumulation = "acc.map" }
+params = { threshold = "@step" }          # a threshold that changes with the loop's step
+
+[[nodes]]
+id = "dci"
+op = "hydro.dci"
+inputs = { dem = "dem.map", streams = "rivers.map", barriers = "dams.vector" }
+params = { passability = "$passability" }  # one value given to every setting that reads it
+```
+
+The node read runs first, as for an input. A value that is not a number, true or false or a text (a map, a
+table) is refused when the model is checked. In a submodel, a setting that reads one of its inputs (`"$threshold"`)
+is a setting the node that uses it gives (`inputs = { threshold = 0.3 }`), its own value when it does not: a
+submodel shows its settings as inputs. In the application, a right click on a setting's name reads a value of the
+model instead, and its row shows what it reads (`← $passability`).
+
 ## Parameters and scenarios
 
 A model's **parameters** are the values its users change: an input of a value (`$name`) or a node's setting or

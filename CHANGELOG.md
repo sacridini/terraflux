@@ -6,6 +6,16 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Settings that read values: a setting holds a value of its own or reads one when the model runs, `"$input"` (an
+  input of a value), `"@step"` or `"@carried"` (a loop's step or carried value, a group's input) or
+  `{ from = "node.port" }` (another node's number, true or false, or text). A threshold changes with the loop's
+  step, one input feeds several settings, and a submodel shows its settings as inputs (a setting reading
+  `"$threshold"` is given by the node that uses it). The node read runs first and counts in the cache; a map or a
+  table read is refused when the model is checked; renaming, copying, grouping and removing nodes follow the
+  references. In the application, a right click on a setting's name reads a value of the model, and the row shows
+  what it reads.
+
 ## [1.10.0] - 2026-10-21
 
 ### Added

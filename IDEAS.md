@@ -392,6 +392,7 @@ clara entraram em 0.80.0. Estes ficaram para decidir:
 5. **As configurações de um submodelo como entradas.** Hoje uma configuração não pode ler uma entrada (`edge_width =
    "$x"`; o `check` acusa desde 0.80.0), então um submodelo não expõe as suas. Pede um desenho: as referências nas
    configurações entrando nas dependências, no cache, na expansão dos submodelos e nos lotes distribuídos.
+   **Feito** (1.11.0), como o item 1 de "A linguagem do grafo".
 6. **Regras do CLUE-S e a alocação ordenada** (vistas nos tutoriais `clue-s-rules` e `ordered-allocation`):
    células restritas ainda são convertidas pelas regras de vizinhança (com limiar 0,9 para a floresta, as 6.727
    células do bloco restrito mudaram); as regras de vizinhança também convertem as células que a classe já tem e
@@ -752,6 +753,14 @@ escolha, abstração) sem código.
    laço não varia uma configuração a cada passo (um limiar que muda com o ano), a calibração e os parâmetros só
    alcançam configurações fixas, e um valor não alimenta várias configurações ao mesmo tempo. As referências nas
    configurações entram nas dependências, no cache, na expansão dos submodelos e nos lotes distribuídos.
+   - **Feito** (1.11.0): uma configuração lê `"$input"`, `"@step"`/`"@carried"` (um laço, um grupo) ou
+     `{ from = "node.port" }` (um número, verdadeiro ou falso, um texto de outro nó; a forma explícita porque um
+     texto como `"a.b"` continua texto). A referência entra nas dependências (o nó lido roda antes), no cache (o
+     fingerprint), no `check` (o tipo conferido: mapas e tabelas recusados), na expansão dos submodelos (o `$nome`
+     de uma configuração vira a entrada do grupo: um submodelo expõe as suas configurações), no editor (renomear,
+     copiar, agrupar e desagrupar e remover a seguem) e no motor por tiles (só as entradas de valores). No
+     aplicativo, o clique direito no nome de uma configuração lê um valor do modelo, e a linha mostra o que ela lê
+     (`← $x`). Os lotes distribuídos recebem o modelo inteiro e o mesmo executor, sem mudança.
 2. **Um laço "para cada"** (`control.each`): um corpo inteiro de nós para cada elemento de uma coleção (cada arquivo
    de uma pasta, camada de uma pilha, linha de uma tabela, polígono ou região, espécie), os resultados coletados numa
    pilha ou numa tabela. O caso mais comum: 30 espécies, 50 municípios, 38 anos de MapBiomas. Pede um tipo de

@@ -244,6 +244,8 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
         }
     }
     if !params.is_empty() {
+        let readable = readable(s, r, &n, &path);
+        let readable = readable.as_slice();
         ui.separator();
         ui.label(RichText::new("Settings").strong());
         // an operator of many settings: those it needs and its essential ones, the others folded as advanced
@@ -253,7 +255,7 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
             essentials.is_none() || spec.as_ref().is_none_or(|p| p.required) || (essential(name) && !input(name))
         });
         for (name, doc, spec) in &main {
-            if let Some(c) = setting(ui, s, &n, &path, name, doc, spec.as_ref(), label_w) {
+            if let Some(c) = setting(ui, s, &n, &path, name, doc, spec.as_ref(), label_w, readable) {
                 change = Some(c);
             }
         }
@@ -270,7 +272,7 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
                 .default_open(given > 0)
                 .show(ui, |ui| {
                     for (name, doc, spec) in &advanced {
-                        if let Some(c) = setting(ui, s, &n, &path, name, doc, spec.as_ref(), label_w) {
+                        if let Some(c) = setting(ui, s, &n, &path, name, doc, spec.as_ref(), label_w, readable) {
                             change = Some(c);
                         }
                     }
@@ -407,8 +409,33 @@ fn model_record(ui: &mut Ui, s: &mut Session) {
     }
 }
 
+/// What a setting can read instead of a value of its own: the model's inputs of values, the loops' steps and
+/// carried values and the groups' inputs around it, and the numbers, true or false and texts the other nodes of
+/// its scope give.
+fn readable(s: &Session, r: &Registry, n: &Node, path: &[String]) -> Vec<String> {
+    use terraflux_graph::{Input, Type};
+    let mut out: Vec<String> = crate::editor::sources(&s.source, r, path)
+        .into_iter()
+        .filter(|(x, _)| match x.strip_prefix('$') {
+            Some(name) => matches!(s.source.inputs.get(name), Some(Input::Value { .. })),
+            None => true,
+        })
+        .map(|(x, _)| x)
+        .collect();
+    for m in s.source.scope(path).into_iter().flatten().filter(|m| m.id != n.id) {
+        for (port, t) in crate::editor::output_ports(m, r) {
+            if matches!(t, Type::Number | Type::Integer | Type::Bool | Type::Text) {
+                out.push(format!("{}.{port}", m.id));
+            }
+        }
+    }
+    out
+}
+
 /// A setting's name at the left of its row, as wide as `width` (cut to it): a dot before it when the model gives
-/// it, what it is on hover, a right-click to take it back to its default.
+/// it, what it is on hover, a right-click to take it back to its default or to read a value of the model
+/// (`readable`) instead.
+#[allow(clippy::too_many_arguments)]
 fn name_cell(
     ui: &mut Ui,
     s: &mut Session,
@@ -417,6 +444,7 @@ fn name_cell(
     name: &str,
     doc: &str,
     width: f32,
+    readable: &[String],
 ) -> Option<Result<(), String>> {
     let given = n.params.contains_key(name);
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(width, 20.0), egui::Sense::click());
@@ -440,15 +468,32 @@ fn name_cell(
     let galley = ui.painter().layout_job(job);
     ui.painter().galley(egui::pos2(x, rect.center().y - galley.size().y / 2.0), galley, colour);
     let mut hover = if doc.is_empty() { name.to_string() } else { format!("{name}: {doc}") };
-    if given {
-        hover.push_str("\n\nGiven in the model (right-click: back to the default)");
-    }
+    hover.push_str(if given {
+        "\n\nGiven in the model (right-click: back to the default, or read a value of the model)"
+    } else {
+        "\n\nRight-click: read a value of the model instead (an input, a loop's step, a node's number)"
+    });
     let mut out = None;
     resp.on_hover_text(hover).context_menu(|ui| {
         if ui.add_enabled(given, egui::Button::new("Back to the default")).clicked() {
             out = Some(crate::editor::set_param(&mut s.source, path, &n.id, name, ""));
             ui.close();
         }
+        ui.add_enabled_ui(!readable.is_empty(), |ui| {
+            ui.menu_button("Read a value", |ui| {
+                for x in readable {
+                    if ui.button(RichText::new(x).monospace()).clicked() {
+                        let text = if x.starts_with(['$', '@']) {
+                            x.clone()
+                        } else {
+                            serde_json::json!({ "from": x }).to_string()
+                        };
+                        out = Some(crate::editor::set_param(&mut s.source, path, &n.id, name, &text));
+                        ui.close();
+                    }
+                }
+            });
+        });
     });
     out
 }
@@ -467,7 +512,23 @@ fn setting(
     doc: &str,
     spec: Option<&terraflux_graph::PortSpec>,
     label_w: f32,
+    readable: &[String],
 ) -> Option<Result<(), String>> {
+    // a setting that reads a value of the model: what it reads, and a button for a value of its own instead
+    if let Some(r) = n.params.get(name).and_then(terraflux_graph::setting_ref).map(String::from) {
+        let mut change = None;
+        ui.horizontal_top(|ui| {
+            if let Some(c) = name_cell(ui, s, n, path, name, doc, label_w, readable) {
+                change = Some(c);
+            }
+            ui.label(RichText::new(format!("← {r}")).monospace().color(crate::theme::accent()))
+                .on_hover_text(format!("the value of {r}, read when the model runs"));
+            if ui.small_button("x").on_hover_text("a value of its own instead (the default)").clicked() {
+                change = Some(crate::editor::set_param(&mut s.source, path, &n.id, name, ""));
+            }
+        });
+        return change;
+    }
     // a reclassification's rules: a table of them, from the values of the map it reads
     if n.op == "raster.reclassify" && name == "rules" {
         ui.label(label_of(name)).on_hover_text(doc);
@@ -487,7 +548,7 @@ fn setting(
     let list = n.params.get(name).filter(|v| items(v).is_some()).cloned();
     let mut change = None;
     ui.horizontal_top(|ui| {
-        if let Some(c) = name_cell(ui, s, n, path, name, doc, label_w) {
+        if let Some(c) = name_cell(ui, s, n, path, name, doc, label_w, readable) {
             change = Some(c);
         }
         ui.vertical(|ui| {

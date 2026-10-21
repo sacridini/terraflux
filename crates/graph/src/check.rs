@@ -303,16 +303,23 @@ impl<'a> Checker<'a> {
                 if !known.contains(k.as_str()) {
                     self.warn(&at, format!("{} does not read the setting {k:?}", n.op));
                 }
-                // a setting is a value: a reference written there would only fail when the model runs
-                if let Some(r) = v.as_str().filter(|r| is_reference(r)) {
-                    self.error(
-                        &format!("{at}.{k}"),
-                        format!(
-                            "the setting {k:?} is {r:?}: settings take values, not references (change a setting \
-                             from outside with `run --set {}.{k}=...` or a scenario)",
-                            n.id
-                        ),
-                    );
+                // a setting that reads a value: a number, a whole number, true or false, a text
+                if let Some(r) = crate::setting_ref(v) {
+                    let want = sig.params.iter().find(|p| p.name == *k).map_or(Type::Any, |p| p.ty);
+                    let at = format!("{at}.{k}");
+                    match Ref::parse(r).map_err(|e| e.to_string()).and_then(|x| self.type_of(&x, scopes)) {
+                        Err(e) => self.error(&at, e),
+                        Ok(t) if !matches!(t, Type::Number | Type::Integer | Type::Bool | Type::Text | Type::Any) => {
+                            self.error(
+                                &at,
+                                format!("{r} gives a {t:?}: a setting takes a number, true or false, or a text"),
+                            );
+                        }
+                        Ok(t) if !t.fits(want) => {
+                            self.error(&at, format!("{r} gives a {t:?}, the setting takes a {want:?}"))
+                        }
+                        Ok(_) => {}
+                    }
                 }
             }
             match (&n.body, sig.container) {
@@ -353,14 +360,6 @@ impl<'a> Checker<'a> {
         }
         scopes.pop();
     }
-}
-
-/// A text that names an input or a carried value (`$name`, `@name`), as a reference would.
-fn is_reference(s: &str) -> bool {
-    let mut c = s.chars();
-    matches!(c.next(), Some('$' | '@'))
-        && c.next().is_some_and(|f| f.is_ascii_alphabetic() || f == '_')
-        && s[2..].chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
 }
 
 fn literal_type(v: &serde_json::Value) -> Type {
@@ -562,9 +561,29 @@ inputs = { a = "s.stack" }
     }
 
     #[test]
-    fn settings_are_not_references() {
-        let m = model(&GOOD.replace("params = { k = 1 }", "params = { k = \"$t0\" }"));
-        assert!(errors(&m).iter().any(|x| x.contains("settings take values")));
+    fn settings_read_values() {
+        // a setting reads the step, a value input, a node's number; not a map, nor what is not there
+        let with = |k: &str| {
+            let mut m = model(&GOOD.replace("params = { k = 1 }", &format!("params = {{ k = {k} }}")));
+            m.inputs.insert("rate".into(), Input::Value { value: 0.5.into(), note: None });
+            m.inputs.insert("flag".into(), Input::Value { value: true.into(), note: None });
+            m.nodes.push(crate::Node::new("c", "classes").input("map", "$t0"));
+            errors(&m)
+        };
+        for ok in ["\"@step\"", "\"$rate\"", "{ from = \"c.share\" }", "{ from = \"$rate\" }", "\"a.b\""] {
+            assert!(with(ok).is_empty(), "{ok}: {:?}", with(ok));
+        }
+        assert!(with("\"$t0\"").iter().any(|x| x.contains("gives a Map: a setting takes")), "{:?}", with("\"$t0\""));
+        assert!(with("{ from = \"c.table\" }").iter().any(|x| x.contains("gives a Table")));
+        assert!(with("\"$flag\"").iter().any(|x| x.contains("the setting takes a Number")), "{:?}", with("\"$flag\""));
+        assert!(with("\"$none\"").iter().any(|x| x.contains("no input named $none")));
+        assert!(with("{ from = \"c.nothing\" }").iter().any(|x| x.contains("no output \"nothing\"")));
+        assert!(with("{ from = \"nonsense\" }").iter().any(|x| x.contains("is not a reference")));
+        // read before: the node that gives it runs first
+        let mut m = model(GOOD);
+        m.nodes.push(crate::Node::new("c", "classes").input("map", "$t0"));
+        m.nodes[0].params.insert("k".into(), serde_json::json!({ "from": "c.share" }));
+        assert_eq!(crate::dependencies(&m.nodes[0], &m.nodes), ["c"]);
     }
 
     #[test]

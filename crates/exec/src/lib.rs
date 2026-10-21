@@ -179,6 +179,18 @@ fn fingerprint(
     Some(h.finish())
 }
 
+/// A value as a setting holds it: a number, a whole number, true or false, a text (none for maps, tables...).
+fn setting_value(v: &Value) -> Option<serde_json::Value> {
+    Some(match v {
+        Value::Number(x) => serde_json::json!(x),
+        Value::Integer(i) => (*i).into(),
+        Value::Bool(b) => (*b).into(),
+        Value::Text(t) => t.clone().into(),
+        Value::Json(j) => j.clone(),
+        _ => return None,
+    })
+}
+
 /// The top-level node of a place (`node`, `node.port`, `container/inner...`).
 fn head(at: &str) -> &str {
     at.split(['/', '.']).next().unwrap_or(at)
@@ -364,6 +376,21 @@ impl Engine {
         }
     }
 
+    /// A node whose settings that read values (`"$input"`, `"@carried"`, `{ from = "node.port" }`) hold them.
+    fn with_settings(&self, node: &Node, env: &Env, inputs: &BTreeMap<String, Value>, at: &str) -> Result<Node> {
+        let mut n = node.clone();
+        for (k, v) in n.params.iter_mut() {
+            let Some(r) = terraflux_graph::setting_ref(v).map(String::from) else { continue };
+            let place = format!("{at}.{k}");
+            let value = self.resolve(&Source::Ref(r.clone()), env, inputs, &place)?;
+            *v = setting_value(&value).ok_or_else(|| Error::Node {
+                at: place,
+                message: format!("{r} gives a {:?}: a setting takes a number, true or false, or a text", value.ty()),
+            })?;
+        }
+        Ok(n)
+    }
+
     fn resolve(&self, src: &Source, env: &Env, inputs: &BTreeMap<String, Value>, at: &str) -> Result<Value> {
         let r = match src {
             Source::Literal(v) => return Ok(Value::from_json(v)),
@@ -419,6 +446,13 @@ impl Engine {
         obs: &mut dyn Observer,
         warnings: &mut Vec<String>,
     ) -> Result<Outputs> {
+        let given;
+        let node = if node.params.values().any(|v| terraflux_graph::setting_ref(v).is_some()) {
+            given = self.with_settings(node, env, inputs, at)?;
+            &given
+        } else {
+            node
+        };
         let mut values = BTreeMap::new();
         for (port, src) in &node.inputs {
             values.insert(port.clone(), self.resolve(src, env, inputs, &format!("{at}.{port}"))?);

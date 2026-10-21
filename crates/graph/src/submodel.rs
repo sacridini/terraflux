@@ -145,6 +145,8 @@ fn rename_inputs(n: &mut Node) {
             fix(r);
         }
     }
+    // (the settings that read the submodel's inputs too: its settings given from outside)
+    n.params.values_mut().filter_map(crate::setting_ref_mut).for_each(fix);
     if let Some(b) = &mut n.body {
         for m in b.nodes.iter_mut() {
             rename_inputs(m);

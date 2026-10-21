@@ -127,9 +127,38 @@ pub fn write_layer(land: &dyn Source, path: &Path) -> Result<()> {
     w.finish().map_err(|e| err(e.to_string()))
 }
 
+/// The model with the settings that read its inputs of values holding them (the tiled engine reads its settings
+/// as they are written; a setting that reads another node or a loop's value is refused).
+fn settled(model: &Model) -> Result<Model> {
+    fn settle(nodes: &mut [Node], model: &Model) -> Result<()> {
+        for n in nodes {
+            for (k, v) in n.params.iter_mut() {
+                let Some(r) = terraflux_graph::setting_ref(v) else { continue };
+                *v = match r.strip_prefix('$').and_then(|name| model.inputs.get(name)) {
+                    Some(Input::Value { value, .. }) => value.clone(),
+                    _ => {
+                        return Err(err(format!(
+                            "the tiled engine takes {}.{k} = {r:?}: only the model's inputs of values",
+                            n.id
+                        )));
+                    }
+                };
+            }
+            if let Some(b) = &mut n.body {
+                settle(&mut b.nodes, model)?;
+            }
+        }
+        Ok(())
+    }
+    let mut m = model.clone();
+    settle(&mut m.nodes, model)?;
+    Ok(m)
+}
+
 /// Run a Dinamica model on tiles; its outputs written in `out`.
 pub fn run(model: &Model, base: &Path, out: &Path, opt: &Options, mut progress: impl FnMut(&str)) -> Result<Report> {
     terraflux_ops::threads::ensure();
+    let model = &settled(model)?;
     let nodes = &model.nodes;
     let unsupported = |what: &str| err(format!("the tiled engine runs Dinamica EGO's classic model: {what}"));
     let sim = find(nodes, &["control.repeat"]).ok_or_else(|| unsupported("no loop"))?;

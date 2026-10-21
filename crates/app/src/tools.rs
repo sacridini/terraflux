@@ -23,7 +23,7 @@ macro_rules! nodes {
     () => {
         "- A node runs one operator (`op`) and gives outputs (its ports). An input of a node reads `node.port` \
 (another node's output), `$name` (an input of the model), `@name` (inside a container: a value carried along a \
-loop, `@step`, a group's input) or is a literal value. Settings are the operator's options."
+loop, `@step`, a group's input) or is a literal value. Settings are the operator's options: a value, or a value read when the model runs (`\"$name\"`, `\"@step\"`, or `{\"from\": \"node.port\"}` for a node's number or text): a threshold that changes with the loop's step, a submodel's setting given as its input."
     };
 }
 
@@ -696,7 +696,7 @@ fn all() -> Vec<Value> {
     });
     let settings = json!({
         "type": "object",
-        "description": "Setting -> value (JSON: a number, a text, a list, an object); null removes it. See describe_operator.",
+        "description": "Setting -> value (JSON: a number, a text, a list, an object), or a value read when the model runs: \"$input\", \"@step\" or \"@carried\", {\"from\": \"node.port\"}; null removes it. See describe_operator.",
     });
     let read_only = json!({ "readOnlyHint": true });
     let list = |what: &str| json!({ "type": "array", "items": { "type": "string" }, "description": what });
