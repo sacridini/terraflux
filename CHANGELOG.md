@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-10-21
+
 ### Added
 - `control.each`, a loop over a collection: its body runs once for each layer of a stack (a folder of rasters, the
   bands of a file), item of a series, row of a table, feature of vectors or value of a list, with `@item`, `@index`
