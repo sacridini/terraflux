@@ -5617,6 +5617,30 @@
   "extra": "any"
  },
  {
+  "name": "control.switch",
+  "doc": "Run one branch, chosen by the value of `case`: its body holds a group per branch, the one whose id is the case (maxent, rf, glm; case_1 for the number 1, true or false for a yes or no) runs, or the group otherwise when none is; the others do not. Every branch gives the same outputs, the switch's. Its other inputs are @name inside, as a group's. With a parameter or a scenario giving the case, the choice of a method is a scenario to compare.",
+  "inputs": [
+   {
+    "name": "case",
+    "type": "any",
+    "required": true,
+    "doc": "the branch to run: its id (a text, a number, true or false)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "branch",
+    "type": "text",
+    "required": true,
+    "doc": "the id of the branch that ran"
+   }
+  ],
+  "params": [],
+  "access": "none",
+  "container": true,
+  "extra": "any"
+ },
+ {
   "name": "cost.acc_cost",
   "doc": "The accumulated cost from the nearest origin over a transition of conductances (gdistance's accCost through landschaft's C++): inf where no origin can be reached.",
   "inputs": [
@@ -25446,6 +25470,48 @@
   ],
   "access": "global",
   "container": false
+ },
+ {
+  "name": "value.calc",
+  "doc": "A number or a text from the node's inputs, not a map: `expression` in map algebra's syntax and functions over the inputs that are numbers (true and false as 1 and 0), a table's value as table.column (of the row `row`); `text` a template of the inputs, {name} replaced by each one's value ({value} by the expression's): the path a loop writes (out/{species}_{year}.tif), the number a setting reads, the case of a switch.",
+  "inputs": [],
+  "outputs": [
+   {
+    "name": "value",
+    "type": "number",
+    "required": true,
+    "doc": "the expression's value"
+   },
+   {
+    "name": "text",
+    "type": "text",
+    "required": true,
+    "doc": "the text"
+   }
+  ],
+  "params": [
+   {
+    "name": "expression",
+    "type": "text",
+    "required": false,
+    "doc": "e.g. area / 10000, if year < 2010 then 0.3 else 0.5"
+   },
+   {
+    "name": "text",
+    "type": "text",
+    "required": false,
+    "doc": "e.g. out/{species}_{year}.tif"
+   },
+   {
+    "name": "row",
+    "type": "integer",
+    "required": false,
+    "doc": "the row of the tables read (1 the first, -1 the last; 1)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "extra": "any"
  },
  {
   "name": "vector.buffer",
