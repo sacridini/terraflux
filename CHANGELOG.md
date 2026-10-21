@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-10-21
+
 ### Added
 - The connectivity of rivers, as R's riverconn and hydrographr: `hydro.dci` splits the network into segments at the
   barriers (dams, weirs, culverts: points with their passability up and down) and gives the dendritic connectivity
