@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-10-21
+
 ### Added
 - Reproducing a run: every `terraflux run` writes `manifest.json` with its outputs (the version of Terraflux, the
   model and every input file with its SHA-256, the values, scenario and seeds, every output's SHA-256), and
