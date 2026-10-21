@@ -15,6 +15,13 @@ minor versions.
   links; `hydro.upstream_catchment` gives the catchment of every point as a polygon with the point's attributes, and
   the map of the catchments nested between one point and the next. In Rust, over the D8 directions of `hydro`. The
   template Rivers: the land upstream and the gauges' catchments.
+
+### Changed
+- The Assistant pane looks like a terminal: the conversation in a fixed font on one ground, each line marked in its
+  gutter (❯ the question, ● the answer and each tool called, coloured by how it went, └ the first line of its
+  result, a click opening it whole, ∴ the thinking); a prompt where enter sends, up and down bring back what was
+  typed and esc stops the answer; commands after a slash: /new, /stop, /review, /accept, /reject, /explain, /setup
+  and /help.
 - Packages for Fedora (`.rpm`, also openSUSE) and Arch Linux (`.pkg.tar.zst`), with the `.deb`: the same folder in
   `/opt/terraflux`, the command in `/usr/bin`, an entry in the menu (`tools/make-linux-package.py`, with
   [nfpm](https://nfpm.goreleaser.com)). At every release each Linux package is installed in a container of Ubuntu
