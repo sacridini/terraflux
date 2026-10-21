@@ -801,12 +801,18 @@ escolha, abstração) sem código.
      sessões (o cache em disco) e o laço passo a passo.
 8. **Testes de modelos** (`terraflux test`): asserções e saídas esperadas guardadas com o modelo, um template ou um
    modelo publicado conferido a cada versão nova do Terraflux.
+   - **Feito** (1.15.0): `[[tests]]` no formato (`from`, `expected`, `tolerance`) e `terraflux test` (modelos ou
+     pastas; os `check.assert` e os testes; `--update` grava os esperados, rasters de reais em float64).
 
 **Fora do grafo:**
 
 - **Reprodutibilidade:** um manifesto gravado com as saídas (a versão do Terraflux, os hashes dos dados de entrada,
   a semente, os parâmetros, o cenário) e um `terraflux run --reproduce manifest.json`. O cache em disco já existe;
   falta o registro.
+  - **Feito** (1.15.0): o `manifest.json` de todo `terraflux run` (a versão, a plataforma, o modelo e os arquivos de
+    entrada com o SHA-256, os valores, o cenário e os `--set`, as sementes, as saídas com o SHA-256) e o
+    `terraflux reproduce manifest.json` (roda de novo e diz se cada saída é a mesma, byte a byte; os vetores pelas
+    feições, porque o GeoPackage grava a hora). Falta: o manifesto das execuções do aplicativo.
 - **Execução incremental entre sessões pela linha de comando**, como o `targets` do R: só o que mudou rodado de
   novo, com o cache persistente.
 - **Integração com o ecossistema:** um provedor de Processing para o QGIS (os modelos do Terraflux como algoritmos do

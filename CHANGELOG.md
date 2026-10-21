@@ -6,6 +6,14 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Reproducing a run: every `terraflux run` writes `manifest.json` with its outputs (the version of Terraflux, the
+  model and every input file with its SHA-256, the values, scenario and seeds, every output's SHA-256), and
+  `terraflux reproduce manifest.json` runs it again and tells whether every output is the same, byte for byte.
+- Testing a model: `[[tests]]` in the model name a value and the file of what it should be, within a tolerance;
+  `terraflux test` runs models (or folders of them) and checks their tests and `check.assert` nodes, and
+  `--update` writes the expected files from the run.
+
 ## [1.14.0] - 2026-10-21
 
 ### Added

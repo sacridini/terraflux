@@ -77,6 +77,32 @@ enum Command {
     },
     /// Check a model and its data without running it.
     Check { model: PathBuf },
+    /// Run again what a run's manifest (manifest.json, written with its outputs) records: the same model, scenario,
+    /// values and files (told when one changed), and tell whether every output is the same, byte for byte (vectors:
+    /// the same features).
+    Reproduce {
+        /// The manifest.json of the run.
+        manifest: PathBuf,
+        /// The folder of the outputs (default: `reproduced` next to the manifest).
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+        /// Print only what differs.
+        #[arg(short, long)]
+        quiet: bool,
+    },
+    /// Test models: run each (a folder: its models) and check what its [[tests]] say against the files of what they
+    /// should be, and its check.assert nodes; `--update` writes those files from this run instead.
+    Test {
+        /// The models, or folders of models.
+        #[arg(required = true)]
+        models: Vec<PathBuf>,
+        /// Write the files of what the outputs should be from this run.
+        #[arg(long)]
+        update: bool,
+        /// Print only the failures.
+        #[arg(short, long)]
+        quiet: bool,
+    },
     /// Write a model as a document: its data, preparation, model, validation and results, step by step, with the
     /// note, why and settings of each (an HTML page, or a PDF by the extension).
     Report {
@@ -335,6 +361,217 @@ struct LulccArgs {
     seed: i64,
     #[arg(short, long)]
     output: PathBuf,
+}
+
+/// The values `--set` gives a model: `node.setting=value` set in the model (a setting its operator does not take
+/// refused), `name=value` the inputs' values or files to read instead (returned).
+fn apply_set(m: &mut Model, set: &[String], engine: &Engine) -> Result<BTreeMap<String, String>> {
+    // `name=value` replaces an input; `node.setting=value` a node's setting (as a scenario's)
+    let mut overrides = BTreeMap::new();
+    let mut settings = BTreeMap::new();
+    for s in set {
+        let (k, v) = s.split_once('=').with_context(|| format!("--set {s}: give name=value"))?;
+        if k.contains('.') {
+            let v = serde_json::from_str(v).unwrap_or_else(|_| serde_json::Value::String(v.to_string()));
+            settings.insert(k.to_string(), v);
+        } else {
+            overrides.insert(k.to_string(), v.to_string());
+        }
+    }
+    // a setting the node's operator does not take is a mistake (a misspelt name), not a silent no-op
+    for k in settings.keys() {
+        let (path, name) = k.rsplit_once('.').context("--set node.setting=value")?;
+        let op = m.node_mut(path).with_context(|| format!("--set {k}: no node {path:?}"))?.op.clone();
+        if let Some(sig) = engine.registry.sig(&op)
+            && !sig.container
+            && sig.extra.is_none()
+            && !sig.params.iter().any(|p| p.name == name)
+            && sig.input_spec(name).is_none()
+        {
+            let known: Vec<&str> = sig.params.iter().map(|p| p.name.as_str()).collect();
+            bail!("--set {k}: {op} has no setting {name:?} (its settings: {})", known.join(", "));
+        }
+    }
+    if !settings.is_empty() {
+        m.apply(&settings)?;
+    }
+    Ok(overrides)
+}
+
+/// `terraflux reproduce`: a run made again from its manifest, its outputs compared with the manifest's.
+fn reproduce(path: &Path, out: Option<PathBuf>, quiet: bool, engine: &Engine) -> Result<()> {
+    use terraflux_exec::testing::{Manifest, hash};
+    let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    let mf: Manifest = serde_json::from_str(&text).with_context(|| format!("{}: not a manifest", path.display()))?;
+    let model = PathBuf::from(&mf.model.path);
+    let mut changed = Vec::new();
+    if mf.terraflux != env!("CARGO_PKG_VERSION") {
+        changed.push(format!("Terraflux is {} now, {} then", env!("CARGO_PKG_VERSION"), mf.terraflux));
+    }
+    if hash(&model)?.sha256 != mf.model.sha256 {
+        changed.push(format!("the model {} changed", model.display()));
+    }
+    let mut m = Model::load_expanded(&model).with_context(|| format!("reading {}", model.display()))?;
+    if let Some(name) = &mf.scenario {
+        m = m.with_scenario(name)?;
+    }
+    let mut overrides = apply_set(&mut m, &mf.set, engine)?;
+    for (name, f) in &mf.files {
+        match hash(Path::new(&f.path)) {
+            Ok(h) if h.sha256 == f.sha256 => {}
+            Ok(_) => changed.push(format!("the input {name} ({}) changed", f.path)),
+            Err(e) => changed.push(format!("the input {name} ({}): {e}", f.path)),
+        }
+        overrides.insert(name.clone(), f.path.clone());
+    }
+    for c in &changed {
+        eprintln!("  note: {c}");
+    }
+    let dir = model.parent().map(Path::to_path_buf).unwrap_or_default();
+    let inputs = load_inputs(&m, &dir, &overrides)?;
+    let t = Instant::now();
+    let results = engine.run(&m, &inputs, &mut Progress { quiet: true, start: t })?;
+    let out = out.unwrap_or_else(|| path.parent().map(Path::to_path_buf).unwrap_or_default().join("reproduced"));
+    let files = write_outputs(&m, &results, &out)?;
+    let mut differ = 0;
+    for (name, file) in m.outputs.keys().zip(&files) {
+        let Some(then) = mf.outputs.get(name) else { continue };
+        let now = hash(file)?;
+        let same = now.sha256 == then.sha256 || same_features(file, Path::new(&then.path));
+        if !same {
+            differ += 1;
+        }
+        if !same || !quiet {
+            println!("{} {name} ({})", if same { "same   " } else { "DIFFERS" }, file.display());
+        }
+    }
+    if differ > 0 {
+        bail!("{differ} of {} outputs differ from the run of the manifest", mf.outputs.len());
+    }
+    if !quiet {
+        println!("reproduced: every output the same ({:.1} s)", t.elapsed().as_secs_f64());
+    }
+    Ok(())
+}
+
+/// Two files of vectors with the same features (a GeoPackage records when it was written).
+fn same_features(a: &Path, b: &Path) -> bool {
+    let vector = |p: &Path| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("gpkg"));
+    vector(a)
+        && vector(b)
+        && matches!((terraflux_gdal::read_vector(a, None), terraflux_gdal::read_vector(b, None)), (Ok(x), Ok(y)) if x == y)
+}
+
+/// `terraflux test`: every model run, its check.assert nodes and its tests checked (or their files written with
+/// `--update`).
+fn test(paths: &[PathBuf], update: bool, quiet: bool, engine: &Engine) -> Result<()> {
+    let mut models = Vec::new();
+    for p in paths {
+        if p.is_dir() {
+            let mut found: Vec<PathBuf> = std::fs::read_dir(p)?
+                .filter_map(|e| e.ok().map(|e| e.path()))
+                .filter(|f| f.extension().is_some_and(|e| e == "toml" || e == "json"))
+                .collect();
+            found.sort();
+            models.extend(found);
+        } else {
+            models.push(p.clone());
+        }
+    }
+    let (mut passed, mut failed) = (0, 0);
+    for path in &models {
+        let name = path.display().to_string();
+        let mut fail = |what: String| {
+            failed += 1;
+            println!("FAIL {name}: {what}");
+        };
+        let m = match Model::load_expanded(path) {
+            Ok(m) => m,
+            Err(e) => {
+                fail(e.to_string());
+                continue;
+            }
+        };
+        let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
+        let t = Instant::now();
+        let results = match load_inputs(&m, &dir, &BTreeMap::new())
+            .map_err(|e| e.to_string())
+            .and_then(|i| engine.run(&m, &i, &mut Progress { quiet: true, start: t }).map_err(|e| e.to_string()))
+        {
+            Ok(r) => r,
+            // (a check.assert that fails stops the run: its message says what)
+            Err(e) => {
+                fail(e);
+                continue;
+            }
+        };
+        let checks = count_asserts(&m.nodes);
+        let mut bad = Vec::new();
+        for test in &m.tests {
+            let Some(got) = results.get(&test.from) else {
+                bad.push(format!("{} gave nothing", test.from));
+                continue;
+            };
+            let file = dir.join(&test.expected);
+            if update {
+                if let Some(d) = file.parent() {
+                    std::fs::create_dir_all(d)?;
+                }
+                terraflux_exec::write_value(got, &file, full_precision(got))?;
+                continue;
+            }
+            match terraflux_exec::testing::read_expected(&file) {
+                Ok(want) => {
+                    if let Some(d) = terraflux_exec::testing::differs(got, &want, test.tolerance.unwrap_or(1e-9)) {
+                        bad.push(format!("{}: {d}", test.from));
+                    }
+                }
+                Err(e) => bad.push(format!("{}: {e} (terraflux test --update writes it)", test.from)),
+            }
+        }
+        if bad.is_empty() {
+            passed += 1;
+            if !quiet {
+                let what = if update { "written" } else { "ok" };
+                println!(
+                    "{what:<4} {name}: {} test(s), {checks} check(s) ({:.1} s)",
+                    m.tests.len(),
+                    t.elapsed().as_secs_f64()
+                );
+            }
+        } else {
+            fail(bad.join("; "));
+        }
+    }
+    if failed > 0 {
+        bail!("{failed} of {} models failed", models.len());
+    }
+    if !quiet {
+        println!("{passed} model(s) passed");
+    }
+    Ok(())
+}
+
+/// The cell type that keeps every digit of a value's maps (f64), when they are not whole numbers (those are written
+/// in the smallest type that holds them, the same values).
+fn full_precision(v: &terraflux_ops::Value) -> Option<&'static str> {
+    use terraflux_ops::Value;
+    let fraction = |d: &[f64]| d.iter().any(|x| x.fract() != 0.0);
+    let any = match v {
+        Value::Map(m) => fraction(&m.data),
+        Value::Stack(s) => s.layers.iter().any(|l| fraction(l)),
+        Value::Series(items) => items.iter().any(|x| matches!(x, Value::Map(m) if fraction(&m.data))),
+        _ => false,
+    };
+    any.then_some("f64")
+}
+
+/// The check.assert nodes of a model (in its containers too).
+fn count_asserts(nodes: &[terraflux_graph::Node]) -> usize {
+    nodes
+        .iter()
+        .map(|n| usize::from(n.op == "check.assert") + n.body.as_ref().map_or(0, |b| count_asserts(&b.nodes)))
+        .sum()
 }
 
 /// Prints the progress of a run.
@@ -648,35 +885,7 @@ fn main() -> Result<()> {
                 }
                 return Ok(());
             }
-            // `name=value` replaces an input; `node.setting=value` a node's setting (as a scenario's)
-            let mut overrides = BTreeMap::new();
-            let mut settings = BTreeMap::new();
-            for s in &set {
-                let (k, v) = s.split_once('=').with_context(|| format!("--set {s}: give name=value"))?;
-                if k.contains('.') {
-                    let v = serde_json::from_str(v).unwrap_or_else(|_| serde_json::Value::String(v.to_string()));
-                    settings.insert(k.to_string(), v);
-                } else {
-                    overrides.insert(k.to_string(), v.to_string());
-                }
-            }
-            // a setting the node's operator does not take is a mistake (a misspelt name), not a silent no-op
-            for k in settings.keys() {
-                let (path, name) = k.rsplit_once('.').context("--set node.setting=value")?;
-                let op = m.node_mut(path).with_context(|| format!("--set {k}: no node {path:?}"))?.op.clone();
-                if let Some(sig) = engine.registry.sig(&op)
-                    && !sig.container
-                    && sig.extra.is_none()
-                    && !sig.params.iter().any(|p| p.name == name)
-                    && sig.input_spec(name).is_none()
-                {
-                    let known: Vec<&str> = sig.params.iter().map(|p| p.name.as_str()).collect();
-                    bail!("--set {k}: {op} has no setting {name:?} (its settings: {})", known.join(", "));
-                }
-            }
-            if !settings.is_empty() {
-                m.apply(&settings)?;
-            }
+            let overrides = apply_set(&mut m, &set, &engine)?;
             let t = Instant::now();
             let inputs = load_inputs(&m, &dir, &overrides)?;
             if !quiet {
@@ -696,13 +905,28 @@ fn main() -> Result<()> {
             }
             let out = out.unwrap_or_else(|| dir.join("output"));
             let files = write_outputs(&m, &results, &out)?;
+            // what the run was, to run it again and tell whether it gives the same
+            let written: Vec<(String, PathBuf)> = m.outputs.keys().cloned().zip(files.iter().cloned()).collect();
+            let manifest = terraflux_exec::testing::manifest(
+                &std::path::absolute(&model)?,
+                &m,
+                &std::path::absolute(&dir)?,
+                &overrides,
+                scenario.as_deref(),
+                &set,
+                &written,
+            )?;
+            std::fs::write(out.join("manifest.json"), serde_json::to_string_pretty(&manifest)? + "\n")?;
             if !quiet {
                 for f in files {
                     eprintln!("wrote {}", f.display());
                 }
+                eprintln!("wrote {} (terraflux reproduce runs it again)", out.join("manifest.json").display());
                 eprintln!("done in {:.1} s", t.elapsed().as_secs_f64());
             }
         }
+        Command::Reproduce { manifest, out, quiet } => reproduce(&manifest, out, quiet, &engine)?,
+        Command::Test { models, update, quiet } => test(&models, update, quiet, &engine)?,
         Command::Report { model, out, run } => {
             let source = Model::load(&model).with_context(|| format!("reading {}", model.display()))?;
             let dir = model.parent().map(Path::to_path_buf).unwrap_or_default();
@@ -785,6 +1009,49 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A run reproduced from its manifest, and a model tested against the files of what it should give.
+    #[test]
+    fn a_run_is_reproduced_and_a_model_tested() {
+        let dir = std::env::temp_dir().join(format!("terraflux-repro-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let model = dir.join("m.toml");
+        let text = |seed: u32| {
+            format!(
+                "format = \"terraflux/1\"\n\n[inputs.k]\nkind = \"value\"\nvalue = 0.5\n\n[[nodes]]\nid = \"land\"\n\
+                 op = \"nlm.random\"\nparams = {{ rows = 30, columns = 20, seed = {seed} }}\n\n[[nodes]]\nid = \"high\"\n\
+                 op = \"map.calc\"\ninputs = {{ x = \"land.map\", k = \"$k\" }}\nparams = {{ expression = \"x * k\" }}\n\n\
+                 [[nodes]]\nid = \"ok\"\nop = \"check.assert\"\ninputs = {{ m = \"high.map\" }}\n\
+                 params = {{ expression = \"m <= 0.5\" }}\n\n[outputs.high]\nfrom = \"high.map\"\n\n[[tests]]\n\
+                 from = \"high.map\"\nexpected = \"expected/high.tif\"\n"
+            )
+        };
+        std::fs::write(&model, text(3)).unwrap();
+        let engine = Engine::default();
+        // a run and its manifest
+        let m = Model::load_expanded(&model).unwrap();
+        let inputs = load_inputs(&m, &dir, &BTreeMap::new()).unwrap();
+        let results = engine.run(&m, &inputs, &mut terraflux_exec::Quiet).unwrap();
+        let out = dir.join("out");
+        let files = write_outputs(&m, &results, &out).unwrap();
+        let written: Vec<(String, PathBuf)> = m.outputs.keys().cloned().zip(files).collect();
+        let mf = terraflux_exec::testing::manifest(&model, &m, &dir, &BTreeMap::new(), None, &[], &written).unwrap();
+        assert_eq!(mf.values["k"], serde_json::json!(0.5));
+        assert_eq!(mf.seeds["land.seed"], serde_json::json!(3));
+        let manifest = out.join("manifest.json");
+        std::fs::write(&manifest, serde_json::to_string(&mf).unwrap()).unwrap();
+        reproduce(&manifest, None, true, &engine).unwrap();
+        // tested: the files written, then checked; another seed fails
+        test(std::slice::from_ref(&model), true, true, &engine).unwrap();
+        test(std::slice::from_ref(&dir), false, true, &engine).unwrap();
+        std::fs::write(&model, text(4)).unwrap();
+        let e = test(std::slice::from_ref(&model), false, true, &engine).unwrap_err().to_string();
+        assert!(e.contains("1 of 1 models failed"), "{e}");
+        // and the run of another seed does not reproduce the manifest's
+        assert!(reproduce(&manifest, None, true, &engine).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn bands_and_drive_letters() {

@@ -12,6 +12,7 @@ autotests = false
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
+sha2 = "0.11"
 thiserror.workspace = true
 terraflux-gdal = { path = "../gdal" }
 terraflux-graph = { path = "../graph" }

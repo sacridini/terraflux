@@ -154,10 +154,26 @@ pub struct Model {
     /// Sets of the parameters' values kept by name, to run and compare.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub scenarios: Vec<Scenario>,
+    /// What `terraflux test` checks: outputs against the files of what they should be.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tests: Vec<ModelTest>,
+}
+
+/// A test of a model: a value it gives (`node.port`) against a file of what it should be (relative to the model's
+/// folder: a raster, a table, a JSON value, a text), within a tolerance.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ModelTest {
+    pub from: String,
+    pub expected: String,
+    /// The largest difference of a number allowed (default 1e-9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tolerance: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 /// A value of the model offered in a form: an input of a value (`$name`), or a node's setting or literal input
-/// (`node.setting`, `container/node.setting`: a setting cannot read an input), with what the form needs to show
+/// (`node.setting`, `container/node.setting`), with what the form needs to show
 /// and bound it. None of it changes what the model gives.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Parameter {
@@ -468,6 +484,7 @@ impl Model {
             outputs: BTreeMap::new(),
             parameters: Vec::new(),
             scenarios: Vec::new(),
+            tests: Vec::new(),
         }
     }
 

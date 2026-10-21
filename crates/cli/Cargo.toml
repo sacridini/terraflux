@@ -20,6 +20,7 @@ terraflux-app = { path = "../app" }
 terraflux-dist = { path = "../dist" }
 terraflux-engine = { path = "../engine" }
 terraflux-exec = { path = "../exec" }
+terraflux-gdal = { path = "../gdal" }
 terraflux-graph = { path = "../graph" }
 terraflux-ops = { path = "../ops" }
 terraflux-raster = { path = "../raster" }

@@ -199,6 +199,26 @@ inputs = { allocated = "areas.table", wanted = "$demand" }
 params = { expression = "abs(allocated.forest - wanted) < 1", message = "the demand of forest is not met" }
 ```
 
+## Reproducing a run and testing a model
+
+Every `terraflux run` writes `manifest.json` with its outputs: the version of Terraflux and the platform, the model
+file and its SHA-256, the scenario and the values set (`--set`), every input file's SHA-256 and every input value,
+the settings named seed, and every output's SHA-256. `terraflux reproduce output/manifest.json` runs it again (the
+same model, scenario, values and files; a note for each that changed since) and tells whether every output is the
+same, byte for byte (vectors: the same features); it fails when one differs.
+
+A model holds its own tests: `[[tests]]` name a value it gives and the file of what it should be (relative to the
+model; a raster, a table, a JSON value or a text), within a tolerance on its numbers (1e-9 by default); its
+`check.assert` nodes are tests too. `terraflux test model.toml` (or a folder of models) runs each and checks them,
+`--update` writes the files from the run (rasters of real numbers in float64, every digit kept).
+
+```toml
+[[tests]]
+from = "simulation.maps"
+expected = "expected/maps.tif"
+tolerance = 1e-6
+```
+
 ## Settings that read values
 
 A setting holds a value of its own, or reads one when the model runs: `"$name"` (an input of a value of the

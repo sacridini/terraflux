@@ -160,6 +160,9 @@ terraflux new dinamica --t0 landuse.tif:1997 --t1 landuse.tif:2011 --drivers dri
 terraflux check model.toml          # every operator, reference and connection checked
 terraflux run model.toml            # output/maps.tif (a band per step), steps.csv, weights.csv
 terraflux run model.toml --set seed=7 --out other
+terraflux run model.toml --profile  # how long each node took, the slowest first
+terraflux reproduce output/manifest.json   # the run again: every output the same, byte for byte?
+terraflux test models/              # each model's [[tests]] and check.assert nodes (--update writes the expected)
 terraflux report model.toml --run   # model.html: the model as a document, its maps in it (-o report.pdf: a PDF)
 terraflux ops                       # the operators and what they do
 ```

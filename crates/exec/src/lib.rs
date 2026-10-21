@@ -10,6 +10,7 @@
 
 mod io;
 pub mod lint;
+pub mod testing;
 
 use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
