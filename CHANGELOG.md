@@ -6,6 +6,16 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- The connectivity of rivers, as R's riverconn and hydrographr: `hydro.dci` splits the network into segments at the
+  barriers (dams, weirs, culverts: points with their passability up and down) and gives the dendritic connectivity
+  index of each network (Cote et al. 2009; potamodromous and diadromous, symmetric or asymmetric), the share of its
+  network a fish can reach from every stretch, and for every barrier the DCI without it and its gain (riverconn's
+  d_index), ranked: which dams to remove first; the same values as riverconn 0.3. `hydro.network_distance` gives the
+  distance along the river between every two points, `hydro.along_network` the stretches up and down from each point
+  within a distance, and `hydro.centrality` the degree, Shreve magnitude, river above, betweenness and closeness of
+  every link. The template Rivers: dams and their connectivity (DCI).
+
 ## [1.8.0] - 2026-10-21
 
 ### Added

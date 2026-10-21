@@ -77,6 +77,7 @@ pub mod raster_stats;
 pub mod redd;
 pub mod restoration;
 pub mod restoration_plan;
+pub mod river_network;
 pub mod rivers;
 pub mod roads;
 pub mod sampling;
@@ -375,6 +376,7 @@ impl Registry {
         swat::register(&mut r);
         hydro::register(&mut r);
         rivers::register(&mut r);
+        river_network::register(&mut r);
         services::register(&mut r);
         legend::register(&mut r);
         clumondo::register(&mut r);

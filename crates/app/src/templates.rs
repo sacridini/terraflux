@@ -224,7 +224,7 @@ fn clue_s() -> Model {
     m
 }
 
-pub const TEMPLATES: [Template; 51] = [
+pub const TEMPLATES: [Template; 52] = [
     Template {
         name: "MSPA of a forest",
         group: PATTERNS,
@@ -3261,6 +3261,115 @@ params = { title = "The gauges' catchments, nested" }
 "#,
     },
     Template {
+        name: "Rivers: dams and their connectivity (DCI)",
+        group: CONNECTIVITY,
+        build: None,
+        about: "Dams on the rivers of a drawn landscape: the dendritic connectivity index they leave, which to remove \
+                first, the stretches above and below each, the distances between them and the centrality of the links",
+        toml: r#"
+format = "terraflux/1"
+name = "Rivers: dams and their connectivity (DCI)"
+description = "Dams on the rivers of a drawn landscape of cells of 30 m, as R's riverconn and hydrographr: the river network split into segments at the dams and its dendritic connectivity index (Cote et al. 2009: the chance that a fish can swim between two points of the river), the gain of removing each dam (which first), the share of the network a fish can reach from every stretch, the 3 km above and below each dam, the distances between the dams along the river and the centrality of the links."
+
+[[nodes]]
+id = "relief"
+op = "nlm.fbm"
+params = { rows = 150, columns = 150, dimension = 1.3, seed = 71, resolution = 30 }
+
+[[nodes]]
+id = "dem"
+op = "map.calc"
+inputs = { f = "relief.map" }
+params = { expression = "200 + 800 * f" }
+note = "The elevation, 200 to 1,000 m (in its place, a DEM: raster.read, or data.download's Copernicus DEM)."
+
+[[nodes]]
+id = "filled"
+op = "hydro.fill"
+inputs = { dem = "dem.map" }
+
+[[nodes]]
+id = "accumulation"
+op = "hydro.flow_accumulation"
+inputs = { dem = "filled.map" }
+
+[[nodes]]
+id = "rivers"
+op = "hydro.streams"
+inputs = { accumulation = "accumulation.map" }
+params = { threshold = 150 }
+note = "The rivers: the cells draining 150 cells or more."
+
+[[nodes]]
+id = "links"
+op = "hydro.stream_links"
+inputs = { dem = "filled.map", streams = "rivers.map" }
+
+[[nodes]]
+id = "area"
+op = "map.calc"
+inputs = { d = "dem.map" }
+params = { expression = "d * 0 + 1" }
+
+[[nodes]]
+id = "outline"
+op = "vector.polygonize"
+inputs = { map = "area.map" }
+
+[[nodes]]
+id = "sites"
+op = "vector.points"
+inputs = { vector = "outline.vector" }
+params = { n = 6, seed = 72 }
+note = "Six dams drawn at random (in their place, vector.read of the dams, weirs and culverts, with their passability as an attribute)."
+
+[[nodes]]
+id = "dams"
+op = "hydro.snap"
+inputs = { points = "sites.vector", streams = "rivers.map", accumulation = "accumulation.map" }
+params = { distance = 3000, min_accumulation = 200 }
+note = "Each dam moved onto the nearest river draining 200 cells or more, within 3 km."
+
+[[nodes]]
+id = "dci"
+op = "hydro.dci"
+inputs = { dem = "filled.map", streams = "rivers.map", barriers = "dams.vector" }
+params = { passability = 0.1 }
+note = "The network split at the dams, each letting 10% of the fish through: the DCI of each network, and the gain of removing each dam (rank 1 first)."
+
+[[nodes]]
+id = "stretches"
+op = "hydro.along_network"
+inputs = { dem = "filled.map", points = "dams.vector", streams = "rivers.map" }
+params = { upstream = 3000, downstream = 3000 }
+note = "The 3 km of river above each dam (its reservoir) and below it."
+
+[[nodes]]
+id = "distances"
+op = "hydro.network_distance"
+inputs = { dem = "filled.map", points = "dams.vector" }
+note = "The distance along the river between every two dams."
+
+[[nodes]]
+id = "centrality"
+op = "hydro.centrality"
+inputs = { links = "links.table" }
+note = "The place of each link in its network: its magnitude, the river above it, its betweenness."
+
+[[nodes]]
+id = "plot_reach"
+op = "view.plot"
+inputs = { value = "dci.reach", features = "dci.barriers" }
+params = { title = "The share of its network a fish can reach (%)" }
+
+[[nodes]]
+id = "plot_stretches"
+op = "view.plot"
+inputs = { value = "stretches.map", features = "dams.vector" }
+params = { title = "3 km above and below each dam" }
+"#,
+    },
+    Template {
         name: "Terrain of a surface",
         group: SURFACES,
         build: None,
@@ -4072,6 +4181,24 @@ mod tests {
         assert_eq!(g.column("snapped").unwrap(), [1.0; 5]);
         let Some(terraflux_ops::Value::Table(c)) = out.get("catchments.table") else { panic!("no catchments") };
         assert!(c.column("cells").unwrap().iter().all(|n| *n >= 300.0), "{:?}", c.column("cells"));
+    }
+
+    /// The dams template runs: a DCI below 100 for a network with dams, the dams ranked by the gain of removing each.
+    #[test]
+    fn dams_template_runs() {
+        struct Quiet;
+        impl terraflux_exec::Observer for Quiet {}
+        let name = "Rivers: dams and their connectivity (DCI)";
+        let m = TEMPLATES.iter().find(|t| t.name == name).unwrap().model();
+        let out = terraflux_exec::Engine::default().run(&m, &Default::default(), &mut Quiet).unwrap();
+        let Some(terraflux_ops::Value::Table(t)) = out.get("dci.table") else { panic!("no dci") };
+        let dci = t.column("dci_p").unwrap();
+        assert!(!dci.is_empty() && dci.iter().all(|d| *d > 0.0 && *d < 100.0), "{dci:?}");
+        let Some(terraflux_ops::Value::Vector(b)) = out.get("dci.barriers") else { panic!("no barriers") };
+        let rank = b.attributes.iter().find(|(n, _)| n == "rank").unwrap().1.numbers();
+        assert!(rank.contains(&1.0), "{rank:?}");
+        let Some(terraflux_ops::Value::Table(d)) = out.get("distances.table") else { panic!("no distances") };
+        assert_eq!(d.rows.len(), 15);
     }
 
     /// The accuracy template runs: the overall accuracy near the nine tenths of cells kept, and the area of every

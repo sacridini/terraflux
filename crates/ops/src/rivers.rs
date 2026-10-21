@@ -22,27 +22,27 @@ pub fn register(r: &mut Registry) {
 const STATS: [&str; 6] = ["count", "sum", "mean", "min", "max", "std"];
 
 /// The cells of a grid in its coordinates: the extent, the cell sizes and the shape.
-struct Cells {
-    e: [f64; 4],
-    rx: f64,
-    ry: f64,
-    nx: usize,
-    ny: usize,
+pub(crate) struct Cells {
+    pub e: [f64; 4],
+    pub rx: f64,
+    pub ry: f64,
+    pub nx: usize,
+    pub ny: usize,
 }
 
 impl Cells {
-    fn of(g: &Grid) -> Cells {
+    pub(crate) fn of(g: &Grid) -> Cells {
         let (e, _) = crate::surface::extent_of(g);
         let (nx, ny) = (g.width, g.height);
         Cells { e, rx: (e[1] - e[0]) / nx as f64, ry: (e[3] - e[2]) / ny as f64, nx, ny }
     }
 
-    fn centre(&self, k: usize) -> Xy {
+    pub(crate) fn centre(&self, k: usize) -> Xy {
         [self.e[0] + ((k % self.nx) as f64 + 0.5) * self.rx, self.e[3] - ((k / self.nx) as f64 + 0.5) * self.ry]
     }
 
     /// The cell a point falls in (none off the grid).
-    fn at(&self, p: Xy) -> Option<usize> {
+    pub(crate) fn at(&self, p: Xy) -> Option<usize> {
         let (c, r) = (((p[0] - self.e[0]) / self.rx).floor(), ((self.e[3] - p[1]) / self.ry).floor());
         (c >= 0.0 && r >= 0.0 && (c as usize) < self.nx && (r as usize) < self.ny)
             .then(|| r as usize * self.nx + c as usize)
@@ -50,7 +50,7 @@ impl Cells {
 
     /// The cell each point moves to on the cells `on`: the nearest within the distance, of equally near ones the
     /// first in raster order (none farther: hydro.stream_links' snapping, searched in a window around the point).
-    fn snap(&self, points: &[Option<Xy>], on: &[bool], distance: f64) -> Vec<Option<usize>> {
+    pub(crate) fn snap(&self, points: &[Option<Xy>], on: &[bool], distance: f64) -> Vec<Option<usize>> {
         let reach = distance * distance * (1.0 + 1e-12);
         let span = |lo: f64, size: f64, n: usize| -> Option<(usize, usize)> {
             let (a, b) = ((lo - distance) / size, (lo + distance) / size);
@@ -83,7 +83,7 @@ impl Cells {
 }
 
 /// The largest move of a point onto the streams: the setting, else 300 map units of a projection or 3 cells.
-fn snap_distance(args: &Args, name: &str, g: &Grid) -> Result<f64> {
+pub(crate) fn snap_distance(args: &Args, name: &str, g: &Grid) -> Result<f64> {
     if let Some(d) = args.opt_param::<f64>(name)? {
         if d.is_nan() || d < 0.0 {
             return Err(Error::msg(format!("{name} must be 0 or more")));
@@ -97,7 +97,7 @@ fn snap_distance(args: &Args, name: &str, g: &Grid) -> Result<f64> {
 }
 
 /// The points of a vector in the grid's coordinate system, one per feature (none for an empty one).
-fn points_of(args: &Args, port: &str, g: &Grid) -> Result<(Arc<Vector>, Vec<Option<Xy>>)> {
+pub(crate) fn points_of(args: &Args, port: &str, g: &Grid) -> Result<(Arc<Vector>, Vec<Option<Xy>>)> {
     let v = crate::vector::on_grid(crate::vector::vector_of(args, port)?, g)?;
     let mut pts = Vec::with_capacity(v.len());
     for (i, geom) in v.geometries.iter().enumerate() {
@@ -112,12 +112,12 @@ fn points_of(args: &Args, port: &str, g: &Grid) -> Result<(Arc<Vector>, Vec<Opti
 }
 
 /// The cells of a map that are streams: those with a value other than 0 (a link's number, 1).
-fn stream_cells(m: &Map) -> Vec<bool> {
+pub(crate) fn stream_cells(m: &Map) -> Vec<bool> {
     m.data.iter().map(|v| !v.is_nan() && *v != 0.0).collect()
 }
 
 /// A raster on the DEM's grid, or why not.
-fn on_dem<'a>(dem: &Map, m: &'a Map, what: &str) -> Result<&'a [f64]> {
+pub(crate) fn on_dem<'a>(dem: &Map, m: &'a Map, what: &str) -> Result<&'a [f64]> {
     if m.shape() != dem.shape() {
         return Err(Error::msg(format!("the {what} differ in shape from the DEM: raster.match makes them one grid")));
     }
@@ -185,7 +185,7 @@ impl Network {
 }
 
 /// Every cell labelled with the first seed at or below it along the directions (0: none), each path walked once.
-fn first_below(down: &[i64], seed: &[u32]) -> Result<Vec<u32>> {
+pub(crate) fn first_below(down: &[i64], seed: &[u32]) -> Result<Vec<u32>> {
     const UNSEEN: u32 = u32::MAX;
     let mut label = vec![UNSEEN; down.len()];
     let mut path = Vec::new();
@@ -399,7 +399,7 @@ fn points_places(cells: &[Option<usize>], n: usize) -> Places {
 
 /// The cell of each point: moved onto the streams when given (none when it is farther than the distance), else
 /// the cell it falls in.
-fn cells_of_points(
+pub(crate) fn cells_of_points(
     ctx: &mut Ctx,
     pts: &[Option<Xy>],
     g: &Grid,
@@ -532,7 +532,7 @@ impl Operator for Snap {
     }
 }
 
-fn dem_and_flats(sig: OpSignature) -> OpSignature {
+pub(crate) fn dem_and_flats(sig: OpSignature) -> OpSignature {
     sig.input(PortSpec::new("dem", Type::Map, "the elevations (no value: missing), best with depressions filled"))
         .param(PortSpec::optional(
             "flats",
@@ -541,7 +541,7 @@ fn dem_and_flats(sig: OpSignature) -> OpSignature {
         ))
 }
 
-fn snap_inputs(sig: OpSignature) -> OpSignature {
+pub(crate) fn snap_inputs(sig: OpSignature) -> OpSignature {
     sig.input(PortSpec::optional(
         "streams",
         Type::Map,
@@ -555,7 +555,7 @@ fn snap_inputs(sig: OpSignature) -> OpSignature {
 }
 
 /// The DEM's network: the cell each cell drains to, and the cells of the DEM with no value.
-fn drainage(args: &Args, dem: &Map) -> Result<Vec<i64>> {
+pub(crate) fn drainage(args: &Args, dem: &Map) -> Result<Vec<i64>> {
     let d = Dem::of(dem);
     let dir = d.d8(args.param("flats", true)?)?;
     Ok(down(&dir, i64::from(d.ny), i64::from(d.nx)))

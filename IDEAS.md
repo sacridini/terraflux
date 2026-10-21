@@ -691,7 +691,7 @@ falta é tratar a rede como um **grafo de trechos**, a partir da tabela do `stre
    classe na bacia a montante de cada trecho ("% de floresta a montante", "área urbana a montante"). É o cruzamento
    do uso do solo com a água, o núcleo do Terraflux. Hoje sai em parte do `flow_accumulation` com pesos dividido
    pela área; falta o operador que dê a tabela por trecho e as proporções das classes.
-   - **Feito** (Unreleased): `hydro.upstream`, por trecho do `stream_links` ou por ponto: as estatísticas de mapas
+   - **Feito** (1.8.0): `hydro.upstream`, por trecho do `stream_links` ou por ponto: as estatísticas de mapas
      (contagem, soma, média, mínimo, máximo, desvio padrão) e a proporção de cada classe na terra a montante, a
      área, o trecho ou o ponto abaixo; o mapa de uma coluna pintado nos trechos. O template "Rivers: the land
      upstream and the gauges' catchments".
@@ -699,7 +699,7 @@ falta é tratar a rede como um **grafo de trechos**, a partir da tabela do `stre
    e o `get_upstream_catchment`): estações fluviométricas, barragens, ocorrências de peixes. O `stream_links` já
    ajusta os exutórios por dentro; faltam um `hydro.snap` à parte e um `hydro.upstream_catchment` que dê a bacia de
    cada ponto em polígonos.
-   - **Feito** (Unreleased): `hydro.snap` (pela distância, ou o rio mais próximo com um fluxo acumulado mínimo) e
+   - **Feito** (1.8.0): `hydro.snap` (pela distância, ou o rio mais próximo com um fluxo acumulado mínimo) e
      `hydro.upstream_catchment` (um polígono por ponto, as bacias de pontos um acima do outro sobrepostas, e o mapa
      das bacias encaixadas entre um ponto e o seguinte).
 3. **Conectividade dos rios:** a distância ao longo da rede entre pontos (`get_distance`), os vizinhos de um trecho,
@@ -708,6 +708,14 @@ falta é tratar a rede como um **grafo de trechos**, a partir da tabela do `stre
    `conn.graph_from_streams` sobre a tabela dos trechos dá a centralidade e a importância dos nós que já existem.
    Indo além do hydrographr, o **DCI** (Dendritic Connectivity Index, Cote et al. 2009) com as barragens como
    barreiras, e com o `prioritize.*`, quais barragens remover: o diferencial mais forte.
+   - **Feito** (1.9.0): `hydro.network_distance` (as distâncias pela rede entre todos os pares de pontos, a reta e se
+     um drena para o outro), `hydro.along_network` (os trechos a montante e a jusante de cada ponto até uma
+     distância), `hydro.centrality` (grau, magnitude de Shreve, o comprimento a montante, a intermediação e a
+     proximidade do igraph no grafo não dirigido dos trechos) e `hydro.dci` (o DCI potamódromo e diádromo, simétrico
+     ou assimétrico, o índice de alcance de cada segmento e o ganho de remover cada barreira, o `d_index`), iguais
+     ao riverconn 0.3 (`tools/make_river_dci_reference.py`); o template "Rivers: dams and their connectivity (DCI)".
+     Falta: o `fill_habitat_gaps` e a escolha de um conjunto de barragens a remover sob um orçamento (hoje, uma por
+     vez).
 4. **O Hydrography90m e o Environment90m no `data.download`:** a rede, as sub-bacias e as variáveis ambientais por
    sub-bacia do mundo inteiro a 90 m, sem derivar do DEM, como as fontes que já estão lá. Conferir antes se o
    servidor deixa o GDAL ler só a janela da grade (os tiles de 20° são grandes).
