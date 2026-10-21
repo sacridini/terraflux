@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-10-21
+
 ### Added
 - Settings that read values: a setting holds a value of its own or reads one when the model runs, `"$input"` (an
   input of a value), `"@step"` or `"@carried"` (a loop's step or carried value, a group's input) or
