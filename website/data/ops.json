@@ -260,7 +260,8 @@
   "params": [],
   "access": "global",
   "container": false,
-  "extra": "map"
+  "extra": "map",
+  "together": true
  },
  {
   "name": "agents.summary",
@@ -9141,6 +9142,60 @@
   "container": false
  },
  {
+  "name": "hydro.snap",
+  "doc": "Points moved onto the stream network, as hydrographr's snap_to_network: gauges, dams, records of fish each to the centre of the nearest stream cell within a distance (of equally near ones the first in raster order), or of the nearest whose flow accumulation is at least a minimum (on the river, not a tributary beside it). A point farther than the distance stays where it was, snapped 0.",
+  "inputs": [
+   {
+    "name": "points",
+    "type": "vector",
+    "required": true,
+    "doc": "the points"
+   },
+   {
+    "name": "streams",
+    "type": "map",
+    "required": true,
+    "doc": "the streams: non-zero on their cells (hydro.streams, the links)"
+   },
+   {
+    "name": "accumulation",
+    "type": "map",
+    "required": false,
+    "doc": "a flow accumulation, with min_accumulation"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the points moved, their attributes and row, col, stream (the streams' value there), moved (the distance), snapped (1 or 0)"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes"
+   }
+  ],
+  "params": [
+   {
+    "name": "distance",
+    "type": "number",
+    "required": false,
+    "doc": "the largest move, map units (300 m; 3 cells without a projection)"
+   },
+   {
+    "name": "min_accumulation",
+    "type": "number",
+    "required": false,
+    "doc": "only the stream cells of at least this accumulation (in its units)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
   "name": "hydro.spi",
   "doc": "Stream power index a x tan(slope) (Moore, Grayson & Ladson 1991), WhiteboxTools' StreamPowerIndex: the erosive power of overland flow. a: the specific contributing area of a multiple-flow accumulation by default; the slope: Horn's gradient of the DEM.",
   "inputs": [
@@ -9414,6 +9469,150 @@
     "type": "number",
     "required": false,
     "doc": "a floor for tan(slope), so flat cells get a value (0: they have none)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "hydro.upstream",
+  "doc": "The land upstream of every link of a stream network, or of every point on it, summarised, as hydrographr's get_upstream_variable: the statistics of maps over all the cells that drain through it (the mean slope, the rain summed) and the share of each class of a map (the forest, the cities upstream), from each link's last cell or the point's along the D8 directions; its cells and area. The cells without a value of a map left out of its statistics.",
+  "inputs": [
+   {
+    "name": "dem",
+    "type": "map",
+    "required": true,
+    "doc": "the elevations (no value: missing), best with depressions filled"
+   },
+   {
+    "name": "streams",
+    "type": "map",
+    "required": false,
+    "doc": "the streams the points are moved onto (non-zero on their cells); without them, the cell each falls in"
+   },
+   {
+    "name": "links",
+    "type": "map",
+    "required": false,
+    "doc": "the links of hydro.stream_links: a row per link"
+   },
+   {
+    "name": "points",
+    "type": "vector",
+    "required": false,
+    "doc": "or points (gauges, dams, sites): a row per point"
+   },
+   {
+    "name": "values",
+    "type": "any",
+    "required": false,
+    "doc": "a map or a stack of maps whose statistics are given"
+   },
+   {
+    "name": "classes",
+    "type": "map",
+    "required": false,
+    "doc": "a map of classes whose shares are given (share_<class>)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per link (link, downstream) or point (point, downstream, row, col), then cells, area (map units squared; m² for longitude / latitude), the statistics (<layer>_<statistic> of a stack) and the shares"
+   },
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the column to_map painted on each link's cells, or on each point's cell"
+   }
+  ],
+  "params": [
+   {
+    "name": "flats",
+    "type": "bool",
+    "required": false,
+    "doc": "drain flat areas towards lower terrain and away from higher terrain (Barnes et al. 2014; default true)"
+   },
+   {
+    "name": "snap",
+    "type": "number",
+    "required": false,
+    "doc": "the largest move of a point onto the streams, map units (300 m; 3 cells without a projection)"
+   },
+   {
+    "name": "stats",
+    "type": "any",
+    "required": false,
+    "doc": "of the values: count, sum, mean, min, max, std (default mean)"
+   },
+   {
+    "name": "to_map",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the map (the first after the area)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "hydro.upstream_catchment",
+  "doc": "The catchment of every point (a gauge, a dam, a site), as hydrographr's get_upstream_catchment: all the land that drains to it along the D8 directions, as a polygon per point (with the point's attributes, its cells and area; the catchments of points one above another overlap), and a map of each cell's first point downstream (the catchments nested, between one point and the next).",
+  "inputs": [
+   {
+    "name": "dem",
+    "type": "map",
+    "required": true,
+    "doc": "the elevations (no value: missing), best with depressions filled"
+   },
+   {
+    "name": "streams",
+    "type": "map",
+    "required": false,
+    "doc": "the streams the points are moved onto (non-zero on their cells); without them, the cell each falls in"
+   },
+   {
+    "name": "points",
+    "type": "vector",
+    "required": true,
+    "doc": "the points (moved onto the streams when they are given)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "a polygon per point: its attributes and point (1..), downstream (the point below, 0 none), cells, area"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "point, downstream, row, col, cells, area"
+   },
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the first point each cell drains to (1..; 0 none): the catchments between one point and the next"
+   }
+  ],
+  "params": [
+   {
+    "name": "flats",
+    "type": "bool",
+    "required": false,
+    "doc": "drain flat areas towards lower terrain and away from higher terrain (Barnes et al. 2014; default true)"
+   },
+   {
+    "name": "snap",
+    "type": "number",
+    "required": false,
+    "doc": "the largest move of a point onto the streams, map units (300 m; 3 cells without a projection)"
    }
   ],
   "access": "global",
@@ -17821,7 +18020,7 @@
  },
  {
   "name": "raster.write",
-  "doc": "Write a map, a stack (a band per map), the series of maps of a loop (a band per step) or rasters on disk (copied in blocks, whatever their size) to a GeoTIFF file, in the smallest type that holds the values unless one is given.",
+  "doc": "Write a map, a stack (a band per map), the series of maps of a loop (a band per step) or rasters on disk (copied in blocks, whatever their size) to a GeoTIFF file, in the smallest type that holds the values unless one is given. With {name} in the file's name, a file per layer, {name} the layer's name (mspa/{name}_mspa.tif: forest_2010_mspa.tif, forest_2020_mspa.tif...).",
   "inputs": [
    {
     "name": "value",
@@ -17835,7 +18034,7 @@
     "name": "path",
     "type": "text",
     "required": true,
-    "doc": "the file written"
+    "doc": "the file written (with {name}: a series of the files)"
    }
   ],
   "params": [
@@ -17843,7 +18042,7 @@
     "name": "path",
     "type": "text",
     "required": true,
-    "doc": "the file, relative to the model's folder (.tif)"
+    "doc": "the file, relative to the model's folder (.tif); {name} in it: a file per layer, named by it"
    },
    {
     "name": "type",
@@ -22355,7 +22554,8 @@
   "params": [],
   "access": "local",
   "container": false,
-  "extra": "map"
+  "extra": "map",
+  "together": true
  },
  {
   "name": "stack.reduce",
