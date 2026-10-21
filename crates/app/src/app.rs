@@ -520,6 +520,9 @@ pub struct Session {
     pub cache: Arc<Mutex<Cache>>,
     /// How each top-level node did in the last run.
     pub status: BTreeMap<String, NodeStatus>,
+    /// How long each node took when it last ran (its place: `node`, `container/inner`; a loop's body summed over its
+    /// steps), and about how much memory what it gave holds.
+    pub timings: BTreeMap<String, (f64, usize)>,
     /// Counters of the changes of the model and of the nodes' states (the canvas is laid out again then).
     pub revision: u64,
     pub status_rev: u64,
@@ -661,6 +664,7 @@ impl Session {
             validation: Validation { windows: "1, 3, 5, 7, 9, 11".into(), ..Default::default() },
             cache: Arc::new(Mutex::new(Cache::default())),
             status: BTreeMap::new(),
+            timings: BTreeMap::new(),
             revision: 0,
             status_rev: 0,
             target: None,
@@ -1000,6 +1004,9 @@ impl Session {
                     self.node = at;
                 }
                 Message::Progress { at, progress } => self.task = Some((at, progress)),
+                Message::Timed { at, seconds, bytes } => {
+                    self.timings.insert(at, (seconds, bytes));
+                }
                 Message::Finished { at, cached } => {
                     // a plot that ran: its map tab, opened once
                     let plot = self.model.nodes.iter().any(|n| n.id == at && n.op == "view.plot");

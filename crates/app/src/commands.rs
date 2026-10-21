@@ -232,6 +232,7 @@ pub fn shortcuts() -> Vec<(&'static str, Vec<(String, &'static str)>)> {
                 (format!("{c}L"), "arrange the nodes"),
                 (format!("{c}G"), "group the nodes selected"),
                 (format!("{c}shift+G"), "ungroup the group selected"),
+                ("B".into(), "turn the nodes selected off or on again (bypass: their inputs passed on)"),
                 (format!("{c}A, Esc"), "select all, none"),
             ],
         ),

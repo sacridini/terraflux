@@ -458,6 +458,8 @@ struct BoxAt {
     /// Its optional inputs not shown, and whether they are unfolded (shown, the row then folds them).
     folded: Vec<(String, Type)>,
     unfolded: bool,
+    /// Turned off (its inputs passed on): drawn faint.
+    bypass: bool,
 }
 
 /// The name of a file short enough for a box's row: its name without its folder, cut in the middle (the end kept,
@@ -549,7 +551,13 @@ fn box_rects(b: &BoxAt, state: Option<NodeStatus>, v: &egui::Visuals, colours: b
     let mut rects = Vec::with_capacity(4 + b.inputs.len() + b.outputs.len());
     let stroke = v.widgets.noninteractive.bg_stroke.color;
     let fill = if b.source { v.faint_bg_color } else { v.widgets.inactive.bg_fill };
-    let (border, width) = if state == Some(NodeStatus::Failed) { (v.error_fg_color, 1.5) } else { (stroke, 1.0) };
+    // a node turned off: faint, its border the warning's colour
+    let fill = if b.bypass { fill.gamma_multiply(0.45) } else { fill };
+    let (border, width) = match state {
+        Some(NodeStatus::Failed) => (v.error_fg_color, 1.5),
+        _ if b.bypass => (v.warn_fg_color, 1.5),
+        _ => (stroke, 1.0),
+    };
     rects.push(RectInstance::new(b.rect.min.into(), b.rect.size().into(), 4.0, fill, border, width));
     // a node of data's header in the colour of the type it gives (a map's blue, vectors' pink...), when
     // asked: what flows from it at a glance
@@ -819,6 +827,7 @@ impl Scene {
                 file,
                 folded: Vec::new(),
                 unfolded: false,
+                bypass: false,
             });
             y += HEAD + ROW + foot + 12.0;
         }
@@ -861,6 +870,7 @@ impl Scene {
                 file,
                 folded,
                 unfolded: open,
+                bypass: n.bypass,
             });
         }
         let index: HashMap<String, usize> = boxes.iter().enumerate().map(|(i, b)| (b.key.clone(), i)).collect();

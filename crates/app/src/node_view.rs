@@ -322,6 +322,29 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
             s.fields.clear();
         }
     }
+    // turned off (B on the canvas), and how long it took when it last ran
+    ui.separator();
+    ui.horizontal(|ui| {
+        let mut off = n.bypass;
+        if ui
+            .checkbox(&mut off, "Bypass")
+            .on_hover_text("turned off without being taken away: it does not run, each of its outputs the first of its inputs of the same type (B on the canvas)")
+            .changed()
+        {
+            change = Some(crate::editor::toggle_bypass(&mut s.source, &path, std::slice::from_ref(&n.id)));
+        }
+        let at = if path.is_empty() { n.id.clone() } else { format!("{}/{}", path.join("/"), n.id) };
+        if let Some((secs, bytes)) = s.timings.get(&at) {
+            let size = match *bytes {
+                0 => String::new(),
+                b if b < 1 << 20 => format!(" · {:.1} KB", b as f64 / 1024.0),
+                b if b < 1 << 30 => format!(" · {:.1} MB", b as f64 / 1048576.0),
+                b => format!(" · {:.2} GB", b as f64 / 1073741824.0),
+            };
+            ui.label(RichText::new(format!("last run {}{size}", seconds_text(*secs))).weak())
+                .on_hover_text("how long it took when it last ran (a loop's body: every step summed), and about how much memory what it gave holds");
+        }
+    });
     // the record of the choice, written by whoever built the model (a person, the wizard, an agent): edited in
     // place
     ui.separator();
@@ -410,6 +433,17 @@ fn model_record(ui: &mut Ui, s: &mut Session) {
         crate::tools::model_info(&mut s.source, &serde_json::json!({ key: t }));
         s.fields.clear();
         s.edited();
+    }
+}
+
+/// A time as people read it: milliseconds, seconds, minutes.
+fn seconds_text(s: f64) -> String {
+    if s < 1.0 {
+        format!("{:.0} ms", s * 1000.0)
+    } else if s < 120.0 {
+        format!("{s:.1} s")
+    } else {
+        format!("{:.1} min", s / 60.0)
     }
 }
 

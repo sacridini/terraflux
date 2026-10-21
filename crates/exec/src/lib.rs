@@ -50,6 +50,8 @@ pub trait Observer {
     fn done(&mut self, _at: &str, _cached: bool) {}
     /// What the nodes of a loop's body gave at a step, by node (a cell's trace keeps its values).
     fn body(&mut self, _at: &str, _step: usize, _results: &BTreeMap<String, Outputs>) {}
+    /// A node ran (not taken from the cache): how long it took and about how much memory what it gave holds.
+    fn timed(&mut self, _at: &str, _seconds: f64, _bytes: usize) {}
     /// How far a node running is, as its operator tells it (a solver's gap, say).
     fn progress(&mut self, _at: &str, _progress: &terraflux_ops::Progress) {}
     /// Whether to stop: checked before every node, and by the operators that can stop while they run.
@@ -63,10 +65,82 @@ pub struct Quiet;
 
 impl Observer for Quiet {}
 
-/// The values of a run: every output of the top-level nodes, and the warnings.
+/// The values of a run: every output of the top-level nodes, the warnings, and how long each node took.
 pub struct Results {
     pub values: BTreeMap<String, Outputs>,
     pub warnings: Vec<String>,
+    pub timings: Vec<Timing>,
+}
+
+/// A node's run: its place (`node`, `container/inner`), its time and about how much memory what it gave holds
+/// (its maps', stacks', tables' and vectors' numbers).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Timing {
+    pub at: String,
+    pub seconds: f64,
+    pub bytes: usize,
+}
+
+/// About how much memory a value holds: its numbers (8 bytes each) and its vectors' coordinates.
+pub fn bytes_of(v: &Value) -> usize {
+    match v {
+        Value::Map(m) => m.data.len() * 8,
+        Value::Stack(s) => s.layers.iter().map(|l| l.len() * 8).sum(),
+        Value::Table(t) => t.rows.iter().map(|r| r.len() * 8).sum(),
+        Value::Series(s) => s.iter().map(bytes_of).sum(),
+        Value::Vector(v) => {
+            let mut n = 0;
+            for g in &v.geometries {
+                g.points(&mut |_| n += 1);
+            }
+            n * 16
+        }
+        _ => 0,
+    }
+}
+
+/// Records the time of every node as it runs (an observer around another).
+struct Timed<'a> {
+    inner: &'a mut dyn Observer,
+    timings: Vec<Timing>,
+}
+
+impl Observer for Timed<'_> {
+    fn node(&mut self, at: &str) {
+        self.inner.node(at)
+    }
+    fn step(&mut self, at: &str, step: usize, of: usize) {
+        self.inner.step(at, step, of)
+    }
+    fn warning(&mut self, at: &str, message: &str) {
+        self.inner.warning(at, message)
+    }
+    fn collected(&mut self, at: &str, step: usize, of: usize, values: &BTreeMap<String, Value>) {
+        self.inner.collected(at, step, of, values)
+    }
+    fn done(&mut self, at: &str, cached: bool) {
+        self.inner.done(at, cached)
+    }
+    fn body(&mut self, at: &str, step: usize, results: &BTreeMap<String, Outputs>) {
+        self.inner.body(at, step, results)
+    }
+    fn timed(&mut self, at: &str, seconds: f64, bytes: usize) {
+        // (a node of a loop's body each step: its time summed)
+        match self.timings.iter_mut().find(|t| t.at == at) {
+            Some(t) => {
+                t.seconds += seconds;
+                t.bytes = t.bytes.max(bytes);
+            }
+            None => self.timings.push(Timing { at: at.to_string(), seconds, bytes }),
+        }
+        self.inner.timed(at, seconds, bytes)
+    }
+    fn progress(&mut self, at: &str, progress: &terraflux_ops::Progress) {
+        self.inner.progress(at, progress)
+    }
+    fn cancelled(&mut self) -> bool {
+        self.inner.cancelled()
+    }
 }
 
 impl Results {
@@ -179,6 +253,24 @@ fn fingerprint(
     Some(h.finish())
 }
 
+/// The outputs of a node bypassed: each the first of its inputs (in its operator's order, then the others) of a
+/// type that fits it; the outputs no input fits are missing (what reads them is told).
+fn bypassed(sig: Option<&terraflux_graph::OpSignature>, values: BTreeMap<String, Value>) -> Outputs {
+    let Some(sig) = sig else { return Outputs::new() };
+    let mut order: Vec<&String> =
+        sig.inputs.iter().filter_map(|p| values.get_key_value(&p.name).map(|(k, _)| k)).collect();
+    let rest: Vec<&String> = values.keys().filter(|k| !order.contains(k)).collect();
+    order.extend(rest);
+    let mut out = Outputs::new();
+    for o in &sig.outputs {
+        let fits = |v: &&Value| v.ty() == o.ty || (o.ty != terraflux_graph::Type::Any && v.ty().fits(o.ty));
+        if let Some(v) = order.iter().map(|k| &values[*k]).find(fits) {
+            out.insert(o.name.clone(), v.clone());
+        }
+    }
+    out
+}
+
 /// A value as a setting holds it: a number, a whole number, true or false, a text (none for maps, tables...).
 fn setting_value(v: &Value) -> Option<serde_json::Value> {
     Some(match v {
@@ -247,6 +339,20 @@ impl Engine {
     /// the errors of the nodes run stop it. Nodes whose outputs hold a random generator, the nodes that depend
     /// on them, and `raster.write` (a file to write) always run.
     pub fn run_with(
+        &self,
+        model: &Model,
+        inputs: &BTreeMap<String, Value>,
+        obs: &mut dyn Observer,
+        cache: Option<&Mutex<Cache>>,
+        target: Option<&str>,
+    ) -> Result<Results> {
+        let mut timed = Timed { inner: obs, timings: Vec::new() };
+        let mut r = self.run_timed(model, inputs, &mut timed, cache, target)?;
+        r.timings = timed.timings;
+        Ok(r)
+    }
+
+    fn run_timed(
         &self,
         model: &Model,
         inputs: &BTreeMap<String, Value>,
@@ -358,7 +464,9 @@ impl Engine {
             obs.node(at);
             let before = warnings.len();
             let node = &with_product(node, &model.nodes);
+            let started = std::time::Instant::now();
             let out = self.run_node(node, &env, inputs, at, obs, &mut warnings)?;
+            obs.timed(at, started.elapsed().as_secs_f64(), out.values().map(bytes_of).sum());
             let keep = print.is_some() && node.op != "raster.write" && !out.values().any(holds_rng);
             if let (Some(c), Some(p), true) = (cache, print, keep) {
                 let prefix = format!("{at}: ");
@@ -372,7 +480,7 @@ impl Engine {
         if let Some(c) = cache {
             c.lock().unwrap().kept.retain(|id, _| by_id.contains_key(id.as_str()));
         }
-        Ok(Results { values: env.results, warnings })
+        Ok(Results { values: env.results, warnings, timings: Vec::new() })
     }
 
     /// What a loop collected, step by step, from its kept outputs (as if it ran).
@@ -450,7 +558,9 @@ impl Engine {
             }
             obs.node(&at);
             let node = &with_product(node, nodes);
+            let started = std::time::Instant::now();
             let out = self.run_node(node, env, inputs, &at, obs, warnings)?;
+            obs.timed(&at, started.elapsed().as_secs_f64(), out.values().map(bytes_of).sum());
             env.results.insert(node.id.clone(), out);
         }
         Ok(())
@@ -477,6 +587,9 @@ impl Engine {
             values.insert(port.clone(), self.resolve(src, env, inputs, &format!("{at}.{port}"))?);
         }
         let sig = self.registry.sig(&node.op).cloned();
+        if node.bypass {
+            return Ok(bypassed(sig.as_deref(), values));
+        }
         // many layers where a port takes one map (a stack's, a series of maps', the bands of rasters on disk): the
         // node runs once per layer
         if let Some(s) = &sig {

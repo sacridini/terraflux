@@ -326,6 +326,15 @@ pub fn set_list(m: &mut Model, path: &[String], node: &str, list: &str, text: &s
     Ok(())
 }
 
+/// Turn nodes off (bypassed: their inputs passed on) or on again: on when all of them were off.
+pub fn toggle_bypass(m: &mut Model, path: &[String], ids: &[String]) -> Result<()> {
+    let all_off = ids.iter().all(|id| m.scope(path).is_some_and(|ns| ns.iter().any(|n| &n.id == id && n.bypass)));
+    for id in ids {
+        node_mut(m, path, id)?.bypass = !all_off;
+    }
+    Ok(())
+}
+
 /// Set a setting (empty text: remove it).
 pub fn set_param(m: &mut Model, path: &[String], node: &str, name: &str, text: &str) -> Result<()> {
     let n = node_mut(m, path, node)?;

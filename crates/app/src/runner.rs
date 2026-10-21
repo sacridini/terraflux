@@ -32,6 +32,12 @@ pub enum Message {
         at: String,
         progress: terraflux_ops::Progress,
     },
+    /// A node ran: its time and about how much memory what it gave holds.
+    Timed {
+        at: String,
+        seconds: f64,
+        bytes: usize,
+    },
     /// A top-level node is done (its outputs in the cache), run or `cached`.
     Finished {
         at: String,
@@ -67,6 +73,10 @@ impl Observer for Sending {
 
     fn warning(&mut self, at: &str, message: &str) {
         let _ = self.tx.send(Message::Warning(format!("{at}: {message}")));
+    }
+
+    fn timed(&mut self, at: &str, seconds: f64, bytes: usize) {
+        let _ = self.tx.send(Message::Timed { at: at.to_string(), seconds, bytes });
     }
 
     fn done(&mut self, at: &str, cached: bool) {

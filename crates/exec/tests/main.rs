@@ -4,6 +4,7 @@
 mod abm;
 mod bridge;
 mod cache;
+mod debug;
 mod each;
 mod futures_calib;
 mod parity;

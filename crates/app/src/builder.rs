@@ -785,6 +785,10 @@ pub fn keys(ui: &Ui, s: &mut Session, r: &Registry, canvas: bool) -> bool {
     if group {
         group_selected(s, r);
     }
+    // B turns the nodes selected off (bypassed: their inputs passed on) or on again
+    if here && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::B)) {
+        bypass_selected(s);
+    }
     if ungroup {
         ungroup_selected(s, r);
     }
@@ -1424,6 +1428,21 @@ pub fn arrange(s: &mut Session, r: &Registry) {
 
 /// Put the nodes selected (those chosen, else the one in the inspector) into a new group of the scope shown
 /// (ctrl+G), and select it.
+/// The nodes selected (or the one) turned off, or on again when all of them were off.
+pub fn bypass_selected(s: &mut Session) {
+    let mut ids: Vec<String> = s.editor.chosen.iter().cloned().collect();
+    if ids.is_empty() {
+        ids.extend(s.selected.clone());
+    }
+    if ids.is_empty() {
+        return;
+    }
+    let path = s.editor.path.clone();
+    if crate::editor::toggle_bypass(&mut s.source, &path, &ids).is_ok() {
+        s.edited();
+    }
+}
+
 pub fn group_selected(s: &mut Session, r: &Registry) {
     let mut ids: Vec<String> = s.editor.chosen.iter().cloned().collect();
     if ids.is_empty() {

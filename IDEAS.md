@@ -794,6 +794,11 @@ escolha, abstração) sem código.
    entre sessões; tempo e memória por nó (o perfil da execução); um laço passo a passo, como um breakpoint (o Trace
    já mostra os valores, falta controlar a execução); um nó `check.assert` que falha quando uma condição não vale (a
    demanda atendida, a soma das áreas).
+   - **Feito** (1.14.0): o bypass (`bypass = true` no nó: cada saída a primeira entrada do mesmo tipo; B no canvas,
+     a caixa apagada), o tempo e a memória de cada nó (`Results.timings`, o corpo de um laço somado nos passos;
+     "last run" no painel do nó, `terraflux run --profile`) e o `check.assert` (a expressão do `map.calc` em
+     toda célula com valor, ou do `value.calc`; `warn` só avisa). Falta: congelar o resultado de um nó entre
+     sessões (o cache em disco) e o laço passo a passo.
 8. **Testes de modelos** (`terraflux test`): asserções e saídas esperadas guardadas com o modelo, um template ou um
    modelo publicado conferido a cada versão nova do Terraflux.
 

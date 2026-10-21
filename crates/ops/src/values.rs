@@ -12,6 +12,7 @@ use crate::{Args, Ctx, Error, Operator, Outputs, Registry, Result, Value};
 
 pub fn register(r: &mut Registry) {
     r.add(Arc::new(Calc));
+    r.add(Arc::new(Assert));
 }
 
 /// A number as a text: a whole number without its point, others as Rust writes them (their shortest form).
@@ -152,6 +153,58 @@ impl Operator for Calc {
     }
 }
 
+struct Assert;
+
+impl Operator for Assert {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "check.assert",
+            "A check that stops the run when it fails, as a test does: `expression` over the node's inputs in map \
+             algebra's syntax (the demand met, the areas summing to the total, the probabilities between 0 and 1); \
+             with maps among them every cell with a value must pass, else the value must be true (not 0). It fails \
+             with its message and what failed (how many cells, the value); with `warn`, it only warns.",
+            Access::Global,
+        )
+        .extra(Type::Any)
+        .output(PortSpec::new("ok", Type::Bool, "whether it passed (with warn; else it passed)"))
+        .param(PortSpec::new("expression", Type::Text, "what must be true, e.g. abs(allocated - demand) < 1"))
+        .param(PortSpec::optional("message", Type::Text, "what it means when it fails"))
+        .param(PortSpec::optional("warn", Type::Bool, "only warn when it fails, the run going on (false)"))
+        .param(PortSpec::optional("row", Type::Integer, "the row of the tables read, without maps (1)"))
+    }
+
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let node = args.node;
+        let expression: String = args.param("expression", String::new())?;
+        if expression.trim().is_empty() {
+            return Err(Error::msg(format!("node {node:?}: give the expression that must be true")));
+        }
+        let maps = args.inputs.values().any(|v| matches!(v, Value::Map(_) | Value::Stack(_)));
+        let (passed, detail) = if maps {
+            let out = crate::algebra::Calc.run(ctx, args)?;
+            let Some(Value::Map(m)) = out.get("map") else { return Err(Error::msg(format!("node {node:?}: no map"))) };
+            let known: Vec<f64> = m.data.iter().copied().filter(|x| !x.is_nan()).collect();
+            let failed = known.iter().filter(|x| **x == 0.0).count();
+            (failed == 0, format!("{failed} of {} cells fail", known.len()))
+        } else {
+            let out = Calc.run(ctx, args)?;
+            let x = out.get("value").and_then(Value::as_number).unwrap_or(f64::NAN);
+            (x != 0.0 && !x.is_nan(), format!("it is {}", number_text(x)))
+        };
+        if !passed {
+            let message: String = args.param("message", "the check failed".to_string())?;
+            let text = format!("{message} ({expression}: {detail})");
+            if !args.param("warn", false)? {
+                return Err(Error::msg(format!("node {node:?}: {text}")));
+            }
+            ctx.warn(text);
+        }
+        let mut out = Outputs::new();
+        out.insert("ok".into(), Value::Bool(passed));
+        Ok(out)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -179,6 +232,33 @@ mod tests {
         assert!(matches!(out["value"], Value::Number(x) if x == 2010.0));
         assert!(run(vec![], serde_json::json!({ "expression": "nbsum(x, 1)" })).is_err());
         assert!(run(vec![], serde_json::json!({ "expression": "nothing + 1" })).is_err());
+    }
+
+    #[test]
+    fn a_check_passes_fails_or_warns() {
+        let check = |inputs: Vec<(&str, Value)>, params: serde_json::Value| {
+            let params = params.as_object().cloned().unwrap_or_default();
+            let args = Args {
+                node: "c",
+                inputs: inputs.into_iter().map(|(k, v)| (k.to_string(), v)).collect(),
+                params: &params,
+            };
+            let mut ctx = Ctx::default();
+            let out = Assert.run(&mut ctx, &args);
+            (out, ctx.warnings)
+        };
+        let (out, _) = check(vec![("a", Value::Number(3.0))], serde_json::json!({ "expression": "a > 2" }));
+        assert!(matches!(out.unwrap()["ok"], Value::Bool(true)));
+        let (out, _) =
+            check(vec![("a", Value::Number(1.0))], serde_json::json!({ "expression": "a > 2", "message": "too few" }));
+        let e = out.err().unwrap().to_string();
+        assert!(e.contains("too few (a > 2: it is 0)"), "{e}");
+        // a map: every cell with a value
+        let m = Value::Map(crate::Map::new(Arc::new(terraflux_raster::Grid::new(3, 1)), vec![0.2, 1.5, f64::NAN]));
+        let (out, warned) =
+            check(vec![("p", m)], serde_json::json!({ "expression": "p >= 0 and p <= 1", "warn": true }));
+        assert!(matches!(out.unwrap()["ok"], Value::Bool(false)));
+        assert!(warned[0].contains("1 of 2 cells fail"), "{warned:?}");
     }
 
     #[test]

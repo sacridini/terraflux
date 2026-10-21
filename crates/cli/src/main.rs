@@ -46,6 +46,9 @@ enum Command {
         /// Print only errors.
         #[arg(short, long)]
         quiet: bool,
+        /// Print how long every node took and about how much memory what it gave holds, the slowest first.
+        #[arg(long)]
+        profile: bool,
         /// Run on tiles (maps larger than memory; Dinamica EGO's model): the same maps with any number of
         /// threads or machines (the tile size changes the patches a fit measures), statistically equivalent to
         /// the exact engine.
@@ -526,6 +529,18 @@ fn hide_own_console() {
 #[cfg(not(windows))]
 fn hide_own_console() {}
 
+/// A size in bytes, as people read it (KB, MB, GB).
+fn size(bytes: usize) -> String {
+    let b = bytes as f64;
+    match bytes {
+        0 => "-".into(),
+        n if n < 1 << 10 => format!("{n} B"),
+        n if n < 1 << 20 => format!("{:.1} KB", b / 1024.0),
+        n if n < 1 << 30 => format!("{:.1} MB", b / 1048576.0),
+        _ => format!("{:.2} GB", b / 1073741824.0),
+    }
+}
+
 fn main() -> Result<()> {
     // a model file alone: the application with it
     let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
@@ -582,6 +597,7 @@ fn main() -> Result<()> {
             set,
             scenario,
             quiet,
+            profile,
             tiled,
             tile,
             radius,
@@ -668,6 +684,16 @@ fn main() -> Result<()> {
             }
             let mut progress = Progress { quiet, start: t };
             let results = engine.run(&m, &inputs, &mut progress)?;
+            if profile {
+                let mut t = results.timings.clone();
+                t.sort_by(|a, b| b.seconds.total_cmp(&a.seconds));
+                let total: f64 = results.timings.iter().filter(|t| !t.at.contains('/')).map(|t| t.seconds).sum();
+                println!("{:>10}  {:>6}  {:>10}  node", "seconds", "share", "gave");
+                for x in &t {
+                    let share = if total > 0.0 { 100.0 * x.seconds / total } else { 0.0 };
+                    println!("{:>10.3}  {share:>5.1}%  {:>10}  {}", x.seconds, size(x.bytes), x.at);
+                }
+            }
             let out = out.unwrap_or_else(|| dir.join("output"));
             let files = write_outputs(&m, &results, &out)?;
             if !quiet {

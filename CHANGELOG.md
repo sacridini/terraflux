@@ -6,6 +6,13 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Debugging a model: a node turned off without being taken away (`bypass`; B on the canvas): it does not run, each
+  of its outputs the first of its inputs of the same type, its box faint; how long every node took and about how
+  much memory what it gave holds (a loop's body summed over its steps), in the node's pane and in
+  `terraflux run --profile`; and `check.assert`, a check that stops the run when its expression is false (in every
+  cell with a value, for maps), with its message and what failed, or only warns.
+
 ## [1.13.0] - 2026-10-21
 
 ### Added

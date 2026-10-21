@@ -179,6 +179,26 @@ params = { path = { from = "path.text" } }
 
 Its value and its text are what settings read, the case of a switch, a threshold derived from a table.
 
+## Debugging a model
+
+- **Bypass** (B on the canvas, or the box in the node's pane): a node turned off without being taken away. It does
+  not run, each of its outputs is the first of its inputs of the same type (a filter left out passes its map on),
+  and the others are missing; its box is faint. The file keeps `bypass = true`.
+- **How long each node took**: the node's pane shows its last run (`last run 1.2 s · 12 MB`: its time, a loop's body
+  summed over the steps, and about how much memory what it gave holds), and `terraflux run model.toml --profile`
+  prints every node's, the slowest first.
+- **`check.assert`**: a check that stops the run when it fails, as a test does. Its `expression` (map algebra's, over
+  its inputs) must be true: in every cell with a value when maps are among them, else the value itself. It fails with
+  its `message` and what failed (`2 of 3 cells fail`, `it is 0`); with `warn = true`, it only warns.
+
+```toml
+[[nodes]]
+id = "demand_met"
+op = "check.assert"
+inputs = { allocated = "areas.table", wanted = "$demand" }
+params = { expression = "abs(allocated.forest - wanted) < 1", message = "the demand of forest is not met" }
+```
+
 ## Settings that read values
 
 A setting holds a value of its own, or reads one when the model runs: `"$name"` (an input of a value of the

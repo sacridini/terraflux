@@ -346,6 +346,10 @@ pub struct Node {
     /// texts need. None: as wide as they need.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub width: Option<f32>,
+    /// Turned off without being taken away: it does not run, each of its outputs the first of its inputs of the
+    /// same type (a filter left out passes its map on), the others missing.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub bypass: bool,
 }
 
 impl Node {
@@ -363,6 +367,7 @@ impl Node {
             body: None,
             pos: None,
             width: None,
+            bypass: false,
         }
     }
 
