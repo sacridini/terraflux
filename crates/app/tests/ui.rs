@@ -2118,6 +2118,12 @@ fn the_assistants_text_wraps() {
             args: "{\"node\": \"a\", \"settings\": {\"expression\": \"".to_string() + &"a + ".repeat(60) + "1\"}}",
             result: Some(("done ".repeat(60), false)),
         });
+        c.items.push(terraflux_app::chat::Item::Tool {
+            name: "run_model".into(),
+            args: "{}".into(),
+            result: Some(("node b failed\nits input a: 10 x 10 cells".into(), true)),
+        });
+        c.items.push(terraflux_app::chat::Item::Note("no changes to review".into()));
     }
     h.run_steps(4);
     let pane = {

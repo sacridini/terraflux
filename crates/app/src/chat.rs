@@ -34,10 +34,31 @@ const WHOLE: usize = 12_000;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
     User(String),
-    Assistant { text: String, thinking: String },
-    Tool { name: String, args: String, result: Option<(String, bool)> },
+    Assistant {
+        text: String,
+        thinking: String,
+    },
+    Tool {
+        name: String,
+        args: String,
+        result: Option<(String, bool)>,
+    },
     Error(String),
+    /// What the pane itself answers (a command's), not the assistant.
+    Note(String),
 }
+
+/// The commands typed after a slash, and what each does.
+pub const COMMANDS: [(&str, &str); 8] = [
+    ("/new", "a new conversation"),
+    ("/stop", "stop the answer (esc too)"),
+    ("/review", "review the changes, each before and after"),
+    ("/accept", "accept all the changes"),
+    ("/reject", "reject all the changes: the model as it was (ctrl+Z goes back)"),
+    ("/explain", "explain a node: /explain <node>, or the node selected"),
+    ("/setup", "the server's settings"),
+    ("/help", "these commands"),
+];
 
 /// The assistant: its conversation, what is being typed, the thread answering, the settings of its server.
 #[derive(Default)]
@@ -46,6 +67,9 @@ pub struct Chat {
     history: Vec<Value>,
     pub items: Vec<Item>,
     pub input: String,
+    /// What was typed and sent, the last at the end, and the one of them back in the input (up and down).
+    typed: Vec<String>,
+    recalled: Option<usize>,
     worker: Option<Worker>,
     /// A run asked for by the model, answered when it ends.
     run: Option<RunWait>,
@@ -698,21 +722,21 @@ impl Job {
     }
 }
 
-/// The assistant's pane: its server at the top (and its settings), the conversation, the changes to review, the
-/// question typed. Whether the review of the changes is asked for.
+/// The assistant's pane, as a terminal: its server on a line at the top (and its settings), the conversation, the
+/// changes to review, the prompt and the keys under it. Whether the review of the changes is asked for.
 pub fn pane(ui: &mut Ui, c: &mut Chat, s: &mut Session) -> bool {
-    let fill = ui.visuals().panel_fill;
+    let fill = theme::well();
     let mut review = false;
     egui::Panel::top("assistant bar")
-        .frame(egui::Frame::new().fill(fill).inner_margin(Margin::symmetric(8, 5)))
+        .frame(egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(Margin::symmetric(8, 4)))
         .show(ui, |ui| bar(ui, c));
     egui::Panel::bottom("assistant input")
-        .frame(egui::Frame::new().fill(fill).inner_margin(Margin::symmetric(8, 4)))
+        .frame(egui::Frame::new().fill(fill).inner_margin(Margin::symmetric(10, 6)))
         .show(ui, |ui| {
             review = to_review(ui, s);
-            input(ui, c, s);
+            review |= input(ui, c, s);
         });
-    egui::CentralPanel::default().frame(egui::Frame::new().fill(fill).inner_margin(Margin::symmetric(8, 0))).show(
+    egui::CentralPanel::default().frame(egui::Frame::new().fill(fill).inner_margin(Margin::symmetric(10, 0))).show(
         ui,
         |ui| {
             if c.setup || Chat::provider().is_none() {
@@ -725,6 +749,50 @@ pub fn pane(ui: &mut Ui, c: &mut Chat, s: &mut Session) -> bool {
     review
 }
 
+/// A text in the terminal's font.
+fn mono(t: impl Into<String>) -> RichText {
+    RichText::new(t).monospace()
+}
+
+/// A text in the terminal's font, smaller: the keys, a tool's result.
+fn mono_small(ui: &Ui, t: impl Into<String>) -> RichText {
+    mono(t).size(egui::TextStyle::Monospace.resolve(ui.style()).size * 0.88)
+}
+
+/// A line of the terminal: its mark in the gutter, in its colour, and what `add` shows at its right (wrapped
+/// there).
+fn gutter<R>(ui: &mut Ui, mark: &str, colour: Color32, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let font = egui::TextStyle::Monospace.resolve(ui.style());
+    let spacing = ui.spacing().item_spacing.x;
+    ui.horizontal_top(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        // (two of the font's characters wide, as tall as its line)
+        let size = egui::vec2(font.size * 0.6021 * 2.0, ui.text_style_height(&egui::TextStyle::Monospace));
+        let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+        ui.painter().text(rect.left_top(), egui::Align2::LEFT_TOP, mark, font, colour);
+        ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing.x = spacing;
+            ui.set_width(ui.available_width());
+            add(ui)
+        })
+        .inner
+    })
+    .inner
+}
+
+/// A line of the terminal (`text`, given whether it is open) shown open or closed by a click on it, its state kept
+/// by `id`; the closed one ends in "…" where the pane ends. Whether it is open.
+fn toggle(ui: &mut Ui, id: egui::Id, text: impl FnOnce(&Ui, bool) -> egui::WidgetText) -> bool {
+    let mut open = ui.data(|d| d.get_temp::<bool>(id).unwrap_or(false));
+    let label = egui::Label::new(text(ui, open)).sense(egui::Sense::click());
+    let label = if open { label.wrap() } else { label.truncate() };
+    if ui.add(label).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+        open = !open;
+        ui.data_mut(|d| d.insert_temp(id, open));
+    }
+    open
+}
+
 /// The changes made to the model and not reviewed yet: how many, to review, accept or reject. Whether the review
 /// is asked for.
 fn to_review(ui: &mut Ui, s: &mut Session) -> bool {
@@ -733,20 +801,28 @@ fn to_review(ui: &mut Ui, s: &mut Session) -> bool {
         return false;
     }
     let mut asked = false;
-    ui.horizontal(|ui| {
-        ui.label(RichText::new(format!("{n} change(s) to review")).color(crate::review::CHANGED));
-        asked = ui.button("Review").on_hover_text("each change, before and after").clicked();
-        if ui.button("Accept all").clicked() {
-            crate::review::accept_all(s);
-        }
-        if ui.button("Reject all").on_hover_text("the model as it was (ctrl+Z goes back)").clicked() {
-            crate::review::reject_all(s);
-        }
+    gutter(ui, "◆", crate::review::CHANGED, |ui| {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(mono(format!("{n} change(s) to review")).color(crate::review::CHANGED));
+            asked = ui.add(key_button(ui, "Review")).on_hover_text("each change, before and after").clicked();
+            if ui.add(key_button(ui, "Accept all")).clicked() {
+                crate::review::accept_all(s);
+            }
+            if ui.add(key_button(ui, "Reject all")).on_hover_text("the model as it was (ctrl+Z goes back)").clicked() {
+                crate::review::reject_all(s);
+            }
+        });
     });
-    ui.separator();
+    ui.add_space(4.0);
     asked
 }
 
+/// A button of the terminal: its text in brackets, no frame.
+fn key_button(ui: &Ui, text: &str) -> egui::Button<'static> {
+    egui::Button::new(mono_small(ui, format!("[{text}]")).color(theme::accent())).frame(false)
+}
+
+/// The line at the top: the server and its model; a new conversation, the server's settings.
 fn bar(ui: &mut Ui, c: &mut Chat) {
     ui.horizontal(|ui| {
         let st = crate::settings::get();
@@ -768,7 +844,7 @@ fn bar(ui: &mut Ui, c: &mut Chat) {
             c.key_text.clear();
         }
         if let Some(p) = &chosen {
-            ui.label(RichText::new(&p.model).weak().small());
+            ui.label(mono_small(ui, &p.model).weak());
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.selectable_label(c.setup, "⚙").on_hover_text("the server's settings").clicked() {
@@ -939,32 +1015,43 @@ fn setup(ui: &mut Ui, c: &mut Chat) {
     });
 }
 
-/// The conversation, the last at the bottom.
+/// The conversation, the last at the bottom; while the assistant answers, a line saying so.
 fn conversation(ui: &mut Ui, c: &Chat) {
     egui::ScrollArea::vertical().id_salt("assistant conversation").stick_to_bottom(true).auto_shrink(false).show(
         ui,
         |ui| {
-            ui.add_space(6.0);
+            ui.add_space(8.0);
             if c.items.is_empty() {
+                ui.label(mono("terraflux assistant").strong().color(theme::accent()));
+                ui.add_space(4.0);
                 ui.label(
-                    RichText::new(
+                    mono(
                         "Ask about the model open, or for a change of it: \"what does this model do?\", \"why this \
                          threshold?\", \"add a map of the distance to roads\", \"run it and tell me the area of \
                          each class\". Each change shows on the canvas at once, and ctrl+Z undoes it.",
                     )
                     .weak(),
                 );
+                ui.add_space(4.0);
+                ui.label(mono("/help lists the commands.").weak());
             }
             for (k, item) in c.items.iter().enumerate() {
+                if k > 0 && matches!(item, Item::User(_)) {
+                    ui.add_space(8.0);
+                }
                 show_item(ui, k, item);
-                ui.add_space(6.0);
+                ui.add_space(4.0);
             }
-            if c.busy() && !matches!(c.items.last(), Some(Item::Assistant { text, .. }) if !text.is_empty()) {
-                ui.horizontal(|ui| {
-                    ui.spinner();
-                    ui.label(RichText::new("working...").weak());
+            if c.busy() {
+                let turn = ["-", "\\", "|", "/"][(ui.input(|i| i.time) * 8.0) as usize % 4];
+                gutter(ui, turn, theme::accent(), |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(mono("working…").color(theme::accent()));
+                        ui.label(mono_small(ui, "esc stops").weak());
+                    });
                 });
             }
+            ui.add_space(8.0);
         },
     );
 }
@@ -972,62 +1059,80 @@ fn conversation(ui: &mut Ui, c: &Chat) {
 fn show_item(ui: &mut Ui, k: usize, item: &Item) {
     match item {
         Item::User(t) => {
-            egui::Frame::new().fill(theme::well()).corner_radius(6.0).inner_margin(Margin::symmetric(8, 6)).show(
-                ui,
-                |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.label(t);
-                },
-            );
+            gutter(ui, "❯", theme::accent(), |ui| ui.label(mono(t).color(ui.visuals().strong_text_color())));
         }
         Item::Assistant { text, thinking } => {
             if !thinking.trim().is_empty() {
-                egui::CollapsingHeader::new(RichText::new("thinking").weak().small())
-                    .id_salt(("assistant thinking", k))
-                    .show(ui, |ui| ui.label(RichText::new(thinking.trim()).weak().small()));
+                gutter(ui, "∴", theme::weak(), |ui| {
+                    let id = ui.make_persistent_id(("assistant thinking", k));
+                    let lines = thinking.trim().lines().count();
+                    let open = toggle(ui, id, |ui, open| {
+                        let arrow = if open { "▾" } else { "▸" };
+                        mono_small(ui, format!("thinking {arrow} {lines} line(s)")).weak().into()
+                    });
+                    if open {
+                        ui.label(mono_small(ui, thinking.trim()).weak());
+                    }
+                });
             }
-            text_with_code(ui, text);
+            if !text.trim().is_empty() {
+                gutter(ui, "●", ui.visuals().text_color(), |ui| text_with_code(ui, text));
+            }
         }
         Item::Tool { name, args, result } => {
-            let (colour, mark) = match result {
-                None => (ui.visuals().weak_text_color(), "…"),
-                Some((_, false)) => (theme::accent(), "⚙"),
-                Some((_, true)) => (ui.visuals().error_fg_color, "✖"),
+            let colour = match result {
+                None => theme::weak(),
+                Some((_, false)) => theme::accent(),
+                Some((_, true)) => ui.visuals().error_fg_color,
             };
-            // (as much of the call as fits the pane's width on one line)
-            let room = ((ui.available_width() - 48.0) / 7.5).max(12.0) as usize;
-            let room = room.saturating_sub(name.chars().count() + 3);
-            let short: String = args.chars().take(room).collect();
-            let more = if args.chars().count() > room { "…" } else { "" };
-            egui::CollapsingHeader::new(
-                RichText::new(format!("{mark} {name} {short}{more}")).color(colour).small().monospace(),
-            )
-            .id_salt(("assistant tool", k))
-            .show(ui, |ui| {
-                ui.label(RichText::new(args).small().monospace());
-                if let Some((t, _)) = result {
-                    ui.separator();
-                    ui.label(RichText::new(t).small().monospace());
-                }
+            gutter(ui, "●", colour, |ui| {
+                let id = ui.make_persistent_id(("assistant tool", k));
+                let open = toggle(ui, id, |ui, _| {
+                    let mut job = egui::text::LayoutJob::default();
+                    let (style, at) = (ui.style(), || egui::FontSelection::Default);
+                    mono(name).strong().append_to(&mut job, style, at(), egui::Align::Center);
+                    mono(format!(" {args}")).weak().append_to(&mut job, style, at(), egui::Align::Center);
+                    job.into()
+                });
+                let Some((t, error)) = result else { return };
+                let colour = if *error { ui.visuals().error_fg_color } else { theme::weak() };
+                gutter(ui, "└", theme::weak(), |ui| {
+                    if open {
+                        ui.label(mono_small(ui, t.trim_end()).color(colour));
+                    } else {
+                        // (its first line, and how many more)
+                        let first = t.lines().next().unwrap_or("");
+                        let more = t.trim_end().lines().count().saturating_sub(1);
+                        let more = if more > 0 { format!("  +{more} line(s)") } else { String::new() };
+                        ui.add(egui::Label::new(mono_small(ui, format!("{first}{more}")).color(colour)).truncate());
+                    }
+                });
             });
         }
         Item::Error(e) => {
-            ui.colored_label(ui.visuals().error_fg_color, e);
+            let colour = ui.visuals().error_fg_color;
+            gutter(ui, "✖", colour, |ui| ui.label(mono(e).color(colour)));
+        }
+        Item::Note(t) => {
+            gutter(ui, "·", theme::weak(), |ui| ui.label(mono(t).weak()));
         }
     }
 }
 
-/// A text with its blocks of code (between ```) in a fixed font.
+/// A text with its blocks of code (between ```) set apart.
 fn text_with_code(ui: &mut Ui, text: &str) {
     for (k, part) in text.split("```").enumerate() {
         if k % 2 == 1 {
             // (the block's language, on its first line, left out)
             let code =
                 part.split_once('\n').map_or(part, |(first, rest)| if first.contains(' ') { part } else { rest });
-            egui::Frame::new().fill(theme::well()).corner_radius(4.0).inner_margin(Margin::same(6)).show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                ui.label(RichText::new(code.trim_end()).monospace().small());
-            });
+            egui::Frame::new().fill(ui.visuals().panel_fill).corner_radius(2.0).inner_margin(Margin::same(6)).show(
+                ui,
+                |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.label(mono(code.trim_end()));
+                },
+            );
         } else {
             markdown(ui, part.trim());
         }
@@ -1052,19 +1157,21 @@ fn markdown(ui: &mut Ui, text: &str) {
         let (lead, rest) = if heading {
             ("", trimmed.trim_start_matches('#').trim_start())
         } else if let Some(r) = trimmed.strip_prefix("* ").or(trimmed.strip_prefix("- ")) {
-            ("•  ", r)
+            ("• ", r)
         } else {
             ("", trimmed)
         };
         let mut job = egui::text::LayoutJob::default();
         let style = ui.style().clone();
         let mut piece = |t: &str, strong: bool, code: bool| {
-            let mut rt = RichText::new(t);
-            if strong || heading {
+            let mut rt = mono(t);
+            if heading {
+                rt = rt.strong().color(theme::accent());
+            } else if strong {
                 rt = rt.strong();
             }
             if code {
-                rt = rt.monospace().background_color(theme::well());
+                rt = rt.background_color(style.visuals.panel_fill);
             }
             rt.append_to(&mut job, &style, egui::FontSelection::Default, egui::Align::Center);
         };
@@ -1091,53 +1198,157 @@ fn markdown(ui: &mut Ui, text: &str) {
     }
 }
 
-/// The question typed (enter sends it, shift+enter goes to a new line), and the buttons to send or stop.
-fn input(ui: &mut Ui, c: &mut Chat, s: &mut Session) {
-    ui.add_space(4.0);
+/// The prompt: enter sends what is typed, or does a command ([`COMMANDS`]); shift+enter goes to a new line; up and
+/// down bring back what was typed before; esc stops the answer. Under it, the keys. Whether the review of the
+/// changes is asked for.
+fn input(ui: &mut Ui, c: &mut Chat, s: &mut Session) -> bool {
     let id = ui.make_persistent_id("assistant question");
     let typing = ui.memory(|m| m.has_focus(id));
-    let mut send = typing && !c.busy() && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Enter));
-    ui.add(
-        egui::TextEdit::multiline(&mut c.input)
-            .id(id)
-            .desired_rows(3)
-            .desired_width(f32::INFINITY)
-            .hint_text("Ask the assistant (enter sends, shift+enter: a new line)"),
-    );
-    ui.horizontal(|ui| {
+    let none = egui::Modifiers::NONE;
+    if typing && c.busy() && ui.input_mut(|i| i.consume_key(none, Key::Escape)) {
+        c.stop();
+    }
+    if typing && !c.input.contains('\n') {
+        let up = ui.input_mut(|i| i.consume_key(none, Key::ArrowUp));
+        let down = !up && ui.input_mut(|i| i.consume_key(none, Key::ArrowDown));
+        if (up || down)
+            && recall(c, up)
+            && let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), id)
+        {
+            let end = egui::text::CCursor::new(c.input.chars().count());
+            state.cursor.set_char_range(Some(egui::text::CCursorRange::one(end)));
+            state.store(ui.ctx(), id);
+        }
+    }
+    let enter = typing && ui.input_mut(|i| i.consume_key(none, Key::Enter));
+    gutter(ui, "❯", theme::accent(), |ui| {
+        ui.add(
+            egui::TextEdit::multiline(&mut c.input)
+                .id(id)
+                .frame(egui::Frame::NONE)
+                .margin(Margin::ZERO)
+                .font(egui::TextStyle::Monospace)
+                .desired_rows(1)
+                .desired_width(f32::INFINITY)
+                .hint_text(mono("Ask the assistant, or /help").weak()),
+        );
+    });
+    let mut review = false;
+    let text = c.input.trim().to_string();
+    if enter && !text.is_empty() {
+        let done = command(c, s, ui.ctx(), &text);
+        review = done == Some(true);
+        // (a question typed while it answers: kept for after)
+        if done.is_some() || !c.busy() {
+            if c.typed.last() != Some(&text) {
+                c.typed.push(text.clone());
+            }
+            c.recalled = None;
+            c.input.clear();
+            if done.is_none() {
+                c.send(text, s, ui.ctx());
+            }
+        }
+    }
+    ui.add_space(4.0);
+    ui.horizontal_wrapped(|ui| {
         if c.busy() {
-            if ui.button("Stop").clicked() {
+            ui.label(mono_small(ui, "esc stops · /help").weak());
+            if ui.add(key_button(ui, "Stop")).clicked() {
                 c.stop();
             }
         } else {
-            send |= ui.add(crate::app::accent_button("Send", true)).clicked();
+            ui.label(mono_small(ui, "enter sends · ↑ earlier · /help").weak())
+                .on_hover_text("shift+enter: a new line; up and down: what was typed before");
             if let Some(id) = s.selected.clone()
-                && ui
-                    .add(crate::app::accent_button(&format!("Explain {id}"), true))
-                    .on_hover_text("what the node selected does, and why")
-                    .clicked()
+                && ui.add(key_button(ui, &format!("Explain {id}"))).on_hover_text("what the node selected does, and why").clicked()
             {
-                c.input =
-                    format!("Explain the node {id}: what it does, why it is there, what it reads and what it gives.");
-                send = true;
+                c.send(explain(&id), s, ui.ctx());
             }
         }
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let mut tell = !c.quiet;
-            if ui
-                .checkbox(&mut tell, RichText::new("fix problems").small())
-                .on_hover_text("tell the assistant of the problems that come up (a run that fails, the model's errors after its answer) for it to fix them, in a conversation going on")
-                .changed()
-            {
-                c.quiet = !tell;
-            }
-        });
+        let mut tell = !c.quiet;
+        if ui
+            .checkbox(&mut tell, mono_small(ui, "fix problems").weak())
+            .on_hover_text("tell the assistant of the problems that come up (a run that fails, the model's errors after its answer) for it to fix them, in a conversation going on")
+            .changed()
+        {
+            c.quiet = !tell;
+        }
     });
-    ui.add_space(2.0);
-    if send && !c.input.trim().is_empty() {
-        let text = std::mem::take(&mut c.input);
-        c.send(text, s, ui.ctx());
+    review
+}
+
+/// The question that has the assistant explain a node.
+fn explain(id: &str) -> String {
+    format!("Explain the node {id}: what it does, why it is there, what it reads and what it gives.")
+}
+
+/// What was typed before (`back`) or after the one in the input brought back into it (after the last: the input
+/// emptied). Whether the input changed.
+fn recall(c: &mut Chat, back: bool) -> bool {
+    let n = c.typed.len();
+    c.recalled = match (c.recalled, back) {
+        (None, true) if n > 0 => Some(n - 1),
+        (Some(k), true) => Some(k.saturating_sub(1)),
+        (Some(k), false) if k + 1 < n => Some(k + 1),
+        (Some(_), false) => None,
+        _ => return false,
+    };
+    c.input = c.recalled.map_or(String::new(), |k| c.typed[k].clone());
+    true
+}
+
+/// A command typed ([`COMMANDS`]) done, shown in the conversation with its answer; none when the text is not one
+/// (it is sent to the assistant). Whether the review of the changes is asked for.
+fn command(c: &mut Chat, s: &mut Session, ctx: &egui::Context, text: &str) -> Option<bool> {
+    let (name, rest) = text.split_once(char::is_whitespace).map_or((text, ""), |(n, r)| (n, r.trim()));
+    if !COMMANDS.iter().any(|(n, _)| *n == name) {
+        return None;
     }
+    if name != "/new" {
+        c.items.push(Item::User(text.to_string()));
+    }
+    let n = crate::review::changes(s).len();
+    let note = match name {
+        "/new" => {
+            c.clear();
+            None
+        }
+        "/stop" if c.busy() => {
+            c.stop();
+            None
+        }
+        "/stop" => Some("nothing to stop".to_string()),
+        "/review" | "/accept" | "/reject" if n == 0 => Some("no changes to review".into()),
+        "/review" => return Some(true),
+        "/accept" => {
+            crate::review::accept_all(s);
+            Some(format!("{n} change(s) accepted"))
+        }
+        "/reject" => {
+            crate::review::reject_all(s);
+            Some(format!("{n} change(s) rejected: the model as it was (ctrl+Z goes back)"))
+        }
+        "/explain" if c.busy() => Some("the assistant is answering: wait, or /stop".into()),
+        "/explain" => match Some(rest.to_string()).filter(|r| !r.is_empty()).or_else(|| s.selected.clone()) {
+            Some(id) => {
+                // (the question shown instead of the command)
+                c.items.pop();
+                c.send(explain(&id), s, ctx);
+                None
+            }
+            None => Some("select a node, or name it: /explain <node>".into()),
+        },
+        "/setup" => {
+            c.setup = true;
+            None
+        }
+        _ => Some(COMMANDS.iter().map(|(n, what)| format!("{n:<9} {what}")).collect::<Vec<_>>().join("\n")),
+    };
+    if let Some(t) = note {
+        c.items.push(Item::Note(t));
+    }
+    Some(false)
 }
 
 #[cfg(test)]
@@ -1193,6 +1404,29 @@ mod tests {
         c.quiet = true;
         c.answered = true;
         assert!(c.problems_to_tell(&s).is_none(), "not told when asked not to");
+    }
+
+    #[test]
+    fn the_commands_and_what_was_typed() {
+        let mut c = Chat::default();
+        let mut s = Session::blank();
+        let ctx = egui::Context::default();
+        assert_eq!(command(&mut c, &mut s, &ctx, "/help"), Some(false));
+        assert!(matches!(c.items.last(), Some(Item::Note(t)) if t.contains("/explain")));
+        assert_eq!(command(&mut c, &mut s, &ctx, "/data/roads.tif: what is it?"), None, "not a command: sent");
+        assert_eq!(command(&mut c, &mut s, &ctx, "/review"), Some(false), "no changes to review");
+        command(&mut c, &mut s, &ctx, "/explain");
+        assert!(matches!(c.items.last(), Some(Item::Note(t)) if t.contains("select a node")));
+        command(&mut c, &mut s, &ctx, "/new");
+        assert!(c.items.is_empty());
+        // up and down: what was typed before, back in the input
+        c.typed = vec!["a".into(), "b".into()];
+        assert!(recall(&mut c, true) && c.input == "b");
+        assert!(recall(&mut c, true) && c.input == "a");
+        assert!(recall(&mut c, true) && c.input == "a", "the first stays");
+        assert!(recall(&mut c, false) && c.input == "b");
+        assert!(recall(&mut c, false) && c.input.is_empty(), "after the last: empty");
+        assert!(!recall(&mut c, false));
     }
 
     #[test]
