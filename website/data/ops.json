@@ -2525,6 +2525,48 @@
   "container": false
  },
  {
+  "name": "check.assert",
+  "doc": "A check that stops the run when it fails, as a test does: `expression` over the node's inputs in map algebra's syntax (the demand met, the areas summing to the total, the probabilities between 0 and 1); with maps among them every cell with a value must pass, else the value must be true (not 0). It fails with its message and what failed (how many cells, the value); with `warn`, it only warns.",
+  "inputs": [],
+  "outputs": [
+   {
+    "name": "ok",
+    "type": "bool",
+    "required": true,
+    "doc": "whether it passed (with warn; else it passed)"
+   }
+  ],
+  "params": [
+   {
+    "name": "expression",
+    "type": "text",
+    "required": true,
+    "doc": "what must be true, e.g. abs(allocated - demand) < 1"
+   },
+   {
+    "name": "message",
+    "type": "text",
+    "required": false,
+    "doc": "what it means when it fails"
+   },
+   {
+    "name": "warn",
+    "type": "bool",
+    "required": false,
+    "doc": "only warn when it fails, the run going on (false)"
+   },
+   {
+    "name": "row",
+    "type": "integer",
+    "required": false,
+    "doc": "the row of the tables read, without maps (1)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "extra": "any"
+ },
+ {
   "name": "circuit.advanced",
   "doc": "Currents and voltages of a raster circuit with sources and grounds, Circuitscape 6.1's advanced mode through landschaft's C++: each cell with a conductance a node joined to its 8 neighbours (4 asked) by the average conductance; current injected at the sources, drawn at the grounds (a conductance to ground, or a direct ground: inf); every component with both solved exactly. The node current is the larger of a cell's inflow and outflow.",
   "inputs": [
