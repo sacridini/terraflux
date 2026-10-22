@@ -4645,7 +4645,7 @@ dependencies = [
 
 [[package]]
 name = "terraflux-ls-sys"
-version = "1.15.0"
+version = "1.0.0"
 dependencies = [
  "cmake",
  "cxx",
