@@ -12,7 +12,7 @@
 #   powershell -NoProfile -File tools/prune-target.ps1 -DryRun    # only report
 #   powershell -NoProfile -File tools/prune-target.ps1 -Quiet     # report only when something was freed
 param(
-    [double]$KeepHours = 4,
+    [double]$KeepHours = 1,
     [switch]$DryRun,
     [switch]$Quiet
 )
@@ -105,15 +105,14 @@ foreach ($profile in $profiles) {
             }
         }
 
-        # Their deps (and those of builds whose fingerprint is already gone).
+        # Their deps, found by hash: an integration test's program is named after the test (app-<hash>.exe), not
+        # the crate. A file whose hash has no fingerprint any more is left from a build cargo no longer knows.
         foreach ($sub in 'deps', 'examples') {
             $d = Join-Path $dir $sub
             if (-not (Test-Path $d)) { continue }
             foreach ($f in Get-ChildItem $d -File -Force) {
                 $parts = Split-Hash ([System.IO.Path]::GetFileNameWithoutExtension($f.Name))
-                if (-not $parts) { continue }
-                $crate = $parts[0] -replace '^lib', ''
-                if (-not $crates.ContainsKey($crate) -and -not $crates.ContainsKey($parts[0])) { continue }
+                if (-not $parts -or $parts[1] -notmatch '^[0-9a-f]{16}$') { continue }
                 if ($stale.ContainsKey($parts[1]) -or -not $known.ContainsKey($parts[1])) { Remove-Stale $f.FullName }
             }
         }
@@ -123,7 +122,7 @@ foreach ($profile in $profiles) {
         if (Test-Path $b) {
             foreach ($bd in Get-ChildItem $b -Directory -Force) {
                 $parts = Split-Hash $bd.Name
-                if (-not $parts -or -not $packages.ContainsKey($parts[0])) { continue }
+                if (-not $parts -or $parts[1] -notmatch '^[0-9a-f]{16}$') { continue }
                 if ($stale.ContainsKey($parts[1]) -or -not $known.ContainsKey($parts[1])) { Remove-Stale $bd.FullName }
             }
         }
