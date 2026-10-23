@@ -131,15 +131,49 @@ forest = g.read(work / "input.tif")
 FOREST = {2: ("Forest", figs.FOREST), 1: ("Background", "#e9e4d8"), 0: ("Missing", "#ffffff")}
 g.classmap(forest[R], out / "forest-zoom.png", FOREST, order=[2, 1], width=700, legend_width=0.26)
 d27 = g.read(work / "fad27.tif").astype(float)
-fgm = (d27 <= 100)
-g.ramp(np.where(fgm, d27, np.nan)[R], out / "fad27-density-zoom.png", cmap="YlGn", vmin=0, vmax=100, width=700,
-       unit="forest within 27 x 27 cells (%)")
+ZOOM_LEGEND = 0.34   # the zooms' legend width: both sides of the slider put the map at the same pixels
+
+
+def density_zoom(d, png, width=700, legend_width=ZOOM_LEGEND):
+    """The density (0-100 on the forest) drawn as g.classmap draws its classes, same figure and map axes, so that it
+    lines up with the classes under a slider: a colour bar in the legend's place, the background in the classes'
+    grey (YlGn's 0% is near white), missing cells white."""
+    h, w = d.shape
+    dpi = 150
+    W = width / dpi
+    map_frac = 1 - legend_width
+    H = W * map_frac * h / w + 0.04
+    fig = plt.figure(figsize=(W, H), dpi=dpi)
+    top = 1 - 0.02 / H
+    ax = fig.add_axes([0.005, 0.02 / H, map_frac - 0.01, top - 0.02 / H])
+    ax.set_axis_off()
+    cmap = plt.get_cmap("YlGn").copy()
+    rgba = cmap(mcolors.Normalize(0, 100)(np.clip(d, 0, 100)))
+    rgba[d == 101] = mcolors.to_rgba(g.FAD_CLASS[101][1])
+    rgba[d > 101] = (1, 1, 1, 1)
+    ax.imshow(rgba, interpolation="nearest")
+    cax = fig.add_axes([map_frac + 0.03, 0.26, 0.03, 0.66])
+    cb = fig.colorbar(plt.cm.ScalarMappable(mcolors.Normalize(0, 100), cmap), cax=cax)
+    cb.outline.set_visible(False)
+    cb.ax.grid(False)
+    cb.ax.tick_params(labelsize=9)
+    cb.set_label("forest within 27 x 27 cells (%)", fontsize=9.5, color=figs.INK2)
+    fig.legend(handles=[Patch(facecolor=g.FAD_CLASS[101][1], edgecolor="#00000033", label="Background")],
+               loc="center left", bbox_to_anchor=(map_frac + 0.01, 0.12), fontsize=9.5, handlelength=1.1,
+               handleheight=1.1, borderaxespad=0, frameon=False)
+    fig.savefig(png, dpi=dpi)
+    plt.close(fig)
+    figs._shrink(png)
+    return png
+
+
+density_zoom(d27[R], out / "fad27-density-zoom.png")
 c27 = g.read(work / "fad27_classes.tif")
 print("fad27 class codes", np.unique(c27))
 g.classmap(g.density_classes(d27), out / "fad27-classes.png", g.FAD_CLASS, order=g.FAD_ORDER[:-1], width=900,
            legend_width=0.34)
 g.classmap(g.density_classes(d27)[R], out / "fad27-classes-zoom.png", g.FAD_CLASS, order=g.FAD_ORDER[:-1], width=700,
-           legend_width=0.34)
+           legend_width=ZOOM_LEGEND)
 # every scale of FAD-MS as classes, the same zoom, a frame each (same size)
 scales = g.read_all(work / "ms_scales.tif")
 WINDOWS = [7, 13, 27, 81, 243]

@@ -154,7 +154,7 @@ FAD-MS also gives `scales`, a stack of the density at each window, so you can lo
 ### One scale
 
 ```tfcompare
-caption: "The south of the map. Left of the handle, the density of forest within 27 cells of every forest cell (white: not forest); right, its six classes. The interiors of the large forests are dark green (interior and intact); their edges and the woods of the valley dominant and transitional; the tree lines across the fields patchy and rare."
+caption: "The south of the map. Left of the handle, the density of forest within 27 cells of every forest cell (grey: not forest, as on the right); right, its six classes. The interiors of the large forests are dark green (interior and intact); their edges and the woods of the valley dominant and transitional; the tree lines across the fields patchy and rare."
 before: { src: /img/tutorials/fragmentation/fragmentation-and-habitat-loss/fad27-density-zoom.png, label: Density }
 after: { src: /img/tutorials/fragmentation/fragmentation-and-habitat-loss/fad27-classes-zoom.png, label: Classes }
 ```
