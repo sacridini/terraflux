@@ -157,7 +157,7 @@ for wt in (0.0, 0.1, 0.2, 0.3, 0.5, 0.7, 0.9, 1.0):
 print("weights", frames)
 figs.write_csv(data / "weights.csv", frames)
 
-# ------------------------------------------------------------------ plangea's sets of weights compared
+# ------------------------------------------------------------ the sets of weights compared (Strassburg et al. 2020)
 n_s, n_c, n_i = (float(f"{1 / best[k]:.3g}") for k in ("species", "carbon", "intactness"))
 print("normalising weights", n_s, n_c, n_i)
 combos = [(1, 0, 0), (0, 1, 0), (0, 0, 1), (1, 1, 1), (2, 1, 1), (1, 1, 0)]

@@ -1,6 +1,6 @@
 format = "terraflux/1"
-name = "Multi-action planning (prioriactions)"
-description = "prioriactions's minimizeCosts: the cheapest monitoring and actions that meet the species' recovery targets."
+name = "Multi-action planning"
+description = "The minimum cost model of multi-action planning (minimizeCosts): the cheapest monitoring and actions that meet the species' recovery targets."
 
 [[nodes]]
 id = "pu"
@@ -36,4 +36,4 @@ id = "plan"
 op = "prioritize.actions"
 inputs = { pu = "pu.table", features = "features.table", dist_features = "dist_features.table", threats = "threats.table", dist_threats = "dist_threats.table" }
 params = { model = "minimizeCosts" }
-note = "prioriactions's model, solved exactly. Try model = maximizeBenefits with a budget. summary: every unit's actions; benefit: what each species gets."
+note = "An integer linear program, solved exactly. Try model = maximizeBenefits with a budget. summary: every unit's actions; benefit: what each species gets."

@@ -238,7 +238,7 @@ params = { objective = "min_set", relative_targets = 0.3, gap = 0.001 }
     cb.outline.set_visible(False)
     cb.ax.tick_params(labelsize=8.5)
     axs[1].imshow(sp.rgba_of(plan), interpolation="nearest")
-    axs[1].set_title("Optimization (prioritizr): one plan", loc="left", fontsize=11)
+    axs[1].set_title("Optimization (linear programming): one plan", loc="left", fontsize=11)
     for ax in axs:
         ax.set_axis_off()
     fig.tight_layout()

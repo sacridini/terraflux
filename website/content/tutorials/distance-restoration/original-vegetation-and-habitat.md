@@ -22,7 +22,7 @@ inputs of the restoration plans of the next two parts, and a first look at which
 ### Fractions of land cover
 
 Maps of land cover usually give each cell one class. At 1 km, though, a cell is rarely all forest or all pasture.
-Plangea, the software behind the global restoration plans of Strassburg et al. (2019, 2020), works instead with
+The global restoration plans of Strassburg et al. (2019, 2020), which Terraflux follows, work instead with
 the **share** of every class in every cell: a cell may be 0.6 forest, 0.3 pasture and 0.1 cropland. Classes are
 either **natural** (forest, savanna, mangrove: what restoration brings back) or **anthropic** (pasture, cropland:
 what restoration replaces); the others (urban, water) are neither and are left alone.
@@ -30,7 +30,7 @@ what restoration replaces); the others (urban, water) are neither and are left a
 ### What was there before
 
 Restoring a cell's pasture turns it back into the natural vegetation that was there, and that is not always the
-vegetation around it today. Plangea decides the **original vegetation** of each cell's anthropic share in three
+vegetation around it today. Strassburg et al. decide the **original vegetation** of each cell's anthropic share in three
 steps:
 
 1. **The past.** If a map of the natural cover at an earlier date says what the cell held, its anthropic share is
@@ -152,7 +152,7 @@ km², `range_cells`, and `valid`, 1 when the species counts in a plan) and `gain
 gains per unit of each cell restored).
 
 ```tfgraph
-#! caption: Original vegetation and area of habitat: the ecoregions' natural shares as a stack, plangea's original vegetation of the converted land, and every species' habitat today, before conversion, and what restoring each cell gives it.
+#! caption: Original vegetation and area of habitat: the ecoregions' natural shares as a stack, the original vegetation of the converted land, and every species' habitat today, before conversion, and what restoring each cell gives it.
 #! highlight: eco_shares, vegetation, habitat
 #! numbered: true
 format = "terraflux/1"
@@ -236,7 +236,7 @@ images:
   - { src: /img/tutorials/distance-restoration/original-vegetation-and-habitat/original_mangrove.png, caption: "Mangrove" }
 ```
 
-Why give the ecoregions at all? Without them, plangea's rule gives the nearly converted cells **equal shares** of
+Why give the ecoregions at all? Without them, the rule gives the nearly converted cells **equal shares** of
 every natural class: a third forest, a third savanna, a third mangrove, even inland. Drag the handle to compare:
 
 ```tfcompare

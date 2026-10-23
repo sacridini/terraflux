@@ -1,11 +1,11 @@
 ---
 title: Multi-action planning
 short: 7. Multi-action planning
-description: Decide which actions against which threats to take where, with prioriactions' model in Terraflux - threats, sensitivity, recovery and conservation targets, the cheapest plan and the most benefit for a budget, on Serra Verde's maps and on tables of any planning units.
+description: Decide which actions against which threats to take where, as a mixed integer program - threats, sensitivity, recovery and conservation targets, the cheapest plan and the most benefit for a budget, on Serra Verde's maps and on tables of any planning units.
 order: 70
 level: advanced
 time: 50 min
-template: Multi-action planning (prioriactions)
+template: Multi-action planning
 ops: [prioritize.actions_raster, prioritize.actions, table.of, raster.read, view.plot]
 series: Systematic conservation planning
 part: 7
@@ -14,7 +14,7 @@ part: 7
 The plans of this series so far choose places to protect. But biodiversity is mostly lost to **threats**:
 deforestation, fire, invasive species, overgrazing, pollution. Fighting the right threat in the right place can do
 more than buying land where nothing threatens anything. In this last part you will plan **actions against threats**
-for Serra Verde with [[prioritize.actions_raster]], the model of the R package prioriactions: where to fight
+for Serra Verde with [[prioritize.actions_raster]], the model of Salgado-Rojas et al. (2020): where to fight
 deforestation, where to fight fire, and where managing the land is enough, so that every feature recovers to its
 target at the least cost. Then you will spend a fixed budget for the most benefit, see why that objective leaves the
 rarest features behind, tell the model which features each threat really harms, and run the same model on tables of
@@ -61,8 +61,9 @@ and when" across the world's regions.
 - **`minimizeCosts`** (the default): the cheapest monitoring and actions that meet every target.
 - **`maximizeBenefits`**: the most total benefit within a `budget`.
 
-Both are integer programs, solved exactly to the gap you ask for. [[prioritize.actions]] reproduces prioriactions
-0.5's model, its checks and defaults included; Terraflux solves it with landschaft's engine and HiGHS.
+Both are integer linear programs, solved exactly to the gap you ask for. [[prioritize.actions]] builds the model of
+Salgado-Rojas et al. (2020), its checks and defaults included (the authors' code was its reference, and its results
+were checked against it); Terraflux solves it with landschaft's engine and HiGHS.
 
 ## When to use it
 
@@ -85,13 +86,13 @@ On rasters ([[prioritize.actions_raster]]), all on one grid:
 - `threats`: a stack, a layer per threat (its intensity, above 0 where it occurs; an action there removes it);
 - optionally `locked_in` and `locked_out` maps, a `maps` stack of the actions' costs, a `sensitivity` table.
 
-On tables of any planning units ([[prioritize.actions]]): prioriactions' six tables (`pu`, `features`,
+On tables of any planning units ([[prioritize.actions]]): six tables (`pu`, `features`,
 `dist_features`, `threats`, `dist_threats`, optionally `sensitivity` and `boundary`).
 
 Serra Verde's threats are in `threats.tif` of
 [serra-verde.zip](/data/tutorials/spatial-prioritization/systematic-conservation-planning/serra-verde.zip) (two
-bands, `deforestation` and `fire`). The template **Templates ▸ Conservation and restoration ▸ Multi-action planning
-(prioriactions)** is a small problem in tables.
+bands, `deforestation` and `fire`). The template **Templates ▸ Conservation and restoration ▸ Multi-action planning**
+is a small problem in tables.
 
 ## Build the model
 
@@ -162,11 +163,11 @@ inputs = { value = "plan.maps" }
 
 ### On tables
 
-For properties, watersheds or any planning units, [[prioritize.actions]] takes prioriactions' tables. The template
+For properties, watersheds or any planning units, [[prioritize.actions]] takes the problem as tables. The template
 is the smallest example: six units, two species, one threat in five of them.
 
 ```tfgraph
-#! caption: The template Multi-action planning (prioriactions): prioriactions' tables written with table.of (in their place, tables read from files) and the cheapest plan.
+#! caption: The template Multi-action planning: the problem's tables written with table.of (in their place, tables read from files) and the cheapest plan.
 #! numbered: true
 #! highlight: plan
 format = "terraflux/1"
@@ -203,7 +204,7 @@ inputs = { pu = "pu.table", features = "features.table", dist_features = "dist_f
 params = { model = "minimizeCosts" }
 ```
 
-The tables, as in prioriactions:
+The tables:
 
 | Table | Columns | Here |
 |---|---|---|
@@ -281,7 +282,7 @@ chart:
 Maximising the **total** benefit adds up every feature in its own units, so a widespread feature in cheap land always
 offers more benefit per dollar: the jaguar, the harpy eagle, the maned wolf and the araucaria forest win, and the
 rare tamarin and mangrove, on dear land and threatened by the dearer action, get nothing even with 60 million, more
-than the cheapest plan that meets every target. This is the same lesson as maximum utility in [part 4](../prioritizr/),
+than the cheapest plan that meets every target. This is the same lesson as maximum utility in [part 4](../linear-programming/),
 and the remedies are the same: targets (with `minimizeCosts`), or features scaled to comparable totals before
 planning.
 
@@ -334,7 +335,7 @@ With overlapping threats (fire, grazing and weeds in the same paddocks) it chang
 ## Going further
 
 - The series from the start: [1. The ideas](../systematic-conservation-planning/), [2. Zonation](../zonation/),
-  [3. Marxan](../marxan/), [4. prioritizr](../prioritizr/), [5. Spatial design](../spatial-design/),
+  [3. Marxan](../marxan/), [4. Linear programming](../linear-programming/), [5. Spatial design](../spatial-design/),
   [6. Evaluating plans](../evaluating-plans/).
 - Restoring converted land: [Distance and restoration](/tutorials/distance-restoration/restoration-plan/).
 - The operators: [[prioritize.actions_raster]], [[prioritize.actions]].

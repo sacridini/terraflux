@@ -43,9 +43,9 @@ against. In a methods section, a sentence such as *"MSPA (Soille & Vogt, 2009) w
 | Circuit theory (Circuitscape) and Omniscape | `circuit.*` | McRae et al. (2008); Landau et al. (2021) |
 | Least-cost and random-walk distances (gdistance) | `cost.*` | van Etten (2017) |
 | Zonation 5 | `prioritize.zonation*` | Moilanen et al. (2022) |
-| Integer programming prioritization (prioritizr) | `prioritize.optimize` and related | Hanson et al. (2025) |
-| Multi-action planning (prioriactions) | `prioritize.actions*` | Salgado-Rojas et al. (2020) |
-| Restoration planning (plangea) | `restoration.*` | Strassburg et al. (2020) |
+| Prioritization by integer linear programming | `prioritize.optimize` and related | Hanson et al. (2025) |
+| Multi-action planning | `prioritize.actions*` | Salgado-Rojas et al. (2020) |
+| Restoration planning | `restoration.*` | Strassburg et al. (2020) |
 | Maxent (MaxNet) species distribution models | `sdm.*` | Phillips et al. (2017) |
 | Model tuning and evaluation (ENMeval) | `sdm.*` | Kass et al. (2021) |
 | Cleaning occurrence records (CoordinateCleaner) | `sdm.clean_occurrences` | Zizka et al. (2019) |

@@ -14355,7 +14355,7 @@
  },
  {
   "name": "prioritize.actions",
-  "doc": "Multi-action planning as prioriactions 0.5.0 (Salgado-Rojas et al.): which planning units to monitor and which actions against which threats to take in them, so that the features recover (or are kept) to their targets at the least cost (minimizeCosts), or recover the most within a budget (maximizeBenefits); the boundary of the units and of every threat's actions weighed; linear, quadratic or cubic responses. prioriactions's model bit for bit (its inputData() checks and defaults), solved by landschaft's closure engine and HiGHS.",
+  "doc": "Multi-action planning as a mixed integer program (Salgado-Rojas et al. 2020): which planning units to monitor and which actions against which threats to take in them, so that the features recover (or are kept) to their targets at the least cost (minimizeCosts), or recover the most within a budget (maximizeBenefits); the boundary of the units and of every threat's actions weighed; linear, quadratic or cubic responses. The model of Salgado-Rojas et al. with its checks and defaults, solved by landschaft's closure engine and HiGHS.",
   "inputs": [
    {
     "name": "pu",
@@ -14514,7 +14514,7 @@
  },
  {
   "name": "prioritize.actions_raster",
-  "doc": "Multi-action planning on rasters (landschaft's actions_raster_data, after prioripy): the planning units are the cells with a monitoring cost, a layer per feature its amounts and per threat its intensity (> 0 where it occurs; the action there removes it), the actions' costs numbers or maps; prioriactions's tables built as landschaft builds them (relative targets shares of what each feature has where a threat harms it and where none does), solved as prioritize.actions solves them, the monitored cells and every threat's actions as maps.",
+  "doc": "Multi-action planning on rasters (landschaft's actions_raster_data): the planning units are the cells with a monitoring cost, a layer per feature its amounts and per threat its intensity (> 0 where it occurs; the action there removes it), the actions' costs numbers or maps; the tables of prioritize.actions built as landschaft builds them (relative targets shares of what each feature has where a threat harms it and where none does), solved as prioritize.actions solves them, the monitored cells and every threat's actions as maps.",
   "inputs": [
    {
     "name": "monitoring_cost",
@@ -14727,7 +14727,7 @@
  },
  {
   "name": "prioritize.adjacency_matrix",
-  "doc": "1 for every two adjacent planning units (prioritizr's adjacency_matrix through landschaft): cells with data sharing an edge (4 directions) or a corner too (8); polygons that meet.",
+  "doc": "1 for every two adjacent planning units (landschaft's adjacency_matrix): cells with data sharing an edge (4 directions) or a corner too (8); polygons that meet.",
   "inputs": [
    {
     "name": "units",
@@ -14757,7 +14757,7 @@
  },
  {
   "name": "prioritize.binary_stack",
-  "doc": "A 0/1 layer per zone from a map of zone numbers (prioritizr's binary_stack through landschaft), for the locked-in constraints of zones (an existing zoning plan); cells with 0 are in no zone, missing ones stay missing.",
+  "doc": "A 0/1 layer per zone from a map of zone numbers (landschaft's binary_stack), for the locked-in constraints of zones (an existing zoning plan); cells with 0 are in no zone, missing ones stay missing.",
   "inputs": [
    {
     "name": "zones",
@@ -14787,7 +14787,7 @@
  },
  {
   "name": "prioritize.boundary_matrix",
-  "doc": "The length of the boundary every two planning units share, and every unit's perimeter on the diagonal (prioritizr's boundary_matrix through landschaft): raster cells with data share xres with those above and below and yres with those left and right; polygons their common paths, rounded to 8 decimals.",
+  "doc": "The length of the boundary every two planning units share, and every unit's perimeter on the diagonal (landschaft's boundary_matrix): raster cells with data share xres with those above and below and yres with those left and right; polygons their common paths, rounded to 8 decimals.",
   "inputs": [
    {
     "name": "units",
@@ -14810,7 +14810,7 @@
  },
  {
   "name": "prioritize.calibrate",
-  "doc": "prioritizr's calibration of trade-offs (its tutorial, Hanson et al.): candidate solutions of a problem (given as to prioritize.optimize, without the penalty traded off) over a trade-off parameter. blended: the problem with a range of penalty weights (default 9 over 1/100 to 100 times Cohon et al.'s penalty); hierarchical: the least penalty within cost thresholds above the least cost solution's; pareto: the least total shortfall of the targets within budgets; cohon: the penalty of Cohon et al. (1979) from the two ideal solutions. Every candidate's cost and criterion (boundary, connectivity, linear penalty or shortfall), and the candidates TOPSIS and the knee of the curve choose. The solves run in parallel.",
+  "doc": "The calibration of trade-offs (Hanson et al. 2025): candidate solutions of a problem (given as to prioritize.optimize, without the penalty traded off) over a trade-off parameter. blended: the problem with a range of penalty weights (default 9 over 1/100 to 100 times Cohon et al.'s penalty); hierarchical: the least penalty within cost thresholds above the least cost solution's; pareto: the least total shortfall of the targets within budgets; cohon: the penalty of Cohon et al. (1979) from the two ideal solutions. Every candidate's cost and criterion (boundary, connectivity, linear penalty or shortfall), and the candidates TOPSIS and the knee of the curve choose. The solves run in parallel.",
   "inputs": [
    {
     "name": "features",
@@ -15083,7 +15083,7 @@
     "name": "time_limit",
     "type": "number",
     "required": false,
-    "doc": "seconds per solve (default none, as prioritizr: a strong penalty can make a solve take hours; the candidates stopped by it are marked not optimal, with their gap)"
+    "doc": "seconds per solve (default none: a strong penalty can make a solve take hours; the candidates stopped by it are marked not optimal, with their gap)"
    }
   ],
   "access": "global",
@@ -15133,7 +15133,7 @@
  },
  {
   "name": "prioritize.connectivity_matrix",
-  "doc": "The connectivity of adjacent planning units (prioritizr's connectivity_matrix through landschaft): the length of their shared boundary times the mean of y in the two (a map on the units' grid; for polygons a map averaged over each, exactextract's, or an attribute).",
+  "doc": "The connectivity of adjacent planning units (landschaft's connectivity_matrix): the length of their shared boundary times the mean of y in the two (a map on the units' grid; for polygons a map averaged over each, exactextract's, or an attribute).",
   "inputs": [
    {
     "name": "units",
@@ -15205,7 +15205,7 @@
  },
  {
   "name": "prioritize.evaluate",
-  "doc": "prioritizr's evaluation of a solution (eval_*), its numbers bit for bit: the units selected, their cost and boundary; how much of each feature it holds; with targets, their coverage and Ferrier et al.'s irreplaceability of the units selected; the rarity-weighted richness of the units selected. The problem is given as to prioritize.optimize (maps or tables), the solution as a map or as prioritize.optimize's selection; the connectivity of the solution with connectivity matrices.",
+  "doc": "The evaluation of a solution (Hanson et al. 2025): the units selected, their cost and boundary; how much of each feature it holds; with targets, their coverage and Ferrier et al.'s irreplaceability of the units selected; the rarity-weighted richness of the units selected. The problem is given as to prioritize.optimize (maps or tables), the solution as a map or as prioritize.optimize's selection; the connectivity of the solution with connectivity matrices.",
   "inputs": [
    {
     "name": "features",
@@ -15755,7 +15755,7 @@
  },
  {
   "name": "prioritize.optimize",
-  "doc": "Systematic conservation planning as prioritizr 8.0.6 (Hanson et al.): an integer program over the planning units (the cells with a cost) solved to optimality (within the gap) by HiGHS, the model prioritizr compiles. Objectives: min_set (meet every target at the least cost), min_shortfall, min_largest_shortfall, max_utility, max_features, max_cover, min_penalties, max_phylo_div, max_phylo_end (with a budget); targets relative, absolute, loglinear or by hand; feature weights; binary, proportion or semicontinuous decisions; locked units; boundary, connectivity and linear penalties, linear constraints, neighbour and contiguity constraints; planning units in maps or tables; portfolios of solutions.",
+  "doc": "Systematic conservation planning as an integer linear program (Beyer et al. 2016; Hanson et al. 2025): a decision per planning unit (the cells with a cost), solved to optimality (within the gap) by HiGHS. Objectives: min_set (meet every target at the least cost), min_shortfall, min_largest_shortfall, max_utility, max_features, max_cover, min_penalties, max_phylo_div, max_phylo_end (with a budget); targets relative, absolute, loglinear or by hand; feature weights; binary, proportion or semicontinuous decisions; locked units; boundary, connectivity and linear penalties, linear constraints, neighbour and contiguity constraints; planning units in maps or tables; portfolios of solutions.",
   "inputs": [
    {
     "name": "features",
@@ -15785,7 +15785,7 @@
     "name": "zone_features",
     "type": "stack",
     "required": false,
-    "doc": "zones: every zone's own features, zone after zone (prioritizr's zones()); else features and contribution"
+    "doc": "zones: every zone's own features, zone after zone; else features and contribution"
    },
    {
     "name": "contribution_maps",
@@ -16249,7 +16249,7 @@
     "name": "gap",
     "type": "number",
     "required": false,
-    "doc": "the relative optimality gap (default 0.1, as prioritizr)"
+    "doc": "the relative optimality gap (default 0.1)"
    },
    {
     "name": "time_limit",
@@ -16261,7 +16261,7 @@
     "name": "solver",
     "type": "text",
     "required": false,
-    "doc": "highs (default) or gurobi: Gurobi when it is installed and licensed (prioritizr's                  add_gurobi_solver), else HiGHS with a warning",
+    "doc": "highs (default) or gurobi: Gurobi when it is installed and licensed, else HiGHS with a warning",
     "choices": [
      "highs",
      "gurobi"
@@ -16302,7 +16302,7 @@
  },
  {
   "name": "prioritize.proximity_matrix",
-  "doc": "1 for every two planning units within a distance of each other (prioritizr's proximity_matrix through landschaft): cell centres, or polygons by their nearest points.",
+  "doc": "1 for every two planning units within a distance of each other (landschaft's proximity_matrix): cell centres, or polygons by their nearest points.",
   "inputs": [
    {
     "name": "units",
@@ -18811,7 +18811,7 @@
  },
  {
   "name": "restoration.ecosystem_areas",
-  "doc": "The ecosystems' (ecoregions') natural area now and before conversion and what restoring a cell gives them (plangea's ec): restoration.plan's table and gain for the risk of ecosystem collapse. Every cell of an ecoregion counts (plangea counts its problem's cells only, overstating the loss).",
+  "doc": "The ecosystems' (ecoregions') natural area now and before conversion and what restoring a cell gives them: restoration.plan's table and gain for the risk of ecosystem collapse. Every cell of an ecoregion counts (counting the problem's cells only would overstate the loss).",
   "inputs": [
    {
     "name": "land_cover",
@@ -18865,7 +18865,7 @@
  },
  {
   "name": "restoration.ecosystem_targets",
-  "doc": "Share a restoration target among ecosystems for the least risk of collapse (plangea's ecosystemic sub-region targets): every ecosystem between its least share and its converted area, for the most total of ((natural + share) / potential)^z, damped by exp(half_life x the ratio). exact: the optimum; steps: plangea's procedure. The targets per region for restoration.plan (target: {code: area}).",
+  "doc": "Share a restoration target among ecosystems for the least risk of collapse (the targets per ecosystem of Strassburg et al. 2020): every ecosystem between its least share and its converted area, for the most total of ((natural + share) / potential)^z, damped by exp(half_life x the ratio). exact: the optimum; steps: their stepwise procedure. The targets per region for restoration.plan (target: {code: area}).",
   "inputs": [
    {
     "name": "table",
@@ -18929,7 +18929,7 @@
  },
  {
   "name": "restoration.intactness",
-  "doc": "Ecological intactness (Beyer et al. 2020), as plangea computes it: the habitat's quality q = exp(-gamma footprint) of a cell and of those around it (within radius cells, weighted by exp(beta distance in km)), Q = mean of (q q')^z. With a reduction and restored shares, the intactness after restoring them.",
+  "doc": "Ecological intactness (Beyer et al. 2020), as Strassburg et al. (2020) compute it: the habitat's quality q = exp(-gamma footprint) of a cell and of those around it (within radius cells, weighted by exp(beta distance in km)), Q = mean of (q q')^z. With a reduction and restored shares, the intactness after restoring them.",
   "inputs": [
    {
     "name": "footprint",
@@ -18995,7 +18995,7 @@
  },
  {
   "name": "restoration.intactness_gradient",
-  "doc": "How much the total ecological intactness grows per unit of each cell restored (its derivative), as plangea: restoring a cell lowers its footprint by the reduction given per unit. With restored shares, at the footprint they leave.",
+  "doc": "How much the total ecological intactness grows per unit of each cell restored (its derivative): restoring a cell lowers its footprint by the reduction given per unit. With restored shares, at the footprint they leave.",
   "inputs": [
    {
     "name": "footprint",
@@ -19161,7 +19161,7 @@
  },
  {
   "name": "restoration.original_vegetation",
-  "doc": "The original vegetation of converted land, as plangea (harmonize_oa): for every cell with anthropic land, the shares of the natural classes it had, from the past cover where it tells, else from the ecoregion's natural shares, else from failsafe shares (the mean over the map); and the shares restored land returns to. The land cover is a stack of each class's share (0-1).",
+  "doc": "The original vegetation of converted land (Strassburg et al. 2020): for every cell with anthropic land, the shares of the natural classes it had, from the past cover where it tells, else from the ecoregion's natural shares, else from failsafe shares (the mean over the map); and the shares restored land returns to. The land cover is a stack of each class's share (0-1).",
   "inputs": [
    {
     "name": "land_cover",
@@ -19255,7 +19255,7 @@
  },
  {
   "name": "restoration.plan",
-  "doc": "Restoration planning as plangea (Strassburg et al. 2020): how much of every converted cell to restore for the most benefit within area targets and a budget: the reduction of the species' extinction risk (the species-area relationship on their area of habitat, sdm.area_of_habitat's table and gain) and linear benefits (carbon per km²). exact: the optimum within a tolerance (simplicial decomposition with a proven bound); steps: plangea's procedure (the target in steps, the benefits recomputed between them); uniform: every cell by the same share.",
+  "doc": "Restoration planning (Strassburg et al. 2020): how much of every converted cell to restore for the most benefit within area targets and a budget: the reduction of the species' extinction risk (the species-area relationship on their area of habitat, sdm.area_of_habitat's table and gain) and linear benefits (carbon per km²). exact: the optimum within a tolerance (simplicial decomposition with a proven bound); steps: Strassburg et al.'s procedure (the target in steps, the benefits recomputed between them); uniform: every cell by the same share.",
   "inputs": [
    {
     "name": "restorable",
@@ -19267,13 +19267,13 @@
     "name": "conservable",
     "type": "map",
     "required": false,
-    "doc": "the share of every cell's natural land conservation can keep (plangea's C): without the plan, threat of it is lost"
+    "doc": "the share of every cell's natural land conservation can keep (C): without the plan, threat of it is lost"
    },
    {
     "name": "convertible",
     "type": "map",
     "required": false,
-    "doc": "the share of every cell's natural land that can be converted (plangea's D; with restorable, R + D)"
+    "doc": "the share of every cell's natural land that can be converted (D; with restorable, R + D)"
    },
    {
     "name": "threat",
@@ -19321,7 +19321,7 @@
     "name": "limit",
     "type": "map",
     "required": false,
-    "doc": "plangea's bound limit: a share per cell multiplying the restorable"
+    "doc": "the bound limit: a share per cell multiplying the restorable"
    },
    {
     "name": "hfi",
@@ -19389,7 +19389,7 @@
     "name": "weights",
     "type": "table",
     "required": false,
-    "doc": "with weights: per set the weights (w.<benefit>), the benefits, the cost, and plangea's mean, sd, score and rank"
+    "doc": "with weights: per set the weights (w.<benefit>), the benefits, the cost, and Strassburg et al.'s mean, sd, score and rank"
    },
    {
     "name": "species",
@@ -19526,13 +19526,13 @@
     "name": "z_sd",
     "type": "any",
     "required": false,
-    "doc": "the standard deviation of z (plangea: 0.1; one or one per species counted): the risk reduction's"
+    "doc": "the standard deviation of z (0.1 in Strassburg et al. 2020; one or one per species counted): the risk reduction's"
    },
    {
     "name": "uncertainty",
     "type": "text",
     "required": false,
-    "doc": "how the species' sensitivities to z add up: correlated (default), independent or linear (plangea's)",
+    "doc": "how the species' sensitivities to z add up: correlated (default), independent or linear (Strassburg et al.'s)",
     "choices": [
      "correlated",
      "independent",
@@ -19792,7 +19792,7 @@
  },
  {
   "name": "sdm.area_of_habitat",
-  "doc": "The area of habitat of species (Brooks et al. 2019), as plangea (harmonize_bd): over the cells of each species' range (within its elevation limits), the shares of the natural classes suitable to it times the cell's area, now and before conversion (the original vegetation); and the habitat it gains per unit of a cell restored. Rows in the order of the ranges' layers.",
+  "doc": "The area of habitat of species (Brooks et al. 2019; Strassburg et al. 2020): over the cells of each species' range (within its elevation limits), the shares of the natural classes suitable to it times the cell's area, now and before conversion (the original vegetation); and the habitat it gains per unit of a cell restored. Rows in the order of the ranges' layers.",
   "inputs": [
    {
     "name": "ranges",
@@ -24934,7 +24934,7 @@
  },
  {
   "name": "uncertainty.delta",
-  "doc": "The uncertainty of an expression of the node's maps and numbers (map.calc's) from the uncertainty of its parameters, by the delta method (landschaft's delta_method, the GUM's first order): the derivatives by finite differences (central, or forward as plangea), the standard deviation sqrt(sum (df/dp sigma)^2) (quadratic) or sum |df/dp sigma| (linear).",
+  "doc": "The uncertainty of an expression of the node's maps and numbers (map.calc's) from the uncertainty of its parameters, by the delta method (landschaft's delta_method, the GUM's first order): the derivatives by finite differences (central, or forward as Strassburg et al. 2020), the standard deviation sqrt(sum (df/dp sigma)^2) (quadratic) or sum |df/dp sigma| (linear).",
   "inputs": [],
   "outputs": [
    {
@@ -24996,7 +24996,7 @@
  },
  {
   "name": "uncertainty.interval",
-  "doc": "The normal confidence interval of a value: value -/+ z sd, z the normal quantile of the level (landschaft's interval; scipy's norm.ppf, cephes' ndtri; plangea fixes z at 1.96).",
+  "doc": "The normal confidence interval of a value: value -/+ z sd, z the normal quantile of the level (landschaft's interval; scipy's norm.ppf, cephes' ndtri; Strassburg et al. 2020 fix z at 1.96).",
   "inputs": [
    {
     "name": "value",
@@ -25156,7 +25156,7 @@
  },
  {
   "name": "uncertainty.sum_sd",
-  "doc": "The standard deviation of a total of uncertain values, the sum of w v (landschaft's sum_sd, plangea's prop_quad and prop_lin): independent errors sqrt(sum (sigma w)^2), errors adding up sum |sigma w|, or with a correlation rho of every pair sqrt((1 - rho) sum s^2 + rho (sum s)^2). Missing cells left out.",
+  "doc": "The standard deviation of a total of uncertain values, the sum of w v (landschaft's sum_sd): independent errors sqrt(sum (sigma w)^2), errors adding up sum |sigma w|, or with a correlation rho of every pair sqrt((1 - rho) sum s^2 + rho (sum s)^2). Missing cells left out.",
   "inputs": [
    {
     "name": "sd",

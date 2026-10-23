@@ -113,7 +113,7 @@ Open the **Templates** menu. Its templates are in seven groups:
 | Patterns (GuidosToolbox) | MSPA of a forest, MSPA of your map, Forest from a surface, Fragmentation of a forest, Patterns and objects, Landscape mosaic, MSPA's edge width, Forest gain and loss | [Habitat patterns](../../habitat-patterns/) |
 | Landscape metrics | Landscape metrics, Patches and their shapes, Kinds of landscapes | [Landscape metrics](../../landscape-metrics/) |
 | Connectivity | Network of a forest (MSPA), Habitat network (Conefor), Circuit connectivity, Least costs and random walks, Restoring a corridor | [Habitat networks](../../habitat-networks/), [Circuit connectivity](../../circuit-connectivity/), [Grid distances](../../grid-distances/) |
-| Conservation and restoration | Ecological intactness, Zonation, Marxan and irreplaceability, Conservation planning (prioritizr), Irreplaceability of a plan, Restoration plan (plangea), Multi-action planning (prioriactions) | [Spatial prioritization](../../spatial-prioritization/), [Distance and restoration](../../distance-restoration/) |
+| Conservation and restoration | Ecological intactness, Zonation, Marxan and irreplaceability, Conservation planning (linear programming), Irreplaceability of a plan, Restoration plan, Multi-action planning | [Spatial prioritization](../../spatial-prioritization/), [Distance and restoration](../../distance-restoration/) |
 | Species | Species distribution model, A species in a warmer climate | [Species distributions](../../species-distributions/) |
 | Land change | Dinamica EGO, CLUE-S, Drivers of land change, A city that grows (a loop), Farmers on their parcels (agents), CRAFTY: farmers and foresters, Land change analysis, Validating a simulation | [Land change simulation](../../land-change/) |
 | Surfaces and uncertainty | Neutral landscapes, More neutral landscapes, Terrain of a surface, Carbon and its uncertainty | [Surface metrics](../../surface-metrics/), [Uncertainty](../../uncertainty/) |
@@ -249,10 +249,10 @@ The library is ordered by subject, the same subjects as the categories of this s
 | Habitat patterns, Fragmentation | `landscape.*`, `patterns.*`, `fragmentation.*` | GuidosToolbox |
 | Landscape metrics | `metrics.*` | landscapemetrics and FRAGSTATS |
 | Habitat networks, Circuit connectivity, Grid distances | `networks.*`, `conn.*`, `circuit.*`, `cost.*` | connectivity |
-| Surface metrics, Distance & restoration, Change detection | `surface.*`, `distance.*`, `restoration.*`, `change.*` | terrain, plangea, diffeR |
+| Surface metrics, Distance & restoration, Change detection | `surface.*`, `distance.*`, `restoration.*`, `change.*` | terrain, restoration, diffeR |
 | Large data & batch | `batch.*` | many files |
 | Neutral landscape models | `nlm.*` | NLMR's random maps |
-| Biodiversity analysis, Spatial prioritization, Species distributions | `bio.*`, `prioritize.*`, `sdm.*` | Biodiverse, Zonation, Marxan, prioritizr, MaxNet |
+| Biodiversity analysis, Spatial prioritization, Species distributions | `bio.*`, `prioritize.*`, `sdm.*` | Biodiverse, Zonation, Marxan, linear programming, MaxNet |
 | Land change simulation | `markov.*`, `woe.*`, `dinamica.*`, `lulcc.*`, `plus.*`, `agents.*`... | Dinamica EGO, CLUE-S, PLUS, agents |
 | Uncertainty | `uncertainty.*` | Monte Carlo, error propagation |
 | Map algebra, Plot, Model flow | `map.*`, `stack.*`, `view.*`, `control.*`, `rng.*`, `plugin.*` | the pieces of every model ([Building models](../../building-models/)) |

@@ -221,8 +221,8 @@ impl Operator for SumSd {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "uncertainty.sum_sd",
-            "The standard deviation of a total of uncertain values, the sum of w v (landschaft's sum_sd, plangea's \
-             prop_quad and prop_lin): independent errors sqrt(sum (sigma w)^2), errors adding up sum |sigma w|, or \
+            "The standard deviation of a total of uncertain values, the sum of w v (landschaft's sum_sd): \
+             independent errors sqrt(sum (sigma w)^2), errors adding up sum |sigma w|, or \
              with a correlation rho of every pair sqrt((1 - rho) sum s^2 + rho (sum s)^2). Missing cells left out.",
             Access::Global,
         )
@@ -330,7 +330,7 @@ impl Operator for Interval {
         OpSignature::new(
             "uncertainty.interval",
             "The normal confidence interval of a value: value -/+ z sd, z the normal quantile of the level \
-             (landschaft's interval; scipy's norm.ppf, cephes' ndtri; plangea fixes z at 1.96).",
+             (landschaft's interval; scipy's norm.ppf, cephes' ndtri; Strassburg et al. 2020 fix z at 1.96).",
             Access::Local,
         )
         .input(PortSpec::new("value", Type::Any, "a map or a number"))
@@ -445,7 +445,7 @@ impl Operator for Delta {
             "uncertainty.delta",
             "The uncertainty of an expression of the node's maps and numbers (map.calc's) from the uncertainty of \
              its parameters, by the delta method (landschaft's delta_method, the GUM's first order): the \
-             derivatives by finite differences (central, or forward as plangea), the standard deviation \
+             derivatives by finite differences (central, or forward as Strassburg et al. 2020), the standard deviation \
              sqrt(sum (df/dp sigma)^2) (quadratic) or sum |df/dp sigma| (linear).",
             Access::Local,
         )

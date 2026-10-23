@@ -1,6 +1,6 @@
 format = "terraflux/1"
-name = "Restoration plan (plangea)"
-description = "plangea's restoration problem: the cells to restore for the most reduction of the species' extinction risk."
+name = "Restoration plan"
+description = "The restoration problem of Strassburg et al. (2020): the cells to restore for the most reduction of the species' extinction risk."
 
 [[nodes]]
 id = "field"
@@ -32,7 +32,7 @@ id = "vegetation"
 op = "restoration.original_vegetation"
 inputs = { land_cover = "land_cover.stack" }
 params = { natural = ["forest"], anthropic = ["crops"] }
-note = "What the converted land was before (plangea): forest here, and the share of anthropic land."
+note = "What the converted land was before (Strassburg et al., 2020): forest here, and the share of anthropic land."
 
 [[nodes]]
 id = "toucan"
@@ -85,7 +85,7 @@ id = "plan"
 op = "restoration.plan"
 inputs = { restorable = "vegetation.anthropic", table = "habitat.table", gain = "habitat.gain" }
 params = { target = 100, cell_area = 1.0, z_sd = 0.1 }
-note = "The share of every cell to restore, 100 km² in all, for the most reduction of the species' extinction risk (exact within 1e-7; method = steps for plangea's own). Try levels = [0.25, 0.5, 1] for a trade-off curve. summary: the risk reduction and its deviation from z's."
+note = "The share of every cell to restore, 100 km² in all, for the most reduction of the species' extinction risk (exact within 1e-7; method = steps for the stepwise procedure). Try levels = [0.25, 0.5, 1] for a trade-off curve. summary: the risk reduction and its deviation from z's."
 
 [[nodes]]
 id = "plot_plan"

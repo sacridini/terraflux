@@ -804,7 +804,7 @@ impl Plan {
             return Err("steps must be at least 1".into());
         }
         if self.budget.is_some() {
-            return Err("the method steps takes area targets only (plangea's procedure): no budget".into());
+            return Err("the method steps takes area targets only (the stepwise procedure): no budget".into());
         }
         if self.lower.as_ref().is_some_and(|l| l.iter().any(|v| *v != 0.0)) {
             return Err("the method steps takes no least shares".into());
@@ -1560,24 +1560,24 @@ impl Operator for PlanRestoration {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "restoration.plan",
-            "Restoration planning as plangea (Strassburg et al. 2020): how much of every converted cell to \
+            "Restoration planning (Strassburg et al. 2020): how much of every converted cell to \
              restore for the most benefit within area targets and a budget: the reduction of the species' \
              extinction risk (the species-area relationship on their area of habitat, sdm.area_of_habitat's \
              table and gain) and linear benefits (carbon per km²). exact: the optimum within a tolerance \
-             (simplicial decomposition with a proven bound); steps: plangea's procedure (the target in steps, \
-             the benefits recomputed between them); uniform: every cell by the same share.",
+             (simplicial decomposition with a proven bound); steps: Strassburg et al.'s procedure (the target \
+             in steps, the benefits recomputed between them); uniform: every cell by the same share.",
             Access::Global,
         )
         .input(PortSpec::optional("restorable", Type::Map, "the share of every cell that can be restored (anthropic land)"))
         .input(PortSpec::optional(
             "conservable",
             Type::Map,
-            "the share of every cell's natural land conservation can keep (plangea's C): without the plan, threat of it is lost",
+            "the share of every cell's natural land conservation can keep (C): without the plan, threat of it is lost",
         ))
         .input(PortSpec::optional(
             "convertible",
             Type::Map,
-            "the share of every cell's natural land that can be converted (plangea's D; with restorable, R + D)",
+            "the share of every cell's natural land that can be converted (D; with restorable, R + D)",
         ))
         .input(PortSpec::optional("threat", Type::Map, "conservation: the share of the conservable land lost without it (1)"))
         .input(PortSpec::optional("loss", Type::Stack, "sdm.area_of_habitat's loss (conservation, conversion)"))
@@ -1593,7 +1593,7 @@ impl Operator for PlanRestoration {
         .input(PortSpec::optional(
             "limit",
             Type::Map,
-            "plangea's bound limit: a share per cell multiplying the restorable",
+            "the bound limit: a share per cell multiplying the restorable",
         ))
         .input(PortSpec::optional("hfi", Type::Map, "the human footprint, for the intactness benefit"))
         .input(PortSpec::optional(
@@ -1632,8 +1632,8 @@ impl Operator for PlanRestoration {
         .output(PortSpec::optional(
             "weights",
             Type::Table,
-            "with weights: per set the weights (w.<benefit>), the benefits, the cost, and plangea's mean, sd, \
-             score and rank",
+            "with weights: per set the weights (w.<benefit>), the benefits, the cost, and Strassburg et al.'s \
+             mean, sd, score and rank",
         ))
         .output(PortSpec::new(
             "species",
@@ -1686,13 +1686,15 @@ impl Operator for PlanRestoration {
         .param(PortSpec::optional(
             "z_sd",
             Type::Any,
-            "the standard deviation of z (plangea: 0.1; one or one per species counted): the risk reduction's",
+            "the standard deviation of z (0.1 in Strassburg et al. 2020; one or one per species counted): the \
+             risk reduction's",
         ))
         .param(
             PortSpec::optional(
                 "uncertainty",
                 Type::Text,
-                "how the species' sensitivities to z add up: correlated (default), independent or linear (plangea's)",
+                "how the species' sensitivities to z add up: correlated (default), independent or linear \
+                 (Strassburg et al.'s)",
             )
             .choices(["correlated", "independent", "linear"]),
         )
@@ -2344,8 +2346,8 @@ impl Operator for EcosystemAreasOp {
         OpSignature::new(
             "restoration.ecosystem_areas",
             "The ecosystems' (ecoregions') natural area now and before conversion and what restoring a cell gives \
-             them (plangea's ec): restoration.plan's table and gain for the risk of ecosystem collapse. Every cell \
-             of an ecoregion counts (plangea counts its problem's cells only, overstating the loss).",
+             them: restoration.plan's table and gain for the risk of ecosystem collapse. Every cell \
+             of an ecoregion counts (counting the problem's cells only would overstate the loss).",
             Access::Global,
         )
         .input(PortSpec::new("land_cover", Type::Stack, "the share of each class, by name"))
@@ -2413,10 +2415,11 @@ impl Operator for EcosystemTargetsOp {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "restoration.ecosystem_targets",
-            "Share a restoration target among ecosystems for the least risk of collapse (plangea's ecosystemic \
-             sub-region targets): every ecosystem between its least share and its converted area, for the most \
-             total of ((natural + share) / potential)^z, damped by exp(half_life x the ratio). exact: the optimum; \
-             steps: plangea's procedure. The targets per region for restoration.plan (target: {code: area}).",
+            "Share a restoration target among ecosystems for the least risk of collapse (the targets per \
+             ecosystem of Strassburg et al. 2020): every ecosystem between its least share and its converted \
+             area, for the most total of ((natural + share) / potential)^z, damped by exp(half_life x the \
+             ratio). exact: the optimum; steps: their stepwise procedure. The targets per region for \
+             restoration.plan (target: {code: area}).",
             Access::Global,
         )
         .input(PortSpec::new("table", Type::Table, "restoration.ecosystem_areas's table"))

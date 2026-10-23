@@ -2408,9 +2408,9 @@ impl Operator for Optimize {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "prioritize.optimize",
-            "Systematic conservation planning as prioritizr 8.0.6 (Hanson et al.): an integer program over the \
-             planning units (the cells with a cost) solved to optimality (within the gap) by HiGHS, the model \
-             prioritizr compiles. Objectives: min_set (meet every target at the least cost), min_shortfall, \
+            "Systematic conservation planning as an integer linear program (Beyer et al. 2016; Hanson et al. \
+             2025): a decision per planning unit (the cells with a cost), solved to optimality (within the gap) \
+             by HiGHS. Objectives: min_set (meet every target at the least cost), min_shortfall, \
              min_largest_shortfall, max_utility, max_features, max_cover, min_penalties, max_phylo_div, \
              max_phylo_end (with a budget); \
              targets relative, absolute, loglinear or by hand; feature weights; binary, proportion or \
@@ -2435,7 +2435,7 @@ impl Operator for Optimize {
         .input(PortSpec::optional(
             "zone_features",
             Type::Stack,
-            "zones: every zone's own features, zone after zone (prioritizr's zones()); else features and contribution",
+            "zones: every zone's own features, zone after zone; else features and contribution",
         ))
         .input(PortSpec::optional("contribution_maps", Type::Stack, "zones: a contribution raster per zone, named by it"))
         .input(PortSpec::optional("zone_locked_in", Type::Stack, "zones: the units locked into every zone, a layer each"))
@@ -2621,13 +2621,13 @@ impl Operator for Optimize {
         .param(PortSpec::optional("pool_gap", Type::Number, "the gap portfolio: how far from the optimum (0.1)"))
         .param(PortSpec::optional("seed", Type::Number, "the shuffle portfolio's random orders (default 0)"))
         .param(PortSpec::optional("remove_duplicates", Type::Bool, "the shuffle portfolio: distinct solutions (true)"))
-        .param(PortSpec::optional("gap", Type::Number, "the relative optimality gap (default 0.1, as prioritizr)"))
+        .param(PortSpec::optional("gap", Type::Number, "the relative optimality gap (default 0.1)"))
         .param(PortSpec::optional("time_limit", Type::Number, "seconds (default none)"))
         .param(
             PortSpec::optional(
                 "solver",
                 Type::Text,
-                "highs (default) or gurobi: Gurobi when it is installed and licensed (prioritizr's                  add_gurobi_solver), else HiGHS with a warning",
+                "highs (default) or gurobi: Gurobi when it is installed and licensed, else HiGHS with a warning",
             )
             .choices(["highs", "gurobi"]),
         )
@@ -3044,7 +3044,7 @@ impl Operator for Evaluate {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "prioritize.evaluate",
-            "prioritizr's evaluation of a solution (eval_*), its numbers bit for bit: the units selected, their \
+            "The evaluation of a solution (Hanson et al. 2025): the units selected, their \
              cost and boundary; how much of each feature it holds; with targets, their coverage and Ferrier et \
              al.'s irreplaceability of the units selected; the rarity-weighted richness of the units selected. The \
              problem is given as to prioritize.optimize (maps or tables), the solution as a map or as \
@@ -3395,7 +3395,7 @@ impl Operator for Calibrate {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "prioritize.calibrate",
-            "prioritizr's calibration of trade-offs (its tutorial, Hanson et al.): candidate solutions of a problem \
+            "The calibration of trade-offs (Hanson et al. 2025): candidate solutions of a problem \
              (given as to prioritize.optimize, without the penalty traded off) over a trade-off parameter. \
              blended: the problem with a range of penalty weights (default 9 over 1/100 to 100 times Cohon et \
              al.'s penalty); hierarchical: the least penalty within cost thresholds above the least cost \
@@ -3484,7 +3484,7 @@ impl Operator for Calibrate {
         .param(PortSpec::optional(
             "time_limit",
             Type::Number,
-            "seconds per solve (default none, as prioritizr: a strong penalty can make a solve take hours; the \
+            "seconds per solve (default none: a strong penalty can make a solve take hours; the \
              candidates stopped by it are marked not optimal, with their gap)",
         ))
     }

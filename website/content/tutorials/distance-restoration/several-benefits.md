@@ -1,11 +1,11 @@
 ---
 title: Several benefits and trade-offs
 short: Several benefits
-description: Restore for species, carbon, ecological intactness and ecosystems at once - put the benefits on one scale, trace the trade-off between biodiversity and carbon with a dashboard, rank sets of weights as plangea does, share a target among ecosystems for the least risk of collapse, and see what targets per region cost.
+description: Restore for species, carbon, ecological intactness and ecosystems at once - put the benefits on one scale, trace the trade-off between biodiversity and carbon with a dashboard, rank sets of weights as Strassburg et al. (2020) do, share a target among ecosystems for the least risk of collapse, and see what targets per region cost.
 order: 60
 level: advanced
 time: 55 min
-template: Restoration plan (plangea)
+template: Restoration plan
 ops: [restoration.plan, restoration.ecosystem_areas, restoration.ecosystem_targets, restoration.intactness_gradient, map.calc, stack.of, raster.read]
 series: Distance and restoration
 part: 6
@@ -16,8 +16,8 @@ want whole ecosystems back or landscapes less pressed by people, and every regio
 of the series you will give [[restoration.plan]] four benefits (the species' extinction risk of the [previous
 part](../restoration-plan/), carbon, ecological intactness and the risk of collapse of ecosystems), see how
 differently each one alone would plan Serra Verde's 100 km², put them on one scale, trace the trade-off between
-species and carbon with a dashboard, rank sets of weights as plangea does, and measure what it costs to give every
-region its part.
+species and carbon with a dashboard, rank sets of weights as Strassburg et al. (2020) do, and measure what it costs
+to give every region its part.
 
 ## The idea
 
@@ -57,9 +57,10 @@ divides each benefit by the most it can reach **alone** (the best plan for it al
     their consequences visible. Varying them traces the **trade-off curve**, every point of which is a plan no other
     plan beats on both benefits at once.
 
-plangea also compares **sets of weights**: for each set, a plan; for each plan, every benefit as a share of its best;
-and a **score**, the mean of those shares over their standard deviation, high for plans that do well on all benefits
-and evenly. The `weights` setting of [[restoration.plan]] does the same and returns the plan of the best-ranked set.
+Strassburg et al. (2020) also compare **sets of weights**: for each set, a plan; for each plan, every benefit as a
+share of its best; and a **score**, the mean of those shares over their standard deviation, high for plans that do
+well on all benefits and evenly. The `weights` setting of [[restoration.plan]] does the same and returns the plan of
+the best-ranked set.
 
 ## When to use it
 
@@ -154,11 +155,12 @@ params = { target = 100, weight = 3.89, linear_weights = [0.817], intactness_wei
 ```
 
 `weight` multiplies the risk benefit, `linear_weights` the linear ones in the order of their layers, and
-`intactness_weight` the intactness. The values are the inverses of the best of each alone (0.257, 1.224 Mt and 148.9,
-found by three plans with one benefit each): each benefit counts from 0 to 1. The `benefits` output gives, per benefit,
-its value, its weight and the weighted value. Intactness takes its own settings (`radius`, `gamma`, `beta`,
-`intactness_z`, as in part 3) and `intactness_form`: `linear` (the gradient, recomputed as the plan proceeds, as
-plangea) or `exact` (the total intactness itself, which is not concave: the plan is then a local optimum with a bound).
+`intactness_weight` the intactness. The values are the inverses of the best of each alone (0.257, 1.224 Mt and
+148.9, found by three plans with one benefit each): each benefit counts from 0 to 1. The `benefits` output gives,
+per benefit, its value, its weight and the weighted value. Intactness takes its own settings (`radius`, `gamma`,
+`beta`, `intactness_z`, as in part 3) and `intactness_form`: `linear` (the gradient, recomputed as the plan
+proceeds, as Strassburg et al. do) or `exact` (the total intactness itself, which is not concave: the plan is then a
+local optimum with a bound).
 
 ### Ecosystems
 
@@ -189,7 +191,7 @@ params = { target = 100 }
 [[restoration.ecosystem_areas]] gives, per ecoregion, its natural area now (`current`) and before conversion
 (`potential`, the natural plus the converted land), in the form [[restoration.plan]] takes for its risk benefit
 (`table`, `gain`). [[restoration.ecosystem_targets]] answers a different question: how to **share** a target among the
-ecosystems for the least total risk of collapse (`method = "exact"`, or plangea's `steps`), each ecosystem between a
+ecosystems for the least total risk of collapse (`method = "exact"`, or the stepwise `steps`), each ecosystem between a
 least share (`minimum`) and its converted area. Its `targets` table (an ecosystem's code and its share) can be the
 regional targets of a plan, with the ecoregions as `regions`.
 
@@ -210,14 +212,14 @@ params = { target = 100, weights = [
 ```
 
 With `weights`, a list of sets (the benefits named `extinction_risk`, the linear layers' names and `intactness`), the
-node solves a plan per set and returns the `weights` table (per set its weights, its benefits, plangea's mean, sd,
-score and rank) and the plan of the best-ranked set.
+node solves a plan per set and returns the `weights` table (per set its weights, its benefits, Strassburg et al.'s
+mean, sd, score and rank) and the plan of the best-ranked set.
 
 For **targets per region**, connect a map of region codes to `regions` and give `target` as `{code: area}`, for
 instance `target = { 1 = 30, 2 = 40, 3 = 30 }`; `sense` applies to each.
 
 !!! app "In the application"
-    Start from **Templates ▸ Conservation and restoration ▸ Restoration plan (plangea)**, connect the extra maps to
+    Start from **Templates ▸ Conservation and restoration ▸ Restoration plan**, connect the extra maps to
     the plan's `linear`, `hfi` and `reduction` inputs, and set the weights in the Node pane. The `benefits` table
     under the canvas shows what each benefit gets; the `weights` table, with sets of weights, their ranking.
 
@@ -302,7 +304,7 @@ The `weights` table of the six sets above, each benefit as a share of its best:
 | 1 - 1 - 0 | 100 % | 82 % | 40 % | 0.92 | 5 |
 | 0 - 0 - 1 | 15 % | 70 % | 100 % | 0.58 | 6 |
 
-The equal weights rank first by far: their plan is the most balanced (a mean of 79 % with little spread). plangea's
+The equal weights rank first by far: their plan is the most balanced (a mean of 79 % with little spread). The
 score rewards balance; a programme with a clear priority (carbon finance) would rather choose on the trade-off curve.
 
 ### Ecosystems

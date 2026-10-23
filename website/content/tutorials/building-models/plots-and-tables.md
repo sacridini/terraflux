@@ -44,7 +44,7 @@ bars, lines, points, box plots, a correlation matrix, a clustergram.
   [[metrics.patch]], [[metrics.landscape]]), connectivity indices, a simulation's `info`, a prioritization's
   summary, a model's evaluation.
 - **[[table.of]]**: for small tables that belong to the model (a few rows you would otherwise keep in a separate
-  CSV file): Marxan's or prioritizr's targets, CRAFTY's demands, the agents of a model, a network of a few sites.
+  CSV file): a prioritization's targets, CRAFTY's demands, the agents of a model, a network of a few sites.
   Large tables are better produced by the operators that compute them.
 
 ## What you need

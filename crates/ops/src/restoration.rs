@@ -73,8 +73,8 @@ impl Operator for Intactness {
         let sig = if self.gradient {
             OpSignature::new(
                 "restoration.intactness_gradient",
-                "How much the total ecological intactness grows per unit of each cell restored (its derivative), \
-                 as plangea: restoring a cell lowers its footprint by the reduction given per unit. With restored \
+                "How much the total ecological intactness grows per unit of each cell restored (its derivative): \
+                 restoring a cell lowers its footprint by the reduction given per unit. With restored \
                  shares, at the footprint they leave.",
                 Access::Global,
             )
@@ -89,9 +89,9 @@ impl Operator for Intactness {
         } else {
             OpSignature::new(
                 "restoration.intactness",
-                "Ecological intactness (Beyer et al. 2020), as plangea computes it: the habitat's quality \
-                 q = exp(-gamma footprint) of a cell and of those around it (within radius cells, weighted by \
-                 exp(beta distance in km)), Q = mean of (q q')^z. With a reduction and restored shares, the \
+                "Ecological intactness (Beyer et al. 2020), as Strassburg et al. (2020) compute it: the \
+                 habitat's quality q = exp(-gamma footprint) of a cell and of those around it (within radius \
+                 cells, weighted by exp(beta distance in km)), Q = mean of (q q')^z. With a reduction and restored shares, the \
                  intactness after restoring them.",
                 Access::Global,
             )
@@ -192,7 +192,7 @@ impl Operator for OriginalVegetation {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "restoration.original_vegetation",
-            "The original vegetation of converted land, as plangea (harmonize_oa): for every cell with \
+            "The original vegetation of converted land (Strassburg et al. 2020): for every cell with \
              anthropic land, the shares of the natural classes it had, from the past cover where it tells, \
              else from the ecoregion's natural shares, else from failsafe shares (the mean over the map); and \
              the shares restored land returns to. The land cover is a stack of each class's share (0-1).",
@@ -360,7 +360,7 @@ impl Operator for AreaOfHabitat {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "sdm.area_of_habitat",
-            "The area of habitat of species (Brooks et al. 2019), as plangea (harmonize_bd): over the cells of \
+            "The area of habitat of species (Brooks et al. 2019; Strassburg et al. 2020): over the cells of \
              each species' range (within its elevation limits), the shares of the natural classes suitable to it \
              times the cell's area, now and before conversion (the original vegetation); and the habitat it gains \
              per unit of a cell restored. Rows in the order of the ranges' layers.",

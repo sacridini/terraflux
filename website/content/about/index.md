@@ -18,7 +18,7 @@ prioritization, restoration planning, species distributions, biodiversity analys
   saying why, so a beginner can accept sensible defaults and an expert can change any of them.
 - **The same numbers as the reference tools.** Methods are re-implemented from their publications and source
   code, and the test suite checks each against its reference implementation (GuidosToolbox, landscapemetrics,
-  Conefor, Circuitscape, gdistance, Zonation, Marxan, prioritizr, plangea, MaxNet, Biodiverse, Dinamica EGO,
+  Conefor, Circuitscape, gdistance, Zonation, Marxan, MaxNet, Biodiverse, Dinamica EGO,
   lulcc, PLUS and others), most to the last bit.
 - **Any scale.** The same model runs on a laptop, on the computers of a lab, on a university cluster or in the
   cloud, and maps larger than memory run in tiles with the same result whatever the number of machines.

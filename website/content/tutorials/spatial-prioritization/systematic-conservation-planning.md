@@ -52,8 +52,8 @@ so the pair protects three species. The pair A and C protects all four:
     the best scores cannot see this, however good the score.
 
 Both families of methods in this series use complementarity. **Zonation** (part 2) removes the sites one by one,
-always the one whose loss matters least given what remains; **Marxan** and **prioritizr** (parts 3 to 5) search
-for the best set directly.
+always the one whose loss matters least given what remains; **Marxan** and **integer linear programming** (parts 3
+to 5) search for the best set directly.
 
 ### The core concepts
 
@@ -170,11 +170,11 @@ families:
 - **Optimization** finds the best *set* of areas for a target or a budget. The two classic formulations are the
   **minimum set** problem (meet every target at the least cost) and the **maximal coverage** problem (do the most
   within a budget; Church et al., 1996). Marxan (Ball et al., 2009) solves them with *simulated annealing*, a
-  heuristic that improves a plan by random changes and gives good answers without knowing how good. prioritizr
-  (Hanson et al., 2025) writes them as *integer linear programs* and solves them exactly, with a proof of how close
+  heuristic that improves a plan by random changes and gives good answers without knowing how good. Written
+  as *integer linear programs* (Hanson et al., 2025), they are solved exactly, with a proof of how close
   the plan is to the best possible (Underhill, 1994; Rodrigues & Gaston, 2002; Beyer et al., 2016).
 
-![A ranking and a plan of Serra Verde.](/img/tutorials/spatial-prioritization/systematic-conservation-planning/two-families.png "The two families on the same data. Left: Zonation's rank map, a priority for every cell (1 the most important). The rivers, the tamarin's fragments and the coast stand out. Right: prioritizr's minimum set for 30 % of every feature, a single plan.")
+![A ranking and a plan of Serra Verde.](/img/tutorials/spatial-prioritization/systematic-conservation-planning/two-families.png "The two families on the same data. Left: Zonation's rank map, a priority for every cell (1 the most important). The rivers, the tamarin's fragments and the coast stand out. Right: the minimum set for 30 % of every feature as an integer linear program, a single plan.")
 
 The two families are complementary, not rivals: a ranking to explore, and an optimized plan to decide. Part 6
 compares them on Serra Verde.
@@ -217,8 +217,8 @@ What it is *not*:
   area everywhere and boundaries are measured in metres.
 
 In the application, the templates of the **Templates** menu, group *Conservation and restoration*, start the main
-methods with data drawn by chance: *Zonation*, *Marxan and irreplaceability*, *Conservation planning (prioritizr)*,
-*Irreplaceability of a plan* and *Multi-action planning (prioriactions)*. Replace their `nlm` nodes with
+methods with data drawn by chance: *Zonation*, *Marxan and irreplaceability*, *Conservation planning (linear
+programming)*, *Irreplaceability of a plan* and *Multi-action planning*. Replace their `nlm` nodes with
 `raster.read` nodes of your own maps.
 
 ## Build the model
@@ -291,7 +291,7 @@ from = "evaluation.coverage"
     node, and from the `map` port of the cost to `cost`. Select the node and set its settings in the **Node** pane:
     objective, relative targets, gap. Press ++ctrl+enter++ to run up to the selected node; its result appears under
     the canvas (a map, or a table you can sort). Or start from **Templates ▸ Conservation and restoration ▸
-    Conservation planning (prioritizr)** and replace its random maps with your own.
+    Conservation planning (linear programming)** and replace its random maps with your own.
 
 From the command line, save the model as `first-plan.toml` next to the rasters and run it:
 
@@ -389,14 +389,14 @@ The series, in order:
    weights, costs, connectivity, condition and Zonation 5 projects.
 3. [Reserves with Marxan, and irreplaceability](/tutorials/spatial-prioritization/marxan/): simulated annealing,
    the boundary length modifier and its calibration, selection frequency, ProxIRR.
-4. [Optimal plans with prioritizr](/tutorials/spatial-prioritization/prioritizr/): objectives, targets, budgets,
+4. [Optimal plans with linear programming](/tutorials/spatial-prioritization/linear-programming/): objectives, targets, budgets,
    locked areas, gaps and solvers, portfolios.
 5. [Compact and connected plans, and zones](/tutorials/spatial-prioritization/spatial-design/): penalties,
    constraints, connectivity, hexagons and management zones.
 6. [Evaluating, comparing and reporting plans](/tutorials/spatial-prioritization/evaluating-plans/).
 7. [Multi-action planning](/tutorials/spatial-prioritization/multi-action-planning/): threats and actions.
 
-Restoration planning (plangea) is in [Distance and restoration](/tutorials/distance-restoration/). The operators are
+Restoration planning is in [Distance and restoration](/tutorials/distance-restoration/). The operators are
 documented in the [operator reference](/operators/).
 
 ## References

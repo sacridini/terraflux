@@ -325,7 +325,7 @@ note = "Errors that move together (shared parameters): the sum of the standard d
 
 - [Randomness and reproducibility](../../building-models/randomness/): seeds, replicates and how many are enough.
 - [Map algebra](../../building-models/map-algebra/): the language of the expressions.
-- [Distance and restoration](../../distance-restoration/): plangea's restoration plans, which propagate uncertainty
+- [Distance and restoration](../../distance-restoration/): restoration plans, which propagate uncertainty
   with these operators.
 - The operators [[uncertainty.monte_carlo]], [[uncertainty.delta]], [[uncertainty.interval]], [[uncertainty.sum_sd]],
   [[uncertainty.product_sd]].

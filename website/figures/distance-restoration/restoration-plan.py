@@ -1,4 +1,4 @@
-"""Figures of tutorials/distance-restoration/restoration-plan: plangea's restoration plan for the extinction risk of
+"""Figures of tutorials/distance-restoration/restoration-plan: the restoration plan for the extinction risk of
 Serra Verde's species: area targets, exact vs steps vs uniform, the trade-off curve and z."""
 
 import importlib.util

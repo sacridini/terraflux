@@ -39,8 +39,8 @@ computers of a local network or on a Slurm cluster, and on maps larger than memo
 ## Why Terraflux
 
 - **Results you can trust.** The methods follow their reference implementations, and many give the same
-  results to the bit: GuidosToolbox, landscapemetrics, Zonation 5, Marxan, prioritizr, plangea, Dinamica EGO and
-  lulcc's CLUE-S among them. Parity tests against [landschaft](https://github.com/sacridini/landschaft) run in the
+  results to the bit: GuidosToolbox, landscapemetrics, Zonation 5, Marxan, Dinamica EGO and lulcc's CLUE-S among
+  them. Parity tests against [landschaft](https://github.com/sacridini/landschaft) run in the
   test suite.
 - **No code needed, nothing hidden.** More than 340 operators in a searchable library, 45 ready-to-run templates and
   a wizard that checks and fixes the data. Every automatic choice is a visible node, with a note on why it is
@@ -62,8 +62,8 @@ computers of a local network or on a Slurm cluster, and on maps larger than memo
 | **Habitat patterns** | MSPA (also tiled, for maps larger than memory), SPA, Accounting, FAD and FOS fragmentation, landscape mosaic, spatial entropy, change between two dates | GuidosToolbox |
 | **Landscape metrics** | Patch, class and landscape metrics, moving windows, sample plots, time series, spatial signatures with PCA, NMF and clustering | landscapemetrics, FRAGSTATS |
 | **Connectivity** | Habitat graphs and Conefor's indices, MSPA networks, circuit theory, least-cost paths and corridors, random walks, metapopulations (Hanski's incidence function model) | Conefor, Circuitscape, Omniscape, gdistance, MetaLandSim |
-| **Conservation planning** | Zonation 5 rankings and projects, Marxan reserves, prioritizr's integer programs solved by HiGHS, irreplaceability, multi-action planning | Zonation, Marxan, prioritizr, ProxIRR, prioriactions |
-| **Restoration** | Ecological intactness, restoration plans under area targets and budgets, trade-off curves | plangea |
+| **Conservation planning** | Zonation 5 rankings and projects, Marxan reserves, optimal plans as integer linear programs solved by HiGHS, irreplaceability, multi-action planning | Zonation, Marxan, ProxIRR, Salgado-Rojas et al. (2020) |
+| **Restoration** | Ecological intactness, restoration plans under area targets and budgets, trade-off curves | Beyer et al. (2020), Strassburg et al. (2020) |
 | **Species distributions** | GBIF records, CoordinateCleaner's tests, thinning, background points, spatial folds, MaxNet, GLM and random forests, evaluation and extrapolation (MESS, MOP), dispersal through the periods of a changing climate | dismo, ENMeval, blockCV, usdm, MigClim |
 | **Agents** | Macro agents, parcel managers and CRAFTY's competition for land, in the same graph as the cellular automata | CRAFTY |
 | **Hydrology and ecosystem services** | Depressions filled and breached, flow directions and accumulation (D8, D-infinity, multiple flow), streams, HAND, watersheds, wetness indices; rivers as a network (points snapped onto it, the land upstream of each link or point, each point's catchment, distances along it, the centrality of the links, the dendritic connectivity index of dams and which to remove); InVEST's carbon, habitat quality, annual water yield and sediment delivery ratio; SWAT+ watershed simulations | WhiteboxTools, pygeoprocessing, hydrographr, riverconn, InVEST, SWAT+ |

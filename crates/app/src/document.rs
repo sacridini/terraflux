@@ -1064,7 +1064,7 @@ mod tests {
 
     #[test]
     fn data_of_one_kind_share_a_row() {
-        let d = Document::of(&template("Restoration plan (plangea)"), &Registry::standard());
+        let d = Document::of(&template("Restoration plan"), &Registry::standard());
         let data = &d.sections[0];
         let rows = data_rows(&data.steps);
         let ids: Vec<Vec<&str>> = rows.iter().map(|r| r.iter().map(|s| s.id.as_str()).collect()).collect();

@@ -113,7 +113,7 @@ specificity (the TSS) remains a sound default (Liu, White & Newell, 2013). [[sdm
   independent data (a later survey, another region) through the nodes of this part.
 - **Compare models** fitted to the same records: algorithms, settings, predictors. Use several scores at once.
 - **Thresholds** only when the use needs a binary map. Keep the continuous suitability wherever the analysis can
-  take it: prioritization ([Zonation](/tutorials/spatial-prioritization/zonation/) and [prioritizr](/tutorials/spatial-prioritization/prioritizr/)
+  take it: prioritization ([Zonation](/tutorials/spatial-prioritization/zonation/) and [linear programming](/tutorials/spatial-prioritization/linear-programming/)
   take amounts), connectivity (resistance from suitability), and any comparison of maps.
 
 What the scores are *not*: proof that the map is right. A model with a fine AUC can be biased in the same way as its

@@ -1,11 +1,11 @@
-"""Figures of 'Optimal plans with prioritizr' (spatial-prioritization/prioritizr).
+"""Figures of 'Optimal plans with linear programming' (spatial-prioritization/linear-programming).
 
 prioritize.optimize on Serra Verde: the minimum set with the protected areas locked in and the cities locked out,
 the objectives that spend a budget (max utility, min shortfall, min largest shortfall, max features, min
 extinction risk), a slider over the budget, the optimality gap, proportion decisions (the linear relaxation's
 bound) and a gap portfolio's selection frequency.
 
-    python website/figures/spatial-prioritization/prioritizr.py [locked objectives budget gaps portfolio]
+    python website/figures/spatial-prioritization/linear-programming.py [locked objectives budget gaps portfolio]
 """
 
 import time
@@ -15,7 +15,7 @@ import numpy as np
 import sp_common as sp
 from sp_common import figs, plt
 
-SLUG = "prioritizr"
+SLUG = "linear-programming"
 OUT = sp.img(SLUG)
 DAT = sp.data(SLUG)
 OPTIMUM = 37141.1          # the 30 % minimum set, proven (gap 0), thousand USD

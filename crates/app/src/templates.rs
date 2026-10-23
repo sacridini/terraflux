@@ -1053,7 +1053,7 @@ note = "Every cell's true area: on a map of longitudes and latitudes, smaller to
         name: "Ecological intactness",
         group: CONSERVATION,
         build: None,
-        about: "a human footprint drawn by chance, the ecological intactness it leaves (Beyer et al., as plangea), \
+        about: "a human footprint drawn by chance, the ecological intactness it leaves (Beyer et al., 2020), \
                 and where restoring would raise it most",
         toml: r#"
 format = "terraflux/1"
@@ -1242,15 +1242,15 @@ params = { title = "Irreplaceability (beta)" }
 "#,
     },
     Template {
-        name: "Conservation planning (prioritizr)",
+        name: "Conservation planning (linear programming)",
         group: CONSERVATION,
         build: None,
-        about: "four species and a cost: the cheapest set of cells that holds 30% of each, as prioritizr \
-                solves it (an integer program, HiGHS), and how much of each it holds",
+        about: "four species and a cost: the cheapest set of cells that holds 30% of each, solved as \
+                an integer linear program (HiGHS), and how much of each it holds",
         toml: r#"
 format = "terraflux/1"
-name = "Conservation planning (prioritizr)"
-description = "prioritizr's minimum set problem: the cheapest cells that meet every species' target, solved exactly."
+name = "Conservation planning (linear programming)"
+description = "The minimum set problem as an integer linear program: the cheapest cells that meet every species' target, solved exactly."
 
 [[nodes]]
 id = "bird"
@@ -1289,7 +1289,7 @@ id = "plan"
 op = "prioritize.optimize"
 inputs = { features = "features.stack", cost = "cost.map" }
 params = { objective = "min_set", relative_targets = 0.3, gap = 0.01 }
-note = "The cheapest cells holding 30% of each species: prioritizr's model, solved by HiGHS within 1% of the optimum. Try objective = max_features with a budget, or decisions = proportion. coverage: what each species gets."
+note = "The cheapest cells holding 30% of each species: an integer linear program, solved by HiGHS within 1% of the optimum. Try objective = max_features with a budget, or decisions = proportion. coverage: what each species gets."
 
 [[nodes]]
 id = "plot_solution"
@@ -1299,15 +1299,15 @@ params = { title = "Selected cells" }
 "#,
     },
     Template {
-        name: "Restoration plan (plangea)",
+        name: "Restoration plan",
         group: CONSERVATION,
         build: None,
         about: "a forest and its cropland drawn by chance, three species' ranges: where to restore 100 km² for \
-                the most reduction of their extinction risk, as plangea (an exact plan, a proven bound)",
+                the most reduction of their extinction risk (Strassburg et al., 2020: an exact plan, a proven bound)",
         toml: r#"
 format = "terraflux/1"
-name = "Restoration plan (plangea)"
-description = "plangea's restoration problem: the cells to restore for the most reduction of the species' extinction risk."
+name = "Restoration plan"
+description = "The restoration problem of Strassburg et al. (2020): the cells to restore for the most reduction of the species' extinction risk."
 
 [[nodes]]
 id = "field"
@@ -1339,7 +1339,7 @@ id = "vegetation"
 op = "restoration.original_vegetation"
 inputs = { land_cover = "land_cover.stack" }
 params = { natural = ["forest"], anthropic = ["crops"] }
-note = "What the converted land was before (plangea): forest here, and the share of anthropic land."
+note = "What the converted land was before (Strassburg et al., 2020): forest here, and the share of anthropic land."
 
 [[nodes]]
 id = "toucan"
@@ -1392,7 +1392,7 @@ id = "plan"
 op = "restoration.plan"
 inputs = { restorable = "vegetation.anthropic", table = "habitat.table", gain = "habitat.gain" }
 params = { target = 100, cell_area = 1.0, z_sd = 0.1 }
-note = "The share of every cell to restore, 100 km² in all, for the most reduction of the species' extinction risk (exact within 1e-7; method = steps for plangea's own). Try levels = [0.25, 0.5, 1] for a trade-off curve. summary: the risk reduction and its deviation from z's."
+note = "The share of every cell to restore, 100 km² in all, for the most reduction of the species' extinction risk (exact within 1e-7; method = steps for the stepwise procedure). Try levels = [0.25, 0.5, 1] for a trade-off curve. summary: the risk reduction and its deviation from z's."
 
 [[nodes]]
 id = "plot_plan"
@@ -1474,15 +1474,15 @@ params = { title = "Suitability (MaxNet, cloglog)" }
 "#,
     },
     Template {
-        name: "Multi-action planning (prioriactions)",
+        name: "Multi-action planning",
         group: CONSERVATION,
         build: None,
         about: "six planning units, two species and a threat: which units to monitor and where to act against \
-                the threat so that both species recover, at the least cost (prioriactions)",
+                the threat so that both species recover, at the least cost (Salgado-Rojas et al., 2020)",
         toml: r#"
 format = "terraflux/1"
-name = "Multi-action planning (prioriactions)"
-description = "prioriactions's minimizeCosts: the cheapest monitoring and actions that meet the species' recovery targets."
+name = "Multi-action planning"
+description = "The minimum cost model of multi-action planning (minimizeCosts): the cheapest monitoring and actions that meet the species' recovery targets."
 
 [[nodes]]
 id = "pu"
@@ -1518,7 +1518,7 @@ id = "plan"
 op = "prioritize.actions"
 inputs = { pu = "pu.table", features = "features.table", dist_features = "dist_features.table", threats = "threats.table", dist_threats = "dist_threats.table" }
 params = { model = "minimizeCosts" }
-note = "prioriactions's model, solved exactly. Try model = maximizeBenefits with a budget. summary: every unit's actions; benefit: what each species gets."
+note = "An integer linear program, solved exactly. Try model = maximizeBenefits with a budget. summary: every unit's actions; benefit: what each species gets."
 "#,
     },
     Template {
@@ -2198,12 +2198,12 @@ params = { title = "The corridor (3)" }
         name: "Irreplaceability of a plan",
         group: CONSERVATION,
         build: None,
-        about: "prioritizr's plan for four species evaluated (what it holds, Ferrier's irreplaceability, the \
+        about: "an optimal plan for four species evaluated (what it holds, Ferrier's irreplaceability, the \
                 rarity of its cells) and a portfolio of ten near-optimal plans",
         toml: r#"
 format = "terraflux/1"
 name = "Irreplaceability of a plan"
-description = "prioritizr's plan for four species and its evaluation: how much of each it holds, Ferrier's irreplaceability and the rarity of the cells chosen, and a portfolio of near-optimal plans."
+description = "An optimal plan for four species and its evaluation: how much of each it holds, Ferrier's irreplaceability and the rarity of the cells chosen, and a portfolio of near-optimal plans."
 
 [[nodes]]
 id = "bird"
@@ -2249,7 +2249,7 @@ id = "evaluation"
 op = "prioritize.evaluate"
 inputs = { features = "features.stack", cost = "cost.map", solution = "plan.solution" }
 params = { relative_targets = 0.3 }
-note = "prioritizr's eval_*: summary (the cost, the cells, the boundary), representation and coverage of every species, and per cell chosen its rarity-weighted richness and Ferrier's irreplaceability (ferrier: a layer per species and the total)."
+note = "The plan evaluated: summary (the cost, the cells, the boundary), representation and coverage of every species, and per cell chosen its rarity-weighted richness and Ferrier's irreplaceability (ferrier: a layer per species and the total)."
 
 [[nodes]]
 id = "portfolio"

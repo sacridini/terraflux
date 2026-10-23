@@ -1,26 +1,26 @@
 ---
-title: Optimal plans with prioritizr
-short: 4. prioritizr
-description: Conservation plans as integer programs, solved with a proof of their quality - objectives, targets and budgets, locked areas, the optimality gap and the HiGHS solver, proportion decisions and portfolios of near-optimal plans, with prioritize.optimize.
+title: Optimal plans with linear programming
+short: 4. Linear programming
+description: Conservation plans as integer linear programs, solved with a proof of their quality - objectives, targets and budgets, locked areas, the optimality gap and the HiGHS solver, proportion decisions and portfolios of near-optimal plans, with prioritize.optimize.
 order: 40
 level: intermediate
 time: 60 min
-template: Conservation planning (prioritizr)
+template: Conservation planning (linear programming)
 ops: [prioritize.optimize, prioritize.evaluate, raster.read, view.plot]
 series: Systematic conservation planning
 part: 4
 ---
 
 Marxan searched for good plans; this part finds the best one and proves it. You will write Serra Verde's planning
-problem as an integer program with [[prioritize.optimize]], the model of the R package prioritizr, solve it with the
-open-source solver HiGHS, and read what the solver tells you about the quality of its answer. Then you will change
-the question: what to do with half the money, under six different meanings of "the most"; how the existing
-protected areas and the cities change the plan; and how many other plans are almost as good. At the end you will
-know how to choose an objective, what an optimality gap is, and what to report.
+problem as an integer linear program with [[prioritize.optimize]], solve it with the open-source solver HiGHS, and
+read what the solver tells you about the quality of its answer. Then you will change the question: what to do with
+half the money, under six different meanings of "the most"; how the existing protected areas and the cities change
+the plan; and how many other plans are almost as good. At the end you will know how to choose an objective, what an
+optimality gap is, and what to report.
 
 ## The idea
 
-### Planning problems are integer programs
+### Planning problems are linear programs
 
 In the 1990s, operations researchers pointed out that reserve selection is a classic problem of their field: choose
 a set of sites, each in or out, that meets every target at the least cost (Underhill, 1994; Church, Stoms & Davis,
@@ -29,21 +29,30 @@ times numbers, with decisions that must be whole (0 or 1). For years they were t
 and heuristics such as Marxan's annealing took over (Rodrigues & Gaston, 2002). Solvers then became thousands of
 times faster. Beyer et al. (2016) showed that commercial and open-source solvers find **optimal** plans for
 realistic problems in seconds to minutes, and Schuster et al. (2020) that they beat simulated annealing in both
-cost and time. prioritizr, the R package of Hanson et al. (2025), made the approach the standard: a problem is built
-from parts (an objective, targets, decisions, penalties, constraints) and handed to a solver.
+cost and time. Hanson et al. (2025) describe the approach as it is used today: a problem is built from parts (an
+objective, targets, decisions, penalties, constraints) and handed to a solver.
 
-!!! science "Key idea: the minimum set as an integer program"
+A **linear program** has three ingredients: **decisions** (numbers the solver chooses, here how much of each planning
+unit to protect), an **objective** (a sum of the decisions times fixed numbers, such as their costs, to make as small
+or as large as possible) and **constraints** (more such sums that must stay above or below given values, such as
+the amount of each species held). When the decisions may take any value, the problem is easy: the simplex method
+solves it exactly, even with millions of decisions. When they must be whole, 0 (out) or 1 (in), it becomes an
+**integer** linear program, much harder, solved by the branch and bound described below. Everything in this part
+(objectives, targets, budgets, locked areas) is a way of writing the objective or the constraints.
+
+!!! science "Key idea: the minimum set as an integer linear program"
     With \(x_i \in \{0, 1\}\) the decision for planning unit \(i\), \(c_i\) its cost, \(r_{ij}\) the amount of feature
     \(j\) in it and \(T_j\) the target of feature \(j\):
 
     \[ \min \sum_i c_i x_i \quad \text{subject to} \quad \sum_i r_{ij} x_i \geq T_j \;\; \text{for every feature } j \]
 
-    One variable per planning unit, one row per target. Every other objective of prioritizr changes the sum that is
+    One variable per planning unit, one row per target. Every other objective below changes the sum that is
     minimised or maximised and adds a budget, \(\sum_i c_i x_i \leq B\).
 
-[[prioritize.optimize]] builds exactly the model prioritizr 8 compiles, row by row, and solves it with **HiGHS**
-(Huangfu & Hall, 2018), the open-source solver that prioritizr also supports, with landschaft's own engines in front
-of it for the problems general solvers find slow.
+[[prioritize.optimize]] builds this model row by row and solves it with **HiGHS** (Huangfu & Hall, 2018), an
+open-source solver of linear and integer programs, with landschaft's own engines in front of it for the problems
+general solvers find slow. Its formulations of the objectives, penalties and constraints took the R package of
+Hanson et al. (2025) as their reference, and its results were checked against it.
 
 ### Bounds, gaps and proofs
 
@@ -53,7 +62,7 @@ units allowed (the *linear relaxation*, fast to solve exactly), whose cost is a 
 plan found. The relative difference between the best plan found and the best bound is the **optimality gap**: a gap of
 1 % is a proof that no plan is more than 1 % cheaper.
 
-![The bound, the optimum and a plan found with a loose gap.](/img/tutorials/spatial-prioritization/prioritizr/bound.png "The 30 % minimum set of Serra Verde. With fractions of cells allowed (decisions = proportion) the cheapest solution costs 37.115 million USD: no plan of whole cells can cost less. The proven optimum (gap 0) is 37.141. Asked for a gap of 10 %, the solver stops at a plan of 37.196, which it proves within 0.22 % of the bound.")
+![The bound, the optimum and a plan found with a loose gap.](/img/tutorials/spatial-prioritization/linear-programming/bound.png "The 30 % minimum set of Serra Verde. With fractions of cells allowed (decisions = proportion) the cheapest solution costs 37.115 million USD: no plan of whole cells can cost less. The proven optimum (gap 0) is 37.141. Asked for a gap of 10 %, the solver stops at a plan of 37.196, which it proves within 0.22 % of the bound.")
 
 The gap you ask for is when the solver may **stop**; the gap it reports is how far its plan **is** at most from the
 best. Marxan reports neither.
@@ -77,7 +86,7 @@ than protection matter, use [multi-action planning](../multi-action-planning/).
   previous parts: [serra-verde.zip](/data/tutorials/spatial-prioritization/systematic-conservation-planning/serra-verde.zip).
 - Optionally maps of units to lock in (existing reserves) or out (cities), tables of targets, polygons as planning
   units ([part 5](../spatial-design/)).
-- The template **Templates ▸ Conservation and restoration ▸ Conservation planning (prioritizr)**: the minimum set on
+- The template **Templates ▸ Conservation and restoration ▸ Conservation planning (linear programming)**: the minimum set on
   four features drawn by chance.
 
 ## Build the model
@@ -143,7 +152,7 @@ from = "plan.coverage"
       target);
     - `decisions`: `binary` (in or out, the default), `proportion` (any share of a unit) or `semicontinuous` (up to
       `upper_limit`);
-    - `gap` (0.1 by default, as in prioritizr) and `time_limit` in seconds.
+    - `gap` (0.1 by default) and `time_limit` in seconds.
 4. **Outputs**: `solution` (a map: 1 selected, 0 not), `selection` (a table per unit), `summary` (the objective,
    cost, units selected, the gap reached and whether the solve was optimal), and `coverage` (per target: the amount
    held, the target, the total and whether it is met).
@@ -151,7 +160,7 @@ from = "plan.coverage"
 </div>
 
 !!! app "In the application"
-    **Templates ▸ Conservation and restoration ▸ Conservation planning (prioritizr)** has the node ready; replace
+    **Templates ▸ Conservation and restoration ▸ Conservation planning (linear programming)** has the node ready; replace
     its random maps with [[raster.read]] nodes of yours. Connect the locked areas' `map` ports to `locked_in` and
     `locked_out`, select `plan` and press ++ctrl+enter++. Under the canvas, the `summary` table says how the solve
     ended: read it before the map.
@@ -161,7 +170,7 @@ From the command line, `terraflux run plan.toml --out output` writes `output/sum
 
 ### Read the plan
 
-![The plan with the protected areas locked in and the cities locked out.](/img/tutorials/spatial-prioritization/prioritizr/locked.png "The minimum set for 30 % of every feature with the three protected areas (purple) in the plan and the three cities (pink) out of it: 889 cells, of which 175 are the protected areas, for 44.0 million USD, within 0.003 % of the optimum.")
+![The plan with the protected areas locked in and the cities locked out.](/img/tutorials/spatial-prioritization/linear-programming/locked.png "The minimum set for 30 % of every feature with the three protected areas (purple) in the plan and the three cities (pink) out of it: 889 cells, of which 175 are the protected areas, for 44.0 million USD, within 0.003 % of the optimum.")
 
 The `summary`: 889 cells, a cost of 44.0 million USD, a gap of 0.003 %, `optimal` 1. Without the locks the plan
 costs 37.1 million (part 1). The protected areas cost 10.6 million and hold little of what the targets ask: 4 % of
@@ -189,11 +198,11 @@ With a fixed budget, the solver needs to know what "doing the most" means. Six o
 `max_phylo_div` and `max_phylo_end` add a phylogeny (`tree`, in Newick) and value evolutionary history (Faith's
 phylogenetic diversity) rather than species.
 
-![The plans of six objectives with the same budget.](/img/tutorials/spatial-prioritization/prioritizr/objectives.png "Six objectives, one budget of 18.6 million USD. Max utility buys the cheap western mountains; weighted by the inverse of each feature's total, it buys the coast and the tamarin's fragment instead. The shortfall objectives, max features and min extinction risk spread the money between the mountains, the rivers, the coast and the fragments.")
+![The plans of six objectives with the same budget.](/img/tutorials/spatial-prioritization/linear-programming/objectives.png "Six objectives, one budget of 18.6 million USD. Max utility buys the cheap western mountains; weighted by the inverse of each feature's total, it buys the coast and the tamarin's fragment instead. The shortfall objectives, max features and min extinction risk spread the money between the mountains, the rivers, the coast and the fragments.")
 
 ```tfchart
 type: bar
-data: /data/tutorials/spatial-prioritization/prioritizr/objectives-by-feature.csv
+data: /data/tutorials/spatial-prioritization/linear-programming/objectives-by-feature.csv
 x: feature
 y: [Max utility, "Max utility, weighted", Min shortfall, Min largest shortfall, Max features, Min extinction risk]
 colors: { "Max utility": "#e8901f", "Max utility, weighted": "#b4508a", "Min shortfall": "#2e7d4f", "Min largest shortfall": "#2f6f9f", "Max features": "#785ef0", "Min extinction risk": "#1c2420" }
@@ -235,18 +244,18 @@ of its target:
 label: Budget (million USD)
 caption: "The minimum shortfall plan for every budget. The first millions go to the tamarin and the mangrove, whose targets are small and on cheap enough land; then the otter's rivers and the mountain features; the jaguar and the tapir, widespread and partly on dear land, come last. At 40 million every target is met (the minimum set costs 37.1)."
 frames:
-  - { value: 5, src: /img/tutorials/spatial-prioritization/prioritizr/budget_5.png, stats: { "Targets met": "0 of 8", "Mean, % of target": "32 %", "Worst off": "tapir, 2 %" } }
-  - { value: 10, src: /img/tutorials/spatial-prioritization/prioritizr/budget_10.png, stats: { "Targets met": "1 of 8", "Mean, % of target": "55 %", "Worst off": "tapir, 6 %" } }
-  - { value: 15, src: /img/tutorials/spatial-prioritization/prioritizr/budget_15.png, stats: { "Targets met": "4 of 8", "Mean, % of target": "73 %", "Worst off": "tapir, 12 %" } }
-  - { value: 20, src: /img/tutorials/spatial-prioritization/prioritizr/budget_20.png, stats: { "Targets met": "5 of 8", "Mean, % of target": "83 %", "Worst off": "tapir, 30 %" } }
-  - { value: 25, src: /img/tutorials/spatial-prioritization/prioritizr/budget_25.png, stats: { "Targets met": "5 of 8", "Mean, % of target": "89 %", "Worst off": "tapir, 61 %" } }
-  - { value: 30, src: /img/tutorials/spatial-prioritization/prioritizr/budget_30.png, stats: { "Targets met": "6 of 8", "Mean, % of target": "95 %", "Worst off": "jaguar, 77 %" } }
-  - { value: 35, src: /img/tutorials/spatial-prioritization/prioritizr/budget_35.png, stats: { "Targets met": "7 of 8", "Mean, % of target": "99 %", "Worst off": "jaguar, 92 %" } }
-  - { value: 40, src: /img/tutorials/spatial-prioritization/prioritizr/budget_40.png, stats: { "Targets met": "8 of 8", "Mean, % of target": "100 %", "Worst off": "none" } }
+  - { value: 5, src: /img/tutorials/spatial-prioritization/linear-programming/budget_5.png, stats: { "Targets met": "0 of 8", "Mean, % of target": "32 %", "Worst off": "tapir, 2 %" } }
+  - { value: 10, src: /img/tutorials/spatial-prioritization/linear-programming/budget_10.png, stats: { "Targets met": "1 of 8", "Mean, % of target": "55 %", "Worst off": "tapir, 6 %" } }
+  - { value: 15, src: /img/tutorials/spatial-prioritization/linear-programming/budget_15.png, stats: { "Targets met": "4 of 8", "Mean, % of target": "73 %", "Worst off": "tapir, 12 %" } }
+  - { value: 20, src: /img/tutorials/spatial-prioritization/linear-programming/budget_20.png, stats: { "Targets met": "5 of 8", "Mean, % of target": "83 %", "Worst off": "tapir, 30 %" } }
+  - { value: 25, src: /img/tutorials/spatial-prioritization/linear-programming/budget_25.png, stats: { "Targets met": "5 of 8", "Mean, % of target": "89 %", "Worst off": "tapir, 61 %" } }
+  - { value: 30, src: /img/tutorials/spatial-prioritization/linear-programming/budget_30.png, stats: { "Targets met": "6 of 8", "Mean, % of target": "95 %", "Worst off": "jaguar, 77 %" } }
+  - { value: 35, src: /img/tutorials/spatial-prioritization/linear-programming/budget_35.png, stats: { "Targets met": "7 of 8", "Mean, % of target": "99 %", "Worst off": "jaguar, 92 %" } }
+  - { value: 40, src: /img/tutorials/spatial-prioritization/linear-programming/budget_40.png, stats: { "Targets met": "8 of 8", "Mean, % of target": "100 %", "Worst off": "none" } }
 start: 3
 chart:
   type: line
-  data: /data/tutorials/spatial-prioritization/prioritizr/budget.csv
+  data: /data/tutorials/spatial-prioritization/linear-programming/budget.csv
   x: budget
   y: [Jaguar, Tapir, Harpy eagle, Maned wolf, Tamarin, Otter, Araucaria, Mangrove]
   colors: { Jaguar: "#0072b2", Tapir: "#e69f00", "Harpy eagle": "#009e73", "Maned wolf": "#cc79a7", Tamarin: "#56b4e9", Otter: "#d55e00", Araucaria: "#f0e442", Mangrove: "#785ef0" }
@@ -276,8 +285,8 @@ exists. Check the features' totals and the locked areas before raising targets.
 ### Reporting a plan
 
 In the methods: the planning units, features and their data, the cost and its units, the targets (and why those),
-the objective, the decisions, locked areas, the solver (HiGHS, through Terraflux's prioritizr model) and the gap
-asked. In the results: the cost, the number and area of the units, the gap proved, the coverage of every target, and
+the objective, the decisions, locked areas, the solver (HiGHS, through Terraflux's [[prioritize.optimize]]) and the
+gap asked. In the results: the cost, the number and area of the units, the gap proved, the coverage of every target, and
 the map. A sentence such as "the plan costs 44.0 million USD, within 0.003 % of the cheapest possible" is something
 Marxan's results cannot say. [Part 6](../evaluating-plans/) adds the importance of each place and a checklist.
 
@@ -308,7 +317,7 @@ goes to the closure engine. A minimum set of 49 species with a boundary penalty 
 this way, where HiGHS's MIP alone takes the better part of an hour.
 
 Where **Gurobi** is installed with a licence (academic licences are free), `solver = "gurobi"` solves the model
-with it instead, as prioritizr's `add_gurobi_solver` does, and `threads` sets how many threads it uses (every core
+with it instead, and `threads` sets how many threads it uses (every core
 but one by default). Terraflux needs nothing of Gurobi to run: it finds Gurobi's library when a node asks for it,
 by `GUROBI_HOME` (which Gurobi's installer sets), the usual folders of an installation, or `TERRAFLUX_GUROBI` (the
 library's file). When it cannot find the library or the licence, the node is solved by HiGHS and its warning says
@@ -324,7 +333,7 @@ on the ground, but proportions are right when units are large and partly protect
 easement), and they solve fast: here the relaxation is the bound of the figure above, and only 5 cells come out
 fractional. `semicontinuous` with `upper_limit` caps the share of every unit (no more than 50 % of any farm).
 
-![The plan with proportion decisions.](/img/tutorials/spatial-prioritization/prioritizr/proportion.png "With proportion decisions, the 30 % minimum set takes 809 cells whole and five in part (the shares between 0 and 1), for 37.115 million USD.")
+![The plan with proportion decisions.](/img/tutorials/spatial-prioritization/linear-programming/proportion.png "With proportion decisions, the 30 % minimum set takes 809 cells whole and five in part (the shares between 0 and 1), for 37.115 million USD.")
 
 ### Alternatives: portfolios
 
@@ -341,7 +350,7 @@ The optimum is rarely the only good plan, and stakeholders may reject a place fo
 Its `solutions` output is a stack of the plans, `frequency` the share of the plans selecting each unit, and the
 `summary` has a row per plan.
 
-![Twenty plans within 2 % of the optimum.](/img/tutorials/spatial-prioritization/prioritizr/portfolio.png "A gap portfolio of 20 plans within 2 % of the optimum (pool_gap = 0.02): 794 cells are in all of them; 20 cells (orange) swap in and out, two at a time, in the river valleys and on the edges of the mountain blocks. The plans cost from 37.196 to 37.203 million USD.")
+![Twenty plans within 2 % of the optimum.](/img/tutorials/spatial-prioritization/linear-programming/portfolio.png "A gap portfolio of 20 plans within 2 % of the optimum (pool_gap = 0.02): 794 cells are in all of them; 20 cells (orange) swap in and out, two at a time, in the river valleys and on the edges of the mountain blocks. The plans cost from 37.196 to 37.203 million USD.")
 
 Here the plans near the optimum are almost the same: each differs from the first by swapping two cells. That is
 information too: the 30 % targets leave little freedom where they are cheapest, and the places that matter (the
@@ -352,7 +361,7 @@ the solver. [Part 6](../evaluating-plans/) measures each place's importance dire
 ## Common pitfalls
 
 - **Not reading the `summary`.** A plan with `optimal = 0` may be far from the best, or the problem infeasible.
-- **The default gap in a final plan.** It is 10 %, as in prioritizr; the plan is usually much closer, but only a
+- **The default gap in a final plan.** It is 10 %; the plan is usually much closer, but only a
   small gap proves it. Report the gap proved.
 - **Max utility without weights,** which abandons the rare features. Weight them, or use targets.
 - **Zero instead of no value in the cost.** A cell with cost 0 is a free planning unit, which every objective will

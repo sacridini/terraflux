@@ -55,7 +55,7 @@ Vector data comes into a landscape study in four ways, and Terraflux has one ope
 | How far is every cell from the features? | [[vector.distance]] | the distance to roads or rivers, a driver of deforestation |
 
 Many methods also take vectors directly: landscape metrics of sample plots (`metrics.sample`), planning units of
-polygons for prioritizr (`prioritize.optimize`), occurrence records for species distribution models. For
+polygons for spatial prioritization (`prioritize.optimize`), occurrence records for species distribution models. For
 anything that varies continuously across the area, use rasters: see [Your first raster](../first-raster/).
 
 ## What you need

@@ -1,6 +1,6 @@
 format = "terraflux/1"
-name = "Conservation planning (prioritizr)"
-description = "prioritizr's minimum set problem: the cheapest cells that meet every species' target, solved exactly."
+name = "Conservation planning (linear programming)"
+description = "The minimum set problem as an integer linear program: the cheapest cells that meet every species' target, solved exactly."
 
 [[nodes]]
 id = "bird"
@@ -39,7 +39,7 @@ id = "plan"
 op = "prioritize.optimize"
 inputs = { features = "features.stack", cost = "cost.map" }
 params = { objective = "min_set", relative_targets = 0.3, gap = 0.01 }
-note = "The cheapest cells holding 30% of each species: prioritizr's model, solved by HiGHS within 1% of the optimum. Try objective = max_features with a budget, or decisions = proportion. coverage: what each species gets."
+note = "The cheapest cells holding 30% of each species: an integer linear program, solved by HiGHS within 1% of the optimum. Try objective = max_features with a budget, or decisions = proportion. coverage: what each species gets."
 
 [[nodes]]
 id = "plot_solution"

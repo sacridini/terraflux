@@ -874,7 +874,7 @@ PARITY = [
     ("Circuitscape and Omniscape", "Current flow through resistance", "McRae et al. 2008"),
     ("gdistance", "Least-cost and random-walk distances", "van Etten 2017"),
     ("Zonation 5", "Priority ranking of a landscape", "Moilanen et al. 2022"),
-    ("Marxan and prioritizr", "Reserve selection, integer programming", "Ball et al. 2009; Hanson et al. 2025"),
+    ("Marxan", "Reserve selection by simulated annealing", "Ball et al. 2009"),
     ("InVEST", "Carbon, habitat quality, water yield and sediment", "Nelson et al. 2009"),
     ("MaxNet and ENMeval", "Species distribution models", "Phillips et al. 2017"),
     ("Biodiverse", "Endemism and phylogenetic diversity", "Laffan et al. 2010"),

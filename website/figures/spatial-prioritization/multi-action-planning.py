@@ -2,7 +2,7 @@
 
 prioritize.actions_raster on Serra Verde: its two threats (deforestation and fire), the cheapest monitoring and
 actions for recovery and conservation targets (minimizeCosts), the most benefit within budgets (maximizeBenefits, a
-slider), a sensitivity table, the response curve, and the small problem of the template as prioriactions' tables
+slider), a sensitivity table, the response curve, and the small problem of the template in tables
 (prioritize.actions).
 
     python website/figures/spatial-prioritization/multi-action-planning.py [threats base budgets sensitivity curves tables]
@@ -129,7 +129,7 @@ def curves():
 
 def tables():
     w = sp.work(SLUG, "tables")
-    model = figs.template("multi-action-planning-prioriactions")
+    model = figs.template("multi-action-planning")
     model += '''
 [outputs.summary]
 from = "plan.summary"

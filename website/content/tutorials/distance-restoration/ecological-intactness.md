@@ -33,8 +33,8 @@ at 1 km for 1993 and 2009, freely available.
 A cell can be free of pressure and still be degraded by what surrounds it: a patch of forest in the middle of a
 city is not intact. Beyer et al. (2020) defined the **ecological intactness** of a cell from the quality of the
 cell *and* of its neighbourhood, and used it to show how much intactness the world's ecoregions have lost.
-Strassburg et al. (2020) used the same measure as one of the benefits of their global restoration plan, in the
-software plangea, which Terraflux follows.
+Strassburg et al. (2020) used the same measure as one of the benefits of their global restoration plan, and
+Terraflux computes it as they did.
 
 ![The quality of habitat against the human footprint: it falls to 0.2 at a footprint of 4](/img/tutorials/distance-restoration/ecological-intactness/quality.png "The quality q = exp(-γh) of a cell with footprint h (green), with γ chosen so that a footprint of 4, a pasture's, leaves a fifth of the quality. Dashed: q to the power z = 0.5, the term each cell contributes to a pair.")
 
@@ -243,7 +243,7 @@ start: 2
 
 The mean barely changes, but the priorities do: with a radius of 8 cells only 59 of the 100 cells where restoring
 helps most are the same as with 3. Choose the radius from the distance over which pressure degrades habitat for
-the species you care about, and say which you used; plangea's default is 3 cells.
+the species you care about, and say which you used; Strassburg et al. (2020) used 3 cells.
 
 The other parameters matter too. `gamma` sets how fast quality falls with the footprint (a larger value makes a
 pasture more damaging), `beta` how fast the neighbours' weight falls with distance (closer to 0 makes the far

@@ -1,4 +1,4 @@
-"""Figures of tutorials/distance-restoration/original-vegetation-and-habitat: plangea's original vegetation of
+"""Figures of tutorials/distance-restoration/original-vegetation-and-habitat: the original vegetation of
 converted land and the area of habitat of eight species in Serra Verde."""
 
 import numpy as np

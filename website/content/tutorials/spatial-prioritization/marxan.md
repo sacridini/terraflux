@@ -70,7 +70,7 @@ Each **run** starts from a different random plan and ends in a different good pl
 plans. Units chosen in every run are hard to do without; units chosen in a few are interchangeable.
 
 Annealing gives good plans fast, but it cannot say how good: it never proves that a better plan does not exist.
-The [next part](../prioritizr/) solves the same problem exactly and measures how far Marxan's plans are from the
+The [next part](../linear-programming/) solves the same problem exactly and measures how far Marxan's plans are from the
 best one.
 
 ### Irreplaceability
@@ -106,7 +106,7 @@ the settings and the runs. Baisero, Schuster & Plumptre (2022) proposed a fast, 
   the globe (Baisero et al., 2022, mapped it worldwide).
 
 When you need *the* cheapest plan, a proof of how close a plan is to it, or hard rules (budgets, contiguity, locked
-areas as rules), use [prioritizr](../prioritizr/): Schuster et al. (2020) found exact solvers faster and better than
+areas as rules), use [linear programming](../linear-programming/): Schuster et al. (2020) found exact solvers faster and better than
 simulated annealing on the same problems. When targets are not yet agreed, [Zonation](../zonation/)'s ranking
 explores all of them at once.
 
@@ -278,7 +278,7 @@ How to read them:
   cells chosen in some runs are where negotiation can happen; cells never chosen are not needed for these targets.
   It is not a probability or a ranking: with other settings or more runs the shares change.
 - **All runs are above the optimum.** The ten runs without a boundary cost from 41.6 to 42.0 million USD; the
-  cheapest plan that meets the same targets costs 37.1 million (proven in [part 4](../prioritizr/)), 12 % less.
+  cheapest plan that meets the same targets costs 37.1 million (proven in [part 4](../linear-programming/)), 12 % less.
 
 ```tfchart
 type: bar
@@ -436,7 +436,7 @@ inputs = { value = "irreplaceability.beta" }
 
 ## Going further
 
-- Part 4, [Optimal plans with prioritizr](../prioritizr/): the same minimum set solved exactly, with a proof of
+- Part 4, [Optimal plans with linear programming](../linear-programming/): the same minimum set solved exactly, with a proof of
   how close the plan is to the best.
 - Part 5, [Compact and connected plans, and zones](../spatial-design/): boundary penalties in an exact solver.
 - Part 6, [Evaluating, comparing and reporting plans](../evaluating-plans/): calibration with the knee and TOPSIS,

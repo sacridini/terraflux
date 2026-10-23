@@ -10,7 +10,7 @@ series: Systematic conservation planning
 part: 5
 ---
 
-The plans of [part 4](../prioritizr/) meet every target at the least cost, and nothing else. Nothing tells the solver
+The plans of [part 4](../linear-programming/) meet every target at the least cost, and nothing else. Nothing tells the solver
 that two neighbouring cells are worth more than two cells far apart, so the plans come in 30 pieces, some of them a
 single square kilometre. In this part you will give plans a shape: compact with a **boundary penalty** (and calibrate
 it with a dashboard), free of isolated cells with **neighbour constraints**, in one piece with **contiguity**, and
@@ -66,7 +66,7 @@ resolutions (resolution 7 cells cover about 5 km², resolution 6 about 36 km²).
 map with them; [[prioritize.optimize]] takes any polygons as units and sums every feature over each one exactly.
 
 **Management zones** let each unit take one of several uses, each with its own cost and its own value for the
-features (Watts et al., 2009, Marxan with Zones; Hanson et al., 2025, prioritizr's zones). A feature may count fully
+features (Watts et al., 2009, Marxan with Zones; Hanson et al., 2025). A feature may count fully
 under strict protection, half under sustainable use; the use zone may cost less, since some income continues. The
 plan decides, for every unit, which zone (or none).
 
@@ -215,7 +215,7 @@ params = { objective = "min_set", relative_targets = 0.2, connectivity_penalty =
 [[prioritize.connectivity_matrix]] gives every pair of adjacent units the length of their shared boundary times the
 mean of `y` in the two: here the tapir's habitat suitability, so the links run along its rivers. Its `table` (`i`,
 `j`, `x`) goes to the `connectivity_data` input, and `connectivity_penalty` weighs it. A positive value **rewards**
-selecting linked pairs together (prioritizr's sign convention), unlike the boundary penalty, which punishes the
+selecting linked pairs together, unlike the boundary penalty, which punishes the
 outline. For one-way links, `asym_connectivity_data` and `asym_connectivity_penalty`.
 
 ### Hexagons
@@ -443,7 +443,7 @@ how much of the targets may be met by land that is used.
 - **Contiguity on a large problem** without a time limit: it may run for hours. Set `time_limit`, read the gap, and
   try coarser units.
 - **Zone layers named differently** in `zone_costs`, `contribution` and `manual_targets`: the names tie them together.
-- **Comparing boundaries computed with different edge factors**: Marxan's maps use 1 by default, prioritizr's 0.5.
+- **Comparing boundaries computed with different edge factors**: Marxan's maps use 1 by default, Terraflux's 0.5.
 
 ## Going further
 

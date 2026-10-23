@@ -1,11 +1,11 @@
 ---
 title: A restoration plan
 short: Restoration plan
-description: Decide how much of every converted cell to restore for the most reduction of the species' extinction risk, with plangea's model in restoration.plan - area targets, budgets and the cheapest plan for a benefit, the exact method against plangea's steps, a priority gradient and the uncertainty of z.
+description: Decide how much of every converted cell to restore for the most reduction of the species' extinction risk, with the model of Strassburg et al. (2020) in restoration.plan - area targets, budgets and the cheapest plan for a benefit, the exact method against the stepwise procedure, a priority gradient and the uncertainty of z.
 order: 50
 level: advanced
 time: 60 min
-template: Restoration plan (plangea)
+template: Restoration plan
 ops: [restoration.plan, restoration.original_vegetation, sdm.area_of_habitat, raster.read, map.calc, stack.of]
 series: Distance and restoration
 part: 5
@@ -16,7 +16,7 @@ In this part you will answer with [[restoration.plan]], the model behind the glo
 Strassburg et al. (2020): it decides how much of every converted cell to restore so that the species' **risk of
 extinction** falls the most. You will build the plan on the original vegetation and the area of habitat of the
 [previous part](../original-vegetation-and-habitat/), see why it goes almost entirely to two species, move the area
-target with a dashboard, compare the exact solution with plangea's own stepwise procedure and with restoring
+target with a dashboard, compare the exact solution with Strassburg et al.'s stepwise procedure and with restoring
 everywhere alike, plan with a budget, map where to begin, and report the uncertainty that the species-area exponent
 brings.
 
@@ -28,8 +28,8 @@ Restoration is expensive and slow, and the same hectare restored can be worth a 
 where it is. Strassburg et al. (2019) showed for Brazil's Atlantic Forest that choosing the places carefully could
 triple the conservation gains of a restoration programme and halve its costs, compared with restoring without a plan.
 Strassburg et al. (2020) applied the same model to the world's converted land and mapped global priorities for
-restoration, for biodiversity, climate and costs together, with the software **plangea**. [[restoration.plan]] is that
-model.
+restoration, for biodiversity, climate and costs together. [[restoration.plan]] is that model; its implementation
+took the authors' code as its reference, and its results were checked against it.
 
 Its decision is **a share of every cell**: from 0 to the share of the cell that is converted (pasture and cropland,
 the `restorable` map of [[restoration.original_vegetation]]). Its benefits are sums over the species (this part) and
@@ -60,12 +60,13 @@ their potential and the curve flattens.
 
 ### Exact and stepwise
 
-plangea solves the problem in **steps**: it ranks the cells by their benefit per km², restores the best ones up to a
-part of the target, recomputes the benefits (which have fallen for the species just helped), and repeats. It works
-well, but gives no guarantee, and its answer depends on the number of steps. Terraflux's default, `method = "exact"`,
-solves the same problem to optimality, by a sequence of linear programs that also give an upper **bound** on the best
-possible benefit; it stops when the plan and the bound agree within a tolerance (`tolerance`, 1e-7). `method =
-"uniform"` restores every cell by the same share of its converted land: the baseline of "restoring everywhere alike".
+Strassburg et al. (2020) solve the problem in **steps**: they rank the cells by their benefit per km², restore the
+best ones up to a part of the target, recompute the benefits (which have fallen for the species just helped), and
+repeat. It works well, but gives no guarantee, and its answer depends on the number of steps. Terraflux's default,
+`method = "exact"`, solves the same problem to optimality, by a sequence of linear programs that also give an upper
+**bound** on the best possible benefit; it stops when the plan and the bound agree within a tolerance (`tolerance`,
+1e-7). `method = "uniform"` restores every cell by the same share of its converted land: the baseline of "restoring
+everywhere alike".
 
 ## When to use it
 
@@ -78,7 +79,7 @@ possible benefit; it stops when the plan and the bound agree within a tolerance 
 - **Priority gradients**: where to start, and where to go next as the target grows.
 
 It is *not* for restoring connectivity between particular patches (corridors: [part 2](../costs-and-corridors/)),
-nor for choosing whole planning units against targets ([spatial prioritization](/tutorials/spatial-prioritization/prioritizr/)).
+nor for choosing whole planning units against targets ([spatial prioritization](/tutorials/spatial-prioritization/linear-programming/)).
 It assumes that restored land becomes habitat (the `restoration_discount` setting relaxes it), and that the
 species-area relationship describes extinction risk: a coarse model, best used to compare plans.
 
@@ -94,7 +95,7 @@ From [part 4](../original-vegetation-and-habitat/), for Serra Verde (60 × 90 ce
 
 Optionally a `cost` map (thousand USD per km² restored), `regions` for targets per region, `linear` benefits (carbon)
 and the human footprint for intactness (part 6). The template **Templates ▸ Conservation and restoration ▸
-Restoration plan (plangea)** builds the whole chain on maps drawn by chance: a forest, its cropland, three species'
+Restoration plan** builds the whole chain on maps drawn by chance: a forest, its cropland, three species'
 ranges, their area of habitat, and a plan of 100 km².
 
 ## Build the model
@@ -144,7 +145,7 @@ params = { title = "Share of each cell restored" }
       the restorable area;
     - `z`: the species-area exponent (0.25, one number or one per species); `z_sd` its standard deviation, for the
       uncertainty of the result; `weight` the weight of the risk benefit;
-    - `method`: `exact` (the default), `steps` (plangea's, with `steps` parts) or `uniform`;
+    - `method`: `exact` (the default), `steps` (the stepwise procedure, with `steps` parts) or `uniform`;
     - with a `cost` map: `budget` (the most the plan may cost) or `min_benefit` (the cheapest plan reaching it);
     - `levels`: a trade-off curve and a priority gradient (below);
     - `restoration_discount`: the share of habitat value restored land does not deliver (0; for young or degraded
@@ -157,7 +158,7 @@ params = { title = "Share of each cell restored" }
 </div>
 
 !!! app "In the application"
-    **Templates ▸ Conservation and restoration ▸ Restoration plan (plangea)** has the whole chain on maps drawn by
+    **Templates ▸ Conservation and restoration ▸ Restoration plan** has the whole chain on maps drawn by
     chance. Select `plan`, set `target` in the Node pane and press ++ctrl+enter++: the map of shares restored opens
     in a tab; click the `species` port to see each species' risk before and after.
 
@@ -209,7 +210,7 @@ with its uncertainty, the change of every species' risk, and the map of shares r
 
 ```tfslider
 label: Area restored (km²)
-caption: "The plan for every target from 25 to 600 km². The first 25 km² go to the tamarin's fragments and the mangrove coast; then the otter's rivers; from 150 km² the tapir's and the jaguar's forests along the rivers. Beyond about 400 km² the plan stops growing: every converted cell left gives habitat to no species at risk, and the target is a ceiling (sense <=), not an obligation. In the chart, the exact plan and plangea's steps overlap (toggle one off to see the other); restoring the same share everywhere avoids far less."
+caption: "The plan for every target from 25 to 600 km². The first 25 km² go to the tamarin's fragments and the mangrove coast; then the otter's rivers; from 150 km² the tapir's and the jaguar's forests along the rivers. Beyond about 400 km² the plan stops growing: every converted cell left gives habitat to no species at risk, and the target is a ceiling (sense <=), not an obligation. In the chart, the exact plan and the stepwise procedure overlap (toggle one off to see the other); restoring the same share everywhere avoids far less."
 frames:
   - { value: 25, src: /img/tutorials/distance-restoration/restoration-plan/target_25.png, stats: { "Risk avoided": "0.097", "Cells restored": "65" } }
   - { value: 50, src: /img/tutorials/distance-restoration/restoration-plan/target_50.png, stats: { "Risk avoided": "0.175", "Cells restored": "122" } }
@@ -225,7 +226,7 @@ chart:
   data: /data/tutorials/distance-restoration/restoration-plan/target.csv
   x: target
   y: [exact, steps, uniform]
-  labels: { exact: "Exact plan", steps: "plangea's steps (10)", uniform: "Same share everywhere" }
+  labels: { exact: "Exact plan", steps: "Stepwise (10 steps)", uniform: "Same share everywhere" }
   colors: { exact: "#3b8a5a", steps: "#e8901f", uniform: "#8a6d2f" }
   xlabel: Area restored (km²)
   ylabel: Risk avoided
@@ -240,16 +241,16 @@ how much each further km² (and each further million) buys.
 
 ```tfgallery
 columns: 3
-caption: "Three plans of 100 km² (the same colour scale, 0 to 1 of the cell restored). Exact: 0.257 of risk avoided, proven optimal. plangea's steps (10 of 10 km²): 0.257, within 0.1 % of it here, with no bound. The same share everywhere: 0.045, a sixth; every converted cell restored by 11 % of its converted land."
+caption: "Three plans of 100 km² (the same colour scale, 0 to 1 of the cell restored). Exact: 0.257 of risk avoided, proven optimal. Stepwise (10 steps of 10 km²): 0.257, within 0.1 % of it here, with no bound. The same share everywhere: 0.045, a sixth; every converted cell restored by 11 % of its converted land."
 images:
   - { src: /img/tutorials/distance-restoration/restoration-plan/method_exact.png, caption: "Exact" }
-  - { src: /img/tutorials/distance-restoration/restoration-plan/method_steps.png, caption: "plangea's steps" }
+  - { src: /img/tutorials/distance-restoration/restoration-plan/method_steps.png, caption: "Stepwise" }
   - { src: /img/tutorials/distance-restoration/restoration-plan/method_uniform.png, caption: "Uniform" }
 ```
 
 ![The uniform plan on its own scale.](/img/tutorials/distance-restoration/restoration-plan/method_uniform_scaled.png "The uniform plan of 100 km² on a scale of 0 to 0.12: every converted cell restored by 11 % of its converted land, most where it is most converted, around the cities and along the highway, where few species at risk live.")
 
-On Serra Verde, plangea's stepwise procedure comes within 0.1 % of the optimum at every target: with one benefit and
+On Serra Verde, the stepwise procedure comes within 0.1 % of the optimum at every target: with one benefit and
 smooth curves, a greedy method does well. The exact method's value is the proof (the bound), and its behaviour with
 several benefits, budgets and regional targets, where steps can go astray. Restoring everywhere alike avoids almost
 six times less risk for the same area: most of Serra Verde's converted land gives habitat to species that have lost
@@ -319,7 +320,7 @@ Report the benefit with its uncertainty; compare plans on the same z.
 - [Several benefits and trade-offs](../several-benefits/), the next part: carbon, intactness and ecosystems together,
   weights, and targets per region.
 - The inputs: [Original vegetation and area of habitat](../original-vegetation-and-habitat/).
-- Choosing whole planning units against targets: [Optimal plans with prioritizr](/tutorials/spatial-prioritization/prioritizr/).
+- Choosing whole planning units against targets: [Optimal plans with linear programming](/tutorials/spatial-prioritization/linear-programming/).
 - The operator: [[restoration.plan]].
 
 ## References

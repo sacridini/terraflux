@@ -152,25 +152,25 @@ impl Operator for MatrixOp {
         let (doc, extra): (&str, Vec<PortSpec>) = match self.kind {
             "boundary" => (
                 "The length of the boundary every two planning units share, and every unit's perimeter on the \
-                 diagonal (prioritizr's boundary_matrix through landschaft): raster cells with data share xres \
+                 diagonal (landschaft's boundary_matrix): raster cells with data share xres \
                  with those above and below and yres with those left and right; polygons their common paths, \
                  rounded to 8 decimals.",
                 vec![],
             ),
             "adjacency" => (
-                "1 for every two adjacent planning units (prioritizr's adjacency_matrix through landschaft): \
+                "1 for every two adjacent planning units (landschaft's adjacency_matrix): \
                  cells with data sharing an edge (4 directions) or a corner too (8); polygons that meet.",
                 vec![PortSpec::optional("directions", Type::Integer, "4 (default) or 8, for rasters")],
             ),
             "connectivity" => (
-                "The connectivity of adjacent planning units (prioritizr's connectivity_matrix through \
-                 landschaft): the length of their shared boundary times the mean of y in the two (a map on the \
+                "The connectivity of adjacent planning units (landschaft's connectivity_matrix): the length of \
+                 their shared boundary times the mean of y in the two (a map on the \
                  units' grid; for polygons a map averaged over each, exactextract's, or an attribute).",
                 vec![PortSpec::optional("column", Type::Text, "for polygons: the attribute of y")],
             ),
             _ => (
-                "1 for every two planning units within a distance of each other (prioritizr's proximity_matrix \
-                 through landschaft): cell centres, or polygons by their nearest points.",
+                "1 for every two planning units within a distance of each other (landschaft's proximity_matrix): \
+                 cell centres, or polygons by their nearest points.",
                 vec![PortSpec::new("distance", Type::Number, "the distance, in the units' coordinates")],
             ),
         };
@@ -525,7 +525,7 @@ impl Operator for BinaryStack {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "prioritize.binary_stack",
-            "A 0/1 layer per zone from a map of zone numbers (prioritizr's binary_stack through landschaft), for \
+            "A 0/1 layer per zone from a map of zone numbers (landschaft's binary_stack), for \
              the locked-in constraints of zones (an existing zoning plan); cells with 0 are in no zone, missing \
              ones stay missing.",
             Access::Global,

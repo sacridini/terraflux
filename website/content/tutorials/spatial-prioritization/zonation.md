@@ -87,7 +87,7 @@ question "if the best 30 % were protected, how much of each species would it hol
 
 It is *not* the tool when the plan must meet exact targets at the least cost, when the plan's shape must obey
 rules (contiguity, corridors), or when actions differ between places. Use optimization then:
-[Marxan](/tutorials/spatial-prioritization/marxan/) or [prioritizr](/tutorials/spatial-prioritization/prioritizr/).
+[Marxan](/tutorials/spatial-prioritization/marxan/) or [linear programming](/tutorials/spatial-prioritization/linear-programming/).
 Lehtomäki & Moilanen (2013) describe a full Zonation workflow, from data to interpretation.
 
 ## What you need

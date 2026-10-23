@@ -560,12 +560,12 @@ impl Operator for Actions {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "prioritize.actions",
-            "Multi-action planning as prioriactions 0.5.0 (Salgado-Rojas et al.): which planning units to monitor \
-             and which actions against which threats to take in them, so that the features recover (or are kept) \
-             to their targets at the least cost (minimizeCosts), or recover the most within a budget \
+            "Multi-action planning as a mixed integer program (Salgado-Rojas et al. 2020): which planning units \
+             to monitor and which actions against which threats to take in them, so that the features recover \
+             (or are kept) to their targets at the least cost (minimizeCosts), or recover the most within a budget \
              (maximizeBenefits); the boundary of the units and of every threat's actions weighed; linear, \
-             quadratic or cubic responses. prioriactions's model bit for bit (its inputData() checks and \
-             defaults), solved by landschaft's closure engine and HiGHS.",
+             quadratic or cubic responses. The model of Salgado-Rojas et al. with its checks and defaults, \
+             solved by landschaft's closure engine and HiGHS.",
             Access::Global,
         )
         .input(PortSpec::new("pu", Type::Table, "planning units: id, monitoring_cost, status (0, 2 locked in, 3 out)"))

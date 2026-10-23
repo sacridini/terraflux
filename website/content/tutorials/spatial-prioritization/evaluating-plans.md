@@ -25,8 +25,8 @@ part ends with a checklist for reporting a prioritization in a paper.
 Every measure of this part takes a problem (features, costs, targets) and a **solution**: a map of 0 and 1 (or shares).
 The solution can come from [[prioritize.optimize]], from Marxan, from a threshold of a Zonation ranking, from the
 existing reserves, or from a map drawn by hand in a workshop. The same yardstick for all is what makes plans
-comparable. [[prioritize.evaluate]] reproduces prioritizr's `eval_*` functions, number for number (Hanson et al.,
-2025).
+comparable. [[prioritize.evaluate]] computes the measures described by Hanson et al.
+(2025).
 
 ### Which places matter most
 
@@ -53,8 +53,8 @@ A plan of 800 cells is a long list. Stakeholders ask which cells are essential a
 ### Trade-offs
 
 Every plan is a compromise: cost against compactness, money against representation, one stakeholder against another.
-A single map hides the compromises; a **trade-off curve** shows them. [[prioritize.calibrate]] builds the curves of
-prioritizr's calibration guide (Hanson et al., 2025):
+A single map hides the compromises; a **trade-off curve** shows them. [[prioritize.calibrate]] builds the calibration
+curves described by Hanson et al. (2025):
 
 - **blended**: the problem with a range of penalty weights, each giving a plan with a cost and a boundary (or a
   connectivity), as in [part 5](../spatial-design/);
@@ -73,7 +73,7 @@ closest to the ideal (least cost and least boundary) and farthest from the anti-
 - **Before a workshop**: the importance of places, to know where there is room to negotiate.
 - **Gap analysis**: what the existing reserves already hold (a solution of the protected areas).
 - **Choosing a penalty or a budget**: a calibration curve instead of a guess.
-- **Comparing methods**: Zonation, Marxan and prioritizr on the same problem.
+- **Comparing methods**: Zonation, Marxan and an optimal plan on the same problem.
 
 ## What you need
 
@@ -182,7 +182,7 @@ from = "calibration.table"
 its own settings: `approach`, `penalty` (`boundary`, `connectivity`, `asym_connectivity` or `linear`), `values` (the
 penalties, cost caps or budgets; without them it chooses `n` values around Cohon's penalty), `inflation` (for the
 hierarchical approach: the cost caps as shares above the least cost), `gap` and `time_limit` per solve (no limit by
-default, as in prioritizr: with a strong penalty one solve can take hours, so set one on a large problem; a candidate
+default: with a strong penalty one solve can take hours, so set one on a large problem; a candidate
 stopped by it is marked not optimal, with its gap). Its `table` has
 a row per candidate (its value, cost, criterion, gap, TOPSIS score, and `knee` and `topsis` set to 1 for the chosen),
 `solutions` a stack of the candidate plans, and `best` the plan TOPSIS chooses.
@@ -219,7 +219,7 @@ the tamarin's fragments (the fifteenth is a river cell of the otter); the deares
 is a mangrove cell. Replacement cost is the most direct (it is money) and the slowest; Ferrier's and rarity are instant and work on
 any plan; rank importance says where to start when money arrives in instalments.
 
-A **portfolio's selection frequency** ([part 4](../prioritizr/#alternatives-portfolios)) is a fifth view; on Serra
+A **portfolio's selection frequency** ([part 4](../linear-programming/#alternatives-portfolios)) is a fifth view; on Serra
 Verde it separates only a few interchangeable cells, since the plans near the optimum differ by a pair of cells.
 
 ### A gap analysis
@@ -237,7 +237,7 @@ caption: "A gap analysis: the coverage of the three existing protected areas (pr
 
 Evaluating the existing reserves as a solution answers the first question of systematic conservation planning
 (Margules & Pressey, 2000): what do we have? Serra Verde's protected areas are in the mountains and on an island of
-forest; the species of the lowlands and the coast are not in them. [Part 4](../prioritizr/) locked them into a plan and
+forest; the species of the lowlands and the coast are not in them. [Part 4](../linear-programming/) locked them into a plan and
 measured what completing the network costs.
 
 ### Calibrating the boundary penalty
@@ -343,7 +343,7 @@ analysis and judge its choices. A checklist, drawing on the practice of the fiel
 **The problem**
 
 - The method (ranking or optimisation) and the software with its version (here Terraflux, and the model it reproduces:
-  Zonation 5, Marxan 4, prioritizr 8, prioriactions 0.5).
+  Zonation 5, Marxan 4, or the integer linear program and the paper it follows).
 - The targets and their justification (policy, ecology, stakeholders), or the budget.
 - The objective; the decisions (binary, proportion); penalties and constraints with their values and how they were
   calibrated (the curve, the knee or TOPSIS).
