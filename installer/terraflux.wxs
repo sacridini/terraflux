@@ -23,6 +23,9 @@
     <Icon Id="terraflux.ico" SourceFile="$(var.Icon)" />
     <Property Id="ARPPRODUCTICON" Value="terraflux.ico" />
     <Property Id="ARPNOMODIFY" Value="1" />
+    <!-- no restore point of Windows before installing or removing (a snapshot of the disk by the shadow copy
+         service, a minute in which the whole computer stalls): Terraflux changes nothing of the system -->
+    <Property Id="MSIFASTINSTALL" Value="1" />
 
     <!-- a Terraflux installed for all the users (the installers before 1.18): its folder on the PATH of the
          system, before the user's, would run in place of this one; removed first (the administrator's prompt of

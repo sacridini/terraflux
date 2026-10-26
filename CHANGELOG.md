@@ -6,6 +6,11 @@ minor versions.
 
 ## [Unreleased]
 
+### Fixed
+- Installing or removing Terraflux on Windows stalled the whole computer for about a minute: Windows made a restore
+  point first (a snapshot of the disk), even for the installer of 1.18, which does not need the administrator.
+  The installer no longer asks for one.
+
 ## [1.18.0] - 2026-10-26
 
 ### Changed
