@@ -6,7 +6,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use terraflux_graph::{Body, GROUP, Issue, Model, Node, Ref, Severity, Source, Type, check, valid_id};
+use terraflux_graph::{Body, GROUP, Issue, Model, Node, Ref, Severity, Source, Type, UserNode, Uses, check, valid_id};
 use terraflux_ops::Registry;
 
 pub type Result<T> = std::result::Result<T, String>;
@@ -64,6 +64,83 @@ pub fn add_node(m: &mut Model, r: &Registry, path: &[String], op: &str, pos: [f3
     }
     nodes.push(n);
     Ok(id)
+}
+
+/// Add a node of the user's library to a scope: a group holding a copy of that version's body; its id (from the
+/// node's name).
+pub fn add_user_node(m: &mut Model, path: &[String], u: &UserNode, pos: [f32; 2]) -> Result<String> {
+    let nodes = scope_mut(m, path)?;
+    let id = fresh_id(nodes, &u.name);
+    let mut n = u.instance(&id);
+    n.pos = Some(pos);
+    nodes.push(n);
+    Ok(id)
+}
+
+/// A map algebra node made a group of that one node, to be saved as a node of the user's: what it read, the
+/// group's inputs (`@name` inside); each of its outputs, the group's of the same name. The group keeps its id and
+/// place, so what read the node reads the group.
+pub fn calc_to_group(m: &mut Model, r: &Registry, path: &[String], id: &str) -> Result<()> {
+    let calc = scope_mut(m, path)?.iter().find(|n| n.id == id).cloned().ok_or_else(|| format!("no node {id:?}"))?;
+    if calc.op != "map.calc" {
+        return Err(format!("{id:?} is not a map algebra node"));
+    }
+    if let Some(k) = calc.inputs.keys().find(|k| !valid_id(k)) {
+        return Err(format!("the input {k:?} is not a name a group's input can have: rename it first"));
+    }
+    let outputs: std::collections::BTreeMap<String, String> = r
+        .sig("map.calc")
+        .map(|s| s.outputs_of(&calc))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|p| (p.name.clone(), format!("calc.{}", p.name)))
+        .collect();
+    let mut inner = calc.unrecorded();
+    inner.id = "calc".into();
+    inner.pos = Some([0.0, 0.0]);
+    inner.width = None;
+    inner.inputs = calc.inputs.keys().map(|k| (k.clone(), Source::Ref(format!("@{k}")))).collect();
+    let mut g = Node::new(id, GROUP).body(Body { nodes: vec![inner], outputs, ..Default::default() });
+    g.inputs = calc.inputs.clone();
+    g.pos = calc.pos;
+    g.note = calc.note.clone();
+    g.why = calc.why.clone();
+    g.refs = calc.refs.clone();
+    g.assumptions = calc.assumptions.clone();
+    g.alternatives = calc.alternatives.clone();
+    guarded(m, r, &[prefix(path) + id], |c| {
+        let n = node_mut(c, path, id)?;
+        *n = g;
+        Ok(())
+    })
+}
+
+/// Make a group a node of the user's library, named and typed by `uses` (its body as that version's), or a plain
+/// group again (`None`), checked.
+pub fn set_uses(m: &mut Model, r: &Registry, path: &[String], id: &str, uses: Option<Uses>) -> Result<()> {
+    if node_mut(m, path, id)?.op != GROUP {
+        return Err(format!("{id:?} is not a group"));
+    }
+    guarded(m, r, &[prefix(path) + id], |c| {
+        node_mut(c, path, id)?.uses = uses;
+        Ok(())
+    })
+}
+
+/// Bring a node of the user's to another version of it (its body, what it takes and gives), the inputs it was
+/// given kept where the version has them: the inputs taken away. Refused when the model would break (a node
+/// reading an output the version does not give, an input given what the version does not take); an input the
+/// version needs and is not given is left to give.
+pub fn update_user_node(m: &mut Model, r: &Registry, path: &[String], id: &str, u: &UserNode) -> Result<Vec<String>> {
+    let before: Vec<String> = errors(m, r).into_iter().map(|i| i.to_string()).collect();
+    let mut copy = m.clone();
+    let gone = terraflux_graph::user_node::update(node_mut(&mut copy, path, id)?, u);
+    let at = prefix(path) + id;
+    if let Some(i) = errors(&copy, r).into_iter().find(|i| i.at != at && !before.contains(&i.to_string())) {
+        return Err(format!("{}: {}", u.label(), i));
+    }
+    *m = copy;
+    Ok(gone)
 }
 
 pub fn move_node(m: &mut Model, path: &[String], id: &str, pos: [f32; 2]) -> Result<()> {
@@ -554,7 +631,10 @@ pub fn sources(m: &Model, r: &Registry, path: &[String]) -> Vec<(String, Type)> 
     for depth in 1..=path.len() {
         let Some(c) = m.node_mut_ref(&path[..depth]) else { continue };
         let Some(b) = &c.body else { continue };
-        if c.op == GROUP {
+        if let (true, Some(u)) = (c.op == GROUP, &c.uses) {
+            // a node of the user's: the inputs it declares, of their types
+            out.extend(u.inputs.iter().map(|(k, i)| (format!("@{k}"), i.ty)));
+        } else if c.op == GROUP {
             out.extend(c.inputs.keys().map(|k| (format!("@{k}"), Type::Any)));
         } else if c.op == terraflux_graph::SWITCH {
             out.extend(c.inputs.keys().filter(|k| *k != "case").map(|k| (format!("@{k}"), Type::Any)));
@@ -574,6 +654,12 @@ pub fn sources(m: &Model, r: &Registry, path: &[String]) -> Vec<(String, Type)> 
 /// container's carried values).
 pub fn input_ports(n: &Node, r: &Registry) -> Vec<(String, Type, bool)> {
     let mut out: Vec<(String, Type, bool)> = Vec::new();
+    // a node of the user's: the inputs it declares (needed unless they have a value of their own)
+    if let Some(u) = n.uses.as_ref().filter(|_| n.op == GROUP) {
+        out.extend(u.inputs.iter().map(|(k, i)| (k.clone(), i.ty, i.required())));
+        out.extend(n.inputs.keys().filter(|k| !u.inputs.contains_key(*k)).map(|k| (k.clone(), Type::Any, false)));
+        return out;
+    }
     if let Some(sig) = r.sig(&n.op) {
         out.extend(sig.inputs.iter().map(|p| (p.name.clone(), p.ty, p.required)));
         for k in n.inputs.keys() {
@@ -588,6 +674,9 @@ pub fn input_ports(n: &Node, r: &Registry) -> Vec<(String, Type, bool)> {
 /// The output ports of a node: its operator's, or a container's (carried, collected, a group's outputs).
 pub fn output_ports(n: &Node, r: &Registry) -> Vec<(String, Type)> {
     let mut out: Vec<(String, Type)> = Vec::new();
+    if let Some(u) = n.uses.as_ref().filter(|_| n.op == GROUP) {
+        return u.outputs.iter().map(|(k, o)| (k.clone(), o.ty)).collect();
+    }
     if let Some(sig) = r.sig(&n.op) {
         out.extend(sig.outputs_of(n).into_iter().map(|p| (p.name, p.ty)));
     }
@@ -732,6 +821,83 @@ mod tests {
         assert_eq!(b.nodes[0].inputs["x"], Source::Ref("@land".into()));
         assert_eq!(b.outputs["plus"], "map_calc.map");
         assert!(m.node(&id).unwrap().inputs.is_empty());
+    }
+
+    /// A calculator made a group, the group a node of the user's library, a copy of it added, and both brought to
+    /// a new version.
+    #[test]
+    fn a_calculator_becomes_a_node_of_the_library() {
+        use terraflux_graph::{UserInput, UserOutput};
+        let r = Registry::standard();
+        let mut m = model();
+        let calc = add_node(&mut m, &r, &[], "map.calc", [50.0, 60.0]).unwrap();
+        connect(&mut m, &r, &[], "$t0", &calc, "img").unwrap();
+        set_literal(&mut m, &r, &[], &calc, "k", "2").unwrap();
+        set_param(
+            &mut m,
+            &[],
+            &calc,
+            "expression",
+            "out twice = img * k
+out big = img > 5",
+        )
+        .unwrap();
+        set_note(&mut m, &[], &calc, "doubled").unwrap();
+        add_node(&mut m, &r, &[], "markov.fit", [300.0, 0.0]).unwrap();
+        connect(&mut m, &r, &[], &format!("{calc}.twice"), "markov_fit", "t0").unwrap();
+        connect(&mut m, &r, &[], "$t1", "markov_fit", "t1").unwrap();
+        set_literal(&mut m, &r, &[], "markov_fit", "steps", "14").unwrap();
+        calc_to_group(&mut m, &r, &[], &calc).unwrap();
+        let g = m.node(&calc).unwrap();
+        assert_eq!((g.op.as_str(), g.pos, g.note.as_deref()), (GROUP, Some([50.0, 60.0]), Some("doubled")));
+        assert_eq!(g.inputs["img"], Source::Ref("$t0".into()));
+        let b = g.body.as_ref().unwrap();
+        assert_eq!(b.nodes[0].inputs["k"], Source::Ref("@k".into()));
+        assert_eq!(b.outputs.keys().collect::<Vec<_>>(), ["big", "twice"]);
+        assert!(errors(&m, &r).is_empty(), "{:?}", errors(&m, &r));
+        assert!(calc_to_group(&mut m, &r, &[], "markov_fit").is_err());
+        // named and typed: a node of the library
+        let uses = Uses {
+            name: "double".into(),
+            version: 1,
+            description: None,
+            inputs: [
+                ("img".to_string(), UserInput::new(Type::Map)),
+                ("k".to_string(), UserInput { default: Some(2.into()), ..UserInput::new(Type::Number) }),
+            ]
+            .into(),
+            outputs: [
+                ("twice".to_string(), UserOutput::new(Type::Map)),
+                ("big".to_string(), UserOutput::new(Type::Map)),
+            ]
+            .into(),
+        };
+        set_uses(&mut m, &r, &[], &calc, Some(uses.clone())).unwrap();
+        let g = m.node(&calc).unwrap().clone();
+        assert_eq!(input_ports(&g, &r), [("img".into(), Type::Map, true), ("k".into(), Type::Number, false)]);
+        assert_eq!(output_ports(&g, &r), [("big".into(), Type::Map), ("twice".into(), Type::Map)]);
+        // a copy of it from the library
+        let u = UserNode::of(&g).unwrap();
+        let copy = add_user_node(&mut m, &[], &u, [0.0, 300.0]).unwrap();
+        assert_eq!(copy, "double");
+        assert_eq!(m.node(&copy).unwrap().inputs["k"], Source::Literal(2.into()));
+        // version 2 gives no `big`: the copy follows; the first does not while what it gives is read... only twice
+        let mut v2 = u.clone();
+        v2.version = 2;
+        v2.outputs.remove("big");
+        v2.body.outputs.remove("big");
+        assert!(update_user_node(&mut m, &r, &[], &copy, &v2).unwrap().is_empty());
+        assert_eq!(m.node(&copy).unwrap().uses.as_ref().unwrap().version, 2);
+        let mut v3 = v2.clone();
+        v3.version = 3;
+        v3.outputs = [("other".to_string(), UserOutput::new(Type::Map))].into();
+        v3.body.outputs = [("other".to_string(), "calc.twice".to_string())].into();
+        let e = update_user_node(&mut m, &r, &[], &calc, &v3).unwrap_err();
+        assert!(e.contains("no output \"twice\""), "{e}");
+        assert_eq!(m.node(&calc).unwrap().uses.as_ref().unwrap().version, 1);
+        // a plain group again
+        set_uses(&mut m, &r, &[], &calc, None).unwrap();
+        assert!(m.node(&calc).unwrap().uses.is_none());
     }
 
     #[test]

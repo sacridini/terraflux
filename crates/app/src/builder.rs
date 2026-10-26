@@ -542,6 +542,7 @@ pub fn model_pane(ui: &mut Ui, s: &mut Session, r: &Registry) {
         egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::canvas())).show(ui, |ui| canvas(ui, s, r));
     }
     rename_box(ui.ctx(), s, r);
+    crate::my_nodes::dialog(ui.ctx(), s, r);
 }
 
 /// The model as text, with its problems above: only the lines in view are laid out (a model of many thousands
@@ -1047,7 +1048,7 @@ pub fn add_at(
     };
     let pos = at.unwrap_or_else(|| beside(&nodes, from.as_ref().map(|n| n.id.as_str())));
     let id = crate::editor::add_node(&mut s.source, r, &path, op, pos)?;
-    if let Some(n) = s.source.scope(&path).and_then(|v| v.iter().find(|n| n.id == id)).cloned() {
+    if s.source.scope(&path).is_some_and(|v| v.iter().any(|n| n.id == id)) {
         for (k, v) in params {
             crate::editor::set_param(
                 &mut s.source,
@@ -1061,24 +1062,30 @@ pub fn add_at(
             )?;
         }
         if let Some(f) = &from {
-            let outs = crate::editor::output_ports(f, r);
-            // the first input it must have, else the first a value of the node selected fits
-            let ins = crate::editor::input_ports(&n, r);
-            let target = ins
-                .iter()
-                .find(|(_, _, req)| *req)
-                .or_else(|| ins.iter().find(|(_, ty, _)| outs.iter().any(|(_, t)| t.fits(*ty))))
-                .cloned();
-            if let Some((port, ty, _)) = target
-                && let Some((out, _)) = outs.iter().find(|(_, t)| t.fits(ty))
-            {
-                let _ = crate::editor::connect(&mut s.source, r, &path, &format!("{}.{out}", f.id), &id, &port);
-            }
+            feed(s, r, &path, &id, f);
         }
     }
     s.edited();
     select(s, r, &id);
     Ok(id)
+}
+
+/// Connect a node just added to the node `from`: the first input it must have, else the first a value of `from`
+/// fits, fed by the first output of `from` that fits it.
+pub fn feed(s: &mut Session, r: &Registry, path: &[String], id: &str, from: &Node) {
+    let Some(n) = s.source.scope(path).and_then(|v| v.iter().find(|n| n.id == id)).cloned() else { return };
+    let outs = crate::editor::output_ports(from, r);
+    let ins = crate::editor::input_ports(&n, r);
+    let target = ins
+        .iter()
+        .find(|(_, _, req)| *req)
+        .or_else(|| ins.iter().find(|(_, ty, _)| outs.iter().any(|(_, t)| t.fits(*ty))))
+        .cloned();
+    if let Some((port, ty, _)) = target
+        && let Some((out, _)) = outs.iter().find(|(_, t)| t.fits(ty))
+    {
+        let _ = crate::editor::connect(&mut s.source, r, path, &format!("{}.{out}", from.id), id, &port);
+    }
 }
 
 /// The files of vector features the dialogs offer (GDAL reads others too).
@@ -1307,6 +1314,8 @@ fn library(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library) {
     });
     ui.data_mut(|d| d.insert_temp(shown_id, shown));
     ui.add_space(4.0);
+    let query = s.editor.search.clone();
+    crate::my_nodes::list(ui, s, r, &query);
     theme::section(ui, "Operators");
     ui.add(
         egui::TextEdit::singleline(&mut s.editor.search)
@@ -1688,7 +1697,16 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
                 w.is_none()
             }),
             Action::Connect { reference, node, port } => {
-                crate::editor::connect(&mut s.source, r, &path, &reference, &node, &port).map(|_| true)
+                crate::editor::connect(&mut s.source, r, &path, &reference, &node, &port).map(|_| {
+                    // a node of the user's given what lacks a layer it reads: told at once
+                    if let Some(n) = s.source.scope(&path).and_then(|v| v.iter().find(|n| n.id == node)).cloned()
+                        && let Some((_, why)) =
+                            crate::my_nodes::lacking(s, &path, &n).into_iter().find(|(k, _)| *k == port)
+                    {
+                        s.notice = Some((format!("{node}.{port}: {why}"), std::time::Instant::now()));
+                    }
+                    true
+                })
             }
             Action::Disconnect { node, port } => {
                 crate::editor::disconnect(&mut s.source, &path, &node, &port).map(|_| true)

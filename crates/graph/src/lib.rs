@@ -20,6 +20,7 @@
 mod check;
 pub mod submodel;
 mod types;
+pub mod user_node;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -28,6 +29,7 @@ use serde::{Deserialize, Serialize};
 
 pub use check::{Catalog, Issue, Severity, check};
 pub use types::{Access, OpSignature, PortSpec, Type, declared_outputs};
+pub use user_node::{UserInput, UserNode, UserOutput, Uses};
 
 /// The container that runs its body once: a group of nodes with its own inputs (`@name` inside) and outputs
 /// (`body.outputs`), as submodels become.
@@ -366,6 +368,10 @@ pub struct Node {
     /// same type (a filter left out passes its map on), the others missing.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub bypass: bool,
+    /// A group that is a node of the user's library: the name and version it was made from, what it takes and
+    /// gives (its body a copy of that version's: see [`user_node`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uses: Option<Uses>,
 }
 
 impl Node {
@@ -384,6 +390,7 @@ impl Node {
             pos: None,
             width: None,
             bypass: false,
+            uses: None,
         }
     }
 

@@ -1,11 +1,12 @@
 # Changing a model's logic
 
-A model is a graph of operators (`terraflux ops` lists them). Besides the presets' operators, four tools
+A model is a graph of operators (`terraflux ops` lists them). Besides the presets' operators, these tools
 let you change what a model does without changing Terraflux:
 
 - the node editor;
 - map algebra;
 - groups and submodels;
+- nodes of your own: a group or a calculator saved in your library;
 - parameters and scenarios;
 - plugins in WebAssembly.
 
@@ -93,6 +94,55 @@ other model's outputs become the node's (`forest.map`).
 
 Before a run, every submodel is expanded into a group (`terraflux run`, `check`, `submit` and the application
 do it). Submodels may use submodels, but never themselves.
+
+## Nodes of your own
+
+A group or a calculator (`map.calc`) is saved as a node of your library with **Save as my node...** in its pane
+(or the commands, ctrl+K). The dialog shows what the node takes and gives, found from what it is given and what
+its scripts read, to change before it is saved: each input's type, the layers a stack given it must have (a script
+that reads `img.nir` needs `nir`), its value when none is given (then it need not be given); each output's type;
+its name and what it does. A calculator becomes a group of itself first: its inputs the group's, each `out` an
+output.
+
+The library is a folder, `nodes` in the application's data (or `TERRAFLUX_NODES`), of one file per version:
+`ndvi@1.toml`, `ndvi@2.toml`... Saving again makes the next version; a version is never written again. Its nodes are
+in the Operators pane (**My nodes**, which the search finds too) and in the commands, added after the node selected
+as operators are.
+
+In a model, such a node is a group with `uses`, and a copy of its version's body:
+
+```toml
+[[nodes]]
+id = "veg"
+op = "control.group"
+inputs = { img = "$s2" }
+[nodes.uses]
+name = "ndvi"
+version = 3
+description = "the vegetation index"
+[nodes.uses.inputs.img]
+type = "stack"
+bands = ["nir", "red"]
+[nodes.uses.inputs.k]
+type = "number"
+default = 1
+[nodes.uses.outputs.ndvi]
+type = "map"
+[nodes.body]
+outputs = { ndvi = "calc.ndvi" }
+[[nodes.body.nodes]]
+id = "calc"
+op = "map.calc"
+inputs = { img = "@img", k = "@k" }
+params = { expression = "out ndvi = (img.nir - img.red) / (img.nir + img.red) * k" }
+```
+
+The model runs the version it was made with, on any computer, with or without the library. A newer version
+changes it only when it is updated to it: the node's pane offers **Update to ndvi@4** (what the node is given is
+kept where the version still takes it; refused when a node reads an output the version no longer gives). The pane
+also tells when the node was changed since its version (**Save as a new version**) and makes it a plain group
+again. The check takes its ports' types; an input not given takes its value of its own; a stack without a layer it
+reads is told when it is connected, and the run stops with the layers missing and those the stack has.
 
 ## Loops over collections: `control.each`
 

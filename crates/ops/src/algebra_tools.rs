@@ -68,6 +68,95 @@ pub fn describe(v: &Value) -> Input {
     }
 }
 
+/// Why a value does not have the layers a script reads of it (by the names the script reads them: `nir`, `_1997`):
+/// one map, not a stack, or a stack without some of them (which, and those it has). None when it has them, or when
+/// what it is is not known.
+pub fn lacks_layers(v: &Value, layers: &[String]) -> Option<String> {
+    match describe(v) {
+        Input::Stack(Some(names)) => {
+            let missing: Vec<&str> =
+                layers.iter().filter(|l| !names.iter().any(|(n, _)| n == *l)).map(String::as_str).collect();
+            (!missing.is_empty()).then(|| {
+                let has: Vec<&str> = names.iter().map(|(n, _)| n.as_str()).collect();
+                format!("it has no layer {} (it has {})", missing.join(", "), has.join(", "))
+            })
+        }
+        Input::Map => Some(format!("one map, not a stack with the layers {}", layers.join(", "))),
+        _ => None,
+    }
+}
+
+/// The layers a script reads of each name it is given (`img.nir`: `nir` of `img`), in order: the layers an input
+/// must have. A name given a value in the script reads the layers of the inputs it comes from layer by layer
+/// (`f = lu == 1`, then `f._1997`: `_1997` of `lu`); a name given a map (a layer, a reduction over the layers)
+/// comes from none.
+pub fn layers_read(text: &str) -> BTreeMap<String, Vec<String>> {
+    let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let Ok(script) = parse_script(text) else { return out };
+    // the inputs each name given in the script comes from, layer by layer
+    let mut roots: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let of =
+        |n: &str, roots: &BTreeMap<String, Vec<String>>| roots.get(n).cloned().unwrap_or_else(|| vec![n.to_string()]);
+    /// The names whose layers an expression's value has: those it reads whole, outside a reduction or a method.
+    fn whole(e: &Expr, out: &mut Vec<String>) {
+        match e {
+            Expr::Var(n) if !out.contains(n) => out.push(n.clone()),
+            Expr::Unary(_, a) => whole(a, out),
+            Expr::Binary(_, a, b) => {
+                whole(a, out);
+                whole(b, out);
+            }
+            Expr::If(c, a, b) => {
+                whole(c, out);
+                whole(a, out);
+                whole(b, out);
+            }
+            Expr::Call(f, args)
+                if !matches!(f.as_str(), "mean" | "sd" | "median" | "sum" | "count" | "min" | "max" | "percentile") =>
+            {
+                args.iter().for_each(|a| whole(a, out))
+            }
+            _ => {}
+        }
+    }
+    let read = |e: &Expr, roots: &BTreeMap<String, Vec<String>>, out: &mut BTreeMap<String, Vec<String>>| {
+        e.walk(&mut |x| {
+            if let Expr::Layer(n, l) = x {
+                for r in of(n, roots) {
+                    let v = out.entry(r).or_default();
+                    if !v.contains(l) {
+                        v.push(l.clone());
+                    }
+                }
+            }
+        });
+    };
+    for (_, st) in &script.statements {
+        match st {
+            Stmt::Set { name, layer, mask, value, .. } => {
+                if let Some(m) = mask {
+                    read(m, &roots, &mut out);
+                }
+                read(value, &roots, &mut out);
+                if layer.is_none() {
+                    let mut names = Vec::new();
+                    whole(value, &mut names);
+                    let mut from: Vec<String> = names.iter().flat_map(|n| of(n, &roots)).collect();
+                    // a part changed: what it was too
+                    if mask.is_some() {
+                        from.extend(of(name, &roots));
+                    }
+                    from.dedup();
+                    roots.insert(name.clone(), from);
+                }
+            }
+            Stmt::Value(e) => read(e, &roots, &mut out),
+            Stmt::Out(_) => {}
+        }
+    }
+    out
+}
+
 /// The help of the functions: name, as written, what it gives.
 pub const FUNCTION_HELP: [(&str, &str, &str); 25] = [
     ("abs", "abs(x)", "the absolute value"),
@@ -775,6 +864,39 @@ mod tests {
             ),
         ]
         .into()
+    }
+
+    #[test]
+    fn the_layers_a_script_needs() {
+        let t = "x = img.nir
+img = other
+out y = (x - img.red) / s.b1 if s.b1 > 0 else s.red
+x[m.a > 0] = 0";
+        let l = layers_read(t);
+        assert_eq!(l["s"], vec!["b1", "red"]);
+        assert_eq!(l["img"], vec!["nir"], "img given a value: other's after");
+        assert_eq!(l["other"], vec!["red"]);
+        assert!(!l.contains_key("x"), "a layer: a map");
+        assert_eq!(l["m"], vec!["a"], "a condition's layers too");
+        // through names: a stack made of an input layer by layer, not a reduction
+        let l = layers_read(
+            "f = lu == 1
+out lost = f._1997 and not f._2011
+t = mean(s)
+h = abs(g * 2)
+out u = t.a + h.b",
+        );
+        assert_eq!(l["lu"], vec!["_1997", "_2011"]);
+        assert_eq!(l["g"], vec!["b"]);
+        assert!(!l.contains_key("s") && !l.contains_key("f"), "{l:?}");
+        let stack = Value::Stack(Stack {
+            grid: grid(1, 1),
+            keys: vec![Key::Name("nir".into())],
+            layers: vec![Arc::new(vec![1.0])],
+        });
+        assert_eq!(lacks_layers(&stack, &["nir".into()]), None);
+        assert_eq!(lacks_layers(&stack, &["nir".into(), "red".into()]).unwrap(), "it has no layer red (it has nir)");
+        assert!(lacks_layers(&Value::Number(1.0), &["nir".into()]).is_none());
     }
 
     #[test]

@@ -149,6 +149,10 @@ impl<'a> Checker<'a> {
                         if let Some(s) = c.inputs.get(n).filter(|_| !(c.op == crate::SWITCH && n == "case")) {
                             return self.source_type(Some(s), outside);
                         }
+                        // a node of the user's: an input not given has its value of its own
+                        if let Some(i) = c.uses.as_ref().and_then(|u| u.inputs.get(n)).filter(|i| !i.required()) {
+                            return Ok(i.ty);
+                        }
                         continue;
                     }
                     if c.op == crate::EACH {
@@ -253,7 +257,12 @@ impl<'a> Checker<'a> {
                     .map(|s| Scope { nodes: s.nodes, container: s.container, index: s.index.clone() })
                     .collect();
                 inner.push(Scope::new(&b.nodes, Some(n)));
-                return Ref::parse(r).map_err(|e| e.to_string()).and_then(|r| self.type_of(&r, &inner));
+                let t = Ref::parse(r).map_err(|e| e.to_string()).and_then(|r| self.type_of(&r, &inner))?;
+                // a node of the user's: the type it declares where its body's is not known (a script's)
+                return Ok(match n.uses.as_ref().and_then(|u| u.outputs.get(port)) {
+                    Some(o) if t == Type::Any => o.ty,
+                    _ => t,
+                });
             }
         }
         Err(format!("node {:?} ({}) has no output {port:?}", n.id, n.op))
@@ -315,11 +324,19 @@ impl<'a> Checker<'a> {
             for (port, src) in &n.inputs {
                 let carried = sig.container
                     && (n.op == crate::GROUP || n.body.as_ref().is_some_and(|b| b.carry.contains_key(port)));
-                let want = match sig.input_spec(port) {
-                    Some(p) => p.ty,
-                    None if carried => Type::Any,
-                    None if sig.extra.is_some() && crate::valid_port(port) => sig.extra.unwrap(),
-                    None => {
+                let want = match (sig.input_spec(port), &n.uses) {
+                    (Some(p), _) => p.ty,
+                    // a node of the user's: the types it declares
+                    (None, Some(u)) if n.op == crate::GROUP => match u.inputs.get(port) {
+                        Some(i) => i.ty,
+                        None => {
+                            self.error(&at, format!("{} has no input {port:?}", u.label()));
+                            continue;
+                        }
+                    },
+                    (None, _) if carried => Type::Any,
+                    (None, _) if sig.extra.is_some() && crate::valid_port(port) => sig.extra.unwrap(),
+                    (None, _) => {
                         self.error(&at, format!("{} has no input {port:?}", n.op));
                         continue;
                     }
@@ -338,6 +355,19 @@ impl<'a> Checker<'a> {
                 if !n.inputs.contains_key(&p.name) {
                     self.error(&at, format!("{} needs the input {:?} ({})", n.op, p.name, p.doc));
                 }
+            }
+            if let Some(u) = n.uses.as_ref().filter(|_| n.op == crate::GROUP) {
+                for (k, i) in u.inputs.iter().filter(|(k, i)| i.required() && !n.inputs.contains_key(*k)) {
+                    self.error(&at, format!("{} needs the input {k:?} ({})", u.label(), i.summary()));
+                }
+                let given: BTreeSet<&String> = n.body.iter().flat_map(|b| b.outputs.keys()).collect();
+                let declared: BTreeSet<&String> = u.outputs.keys().collect();
+                if given != declared {
+                    let names = |s: &BTreeSet<&String>| s.iter().map(|x| x.as_str()).collect::<Vec<_>>().join(", ");
+                    self.error(&at, format!("{} gives {}, its body {}", u.label(), names(&declared), names(&given)));
+                }
+            } else if n.uses.is_some() {
+                self.error(&at, format!("{} is not a group: it cannot be a node of the library", n.op));
             }
             let known: BTreeSet<&str> = sig.params.iter().map(|p| p.name.as_str()).collect();
             for (k, v) in &n.params {
@@ -533,6 +563,7 @@ mod tests {
                     .param(PortSpec::new("expression", Type::Text, ""))
                     .output(PortSpec::new("map", Type::Map, ""))
                     .outputs_from("expression"),
+                crate::GROUP => OpSignature::new(crate::GROUP, "", Access::None).extra(Type::Any).container(),
                 _ => return None,
             })
         }
@@ -742,5 +773,61 @@ from = "calc.map"
         let all = check(&m, &Ops);
         assert_eq!(all.len(), 4, "{all:?}");
         assert!(all.iter().all(|i| i.severity == Severity::Warning));
+    }
+
+    /// A node of the user's library: the inputs it declares, typed and needed unless they have a value of their own;
+    /// its outputs those its body gives, of the types it declares where the body's are not known.
+    #[test]
+    fn a_node_of_the_library_is_checked_by_what_it_declares() {
+        let m = |inputs: &str, outputs: &str| {
+            model(&format!(
+                r#"
+[inputs.img]
+kind = "stack"
+path = "s2.tif"
+[inputs.lu]
+kind = "map"
+path = "lu.tif"
+[[nodes]]
+id = "veg"
+op = "control.group"
+inputs = {{ {inputs} }}
+[nodes.uses]
+name = "ndvi"
+version = 3
+[nodes.uses.inputs.img]
+type = "stack"
+bands = ["nir", "red"]
+[nodes.uses.inputs.k]
+type = "number"
+default = 0.5
+[nodes.uses.outputs.{outputs}]
+type = "map"
+[nodes.body]
+outputs = {{ ndvi = "c.map" }}
+[[nodes.body.nodes]]
+id = "c"
+op = "calc"
+inputs = {{ img = "@img", k = "@k" }}
+params = {{ expression = "out map = img.nir * k" }}
+[[nodes]]
+id = "after"
+op = "takes_stack"
+inputs = {{ stack = "veg.ndvi" }}
+"#
+            ))
+        };
+        let e = errors(&m("img = \"$img\", k = 2", "ndvi"));
+        // the output a map, declared: not a stack
+        assert_eq!(e.len(), 1, "{e:?}");
+        assert!(e[0].contains("veg.ndvi gives a Map, the port takes a Stack"), "{e:?}");
+        let e = errors(&m("img = \"$img\"", "ndvi"));
+        assert_eq!(e.len(), 1, "k has a value of its own: {e:?}");
+        let e = errors(&m("k = \"$lu\", other = 1", "ndvi"));
+        assert!(e.iter().any(|x| x.contains("ndvi@3 needs the input \"img\" (stack (nir, red))")), "{e:?}");
+        assert!(e.iter().any(|x| x.contains("ndvi@3 has no input \"other\"")), "{e:?}");
+        assert!(e.iter().any(|x| x.contains("$lu gives a Map, the port takes a Number")), "{e:?}");
+        let e = errors(&m("img = \"$img\"", "index"));
+        assert!(e.iter().any(|x| x.contains("ndvi@3 gives index, its body ndvi")), "{e:?}");
     }
 }

@@ -270,7 +270,8 @@ pub fn declared_outputs(script: &str) -> Vec<String> {
             if !rest.starts_with(char::is_whitespace) {
                 continue;
             }
-            let name: String = rest.trim_start().chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+            let name: String =
+                rest.trim_start().chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
             if !name.is_empty() && !name.starts_with(|c: char| c.is_ascii_digit()) && !out.contains(&name) {
                 out.push(name);
             }

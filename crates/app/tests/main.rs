@@ -5,6 +5,7 @@
 mod calculator;
 mod canvas;
 mod charts;
+mod my_nodes;
 mod prepare;
 mod vector_tiles;
 

@@ -47,6 +47,10 @@ pub enum Do {
     Template(usize),
     /// Add an operator after the node selected.
     Add(String),
+    /// Save the node selected (a group or a calculator) as a node of the user's library; add one of the library's
+    /// (its name) after the node selected.
+    SaveNode,
+    AddMine(String),
     /// Select a node of the scope shown, and look at it.
     GoTo(String),
 }
@@ -82,7 +86,11 @@ pub fn find<'a>(all: &'a [Command], query: &str) -> Vec<&'a Command> {
             let label = c.label.to_lowercase();
             let detail = c.detail.to_lowercase();
             let kind = c.kind.to_lowercase();
-            let has = |w: &str| label.contains(w) || kind.contains(w) || (c.kind == "operator" && detail.contains(w));
+            let has = |w: &str| {
+                label.contains(w)
+                    || kind.contains(w)
+                    || (matches!(c.kind, "operator" | "my node") && detail.contains(w))
+            };
             if !words.iter().all(|w| has(w)) {
                 return None;
             }

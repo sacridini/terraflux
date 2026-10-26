@@ -111,7 +111,11 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
             }));
         }
     });
-    ui.label(RichText::new(&n.op).monospace().color(ui.visuals().weak_text_color()));
+    ui.label(RichText::new(crate::editor_view::op_label(&n)).monospace().color(ui.visuals().weak_text_color()));
+    // a node of the user's library: what it is, against the library; a group or a calculator: to save as one
+    if let Some(c) = crate::my_nodes::pane(ui, s, r, &path, &n) {
+        change = Some(c);
+    }
     // what is wrong with it, first
     for i in issues_of(s, &path, &id) {
         let colour =
@@ -132,8 +136,8 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
         }
     }
     let sig = r.sig(&n.op).cloned();
-    // what it does: the first sentence, the rest a click away
-    if let Some(sig) = &sig {
+    // what it does: the first sentence, the rest a click away (a node of the user's: its own words, above)
+    if let Some(sig) = sig.as_ref().filter(|_| n.uses.is_none()) {
         let (short, more) = first_sentence(&sig.doc);
         let open_id = ui.make_persistent_id("node doc open");
         let mut open = ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
@@ -216,7 +220,7 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
             .default_open(false)
             .show(ui, |ui| input_rows(ui, &folded));
     }
-    if sig.as_ref().is_some_and(|g| g.extra.is_some() || g.container) {
+    if sig.as_ref().is_some_and(|g| g.extra.is_some() || g.container) && n.uses.is_none() {
         ui.horizontal_wrapped(|ui| {
             let mut name = field(s, "new_input", String::new());
             ui.add(egui::TextEdit::singleline(&mut name).desired_width(100.0).hint_text("name"));
@@ -296,26 +300,30 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
                 ui.label(RichText::new(format!("{which}: {k} <- {v}")).monospace());
             }
         }
-        ui.horizontal(|ui| {
-            let mut which = field(s, "body_which", maps[0].0.to_string());
-            egui::ComboBox::from_id_salt("which").selected_text(&which).show_ui(ui, |ui| {
-                for (w, _) in &maps {
-                    ui.selectable_value(&mut which, w.to_string(), *w);
+        // (a node of the user's gives what it declares)
+        if n.uses.is_none() {
+            ui.horizontal(|ui| {
+                let mut which = field(s, "body_which", maps[0].0.to_string());
+                egui::ComboBox::from_id_salt("which").selected_text(&which).show_ui(ui, |ui| {
+                    for (w, _) in &maps {
+                        ui.selectable_value(&mut which, w.to_string(), *w);
+                    }
+                });
+                s.fields.insert("body_which".into(), which.clone());
+                let mut name = field(s, "body_name", String::new());
+                ui.add(egui::TextEdit::singleline(&mut name).desired_width(80.0).hint_text("name"));
+                let mut reference = field(s, "body_ref", String::new());
+                ui.add(egui::TextEdit::singleline(&mut reference).desired_width(110.0).hint_text("node.port inside"));
+                s.fields.insert("body_name".into(), name.clone());
+                s.fields.insert("body_ref".into(), reference.clone());
+                if ui.button("Set").clicked() {
+                    let mut inner = path.clone();
+                    inner.push(n.id.clone());
+                    change =
+                        Some(crate::editor::set_body_map(&mut s.source, r, &inner, &which, &name, reference.trim()));
                 }
             });
-            s.fields.insert("body_which".into(), which.clone());
-            let mut name = field(s, "body_name", String::new());
-            ui.add(egui::TextEdit::singleline(&mut name).desired_width(80.0).hint_text("name"));
-            let mut reference = field(s, "body_ref", String::new());
-            ui.add(egui::TextEdit::singleline(&mut reference).desired_width(110.0).hint_text("node.port inside"));
-            s.fields.insert("body_name".into(), name.clone());
-            s.fields.insert("body_ref".into(), reference.clone());
-            if ui.button("Set").clicked() {
-                let mut inner = path.clone();
-                inner.push(n.id.clone());
-                change = Some(crate::editor::set_body_map(&mut s.source, r, &inner, &which, &name, reference.trim()));
-            }
-        });
+        }
         if ui.button("Edit the body").clicked() {
             s.editor.path.push(n.id.clone());
             s.selected = None;

@@ -1706,6 +1706,7 @@ impl TerrafluxApp {
             action("Group the nodes selected", format!("{c}G"), Do::Group),
             action("Ungroup the group selected", format!("{c}shift+G"), Do::Ungroup),
             action("Group the model by stage (data, preparation, model...)", String::new(), Do::GroupByStage),
+            action("Save the node selected as my node (a group or a calculator)", String::new(), Do::SaveNode),
             action("Undo", format!("{c}Z"), Do::Undo),
             action("Redo", format!("{c}shift+Z"), Do::Redo),
             action("The model as text, or as a diagram", String::new(), Do::Text),
@@ -1733,6 +1734,10 @@ impl TerrafluxApp {
         }
         for e in &self.library.entries {
             all.push(Command::new(format!("Add {}", e.name), "operator", e.doc.clone(), Do::Add(e.name.clone())));
+        }
+        for u in crate::my_nodes::nodes() {
+            let doc = u.description.clone().unwrap_or_default();
+            all.push(Command::new(format!("Add {}", u.label()), "my node", doc, Do::AddMine(u.name.clone())));
         }
         all
     }
@@ -1763,8 +1768,16 @@ impl TerrafluxApp {
             d => {
                 let Some(s) = &mut self.session else { return };
                 let r = &self.registry;
-                let model =
-                    matches!(d, Do::GoTo(_) | Do::Add(_) | Do::Arrange | Do::Group | Do::Ungroup | Do::GroupByStage);
+                let model = matches!(
+                    d,
+                    Do::GoTo(_)
+                        | Do::Add(_)
+                        | Do::AddMine(_)
+                        | Do::Arrange
+                        | Do::Group
+                        | Do::Ungroup
+                        | Do::GroupByStage
+                );
                 match d {
                     Do::OpenData => crate::builder::open_data(s, r),
                     Do::RunToHere => crate::builder::run_selected(ctx, s),
@@ -1779,6 +1792,19 @@ impl TerrafluxApp {
                     Do::Add(op) if op.is_empty() => s.editor.quick = Some(Default::default()),
                     Do::Add(op) => {
                         if let Err(e) = crate::builder::add(s, r, &op, &[]) {
+                            s.editor.message = Some(e);
+                        }
+                    }
+                    Do::SaveNode => match s.selected.clone() {
+                        Some(id) => crate::my_nodes::begin(s, r, &id),
+                        None => s.editor.message = Some("select a group or a calculator first".into()),
+                    },
+                    Do::AddMine(name) => {
+                        let added = crate::my_nodes::library()
+                            .get(&name, None)
+                            .map_err(|e| e.to_string())
+                            .and_then(|u| crate::my_nodes::add(s, r, &u));
+                        if let Err(e) = added {
                             s.editor.message = Some(e);
                         }
                     }

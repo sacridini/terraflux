@@ -929,6 +929,22 @@ qualquer grupo, a calculadora o caso mais comum. Uma biblioteca do usuário com 
 cada entrada exige (mapa ou pilha, as bandas pedidas, conferidas ao conectar). A versão gravada no modelo
 (`meu/ndvi@3`) e uma cópia embutida: editar o nó não muda em silêncio o resultado de um modelo antigo, e o modelo
 enviado a alguém roda sem a biblioteca.
+- **Feito** (Unreleased): `terraflux_graph::user_node` (`UserNode`, `Uses`, `Library`, `update`): a biblioteca é
+  uma pasta de arquivos `nome@versão.toml` (`nodes` nos dados do aplicativo, ou `TERRAFLUX_NODES`), cada versão
+  gravada uma vez só (salvar o mesmo de novo não cria versão). No modelo, o nó é um `control.group` com `uses` (o
+  nome, a versão, as entradas tipadas com as bandas pedidas e o valor próprio, as saídas tipadas) e a cópia do
+  corpo daquela versão: roda em qualquer lugar, e uma versão nova só entra quando o nó é atualizado (o painel do nó
+  oferece, mantendo as entradas dadas que a versão ainda tem; recusado se quebraria quem lê uma saída que sumiu).
+  O `check` usa os tipos e o que é obrigatório (uma entrada não dada vale o valor próprio, no motor também); o
+  motor confere as bandas antes de rodar ("ndvi@3 reads img's layers: it has no layer nir (it has b8, red)"), e o
+  aplicativo avisa ao conectar. No aplicativo (`my_nodes.rs`): "Save as my node..." no painel de um grupo ou de um
+  `map.calc` (a calculadora vira um grupo de um nó, as entradas `@nome`, as saídas as do `out`), o diálogo com o
+  que foi inferido para mudar (os tipos pelo que o nó recebe e pelo que deu na última execução, as bandas pelo
+  `algebra_tools::layers_read` dos scripts, os valores literais como valor próprio), a seção My nodes no painel
+  Operators (a busca também), os comandos na paleta, e o painel de um nó do usuário (a versão, o que cada entrada
+  pede e o que falta, "Update to", "changed here since", "Make it a plain group"). Falta: bibliotecas do grupo e
+  compartilhadas (o `meu/` do nome), as configurações de um nó do usuário como configurações (hoje são entradas
+  com valor próprio), a busca rápida (`/`) com os nós do usuário, o MCP e o assistente (fase 5).
 
 **Fase 5: a IA.** O Assistant escreve o script de uma calculadora a partir de um pedido: o parser confere, os nomes
 e as bandas contra as entradas reais, uma prévia, e a mudança passa pelo painel Changes. Também explica um script e

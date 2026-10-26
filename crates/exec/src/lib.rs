@@ -197,6 +197,33 @@ fn holds_rng(v: &Value) -> bool {
 }
 
 /// A node as it counts for its outputs: without its place and width on the canvas and its record (note, why...).
+/// The inputs of a node of the user's library as it declares them: those not given their values of their own, the
+/// layers it reads there (the error says which are missing), rasters on disk read as the map or stack it takes.
+fn user_inputs(u: &terraflux_graph::Uses, values: &mut BTreeMap<String, Value>, at: &str) -> Result<()> {
+    for (k, i) in &u.inputs {
+        if !values.contains_key(k)
+            && let Some(d) = &i.default
+        {
+            values.insert(k.clone(), terraflux_ops::Value::from_json(d));
+        }
+        let Some(v) = values.get_mut(k) else { continue };
+        if !i.bands.is_empty()
+            && let Some(why) = terraflux_ops::algebra_tools::lacks_layers(v, &i.bands)
+        {
+            return Err(Error::Node {
+                at: format!("{at}.{k}"),
+                message: format!("{} reads {k}'s layers: {why}", u.label()),
+            });
+        }
+        if matches!(i.ty, terraflux_graph::Type::Map | terraflux_graph::Type::Stack) && matches!(v, Value::Raster(_)) {
+            let raster = std::mem::replace(v, Value::Bool(false));
+            *v = terraflux_ops::files::as_port(raster, i.ty)
+                .map_err(|e| Error::Node { at: format!("{at}.{k}"), message: e.to_string() })?;
+        }
+    }
+    Ok(())
+}
+
 fn bare(n: &Node) -> Node {
     let mut n = n.unrecorded();
     n.pos = None;
@@ -608,6 +635,9 @@ impl Engine {
         }
         if node.op == terraflux_graph::SWITCH {
             return self.switch(node, env, values, inputs, at, obs, warnings);
+        }
+        if let Some(u) = node.uses.as_ref().filter(|_| node.op == terraflux_graph::GROUP) {
+            user_inputs(u, &mut values, at)?;
         }
         self.read_rasters(sig.as_deref(), &mut values, at, obs, warnings)?;
         if node.op == "control.repeat" {

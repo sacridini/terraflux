@@ -129,10 +129,16 @@ fn shown_inputs(n: &Node, r: &Registry, unfolded: bool) -> (Vec<Port>, Vec<(Stri
             folded.push((name, ty));
         }
     }
-    if let Some(ty) = r.sig(&n.op).and_then(|s| s.extra) {
+    // (a node of the user's takes the inputs it declares, no others)
+    if let Some(ty) = r.sig(&n.op).and_then(|s| s.extra).filter(|_| n.uses.is_none()) {
         shown.push(Port { name: String::new(), ty, required: false, connected: false });
     }
     (shown, folded)
+}
+
+/// What a node's box names under its id: its operator, or the node of the user's library it is (`ndvi@3`).
+pub fn op_label(n: &Node) -> String {
+    n.uses.as_ref().map_or_else(|| n.op.clone(), |u| u.label())
 }
 
 /// The words of the row that folds a node's optional inputs: how many there are, or that a click folds them.
@@ -152,7 +158,7 @@ pub fn node_width(n: &Node, r: &Registry) -> f32 {
     let (inputs, outputs) = port_names(n, r);
     let (i, o): (Vec<&str>, Vec<&str>) =
         (inputs.iter().map(String::as_str).collect(), outputs.iter().map(String::as_str).collect());
-    let w = fitted(&n.id, &n.op, &i, &o, &mut estimate);
+    let w = fitted(&n.id, &op_label(n), &i, &o, &mut estimate);
     n.width.map_or(w, |u| u.max(w))
 }
 
@@ -279,6 +285,8 @@ pub struct EditorState {
     picking: Option<Pick>,
     /// The nodes marked (of the top level), in a colour each: those changed in a review ([`crate::review`]).
     pub marks: HashMap<String, Color32>,
+    /// A node being saved as a node of the user's library: the dialog's state.
+    pub saving: Option<crate::my_nodes::Draft>,
 }
 
 /// The inputs of a node a connection may go to, offered where it was let go.
@@ -444,6 +452,8 @@ struct Port {
 struct BoxAt {
     key: String,
     op: String,
+    /// What it names under its id ([`op_label`]).
+    label: String,
     /// graph units
     rect: Rect,
     /// The width its texts need (it is never narrower).
@@ -817,6 +827,7 @@ impl Scene {
             boxes.push(BoxAt {
                 key: s.clone(),
                 op: String::new(),
+                label: String::new(),
                 rect,
                 fitted: sources_w,
                 inputs: Vec::new(),
@@ -847,7 +858,8 @@ impl Scene {
                 inputs.iter().map(|p| if p.name.is_empty() { NEW_INPUT } else { p.name.as_str() }).collect();
             names.extend(fold.as_deref());
             let outs: Vec<&str> = outputs.iter().map(|(p, _)| p.as_str()).collect();
-            let need = fitted(&n.id, &n.op, &names, &outs, measure);
+            let label = op_label(n);
+            let need = fitted(&n.id, &label, &names, &outs, measure);
             let width = n.width.map_or(need, |w| w.max(need));
             // the file it reads or writes
             let file = n.params.get("path").and_then(|v| v.as_str()).filter(|p| !p.trim().is_empty()).map(String::from);
@@ -857,6 +869,7 @@ impl Scene {
             boxes.push(BoxAt {
                 key: n.id.clone(),
                 op: n.op.clone(),
+                label,
                 rect,
                 fitted: need,
                 inputs,
@@ -1558,7 +1571,7 @@ pub fn show(
                 painter.text(
                     top + Vec2::new(8.0, 21.0) * cam.zoom,
                     Align2::LEFT_TOP,
-                    &b.op,
+                    &b.label,
                     FontId::monospace(size(11.0)),
                     colour,
                 );

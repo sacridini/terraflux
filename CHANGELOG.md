@@ -27,6 +27,24 @@ minor versions.
   a sample of the cells. A console under it computes a line in the script's scope on every cell (`img.mean()`
   gives the number at once; a map, its numbers and its image) without changing the node. ctrl+enter gives the
   script to the node and runs the model up to it.
+- Nodes of your own: a group or a calculator saved as a node of your library ("Save as my node..." in its pane,
+  or the commands), used in any model as one operator from the Operators pane (My nodes), the commands or ctrl+K.
+  The dialog shows what it takes and gives, found from what it is given and what its scripts read: each input's
+  type, the layers a stack must have (`img.nir` read: `nir`), its value when none is given; each output's type;
+  all of them, the name and what it does changed there before it is saved. Each save is a new version, a file of
+  its own (`ndvi@3.toml`, in `nodes` of the application's data or `TERRAFLUX_NODES`). In a model the node is a
+  group with `uses` (the name, the version, its ports) and a copy of that version's body: the model runs the
+  version it was made with on any computer, with or without the library, and a newer version changes it only when
+  it is updated to it (its pane offers it, keeping what it is given). Its pane also tells when it was changed
+  since its version (Save as a new version) and makes it a plain group again. The check takes its ports' types
+  and needs (an input not given takes its value of its own, in the run too), and a stack given it without a layer
+  it reads is told when connected and stops the run with the layers missing and those it has.
+- The tutorial The raster calculator (Building models): one script over Sibuyan's land use of 1997 and 2011 and
+  its drivers gives the forest's years, its loss, a habitat index of the forest of 1997, its best quarter and its
+  mean, written in the Calculator pane with its completions, previews and console, and saved as a node of your own
+  with its versions; the language in full and its pitfalls. Its maps and numbers come from a run of Terraflux and
+  its pictures of the application from `cargo test --release -p terraflux-app --test readme_images calculator --
+  --ignored`.
 
 ### Changed
 - Map algebra is faster, with the same results to the bit: an expression is compiled (the numbers folded, a value
