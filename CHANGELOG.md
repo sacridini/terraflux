@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.19.0] - 2026-10-26
+
 ### Added
 - Terraflux updates itself. It asks GitHub for the latest release when it starts (at most once a day; off in the
   settings) and shows **Update to X.Y.Z** in orange in the toolbar. On Windows, the Terraflux of the installer
