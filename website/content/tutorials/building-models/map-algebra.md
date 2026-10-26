@@ -466,6 +466,8 @@ after: { src: /img/tutorials/building-models/map-algebra/edge_coast_plain.png, l
 
 ## Going further
 
+- [The raster calculator](../calculator/): several expressions as one script, its outputs previewed as you type,
+  a console, and the script saved as a node of your own.
 - [Stacks and layers](../stacks-and-layers/): build your own stacks, replace a layer, and read a folder of maps.
 - [Loops](../loops/): run an expression again at every step and write a cellular automaton.
 - [Plugins in WebAssembly](../plugins/): when an expression is not enough.

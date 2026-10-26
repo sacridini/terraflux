@@ -21,6 +21,11 @@ fn data(name: &str) -> PathBuf {
 }
 
 fn harness() -> Harness<'static, TerrafluxApp> {
+    harness_at(SIZE, 1.0)
+}
+
+/// A window of `size` points drawn at `ppp` pixels a point (larger, for a picture cut to one part of it).
+fn harness_at(size: (f32, f32), ppp: f32) -> Harness<'static, TerrafluxApp> {
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
     std::fs::create_dir_all(&dir).unwrap();
     unsafe { std::env::set_var("TERRAFLUX_SETTINGS", dir.join("readme-settings.json")) };
@@ -31,7 +36,8 @@ fn harness() -> Harness<'static, TerrafluxApp> {
     );
     terraflux_app::canvas_gpu::install(&rs);
     let mut h = Harness::builder()
-        .with_size(SIZE)
+        .with_size(size)
+        .with_pixels_per_point(ppp)
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
         .build_ui_state(|ui, app: &mut TerrafluxApp| app.frame(ui), TerrafluxApp::new(None));
     h.run_steps(2);
@@ -250,4 +256,146 @@ fn review_image() {
         a.dock = Some(d);
     }
     save(&mut h, "review.png");
+}
+
+/// The website's pictures of the raster calculator (the tutorial building-models/calculator), written to
+/// `website/static/img/tutorials/building-models/calculator`: the Calculator pane with its script, previews and
+/// console, a stack's layers completed, the dialog that saves the calculator as a node of your own, and that node
+/// in the model. `cargo test --release -p terraflux-app --test readme_images calculator -- --ignored`.
+#[test]
+#[ignore = "the website's pictures: run with --ignored"]
+fn calculator_images() {
+    use egui_kittest::kittest::Queryable;
+    let site =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../website/static/img/tutorials/building-models/calculator");
+    std::fs::create_dir_all(&site).unwrap();
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("calculator-images");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::copy(data("sibuyan_landuse.tif"), dir.join("landuse.tif")).unwrap();
+    std::fs::copy(data("sibuyan_drivers.tif"), dir.join("drivers.tif")).unwrap();
+    unsafe { std::env::set_var("TERRAFLUX_NODES", dir.join("nodes")) };
+    let script = "# lu: the land use of 1997 and 2011 (a stack); d: the drivers (a stack)
+forest = lu == 1                        # a stack: the forest of each year
+out years = sum(forest)                 # years as forest: 0, 1 or 2
+out lost = forest._1997 and not forest._2011
+
+# a score from 0 to 1 for elevation and for roads, and the index
+si_elev = clamp((1200 - d.elevation) / 900, 0, 1)
+si_road = clamp(d.dist_roads / 3000, 0, 1)
+out hsi = sqrt(si_elev * si_road)
+hsi[not forest._1997] = null            # the forest of 1997 only
+
+out best = hsi >= hsi.percentile(75)    # its best quarter
+out mean_hsi = hsi.mean()";
+    let mut m = terraflux_graph::Model::new("Sibuyan's forest");
+    m.inputs.insert(
+        "lu".into(),
+        terraflux_graph::Input::Stack { path: "landuse.tif".into(), bands: None, nodata: None, note: None },
+    );
+    m.inputs.insert(
+        "d".into(),
+        terraflux_graph::Input::Stack { path: "drivers.tif".into(), bands: None, nodata: None, note: None },
+    );
+    m.nodes.push(
+        terraflux_graph::Node::new("calc", "map.calc")
+            .input("lu", "$lu")
+            .input("d", "$d")
+            .param("expression", script)
+            .note("The forest's years, its loss, and a habitat index of the forest of 1997."),
+    );
+    let p = dir.join("sibuyan.toml");
+    m.save(&p).unwrap();
+    // (a smaller window drawn larger: each picture is cut to the part it shows, and its words stay readable)
+    const PPP: f32 = 1.5;
+    let mut h = harness_at((1300.0, 760.0), PPP);
+    h.state_mut().open(&p);
+    h.state_mut().session.as_mut().unwrap().wait();
+    h.state_mut().session.as_mut().unwrap().start(Box::new(|| {}));
+    settled(&mut h);
+    {
+        let a = h.state_mut();
+        let s = a.session.as_mut().unwrap();
+        terraflux_app::builder::select(s, &terraflux_ops::Registry::standard(), "calc");
+        let mut d = DockState::new(vec![Pane::Model]);
+        let surface = d.main_surface_mut();
+        let [model, _] = surface.split_right(NodeIndex::root(), 0.78, vec![Pane::Node, Pane::Operators]);
+        surface.split_below(model, 0.3, vec![Pane::Calculator]);
+        a.dock = Some(d);
+        a.session.as_mut().unwrap().editor.fit();
+    }
+    h.run_steps(5);
+    // the previews, then a line of the console
+    let t = Instant::now();
+    while h.query_all_by_label_contains(" · max ").next().is_none() && t.elapsed() < Duration::from_secs(60) {
+        h.step();
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    h.ctx.memory_mut(|m| m.request_focus(egui::Id::new("calculator console input")));
+    h.run_steps(2);
+    h.event(egui::Event::Text("hsi.percentile(75)".into()));
+    h.run_steps(2);
+    h.key_press(egui::Key::Enter);
+    let t = Instant::now();
+    while h.query_by_label_contains("= 0.").is_none() && t.elapsed() < Duration::from_secs(60) {
+        h.step();
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // the window, or the part of it at x, y of width w and height h (in points)
+    let shoot = |h: &mut Harness<TerrafluxApp>, name: &str, part: Option<[f32; 4]>| {
+        let t = Instant::now();
+        while t.elapsed() < Duration::from_secs(2) {
+            h.step();
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let img = h.render().expect("the window drawn by wgpu");
+        let img = match part {
+            Some(r) => {
+                let [x, y, w, ht] = r.map(|v| (v * PPP).round() as u32);
+                image::imageops::crop_imm(&img, x, y, w, ht).to_image()
+            }
+            None => img,
+        };
+        img.save(site.join(name)).unwrap();
+    };
+    shoot(&mut h, "pane.png", Some([0.0, 0.0, 1012.0, 760.0]));
+    // a stack's layers offered after the dot
+    h.ctx.memory_mut(|m| m.request_focus(egui::Id::new("calculator script")));
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::End);
+    h.event(egui::Event::Text("\nout remote = d.dist_".into()));
+    h.run_steps(3);
+    shoot(&mut h, "completion.png", Some([30.0, 268.0, 720.0, 355.0]));
+    // (the line typed taken back: leaving the editor would give it to the node)
+    for _ in "\nout remote = d.dist_".chars() {
+        h.key_press(egui::Key::Backspace);
+    }
+    h.run_steps(3);
+    // saved as a node of your own: the dialog, then the node
+    {
+        let r = terraflux_ops::Registry::standard();
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.editor.chosen.clear();
+        h.ctx.memory_mut(|m| m.surrender_focus(egui::Id::new("calculator script")));
+        let s = h.state_mut().session.as_mut().unwrap();
+        terraflux_app::my_nodes::begin(s, &r, "calc");
+        let d = s.editor.saving.as_mut().expect("the dialog");
+        d.name = "forest_hsi".into();
+    }
+    h.run_steps(3);
+    shoot(&mut h, "save-dialog.png", Some([14.0, 14.0, 565.0, 425.0]));
+    h.get_by_label("Save").click();
+    h.run_steps(3);
+    assert!(h.state().session.as_ref().unwrap().editor.saving.is_none(), "saved");
+    {
+        let r = terraflux_ops::Registry::standard();
+        let s = h.state_mut().session.as_mut().unwrap();
+        terraflux_app::builder::select(s, &r, "calc");
+        let mut d = DockState::new(vec![Pane::Model]);
+        let _ = d.main_surface_mut().split_right(NodeIndex::root(), 0.7, vec![Pane::Node, Pane::Operators]);
+        h.state_mut().dock = Some(d);
+        h.state_mut().session.as_mut().unwrap().editor.fit();
+    }
+    h.run_steps(3);
+    shoot(&mut h, "my-node.png", Some([228.0, 45.0, 1062.0, 625.0]));
 }
