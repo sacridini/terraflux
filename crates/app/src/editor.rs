@@ -42,7 +42,7 @@ fn guarded(m: &mut Model, r: &Registry, at: &[String], change: impl FnOnce(&mut 
 }
 
 /// A fresh id in a scope from an operator's whole name, the dot an underscore (an id has no dot: `node.port` is
-/// how a node's output is read): `map_calc`, `map_calc_2`...; `stack_of`, `raster_read`, not `of` nor `read`.
+/// how a node's output is read): `raster_calc`, `raster_calc_2`...; `stack_of`, `raster_read`, not `of` nor `read`.
 fn fresh_id(nodes: &[Node], op: &str) -> String {
     let base: String = op.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
     let base = if valid_id(&base) { base } else { format!("n_{base}") };
@@ -82,14 +82,14 @@ pub fn add_user_node(m: &mut Model, path: &[String], u: &UserNode, pos: [f32; 2]
 /// place, so what read the node reads the group.
 pub fn calc_to_group(m: &mut Model, r: &Registry, path: &[String], id: &str) -> Result<()> {
     let calc = scope_mut(m, path)?.iter().find(|n| n.id == id).cloned().ok_or_else(|| format!("no node {id:?}"))?;
-    if calc.op != "map.calc" {
+    if calc.op != "raster.calc" {
         return Err(format!("{id:?} is not a map algebra node"));
     }
     if let Some(k) = calc.inputs.keys().find(|k| !valid_id(k)) {
         return Err(format!("the input {k:?} is not a name a group's input can have: rename it first"));
     }
     let outputs: std::collections::BTreeMap<String, String> = r
-        .sig("map.calc")
+        .sig("raster.calc")
         .map(|s| s.outputs_of(&calc))
         .unwrap_or_default()
         .into_iter()
@@ -731,7 +731,7 @@ mod tests {
         set_literal(&mut m, &r, &[], "markov_fit", "steps", "14").unwrap();
         assert_eq!(m.nodes[0].inputs["steps"], Source::Literal(14.into()));
         // a map into a Markov chain's port: refused, the model unchanged
-        let calc = add_node(&mut m, &r, &[], "map.calc", [0.0, 0.0]).unwrap();
+        let calc = add_node(&mut m, &r, &[], "raster.calc", [0.0, 0.0]).unwrap();
         let before = m.clone();
         let e = add_and_fail(&mut m, &r, "$t0", "markov_fit_2", "steps");
         assert!(e.contains("takes a"), "{e}");
@@ -744,7 +744,7 @@ mod tests {
         set_param(&mut m, &[], &calc, "expression", "land * 2").unwrap();
         assert_eq!(m.node(&calc).unwrap().params["expression"], "land * 2");
         // a cycle is refused
-        connect(&mut m, &r, &[], "map_calc.map", "markov_fit_2", "t0").unwrap();
+        connect(&mut m, &r, &[], "raster_calc.map", "markov_fit_2", "t0").unwrap();
         let e = connect(&mut m, &r, &[], "markov_fit_2.markov", &calc, "x").err().unwrap();
         assert!(e.contains("cycle"), "{e}");
     }
@@ -758,16 +758,16 @@ mod tests {
         let r = Registry::standard();
         let mut m = model();
         add_node(&mut m, &r, &[], "markov.fit", [0.0, 0.0]).unwrap();
-        add_node(&mut m, &r, &[], "map.calc", [0.0, 0.0]).unwrap();
-        connect(&mut m, &r, &[], "$t0", "map_calc", "a").unwrap();
-        connect(&mut m, &r, &[], "map_calc.map", "markov_fit", "t0").unwrap();
+        add_node(&mut m, &r, &[], "raster.calc", [0.0, 0.0]).unwrap();
+        connect(&mut m, &r, &[], "$t0", "raster_calc", "a").unwrap();
+        connect(&mut m, &r, &[], "raster_calc.map", "markov_fit", "t0").unwrap();
         m.outputs.insert(
             "out".into(),
-            terraflux_graph::Output { from: "map_calc.map".into(), path: None, dtype: None, layer: None },
+            terraflux_graph::Output { from: "raster_calc.map".into(), path: None, dtype: None, layer: None },
         );
         // a setting that reads a node's output follows it too
-        set_param(&mut m, &[], "markov_fit", "steps", r#"{"from": "map_calc.map"}"#).unwrap();
-        rename_node(&mut m, &[], "map_calc", "algebra").unwrap();
+        set_param(&mut m, &[], "markov_fit", "steps", r#"{"from": "raster_calc.map"}"#).unwrap();
+        rename_node(&mut m, &[], "raster_calc", "algebra").unwrap();
         assert_eq!(m.node("markov_fit").unwrap().inputs["t0"], Source::Ref("algebra.map".into()));
         assert_eq!(m.node("markov_fit").unwrap().params["steps"], serde_json::json!({ "from": "algebra.map" }));
         assert_eq!(m.outputs["out"].from, "algebra.map");
@@ -783,43 +783,46 @@ mod tests {
     fn nodes_are_pasted_as_new_nodes() {
         let r = Registry::standard();
         let mut m = model();
-        add_node(&mut m, &r, &[], "map.calc", [0.0, 0.0]).unwrap();
+        add_node(&mut m, &r, &[], "raster.calc", [0.0, 0.0]).unwrap();
         add_node(&mut m, &r, &[], "markov.fit", [200.0, 0.0]).unwrap();
-        connect(&mut m, &r, &[], "$t0", "map_calc", "a").unwrap();
-        connect(&mut m, &r, &[], "map_calc.map", "markov_fit", "t0").unwrap();
+        connect(&mut m, &r, &[], "$t0", "raster_calc", "a").unwrap();
+        connect(&mut m, &r, &[], "raster_calc.map", "markov_fit", "t0").unwrap();
         connect(&mut m, &r, &[], "$t1", "markov_fit", "t1").unwrap();
         set_literal(&mut m, &r, &[], "markov_fit", "steps", "14").unwrap();
         // a duplicate of `fit` alone: a new id, what it read kept
         let copies = vec![m.node("markov_fit").unwrap().clone()];
         assert_eq!(paste_nodes(&mut m, &[], &copies, [40.0, 40.0], true).unwrap(), vec!["markov_fit_2"]);
         let d = m.node("markov_fit_2").unwrap();
-        assert_eq!(d.inputs["t0"], Source::Ref("map_calc.map".into()));
+        assert_eq!(d.inputs["t0"], Source::Ref("raster_calc.map".into()));
         assert_eq!(d.inputs["steps"], Source::Literal(14.into()));
         assert_eq!(d.pos, Some([240.0, 40.0]));
         // both pasted through the clipboard's text: the copies connected to each other, nothing from outside them
-        let text = clip_text(&[m.node("map_calc").unwrap().clone(), m.node("markov_fit_2").unwrap().clone()]);
-        assert!(clip_nodes("map_calc").is_none() && clip_nodes("{\"a\": 1}").is_none());
+        let text = clip_text(&[m.node("raster_calc").unwrap().clone(), m.node("markov_fit_2").unwrap().clone()]);
+        assert!(clip_nodes("raster_calc").is_none() && clip_nodes("{\"a\": 1}").is_none());
         let copies = clip_nodes(&text).unwrap();
-        assert_eq!(paste_nodes(&mut m, &[], &copies, [0.0, 300.0], false).unwrap(), vec!["map_calc_2", "markov_fit_3"]);
-        let (c, f) = (m.node("map_calc_2").unwrap(), m.node("markov_fit_3").unwrap());
+        assert_eq!(
+            paste_nodes(&mut m, &[], &copies, [0.0, 300.0], false).unwrap(),
+            vec!["raster_calc_2", "markov_fit_3"]
+        );
+        let (c, f) = (m.node("raster_calc_2").unwrap(), m.node("markov_fit_3").unwrap());
         assert!(c.inputs.is_empty());
-        assert_eq!(f.inputs["t0"], Source::Ref("map_calc_2.map".into()));
+        assert_eq!(f.inputs["t0"], Source::Ref("raster_calc_2.map".into()));
         assert!(!f.inputs.contains_key("t1"));
         assert_eq!(f.inputs["steps"], Source::Literal(14.into()));
         assert_eq!(m.nodes.len(), 5);
-        assert!(errors(&m, &r).iter().all(|i| !i.at.starts_with("map_calc_2") && !i.message.contains("cycle")));
+        assert!(errors(&m, &r).iter().all(|i| !i.at.starts_with("raster_calc_2") && !i.message.contains("cycle")));
         // a container's body keeps its own connections
         let g = add_node(&mut m, &r, &[], GROUP, [0.0, 0.0]).unwrap();
         connect(&mut m, &r, &[], "$t0", &g, "land").unwrap();
         let path = vec![g.clone()];
-        let inner = add_node(&mut m, &r, &path, "map.calc", [0.0, 0.0]).unwrap();
+        let inner = add_node(&mut m, &r, &path, "raster.calc", [0.0, 0.0]).unwrap();
         connect(&mut m, &r, &path, "@land", &inner, "x").unwrap();
-        set_body_map(&mut m, &r, &path, "outputs", "plus", "map_calc.map").unwrap();
+        set_body_map(&mut m, &r, &path, "outputs", "plus", "raster_calc.map").unwrap();
         let copies = vec![m.node(&g).unwrap().clone()];
         let id = paste_nodes(&mut m, &[], &copies, [0.0, 0.0], false).unwrap().remove(0);
         let b = m.node(&id).unwrap().body.as_ref().unwrap();
         assert_eq!(b.nodes[0].inputs["x"], Source::Ref("@land".into()));
-        assert_eq!(b.outputs["plus"], "map_calc.map");
+        assert_eq!(b.outputs["plus"], "raster_calc.map");
         assert!(m.node(&id).unwrap().inputs.is_empty());
     }
 
@@ -830,7 +833,7 @@ mod tests {
         use terraflux_graph::{UserInput, UserOutput};
         let r = Registry::standard();
         let mut m = model();
-        let calc = add_node(&mut m, &r, &[], "map.calc", [50.0, 60.0]).unwrap();
+        let calc = add_node(&mut m, &r, &[], "raster.calc", [50.0, 60.0]).unwrap();
         connect(&mut m, &r, &[], "$t0", &calc, "img").unwrap();
         set_literal(&mut m, &r, &[], &calc, "k", "2").unwrap();
         set_param(
@@ -904,22 +907,22 @@ out big = img > 5",
     fn nodes_are_grouped_and_ungrouped() {
         let r = Registry::standard();
         let mut m = model();
-        for (k, op) in ["map.calc", "map.calc", "markov.fit"].iter().enumerate() {
+        for (k, op) in ["raster.calc", "raster.calc", "markov.fit"].iter().enumerate() {
             add_node(&mut m, &r, &[], op, [k as f32 * 200.0, 0.0]).unwrap();
         }
-        connect(&mut m, &r, &[], "$t0", "map_calc", "a").unwrap();
-        connect(&mut m, &r, &[], "map_calc.map", "map_calc_2", "b").unwrap();
-        connect(&mut m, &r, &[], "map_calc_2.map", "markov_fit", "t0").unwrap();
+        connect(&mut m, &r, &[], "$t0", "raster_calc", "a").unwrap();
+        connect(&mut m, &r, &[], "raster_calc.map", "raster_calc_2", "b").unwrap();
+        connect(&mut m, &r, &[], "raster_calc_2.map", "markov_fit", "t0").unwrap();
         connect(&mut m, &r, &[], "$t1", "markov_fit", "t1").unwrap();
-        set_param(&mut m, &[], "map_calc", "expression", "a + 1").unwrap();
-        set_param(&mut m, &[], "map_calc_2", "expression", "b * 2").unwrap();
+        set_param(&mut m, &[], "raster_calc", "expression", "a + 1").unwrap();
+        set_param(&mut m, &[], "raster_calc_2", "expression", "b * 2").unwrap();
         set_literal(&mut m, &r, &[], "markov_fit", "steps", "14").unwrap();
         m.outputs.insert(
             "calc".into(),
-            terraflux_graph::Output { from: "map_calc_2.map".into(), path: None, dtype: None, layer: None },
+            terraflux_graph::Output { from: "raster_calc_2.map".into(), path: None, dtype: None, layer: None },
         );
         let before = m.clone();
-        let ids = vec!["map_calc".to_string(), "map_calc_2".to_string()];
+        let ids = vec!["raster_calc".to_string(), "raster_calc_2".to_string()];
         group_nodes(&mut m, &r, &[], &ids, "prepare", Some("The maps prepared.")).unwrap();
         let g = m.node("prepare").unwrap();
         assert_eq!(g.op, GROUP);
@@ -928,9 +931,9 @@ out big = img > 5",
         let b = g.body.as_ref().unwrap();
         assert_eq!(b.nodes.len(), 2);
         assert_eq!(b.nodes[1].pos, Some([200.0, 0.0]));
-        assert_eq!(b.outputs["map_calc_2"], "map_calc_2.map");
-        assert_eq!(m.node("markov_fit").unwrap().inputs["t0"], Source::Ref("prepare.map_calc_2".into()));
-        assert_eq!(m.outputs["calc"].from, "prepare.map_calc_2");
+        assert_eq!(b.outputs["raster_calc_2"], "raster_calc_2.map");
+        assert_eq!(m.node("markov_fit").unwrap().inputs["t0"], Source::Ref("prepare.raster_calc_2".into()));
+        assert_eq!(m.outputs["calc"].from, "prepare.raster_calc_2");
         assert!(errors(&before, &r).is_empty(), "{:?}", errors(&before, &r));
         assert!(errors(&m, &r).is_empty(), "{:?}", errors(&m, &r));
         // a name taken: refused, the model as it was
@@ -940,14 +943,14 @@ out big = img > 5",
         // and back
         ungroup(&mut m, &r, &[], "prepare").unwrap();
         let ids: Vec<&str> = m.nodes.iter().map(|n| n.id.as_str()).collect();
-        assert_eq!(ids, ["map_calc", "map_calc_2", "markov_fit"]);
+        assert_eq!(ids, ["raster_calc", "raster_calc_2", "markov_fit"]);
         assert_eq!(m.nodes[..2], before.nodes[..2]);
-        assert_eq!(m.node("markov_fit").unwrap().inputs["t0"], Source::Ref("map_calc_2.map".into()));
-        assert_eq!(m.outputs["calc"].from, "map_calc_2.map");
+        assert_eq!(m.node("markov_fit").unwrap().inputs["t0"], Source::Ref("raster_calc_2.map".into()));
+        assert_eq!(m.outputs["calc"].from, "raster_calc_2.map");
         assert!(ungroup(&mut m, &r, &[], "markov_fit").is_err(), "not a group");
         // the ends of a chain grouped, its middle left out: a cycle
         let mut c = before.clone();
-        let ends = vec!["map_calc".to_string(), "markov_fit".to_string()];
+        let ends = vec!["raster_calc".to_string(), "markov_fit".to_string()];
         let e = group_nodes(&mut c, &r, &[], &ends, "ends", None).unwrap_err();
         assert!(e.contains("cycle"), "{e}");
         assert_eq!(c, before);
@@ -961,10 +964,10 @@ out big = img > 5",
         connect(&mut m, &r, &[], "$t0", &g, "land").unwrap();
         let path = vec![g.clone()];
         assert!(sources(&m, &r, &path).iter().any(|(s, _)| s == "@land"));
-        let c = add_node(&mut m, &r, &path, "map.calc", [0.0, 0.0]).unwrap();
+        let c = add_node(&mut m, &r, &path, "raster.calc", [0.0, 0.0]).unwrap();
         connect(&mut m, &r, &path, "@land", &c, "x").unwrap();
         set_param(&mut m, &path, &c, "expression", "x + 1").unwrap();
-        set_body_map(&mut m, &r, &path, "outputs", "plus", "map_calc.map").unwrap();
+        set_body_map(&mut m, &r, &path, "outputs", "plus", "raster_calc.map").unwrap();
         assert!(output_ports(m.node(&g).unwrap(), &r).iter().any(|(p, _)| p == "plus"));
         // outside, the group's output is a port
         let f = add_node(&mut m, &r, &[], "markov.fit", [0.0, 0.0]).unwrap();

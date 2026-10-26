@@ -356,7 +356,7 @@ covers writing in detail.
   does not say in which system; Metadata shows *none*. Terraflux can still use it on its own, but cannot place a
   basemap under it or reproject it until you say what it is (the setting `source_crs` of [[raster.reproject]]).
 - **Classes stored as decimals.** A map of classes in `float32` may hold 2.9999998 instead of 3 after some
-  processing; its legend shows many "classes". Round it ([[map.calc]] with `round(x)`) or write it as an integer
+  processing; its legend shows many "classes". Round it ([[raster.calc]] with `round(x)`) or write it as an integer
   type.
 
 ## Going further

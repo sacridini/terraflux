@@ -5,7 +5,7 @@ description: Write the rules of a growing city yourself, in a loop of map algebr
 order: 20
 level: beginner
 time: 30 min
-ops: [control.repeat, map.calc, nlm.gaussian_field, nlm.distance_gradient, view.plot]
+ops: [control.repeat, raster.calc, nlm.gaussian_field, nlm.distance_gradient, view.plot]
 series: "Land change simulation: the foundations"
 part: 2
 ---
@@ -99,16 +99,16 @@ note = "The distance to the old town in the middle."
 
 [[nodes]]
 id = "suitability"
-op = "map.calc"
+op = "raster.calc"
 inputs = { a = "attraction.map", d = "centre.map", r = "relief.map" }
-params = { expression = "if r < 0.3 or r > 0.75 then null else 0.6 * a + 0.4 * (1 - d / 106)" }
+params = { expression = "None if r < 0.3 or r > 0.75 else 0.6 * a + 0.4 * (1 - d / 106)" }
 note = "Where a city would rather grow: attractive and near the centre; no value (never) in the water and on the mountains."
 
 [[nodes]]
 id = "town"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "centre.map", suit = "suitability.map" }
-params = { expression = "if isnull(suit) then null else d == 0" }
+params = { expression = "None if isnull(suit) else d == 0" }
 note = "The city at the start: the old town (1), the rest 0."
 ```
 
@@ -122,9 +122,9 @@ note = "The city at the start: the old town (1), the rest 0."
    services.
 4. **The centre** (node 3): [[nlm.distance_gradient]] gives each cell its distance (in cells) to the rectangle of
    rows and columns 72 to 78, the old town.
-5. **Suitability** (node 4): [[map.calc]] combines them: 60% attraction and 40% nearness to the centre (the
+5. **Suitability** (node 4): [[raster.calc]] combines them: 60% attraction and 40% nearness to the centre (the
    distance divided by 106, the largest distance on the map). Water (relief below 0.3) and mountains (above
-   0.75) get `null`, a missing value: a cell without a value never changes.
+   0.75) get `None`, a missing value: a cell without a value never changes.
 6. **The town** (node 5): `d == 0` is 1 in the old town and 0 elsewhere; cells of water or mountain stay
    missing.
 
@@ -155,9 +155,9 @@ collect = { maps = "grow.map" }
 
 [[nodes.body.nodes]]
 id = "grow"
-op = "map.calc"
+op = "raster.calc"
 inputs = { c = "@city", suit = "suitability.map", step = "@step" }
-params = { expression = "if c == 0 and nbsum(c == 1, 1) >= 2 and suit > 0.6 - step * 0.004 then 1 else c" }
+params = { expression = "1 if c == 0 and nbsum(c == 1, 1) >= 2 and suit > 0.6 - step * 0.004 else c" }
 note = "A cell becomes city when two of its neighbours are, if it is suited enough; the bar falls a little every step."
 ```
 
@@ -209,15 +209,15 @@ params = { rows = 150, columns = 150, origin = [72, 78, 72, 78], nlmr_compat = f
 
 [[nodes]]
 id = "suitability"
-op = "map.calc"
+op = "raster.calc"
 inputs = { a = "attraction.map", d = "centre.map", r = "relief.map" }
-params = { expression = "if r < 0.3 or r > 0.75 then null else 0.6 * a + 0.4 * (1 - d / 106)" }
+params = { expression = "None if r < 0.3 or r > 0.75 else 0.6 * a + 0.4 * (1 - d / 106)" }
 
 [[nodes]]
 id = "town"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "centre.map", suit = "suitability.map" }
-params = { expression = "if isnull(suit) then null else d == 0" }
+params = { expression = "None if isnull(suit) else d == 0" }
 
 [[nodes]]
 id = "growth"
@@ -230,9 +230,9 @@ collect = { maps = "grow.map" }
 
 [[nodes.body.nodes]]
 id = "grow"
-op = "map.calc"
+op = "raster.calc"
 inputs = { c = "@city", suit = "suitability.map", step = "@step" }
-params = { expression = "if c == 0 and nbsum(c == 1, 1) >= 2 and suit > 0.6 - step * 0.004 then 1 else c" }
+params = { expression = "1 if c == 0 and nbsum(c == 1, 1) >= 2 and suit > 0.6 - step * 0.004 else c" }
 ```
 
 From the command line, the same model saved as `city.toml` runs with `terraflux run city.toml`. Plots write
@@ -355,7 +355,7 @@ trusting a simulated map, look at its patches: their sizes, their shapes, their 
 - [Building models](/tutorials/building-models/): map algebra, loops, groups and submodels in depth.
 - The loop of [Dinamica EGO's model](/tutorials/land-change/dinamica-on-sibuyan/) is this same `control.repeat`
   with two nodes in its body.
-- The operators: [[control.repeat]], [[map.calc]], [[nlm.gaussian_field]], [[nlm.distance_gradient]].
+- The operators: [[control.repeat]], [[raster.calc]], [[nlm.gaussian_field]], [[nlm.distance_gradient]].
 
 ## References
 

@@ -30,33 +30,33 @@ params = {{ rules = "{RULES}" }}
 
 [[nodes]]
 id = "forest"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ l = "land.raster" }}
 params = {{ expression = "l >= 23 and l <= 25" }}
 
 [[nodes]]
 id = "suitability"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ f = "forest.map" }}
 params = {{ expression = "nbmean(f, 5)" }}
 
 [[nodes]]
 id = "from_suitability"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ s = "suitability.map" }}
 params = {{ expression = "100 - 99 * (1 - exp(-8 * s)) / (1 - exp(-8))" }}
 
 [[nodes]]
 id = "weaker"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ r = "resistance.map" }}
 params = {{ expression = "sqrt(r)" }}
 
 [[nodes]]
 id = "stronger"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ r = "resistance.map" }}
-params = {{ expression = "r ^ 2" }}
+params = {{ expression = "r ** 2" }}
 
 [[nodes]]
 id = "graph"
@@ -78,9 +78,9 @@ params = {{ column = "id" }}
 
 [[nodes]]
 id = "two_forests"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ i = "ids.map" }}
-params = {{ expression = "coalesce(if i == 55 then 1 else if i == 96 then 2 else 0, 0)" }}
+params = {{ expression = "coalesce(1 if i == 55 else 2 if i == 96 else 0, 0)" }}
 """
 writes = {"resistance.map": "resistance.tif", "suitability.map": "suitability.tif",
           "from_suitability.map": "from_suitability.tif", "two_forests.map": "two.tif", "ids.map": "ids.tif"}

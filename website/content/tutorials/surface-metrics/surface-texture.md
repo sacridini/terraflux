@@ -71,9 +71,9 @@ params = { path = "ndvi.tif" }
 
 [[nodes]]
 id = "habitat"
-op = "map.calc"
+op = "raster.calc"
 inputs = { n = "ndvi.raster" }
-params = { expression = "if n >= 0.7 then 2 else 1" }
+params = { expression = "2 if n >= 0.7 else 1" }
 note = "Forest where NDVI is 0.7 or more."
 
 [[nodes]]

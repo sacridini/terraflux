@@ -234,7 +234,7 @@ op = "nlm.random"
 params = { rows = 20, columns = 10, seed = 2 }
 [[nodes]]
 id = "sum"
-op = "map.calc"
+op = "raster.calc"
 inputs = { a = "small.map", b = "big.map" }
 params = { expression = "a + b" }
 "#,
@@ -261,7 +261,7 @@ params = { expression = "a + b" }
         assert_eq!(d.inputs[1].grid.as_ref().unwrap().size(), "10 x 20 cells");
         assert!(d.hints.iter().any(|h| h.contains("different sizes") && h.contains("raster.match")), "{:?}", d.hints);
         let t = d.text();
-        assert!(t.contains("The node sum (map.calc) failed"), "{t}");
+        assert!(t.contains("The node sum (raster.calc) failed"), "{t}");
         assert!(t.contains("b <- big.map = a map: 10 x 20 cells"), "{t}");
         // an input that gave nothing
         let none = |_: &str, _: &str| None;

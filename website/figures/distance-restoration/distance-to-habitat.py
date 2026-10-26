@@ -28,9 +28,9 @@ params = { crs = "EPSG:32610", resolution = 30 }
 
 [[nodes]]
 id = "forest"
-op = "map.calc"
+op = "raster.calc"
 inputs = { n = "projected.raster" }
-params = { expression = "if isnull(n) then 0 else if n >= THRESHOLD then 2 else 1" }
+params = { expression = "0 if isnull(n) else 2 if n >= THRESHOLD else 1" }
 
 [[nodes]]
 id = "distance"

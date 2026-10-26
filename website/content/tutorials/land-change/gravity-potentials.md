@@ -5,7 +5,7 @@ description: Compute the gravitational interaction potential of towns, markets o
 order: 150
 level: intermediate
 time: 30 min
-ops: [surface.gravity, dynamic.distance_to, dinamica.step, map.calc, nlm.percolation, nlm.distance_gradient]
+ops: [surface.gravity, dynamic.distance_to, dinamica.step, raster.calc, nlm.percolation, nlm.distance_gradient]
 series: Dinamica EGO in Terraflux
 part: 6
 ---
@@ -115,9 +115,9 @@ params = { rows = 250, columns = 250, resolution = 100, range = 60, seed = 32 }
 
 [[nodes]]
 id = "towns"
-op = "map.calc"
+op = "raster.calc"
 inputs = { s = "spots.map", g = "size.map" }
-params = { expression = "if s == 1 then round(500 + 40000 * g * g * g) else null" }
+params = { expression = "round(500 + 40000 * g * g * g) if s == 1 else None" }
 note = "Each town's population; no value elsewhere."
 
 [[nodes]]
@@ -131,7 +131,7 @@ params = { exponent = 2 }
    0.0004: 28 cells, the towns.
 2. **`size`** ([[nlm.gaussian_field]]) is a smooth surface from 0 to 1, so that towns near each other have similar
    sizes.
-3. **`towns`** ([[map.calc]]) gives each town a population of 500 to 40,500, the cube of `size` making most towns
+3. **`towns`** ([[raster.calc]]) gives each town a population of 500 to 40,500, the cube of `size` making most towns
    small and a few large: here 790 to 13,135 people, 82,562 in all, and 4 towns of 5,000 or more holding 36% of
    them. Every other cell has no value, which [[surface.gravity]] reads as "not a source".
 4. **`pull`** ([[surface.gravity]], subject *Surface metrics* in the library) sums the pull of the 28 towns on
@@ -167,9 +167,9 @@ params = { rows = 250, columns = 250, resolution = 100, range = 60, seed = 32 }
 
 [[nodes]]
 id = "towns"
-op = "map.calc"
+op = "raster.calc"
 inputs = { s = "spots.map", g = "size.map" }
-params = { expression = "if s == 1 then round(500 + 40000 * g * g * g) else null" }
+params = { expression = "round(500 + 40000 * g * g * g) if s == 1 else None" }
 
 [[nodes]]
 id = "pull"
@@ -179,9 +179,9 @@ params = { exponent = 2 }
 
 [[nodes]]
 id = "is_town"
-op = "map.calc"
+op = "raster.calc"
 inputs = { t = "towns.map" }
-params = { expression = "if isnull(t) then 0 else 1" }
+params = { expression = "0 if isnull(t) else 1" }
 
 [[nodes]]
 id = "nearest"
@@ -191,16 +191,16 @@ params = { classes = 1 }
 
 [[nodes]]
 id = "land"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "nearest.distance" }
-params = { expression = "if d <= 300 then 2 else 1" }
+params = { expression = "2 if d <= 300 else 1" }
 note = "1 forest, 2 cleared around the towns."
 
 [[nodes]]
 id = "by_pull"
-op = "map.calc"
+op = "raster.calc"
 inputs = { land = "land.map", p = "pull.map" }
-params = { expression = "if land == 1 then p / (p + 500) else 0" }
+params = { expression = "p / (p + 500) if land == 1 else 0" }
 
 [[nodes]]
 id = "transitions"
@@ -226,7 +226,7 @@ inputs = { landscape = "land.map", probability = "transitions.stack", rates = "r
 - **`is_town`**, **`nearest`** and **`land`** make the land at the start: [[dynamic.distance_to]] gives the
   distance in metres to the nearest town, and every cell within 300 m of a town is cleared (2); the rest is
   forest (1).
-- **`by_pull`** ([[map.calc]]) is the probability of clearing, \(P / (P + 500)\): 0.5 where the potential is 500
+- **`by_pull`** ([[raster.calc]]) is the probability of clearing, \(P / (P + 500)\): 0.5 where the potential is 500
   (the pull of 500 people one cell away, or of 50,000 people ten cells away), close to 1 where it is much higher,
   close to 0 where it is much lower. A form like this keeps the probability between 0 and 1 whatever the scale of
   the potential. In a real model, put the potential (or its logarithm) among the drivers and let
@@ -236,7 +236,7 @@ inputs = { landscape = "land.map", probability = "transitions.stack", rates = "r
   growing existing clearings, half in new patches of 10 ha on average.
 
 The version driven by distance has the same nodes, with `by_pull` computed as
-`if land == 1 then exp(-d / 1500) else 0` from `nearest.distance` (input `d`).
+`exp(-d / 1500) if land == 1 else 0` from `nearest.distance` (input `d`).
 
 ```tfgallery
 columns: 2
@@ -337,9 +337,9 @@ params = { rows = 250, columns = 250, resolution = 100, range = 60, seed = 32 }
 
 [[nodes]]
 id = "towns"
-op = "map.calc"
+op = "raster.calc"
 inputs = { s = "spots.map", g = "size.map" }
-params = { expression = "if s == 1 then round(500 + 40000 * g * g * g) else null" }
+params = { expression = "round(500 + 40000 * g * g * g) if s == 1 else None" }
 
 [[nodes]]
 id = "frame"
@@ -348,16 +348,16 @@ params = { rows = 250, columns = 250, resolution = 100, origin = [51, 200, 51, 2
 
 [[nodes]]
 id = "study"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "frame.map" }
-params = { expression = "if d == 0 then 1 else null" }
+params = { expression = "1 if d == 0 else None" }
 note = "The study area; no value around it."
 
 [[nodes]]
 id = "inside"
-op = "map.calc"
+op = "raster.calc"
 inputs = { t = "towns.map", s = "study.map" }
-params = { expression = "if isnull(s) then null else t" }
+params = { expression = "None if isnull(s) else t" }
 note = "Only the towns of the study area."
 
 [[nodes]]

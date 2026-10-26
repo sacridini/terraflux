@@ -16,7 +16,7 @@ use terraflux_graph::{Model, Node};
 fn graph(n: usize, placed: bool) -> Model {
     let mut m = Model::new("big");
     for i in 0..n {
-        let mut node = Node::new(&format!("n{i}"), "map.calc").param("expression", "a + b");
+        let mut node = Node::new(&format!("n{i}"), "raster.calc").param("expression", "a + b");
         if i > 0 {
             node = node.input("a", &format!("n{}.map", i - 1));
         }
@@ -168,7 +168,7 @@ fn the_canvas_answers_the_pointer() {
     );
     let mut dist = Node::new("dist", "dynamic.distance_to").param("classes", 1);
     dist.pos = Some([0.0, 0.0]);
-    let mut calc = Node::new("calc", "map.calc").input("land", "$t0").param("expression", "land");
+    let mut calc = Node::new("calc", "raster.calc").input("land", "$t0").param("expression", "land");
     calc.pos = Some([0.0, 220.0]);
     m.nodes.extend([dist, calc]);
     let mut h = harness(open(&m, "canvas-pointer.toml"));
@@ -315,7 +315,7 @@ fn nodes_are_selected_moved_deleted_arranged_and_opened() {
     m.nodes.push(read);
     for (k, x) in [(1usize, 300.0f32), (2, 600.0), (3, 900.0)] {
         let from = if k == 1 { "read.raster".to_string() } else { format!("n{}.map", k - 1) };
-        let mut n = Node::new(&format!("n{k}"), "map.calc").input("a", &from).param("expression", "a");
+        let mut n = Node::new(&format!("n{k}"), "raster.calc").input("a", &from).param("expression", "a");
         n.pos = Some([x, 0.0]);
         m.nodes.push(n);
     }
@@ -547,7 +547,7 @@ fn a_layout_kept_with_the_viewer_in_front_shows_the_model() {
 #[test]
 fn nodes_fit_their_texts_and_are_resized_by_their_edge() {
     let mut m = Model::new("widths");
-    let mut calc = Node::new("calc", "map.calc").param("expression", "1");
+    let mut calc = Node::new("calc", "raster.calc").param("expression", "1");
     calc.pos = Some([0.0, 0.0]);
     m.nodes.push(calc);
     let mut plan = Node::new("plan", "prioritize.optimize").input("cost", "calc.map");
@@ -597,7 +597,7 @@ fn nodes_fit_their_texts_and_are_resized_by_their_edge() {
     assert_eq!(width(&h, "calc").0, terraflux_app::editor_view::WIDTH);
     // Arrange: the next column begins after the widest box of the one before
     let mut wide = m.clone();
-    wide.nodes.push(Node::new("after", "map.calc").input("a", "plan.solution").param("expression", "a"));
+    wide.nodes.push(Node::new("after", "raster.calc").input("a", "plan.solution").param("expression", "a"));
     let places = terraflux_app::editor_view::arrange(&wide.nodes, &r);
     assert!(places["after"][0] >= places["plan"][0] + estimated + 60.0, "{places:?}");
 }

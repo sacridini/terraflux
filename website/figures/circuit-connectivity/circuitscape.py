@@ -55,9 +55,9 @@ params = {{ column = "id" }}
 
 [[nodes]]
 id = "cores"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ a = "area.map", p = "patch.map" }}
-params = {{ expression = "coalesce(if a >= 1500 then p else 0, 0)" }}
+params = {{ expression = "coalesce(p if a >= 1500 else 0, 0)" }}
 
 [[nodes]]
 id = "pairwise"
@@ -79,21 +79,21 @@ params = {{ cum_map = true, max_map = true, all_to_one = true }}
 
 [[nodes]]
 id = "conductance"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ r = "resistance.map" }}
 params = {{ expression = "1 / r" }}
 
 [[nodes]]
 id = "source"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ c = "cores.map" }}
-params = {{ expression = "if c == 55 then 1 else 0" }}
+params = {{ expression = "1 if c == 55 else 0" }}
 
 [[nodes]]
 id = "ground"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ c = "cores.map" }}
-params = {{ expression = "if c > 0 and c != 55 then 1 / 0 else 0" }}
+params = {{ expression = "1 / 0 if c > 0 and c != 55 else 0" }}
 
 [[nodes]]
 id = "advanced"
@@ -102,9 +102,9 @@ inputs = {{ conductance = "conductance.map", source = "source.map", ground = "gr
 
 [[nodes]]
 id = "two"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ p = "patch.map" }}
-params = {{ expression = "coalesce(if p == 55 then 1 else if p == 96 then 2 else 0, 0)" }}
+params = {{ expression = "coalesce(1 if p == 55 else 2 if p == 96 else 0, 0)" }}
 
 [[nodes]]
 id = "between_two"
@@ -114,13 +114,13 @@ params = {{ cum_map = true, max_map = true }}
 
 [[nodes]]
 id = "a"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ t = "two.map" }}
 params = {{ expression = "t == 1" }}
 
 [[nodes]]
 id = "b"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ t = "two.map" }}
 params = {{ expression = "t == 2" }}
 
@@ -147,7 +147,7 @@ inputs = {{ transition = "corrected.transition", origins = "b.map" }}
 
 [[nodes]]
 id = "total"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ a = "cost_a.map", b = "cost_b.map" }}
 params = {{ expression = "a + b" }}
 """

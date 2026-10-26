@@ -6,7 +6,7 @@ order: 30
 level: advanced
 time: 50 min
 template: Forest gain and loss
-ops: [change.fad, change.fos, change.mosaic, fragmentation.fos, fragmentation.landscape_mosaic, map.calc]
+ops: [change.fad, change.fos, change.mosaic, fragmentation.fos, fragmentation.landscape_mosaic, raster.calc]
 series: Measuring fragmentation
 part: 3
 ---
@@ -99,9 +99,9 @@ params = { rows = 1000, columns = 1000, range = 60, seed = 28 }
 
 [[nodes]]
 id = "after"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "before.raster", p = "pressure.map" }
-params = { expression = "if f == 2 and p > 0.8 then 1 else if f == 2 and p > 0.55 and nbsum(f == 1, 3) >= 1 then 1 else if f == 1 and p < 0.15 and nbsum(f == 2, 1) >= 4 then 2 else f" }
+params = { expression = "1 if f == 2 and p > 0.8 else 1 if f == 2 and p > 0.55 and nbsum(f == 1, 3) >= 1 else 2 if f == 1 and p < 0.15 and nbsum(f == 2, 1) >= 4 else f" }
 note = "Date B (with your maps: a raster.read)."
 
 [[nodes]]
@@ -215,9 +215,9 @@ params = { rows = 2000, columns = 2000, range = 80, seed = 5 }
 
 [[nodes]]
 id = "corine_b"
-op = "map.calc"
+op = "raster.calc"
 inputs = { c = "corine.raster", p = "pressure.map" }
-params = { expression = "if c >= 12 and c <= 22 and p > 0.5 and nbsum(c <= 11, 4) >= 8 then 2 else if c >= 23 and c <= 25 and p > 0.75 and nbsum(c <= 11, 4) >= 20 then 2 else c" }
+params = { expression = "2 if c >= 12 and c <= 22 and p > 0.5 and nbsum(c <= 11, 4) >= 8 else 2 if c >= 23 and c <= 25 and p > 0.75 and nbsum(c <= 11, 4) >= 20 else c" }
 note = "Farmland (and a little forest) beside towns becomes discontinuous urban fabric (2)."
 
 [[nodes]]

@@ -10,7 +10,7 @@ note = "The jurisdiction at the start of the historical reference period: 1 fore
 
 [[nodes]]
 id = "forest"
-op = "map.calc"
+op = "raster.calc"
 inputs = { l = "land.map" }
 params = { expression = "l == 1" }
 
@@ -28,9 +28,9 @@ params = { rows = 200, columns = 200, seed = 32, resolution = 30 }
 
 [[nodes]]
 id = "deforestation"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "forest.map", d = "edge.distance", e = "noise.map" }
-params = { expression = "if f == 1 and e < 0.3 * exp(0 - d / 90) then 1 else 0" }
+params = { expression = "1 if f == 1 and e < 0.3 * exp(0 - d / 90) else 0" }
 note = "The deforestation of the period, near the edge (in its place, the period's deforestation map: 1 deforested)."
 
 [[nodes]]

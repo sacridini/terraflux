@@ -45,7 +45,7 @@ params = { relative_targets = 0.3, replacement = true, rank = 10, extinction_z =
 
 [[nodes]]
 id = "ferrier_total"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "evaluation.ferrier" }
 params = { expression = "f.total" }
 

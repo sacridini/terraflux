@@ -1,4 +1,4 @@
-//! The calculator: a map.calc node's script edited in its pane, its inputs' layers completed as they are typed,
+//! The calculator: a raster.calc node's script edited in its pane, its inputs' layers completed as they are typed,
 //! its outputs previewed once its inputs have run, a line computed in its console, and the script given to the
 //! node. Its last frame is written to `target/tmp/ui-calculator.png` to be looked at.
 
@@ -14,10 +14,10 @@ use terraflux_graph::{Model, Node};
 fn model() -> Model {
     let mut m = Model::new("calculator");
     m.nodes.push(Node::new("land", "nlm.random").param("rows", 40).param("columns", 60).param("seed", 3));
-    m.nodes.push(Node::new("twice", "map.calc").param("expression", "a * 2").input("a", "land.map"));
+    m.nodes.push(Node::new("twice", "raster.calc").param("expression", "a * 2").input("a", "land.map"));
     m.nodes.push(Node::new("s", "stack.of").input("low", "land.map").input("high", "twice.map"));
     m.nodes.push(
-        Node::new("calc", "map.calc")
+        Node::new("calc", "raster.calc")
             .param("expression", "out top = land > 0.5")
             .input("land", "land.map")
             .input("s", "s.stack"),

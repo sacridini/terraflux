@@ -147,13 +147,18 @@ impl UserNode {
     }
 
     pub fn from_toml(text: &str) -> Result<UserNode> {
-        let u: UserNode = toml::from_str(text)?;
+        let mut u: UserNode = toml::from_str(text)?;
         if u.format != FORMAT {
             return Err(Error::Model(format!(
                 "this node is in format {:?}; this version of Terraflux reads {FORMAT:?}",
                 u.format
             )));
         }
+        // its body brought up to date as a model's is
+        let mut m = crate::Model::new(&u.name);
+        m.nodes = std::mem::take(&mut u.body.nodes);
+        m.upgrade();
+        u.body.nodes = m.nodes;
         Ok(u)
     }
 
@@ -419,7 +424,7 @@ mod tests {
             },
             Body {
                 nodes: vec![
-                    Node::new("calc", "map.calc")
+                    Node::new("calc", "raster.calc")
                         .input("img", "@img")
                         .input("k", "@k")
                         .param("expression", "out ndvi = (img.nir - img.red) / (img.nir + img.red) * k"),

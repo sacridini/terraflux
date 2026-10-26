@@ -5,7 +5,7 @@ description: Write your own cell-by-cell operator in any language that compiles 
 order: 60
 level: advanced
 time: 45 min
-ops: [plugin.wasm, map.calc, nlm.gaussian_field]
+ops: [plugin.wasm, raster.calc, nlm.gaussian_field]
 ---
 
 [Map algebra](../map-algebra/) computes a new map from an expression, cell by cell, and covers most needs. But an
@@ -47,11 +47,11 @@ the maps connected to it:
 - **Code you already have**: a function of an allometry library, a published model's equations written in C.
   Compile it to WebAssembly and use it as a node.
 - **Long rules**: forty lines of `if` are unreadable in one expression and ordinary in a function.
-- **Speed**: a compiled function is fast. [[map.calc]] is fast too; use a plugin for what an expression cannot
+- **Speed**: a compiled function is fast. [[raster.calc]] is fast too; use a plugin for what an expression cannot
   say, not for what it says well.
 
 What a plugin is **not** for: anything that needs the neighbours of a cell (a plugin sees one cell at a time; use
-the `nb*` functions of [[map.calc]] or the operators of the library), anything that reads or writes files, and
+the `nb*` functions of [[raster.calc]] or the operators of the library), anything that reads or writes files, and
 whole-map statistics. For those, chain a plugin with other nodes.
 
 ## What you need
@@ -134,9 +134,9 @@ note = "Site productivity, 0 to 1 (in its place, a map of site index or of soils
 
 [[nodes]]
 id = "rate"
-op = "map.calc"
+op = "raster.calc"
 inputs = { s = "site.map" }
-params = { expression = "if s < 0.15 then null else 0.03 + 0.12 * s" }
+params = { expression = "None if s < 0.15 else 0.03 + 0.12 * s" }
 note = "The growth rate per year, 0.03 to 0.15; no forest (no value) on the poorest sites."
 
 [[nodes]]
@@ -281,7 +281,7 @@ independent calculation, as above.
   `f64.eq` (or `==` on `f64`), and convert to an integer inside the function if you need one.
 - **Units.** The plugin knows nothing of the map's cell size or units: give it what it needs as inputs (a rate
   per year, a cell area in hectares).
-- **A plugin that should have been an expression.** If the rule fits in one line of map algebra, [[map.calc]] is
+- **A plugin that should have been an expression.** If the rule fits in one line of map algebra, [[raster.calc]] is
   easier to read for everyone who opens the model.
 
 ## Going further

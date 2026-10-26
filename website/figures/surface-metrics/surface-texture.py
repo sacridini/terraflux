@@ -41,7 +41,7 @@ for t in THRESHOLDS:
     m += f'''
 [[nodes]]
 id = "habitat_{k}"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ n = "ndvi.raster" }}
 params = {{ expression = "if n >= {t} then 2 else 1" }}
 

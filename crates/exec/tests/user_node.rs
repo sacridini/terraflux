@@ -16,7 +16,7 @@ params = { rows = 20, columns = 30, seed = 3 }
 
 [[nodes]]
 id = "twice"
-op = "map.calc"
+op = "raster.calc"
 inputs = { a = "land.map" }
 params = { expression = "a * 2" }
 
@@ -45,7 +45,7 @@ type = "map"
 outputs = { ndvi = "calc.ndvi" }
 [[nodes.body.nodes]]
 id = "calc"
-op = "map.calc"
+op = "raster.calc"
 inputs = { img = "@img", k = "@k" }
 params = { expression = "out ndvi = (img.nir - img.red) / (img.nir + img.red) * k" }
 "#;

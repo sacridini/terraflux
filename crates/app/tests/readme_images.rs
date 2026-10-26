@@ -284,7 +284,7 @@ out lost = forest._1997 and not forest._2011
 si_elev = clamp((1200 - d.elevation) / 900, 0, 1)
 si_road = clamp(d.dist_roads / 3000, 0, 1)
 out hsi = sqrt(si_elev * si_road)
-hsi[not forest._1997] = null            # the forest of 1997 only
+hsi[not forest._1997] = None            # the forest of 1997 only
 
 out best = hsi >= hsi.percentile(75)    # its best quarter
 out mean_hsi = hsi.mean()";
@@ -298,7 +298,7 @@ out mean_hsi = hsi.mean()";
         terraflux_graph::Input::Stack { path: "drivers.tif".into(), bands: None, nodata: None, note: None },
     );
     m.nodes.push(
-        terraflux_graph::Node::new("calc", "map.calc")
+        terraflux_graph::Node::new("calc", "raster.calc")
             .input("lu", "$lu")
             .input("d", "$d")
             .param("expression", script)

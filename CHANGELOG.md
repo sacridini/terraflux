@@ -7,10 +7,29 @@ minor versions.
 ## [Unreleased]
 
 ### Changed
+- Map algebra has one syntax, Python's, in every expression (`raster.calc`, `value.calc`, `check.assert`,
+  `table.filter`, `table.calc`, `vector.filter`, `vector.calc`, `uncertainty.delta`, `uncertainty.monte_carlo`,
+  `agents.update`'s rules): `a if c else b`, `**`, `and or not`, `None`, `log`. The forms of other languages
+  (`if c then a else b`, `c ? a : b`, `^`, `&& || !`, `null`, `ln`) are refused with the one to write ("write **
+  for a power (not ^)"), told at the token in the calculator and in the Node pane. A model written before is
+  rewritten when it is read, only the statements that had an old form (their comments and brackets kept), with a
+  note of each (`terraflux_graph::old_algebra`); saving it keeps the new form. The nodes of your library too.
+- `map.calc` is `raster.calc`: a model with `map.calc` reads it as `raster.calc` (as `stack.layer` became
+  `stack.extract_layer`). Its node's default id is `raster_calc`.
+- The Node pane of a `raster.calc` edits its script in an editor of code under the setting's name, the pane's
+  width (the terminal's font, its words in colour, its first error underlined and told under it), with an orange
+  Expand button beside the name: the Calculator, the full editor (the names completed, the outputs shown as they
+  are typed, the lines numbered, the console), in a pane of its own. It replaces Open in the calculator.
+- The console of the calculator writes a missing value as `None`, and a map's missing cells as "missing".
 - `terraflux mcp`'s `open_in_app` opens the model in the Terraflux already open, in place of its model, and
   brings its window to the front, rather than starting a new window each time: each application listens on a port
   of this computer only, told with a secret in a file of the application's data (`instances`). A new window opens
   only when none is open, or when the model open has edits not saved or a wizard is open (the answer says which).
+
+### Fixed
+- Runs of many tries (seeds, scenarios, a batch) failed with "the bundle ... could not be made" once Windows'
+  Storage Sense had cleaned the temporary folder: it removes the empty mark of a bundle not used for a while,
+  and the bundle's folder, left without it, was never made again. A folder without its mark is now made again.
 
 ## [1.16.0] - 2026-10-26
 

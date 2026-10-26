@@ -5,7 +5,7 @@ description: Measure how much of a region is both protected and connected with S
 order: 60
 level: intermediate
 time: 45 min
-ops: [conn.protconn, conn.protconn_raster, conn.protconn_regions, vector.read, vector.write, conn.nodes, conn.to_map, map.calc]
+ops: [conn.protconn, conn.protconn_raster, conn.protconn_regions, vector.read, vector.write, conn.nodes, conn.to_map, raster.calc]
 series: Habitat networks
 part: 6
 ---
@@ -89,7 +89,7 @@ connectivity of a habitat, use [parts 1 to 4](../connectivity-as-a-graph/).
 
 If your protected areas are already polygons, skip this. The reserves of the example were made from the forest
 map: [[conn.nodes]] gives every patch's area, [[conn.to_map]] paints the areas and the patch numbers on the
-patches, and [[map.calc]] keeps the patches of 500 ha or more (`null` elsewhere: no value). The result is a map
+patches, and [[raster.calc]] keeps the patches of 500 ha or more (`None` elsewhere: no value). The result is a map
 of reserves, which [[conn.protconn_raster]] reads directly.
 
 ```tfgraph
@@ -131,14 +131,14 @@ params = { column = "id" }
 
 [[nodes]]
 id = "reserves"
-op = "map.calc"
+op = "raster.calc"
 inputs = { a = "area.map", p = "patch.map" }
-params = { expression = "if a >= 500 then p else null" }
+params = { expression = "p if a >= 500 else None" }
 note = "The forests of 500 ha or more, each with its number."
 
 [[nodes]]
 id = "region"
-op = "map.calc"
+op = "raster.calc"
 inputs = { l = "land.raster" }
 params = { expression = "1" }
 note = "The region: every cell of the map."

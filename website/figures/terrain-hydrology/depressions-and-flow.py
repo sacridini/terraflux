@@ -188,9 +188,9 @@ params = { units = "sca" }
 
 [[nodes]]
 id = "open"
-op = "map.calc"
+op = "raster.calc"
 inputs = { n = "ndvi.raster" }
-params = { expression = "if n <= 0.55 then 1 else 0" }
+params = { expression = "1 if n <= 0.55 else 0" }
 
 [[nodes]]
 id = "open_acc"
@@ -199,9 +199,9 @@ inputs = { dem = "filled.map", weights = "open.map" }
 
 [[nodes]]
 id = "open_share"
-op = "map.calc"
+op = "raster.calc"
 inputs = { o = "open_acc.map", a = "accumulation.map" }
-params = { expression = "if a >= 500 then 100 * o / a else null" }
+params = { expression = "100 * o / a if a >= 500 else None" }
 '''
 METHODS = ["d8", "dinf", "fd8", "quinn", "mfd"]
 for m in METHODS:

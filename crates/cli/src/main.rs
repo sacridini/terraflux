@@ -743,6 +743,21 @@ fn settings_threads(asked: Option<usize>) -> Option<usize> {
     asked.or_else(|| std::env::var_os("TERRAFLUX_THREADS").is_none().then(terraflux_app::settings::threads).flatten())
 }
 
+/// A model read to run or check, its submodels expanded; what of it was written by an older Terraflux and brought
+/// up to date (map algebra in the old syntax) told on the standard error.
+fn read_model(path: &Path) -> Result<Model> {
+    let (mut m, notes) = Model::load_noting(path).with_context(|| format!("reading {}", path.display()))?;
+    for n in &notes {
+        eprintln!("note: {n}");
+    }
+    if !notes.is_empty() {
+        eprintln!("note: the file keeps the old syntax until it is saved (terraflux convert MODEL MODEL rewrites it)");
+    }
+    terraflux_graph::submodel::expand(&mut m, path.parent().unwrap_or(Path::new("")))
+        .with_context(|| format!("reading {}", path.display()))?;
+    Ok(m)
+}
+
 fn app(model: Option<PathBuf>) -> Result<()> {
     hide_own_console();
     terraflux_app::run(model).map_err(|e| anyhow::anyhow!("the application: {e}"))
@@ -843,7 +858,7 @@ fn main() -> Result<()> {
             code,
             shared_disk,
         } => {
-            let mut m = Model::load_expanded(&model).with_context(|| format!("reading {}", model.display()))?;
+            let mut m = read_model(&model)?;
             if let Some(name) = &scenario {
                 m = m.with_scenario(name)?;
             }
@@ -947,7 +962,7 @@ fn main() -> Result<()> {
             eprintln!("wrote {}", out.display());
         }
         Command::Check { model } => {
-            let m = Model::load_expanded(&model)?;
+            let m = read_model(&model)?;
             let mut ok = report(&m, &engine);
             let dir = model.parent().map(Path::to_path_buf).unwrap_or_default();
             match load_inputs(&m, &dir, &BTreeMap::new()) {
@@ -1021,7 +1036,7 @@ mod tests {
             format!(
                 "format = \"terraflux/1\"\n\n[inputs.k]\nkind = \"value\"\nvalue = 0.5\n\n[[nodes]]\nid = \"land\"\n\
                  op = \"nlm.random\"\nparams = {{ rows = 30, columns = 20, seed = {seed} }}\n\n[[nodes]]\nid = \"high\"\n\
-                 op = \"map.calc\"\ninputs = {{ x = \"land.map\", k = \"$k\" }}\nparams = {{ expression = \"x * k\" }}\n\n\
+                 op = \"raster.calc\"\ninputs = {{ x = \"land.map\", k = \"$k\" }}\nparams = {{ expression = \"x * k\" }}\n\n\
                  [[nodes]]\nid = \"ok\"\nop = \"check.assert\"\ninputs = {{ m = \"high.map\" }}\n\
                  params = {{ expression = \"m <= 0.5\" }}\n\n[outputs.high]\nfrom = \"high.map\"\n\n[[tests]]\n\
                  from = \"high.map\"\nexpected = \"expected/high.tif\"\n"

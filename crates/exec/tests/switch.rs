@@ -54,7 +54,7 @@ inputs = { x = "@map" }
 outputs = { map = "d.map" }
 [[nodes.body.nodes.body.nodes]]
 id = "d"
-op = "map.calc"
+op = "raster.calc"
 inputs = { x = "@x" }
 params = { expression = "x * 2" }
 [[nodes.body.nodes]]
@@ -65,7 +65,7 @@ inputs = { x = "@map" }
 outputs = { map = "t.map" }
 [[nodes.body.nodes.body.nodes]]
 id = "t"
-op = "map.calc"
+op = "raster.calc"
 inputs = { x = "@x" }
 params = { expression = "x * 3" }
 [[nodes.body.nodes]]
@@ -76,13 +76,13 @@ inputs = { x = "@map" }
 outputs = { map = "o.map" }
 [[nodes.body.nodes.body.nodes]]
 id = "o"
-op = "map.calc"
+op = "raster.calc"
 inputs = { x = "@x" }
 params = { expression = "x" }
 
 [[nodes]]
 id = "after"
-op = "map.calc"
+op = "raster.calc"
 inputs = { y = "sw.map" }
 params = { expression = "y + 1" }
 "#;
@@ -108,7 +108,7 @@ fn the_branch_of_the_case_runs_alone() {
 fn what_a_switch_cannot_do_is_refused() {
     // no branch for the case, and none otherwise
     let without = SWITCH.split("[[nodes.body.nodes]]\nid = \"otherwise\"").next().unwrap().to_string()
-        + "\n[[nodes]]\nid = \"after\"\nop = \"map.calc\"\ninputs = { y = \"sw.map\" }\nparams = { expression = \"y + 1\" }\n";
+        + "\n[[nodes]]\nid = \"after\"\nop = \"raster.calc\"\ninputs = { y = \"sw.map\" }\nparams = { expression = \"y + 1\" }\n";
     let (out, _) = run(&without, Value::Text("glm".into()));
     let e = out.err().unwrap();
     assert!(e.contains("no branch for the case \"glm\" (its branches: double, case_3"), "{e}");
@@ -121,7 +121,7 @@ fn what_a_switch_cannot_do_is_refused() {
     assert!(e.contains("every branch gives the same outputs"), "{e}");
     // a node of the body that is not a group
     let (out, _) = run(
-        &SWITCH.replacen("id = \"otherwise\"\nop = \"control.group\"", "id = \"otherwise\"\nop = \"map.calc\"", 1),
+        &SWITCH.replacen("id = \"otherwise\"\nop = \"control.group\"", "id = \"otherwise\"\nop = \"raster.calc\"", 1),
         Value::Text("double".into()),
     );
     assert!(out.err().unwrap().contains("a branch of control.switch is a group"));
@@ -152,7 +152,7 @@ params = { expression = "k / 2 + s.max", text = "x * {value} + {k}" }
 
 [[nodes]]
 id = "scaled"
-op = "map.calc"
+op = "raster.calc"
 inputs = { x = "$land" }
 params = { expression = { from = "v.text" } }
 "#,

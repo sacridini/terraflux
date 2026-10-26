@@ -59,7 +59,7 @@ pub fn describe(v: &Value) -> Input {
     match v {
         Value::Map(_) => Input::Map,
         Value::Stack(s) => stack(&s.keys),
-        // (as map.calc's port takes them: every band, unless one was chosen)
+        // (as raster.calc's port takes them: every band, unless one was chosen)
         Value::Raster(r) if r.layers.len() > 1 && !r.picked => {
             stack(&r.layers.iter().map(|l| Key::Name(l.name.clone())).collect::<Vec<_>>())
         }
@@ -158,11 +158,10 @@ pub fn layers_read(text: &str) -> BTreeMap<String, Vec<String>> {
 }
 
 /// The help of the functions: name, as written, what it gives.
-pub const FUNCTION_HELP: [(&str, &str, &str); 25] = [
+pub const FUNCTION_HELP: [(&str, &str, &str); 24] = [
     ("abs", "abs(x)", "the absolute value"),
     ("sqrt", "sqrt(x)", "the square root"),
     ("exp", "exp(x)", "e to the power x"),
-    ("ln", "ln(x)", "the natural logarithm"),
     ("log", "log(x)", "the natural logarithm (as Python's)"),
     ("log10", "log10(x)", "the logarithm in base 10"),
     ("floor", "floor(x)", "the whole number below"),
@@ -199,15 +198,13 @@ pub const METHOD_HELP: [(&str, &str, &str); 8] = [
 ];
 
 /// The help of the words of the language.
-const WORD_HELP: [(&str, &str); 12] = [
+const WORD_HELP: [(&str, &str); 10] = [
     ("out", "out name = value: an output of the node"),
     ("if", "a if c else b"),
     ("else", "a if c else b"),
-    ("then", "if c then a else b"),
     ("and", "both"),
     ("or", "either"),
     ("not", "the opposite"),
-    ("null", "a missing value"),
     ("None", "a missing value"),
     ("True", "1"),
     ("False", "0"),

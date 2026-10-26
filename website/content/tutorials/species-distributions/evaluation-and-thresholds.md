@@ -5,7 +5,7 @@ description: What AUC, TSS, the Boyce index and omission rates measure, how to c
 order: 50
 level: intermediate
 time: 50 min
-ops: [sdm.evaluate, sdm.threshold, sdm.boyce, sdm.omission_rate, sdm.dataset, sdm.maxnet_predict, map.calc]
+ops: [sdm.evaluate, sdm.threshold, sdm.boyce, sdm.omission_rate, sdm.dataset, sdm.maxnet_predict, raster.calc]
 series: Species distribution models
 part: 5
 ---
@@ -220,13 +220,13 @@ inputs = { model = "fit.model", env = "data.env" }
 
 [[nodes]]
 id = "binary"
-op = "map.calc"
+op = "raster.calc"
 inputs = { s = "predict.prediction", t = "threshold.threshold" }
-params = { expression = "if s >= t then 1 else 0" }
+params = { expression = "1 if s >= t else 0" }
 ```
 
-[[sdm.threshold]] returns a number on its `threshold` port. [[map.calc]] takes numbers as inputs as well as maps:
-connect the suitability map to `s` and the threshold to `t`, and the expression `if s >= t then 1 else 0` makes the
+[[sdm.threshold]] returns a number on its `threshold` port. [[raster.calc]] takes numbers as inputs as well as maps:
+connect the suitability map to `s` and the threshold to `t`, and the expression `1 if s >= t else 0` makes the
 binary map. [[sdm.fit]] also has a `threshold` output: the `max_spec_sens` threshold on all its records.
 
 !!! app "In the application"

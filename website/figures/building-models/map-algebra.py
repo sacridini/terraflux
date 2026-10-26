@@ -2,7 +2,7 @@
 
 Sibuyan Island (Philippines), land use of 1997 and its drivers at 250 m (lulcc's and landschaft's example data):
 a habitat suitability index, buffers, an edge mask and the suitable habitat above a threshold, all computed by
-map.calc in real runs of Terraflux.
+raster.calc in real runs of Terraflux.
 """
 
 import shutil
@@ -45,25 +45,25 @@ def calc(id_, expression, **inputs):
     return f"""
 [[nodes]]
 id = "{id_}"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ {ins} }}
 params = {{ expression = "{expression}" }}
 """
 
 
-HSI = "if land == 1 then sqrt(si_elev * si_road) else 0"
+HSI = "sqrt(si_elev * si_road) if land == 1 else 0"
 nodes = [
     calc("si_elev", "clamp((1200 - d.elevation) / 900, 0, 1)", d="$drivers"),
     calc("si_road", "clamp(d.dist_roads / 3000, 0, 1)", d="$drivers"),
     calc("hsi", HSI, land="$land", si_elev="si_elev.map", si_road="si_road.map"),
     calc("road_buffer", "d.dist_roads <= 500", d="$drivers"),
-    calc("farm_buffer", "if land == 1 then nbmax(land == 2 or land == 4, 2) else null", land="$land"),
+    calc("farm_buffer", "nbmax(land == 2 or land == 4, 2) if land == 1 else None", land="$land"),
     calc("filled", "coalesce(land, 0)", land="$land"),
     calc("share", "nbmean(land == 1, 2)", land="$land"),
 ]
 for r in (1, 2, 3):
     nodes.append(calc(f"edge{r}", f"if land == 1 then 2 - (nbmin(land == 1, {r}) == 0) else 0", land="$land"))
-nodes.append(calc("edge_coast", "if land == 1 then 2 - (nbmin(coalesce(land, 0) == 1, 1) == 0) else 0", land="$land"))
+nodes.append(calc("edge_coast", "2 - (nbmin(coalesce(land, 0) == 1, 1) == 0) if land == 1 else 0", land="$land"))
 for t in range(1, 10):
     nodes.append(calc(f"suit{t}", f"hsi >= {t / 10}", hsi="hsi.map"))
 
@@ -171,7 +171,7 @@ for k, (ax, grid) in enumerate(zip(axes, (toy, is1, nb))):
         for x in range(6):
             v = grid[y, x]
             if np.isnan(v):
-                fc, txt, tc = "#ffffff", "null", "#9aa39d"
+                fc, txt, tc = "#ffffff", "None", "#9aa39d"
             elif k == 0:
                 fc, txt, tc = colors[int(v)], str(int(v)), "white" if v == 1 else figs.INK
             elif k == 1:
@@ -180,7 +180,7 @@ for k, (ax, grid) in enumerate(zip(axes, (toy, is1, nb))):
                 fc = plt.get_cmap("Greens")(0.15 + v / 9 * 0.8)
                 txt, tc = str(int(v)), "white" if v >= 5 else figs.INK
             ax.add_patch(Rectangle((x, y), 1, 1, facecolor=fc, edgecolor="white", lw=1.5))
-            ax.text(x + 0.5, y + 0.52, txt, ha="center", va="center", fontsize=10 if txt != "null" else 8, color=tc)
+            ax.text(x + 0.5, y + 0.52, txt, ha="center", va="center", fontsize=10 if txt != "None" else 8, color=tc)
     if k == 2:
         ax.add_patch(Rectangle((1, 1), 3, 3, fill=False, edgecolor=figs.EMBER, lw=2.4))
     if k == 1:

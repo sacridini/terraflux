@@ -544,6 +544,55 @@ fn name_cell(
     out
 }
 
+/// A `raster.calc`'s script: its name, and at the right, in orange, Expand (the Calculator, the full editor, in a
+/// pane of its own); under them the script in an editor of code, the pane's width
+/// ([`crate::calc_view::script_field`]). What it changed, when it is left.
+#[allow(clippy::too_many_arguments)]
+fn script(
+    ui: &mut Ui,
+    s: &mut Session,
+    n: &Node,
+    path: &[String],
+    name: &str,
+    doc: &str,
+    label_w: f32,
+    readable: &[String],
+) -> Option<Result<(), String>> {
+    let mut change = None;
+    ui.horizontal(|ui| {
+        if let Some(c) = name_cell(ui, s, n, path, name, doc, label_w, readable) {
+            change = Some(c);
+        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let expand = egui::Button::new(RichText::new("↗ Expand").strong().color(crate::theme::on_orange()))
+                .fill(crate::theme::orange());
+            if ui
+                .add(expand)
+                .on_hover_text(
+                    "the full editor, in a pane of its own: the names completed as they are typed, each output \
+                     shown at once, the lines numbered, a console",
+                )
+                .clicked()
+            {
+                s.ask_calculator = true;
+            }
+        });
+    });
+    let init = match n.params.get(name) {
+        Some(serde_json::Value::String(t)) => t.clone(),
+        Some(v) => v.to_string(),
+        None => String::new(),
+    };
+    let key = format!("param.{name}");
+    let mut text = field(s, &key, init.clone());
+    let resp = crate::calc_view::script_field(ui, egui::Id::new(("node script", path, &n.id)), &mut text, n);
+    s.fields.insert(key, text.clone());
+    if resp.lost_focus() && text != init {
+        change = Some(crate::editor::set_param(&mut s.source, path, &n.id, name, &text));
+    }
+    change
+}
+
 /// A setting, a row: its name at the left ([`name_cell`]), at the right what edits its value: a list to choose
 /// from, the metrics of landscape metrics, a text (a file's path chosen in a dialog too); a list or a table of
 /// values (item by item) and a reclassification's table of rules under their names, the pane's width. What it
@@ -574,6 +623,10 @@ fn setting(
             }
         });
         return change;
+    }
+    // a script of map algebra: an editor under its name, the full one (the Calculator) a click away
+    if n.op == "raster.calc" && name == "expression" {
+        return script(ui, s, n, path, name, doc, label_w, readable);
     }
     // a reclassification's rules: a table of them, from the values of the map it reads
     if n.op == "raster.reclassify" && name == "rules" {
@@ -651,9 +704,8 @@ fn value_cell(
     let mut change = None;
     let key = format!("param.{name}");
     let mut text = field(s, &key, init.to_string());
-    // (a long value on as many lines as it needs, and a script; a short one, or none, on one)
-    let script = n.op == "map.calc" && name == "expression";
-    let edit = if text.len() > 40 || text.contains('\n') || script {
+    // (a long value on as many lines as it needs; a short one, or none, on one)
+    let edit = if text.len() > 40 || text.contains('\n') {
         egui::TextEdit::multiline(&mut text).desired_rows(1)
     } else {
         egui::TextEdit::singleline(&mut text)
@@ -662,14 +714,6 @@ fn value_cell(
     s.fields.insert(key, text.clone());
     if resp.lost_focus() && text != init {
         change = Some(crate::editor::set_param(&mut s.source, path, &n.id, name, &text));
-    }
-    if script
-        && ui
-            .button("Open in the calculator")
-            .on_hover_text("the script with its names completed, its outputs shown as it is typed, and a console")
-            .clicked()
-    {
-        s.ask_calculator = true;
     }
     // a file: chosen in a dialog
     if name == "path" && terraflux_graph::FILE_OPS.contains(&n.op.as_str()) && ui.button("Choose...").clicked() {

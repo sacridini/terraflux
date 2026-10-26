@@ -443,7 +443,7 @@ impl Operator for Delta {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "uncertainty.delta",
-            "The uncertainty of an expression of the node's maps and numbers (map.calc's) from the uncertainty of \
+            "The uncertainty of an expression of the node's maps and numbers (raster.calc's) from the uncertainty of \
              its parameters, by the delta method (landschaft's delta_method, the GUM's first order): the \
              derivatives by finite differences (central, or forward as Strassburg et al. 2020), the standard deviation \
              sqrt(sum (df/dp sigma)^2) (quadratic) or sum |df/dp sigma| (linear).",

@@ -106,7 +106,7 @@ cells or in percent.
 Add [[landscape.accounting]] with `forest.map` as its `map`. It labels every object (`ids`: the number of each
 cell's object) and lists them with their areas (`objects`). Run it (++ctrl+enter++ on the node) and sort the
 `objects` table by `cells`: the three largest objects are numbers 36 (9,508 cells), 284 (7,035) and 169 (4,995).
-Call them A, B and C. Two [[map.calc]] nodes mark A and B with the expressions `ids == 36` and `ids == 284` on
+Call them A, B and C. Two [[raster.calc]] nodes mark A and B with the expressions `ids == 36` and `ids == 284` on
 `objects.ids`.
 
 ![The three largest forest objects, A, B and C](/img/tutorials/distance-restoration/costs-and-corridors/objects.png "The three largest forest objects (dark green): A with 9,508 cells (8.6 km²), B with 7,035 and C with 4,995. Pale green: the 565 other pieces of forest.")
@@ -160,9 +160,9 @@ params = { crs = "EPSG:32610", resolution = 30 }
 
 [[nodes]]
 id = "forest"
-op = "map.calc"
+op = "raster.calc"
 inputs = { n = "projected.raster" }
-params = { expression = "if isnull(n) then 0 else if n >= 0.7 then 2 else 1" }
+params = { expression = "0 if isnull(n) else 2 if n >= 0.7 else 1" }
 
 [[nodes]]
 id = "status"
@@ -184,14 +184,14 @@ note = "2 in the forest, growing with the distance from it."
 
 [[nodes]]
 id = "a"
-op = "map.calc"
+op = "raster.calc"
 inputs = { ids = "objects.ids" }
 params = { expression = "ids == 36" }
 note = "Object A, the largest."
 
 [[nodes]]
 id = "b"
-op = "map.calc"
+op = "raster.calc"
 inputs = { ids = "objects.ids" }
 params = { expression = "ids == 284" }
 note = "Object B, the second."
@@ -220,10 +220,10 @@ GuidosToolbox draws the same costs as an *isochrone map*. [[restoration.isochron
 1 object A, 2 object B, 3 missing (not crossed). With both objects it gives the cost of the cheapest route from A
 to B through every cell, scaled from 0 to 100 in GuidosToolbox's codes (101 the objects, 102 missing, 103 the
 least-cost path, 104 unreachable), the cost itself (`cost`), the path (`path`) and the least and largest costs
-(`stats`). The marker is one more [[map.calc]]:
+(`stats`). The marker is one more [[raster.calc]]:
 
 ```text
-if f == 0 then 3 else if a then 1 else if b then 2 else 0
+3 if f == 0 else 1 if a else 2 if b else 0
 ```
 
 with `f` the forest, `a` and `b` the two objects. The node would come after those of the graph above:
@@ -234,9 +234,9 @@ with `f` the forest, `a` and `b` the two objects. The node would come after thos
 #! fragment: true
 [[nodes]]
 id = "marker"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "forest.map", a = "a.map", b = "b.map" }
-params = { expression = "if f == 0 then 3 else if a then 1 else if b then 2 else 0" }
+params = { expression = "3 if f == 0 else 1 if a else 2 if b else 0" }
 
 [[nodes]]
 id = "isochrone"

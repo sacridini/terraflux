@@ -396,13 +396,13 @@ mod tests {
         let (t, e) = call(&s, "add_node", json!({ "model": model, "op": "nlm.random", "settings": { "nope": 1 } }));
         assert!(e && t.contains("no setting"), "{t}");
         let (t, e) =
-            call(&s, "add_node", json!({ "model": model, "op": "map.calc", "inputs": { "x": "nothing.map" } }));
+            call(&s, "add_node", json!({ "model": model, "op": "raster.calc", "inputs": { "x": "nothing.map" } }));
         assert!(e, "{t}");
         assert_eq!(std::fs::read_to_string(&model).unwrap(), before);
         let (t, e) = call(
             &s,
             "add_node",
-            json!({ "model": model, "op": "map.calc", "id": "high", "inputs": { "x": "land.map" }, "settings": { "expression": "x > 0.5" } }),
+            json!({ "model": model, "op": "raster.calc", "id": "high", "inputs": { "x": "land.map" }, "settings": { "expression": "x > 0.5" } }),
         );
         assert!(!e, "{t}");
         let (t, e) =
@@ -437,7 +437,7 @@ mod tests {
         let only = dir.join("output").join("only.tif");
         let (t, e) = call(&s, "inspect_file", json!({ "path": only.to_string_lossy() }));
         assert!(!e && t.contains("1 band(s)") && t.contains("classes"), "{t}");
-        let (t, e) = call(&s, "describe_operator", json!({ "name": "map.calc" }));
+        let (t, e) = call(&s, "describe_operator", json!({ "name": "raster.calc" }));
         assert!(!e && t.contains("Settings"), "{t}");
         let (t, _) = call(&s, "list_operators", json!({ "query": "markov" }));
         assert!(t.contains("markov.fit"), "{t}");
@@ -522,7 +522,7 @@ mod tests {
         let (t, e) = call(&s, "trace_cell", json!({ "model": model, "node": "simulation", "row": 40, "col": 60 }));
         assert!(!e, "{t}");
         assert!(t.starts_with("Here simulation.maps is "), "{t}");
-        assert!(t.contains("with the values here: if "), "{t}");
+        assert!(t.contains("with the values here: 2 if "), "{t}");
         assert!(!t.contains("in the loop,"), "{t}");
         let (t, e) = call(
             &s,
@@ -554,12 +554,12 @@ mod tests {
         let (t, e) = call(
             &s,
             "add_node",
-            json!({ "model": model, "op": "map.calc", "id": "sum", "inputs": { "a": "small.map", "b": "big.map" }, "settings": { "expression": "a + b" } }),
+            json!({ "model": model, "op": "raster.calc", "id": "sum", "inputs": { "a": "small.map", "b": "big.map" }, "settings": { "expression": "a + b" } }),
         );
         assert!(!e, "{t}");
         let (t, e) = call(&s, "run_model", json!({ "model": model }));
         assert!(e, "{t}");
-        assert!(t.contains("The node sum (map.calc) failed") && t.contains("What it was given"), "{t}");
+        assert!(t.contains("The node sum (raster.calc) failed") && t.contains("What it was given"), "{t}");
         assert!(t.contains("10 x 20 cells") && t.contains("raster.match"), "{t}");
         let _ = std::fs::remove_dir_all(&dir);
     }

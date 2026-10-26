@@ -61,13 +61,13 @@ params = {{ column = "id" }}
 
 [[nodes]]
 id = "reserves"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ a = "area.map", id = "id.map", imp = "imp.map" }}
 params = {{ expression = "{expr}" }}
 
 [[nodes]]
 id = "region"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ l = "land.raster" }}
 params = {{ expression = "1" }}
 

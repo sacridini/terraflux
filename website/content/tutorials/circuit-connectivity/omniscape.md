@@ -193,10 +193,10 @@ How to read it:
 ### From a map to categories for planners
 
 A continuous ratio is hard to act on. Following McRae et al. (2016), classify the normalised current into a few
-categories with one [[map.calc]] on `omniscape.normalized`:
+categories with one [[raster.calc]] on `omniscape.normalized`:
 
 ```text
-if n < 0.5 then 1 else if n < 1.5 then 2 else if n < 2.5 then 3 else 4
+1 if n < 0.5 else 2 if n < 1.5 else 3 if n < 2.5 else 4
 ```
 
 1 **impeded** (movement blocked, a candidate barrier to remove), 2 **diffuse** (movement flows as freely as the
@@ -210,9 +210,9 @@ arable land far from woods and the towns) and 6% is intensified or channelised.
 #! highlight: classes
 [[nodes]]
 id = "classes"
-op = "map.calc"
+op = "raster.calc"
 inputs = { n = "omniscape.normalized" }
-params = { expression = "if n < 0.5 then 1 else if n < 1.5 then 2 else if n < 2.5 then 3 else 4" }
+params = { expression = "1 if n < 0.5 else 2 if n < 1.5 else 3 if n < 2.5 else 4" }
 note = "1 impeded, 2 diffuse, 3 intensified, 4 channelised."
 ```
 

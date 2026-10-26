@@ -6,7 +6,7 @@ order: 30
 level: intermediate
 time: 45 min
 template: A city that grows (a loop)
-ops: [control.repeat, map.calc, nlm.gaussian_field, nlm.distance_gradient, view.plot, raster.write]
+ops: [control.repeat, raster.calc, nlm.gaussian_field, nlm.distance_gradient, view.plot, raster.write]
 ---
 
 A simulation is the same rule applied again and again: this year's forest decides next year's, today's city
@@ -104,15 +104,15 @@ params = { rows = 150, columns = 150, origin = [72, 78, 72, 78], nlmr_compat = f
 
 [[nodes]]
 id = "suitability"
-op = "map.calc"
+op = "raster.calc"
 inputs = { a = "attraction.map", d = "centre.map", r = "relief.map" }
-params = { expression = "if r < 0.3 or r > 0.75 then null else 0.6 * a + 0.4 * (1 - d / 106)" }
+params = { expression = "None if r < 0.3 or r > 0.75 else 0.6 * a + 0.4 * (1 - d / 106)" }
 note = "Attractive and near the centre; no value in the water and on the mountains."
 ```
 
 The suitability (node 4) is 60 % attraction and 40 % closeness to the centre (106 cells is about the farthest a
 cell can be from it), and has **no value** in the water and on the mountains. A city will never grow into a cell
-without a value: comparisons with null are null, and `if` with a null condition gives null (see
+without a value: comparisons with None are None, and `a if c else b` with a condition of None gives None (see
 [Map algebra](../map-algebra/#missing-values)).
 
 Everything that is the same at every step belongs **outside** the loop. The body can read any node of the model
@@ -129,7 +129,7 @@ images:
 ### Step 2: the state at the start
 
 ```text
-if isnull(suit) then null else d == 0
+None if isnull(suit) else d == 0
 ```
 
 The node `town` makes the first state: 1 in the old town (where the distance to the centre is 0, a square of
@@ -159,15 +159,15 @@ params = { rows = 150, columns = 150, origin = [72, 78, 72, 78], nlmr_compat = f
 
 [[nodes]]
 id = "suitability"
-op = "map.calc"
+op = "raster.calc"
 inputs = { a = "attraction.map", d = "centre.map", r = "relief.map" }
-params = { expression = "if r < 0.3 or r > 0.75 then null else 0.6 * a + 0.4 * (1 - d / 106)" }
+params = { expression = "None if r < 0.3 or r > 0.75 else 0.6 * a + 0.4 * (1 - d / 106)" }
 
 [[nodes]]
 id = "town"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "centre.map", suit = "suitability.map" }
-params = { expression = "if isnull(suit) then null else d == 0" }
+params = { expression = "None if isnull(suit) else d == 0" }
 
 [[nodes]]
 id = "growth"
@@ -180,9 +180,9 @@ collect = { maps = "grow.map" }
 
 [[nodes.body.nodes]]
 id = "grow"
-op = "map.calc"
+op = "raster.calc"
 inputs = { c = "@city", suit = "suitability.map", step = "@step" }
-params = { expression = "if c == 0 and nbsum(c == 1, 1) >= 3 and suit > 0.6 - step * 0.008 then 1 else c" }
+params = { expression = "1 if c == 0 and nbsum(c == 1, 1) >= 3 and suit > 0.6 - step * 0.008 else c" }
 note = "A cell becomes city when three of its neighbours are and it is suitable enough; the bar falls every step."
 
 [[nodes]]
@@ -193,11 +193,11 @@ params = { title = "The city, step by step" }
 ```
 
 The loop node `growth` has two inputs: `times = 25` and `city = "town.map"`, the first value of `@city`. Its
-body has one node, `grow`, a [[map.calc]] with three inputs: `c` is `@city`, `suit` the suitability from outside
+body has one node, `grow`, a [[raster.calc]] with three inputs: `c` is `@city`, `suit` the suitability from outside
 the loop, and `step` is `@step`. Its rule:
 
 ```text
-if c == 0 and nbsum(c == 1, 1) >= 3 and suit > 0.6 - step * 0.008 then 1 else c
+1 if c == 0 and nbsum(c == 1, 1) >= 3 and suit > 0.6 - step * 0.008 else c
 ```
 
 reads: a cell that is not city yet (`c == 0`) becomes city (`1`) when at least 3 of the 9 cells of its 3 × 3
@@ -372,7 +372,7 @@ tutorials). Report the rule and its settings with the results; a CA with unrepor
 - [Randomness and reproducibility](../randomness/): seeds, replicates, and generators carried along a loop.
 - The `until` of a loop's body ends it early when a yes-or-no value becomes true; CLUMondo's step
   ([[clumondo.step]]) gives one (`stop`, a year without a solution).
-- The operator reference: [[control.repeat]], [[map.calc]], [[view.plot]].
+- The operator reference: [[control.repeat]], [[raster.calc]], [[view.plot]].
 
 ## References
 

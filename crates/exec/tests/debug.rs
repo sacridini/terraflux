@@ -29,13 +29,13 @@ path = "land.tif"
 
 [[nodes]]
 id = "double"
-op = "map.calc"
+op = "raster.calc"
 inputs = { x = "$land" }
 params = { expression = "x * 2" }
 
 [[nodes]]
 id = "plus"
-op = "map.calc"
+op = "raster.calc"
 inputs = { x = "double.map" }
 params = { expression = "x + 10" }
 
@@ -47,7 +47,7 @@ inputs = { times = 3, m = "plus.map" }
 carry = { m = "inc.map" }
 [[nodes.body.nodes]]
 id = "inc"
-op = "map.calc"
+op = "raster.calc"
 inputs = { x = "@m" }
 params = { expression = "x + 1" }
 "#;

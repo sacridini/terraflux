@@ -5,7 +5,7 @@ description: Build new roads every year from the existing network towards attrac
 order: 140
 level: advanced
 time: 50 min
-ops: [dinamica.roads, dinamica.cost_map, dinamica.destinations, dinamica.pathways, dinamica.step, dynamic.distance_to, control.repeat, map.calc, stack.of, markov.matrix, patches.settings]
+ops: [dinamica.roads, dinamica.cost_map, dinamica.destinations, dinamica.pathways, dinamica.step, dynamic.distance_to, control.repeat, raster.calc, stack.of, markov.matrix, patches.settings]
 series: Dinamica EGO in Terraflux
 part: 5
 ---
@@ -145,20 +145,20 @@ note = "What the forest is worth: timber, soil."
 
 [[nodes]]
 id = "roads0"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "highway.map" }
-params = { expression = "if d == 0 then 1 else 0" }
+params = { expression = "1 if d == 0 else 0" }
 
 [[nodes]]
 id = "land0"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "highway.map", g = "noise.map" }
-params = { expression = "if d < 500 + 2500 * g then 2 else 1" }
+params = { expression = "2 if d < 500 + 2500 * g else 1" }
 note = "1 forest, 2 cleared beside the highway."
 
 [[nodes]]
 id = "friction"
-op = "map.calc"
+op = "raster.calc"
 inputs = { r = "relief.map" }
 params = { expression = "1 + 30 * r * r * r" }
 note = "Building is harder on rough ground."
@@ -169,7 +169,7 @@ note = "Building is harder on rough ground."
 2. **`noise`**, **`relief`** and **`value`** ([[nlm.gaussian_field]]) are three smooth random surfaces from 0 to
    1: an irregularity for the edge of the old clearing, the roughness of the ground, and what the forest is worth
    to the road builders.
-3. **`roads0`** ([[map.calc]]) is the network: 1 on the highway, 0 elsewhere.
+3. **`roads0`** ([[raster.calc]]) is the network: 1 on the highway, 0 elsewhere.
 4. **`land0`** is the land at the start: forest (1), and cleared land (2) within 0.5 to 3 km of the highway,
    14.7% of the map.
 5. **`friction`** is the effort of building: 1 on smooth ground, up to 31 on the roughest (the cube of the
@@ -188,9 +188,9 @@ new nodes are drawn; the whole model is in the note under it.
 #! fragment: true
 [[nodes]]
 id = "attraction"
-op = "map.calc"
+op = "raster.calc"
 inputs = { land = "land0.map", v = "value.map" }
-params = { expression = "if land == 1 then v else 0" }
+params = { expression = "v if land == 1 else 0" }
 
 [[nodes]]
 id = "near"
@@ -200,9 +200,9 @@ params = { classes = 1 }
 
 [[nodes]]
 id = "band"
-op = "map.calc"
+op = "raster.calc"
 inputs = { a = "attraction.map", d = "near.distance" }
-params = { expression = "if d >= 1500 and d <= 4000 then a else null" }
+params = { expression = "a if d >= 1500 and d <= 4000 else None" }
 
 [[nodes]]
 id = "ends"
@@ -258,27 +258,27 @@ params = { quadrants = [2, 2], distance = [1500, 4000], spacing = 2000 }
 
     [[nodes]]
     id = "roads0"
-    op = "map.calc"
+    op = "raster.calc"
     inputs = { d = "highway.map" }
-    params = { expression = "if d == 0 then 1 else 0" }
+    params = { expression = "1 if d == 0 else 0" }
 
     [[nodes]]
     id = "land0"
-    op = "map.calc"
+    op = "raster.calc"
     inputs = { d = "highway.map", g = "noise.map" }
-    params = { expression = "if d < 500 + 2500 * g then 2 else 1" }
+    params = { expression = "2 if d < 500 + 2500 * g else 1" }
 
     [[nodes]]
     id = "friction"
-    op = "map.calc"
+    op = "raster.calc"
     inputs = { r = "relief.map" }
     params = { expression = "1 + 30 * r * r * r" }
 
     [[nodes]]
     id = "attraction"
-    op = "map.calc"
+    op = "raster.calc"
     inputs = { land = "land0.map", v = "value.map" }
-    params = { expression = "if land == 1 then v else 0" }
+    params = { expression = "v if land == 1 else 0" }
 
     [[nodes]]
     id = "near"
@@ -288,9 +288,9 @@ params = { quadrants = [2, 2], distance = [1500, 4000], spacing = 2000 }
 
     [[nodes]]
     id = "band"
-    op = "map.calc"
+    op = "raster.calc"
     inputs = { a = "attraction.map", d = "near.distance" }
-    params = { expression = "if d >= 1500 and d <= 4000 then a else null" }
+    params = { expression = "a if d >= 1500 and d <= 4000 else None" }
 
     [[nodes]]
     id = "ends"
@@ -318,7 +318,7 @@ params = { quadrants = [2, 2], distance = [1500, 4000], spacing = 2000 }
 
 Node by node:
 
-1. **`attraction`** ([[map.calc]]): the value of the forest where there is forest, 0 on cleared land. Road
+1. **`attraction`** ([[raster.calc]]): the value of the forest where there is forest, 0 on cleared land. Road
    builders aim at forest; a probability of clearing, or of logging, would serve as well.
 2. **`near`** ([[dynamic.distance_to]]) gives the straight-line distance in metres from every cell to the nearest
    road cell (class 1 of `roads0`).
@@ -378,19 +378,19 @@ params = { rows = 250, columns = 250, resolution = 100, range = 30, seed = 23 }
 
 [[nodes]]
 id = "roads0"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "highway.map" }
-params = { expression = "if d == 0 then 1 else 0" }
+params = { expression = "1 if d == 0 else 0" }
 
 [[nodes]]
 id = "land0"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "highway.map", g = "noise.map" }
-params = { expression = "if d < 500 + 2500 * g then 2 else 1" }
+params = { expression = "2 if d < 500 + 2500 * g else 1" }
 
 [[nodes]]
 id = "friction"
-op = "map.calc"
+op = "raster.calc"
 inputs = { r = "relief.map" }
 params = { expression = "1 + 30 * r * r * r" }
 
@@ -416,9 +416,9 @@ collect = { maps = "clearing.landscape", networks = "roads.network", info = "cle
 
 [[nodes.body.nodes]]
 id = "attraction"
-op = "map.calc"
+op = "raster.calc"
 inputs = { land = "@landscape", v = "value.map" }
-params = { expression = "if land == 1 then v else 0" }
+params = { expression = "v if land == 1 else 0" }
 
 [[nodes.body.nodes]]
 id = "roads"
@@ -428,9 +428,9 @@ params = { quadrants = [2, 2], distance = [1500, 4000], spacing = 2000 }
 
 [[nodes.body.nodes]]
 id = "probability"
-op = "map.calc"
+op = "raster.calc"
 inputs = { land = "@landscape", d = "roads.distance" }
-params = { expression = "if land == 1 then exp(-d / 1000) else 0" }
+params = { expression = "exp(-d / 1000) if land == 1 else 0" }
 note = "Clearing likely near the roads of this year."
 
 [[nodes.body.nodes]]
@@ -625,8 +625,8 @@ images:
 | `mask` and no friction inside: roads may not enter | 0 km | 37 ha (0.4%) |
 
 The protected area is a rectangle of 9,546 ha drawn with [[nlm.distance_gradient]] (`origin = [150, 235, 70,
-180]`, a distance of 0 inside); the mask is a [[map.calc]] of it, 0 inside and 1 outside, connected to the
-`mask` input of `roads`; for the third scenario the friction is `if inside == 0 then null else 1 + 30 * r * r * r`.
+180]`, a distance of 0 inside); the mask is a [[raster.calc]] of it, 0 inside and 1 outside, connected to the
+`mask` input of `roads`; for the third scenario the friction is `None if inside == 0 else 1 + 30 * r * r * r`.
 Neither scenario forbids the clearing itself inside the area: the probability there is still the distance to the
 roads. Keeping the roads out is enough to keep the clearing out, in this model, which is the mechanism by which
 protected areas mitigate the effect of roads on deforestation (Barber et al., 2014). With the mask alone, a road
@@ -660,7 +660,7 @@ projected forest loss of the Amazon.
   again, and none would accumulate.
 - **No value off the network.** The `network` output has the road cells and *no value* elsewhere (not 0). Any
   value other than 0 counts as a road, so it can be carried as it is; to draw it or count its cells, use
-  `if isnull(n) then 0 else 1` in [[map.calc]].
+  `0 if isnull(n) else 1` in [[raster.calc]].
 - **No attraction in the band.** If no cell between the two distances has an attraction above 0 (all cleared, or
   all masked), no road is built that step, silently. Look at the number of new road cells per step.
 - **Paths down another cost.** [[dinamica.pathways]] walks down the cost until a cell of cost 0. A cost map

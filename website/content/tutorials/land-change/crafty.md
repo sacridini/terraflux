@@ -411,7 +411,7 @@ template: timber stays oversupplied for the whole run.
 
 **Capitals outside 0 to 1.** Production uses \(k^e\) with \(k\) clipped to 1; a capital in raw units (a
 growing stock in m³/ha) is clipped to 1 almost everywhere, and the AFT sees a uniform landscape. Rescale every
-capital to 0 to 1 first, with [[map.calc]] or [[nlm.rescale]].
+capital to 0 to 1 first, with [[raster.calc]] or [[nlm.rescale]].
 
 **Capital names that do not match.** Sensitivities name layers of the capitals stack. A sensitivity to a
 capital that is not in the stack stops the run with an error naming it; a capital the AFTs do not name is

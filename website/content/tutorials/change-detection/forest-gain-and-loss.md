@@ -149,9 +149,9 @@ note = "Where clearing presses, from 0 to 1."
 
 [[nodes]]
 id = "after"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "before.map", p = "pressure.map" }
-params = { expression = "if f == 2 and p > 0.6 and nbsum(f == 1, 1) >= 1 then 1 else if f == 1 and p < 0.2 and nbsum(f == 2, 1) >= 5 then 2 else f" }
+params = { expression = "1 if f == 2 and p > 0.6 and nbsum(f == 1, 1) >= 1 else 2 if f == 1 and p < 0.2 and nbsum(f == 2, 1) >= 5 else f" }
 note = "The second date: the forest cleared from its edges where the pressure is high, regrown in the gaps where it is low."
 
 [[nodes]]
@@ -189,7 +189,7 @@ params = { title = "Morphological change" }
 1. **`before`** ([[nlm.random_cluster]]) draws the first date: clusters of two classes, 1 background (40%) and 2
    forest (60%), already in GuidosToolbox's coding, so no `foreground` is needed downstream.
 2. **`pressure`** ([[nlm.gaussian_field]]) draws a smooth surface from 0 to 1: where clearing presses.
-3. **`after`** ([[map.calc]]) makes the second date from the first: a forest cell with at least one background cell
+3. **`after`** ([[raster.calc]]) makes the second date from the first: a forest cell with at least one background cell
    among its 8 neighbours (`nbsum(f == 1, 1) >= 1`) is cleared where the pressure passes 0.6, and a background cell
    with at least 5 forest neighbours regrows where it is below 0.2. Only the edge retreats, by one cell: keep this
    in mind when reading the morphological change below.

@@ -22,7 +22,7 @@ fn the_map_of_a_multi_band_raster_is_its_band_on_any_port() {
     // map algebra's inputs take any value: a band asked for is that band, a map (`lu.map`, of a model written
     // before raster.read had one output, read as `lu.raster`)
     let r = run(
-        "[[nodes]]\nid = \"plus\"\nop = \"map.calc\"\ninputs = { a = \"lu.map\" }\nparams = { expression = \"a + 1\" }\n",
+        "[[nodes]]\nid = \"plus\"\nop = \"raster.calc\"\ninputs = { a = \"lu.map\" }\nparams = { expression = \"a + 1\" }\n",
     );
     let Some(Value::Map(m)) = r.get("plus.map") else { panic!("no map") };
     let Some(Value::Raster(read)) = r.get("lu.raster") else { panic!("no raster") };

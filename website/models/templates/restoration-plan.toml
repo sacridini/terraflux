@@ -10,14 +10,14 @@ note = "A smooth surface from 0 to 1 drawn by chance."
 
 [[nodes]]
 id = "forest"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "field.map" }
 params = { expression = "f * 0.9" }
 note = "The share of forest in each cell (in its place, a raster.read of land cover shares)."
 
 [[nodes]]
 id = "crops"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "field.map" }
 params = { expression = "1 - f * 0.9" }
 note = "The rest is cropland: the land restoration can return to forest."
@@ -51,20 +51,20 @@ params = { rows = 40, columns = 50, range = 6, seed = 13 }
 
 [[nodes]]
 id = "ranges"
-op = "map.calc"
+op = "raster.calc"
 inputs = { t = "toucan.map" }
 params = { expression = "t > 0.4" }
 note = "A species' range: the cells above 0 (in its place, raster.read of range maps)."
 
 [[nodes]]
 id = "ranges2"
-op = "map.calc"
+op = "raster.calc"
 inputs = { j = "jaguar.map" }
 params = { expression = "j > 0.5" }
 
 [[nodes]]
 id = "ranges3"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "frog.map" }
 params = { expression = "f > 0.3" }
 

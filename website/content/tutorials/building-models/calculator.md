@@ -5,7 +5,7 @@ description: Write map algebra as a short script close to Python in the Calculat
 order: 15
 level: beginner
 time: 40 min
-ops: [map.calc, control.group]
+ops: [raster.calc, control.group]
 ---
 
 In this tutorial you write one script that does the work of half a dozen map algebra nodes: from the land use of
@@ -21,7 +21,7 @@ is, what a local and a focal operation are, and how missing cells behave. This p
 
 ## The idea
 
-A [[map.calc]] node computes new maps from other maps, cell by cell. Its *expression* used to be one formula
+A [[raster.calc]] node computes new maps from other maps, cell by cell. Its *expression* used to be one formula
 (`land == 1 and d.elevation < 1200`), and a model that needed six formulas needed six nodes. A **script** is a
 short program of several lines: each line gives a name to a value, the later lines use the earlier names, and the
 lines that begin with `out` are what leaves the node. A single expression is still a script of one line, so every
@@ -84,7 +84,7 @@ becomes `NDVI_2020`, and a band without a name is `b1`, `b2`... The calculator s
 The model has two inputs and one node:
 
 ```tfgraph
-#! caption: The land use of both years and the drivers, read as stacks, and one map.calc node with the whole script.
+#! caption: The land use of both years and the drivers, read as stacks, and one raster.calc node with the whole script.
 #! highlight: calc
 format = "terraflux/1"
 
@@ -98,18 +98,19 @@ path = "drivers.tif"
 
 [[nodes]]
 id = "calc"
-op = "map.calc"
+op = "raster.calc"
 inputs = { lu = "$lu", d = "$d" }
 params = { expression = "out years = sum(lu == 1)" }
 note = "The forest's years, its loss, and a habitat index of the forest of 1997."
 ```
 
 !!! app "In the application"
-    Open the two files (++ctrl+o++, or drag them from the **Files** drawer), add a [[map.calc]] from the
+    Open the two files (++ctrl+o++, or drag them from the **Files** drawer), add a [[raster.calc]] from the
     library's **Map algebra** subject and connect each file's `raster` port to an input of it named `lu` and `d`
-    (drag from the output to the `+ new input` row; the Node pane's **Add input** names an input too). Then open
-    the **Calculator**: **View > Calculator**, or **Open in the calculator** under the node's expression in the
-    Node pane. The calculator edits the script of the map algebra node selected.
+    (drag from the output to the `+ new input` row; the Node pane's **Add input** names an input too). The Node
+    pane shows the node's script in an editor of its own, its words in colour and its first error underlined, for
+    a script of a few lines. For the full editor, press the orange **Expand** button beside the script's name, or
+    choose **View > Calculator**: the calculator edits the script of the map algebra node selected.
 
 The pane has three parts. At the top, the node's inputs and what they are (`lu: stack · 2`, `d: stack · 13`;
 hover over one to see its layers). In the middle, the script, with line numbers and its words in colour: inputs,
@@ -133,7 +134,7 @@ out lost = forest._1997 and not forest._2011
 si_elev = clamp((1200 - d.elevation) / 900, 0, 1)
 si_road = clamp(d.dist_roads / 3000, 0, 1)
 out hsi = sqrt(si_elev * si_road)
-hsi[not forest._1997] = null            # the forest of 1997 only
+hsi[not forest._1997] = None            # the forest of 1997 only
 
 out best = hsi >= hsi.percentile(75)    # its best quarter
 out mean_hsi = hsi.mean()
@@ -159,9 +160,9 @@ The two scores and the index are those of [Map algebra from scratch](../map-alge
 300 m and falls to 0 at 1,200 m, distance to roads scores 0 at the road and 1 beyond 3 km, and the index is
 their geometric mean. Here each score is a name, used on the next line, and nothing but `hsi` leaves the node.
 
-`hsi[not forest._1997] = null` is a *conditional assignment*: only the cells where the condition holds are
+`hsi[not forest._1997] = None` is a *conditional assignment*: only the cells where the condition holds are
 changed (here, the cells that were not forest in 1997 lose their value); the others keep the one they had. This
-is numpy's rule, and it replaces the nested `if ... then ... else` of a single expression. Several such lines
+is numpy's rule, and it replaces the nested `a if c else b` of a single expression. Several such lines
 apply in order, a later one over an earlier one.
 
 !!! note "Where the condition has no value"
@@ -301,7 +302,7 @@ type = "stack"
 bands = ["elevation", "dist_roads"]
 [nodes.uses.outputs.hsi]
 type = "map"
-# ... the other outputs, then the body: the map.calc node and its script
+# ... the other outputs, then the body: the raster.calc node and its script
 ```
 
 This has two consequences that matter for science. A model sent to a colleague runs without your library. And a
@@ -317,11 +318,11 @@ offers to save the change as a new version, or to make it a plain group again.
 | Lines | one statement a line, or several separated by `;`; `#` starts a comment; a line may continue inside brackets |
 | Names | `name = value`; `out name = value` and `out name` for the outputs; a name given in the script hides an input of the same name |
 | Conditions | `target[condition] = value` (only where the condition holds); `s.layer = value` replaces or adds a layer of a stack |
-| Values | numbers, `pi`, `null` (also `None`), `True` and `False` (1 and 0); the inputs; `s.layer` |
-| Arithmetic | `+ - * / %` and `**` (also `^`) for powers |
+| Values | numbers, `pi`, `None` (no value), `True` and `False` (1 and 0); the inputs; `s.layer` |
+| Arithmetic | `+ - * / %` and `**` for powers |
 | Comparisons | `< <= > >= == !=`, chained as in Python: `300 <= d.elevation < 1200` |
-| Logic | `and`, `or`, `not` (also `&&`, <code>&#124;&#124;</code>, `!`); `a if c else b` (also `if c then a else b`) |
-| Functions | `abs sqrt exp ln log log10 floor ceil round`, `clamp(x, lo, hi)`, `isnull(x)`, `coalesce(x, y)`, `min(a, b, ...)`, `max(a, b, ...)` |
+| Logic | `and`, `or`, `not`; `a if c else b` |
+| Functions | `abs sqrt exp log log10 floor ceil round` (`log` the natural logarithm), `clamp(x, lo, hi)`, `isnull(x)`, `coalesce(x, y)`, `min(a, b, ...)`, `max(a, b, ...)` |
 | Neighbourhoods | `nbsum nbmean nbmin nbmax nbcount (x, r)`: the square of radius `r` cells around each cell |
 | Over a stack's layers, at each cell | `mean sd median sum count min max (s)`, `percentile(s, p)` |
 | Over all the cells, a number | `x.mean() x.sd() x.median() x.sum() x.count() x.min() x.max()`, `x.percentile(p)` |
@@ -332,6 +333,9 @@ by layer and must have the same number of layers.
 ## Common pitfalls
 
 - **`=` and `==`.** `x = 1` gives `x` the value 1; `x == 1` asks whether it is 1. In a condition, always `==`.
+- **Python's syntax, and no other.** `^`, `&&`, `||`, `!`, `null`, `ln`, `if c then a else b` and `c ? a : b`
+  are refused, each with the form to write (`**`, `and`, `or`, `not`, `None`, `log`, `a if c else b`). A model
+  written by an older Terraflux in those forms is rewritten in Python's when it is opened.
 - **No `&` or `|`.** In numpy, `a > 5 & b < 8` is read as `a > (5 & b) < 8`, a classic trap; the calculator
   has `and` and `or`, which mean what they say.
 - **`mean(s)` is not `s.mean()`.** The first is a map, the mean of the layers at each cell; the second one
@@ -352,7 +356,7 @@ by layer and must have the same number of layers.
 - [Stacks and layers](../stacks-and-layers/): build stacks from maps and folders of files.
 - [Groups and submodels](../groups-and-submodels/): groups, and other model files used as one node.
 - [Plugins in WebAssembly](../plugins/): when a script is not enough.
-- The operator reference: [[map.calc]], [[control.group]].
+- The operator reference: [[raster.calc]], [[control.group]].
 
 ## References
 

@@ -48,7 +48,7 @@ params = { direction = 90 }
 
 [[nodes]]
 id = "towns"
-op = "map.calc"
+op = "raster.calc"
 inputs = { g = "west_east.map" }
 params = { expression = "1 + (g > 0.5)" }
 
@@ -70,7 +70,7 @@ collect = { maps = "allocate.landscape", info = "allocate.info" }
 id = "zoning"
 op = "agents.update"
 inputs = { agents = "councils.agents", step = "@step" }
-params = { rules = "frozen = if id == 2 and step > 4 then 1 else 0" }
+params = { rules = "frozen = 1 if id == 2 and step > 4 else 0" }
 
 [[nodes.body.nodes]]
 id = "frozen"

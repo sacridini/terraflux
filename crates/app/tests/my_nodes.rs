@@ -15,10 +15,10 @@ use terraflux_graph::{GROUP, Model, Node, Type};
 fn model() -> Model {
     let mut m = Model::new("my nodes");
     m.nodes.push(Node::new("land", "nlm.random").param("rows", 20).param("columns", 30).param("seed", 3));
-    m.nodes.push(Node::new("twice", "map.calc").param("expression", "a * 2").input("a", "land.map"));
+    m.nodes.push(Node::new("twice", "raster.calc").param("expression", "a * 2").input("a", "land.map"));
     m.nodes.push(Node::new("s", "stack.of").input("red", "land.map").input("nir", "twice.map"));
     m.nodes.push(
-        Node::new("calc", "map.calc")
+        Node::new("calc", "raster.calc")
             .param("expression", "out ndvi = (s.nir - s.red) / (s.nir + s.red) * k")
             .input("s", "s.stack")
             .literal("k", 10)

@@ -5,7 +5,7 @@ description: The ideas behind every land change simulation (how much changes, wh
 order: 10
 level: beginner
 time: 30 min
-ops: [change.crosstab, change.components, change.suggest, stack.of, map.calc, view.plot]
+ops: [change.crosstab, change.components, change.suggest, stack.of, raster.calc, view.plot]
 series: "Land change simulation: the foundations"
 part: 1
 ---
@@ -278,9 +278,9 @@ note = "The transitions worth modelling: those that make at least 1% of the chan
 
 [[nodes]]
 id = "changed"
-op = "map.calc"
+op = "raster.calc"
 inputs = { a = "land_1997.raster", b = "land_2011.raster" }
-params = { expression = "if a != b then b else 0" }
+params = { expression = "b if a != b else 0" }
 note = "Every cell that changed in its new class, 0 where nothing changed."
 
 [[nodes]]
@@ -305,8 +305,8 @@ params = { title = "What changed, 1997 to 2011" }
 4. **What is worth modelling.** Put the two maps in one stack with [[stack.of]] (node 5: connect both maps; each
    input's name becomes a layer's name) and add [[change.suggest]] (node 6). It lists the transitions from
    largest to smallest, with the share of all change and of the class each makes.
-5. **A map of the change.** [[map.calc]] (node 7) computes a map cell by cell from an expression; give it two
-   inputs named `a` and `b` and the expression `if a != b then b else 0`. [[view.plot]] (node 8) shows it in a
+5. **A map of the change.** [[raster.calc]] (node 7) computes a map cell by cell from an expression; give it two
+   inputs named `a` and `b` and the expression `b if a != b else 0`. [[view.plot]] (node 8) shows it in a
    tab of its own.
 
 </div>

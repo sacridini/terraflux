@@ -20,7 +20,7 @@ params = { path = "carbon_potential.tif" }
 
 [[nodes]]
 id = "carbon"
-op = "map.calc"
+op = "raster.calc"
 inputs = { c = "carbon_t_ha.raster" }
 params = { expression = "c * 100 / 1000000" }
 
@@ -46,9 +46,9 @@ params = { path = "land_cover.tif", band = "cropland" }
 
 [[nodes]]
 id = "reduction"
-op = "map.calc"
+op = "raster.calc"
 inputs = { p = "pasture.raster", c = "cropland.raster" }
-params = { expression = "if p + c > 0 then (4 * p + 7 * c) / (p + c) else 0" }
+params = { expression = "(4 * p + 7 * c) / (p + c) if p + c > 0 else 0" }
 
 [[nodes]]
 id = "cost"

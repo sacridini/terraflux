@@ -38,8 +38,8 @@ def model() -> str:
     for meth in METHODS:
         p = {"method": "sensitivity", "sensitivity": 0.95} if meth == "sensitivity" else {"method": meth}
         m += S.node(f"t_{meth}", "sdm.threshold", {"presences": "p_pres.prediction", "background": "p_back.prediction"}, p)
-        m += S.node(f"bin_{meth}", "map.calc", {"s": "predict.prediction", "t": f"t_{meth}.threshold"},
-                    {"expression": "if s >= t then 1 else 0"})
+        m += S.node(f"bin_{meth}", "raster.calc", {"s": "predict.prediction", "t": f"t_{meth}.threshold"},
+                    {"expression": "1 if s >= t else 0"})
         m += S.node(f"w_{meth}", "raster.write", {"value": f"bin_{meth}.map"}, {"path": f"bin_{meth}.tif"})
         outs[f"t_{meth}"] = f"t_{meth}.threshold"
     m += S.node("w_pred", "raster.write", {"value": "predict.prediction"}, {"path": "prediction.tif"})

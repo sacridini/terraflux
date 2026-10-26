@@ -1454,7 +1454,7 @@ mod tests {
         assert_eq!(s.source.author.as_deref(), Some("Ana; the assistant (qwen)"), "both");
         // a wrong change: refused, the model as it was
         let before = s.source.clone();
-        let wrong = json!({ "op": "map.calc", "inputs": { "x": "nothing.map" } });
+        let wrong = json!({ "op": "raster.calc", "inputs": { "x": "nothing.map" } });
         assert!(change(&mut s, &r, "add_node", &wrong, &stamp).is_err());
         assert_eq!(s.source, before);
         // a new model only when asked to replace the one open
@@ -1489,7 +1489,7 @@ mod tests {
         let mut c = Chat::default();
         c.send_to(
             &p,
-            "Build a model: a random neutral landscape of 60 x 40 cells (seed 7), and a map.calc node marking the \
+            "Build a model: a random neutral landscape of 60 x 40 cells (seed 7), and a raster.calc node marking the \
              cells above 0.5 with 1, else 0. Then run it and tell me the share of the cells marked."
                 .into(),
             &s,
@@ -1506,7 +1506,7 @@ mod tests {
             println!("{i:?}\n");
         }
         assert!(s.source.nodes.iter().any(|n| n.op.starts_with("nlm.")), "a landscape drawn");
-        assert!(s.source.nodes.iter().any(|n| n.op == "map.calc"), "a map.calc");
+        assert!(s.source.nodes.iter().any(|n| n.op == "raster.calc"), "a raster.calc");
         let ran = c
             .items
             .iter()

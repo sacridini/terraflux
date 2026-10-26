@@ -387,7 +387,7 @@ How to read these numbers:
   habitat or the matrix before building the graph.
 - **Too many patches.** The number of pairs grows with the square of the number of patches: 154 patches make
   11,781 pairs, 10,000 patches 50 million. For very large maps, drop the smallest patches (paint every patch
-  with its area by [[conn.nodes]] and [[conn.to_map]], then keep the large ones with [[map.calc]]) or set
+  with its area by [[conn.nodes]] and [[conn.to_map]], then keep the large ones with [[raster.calc]]) or set
   `max_distance` so that only nearby pairs are kept.
 
 ## Going further

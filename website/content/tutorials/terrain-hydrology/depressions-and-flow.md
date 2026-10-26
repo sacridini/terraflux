@@ -5,7 +5,7 @@ description: Make an elevation model drain, give every cell the direction its wa
 order: 10
 level: intermediate
 time: 45 min
-ops: [raster.read, raster.reproject, hydro.fill, hydro.breach, hydro.flow_direction, hydro.flow_accumulation, map.calc]
+ops: [raster.read, raster.reproject, hydro.fill, hydro.breach, hydro.flow_direction, hydro.flow_accumulation, raster.calc]
 series: Terrain hydrology
 part: 1
 ---
@@ -325,13 +325,13 @@ accumulation gives the share of the catchment that is open.
 
 1. Add a [[raster.read]] of `ndvi.tif` (rename it `ndvi_read`) and a [[raster.reproject]] after it with the same
    settings as `elevation` (rename it `ndvi`), so both maps share one grid.
-2. Add a [[map.calc]] (subject **Map algebra**) named `open`; connect `ndvi`'s raster to an input named `n` and
-   write `if n <= 0.55 then 1 else 0`: open land where the summer NDVI is at most 0.55, the threshold landschaft's
+2. Add a [[raster.calc]] (subject **Map algebra**) named `open`; connect `ndvi`'s raster to an input named `n` and
+   write `1 if n <= 0.55 else 0`: open land where the summer NDVI is at most 0.55, the threshold landschaft's
    watershed example uses to separate forest from pasture.
 3. Add a second [[hydro.flow_accumulation]] named `open_acc`, its `dem` from `filled` and its `weights` from
    `open`.
-4. Add a [[map.calc]] named `open_share` with inputs `o` (from `open_acc`) and `a` (from `accumulation`) and the
-   expression `if a >= 500 then 100 * o / a else null`: the percentage of the upslope area that is open, on
+4. Add a [[raster.calc]] named `open_share` with inputs `o` (from `open_acc`) and `a` (from `accumulation`) and the
+   expression `100 * o / a if a >= 500 else None`: the percentage of the upslope area that is open, on
    the cells draining at least 500 cells (45 ha), roughly the streams (part 2 explains that threshold).
 
 </div>
@@ -377,9 +377,9 @@ params = { crs = "EPSG:32610", resolution = 30, extent = [500010, 4760850, 50811
 
 [[nodes]]
 id = "open"
-op = "map.calc"
+op = "raster.calc"
 inputs = { n = "ndvi.raster" }
-params = { expression = "if n <= 0.55 then 1 else 0" }
+params = { expression = "1 if n <= 0.55 else 0" }
 note = "1 open land, 0 forest."
 
 [[nodes]]
@@ -390,9 +390,9 @@ note = "Open cells upslope."
 
 [[nodes]]
 id = "open_share"
-op = "map.calc"
+op = "raster.calc"
 inputs = { o = "open_acc.map", a = "accumulation.map" }
-params = { expression = "if a >= 500 then 100 * o / a else null" }
+params = { expression = "100 * o / a if a >= 500 else None" }
 note = "% of the catchment that is open, on the streams."
 ```
 

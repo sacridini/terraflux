@@ -6,7 +6,7 @@ order: 30
 level: intermediate
 time: 40 min
 template: Ecological intactness
-ops: [restoration.intactness, restoration.intactness_gradient, raster.read, map.calc]
+ops: [restoration.intactness, restoration.intactness_gradient, raster.read, raster.calc]
 series: Distance and restoration
 part: 3
 ---
@@ -97,11 +97,11 @@ builds the same model on a footprint drawn by chance.
 
 Add a [[raster.read]] node for `footprint.tif`. For the reduction, read the two anthropic bands of the land cover
 with two more [[raster.read]] nodes on `land_cover.tif`, setting their `band` to `pasture` and `cropland` (a band
-can be chosen by its name). A [[map.calc]] node with inputs `p` and `c` computes the footprint that restoring one
+can be chosen by its name). A [[raster.calc]] node with inputs `p` and `c` computes the footprint that restoring one
 unit of each cell removes, the mean of 4 (pasture) and 7 (cropland) weighted by their shares:
 
 ```text
-if p + c > 0 then (4 * p + 7 * c) / (p + c) else 0
+(4 * p + 7 * c) / (p + c) if p + c > 0 else 0
 ```
 
 ### Intactness and its gradient
@@ -138,9 +138,9 @@ params = { path = "land_cover.tif", band = "cropland" }
 
 [[nodes]]
 id = "reduction"
-op = "map.calc"
+op = "raster.calc"
 inputs = { p = "pasture.raster", c = "cropland.raster" }
-params = { expression = "if p + c > 0 then (4 * p + 7 * c) / (p + c) else 0" }
+params = { expression = "(4 * p + 7 * c) / (p + c) if p + c > 0 else 0" }
 note = "Footprint removed per unit restored: 4 pasture, 7 cropland."
 
 [[nodes]]
@@ -158,7 +158,7 @@ note = "Gain in total intactness per unit of each cell restored."
 
 [[nodes]]
 id = "all_converted"
-op = "map.calc"
+op = "raster.calc"
 inputs = { p = "pasture.raster", c = "cropland.raster" }
 params = { expression = "p + c" }
 note = "Every share of pasture and cropland restored."

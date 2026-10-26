@@ -15,9 +15,9 @@ params = { rows = 200, columns = 200, seed = 22 }
 
 [[nodes]]
 id = "classified"
-op = "map.calc"
+op = "raster.calc"
 inputs = { t = "truth.map", e = "noise.map" }
-params = { expression = "if e > 0.9 then (if t == 3 then 1 else t + 1) else t" }
+params = { expression = "(1 if t == 3 else t + 1) if e > 0.9 else t" }
 note = "The map to assess: the truth with a tenth of its cells in another class (in its place, a raster.read of your map)."
 
 [[nodes]]

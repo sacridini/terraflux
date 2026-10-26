@@ -6,7 +6,7 @@ order: 30
 level: intermediate
 time: 60 min
 template: Marxan and irreplaceability
-ops: [prioritize.marxan, prioritize.proxirr, prioritize.coarsen, map.calc, raster.read]
+ops: [prioritize.marxan, prioritize.proxirr, prioritize.coarsen, raster.calc, raster.read]
 series: Systematic conservation planning
 part: 3
 ---
@@ -157,9 +157,9 @@ params = { path = "urban.tif" }
 
 [[nodes]]
 id = "status"
-op = "map.calc"
+op = "raster.calc"
 inputs = { p = "protected.raster", u = "urban.raster" }
-params = { expression = "if u > 0 then 3 else if p > 0 then 2 else 0" }
+params = { expression = "3 if u > 0 else 2 if p > 0 else 0" }
 note = "Marxan's status: 2 locked in, 3 locked out."
 
 [[nodes]]
@@ -185,7 +185,7 @@ params = { title = "Selection frequency" }
 
 1. **Features and cost** (nodes 1 and 2): [[raster.read]] of the eight bands and of the cost. The `stack` of node 1
    goes to Marxan's `features`, the `map` of node 2 to its `cost`.
-2. **The status** (nodes 3 to 5): the protected areas and the cities, combined by [[map.calc]] into Marxan's codes.
+2. **The status** (nodes 3 to 5): the protected areas and the cities, combined by [[raster.calc]] into Marxan's codes.
    The protected areas (175 cells) cost money too: locked in, they are part of every plan and of its cost.
 3. **Marxan** (node 6): [[prioritize.marxan]], in the library's *Spatial prioritization* subject. Its settings:
     - `prop`: the target of every feature, as a share of its total (a list in the order of the layers);

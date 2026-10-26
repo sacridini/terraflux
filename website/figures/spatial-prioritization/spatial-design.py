@@ -122,7 +122,7 @@ def connectivity():
     tapir = '''
 [[nodes]]
 id = "tapir"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "blocks.features" }
 params = { expression = "f.lowland_tapir" }
 
@@ -241,7 +241,7 @@ def zones():
         w = sp.run(SLUG, name, f'''
 [[nodes]]
 id = "use_cost"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ c = "cost.map" }}
 params = {{ expression = "c * 0.45" }}
 

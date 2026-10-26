@@ -6,7 +6,7 @@ order: 60
 level: advanced
 time: 50 min
 template: A species in a warmer climate
-ops: [sdm.maxnet_predict, sdm.mess, sdm.mop, sdm.exdet, stack.set, map.calc, sdm.fit]
+ops: [sdm.maxnet_predict, sdm.mess, sdm.mop, sdm.exdet, stack.set, raster.calc, sdm.fit]
 series: Species distribution models
 part: 6
 ---
@@ -129,7 +129,7 @@ params = { regmult = 2, classes = "lqh" }
 
 [[nodes]]
 id = "hotter"
-op = "map.calc"
+op = "raster.calc"
 inputs = { e = "data.env" }
 params = { expression = "e.bio5 + 20" }
 note = "bio5 is in tenths of a degree: +2 °C."
@@ -156,7 +156,7 @@ params = { full = true }
 
 1. **The model** (nodes 1 to 4), as in parts 4 and 5.
 2. **The new conditions** (nodes 5 and 6). With a scenario's rasters you would read them with [[raster.read]] and
-   build a stack named like the model's predictors. Here they are made from today's: [[map.calc]] takes the stack of
+   build a stack named like the model's predictors. Here they are made from today's: [[raster.calc]] takes the stack of
    predictors (`data.env`) on an input named `e` and reads a layer as `e.bio5`; the expression adds 20, since
    WorldClim's temperatures are in tenths of a degree. [[stack.set]] puts the result back into the stack **under
    the name `bio5`**, replacing today's layer. The model finds its predictors by name, so the name is what matters.
@@ -169,7 +169,7 @@ params = { full = true }
 
 </div>
 
-The figures add a second change, bio17 times 0.8, with another [[map.calc]] and [[stack.set]] on the output of node 6,
+The figures add a second change, bio17 times 0.8, with another [[raster.calc]] and [[stack.set]] on the output of node 6,
 and compare the projection with the suitability today:
 
 ```tfgraph
@@ -179,7 +179,7 @@ and compare the projection with the suitability today:
 #! highlight: drier, future2, shift, mop, exdet
 [[nodes]]
 id = "drier"
-op = "map.calc"
+op = "raster.calc"
 inputs = { e = "data.env" }
 params = { expression = "e.bio17 * 0.8" }
 
@@ -196,7 +196,7 @@ inputs = { model = "fit.model", env = "data.env" }
 
 [[nodes]]
 id = "shift"
-op = "map.calc"
+op = "raster.calc"
 inputs = { a = "today.prediction", b = "tomorrow.prediction" }
 params = { expression = "b - a" }
 

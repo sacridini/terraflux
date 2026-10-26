@@ -123,13 +123,13 @@ params = { path = "wall_0.tif" }
 
 [[nodes]]
 id = "left"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "focal.raster" }
 params = { expression = "f == 1" }
 
 [[nodes]]
 id = "right"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "focal.raster" }
 params = { expression = "f == 2" }
 

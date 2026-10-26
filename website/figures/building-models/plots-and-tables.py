@@ -51,9 +51,9 @@ params = {{ foreground = [3], edge_width = 2 }}
 
 [[nodes]]
 id = "forest_only"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ m = "mspa.map" }}
-params = {{ expression = "if m == 0 or m == 100 or m == 220 then null else m" }}
+params = {{ expression = "None if m == 0 or m == 100 or m == 220 else m" }}
 
 [[nodes]]
 id = "classes"

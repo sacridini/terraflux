@@ -85,10 +85,10 @@ Omniscape on a landscape drawn by chance.
 
 The resistance is the [[raster.reclassify]] of part 2. The focal areas come from the forest patches: as before,
 [[conn.graph_from_raster]] and [[conn.nodes]] give the patches and their areas, two [[conn.to_map]] paint the
-areas and the ids on them, and a [[map.calc]] keeps the large ones:
+areas and the ids on them, and a [[raster.calc]] keeps the large ones:
 
 ```text
-coalesce(if a >= 1500 then p else 0, 0)
+coalesce(p if a >= 1500 else 0, 0)
 ```
 
 (`a` the area, `p` the patch id; `coalesce` turns "no value" outside the forests into 0).
@@ -144,9 +144,9 @@ params = { column = "id" }
 
 [[nodes]]
 id = "cores"
-op = "map.calc"
+op = "raster.calc"
 inputs = { a = "area.map", p = "patch.map" }
-params = { expression = "coalesce(if a >= 1500 then p else 0, 0)" }
+params = { expression = "coalesce(p if a >= 1500 else 0, 0)" }
 note = "The forests of 1,500 ha or more, by number."
 
 [[nodes]]
@@ -170,11 +170,11 @@ params = { cum_map = true, all_to_one = true }
 
 ### 3. The advanced mode
 
-[[circuit.advanced]] takes three maps: a `conductance` (1 / resistance, a [[map.calc]] `1 / r`), a `source`
+[[circuit.advanced]] takes three maps: a `conductance` (1 / resistance, a [[raster.calc]] `1 / r`), a `source`
 (the current injected at each cell, in amperes) and a `ground` (each cell's conductance to the ground: 0 none,
 `1 / 0`, infinite, a direct ground). To ask *where would animals leaving the southern forest go, if they settled
-in any of the other large forests*, the source is 1 in every cell of forest 55 (`if c == 55 then 1 else 0` on the
-cores) and the ground is infinite in the other seven (`if c > 0 and c != 55 then 1 / 0 else 0`). Its outputs are
+in any of the other large forests*, the source is 1 in every cell of forest 55 (`1 if c == 55 else 0` on the
+cores) and the ground is infinite in the other seven (`1 / 0 if c > 0 and c != 55 else 0`). Its outputs are
 `current` and `voltage`.
 
 ```tfgraph
@@ -183,21 +183,21 @@ cores) and the ground is infinite in the other seven (`if c > 0 and c != 55 then
 #! highlight: advanced
 [[nodes]]
 id = "conductance"
-op = "map.calc"
+op = "raster.calc"
 inputs = { r = "resistance.map" }
 params = { expression = "1 / r" }
 
 [[nodes]]
 id = "source"
-op = "map.calc"
+op = "raster.calc"
 inputs = { c = "cores.map" }
-params = { expression = "if c == 55 then 1 else 0" }
+params = { expression = "1 if c == 55 else 0" }
 
 [[nodes]]
 id = "ground"
-op = "map.calc"
+op = "raster.calc"
 inputs = { c = "cores.map" }
-params = { expression = "if c > 0 and c != 55 then 1 / 0 else 0" }
+params = { expression = "1 / 0 if c > 0 and c != 55 else 0" }
 
 [[nodes]]
 id = "advanced"

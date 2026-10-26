@@ -96,7 +96,7 @@ id = "interval"''', '''[[nodes]]
 id = "delta"
 op = "uncertainty.delta"
 inputs = { canopy = "canopy.map" }
-params = { expression = "a * canopy ^ b * fraction", parameters = [["a", 250, 25], ["b", 1.5, 0.15], ["fraction", 0.47, 0.02]] }
+params = { expression = "a * canopy ** b * fraction", parameters = [["a", 250, 25], ["b", 1.5, 0.15], ["fraction", 0.47, 0.02]] }
 
 [[nodes]]
 id = "interval"''').replace("n = 500, seed = 1", "n = 5000, seed = 1")

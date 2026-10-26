@@ -277,9 +277,9 @@ note = "Where clearing presses, 0 to 1."
 
 [[nodes]]
 id = "after"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "before.raster", p = "pressure.map" }
-params = { expression = "if f == 2 and p > 0.8 then 1 else if f == 2 and p > 0.55 and nbsum(f == 1, 3) >= 1 then 1 else if f == 1 and p < 0.15 and nbsum(f == 2, 1) >= 4 then 2 else f" }
+params = { expression = "1 if f == 2 and p > 0.8 else 1 if f == 2 and p > 0.55 and nbsum(f == 1, 3) >= 1 else 2 if f == 1 and p < 0.15 and nbsum(f == 2, 1) >= 4 else f" }
 note = "Date B: cleared where pressed (with your maps: a raster.read)."
 
 [[nodes]]
@@ -311,7 +311,7 @@ inputs = { map = "mspa_b.map" }
 ```
 
 Nodes 2 and 3 only make a second date to work with. [[nlm.gaussian_field]] draws a smooth surface from 0 to 1 whose
-patches are about 60 cells across; [[map.calc]] then clears the forest (2 becomes 1) everywhere the pressure is
+patches are about 60 cells across; [[raster.calc]] then clears the forest (2 becomes 1) everywhere the pressure is
 above 0.8, eats the forest's edges where it is above 0.55 (the forest cells with at least one background cell within
 3 cells: `nbsum(f == 1, 3) >= 1` counts the background cells of the 7 × 7 window, since `f == 1` is 1 on them and 0
 elsewhere), and lets a little forest regrow where it is below 0.15, in background cells with at least 4 forest cells

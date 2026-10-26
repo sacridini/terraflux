@@ -36,9 +36,9 @@ note = "The forest split into core, edge, bridges...; an edge of 2 cells (500 m)
 
 [[nodes]]
 id = "core"
-op = "map.calc"
+op = "raster.calc"
 inputs = { m = "mspa.map", lu = "$landuse" }
-params = { expression = "if isnull(lu) then null else m == 17 or m == 117" }
+params = { expression = "None if isnull(lu) else m == 17 or m == 117" }
 note = "1 where the forest is core (17, or 117 inside a core-opening), 0 on the rest of the island."
 
 [outputs.core]
@@ -76,7 +76,7 @@ params = { path = "lib/forest_core.toml" }
 
 [[nodes]]
 id = "change"
-op = "map.calc"
+op = "raster.calc"
 inputs = { a = "core1997.core", b = "core2011.core" }
 params = { expression = "a * 2 + b" }
 
@@ -90,19 +90,19 @@ outputs = { share = "share.map", edge = "edge.map" }
 
 [[nodes.body.nodes]]
 id = "forest"
-op = "map.calc"
+op = "raster.calc"
 inputs = { l = "@land" }
 params = { expression = "l == 1" }
 
 [[nodes.body.nodes]]
 id = "share"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "forest.map" }
 params = { expression = "nbmean(f, 2)" }
 
 [[nodes.body.nodes]]
 id = "edge"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "forest.map", s = "share.map" }
 params = { expression = "f == 1 and s < 1" }
 '''

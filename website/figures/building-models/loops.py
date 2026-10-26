@@ -19,7 +19,7 @@ data = figs.data_dir(NAME)
 base = figs.template("a-city-that-grows-a-loop")
 # the template's rule: three city neighbours and a bar from 0.6 (a bar from 0.8 would be above the suitability of all
 # the land around the old town, 0.5 to 0.6, and the city would not grow)
-RULE = "if c == 0 and nbsum(c == 1, 1) >= 3 and suit > 0.6 - step * 0.008 then 1 else c"
+RULE = "1 if c == 0 and nbsum(c == 1, 1) >= 3 and suit > 0.6 - step * 0.008 else c"
 assert RULE in base
 template = base
 # the tutorial's rule written with nbcount, which counts the cells *with a value* (0 or 1 alike), not the city's

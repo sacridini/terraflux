@@ -10,7 +10,7 @@ note = "A Voronoi mosaic: 60 cells of a random value each."
 
 [[nodes]]
 id = "parcels"
-op = "map.calc"
+op = "raster.calc"
 inputs = { m = "mosaic.map" }
 params = { expression = "1 + floor(m * 100000)" }
 note = "Each Voronoi cell a parcel with an id (in its place, a raster.read of a cadastre's parcel ids)."
@@ -48,7 +48,7 @@ collect = { summary = "totals.table", maps = "farmed.map" }
 id = "year"
 op = "agents.update"
 inputs = { agents = "@farmers", step = "@step" }
-params = { rules = "price = 10 - step * 0.25\nincome = if farming == 1 then fertility * price * 2 else 1\nwealth = wealth + income - 7\nfarming = if wealth > 0 then farming else 0" }
+params = { rules = "price = 10 - step * 0.25\nincome = fertility * price * 2 if farming == 1 else 1\nwealth = wealth + income - 7\nfarming = farming if wealth > 0 else 0" }
 note = "The rules of a year, in order: the price falls, the farmers earn by the fertility of their parcel, pay 7, and those broke stop farming (and earn 1 elsewhere)."
 
 [[nodes.body.nodes]]

@@ -272,7 +272,7 @@ rests on, its `assumptions` and the `alternatives` set aside; the model, the `re
 the conversation that led to it and its `author` (a person, an agent, or both). None of them changes what the model
 gives; the assistants fill them, and the Node pane shows and edits them.
 
-Map algebra (`map.calc`), reusable submodels (`control.submodel`), loops and sandboxed WebAssembly plugins
+Map algebra (`raster.calc`), reusable submodels (`control.submodel`), loops and sandboxed WebAssembly plugins
 (`plugin.wasm`) change a model's logic: see [`docs/modelling.md`](docs/modelling.md).
 
 ## Scaling up

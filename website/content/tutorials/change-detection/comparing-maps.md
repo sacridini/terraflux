@@ -174,7 +174,7 @@ The disagreement is a cross-tabulation, so [[change.components]] (library: **Cha
 split change in part 1. Connect the simulated map to `from` and the observed one to `to`, and set `analysis` to
 `error`: the columns become omission, agreement and commission, and the allocation splits into exchange and shift.
 
-To see *where* the simulation went wrong, add a [[map.calc]] with three inputs named `t0` (1997), `o` (observed)
+To see *where* the simulation went wrong, add a [[raster.calc]] with three inputs named `t0` (1997), `o` (observed)
 and `s` (simulated), and this expression:
 
 ```text
@@ -219,9 +219,9 @@ note = "Rows: the simulated map; columns: the reference."
 
 [[nodes]]
 id = "outcome"
-op = "map.calc"
+op = "raster.calc"
 inputs = { t0 = "land_1997.raster", o = "observed.raster", s = "simulated.raster" }
-params = { expression = "if o != t0 and s == o then 1 else if o != t0 and s != t0 then 2 else if o != t0 then 3 else if s != t0 then 4 else 0" }
+params = { expression = "1 if o != t0 and s == o else 2 if o != t0 and s != t0 else 3 if o != t0 else 4 if s != t0 else 0" }
 note = "1 hit, 2 wrong hit, 3 miss, 4 false alarm, 0 persistence."
 
 [[nodes]]
@@ -431,7 +431,7 @@ difference of their means), **strata** (differences between the strata's means t
 **element** (differences between cells that cancel within a stratum), at the maps' resolution and at blocks of
 2, 4, 8... cells.
 
-Here the continuous maps are the forest's share in a 5 × 5 window around every cell (a [[map.calc]] with
+Here the continuous maps are the forest's share in a 5 × 5 window around every cell (a [[raster.calc]] with
 `nbmean(m == 1, 2)`), on the observed and the simulated 2011, with the land use of 1997 as strata:
 
 ```tfgraph
@@ -457,14 +457,14 @@ params = { path = "simulated_2011.tif" }
 
 [[nodes]]
 id = "observed_forest"
-op = "map.calc"
+op = "raster.calc"
 inputs = { m = "observed.raster" }
 params = { expression = "nbmean(m == 1, 2)" }
 note = "The forest's share in the 5 x 5 cells around."
 
 [[nodes]]
 id = "simulated_forest"
-op = "map.calc"
+op = "raster.calc"
 inputs = { m = "simulated.raster" }
 params = { expression = "nbmean(m == 1, 2)" }
 

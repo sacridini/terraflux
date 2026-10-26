@@ -9,7 +9,7 @@ params = { rows = 150, columns = 150, dimension = 1.3, seed = 51, resolution = 3
 
 [[nodes]]
 id = "dem"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "relief.map" }
 params = { expression = "400 + 1600 * f" }
 note = "The elevation, 400 to 2,000 m (in its place, a DEM: raster.read, or data.download's Copernicus DEM)."
@@ -45,13 +45,13 @@ note = "The land cover: 1 native vegetation, 2 farmland (in its place, a land co
 
 [[nodes]]
 id = "vegetation"
-op = "map.calc"
+op = "raster.calc"
 inputs = { c = "cover.map" }
 params = { expression = "c == 1" }
 
 [[nodes]]
 id = "farmland"
-op = "map.calc"
+op = "raster.calc"
 inputs = { c = "cover.map" }
 params = { expression = "c == 2" }
 note = "The farmland, taken as consolidated by 22 July 2008 (in its place, the land use of 2008)."
@@ -63,7 +63,7 @@ params = { rows = 150, columns = 150, direction = 90, seed = 53, resolution = 30
 
 [[nodes]]
 id = "properties"
-op = "map.calc"
+op = "raster.calc"
 inputs = { g = "strips.map" }
 params = { expression = "min(floor(g * 6) + 1, 6)" }
 note = "Six rural properties of 337.5 ha (in their place, the CAR's properties: vector.rasterize of SICAR's polygons)."

@@ -5,7 +5,7 @@ description: Give a plan a shape - boundary penalties and their calibration, nei
 order: 50
 level: advanced
 time: 60 min
-ops: [prioritize.optimize, prioritize.evaluate, prioritize.coarsen, prioritize.refine, prioritize.connectivity_matrix, prioritize.h3_units, prioritize.boundary_matrix, prioritize.adjacency_matrix, stack.of, map.calc]
+ops: [prioritize.optimize, prioritize.evaluate, prioritize.coarsen, prioritize.refine, prioritize.connectivity_matrix, prioritize.h3_units, prioritize.boundary_matrix, prioritize.adjacency_matrix, stack.of, raster.calc]
 series: Systematic conservation planning
 part: 5
 ---
@@ -196,7 +196,7 @@ instead (with `adjacency_data` for polygons).
 #! highlight: links, plan
 [[nodes]]
 id = "tapir"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "blocks.features" }
 params = { expression = "f.lowland_tapir" }
 
@@ -279,7 +279,7 @@ params = { path = "cost.tif" }
 
 [[nodes]]
 id = "use_cost"
-op = "map.calc"
+op = "raster.calc"
 inputs = { c = "cost.raster" }
 params = { expression = "c * 0.45" }
 

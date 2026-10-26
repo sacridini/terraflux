@@ -5,7 +5,7 @@ description: Extract a stream network from the flow accumulation, split it into 
 order: 20
 level: intermediate
 time: 50 min
-ops: [hydro.streams, hydro.stream_links, hydro.watersheds, hydro.hand, hydro.distance_to_channel, vector.read, map.calc]
+ops: [hydro.streams, hydro.stream_links, hydro.watersheds, hydro.hand, hydro.distance_to_channel, vector.read, raster.calc]
 series: Terrain hydrology
 part: 2
 ---
@@ -289,8 +289,8 @@ are cells with a positive whole number, 0 elsewhere. Two uses:
 
 <div class="steps" markdown>
 
-1. **The watershed of the gauge.** Add a [[map.calc]] named `seed` with input `l` from `links`'s map and the
-   expression `if l == 44 then 1 else 0`: link 44, the link ending at the gauge, is the only seed. Add
+1. **The watershed of the gauge.** Add a [[raster.calc]] named `seed` with input `l` from `links`'s map and the
+   expression `1 if l == 44 else 0`: link 44, the link ending at the gauge, is the only seed. Add
    [[hydro.watersheds]] named `watershed`, its `dem` from `filled` and its `seeds` from `seed`. Every cell whose
    water passes through link 44 gets 1: the whole watershed above the gauge, since the links above it are not
    seeds and their water reaches link 44.
@@ -333,9 +333,9 @@ inputs = { dem = "filled.raster", streams = "streams.map", outlets = "outlets.ve
 
 [[nodes]]
 id = "seed"
-op = "map.calc"
+op = "raster.calc"
 inputs = { l = "links.map" }
-params = { expression = "if l == 44 then 1 else 0" }
+params = { expression = "1 if l == 44 else 0" }
 note = "Link 44 ends at the gauge (outlet = 1 in the table)."
 
 [[nodes]]
@@ -351,7 +351,7 @@ inputs = { dem = "filled.raster", seeds = "links.map" }
 
 The number 44 comes from the table: run the model once, find the row with `outlet` = 1, and write its `link`
 in the expression. With several gauges, several rows have `outlet` = 1; give each its own label
-(`if l == 44 then 1 else if l == 71 then 2 else 0`) and one [[hydro.watersheds]] labels all their watersheds.
+(`1 if l == 44 else 2 if l == 71 else 0`) and one [[hydro.watersheds]] labels all their watersheds.
 Nested gauges are handled as they should be: the watershed of the upper gauge stops at the upper gauge, and
 the lower one gets the area between them.
 

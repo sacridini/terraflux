@@ -1,17 +1,17 @@
 ---
 title: Map algebra from scratch
 short: Map algebra
-description: Compute new maps cell by cell with map.calc, and build a habitat suitability index, two kinds of buffer and a forest edge mask from a land use map and its drivers.
+description: Compute new maps cell by cell with raster.calc, and build a habitat suitability index, two kinds of buffer and a forest edge mask from a land use map and its drivers.
 order: 10
 level: beginner
 time: 45 min
-ops: [map.calc, raster.read, raster.write, view.plot]
+ops: [raster.calc, raster.read, raster.write, view.plot]
 ---
 
 In this tutorial you write your own maps from other maps. Starting from the land use of Sibuyan Island in the
 Philippines and a stack of its environmental variables, you build a habitat suitability index for a forest
 species, buffers around roads and farms, and a mask of the forest's edge. All of them come from one operator,
-[[map.calc]], and one short expression each. By the end you can read and write map algebra expressions, you know
+[[raster.calc]], and one short expression each. By the end you can read and write map algebra expressions, you know
 how Terraflux treats missing cells, and you know how a threshold changes the area of habitat you report.
 
 ## The idea
@@ -32,10 +32,10 @@ operations into a few families, and two of them cover most ecological work:
 
 Land change models have been built from such expressions for decades. Dinamica EGO, for example, has a
 *Calculate Map* functor that evaluates an expression over several maps (Soares-Filho et al., 2002), and
-[[map.calc]] follows the same model: its inputs are maps or numbers with names you choose, and its one setting
+[[raster.calc]] follows the same model: its inputs are maps or numbers with names you choose, and its one setting
 is an expression that uses those names.
 
-![Map algebra cell by cell: a land map, the test land == 1, and nbsum(land == 1, 1), the number of forest cells in the 3 by 3 window around each cell](/img/tutorials/building-models/map-algebra/toy_grid.png "Three steps on a toy grid. Left: the land use (1 forest, 2 coconut, 4 rice; the cells marked null have no value). Middle: the comparison land == 1 gives 1 where it is true and 0 where it is false; the missing cells stay missing. Right: nbsum(land == 1, 1) adds the 1s in the 3 × 3 window around each cell (the orange square for the cell in the third row and third column: 5); the cells without a value get one from their neighbours. Computed by Terraflux.")
+![Map algebra cell by cell: a land map, the test land == 1, and nbsum(land == 1, 1), the number of forest cells in the 3 by 3 window around each cell](/img/tutorials/building-models/map-algebra/toy_grid.png "Three steps on a toy grid. Left: the land use (1 forest, 2 coconut, 4 rice; the cells marked None have no value). Middle: the comparison land == 1 gives 1 where it is true and 0 where it is false; the missing cells stay missing. Right: nbsum(land == 1, 1) adds the 1s in the 3 × 3 window around each cell (the orange square for the cell in the third row and third column: 5); the cells without a value get one from their neighbours. Computed by Terraflux.")
 
 !!! science "Key idea"
     A map algebra expression is evaluated once for every cell \(i\) of the grid. Writing \(x_i\) for the value of
@@ -79,7 +79,7 @@ landscape metrics in a window, see [[metrics.window]].
   `slope` (degrees), `dist_roads` (m), `dist_streams` (m), `pop_density` and more. A *stack* is a set of maps on
   one grid, each with a name (see [Stacks and layers](../stacks-and-layers/)).
 
-Both maps must be on the same grid: the same number of rows and columns. [[map.calc]] stops with "*name* is not
+Both maps must be on the same grid: the same number of rows and columns. [[raster.calc]] stops with "*name* is not
 on the grid of the other maps" otherwise; [[raster.match]] or [[raster.resample]] put a map on another's grid
 first.
 
@@ -126,12 +126,12 @@ path = "drivers.tif"
     Press ++ctrl+o++ (**File > Open a raster or vectors...**) or drag the file from the **Files** drawer: it becomes a
     [[raster.read]] node, whose `raster` port gives every band (or only the one its `band` setting chooses).
 
-    Connect it to an input of [[map.calc]] and the expression reads its layers by name
+    Connect it to an input of [[raster.calc]] and the expression reads its layers by name
     (`d.elevation`), as it does with a stack declared as an input of the model.
 
 ### Step 2: a score for elevation
 
-The first [[map.calc]] node turns elevation into a score: 1 below 300 m, falling in a straight line to 0 at
+The first [[raster.calc]] node turns elevation into a score: 1 below 300 m, falling in a straight line to 0 at
 1,200 m.
 
 ```tfgraph
@@ -145,7 +145,7 @@ path = "drivers.tif"
 
 [[nodes]]
 id = "si_elev"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "$drivers" }
 params = { expression = "clamp((1200 - d.elevation) / 900, 0, 1)" }
 note = "1 below 300 m, 0 above 1,200 m, a straight line between."
@@ -159,7 +159,7 @@ Read the expression from the inside out:
 - `clamp(x, 0, 1)` keeps a value between 0 and 1: below 0 it gives 0, above 1 it gives 1.
 
 !!! app "In the application"
-    In the library, open the subject **Map algebra** and click [[map.calc]]. In the Node pane, type a name
+    In the library, open the subject **Map algebra** and click [[raster.calc]]. In the Node pane, type a name
     (`d`) and a source (`$drivers`, or a node's port such as `si_elev.map`) under the inputs and click
     **Add input**; repeat for every map the expression reads. Type the expression in the `expression` setting.
     Press ++ctrl+enter++ to run the model up to the node and see its map under the canvas.
@@ -175,22 +175,22 @@ clamp(d.dist_roads / 3000, 0, 1)
 
 ```tfgallery
 columns: 2
-caption: The two scores, from 0 (unsuitable) to 1. Each is one map.calc node over one layer of the drivers.
+caption: The two scores, from 0 (unsuitable) to 1. Each is one raster.calc node over one layer of the drivers.
 images:
   - { src: /img/tutorials/building-models/map-algebra/si_elev.png, caption: "clamp((1200 - d.elevation) / 900, 0, 1)" }
   - { src: /img/tutorials/building-models/map-algebra/si_road.png, caption: "clamp(d.dist_roads / 3000, 0, 1)" }
 ```
 
-### Step 4: combine them with if, then, else
+### Step 4: combine them with if and else
 
 The index is the geometric mean of the two scores where there is forest, and 0 elsewhere:
 
 ```text
-if land == 1 then sqrt(si_elev * si_road) else 0
+sqrt(si_elev * si_road) if land == 1 else 0
 ```
 
 - `land == 1` is a *comparison*: 1 where the land use is forest, 0 where it is not.
-- `if c then a else b` gives `a` where `c` is true (not 0) and `b` where it is false. `c ? a : b` is the same.
+- `a if c else b` gives `a` where `c` is true (not 0) and `b` where it is false, as in Python.
 - `sqrt(si_elev * si_road)` is the geometric mean of the two scores. A geometric mean is 0 as soon as one
   requirement is fully missing, which an arithmetic mean is not: a forest on a road is worth nothing to this
   animal, however low it lies.
@@ -212,21 +212,21 @@ path = "drivers.tif"
 
 [[nodes]]
 id = "si_elev"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "$drivers" }
 params = { expression = "clamp((1200 - d.elevation) / 900, 0, 1)" }
 
 [[nodes]]
 id = "si_road"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "$drivers" }
 params = { expression = "clamp(d.dist_roads / 3000, 0, 1)" }
 
 [[nodes]]
 id = "hsi"
-op = "map.calc"
+op = "raster.calc"
 inputs = { land = "$land", si_elev = "si_elev.map", si_road = "si_road.map" }
-params = { expression = "if land == 1 then sqrt(si_elev * si_road) else 0" }
+params = { expression = "sqrt(si_elev * si_road) if land == 1 else 0" }
 note = "The geometric mean of the scores in forest, 0 outside it."
 
 [[nodes]]
@@ -257,12 +257,12 @@ d.dist_roads <= 500
 forest within two cells (500 m) of coconut or rice:
 
 ```text
-if land == 1 then nbmax(land == 2 or land == 4, 2) else null
+nbmax(land == 2 or land == 4, 2) if land == 1 else None
 ```
 
 `land == 2 or land == 4` is 1 on farmland and 0 elsewhere; `nbmax(..., 2)` is the largest value in the 5 × 5
 window around each cell, so it is 1 wherever a farm cell lies within two cells. The `if` keeps only forest cells and
-gives the others no value (`null`).
+gives the others no value (`None`).
 
 ```tfgallery
 columns: 2
@@ -283,7 +283,7 @@ images:
 The forest's edge is the forest within some depth of a non-forest cell. With a focal minimum:
 
 ```text
-if land == 1 then 2 - (nbmin(land == 1, 1) == 0) else 0
+2 - (nbmin(land == 1, 1) == 0) if land == 1 else 0
 ```
 
 `nbmin(land == 1, 1)` is 0 when any cell of the 3 × 3 window is not forest, so `nbmin(...) == 0` is 1 at the
@@ -291,7 +291,7 @@ edge. The expression gives 2 for the interior, 1 for the edge and 0 outside fore
 radius of 1 cell is an edge 250 m deep here; a radius of 2 is 500 m.
 
 ```tfgraph
-#! caption: Buffers and the edge mask: three map.calc nodes reading the land use and the drivers.
+#! caption: Buffers and the edge mask: three raster.calc nodes reading the land use and the drivers.
 #! highlight: road_buffer, farm_buffer, edge
 format = "terraflux/1"
 
@@ -306,21 +306,21 @@ path = "drivers.tif"
 
 [[nodes]]
 id = "road_buffer"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "$drivers" }
 params = { expression = "d.dist_roads <= 500" }
 
 [[nodes]]
 id = "farm_buffer"
-op = "map.calc"
+op = "raster.calc"
 inputs = { land = "$land" }
-params = { expression = "if land == 1 then nbmax(land == 2 or land == 4, 2) else null" }
+params = { expression = "nbmax(land == 2 or land == 4, 2) if land == 1 else None" }
 
 [[nodes]]
 id = "edge"
-op = "map.calc"
+op = "raster.calc"
 inputs = { land = "$land" }
-params = { expression = "if land == 1 then 2 - (nbmin(land == 1, 1) == 0) else 0" }
+params = { expression = "2 - (nbmin(land == 1, 1) == 0) if land == 1 else 0" }
 note = "0 not forest, 1 edge, 2 interior."
 ```
 
@@ -330,19 +330,23 @@ Everything an expression can contain:
 
 | | |
 |---|---|
-| Values | numbers (`3`, `0.5`, `1e-3`), `pi`, `null` (no value); the node's inputs by name (maps and numbers); a stack's layers as `stack.layer` |
-| Arithmetic | `+ - * / %` (remainder) and `^` (power) |
-| Comparisons | `< <= > >= == !=`, giving 1 (true) or 0 (false) |
-| Logic | `and`, `or`, `not` (also `&&`, <code>&#124;&#124;</code>, `!`); `if c then a else b` and `c ? a : b` |
-| Functions | `abs sqrt exp ln log10 floor ceil round`, `min(a, b, ...)`, `max(a, b, ...)`, `clamp(x, lo, hi)`, `isnull(x)`, `coalesce(x, y)` |
+| Values | numbers (`3`, `0.5`, `1e-3`), `pi`, `None` (no value), `True` and `False` (1 and 0); the node's inputs by name (maps and numbers); a stack's layers as `stack.layer` |
+| Arithmetic | `+ - * / %` (remainder) and `**` (power) |
+| Comparisons | `< <= > >= == !=`, giving 1 (true) or 0 (false); chained as in Python (`5 <= x < 8`) |
+| Logic | `and`, `or`, `not`; `a if c else b` |
+| Functions | `abs sqrt exp log log10 floor ceil round` (`log` the natural logarithm), `min(a, b, ...)`, `max(a, b, ...)`, `clamp(x, lo, hi)`, `isnull(x)`, `coalesce(x, y)` |
 | Neighbourhoods | `nbsum nbmean nbmin nbmax nbcount (x, r)`: the square of radius `r` cells around each cell; `r` is a whole number, written in the expression or a number input of the node |
 
 Some rules that save time:
 
-- **Precedence.** `^` binds tightest, then the sign, then `* / %`, then `+ -`, then comparisons, then `not`,
-  `and`, `or`. `2 ^ 3 ^ 2` is \(2^9 = 512\) (powers group from the right), and `-a ^ 2` is \(-(a^2)\). Use
+- **Precedence.** As in Python: `**` binds tightest, then the sign, then `* / %`, then `+ -`, then comparisons, then `not`,
+  `and`, `or`, and `a if c else b` last. `2 ** 3 ** 2` is \(2^9 = 512\) (powers group from the right), and `-a ** 2` is \(-(a^2)\). Use
   parentheses when in doubt.
 - **Comparisons use `==`.** A single `=` is refused with "use == to compare".
+- **One syntax, Python's.** The forms of other languages are refused with the one to write: `^` ("write ** for
+  a power"), `&&`, `||` and `!` (`and`, `or`, `not`), `null` (`None`), `ln` (`log`), `if c then a else b` and
+  `c ? a : b` (`a if c else b`). A model written by an older Terraflux in those forms is rewritten in Python's
+  when it is opened, and told.
 - **Numbers can be inputs.** An input with a number instead of a connection (`k = 500` in the model file, or a
   value typed in the Node pane) is the same number at every cell. `d.dist_roads < k` then reads better, and a
   batch can change `k` without touching the expression. A number input can also be the radius of a
@@ -355,18 +359,18 @@ Some rules that save time:
 ## Missing values
 
 Real maps have holes: the sea around an island, clouds, cells outside a country. Terraflux calls a cell without a
-value *missing* (or *no data*); in an expression it is `null`. The rules:
+value *missing* (or *no data*); in an expression it is `None`. The rules:
 
-- **Most things give null when they meet null.** `null + 1`, `null > 3`, `null == 1` and `null and 1` are all
-  null. So is `if c then a else b` when `c` is null, and `min` or `max` when any argument is null.
-- **`isnull(x)`** is 1 where `x` is missing and 0 elsewhere: `if isnull(land) then 0 else land`.
+- **Most things give None when they meet None.** `None + 1`, `None > 3`, `None == 1` and `None and 1` are all
+  None. So is `a if c else b` when `c` is None, and `min` or `max` when any argument is None.
+- **`isnull(x)`** is 1 where `x` is missing and 0 elsewhere: `0 if isnull(land) else land`.
 - **`coalesce(x, y)`** is `x` where it has a value and `y` where it does not: `coalesce(land, 0)` fills the
   sea with 0.
 - **Neighbourhoods leave missing cells out.** `nbmean(x, r)` is the mean of the cells *with a value* in the
   window, `nbcount(x, r)` counts them, and the cells beyond the edge of the map are left out the same way. A
   missing cell gets a value from its neighbours (the bottom left cells of the toy grid above), unless every cell
   of its window is missing.
-- **`null` in an expression is a way to say "no value here".** `if land == 1 then nbmax(...) else null`
+- **`None` in an expression is a way to say "no value here".** `nbmax(...) if land == 1 else None`
   keeps the result to forest only.
 
 ```tfgallery
@@ -400,7 +404,7 @@ patch analysis. The area depends strongly on where the cut is:
 
 ```tfslider
 label: Threshold on the index
-caption: "The cells with hsi >= threshold (one map.calc node: hsi >= 0.5). Above 0.4 the area falls fast: the cut decides the answer, so report it and show how the area changes with it."
+caption: "The cells with hsi >= threshold (one raster.calc node: hsi >= 0.5). Above 0.4 the area falls fast: the cut decides the answer, so report it and show how the area changes with it."
 frames:
   - { value: 0.1, src: /img/tutorials/building-models/map-algebra/suit_0.1.png, stats: { "Suitable habitat": "272 km²" } }
   - { value: 0.2, src: /img/tutorials/building-models/map-algebra/suit_0.2.png, stats: { "Suitable habitat": "271 km²" } }
@@ -453,7 +457,7 @@ images:
   nonsense; reproject first with [[raster.reproject]].
 - **There is no integer division.** `/` always divides exactly (`1 / 2` is 0.5); use `floor` or `round` for
   whole numbers.
-- **A missing cell is not 0.** `land != 1` is null over the sea, not 1. Counting "not forest" cells with it
+- **A missing cell is not 0.** `land != 1` has no value over the sea, not 1. Counting "not forest" cells with it
   misses the sea; `isnull(land) or land != 1` does not.
 - **Different grids.** Two maps with the same extent but different cell sizes are different grids. Match them
   first.
@@ -472,7 +476,7 @@ after: { src: /img/tutorials/building-models/map-algebra/edge_coast_plain.png, l
 - [Loops](../loops/): run an expression again at every step and write a cellular automaton.
 - [Plugins in WebAssembly](../plugins/): when an expression is not enough.
 - [Monte Carlo](../../uncertainty/monte-carlo/): the uncertainty of an expression with uncertain parameters.
-- The operator reference: [[map.calc]], [[raster.reclassify]], [[raster.match]], [[distance.euclidean]].
+- The operator reference: [[raster.calc]], [[raster.reclassify]], [[raster.match]], [[distance.euclidean]].
 
 ## References
 

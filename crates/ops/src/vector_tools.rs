@@ -326,7 +326,7 @@ impl Operator for Calc {
             "vector.calc",
             "An attribute computed for every feature from an expression over the others, as QGIS's field \
              calculator: the attributes that are numbers by their names, the expressions of map algebra \
-             (area / 10000, if class == 1 then 1 else 0), the node's other inputs as numbers by their names. An \
+             (area / 10000, 1 if class == 1 else 0), the node's other inputs as numbers by their names. An \
              attribute of the same name is replaced, else it is added.",
             Access::None,
         )

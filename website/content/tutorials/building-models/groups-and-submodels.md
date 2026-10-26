@@ -4,7 +4,7 @@ description: Gather a few nodes into one with control.group, and use a whole mod
 order: 40
 level: intermediate
 time: 35 min
-ops: [control.group, control.submodel, landscape.mspa, map.calc, raster.read]
+ops: [control.group, control.submodel, landscape.mspa, raster.calc, raster.read]
 ---
 
 Models grow. A land change model may have a hundred nodes; a habitat analysis that you repeat for every year of a
@@ -73,7 +73,7 @@ my-study/
 ## A group: the context of every forest cell
 
 Start with a group. Many analyses need, for every cell, a few maps about its surroundings: is it forest, what share
-of the cells around it is forest, is it at the forest's edge. Three [[map.calc]] nodes do it. In a group they are
+of the cells around it is forest, is it at the forest's edge. Three [[raster.calc]] nodes do it. In a group they are
 one box with one input, the land use, and two outputs, the share of forest around each cell and the edge.
 
 ```tfgraph
@@ -97,19 +97,19 @@ outputs = { share = "share.map", edge = "edge.map" }
 
 [[nodes.body.nodes]]
 id = "forest"
-op = "map.calc"
+op = "raster.calc"
 inputs = { l = "@land" }
 params = { expression = "l == 1" }
 
 [[nodes.body.nodes]]
 id = "share"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "forest.map" }
 params = { expression = "nbmean(f, 2)" }
 
 [[nodes.body.nodes]]
 id = "edge"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "forest.map", s = "share.map" }
 params = { expression = "f == 1 and s < 1" }
 ```
@@ -173,9 +173,9 @@ note = "The forest split into core, edge, bridges...; an edge of 2 cells (500 m)
 
 [[nodes]]
 id = "core"
-op = "map.calc"
+op = "raster.calc"
 inputs = { m = "mspa.map", lu = "$landuse" }
-params = { expression = "if isnull(lu) then null else m == 17 or m == 117" }
+params = { expression = "None if isnull(lu) else m == 17 or m == 117" }
 note = "1 where the forest is core (17, or 117 inside a core-opening), 0 on the rest of the island."
 
 [outputs.core]
@@ -193,7 +193,7 @@ Three things make it a good submodel:
    `mspa` out. A node that uses it will connect to these names.
 3. **Its notes say what it expects** (a map whose class 1 is forest) and what each setting means.
 
-Node 2 is [[map.calc]] with the expression `if isnull(lu) then null else m == 17 or m == 117`: MSPA's code for
+Node 2 is [[raster.calc]] with the expression `None if isnull(lu) else m == 17 or m == 117`: MSPA's code for
 core is 17, and 117 for core inside a *core-opening* (a hole in the forest); every other cell of the island is
 0, and the sea, which has no value in the land use, stays without one. See [Map algebra](../map-algebra/) for the
 language.
@@ -235,7 +235,7 @@ note = "The core forest of 2011."
 
 [[nodes]]
 id = "change"
-op = "map.calc"
+op = "raster.calc"
 inputs = { a = "core1997.core", b = "core2011.core" }
 params = { expression = "a * 2 + b" }
 note = "0 never core, 1 became core, 2 core lost, 3 core at both dates."
@@ -278,7 +278,7 @@ Submodels may use submodels, up to 16 deep, but never themselves.
     cannot give them, because settings cannot be connected to inputs. Writing a setting as a reference to an input
     (`edge_width = "$width"`) does not work either: `terraflux check` stops on it with *settings take values, not
     references*. To make a setting change from use to use, either write variants of the submodel, or, when the
-    operator takes the value as an *input port* (a number in a [[map.calc]] expression, the `seed` of a
+    operator takes the value as an *input port* (a number in a [[raster.calc]] expression, the `seed` of a
     simulation), declare it as a value input of the submodel and give it from the node.
 
     For a one-off run, the command line can still change a setting inside a submodel: its nodes are named after
@@ -342,7 +342,7 @@ change a method, no risk that the two dates were treated differently. The edge w
 ## Going further
 
 - [Loops](../loops/): [[control.repeat]], the container that runs its body many times.
-- [Map algebra](../map-algebra/): the expressions of [[map.calc]].
+- [Map algebra](../map-algebra/): the expressions of [[raster.calc]].
 - [Plugins in WebAssembly](../plugins/): your own operator, written in any language.
 - [MSPA](../../habitat-patterns/mspa/), and the [Land change simulation](../../land-change/) tutorials, whose
   models use groups inside their loops.

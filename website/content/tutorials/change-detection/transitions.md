@@ -5,7 +5,7 @@ description: Cross-tabulate two maps of the same place, read the transition matr
 order: 10
 level: beginner
 time: 45 min
-ops: [change.crosstab, change.transitions, change.components, change.suggest, raster.read, map.calc, raster.resample]
+ops: [change.crosstab, change.transitions, change.components, change.suggest, raster.read, raster.calc, raster.resample]
 series: Change detection
 part: 1
 ---
@@ -247,12 +247,12 @@ persistence and loss; `error` gives omission, agreement and commission, the word
 reference. Its `table` has a row per class and an overall row at the end (with an empty class); `overall` has the
 total split into quantity, exchange, shift and allocation, in cells.
 
-A table cannot show *where* the change happened. Add a [[map.calc]] node (library: **Map algebra**) with two inputs:
+A table cannot show *where* the change happened. Add a [[raster.calc]] node (library: **Map algebra**) with two inputs:
 connect the 1997 map and name the input `a`, the 2011 map as `b` (in the Node pane, an input's name is what the
 expression calls it). Its expression codes every transition with two digits:
 
 ```text
-if a == b then 0 else a * 10 + b
+0 if a == b else a * 10 + b
 ```
 
 so 13 is forest → grassland and 42 rice → coconut, 0 no change. Add a [[view.plot]] to see it.
@@ -302,9 +302,9 @@ params = { least = 5 }
 
 [[nodes]]
 id = "from_to"
-op = "map.calc"
+op = "raster.calc"
 inputs = { a = "land_1997.raster", b = "land_2011.raster" }
-params = { expression = "if a == b then 0 else a * 10 + b" }
+params = { expression = "0 if a == b else a * 10 + b" }
 note = "13: forest to grassland, 42: rice to coconut... 0: no change."
 
 [[nodes]]

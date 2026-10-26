@@ -37,9 +37,9 @@ band = "1999"
 
 [[nodes]]
 id = "change"
-op = "map.calc"
+op = "raster.calc"
 inputs = { a = "$t0", b = "$t1" }
-params = { expression = "if a == b then 0 else a * 10 + b" }
+params = { expression = "0 if a == b else a * 10 + b" }
 """
 figs.run(figs.add_writes(change, {"change.map": "change.tif"}), work, name="change.toml")
 ch = figs.read(work / "change.tif")[0]

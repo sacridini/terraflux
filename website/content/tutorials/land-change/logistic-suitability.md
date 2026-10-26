@@ -361,7 +361,7 @@ Other choices that change the answer:
 - **Circular drivers.** A distance to the class itself, a neighbourhood share of the class, a density of the
   class: they fit the current map by construction. Judge them on the change, with a ROC of the new cells.
 - **Categorical drivers coded as numbers.** A soil map with codes 1, 2, 3 is not a quantity: the regression
-  would treat soil 3 as "more" than soil 1. Make a 0/1 layer per category (with [[map.calc]]: `soil == 2`).
+  would treat soil 3 as "more" than soil 1. Make a 0/1 layer per category (with [[raster.calc]]: `soil == 2`).
 - **Reading coefficients of correlated drivers.** When two drivers carry the same information, their
   coefficients can take opposite signs and still give the same suitability. Check correlations first.
 

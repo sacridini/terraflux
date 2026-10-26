@@ -31,9 +31,9 @@ params = { crs = "EPSG:32610", resolution = 30 }
 
 [[nodes]]
 id = "forest"
-op = "map.calc"
+op = "raster.calc"
 inputs = { n = "projected.raster" }
-params = { expression = "if isnull(n) then 0 else if n >= 0.7 then 2 else 1" }
+params = { expression = "0 if isnull(n) else 2 if n >= 0.7 else 1" }
 
 [[nodes]]
 id = "objects"
@@ -54,13 +54,13 @@ inputs = { map = "forest.map" }
 PAIR = """
 [[nodes]]
 id = "a"
-op = "map.calc"
+op = "raster.calc"
 inputs = { ids = "objects.ids" }
 params = { expression = "ids == A" }
 
 [[nodes]]
 id = "b"
-op = "map.calc"
+op = "raster.calc"
 inputs = { ids = "objects.ids" }
 params = { expression = "ids == B" }
 
@@ -81,9 +81,9 @@ inputs = { resistance = "resistance.map", a = "a.map", b = "b.map", habitat = "f
 
 [[nodes]]
 id = "marker"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "forest.map", a = "a.map", b = "b.map" }
-params = { expression = "if f == 0 then 3 else if a then 1 else if b then 2 else 0" }
+params = { expression = "3 if f == 0 else 1 if a else 2 if b else 0" }
 
 [[nodes]]
 id = "isochrone"

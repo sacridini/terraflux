@@ -49,16 +49,16 @@ note = "The distance to a road along column 60, in metres."
 
 [[nodes]]
 id = "timber"
-op = "map.calc"
+op = "raster.calc"
 inputs = { land = "land.map", r = "richness.map" }
-params = { expression = "if land == 1 then 10 + 30 * r else 0" }
+params = { expression = "10 + 30 * r if land == 1 else 0" }
 note = "Commercial timber, m3 per hectare."
 
 [[nodes]]
 id = "access"
-op = "map.calc"
+op = "raster.calc"
 inputs = { timber = "timber.map", d = "road.map" }
-params = { expression = "if timber > 0 then exp(-d / 3000) else 0" }
+params = { expression = "exp(-d / 3000) if timber > 0 else 0" }
 note = "The probability: high beside the road."
 
 [[nodes]]
@@ -78,7 +78,7 @@ params = { mean = 25, variance = 200, isometry = 1.5 }
 
 [[nodes.body.nodes]]
 id = "regrowth"
-op = "map.calc"
+op = "raster.calc"
 inputs = { s = "logging.stock", full = "timber.map" }
 params = { expression = "min(full, s + full / 30)" }
 note = "The timber grows back in 30 years."
@@ -189,13 +189,13 @@ params = { rows = 24, columns = 24, range = 8, seed = 4 }
 
 [[nodes]]
 id = "stock"
-op = "map.calc"
+op = "raster.calc"
 inputs = { g = "g1.map" }
 params = { expression = "round(2 + 8 * g)" }
 
 [[nodes]]
 id = "prob"
-op = "map.calc"
+op = "raster.calc"
 inputs = { g = "g2.map" }
 params = { expression = "g * g" }
 
@@ -328,9 +328,9 @@ CYCLE = MODEL.replace('carry = { stock = "regrowth.map", probability = "logging.
 
 [[nodes.body.nodes]]
 id = "reopen"
-op = "map.calc"
+op = "raster.calc"
 inputs = { s = "regrowth.map", full = "timber.map", p = "logging.probability", p0 = "access.map" }
-params = { expression = "if full > 0 and s >= full then p0 else p" }
+params = { expression = "p0 if full > 0 and s >= full else p" }
 note = "A cell may be logged again once its timber is back."
 """
 assert CYCLE.count("reopen.map") == 1

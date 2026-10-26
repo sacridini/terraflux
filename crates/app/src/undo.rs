@@ -77,7 +77,7 @@ mod tests {
         let mut m = Model::new("t");
         let mut h = History::new(&m);
         // a step: a node added
-        m.nodes.push(Node::new("a", "map.calc"));
+        m.nodes.push(Node::new("a", "raster.calc"));
         h.changed(&m);
         h.tick(&m, false);
         let one = m.clone();
@@ -102,7 +102,7 @@ mod tests {
         assert!(!h.redo(&mut m));
         // a change after an undo: what was undone is gone
         assert!(h.undo(&mut m));
-        m.nodes.push(Node::new("c", "map.calc"));
+        m.nodes.push(Node::new("c", "raster.calc"));
         h.changed(&m);
         assert!(!h.can_redo());
     }

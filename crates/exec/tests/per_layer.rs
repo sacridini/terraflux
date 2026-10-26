@@ -145,7 +145,7 @@ fn a_series_stays_a_series() {
     let mut m = Model::new("t");
     m.nodes.push(land("a", 3));
     m.nodes.push(Node::new("loop", "control.repeat").literal("times", 3).body(Body {
-        nodes: vec![Node::new("c", "map.calc").input("x", "a.map").input("k", "@step").param("expression", "x * k")],
+        nodes: vec![Node::new("c", "raster.calc").input("x", "a.map").input("k", "@step").param("expression", "x * k")],
         collect: [("maps".to_string(), "c.map".to_string())].into(),
         ..Default::default()
     }));

@@ -131,7 +131,7 @@ impl Operator for Calc {
         OpSignature::new(
             "table.calc",
             "A column computed row by row from an expression over the others, as a spreadsheet's field calculator or \
-             dplyr's mutate: the expressions of map algebra (area / 10000, if class == 1 then cells else 0), the \
+             dplyr's mutate: the expressions of map algebra (area / 10000, cells if class == 1 else 0), the \
              node's other inputs as numbers by their names. A column of the same name is replaced, else it is added \
              at the end.",
             Access::None,

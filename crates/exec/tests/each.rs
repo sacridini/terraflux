@@ -53,7 +53,7 @@ inputs = {{ over = "$years", plus = 10 }}
 collect = {{ maps = "calc.map", stats = "stats.table", names = "@name" }}
 [[nodes.body.nodes]]
 id = "calc"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ x = "@item", k = "@index", p = "@plus" }}
 params = {{ expression = "x * k + p" }}
 [[nodes.body.nodes]]

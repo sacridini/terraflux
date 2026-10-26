@@ -50,20 +50,20 @@ note = "What the forest is worth: timber, soil."
 
 [[nodes]]
 id = "roads0"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "highway.map" }
-params = { expression = "if d == 0 then 1 else 0" }
+params = { expression = "1 if d == 0 else 0" }
 
 [[nodes]]
 id = "land0"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "highway.map", g = "noise.map" }
-params = { expression = "if d < 500 + 2500 * g then 2 else 1" }
+params = { expression = "2 if d < 500 + 2500 * g else 1" }
 note = "1 forest, 2 cleared beside the highway."
 
 [[nodes]]
 id = "friction"
-op = "map.calc"
+op = "raster.calc"
 inputs = { r = "relief.map" }
 params = { expression = "1 + 30 * r * r * r" }
 note = "Building is harder on rough ground."
@@ -72,9 +72,9 @@ note = "Building is harder on rough ground."
 ONE_STEP = DATA + """
 [[nodes]]
 id = "attraction"
-op = "map.calc"
+op = "raster.calc"
 inputs = { land = "land0.map", v = "value.map" }
-params = { expression = "if land == 1 then v else 0" }
+params = { expression = "v if land == 1 else 0" }
 
 [[nodes]]
 id = "near"
@@ -84,9 +84,9 @@ params = { classes = 1 }
 
 [[nodes]]
 id = "band"
-op = "map.calc"
+op = "raster.calc"
 inputs = { a = "attraction.map", d = "near.distance" }
-params = { expression = "if d >= 1500 and d <= 4000 then a else null" }
+params = { expression = "a if d >= 1500 and d <= 4000 else None" }
 
 [[nodes]]
 id = "ends"
@@ -135,9 +135,9 @@ collect = { maps = "clearing.landscape", networks = "roads.network", info = "cle
 
 [[nodes.body.nodes]]
 id = "attraction"
-op = "map.calc"
+op = "raster.calc"
 inputs = { land = "@landscape", v = "value.map" }
-params = { expression = "if land == 1 then v else 0" }
+params = { expression = "v if land == 1 else 0" }
 
 [[nodes.body.nodes]]
 id = "roads"
@@ -147,9 +147,9 @@ params = { quadrants = [2, 2], distance = [1500, 4000], spacing = 2000 }
 
 [[nodes.body.nodes]]
 id = "probability"
-op = "map.calc"
+op = "raster.calc"
 inputs = { land = "@landscape", d = "roads.distance" }
-params = { expression = "if land == 1 then exp(-d / 1000) else 0" }
+params = { expression = "exp(-d / 1000) if land == 1 else 0" }
 note = "Clearing likely near the roads of this year."
 
 [[nodes.body.nodes]]
@@ -375,9 +375,9 @@ params = { rows = 250, columns = 250, resolution = 100, origin = [150, 235, 70, 
 
 [[nodes]]
 id = "outside"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "reserve.map" }
-params = { expression = "if d == 0 then 0 else 1" }
+params = { expression = "0 if d == 0 else 1" }
 """
 pa_mask = LOOP.replace("[[nodes]]\nid = \"rates\"", PA.strip() + "\n\n[[nodes]]\nid = \"rates\"", 1).replace(
     'attraction = "attraction.map", step = "@step"', 'attraction = "attraction.map", mask = "outside.map", step = "@step"')

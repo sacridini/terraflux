@@ -568,7 +568,7 @@ fn step(n: &Node, path: &[String], stage: Stage, r: &Registry, value: Option<(St
             from: From::of(&n.inputs[p]),
         })
         .collect();
-    let expression = (n.op == "map.calc").then(|| n.params.get("expression").map(words)).flatten();
+    let expression = (n.op == "raster.calc").then(|| n.params.get("expression").map(words)).flatten();
     let file = n.params.get("path").filter(|_| terraflux_graph::FILE_OPS.contains(&n.op.as_str())).map(words);
     let mut names: Vec<&String> = n.params.keys().collect();
     let prank = |p: &str| sig.and_then(|s| s.params.iter().position(|i| i.name == p)).unwrap_or(usize::MAX);

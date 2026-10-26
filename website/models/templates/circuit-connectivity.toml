@@ -10,14 +10,14 @@ note = "A habitat's quality from 0 to 1 drawn by chance (in its place, a raster.
 
 [[nodes]]
 id = "resistance"
-op = "map.calc"
+op = "raster.calc"
 inputs = { q = "quality.map" }
-params = { expression = "1 + 99 * (1 - q) ^ 3" }
+params = { expression = "1 + 99 * (1 - q) ** 3" }
 note = "The resistance to movement: 1 in the best habitat, up to 100 where there is none."
 
 [[nodes]]
 id = "cores"
-op = "map.calc"
+op = "raster.calc"
 inputs = { q = "quality.map" }
 params = { expression = "q > 0.8" }
 note = "The cores: the best habitat (1), the rest 0."
@@ -30,9 +30,9 @@ note = "Every patch numbered, of the cores and of the rest."
 
 [[nodes]]
 id = "patches"
-op = "map.calc"
+op = "raster.calc"
 inputs = { c = "cores.map", p = "parcels.parcels" }
-params = { expression = "if c == 1 then p else 0" }
+params = { expression = "p if c == 1 else 0" }
 note = "The cores' patches by number: Circuitscape's focal regions (0 elsewhere)."
 
 [[nodes]]

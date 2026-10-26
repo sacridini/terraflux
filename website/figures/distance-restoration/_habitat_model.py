@@ -20,21 +20,21 @@ params = { path = "ecoregions.tif" }
 
 [[nodes]]
 id = "eco_forest"
-op = "map.calc"
+op = "raster.calc"
 inputs = { e = "ecoregions.raster" }
-params = { expression = "if e == 1 then 0.31 else if e == 2 then 0.98 else if e == 3 then 0.91 else 0.2" }
+params = { expression = "0.31 if e == 1 else 0.98 if e == 2 else 0.91 if e == 3 else 0.2" }
 
 [[nodes]]
 id = "eco_savanna"
-op = "map.calc"
+op = "raster.calc"
 inputs = { e = "ecoregions.raster" }
-params = { expression = "if e == 1 then 0 else if e == 2 then 0.01 else if e == 3 then 0.09 else 0.8" }
+params = { expression = "0 if e == 1 else 0.01 if e == 2 else 0.09 if e == 3 else 0.8" }
 
 [[nodes]]
 id = "eco_mangrove"
-op = "map.calc"
+op = "raster.calc"
 inputs = { e = "ecoregions.raster" }
-params = { expression = "if e == 1 then 0.69 else if e == 2 then 0.01 else 0" }
+params = { expression = "0.69 if e == 1 else 0.01 if e == 2 else 0" }
 
 [[nodes]]
 id = "eco_shares"

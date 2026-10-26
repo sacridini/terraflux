@@ -405,7 +405,7 @@ Falta para fechar a fase 5:
   - salvar o modelo como escrito.
 
   As operações ficam em `terraflux_app::editor`, testadas sem interface.
-- **Álgebra de mapas** (`map.calc`, como o Calculate Map do Dinamica):
+- **Álgebra de mapas** (`raster.calc`, como o Calculate Map do Dinamica):
   - expressões sobre entradas de qualquer nome: mapas, números e camadas de pilhas (`stack.layer`);
   - aritmética, comparações, lógica, `if then else` e funções;
   - vizinhanças `nbsum nbmean nbmin nbmax nbcount`;
@@ -643,7 +643,7 @@ Pendências:
   bit com o landschaft. O módulo `bio` está no Terraflux, menos as importações de rasters, hexágonos e H3, as
   condições de shapefiles e os callables do Python.
 - **Incerteza (0.39.0, 2026-10-13):** `uncertainty.sum_sd`, `uncertainty.product_sd`, `uncertainty.interval`,
-  `uncertainty.delta` e `uncertainty.monte_carlo` (as expressões do map.calc; o ziggurat normal do numpy, o
+  `uncertainty.delta` e `uncertainty.monte_carlo` (as expressões do raster.calc; o ziggurat normal do numpy, o
   ndtri do cephes, as somas e quantis do numpy), bit a bit com o landschaft.
 - **Lotes (0.40.0, 2026-10-13):** `batch.run` (qualquer operador em muitos rasters, em paralelo, com os nomes
   do landschaft e do GTB e um JSON por entrada).

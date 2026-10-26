@@ -214,7 +214,7 @@ numbers["outlet_link"] = dict(K=K, row=krow, n_links=len(otab))
 WS = OUT + f'''
 [[nodes]]
 id = "seed"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ l = "links.map" }}
 params = {{ expression = "if l == {K} then 1 else 0" }}
 

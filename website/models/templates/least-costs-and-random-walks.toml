@@ -10,9 +10,9 @@ note = "How hard each cell is to cross, 0 to 1 (in its place, a raster.read of a
 
 [[nodes]]
 id = "conductance"
-op = "map.calc"
+op = "raster.calc"
 inputs = { r = "roughness.map" }
-params = { expression = "1 / (1 + 20 * r ^ 2)" }
+params = { expression = "1 / (1 + 20 * r ** 2)" }
 note = "How easily it is crossed: 1 over the resistance."
 
 [[nodes]]
@@ -36,7 +36,7 @@ params = { rows = 100, columns = 100, origin = [3, 8, 45, 55], nlmr_compat = fal
 
 [[nodes]]
 id = "origin"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "near_a.map" }
 params = { expression = "d == 0" }
 note = "Where the walkers start: a strip in the west (in its place, a raster of a reserve, or vector.read of points)."
@@ -48,7 +48,7 @@ params = { rows = 100, columns = 100, origin = [93, 98, 45, 55], nlmr_compat = f
 
 [[nodes]]
 id = "goal"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "near_b.map" }
 params = { expression = "d == 0" }
 note = "Where they go: a strip in the east."

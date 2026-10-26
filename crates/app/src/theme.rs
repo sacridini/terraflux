@@ -166,6 +166,15 @@ pub fn on_accent() -> Color32 {
     current().on_accent
 }
 
+/// Orange, whatever the theme: a button to be seen at once (the Node pane's Expand). Dark text on it.
+pub fn orange() -> Color32 {
+    rgb(255, 140, 26)
+}
+
+pub fn on_orange() -> Color32 {
+    rgb(28, 28, 28)
+}
+
 pub fn bar() -> Color32 {
     current().bar
 }

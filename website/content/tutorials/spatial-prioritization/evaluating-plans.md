@@ -6,7 +6,7 @@ order: 60
 level: intermediate
 time: 50 min
 template: Irreplaceability of a plan
-ops: [prioritize.evaluate, prioritize.calibrate, prioritize.optimize, prioritize.zonation, raster.read, map.calc]
+ops: [prioritize.evaluate, prioritize.calibrate, prioritize.optimize, prioritize.zonation, raster.read, raster.calc]
 series: Systematic conservation planning
 part: 6
 ---
@@ -116,7 +116,7 @@ params = { relative_targets = 0.3, replacement = true, rank = 10, extinction_z =
 
 [[nodes]]
 id = "ferrier_total"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "evaluation.ferrier" }
 params = { expression = "f.total" }
 
@@ -141,7 +141,7 @@ from = "evaluation.coverage"
 3. **Its outputs**: `summary` (cells, cost, boundary), `representation` (per feature: its total, the amount held and
    the share), `coverage` (per target: met, the shortfall), `units` (per selected cell: every score), and the maps
    `replacement`, `rank`, `rarity` and `ferrier` (a stack: a layer per feature and `total`; node 5 takes the total
-   with [[map.calc]]'s `f.total`), and `extinction_risk`.
+   with [[raster.calc]]'s `f.total`), and `extinction_risk`.
 
 </div>
 

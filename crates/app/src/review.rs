@@ -600,7 +600,7 @@ mod tests {
     fn model() -> Model {
         let mut m = Model::new("m");
         m.nodes.push(Node::new("land", "nlm.random").param("rows", 10).param("columns", 10));
-        m.nodes.push(Node::new("high", "map.calc").input("x", "land.map").param("expression", "x > 0.5"));
+        m.nodes.push(Node::new("high", "raster.calc").input("x", "land.map").param("expression", "x > 0.5"));
         m
     }
 
@@ -611,7 +611,7 @@ mod tests {
         after.nodes[1].params.insert("expression".into(), "x > 0.7".into());
         after.nodes[1].why = Some("a stricter threshold".into());
         after.nodes[0].pos = Some([10.0, 20.0]);
-        after.nodes.push(Node::new("low", "map.calc").input("x", "land.map").param("expression", "x < 0.2"));
+        after.nodes.push(Node::new("low", "raster.calc").input("x", "land.map").param("expression", "x < 0.2"));
         after.request = Some("the high and the low cells".into());
         let all = diff(&before, &after);
         let kinds: Vec<(Kind, &Target)> = all.iter().map(|c| (c.kind, &c.target)).collect();
@@ -651,7 +651,7 @@ mod tests {
         begin(&mut s, "the assistant", false);
         let mut m = s.source.clone();
         m.nodes[1].params.insert("expression".into(), "x > 0.9".into());
-        m.nodes.push(Node::new("low", "map.calc").input("x", "land.map").param("expression", "x < 0.2"));
+        m.nodes.push(Node::new("low", "raster.calc").input("x", "land.map").param("expression", "x < 0.2"));
         s.source = m;
         s.edited();
         follow(&mut s);

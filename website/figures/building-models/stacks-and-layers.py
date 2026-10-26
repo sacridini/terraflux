@@ -82,19 +82,19 @@ path = "drivers.tif"
 
 [[nodes]]
 id = "slope"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "$drivers" }
 params = { expression = "d.slope" }
 
 [[nodes]]
 id = "lowland"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "$drivers" }
 params = { expression = "d.elevation < 300" }
 
 [[nodes]]
 id = "forest"
-op = "map.calc"
+op = "raster.calc"
 inputs = { land = "$t0" }
 params = { expression = "land == 1" }
 
@@ -129,7 +129,7 @@ params = { name = "dist_farm" }
 
 [[nodes]]
 id = "gained"
-op = "map.calc"
+op = "raster.calc"
 inputs = { before = "with_farms.stack", after = "updated.stack" }
 params = { expression = "after.dist_farm - before.dist_farm" }
 
@@ -140,9 +140,9 @@ params = { path = "landuse" }
 
 [[nodes]]
 id = "change"
-op = "map.calc"
+op = "raster.calc"
 inputs = { t0 = "$t0", t1 = "$t1" }
-params = { expression = "if t0 == t1 then 0 else t0 * 10 + t1" }
+params = { expression = "0 if t0 == t1 else t0 * 10 + t1" }
 """
 model = figs.add_writes(MODEL, {"habitat.stack": "habitat.tif", "with_farms.stack": "with_farms.tif",
                                 "updated.stack": "updated.tif", "gained.map": "gained.tif",
@@ -185,7 +185,7 @@ for i, v in enumerate(top):
 arr = ch.copy()
 arr[~np.isin(arr.filled(-1), list(TR))] = np.ma.masked
 figs.raster(None, out / "transitions.png", array=arr, palette=TR, counts=True, width=860,
-            title="if t0 == t1 then 0 else t0 * 10 + t1")
+            title="0 if t0 == t1 else t0 * 10 + t1")
 
 # ------------------------------------------------------------------------------------------------ stack.classes
 # CLUE-S made by terraflux new, its suitability (glm.predict) written to a file; then the same model with the

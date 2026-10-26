@@ -255,7 +255,7 @@ tiling.
 
 - **Connecting `map` instead of `raster`.** The `map` output loads the whole band before the next node runs, out of
   core or not. For large maps, connect `raster`.
-- **One large node in the middle.** A chain is as large as its largest step: a [[map.calc]] on two maps of a billion
+- **One large node in the middle.** A chain is as large as its largest step: a [[raster.calc]] on two maps of a billion
   cells holds both. Do local calculations on files with GDAL's operators or after cutting the map with
   [[raster.clip]], or process tiles in a batch (see [Batch processing](../batch-processing/)).
 - **An uncompressed, striped GeoTIFF.** Reading a window of a file stored in long strips reads the whole width; a

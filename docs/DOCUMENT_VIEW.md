@@ -103,7 +103,7 @@ unidades de conservação; CLUE-S calibrado em 2000–2010, simulado até 2020 e
 
 ### O que o protótipo 1 mostra
 
-- **As cinco etapas cabem**, mas a etapa não sai só do operador: `map.calc` pode ser preparo (uma distância
+- **As cinco etapas cabem**, mas a etapa não sai só do operador: `raster.calc` pode ser preparo (uma distância
   reclassificada) ou resultado (a diferença entre dois mapas simulados). Sai do operador **e** da posição no grafo:
   depois do primeiro nó de modelo, o que não é validação é resultado.
 - **Leituras iguais viram uma linha**: três `raster.read` de mapas de uso numa tabela de dados, não três cartões.
@@ -133,22 +133,22 @@ unidades de conservação; CLUE-S calibrado em 2000–2010, simulado até 2020 e
 >
 > ## 2. Preparation
 >
-> **2.1 temperature** · map.calc — *The mean temperature, from 14 to 26 °C.*
+> **2.1 temperature** · raster.calc — *The mean temperature, from 14 to 26 °C.*
 > `14 + f * 12` where **f** = **field_t**
 >
-> **2.2 rainfall** · map.calc — *The rainfall, from 800 to 2400 mm.* `800 + f * 1600`, **f** = **field_r**
+> **2.2 rainfall** · raster.calc — *The rainfall, from 800 to 2400 mm.* `800 + f * 1600`, **f** = **field_r**
 >
 > **2.3 predictors** · stack of **rainfall**, **temperature**.
 >
-> **2.4 suitability** · map.calc — *Where the species finds its conditions: about 19 °C and 1600 mm.*
-> `exp(-((t - 19) ^ 2) / 3 - ((r - 1600) ^ 2) / 150000)`, **t** = **temperature**, **r** = **rainfall** [▢]
+> **2.4 suitability** · raster.calc — *Where the species finds its conditions: about 19 °C and 1600 mm.*
+> `exp(-((t - 19) ** 2) / 3 - ((r - 1600) ** 2) / 150000)`, **t** = **temperature**, **r** = **rainfall** [▢]
 >
 > **2.5 presences** · sdm.background — *Presences drawn by the suitability.* n **150**, seed 3
 >
 > **2.6 data** · sdm.prepare — *A record per cell, 1000 background points, 4 folds of spatial blocks.*
 > background **1000**, clean **no**, folds **4**, seed 1
 >
-> **2.7 warmer** · map.calc — *The temperature in a climate 2 °C warmer.* `t + 2`, **t** = **temperature**
+> **2.7 warmer** · raster.calc — *The temperature in a climate 2 °C warmer.* `t + 2`, **t** = **temperature**
 >
 > ## 3. Model
 >
@@ -168,7 +168,7 @@ unidades de conservação; CLUE-S calibrado em 2000–2010, simulado até 2020 e
 >
 > **5.3 tomorrow** · sdm.maxnet_predict — **Figure 2** *Suitability 2 °C warmer* [▢]
 >
-> **5.4 shift** · map.calc `b - a` (**a** = **today**, **b** = **tomorrow**) — **Figure 3** *Gains and losses* [▢]
+> **5.4 shift** · raster.calc `b - a` (**a** = **today**, **b** = **tomorrow**) — **Figure 3** *Gains and losses* [▢]
 >
 > **5.5 mess** · sdm.mess — **Figure 4** *MESS (negative: extrapolation)* [▢]
 
@@ -181,7 +181,7 @@ unidades de conservação; CLUE-S calibrado em 2000–2010, simulado até 2020 e
   certo.
 - **Os `view.plot` não são passos**: viram a figura do passo que mostram, com o título como legenda e numeradas.
   São o lugar certo das miniaturas grandes.
-- **Os campos sem nota** que só alimentam um `map.calc` com nota (`field_t` → `temperature`) são dados e ficam na
+- **Os campos sem nota** que só alimentam um `raster.calc` com nota (`field_t` → `temperature`) são dados e ficam na
   tabela de dados, com os parâmetros em linha.
 - **Os nomes nas expressões** (`f`, `t`, `r`) só fazem sentido ligados ao nó: "**f** = **field_t**" logo abaixo da
   expressão, cada nome clicável.
@@ -203,14 +203,14 @@ unidades de conservação; CLUE-S calibrado em 2000–2010, simulado até 2020 e
 >
 > ## 2. Preparation
 >
-> **2.1 forest**, **crops** · map.calc — *The share of forest in each cell; the rest is cropland.*
+> **2.1 forest**, **crops** · raster.calc — *The share of forest in each cell; the rest is cropland.*
 >
 > **2.2 land_cover** · stack of **crops**, **forest**.
 >
 > **2.3 vegetation** · restoration.original_vegetation — *What the converted land was before.*
 > anthropic **crops**; natural **forest**
 >
-> **2.4 ranges**, **ranges2**, **ranges3** · map.calc — *A species' range: the cells above 0.*
+> **2.4 ranges**, **ranges2**, **ranges3** · raster.calc — *A species' range: the cells above 0.*
 > `t > 0.4` (**t** = **toucan**), `j > 0.5` (**j** = **jaguar**), `f > 0.3` (**f** = **frog**)
 >
 > **2.5 species** · stack of **frog** (**ranges3**), **jaguar** (**ranges2**), **toucan** (**ranges**).
@@ -224,7 +224,7 @@ unidades de conservação; CLUE-S calibrado em 2000–2010, simulado até 2020 e
 
 ### O que o protótipo 3 mostra
 
-- **Nós iguais lado a lado** (três `map.calc` de mesma forma, três campos) se leem melhor juntos. Mas juntar
+- **Nós iguais lado a lado** (três `raster.calc` de mesma forma, três campos) se leem melhor juntos. Mas juntar
   passos do modelo é arriscado (esconde diferenças). Decisão: juntar só **dados** do mesmo operador numa linha da
   tabela; os demais ficam um a um, curtos quando não têm nota.
 - **Um passo sem nota nem porquê** precisa aparecer como tal, discreto ("no note"), sem poluir: é o que o
@@ -256,7 +256,7 @@ unidades de conservação; CLUE-S calibrado em 2000–2010, simulado até 2020 e
 5. **Os parâmetros em palavras**: "a descrição do parâmetro sem o "(default …)": **valor**", só os parâmetros dados;
    ao lado, "(default x)" quando o valor difere do padrão escrito na descrição. Objetos: "chave valor, …"; listas:
    "a, b, c"; sim e não: "yes", "no".
-6. **As expressões do `map.calc`** com os nomes destacados e, abaixo, "**nome** = **nó**" para cada entrada; cada
+6. **As expressões do `raster.calc`** com os nomes destacados e, abaixo, "**nome** = **nó**" para cada entrada; cada
    nó clicável.
 7. **As miniaturas** só onde ajudam: nos cartões de modelo e de resultado, e nos `view.plot` (as figuras,
    numeradas, com o título como legenda). Nos dados e no preparo, pequenas e só para mapas. Nunca no encanamento.
@@ -281,7 +281,7 @@ O painel Document (`crates/app/src/document.rs` monta o documento, `document_vie
 - **A posição de um nó sem lugar** é a que o canvas lhe dá (`auto_positions`), para a ordem do documento ser a
   do canvas também nos modelos feitos por um agente sem posições.
 - **Nenhum passo antes do que ele usa**: depois da classificação por operador e posição, a etapa de um nó é ao
-  menos a mais tardia das etapas de que ele depende. Ex.: no template de acurácia, o `map.calc` que rotula a
+  menos a mais tardia das etapas de que ele depende. Ex.: no template de acurácia, o `raster.calc` que rotula a
   amostra sorteada por `accuracy.sample` é validação também.
 - **Os grupos** (`control.group`) do nível de cima são seções (fase 4), com a nota do grupo sob o título; o que
   um grupo dá é nomeado pelo nó do corpo que o dá. Os grupos guardam o que o corpo deu (as portas ocultas

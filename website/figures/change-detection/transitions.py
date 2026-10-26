@@ -57,9 +57,9 @@ params = { least = 5 }
 
 [[nodes]]
 id = "from_to"
-op = "map.calc"
+op = "raster.calc"
 inputs = { a = "land_1997.raster", b = "land_2011.raster" }
-params = { expression = "if a == b then 0 else a * 10 + b" }
+params = { expression = "0 if a == b else a * 10 + b" }
 """
 
 model = figs.add_writes(MODEL, {

@@ -44,13 +44,13 @@ params = { rows = 40, columns = 40, direction = 0 }
 
 [[nodes]]
 id = "fertility"
-op = "map.calc"
+op = "raster.calc"
 inputs = { e = "east.map" }
 params = { expression = "0.0125 + 0.975 * e" }
 
 [[nodes]]
 id = "wood"
-op = "map.calc"
+op = "raster.calc"
 inputs = { n = "north.map" }
 params = { expression = "0.0125 + 0.975 * n" }
 
@@ -61,13 +61,13 @@ inputs = { fertility = "fertility.map", wood = "wood.map" }
 
 [[nodes]]
 id = "parcels"
-op = "map.calc"
+op = "raster.calc"
 inputs = { e = "east.map", n = "north.map" }
 params = { expression = "1 + (e > 0.5) + 2 * (n < 0.5)" }
 
 [[nodes]]
 id = "land"
-op = "map.calc"
+op = "raster.calc"
 inputs = { e = "east.map" }
 params = { expression = "e * 0" }
 
@@ -105,7 +105,7 @@ inputs = { agents = "grow.agents" }
 id = "decide"
 op = "agents.update"
 inputs = { agents = "managers.agents", step = "@step" }
-params = { rules = "subsidy = if id == 1 and step > 5 then 3 else 1" }
+params = { rules = "subsidy = 3 if id == 1 and step > 5 else 1" }
 
 [[nodes.body.nodes]]
 id = "boost"
@@ -115,7 +115,7 @@ params = { column = "subsidy" }
 
 [[nodes.body.nodes]]
 id = "fert"
-op = "map.calc"
+op = "raster.calc"
 inputs = { caps = "capitals.stack", boost = "boost.map" }
 params = { expression = "min(caps.fertility * boost, 1)" }
 
@@ -140,7 +140,7 @@ from = "simulation.info"
 [outputs.demand]
 from = "simulation.demand"
 """
-RULE = "subsidy = if id == 1 and step > 5 then 3 else 1"
+RULE = "subsidy = 3 if id == 1 and step > 5 else 1"
 GROWTH = "population = population * 1.02"
 
 COUNCILS = """format = "terraflux/1"
@@ -193,7 +193,7 @@ params = { direction = 90 }
 
 [[nodes]]
 id = "towns"
-op = "map.calc"
+op = "raster.calc"
 inputs = { g = "west_east.map" }
 params = { expression = "1 + (g > 0.5)" }
 
@@ -215,7 +215,7 @@ collect = { maps = "allocate.landscape", info = "allocate.info" }
 id = "zoning"
 op = "agents.update"
 inputs = { agents = "councils.agents", step = "@step" }
-params = { rules = "frozen = if id == 2 and step > 4 then 1 else 0" }
+params = { rules = "frozen = 1 if id == 2 and step > 4 else 0" }
 
 [[nodes.body.nodes]]
 id = "frozen"

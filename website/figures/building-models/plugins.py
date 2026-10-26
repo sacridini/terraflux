@@ -32,9 +32,9 @@ note = "Site productivity, 0 to 1 (in its place, a map of site index or of soils
 
 [[nodes]]
 id = "rate"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ s = "site.map" }}
-params = {{ expression = "if s < 0.15 then null else 0.03 + 0.12 * s" }}
+params = {{ expression = "None if s < 0.15 else 0.03 + 0.12 * s" }}
 note = "The growth rate per year, 0.03 to 0.15; no forest (no value) on the poorest sites."
 
 [[nodes]]

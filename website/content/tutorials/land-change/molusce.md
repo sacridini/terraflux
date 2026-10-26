@@ -112,7 +112,7 @@ The plugin offers four ways to make the potential. Its **weights of evidence** a
 [[molusce.total]]. A **logistic regression** has its equivalent in [[glm.fit]] and [[glm.predict]] (below). Its
 **artificial neural network** (a multi-layer perceptron) and **multi-criteria evaluation** (weighted overlays of
 standardised factors) have no node of their own: a neural network's potential computed elsewhere can be read as a
-stack of a layer per class, and a weighted overlay is a [[map.calc]] expression per class put together by
+stack of a layer per class, and a weighted overlay is a [[raster.calc]] expression per class put together by
 [[stack.of]]. Whatever its origin, a potential enters [[molusce.step]] the same way, and the simulator then behaves
 as described above.
 

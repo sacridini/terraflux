@@ -25,9 +25,9 @@ inputs = { temperature = "temperature.map", rainfall = "rainfall.map", relief = 
 
 [[nodes]]
 id = "suitability"
-op = "map.calc"
+op = "raster.calc"
 inputs = { t = "temperature.map", r = "rainfall.map" }
-params = { expression = "exp(-((t - 0.6) ^ 2) / 0.02 - ((r - 0.5) ^ 2) / 0.05)" }
+params = { expression = "exp(-((t - 0.6) ** 2) / 0.02 - ((r - 0.5) ** 2) / 0.05)" }
 note = "Where the species finds its conditions: warm cells of middling rainfall."
 
 [[nodes]]

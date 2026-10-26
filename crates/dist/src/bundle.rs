@@ -166,6 +166,11 @@ pub async fn local(c: &mut Conn, cache: &Path, path: &str) -> Result<String> {
         }
         std::fs::create_dir_all(&tmp)?;
         std::fs::write(tmp.join(".complete"), b"")?;
+        // a folder without its mark is a leftover (the mark is written before the rename): a cleaner of temporary
+        // files (Windows' Storage Sense) removes the empty mark of a bundle not used for a while
+        if dir.exists() && !dir.join(".complete").exists() {
+            let _ = std::fs::remove_dir_all(&dir);
+        }
         if std::fs::rename(&tmp, &dir).is_err() {
             let _ = std::fs::remove_dir_all(&tmp);
             if !dir.join(".complete").exists() {

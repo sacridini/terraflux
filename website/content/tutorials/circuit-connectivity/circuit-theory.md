@@ -190,13 +190,13 @@ note = "The same, with 0 in the wall."
 
 [[nodes]]
 id = "left"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "focal.raster" }
 params = { expression = "f == 1" }
 
 [[nodes]]
 id = "right"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "focal.raster" }
 params = { expression = "f == 2" }
 

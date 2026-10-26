@@ -60,7 +60,7 @@ params = {{ threshold = 500 }}
 
 [[nodes]]
 id = "cover"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ n = "ndvi.raster" }}
 params = {{ expression = "if n > 0.55 then {FOREST_C} else {OPEN_C}" }}
 
@@ -72,7 +72,7 @@ params = {{ threshold = 500 }}
 
 [[nodes]]
 id = "cleared"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ c = "cover.map", h = "hand.map" }}
 params = {{ expression = "if h < 20 then {OPEN_C} else c" }}
 
@@ -179,7 +179,7 @@ H.fig_map(out / "spi.png", spos, "inferno", "Stream power index", unit="a · tan
                                vmax=float(np.percentile(spos.compressed(), 99.5))), width=480)
 H.fig_map(out / "sti.png", sti, "OrRd", "Sediment transport index (LS)", unit="LS factor", vmin=0,
           vmax=float(np.percentile(sti.compressed(), 98)), width=480)
-H.fig_map(out / "twi-small.png", twi["fd8"], "YlGnBu", "Topographic wetness index", unit="ln(m)", vmin=lo, vmax=hi,
+H.fig_map(out / "twi-small.png", twi["fd8"], "YlGnBu", "Topographic wetness index", unit="log(m)", vmin=lo, vmax=hi,
           width=480)
 
 # ------------------------------------------------------------------ the index of connectivity

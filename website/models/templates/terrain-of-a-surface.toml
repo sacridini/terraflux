@@ -10,7 +10,7 @@ note = "A fractal surface by midpoint displacement, from 0 to 1, of cells of 30 
 
 [[nodes]]
 id = "elevation"
-op = "map.calc"
+op = "raster.calc"
 inputs = { r = "relief.map" }
 params = { expression = "200 + r * 800" }
 note = "Metres: from 200 to 1000."

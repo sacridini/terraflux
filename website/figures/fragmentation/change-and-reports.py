@@ -44,7 +44,7 @@ GROW = ("if c >= 12 and c <= 22 and p > 0.5 and nbsum(c <= 11, 4) >= 8 then 2 "
 nodes = [
     g.node("before", "raster.read", path="input.tif"),
     g.node("pressure", "nlm.gaussian_field", rows=1000, columns=1000, range=60, seed=28),
-    g.node("after", "map.calc", {"f": "before.map", "p": "pressure.map"}, expression=CLEAR),
+    g.node("after", "raster.calc", {"f": "before.map", "p": "pressure.map"}, expression=CLEAR),
     g.node("fadchange", "change.fad", {"before": "before.map", "after": "after.map"}),
     g.node("ms_a", "fragmentation.fad_multiscale", {"map": "before.map"}),
     g.node("ms_b", "fragmentation.fad_multiscale", {"map": "after.map"}),
@@ -53,7 +53,7 @@ nodes = [
     g.node("foschange", "change.fos", {"before": "fos_a.map", "after": "fos_b.map"}),
     g.node("corine", "raster.read", path="clc.tif"),
     g.node("urb", "nlm.gaussian_field", rows=2000, columns=2000, range=80, seed=5),
-    g.node("corine_b", "map.calc", {"c": "corine.map", "p": "urb.map"}, expression=GROW),
+    g.node("corine_b", "raster.calc", {"c": "corine.map", "p": "urb.map"}, expression=GROW),
     g.node("mosaicchange", "change.mosaic", {"before": "corine.map", "after": "corine_b.map"}, window=27,
            agriculture=list(range(12, 23)), natural=list(range(23, 40)), developed=list(range(1, 12))),
     g.node("lm_a", "fragmentation.landscape_mosaic", {"map": "corine.map"}, window=27,

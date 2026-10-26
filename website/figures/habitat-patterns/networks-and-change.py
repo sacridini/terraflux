@@ -26,7 +26,7 @@ CLEAR = ("if f == 2 and p > 0.8 then 1 "
 nodes = [
     g.node("before", "raster.read", path="input.tif"),
     g.node("pressure", "nlm.gaussian_field", rows=1000, columns=1000, range=60, seed=28),
-    g.node("after", "map.calc", {"f": "before.map", "p": "pressure.map"}, expression=CLEAR),
+    g.node("after", "raster.calc", {"f": "before.map", "p": "pressure.map"}, expression=CLEAR),
     g.node("mspa_a", "landscape.mspa", {"map": "before.map"}, edge_width=2),
     g.node("mspa_b", "landscape.mspa", {"map": "after.map"}, edge_width=2),
     g.node("comp_a", "networks.gtn_components", {"map": "mspa_a.map"}),

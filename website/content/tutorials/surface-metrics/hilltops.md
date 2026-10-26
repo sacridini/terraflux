@@ -163,7 +163,7 @@ What it is not:
   data producing too many small saddles and coarser data merging neighbouring hills. Report the resolution you used.
 - **A map of plains and water bodies** (optional but important): any raster on the same grid, non-zero (or 1) on
   floodplains, lakes, reservoirs, rivers and the sea, 0 or no value elsewhere. Hydrography and water maps (rivers,
-  MapBiomas' water class), floodplain maps, or careful masks of flat lowland made with [[map.calc]] all serve. Without
+  MapBiomas' water class), floodplain maps, or careful masks of flat lowland made with [[raster.calc]] all serve. Without
   it, every hill's base is a saddle, and the highest summit's base is the lowest cell of the map.
 - **The files of this tutorial**: [`hills.tif`](/data/tutorials/surface-metrics/hilltops/hills.tif), a synthetic
   landscape of 4.2 × 6 km in cells of 30 m (SIRGAS 2000 / UTM zone 23S), and
@@ -540,7 +540,7 @@ independent computation on random elevation models and on cones, ranges and lake
 - [Terrain hydrology](../../terrain-hydrology/): rivers and floodplains, from which a map of plains can be made.
 - [Land change simulation](../../land-change/) and [Spatial prioritization](../../spatial-prioritization/): APPs as
   restrictions and as targets.
-- The operators' reference: [[surface.hilltop]], [[surface.terrain]], [[raster.reproject]], [[map.calc]].
+- The operators' reference: [[surface.hilltop]], [[surface.terrain]], [[raster.reproject]], [[raster.calc]].
 
 ## References
 

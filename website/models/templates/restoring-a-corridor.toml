@@ -22,23 +22,23 @@ note = "And to one in the south-east."
 
 [[nodes]]
 id = "a"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "near_a.map" }
 params = { expression = "d == 0" }
 note = "Area A (in its place, a raster of a reserve)."
 
 [[nodes]]
 id = "b"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "near_b.map" }
 params = { expression = "d == 0" }
 note = "Area B."
 
 [[nodes]]
 id = "habitat"
-op = "map.calc"
+op = "raster.calc"
 inputs = { h = "landscape.map", a = "a.map", b = "b.map" }
-params = { expression = "if a or b then 2 else h" }
+params = { expression = "2 if a or b else h" }
 note = "The two areas are habitat too."
 
 [[nodes]]
@@ -67,9 +67,9 @@ params = { title = "Cost from A plus from B" }
 
 [[nodes]]
 id = "shown"
-op = "map.calc"
+op = "raster.calc"
 inputs = { h = "habitat.map", p = "corridor.path" }
-params = { expression = "if p == 1 then 3 else h" }
+params = { expression = "3 if p == 1 else h" }
 note = "The corridor (3) over the background (1) and the habitat (2); corridor.restored is the habitat once its background is restored."
 
 [[nodes]]

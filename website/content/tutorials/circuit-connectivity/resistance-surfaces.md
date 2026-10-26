@@ -6,7 +6,7 @@ order: 20
 level: intermediate
 time: 40 min
 template: Circuit connectivity
-ops: [raster.reclassify, map.calc, conn.graph_from_raster, conn.nodes, conn.to_map, circuit.pairwise]
+ops: [raster.reclassify, raster.calc, conn.graph_from_raster, conn.nodes, conn.to_map, circuit.pairwise]
 series: Circuit connectivity
 part: 2
 ---
@@ -102,9 +102,9 @@ water).
 ### 2. A resistance from suitability
 
 Without a species distribution model, a simple stand-in is the **amount of forest around each cell**: a cell
-amid forest is good for a forest mammal, a cell in open farmland far from woods is poor. Two [[map.calc]]
+amid forest is good for a forest mammal, a cell in open farmland far from woods is poor. Two [[raster.calc]]
 nodes make it: `l >= 23 and l <= 25` (1 in forest, 0 elsewhere), then `nbmean(f, 5)`, the mean of that map over
-the 5 × 5 cells (500 × 500 m) around each cell, a suitability from 0 to 1. A third [[map.calc]] applies Keeley's
+the 5 × 5 cells (500 × 500 m) around each cell, a suitability from 0 to 1. A third [[raster.calc]] applies Keeley's
 transformation with \(c = 8\):
 
 ```text
@@ -121,15 +121,15 @@ images:
 
 ### 3. Weaker and stronger contrasts
 
-Two more [[map.calc]] nodes on the class resistance: `sqrt(r)` (contrasts weakened: forest 1, arable 4.5, towns
-10) and `r ^ 2` (contrasts strengthened: forest 1, arable 400, towns 10,000).
+Two more [[raster.calc]] nodes on the class resistance: `sqrt(r)` (contrasts weakened: forest 1, arable 4.5, towns
+10) and `r ** 2` (contrasts strengthened: forest 1, arable 400, towns 10,000).
 
 ### 4. The two forests and the current between them
 
 The focal areas are made from the forest patches, as in the [habitat networks](/tutorials/habitat-networks/connectivity-as-a-graph/)
 series: [[conn.graph_from_raster]] and [[conn.nodes]] number the patches, [[conn.to_map]] paints the numbers on
-them, and [[map.calc]] keeps patches 55 and 96 as areas 1 and 2:
-`coalesce(if i == 55 then 1 else if i == 96 then 2 else 0, 0)` (`coalesce` gives 0 where the patch map has no
+them, and [[raster.calc]] keeps patches 55 and 96 as areas 1 and 2:
+`coalesce(1 if i == 55 else 2 if i == 96 else 0, 0)` (`coalesce` gives 0 where the patch map has no
 value). Then one [[circuit.pairwise]] per resistance, with `cum_map = true`.
 
 ```tfgraph
@@ -152,32 +152,32 @@ note = "A resistance per class."
 
 [[nodes]]
 id = "weaker"
-op = "map.calc"
+op = "raster.calc"
 inputs = { r = "resistance.map" }
 params = { expression = "sqrt(r)" }
 
 [[nodes]]
 id = "stronger"
-op = "map.calc"
+op = "raster.calc"
 inputs = { r = "resistance.map" }
-params = { expression = "r ^ 2" }
+params = { expression = "r ** 2" }
 
 [[nodes]]
 id = "forest"
-op = "map.calc"
+op = "raster.calc"
 inputs = { l = "land.raster" }
 params = { expression = "l >= 23 and l <= 25" }
 
 [[nodes]]
 id = "suitability"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "forest.map" }
 params = { expression = "nbmean(f, 5)" }
 note = "The share of forest in the 5 x 5 cells around."
 
 [[nodes]]
 id = "from_suitability"
-op = "map.calc"
+op = "raster.calc"
 inputs = { s = "suitability.map" }
 params = { expression = "100 - 99 * (1 - exp(-8 * s)) / (1 - exp(-8))" }
 note = "Keeley et al.'s transformation, c = 8."
@@ -202,9 +202,9 @@ params = { column = "id" }
 
 [[nodes]]
 id = "two_forests"
-op = "map.calc"
+op = "raster.calc"
 inputs = { i = "ids.map" }
-params = { expression = "coalesce(if i == 55 then 1 else if i == 96 then 2 else 0, 0)" }
+params = { expression = "coalesce(1 if i == 55 else 2 if i == 96 else 0, 0)" }
 note = "The southern forest (1) and the north-eastern one (2)."
 
 [[nodes]]
@@ -305,7 +305,7 @@ feature is wide enough. The same holds for corridors: a hedgerow lost at 100 m c
   resistance between eight forests.
 - [Species distributions](/tutorials/species-distributions/ideas/): a real suitability model to start from.
 - [Least-cost links](/tutorials/habitat-networks/least-cost-links/): the same resistance in a habitat graph.
-- The operators: [[raster.reclassify]], [[map.calc]], [[circuit.pairwise]].
+- The operators: [[raster.reclassify]], [[raster.calc]], [[circuit.pairwise]].
 
 ## References
 

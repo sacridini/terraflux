@@ -219,9 +219,9 @@ inputs = { temperature = "temperature.map", rainfall = "rainfall.map", relief = 
 
 [[nodes]]
 id = "suitability"
-op = "map.calc"
+op = "raster.calc"
 inputs = { t = "temperature.map", r = "rainfall.map" }
-params = { expression = "exp(-((t - 0.6) ^ 2) / 0.02 - ((r - 0.5) ^ 2) / 0.05)" }
+params = { expression = "exp(-((t - 0.6) ** 2) / 0.02 - ((r - 0.5) ** 2) / 0.05)" }
 
 [[nodes]]
 id = "presences"
@@ -264,7 +264,7 @@ What each node does:
    for temperature, 22 for rainfall, 6 for a rugged relief.
 2. **predictors** (node 4, [[stack.of]]): the three maps as one *stack*, a set of maps of one grid, each layer
    named after its input (temperature, rainfall, relief). Models take their predictors as a stack.
-3. **suitability** (node 5, [[map.calc]]): the truth. The species does best at a temperature of 0.6 and a
+3. **suitability** (node 5, [[raster.calc]]): the truth. The species does best at a temperature of 0.6 and a
    rainfall of 0.5 and worse the farther a cell is from them (a bell-shaped response to each). Relief plays no
    part: it is a predictor the model will have to learn to ignore.
 4. **presences** (node 6, [[sdm.background]]): 120 cells drawn at random with a chance proportional to the true

@@ -5,7 +5,7 @@ description: Learn where each transition is likely from its drivers, as Dinamica
 order: 100
 level: intermediate
 time: 45 min
-ops: [woe.fit, woe.probability, woe.weights, markov.fit, validate.kappa, map.calc]
+ops: [woe.fit, woe.probability, woe.weights, markov.fit, validate.kappa, raster.calc]
 series: Dinamica EGO in Terraflux
 part: 1
 ---
@@ -323,7 +323,7 @@ EGO commonly treat values above about 0.5 as a sign that one of the two drivers 
 combined.
 
 Terraflux computes both measures in [[validate.kappa]] (MOLUSCE's comparison of two maps of classes). Cut each
-driver into classes on the cells of the origin class with [[map.calc]], and compare the two:
+driver into classes on the cells of the origin class with [[raster.calc]], and compare the two:
 
 ```tfgraph
 #! caption: The association of two drivers on the cells of forest of 1997: each cut into classes (500 m), compared by validate.kappa, whose table gives Cramér's V (cramer) and the joint information uncertainty (jiu).
@@ -341,16 +341,16 @@ path = "sibuyan_drivers.tif"
 
 [[nodes]]
 id = "roads"
-op = "map.calc"
+op = "raster.calc"
 inputs = { lu = "$t0", d = "$drivers" }
-params = { expression = "if lu == 1 then floor(d.dist_roads / 500) else null" }
+params = { expression = "floor(d.dist_roads / 500) if lu == 1 else None" }
 note = "The distance to roads in classes of 500 m, on the forest only."
 
 [[nodes]]
 id = "sea"
-op = "map.calc"
+op = "raster.calc"
 inputs = { lu = "$t0", d = "$drivers" }
-params = { expression = "if lu == 1 then floor(d.dist_sea / 500) else null" }
+params = { expression = "floor(d.dist_sea / 500) if lu == 1 else None" }
 note = "The distance to the sea, the same way."
 
 [[nodes]]

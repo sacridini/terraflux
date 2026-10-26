@@ -90,7 +90,7 @@ With a price of 50 per ton, \(r = 5\), \(c = 0\) and \(n = 20\) years (2020 to 2
 What it is **not** for: the model does not grow forests. A restored forest gets the density of its class at
 once, and an old forest and a young one hold the same carbon unless you give them different classes. It knows
 nothing of fire, harvest or the time soil carbon takes to change. For carbon from a continuous map (tree cover or
-canopy height instead of classes), use [[map.calc]]; for the uncertainty of the densities, see
+canopy height instead of classes), use [[raster.calc]]; for the uncertainty of the densities, see
 [Monte Carlo uncertainty](/tutorials/uncertainty/monte-carlo/).
 
 ## What you need

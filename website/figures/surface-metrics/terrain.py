@@ -331,7 +331,7 @@ sds = {s: float(rd(f"tpi_{s}.tif").compressed().std()) for s in SCALES}
 means = {s: float(rd(f"tpi_{s}.tif").compressed().mean()) for s in SCALES}
 print("TPI sd per scale", sds)
 
-# the slope positions by map.calc, the thresholds +-0.5 and +-1 standard deviation of each scale's TPI
+# the slope positions by raster.calc, the thresholds +-0.5 and +-1 standard deviation of each scale's TPI
 m3 = m2
 w3 = {}
 for s in SCALES:
@@ -341,7 +341,7 @@ for s in SCALES:
     m3 += f'''
 [[nodes]]
 id = "position_{s}"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ t = "tpi_{s}.map", s = "slope.map" }}
 params = {{ expression = "{expr}" }}
 '''

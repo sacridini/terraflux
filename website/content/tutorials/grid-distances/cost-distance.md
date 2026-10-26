@@ -6,7 +6,7 @@ order: 10
 level: beginner
 time: 45 min
 template: Least costs and random walks
-ops: [cost.transition, cost.geo_correction, cost.acc_cost, cost.shortest_path, cost.distance, vector.read, vector.write, map.calc]
+ops: [cost.transition, cost.geo_correction, cost.acc_cost, cost.shortest_path, cost.distance, vector.read, vector.write, raster.calc]
 series: Grid distances
 part: 1
 ---
@@ -95,7 +95,7 @@ after it, costs are in the map's units (metres) times resistance.
 
 The southern forest as a mask: the patches of the forest numbered as in the
 [habitat networks](/tutorials/habitat-networks/connectivity-as-a-graph/) series ([[conn.graph_from_raster]],
-[[conn.nodes]], [[conn.to_map]]), then [[map.calc]] `coalesce(p == 55, 0)`, 1 in the forest and 0 elsewhere.
+[[conn.nodes]], [[conn.to_map]]), then [[raster.calc]] `coalesce(p == 55, 0)`, 1 in the forest and 0 elsewhere.
 [[cost.acc_cost]] takes the corrected `transition` and the mask as `origins` (cells not 0), and gives the
 accumulated cost from the nearest origin cell to every cell (infinite where no route exists).
 
@@ -157,7 +157,7 @@ params = { column = "id" }
 
 [[nodes]]
 id = "south"
-op = "map.calc"
+op = "raster.calc"
 inputs = { p = "patch.map" }
 params = { expression = "coalesce(p == 55, 0)" }
 note = "The southern forest: 1 inside, 0 elsewhere."
@@ -247,7 +247,7 @@ distances treats these pairs as alike; with least costs it does not ([least-cost
 
 The same model gives a corridor between two *areas*: the accumulated cost from the southern forest plus the
 accumulated cost from the north-eastern forest (a second [[cost.acc_cost]] from a mask of patch 96, and a
-[[map.calc]] `a + b`) is, in each cell, the cost of the best route between the two forests through that cell.
+[[raster.calc]] `a + b`) is, in each cell, the cost of the best route between the two forests through that cell.
 Its least value (202,287 here) is the cost of the least-cost path; cells a little above it are on routes almost
 as good.
 

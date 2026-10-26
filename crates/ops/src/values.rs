@@ -73,7 +73,7 @@ impl Operator for Calc {
         .extra(Type::Any)
         .output(PortSpec::new("value", Type::Number, "the expression's value"))
         .output(PortSpec::new("text", Type::Text, "the text"))
-        .param(PortSpec::optional("expression", Type::Text, "e.g. area / 10000, if year < 2010 then 0.3 else 0.5"))
+        .param(PortSpec::optional("expression", Type::Text, "e.g. area / 10000, 0.3 if year < 2010 else 0.5"))
         .param(PortSpec::optional("text", Type::Text, "e.g. out/{species}_{year}.tif"))
         .param(PortSpec::optional(
             "row",
@@ -224,7 +224,7 @@ mod tests {
         };
         let out = run(
             vec![("t", Value::Table(t.clone())), ("k", Value::Integer(3)), ("on", Value::Bool(true))],
-            serde_json::json!({ "expression": "if on then t.area * k + max(1, 2) else 0" }),
+            serde_json::json!({ "expression": "t.area * k + max(1, 2) if on else 0" }),
         )
         .unwrap();
         assert!(matches!(out["value"], Value::Number(x) if x == 14.0));

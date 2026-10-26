@@ -177,9 +177,9 @@ inputs = { suitability = "suitability.map" }
 
 [[nodes]]
 id = "observed"
-op = "map.calc"
+op = "raster.calc"
 inputs = { land = "land.map", s = "suitability.map" }
-params = { expression = "if land == 1 and s > 0.68 then 2 else land" }
+params = { expression = "2 if land == 1 and s > 0.68 else land" }
 note = "A change to learn from: forest cleared where farming suits it best."
 
 [[nodes]]

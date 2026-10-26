@@ -10507,7 +10507,7 @@
   "container": false
  },
  {
-  "name": "map.calc",
+  "name": "raster.calc",
   "doc": "Maps, stacks and numbers computed cell by cell from a script over the node's inputs (any names: maps, numbers, stacks), as Dinamica EGO's Calculate Map, in a language close to Python's: arithmetic (+ - * / % **), comparisons (chained: 5 <= x < 8), and/or/not, a if c else b (or if c then a else b), abs sqrt exp ln log log10 floor ceil round min max clamp isnull coalesce, the neighbourhood functions nbsum nbmean nbmin nbmax nbcount(x, radius), a stack's layers as s.layer, an operation on a stack made on each layer, mean sd median sum count min max percentile(s, p) of a stack's layers at each cell, and x.mean() x.sd() x.median() x.sum() x.count() x.min() x.max() x.percentile(p), a number from all the cells. One statement a line (# a comment): name = value, name[where] = value, s.layer = value, and out name = value (or out name) for each output, a map, a stack or a number; without out, the last value is the map. A missing value gives a missing cell.",
   "inputs": [],
   "outputs": [
@@ -18117,7 +18117,7 @@
  },
  {
   "name": "raster.standardize",
-  "doc": "A map (or every layer of a stack, or every map of a series) put on a common scale, for drivers and predictors compared or combined: the z-score ((x - mean) / std, the std of the population), min-max to 0-1, or the percentile stretch to 0-1 between two percentiles (the values beyond them 0 or 1). A layer of one value is all 0. The centre and scale of each layer in a table, to standardize other maps the same way (map.calc).",
+  "doc": "A map (or every layer of a stack, or every map of a series) put on a common scale, for drivers and predictors compared or combined: the z-score ((x - mean) / std, the std of the population), min-max to 0-1, or the percentile stretch to 0-1 between two percentiles (the values beyond them 0 or 1). A layer of one value is all 0. The centre and scale of each layer in a table, to standardize other maps the same way (raster.calc).",
   "inputs": [
    {
     "name": "map",
@@ -24935,7 +24935,7 @@
  },
  {
   "name": "uncertainty.delta",
-  "doc": "The uncertainty of an expression of the node's maps and numbers (map.calc's) from the uncertainty of its parameters, by the delta method (landschaft's delta_method, the GUM's first order): the derivatives by finite differences (central, or forward as Strassburg et al. 2020), the standard deviation sqrt(sum (df/dp sigma)^2) (quadratic) or sum |df/dp sigma| (linear).",
+  "doc": "The uncertainty of an expression of the node's maps and numbers (raster.calc's) from the uncertainty of its parameters, by the delta method (landschaft's delta_method, the GUM's first order): the derivatives by finite differences (central, or forward as Strassburg et al. 2020), the standard deviation sqrt(sum (df/dp sigma)^2) (quadratic) or sum |df/dp sigma| (linear).",
   "inputs": [],
   "outputs": [
    {

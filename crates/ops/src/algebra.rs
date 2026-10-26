@@ -1,23 +1,23 @@
-//! Map algebra: `map.calc` computes maps, stacks and numbers from a script over its inputs, in a language close
-//! to Python's (Dinamica EGO's Calculate Map, with statements).
+//! Map algebra: `raster.calc` computes maps, stacks and numbers from a script over its inputs, in Python's syntax,
+//! the language's only one (Dinamica EGO's Calculate Map, with statements). The forms of other languages
+//! (`if c then a else b`, `c ? a : b`, `^`, `&& || !`, `null`, `ln`) are refused with the one to write; those of
+//! the models of before are rewritten when a model is read (`terraflux_graph::old_algebra`).
 //!
 //! ```text
 //! ndvi = (img.nir - img.red) / (img.nir + img.red)
 //! out ndvi
 //! out forest = land == 1 and ndvi > ndvi.percentile(25)
 //! out cleaned = land
-//! cleaned[land == 9] = null
+//! cleaned[land == 9] = None
 //! out mean_ndvi = ndvi.mean()
 //! ```
 //!
-//! - **Values:** numbers, `pi`, `null` (or `None`: a missing cell), `True` and `False` (1 and 0); the node's
-//!   inputs by port name (maps, numbers, stacks) and a stack's layers as `stack.layer` (their names made names:
-//!   [`band_names`]).
-//! - **Operators:** `+ - * / %`, `**` and `^` (powers), comparisons `< <= > >= == !=` (1 or 0; chained as in
-//!   Python, `5 <= x < 8`), `and or not` (also `&& || !`), `a if c else b` (also `if c then a else b` and
-//!   `c ? a : b`). A missing value makes the result missing (`isnull` tests it).
-//! - **Functions:** `abs sqrt exp ln log log10 floor ceil round min max clamp(x, lo, hi) isnull(x) coalesce(x, y)`
-//!   (`y` where `x` is missing).
+//! - **Values:** numbers, `pi`, `None` (a missing cell), `True` and `False` (1 and 0); the node's inputs by port
+//!   name (maps, numbers, stacks) and a stack's layers as `stack.layer` (their names made names: [`band_names`]).
+//! - **Operators:** `+ - * / %`, `**` (a power), comparisons `< <= > >= == !=` (1 or 0; chained as in Python,
+//!   `5 <= x < 8`), `and or not`, `a if c else b`. A missing value makes the result missing (`isnull` tests it).
+//! - **Functions:** `abs sqrt exp log log10 floor ceil round min max clamp(x, lo, hi) isnull(x) coalesce(x, y)`
+//!   (`log` the natural logarithm; `y` where `x` is missing).
 //! - **Neighbourhoods** (a square of radius `r` cells around each cell, the cell included, missing cells left
 //!   out): `nbsum(x, r) nbmean(x, r) nbmin(x, r) nbmax(x, r) nbcount(x, r)` (cells with a value; `r` a whole number or
 //!   a number input).
@@ -69,8 +69,7 @@ const OPS: [&str; 26] = [
 ];
 
 /// The words of the language, which no value is named.
-pub(crate) const WORDS: [&str; 12] =
-    ["if", "then", "else", "and", "or", "not", "out", "pi", "null", "None", "True", "False"];
+pub(crate) const WORDS: [&str; 10] = ["if", "else", "and", "or", "not", "out", "pi", "None", "True", "False"];
 
 /// The tokens of a text, the line of each and where each is (bytes). In a script a new line (outside brackets)
 /// and `;` end a statement; in an expression they are spaces.
@@ -211,6 +210,9 @@ impl Parser {
         if self.is_op("=") {
             return Error::msg("use == to compare (= gives a name a value, at the start of a line)");
         }
+        if let Some(e) = self.foreign() {
+            return e;
+        }
         Error::msg(format!("{what} {}", self.here()))
     }
 
@@ -224,25 +226,30 @@ impl Parser {
         }
     }
 
+    /// The forms of other languages, refused with the one to write (told at the token).
+    fn foreign(&self) -> Option<Error> {
+        let say = |m: &str| Some(Error::msg(m.to_string()));
+        match self.peek()? {
+            Tok::Id(w) if w == "then" => say("write a if c else b (not if c then a else b)"),
+            Tok::Id(w) if w == "null" => say("write None for a missing value (not null)"),
+            Tok::Id(w) if w == "ln" && self.toks.get(self.at + 1) == Some(&Tok::Op("(")) => {
+                say("write log(x), the natural logarithm (not ln)")
+            }
+            Tok::Op("?" | ":") => say("write a if c else b (not c ? a : b)"),
+            Tok::Op("^") => say("write ** for a power (not ^)"),
+            Tok::Op("&&") => say("write and (not &&)"),
+            Tok::Op("||") => say("write or (not ||)"),
+            Tok::Op("!") => say("write not (not !)"),
+            _ => None,
+        }
+    }
+
     fn expr(&mut self) -> Result<Expr> {
         if self.is_word("if") {
-            self.at += 1;
-            let c = self.expr()?;
-            self.expect_word("then")?;
-            let a = self.expr()?;
-            self.expect_word("else")?;
-            let b = self.expr()?;
-            return Ok(Expr::If(Box::new(c), Box::new(a), Box::new(b)));
+            return Err(Error::msg("write a if c else b (not if c then a else b)"));
         }
         let a = self.or()?;
-        if self.is_op("?") {
-            self.at += 1;
-            let x = self.expr()?;
-            self.expect_op(":")?;
-            let y = self.expr()?;
-            return Ok(Expr::If(Box::new(a), Box::new(x), Box::new(y)));
-        }
-        // Python's: a if c else b
+        // a if c else b
         if self.is_word("if") {
             self.at += 1;
             let c = self.or()?;
@@ -255,7 +262,7 @@ impl Parser {
 
     fn or(&mut self) -> Result<Expr> {
         let mut l = self.and()?;
-        while self.is_op("||") || self.is_word("or") {
+        while self.is_word("or") {
             self.at += 1;
             l = Expr::Binary("or", Box::new(l), Box::new(self.and()?));
         }
@@ -264,7 +271,7 @@ impl Parser {
 
     fn and(&mut self) -> Result<Expr> {
         let mut l = self.not()?;
-        while self.is_op("&&") || self.is_word("and") {
+        while self.is_word("and") {
             self.at += 1;
             l = Expr::Binary("and", Box::new(l), Box::new(self.not()?));
         }
@@ -272,7 +279,7 @@ impl Parser {
     }
 
     fn not(&mut self) -> Result<Expr> {
-        if self.is_op("!") || self.is_word("not") {
+        if self.is_word("not") {
             self.at += 1;
             return Ok(Expr::Unary('!', Box::new(self.not()?)));
         }
@@ -339,7 +346,7 @@ impl Parser {
 
     fn pow(&mut self) -> Result<Expr> {
         let base = self.postfix()?;
-        if self.is_op("^") || self.is_op("**") {
+        if self.is_op("**") {
             self.at += 1;
             return Ok(Expr::Binary("^", Box::new(base), Box::new(self.unary()?)));
         }
@@ -405,6 +412,9 @@ impl Parser {
             None | Some(Tok::End) => return Err(Error::msg("the expression ends too early")),
             Some(t) => t,
         };
+        if let Some(e) = self.foreign() {
+            return Err(e);
+        }
         // (an error: told at the token)
         let at = self.at;
         self.at += 1;
@@ -421,12 +431,10 @@ impl Parser {
             }
             Tok::Id(id) => match id.as_str() {
                 "pi" => Ok(Expr::Num(std::f64::consts::PI)),
-                "null" | "None" => Ok(Expr::Num(f64::NAN)),
+                "None" => Ok(Expr::Num(f64::NAN)),
                 "True" => Ok(Expr::Num(1.0)),
                 "False" => Ok(Expr::Num(0.0)),
-                "if" | "then" | "else" | "and" | "or" | "not" | "out" => {
-                    back(self, Error::msg(format!("unexpected {id:?}")))
-                }
+                "if" | "else" | "and" | "or" | "not" | "out" => back(self, Error::msg(format!("unexpected {id:?}"))),
                 _ if self.is_op("(") => {
                     let args = self.args()?;
                     match check_call(&id, &args) {
@@ -502,11 +510,10 @@ impl Parser {
 }
 
 /// The functions: name, least and most values taken.
-pub(crate) const FUNCTIONS: [(&str, usize, usize); 24] = [
+pub(crate) const FUNCTIONS: [(&str, usize, usize); 23] = [
     ("abs", 1, 1),
     ("sqrt", 1, 1),
     ("exp", 1, 1),
-    ("ln", 1, 1),
     ("log", 1, 1),
     ("log10", 1, 1),
     ("floor", 1, 1),
@@ -1356,7 +1363,7 @@ impl<'s, 'a> Compiler<'s, 'a> {
                             "abs" => Op1::Abs,
                             "sqrt" => Op1::Sqrt,
                             "exp" => Op1::Exp,
-                            "ln" | "log" => Op1::Ln,
+                            "log" => Op1::Ln,
                             "log10" => Op1::Log10,
                             "floor" => Op1::Floor,
                             "ceil" => Op1::Ceil,
@@ -1898,17 +1905,17 @@ impl Script {
     }
 }
 
-/// `map.calc`.
+/// `raster.calc`.
 pub struct Calc;
 
 impl Operator for Calc {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
-            "map.calc",
+            "raster.calc",
             "Maps, stacks and numbers computed cell by cell from a script over the node's inputs (any names: maps, \
-             numbers, stacks), as Dinamica EGO's Calculate Map, in a language close to Python's: arithmetic \
-             (+ - * / % **), comparisons (chained: 5 <= x < 8), and/or/not, a if c else b (or if c then a else b), \
-             abs sqrt exp ln log log10 floor ceil round min max clamp isnull coalesce, the neighbourhood functions \
+             numbers, stacks), as Dinamica EGO's Calculate Map, in Python's syntax: arithmetic (+ - * / % **), \
+             comparisons (chained: 5 <= x < 8), and/or/not, a if c else b, None (a missing value), True, False, \
+             abs sqrt exp log log10 floor ceil round min max clamp isnull coalesce, the neighbourhood functions \
              nbsum nbmean nbmin nbmax nbcount(x, radius), a stack's layers as s.layer, an operation on a stack made \
              on each layer, mean sd median sum count min max percentile(s, p) of a stack's layers at each cell, and \
              x.mean() x.sd() x.median() x.sum() x.count() x.min() x.max() x.percentile(p), a number from all the \
@@ -1921,7 +1928,8 @@ impl Operator for Calc {
         .param(PortSpec::new(
             "expression",
             Type::Text,
-            "the expression or the script, e.g. if landuse == 3 then slope else null",
+            "the script (an expression of one line is a script too), e.g. forest = landuse == 3; out steep = forest \
+             and slope > 20",
         ))
         .output(PortSpec::new("map", Type::Map, "the map computed (by a script without out)"))
         .outputs_from("expression")
@@ -1970,8 +1978,9 @@ impl Operator for Calc {
             scope.width = g.width;
             scope.height = g.height;
         }
-        let on_grid =
-            || grid.clone().ok_or_else(|| Error::msg(format!("node {node:?}: map.calc needs a map among its inputs")));
+        let on_grid = || {
+            grid.clone().ok_or_else(|| Error::msg(format!("node {node:?}: raster.calc needs a map among its inputs")))
+        };
         // a script without out gives one map
         let one = script.outputs().is_empty();
         let mut out = Outputs::new();
@@ -2008,7 +2017,7 @@ pub fn register(r: &mut Registry) {
 mod tests {
     use super::*;
 
-    // The tree evaluator of map.calc 1.15.0, kept as the reference the compiled one must equal.
+    // The tree evaluator of raster.calc 1.15.0, kept as the reference the compiled one must equal.
 
     /// A value while evaluating: a number for every cell, or one per cell.
     #[derive(Debug, Clone)]
@@ -2250,7 +2259,7 @@ mod tests {
                         "abs" => f64::abs,
                         "sqrt" => f64::sqrt,
                         "exp" => f64::exp,
-                        "ln" => f64::ln,
+                        "log" => f64::ln,
                         "log10" => f64::log10,
                         "floor" => f64::floor,
                         "ceil" => f64::ceil,
@@ -2295,17 +2304,17 @@ mod tests {
     #[test]
     fn arithmetic_and_precedence() {
         let a = vec![1.0, 2.0, 3.0, f64::NAN];
-        same(&calc("1 + 2 * 3 ^ 2", &[], 2, 2), &[19.0; 4]);
-        same(&calc("-a ^ 2 + k", &[("a", a.clone())], 2, 2), &[1.0, -2.0, -7.0, f64::NAN]);
+        same(&calc("1 + 2 * 3 ** 2", &[], 2, 2), &[19.0; 4]);
+        same(&calc("-a ** 2 + k", &[("a", a.clone())], 2, 2), &[1.0, -2.0, -7.0, f64::NAN]);
         same(&calc("(a + 1) % 2", &[("a", a.clone())], 2, 2), &[0.0, 1.0, 0.0, f64::NAN]);
-        same(&calc("2 ^ 3 ^ 2", &[], 1, 1), &[512.0]);
+        same(&calc("2 ** 3 ** 2", &[], 1, 1), &[512.0]);
     }
 
     #[test]
     fn logic_and_conditions() {
         let a = vec![1.0, 2.0, 3.0, f64::NAN];
-        same(&calc("if a >= 2 and not a == 3 then 10 else a", &[("a", a.clone())], 2, 2), &[1.0, 10.0, 3.0, f64::NAN]);
-        same(&calc("a < 2 || a > 2 ? 1 : 0", &[("a", a.clone())], 2, 2), &[1.0, 0.0, 1.0, f64::NAN]);
+        same(&calc("10 if a >= 2 and not a == 3 else a", &[("a", a.clone())], 2, 2), &[1.0, 10.0, 3.0, f64::NAN]);
+        same(&calc("1 if a < 2 or a > 2 else 0", &[("a", a.clone())], 2, 2), &[1.0, 0.0, 1.0, f64::NAN]);
         same(&calc("isnull(a) + coalesce(a, -1)", &[("a", a.clone())], 2, 2), &[1.0, 2.0, 3.0, 0.0]);
         same(&calc("min(a, 2, k) + max(clamp(a, 2, 2.5), 0)", &[("a", a)], 2, 2), &[3.0, 4.0, 4.5, f64::NAN]);
     }
@@ -2334,7 +2343,7 @@ mod tests {
             ("abs(1, 2)", "takes 1"),
             ("(1 + 2", "expected \")\""),
             ("1 2", "unexpected"),
-            ("if a then 1", "expected \"else\""),
+            ("1 if a", "expected \"else\""),
         ] {
             let e = parse(bad).err().unwrap().0;
             assert!(e.contains(why), "{bad}: {e}");
@@ -2378,7 +2387,7 @@ mod tests {
                 }
                 3 => Expr::If(self.sub(depth), self.sub(depth), self.sub(depth)),
                 4 => {
-                    let f = ["abs", "sqrt", "exp", "ln", "log10", "floor", "ceil", "round", "isnull"]
+                    let f = ["abs", "sqrt", "exp", "log", "log10", "floor", "ceil", "round", "isnull"]
                         [self.below(9) as usize];
                     Expr::Call(f.into(), vec![*self.sub(depth)])
                 }
@@ -2471,9 +2480,9 @@ mod tests {
         };
         let p = program("(a + b) * (a + b) + (a + b)");
         assert_eq!(p.ins.len(), 3, "{p:?}");
-        assert_eq!(program("2 * k + 1 ^ 2").results, [Arg::Num(5.0)]);
-        assert_eq!(program("if k > 1 then a else b").results, [Arg::Map(0)]);
-        assert!(program("if k < 1 then a else b").ins.is_empty());
+        assert_eq!(program("2 * k + 1 ** 2").results, [Arg::Num(5.0)]);
+        assert_eq!(program("a if k > 1 else b").results, [Arg::Map(0)]);
+        assert!(program("a if k < 1 else b").ins.is_empty());
         // a chain: two registers whatever its length
         let p = program("((((a + 1) * 2 - b) / 3 + a) * b - 1) / 2");
         assert!(p.regs <= 2, "{p:?}");
@@ -2503,11 +2512,11 @@ mod tests {
         for text in [
             "a * 2 + b",
             "clamp((1200 - s.x) / 900, 0, 1)",
-            "if a == 1 then sqrt(s.x * b) else 0",
-            "if a >= 2 and not a == 3 then 10 else if a == 3 then b * 2 else min(a, b, k)",
+            "sqrt(s.x * b) if a == 1 else 0",
+            "10 if a >= 2 and not a == 3 else b * 2 if a == 3 else min(a, b, k)",
             "(a == 1) * 3 + (a == 1) * b - (a == 1) / (b + 1)",
             "nbmean(a == 1, 2)",
-            "if a == 1 then 2 - (nbmin(a == 1, 1) == 0) else 0",
+            "2 - (nbmin(a == 1, 1) == 0) if a == 1 else 0",
             "nbmax(a, 5)",
             "nbmin(b, 25)",
         ] {
@@ -2576,23 +2585,21 @@ mod tests {
     #[test]
     fn as_python_writes_it() {
         let a = vec![1.0, 2.0, 3.0, f64::NAN, 5.0, 7.0];
-        for (python, ours) in [
-            ("a ** 2", "a ^ 2"),
-            ("-a ** 2", "-(a ^ 2)"),
-            ("1 if a > 2 else 0", "if a > 2 then 1 else 0"),
-            ("a if a < 3 else a * 2 if a < 6 else 0", "if a < 3 then a else if a < 6 then a * 2 else 0"),
+        for (python, same_as) in [
+            ("-a ** 2", "-(a ** 2)"),
+            ("a if a < 3 else a * 2 if a < 6 else 0", "a if a < 3 else (a * 2 if a < 6 else 0)"),
             ("2 <= a < 6", "2 <= a and a < 6"),
             ("1 < a <= 5 != a", "1 < a and a <= 5 and 5 != a"),
             ("True + False * 2", "1"),
-            ("None", "null"),
-            ("log(a)", "ln(a)"),
+            ("isnull(None)", "1"),
+            ("log(exp(a))", "a"),
             ("a  # a comment", "a"),
         ] {
             let m = [("a", a.clone())];
-            same(&calc(python, &m, 3, 2), &calc(ours, &m, 3, 2));
+            same(&calc(python, &m, 3, 2), &calc(same_as, &m, 3, 2));
         }
         for (bad, why) in [
-            ("if a = 1 then 1 else 0", "use == to compare"),
+            ("1 if a = 1 else 0", "use == to compare"),
             ("s.1997 + 1", "s._1997"),
             ("a.foo()", "no method \"foo\""),
             ("a.mean(1)", "mean() takes 0"),
@@ -2601,6 +2608,26 @@ mod tests {
             let e = parse(bad).err().unwrap().0;
             assert!(e.contains(why), "{bad}: {e}");
         }
+    }
+
+    #[test]
+    fn the_forms_of_other_languages_are_refused_with_python_s() {
+        for (bad, why) in [
+            ("if a > 1 then 1 else 0", "write a if c else b (not if c then a else b)"),
+            ("a > 1 ? 1 : 0", "write a if c else b (not c ? a : b)"),
+            ("a ^ 2", "write ** for a power (not ^)"),
+            ("a && b", "write and (not &&)"),
+            ("a || b", "write or (not ||)"),
+            ("!a", "write not (not !)"),
+            ("a + null", "write None for a missing value (not null)"),
+            ("ln(a)", "write log(x), the natural logarithm (not ln)"),
+        ] {
+            let e = parse(bad).err().unwrap().0;
+            assert_eq!(e, why, "{bad}");
+        }
+        // told at its line in a script
+        let e = parse_script("x = a\ny = x ^ 2").err().unwrap().0;
+        assert_eq!(e, "line 2: write ** for a power (not ^)");
     }
 
     #[test]

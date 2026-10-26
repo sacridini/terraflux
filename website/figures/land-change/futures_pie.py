@@ -95,13 +95,13 @@ params = { path = "subregions.tif" }
 
 [[nodes]]
 id = "dev1985"
-op = "map.calc"
+op = "raster.calc"
 inputs = { lu = "lu1985.raster" }
 params = { expression = "lu == 2" }
 
 [[nodes]]
 id = "dev1991"
-op = "map.calc"
+op = "raster.calc"
 inputs = { lu = "lu1991.raster" }
 params = { expression = "lu == 2" }
 
@@ -119,15 +119,15 @@ params = { name = "devpressure" }
 
 [[nodes]]
 id = "new_west"
-op = "map.calc"
+op = "raster.calc"
 inputs = { a = "dev1985.map", b = "dev1991.map", c = "counties.raster" }
-params = { expression = "if a == 1 or c != 1 then null else b" }
+params = { expression = "None if a == 1 or c != 1 else b" }
 
 [[nodes]]
 id = "new_east"
-op = "map.calc"
+op = "raster.calc"
 inputs = { a = "dev1985.map", b = "dev1991.map", c = "counties.raster" }
-params = { expression = "if a == 1 or c != 2 then null else b" }
+params = { expression = "None if a == 1 or c != 2 else b" }
 
 [[nodes]]
 id = "potential_west"
@@ -216,13 +216,13 @@ params = {{ path = "subregions.tif" }}
 
 [[nodes]]
 id = "developed"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ lu = "land.raster" }}
 params = {{ expression = "lu == 2" }}
 
 [[nodes]]
 id = "dev_end"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ lu = "end.raster" }}
 params = {{ expression = "lu == 2" }}
 
@@ -362,13 +362,13 @@ params = {{ path = "output/maps.tif", band = "{n - 1}" }}
 
 [[nodes]]
 id = "observed"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ lu = "lu.raster" }}
 params = {{ expression = "lu == 2" }}
 
 [[nodes]]
 id = "original"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ lu = "start.raster" }}
 params = {{ expression = "lu == 2" }}
 

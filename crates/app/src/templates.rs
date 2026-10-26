@@ -64,10 +64,10 @@ fn land_change_data(m: &mut Model) {
             .note("A driver of no effect on the change, as real models have some."),
     );
     m.nodes.push(
-        Node::new("land_2010", "map.calc")
+        Node::new("land_2010", "raster.calc")
             .input("t0", "land_2000.map")
             .input("suit", "aptitude.map")
-            .param("expression", "if t0 == 1 and nbsum(t0 == 2, 1) >= 2 and suit > 0.45 then 2 else t0")
+            .param("expression", "2 if t0 == 1 and nbsum(t0 == 2, 1) >= 2 and suit > 0.45 else t0")
             .note("Ten years later: farming grown into the forest beside it, where it is suited."),
     );
     m.nodes.push(
@@ -557,10 +557,16 @@ note = "A land cover of three classes drawn by chance: 1 forest, 2 farming, 3 wa
 
 [[nodes]]
 id = "later"
-op = "map.calc"
+op = "raster.calc"
 inputs = { cover = "cover.map" }
-params = { expression = "if cover == 1 and nbsum(cover == 2, 1) >= 3 then 2 else cover" }
 note = "Ten years later: farming grown into the forest beside it."
+[nodes.params]
+expression = """
+# the forest (1) with three cells of farming (2) or more around it becomes farming
+grown = cover
+grown[cover == 1 and nbsum(cover == 2, 1) >= 3] = 2
+out map = grown
+"""
 
 [[nodes]]
 id = "patches"
@@ -668,7 +674,7 @@ params = { rows = 120, columns = 120, range = 20, seed = 4 }
 
 [[nodes]]
 id = "elevation"
-op = "map.calc"
+op = "raster.calc"
 inputs = { s = "surface.map" }
 params = { expression = "200 + 800 * s" }
 note = "An elevation of 200 to 1000 m drawn by chance (in its place, a raster.read of a DEM)."
@@ -680,7 +686,7 @@ params = { rows = 120, columns = 120, range = 6, seed = 9 }
 
 [[nodes]]
 id = "rain"
-op = "map.calc"
+op = "raster.calc"
 inputs = { elevation = "elevation.map", noise = "noise.map" }
 params = { expression = "600 + 0.8 * elevation + 400 * noise" }
 note = "A year's rainfall (mm), wetter up the hills."
@@ -694,14 +700,14 @@ note = "The rainfall summarised: its mean, standard deviation, percentiles..., a
 
 [[nodes]]
 id = "dry"
-op = "map.calc"
+op = "raster.calc"
 inputs = { rain = "rain.map", noise = "noise.map" }
 params = { expression = "rain * (0.7 + 0.2 * noise)" }
 note = "A dry year."
 
 [[nodes]]
 id = "wet"
-op = "map.calc"
+op = "raster.calc"
 inputs = { rain = "rain.map" }
 params = { expression = "rain * 1.25" }
 note = "A wet year."
@@ -807,9 +813,9 @@ params = { rows = 150, columns = 150, seed = 6 }
 
 [[nodes]]
 id = "classified"
-op = "map.calc"
+op = "raster.calc"
 inputs = { field = "field.map", noise = "noise.map" }
-params = { expression = "if field + 0.35 * noise < 0.55 then 1 else if field + 0.35 * noise < 0.8 then 2 else 3" }
+params = { expression = "1 if field + 0.35 * noise < 0.55 else 2 if field + 0.35 * noise < 0.8 else 3" }
 note = "A land cover classified pixel by pixel, with the specks of a classification (1 forest, 2 farming, 3 town)."
 
 [[nodes]]
@@ -980,7 +986,7 @@ params = { rows = 120, columns = 120, range = 20, seed = 4 }
 
 [[nodes]]
 id = "elevation"
-op = "map.calc"
+op = "raster.calc"
 inputs = { s = "surface.map" }
 params = { expression = "200 + 800 * s" }
 note = "A terrain of 200 to 1000 m drawn by chance (in its place, a raster.read of a DEM)."
@@ -1068,7 +1074,7 @@ note = "A smooth surface from 0 to 1 drawn by chance."
 
 [[nodes]]
 id = "footprint"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "field.map" }
 params = { expression = "f * f * 30" }
 note = "A human footprint of 0 to 30 (in its place, a raster.read of the Human Footprint Index)."
@@ -1082,7 +1088,7 @@ note = "The habitat's quality exp(-gamma footprint) of each cell and of those wi
 
 [[nodes]]
 id = "reduction"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "footprint.map" }
 params = { expression = "f / 2" }
 note = "How much a cell's footprint falls when it is restored: half of it, here."
@@ -1317,14 +1323,14 @@ note = "A smooth surface from 0 to 1 drawn by chance."
 
 [[nodes]]
 id = "forest"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "field.map" }
 params = { expression = "f * 0.9" }
 note = "The share of forest in each cell (in its place, a raster.read of land cover shares)."
 
 [[nodes]]
 id = "crops"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "field.map" }
 params = { expression = "1 - f * 0.9" }
 note = "The rest is cropland: the land restoration can return to forest."
@@ -1358,20 +1364,20 @@ params = { rows = 40, columns = 50, range = 6, seed = 13 }
 
 [[nodes]]
 id = "ranges"
-op = "map.calc"
+op = "raster.calc"
 inputs = { t = "toucan.map" }
 params = { expression = "t > 0.4" }
 note = "A species' range: the cells above 0 (in its place, raster.read of range maps)."
 
 [[nodes]]
 id = "ranges2"
-op = "map.calc"
+op = "raster.calc"
 inputs = { j = "jaguar.map" }
 params = { expression = "j > 0.5" }
 
 [[nodes]]
 id = "ranges3"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "frog.map" }
 params = { expression = "f > 0.3" }
 
@@ -1436,9 +1442,9 @@ inputs = { temperature = "temperature.map", rainfall = "rainfall.map", relief = 
 
 [[nodes]]
 id = "suitability"
-op = "map.calc"
+op = "raster.calc"
 inputs = { t = "temperature.map", r = "rainfall.map" }
-params = { expression = "exp(-((t - 0.6) ^ 2) / 0.02 - ((r - 0.5) ^ 2) / 0.05)" }
+params = { expression = "exp(-((t - 0.6) ** 2) / 0.02 - ((r - 0.5) ** 2) / 0.05)" }
 note = "Where the species finds its conditions: warm cells of middling rainfall."
 
 [[nodes]]
@@ -1657,9 +1663,9 @@ note = "Where clearing presses, from 0 to 1."
 
 [[nodes]]
 id = "after"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "before.map", p = "pressure.map" }
-params = { expression = "if f == 2 and p > 0.6 and nbsum(f == 1, 1) >= 1 then 1 else if f == 1 and p < 0.2 and nbsum(f == 2, 1) >= 5 then 2 else f" }
+params = { expression = "1 if f == 2 and p > 0.6 and nbsum(f == 1, 1) >= 1 else 2 if f == 1 and p < 0.2 and nbsum(f == 2, 1) >= 5 else f" }
 note = "The second date: the forest cleared from its edges where the pressure is high, regrown in the gaps where it is low."
 
 [[nodes]]
@@ -1948,14 +1954,14 @@ note = "A habitat's quality from 0 to 1 drawn by chance (in its place, a raster.
 
 [[nodes]]
 id = "resistance"
-op = "map.calc"
+op = "raster.calc"
 inputs = { q = "quality.map" }
-params = { expression = "1 + 99 * (1 - q) ^ 3" }
+params = { expression = "1 + 99 * (1 - q) ** 3" }
 note = "The resistance to movement: 1 in the best habitat, up to 100 where there is none."
 
 [[nodes]]
 id = "cores"
-op = "map.calc"
+op = "raster.calc"
 inputs = { q = "quality.map" }
 params = { expression = "q > 0.8" }
 note = "The cores: the best habitat (1), the rest 0."
@@ -1968,9 +1974,9 @@ note = "Every patch numbered, of the cores and of the rest."
 
 [[nodes]]
 id = "patches"
-op = "map.calc"
+op = "raster.calc"
 inputs = { c = "cores.map", p = "parcels.parcels" }
-params = { expression = "if c == 1 then p else 0" }
+params = { expression = "p if c == 1 else 0" }
 note = "The cores' patches by number: Circuitscape's focal regions (0 elsewhere)."
 
 [[nodes]]
@@ -2025,9 +2031,9 @@ note = "How hard each cell is to cross, 0 to 1 (in its place, a raster.read of a
 
 [[nodes]]
 id = "conductance"
-op = "map.calc"
+op = "raster.calc"
 inputs = { r = "roughness.map" }
-params = { expression = "1 / (1 + 20 * r ^ 2)" }
+params = { expression = "1 / (1 + 20 * r ** 2)" }
 note = "How easily it is crossed: 1 over the resistance."
 
 [[nodes]]
@@ -2051,7 +2057,7 @@ params = { rows = 100, columns = 100, origin = [3, 8, 45, 55], nlmr_compat = fal
 
 [[nodes]]
 id = "origin"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "near_a.map" }
 params = { expression = "d == 0" }
 note = "Where the walkers start: a strip in the west (in its place, a raster of a reserve, or vector.read of points)."
@@ -2063,7 +2069,7 @@ params = { rows = 100, columns = 100, origin = [93, 98, 45, 55], nlmr_compat = f
 
 [[nodes]]
 id = "goal"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "near_b.map" }
 params = { expression = "d == 0" }
 note = "Where they go: a strip in the east."
@@ -2137,23 +2143,23 @@ note = "And to one in the south-east."
 
 [[nodes]]
 id = "a"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "near_a.map" }
 params = { expression = "d == 0" }
 note = "Area A (in its place, a raster of a reserve)."
 
 [[nodes]]
 id = "b"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "near_b.map" }
 params = { expression = "d == 0" }
 note = "Area B."
 
 [[nodes]]
 id = "habitat"
-op = "map.calc"
+op = "raster.calc"
 inputs = { h = "landscape.map", a = "a.map", b = "b.map" }
-params = { expression = "if a or b then 2 else h" }
+params = { expression = "2 if a or b else h" }
 note = "The two areas are habitat too."
 
 [[nodes]]
@@ -2182,9 +2188,9 @@ params = { title = "Cost from A plus from B" }
 
 [[nodes]]
 id = "shown"
-op = "map.calc"
+op = "raster.calc"
 inputs = { h = "habitat.map", p = "corridor.path" }
-params = { expression = "if p == 1 then 3 else h" }
+params = { expression = "3 if p == 1 else h" }
 note = "The corridor (3) over the background (1) and the habitat (2); corridor.restored is the habitat once its background is restored."
 
 [[nodes]]
@@ -2295,7 +2301,7 @@ params = { rows = 60, columns = 80, range = 14, seed = 21 }
 
 [[nodes]]
 id = "temperature"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "field_t.map" }
 params = { expression = "14 + f * 12" }
 note = "The mean temperature, from 14 to 26 °C (in its place, raster.read of a climate layer)."
@@ -2307,7 +2313,7 @@ params = { rows = 60, columns = 80, range = 22, seed = 22 }
 
 [[nodes]]
 id = "rainfall"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "field_r.map" }
 params = { expression = "800 + f * 1600" }
 note = "The rainfall, from 800 to 2400 mm."
@@ -2319,9 +2325,9 @@ inputs = { temperature = "temperature.map", rainfall = "rainfall.map" }
 
 [[nodes]]
 id = "suitability"
-op = "map.calc"
+op = "raster.calc"
 inputs = { t = "temperature.map", r = "rainfall.map" }
-params = { expression = "exp(-((t - 19) ^ 2) / 3 - ((r - 1600) ^ 2) / 150000)" }
+params = { expression = "exp(-((t - 19) ** 2) / 3 - ((r - 1600) ** 2) / 150000)" }
 note = "Where the species finds its conditions: about 19 °C and 1600 mm."
 
 [[nodes]]
@@ -2364,7 +2370,7 @@ note = "The suitability today."
 
 [[nodes]]
 id = "warmer"
-op = "map.calc"
+op = "raster.calc"
 inputs = { t = "temperature.map" }
 params = { expression = "t + 2" }
 note = "The temperature in a climate 2 °C warmer (in its place, raster.read of a scenario's layer)."
@@ -2384,7 +2390,7 @@ note = "The suitability in the warmer climate."
 
 [[nodes]]
 id = "shift"
-op = "map.calc"
+op = "raster.calc"
 inputs = { a = "today.prediction", b = "tomorrow.prediction" }
 params = { expression = "b - a" }
 note = "What changes: gains (positive) and losses (negative)."
@@ -2451,9 +2457,9 @@ note = "A driver of no effect on the change, as real models have some."
 
 [[nodes]]
 id = "land_2010"
-op = "map.calc"
+op = "raster.calc"
 inputs = { t0 = "land_2000.map", suit = "aptitude.map" }
-params = { expression = "if t0 == 1 and nbsum(t0 == 2, 1) >= 3 and suit > 0.6 then 2 else t0" }
+params = { expression = "2 if t0 == 1 and nbsum(t0 == 2, 1) >= 3 and suit > 0.6 else t0" }
 note = "Ten years later: farming grown into the forest beside it, where it is suited."
 
 [[nodes]]
@@ -2544,16 +2550,16 @@ note = "The distance to the old town in the middle."
 
 [[nodes]]
 id = "suitability"
-op = "map.calc"
+op = "raster.calc"
 inputs = { a = "attraction.map", d = "centre.map", r = "relief.map" }
-params = { expression = "if r < 0.3 or r > 0.75 then null else 0.6 * a + 0.4 * (1 - d / 106)" }
+params = { expression = "None if r < 0.3 or r > 0.75 else 0.6 * a + 0.4 * (1 - d / 106)" }
 note = "Where a city would rather grow: attractive and near the centre; no value (never) in the water (the lowest land) and on the mountains (the highest)."
 
 [[nodes]]
 id = "town"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "centre.map", suit = "suitability.map" }
-params = { expression = "if isnull(suit) then null else d == 0" }
+params = { expression = "None if isnull(suit) else d == 0" }
 note = "The city at the start: the old town (1), the rest 0."
 
 [[nodes]]
@@ -2568,9 +2574,9 @@ collect = { maps = "grow.map" }
 
 [[nodes.body.nodes]]
 id = "grow"
-op = "map.calc"
+op = "raster.calc"
 inputs = { c = "@city", suit = "suitability.map", step = "@step" }
-params = { expression = "if c == 0 and nbsum(c == 1, 1) >= 3 and suit > 0.6 - step * 0.008 then 1 else c" }
+params = { expression = "1 if c == 0 and nbsum(c == 1, 1) >= 3 and suit > 0.6 - step * 0.008 else c" }
 note = "A cell becomes city when three of its neighbours are, if it is suited enough; the bar falls a little every step, so the best land goes first."
 
 [[nodes]]
@@ -2611,7 +2617,7 @@ note = "A Voronoi mosaic: 60 cells of a random value each."
 
 [[nodes]]
 id = "parcels"
-op = "map.calc"
+op = "raster.calc"
 inputs = { m = "mosaic.map" }
 params = { expression = "1 + floor(m * 100000)" }
 note = "Each Voronoi cell a parcel with an id (in its place, a raster.read of a cadastre's parcel ids)."
@@ -2649,7 +2655,7 @@ collect = { summary = "totals.table", maps = "farmed.map" }
 id = "year"
 op = "agents.update"
 inputs = { agents = "@farmers", step = "@step" }
-params = { rules = "price = 10 - step * 0.25\nincome = if farming == 1 then fertility * price * 2 else 1\nwealth = wealth + income - 7\nfarming = if wealth > 0 then farming else 0" }
+params = { rules = "price = 10 - step * 0.25\nincome = fertility * price * 2 if farming == 1 else 1\nwealth = wealth + income - 7\nfarming = farming if wealth > 0 else 0" }
 note = "The rules of a year, in order: the price falls, the farmers earn by the fertility of their parcel, pay 7, and those broke stop farming (and earn 1 elsewhere)."
 
 [[nodes.body.nodes]]
@@ -2784,16 +2790,16 @@ note = "How suited each cell is to farming."
 
 [[nodes]]
 id = "land_2010"
-op = "map.calc"
+op = "raster.calc"
 inputs = { t0 = "land_2000.map", suit = "aptitude.map" }
-params = { expression = "if t0 == 1 and nbsum(t0 == 2, 1) >= 3 and suit > 0.65 then 2 else t0" }
+params = { expression = "2 if t0 == 1 and nbsum(t0 == 2, 1) >= 3 and suit > 0.65 else t0" }
 note = "Ten years later: farming grown into the forest beside it, where it is suited."
 
 [[nodes]]
 id = "land_2020"
-op = "map.calc"
+op = "raster.calc"
 inputs = { t1 = "land_2010.map", suit = "aptitude.map" }
-params = { expression = "if t1 == 1 and nbsum(t1 == 2, 1) >= 3 and suit > 0.5 then 2 else if t1 == 2 and suit < 0.2 then 1 else t1" }
+params = { expression = "2 if t1 == 1 and nbsum(t1 == 2, 1) >= 3 and suit > 0.5 else 1 if t1 == 2 and suit < 0.2 else t1" }
 note = "Ten more: farming grows faster, and the least suited farms go back to forest."
 
 [[nodes]]
@@ -2859,16 +2865,16 @@ params = { rows = 160, columns = 160, range = 25, seed = 12 }
 
 [[nodes]]
 id = "observed"
-op = "map.calc"
+op = "raster.calc"
 inputs = { t0 = "start.map", suit = "aptitude.map" }
-params = { expression = "if t0 == 1 and nbsum(t0 == 2, 1) >= 3 and suit > 0.6 then 2 else t0" }
+params = { expression = "2 if t0 == 1 and nbsum(t0 == 2, 1) >= 3 and suit > 0.6 else t0" }
 note = "What happened: farming grew into the forest beside it, where it was suited (in its place, the map of the second date)."
 
 [[nodes]]
 id = "simulated"
-op = "map.calc"
+op = "raster.calc"
 inputs = { t0 = "start.map", suit = "aptitude.map" }
-params = { expression = "if t0 == 1 and nbsum(t0 == 2, 1) >= 3 and nbmean(suit, 4) > 0.6 then 2 else t0" }
+params = { expression = "2 if t0 == 1 and nbsum(t0 == 2, 1) >= 3 and nbmean(suit, 4) > 0.6 else t0" }
 note = "What a model said: much the same, but from a blurred suitability (its mean over 9 x 9 cells) (in its place, a model's simulated map)."
 
 [[nodes]]
@@ -2899,9 +2905,9 @@ note = "MOLUSCE's kappa, kappa location and kappa histogram of the two maps."
 
 [[nodes]]
 id = "errors"
-op = "map.calc"
+op = "raster.calc"
 inputs = { t0 = "start.map", o = "observed.map", s = "simulated.map" }
-params = { expression = "if o != t0 and s == o then 1 else if o != t0 then 2 else if s != t0 then 3 else 0" }
+params = { expression = "1 if o != t0 and s == o else 2 if o != t0 else 3 if s != t0 else 0" }
 note = "Where the model was right: 1 a hit, 2 a miss (changed, not simulated), 3 a false alarm (simulated, not changed), 0 no change."
 
 [[nodes]]
@@ -2935,9 +2941,9 @@ params = { rows = 200, columns = 200, seed = 22 }
 
 [[nodes]]
 id = "classified"
-op = "map.calc"
+op = "raster.calc"
 inputs = { t = "truth.map", e = "noise.map" }
-params = { expression = "if e > 0.9 then (if t == 3 then 1 else t + 1) else t" }
+params = { expression = "(1 if t == 3 else t + 1) if e > 0.9 else t" }
 note = "The map to assess: the truth with a tenth of its cells in another class (in its place, a raster.read of your map)."
 
 [[nodes]]
@@ -2994,7 +3000,7 @@ note = "The jurisdiction at the start of the historical reference period: 1 fore
 
 [[nodes]]
 id = "forest"
-op = "map.calc"
+op = "raster.calc"
 inputs = { l = "land.map" }
 params = { expression = "l == 1" }
 
@@ -3012,9 +3018,9 @@ params = { rows = 200, columns = 200, seed = 32, resolution = 30 }
 
 [[nodes]]
 id = "deforestation"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "forest.map", d = "edge.distance", e = "noise.map" }
-params = { expression = "if f == 1 and e < 0.3 * exp(0 - d / 90) then 1 else 0" }
+params = { expression = "1 if f == 1 and e < 0.3 * exp(0 - d / 90) else 0" }
 note = "The deforestation of the period, near the edge (in its place, the period's deforestation map: 1 deforested)."
 
 [[nodes]]
@@ -3066,7 +3072,7 @@ params = { rows = 150, columns = 150, dimension = 1.3, seed = 51, resolution = 3
 
 [[nodes]]
 id = "dem"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "relief.map" }
 params = { expression = "400 + 1600 * f" }
 note = "The elevation, 400 to 2,000 m (in its place, a DEM: raster.read, or data.download's Copernicus DEM)."
@@ -3102,13 +3108,13 @@ note = "The land cover: 1 native vegetation, 2 farmland (in its place, a land co
 
 [[nodes]]
 id = "vegetation"
-op = "map.calc"
+op = "raster.calc"
 inputs = { c = "cover.map" }
 params = { expression = "c == 1" }
 
 [[nodes]]
 id = "farmland"
-op = "map.calc"
+op = "raster.calc"
 inputs = { c = "cover.map" }
 params = { expression = "c == 2" }
 note = "The farmland, taken as consolidated by 22 July 2008 (in its place, the land use of 2008)."
@@ -3120,7 +3126,7 @@ params = { rows = 150, columns = 150, direction = 90, seed = 53, resolution = 30
 
 [[nodes]]
 id = "properties"
-op = "map.calc"
+op = "raster.calc"
 inputs = { g = "strips.map" }
 params = { expression = "min(floor(g * 6) + 1, 6)" }
 note = "Six rural properties of 337.5 ha (in their place, the CAR's properties: vector.rasterize of SICAR's polygons)."
@@ -3169,7 +3175,7 @@ params = { rows = 150, columns = 150, dimension = 1.3, seed = 61, resolution = 3
 
 [[nodes]]
 id = "dem"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "relief.map" }
 params = { expression = "300 + 900 * f" }
 note = "The elevation, 300 to 1,200 m (in its place, a DEM: raster.read, or data.download's Copernicus DEM)."
@@ -3218,7 +3224,7 @@ note = "The land upstream of every link: its mean and largest slope, the share o
 
 [[nodes]]
 id = "area"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "dem.map" }
 params = { expression = "d * 0 + 1" }
 
@@ -3278,7 +3284,7 @@ params = { rows = 150, columns = 150, dimension = 1.3, seed = 71, resolution = 3
 
 [[nodes]]
 id = "dem"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "relief.map" }
 params = { expression = "200 + 800 * f" }
 note = "The elevation, 200 to 1,000 m (in its place, a DEM: raster.read, or data.download's Copernicus DEM)."
@@ -3307,7 +3313,7 @@ inputs = { dem = "filled.map", streams = "rivers.map" }
 
 [[nodes]]
 id = "area"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "dem.map" }
 params = { expression = "d * 0 + 1" }
 
@@ -3415,7 +3421,7 @@ note = "The body below once for each year: @item is the year's map, @name its na
 collect = { forest = "kept.map", stats = "stats.table" }
 [[nodes.body.nodes]]
 id = "forest"
-op = "map.calc"
+op = "raster.calc"
 inputs = { cover = "@item" }
 params = { expression = "cover == 1" }
 [[nodes.body.nodes]]
@@ -3498,7 +3504,7 @@ params = { rows = 100, columns = 100, dimension = 1.4, seed = 92, resolution = 3
 
 [[nodes]]
 id = "farmland"
-op = "map.calc"
+op = "raster.calc"
 inputs = { l = "land.map" }
 params = { expression = "l == 2" }
 
@@ -3521,7 +3527,7 @@ inputs = { landscape = "@f" }
 params = { classes = 1 }
 [[nodes.body.nodes.body.nodes]]
 id = "near"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "away.distance" }
 params = { expression = "1 / (1 + d / 300)" }
 [[nodes.body.nodes]]
@@ -3533,13 +3539,13 @@ note = "The share of farmland in the 7 x 7 cells around each cell."
 outputs = { map = "share.map" }
 [[nodes.body.nodes.body.nodes]]
 id = "share"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "@f" }
 params = { expression = "nbmean(f, 3)" }
 
 [[nodes]]
 id = "combined"
-op = "map.calc"
+op = "raster.calc"
 inputs = { s = "suitability.map", r = "relief.map", w = "$weight" }
 params = { expression = "w * s + (1 - w) * (1 - r)" }
 note = "The suitability weighed against the slope (the relief as its stand-in)."
@@ -3576,7 +3582,7 @@ note = "A fractal surface by midpoint displacement, from 0 to 1, of cells of 30 
 
 [[nodes]]
 id = "elevation"
-op = "map.calc"
+op = "raster.calc"
 inputs = { r = "relief.map" }
 params = { expression = "200 + r * 800" }
 note = "Metres: from 200 to 1000."
@@ -3668,7 +3674,7 @@ note = "The canopy's cover, 0 to 1 (in its place, a raster.read of a tree cover 
 id = "carbon"
 op = "uncertainty.monte_carlo"
 inputs = { canopy = "canopy.map" }
-params = { expression = "a * canopy ^ b * fraction", parameters = [["a", 250, 25], ["b", 1.5, 0.15], ["fraction", 0.47, 0.02]], n = 500, seed = 1 }
+params = { expression = "a * canopy ** b * fraction", parameters = [["a", 250, 25], ["b", 1.5, 0.15], ["fraction", 0.47, 0.02]], n = 500, seed = 1 }
 note = "The carbon, t/ha: the biomass from the cover by an allometry a cover^b (a 250 ± 25, b 1.5 ± 0.15), times its carbon fraction (0.47 ± 0.02); the three drawn 500 times from normal distributions. mean, sd and quantiles (2.5 % and 97.5 %) of every cell."
 
 [[nodes]]
@@ -3680,9 +3686,9 @@ note = "A normal interval of 90 % from the mean and the deviation."
 
 [[nodes]]
 id = "relative"
-op = "map.calc"
+op = "raster.calc"
 inputs = { m = "carbon.mean", s = "carbon.sd" }
-params = { expression = "if m > 0 then 100 * s / m else null" }
+params = { expression = "100 * s / m if m > 0 else None" }
 note = "The deviation as a share of the mean (%)."
 
 [[nodes]]
@@ -3869,7 +3875,7 @@ params = { rows = 100, columns = 100, seed = 71 }
 
 [[nodes]]
 id = "ndvi1"
-op = "map.calc"
+op = "raster.calc"
 inputs = { b = "base.map", c = "change.map", e = "noise1.map" }
 params = { expression = "0.3 + 0.4 * b + 0.00 * (c - 0.5) + 0.08 * (e - 0.5)" }
 note = "The NDVI of a year: a level that stays, a change that grows year by year, noise (in their place, a series of NDVI maps: raster.read)."
@@ -3881,7 +3887,7 @@ params = { rows = 100, columns = 100, seed = 72 }
 
 [[nodes]]
 id = "ndvi2"
-op = "map.calc"
+op = "raster.calc"
 inputs = { b = "base.map", c = "change.map", e = "noise2.map" }
 params = { expression = "0.3 + 0.4 * b + 0.06 * (c - 0.5) + 0.08 * (e - 0.5)" }
 
@@ -3892,7 +3898,7 @@ params = { rows = 100, columns = 100, seed = 73 }
 
 [[nodes]]
 id = "ndvi3"
-op = "map.calc"
+op = "raster.calc"
 inputs = { b = "base.map", c = "change.map", e = "noise3.map" }
 params = { expression = "0.3 + 0.4 * b + 0.12 * (c - 0.5) + 0.08 * (e - 0.5)" }
 
@@ -3903,7 +3909,7 @@ params = { rows = 100, columns = 100, seed = 74 }
 
 [[nodes]]
 id = "ndvi4"
-op = "map.calc"
+op = "raster.calc"
 inputs = { b = "base.map", c = "change.map", e = "noise4.map" }
 params = { expression = "0.3 + 0.4 * b + 0.18 * (c - 0.5) + 0.08 * (e - 0.5)" }
 
@@ -3914,7 +3920,7 @@ params = { rows = 100, columns = 100, seed = 75 }
 
 [[nodes]]
 id = "ndvi5"
-op = "map.calc"
+op = "raster.calc"
 inputs = { b = "base.map", c = "change.map", e = "noise5.map" }
 params = { expression = "0.3 + 0.4 * b + 0.24 * (c - 0.5) + 0.08 * (e - 0.5)" }
 
@@ -3986,14 +3992,14 @@ params = { rows = 100, columns = 100, range = 12, seed = 81 }
 
 [[nodes]]
 id = "soil"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "field.map" }
 params = { expression = "20 + 30 * f" }
 note = "The true surface, a soil's carbon in g/kg say (in its place, the area to interpolate: any map of it)."
 
 [[nodes]]
 id = "area"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "soil.map" }
 params = { expression = "f * 0 + 1" }
 
@@ -4031,13 +4037,13 @@ params = { field = "value", power = 2 }
 
 [[nodes]]
 id = "kriging_error"
-op = "map.calc"
+op = "raster.calc"
 inputs = { k = "kriging.prediction", s = "soil.map" }
 params = { expression = "k - s" }
 
 [[nodes]]
 id = "idw_error"
-op = "map.calc"
+op = "raster.calc"
 inputs = { i = "idw.map", s = "soil.map" }
 params = { expression = "i - s" }
 
@@ -4085,20 +4091,20 @@ params = { rows = 80, columns = 100, range = 6, seed = 92 }
 
 [[nodes]]
 id = "period1"
-op = "map.calc"
+op = "raster.calc"
 inputs = { g = "gradient.map", n = "noise.map" }
 params = { expression = "max(0, min(1000, round(1000 - abs(g - 0.25) * 3500 + (n - 0.5) * 500)))" }
 note = "The suitability of a period, 0 to 1000: its optimum moving up the gradient (in their place, a species distribution model's predictions for each period, times 1000)."
 
 [[nodes]]
 id = "period2"
-op = "map.calc"
+op = "raster.calc"
 inputs = { g = "gradient.map", n = "noise.map" }
 params = { expression = "max(0, min(1000, round(1000 - abs(g - 0.45) * 3500 + (n - 0.5) * 500)))" }
 
 [[nodes]]
 id = "period3"
-op = "map.calc"
+op = "raster.calc"
 inputs = { g = "gradient.map", n = "noise.map" }
 params = { expression = "max(0, min(1000, round(1000 - abs(g - 0.65) * 3500 + (n - 0.5) * 500)))" }
 
@@ -4109,16 +4115,16 @@ inputs = { p1 = "period1.map", p2 = "period2.map", p3 = "period3.map" }
 
 [[nodes]]
 id = "initial"
-op = "map.calc"
+op = "raster.calc"
 inputs = { s = "period1.map", g = "gradient.map" }
-params = { expression = "if s > 600 and g < 0.3 then 1 else 0" }
+params = { expression = "1 if s > 600 and g < 0.3 else 0" }
 note = "Where the species is now: suitable cells at the lower end of the gradient."
 
 [[nodes]]
 id = "river"
-op = "map.calc"
+op = "raster.calc"
 inputs = { g = "gradient.map" }
-params = { expression = "if abs(g - 0.4) < 0.006 then 1 else 0" }
+params = { expression = "1 if abs(g - 0.4) < 0.006 else 0" }
 note = "A river across the gradient, a barrier."
 
 [[nodes]]
@@ -4159,7 +4165,7 @@ params = { rows = 100, columns = 100, range = 10, seed = 101 }
 
 [[nodes]]
 id = "patch_area"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "area_field.map" }
 params = { expression = "0.2 + 3 * f" }
 note = "The area of a patch found at a place, in hectares (in its place, a table of the patches: x, y, area, occupied)."
@@ -4171,9 +4177,9 @@ params = { rows = 100, columns = 100, seed = 102 }
 
 [[nodes]]
 id = "start"
-op = "map.calc"
+op = "raster.calc"
 inputs = { r = "draw.map" }
-params = { expression = "if r < 0.4 then 1 else 0" }
+params = { expression = "1 if r < 0.4 else 0" }
 
 [[nodes]]
 id = "attributes"
@@ -4182,7 +4188,7 @@ inputs = { area = "patch_area.map", occupied = "start.map" }
 
 [[nodes]]
 id = "everywhere"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "area_field.map" }
 params = { expression = "f * 0 + 1" }
 

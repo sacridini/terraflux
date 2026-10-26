@@ -34,9 +34,9 @@ params = { rows = 250, columns = 250, resolution = 100, range = 60, seed = 32 }
 
 [[nodes]]
 id = "towns"
-op = "map.calc"
+op = "raster.calc"
 inputs = { s = "spots.map", g = "size.map" }
-params = { expression = "if s == 1 then round(500 + 40000 * g * g * g) else null" }
+params = { expression = "round(500 + 40000 * g * g * g) if s == 1 else None" }
 note = "Each town's population; no value elsewhere."
 
 [[nodes]]
@@ -49,9 +49,9 @@ params = { exponent = 2 }
 DRIVER = TOWNS + """
 [[nodes]]
 id = "is_town"
-op = "map.calc"
+op = "raster.calc"
 inputs = { t = "towns.map" }
-params = { expression = "if isnull(t) then 0 else 1" }
+params = { expression = "0 if isnull(t) else 1" }
 
 [[nodes]]
 id = "nearest"
@@ -61,16 +61,16 @@ params = { classes = 1 }
 
 [[nodes]]
 id = "land"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "nearest.distance" }
-params = { expression = "if d <= 300 then 2 else 1" }
+params = { expression = "2 if d <= 300 else 1" }
 note = "1 forest, 2 cleared around the towns."
 
 [[nodes]]
 id = "by_pull"
-op = "map.calc"
+op = "raster.calc"
 inputs = { land = "land.map", p = "pull.map" }
-params = { expression = "if land == 1 then p / (p + 500) else 0" }
+params = { expression = "p / (p + 500) if land == 1 else 0" }
 
 [[nodes]]
 id = "transitions"
@@ -96,13 +96,13 @@ inputs = { landscape = "land.map", probability = "transitions.stack", rates = "r
 # the same step with the probability from the distance to the nearest town
 BY_DISTANCE = DRIVER.replace("""[[nodes]]
 id = "by_pull"
-op = "map.calc"
+op = "raster.calc"
 inputs = { land = "land.map", p = "pull.map" }
-params = { expression = "if land == 1 then p / (p + 500) else 0" }""", """[[nodes]]
+params = { expression = "p / (p + 500) if land == 1 else 0" }""", """[[nodes]]
 id = "by_pull"
-op = "map.calc"
+op = "raster.calc"
 inputs = { land = "land.map", d = "nearest.distance" }
-params = { expression = "if land == 1 then exp(-d / 1500) else 0" }""")
+params = { expression = "exp(-d / 1500) if land == 1 else 0" }""")
 assert BY_DISTANCE != DRIVER
 
 
@@ -222,16 +222,16 @@ params = { rows = 250, columns = 250, resolution = 100, origin = [51, 200, 51, 2
 
 [[nodes]]
 id = "study"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "frame.map" }
-params = { expression = "if d == 0 then 1 else null" }
+params = { expression = "1 if d == 0 else None" }
 note = "The study area; no value around it."
 
 [[nodes]]
 id = "inside"
-op = "map.calc"
+op = "raster.calc"
 inputs = { t = "towns.map", s = "study.map" }
-params = { expression = "if isnull(s) then null else t" }
+params = { expression = "None if isnull(s) else t" }
 note = "Only the towns of the study area."
 
 [[nodes]]
@@ -309,9 +309,9 @@ params = { rows = 250, columns = 250, resolution = 100, p = 0.5, weights = [0.8,
 
 [[nodes]]
 id = "cleared"
-op = "map.calc"
+op = "raster.calc"
 inputs = { l = "land.map" }
-params = { expression = "if l == 2 then 1 else null" }
+params = { expression = "1 if l == 2 else None" }
 
 [[nodes]]
 id = "pull"

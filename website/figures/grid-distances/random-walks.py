@@ -57,13 +57,13 @@ params = {{ column = "id" }}
 
 [[nodes]]
 id = "south"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ p = "patch.map" }}
 params = {{ expression = "coalesce(p == 55, 0)" }}
 
 [[nodes]]
 id = "north_east"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ p = "patch.map" }}
 params = {{ expression = "coalesce(p == 96, 0)" }}
 

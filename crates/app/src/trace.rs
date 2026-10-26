@@ -442,7 +442,7 @@ fn walk(
         How::Loop
     } else if n.op == GROUP {
         How::Group
-    } else if n.op == "map.calc" {
+    } else if n.op == "raster.calc" {
         let text = n.params.get("expression").map(words).unwrap_or_default();
         How::Expression { with_values: substituted(&text, &at_inputs), text }
     } else if !reads_nodes {
@@ -626,8 +626,8 @@ mod tests {
         ]
         .into();
         assert_eq!(
-            substituted("if t0 == 1 and nbsum(t0 == 2, 1) >= 2 and suit > 0.45 then 2 else t0", &v),
-            "if 1 == 1 and nbsum(1 == 2, 1) >= 2 and 0.71 > 0.45 then 2 else 1"
+            substituted("2 if t0 == 1 and nbsum(t0 == 2, 1) >= 2 and suit > 0.45 else t0", &v),
+            "2 if 1 == 1 and nbsum(1 == 2, 1) >= 2 and 0.71 > 0.45 else 1"
         );
         assert_eq!(substituted("s.forest * 2 + other", &v), "3 * 2 + other");
         assert_eq!(steps_text(&[1.0, 1.0, 2.0, 2.0]), "1 at step 1, 2 from step 3, (4 steps)");
@@ -649,7 +649,7 @@ mod tests {
         // map algebra: its expression with the values at the cell
         let calc = t.steps.iter().find(|s| s.node == "land_2010").expect("land_2010 traced");
         let How::Expression { with_values, .. } = &calc.how else { panic!("{:?}", calc.how) };
-        assert!(with_values.starts_with("if "), "{with_values}");
+        assert!(with_values.contains(" if ") && with_values.contains(" else "), "{with_values}");
         assert!(!with_values.contains("suit"), "the names replaced: {with_values}");
         // a model's operator from the whole map; the data at the end
         let fit = t.steps.iter().find(|s| s.node == "regression").expect("the regression traced");
@@ -660,7 +660,7 @@ mod tests {
         // each node once, the text and sentence tell them
         let ids: HashSet<&str> = t.steps.iter().map(|s| s.node.as_str()).collect();
         assert_eq!(ids.len(), t.steps.len());
-        assert!(t.text().contains("with the values here: if "));
+        assert!(t.text().contains("with the values here: 2 if "));
         assert!(t.sentence().starts_with("Here simulation.maps is "), "{}", t.sentence());
         assert!(!t.sentence().contains("a value of type"), "{}", t.sentence());
         // into the loop: a run that kept its body's values at the cell, step by step

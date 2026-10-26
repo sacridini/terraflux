@@ -6,7 +6,7 @@ order: 50
 level: advanced
 time: 60 min
 template: Restoration plan
-ops: [restoration.plan, restoration.original_vegetation, sdm.area_of_habitat, raster.read, map.calc, stack.of]
+ops: [restoration.plan, restoration.original_vegetation, sdm.area_of_habitat, raster.read, raster.calc, stack.of]
 series: Distance and restoration
 part: 5
 ---

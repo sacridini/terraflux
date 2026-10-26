@@ -594,8 +594,18 @@ pub struct Session {
 impl Session {
     /// Read a model and check it; its data is read in a thread (see [`Session::loading`]).
     pub fn open(path: &Path) -> Result<Session, String> {
-        let source = Model::load(path).map_err(|e| format!("{}: {e}", path.display()))?;
-        Session::new(source, Some(path.to_path_buf()))
+        let (source, notes) = Model::load_noting(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let mut s = Session::new(source, Some(path.to_path_buf()))?;
+        // map algebra of the old syntax, rewritten: told, and to be saved
+        if !notes.is_empty() {
+            s.dirty = true;
+            s.editor.message = Some(format!(
+                "{} written in map algebra's old syntax, rewritten in Python's (save the model to keep it): {}",
+                if notes.len() == 1 { "A setting was".to_string() } else { format!("{} settings were", notes.len()) },
+                notes.join("; ")
+            ));
+        }
+        Ok(s)
     }
 
     /// A model without nodes, not saved yet.

@@ -82,7 +82,7 @@ Boston, studied by a Long Term Ecological Research site. lulcc's example data ma
 ![The observed maps of 1985, 1991 and 1999](/img/tutorials/land-change/clue-s-ideas/observed.png "The three observed maps of Plum Island Ecosystems (lulcc's example data). Built land grows, mostly into forest; the coastal east is mostly *Other*.")
 
 Between 1985 and 1999, 7.6% of the cells changed class. The map of the change (made in Terraflux with one
-`map.calc` node, `if a == b then 0 else a * 10 + b`) shows the process the model must reproduce: suburban
+`raster.calc` node, `0 if a == b else a * 10 + b`) shows the process the model must reproduce: suburban
 growth scattered across the whole watershed, mostly into forest (4,250 cells) and into *Other* land (2,248 cells),
 and some *Other* land returning to forest (1,259 cells).
 
@@ -349,7 +349,7 @@ What this part's runs show, and how to read the same things in your own model:
   iterations, whether the allocation converged (`converged` = 1), the largest and mean differences from the
   demand in cells, and the cells of each class. Look at `converged` first: a 0 means the map of that year does
   not meet the demand, and Terraflux also prints a warning.
-- **The cells changed per step** are not in the table; compare consecutive maps (a `map.calc` of
+- **The cells changed per step** are not in the table; compare consecutive maps (a `raster.calc` of
   `a != b`). A gross change much larger than the net change of the demand is a sign of low elasticities or
   weak regressions.
 - **The maps** (`maps.tif`, a band per year) are what you analyse afterwards: landscape metrics, habitat,

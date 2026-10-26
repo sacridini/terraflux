@@ -18,6 +18,7 @@
 //! operators' signatures before anything runs.
 
 mod check;
+pub mod old_algebra;
 pub mod submodel;
 mod types;
 pub mod user_node;
@@ -102,7 +103,7 @@ pub fn relative_paths(nodes: &mut [Node], dir: &Path) {
 }
 
 /// Operators renamed, their old names and new ones: a model written with an old name reads with the new.
-pub const RENAMED: [(&str, &str); 1] = [("stack.layer", "stack.extract_layer")];
+pub const RENAMED: [(&str, &str); 2] = [("stack.layer", "stack.extract_layer"), ("map.calc", "raster.calc")];
 
 /// The version of the model format this crate reads and writes.
 pub const FORMAT: &str = "terraflux/1";
@@ -508,14 +509,18 @@ impl Model {
 
     /// Read a model from TOML (`.toml`) or JSON (any other extension).
     pub fn load(path: impl AsRef<Path>) -> Result<Model> {
+        Ok(Model::load_noting(path)?.0)
+    }
+
+    /// Read a model, and what of it written by an older Terraflux was brought up to date ([`Model::upgrade`]).
+    pub fn load_noting(path: impl AsRef<Path>) -> Result<(Model, Vec<String>)> {
         let path = path.as_ref();
         let text = std::fs::read_to_string(path)?;
-        let model = if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("toml")) {
-            Model::from_toml(&text)?
-        } else {
-            Model::from_json(&text)?
-        };
-        Ok(model)
+        let toml = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("toml"));
+        let mut m: Model = if toml { toml::from_str(&text)? } else { serde_json::from_str(&text)? };
+        m.check_format()?;
+        let notes = m.upgrade();
+        Ok((m, notes))
     }
 
     /// Read a model and expand its submodels (to run it).
@@ -552,10 +557,11 @@ impl Model {
         Ok(m)
     }
 
-    /// A model written by an older Terraflux brought up to date (done when a model is read): what read a
-    /// `raster.read`'s `map` or `stack` (the same rasters on disk as its `raster`, which feeds what takes a map,
-    /// its band chosen, or a stack) reads its `raster`.
-    pub fn upgrade(&mut self) {
+    /// A model written by an older Terraflux brought up to date (done when a model is read): the operators
+    /// renamed by their new names; map algebra in the language's one syntax ([`old_algebra`]), told in the notes
+    /// returned; what read a `raster.read`'s `map` or `stack` (the same rasters on disk as its `raster`, which
+    /// feeds what takes a map, its band chosen, or a stack) reads its `raster`.
+    pub fn upgrade(&mut self) -> Vec<String> {
         // the operators renamed: their new names
         fn rename(nodes: &mut [Node]) {
             for n in nodes {
@@ -568,6 +574,37 @@ impl Model {
             }
         }
         rename(&mut self.nodes);
+        fn algebra(nodes: &mut [Node], notes: &mut Vec<String>) {
+            for n in nodes {
+                for (op, setting, script) in old_algebra::SETTINGS {
+                    if n.op != op {
+                        continue;
+                    }
+                    let Some(serde_json::Value::String(text)) = n.params.get_mut(setting) else { continue };
+                    let new =
+                        if script { old_algebra::upgrade_script(text) } else { old_algebra::upgrade_expression(text) };
+                    if let Some(new) = new {
+                        notes.push(format!(
+                            "node {:?}: its {setting} was in map algebra's old syntax, written now as Python's: {}",
+                            n.id,
+                            new.trim()
+                        ));
+                        *text = new;
+                    }
+                }
+                if let Some(b) = &mut n.body {
+                    algebra(&mut b.nodes, notes);
+                }
+            }
+        }
+        let mut notes = Vec::new();
+        algebra(&mut self.nodes, &mut notes);
+        self.read_raster();
+        notes
+    }
+
+    /// What read a `raster.read`'s `map` or `stack` reads its `raster`.
+    fn read_raster(&mut self) {
         fn ids(nodes: &[Node], read: &mut BTreeSet<String>, other: &mut BTreeSet<String>) {
             for n in nodes {
                 if n.op == "raster.read" {
@@ -880,6 +917,44 @@ from = "land.map"
         assert_eq!(calc.inputs["b"], Source::Ref("land.raster".into()));
         assert_eq!(calc.inputs["c"], Source::Ref("other.map".into()), "another node's map is its own");
         assert_eq!(m.outputs["out"].from, "land.raster");
+    }
+
+    #[test]
+    fn a_map_calc_of_before_is_a_raster_calc_in_python_s_syntax() {
+        let mut m: Model = toml::from_str(
+            r#"
+format = "terraflux/1"
+
+[[nodes]]
+id = "calc"
+op = "map.calc"
+params = { expression = "if a > 2 then 1 else null" }
+
+[[nodes]]
+id = "loop"
+op = "control.repeat"
+[nodes.body]
+[[nodes.body.nodes]]
+id = "keep"
+op = "table.filter"
+params = { expression = "area > 10 && class != 3" }
+
+[[nodes]]
+id = "new"
+op = "raster.calc"
+params = { expression = "out x = a ** 2" }
+"#,
+        )
+        .unwrap();
+        let notes = m.upgrade();
+        let calc = m.node("calc").unwrap();
+        assert_eq!(calc.op, "raster.calc");
+        assert_eq!(calc.params["expression"], "1 if a > 2 else None");
+        let keep = &m.node("loop").unwrap().body.as_ref().unwrap().nodes[0];
+        assert_eq!(keep.params["expression"], "area > 10 and class != 3");
+        assert_eq!(m.node("new").unwrap().params["expression"], "out x = a ** 2");
+        assert_eq!(notes.len(), 2, "{notes:?}");
+        assert!(notes[0].starts_with("node \"calc\": its expression was in map algebra's old syntax"), "{notes:?}");
     }
 
     fn sample() -> Model {

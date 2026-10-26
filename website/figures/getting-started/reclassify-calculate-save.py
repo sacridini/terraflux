@@ -66,15 +66,15 @@ params = {{ extent = {WINDOW}, path = "window.tif" }}
 
 [[nodes]]
 id = "share"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ lc = "window.raster" }}
 params = {{ expression = "nbmean(lc >= 23 and lc <= 25, 20)" }}
 
 [[nodes]]
 id = "edge"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ lc = "window.raster" }}
-params = {{ expression = "if lc >= 23 and lc <= 25 then (nbmin(lc >= 23 and lc <= 25, 1) == 0) + 1 else 0" }}
+params = {{ expression = "(nbmin(lc >= 23 and lc <= 25, 1) == 0) + 1 if lc >= 23 and lc <= 25 else 0" }}
 
 [[nodes]]
 id = "u8"
@@ -135,9 +135,9 @@ params = {{ path = "{posix(NDVI)}" }}
 
 [[nodes]]
 id = "gaps"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ elevation = "elevation.raster", ndvi = "ndvi.raster" }}
-params = {{ expression = "if ndvi < 0.4 then null else elevation" }}
+params = {{ expression = "None if ndvi < 0.4 else elevation" }}
 
 [[nodes]]
 id = "gaps_file"

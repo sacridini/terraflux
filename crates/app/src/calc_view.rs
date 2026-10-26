@@ -1,4 +1,4 @@
-//! The calculator: a console for the scripts of map algebra (`map.calc`, [`terraflux_ops::algebra`]) under the
+//! The calculator: a console for the scripts of map algebra (`raster.calc`, [`terraflux_ops::algebra`]) under the
 //! model. The script of the node selected with its words in colour and its first error underlined where it is;
 //! the names completed as they are typed (the node's inputs, a stack's layers after `.`, the functions, the
 //! methods); its outputs computed at once on a sample of the cells, beside it; and a line under it that computes
@@ -102,18 +102,18 @@ pub enum Asked {
     RunTo(String),
 }
 
-/// The node a calculator edits: the node selected when it is a `map.calc`, else the one it edited (while it is
+/// The node a calculator edits: the node selected when it is a `raster.calc`, else the one it edited (while it is
 /// still there).
 fn target(c: &Calculator, s: &Session) -> Option<(Vec<String>, Node)> {
     let path = s.editor.path.clone();
     if let Some(id) = &s.selected
         && let Some(n) = s.source.scope(&path).and_then(|v| v.iter().find(|n| &n.id == id))
-        && n.op == "map.calc"
+        && n.op == "raster.calc"
     {
         return Some((path, n.clone()));
     }
     let (path, id) = c.node.as_ref()?;
-    let n = s.source.scope(path)?.iter().find(|n| &n.id == id && n.op == "map.calc")?;
+    let n = s.source.scope(path)?.iter().find(|n| &n.id == id && n.op == "raster.calc")?;
     Some((path.clone(), n.clone()))
 }
 
@@ -250,6 +250,31 @@ fn layout(ui: &Ui, text: &str, inputs: &Inputs, problem: Option<&Problem>, wrap:
     job
 }
 
+/// A script edited where a node's settings are (the Node pane): in the terminal's font, its words in colour, its
+/// first error underlined and told under it. The node's inputs are known by their names only (what they are, and
+/// the rest, in the Calculator). The editor's response.
+pub fn script_field(ui: &mut Ui, id: egui::Id, text: &mut String, n: &Node) -> egui::Response {
+    let inputs: Inputs = n.inputs.keys().map(|k| (k.clone(), Input::Unknown)).collect();
+    let problem = if text.trim().is_empty() { None } else { algebra_tools::problem(text, &inputs) };
+    let mut layouter = |ui: &Ui, t: &dyn egui::TextBuffer, wrap: f32| {
+        ui.fonts_mut(|f| f.layout_job(layout(ui, t.as_str(), &inputs, problem.as_ref(), wrap)))
+    };
+    let resp = egui::TextEdit::multiline(text)
+        .id(id)
+        .code_editor()
+        .desired_rows(4)
+        .desired_width(f32::INFINITY)
+        .hint_text(mono("out classes = 1 if elev < 700 else 2").weak())
+        .layouter(&mut layouter)
+        .show(ui)
+        .response
+        .response;
+    if let Some(p) = &problem {
+        ui.label(RichText::new(format!("line {}: {}", p.line, p.message)).small().color(ui.visuals().error_fg_color));
+    }
+    resp
+}
+
 /// The byte at a character of a text.
 fn byte_at(text: &str, chars: usize) -> usize {
     text.char_indices().nth(chars).map_or(text.len(), |(i, _)| i)
@@ -263,7 +288,7 @@ fn mono(t: impl Into<String>) -> RichText {
 /// A number as the console writes it.
 fn number(x: f64) -> String {
     if x.is_nan() {
-        "null".into()
+        "None".into()
     } else if x == x.round() && x.abs() < 1e15 {
         format!("{x}")
     } else {
@@ -275,7 +300,7 @@ fn number(x: f64) -> String {
 /// A map's numbers: the least, the mean, the largest, the cells missing.
 fn numbers(cells: &[f64]) -> String {
     let (lo, mean, hi, missing) = algebra_tools::summary(cells);
-    let missing = if missing > 0 { format!(" · {missing} null") } else { String::new() };
+    let missing = if missing > 0 { format!(" · {missing} missing") } else { String::new() };
     format!("min {} · mean {} · max {}{missing}", number(lo), number(mean), number(hi))
 }
 
@@ -455,7 +480,7 @@ impl Calculator {
 fn help() -> String {
     let mut t = String::from(
         "name = value · name[where] = value · s.layer = value · out name = value · # a comment\n\
-         + - * / % ** · < <= > >= == != (5 <= x < 8) · and or not · a if c else b · null True False pi\n",
+         + - * / % ** · < <= > >= == != (5 <= x < 8) · and or not · a if c else b · None True False pi\n",
     );
     for (_, written, what) in FUNCTION_HELP {
         t.push_str(&format!("{written:<26}{what}\n"));
@@ -477,7 +502,7 @@ pub fn pane(ui: &mut Ui, c: &mut Calculator, s: &mut Session) -> Option<Asked> {
             ui.add_space(4.0);
             ui.label(
                 mono(
-                    "Select a map.calc node to write its script here: maps, stacks and numbers in a language close \
+                    "Select a raster.calc node to write its script here: maps, stacks and numbers in a language close \
                      to Python's, its inputs' names and layers completed as you type, its outputs shown at once.",
                 )
                 .weak(),
@@ -942,8 +967,8 @@ mod tests {
         assert_eq!(number(3.0), "3");
         assert_eq!(number(0.123456789), "0.123457");
         assert_eq!(number(2.5), "2.5");
-        assert_eq!(number(f64::NAN), "null");
-        assert_eq!(numbers(&[1.0, f64::NAN, 2.0]), "min 1 · mean 1.5 · max 2 · 1 null");
+        assert_eq!(number(f64::NAN), "None");
+        assert_eq!(numbers(&[1.0, f64::NAN, 2.0]), "min 1 · mean 1.5 · max 2 · 1 missing");
         assert_eq!(byte_at("aé b", 2), 3);
         assert!(help().contains("percentile(s, p)") && help().contains("x.mean()"));
     }

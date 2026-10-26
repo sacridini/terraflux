@@ -92,9 +92,9 @@ inputs = { comp = "land_1997.raster", ref = "observed.raster" }
 
 [[nodes]]
 id = "outcome"
-op = "map.calc"
+op = "raster.calc"
 inputs = { t0 = "land_1997.raster", o = "observed.raster", s = "simulated.raster" }
-params = { expression = "if o != t0 and s == o then 1 else if o != t0 and s != t0 then 2 else if o != t0 then 3 else if s != t0 then 4 else 0" }
+params = { expression = "1 if o != t0 and s == o else 2 if o != t0 and s != t0 else 3 if o != t0 else 4 if s != t0 else 0" }
 """
 writes = {
     "disagreement.metrics": "fut_metrics.csv", "disagreement.classes": "fut_classes.csv",
@@ -252,13 +252,13 @@ params = { path = "simulated.tif" }
 
 [[nodes]]
 id = "observed_forest"
-op = "map.calc"
+op = "raster.calc"
 inputs = { m = "observed.raster" }
 params = { expression = "nbmean(m == 1, 2)" }
 
 [[nodes]]
 id = "simulated_forest"
-op = "map.calc"
+op = "raster.calc"
 inputs = { m = "simulated.raster" }
 params = { expression = "nbmean(m == 1, 2)" }
 

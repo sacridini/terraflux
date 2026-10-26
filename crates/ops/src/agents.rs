@@ -346,7 +346,7 @@ mod tests {
         let o = run(
             &Update,
             [("agents".to_string(), Value::Agents(a)), ("step".to_string(), Value::Integer(2))].into(),
-            serde_json::json!({"rules": "wealth = land * cells + step\nrich = if wealth > 10 then 1 else 0"}),
+            serde_json::json!({"rules": "wealth = land * cells + step\nrich = 1 if wealth > 10 else 0"}),
         )
         .unwrap();
         let a = agents(&o);

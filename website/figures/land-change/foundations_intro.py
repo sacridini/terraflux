@@ -49,9 +49,9 @@ inputs = { maps = "series.stack" }
 
 [[nodes]]
 id = "changed"
-op = "map.calc"
+op = "raster.calc"
 inputs = { a = "$t0", b = "$t1" }
-params = { expression = "if a != b then b else 0" }
+params = { expression = "b if a != b else 0" }
 
 [[nodes]]
 id = "write"

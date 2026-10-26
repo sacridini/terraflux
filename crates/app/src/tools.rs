@@ -72,6 +72,13 @@ raster.write and table.write nodes write files too.
 operator and these settings), and `refs`, `assumptions` and `alternatives` when there are; give the model the \
 user's `request` in the user's words, a `summary` of the conversation and its `author` (new_model, \
 set_model_info).
+- raster.calc (and every expression: value.calc, table.filter, agents.update's rules...) takes Python's syntax, \
+the only one (describe_operator raster.calc): one statement a line (`#` a comment), `name = value`, \
+`name[where] = value` (the cells where it holds), `a if c else b`, `**`, `and or not`, `None` (no value), chained \
+comparisons, a stack's layers as `s.layer`, and `out name = value` for each output (the node's ports); other \
+forms (`if c then a else b`, `^`, `&&`, `null`, `ln`) are refused. Write a script of a few named lines with a \
+comment: a reclassification is `classes = 1`, `classes[elev >= 700] = 2`, `classes[elev >= 1000] = 3`, \
+`out classes` (a line each).
 - check_model checks the model and its data; run_model runs it and writes its outputs; inspect_file summarises a \
 raster (size, classes, statistics) or shows a table.
 - open_in_app opens the model in Terraflux's application: in the one the user has open (its model replaced, unless \

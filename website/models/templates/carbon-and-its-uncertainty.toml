@@ -12,7 +12,7 @@ note = "The canopy's cover, 0 to 1 (in its place, a raster.read of a tree cover 
 id = "carbon"
 op = "uncertainty.monte_carlo"
 inputs = { canopy = "canopy.map" }
-params = { expression = "a * canopy ^ b * fraction", parameters = [["a", 250, 25], ["b", 1.5, 0.15], ["fraction", 0.47, 0.02]], n = 500, seed = 1 }
+params = { expression = "a * canopy ** b * fraction", parameters = [["a", 250, 25], ["b", 1.5, 0.15], ["fraction", 0.47, 0.02]], n = 500, seed = 1 }
 note = "The carbon, t/ha: the biomass from the cover by an allometry a cover^b (a 250 ± 25, b 1.5 ± 0.15), times its carbon fraction (0.47 ± 0.02); the three drawn 500 times from normal distributions. mean, sd and quantiles (2.5 % and 97.5 %) of every cell."
 
 [[nodes]]
@@ -24,9 +24,9 @@ note = "A normal interval of 90 % from the mean and the deviation."
 
 [[nodes]]
 id = "relative"
-op = "map.calc"
+op = "raster.calc"
 inputs = { m = "carbon.mean", s = "carbon.sd" }
-params = { expression = "if m > 0 then 100 * s / m else null" }
+params = { expression = "100 * s / m if m > 0 else None" }
 note = "The deviation as a share of the mean (%)."
 
 [[nodes]]

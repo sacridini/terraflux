@@ -5,7 +5,7 @@ description: Turn a digital elevation model into slope, aspect, topographic posi
 order: 10
 level: beginner
 time: 45 min
-ops: [raster.read, raster.reproject, raster.terrain, surface.terrain, surface.tpi, surface.tri, surface.vrm, surface.curvature, surface.hli, surface.hsp, map.calc]
+ops: [raster.read, raster.reproject, raster.terrain, surface.terrain, surface.tpi, surface.tri, surface.vrm, surface.curvature, surface.hli, surface.hsp, raster.calc]
 series: Continuous surfaces
 part: 1
 ---
@@ -405,9 +405,9 @@ Then the classification of the landscape into slope positions:
 
 <div class="steps" markdown>
 
-1. Add a [[map.calc]] (subject **Map algebra**) named `position`. Connect `tpi`'s map to an input you name `t`
+1. Add a [[raster.calc]] (subject **Map algebra**) named `position`. Connect `tpi`'s map to an input you name `t`
    and `slope`'s map to an input named `s`, and write the expression
-   `if t > 17.8 then 6 else if t > 8.9 then 5 else if t >= -8.9 and s > 5 then 4 else if t >= -8.9 then 3 else if t >= -17.8 then 2 else 1`.
+   `6 if t > 17.8 else 5 if t > 8.9 else 4 if t >= -8.9 and s > 5 else 3 if t >= -8.9 else 2 if t >= -17.8 else 1`.
 2. Add a [[view.plot]] after `position` (**title** = `Slope positions`) to see the classes in a tab of their
    own, and press ++f5++ to run the whole model.
 
@@ -445,17 +445,17 @@ params = { scale = 15 }
 
 [[nodes]]
 id = "position"
-op = "map.calc"
+op = "raster.calc"
 inputs = { t = "tpi.map", s = "slope.map" }
-params = { expression = "if t > 17.8 then 6 else if t > 8.9 then 5 else if t >= -8.9 and s > 5 then 4 else if t >= -8.9 then 3 else if t >= -17.8 then 2 else 1" }
+params = { expression = "6 if t > 17.8 else 5 if t > 8.9 else 4 if t >= -8.9 and s > 5 else 3 if t >= -8.9 else 2 if t >= -17.8 else 1" }
 note = "1 valley, 2 lower slope, 3 flat, 4 middle slope, 5 upper slope, 6 ridge."
 ```
 
-The expression in `position` is Weiss's (2001) classification, written in [[map.calc]]'s language: a cell more
+The expression in `position` is Weiss's (2001) classification, written in [[raster.calc]]'s language: a cell more
 than one standard deviation of the TPI above its surroundings is a ridge (6); between half and one standard
 deviation above, an upper slope (5); within half a standard deviation of its surroundings it is a middle slope
 (4) if steeper than 5°, a flat (3) if not; between half and one standard deviation below, a lower slope (2); more
-than one below, a valley (1). The thresholds are numbers in metres because [[map.calc]] works cell by cell: the
+than one below, a valley (1). The thresholds are numbers in metres because [[raster.calc]] works cell by cell: the
 standard deviation of this map's TPI at 15 cells is 17.8 m (compute it once from the `tpi` map written to a
 file, with any statistics tool), so the thresholds are ±17.8 m and ±8.9 m. With another map or another window, recompute them.
 
@@ -541,9 +541,9 @@ images:
 
     [[nodes]]
     id = "position"
-    op = "map.calc"
+    op = "raster.calc"
     inputs = { t = "tpi.map", s = "slope.map" }
-    params = { expression = "if t > 17.8 then 6 else if t > 8.9 then 5 else if t >= -8.9 and s > 5 then 4 else if t >= -8.9 then 3 else if t >= -17.8 then 2 else 1" }
+    params = { expression = "6 if t > 17.8 else 5 if t > 8.9 else 4 if t >= -8.9 and s > 5 else 3 if t >= -8.9 else 2 if t >= -17.8 else 1" }
 
     [[nodes]]
     id = "plot"

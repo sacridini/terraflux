@@ -98,11 +98,11 @@ model = (L.HEAD + L.node("surface", "nlm.fbm", params={**R, "dimension": 1.5, "s
 layers = []
 for d, sh in zip(DATES, SHARES):
     if sh == 0:
-        model += L.node(f"y{d}", "map.calc", {"f": "forest.map"}, {"expression": "if f == 2 then 1 else 2"})
+        model += L.node(f"y{d}", "raster.calc", {"f": "forest.map"}, {"expression": "1 if f == 2 else 2"})
     else:
         model += L.node(f"cut{d}", "nlm.binarize", {"map": "pressure.map"}, {"breaks": sh})
-        model += L.node(f"y{d}", "map.calc", {"f": "forest.map", "c": f"cut{d}.map"},
-                        {"expression": "if f == 2 and c == 1 then 1 else 2"})
+        model += L.node(f"y{d}", "raster.calc", {"f": "forest.map", "c": f"cut{d}.map"},
+                        {"expression": "1 if f == 2 and c == 1 else 2"})
     layers.append(f'y{d} = "y{d}.map"')
 model += '\n[[nodes]]\nid = "dates"\nop = "stack.of"\ninputs = { ' + ", ".join(layers) + " }\n"
 L.run(model, w, {"dates.stack": "forest_dates.tif"}, name="clearing.toml")

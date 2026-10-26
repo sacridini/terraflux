@@ -233,18 +233,18 @@ fn the_editor_changes_the_graph() {
     {
         let s = h.state_mut().session.as_mut().unwrap();
         s.selected = None;
-        terraflux_app::builder::add(s, &terraflux_ops::Registry::standard(), "map.calc", &[]).unwrap();
+        terraflux_app::builder::add(s, &terraflux_ops::Registry::standard(), "raster.calc", &[]).unwrap();
     }
     h.run_steps(3);
     {
         let s = h.state_mut().session.as_mut().unwrap();
-        assert_eq!(s.selected.as_deref(), Some("map_calc"));
+        assert_eq!(s.selected.as_deref(), Some("raster_calc"));
         let r = terraflux_ops::Registry::standard();
-        terraflux_app::editor::connect(&mut s.source, &r, &[], "$t0", "map_calc", "land").unwrap();
-        terraflux_app::editor::set_param(&mut s.source, &[], "map_calc", "expression", "land == 1").unwrap();
+        terraflux_app::editor::connect(&mut s.source, &r, &[], "$t0", "raster_calc", "land").unwrap();
+        terraflux_app::editor::set_param(&mut s.source, &[], "raster_calc", "expression", "land == 1").unwrap();
         s.edited();
-        assert!(s.model.node("map_calc").is_some());
-        assert!(!s.issues.iter().any(|i| i.at.starts_with("map_calc")), "{:?}", s.issues);
+        assert!(s.model.node("raster_calc").is_some());
+        assert!(!s.issues.iter().any(|i| i.at.starts_with("raster_calc")), "{:?}", s.issues);
     }
     h.run_steps(3);
     assert!(h.query_by_label("Delete node").is_some(), "the selected node's panel");
@@ -270,8 +270,8 @@ fn the_editor_changes_the_graph() {
     h.query_all_by_label_contains("Save").next().expect("File's Save").click();
     h.run_steps(2);
     let saved = terraflux_graph::Model::load(&path).unwrap();
-    assert_eq!(saved.node("map_calc").unwrap().params["expression"], "land == 1");
-    assert!(saved.node("map_calc").unwrap().pos.is_some());
+    assert_eq!(saved.node("raster_calc").unwrap().params["expression"], "land == 1");
+    assert!(saved.node("raster_calc").unwrap().pos.is_some());
     assert!(!h.state().session.as_ref().unwrap().dirty);
 }
 
@@ -755,7 +755,7 @@ fn a_cell_is_traced_from_its_map() {
     let t = h.state().trace.trace.clone().expect("traced");
     assert_eq!(t.cell, (40, 60));
     assert!(h.query_by_label_contains("Here simulation.maps is").is_some());
-    assert!(h.query_all_by_label_contains("here: if ").next().is_some(), "the expression with the values");
+    assert!(h.query_all_by_label_contains("here: 2 if ").next().is_some(), "the expression with the values");
     // inside the loop
     h.get_by_label("Trace inside the loops").click_accesskit();
     until(&mut h, "the run kept", |a| a.trace.kept.is_some() || a.trace.error.is_some());
@@ -2212,7 +2212,7 @@ op = "nlm.random"
 params = { rows = 20, columns = 10, seed = 2 }
 [[nodes]]
 id = "sum"
-op = "map.calc"
+op = "raster.calc"
 inputs = { a = "small.map", b = "big.map" }
 params = { expression = "a + b" }
 "#,

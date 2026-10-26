@@ -58,7 +58,7 @@ params = { classes = 2, unit = "cells" }
 
 [[nodes]]
 id = "in_metres_0"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "near_built_0.distance" }
 params = { expression = "d * 99.92" }
 
@@ -70,9 +70,9 @@ params = { name = "dist_built_1985" }
 
 [[nodes]]
 id = "expansion"
-op = "map.calc"
+op = "raster.calc"
 inputs = { t0 = "$start", t1 = "$mid" }
-params = { expression = "if t0 == 2 then null else t1" }
+params = { expression = "None if t0 == 2 else t1" }
 
 [[nodes]]
 id = "regression"
@@ -156,7 +156,7 @@ params = { classes = 2, unit = "cells" }
 
 [[nodes.body.nodes]]
 id = "in_metres"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "near_built.distance" }
 params = { expression = "d * 99.92" }
 
@@ -204,7 +204,7 @@ params = { classes = 2, window = 9 }
 
 [[nodes]]
 id = "ease"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "$drivers" }
 params = { expression = "1 / (1 + d.slope)" }
 

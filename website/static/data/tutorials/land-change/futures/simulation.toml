@@ -23,13 +23,13 @@ params = { path = "subregions.tif" }
 
 [[nodes]]
 id = "developed"
-op = "map.calc"
+op = "raster.calc"
 inputs = { lu = "land.raster" }
 params = { expression = "lu == 2" }
 
 [[nodes]]
 id = "dev_end"
-op = "map.calc"
+op = "raster.calc"
 inputs = { lu = "end.raster" }
 params = { expression = "lu == 2" }
 

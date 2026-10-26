@@ -5,7 +5,7 @@ description: Combine contributing area and slope into the topographic wetness, s
 order: 30
 level: intermediate
 time: 45 min
-ops: [hydro.twi, hydro.spi, hydro.sti, hydro.connectivity_index, hydro.flow_accumulation, hydro.hand, map.calc]
+ops: [hydro.twi, hydro.spi, hydro.sti, hydro.connectivity_index, hydro.flow_accumulation, hydro.hand, raster.calc]
 series: Terrain hydrology
 part: 3
 ---
@@ -204,8 +204,8 @@ average), but stating it makes your index reproducible.
 1. Add a [[raster.read]] of `ndvi.tif` (`ndvi_read`) and a [[raster.reproject]] after it (`ndvi`) with the
    settings of part 1: **crs** `EPSG:32610`, **resolution** `30`, **resampling** `bilinear`, **extent**
    `[500010, 4760850, 508110, 4771920]`, so that it lies on the grid of `filled.tif`.
-2. Add a [[map.calc]] named `cover` with input `n` from `ndvi` and the expression
-   `if n > 0.55 then 0.003 else 0.05`: the weight \( W \), a cover factor of 0.003 under forest and 0.05 on open
+2. Add a [[raster.calc]] named `cover` with input `n` from `ndvi` and the expression
+   `0.003 if n > 0.55 else 0.05`: the weight \( W \), a cover factor of 0.003 under forest and 0.05 on open
    land.
 3. Add [[hydro.connectivity_index]] named `ic`, its `dem` from `filled` and its `weight` from `cover`, and set
    **threshold** to `500`.
@@ -237,9 +237,9 @@ params = { crs = "EPSG:32610", resolution = 30, extent = [500010, 4760850, 50811
 
 [[nodes]]
 id = "cover"
-op = "map.calc"
+op = "raster.calc"
 inputs = { n = "ndvi.raster" }
-params = { expression = "if n > 0.55 then 0.003 else 0.05" }
+params = { expression = "0.003 if n > 0.55 else 0.05" }
 note = "W: a USLE C per cover (illustrative)."
 
 [[nodes]]
@@ -269,8 +269,8 @@ to find the valley floors and give them the weight of open land:
 
 1. Add [[hydro.hand]] named `hand`, its `dem` from `filled`, with **threshold** `500` (it makes its own streams
    from the D8 accumulation).
-2. Add a [[map.calc]] named `cleared` with inputs `c` from `cover` and `h` from `hand`, and the expression
-   `if h < 20 then 0.05 else c`: every cell less than 20 m above its stream becomes open land.
+2. Add a [[raster.calc]] named `cleared` with inputs `c` from `cover` and `h` from `hand`, and the expression
+   `0.05 if h < 20 else c`: every cell less than 20 m above its stream becomes open land.
 3. Add a second [[hydro.connectivity_index]] named `ic_cleared`, the same as `ic` but with its `weight` from
    `cleared`.
 
@@ -301,9 +301,9 @@ params = { crs = "EPSG:32610", resolution = 30, extent = [500010, 4760850, 50811
 
 [[nodes]]
 id = "cover"
-op = "map.calc"
+op = "raster.calc"
 inputs = { n = "ndvi.raster" }
-params = { expression = "if n > 0.55 then 0.003 else 0.05" }
+params = { expression = "0.003 if n > 0.55 else 0.05" }
 
 [[nodes]]
 id = "hand"
@@ -313,9 +313,9 @@ params = { threshold = 500 }
 
 [[nodes]]
 id = "cleared"
-op = "map.calc"
+op = "raster.calc"
 inputs = { c = "cover.map", h = "hand.map" }
-params = { expression = "if h < 20 then 0.05 else c" }
+params = { expression = "0.05 if h < 20 else c" }
 
 [[nodes]]
 id = "ic"
@@ -341,7 +341,7 @@ images:
 === "Application"
 
     Run to a node with ++ctrl+enter++ to see its map under the canvas; a double click opens it in a tab. Put
-    two maps side by side in tabs to compare `ic` and `ic_cleared`, or subtract them with a [[map.calc]]
+    two maps side by side in tabs to compare `ic` and `ic_cleared`, or subtract them with a [[raster.calc]]
     (`b - a`).
 
 === "Command line"

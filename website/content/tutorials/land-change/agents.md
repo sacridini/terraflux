@@ -115,7 +115,7 @@ params = { rows = 120, columns = 120, germs = 60, seed = 51 }
 
 [[nodes]]
 id = "parcels"
-op = "map.calc"
+op = "raster.calc"
 inputs = { m = "mosaic.map" }
 params = { expression = "1 + floor(m * 100000)" }
 
@@ -127,7 +127,7 @@ params = { rows = 120, columns = 120, range = 25, seed = 52 }
 
 1. **`mosaic`** ([[nlm.mosaic_tess]]) draws a Voronoi mosaic of 60 cells on a grid of 120 x 120: every
    cell takes the random value of its nearest of 60 random points, so the map is made of 60 polygons.
-2. **`parcels`** ([[map.calc]]) turns each polygon's value (0 to 1) into a whole number, its parcel id. With
+2. **`parcels`** ([[raster.calc]]) turns each polygon's value (0 to 1) into a whole number, its parcel id. With
    a real cadastre this node and the one before are a [[raster.read]] of the parcel ids.
 3. **`fertility`** ([[nlm.gaussian_field]]) draws a smooth random surface from 0 to 1, the soil's fertility,
    with patches about 25 cells across.
@@ -155,7 +155,7 @@ params = { rows = 120, columns = 120, germs = 60, seed = 51 }
 
 [[nodes]]
 id = "parcels"
-op = "map.calc"
+op = "raster.calc"
 inputs = { m = "mosaic.map" }
 params = { expression = "1 + floor(m * 100000)" }
 
@@ -188,15 +188,15 @@ params = { rules = "wealth = 20\nfarming = 1" }
   both rules are constants: every farmer starts with a wealth of 20 and farming.
 
 Rules are lines of `attribute = expression`, applied **in order**, each line seeing the result of the lines
-before it, to every agent separately. The expressions are those of [[map.calc]] without the neighbourhood
-functions: arithmetic, comparisons (1 true, 0 false), `and`, `or`, `not`, `if ... then ... else ...`, `min`,
-`max`, `clamp`, `exp`, `ln`, `round`... For instance:
+before it, to every agent separately. The expressions are those of [[raster.calc]] without the neighbourhood
+functions: arithmetic, comparisons (1 true, 0 false), `and`, `or`, `not`, `... if ... else ...`, `min`,
+`max`, `clamp`, `exp`, `log`, `round`... For instance:
 
 ```text
 price = 10 - step * 0.25
-income = if farming == 1 then fertility * price * 2 else 1
+income = fertility * price * 2 if farming == 1 else 1
 wealth = wealth + income - 7
-farming = if wealth > 0 then farming else 0
+farming = farming if wealth > 0 else 0
 ```
 
 `price` is a new attribute, the same for every farmer since it depends only on `step`; `income` reads the
@@ -217,7 +217,7 @@ params = { rows = 120, columns = 120, germs = 60, seed = 51 }
 
 [[nodes]]
 id = "parcels"
-op = "map.calc"
+op = "raster.calc"
 inputs = { m = "mosaic.map" }
 params = { expression = "1 + floor(m * 100000)" }
 
@@ -250,7 +250,7 @@ collect = { summary = "totals.table", maps = "farmed.map" }
 id = "year"
 op = "agents.update"
 inputs = { agents = "@farmers", step = "@step" }
-params = { rules = "price = 10 - step * 0.25\nincome = if farming == 1 then fertility * price * 2 else 1\nwealth = wealth + income - 7\nfarming = if wealth > 0 then farming else 0" }
+params = { rules = "price = 10 - step * 0.25\nincome = fertility * price * 2 if farming == 1 else 1\nwealth = wealth + income - 7\nfarming = farming if wealth > 0 else 0" }
 
 [[nodes.body.nodes]]
 id = "totals"
@@ -308,7 +308,7 @@ raster of 20 bands). After the loop, `years.farmers` is the population of the la
 
     [[nodes]]
     id = "parcels"
-    op = "map.calc"
+    op = "raster.calc"
     inputs = { m = "mosaic.map" }
     params = { expression = "1 + floor(m * 100000)" }
 
@@ -341,7 +341,7 @@ raster of 20 bands). After the loop, `years.farmers` is the population of the la
     id = "year"
     op = "agents.update"
     inputs = { agents = "@farmers", step = "@step" }
-    params = { rules = "price = 10 - step * 0.25\nincome = if farming == 1 then fertility * price * 2 else 1\nwealth = wealth + income - 7\nfarming = if wealth > 0 then farming else 0" }
+    params = { rules = "price = 10 - step * 0.25\nincome = fertility * price * 2 if farming == 1 else 1\nwealth = wealth + income - 7\nfarming = farming if wealth > 0 else 0" }
 
     [[nodes.body.nodes]]
     id = "totals"
@@ -521,7 +521,7 @@ who sells the farm leaves the model). Make the intention explicit: `wealth = if 
 income - 7 else wealth` keeps a quitter's wealth where it was.
 
 **Mean values of a mixed population.** `wealth_mean` averages over all agents, farming or not. To follow the
-farmers only, add an attribute (`farm_wealth = if farming == 1 then wealth else 0`) and divide its sum by
+farmers only, add an attribute (`farm_wealth = wealth if farming == 1 else 0`) and divide its sum by
 `farming_sum`.
 
 **One run is one story.** Rules with thresholds turn small differences into all-or-nothing outcomes. Explore

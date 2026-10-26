@@ -1,7 +1,7 @@
 """Figures of the tutorial "The raster calculator" (building-models/calculator).
 
 Sibuyan Island (Philippines), land use of 1997 and 2011 and its drivers at 250 m (lulcc's and landschaft's example
-data): one map.calc script gives the years each cell was forest, the forest lost, a habitat suitability index of
+data): one raster.calc script gives the years each cell was forest, the forest lost, a habitat suitability index of
 the forest of 1997, its best quarter and its mean, in a real run of Terraflux. The application's own pictures of
 the calculator are drawn by `cargo test --release -p terraflux-app --test readme_images -- --ignored`.
 """
@@ -33,7 +33,7 @@ out lost = forest._1997 and not forest._2011
 si_elev = clamp((1200 - d.elevation) / 900, 0, 1)
 si_road = clamp(d.dist_roads / 3000, 0, 1)
 out hsi = sqrt(si_elev * si_road)
-hsi[not forest._1997] = null            # the forest of 1997 only
+hsi[not forest._1997] = None            # the forest of 1997 only
 
 out best = hsi >= hsi.percentile(75)    # its best quarter
 out mean_hsi = hsi.mean()
@@ -51,7 +51,7 @@ path = "drivers.tif"
 
 [[nodes]]
 id = "calc"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ lu = "$lu", d = "$d" }}
 params = {{ expression = """
 {SCRIPT}""" }}

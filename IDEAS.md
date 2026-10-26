@@ -149,7 +149,7 @@ viewer nas miniaturas.
   - a nota e o porquê;
   - os parâmetros em linguagem natural, tirados da descrição do operador ("alcance de 30 células", e não
     `range = 30`);
-  - as expressões do `map.calc` com os nomes ligados aos nós de origem;
+  - as expressões do `raster.calc` com os nomes ligados aos nós de origem;
   - uma miniatura do resultado, tirada do cache do runner.
 - **Edição.** Clicar num passo abre o nó. Os parâmetros podem ser mudados ali mesmo, e o modelo roda de novo como
   no builder.
@@ -209,7 +209,7 @@ subtração dos valores).
 
 **Fase 7: rastreio de uma célula.** **Feito** (Unreleased): o painel Trace (uma célula clicada num mapa, "Trace
 this cell"): a cadeia de valores para trás, um cartão por nó com o valor ali e como foi feito (a expressão do
-`map.calc` com os valores no lugar dos nomes, a janela de células de um operador de vizinhança, as camadas que um
+`raster.calc` com os valores no lugar dos nomes, a janela de células de um operador de vizinhança, as camadas que um
 modelo pesa, um laço passo a passo, os grupos atravessados), as entradas clicáveis e uma frase no topo; "Trace
 inside the loops" roda o modelo de novo guardando os valores do corpo dos laços na célula (o `Observer::body` do
 motor). Com o assistente: "Ask the assistant why" manda o rastreio ao chat, e a ferramenta `trace_cell` (no app e
@@ -220,7 +220,7 @@ operador de manchas (hoje a janela ao redor) e a demanda do passo numa alocaçã
   porque a adequação era 0,71, tinha 4 vizinhos urbanos e o limiar no passo 12 era 0,50".
 - **Implementação.** Percorrer o grafo para trás a partir do nó mostrado e ler o valor da célula na saída em cache
   de cada nó de origem. Nos laços, usar os passos coletados (com uma opção de coletar todos ao rastrear). Para o
-  `map.calc`, mostrar a expressão com os valores substituídos. Operadores de vizinhança e globais (`nbsum`,
+  `raster.calc`, mostrar a expressão com os valores substituídos. Operadores de vizinhança e globais (`nbsum`,
   manchas, alocação) mostram o valor e uma explicação curta do que entra nele (a janela, a mancha, a demanda).
 - É a pergunta mais comum de quem audita um modelo espacial, e nenhuma ferramenta do gênero responde bem: é o que
   pode diferenciar o Terraflux.
@@ -740,7 +740,7 @@ para o landschaft").
 ## A linguagem do grafo: o que falta além dos operadores
 
 Registro de 2026-10-21. A biblioteca de operadores já é ampla; a linguagem que os liga ainda é simples: o
-`control.repeat` (com `carry`, `collect` e `until`), o `control.group`, o `control.submodel`, o `map.calc`, o
+`control.repeat` (com `carry`, `collect` e `until`), o `control.group`, o `control.submodel`, o `raster.calc`, o
 `batch.run` (um operador sobre vários arquivos), o `plugin.wasm` (célula a célula) e um nó de um mapa rodado uma vez
 por camada de uma pilha (×N no canvas). Basta para um modelo linear; para os fluxos de trabalho reais faltam peças.
 Os itens 1 a 3 juntos fazem do grafo uma linguagem completa (sequência, repetição, iteração sobre coleções,
@@ -778,9 +778,9 @@ escolha, abstração) sem código.
      um número, `true`/`false`, `otherwise` para o resto), as saídas as do ramo (todos dão as mesmas, conferido no
      `check`) e `branch`, o id do que rodou. O template "Choose the method: a switch and its scenarios".
 4. **Valores escalares e textos** (`value.calc`): números que não são mapas e textos montados, com a sintaxe do
-   `map.calc` e interpolação de texto: o caminho `out/{species}_{step}.tif` num laço, um número de uma tabela que
+   `raster.calc` e interpolação de texto: o caminho `out/{species}_{step}.tif` num laço, um número de uma tabela que
    alimenta uma configuração.
-   - **Feito** (1.13.0): o `value.calc`, `expression` com o avaliador do `map.calc` numa célula (as entradas
+   - **Feito** (1.13.0): o `value.calc`, `expression` com o avaliador do `raster.calc` numa célula (as entradas
      números, verdadeiro e falso como 1 e 0, uma tabela como `t.coluna` da linha `row`) e `text` com `{nome}` e
      `{value}`. Um número inteiro chega inteiro às configurações de inteiros.
 5. **Submodelos como operadores de verdade:** com o item 1, um submodelo na biblioteca com descrição, portas
@@ -796,7 +796,7 @@ escolha, abstração) sem código.
    demanda atendida, a soma das áreas).
    - **Feito** (1.14.0): o bypass (`bypass = true` no nó: cada saída a primeira entrada do mesmo tipo; B no canvas,
      a caixa apagada), o tempo e a memória de cada nó (`Results.timings`, o corpo de um laço somado nos passos;
-     "last run" no painel do nó, `terraflux run --profile`) e o `check.assert` (a expressão do `map.calc` em
+     "last run" no painel do nó, `terraflux run --profile`) e o `check.assert` (a expressão do `raster.calc` em
      toda célula com valor, ou do `value.calc`; `warn` só avisa). Falta: congelar o resultado de um nó entre
      sessões (o cache em disco) e o laço passo a passo.
 8. **Testes de modelos** (`terraflux test`): asserções e saídas esperadas guardadas com o modelo, um template ou um
@@ -832,11 +832,11 @@ reprodutibilidade e o `terraflux test`.
 
 ## A calculadora de rasters: uma linguagem própria para mapas e pilhas
 
-Registro de 2026-10-26. O `map.calc` já tem o essencial da álgebra de mapas (aritmética, comparações, `if`, as
+Registro de 2026-10-26. O `raster.calc` já tem o essencial da álgebra de mapas (aritmética, comparações, `if`, as
 camadas de uma pilha por nome, as vizinhanças, o `null`), mas é uma expressão de uma linha numa configuração, um
 avaliador lento e um mapa só na saída. A ideia: um nó de calculadora com uma linguagem própria, próxima do Python,
 um console como o do Assistant, e o código salvo como um nó do usuário. A linguagem nova é um superconjunto da do
-`map.calc`: toda expressão de hoje é um script de uma linha válido, e os modelos, templates e tutoriais que o usam
+`raster.calc`: toda expressão de hoje é um script de uma linha válido, e os modelos, templates e tutoriais que o usam
 (669 ocorrências em 163 arquivos) continuam funcionando. O `value.calc`, o `check.assert`, o `uncertainty.delta` e o
 Trace usam o mesmo parser e ganham junto.
 
@@ -870,7 +870,7 @@ ndvi = (img.nir - img.red) / (img.nir + img.red)
 out ndvi
 out forest = land == 1 and ndvi > ndvi.percentile(25)
 out cleaned = land
-cleaned[land == 9] = null
+cleaned[land == 9] = None
 out mean_ndvi = ndvi.mean()
 ```
 
@@ -892,7 +892,7 @@ para o usuário; um benchmark contra o avaliador de hoje e os mesmos testes.
 
 **Fase 2: a linguagem.** O que está acima, sobre o motor da fase 1. Os nomes das bandas conhecidos antes de rodar: do
 cabeçalho dos arquivos e, para uma pilha calculada, do esquema propagado pelo grafo ou do resultado em cache.
-- **Feito** (Unreleased): a linguagem no `map.calc` (o parâmetro `expression` é o script; `parse_script`, `Script`,
+- **Feito** (Unreleased): a linguagem no `raster.calc` (o parâmetro `expression` é o script; `parse_script`, `Script`,
   `Stmt` em `algebra.rs`): as linhas, `=`, `alvo[condição] = valor`, `s.camada = valor`, `out`, as pilhas camada a
   camada, as reduções por célula, os métodos globais (somas por partes fixas, o mesmo resultado bit a bit com
   qualquer número de threads), `a if c else b`, as comparações encadeadas, `**`, `True`/`False`/`None`, `log` e os
@@ -909,7 +909,7 @@ cabeçalho dos arquivos e, para uma pilha calculada, do esquema propagado pelo g
 autocomplete das entradas, das bandas, das funções e dos métodos, a prévia ao vivo na parte do mapa à vista em
 resolução reduzida, e um modo REPL (`img.mean()` dá o número na hora, sem entrar no nó).
 - **Feito** (Unreleased): o painel Calculator (`calc_view.rs`), aberto embaixo do modelo (View, os comandos, ou
-  "Open in the calculator" no painel do nó), edita o script do `map.calc` selecionado. O script com cores e os
+  "Open in the calculator" no painel do nó), edita o script do `raster.calc` selecionado. O script com cores e os
   números das linhas; o primeiro erro sublinhado onde está e dito embaixo, com a linha (os da linguagem, os nomes
   que não são entradas nem foram dados antes, com "did you mean", e as camadas que uma pilha não tem); o
   autocomplete ao digitar ou com ctrl+space (as entradas com o que são, os nomes dados no script, as funções e os
@@ -938,7 +938,7 @@ enviado a alguém roda sem a biblioteca.
   O `check` usa os tipos e o que é obrigatório (uma entrada não dada vale o valor próprio, no motor também); o
   motor confere as bandas antes de rodar ("ndvi@3 reads img's layers: it has no layer nir (it has b8, red)"), e o
   aplicativo avisa ao conectar. No aplicativo (`my_nodes.rs`): "Save as my node..." no painel de um grupo ou de um
-  `map.calc` (a calculadora vira um grupo de um nó, as entradas `@nome`, as saídas as do `out`), o diálogo com o
+  `raster.calc` (a calculadora vira um grupo de um nó, as entradas `@nome`, as saídas as do `out`), o diálogo com o
   que foi inferido para mudar (os tipos pelo que o nó recebe e pelo que deu na última execução, as bandas pelo
   `algebra_tools::layers_read` dos scripts, os valores literais como valor próprio), a seção My nodes no painel
   Operators (a busca também), os comandos na paleta, e o painel de um nó do usuário (a versão, o que cada entrada

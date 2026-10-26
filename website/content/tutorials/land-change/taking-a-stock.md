@@ -5,7 +5,7 @@ description: Simulate selective logging, harvest or fuelwood cutting as patches 
 order: 130
 level: intermediate
 time: 40 min
-ops: [dinamica.continuous_patcher, control.repeat, map.calc, nlm.random_cluster, nlm.gaussian_field, nlm.distance_gradient]
+ops: [dinamica.continuous_patcher, control.repeat, raster.calc, nlm.random_cluster, nlm.gaussian_field, nlm.distance_gradient]
 series: Dinamica EGO in Terraflux
 part: 4
 ---
@@ -76,7 +76,7 @@ classes:
 
 It is *not* the tool for clearing (a change of class): that is [[dinamica.step]] with a Markov chain. The two can
 run in the same loop: clearing changes the classes, logging takes the stock of the forest that is left. It is
-also not a growth model: how the stock comes back after a harvest is up to you, written in [[map.calc]] (below).
+also not a growth model: how the stock comes back after a harvest is up to you, written in [[raster.calc]] (below).
 And it does not model the damage of logging around the trees taken: every cell of a patch gives all its stock.
 To model a partial harvest, make the stock the *harvestable* part of a cell (the commercial volume), not its
 whole biomass.
@@ -130,16 +130,16 @@ note = "The distance to a road along column 60, in metres."
 
 [[nodes]]
 id = "timber"
-op = "map.calc"
+op = "raster.calc"
 inputs = { land = "land.map", r = "richness.map" }
-params = { expression = "if land == 1 then 10 + 30 * r else 0" }
+params = { expression = "10 + 30 * r if land == 1 else 0" }
 note = "Commercial timber, m3 per hectare."
 
 [[nodes]]
 id = "access"
-op = "map.calc"
+op = "raster.calc"
 inputs = { timber = "timber.map", d = "road.map" }
-params = { expression = "if timber > 0 then exp(-d / 3000) else 0" }
+params = { expression = "exp(-d / 3000) if timber > 0 else 0" }
 note = "The probability: high beside the road."
 ```
 
@@ -151,7 +151,7 @@ note = "The probability: high beside the road."
 3. **`road`** ([[nlm.distance_gradient]]) gives the distance in metres from every cell to a road running north
    to south along column 60 (`origin = [60, 60, 1, 200]`: columns 60 to 60, rows 1 to 200;
    `nlmr_compat = false` and `rescale = false` keep it in metres).
-4. **`timber`** ([[map.calc]]) is the stock: 10 to 40 m³ of commercial timber per hectare in the forest (24.8
+4. **`timber`** ([[raster.calc]]) is the stock: 10 to 40 m³ of commercial timber per hectare in the forest (24.8
    on average, 765,000 m³ in all), 0 elsewhere.
 5. **`access`** is the probability: \(e^{-d/3000}\), 1 beside the road, 0.37 at 3 km, 0.05 at 9 km, 0 off the
    forest. It says that loggers go first where hauling is cheap. Any map from 0 to 1 works; one fitted on mapped
@@ -191,15 +191,15 @@ params = { rows = 200, columns = 200, resolution = 100, origin = [60, 60, 1, 200
 
 [[nodes]]
 id = "timber"
-op = "map.calc"
+op = "raster.calc"
 inputs = { land = "land.map", r = "richness.map" }
-params = { expression = "if land == 1 then 10 + 30 * r else 0" }
+params = { expression = "10 + 30 * r if land == 1 else 0" }
 
 [[nodes]]
 id = "access"
-op = "map.calc"
+op = "raster.calc"
 inputs = { timber = "timber.map", d = "road.map" }
-params = { expression = "if timber > 0 then exp(-d / 3000) else 0" }
+params = { expression = "exp(-d / 3000) if timber > 0 else 0" }
 
 [[nodes]]
 id = "logging"
@@ -273,16 +273,16 @@ note = "The distance to a road along column 60, in metres."
 
 [[nodes]]
 id = "timber"
-op = "map.calc"
+op = "raster.calc"
 inputs = { land = "land.map", r = "richness.map" }
-params = { expression = "if land == 1 then 10 + 30 * r else 0" }
+params = { expression = "10 + 30 * r if land == 1 else 0" }
 note = "Commercial timber, m3 per hectare."
 
 [[nodes]]
 id = "access"
-op = "map.calc"
+op = "raster.calc"
 inputs = { timber = "timber.map", d = "road.map" }
-params = { expression = "if timber > 0 then exp(-d / 3000) else 0" }
+params = { expression = "exp(-d / 3000) if timber > 0 else 0" }
 note = "The probability: high beside the road."
 
 [[nodes]]
@@ -302,7 +302,7 @@ params = { mean = 25, variance = 200, isometry = 1.5 }
 
 [[nodes.body.nodes]]
 id = "regrowth"
-op = "map.calc"
+op = "raster.calc"
 inputs = { s = "logging.stock", full = "timber.map" }
 params = { expression = "min(full, s + full / 30)" }
 note = "The timber grows back in 30 years."
@@ -319,7 +319,7 @@ What changed from step 2:
    input is `@step`: the patcher mixes it into the seed (the seed plus the step times a large constant), so every
    year draws different patches while the whole run stays reproducible from one seed. Without `step`, every
    year would draw from the same random numbers.
-4. **`regrowth`** ([[map.calc]]) grows the timber back: every year a cell regains a thirtieth of its original
+4. **`regrowth`** ([[raster.calc]]) grows the timber back: every year a cell regains a thirtieth of its original
    stock (`full`, read from `timber.map` outside the loop), up to that original. A cell logged in year 1 is full
    again after 30 years; an unlogged cell stays at `full`.
 5. **`carry`** passes the regrown stock and the depleted probability to the next year; **`collect`** keeps, for
@@ -505,15 +505,15 @@ params = { rows = 200, columns = 200, resolution = 100, origin = [60, 60, 1, 200
 
 [[nodes]]
 id = "timber"
-op = "map.calc"
+op = "raster.calc"
 inputs = { land = "land.map", r = "richness.map" }
-params = { expression = "if land == 1 then 10 + 30 * r else 0" }
+params = { expression = "10 + 30 * r if land == 1 else 0" }
 
 [[nodes]]
 id = "access"
-op = "map.calc"
+op = "raster.calc"
 inputs = { timber = "timber.map", d = "road.map" }
-params = { expression = "if timber > 0 then exp(-d / 3000) else 0" }
+params = { expression = "exp(-d / 3000) if timber > 0 else 0" }
 
 [[nodes]]
 id = "years"
@@ -532,15 +532,15 @@ params = { mean = 25, variance = 200, isometry = 1.5 }
 
 [[nodes.body.nodes]]
 id = "regrowth"
-op = "map.calc"
+op = "raster.calc"
 inputs = { s = "logging.stock", full = "timber.map" }
 params = { expression = "min(full, s + full / 30)" }
 
 [[nodes.body.nodes]]
 id = "reopen"
-op = "map.calc"
+op = "raster.calc"
 inputs = { s = "regrowth.map", full = "timber.map", p = "logging.probability", p0 = "access.map" }
-params = { expression = "if full > 0 and s >= full then p0 else p" }
+params = { expression = "p0 if full > 0 and s >= full else p" }
 note = "A cell may be logged again once its timber is back."
 ```
 
@@ -565,7 +565,7 @@ The two are the same for 30 years. Then one stops, and the other goes on: the ha
 the quota is below the yearly regrowth *and* the logged stands come back into the harvest. The regrowth here is
 deliberately simple (linear, back to the original stock); Putz et al. (2012) found that second harvests yield
 about half of the first, which you would write as a regrowth to a lower ceiling, for instance
-`if s == full then s else min(0.55 * full, s + full / 30)`.
+`s if s == full else min(0.55 * full, s + full / 30)`.
 
 ### The size of the patches
 
@@ -633,7 +633,7 @@ distance to the road is a good target).
   gives areas in square degrees, meaningless in hectares: project the maps first (see
   [Getting started](/tutorials/#getting-started)), or use `unit = "cells"`.
 - **Missing values.** A cell with no stock or no probability (no value, 0 or below) is never a candidate. The
-  output stock keeps the input's missing cells; [[map.calc]] expressions that use it give no value there too.
+  output stock keeps the input's missing cells; [[raster.calc]] expressions that use it give no value there too.
 - **The probability not carried.** See the warning in step 3: read `@probability`, and carry
   `logging.probability` (or your own rule), never the original map, unless you mean the loggers to come back the
   next year.
@@ -660,7 +660,7 @@ distance to the road is a good target).
 - [Expander and Patcher](/tutorials/land-change/expander-and-patcher/): the same patches for changes of class.
 - [Dinamica EGO on Sibuyan](/tutorials/land-change/dinamica-on-sibuyan/): a loop of clearing in which the
   harvest could run beside the allocation.
-- The operators: [[dinamica.continuous_patcher]], [[control.repeat]], [[map.calc]].
+- The operators: [[dinamica.continuous_patcher]], [[control.repeat]], [[raster.calc]].
 
 ## References
 

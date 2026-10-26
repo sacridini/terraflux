@@ -5,7 +5,7 @@ description: Classify every cell of an elevation model into one of ten landforms
 order: 30
 level: intermediate
 time: 40 min
-ops: [raster.read, raster.reproject, surface.geomorphons, raster.terrain, view.plot, map.calc, table.write]
+ops: [raster.read, raster.reproject, surface.geomorphons, raster.terrain, view.plot, raster.calc, table.write]
 series: Continuous surfaces
 part: 3
 ---
@@ -215,8 +215,8 @@ The settings of [[surface.geomorphons]], and what they mean on the ground:
    after it (**title** = `Relief`), then a second [[view.plot]] named `map` with `landforms`'s `forms` connected to
    its `value` and `relief`'s `shown` to its `under`, **opacity** = `0.75`: the landforms drawn over the relief.
 2. Add a [[table.write]] after `landforms`, its `table` input from the `share` output, **path** = `landforms.csv`.
-3. Add a [[map.calc]] named `crests` (subject **Map algebra**), connect `landforms`'s `forms` to an input you name
-   `f`, and write `if f == 2 or f == 3 then 1 else 0`: 1 on peaks and ridges, 0 elsewhere.
+3. Add a [[raster.calc]] named `crests` (subject **Map algebra**), connect `landforms`'s `forms` to an input you name
+   `f`, and write `1 if f == 2 or f == 3 else 0`: 1 on peaks and ridges, 0 elsewhere.
 
 </div>
 
@@ -269,9 +269,9 @@ params = { path = "landforms.csv" }
 
 [[nodes]]
 id = "crests"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "landforms.forms" }
-params = { expression = "if f == 2 or f == 3 then 1 else 0" }
+params = { expression = "1 if f == 2 or f == 3 else 0" }
 note = "1 on peaks and ridges."
 ```
 
@@ -469,7 +469,7 @@ report it.
 - [Hilltops protected by Brazil's Forest Code](../hilltops/): summits, saddles and the hilltop APP, the next part.
 - [Species distributions](../../species-distributions/) and [Land change simulation](../../land-change/): use the
   landforms as covariates.
-- The operators' reference: [[surface.geomorphons]], [[raster.reproject]], [[raster.terrain]], [[map.calc]].
+- The operators' reference: [[surface.geomorphons]], [[raster.reproject]], [[raster.terrain]], [[raster.calc]].
 
 ## References
 

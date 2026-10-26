@@ -189,7 +189,7 @@ kind = \"map\"
 path = \"none.tif\"
 [[nodes]]
 id = \"is\"
-op = \"map.calc\"
+op = \"raster.calc\"
 inputs = { lu = \"$lu\" }
 params = { expression = \"lu == 1\" }
 [outputs.map]
@@ -359,8 +359,9 @@ async fn the_files_nodes_read_and_scenarios_give_travel_with_the_model() {
     m.nodes.push(
         terraflux_graph::Node::new("read", "raster.read").param("path", dir.join("a.tif").to_string_lossy().as_ref()),
     );
-    m.nodes
-        .push(terraflux_graph::Node::new("forest", "map.calc").input("lu", "read.map").param("expression", "lu == 1"));
+    m.nodes.push(
+        terraflux_graph::Node::new("forest", "raster.calc").input("lu", "read.map").param("expression", "lu == 1"),
+    );
     m.outputs.insert(
         "forest".into(),
         terraflux_graph::Output { from: "forest.map".into(), path: None, dtype: Some("u8".into()), layer: None },
@@ -410,7 +411,7 @@ async fn a_sensitivity_measures_an_output_on_the_workers() {
     }
     m.nodes.push(Node::new("field", "nlm.random").param("rows", 20).param("columns", 20).param("seed", 3));
     m.nodes.push(
-        Node::new("calc", "map.calc")
+        Node::new("calc", "raster.calc")
             .input("a", "$a")
             .input("b", "$b")
             .input("f", "field.map")

@@ -9,7 +9,7 @@ params = { rows = 60, columns = 80, range = 14, seed = 21 }
 
 [[nodes]]
 id = "temperature"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "field_t.map" }
 params = { expression = "14 + f * 12" }
 note = "The mean temperature, from 14 to 26 °C (in its place, raster.read of a climate layer)."
@@ -21,7 +21,7 @@ params = { rows = 60, columns = 80, range = 22, seed = 22 }
 
 [[nodes]]
 id = "rainfall"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "field_r.map" }
 params = { expression = "800 + f * 1600" }
 note = "The rainfall, from 800 to 2400 mm."
@@ -33,9 +33,9 @@ inputs = { temperature = "temperature.map", rainfall = "rainfall.map" }
 
 [[nodes]]
 id = "suitability"
-op = "map.calc"
+op = "raster.calc"
 inputs = { t = "temperature.map", r = "rainfall.map" }
-params = { expression = "exp(-((t - 19) ^ 2) / 3 - ((r - 1600) ^ 2) / 150000)" }
+params = { expression = "exp(-((t - 19) ** 2) / 3 - ((r - 1600) ** 2) / 150000)" }
 note = "Where the species finds its conditions: about 19 °C and 1600 mm."
 
 [[nodes]]
@@ -78,7 +78,7 @@ note = "The suitability today."
 
 [[nodes]]
 id = "warmer"
-op = "map.calc"
+op = "raster.calc"
 inputs = { t = "temperature.map" }
 params = { expression = "t + 2" }
 note = "The temperature in a climate 2 °C warmer (in its place, raster.read of a scenario's layer)."
@@ -98,7 +98,7 @@ note = "The suitability in the warmer climate."
 
 [[nodes]]
 id = "shift"
-op = "map.calc"
+op = "raster.calc"
 inputs = { a = "today.prediction", b = "tomorrow.prediction" }
 params = { expression = "b - a" }
 note = "What changes: gains (positive) and losses (negative)."

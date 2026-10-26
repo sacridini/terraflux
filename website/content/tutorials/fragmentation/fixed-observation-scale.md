@@ -272,7 +272,7 @@ params = { window = 27 }
 ```
 
 Riitters' categories are a rule on two maps of the same window: node 2's density and node 3's contagion. With
-[[map.calc]] the rule is one expression; here we drew it from the two maps:
+[[raster.calc]] the rule is one expression; here we drew it from the two maps:
 
 ![Density against contagion](/img/tutorials/fragmentation/fixed-observation-scale/pf-pff.png "Every forest cell of the map by its density (Pf) and contagion (Pff) in a window of 7 cells (a log scale of counts). The diagonal separates edge (below: the window's non-forest is on one side) from perforated (above: holes inside the forest); the dashed lines separate patch, transitional and the rest.")
 

@@ -5,7 +5,7 @@ description: Find what converted land was before it was cleared, measure every s
 order: 40
 level: intermediate
 time: 45 min
-ops: [restoration.original_vegetation, sdm.area_of_habitat, stack.of, map.calc, raster.read]
+ops: [restoration.original_vegetation, sdm.area_of_habitat, stack.of, raster.calc, raster.read]
 series: Distance and restoration
 part: 4
 ---
@@ -114,10 +114,10 @@ model:
 | 3 Montane forest | 0.91 | 0.09 | 0 |
 | 4 Savanna | 0.20 | 0.80 | 0 |
 
-Three [[map.calc]] nodes write them on the map from the ecoregion codes, for example for forest:
+Three [[raster.calc]] nodes write them on the map from the ecoregion codes, for example for forest:
 
 ```text
-if e == 1 then 0.31 else if e == 2 then 0.98 else if e == 3 then 0.91 else 0.2
+0.31 if e == 1 else 0.98 if e == 2 else 0.91 if e == 3 else 0.2
 ```
 
 and [[stack.of]] joins them into one stack, naming each layer as its input (`forest`, `savanna`, `mangrove`).
@@ -175,21 +175,21 @@ params = { path = "ecoregions.tif" }
 
 [[nodes]]
 id = "eco_forest"
-op = "map.calc"
+op = "raster.calc"
 inputs = { e = "ecoregions.raster" }
-params = { expression = "if e == 1 then 0.31 else if e == 2 then 0.98 else if e == 3 then 0.91 else 0.2" }
+params = { expression = "0.31 if e == 1 else 0.98 if e == 2 else 0.91 if e == 3 else 0.2" }
 
 [[nodes]]
 id = "eco_savanna"
-op = "map.calc"
+op = "raster.calc"
 inputs = { e = "ecoregions.raster" }
-params = { expression = "if e == 1 then 0 else if e == 2 then 0.01 else if e == 3 then 0.09 else 0.8" }
+params = { expression = "0 if e == 1 else 0.01 if e == 2 else 0.09 if e == 3 else 0.8" }
 
 [[nodes]]
 id = "eco_mangrove"
-op = "map.calc"
+op = "raster.calc"
 inputs = { e = "ecoregions.raster" }
-params = { expression = "if e == 1 then 0.69 else if e == 2 then 0.01 else 0" }
+params = { expression = "0.69 if e == 1 else 0.01 if e == 2 else 0" }
 
 [[nodes]]
 id = "eco_shares"
@@ -327,7 +327,7 @@ source, the suitable classes, the elevation limits, and the current and potentia
 - **The threshold** of [[restoration.original_vegetation]] (0.95): below it the past map is trusted even for
   heavily converted cells; above it, the ecoregion's proportions are used for fewer of them.
 - **The ranges.** A suitability map above 0 makes a generous range. A higher threshold (each band read by its
-  name with [[raster.read]], a [[map.calc]] of `f > 0.5` on it, and the results joined with [[stack.of]]), or
+  name with [[raster.read]], a [[raster.calc]] of `f > 0.5` on it, and the results joined with [[stack.of]]), or
   ranges from a distribution model, make a tighter one, and all the areas fall.
 
 ## Common pitfalls
@@ -335,7 +335,7 @@ source, the suitable classes, the elevation limits, and the current and potentia
 - **Band names.** The operators find classes and species by the names of the layers. A GeoTIFF without band
   descriptions gives layers named by number, and the settings must use those names.
 - **Shares, not classes.** The land cover is a stack of shares from 0 to 1 that sum to at most 1 in each cell. A
-  map of classes must be turned into shares first (one [[map.calc]] per class, `lc == 3`, then [[stack.of]]).
+  map of classes must be turned into shares first (one [[raster.calc]] per class, `lc == 3`, then [[stack.of]]).
 - **The order of the species.** The table's rows follow the order of the ranges' layers, with no names; keep
   that order when you read it.
 - **No original vegetation.** Give the `original` input: without it [[sdm.area_of_habitat]] cannot compute the

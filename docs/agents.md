@@ -19,7 +19,7 @@ The rules use the expressions of map algebra (see [modelling.md](modelling.md)),
 ```text
 population = population * (1 + growth)
 food = population * food_per_head
-subsidy = if wealth < 100 and step > 5 then 1.5 else 1
+subsidy = 1.5 if wealth < 100 and step > 5 else 1
 ```
 
 ## CRAFTY
@@ -85,7 +85,7 @@ inputs = { agents = "grow.agents" }
 id = "decide"                             # parcel managers decide their subsidies
 op = "agents.update"
 inputs = { agents = "managers.agents", step = "@step" }
-params = { rules = "subsidy = if id == 1 and step > 5 then 3 else 1" }
+params = { rules = "subsidy = 3 if id == 1 and step > 5 else 1" }
 
 [[nodes.body.nodes]]
 id = "boost"
@@ -95,7 +95,7 @@ params = { column = "subsidy" }
 
 [[nodes.body.nodes]]
 id = "fert"                               # the subsidy raises the fertility capital
-op = "map.calc"
+op = "raster.calc"
 inputs = { caps = "$capitals", boost = "boost.map" }
 params = { expression = "min(caps.fertility * boost, 1)" }
 
@@ -115,5 +115,5 @@ params = { services = { food = "food_sum", timber = "timber_sum" }, search = 0.2
 ] }
 ```
 
-Agents also work with the other models. For example, `agents.map` gives a map that `map.calc` multiplies
+Agents also work with the other models. For example, `agents.map` gives a map that `raster.calc` multiplies
 into the transition probabilities of Dinamica EGO's model, or turns into a restriction of CLUE-S.

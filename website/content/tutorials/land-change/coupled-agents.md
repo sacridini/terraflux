@@ -5,7 +5,7 @@ description: Put three kinds of agents in one loop, a population whose needs mak
 order: 730
 level: advanced
 time: 50 min
-ops: [agents.table, agents.parcels, agents.update, agents.summary, agents.map, crafty.allocate, stack.set, map.calc, control.repeat, lulcc.step]
+ops: [agents.table, agents.parcels, agents.update, agents.summary, agents.map, crafty.allocate, stack.set, raster.calc, control.repeat, lulcc.step]
 series: Dynamic drivers and agents
 part: 4
 ---
@@ -115,13 +115,13 @@ params = { rows = 40, columns = 40, direction = 0 }
 
 [[nodes]]
 id = "fertility"
-op = "map.calc"
+op = "raster.calc"
 inputs = { e = "east.map" }
 params = { expression = "0.0125 + 0.975 * e" }
 
 [[nodes]]
 id = "wood"
-op = "map.calc"
+op = "raster.calc"
 inputs = { n = "north.map" }
 params = { expression = "0.0125 + 0.975 * n" }
 
@@ -132,25 +132,25 @@ inputs = { fertility = "fertility.map", wood = "wood.map" }
 
 [[nodes]]
 id = "parcels"
-op = "map.calc"
+op = "raster.calc"
 inputs = { e = "east.map", n = "north.map" }
 params = { expression = "1 + (e > 0.5) + 2 * (n < 0.5)" }
 
 [[nodes]]
 id = "land"
-op = "map.calc"
+op = "raster.calc"
 inputs = { e = "east.map" }
 params = { expression = "e * 0" }
 ```
 
 - **Nodes 1 and 2**, `east` and `north` ([[nlm.planar_gradient]]), draw two linear gradients from 0 to 1, rising
   towards the east (`direction = 90`) and towards the north (`direction = 0`).
-- **Nodes 3 and 4**, `fertility` and `wood` ([[map.calc]]), rescale them to the centres of the cells of the test,
+- **Nodes 3 and 4**, `fertility` and `wood` ([[raster.calc]]), rescale them to the centres of the cells of the test,
   0.0125 to 0.9875: the soil is poor in the west and rich in the east; the wood is poor in the south and rich in the
   north.
 - **Node 5**, `capitals` ([[stack.of]]), puts them in one stack, its layers named after the node's inputs: the
   names CRAFTY's sensitivities use.
-- **Node 6**, `parcels` ([[map.calc]]), numbers the quadrants: 1 north-west, 2 north-east, 3 south-west, 4
+- **Node 6**, `parcels` ([[raster.calc]]), numbers the quadrants: 1 north-west, 2 north-east, 3 south-west, 4
   south-east (comparisons give 1 or 0).
 - **Node 7**, `land`, is a map of zeros on the same grid: no cell is managed at the start.
 
@@ -176,7 +176,7 @@ format = "terraflux/1"
 
 [[nodes]]
 id = "parcels"
-op = "map.calc"
+op = "raster.calc"
 params = { expression = "1 + (e > 0.5) + 2 * (n < 0.5)" }
 
 [[nodes]]
@@ -217,13 +217,13 @@ params = { rows = 40, columns = 40, direction = 0 }
 
 [[nodes]]
 id = "fertility"
-op = "map.calc"
+op = "raster.calc"
 inputs = { e = "east.map" }
 params = { expression = "0.0125 + 0.975 * e" }
 
 [[nodes]]
 id = "wood"
-op = "map.calc"
+op = "raster.calc"
 inputs = { n = "north.map" }
 params = { expression = "0.0125 + 0.975 * n" }
 
@@ -234,13 +234,13 @@ inputs = { fertility = "fertility.map", wood = "wood.map" }
 
 [[nodes]]
 id = "parcels"
-op = "map.calc"
+op = "raster.calc"
 inputs = { e = "east.map", n = "north.map" }
 params = { expression = "1 + (e > 0.5) + 2 * (n < 0.5)" }
 
 [[nodes]]
 id = "land"
-op = "map.calc"
+op = "raster.calc"
 inputs = { e = "east.map" }
 params = { expression = "e * 0" }
 
@@ -278,7 +278,7 @@ inputs = { agents = "grow.agents" }
 id = "decide"
 op = "agents.update"
 inputs = { agents = "managers.agents", step = "@step" }
-params = { rules = "subsidy = if id == 1 and step > 5 then 3 else 1" }
+params = { rules = "subsidy = 3 if id == 1 and step > 5 else 1" }
 
 [[nodes.body.nodes]]
 id = "boost"
@@ -288,7 +288,7 @@ params = { column = "subsidy" }
 
 [[nodes.body.nodes]]
 id = "fert"
-op = "map.calc"
+op = "raster.calc"
 inputs = { caps = "capitals.stack", boost = "boost.map" }
 params = { expression = "min(caps.fertility * boost, 1)" }
 
@@ -326,7 +326,7 @@ series: the land cover (`alloc.cover`), CRAFTY's table of supply and demand (`al
 | `need` | [[agents.summary]] | `grow.agents` | a table of one row: `n`, `population_sum`, `food_sum`, `timber_sum`... | the demand: the sums of the needs over all macro agents |
 | `decide` | [[agents.update]] | `managers.agents`, `@step` | the managers with a `subsidy` | the managers' decision this step |
 | `boost` | [[agents.map]] | `decide.agents`, `parcels.map` | the subsidy of each cell's manager | a decision of agents made into a map |
-| `fert` | [[map.calc]] | `capitals.stack`, `boost.map` | the fertility, multiplied, at most 1 | the subsidy's effect on the capital |
+| `fert` | [[raster.calc]] | `capitals.stack`, `boost.map` | the fertility, multiplied, at most 1 | the subsidy's effect on the capital |
 | `caps` | [[stack.set]] | `capitals.stack`, `fert.map` | the capitals with the layer `fertility` replaced | CRAFTY reads capitals as one stack, by name |
 | `alloc` | [[crafty.allocate]] | `@land`, `caps.stack`, `need.table`, `@step`, seed 3 | `land`, `cover`, `info` | the competition for the cells |
 
@@ -527,7 +527,7 @@ params = { direction = 90 }
 
 [[nodes]]
 id = "towns"
-op = "map.calc"
+op = "raster.calc"
 inputs = { g = "west_east.map" }
 params = { expression = "1 + (g > 0.5)" }
 
@@ -549,7 +549,7 @@ collect = { maps = "allocate.landscape", info = "allocate.info" }
 id = "zoning"
 op = "agents.update"
 inputs = { agents = "councils.agents", step = "@step" }
-params = { rules = "frozen = if id == 2 and step > 4 then 1 else 0" }
+params = { rules = "frozen = 1 if id == 2 and step > 4 else 0" }
 
 [[nodes.body.nodes]]
 id = "frozen"
@@ -574,7 +574,7 @@ Nodes 1 to 5 and the loop are the CLUE-S model of [part 4 of that series](/tutor
 The new nodes:
 
 - **`west_east`** ([[nlm.planar_gradient]]) draws a gradient on the grid of the start map (its input `like`), and
-  **`towns`** ([[map.calc]]) cuts it in two: council 1 the west, council 2 the east. With real councils, a
+  **`towns`** ([[raster.calc]]) cuts it in two: council 1 the west, council 2 the east. With real councils, a
   rasterized map of municipalities.
 - **`councils`** ([[agents.parcels]]) makes an agent per council.
 - In the body, **`zoning`** ([[agents.update]]) is the councils' decision: the east council freezes its land from

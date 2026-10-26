@@ -5,7 +5,7 @@ description: Measure how far every cell of a landscape lies from a forest and fr
 order: 10
 level: beginner
 time: 40 min
-ops: [distance.euclidean, distance.proximity, distance.influence_zones, raster.reproject, map.calc, raster.read]
+ops: [distance.euclidean, distance.proximity, distance.influence_zones, raster.reproject, raster.calc, raster.read]
 series: Distance and restoration
 part: 1
 ---
@@ -103,10 +103,10 @@ weighted mean of the four nearest cells (for a map of classes it would take the 
 
 GuidosToolbox's operators read maps coded **0 missing, 1 background, 2 foreground**. The *foreground* is the
 habitat whose distances you measure, the *background* everything else on the map, and *missing* the cells
-without data (outside the study area, clouds). A [[map.calc]] node makes that code from the NDVI:
+without data (outside the study area, clouds). A [[raster.calc]] node makes that code from the NDVI:
 
 ```text
-if isnull(n) then 0 else if n >= 0.7 then 2 else 1
+0 if isnull(n) else 2 if n >= 0.7 else 1
 ```
 
 Its input `n` is `projected.raster`. Cells without a value (the corners that the reprojection leaves empty)
@@ -134,9 +134,9 @@ note = "UTM zone 10 N: square cells of 30 m."
 
 [[nodes]]
 id = "forest"
-op = "map.calc"
+op = "raster.calc"
 inputs = { n = "projected.raster" }
-params = { expression = "if isnull(n) then 0 else if n >= 0.7 then 2 else 1" }
+params = { expression = "0 if isnull(n) else 2 if n >= 0.7 else 1" }
 note = "0 missing, 1 open land, 2 forest."
 ```
 
@@ -195,9 +195,9 @@ params = { crs = "EPSG:32610", resolution = 30 }
 
 [[nodes]]
 id = "forest"
-op = "map.calc"
+op = "raster.calc"
 inputs = { n = "projected.raster" }
-params = { expression = "if isnull(n) then 0 else if n >= 0.7 then 2 else 1" }
+params = { expression = "0 if isnull(n) else 2 if n >= 0.7 else 1" }
 
 [[nodes]]
 id = "distance"

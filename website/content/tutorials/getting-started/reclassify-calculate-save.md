@@ -4,13 +4,13 @@ description: Change a map's classes with rules, compute new maps cell by cell wi
 order: 60
 level: beginner
 time: 35 min
-ops: [raster.reclassify, map.calc, raster.write, raster.convert, raster.fill, raster.terrain, raster.legend]
+ops: [raster.reclassify, raster.calc, raster.write, raster.convert, raster.fill, raster.terrain, raster.legend]
 ---
 
 Most analyses start by turning the maps you have into the maps a method needs: a land cover of 26 classes into
 "forest" and "not forest", an elevation model into a slope, a map with holes into a complete one. In this tutorial
 you will learn the rule syntax of [[raster.reclassify]], write your first expressions of map algebra with
-[[map.calc]] (the share of forest around every cell, the edge of every forest), fill gaps with [[raster.fill]],
+[[raster.calc]] (the share of forest around every cell, the edge of every forest), fill gaps with [[raster.fill]],
 compute a slope and a hillshade with [[raster.terrain]], and save the results with [[raster.write]] and
 [[raster.convert]] in a type and format that suit them.
 
@@ -21,7 +21,7 @@ by cell**. The idea is older than most GIS software: Dana Tomlin's *map algebra*
 analysis as a sequence of such operations, of three kinds:
 
 - **local** operations use only the cell itself: reclassify a code, multiply by a constant, combine two maps
-  with "if... then... else";
+  with a condition ("this if that, else the other");
 - **focal** operations use the cell and its neighbourhood: the mean of the 3 x 3 cells around it, the slope from
   the heights around it;
 - **zonal** operations use all the cells of a zone: the mean elevation of each reserve (see
@@ -133,19 +133,19 @@ classes with a [[raster.legend]] node after it, as above.
     fills the table with one row for each of them, ready to edit. For a continuous map it shows the range instead,
     and **4 equal ranges** writes four rules of ranges of the same width, giving 1 to 4.
 
-## Map algebra: map.calc
+## Map algebra: raster.calc
 
-[[map.calc]] computes a map cell by cell from an **expression** over its inputs. The inputs take any names you
+[[raster.calc]] computes a map cell by cell from an **expression** over its inputs. The inputs take any names you
 give them, and the expression uses those names (a stack's layers are `stack.layer`). Its language
 (docs/modelling.md in the repository has the full list):
 
 | | |
 |---|---|
-| values | numbers, `pi`, `null` (a missing cell), the inputs by name |
-| arithmetic | `+ - * / % ^` |
+| values | numbers, `pi`, `None` (a missing cell), `True` and `False`, the inputs by name |
+| arithmetic | `+ - * / %`, `**` (power) |
 | comparisons | `< <= > >= == !=`, giving 1 (true) or 0 (false) |
-| logic | `and or not`, `if c then a else b`, `c ? a : b` |
-| functions | `abs sqrt exp ln log10 floor ceil round min max clamp(x, lo, hi) isnull(x) coalesce(x, y)` |
+| logic | `and or not`, `a if c else b` |
+| functions | `abs sqrt exp log log10 floor ceil round min max clamp(x, lo, hi) isnull(x) coalesce(x, y)` |
 | neighbourhoods | `nbsum nbmean nbmin nbmax nbcount(x, r)`: the square of radius `r` cells around each cell, itself included, cells with no data left out |
 
 A missing value makes the result missing, unless `isnull` or `coalesce` handle it. Because comparisons give 1 or
@@ -164,16 +164,16 @@ params = { path = "window.tif" }
 
 [[nodes]]
 id = "share"
-op = "map.calc"
+op = "raster.calc"
 inputs = { lc = "landcover.raster" }
 params = { expression = "nbmean(lc >= 23 and lc <= 25, 20)" }
 note = "The mean of the forest map (1/0) in the square of 41 x 41 cells (1 x 1 km) around each cell: its share of forest."
 
 [[nodes]]
 id = "edge"
-op = "map.calc"
+op = "raster.calc"
 inputs = { lc = "landcover.raster" }
-params = { expression = "if lc >= 23 and lc <= 25 then (nbmin(lc >= 23 and lc <= 25, 1) == 0) + 1 else 0" }
+params = { expression = "(nbmin(lc >= 23 and lc <= 25, 1) == 0) + 1 if lc >= 23 and lc <= 25 else 0" }
 note = "Forest cells with a non-forest cell among their 8 neighbours are edge (2), the others interior (1); 0 is not forest."
 ```
 
@@ -215,9 +215,9 @@ params = { path = "orforest.tif" }
 
 [[nodes]]
 id = "gaps"
-op = "map.calc"
+op = "raster.calc"
 inputs = { elevation = "elevation.raster", ndvi = "ndvi.raster" }
-params = { expression = "if ndvi < 0.4 then null else elevation" }
+params = { expression = "None if ndvi < 0.4 else elevation" }
 note = "Gaps for the demonstration: no value where the vegetation index is low."
 
 [[nodes]]
@@ -361,9 +361,9 @@ the node selected.
 - **Ranges that overlap or leave gaps.** `0..10 -> 1` and `10..20 -> 2` both take 10 (the first rule wins);
   `0..9 -> 1` and `10..20 -> 2` leave 9.5 unchanged on a decimal map. A rule `*` catches what is left.
 - **Forgetting no data.** No rule touches cells without data, not even `*`. If they should become a value, use
-  [[map.calc]] with `coalesce(x, 0)` (or `if isnull(x) then 0 else x`).
+  [[raster.calc]] with `coalesce(x, 0)` (or `0 if isnull(x) else x`).
 - **Radii in cells, not metres.** Convert the distance you mean by the cell size.
-- **Integer division and types.** A share computed from whole numbers is fine in [[map.calc]] (it computes in
+- **Integer division and types.** A share computed from whole numbers is fine in [[raster.calc]] (it computes in
   decimals), but writing it with `type = "u8"` rounds it to 0 or 1. Let [[raster.write]] choose, or say `f32`.
 - **Hillshades in analyses.** A hillshade depends on an arbitrary light direction; use slope, aspect or
   topographic position as variables.
@@ -372,7 +372,7 @@ the node selected.
 
 - [Your first model](../first-model/): nodes, ports, the cache and the model file.
 - [Map algebra](../../building-models/) in the Building models tutorials, and [Surface metrics](../../surface-metrics/).
-- The operators: [[raster.reclassify]], [[map.calc]], [[raster.fill]], [[raster.terrain]], [[raster.write]],
+- The operators: [[raster.reclassify]], [[raster.calc]], [[raster.fill]], [[raster.terrain]], [[raster.write]],
   [[raster.convert]], [[raster.legend]].
 
 ## References

@@ -4,7 +4,7 @@ description: Keep many maps of one grid together as a stack of named layers, bui
 order: 20
 level: beginner
 time: 40 min
-ops: [stack.of, stack.set, stack.extract_layer, stack.classes, raster.read, raster.write, map.calc, dynamic.distance_to, landscape.mspa]
+ops: [stack.of, stack.set, stack.extract_layer, stack.classes, raster.read, raster.write, raster.calc, dynamic.distance_to, landscape.mspa]
 ---
 
 Many analyses need several maps at once: the drivers of a land change model, the species of a prioritization,
@@ -29,7 +29,7 @@ for analyses of how whole ecosystems change (Mahecha et al., 2020).
 In Terraflux a stack is a value like a map or a number: it flows along a connection, and operators take it as
 one input (`drivers` of [[glm.fit]], `features` of [[prioritize.zonation]], `capitals` of
 [[crafty.allocate]]). What makes it more than a pile of maps is the **name of each layer**: an operator finds
-the layer it needs by name, and an expression of [[map.calc]] reads the layer `elevation` of the stack `d` as
+the layer it needs by name, and an expression of [[raster.calc]] reads the layer `elevation` of the stack `d` as
 `d.elevation`.
 
 ![The 13 layers of Sibuyan's drivers stack, each with its name](/img/tutorials/building-models/stacks-and-layers/drivers_sheet.png "The stack drivers.tif: 13 layers of Sibuyan Island at 250 m, from the distance to the sea to the distance to streams. Each name is how an operator or an expression finds the layer (here as d.<name>, the stack being an input called d).")
@@ -83,7 +83,7 @@ terra and Python's rasterio can write). A band without a name is called by its p
 Check the names before you build a model on them: in the application, select the node and the maps of its stack
 are shown under the canvas; [[view.plot]] shows them in a tab of their own.
 
-Whichever way it is read, a stack reaches [[map.calc]] whole, and the expression reads its layers by name
+Whichever way it is read, a stack reaches [[raster.calc]] whole, and the expression reads its layers by name
 (`d.slope`). So does a stack connected to an input that takes a value of any kind (such as the predictors of a
 species distribution model): every band arrives, not only the first.
 
@@ -109,19 +109,19 @@ path = "drivers.tif"
 
 [[nodes]]
 id = "slope"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "$drivers" }
 params = { expression = "d.slope" }
 
 [[nodes]]
 id = "lowland"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "$drivers" }
 params = { expression = "d.elevation < 300" }
 
 [[nodes]]
 id = "forest"
-op = "map.calc"
+op = "raster.calc"
 inputs = { land = "$t0" }
 params = { expression = "land == 1" }
 
@@ -151,7 +151,7 @@ description, so the names survive the trip to R, Python or QGIS and back.
 ![The stack made by stack.of, written as three bands](/img/tutorials/building-models/stacks-and-layers/habitat_sheet.png "habitat.tif as written: the bands come out in alphabetical order of the names (forest, lowland, slope), whatever the order of the connections.")
 
 !!! app "In the application"
-    In the library, the subject **Map algebra** holds [[map.calc]] and the stack operators. Add [[stack.of]],
+    In the library, the subject **Map algebra** holds [[raster.calc]] and the stack operators. Add [[stack.of]],
     then in the Node pane add one input per map: a name (the layer's name) and the port it comes from
     (`slope.map`), and **Add input**.
 
@@ -210,7 +210,7 @@ note = "dist_farm exists: replaced (still 14 layers)."
 
 [[nodes]]
 id = "gained"
-op = "map.calc"
+op = "raster.calc"
 inputs = { before = "with_farms.stack", after = "updated.stack" }
 params = { expression = "after.dist_farm - before.dist_farm" }
 ```
@@ -374,7 +374,7 @@ band = "2011"
 and code every change by where it came from and where it went:
 
 ```text
-if t0 == t1 then 0 else t0 * 10 + t1
+0 if t0 == t1 else t0 * 10 + t1
 ```
 
 A cell that went from forest (1) to grassland (3) gets 13, coconut (2) to grassland gets 23, and so on.
@@ -461,7 +461,7 @@ layers named "1" to "5" but no layer that *is* class 1.
 Maps made inside the model need no [[stack.classes]]: name the inputs of [[stack.of]] after the classes or the
 transitions and its layers mean them at once. An input named `2` makes the layer the suitability of class 2; an
 input named `1_to_2` makes it the probability of the transition from 1 to 2, which [[dinamica.step]] reads. So a
-probability written by hand in [[map.calc]] (a rule of thumb, a scenario, a map from another program) can drive
+probability written by hand in [[raster.calc]] (a rule of thumb, a scenario, a map from another program) can drive
 Dinamica EGO's allocation through `stack.of` with `inputs = { 1_to_2 = "rule.map" }`.
 
 ![The five suitability layers of the file](/img/tutorials/building-models/stacks-and-layers/suitability_sheet.png "suitability.tif: the suitability of each class from CLUE-S's logistic regressions on Sibuyan's drivers, one band per class, named 1 to 5. Forest is suitable in the interior, coconut and grassland on the coastal plains.")

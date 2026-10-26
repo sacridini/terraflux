@@ -6,7 +6,7 @@ order: 10
 level: intermediate
 time: 40 min
 template: Carbon and its uncertainty
-ops: [uncertainty.monte_carlo, uncertainty.interval, uncertainty.delta, uncertainty.sum_sd, map.calc]
+ops: [uncertainty.monte_carlo, uncertainty.interval, uncertainty.delta, uncertainty.sum_sd, raster.calc]
 ---
 
 Every number in an ecological model comes with an uncertainty: an allometric equation fitted on a few hundred
@@ -64,7 +64,7 @@ errors (Heuvelink, 1998), nor the stochasticity of a simulation, measured by rep
 
 Only Terraflux: the template **Carbon and its uncertainty** (**Templates** menu, group *Surfaces and uncertainty*)
 draws its canopy with a neutral landscape model. With your own data, replace its first node with a [[raster.read]]
-of a tree cover map (0 to 1; divide a percentage by 100 with [[map.calc]]), and its parameters with those of your
+of a tree cover map (0 to 1; divide a percentage by 100 with [[raster.calc]]), and its parameters with those of your
 allometry and their standard errors.
 
 ## Build the model
@@ -86,7 +86,7 @@ note = "The canopy's cover, 0 to 1 (in its place, a raster.read of a tree cover 
 id = "carbon"
 op = "uncertainty.monte_carlo"
 inputs = { canopy = "canopy.map" }
-params = { expression = "a * canopy ^ b * fraction", parameters = [["a", 250, 25], ["b", 1.5, 0.15], ["fraction", 0.47, 0.02]], n = 500, seed = 1 }
+params = { expression = "a * canopy ** b * fraction", parameters = [["a", 250, 25], ["b", 1.5, 0.15], ["fraction", 0.47, 0.02]], n = 500, seed = 1 }
 note = "The carbon, t/ha: the biomass from the cover by an allometry a cover^b (a 250 ± 25, b 1.5 ± 0.15), times its carbon fraction (0.47 ± 0.02); the three drawn 500 times from normal distributions."
 
 [[nodes]]
@@ -98,9 +98,9 @@ note = "A normal interval of 90 % from the mean and the deviation."
 
 [[nodes]]
 id = "relative"
-op = "map.calc"
+op = "raster.calc"
 inputs = { m = "carbon.mean", s = "carbon.sd" }
-params = { expression = "if m > 0 then 100 * s / m else null" }
+params = { expression = "100 * s / m if m > 0 else None" }
 note = "The deviation as a share of the mean (%)."
 ```
 
@@ -239,7 +239,7 @@ params = { rows = 100, columns = 100, range = 15, seed = 61 }
 id = "delta"
 op = "uncertainty.delta"
 inputs = { canopy = "canopy.map" }
-params = { expression = "a * canopy ^ b * fraction", parameters = [["a", 250, 25], ["b", 1.5, 0.15], ["fraction", 0.47, 0.02]] }
+params = { expression = "a * canopy ** b * fraction", parameters = [["a", 250, 25], ["b", 1.5, 0.15], ["fraction", 0.47, 0.02]] }
 ```
 
 Against Monte Carlo with 5,000 draws, the delta method's standard deviations differ by 1% on average (at most 0.12

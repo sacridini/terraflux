@@ -5,7 +5,7 @@ description: Recompute a driver such as the distance to built land from the simu
 order: 700
 level: intermediate
 time: 40 min
-ops: [dynamic.distance_to, dynamic.share_of, stack.set, glm.fit, glm.predict, lulcc.step, control.repeat, map.calc, cost.transition]
+ops: [dynamic.distance_to, dynamic.share_of, stack.set, glm.fit, glm.predict, lulcc.step, control.repeat, raster.calc, cost.transition]
 series: Dynamic drivers and agents
 part: 1
 ---
@@ -113,7 +113,7 @@ A dynamic driver is one way to put neighbourhood effects into a model. The alter
 **neighbourhood rules** of CLUE-S (a class may go only where a share of its neighbours already has it; see
 [the rules of CLUE-S](/tutorials/land-change/clue-s-rules/)), the **patch-based allocation** of Dinamica EGO's
 Expander or of PLUS (see [PLUS and CARS](/tutorials/land-change/plus-cars/)), and a cellular automaton written
-by hand with `nbsum` or `nbmean` in [[map.calc]] (see
+by hand with `nbsum` or `nbmean` in [[raster.calc]] (see
 [a cellular automaton by hand](/tutorials/land-change/a-cellular-automaton-by-hand/)). A dynamic driver differs
 from them in one way: its effect is *estimated* from the data (it has a coefficient in the regression), not set
 by hand.
@@ -133,7 +133,7 @@ by hand.
 !!! warning "Check the cells are square"
     `dynamic.distance_to` gives map units only for square cells. Pie's cells are 99.92 m wide and 99.95 m
     high, so Terraflux refuses `unit = "map"` with *distances in map units need square cells*. Ask for the
-    distance in cells (`unit = "cells"`) and multiply it by the cell's side with [[map.calc]], as below.
+    distance in cells (`unit = "cells"`) and multiply it by the cell's side with [[raster.calc]], as below.
 
 ## Build the model
 
@@ -180,7 +180,7 @@ params = { classes = 2, unit = "cells" }
 
 [[nodes]]
 id = "in_metres_0"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "near_built_0.distance" }
 params = { expression = "d * 99.92" }
 
@@ -192,9 +192,9 @@ params = { name = "dist_built_1985" }
 
 [[nodes]]
 id = "expansion"
-op = "map.calc"
+op = "raster.calc"
 inputs = { t0 = "$start", t1 = "$mid" }
-params = { expression = "if t0 == 2 then null else t1" }
+params = { expression = "None if t0 == 2 else t1" }
 
 [[nodes]]
 id = "regression"
@@ -209,13 +209,13 @@ Node by node:
    and gives the distance from every cell to the nearest cell of class 2, Built, in cells. In the application:
    find *dynamic* in the library, click **dynamic.distance_to**, and drag from the `map` output of the input
    `start` to its `landscape` input; in the Node pane set `classes` to 2 and `unit` to `cells`.
-2. **`in_metres_0`** ([[map.calc]]) multiplies the distance by 99.92, the side of a cell in metres, so that the
+2. **`in_metres_0`** ([[raster.calc]]) multiplies the distance by 99.92, the side of a cell in metres, so that the
    driver has the units of the original layer. Its input `d` is the output `distance` of node 1.
 3. **`drivers_0`** ([[stack.set]]) takes the stack of drivers and puts the new map in the layer named
    `dist_built_1985`, *replacing* lulcc's layer of that name (a name not found would be added at the end). The
    name is only a label: it is the name the regression's formula uses, so the coefficients will be estimated on
    this layer, and the loop will later put a newer map under the same label.
-4. **`expansion`** ([[map.calc]]) makes the map the regressions learn from: no value (`null`) where the cell
+4. **`expansion`** ([[raster.calc]]) makes the map the regressions learn from: no value (`None`) where the cell
    was already built in 1985, and the class of 1991 everywhere else. The reason is the most important pitfall of
    dynamic drivers, explained in [Common pitfalls](#common-pitfalls): a regression of where built land *is* on
    the distance to built land learns nothing but "built land is at distance 0 from built land".
@@ -271,7 +271,7 @@ params = { classes = 2, unit = "cells" }
 
 [[nodes.body.nodes]]
 id = "in_metres"
-op = "map.calc"
+op = "raster.calc"
 inputs = { d = "near_built.distance" }
 params = { expression = "d * 99.92" }
 
@@ -331,7 +331,7 @@ params = { allocation = { method = "clue", jitter = 0.0002, scale = 0.000001, ma
 
     [[nodes]]
     id = "in_metres_0"
-    op = "map.calc"
+    op = "raster.calc"
     inputs = { d = "near_built_0.distance" }
     params = { expression = "d * 99.92" }
 
@@ -343,9 +343,9 @@ params = { allocation = { method = "clue", jitter = 0.0002, scale = 0.000001, ma
 
     [[nodes]]
     id = "expansion"
-    op = "map.calc"
+    op = "raster.calc"
     inputs = { t0 = "$start", t1 = "$mid" }
-    params = { expression = "if t0 == 2 then null else t1" }
+    params = { expression = "None if t0 == 2 else t1" }
 
     [[nodes]]
     id = "regression"
@@ -386,7 +386,7 @@ params = { allocation = { method = "clue", jitter = 0.0002, scale = 0.000001, ma
 
     [[nodes.body.nodes]]
     id = "in_metres"
-    op = "map.calc"
+    op = "raster.calc"
     inputs = { d = "near_built.distance" }
     params = { expression = "d * 99.92" }
 
@@ -484,7 +484,7 @@ The static model differs only in where the suitability is computed: a [[glm.pred
 
     [[nodes]]
     id = "in_metres_0"
-    op = "map.calc"
+    op = "raster.calc"
     inputs = { d = "near_built_0.distance" }
     params = { expression = "d * 99.92" }
 
@@ -496,9 +496,9 @@ The static model differs only in where the suitability is computed: a [[glm.pred
 
     [[nodes]]
     id = "expansion"
-    op = "map.calc"
+    op = "raster.calc"
     inputs = { t0 = "$start", t1 = "$mid" }
-    params = { expression = "if t0 == 2 then null else t1" }
+    params = { expression = "None if t0 == 2 else t1" }
 
     [[nodes]]
     id = "regression"

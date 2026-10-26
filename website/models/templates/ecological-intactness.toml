@@ -10,7 +10,7 @@ note = "A smooth surface from 0 to 1 drawn by chance."
 
 [[nodes]]
 id = "footprint"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "field.map" }
 params = { expression = "f * f * 30" }
 note = "A human footprint of 0 to 30 (in its place, a raster.read of the Human Footprint Index)."
@@ -24,7 +24,7 @@ note = "The habitat's quality exp(-gamma footprint) of each cell and of those wi
 
 [[nodes]]
 id = "reduction"
-op = "map.calc"
+op = "raster.calc"
 inputs = { f = "footprint.map" }
 params = { expression = "f / 2" }
 note = "How much a cell's footprint falls when it is restored: half of it, here."

@@ -39,26 +39,26 @@ The **Graph** tab of the application edits the model:
 - **Saving:** **Save** writes the model where it was read, as written, with its submodels kept as
   references.
 
-## Map algebra: `map.calc`
+## Map algebra: `raster.calc`
 
-`map.calc` computes a map cell by cell from an expression, as Dinamica EGO's Calculate Map. Its inputs take
+`raster.calc` computes a map cell by cell from an expression, as Dinamica EGO's Calculate Map. Its inputs take
 any names, and the expression uses those names:
 
 ```toml
 [[nodes]]
 id = "suitable"
-op = "map.calc"
+op = "raster.calc"
 inputs = { land = "$t0", drivers = "$drivers", k = 500 }
-params = { expression = "if land == 3 and drivers.dist_roads < k then 1 else 0" }
+params = { expression = "1 if land == 3 and drivers.dist_roads < k else 0" }
 ```
 
 | | |
 |---|---|
-| values | numbers, `pi`, `null` (a missing cell), maps and numbers by input name, the layers of a stack as `stack.layer` |
-| arithmetic | `+ - * / % ^` |
-| comparisons | `< <= > >= == !=` (1 or 0) |
-| logic | `and or not` (also `&& \|\| !`), `if c then a else b`, `c ? a : b` |
-| functions | `abs sqrt exp ln log10 floor ceil round min max clamp(x, lo, hi) isnull(x) coalesce(x, y)` |
+| values | numbers, `pi`, `None` (a missing cell), `True` and `False`, maps and numbers by input name, the layers of a stack as `stack.layer` |
+| arithmetic | `+ - * / %`, `**` (power) |
+| comparisons | `< <= > >= == !=` (1 or 0; chained as in Python: `5 <= x < 8`) |
+| logic | `and or not`, `a if c else b` |
+| functions | `abs sqrt exp log log10 floor ceil round min max clamp(x, lo, hi) isnull(x) coalesce(x, y)` |
 | neighbourhoods | `nbsum nbmean nbmin nbmax nbcount (x, r)`: the square of radius `r` cells around each cell, the cell included and missing cells left out |
 
 A missing value makes the result missing; `isnull` tests for it, and `coalesce` replaces it. For example,
@@ -97,7 +97,7 @@ do it). Submodels may use submodels, but never themselves.
 
 ## Nodes of your own
 
-A group or a calculator (`map.calc`) is saved as a node of your library with **Save as my node...** in its pane
+A group or a calculator (`raster.calc`) is saved as a node of your library with **Save as my node...** in its pane
 (or the commands, ctrl+K). The dialog shows what the node takes and gives, found from what it is given and what
 its scripts read, to change before it is saved: each input's type, the layers a stack given it must have (a script
 that reads `img.nir` needs `nir`), its value when none is given (then it need not be given); each output's type;
@@ -132,7 +132,7 @@ type = "map"
 outputs = { ndvi = "calc.ndvi" }
 [[nodes.body.nodes]]
 id = "calc"
-op = "map.calc"
+op = "raster.calc"
 inputs = { img = "@img", k = "@k" }
 params = { expression = "out ndvi = (img.nir - img.red) / (img.nir + img.red) * k" }
 ```
@@ -161,7 +161,7 @@ inputs = { over = "years.raster", threshold = 0.4 }
 collect = { forest = "forest.map", areas = "areas.table" }
 [[nodes.body.nodes]]
 id = "forest"
-op = "map.calc"
+op = "raster.calc"
 inputs = { cover = "@item", t = "@threshold" }
 params = { expression = "cover > t" }
 [[nodes.body.nodes]]

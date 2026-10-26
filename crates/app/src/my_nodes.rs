@@ -82,7 +82,7 @@ fn literal_type(v: &serde_json::Value) -> Type {
 pub fn bands_read(nodes: &[Node]) -> BTreeMap<String, Vec<String>> {
     let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for n in nodes {
-        if n.op == "map.calc"
+        if n.op == "raster.calc"
             && let Some(script) = n.params.get("expression").and_then(|v| v.as_str())
         {
             let read = algebra_tools::layers_read(script);
@@ -308,10 +308,10 @@ impl Draft {
 fn as_group(s: &Session, r: &Registry, path: &[String], id: &str) -> Result<(terraflux_graph::Model, Node), String> {
     let mut m = s.source.clone();
     let n = m.scope(path).and_then(|v| v.iter().find(|n| n.id == id)).cloned().ok_or(format!("no node {id:?}"))?;
-    if n.op == "map.calc" {
+    if n.op == "raster.calc" {
         crate::editor::calc_to_group(&mut m, r, path, id)?;
     } else if n.op != GROUP {
-        return Err(format!("{id} is a {}: a group or a calculator (map.calc) is saved as a node", n.op));
+        return Err(format!("{id} is a {}: a group or a calculator (raster.calc) is saved as a node", n.op));
     }
     let g = m.scope(path).and_then(|v| v.iter().find(|n| n.id == id)).cloned().ok_or(format!("no node {id:?}"))?;
     Ok((m, g))
@@ -319,7 +319,7 @@ fn as_group(s: &Session, r: &Registry, path: &[String], id: &str) -> Result<(ter
 
 /// The dialog's first state for a node of a scope: what it takes and gives found ([`infer`]).
 pub fn draft(s: &Session, r: &Registry, path: &[String], id: &str) -> Result<Draft, String> {
-    let calc = s.source.scope(path).and_then(|v| v.iter().find(|n| n.id == id)).is_some_and(|n| n.op == "map.calc");
+    let calc = s.source.scope(path).and_then(|v| v.iter().find(|n| n.id == id)).is_some_and(|n| n.op == "raster.calc");
     let (_, g) = as_group(s, r, path, id)?;
     let given = |src: &Source| type_given(s, r, path, src);
     // what it gave: the calculator's or the group's outputs in the last run
@@ -573,7 +573,7 @@ pub fn list(ui: &mut Ui, s: &mut Session, r: &Registry, query: &str) {
 pub fn pane(ui: &mut Ui, s: &mut Session, r: &Registry, path: &[String], n: &Node) -> Option<Result<(), String>> {
     let mut change = None;
     let Some(u) = n.uses.as_ref().filter(|_| n.op == GROUP) else {
-        if (n.op == GROUP || n.op == "map.calc")
+        if (n.op == GROUP || n.op == "raster.calc")
             && ui
                 .button("Save as my node...")
                 .on_hover_text("a node of your library, to use in any model as one operator")
@@ -650,11 +650,11 @@ mod tests {
             .literal("k", 0.5)
             .body(Body {
                 nodes: vec![
-                    Node::new("calc", "map.calc")
+                    Node::new("calc", "raster.calc")
                         .input("s", "@img")
                         .input("k", "@k")
                         .param("expression", "x = s.nir\nout ndvi = (x - s.red) / (x + s.red) * k"),
-                    Node::new("more", "map.calc")
+                    Node::new("more", "raster.calc")
                         .input("s", "@img")
                         .input("t", "@extra")
                         .param("expression", "out b = s.swir"),

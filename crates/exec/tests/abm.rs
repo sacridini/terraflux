@@ -64,7 +64,7 @@ fn model(subsidy: &str) -> Model {
             Node::new("need", "agents.summary").input("agents", "grow.agents"),
             Node::new("decide", "agents.update").input("agents", "managers.agents").input("step", "@step").param("rules", subsidy),
             Node::new("boost", "agents.map").input("agents", "decide.agents").input("parcels", "$parcels").param("column", "subsidy"),
-            Node::new("fert", "map.calc")
+            Node::new("fert", "raster.calc")
                 .input("caps", "$capitals")
                 .input("boost", "boost.map")
                 .param("expression", "min(caps.fertility * boost, 1)"),
@@ -103,7 +103,7 @@ fn farmers_in_parcel_one(r: &terraflux_exec::Results) -> usize {
 fn agents_drive_the_land() {
     let inputs = inputs();
     let with =
-        Engine::default().run(&model("subsidy = if id == 1 and step > 5 then 3 else 1"), &inputs, &mut Quiet).unwrap();
+        Engine::default().run(&model("subsidy = 3 if id == 1 and step > 5 else 1"), &inputs, &mut Quiet).unwrap();
     // the population grew, and with it the demand; the supply follows the demand
     let Some(Value::Agents(people)) = with.get("simulation.people") else { panic!() };
     let pop = people.column("population").unwrap()[0];

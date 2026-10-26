@@ -1366,10 +1366,10 @@ from = \"inc.sum\"
             terraflux_graph::Input::Map { path: "x.tif".into(), band: None, nodata: None, note: None },
         );
         m.nodes.push(
-            Node::new("calc", "map.calc")
+            Node::new("calc", "raster.calc")
                 .input("lu", "$land")
                 .literal("k", 10)
-                .param("expression", "if lu >= 2 then lu * k else 0"),
+                .param("expression", "lu * k if lu >= 2 else 0"),
         );
         let r = engine().run(&m, &[("land".to_string(), land)].into(), &mut Quiet).unwrap();
         let Value::Map(out) = r.get("calc.map").unwrap() else { panic!() };

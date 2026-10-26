@@ -204,7 +204,7 @@ for v in vs:
     nodes.append(f"""
 [[nodes]]
 id = "c_{v}"
-op = "map.calc"
+op = "raster.calc"
 inputs = {{ lu = "$t0", d = "$drivers" }}
 params = {{ expression = "if lu == 1 then floor(d.{v} / {CUT[v]}) else null" }}
 """)
@@ -220,7 +220,7 @@ inputs = {{ reference = "c_{a}.map", simulated = "c_{b}.map" }}
 from = "k_{a}__{b}.table"
 """)
 w = dc.sibuyan("woe_assoc")
-# (the drivers as an input of the model: map.calc reads the layers of a stack input by name, d.dist_sea, but not
+# (the drivers as an input of the model: raster.calc reads the layers of a stack input by name, d.dist_sea, but not
 # those of raster.read's stack output)
 INPUTS = """format = "terraflux/1"
 

@@ -763,7 +763,7 @@ impl Operator for Standardize {
              predictors compared or combined: the z-score ((x - mean) / std, the std of the population), \
              min-max to 0-1, or the percentile stretch to 0-1 between two percentiles (the values beyond them 0 \
              or 1). A layer of one value is all 0. The centre and scale of each layer in a table, to standardize \
-             other maps the same way (map.calc).",
+             other maps the same way (raster.calc).",
             Access::None,
         )
         .input(PortSpec::new("map", Type::Any, "a map, a stack or a series of maps"))

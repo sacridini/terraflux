@@ -5,7 +5,7 @@ description: Simulate the growth of built land with FUTURES, from a development 
 order: 620
 level: advanced
 time: 60 min
-ops: [futures.devpressure, futures.patch_library, futures.calibrate, futures.simulation, validate.futures, glm.fit, map.calc]
+ops: [futures.devpressure, futures.patch_library, futures.calibrate, futures.simulation, validate.futures, glm.fit, raster.calc]
 series: Other land change models
 part: 3
 ---
@@ -93,7 +93,7 @@ model](/tutorials/land-change/choosing-a-model/) compares the families.
 ## What you need
 
 - **Maps of developed land** (1 developed, 0 not, no value outside the study area) at two dates at least: here
-  the built class (2) of Plum Island's land use maps of 1985, 1991 and 1999, made with [[map.calc]] (`lu == 2`).
+  the built class (2) of Plum Island's land use maps of 1985, 1991 and 1999, made with [[raster.calc]] (`lu == 2`).
 - **Drivers** of the potential (here `slope` and `elevation` of `pie_drivers.tif`).
 - **Subregions**: a map of ids (counties). Plum Island has no counties in its data, so the map is cut into a
   western (1) and an eastern half (2) to show how subregions work.
@@ -135,13 +135,13 @@ params = { path = "subregions.tif" }
 
 [[nodes]]
 id = "dev1985"
-op = "map.calc"
+op = "raster.calc"
 inputs = { lu = "lu1985.raster" }
 params = { expression = "lu == 2" }
 
 [[nodes]]
 id = "dev1991"
-op = "map.calc"
+op = "raster.calc"
 inputs = { lu = "lu1991.raster" }
 params = { expression = "lu == 2" }
 
@@ -159,9 +159,9 @@ params = { name = "devpressure" }
 
 [[nodes]]
 id = "new_west"
-op = "map.calc"
+op = "raster.calc"
 inputs = { a = "dev1985.map", b = "dev1991.map", c = "counties.raster" }
-params = { expression = "if a == 1 or c != 1 then null else b" }
+params = { expression = "None if a == 1 or c != 1 else b" }
 
 [[nodes]]
 id = "potential_west"
@@ -179,7 +179,7 @@ params = { per_subregion = true }
 <div class="steps" markdown>
 
 1. **The maps** (nodes 1 to 4): the land use of 1985 and 1991, the drivers and the subregions.
-2. **Developed or not** (nodes 5 and 6): [[map.calc]] with `lu == 2` gives 1 for built land, 0 for the rest, and
+2. **Developed or not** (nodes 5 and 6): [[raster.calc]] with `lu == 2` gives 1 for built land, 0 for the rest, and
    no value outside the study area.
 3. **The pressure** (node 7, [[futures.devpressure]]): `size` is the radius of the window in cells (10, about
    1 km), `method` the decay (`gravity`, `occurrence` or `kernel`), `gamma` and `scaling_factor` as in the formula.
@@ -269,7 +269,7 @@ params = { path = "subregions.tif" }
 
 [[nodes]]
 id = "developed"
-op = "map.calc"
+op = "raster.calc"
 inputs = { lu = "land.raster" }
 params = { expression = "lu == 2" }
 

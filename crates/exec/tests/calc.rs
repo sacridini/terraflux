@@ -15,7 +15,7 @@ params = { rows = 20, columns = 30, seed = 3 }
 
 [[nodes]]
 id = "twice"
-op = "map.calc"
+op = "raster.calc"
 inputs = { a = "land.map" }
 params = { expression = "a * 2" }
 
@@ -26,7 +26,7 @@ inputs = { low = "land.map", high = "twice.map" }
 
 [[nodes]]
 id = "calc"
-op = "map.calc"
+op = "raster.calc"
 inputs = { s = "s.stack", land = "land.map" }
 params = { expression = """
 # the mean of the two layers, each layer over its largest value, and the top tenth of the land
@@ -38,7 +38,7 @@ out top = land > p90
 
 [[nodes]]
 id = "after"
-op = "map.calc"
+op = "raster.calc"
 inputs = { m = "calc.mean", k = "calc.p90" }
 params = { expression = "m > k" }
 "#;
@@ -67,7 +67,7 @@ fn a_script_gives_maps_stacks_and_numbers() {
 
 #[test]
 fn a_stack_without_out_is_refused() {
-    let model = Model::from_toml(&MODEL.replace("params = { expression = \"m > k\" }", "params = { expression = \"m > k\" }\n\n[[nodes]]\nid = \"bad\"\nop = \"map.calc\"\ninputs = { s = \"s.stack\" }\nparams = { expression = \"s * 2\" }")).unwrap();
+    let model = Model::from_toml(&MODEL.replace("params = { expression = \"m > k\" }", "params = { expression = \"m > k\" }\n\n[[nodes]]\nid = \"bad\"\nop = \"raster.calc\"\ninputs = { s = \"s.stack\" }\nparams = { expression = \"s * 2\" }")).unwrap();
     let e = Engine::default().run(&model, &BTreeMap::new(), &mut Quiet).err().unwrap().to_string();
     assert!(e.contains("give it a name with out"), "{e}");
 }
