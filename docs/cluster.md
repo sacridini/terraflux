@@ -35,8 +35,8 @@ The toolbar's **Computers...** opens a pane of two parts, and nothing else to se
   (Windows and macOS), or paused at will. Without the window: `terraflux worker --code K7QM-2XPA-9DTE`.
 
 Only the computers given the code take part, and what travels is encrypted (see "With a code" below). The
-installer lets Terraflux through the Windows firewall for the local network; elsewhere, the system may ask the
-first time. A network that does not carry broadcasts (some offices' Wi-Fi) needs the address instead:
+first time Terraflux is opened to the local network, Windows' firewall asks whether to let it through (allowed on
+private networks, with an administrator's permission); other systems may ask too. A network that does not carry broadcasts (some offices' Wi-Fi) needs the address instead:
 `terraflux worker --code ... --coordinator <the other's address>:7700`.
 
 The batches run on the application's own coordinator (its jobs in the user's application data, `pool`), with

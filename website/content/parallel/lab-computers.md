@@ -97,8 +97,8 @@ too large for memory, see [Maps larger than memory](/parallel/maps-larger-than-m
 - A **network** between them. On a home or lab network the computers find each other by the code. A network that
   does not carry broadcasts (some offices' Wi-Fi, a VPN) needs the coordinator's address instead.
 - The **firewall**: the coordinator's port (7700 by default) must accept connections from the others, and UDP 7701
-  carries the beacons. The Windows installer lets Terraflux through the firewall for the local network; elsewhere
-  the system may ask the first time.
+  carries the beacons. The first time Terraflux is opened to the local network, Windows' firewall asks whether to
+  let it through: allow it on private networks (an administrator's permission); other systems may ask too.
 
 ## Run it
 

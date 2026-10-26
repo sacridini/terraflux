@@ -1,18 +1,19 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <!--
   Terraflux's Windows installer (WiX 5): terraflux.exe, the Visual C++ and OpenMP runtimes next to it, and GDAL in
-  the folder `gdal`, in Program Files\Terraflux; a shortcut in the Start menu and the folder on the PATH (for
-  `terraflux run`), with the application's icon; a rule of the Windows firewall that lets the computers of the
-  local network reach Terraflux (other computers helping with its runs, found by its beacons; only those given
-  its code get in). Built by tools\make-installer.ps1, which stages the files and gives Version, Stage and Icon.
+  the folder `gdal`, for the user installing it, with no administrator's permission asked (installed and removed
+  without Windows' prompt): in %LOCALAPPDATA%\Programs\Terraflux, a shortcut in the user's Start menu and the folder
+  on the user's PATH (for `terraflux run`), with the application's icon. Windows' firewall asks, the first time,
+  only when Terraflux is opened to the computers of the local network (other computers helping with its runs).
+  Built by tools\make-installer.ps1, which stages the files and gives Version, Stage and Icon.
 -->
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package
       Name="Terraflux"
       Manufacturer="Terraflux"
       Version="$(var.Version)"
       UpgradeCode="0f5378cc-a4a4-4353-9708-bf645d60075e"
-      Scope="perMachine"
+      Scope="perUser"
       Compressed="yes">
     <SummaryInformation Description="Terraflux $(var.Version): land use and land cover change modelling" />
     <MajorUpgrade DowngradeErrorMessage="A newer Terraflux is installed already." />
@@ -23,15 +24,25 @@
     <Property Id="ARPPRODUCTICON" Value="terraflux.ico" />
     <Property Id="ARPNOMODIFY" Value="1" />
 
-    <StandardDirectory Id="ProgramFiles64Folder">
-      <Directory Id="INSTALLFOLDER" Name="Terraflux" />
+    <!-- a Terraflux installed for all the users (the installers before 1.18): its folder on the PATH of the
+         system, before the user's, would run in place of this one; removed first (the administrator's prompt of
+         that installer, once) -->
+    <Property Id="FORALLUSERS">
+      <RegistrySearch Root="HKLM" Key="Software\Terraflux" Name="StartMenu" Type="raw" Bitness="always64" />
+    </Property>
+    <Launch Condition="Installed OR NOT FORALLUSERS"
+            Message="A Terraflux installed for all the users of this computer (by an installer before 1.18) is here. Remove it first in Settings, Apps (Windows asks the administrator one last time), then run this installer again: it installs Terraflux for you, without the administrator." />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="Terraflux" />
+      </Directory>
     </StandardDirectory>
 
     <Feature Id="Main" Title="Terraflux" Level="1">
       <ComponentGroupRef Id="Files" />
       <ComponentRef Id="StartMenu" />
       <ComponentRef Id="OnPath" />
-      <ComponentRef Id="Firewall" />
     </Feature>
   </Package>
 
@@ -52,25 +63,19 @@
             Target="[INSTALLFOLDER]terraflux.exe"
             Icon="terraflux.ico"
             WorkingDirectory="INSTALLFOLDER" />
-        <RegistryValue Root="HKLM" Key="Software\Terraflux" Name="StartMenu" Type="integer" Value="1" KeyPath="yes" />
+        <RegistryValue Root="HKCU" Key="Software\Terraflux" Name="StartMenu" Type="integer" Value="1" KeyPath="yes" />
       </Component>
     </StandardDirectory>
   </Fragment>
 
   <Fragment>
-    <!-- the local network only: the computers that help, and the beacons they find each other by -->
-    <Component Id="Firewall" Directory="INSTALLFOLDER" Guid="3d0f5bb4-6d1e-4c1f-9f3b-2a7c7f0d9e51">
-      <fw:FirewallException Id="TerrafluxNetwork" Name="Terraflux (computers of the local network)"
-                            Program="[INSTALLFOLDER]terraflux.exe" Scope="localSubnet" IgnoreFailure="yes" />
-      <RegistryValue Root="HKLM" Key="Software\Terraflux" Name="Firewall" Type="integer" Value="1" KeyPath="yes" />
-    </Component>
-  </Fragment>
-
-  <Fragment>
-    <Component Id="OnPath" Directory="INSTALLFOLDER" Guid="f5cb610b-88a3-4424-bd7c-6660b99bb948">
-      <Environment Id="TerrafluxPath" Name="PATH" Value="[INSTALLFOLDER]" Part="last" Action="set" System="yes"
+    <Component Id="OnPath" Directory="INSTALLFOLDER" Guid="bbb25644-6b2b-476b-8aba-7ec0d7c5c4ef">
+      <Environment Id="TerrafluxPath" Name="PATH" Value="[INSTALLFOLDER]" Part="last" Action="set" System="no"
                    Permanent="no" />
-      <RegistryValue Root="HKLM" Key="Software\Terraflux" Name="OnPath" Type="integer" Value="1" KeyPath="yes" />
+      <RegistryValue Root="HKCU" Key="Software\Terraflux" Name="OnPath" Type="integer" Value="1" KeyPath="yes" />
+      <!-- the folders made in the user's profile, removed with Terraflux -->
+      <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
+      <RemoveFolder Id="RemoveProgramsFolder" Directory="ProgramsFolder" On="uninstall" />
     </Component>
   </Fragment>
 </Wix>

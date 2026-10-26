@@ -44,15 +44,17 @@ The assistant starts `terraflux mcp` by itself whenever it needs it: you only te
     {
       "mcpServers": {
         "terraflux": {
-          "command": "C:\\Program Files\\Terraflux\\terraflux.exe",
+          "command": "C:\\Users\\you\\AppData\\Local\\Programs\\Terraflux\\terraflux.exe",
           "args": ["mcp"]
         }
       }
     }
     ```
 
-    The `command` is where Terraflux is installed: on Windows, `C:\\Program Files\\Terraflux\\terraflux.exe`
-    (the backslashes doubled, as JSON wants them); on macOS,
+    The `command` is where Terraflux is installed: on Windows,
+    `C:\\Users\\you\\AppData\\Local\\Programs\\Terraflux\\terraflux.exe`, with your user's folder in place of `you`
+    (`C:\\Program Files\\Terraflux\\terraflux.exe` from an installer before 1.18; the backslashes doubled, as JSON
+    wants them); on macOS,
     `/Applications/Terraflux.app/Contents/MacOS/terraflux`; on Linux, `/usr/bin/terraflux` from the `.deb`
     package or `~/.local/bin/terraflux` from the archive. Restart Claude Desktop. Terraflux's tools appear in the
     tools menu of the message box.

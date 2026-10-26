@@ -6,6 +6,14 @@ minor versions.
 
 ## [Unreleased]
 
+### Changed
+- The Windows installer installs Terraflux for the user, without the administrator's permission: Windows no longer
+  asks to allow it when installing or uninstalling (nor makes a restore point first, which made the installer seem
+  stuck). It goes to `%LOCALAPPDATA%\Programs\Terraflux`, with a shortcut in the user's Start menu and the folder
+  on the user's PATH. A Terraflux installed for all the users by an earlier installer is to be removed first (the
+  installer says so). The installer no longer adds a rule to Windows' firewall: the firewall asks the first time
+  Terraflux is opened to the computers of the local network.
+
 ## [1.17.0] - 2026-10-26
 
 ### Changed

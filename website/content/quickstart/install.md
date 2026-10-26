@@ -20,12 +20,17 @@ Windows 10 and 11, 64-bit.
 
 === "Installer (.msi)"
 
-    `terraflux-<version>-x64.msi`. Double-click it and follow the steps. It installs Terraflux in **Program
-    Files**, adds a shortcut to the **Start menu**, and puts its folder on the **PATH**, so that `terraflux` works
-    in any new terminal (PowerShell or the command prompt). It brings GDAL (the folder `gdal`) and the Visual C++
-    and OpenMP runtimes.
+    `terraflux-<version>-x64.msi`. Double-click it and follow the steps. It installs Terraflux for you, without
+    asking for the administrator's permission, in `%LOCALAPPDATA%\Programs\Terraflux`, adds a shortcut to the
+    **Start menu**, and puts its folder on your **PATH**, so that `terraflux` works in any new terminal
+    (PowerShell or the command prompt). It brings GDAL (the folder `gdal`) and the Visual C++ and OpenMP runtimes.
 
-    To remove it: **Settings > Apps > Installed apps > Terraflux > Uninstall**.
+    To remove it: **Settings > Apps > Installed apps > Terraflux > Uninstall** (no administrator either).
+
+    !!! note "Installed by a version before 1.18?"
+        The installers before 1.18 installed Terraflux for all the users, in Program Files, and Windows asked for
+        the administrator. Remove that one first (Settings > Apps; Windows asks one last time): the new installer
+        says so if it is still there.
 
 === "Portable (.zip)"
 

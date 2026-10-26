@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Terraflux's Windows installer and portable zip, in target\installer:
 #
-#   terraflux-<version>-x64.msi            installs to Program Files\Terraflux (Start menu, PATH)
+#   terraflux-<version>-x64.msi            installs for the user, no administrator asked
+#                                          (%LOCALAPPDATA%\Programs\Terraflux, Start menu, PATH)
 #   terraflux-<version>-windows-x64.zip    the same files, to unpack anywhere
 #
 # Both hold terraflux.exe (the release build), the Visual C++ and OpenMP runtimes next to it (a clean Windows has
@@ -57,14 +58,11 @@ try {
     # the MSI
     dotnet tool restore
     if ($LASTEXITCODE) { throw "dotnet tool restore failed" }
-    # the firewall's rule (computers of the local network helping with the runs)
-    dotnet wix extension add -g WixToolset.Firewall.wixext/5.0.2
-    if ($LASTEXITCODE) { throw "the WiX firewall extension could not be added" }
     $msi = "$out\terraflux-$version-x64.msi"
     $stageFull = (Resolve-Path $stage).Path
     $icon = (Resolve-Path assets\logo\terraflux.ico).Path
-    dotnet wix build installer\terraflux.wxs -arch x64 -ext WixToolset.Firewall.wixext -d "Version=$version" `
-        -d "Stage=$stageFull" -d "Icon=$icon" -o $msi
+    dotnet wix build installer\terraflux.wxs -arch x64 -d "Version=$version" -d "Stage=$stageFull" -d "Icon=$icon" `
+        -o $msi
     if ($LASTEXITCODE) { throw "wix build failed" }
     foreach ($f in $msi, $zip) { "{0} ({1:N0} MB)" -f $f, ((Get-Item $f).Length / 1MB) }
 }
