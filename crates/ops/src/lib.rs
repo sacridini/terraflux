@@ -17,6 +17,7 @@ pub mod actions;
 pub mod actions_raster;
 pub mod agents;
 pub mod algebra;
+pub mod algebra_tools;
 pub mod batch;
 pub mod bio;
 pub mod cache;

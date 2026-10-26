@@ -6,6 +6,7 @@ pub mod app;
 pub mod basemap;
 pub mod batch_view;
 pub mod builder;
+pub mod calc_view;
 pub mod canvas_gpu;
 pub mod charts;
 pub mod chat;

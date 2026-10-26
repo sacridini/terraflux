@@ -655,6 +655,14 @@ fn value_cell(
     if resp.lost_focus() && text != init {
         change = Some(crate::editor::set_param(&mut s.source, path, &n.id, name, &text));
     }
+    if script
+        && ui
+            .button("Open in the calculator")
+            .on_hover_text("the script with its names completed, its outputs shown as it is typed, and a console")
+            .clicked()
+    {
+        s.ask_calculator = true;
+    }
     // a file: chosen in a dialog
     if name == "path" && terraflux_graph::FILE_OPS.contains(&n.op.as_str()) && ui.button("Choose...").clicked() {
         let dialog = match n.op.as_str() {

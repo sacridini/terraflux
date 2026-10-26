@@ -2,6 +2,7 @@
 //! program instead of one per file. `ui` and `readme_images` are programs of their own: each points the
 //! settings at a file of its own (`TERRAFLUX_SETTINGS`).
 
+mod calculator;
 mod canvas;
 mod charts;
 mod prepare;

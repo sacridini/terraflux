@@ -18,6 +18,15 @@ minor versions.
   chained comparisons (`5 <= x < 8`), `**`, `True`, `False`, `None` and `log`. A stack's layers are read by
   name with every name made one (`1997` is `s._1997`, a band without a name `s.b1`), and a band name begun with
   a digit is told how to write it.
+- The Calculator pane (View, or "Open in the calculator" in a map algebra node's pane) writes the script of the
+  `map.calc` node selected, under the model: its words in colour, its first error underlined where it is and told
+  with its line (a name that is no input, with the one meant; a layer a stack does not have), the names completed
+  as they are typed or with ctrl+space (the inputs, the names given in the script, the functions and the methods
+  with their help, and after `s.` a stack's layers with their names in the file, known from the last run or from
+  the raster's header before anything runs), and each output shown beside it as the script is typed, computed on
+  a sample of the cells. A console under it computes a line in the script's scope on every cell (`img.mean()`
+  gives the number at once; a map, its numbers and its image) without changing the node. ctrl+enter gives the
+  script to the node and runs the model up to it.
 
 ### Changed
 - Map algebra is faster, with the same results to the bit: an expression is compiled (the numbers folded, a value

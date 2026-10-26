@@ -69,14 +69,22 @@ const OPS: [&str; 26] = [
 ];
 
 /// The words of the language, which no value is named.
-const WORDS: [&str; 12] = ["if", "then", "else", "and", "or", "not", "out", "pi", "null", "None", "True", "False"];
+pub(crate) const WORDS: [&str; 12] =
+    ["if", "then", "else", "and", "or", "not", "out", "pi", "null", "None", "True", "False"];
 
-/// The tokens of a text and the line of each. In a script a new line (outside brackets) and `;` end a
-/// statement; in an expression they are spaces.
-fn lex(s: &str, script: bool) -> Result<(Vec<Tok>, Vec<usize>)> {
+/// The tokens of a text, the line of each and where each is (bytes). In a script a new line (outside brackets)
+/// and `;` end a statement; in an expression they are spaces.
+struct Lexed {
+    toks: Vec<Tok>,
+    lines: Vec<usize>,
+    spans: Vec<std::ops::Range<usize>>,
+}
+
+/// A text's tokens; an error, with where it is.
+fn lex(s: &str, script: bool) -> std::result::Result<Lexed, (Error, usize)> {
     let b = s.as_bytes();
     let (mut i, mut line, mut depth) = (0, 1, 0usize);
-    let (mut out, mut lines) = (Vec::new(), Vec::new());
+    let (mut out, mut lines, mut spans) = (Vec::new(), Vec::new(), Vec::new());
     // a dot right after a name or a bracket reads a layer, even before a digit (to be told how to name it)
     let attached = |i: usize| i > 0 && (b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_' || b[i - 1] == b')');
     while i < b.len() {
@@ -85,6 +93,7 @@ fn lex(s: &str, script: bool) -> Result<(Vec<Tok>, Vec<usize>)> {
             if script && depth == 0 {
                 out.push(Tok::End);
                 lines.push(line);
+                spans.push(i..i);
             }
             line += 1;
             i += 1;
@@ -111,8 +120,9 @@ fn lex(s: &str, script: bool) -> Result<(Vec<Tok>, Vec<usize>)> {
                 }
             }
             let t = &s[start..i];
-            out.push(Tok::Num(t.parse().map_err(|_| Error::msg(format!("{t:?} is not a number")))?));
+            out.push(Tok::Num(t.parse().map_err(|_| (Error::msg(format!("{t:?} is not a number")), start))?));
             lines.push(line);
+            spans.push(start..i);
         } else if c.is_ascii_alphabetic() || c == '_' {
             let start = i;
             while i < b.len() && ((b[i] as char).is_ascii_alphanumeric() || b[i] == b'_') {
@@ -120,10 +130,11 @@ fn lex(s: &str, script: bool) -> Result<(Vec<Tok>, Vec<usize>)> {
             }
             out.push(Tok::Id(s[start..i].to_string()));
             lines.push(line);
+            spans.push(start..i);
         } else {
             let op = OPS.iter().find(|o| s[i..].starts_with(*o)).ok_or_else(|| {
                 let c = s[i..].chars().next().unwrap_or(c);
-                Error::msg(format!("unexpected {c:?} at {}", i + 1))
+                (Error::msg(format!("unexpected {c:?} at {}", i + 1)), i)
             })?;
             match *op {
                 "(" | "[" => depth += 1,
@@ -132,19 +143,30 @@ fn lex(s: &str, script: bool) -> Result<(Vec<Tok>, Vec<usize>)> {
             }
             out.push(if *op == ";" && script { Tok::End } else { Tok::Op(op) });
             lines.push(line);
+            spans.push(i..i + op.len());
             i += op.len();
         }
     }
-    Ok((out, lines))
+    Ok(Lexed { toks: out, lines, spans })
 }
 
 struct Parser {
     toks: Vec<Tok>,
     lines: Vec<usize>,
+    spans: Vec<std::ops::Range<usize>>,
     at: usize,
 }
 
 impl Parser {
+    fn new(l: Lexed) -> Parser {
+        Parser { toks: l.toks, lines: l.lines, spans: l.spans, at: 0 }
+    }
+
+    /// Where the token read now is (the end of the text after the last).
+    fn span(&self, len: usize) -> std::ops::Range<usize> {
+        self.spans.get(self.at).cloned().unwrap_or(len..len)
+    }
+
     fn peek(&self) -> Option<&Tok> {
         self.toks.get(self.at)
     }
@@ -340,15 +362,20 @@ impl Parser {
                 }
                 _ => return Err(Error::msg(format!("expected a layer of {of:?} after the dot"))),
             };
+            // (an error after it: told at the name)
+            let at = self.at;
             self.at += 1;
             if self.is_op("(") {
                 let args = self.args()?;
-                check_method(&name, &args)?;
+                check_method(&name, &args).inspect_err(|_| self.at = at)?;
                 e = Expr::Method(Box::new(e), name, args);
             } else {
                 e = match e {
                     Expr::Var(v) => Expr::Layer(v, name),
-                    _ => return Err(Error::msg(format!("a layer is read from a stack's name: s.{name}"))),
+                    _ => {
+                        self.at = at;
+                        return Err(Error::msg(format!("a layer is read from a stack's name: s.{name}")));
+                    }
                 };
             }
         }
@@ -378,7 +405,13 @@ impl Parser {
             None | Some(Tok::End) => return Err(Error::msg("the expression ends too early")),
             Some(t) => t,
         };
+        // (an error: told at the token)
+        let at = self.at;
         self.at += 1;
+        let back = |p: &mut Parser, e: Error| {
+            p.at = at;
+            Err(e)
+        };
         match t {
             Tok::Num(n) => Ok(Expr::Num(n)),
             Tok::Op("(") => {
@@ -391,16 +424,22 @@ impl Parser {
                 "null" | "None" => Ok(Expr::Num(f64::NAN)),
                 "True" => Ok(Expr::Num(1.0)),
                 "False" => Ok(Expr::Num(0.0)),
-                "if" | "then" | "else" | "and" | "or" | "not" | "out" => Err(Error::msg(format!("unexpected {id:?}"))),
+                "if" | "then" | "else" | "and" | "or" | "not" | "out" => {
+                    back(self, Error::msg(format!("unexpected {id:?}")))
+                }
                 _ if self.is_op("(") => {
                     let args = self.args()?;
-                    check_call(&id, &args)?;
-                    Ok(Expr::Call(id, args))
+                    match check_call(&id, &args) {
+                        Ok(()) => Ok(Expr::Call(id, args)),
+                        Err(e) => back(self, e),
+                    }
                 }
                 _ => Ok(Expr::Var(id)),
             },
-            Tok::Op("=") => Err(Error::msg("use == to compare (= gives a name a value, at the start of a line)")),
-            Tok::Op(o) => Err(Error::msg(format!("unexpected {o:?}"))),
+            Tok::Op("=") => {
+                back(self, Error::msg("use == to compare (= gives a name a value, at the start of a line)"))
+            }
+            Tok::Op(o) => back(self, Error::msg(format!("unexpected {o:?}"))),
             Tok::End => unreachable!(),
         }
     }
@@ -463,7 +502,7 @@ impl Parser {
 }
 
 /// The functions: name, least and most values taken.
-const FUNCTIONS: [(&str, usize, usize); 24] = [
+pub(crate) const FUNCTIONS: [(&str, usize, usize); 24] = [
     ("abs", 1, 1),
     ("sqrt", 1, 1),
     ("exp", 1, 1),
@@ -491,10 +530,10 @@ const FUNCTIONS: [(&str, usize, usize); 24] = [
 ];
 
 /// The functions of a stack's layers at each cell (and `count`, which is also a method).
-const REDUCTIONS: [&str; 8] = ["mean", "sd", "median", "sum", "count", "min", "max", "percentile"];
+pub(crate) const REDUCTIONS: [&str; 8] = ["mean", "sd", "median", "sum", "count", "min", "max", "percentile"];
 
 /// The methods: name and values taken.
-const METHODS: [(&str, usize); 8] =
+pub(crate) const METHODS: [(&str, usize); 8] =
     [("mean", 0), ("sd", 0), ("median", 0), ("sum", 0), ("count", 0), ("min", 0), ("max", 0), ("percentile", 1)];
 
 fn check_call(name: &str, args: &[Expr]) -> Result<()> {
@@ -537,8 +576,7 @@ fn check_method(name: &str, args: &[Expr]) -> Result<()> {
 
 /// Parse an expression.
 pub fn parse(text: &str) -> Result<Expr> {
-    let (toks, lines) = lex(text, false)?;
-    let mut p = Parser { toks, lines, at: 0 };
+    let mut p = Parser::new(lex(text, false).map_err(|(e, _)| e)?);
     let e = p.expr()?;
     if p.at < p.toks.len() {
         return Err(p.unexpected("unexpected text"));
@@ -563,7 +601,7 @@ pub enum Stmt {
 pub struct Script {
     pub statements: Vec<(usize, Stmt)>,
     /// Whether it has more than one line (its errors then say which).
-    lines: bool,
+    pub(crate) lines: bool,
 }
 
 impl Script {
@@ -590,9 +628,17 @@ impl Script {
 /// Parse a script (one expression is a script).
 pub fn parse_script(text: &str) -> Result<Script> {
     let lines = text.trim().contains(['\n', ';']);
-    let at = |line: usize, e: Error| if lines { Error::msg(format!("line {line}: {}", e.0)) } else { e };
-    let (toks, ls) = lex(text, true).map_err(|e| at(1, e))?;
-    let mut p = Parser { toks, lines: ls, at: 0 };
+    parse_located(text).map_err(|(e, line, _)| if lines { Error::msg(format!("line {line}: {}", e.0)) } else { e })
+}
+
+/// Parse a script; an error with its line and where it is in the text (bytes).
+pub(crate) fn parse_located(text: &str) -> std::result::Result<Script, (Error, usize, std::ops::Range<usize>)> {
+    let lines = text.trim().contains(['\n', ';']);
+    let line_at = |i: usize| 1 + text[..i.min(text.len())].matches('\n').count();
+    let mut p = Parser::new(lex(text, true).map_err(|(e, i)| {
+        let end = text[i..].chars().next().map_or(i, |c| i + c.len_utf8());
+        (e, line_at(i), i..end)
+    })?);
     let mut statements = Vec::new();
     loop {
         while p.peek() == Some(&Tok::End) {
@@ -602,14 +648,14 @@ pub fn parse_script(text: &str) -> Result<Script> {
             break;
         }
         let line = p.line();
-        let s = p.statement().map_err(|e| at(line, e))?;
+        let s = p.statement().map_err(|e| (e, line, p.span(text.len())))?;
         if !p.at_end() {
-            return Err(at(line, p.unexpected("unexpected text")));
+            return Err((p.unexpected("unexpected text"), line, p.span(text.len())));
         }
         statements.push((line, s));
     }
     if statements.is_empty() {
-        return Err(Error::msg("the expression is empty"));
+        return Err((Error::msg("the expression is empty"), 1, 0..text.len()));
     }
     Ok(Script { statements, lines })
 }
@@ -642,7 +688,7 @@ impl Expr {
         r
     }
 
-    fn walk(&self, f: &mut dyn FnMut(&Expr)) {
+    pub(crate) fn walk(&self, f: &mut dyn FnMut(&Expr)) {
         f(self);
         match self {
             Expr::Unary(_, a) => a.walk(f),
@@ -940,7 +986,10 @@ fn apply2(op: Op2, d: &mut [f64], a: Src, b: Src) {
             match op { $(Op2::$o => each2(d, a, b, |x, y| op2(Op2::$o, x, y)),)* }
         };
     }
-    by!(Add, Sub, Mul, Div, Rem, Pow, Lt, Le, Gt, Ge, Eq, Ne, And, Or, Min, Max, MinSkip, MaxSkip, Coalesce, AtLeast, AtMost)
+    by!(
+        Add, Sub, Mul, Div, Rem, Pow, Lt, Le, Gt, Ge, Eq, Ne, And, Or, Min, Max, MinSkip, MaxSkip, Coalesce, AtLeast,
+        AtMost
+    )
 }
 
 /// A compiled script: instructions run over a block of cells at a time, with the registers they write, and the
@@ -1054,12 +1103,15 @@ enum Val {
 }
 
 /// A value a script gives.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Out {
     Number(f64),
     Map(Vec<f64>),
     Stack(Vec<(Key, Vec<f64>)>),
 }
+
+/// An instruction as the compiler knows it: its kind, its operation and its operands (kind and bits).
+type Written = (u8, u8, [(u8, u64); 3]);
 
 /// Turns a script into one program: names resolved, numbers folded, a value computed twice computed once; the
 /// neighbourhoods, the statistics of a whole map and the percentiles of stacks computed when they are met, from
@@ -1072,7 +1124,8 @@ struct Compiler<'s, 'a> {
     /// What was computed whole (a neighbourhood, a statistic) by what it is.
     made: HashMap<String, Arg>,
     ins: Vec<Ins>,
-    seen: HashMap<(u8, u8, [(u8, u64); 3]), Arg>,
+    /// The instructions written, by what they compute (their operation and operands).
+    seen: HashMap<Written, Arg>,
     /// The names the script gave values.
     vars: HashMap<String, Val>,
 }
@@ -1460,9 +1513,9 @@ impl<'s, 'a> Compiler<'s, 'a> {
 
     fn statement(&mut self, s: &Stmt, last: bool, outs: bool) -> Result<()> {
         match s {
-            Stmt::Value(_) if !last || outs => Err(Error::msg(
-                "a value computed and not kept: give it a name (x = ...), or compare with ==",
-            )),
+            Stmt::Value(_) if !last || outs => {
+                Err(Error::msg("a value computed and not kept: give it a name (x = ...), or compare with =="))
+            }
             Stmt::Value(_) => Ok(()),
             Stmt::Out(name) => self.named_value(name).map(|_| ()),
             Stmt::Set { name, layer, mask, value, .. } => {
@@ -1494,7 +1547,9 @@ impl<'s, 'a> Compiler<'s, 'a> {
                             }
                         };
                         let Val::One(arg) = value else {
-                            return Err(Error::msg(format!("{name}.{l} is one layer: its value is a map, not a stack")));
+                            return Err(Error::msg(format!(
+                                "{name}.{l} is one layer: its value is a map, not a stack"
+                            )));
                         };
                         match at {
                             Some(at) => layers[at].arg = arg,
@@ -1528,7 +1583,8 @@ impl<'s, 'a> Compiler<'s, 'a> {
 /// reading (never by the instruction reading it).
 fn allocate(ins: Vec<Ins>, results: &[Arg]) -> Program {
     let n = ins.len();
-    let reads = |x: &Ins| x.args().into_iter().flatten().filter_map(|a| if let Arg::Reg(r) = a { Some(r) } else { None });
+    let reads =
+        |x: &Ins| x.args().into_iter().flatten().filter_map(|a| if let Arg::Reg(r) = a { Some(r) } else { None });
     let mut needed = vec![false; n];
     let mut kept = vec![false; n];
     for a in results {
@@ -1637,7 +1693,8 @@ fn statistic(name: &str, p: f64, parts: &[&[f64]]) -> f64 {
                 })
                 .collect();
             for t in each {
-                all = (all.0 + t.0, all.1 + t.1, all.2 + t.2, extreme::<false>(all.3, t.3), extreme::<true>(all.4, t.4));
+                all =
+                    (all.0 + t.0, all.1 + t.1, all.2 + t.2, extreme::<false>(all.3, t.3), extreme::<true>(all.4, t.4));
             }
         }
         all
@@ -1688,9 +1745,9 @@ fn box_sums(v: &[f64], w: usize, h: usize, r: usize, f: &str) -> Vec<f64> {
     });
     for y in 1..h1 {
         let (above, row) = s.split_at_mut(y * w1);
-        row[..w1].iter_mut().zip(&above[(y - 1) * w1..]).for_each(|(a, b)| *a = *b + *a);
+        row[..w1].iter_mut().zip(&above[(y - 1) * w1..]).for_each(|(a, b)| *a += *b);
         let (above, row) = c.split_at_mut(y * w1);
-        row[..w1].iter_mut().zip(&above[(y - 1) * w1..]).for_each(|(a, b)| *a = *b + *a);
+        row[..w1].iter_mut().zip(&above[(y - 1) * w1..]).for_each(|(a, b)| *a += *b);
     }
     let mut out = vec![0.0; w * h];
     out.par_chunks_mut(w).enumerate().for_each(|(y, row)| {
@@ -1744,10 +1801,9 @@ fn line_extreme<const MAX: bool>(src: &[f64], r: usize, dst: &mut [f64], g: &mut
 /// The extreme along every row of a `w` by `h` grid, the rows in parallel.
 fn rows_extreme<const MAX: bool>(v: &[f64], w: usize, r: usize) -> Vec<f64> {
     let mut out = vec![0.0; v.len()];
-    out.par_chunks_mut(w).zip(v.par_chunks(w)).for_each_init(
-        || (Vec::new(), Vec::new()),
-        |(g, s), (o, row)| line_extreme::<MAX>(row, r, o, g, s),
-    );
+    out.par_chunks_mut(w)
+        .zip(v.par_chunks(w))
+        .for_each_init(|| (Vec::new(), Vec::new()), |(g, s), (o, row)| line_extreme::<MAX>(row, r, o, g, s));
     out
 }
 
@@ -1781,7 +1837,6 @@ fn box_extreme<const MAX: bool>(v: &[f64], w: usize, h: usize, r: usize) -> Vec<
     let cols = rows_extreme::<MAX>(&transpose(&rows, w, h), h, r);
     transpose(&cols, h, w)
 }
-
 
 impl Expr {
     /// The value of every cell of the grid.
@@ -1876,8 +1931,7 @@ impl Operator for Calc {
         let node = args.node;
         let text: String =
             args.opt_param("expression")?.ok_or_else(|| Error::msg(format!("node {node:?}: no expression")))?;
-        let script =
-            parse_script(&text).map_err(|x| Error::msg(format!("node {node:?}: the expression: {}", x.0)))?;
+        let script = parse_script(&text).map_err(|x| Error::msg(format!("node {node:?}: the expression: {}", x.0)))?;
         let mut grid = None;
         let mut scope =
             Scope { width: 0, height: 0, maps: BTreeMap::new(), numbers: BTreeMap::new(), stacks: BTreeMap::new() };
@@ -2098,7 +2152,9 @@ mod tests {
                     None => return Err(Error::msg(format!("no layer {layer:?} in a stack {stack:?}"))),
                 },
                 Expr::Unary('-', a) => map1(a.eval_ref(s)?, |x| -x),
-                Expr::Unary(_, a) => map1(a.eval_ref(s)?, |x| if x.is_nan() { f64::NAN } else { (x == 0.0) as u8 as f64 }),
+                Expr::Unary(_, a) => {
+                    map1(a.eval_ref(s)?, |x| if x.is_nan() { f64::NAN } else { (x == 0.0) as u8 as f64 })
+                }
                 Expr::Binary(op, a, b) => {
                     let op: &str = op;
                     map2(a.eval_ref(s)?, b.eval_ref(s)?, |x, y| binary(op, x, y))
@@ -2133,7 +2189,9 @@ mod tests {
                     Expr::Num(r) => *r as usize,
                     Expr::Var(n) => match s.numbers.get(n.as_str()) {
                         Some(&x) if x >= 0.0 && x.fract() == 0.0 => x as usize,
-                        Some(&x) => return Err(Error::msg(format!("the radius of {f} ({n} = {x}) is not a whole number"))),
+                        Some(&x) => {
+                            return Err(Error::msg(format!("the radius of {f} ({n} = {x}) is not a whole number")));
+                        }
                         None => return Err(Error::msg(format!("the radius of {f} ({n}) is not a number input"))),
                     },
                     _ => unreachable!(),
@@ -2146,7 +2204,9 @@ mod tests {
                     "nbsum" | "nbmean" | "nbcount" => {
                         let (sum, count) = box_sums_ref(&cells, w, h, r);
                         match f {
-                            "nbsum" => sum.iter().zip(&count).map(|(s, c)| if *c > 0.0 { *s } else { f64::NAN }).collect(),
+                            "nbsum" => {
+                                sum.iter().zip(&count).map(|(s, c)| if *c > 0.0 { *s } else { f64::NAN }).collect()
+                            }
                             "nbmean" => {
                                 sum.iter().zip(&count).map(|(s, c)| if *c > 0.0 { s / c } else { f64::NAN }).collect()
                             }
@@ -2678,8 +2738,11 @@ mod tests {
             height: 1,
             maps: BTreeMap::new(),
             numbers: BTreeMap::new(),
-            stacks: [("img", vec![(Key::Name("0".into()), one.as_slice()), (Key::Name("1997".into()), two.as_slice())])]
-                .into(),
+            stacks: [(
+                "img",
+                vec![(Key::Name("0".into()), one.as_slice()), (Key::Name("1997".into()), two.as_slice())],
+            )]
+            .into(),
         };
         same(&parse("img.b1 + img._1997 * 10").unwrap().evaluate(&s).unwrap(), &[21.0]);
     }

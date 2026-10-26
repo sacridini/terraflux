@@ -902,11 +902,27 @@ cabeçalho dos arquivos e, para uma pilha calculada, do esquema propagado pelo g
   campo do script no painel do nó tem várias linhas. Decidido: as reduções e os métodos deixam de fora os valores
   que faltam (como as vizinhanças); o `min`/`max` de vários valores continua dando `null` quando um falta; o
   desvio-padrão é o amostral (n − 1); o percentil é o linear entre os dois vizinhos (o padrão do numpy e do R).
-  Falta: os nomes das bandas antes de rodar (vai com o autocomplete, na fase 3).
+  Falta: os nomes das bandas antes de rodar (vai com o autocomplete, na fase 3). **Feito** na fase 3, para as
+  entradas: do resultado da última execução, ou do cabeçalho do raster lido quando ele ainda não rodou.
 
 **Fase 3: o console.** Um painel embaixo, como o do Assistant: o script com cores e o erro sublinhado onde está, o
 autocomplete das entradas, das bandas, das funções e dos métodos, a prévia ao vivo na parte do mapa à vista em
 resolução reduzida, e um modo REPL (`img.mean()` dá o número na hora, sem entrar no nó).
+- **Feito** (Unreleased): o painel Calculator (`calc_view.rs`), aberto embaixo do modelo (View, os comandos, ou
+  "Open in the calculator" no painel do nó), edita o script do `map.calc` selecionado. O script com cores e os
+  números das linhas; o primeiro erro sublinhado onde está e dito embaixo, com a linha (os da linguagem, os nomes
+  que não são entradas nem foram dados antes, com "did you mean", e as camadas que uma pilha não tem); o
+  autocomplete ao digitar ou com ctrl+space (as entradas com o que são, os nomes dados no script, as funções e os
+  métodos com a sua ajuda, e depois de `s.` as camadas com o nome original); a prévia de cada saída ao lado,
+  calculada numa thread 300 ms depois de parar de digitar, numa amostra de até 160 mil células do mapa inteiro (os
+  raios das vizinhanças na escala da amostra; um raster em disco lido já amostrado); e embaixo um console que
+  calcula uma linha no escopo do script, em todas as células (um número, ou o resumo e a imagem de um mapa ou de
+  uma pilha), com `help` e `clear`. O script vai para o nó com ctrl+enter (que roda o modelo até ele), Apply, ou
+  ao sair do editor. A parte do motor fica em `algebra_tools.rs` (`parts`, `problem`, `complete`, `preview`,
+  `evaluate_line`, `describe`), testada sem a interface; o painel tem um teste de ponta a ponta com o
+  `egui_kittest`. Falta: a prévia só da parte do mapa à vista (hoje é o mapa inteiro em resolução reduzida); os
+  tipos das portas de `out` (ainda "qualquer valor"); as camadas de uma pilha calculada no script
+  (`s2 = s * 2`, então `s2.`) no autocomplete; e o autocomplete no campo do painel do nó.
 
 **Fase 4: o código salvo como um nó do usuário.** O item 5 de "A linguagem do grafo": "salvar grupo como nó" para
 qualquer grupo, a calculadora o caso mais comum. Uma biblioteca do usuário com descrição, portas tipadas e o que

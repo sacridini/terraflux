@@ -753,6 +753,8 @@ pub fn keys(ui: &Ui, s: &mut Session, r: &Registry, canvas: bool) -> bool {
         s.editor.text = false;
         s.editor.renaming = Some((id.clone(), id, false));
     }
+    // (in the calculator's script ctrl+enter is its own, which gives the script to the node first)
+    let calculator = crate::calc_view::editing(ui.ctx());
     let (run, delete, tidy, search) = ui.input_mut(|i| {
         // "/" as typed, whatever the keyboard's layout puts it on (taken away, so that it is not typed in the
         // search it opens)
@@ -761,7 +763,7 @@ pub fn keys(ui: &Ui, s: &mut Session, r: &Registry, canvas: bool) -> bool {
             i.events.retain(|e| !matches!(e, egui::Event::Text(t) if t == "/"));
         }
         (
-            i.consume_key(egui::Modifiers::COMMAND, egui::Key::Enter),
+            !calculator && i.consume_key(egui::Modifiers::COMMAND, egui::Key::Enter),
             // delete, or backspace (the key macOS deletes with)
             !typing
                 && (i.consume_key(egui::Modifiers::NONE, egui::Key::Delete)

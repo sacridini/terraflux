@@ -67,13 +67,16 @@ pub enum Pane {
     Trace,
     /// What is wrong with the model: a run's failure explained, the graph's checks, the data's.
     Problems,
+    /// The script of the map algebra node selected: written with its names completed, its outputs previewed, and
+    /// anything computed in its scope.
+    Calculator,
     /// A node's output in a tab of its own (opened by a double click on the node; one per node, brought to the
     /// front when it is open already).
     Map(u64),
 }
 
 impl Pane {
-    pub const ALL: [Pane; 17] = [
+    pub const ALL: [Pane; 18] = [
         Pane::Model,
         Pane::Document,
         Pane::Operators,
@@ -91,6 +94,7 @@ impl Pane {
         Pane::Parameters,
         Pane::Trace,
         Pane::Problems,
+        Pane::Calculator,
     ];
 
     pub fn title(self) -> &'static str {
@@ -112,6 +116,7 @@ impl Pane {
             Pane::Parameters => "Parameters",
             Pane::Trace => "Trace",
             Pane::Problems => "Problems",
+            Pane::Calculator => "Calculator",
             Pane::Map(_) => "Map",
         }
     }
@@ -288,8 +293,16 @@ impl egui_dock::TabViewer for Panes<'_> {
         // (the panes that scroll by themselves: the Files pane's list, what is chosen described at its bottom; the
         // texts of the assistant, the document, a trace, the parameters and the changes, which wrap at the pane's
         // sides only without a scroll of the dock around them)
-        let own =
-            [Pane::Files, Pane::Assistant, Pane::Document, Pane::Trace, Pane::Parameters, Pane::Review, Pane::Problems];
+        let own = [
+            Pane::Files,
+            Pane::Assistant,
+            Pane::Document,
+            Pane::Trace,
+            Pane::Parameters,
+            Pane::Review,
+            Pane::Problems,
+            Pane::Calculator,
+        ];
         [!own.contains(tab); 2]
     }
 
@@ -489,6 +502,8 @@ pub struct Session {
     pub trace_asked: Option<crate::trace_view::Ask>,
     /// The Problems pane asked for (why a node failed).
     pub ask_problems: bool,
+    /// The calculator asked for (the script of the node selected).
+    pub ask_calculator: bool,
     /// How far the node running is, as its operator tells it (a solver's gap...).
     pub task: Option<(String, terraflux_ops::Progress)>,
     /// When Stop was pressed, while the run stops.
@@ -641,6 +656,7 @@ impl Session {
             run_done: 0,
             trace_asked: None,
             ask_problems: false,
+            ask_calculator: false,
             task: None,
             stopping: None,
             node: String::new(),
@@ -1252,6 +1268,8 @@ pub struct TerrafluxApp {
     pub computers: crate::computers::Computers,
     /// The assistant: its conversation and its server.
     pub chat: crate::chat::Chat,
+    /// The calculator's script, its preview and its console.
+    pub calculator: crate::calc_view::Calculator,
     /// The palette of commands, while it is open (ctrl+K).
     pub commands: Option<crate::commands::Commands>,
     /// The window of the keyboard's shortcuts is open (F1).
@@ -1316,6 +1334,7 @@ impl TerrafluxApp {
             deferred: Vec::new(),
             computers: crate::computers::Computers::new(),
             chat: crate::chat::Chat::default(),
+            calculator: crate::calc_view::Calculator::default(),
             commands: None,
             shortcuts_open: false,
             window_title: String::new(),
@@ -2557,6 +2576,9 @@ impl TerrafluxApp {
         if self.session.as_mut().is_some_and(|s| std::mem::take(&mut s.ask_problems)) {
             self.focus(Pane::Problems);
         }
+        if self.session.as_mut().is_some_and(|s| std::mem::take(&mut s.ask_calculator)) {
+            self.focus(Pane::Calculator);
+        }
         self.open_viewer();
         // a review begun by another program (or asked for): its pane in front
         if self.session.as_mut().and_then(|s| s.review.as_mut()).is_some_and(|r| std::mem::take(&mut r.show)) {
@@ -2702,6 +2724,10 @@ impl TerrafluxApp {
                 }
             }
             Pane::Review => crate::review::pane(ui, s, r),
+            Pane::Calculator => match crate::calc_view::pane(ui, &mut self.calculator, s) {
+                Some(crate::calc_view::Asked::RunTo(id)) => crate::builder::run_to(ui, s, Some(id)),
+                None => {}
+            },
             Pane::Problems => {
                 if let Some(crate::problems_view::Asked::Assistant(text)) = crate::problems_view::pane(ui, s, r) {
                     self.chat.send(text, s, ui.ctx());
@@ -2853,6 +2879,19 @@ impl TerrafluxApp {
             _ => &[],
         };
         let found = near.iter().find_map(|n| dock.find_tab(n));
+        // the calculator under the model, as a console
+        if pane == Pane::Calculator
+            && let Some(path) = dock.find_tab(&Pane::Model)
+            && path.surface.is_main()
+        {
+            // (split_below: the old node's share)
+            dock.main_surface_mut().split_below(path.node, 0.62, vec![pane]);
+            if let Some(path) = dock.find_tab(&pane) {
+                let _ = dock.set_active_tab(path);
+                dock.set_focused_node_and_surface(path.node_path());
+            }
+            return;
+        }
         // nowhere to go with: the operators and the files at the left edge of the window, the assistant and the
         // review of its changes at the right, the node at the left of the model
         let edge = match pane {

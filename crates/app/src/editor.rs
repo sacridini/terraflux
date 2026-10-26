@@ -346,6 +346,13 @@ pub fn set_param(m: &mut Model, path: &[String], node: &str, name: &str, text: &
     Ok(())
 }
 
+/// Set a setting to a text as it is (a script: not read as a number or as JSON).
+pub fn set_text_param(m: &mut Model, path: &[String], node: &str, name: &str, text: &str) -> Result<()> {
+    let n = node_mut(m, path, node)?;
+    n.params.insert(name.to_string(), serde_json::Value::String(text.to_string()));
+    Ok(())
+}
+
 /// Make the output `name` of a container read a reference of its body: a group's output, or a loop's
 /// collected series (`collect`) or carried value (`carry`).
 pub fn set_body_map(
