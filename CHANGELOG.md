@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-10-26
+
 ### Added
 - Map algebra writes scripts, in a language close to Python's (an expression of before is a script of one line):
   one statement a line (or separated by `;`, `#` a comment), `name = value`, `name[where] = value` (the cells
