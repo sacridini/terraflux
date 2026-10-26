@@ -99,7 +99,7 @@ impl Operator for Calc {
             }
             let row: i64 = args.param("row", 1)?;
             let mut scope =
-                Scope { width: 1, height: 1, maps: BTreeMap::new(), numbers: BTreeMap::new(), layers: BTreeMap::new() };
+                Scope { width: 1, height: 1, maps: BTreeMap::new(), numbers: BTreeMap::new(), stacks: BTreeMap::new() };
             let mut cells: Vec<(&str, &str, f64)> = Vec::new();
             for (port, v) in &args.inputs {
                 match v {
@@ -128,7 +128,7 @@ impl Operator for Calc {
             }
             let one: Vec<[f64; 1]> = cells.iter().map(|c| [c.2]).collect();
             for (c, v) in cells.iter().zip(&one) {
-                scope.layers.insert((c.0, c.1), v.as_slice());
+                scope.stacks.entry(c.0).or_default().push((crate::Key::Name(c.1.to_string()), v.as_slice()));
             }
             for name in e.names() {
                 let known = scope.numbers.contains_key(name.as_str()) || cells.iter().any(|c| c.0 == name);

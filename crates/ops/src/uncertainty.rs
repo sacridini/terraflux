@@ -425,7 +425,7 @@ impl<'a> Model<'a> {
         for (n, v) in self.names.iter().zip(p) {
             numbers.insert(n.as_str(), *v);
         }
-        let s = Scope { width: w, height: h, maps: self.maps.clone(), numbers, layers: BTreeMap::new() };
+        let s = Scope { width: w, height: h, maps: self.maps.clone(), numbers, stacks: BTreeMap::new() };
         self.expr.evaluate(&s).map_err(|x| Error::msg(x.0))
     }
 

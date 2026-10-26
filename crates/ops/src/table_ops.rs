@@ -68,7 +68,7 @@ pub(crate) fn evaluate(args: &Args, t: &Table, text: &str) -> Result<Vec<f64>> {
         height: 1,
         maps: BTreeMap::new(),
         numbers: BTreeMap::new(),
-        layers: BTreeMap::new(),
+        stacks: BTreeMap::new(),
     };
     for (c, values) in t.columns.iter().zip(&columns) {
         scope.maps.insert(c.as_str(), values.as_slice());

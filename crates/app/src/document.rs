@@ -541,7 +541,7 @@ fn setting(name: &str, v: &Json, spec: Option<&terraflux_graph::PortSpec>) -> Se
 /// The output of a node shown with it: its first map (rasters, a stack, a series), else its first table.
 fn shown_output(n: &Node, sig: Option<&OpSignature>) -> Option<(String, Type)> {
     let mut outs: Vec<(String, Type)> =
-        sig.map(|s| s.outputs.iter().map(|p| (p.name.clone(), p.ty)).collect()).unwrap_or_default();
+        sig.map(|s| s.outputs_of(n).into_iter().map(|p| (p.name, p.ty)).collect()).unwrap_or_default();
     if let Some(b) = &n.body {
         outs.extend(b.collect.keys().map(|k| (k.clone(), Type::Series)));
         outs.extend(b.carry.keys().chain(b.outputs.keys()).map(|k| (k.clone(), Type::Any)));

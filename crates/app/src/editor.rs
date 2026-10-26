@@ -582,7 +582,7 @@ pub fn input_ports(n: &Node, r: &Registry) -> Vec<(String, Type, bool)> {
 pub fn output_ports(n: &Node, r: &Registry) -> Vec<(String, Type)> {
     let mut out: Vec<(String, Type)> = Vec::new();
     if let Some(sig) = r.sig(&n.op) {
-        out.extend(sig.outputs.iter().map(|p| (p.name.clone(), p.ty)));
+        out.extend(sig.outputs_of(n).into_iter().map(|p| (p.name, p.ty)));
     }
     if let Some(b) = &n.body {
         let collected = if n.op == terraflux_graph::EACH { Type::Any } else { Type::Series };

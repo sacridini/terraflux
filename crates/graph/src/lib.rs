@@ -27,7 +27,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 pub use check::{Catalog, Issue, Severity, check};
-pub use types::{Access, OpSignature, PortSpec, Type};
+pub use types::{Access, OpSignature, PortSpec, Type, declared_outputs};
 
 /// The container that runs its body once: a group of nodes with its own inputs (`@name` inside) and outputs
 /// (`body.outputs`), as submodels become.

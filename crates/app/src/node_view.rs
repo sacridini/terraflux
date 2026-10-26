@@ -643,8 +643,9 @@ fn value_cell(
     let mut change = None;
     let key = format!("param.{name}");
     let mut text = field(s, &key, init.to_string());
-    // (a long value on as many lines as it needs; a short one, or none, on one)
-    let edit = if text.len() > 40 || text.contains('\n') {
+    // (a long value on as many lines as it needs, and a script; a short one, or none, on one)
+    let script = n.op == "map.calc" && name == "expression";
+    let edit = if text.len() > 40 || text.contains('\n') || script {
         egui::TextEdit::multiline(&mut text).desired_rows(1)
     } else {
         egui::TextEdit::singleline(&mut text)

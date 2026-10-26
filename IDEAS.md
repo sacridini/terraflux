@@ -892,6 +892,17 @@ para o usuário; um benchmark contra o avaliador de hoje e os mesmos testes.
 
 **Fase 2: a linguagem.** O que está acima, sobre o motor da fase 1. Os nomes das bandas conhecidos antes de rodar: do
 cabeçalho dos arquivos e, para uma pilha calculada, do esquema propagado pelo grafo ou do resultado em cache.
+- **Feito** (Unreleased): a linguagem no `map.calc` (o parâmetro `expression` é o script; `parse_script`, `Script`,
+  `Stmt` em `algebra.rs`): as linhas, `=`, `alvo[condição] = valor`, `s.camada = valor`, `out`, as pilhas camada a
+  camada, as reduções por célula, os métodos globais (somas por partes fixas, o mesmo resultado bit a bit com
+  qualquer número de threads), `a if c else b`, as comparações encadeadas, `**`, `True`/`False`/`None`, `log` e os
+  nomes das bandas (`band_names`). O script inteiro compila num programa só (as subexpressões comuns entre as
+  linhas, todas as saídas numa passada). As portas de saída vêm do `out`: `OpSignature::outputs_from` e
+  `declared_outputs` no grafo (o `check`, o canvas e o Document as leem), do tipo "qualquer valor" até a fase 3. O
+  campo do script no painel do nó tem várias linhas. Decidido: as reduções e os métodos deixam de fora os valores
+  que faltam (como as vizinhanças); o `min`/`max` de vários valores continua dando `null` quando um falta; o
+  desvio-padrão é o amostral (n − 1); o percentil é o linear entre os dois vizinhos (o padrão do numpy e do R).
+  Falta: os nomes das bandas antes de rodar (vai com o autocomplete, na fase 3).
 
 **Fase 3: o console.** Um painel embaixo, como o do Assistant: o script com cores e o erro sublinhado onde está, o
 autocomplete das entradas, das bandas, das funções e dos métodos, a prévia ao vivo na parte do mapa à vista em

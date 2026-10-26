@@ -166,6 +166,10 @@ pub struct OpSignature {
     /// does not run once per layer ([`OpSignature::per_layer`]).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub together: bool,
+    /// The setting whose `out` lines name the node's outputs, in place of `outputs` when it has any (map
+    /// algebra's script).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outputs_from: Option<String>,
 }
 
 impl OpSignature {
@@ -180,6 +184,7 @@ impl OpSignature {
             container: false,
             extra: None,
             together: false,
+            outputs_from: None,
         }
     }
 
@@ -215,6 +220,24 @@ impl OpSignature {
         self
     }
 
+    /// The node's outputs are named by the `out` lines of the setting `param` (see [`declared_outputs`]).
+    pub fn outputs_from(mut self, param: &str) -> Self {
+        self.outputs_from = Some(param.to_string());
+        self
+    }
+
+    /// The outputs of a node of this operator: those its script declares, or the operator's.
+    pub fn outputs_of(&self, n: &crate::Node) -> Vec<PortSpec> {
+        let declared = match &self.outputs_from {
+            Some(p) => n.params.get(p).and_then(|v| v.as_str()).map(declared_outputs).unwrap_or_default(),
+            None => Vec::new(),
+        };
+        if declared.is_empty() {
+            return self.outputs.clone();
+        }
+        declared.iter().map(|o| PortSpec::new(o, Type::Any, "an output of the script (out)")).collect()
+    }
+
     pub fn input_spec(&self, name: &str) -> Option<&PortSpec> {
         self.inputs.iter().find(|p| p.name == name)
     }
@@ -234,4 +257,24 @@ impl OpSignature {
     pub fn output_spec(&self, name: &str) -> Option<&PortSpec> {
         self.outputs.iter().find(|p| p.name == name)
     }
+}
+
+/// The outputs a map algebra script declares: the names after `out` at the start of its statements (a line, or
+/// `;`; `#` begins a comment), in order.
+pub fn declared_outputs(script: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for line in script.lines() {
+        let line = line.split('#').next().unwrap_or("");
+        for statement in line.split(';') {
+            let Some(rest) = statement.trim_start().strip_prefix("out") else { continue };
+            if !rest.starts_with(char::is_whitespace) {
+                continue;
+            }
+            let name: String = rest.trim_start().chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+            if !name.is_empty() && !name.starts_with(|c: char| c.is_ascii_digit()) && !out.contains(&name) {
+                out.push(name);
+            }
+        }
+    }
+    out
 }

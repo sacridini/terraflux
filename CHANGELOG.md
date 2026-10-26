@@ -6,6 +6,19 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Map algebra writes scripts, in a language close to Python's (an expression of before is a script of one line):
+  one statement a line (or separated by `;`, `#` a comment), `name = value`, `name[where] = value` (the cells
+  where the condition holds, the others keeping theirs), `s.layer = value` (a stack's layer replaced or added),
+  and `out name = value` for each output of the node, a map, a stack or a number (the ports are the script's
+  `out`s; without any, the last value is `map`). An operation on a stack is made on each of its layers;
+  `mean sd median sum count min max (s)` and `percentile(s, p)` are the value of each cell over a stack's
+  layers, and `x.mean()`, `x.sd()`, `x.median()`, `x.sum()`, `x.count()`, `x.min()`, `x.max()` and
+  `x.percentile(p)` one number from all the cells (missing values left out in both). Also `a if c else b`,
+  chained comparisons (`5 <= x < 8`), `**`, `True`, `False`, `None` and `log`. A stack's layers are read by
+  name with every name made one (`1997` is `s._1997`, a band without a name `s.b1`), and a band name begun with
+  a digit is told how to write it.
+
 ### Changed
 - Map algebra is faster, with the same results to the bit: an expression is compiled (the numbers folded, a value
   written twice computed once, the maps read in place) and run over blocks of cells in parallel, and `nbmin` and

@@ -231,7 +231,7 @@ impl Operator for Update {
                 height: 1,
                 maps: a.columns.iter().map(String::as_str).zip(a.values.iter().map(Vec::as_slice)).collect(),
                 numbers: numbers.iter().map(|(k, v)| (k.as_str(), *v)).collect(),
-                layers: BTreeMap::new(),
+                stacks: BTreeMap::new(),
             };
             let v = e.evaluate(&scope).map_err(|x| at(format!("{name}: {}", x.0)))?;
             a.set(&name, v);

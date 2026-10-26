@@ -204,7 +204,7 @@ impl<'a> Checker<'a> {
 
     fn port_type(&self, n: &'a Node, port: &str, scopes: &[Scope<'a>]) -> Result<Type, String> {
         let sig = self.signature(&n.op).ok_or_else(|| format!("unknown operator {:?}", n.op))?;
-        if let Some(p) = sig.output_spec(port) {
+        if let Some(p) = sig.outputs_of(n).into_iter().find(|p| p.name == port) {
             // run once per layer: its maps a stack (a series of a loop's), its tables one, its other values a series
             return Ok(match (self.per_layer(n, &sig, scopes), p.ty) {
                 (None, t) | (Some(_), t @ Type::Table) => t,
@@ -528,6 +528,11 @@ mod tests {
                     .input(PortSpec::new("stack", Type::Stack, ""))
                     .input(PortSpec::optional("n", Type::Number, "")),
                 "of" => OpSignature::new("of", "", Access::Local).extra(Type::Map).together(),
+                "calc" => OpSignature::new("calc", "", Access::Local)
+                    .extra(Type::Any)
+                    .param(PortSpec::new("expression", Type::Text, ""))
+                    .output(PortSpec::new("map", Type::Map, ""))
+                    .outputs_from("expression"),
                 _ => return None,
             })
         }
@@ -636,6 +641,44 @@ inputs = { a = "s.stack" }
         assert!(e.iter().any(|x| x.contains("has no input \"q\"")), "{e:?}");
         let m = model(&GOOD.replace("inputs = { map = \"$t0\" }", ""));
         assert!(errors(&m).iter().any(|x| x.contains("needs the input \"map\"")));
+    }
+
+    #[test]
+    fn a_script_names_its_outputs() {
+        let m = model(
+            r#"
+[[nodes]]
+id = "calc"
+op = "calc"
+params = { expression = "out ndvi = a\nout share = a.mean()" }
+
+[[nodes]]
+id = "use"
+op = "step"
+inputs = { land = "calc.ndvi", model = "calc.share" }
+params = { k = 1 }
+
+[outputs.other]
+from = "calc.map"
+"#,
+        );
+        let e = errors(&m);
+        // its outputs are the script's (of any type, checked when it runs), and map is not one of them
+        assert!(e.iter().all(|x| !x.contains("ndvi") && !x.contains("share")), "{e:?}");
+        assert!(e.iter().any(|x| x.contains("has no output \"map\"")), "{e:?}");
+        // without out, the operator's map
+        let m = model(
+            r#"
+[[nodes]]
+id = "calc"
+op = "calc"
+params = { expression = "a + 1" }
+
+[outputs.o]
+from = "calc.map"
+"#,
+        );
+        assert!(errors(&m).is_empty(), "{:?}", errors(&m));
     }
 
     #[test]
