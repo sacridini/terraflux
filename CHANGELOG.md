@@ -6,6 +6,14 @@ minor versions.
 
 ## [Unreleased]
 
+### Changed
+- Map algebra is faster, with the same results to the bit: an expression is compiled (the numbers folded, a value
+  written twice computed once, the maps read in place) and run over blocks of cells in parallel, and `nbmin` and
+  `nbmax` take the same time whatever the radius (van Herk and Gil-Werman, along the rows and then the columns).
+  On 9 million cells with four threads, local expressions run 5 to 20 times faster, `nbmax(a, 5)` 18 times and
+  `nbmin(b, 25)` 400 times (45 s to 0.11 s). `map.calc`, `value.calc`, `check.assert`, `uncertainty.delta`, the
+  agents' rules and the tables' expressions share the evaluator.
+
 ## [1.15.0] - 2026-10-21
 
 ### Added

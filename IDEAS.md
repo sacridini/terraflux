@@ -829,3 +829,82 @@ escolha, abstração) sem código.
 de coleção; (3) o `control.switch` e o `value.calc` com interpolação de texto, pequenos depois dos dois primeiros;
 (4) o bypass, o congelamento e o perfil por nó, muito ganho no dia a dia com pouco custo; (5) o manifesto de
 reprodutibilidade e o `terraflux test`.
+
+## A calculadora de rasters: uma linguagem própria para mapas e pilhas
+
+Registro de 2026-10-26. O `map.calc` já tem o essencial da álgebra de mapas (aritmética, comparações, `if`, as
+camadas de uma pilha por nome, as vizinhanças, o `null`), mas é uma expressão de uma linha numa configuração, um
+avaliador lento e um mapa só na saída. A ideia: um nó de calculadora com uma linguagem própria, próxima do Python,
+um console como o do Assistant, e o código salvo como um nó do usuário. A linguagem nova é um superconjunto da do
+`map.calc`: toda expressão de hoje é um script de uma linha válido, e os modelos, templates e tutoriais que o usam
+(669 ocorrências em 163 arquivos) continuam funcionando. O `value.calc`, o `check.assert`, o `uncertainty.delta` e o
+Trace usam o mesmo parser e ganham junto.
+
+**A linguagem (decidida):**
+
+- **Próxima do Python.** `=` atribui, `==` compara; `and`, `or`, `not` (e `&&`, `||`, `!` como hoje);
+  `a if c else b` (e o `if c then a else b` de hoje); comparações encadeadas (`5 <= img < 8`); `**` para potência
+  (o `^` continua potência, não o XOR do Python); `#` para comentários. Sem `&` e `|`: no numpy,
+  `img >= 5 & img < 8` é avaliado na ordem errada.
+- **Variáveis e regras.** Linhas em ordem, cada uma uma atribuição. A regra condicional é a do numpy:
+  `alvo[condição] = valor`; uma linha depois sobrescreve a de antes, e a célula que nenhuma condição pega fica com o
+  valor que já tinha. Uma entrada atribuída dentro do nó é uma cópia local.
+- **`out`** expõe o que sai do nó, cada um uma porta do tipo do valor (mapa, pilha ou número): `out x = ...` ou
+  `out x` de uma variável que já existe.
+- **Bandas por ponto.** `s.elevation`; o nome que não é identificador corrigido (`1997` → `s._1997`,
+  `NDVI-2020` → `s.NDVI_2020`), a banda sem nome `b1`, `b2`, ... O autocomplete mostra o nome usado e o original.
+  Hoje `land.1997` é lido como `land` e o número `0.1997`.
+- **Pilhas.** `s * 2` multiplica todos os pixels de todas as camadas e dá uma pilha com os mesmos nomes; pilha com
+  mapa, o mapa aplicado a cada camada; pilha com pilha, camada a camada (o mesmo número de camadas, senão erro).
+- **Reduções por célula** (só pilhas): `mean(s) sd(s) median(s) percentile(s, p) min(s) max(s) sum(s)`, um mapa com
+  o valor de cada célula entre as camadas. Num mapa só, erro que aponta para o método. `min(a, b)` entre mapas como
+  hoje.
+- **Estatísticas globais** (métodos, um número): `img.mean()`, `img.sd()`, `img.min()`, `img.max()`,
+  `img.percentile(90)`; numa pilha, todas as células de todas as camadas. Os parênteses separam o método da banda.
+  Um número sai do nó como outra porta qualquer (`out p90 = img.percentile(90)`) e alimenta as configurações e os
+  nós que leem números.
+
+```python
+# entradas: img (pilha do Sentinel-2), land (mapa de uso)
+ndvi = (img.nir - img.red) / (img.nir + img.red)
+out ndvi
+out forest = land == 1 and ndvi > ndvi.percentile(25)
+out cleaned = land
+cleaned[land == 9] = null
+out mean_ndvi = ndvi.mean()
+```
+
+**Fase 1: o motor.** O avaliador de hoje copia cada entrada que lê (`to_vec`), aloca um raster inteiro por nó da
+árvore, calcula os três ramos de um `if`, roda numa thread, e o `nbmin`/`nbmax` custam O(r²) por célula. Em lugar
+dele: a expressão compilada em bytecode e avaliada em blocos de alguns milhares de células (os intermediários no
+cache), os blocos em paralelo no pool do motor, constantes dobradas e subexpressões comuns calculadas uma vez. As
+vizinhanças e as estatísticas globais são barreiras (o halo; duas passadas), e o `nbmin`/`nbmax` por van
+Herk/Gil-Werman. Com isso, a leitura por faixas com halo (`block_rows`) para rasters maiores que a memória. Nada muda
+para o usuário; um benchmark contra o avaliador de hoje e os mesmos testes.
+- **Feito** (Unreleased): a expressão compilada (`Compiler`, `Program` em `algebra.rs`) em blocos de 2048 células
+  em paralelo, as constantes dobradas, as subexpressões comuns e as vizinhanças repetidas calculadas uma vez, os
+  registradores reusados, os mapas lidos no lugar; o `nbmin`/`nbmax` separável por van Herk/Gil-Werman, o
+  `nbsum`/`nbmean`/`nbcount` com as tabelas de somas em paralelo. O avaliador antigo ficou nos testes como
+  referência: 660 expressões aleatórias dão o mesmo resultado bit a bit. Em 9 milhões de células e 4 threads: as
+  expressões locais 5 a 20 vezes mais rápidas, `nbmax(a, 5)` 18 vezes, `nbmin(b, 25)` 400 vezes (45 s para
+  0,11 s), `nbmean(a == 1, 2)` só 1,8 vez (a passada das colunas das tabelas de somas ainda numa thread). Falta: a
+  leitura por faixas com halo e o `if` que não calcula o ramo que nenhuma célula do bloco usa.
+
+**Fase 2: a linguagem.** O que está acima, sobre o motor da fase 1. Os nomes das bandas conhecidos antes de rodar: do
+cabeçalho dos arquivos e, para uma pilha calculada, do esquema propagado pelo grafo ou do resultado em cache.
+
+**Fase 3: o console.** Um painel embaixo, como o do Assistant: o script com cores e o erro sublinhado onde está, o
+autocomplete das entradas, das bandas, das funções e dos métodos, a prévia ao vivo na parte do mapa à vista em
+resolução reduzida, e um modo REPL (`img.mean()` dá o número na hora, sem entrar no nó).
+
+**Fase 4: o código salvo como um nó do usuário.** O item 5 de "A linguagem do grafo": "salvar grupo como nó" para
+qualquer grupo, a calculadora o caso mais comum. Uma biblioteca do usuário com descrição, portas tipadas e o que
+cada entrada exige (mapa ou pilha, as bandas pedidas, conferidas ao conectar). A versão gravada no modelo
+(`meu/ndvi@3`) e uma cópia embutida: editar o nó não muda em silêncio o resultado de um modelo antigo, e o modelo
+enviado a alguém roda sem a biblioteca.
+
+**Fase 5: a IA.** O Assistant escreve o script de uma calculadora a partir de um pedido: o parser confere, os nomes
+e as bandas contra as entradas reais, uma prévia, e a mudança passa pelo painel Changes. Também explica um script e
+salva um nó do usuário.
+
+**Fase 6: o site.** O tutorial de álgebra de mapas reescrito com a linguagem nova; os templates só onde ela melhora.
