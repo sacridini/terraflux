@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-10-26
+
 ### Changed
 - The Windows installer installs Terraflux for the user, without the administrator's permission: Windows no longer
   asks to allow it when installing or uninstalling (nor makes a restore point first, which made the installer seem
