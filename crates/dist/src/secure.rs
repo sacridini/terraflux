@@ -73,6 +73,11 @@ fn random<const N: usize>() -> [u8; N] {
     b
 }
 
+/// A secret of 16 random bytes, in hexadecimal.
+pub fn secret() -> String {
+    hex::encode(random::<16>())
+}
+
 /// Two byte strings the same, in a time that does not tell where they differ.
 pub fn same(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0u8, |d, (x, y)| d | (x ^ y)) == 0

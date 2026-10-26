@@ -25,7 +25,7 @@ problems found in it, and summaries of the results).
 | `set_input`, `set_output`, `edit_container` | The model's inputs and outputs, and what a loop or group carries, collects or gives |
 | `show_model`, `check_model`, `arrange` | Shows the model as text, checks it and its data, and puts its nodes in tidy columns |
 | `run_model`, `inspect_file` | Runs the model, then summarises a result: a raster's classes or statistics, a table's first lines |
-| `open_in_app` | Opens the model in the application |
+| `open_in_app` | Opens the model in the application you have open (a new window when none is, or when yours has edits not saved) |
 
 Every edit is checked the way the application checks the edits you make yourself. A connection of the wrong
 type (a table into an input that takes a map), a setting the operator does not have, or a loop of nodes reading
@@ -108,8 +108,10 @@ Claude Desktop tab for where it is installed).
 
 ## Work with it
 
-Start by opening the application, or ask the assistant to open the model there (`open_in_app`). Then ask for
-what you want, as you would ask a colleague who knows Terraflux:
+Start by opening the application, or ask the assistant to open the model there (`open_in_app`): the model opens in
+the Terraflux you have open, in place of its own, and the window comes to the front. A new window opens only when
+none is open, or when the model in yours has edits not saved (they are never lost). Then ask for what you want, as
+you would ask a colleague who knows Terraflux:
 
 > Make a model in `D:\forest\fragmentation.toml` that reads `D:\forest\landcover_2020.tif`, where class 3 is
 > forest, and computes MSPA with an edge width of 2. Open it in Terraflux.

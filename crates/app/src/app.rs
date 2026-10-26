@@ -1276,6 +1276,8 @@ pub struct TerrafluxApp {
     pub shortcuts_open: bool,
     /// The main window's title, as last given to it.
     window_title: String,
+    /// The models handed by `terraflux mcp` (open_in_app) come here.
+    pub handoff: Option<crate::handoff::Listener>,
 }
 
 /// A row of a list: a name, selected or not, and a note on the right.
@@ -1338,6 +1340,7 @@ impl TerrafluxApp {
             commands: None,
             shortcuts_open: false,
             window_title: String::new(),
+            handoff: None,
         };
         if let Some(p) = model {
             app.open(&p);
@@ -1414,6 +1417,39 @@ impl TerrafluxApp {
         self.wizard = None;
         self.session = Some(Session::blank());
         self.focus(Pane::Model);
+    }
+
+    /// The models handed by `terraflux mcp` (open_in_app): opened here and the window brought to the front, unless
+    /// the model open has edits not saved or a wizard is open (the answer says why, and it opens a window of its own).
+    fn take_handoffs(&mut self, ctx: &egui::Context) {
+        let Some(h) = &self.handoff else { return };
+        let asked: Vec<_> = h.requests.try_iter().collect();
+        for r in asked {
+            let wanted = std::fs::canonicalize(&r.path).ok();
+            let open_already = self
+                .session
+                .as_ref()
+                .and_then(|s| s.path.as_ref())
+                .is_some_and(|p| wanted.is_some() && std::fs::canonicalize(p).ok() == wanted);
+            let answer = match &self.session {
+                _ if open_already => Ok(()),
+                _ if self.wizard.is_some() => Err("Terraflux has a wizard open".to_string()),
+                Some(s) if s.dirty => Err(format!("the model open in Terraflux ({}) has edits not saved", s.title())),
+                _ => {
+                    self.message = None;
+                    self.open(&r.path);
+                    self.message.clone().map_or(Ok(()), Err)
+                }
+            };
+            if answer.is_ok() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(
+                    egui::UserAttentionType::Informational,
+                ));
+            }
+            let _ = r.answer.send(answer);
+        }
     }
 
     /// Open a model chosen in a dialog.
@@ -3180,6 +3216,10 @@ impl TerrafluxApp {
 }
 
 impl eframe::App for TerrafluxApp {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.take_handoffs(ctx);
+    }
+
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         self.frame(ui);
     }

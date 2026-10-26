@@ -298,9 +298,20 @@ fn explain_cell(params: &Value) -> std::result::Result<Value, (i64, String)> {
     }))
 }
 
+/// The model in the application already open (its model replaced), else in a window of its own.
 fn open_in_app(a: &Value) -> Reply {
     let path = model_path(a)?;
     load(&path)?;
+    let why = match terraflux_app::handoff::open_in_running(&path) {
+        Ok(pid) => {
+            return Ok(format!(
+                "opened {} in the Terraflux already open (process {pid}); it follows the file, so the edits made from \
+                 now on appear there",
+                path.display()
+            ));
+        }
+        Err(why) => why,
+    };
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let mut c = std::process::Command::new(exe);
     c.arg("app")
@@ -318,7 +329,8 @@ fn open_in_app(a: &Value) -> Reply {
     }
     c.spawn().map_err(|e| format!("the application did not start: {e}"))?;
     Ok(format!(
-        "opened {} in the application; it follows the file, so the edits made from now on appear there",
+        "opened {} in a new window of the application ({why}); it follows the file, so the edits made from now on \
+         appear there",
         path.display()
     ))
 }

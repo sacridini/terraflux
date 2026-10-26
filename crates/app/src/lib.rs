@@ -18,6 +18,7 @@ pub mod document_view;
 pub mod editor;
 pub mod editor_view;
 pub mod files_view;
+pub mod handoff;
 pub mod legend_view;
 pub mod llm;
 pub mod logo;
@@ -91,6 +92,9 @@ pub fn run(model: Option<PathBuf>) -> eframe::Result<()> {
                 canvas_gpu::install(rs);
             }
             let mut app = TerrafluxApp::new(model);
+            // the models handed by `terraflux mcp` opened here, not in a window of their own
+            let ctx = cc.egui_ctx.clone();
+            app.handoff = handoff::listen(move || ctx.request_repaint());
             // maximized once shown (made maximized, a window shown after its first frame is not, on Windows)
             app.maximize = Some(0);
             // the panes where they were left

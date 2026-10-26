@@ -6,6 +6,12 @@ minor versions.
 
 ## [Unreleased]
 
+### Changed
+- `terraflux mcp`'s `open_in_app` opens the model in the Terraflux already open, in place of its model, and
+  brings its window to the front, rather than starting a new window each time: each application listens on a port
+  of this computer only, told with a secret in a file of the application's data (`instances`). A new window opens
+  only when none is open, or when the model open has edits not saved or a wizard is open (the answer says which).
+
 ## [1.16.0] - 2026-10-26
 
 ### Added

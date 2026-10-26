@@ -74,8 +74,9 @@ user's `request` in the user's words, a `summary` of the conversation and its `a
 set_model_info).
 - check_model checks the model and its data; run_model runs it and writes its outputs; inspect_file summarises a \
 raster (size, classes, statistics) or shows a table.
-- open_in_app opens the model in Terraflux's application. The application follows the file: what is edited after \
-appears there at once, and the user can undo it (ctrl+Z).
+- open_in_app opens the model in Terraflux's application: in the one the user has open (its model replaced, unless \
+it has edits not saved), else in a new window. The application follows the file: what is edited after appears \
+there at once, and the user can undo it (ctrl+Z).
 ",
     containers!()
 );
@@ -1016,7 +1017,7 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "open_in_app",
-            "Open the model in Terraflux's application, for the user to see it, run it and change it. The application follows the file: later edits appear there as they are made.",
+            "Open the model in Terraflux's application, for the user to see it, run it and change it: in the one already open (its model replaced, unless it has edits not saved), else in a new window. The application follows the file: later edits appear there as they are made.",
             json!({ "model": model }),
             &["model"],
             None,
