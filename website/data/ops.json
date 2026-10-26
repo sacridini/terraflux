@@ -10507,31 +10507,6 @@
   "container": false
  },
  {
-  "name": "raster.calc",
-  "doc": "Maps, stacks and numbers computed cell by cell from a script over the node's inputs (any names: maps, numbers, stacks), as Dinamica EGO's Calculate Map, in a language close to Python's: arithmetic (+ - * / % **), comparisons (chained: 5 <= x < 8), and/or/not, a if c else b (or if c then a else b), abs sqrt exp ln log log10 floor ceil round min max clamp isnull coalesce, the neighbourhood functions nbsum nbmean nbmin nbmax nbcount(x, radius), a stack's layers as s.layer, an operation on a stack made on each layer, mean sd median sum count min max percentile(s, p) of a stack's layers at each cell, and x.mean() x.sd() x.median() x.sum() x.count() x.min() x.max() x.percentile(p), a number from all the cells. One statement a line (# a comment): name = value, name[where] = value, s.layer = value, and out name = value (or out name) for each output, a map, a stack or a number; without out, the last value is the map. A missing value gives a missing cell.",
-  "inputs": [],
-  "outputs": [
-   {
-    "name": "map",
-    "type": "map",
-    "required": true,
-    "doc": "the map computed (by a script without out)"
-   }
-  ],
-  "params": [
-   {
-    "name": "expression",
-    "type": "text",
-    "required": true,
-    "doc": "the expression or the script, e.g. if landuse == 3 then slope else null"
-   }
-  ],
-  "access": "local",
-  "container": false,
-  "extra": "any",
-  "outputs_from": "expression"
- },
- {
   "name": "markov.fit",
   "doc": "A Markov chain of land change from two maps: the transition probabilities of the period (cells of each class at the start that hold each class at the end) and, over `steps` time steps, those of one step (the principal root of the period's matrix, as Dinamica EGO's DetermineTransitionMatrix).",
   "inputs": [
@@ -17040,6 +17015,31 @@
   ],
   "access": "global",
   "container": false
+ },
+ {
+  "name": "raster.calc",
+  "doc": "Maps, stacks and numbers computed cell by cell from a script over the node's inputs (any names: maps, numbers, stacks), as Dinamica EGO's Calculate Map, in Python's syntax: arithmetic (+ - * / % **), comparisons (chained: 5 <= x < 8), and/or/not, a if c else b, None (a missing value), True, False, abs sqrt exp log log10 floor ceil round min max clamp isnull coalesce, the neighbourhood functions nbsum nbmean nbmin nbmax nbcount(x, radius), a stack's layers as s.layer, an operation on a stack made on each layer, mean sd median sum count min max percentile(s, p) of a stack's layers at each cell, and x.mean() x.sd() x.median() x.sum() x.count() x.min() x.max() x.percentile(p), a number from all the cells. One statement a line (# a comment): name = value, name[where] = value, s.layer = value, and out name = value (or out name) for each output, a map, a stack or a number; without out, the last value is the map. A missing value gives a missing cell.",
+  "inputs": [],
+  "outputs": [
+   {
+    "name": "map",
+    "type": "map",
+    "required": true,
+    "doc": "the map computed (by a script without out)"
+   }
+  ],
+  "params": [
+   {
+    "name": "expression",
+    "type": "text",
+    "required": true,
+    "doc": "the script (an expression of one line is a script too), e.g. forest = landuse == 3; out steep = forest and slope > 20"
+   }
+  ],
+  "access": "local",
+  "container": false,
+  "extra": "any",
+  "outputs_from": "expression"
  },
  {
   "name": "raster.cell_area",
@@ -24536,7 +24536,7 @@
  },
  {
   "name": "table.calc",
-  "doc": "A column computed row by row from an expression over the others, as a spreadsheet's field calculator or dplyr's mutate: the expressions of map algebra (area / 10000, if class == 1 then cells else 0), the node's other inputs as numbers by their names. A column of the same name is replaced, else it is added at the end.",
+  "doc": "A column computed row by row from an expression over the others, as a spreadsheet's field calculator or dplyr's mutate: the expressions of map algebra (area / 10000, cells if class == 1 else 0), the node's other inputs as numbers by their names. A column of the same name is replaced, else it is added at the end.",
   "inputs": [
    {
     "name": "table",
@@ -25537,7 +25537,7 @@
     "name": "expression",
     "type": "text",
     "required": false,
-    "doc": "e.g. area / 10000, if year < 2010 then 0.3 else 0.5"
+    "doc": "e.g. area / 10000, 0.3 if year < 2010 else 0.5"
    },
    {
     "name": "text",
@@ -25600,7 +25600,7 @@
  },
  {
   "name": "vector.calc",
-  "doc": "An attribute computed for every feature from an expression over the others, as QGIS's field calculator: the attributes that are numbers by their names, the expressions of map algebra (area / 10000, if class == 1 then 1 else 0), the node's other inputs as numbers by their names. An attribute of the same name is replaced, else it is added.",
+  "doc": "An attribute computed for every feature from an expression over the others, as QGIS's field calculator: the attributes that are numbers by their names, the expressions of map algebra (area / 10000, 1 if class == 1 else 0), the node's other inputs as numbers by their names. An attribute of the same name is replaced, else it is added.",
   "inputs": [
    {
     "name": "vector",
