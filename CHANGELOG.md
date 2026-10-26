@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-10-26
+
 ### Changed
 - Map algebra has one syntax, Python's, in every expression (`raster.calc`, `value.calc`, `check.assert`,
   `table.filter`, `table.calc`, `vector.filter`, `vector.calc`, `uncertainty.delta`, `uncertainty.monte_carlo`,
