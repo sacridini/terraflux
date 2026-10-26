@@ -324,7 +324,13 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
                 }
             });
         }
-        if ui.button("Edit the body").clicked() {
+        let open = egui::Button::new(RichText::new("Open inside ›").color(crate::theme::on_accent()).strong())
+            .fill(crate::theme::accent());
+        if ui
+            .add(open)
+            .on_hover_text("its nodes on the canvas (a double-click on it does it too); ‹ Back or Esc to come out")
+            .clicked()
+        {
             s.editor.path.push(n.id.clone());
             s.selected = None;
             s.fields.clear();

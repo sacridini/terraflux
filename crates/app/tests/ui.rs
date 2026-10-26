@@ -259,8 +259,26 @@ fn the_editor_changes_the_graph() {
         let src = terraflux_app::editor::sources(&s.source, &r, &s.editor.path);
         assert!(src.iter().any(|(x, _)| x == "@landscape"), "the loop's carried value is a source: {src:?}");
     }
+    // told inside: the canvas's corner and the bar say which container, and how to come out
+    assert!(h.query_by_label_contains("Inside simulation, a loop").is_none(), "(painted, not a widget)");
+    assert!(h.query_by_label("(a loop, each step)").is_some(), "the kind of the container in the bar");
     shot(&mut h, "9c-editor-body");
-    h.get_by_label("Top level").click();
+    h.get_by_label("‹ Back").click();
+    h.run_steps(2);
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.editor.path.is_empty(), "back up a level");
+    assert_eq!(s.selected.as_deref(), Some("simulation"), "the container left, selected");
+    // escape on the canvas, nothing selected, comes out too; the trail goes to any level
+    h.state_mut().session.as_mut().unwrap().editor.path = vec!["simulation".into()];
+    h.run_steps(3);
+    let canvas = h.state().session.as_ref().unwrap().editor.canvas().expect("the canvas");
+    h.hover_at(canvas.center());
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert!(h.state().session.as_ref().unwrap().editor.path.is_empty(), "escape: back up");
+    h.state_mut().session.as_mut().unwrap().editor.path = vec!["simulation".into()];
+    h.run_steps(3);
+    h.get_by_label("Whole model").click();
     h.run_steps(2);
     assert!(h.state().session.as_ref().unwrap().editor.path.is_empty());
     // File > Save

@@ -79,7 +79,7 @@ Here is the same window after a template has run, with its parts numbered:
 5. **The Model pane**: the canvas where the nodes and their connections are drawn. A node is as wide as its
    names need (an input's and an output's never run into each other); drag its right edge to make it wider, and
    double-click the edge to bring it back to the width its names need.
-6. **The Model pane's bar**: where you are in the model (*Top level*, or inside a loop), **Run to here** (run the
+6. **The Model pane's bar**: where you are in the model (*Whole model*, or inside a loop), **Run to here** (run the
    node selected and what it needs, ++ctrl+enter++), **Arrange** (tidy the nodes, ++ctrl+l++), **update after every
    edit** (run again by itself after every change) and **Text** (the model as text).
 7. **The Viewer and the map tabs.** The Viewer shows what the node selected gives. A [[view.plot]] node, or a

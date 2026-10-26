@@ -1506,6 +1506,46 @@ pub fn group_by_stage(s: &mut Session, r: &Registry) {
     }
 }
 
+/// Inside a container, the canvas framed in the accent's colour and told so at its top left: the nodes shown are
+/// the container's, not the whole model's.
+fn inside(ui: &Ui, rect: egui::Rect, name: &str, kind: &str) {
+    let painter = ui.painter_at(rect);
+    painter.rect_stroke(rect.shrink(1.0), 0.0, (2.0, theme::accent()), egui::StrokeKind::Inside);
+    let text = format!("Inside {name}, {kind}  ·  Esc or ‹ Back: the level above");
+    let galley = painter.layout_no_wrap(text, egui::FontId::proportional(13.0), theme::on_accent());
+    let tag = egui::Rect::from_min_size(rect.min, galley.size() + Vec2::new(16.0, 8.0));
+    painter.rect_filled(tag, egui::CornerRadius { se: 6, ..Default::default() }, theme::accent());
+    painter.galley(tag.min + Vec2::new(8.0, 4.0), galley, theme::on_accent());
+}
+
+/// Back up to the level `depth` of the containers entered (0: the whole model), the container left selected.
+pub fn go_up(s: &mut Session, depth: usize) {
+    if depth >= s.editor.path.len() {
+        return;
+    }
+    let left = s.editor.path.get(depth).cloned();
+    s.editor.path.truncate(depth);
+    s.editor.chosen.clear();
+    s.selected = left;
+    s.fields.clear();
+}
+
+/// What the container shown is: a group, a loop, a node of the user's... (none at the model's top level).
+pub fn container_kind(s: &Session) -> Option<String> {
+    let (last, above) = s.editor.path.split_last()?;
+    let n = s.source.scope(above)?.iter().find(|n| &n.id == last)?;
+    let kind = match n.op.as_str() {
+        _ if n.uses.is_some() => "a node of your own",
+        "control.group" => "a group",
+        "control.repeat" => "a loop, each step",
+        "control.each" => "a loop over a collection, each element",
+        "control.switch" => "a switch, its branches",
+        "control.submodel" => "a submodel",
+        _ => "a container",
+    };
+    Some(kind.to_string())
+}
+
 /// The bar above the canvas: where in the model, run up to the node, the preview kept up to date.
 fn bar(ui: &mut Ui, s: &mut Session, r: &Registry) {
     // the model's file written by another program while this one has edits not saved
@@ -1527,34 +1567,37 @@ fn bar(ui: &mut Ui, s: &mut Session, r: &Registry) {
         });
     }
     ui.horizontal(|ui| {
-        // where in the model: the containers entered, each a step back up (the last, where it is, not a link)
+        // where in the model: inside a container, a button back up and its kind; the levels above, each a button
+        // back to it; the level shown, in bold
         let depth = s.editor.path.len();
+        if depth > 0 {
+            let up =
+                egui::Button::new(RichText::new("‹ Back").color(theme::on_accent()).strong()).fill(theme::accent());
+            if ui.add(up).on_hover_text("back to the level above (Esc on the canvas)").clicked() {
+                go_up(s, depth - 1);
+            }
+        }
         let crumb = |ui: &mut Ui, text: &str, here: bool| {
             if here {
                 ui.label(RichText::new(text).strong());
                 false
             } else {
-                ui.add(
-                    egui::Label::new(RichText::new(text).color(ui.visuals().weak_text_color()))
-                        .sense(egui::Sense::click()),
-                )
-                .on_hover_cursor(egui::CursorIcon::PointingHand)
-                .on_hover_text("back up here")
-                .clicked()
+                ui.button(text).on_hover_text("back up to this level").clicked()
             }
         };
-        if crumb(ui, "Top level", depth == 0) {
-            s.editor.path.clear();
-            s.selected = None;
+        if crumb(ui, "Whole model", depth == 0) {
+            go_up(s, 0);
         }
         for k in 0..depth {
             // (the path cut short by a click this frame)
             let Some(name) = s.editor.path.get(k).cloned() else { break };
             ui.label(RichText::new("›").color(ui.visuals().weak_text_color()));
             if crumb(ui, &name, k + 1 == depth) {
-                s.editor.path.truncate(k + 1);
-                s.selected = None;
+                go_up(s, k + 1);
             }
+        }
+        if let Some(kind) = container_kind(s) {
+            ui.label(RichText::new(format!("({kind})")).weak());
         }
         ui.separator();
         let target = runnable(s);
@@ -1634,6 +1677,8 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
     }
     let problems = problems(s);
     let layers = per_layer(s, r);
+    // escape on the canvas, nothing selected (escape lets the nodes selected go first): back up a level
+    let nothing_chosen = s.editor.chosen.is_empty();
     let actions = crate::editor_view::show(
         ui,
         &s.source,
@@ -1647,6 +1692,20 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
         &problems,
         &layers,
     );
+    if let (Some((last, _)), Some(rect)) = (s.editor.path.split_last(), s.editor.canvas()) {
+        inside(ui, rect, last, container_kind(s).as_deref().unwrap_or("a container"));
+        let typing = ui.ctx().memory(|m| m.focused().is_some());
+        let over = ui.input(|i| i.pointer.latest_pos()).is_some_and(|p| rect.contains(p));
+        if nothing_chosen
+            && over
+            && !typing
+            && s.editor.quick.is_none()
+            && s.editor.renaming.is_none()
+            && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+        {
+            go_up(s, s.editor.path.len() - 1);
+        }
+    }
     if s.source.nodes.is_empty() && s.editor.path.is_empty() {
         ui.painter().text(
             ui.max_rect().center(),

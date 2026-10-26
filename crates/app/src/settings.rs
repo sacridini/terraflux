@@ -1,7 +1,7 @@
 //! The user's settings, kept between sessions in the user's application data (`Terraflux/settings.json`): the
 //! theme, the text's size and the interface's zoom, the threads the functions use by default, and the operators
 //! in each collection of favourites (coloured, as Ableton Live's collections), the assistant's servers of chat
-//! models.
+//! models, the checks for updates.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -60,6 +60,12 @@ pub struct Settings {
     pub provider: Option<usize>,
     /// The size each cache of rasters made and data downloaded is held under, in gigabytes (none: 10; 0: no limit).
     pub cache_gb: Option<f64>,
+    /// Ask GitHub for a newer Terraflux when the application starts (at most once a day), and when it was asked
+    /// last (seconds since 1970).
+    pub check_updates: bool,
+    pub updates_checked: Option<u64>,
+    /// The version that ran last: another one now, the application says it was updated.
+    pub seen_version: Option<String>,
 }
 
 impl Default for Settings {
@@ -85,6 +91,9 @@ impl Default for Settings {
             providers: crate::llm::presets(),
             provider: None,
             cache_gb: None,
+            check_updates: true,
+            updates_checked: None,
+            seen_version: None,
         }
     }
 }

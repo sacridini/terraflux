@@ -178,7 +178,7 @@ over the square of radius 1 (3 × 3 cells) around each cell, of `c == 1` (1 for 
 city cells around it.
 
 !!! app "In the application"
-    Double-click the `growth` node (or **Edit the body** in the Node pane) to edit its body; the trail at the top
+    Double-click the `growth` node (or **Open inside** in the Node pane) to edit its body; the trail at the top
     of the canvas takes you back. Inside, the column on the left lists what the body can read: `@city`, `@step`
     and the outer nodes. Select `grow` and edit its expression in the Node pane; ++ctrl+enter++ runs the model to
     the node selected. The template's plots show `growth.maps` (a slider over the steps) and `growth.city`.

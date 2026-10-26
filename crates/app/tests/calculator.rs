@@ -82,7 +82,18 @@ fn a_script_typed_completed_previewed_and_given_to_its_node() {
     assert!(h.query_by_label_contains("high  layer").is_some(), "the layer high offered");
     h.key_press(egui::Key::Tab);
     h.run_steps(2);
-    typed(&mut h, " - s.low");
+    // the keyboard goes through the list (high, low): down to the second, enter puts it in
+    typed(&mut h, " - s.");
+    assert!(h.query_by_label_contains("low  layer").is_some(), "the layers offered");
+    h.key_press(egui::Key::ArrowDown);
+    h.run_steps(2);
+    if let Ok(img) = h.render() {
+        img.save(PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("ui-calculator-chosen.png")).unwrap();
+    }
+    h.key_press(egui::Key::Enter);
+    h.run_steps(2);
+    let text = h.state().calculator.text().to_string();
+    assert!(text.ends_with("s.high - s.low"), "the second taken by the keyboard: {text:?}");
     // an error underlined and told; then mended
     typed(&mut h, " +");
     assert!(h.query_by_label_contains("✖ line 2").is_some());

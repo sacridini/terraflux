@@ -58,11 +58,39 @@ try {
     # the MSI
     dotnet tool restore
     if ($LASTEXITCODE) { throw "dotnet tool restore failed" }
+    # its pages (WixUI) and the action that opens Terraflux at the end (WixShellExec)
+    foreach ($ext in "WixToolset.UI.wixext/5.0.2", "WixToolset.Util.wixext/5.0.2") {
+        dotnet wix extension add -g $ext
+        if ($LASTEXITCODE) { throw "the WiX extension $ext could not be added" }
+    }
+    # the pages' pictures: Terraflux's icon on its grey, at the left of the first and last pages, at the right of
+    # the banner of the others
+    Add-Type -AssemblyName System.Drawing
+    $logo = [System.Drawing.Image]::FromFile((Resolve-Path assets\logo\png\terraflux-icon-256.png).Path)
+    function Write-Picture([int]$w, [int]$h, [int]$panel, [int]$size, [int]$x, [int]$y, [string]$path) {
+        $bmp = New-Object System.Drawing.Bitmap $w, $h
+        $g = [System.Drawing.Graphics]::FromImage($bmp)
+        $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $g.Clear([System.Drawing.Color]::White)
+        if ($panel -gt 0) {
+            $grey = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(43, 43, 43))
+            $g.FillRectangle($grey, 0, 0, $panel, $h)
+        }
+        $g.DrawImage($logo, $x, $y, $size, $size)
+        $g.Dispose()
+        $bmp.Save($path, [System.Drawing.Imaging.ImageFormat]::Bmp)
+        $bmp.Dispose()
+    }
+    $dialog = Join-Path (Resolve-Path $out).Path "dialog.bmp"
+    $banner = Join-Path (Resolve-Path $out).Path "banner.bmp"
+    Write-Picture 493 312 164 112 26 70 $dialog
+    Write-Picture 493 58 0 44 441 7 $banner
+    $logo.Dispose()
     $msi = "$out\terraflux-$version-x64.msi"
     $stageFull = (Resolve-Path $stage).Path
     $icon = (Resolve-Path assets\logo\terraflux.ico).Path
-    dotnet wix build installer\terraflux.wxs -arch x64 -d "Version=$version" -d "Stage=$stageFull" -d "Icon=$icon" `
-        -o $msi
+    dotnet wix build installer\terraflux.wxs -arch x64 -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext `
+        -d "Version=$version" -d "Stage=$stageFull" -d "Icon=$icon" -d "Dialog=$dialog" -d "Banner=$banner" -o $msi
     if ($LASTEXITCODE) { throw "wix build failed" }
     foreach ($f in $msi, $zip) { "{0} ({1:N0} MB)" -f $f, ((Get-Item $f).Length / 1MB) }
 }

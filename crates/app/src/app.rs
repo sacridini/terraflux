@@ -1247,6 +1247,15 @@ pub struct TerrafluxApp {
     styled: Option<(String, u32, u32)>,
     /// The settings' window is open.
     pub settings_open: bool,
+    /// The updates of Terraflux: the latest release asked, its installer downloaded ([`crate::update`]).
+    pub updater: crate::update::Updater,
+    /// The window asking to update (the release), and the user's word given: installed once downloaded.
+    update_asked: Option<crate::update::Release>,
+    update_go: bool,
+    /// The updates' failures told in the toolbar (the user asked), not those of the check at the start.
+    update_told: bool,
+    /// Terraflux was updated since it ran last: from which version, told in the toolbar for a while.
+    pub updated_from: Option<(String, Instant)>,
     /// The bytes in the caches (rasters made, data downloaded), measured when (counted again every few seconds
     /// while the settings show it).
     cache_used: Option<(Instant, u64)>,
@@ -1332,6 +1341,11 @@ impl TerrafluxApp {
             hover: None,
             styled: None,
             settings_open: false,
+            updater: crate::update::Updater::default(),
+            update_asked: None,
+            update_go: false,
+            update_told: false,
+            updated_from: None,
             cache_used: None,
             tab_back: None,
             tabbed: false,
@@ -1638,7 +1652,11 @@ impl TerrafluxApp {
         ui.horizontal(|ui| {
             let (mark, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
             crate::logo::paint_mark(ui.painter(), mark, theme::accent(), theme::current().text);
-            ui.label(crate::logo::wordmark(14.0, theme::current().text, theme::accent()));
+            ui.label(crate::logo::wordmark(14.0, theme::current().text, theme::accent()))
+                .on_hover_text(format!("Terraflux {}", env!("CARGO_PKG_VERSION")));
+            ui.label(RichText::new(env!("CARGO_PKG_VERSION")).weak().size(11.0))
+                .on_hover_text("Terraflux's version (its updates: ⚙, the settings)");
+            self.update_strip(ui);
             ui.add_space(6.0);
             ui.menu_button("File", |ui| self.file_menu(ui, &mut save));
             ui.menu_button("Templates", |ui| self.templates_menu(ui));
@@ -1869,6 +1887,137 @@ impl TerrafluxApp {
         }
     }
 
+    /// In the toolbar: Terraflux updated (a minute after it opens), a newer one (the button to update), its
+    /// download, the update's failure when the user asked for it.
+    fn update_strip(&mut self, ui: &mut Ui) {
+        use crate::update::{State, show};
+        if let Some((from, at)) = &self.updated_from
+            && at.elapsed() < Duration::from_secs(60)
+        {
+            ui.label(RichText::new(format!("updated to {}", env!("CARGO_PKG_VERSION"))).color(theme::accent()))
+                .on_hover_text(format!("Terraflux was {from} when it ran last"));
+        }
+        match self.updater.state() {
+            State::Available(r) => {
+                let b = egui::Button::new(
+                    RichText::new(format!("Update to {}", show(r.version))).color(theme::on_orange()).strong(),
+                )
+                .fill(theme::orange());
+                if ui.add(b).on_hover_text(format!("Terraflux {} is out", show(r.version))).clicked() {
+                    self.update_asked = Some(r);
+                }
+            }
+            State::Downloading(done, total) => {
+                let fraction = total.map(|t| done as f32 / t.max(1) as f32);
+                theme::progress(ui, fraction, &format!("downloading Terraflux ({:.0} MB)", done as f64 / 1e6), 120.0);
+            }
+            State::Ready(_) => {
+                ui.spinner();
+                ui.label(RichText::new("installing...").weak());
+            }
+            State::Failed(e) if self.update_told => {
+                ui.label(RichText::new("the update failed").color(ui.visuals().warn_fg_color)).on_hover_text(e);
+            }
+            _ => {}
+        }
+    }
+
+    /// The window asking to update: what happens then, the model's edits not saved saved first. A Terraflux not
+    /// of the Windows installer (the zip, macOS, Linux) opens the release's page instead.
+    fn update_window(&mut self, ctx: &egui::Context) {
+        use crate::update::show;
+        let Some(r) = self.update_asked.clone() else { return };
+        let mut open = true;
+        let (mut go, mut later) = (None, false);
+        let dirty = self.session.as_ref().is_some_and(|s| s.dirty);
+        let installer = crate::update::installed_here().is_some() && r.installer.is_some();
+        egui::Window::new(format!("Terraflux {}", show(r.version)))
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.set_max_width(420.0);
+                ui.label(format!("Terraflux {} is out (this one is {}).", show(r.version), env!("CARGO_PKG_VERSION")));
+                ui.add_space(4.0);
+                if installer {
+                    ui.label(
+                        "Terraflux closes, installs it (its progress shown, nothing to answer, no administrator's \
+                         permission) and opens again with this model.",
+                    );
+                    if dirty {
+                        ui.add_space(4.0);
+                        ui.label(
+                            RichText::new("The model has edits not saved: saved first.")
+                                .color(ui.visuals().warn_fg_color),
+                        );
+                    }
+                } else {
+                    ui.label(
+                        "This Terraflux is not the one of the Windows installer (the zip, macOS or Linux): download \
+                         the new one from its page.",
+                    );
+                }
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if installer {
+                        let text = if dirty { "Save and update" } else { "Update" };
+                        let b = egui::Button::new(RichText::new(text).color(theme::on_orange()).strong())
+                            .fill(theme::orange());
+                        if ui.add(b).clicked() {
+                            go = Some(dirty);
+                        }
+                    } else if ui.button("Open its page").clicked() {
+                        let page = if r.page.is_empty() {
+                            format!("https://github.com/{}/releases/latest", crate::update::REPO)
+                        } else {
+                            r.page.clone()
+                        };
+                        crate::update::open_page(&page);
+                        later = true;
+                    }
+                    if ui.button("Not now").clicked() {
+                        later = true;
+                    }
+                    if installer && !r.page.is_empty() && ui.link("what is new").clicked() {
+                        crate::update::open_page(&r.page);
+                    }
+                });
+            });
+        if let Some(save) = go {
+            if save {
+                self.save(false);
+                if self.session.as_ref().is_some_and(|s| s.dirty) {
+                    // not saved (no file chosen, or it could not be written): asked again
+                    return;
+                }
+            }
+            let c = ctx.clone();
+            self.updater.download(r, move || c.request_repaint());
+            self.update_go = true;
+            self.update_told = true;
+            later = true;
+        }
+        if !open || later {
+            self.update_asked = None;
+        }
+    }
+
+    /// The installer downloaded and checked, the user's word given: installed once this application closes, then
+    /// opened again with the model.
+    fn install_update(&mut self, ctx: &egui::Context) {
+        let crate::update::State::Ready(msi) = self.updater.state() else { return };
+        if !std::mem::take(&mut self.update_go) {
+            return;
+        }
+        let Some(exe) = crate::update::installed_here() else { return };
+        let model = self.session.as_ref().filter(|s| !s.dirty).and_then(|s| s.path.clone());
+        match crate::update::install_after_exit(&msi, &exe, model.as_deref()) {
+            Ok(()) => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+            Err(e) => self.updater.fail(e),
+        }
+    }
+
     /// The settings, in a window of the application: the theme, the text's size, the interface's zoom, the
     /// threads the functions use; kept at once, the look changed at once.
     fn settings_window(&mut self, ctx: &egui::Context) {
@@ -1962,6 +2111,46 @@ impl TerrafluxApp {
                         .weak()
                         .size(11.0),
                     );
+                });
+                ui.end_row();
+                ui.label("Updates");
+                ui.vertical(|ui| {
+                    use crate::update::{State, show};
+                    ui.label(RichText::new(format!("Terraflux {}", env!("CARGO_PKG_VERSION"))).strong());
+                    ui.checkbox(&mut st.check_updates, "look for a new version when Terraflux starts (once a day)")
+                        .on_hover_text("asks GitHub which Terraflux is the latest; nothing else is sent");
+                    ui.horizontal(|ui| {
+                        let state = self.updater.state();
+                        let busy = matches!(state, State::Checking | State::Downloading(..) | State::Ready(_));
+                        if ui.add_enabled(!busy, egui::Button::new("Check now")).clicked() {
+                            self.update_told = true;
+                            let c = ctx.clone();
+                            self.updater.check(move || c.request_repaint());
+                        }
+                        match state {
+                            State::Idle => {}
+                            State::Checking => {
+                                ui.spinner();
+                            }
+                            State::UpToDate => {
+                                ui.label(RichText::new("this is the latest").weak());
+                            }
+                            State::Available(r) => {
+                                if ui.button(format!("Update to {}...", show(r.version))).clicked() {
+                                    self.update_asked = Some(r);
+                                }
+                            }
+                            State::Downloading(..) => {
+                                ui.label(RichText::new("downloading...").weak());
+                            }
+                            State::Ready(_) => {
+                                ui.label(RichText::new("installing...").weak());
+                            }
+                            State::Failed(e) => {
+                                ui.label(RichText::new(e).color(ui.visuals().warn_fg_color).size(11.0));
+                            }
+                        }
+                    });
                 });
                 ui.end_row();
             });
@@ -2542,8 +2731,10 @@ impl TerrafluxApp {
     /// The main window's title: the model's name, a dot when it has edits not saved.
     fn window_title(&mut self, ctx: &egui::Context) {
         let title = match &self.session {
-            Some(s) => format!("{}{} - Terraflux", s.title(), if s.dirty { " ●" } else { "" }),
-            None => "Terraflux".to_string(),
+            Some(s) => {
+                format!("{}{} - Terraflux {}", s.title(), if s.dirty { " ●" } else { "" }, env!("CARGO_PKG_VERSION"))
+            }
+            None => format!("Terraflux {}", env!("CARGO_PKG_VERSION")),
         };
         if title != self.window_title {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
@@ -2728,6 +2919,8 @@ impl TerrafluxApp {
                 });
         }
         self.settings_window(ui.ctx());
+        self.update_window(ui.ctx());
+        self.install_update(ui.ctx());
         let mut shortcuts = self.shortcuts_open;
         crate::commands::shortcuts_window(ui.ctx(), &mut shortcuts);
         self.shortcuts_open = shortcuts;

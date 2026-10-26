@@ -305,6 +305,11 @@ fn numbers(cells: &[f64]) -> String {
 }
 
 impl Calculator {
+    /// The script as typed.
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
     /// The image of a map of `width` x `height` cells (none without cells).
     fn image(&mut self, ctx: &egui::Context, cells: &[f64], width: usize, height: usize) -> Option<TextureHandle> {
         if width * height == 0 || cells.len() < width * height {
@@ -786,13 +791,18 @@ fn completions(ui: &Ui, at: egui::Pos2, list: &[Completion], chosen: usize) -> O
                         egui::FontSelection::Default,
                         egui::Align::Center,
                     );
-                    if ui.add(egui::Button::selectable(k == chosen, job).frame_when_inactive(false)).clicked() {
+                    // the one chosen filled in the selection's colour (the keyboard's place in the list)
+                    let fill = if k == chosen { ui.visuals().selection.bg_fill } else { egui::Color32::TRANSPARENT };
+                    let b = egui::Button::new(job)
+                        .fill(fill)
+                        .frame_when_inactive(k == chosen)
+                        .min_size(egui::vec2(ui.available_width(), 0.0));
+                    if ui.add(b).clicked() {
                         clicked = Some(k);
                     }
                 }
-                if list.len() > 10 {
-                    ui.label(mono(format!("{} in all · ↑↓ tab", list.len())).weak().small());
-                }
+                let all = if list.len() > 10 { format!("{} in all · ", list.len()) } else { String::new() };
+                ui.label(mono(format!("{all}up, down: choose · enter, tab: put it in · esc")).weak().small());
             });
         },
     );

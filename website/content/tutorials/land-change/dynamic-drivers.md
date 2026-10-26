@@ -440,7 +440,7 @@ written as a raster of 14 bands), `info` (the allocation's iterations and the ce
 is the final map and `simulation.maps` the series.
 
 !!! app "In the application"
-    Double-click the `simulation` node (or **Edit the body** in the Node pane) to open the body. Its left
+    Double-click the `simulation` node (or **Open inside** in the Node pane) to open the body. Its left
     column lists what the body can read: `@step`, `@landscape`, `@history`, the model's inputs and the outer
     nodes. Add the four new nodes from the library, connect `@landscape` to `near_built`'s `landscape`, and
     connect `drivers_now.stack` to `suitability`'s `drivers`. In the Node pane of the `simulation` node, add

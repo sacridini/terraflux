@@ -34,8 +34,9 @@ The **Graph** tab of the application edits the model:
   changes does not run again), and models without them stay valid.
 - **Reviewing changes:** what an assistant changes is listed in the **Changes** pane, each change accepted or
   rejected; File, Compare lists the differences with the saved file, another file or the last commit.
-- **Containers:** double-click a container, or use **Edit the body**, to edit its body. The trail in the bar
-  takes you back up.
+- **Containers:** double-click a container, or use **Open inside**, to edit its body. Inside, the canvas is
+  framed in the accent's colour and says which container it shows; **‹ Back** in the bar (or Esc on the canvas)
+  takes you back up, and the trail beside it (*Whole model › ...*) to any level.
 - **Saving:** **Save** writes the model where it was read, as written, with its submodels kept as
   references.
 

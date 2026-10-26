@@ -294,7 +294,7 @@ gets its own draws while the whole run stays reproducible: the same seed gives t
 computer.
 
 !!! app "In the application"
-    Double-click the `simulation` node (or **Edit the body**) to see its body; the column at its left lists what
+    Double-click the `simulation` node (or **Open inside**) to see its body; the column at its left lists what
     the body can read: `@landscape`, `@step` and the outer nodes it uses. To make another value carried (a second
     map, a population of agents), add an input to the loop and set what it takes at the end of each step in the
     loop's **carry**. The trail at the top of the canvas brings you back to the model.

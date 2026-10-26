@@ -5,7 +5,9 @@
   without Windows' prompt): in %LOCALAPPDATA%\Programs\Terraflux, a shortcut in the user's Start menu and the folder
   on the user's PATH (for `terraflux run`), with the application's icon. Windows' firewall asks, the first time,
   only when Terraflux is opened to the computers of the local network (other computers helping with its runs).
-  Built by tools\make-installer.ps1, which stages the files and gives Version, Stage and Icon.
+  Its pages: the progress, then the end, which says Terraflux is installed and opens it (left ticked). Built by
+  tools\make-installer.ps1, which stages the files and gives Version, Stage, Icon and the pages' pictures (Dialog,
+  Banner).
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package
@@ -26,6 +28,36 @@
     <!-- no restore point of Windows before installing or removing (a snapshot of the disk by the shadow copy
          service, a minute in which the whole computer stalls): Terraflux changes nothing of the system -->
     <Property Id="MSIFASTINSTALL" Value="1" />
+
+    <!-- the pages: the progress, then the end (Terraflux installed, opened at once when left ticked); no page to
+         answer before it installs. Removing it (Settings, Apps) and the updates (msiexec /passive) show only the
+         progress. -->
+    <UI Id="TerrafluxUI">
+      <TextStyle Id="WixUI_Font_Normal" FaceName="Segoe UI" Size="9" />
+      <TextStyle Id="WixUI_Font_Bigger" FaceName="Segoe UI" Size="12" />
+      <TextStyle Id="WixUI_Font_Title" FaceName="Segoe UI" Size="9" Bold="yes" />
+      <Property Id="DefaultUIFont" Value="WixUI_Font_Normal" />
+      <DialogRef Id="ErrorDlg" />
+      <DialogRef Id="FatalError" />
+      <DialogRef Id="FilesInUse" />
+      <DialogRef Id="MsiRMFilesInUse" />
+      <DialogRef Id="PrepareDlg" />
+      <DialogRef Id="ProgressDlg" />
+      <DialogRef Id="ResumeDlg" />
+      <DialogRef Id="UserExit" />
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="OpenTerraflux"
+               Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 and NOT Installed" />
+      <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999" />
+    </UI>
+    <UIRef Id="WixUI_Common" />
+    <WixVariable Id="WixUIDialogBmp" Value="$(var.Dialog)" />
+    <WixVariable Id="WixUIBannerBmp" Value="$(var.Banner)" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT"
+              Value="Terraflux $(var.Version) is installed: in the Start menu, and the command terraflux in a new terminal. It updates itself from now on." />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Open Terraflux" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <SetProperty Id="WixShellExecTarget" Value="[INSTALLFOLDER]terraflux.exe" After="CostFinalize" Sequence="ui" />
+    <CustomAction Id="OpenTerraflux" BinaryRef="Wix4UtilCA_X64" DllEntry="WixShellExec" Impersonate="yes" />
 
     <!-- a Terraflux installed for all the users (the installers before 1.18): its folder on the PATH of the
          system, before the user's, would run in place of this one; removed first (the administrator's prompt of

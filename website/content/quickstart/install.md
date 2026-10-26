@@ -24,6 +24,13 @@ Windows 10 and 11, 64-bit.
     asking for the administrator's permission, in `%LOCALAPPDATA%\Programs\Terraflux`, adds a shortcut to the
     **Start menu**, and puts its folder on your **PATH**, so that `terraflux` works in any new terminal
     (PowerShell or the command prompt). It brings GDAL (the folder `gdal`) and the Visual C++ and OpenMP runtimes.
+    Its last page says Terraflux is installed and opens it.
+
+    **Updates.** Terraflux asks GitHub for a newer version when it starts (once a day; turn it off in the settings,
+    ⚙). When there is one, **Update to X.Y.Z** appears in orange at the top: a click saves the model, downloads the
+    installer, checks it against the release's checksums, installs it (only its progress shown) and opens
+    Terraflux again with the model. Its version is beside its name at the top left, in the window's title and in
+    the settings (**Check now** there asks at once).
 
     To remove it: **Settings > Apps > Installed apps > Terraflux > Uninstall** (no administrator either).
 

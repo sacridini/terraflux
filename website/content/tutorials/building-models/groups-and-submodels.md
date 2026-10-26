@@ -134,10 +134,11 @@ images:
 
 !!! app "In the application"
     Add a group from the library's subject **Model flow** ([[control.group]]). In the Node pane, **Add input**
-    gives it an input: type a name (`land`) and a reference (`lu1997.raster`), or a value. **Edit the body** (or a
+    gives it an input: type a name (`land`) and a reference (`lu1997.raster`), or a value. **Open inside** (or a
     double click on the group) takes you inside: the column on the left of the canvas lists what the body can
-    read, `@land` among them, and you add nodes as at the top level. The trail in the Model pane's bar (*Top
-    level / context*) takes you back. To set an output, select the group and, in the Node pane's **Body**
+    read, `@land` among them, and you add nodes as at the top level. The canvas is framed in orange and its corner says
+    which group you are in; **‹ Back** in the Model pane's bar, or ++esc++ on the canvas, takes you back up (the
+    trail beside it, *Whole model › context*, to any level). To set an output, select the group and, in the Node pane's **Body**
     section, choose `outputs`, type its name (`share`) and the inner reference (`share.map`), and click **Set**.
 
 ## A submodel: a model used as a node

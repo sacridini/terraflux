@@ -6,6 +6,25 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Terraflux updates itself. It asks GitHub for the latest release when it starts (at most once a day; off in the
+  settings) and shows **Update to X.Y.Z** in orange in the toolbar. On Windows, the Terraflux of the installer
+  saves the model, downloads the new installer, checks it against the release's `SHA256SUMS.txt`, installs it once
+  the application has closed (its progress only, no question, no administrator) and opens again with the model;
+  the next start says "updated to X.Y.Z". Elsewhere (the zip, macOS, Linux) the release's page opens.
+- Terraflux's version is shown: beside its name in the toolbar, in the window's title and in the settings, with
+  the updates (**Check now**, the check at the start turned on or off).
+- The Windows installer has pages: its progress, then the last page, which says Terraflux is installed and opens
+  it (ticked).
+
+### Changed
+- Inside a container (a group, a loop, a switch, a node of your own), the canvas is framed in orange and its
+  corner says which one it shows and its kind, and the Model pane's bar has **‹ Back** (also Esc on the canvas,
+  nothing selected) and the trail as buttons (*Whole model › ...*), each back to its level. The Node pane's
+  **Edit the body** is **Open inside ›**.
+- The completions of the calculator show the one chosen by the keyboard (up and down, enter or tab puts it in):
+  it was not marked, so the keys seemed not to work. Their keys are told under the list.
+
 ### Fixed
 - Installing or removing Terraflux on Windows stalled the whole computer for about a minute: Windows made a restore
   point first (a snapshot of the disk), even for the installer of 1.18, which does not need the administrator.

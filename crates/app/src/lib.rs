@@ -42,6 +42,7 @@ pub mod tools;
 pub mod trace;
 pub mod trace_view;
 pub mod undo;
+pub mod update;
 pub mod vector_tiles;
 pub mod vector_view;
 pub mod watch;
@@ -95,6 +96,19 @@ pub fn run(model: Option<PathBuf>) -> eframe::Result<()> {
             // the models handed by `terraflux mcp` opened here, not in a window of their own
             let ctx = cc.egui_ctx.clone();
             app.handoff = handoff::listen(move || ctx.request_repaint());
+            // another version than the one that ran last: Terraflux was updated (told a while); a newer one asked
+            // of GitHub (at most once a day, unless turned off)
+            let now = env!("CARGO_PKG_VERSION");
+            let before = settings::get().seen_version;
+            if let Some(b) = before.as_deref().filter(|b| *b != now) {
+                app.updated_from = Some((b.to_string(), std::time::Instant::now()));
+            }
+            if before.as_deref() != Some(now) {
+                settings::update(|s| s.seen_version = Some(now.to_string()));
+            }
+            update::clean();
+            let ctx = cc.egui_ctx.clone();
+            app.updater.check_if_due(move || ctx.request_repaint());
             // maximized once shown (made maximized, a window shown after its first frame is not, on Windows)
             app.maximize = Some(0);
             // the panes where they were left

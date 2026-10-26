@@ -234,7 +234,7 @@ every step.
 
 !!! app "In the application"
     Open **Templates**, group *Land change*, **A city that grows (a loop)**. Double-click the node `growth`
-    (or select it and click **Edit the body** in the Node pane) to go inside the loop; the trail at the top takes
+    (or select it and click **Open inside** in the Node pane) to go inside the loop; the trail at the top takes
     you back. Inside, the column on the left lists what the body can read: `@city`, `@step` and the outer nodes.
     Select `grow` and change its expression. To build a loop from scratch: add [[control.repeat]] (library
     subject **Model flow**), give it `times` and an input named like the carried value (`city`), add the body's
