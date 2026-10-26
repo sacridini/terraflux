@@ -1,0 +1,83 @@
+format = "terraflux/1"
+name = "Interpolation: IDW and kriging"
+description = "Points of a soil property interpolated as R's gstat does: 120 points sampled from a drawn surface, their sample variogram and a spherical model fitted to it, ordinary kriging (the prediction and its variance) and inverse distance weighting, and how far each is from the surface."
+
+[[nodes]]
+id = "field"
+op = "nlm.gaussian_field"
+params = { rows = 100, columns = 100, range = 12, seed = 81 }
+
+[[nodes]]
+id = "soil"
+op = "raster.calc"
+inputs = { f = "field.map" }
+params = { expression = "20 + 30 * f" }
+note = "The true surface, a soil's carbon in g/kg say (in its place, the area to interpolate: any map of it)."
+
+[[nodes]]
+id = "area"
+op = "raster.calc"
+inputs = { f = "soil.map" }
+params = { expression = "f * 0 + 1" }
+
+[[nodes]]
+id = "sample"
+op = "accuracy.sample"
+inputs = { map = "area.map" }
+params = { n = 120, seed = 82 }
+note = "120 random points (in their place, the points measured: vector.read)."
+
+[[nodes]]
+id = "points"
+op = "vector.extract"
+inputs = { vector = "sample.points", map = "soil.map" }
+note = "The value at every point, its attribute value."
+
+[[nodes]]
+id = "variogram"
+op = "stats.variogram"
+inputs = { points = "points.vector" }
+params = { field = "value", model = "spherical" }
+note = "The sample variogram and a spherical model fitted to it (its table: np, dist, gamma and the model)."
+
+[[nodes]]
+id = "kriging"
+op = "stats.kriging"
+inputs = { points = "points.vector", like = "soil.map", model = "variogram.model" }
+params = { field = "value" }
+
+[[nodes]]
+id = "idw"
+op = "stats.idw"
+inputs = { points = "points.vector", like = "soil.map" }
+params = { field = "value", power = 2 }
+
+[[nodes]]
+id = "kriging_error"
+op = "raster.calc"
+inputs = { k = "kriging.prediction", s = "soil.map" }
+params = { expression = "k - s" }
+
+[[nodes]]
+id = "idw_error"
+op = "raster.calc"
+inputs = { i = "idw.map", s = "soil.map" }
+params = { expression = "i - s" }
+
+[[nodes]]
+id = "plot_kriging"
+op = "view.plot"
+inputs = { value = "kriging.prediction" }
+params = { title = "Ordinary kriging" }
+
+[[nodes]]
+id = "plot_variance"
+op = "view.plot"
+inputs = { value = "kriging.variance" }
+params = { title = "Kriging variance" }
+
+[[nodes]]
+id = "plot_idw"
+op = "view.plot"
+inputs = { value = "idw.map" }
+params = { title = "Inverse distance weighting" }

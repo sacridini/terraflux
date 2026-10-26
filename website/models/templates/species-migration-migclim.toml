@@ -1,0 +1,71 @@
+format = "terraflux/1"
+name = "Species migration (MigClim)"
+description = "A species' dispersal as MigClim simulates it: three periods of habitat suitability whose optimum moves across a drawn landscape, a kernel of dispersal of four cells, long-distance dispersal, propagule production that grows over the first years of a population, and a river as a barrier. The final map tells the cells colonised (by step), lost, and suitable but out of reach."
+
+[[nodes]]
+id = "gradient"
+op = "nlm.planar_gradient"
+params = { rows = 80, columns = 100, direction = 90, seed = 91 }
+note = "A gradient across the map (a temperature, say)."
+
+[[nodes]]
+id = "noise"
+op = "nlm.gaussian_field"
+params = { rows = 80, columns = 100, range = 6, seed = 92 }
+
+[[nodes]]
+id = "period1"
+op = "raster.calc"
+inputs = { g = "gradient.map", n = "noise.map" }
+params = { expression = "max(0, min(1000, round(1000 - abs(g - 0.25) * 3500 + (n - 0.5) * 500)))" }
+note = "The suitability of a period, 0 to 1000: its optimum moving up the gradient (in their place, a species distribution model's predictions for each period, times 1000)."
+
+[[nodes]]
+id = "period2"
+op = "raster.calc"
+inputs = { g = "gradient.map", n = "noise.map" }
+params = { expression = "max(0, min(1000, round(1000 - abs(g - 0.45) * 3500 + (n - 0.5) * 500)))" }
+
+[[nodes]]
+id = "period3"
+op = "raster.calc"
+inputs = { g = "gradient.map", n = "noise.map" }
+params = { expression = "max(0, min(1000, round(1000 - abs(g - 0.65) * 3500 + (n - 0.5) * 500)))" }
+
+[[nodes]]
+id = "suitability"
+op = "stack.of"
+inputs = { p1 = "period1.map", p2 = "period2.map", p3 = "period3.map" }
+
+[[nodes]]
+id = "initial"
+op = "raster.calc"
+inputs = { s = "period1.map", g = "gradient.map" }
+params = { expression = "1 if s > 600 and g < 0.3 else 0" }
+note = "Where the species is now: suitable cells at the lower end of the gradient."
+
+[[nodes]]
+id = "river"
+op = "raster.calc"
+inputs = { g = "gradient.map" }
+params = { expression = "1 if abs(g - 0.4) < 0.006 else 0" }
+note = "A river across the gradient, a barrier."
+
+[[nodes]]
+id = "migrate"
+op = "sdm.migrate"
+inputs = { initial = "initial.map", suitability = "suitability.stack", barriers = "river.map" }
+params = { steps = 5, kernel = [1.0, 0.4, 0.16, 0.06], ini_maturity = 1, full_maturity = 3, propagules = [0.4, 0.8], ldd_frequency = 0.05, ldd_min = 6, ldd_max = 15, barrier_type = "weak", seed = 93 }
+note = "Five dispersal steps per period; table: the cells occupied, colonised and lost at every step."
+
+[[nodes]]
+id = "plot_final"
+op = "view.plot"
+inputs = { value = "migrate.occupied" }
+params = { title = "Occupied at the end" }
+
+[[nodes]]
+id = "plot_states"
+op = "view.plot"
+inputs = { value = "migrate.map" }
+params = { title = "MigClim's final state" }

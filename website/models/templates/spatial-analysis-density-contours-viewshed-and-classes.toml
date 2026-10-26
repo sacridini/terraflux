@@ -1,0 +1,78 @@
+format = "terraflux/1"
+name = "Spatial analysis: density, contours, viewshed and classes"
+description = "Villages on a terrain: their kernel density and count per cell (vector.density), the terrain's contours (raster.contour), what three villages see from a tower (raster.viewshed), the terrain in classes by Jenks's natural breaks (raster.classify) and the true area of every cell (raster.cell_area)."
+
+[[nodes]]
+id = "surface"
+op = "nlm.gaussian_field"
+params = { rows = 120, columns = 120, range = 20, seed = 4 }
+
+[[nodes]]
+id = "elevation"
+op = "raster.calc"
+inputs = { s = "surface.map" }
+params = { expression = "200 + 800 * s" }
+note = "A terrain of 200 to 1000 m drawn by chance (in its place, a raster.read of a DEM)."
+
+[[nodes]]
+id = "region"
+op = "vector.grid_zones"
+inputs = { map = "elevation.map" }
+params = { size = 120 }
+note = "The map's extent as a polygon."
+
+[[nodes]]
+id = "villages"
+op = "vector.points"
+inputs = { vector = "region.zones" }
+params = { method = "random", n = 60, seed = 4 }
+note = "Sixty villages drawn by chance (in their place, a vector.read or vector.from_table of yours)."
+
+[[nodes]]
+id = "density"
+op = "vector.density"
+inputs = { vector = "villages.vector", map = "elevation.map" }
+params = { kernel = "quartic", radius = 15 }
+note = "The villages' kernel density (quartic, a radius of 15 cells): villages per square unit of the map."
+
+[[nodes]]
+id = "count"
+op = "vector.density"
+inputs = { vector = "villages.vector", map = "elevation.map" }
+params = { kernel = "count" }
+note = "The villages in every cell."
+
+[[nodes]]
+id = "contours"
+op = "raster.contour"
+inputs = { map = "elevation.map" }
+params = { interval = 100 }
+note = "A contour line every 100 m."
+
+[[nodes]]
+id = "towers"
+op = "vector.filter"
+inputs = { vector = "villages.vector" }
+params = { expression = "feature <= 3" }
+note = "Three villages with a watchtower."
+
+[[nodes]]
+id = "seen"
+op = "raster.viewshed"
+inputs = { map = "elevation.map", points = "towers.vector" }
+params = { observer_height = 20, radius = 50 }
+note = "How many towers see every cell, from 20 m up and 50 cells away at most."
+
+[[nodes]]
+id = "classes"
+op = "raster.classify"
+inputs = { map = "elevation.map" }
+params = { method = "jenks", n = 5 }
+note = "The terrain in five classes by Jenks's natural breaks (quantiles, equal intervals, standard deviations alike)."
+
+[[nodes]]
+id = "cell_area"
+op = "raster.cell_area"
+inputs = { map = "elevation.map" }
+params = { units = "m2" }
+note = "Every cell's true area: on a map of longitudes and latitudes, smaller towards the poles."

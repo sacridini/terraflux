@@ -1,0 +1,57 @@
+format = "terraflux/1"
+name = "Metapopulation (incidence function model)"
+description = "A metapopulation in 60 habitat patches as R's MetaLandSim simulates it (spom, Hanski's incidence function model): every year an empty patch is colonised with a probability that grows with its connectivity to the occupied patches, and an occupied one goes extinct with a probability that falls with its area. A century from 40% of the patches occupied: the patches occupied every year and each patch's incidence."
+
+[[nodes]]
+id = "area_field"
+op = "nlm.gaussian_field"
+params = { rows = 100, columns = 100, range = 10, seed = 101 }
+
+[[nodes]]
+id = "patch_area"
+op = "raster.calc"
+inputs = { f = "area_field.map" }
+params = { expression = "0.2 + 3 * f" }
+note = "The area of a patch found at a place, in hectares (in its place, a table of the patches: x, y, area, occupied)."
+
+[[nodes]]
+id = "draw"
+op = "nlm.random"
+params = { rows = 100, columns = 100, seed = 102 }
+
+[[nodes]]
+id = "start"
+op = "raster.calc"
+inputs = { r = "draw.map" }
+params = { expression = "1 if r < 0.4 else 0" }
+
+[[nodes]]
+id = "attributes"
+op = "stack.of"
+inputs = { area = "patch_area.map", occupied = "start.map" }
+
+[[nodes]]
+id = "everywhere"
+op = "raster.calc"
+inputs = { f = "area_field.map" }
+params = { expression = "f * 0 + 1" }
+
+[[nodes]]
+id = "places"
+op = "accuracy.sample"
+inputs = { map = "everywhere.map" }
+params = { n = 60, seed = 103 }
+note = "60 patches at random places."
+
+[[nodes]]
+id = "patches"
+op = "vector.extract"
+inputs = { vector = "places.points", map = "attributes.stack" }
+note = "Each patch's area and whether it holds the species at the start."
+
+[[nodes]]
+id = "metapopulation"
+op = "conn.metapopulation"
+inputs = { patches = "patches.vector" }
+params = { steps = 100, alpha = 0.08, x = 0.5, y = 4, e = 0.2, seed = 104 }
+note = "alpha: 1 / the mean dispersal distance (12.5 cells); e and x: the extinction of a patch of 1 ha and how it falls with area; y: the connectivity at which colonisation is even. Its tables: the patches occupied every year, and each patch's incidence."
