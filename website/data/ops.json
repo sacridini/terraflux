@@ -22644,6 +22644,274 @@
   "container": false
  },
  {
+  "name": "services.ndr",
+  "doc": "Nutrient export and retention: InVEST's nutrient delivery ratio model (natcap.invest 3.20) bit for bit, through landschaft. The nitrogen and phosphorus loads of each land use (scaled by the runoff proxy over its mean) split into a surface part and, for nitrogen, a dissolved subsurface part; the surface load reaches a stream in the share NDR = (1 - eff') / (1 + exp((IC_0 - IC) / k)), eff' the retention of the cells it crosses on its way down and IC the index of connectivity (Borselli et al. 2008), the subsurface load in the share 1 - eff_sub (1 - exp(-5 l / l_sub)). The DEM filled and routed by pygeoprocessing's algorithms, as InVEST; the subsurface distance in metres (InVEST takes it in cells).",
+  "inputs": [
+   {
+    "name": "dem",
+    "type": "map",
+    "required": true,
+    "doc": "elevations (projected, metres)"
+   },
+   {
+    "name": "lulc",
+    "type": "map",
+    "required": true,
+    "doc": "land use (class codes)"
+   },
+   {
+    "name": "runoff_proxy",
+    "type": "map",
+    "required": true,
+    "doc": "the capacity of the runoff to carry nutrients (any units)"
+   },
+   {
+    "name": "biophysical",
+    "type": "table",
+    "required": true,
+    "doc": "by class: lucode, load_n, eff_n, crit_len_n, proportion_subsurface_n (nitrogen); load_p, eff_p, crit_len_p (phosphorus)"
+   },
+   {
+    "name": "watersheds",
+    "type": "vector",
+    "required": true,
+    "doc": "the watershed polygons (the model runs inside them)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "n_surface_export",
+    "type": "map",
+    "required": true,
+    "doc": "the surface nitrogen that reaches the streams, kg/ha/yr"
+   },
+   {
+    "name": "n_subsurface_export",
+    "type": "map",
+    "required": true,
+    "doc": "the dissolved nitrogen that reaches them"
+   },
+   {
+    "name": "n_total_export",
+    "type": "map",
+    "required": true,
+    "doc": "surface plus subsurface nitrogen export"
+   },
+   {
+    "name": "p_surface_export",
+    "type": "map",
+    "required": true,
+    "doc": "the phosphorus that reaches the streams, kg/ha/yr"
+   },
+   {
+    "name": "ndr_n",
+    "type": "map",
+    "required": true,
+    "doc": "the surface delivery ratio of nitrogen"
+   },
+   {
+    "name": "ndr_p",
+    "type": "map",
+    "required": true,
+    "doc": "the surface delivery ratio of phosphorus"
+   },
+   {
+    "name": "effective_retention_n",
+    "type": "map",
+    "required": true,
+    "doc": "the nitrogen retained on its way down"
+   },
+   {
+    "name": "effective_retention_p",
+    "type": "map",
+    "required": true,
+    "doc": "the phosphorus retained on its way down"
+   },
+   {
+    "name": "ic",
+    "type": "map",
+    "required": true,
+    "doc": "the index of connectivity"
+   },
+   {
+    "name": "stream",
+    "type": "map",
+    "required": true,
+    "doc": "the streams (1)"
+   },
+   {
+    "name": "drains_to_stream",
+    "type": "map",
+    "required": true,
+    "doc": "1 where the flow reaches a stream"
+   },
+   {
+    "name": "watershed_table",
+    "type": "table",
+    "required": true,
+    "doc": "by watershed: the surface loads, the exports and the subsurface load (kg / yr)"
+   },
+   {
+    "name": "ic_0",
+    "type": "number",
+    "required": true,
+    "doc": "the IC_0 of the delivery ratio (half way between the extremes)"
+   },
+   {
+    "name": "runoff_proxy_mean",
+    "type": "number",
+    "required": true,
+    "doc": "the mean the runoff proxy was divided by"
+   }
+  ],
+  "params": [
+   {
+    "name": "threshold",
+    "type": "number",
+    "required": true,
+    "doc": "the flow accumulation (cells) of a stream"
+   },
+   {
+    "name": "k",
+    "type": "number",
+    "required": false,
+    "doc": "Borselli's k (2)"
+   },
+   {
+    "name": "nitrogen",
+    "type": "bool",
+    "required": false,
+    "doc": "model nitrogen (default true)"
+   },
+   {
+    "name": "phosphorus",
+    "type": "bool",
+    "required": false,
+    "doc": "model phosphorus (default true)"
+   },
+   {
+    "name": "subsurface_critical_length",
+    "type": "number",
+    "required": false,
+    "doc": "the distance (m) over which the soil reaches its largest retention of dissolved nitrogen"
+   },
+   {
+    "name": "subsurface_efficiency",
+    "type": "number",
+    "required": false,
+    "doc": "that largest retention, 0 to 1"
+   },
+   {
+    "name": "runoff_proxy_mean",
+    "type": "number",
+    "required": false,
+    "doc": "the proxy's mean (default: of the map)"
+   },
+   {
+    "name": "load_type_n",
+    "type": "any",
+    "required": false,
+    "doc": "measured-runoff (default: the load as given) or application-rate (times 1 - eff_n), for every class; or by class, {\"<lucode>\": type}"
+   },
+   {
+    "name": "load_type_p",
+    "type": "any",
+    "required": false,
+    "doc": "the same for phosphorus"
+   },
+   {
+    "name": "method",
+    "type": "text",
+    "required": false,
+    "doc": "the routing: mfd (default) or d8",
+    "choices": [
+     "mfd",
+     "d8"
+    ]
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "services.pollination",
+  "doc": "Crop pollination by wild bees: InVEST's pollination model (natcap.invest 3.20) bit for bit, through landschaft. Each species nests where the land uses (and the farms) offer its substrates and forages on their flowers by season within its flight distance (an exponential kernel of mean alpha); its supply and its abundance by season follow, summed over the species by season; with farms, the pollinator abundance on them (their half saturation), the total and wild pollinator yields and the means by farm.",
+  "inputs": [
+   {
+    "name": "lulc",
+    "type": "map",
+    "required": true,
+    "doc": "the land use (class codes; projected, metres)"
+   },
+   {
+    "name": "biophysical",
+    "type": "table",
+    "required": true,
+    "doc": "by class: lucode, nesting_<substrate>_availability_index, floral_resources_<season>_index"
+   },
+   {
+    "name": "farms",
+    "type": "vector",
+    "required": false,
+    "doc": "farm polygons: crop_type, half_sat, season, p_dep, p_managed, fr_<season>, n_<substrate>"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "supply",
+    "type": "stack",
+    "required": true,
+    "doc": "the pollinator supply of each species"
+   },
+   {
+    "name": "abundance",
+    "type": "stack",
+    "required": true,
+    "doc": "the abundance of each species in each season (<species>_<season>)"
+   },
+   {
+    "name": "total_abundance",
+    "type": "stack",
+    "required": true,
+    "doc": "the abundance of all species, by season"
+   },
+   {
+    "name": "farm_pollinators",
+    "type": "map",
+    "required": true,
+    "doc": "the pollinator abundance on the farms (with farms)"
+   },
+   {
+    "name": "total_yield",
+    "type": "map",
+    "required": true,
+    "doc": "the yield owed to pollinators, wild and managed"
+   },
+   {
+    "name": "wild_yield",
+    "type": "map",
+    "required": true,
+    "doc": "the yield owed to wild pollinators"
+   },
+   {
+    "name": "farm_table",
+    "type": "table",
+    "required": true,
+    "doc": "by farm: p_abund, y_tot, pdep_y_w, y_wild"
+   }
+  ],
+  "params": [
+   {
+    "name": "guilds",
+    "type": "any",
+    "required": true,
+    "doc": "a list of {species, alpha (metres), relative_abundance, foraging_activity_<season>_index, nesting_suitability_<substrate>_index}, or InVEST's guild table (a file)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
   "name": "services.sdr",
   "doc": "Sediment export, deposition and retention: InVEST's sediment delivery ratio model (natcap.invest 3.20), through landschaft. The soil loss of the RUSLE (R K LS C P, the LS of Desmet & Govers from the flow accumulation) and the share that reaches a stream, SDR = SDR_max / (1 + exp((IC_0 - IC) / k)) of the index of connectivity (Borselli et al. 2008); the DEM filled and routed by pygeoprocessing's algorithms, as InVEST.",
   "inputs": [
@@ -22797,6 +23065,213 @@
     "choices": [
      "mfd",
      "d8"
+    ]
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "services.seasonal_water_yield",
+  "doc": "Quickflow, local recharge and baseflow: InVEST's seasonal water yield model (natcap.invest 3.20) bit for bit, through landschaft. The quickflow of each month from the curve numbers of the land use and soil group and the rain events; the local recharge P - QF - AET, the evapotranspiration limited by the water from upslope (alpha, beta, gamma); the baseflow the recharge gives the cells down to the streams; with a recharge map instead (and no climate), its routing only. The DEM filled and routed by pygeoprocessing's algorithms, as InVEST.",
+  "inputs": [
+   {
+    "name": "dem",
+    "type": "map",
+    "required": true,
+    "doc": "elevations (projected, metres)"
+   },
+   {
+    "name": "lulc",
+    "type": "map",
+    "required": false,
+    "doc": "land use (class codes; with the climate)"
+   },
+   {
+    "name": "biophysical",
+    "type": "table",
+    "required": false,
+    "doc": "by class: lucode, cn_a, cn_b, cn_c, cn_d (curve numbers), kc_1 ... kc_12 (with the climate)"
+   },
+   {
+    "name": "watersheds",
+    "type": "vector",
+    "required": true,
+    "doc": "the watershed polygons (the totals by polygon)"
+   },
+   {
+    "name": "precipitation",
+    "type": "stack",
+    "required": false,
+    "doc": "the twelve months' precipitation, mm"
+   },
+   {
+    "name": "et0",
+    "type": "stack",
+    "required": false,
+    "doc": "the twelve months' reference evapotranspiration, mm"
+   },
+   {
+    "name": "soil_group",
+    "type": "map",
+    "required": false,
+    "doc": "hydrologic soil groups, 1 (A) to 4 (D)"
+   },
+   {
+    "name": "climate_zones",
+    "type": "map",
+    "required": false,
+    "doc": "climate zones (with the climate zone table)"
+   },
+   {
+    "name": "climate_zone_table",
+    "type": "table",
+    "required": false,
+    "doc": "by zone: cz_id, jan ... dec (the rain events of each month)"
+   },
+   {
+    "name": "recharge",
+    "type": "map",
+    "required": false,
+    "doc": "a local recharge map (mm), instead of the climate"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "quickflow",
+    "type": "map",
+    "required": true,
+    "doc": "the annual quickflow, mm"
+   },
+   {
+    "name": "local_recharge",
+    "type": "map",
+    "required": true,
+    "doc": "the local recharge L, mm"
+   },
+   {
+    "name": "l_avail",
+    "type": "map",
+    "required": true,
+    "doc": "the recharge available to the cell, mm"
+   },
+   {
+    "name": "l_sum_avail",
+    "type": "map",
+    "required": true,
+    "doc": "the recharge available from upslope, mm"
+   },
+   {
+    "name": "l_sum",
+    "type": "map",
+    "required": true,
+    "doc": "the recharge from upslope, mm"
+   },
+   {
+    "name": "baseflow",
+    "type": "map",
+    "required": true,
+    "doc": "the baseflow the cell gives, mm"
+   },
+   {
+    "name": "b_sum",
+    "type": "map",
+    "required": true,
+    "doc": "the baseflow from upslope, mm"
+   },
+   {
+    "name": "vri",
+    "type": "map",
+    "required": true,
+    "doc": "the cell's share of the total recharge"
+   },
+   {
+    "name": "aet",
+    "type": "map",
+    "required": true,
+    "doc": "the annual actual evapotranspiration, mm"
+   },
+   {
+    "name": "annual_precipitation",
+    "type": "map",
+    "required": true,
+    "doc": "the annual precipitation, mm"
+   },
+   {
+    "name": "stream",
+    "type": "map",
+    "required": true,
+    "doc": "the streams (1)"
+   },
+   {
+    "name": "quickflow_monthly",
+    "type": "stack",
+    "required": true,
+    "doc": "the quickflow of each month (1 to 12), mm"
+   },
+   {
+    "name": "watershed_table",
+    "type": "table",
+    "required": true,
+    "doc": "by watershed: qb (mean recharge), vri_sum, geom_id"
+   },
+   {
+    "name": "monthly_table",
+    "type": "table",
+    "required": true,
+    "doc": "by watershed and month: geom_id, month, quickflow, baseflow, precipitation (m³)"
+   }
+  ],
+  "params": [
+   {
+    "name": "threshold",
+    "type": "number",
+    "required": true,
+    "doc": "the flow accumulation (cells) of a stream"
+   },
+   {
+    "name": "rain_events",
+    "type": "any",
+    "required": false,
+    "doc": "the rain events of each month, twelve numbers (or the climate zones)"
+   },
+   {
+    "name": "alpha",
+    "type": "any",
+    "required": false,
+    "doc": "the share of the annual recharge upslope available each month: a number (1/12) or twelve"
+   },
+   {
+    "name": "beta",
+    "type": "any",
+    "required": false,
+    "doc": "the share of the upslope recharge available to the cell (1)"
+   },
+   {
+    "name": "gamma",
+    "type": "any",
+    "required": false,
+    "doc": "the share of the cell's recharge available downslope (1)"
+   },
+   {
+    "name": "method",
+    "type": "text",
+    "required": false,
+    "doc": "the routing: mfd (default) or d8",
+    "choices": [
+     "mfd",
+     "d8"
+    ]
+   },
+   {
+    "name": "precision",
+    "type": "text",
+    "required": false,
+    "doc": "the type of the precipitation, ET0 and recharge rasters in InVEST: float32, float64, or auto (default: float64 when a raster has a value float32 cannot hold)",
+    "choices": [
+     "auto",
+     "float32",
+     "float64"
     ]
    }
   ],
