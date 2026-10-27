@@ -34,6 +34,11 @@ minor versions.
   ordered, Dinamica's Expander and Patcher, alone or in a loop traced inside) tells the steps the cell changed
   class at and each step's demand (the cells of each class and how much they changed) or the rate of its
   transition.
+- The nodes the assistant reads or changes glow on the canvas while it works on them (a halo that fades).
+- The assistant's model evaluated on a fixed set of tasks (Evaluate this model, in the server's settings): 8
+  tasks of drawing, changing, fixing, explaining and running models, each in a model of its own and checked on what
+  it made (a threshold cell by cell, a loop's last number...); the last score of each model kept and shown with
+  its server, so models are compared on the same tasks.
 
 ### Changed
 - A group runs again only the nodes of its body that changed and what depends on them (and the same for the groups

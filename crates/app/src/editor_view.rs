@@ -45,6 +45,8 @@ const ROW: f32 = 18.0;
 const PORT: f32 = 5.0;
 /// The row at the bottom of a box that names the file it reads or writes.
 const FOOT: f32 = 20.0;
+/// How long the halo of a node the assistant reads or changes lasts.
+const PULSE: std::time::Duration = std::time::Duration::from_millis(2500);
 /// The side of a cell of the grid that finds the boxes under a point, graph units.
 const CELL: f32 = 256.0;
 /// The space between a box's edge and a port's name, and between the names of an input and an output on a row.
@@ -287,6 +289,8 @@ pub struct EditorState {
     picking: Option<Pick>,
     /// The nodes marked (of the top level), in a colour each: those changed in a review ([`crate::review`]).
     pub marks: HashMap<String, Color32>,
+    /// The nodes the assistant reads or changes now (their scope, their id, when): a halo that fades.
+    pub pulse: Vec<(Vec<String>, String, std::time::Instant)>,
     /// A node being saved as a node of the user's library: the dialog's state.
     pub saving: Option<crate::my_nodes::Draft>,
 }
@@ -1695,6 +1699,25 @@ pub fn show(
                 painter.rect_stroke(r, 4.0 * cam.zoom, Stroke::new(2.5, *colour), egui::StrokeKind::Outside);
             }
         }
+    }
+    // the nodes the assistant reads or changes now: a halo that widens as it fades
+    st.pulse.retain(|(_, _, at)| at.elapsed() < PULSE);
+    for (path, k, at) in &st.pulse {
+        if *path != st.path {
+            continue;
+        }
+        if let Some(&i) = scene.index.get(k.as_str())
+            && scene.boxes[i].rect.intersects(view)
+        {
+            let gone = at.elapsed().as_secs_f32() / PULSE.as_secs_f32();
+            let b = &scene.boxes[i];
+            let r = Rect::from_min_max(screen(b.rect.min), screen(b.rect.max)).expand(3.0 + 9.0 * gone);
+            let colour = crate::theme::accent().gamma_multiply(1.0 - gone);
+            painter.rect_stroke(r, 6.0 * cam.zoom, Stroke::new(3.0, colour), egui::StrokeKind::Outside);
+        }
+    }
+    if !st.pulse.is_empty() {
+        ui.ctx().request_repaint();
     }
     // the nodes selected (the one in the inspector more marked), the output shown, the nodes running (a light
     // that breathes)

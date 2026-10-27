@@ -342,6 +342,16 @@ escrevendo scripts). Depois, nesta ordem:
    iteração do CLUE), que o operador não guarda.
 8. **Assistant:** destacar os nós durante a edição (além da seleção); as edições passando pela revisão do painel
    Changes; a avaliação de cada modelo com um conjunto fixo de tarefas.
+   **Feito** (Unreleased): os nós que uma chamada de ferramenta nomeia (`node`, `nodes`, `id`, `rename`, o nó de
+   `from` e de `key`, no seu `scope`) e o nó que uma mudança cria ganham um halo que se apaga em 2,5 s
+   (`EditorState::pulse`); as edições já passavam pela revisão do Changes (`review::begin` em cada mudança e em
+   `new_model`). A avaliação: `eval.rs`, 8 tarefas fixas (uma paisagem neutra, um limiar conferido célula a
+   célula, um template mudado, um modelo consertado, uma explicação sem mudar o modelo, métricas, um rename que
+   mantém as ligações, um laço), cada uma num modelo próprio, sem os problemas contados pelo app, conferida no
+   que o assistente fez e na execução; "Evaluate this model" nas configurações do servidor, com o progresso e
+   Stop, e a última nota de cada modelo guardada (`assistant-evaluations.json`). Falta: rodar as tarefas no
+   modelo da HU Berlin (só na VPN; `eval::tests::hu_berlin_does_the_tasks`, à mão); mais tarefas (séries,
+   alocações, a calculadora).
 9. **Calculadora:** a prévia só da parte do mapa à vista (hoje o mapa inteiro em resolução reduzida); os tipos das
    portas de `out` (hoje "qualquer valor"); as camadas de uma pilha calculada no script no autocomplete
    (`s2 = s * 2`, então `s2.`); o autocomplete no campo do painel do nó.

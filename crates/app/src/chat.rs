@@ -95,6 +95,20 @@ pub struct Chat {
     answered: bool,
     /// The values inside the loops kept by the Trace pane's last run, for trace_cell.
     pub kept: crate::trace::Kept,
+    /// The evaluation of the server's model on the fixed tasks, running or last done here, and the scores kept
+    /// (read once, again after an evaluation).
+    pub evaluation: Option<Evaluation>,
+    scores: Option<std::collections::BTreeMap<String, crate::eval::Score>>,
+}
+
+/// An evaluation of a model ([`crate::eval`]): what its thread sends, its stop, the task going on and how the
+/// others went.
+pub struct Evaluation {
+    rx: Receiver<crate::eval::Event>,
+    stop: Arc<AtomicBool>,
+    pub at: Option<usize>,
+    pub outcomes: Vec<crate::eval::Outcome>,
+    pub running: bool,
 }
 
 /// The assistant's mark on the model it changes: the author, the request.
@@ -265,7 +279,10 @@ impl Chat {
                         }
                     }
                 }
-                Event::Call { name, args } => self.items.push(Item::Tool { name, args, result: None }),
+                Event::Call { name, args } => {
+                    pulse(s, &args);
+                    self.items.push(Item::Tool { name, args, result: None });
+                }
                 Event::Result { text, error } => {
                     if let Some(Item::Tool { result, .. }) =
                         self.items.iter_mut().rev().find(|i| matches!(i, Item::Tool { result: None, .. }))
@@ -394,7 +411,35 @@ impl Chat {
         let _ = w.reply.send(Answer::Done(ran(s)));
     }
 
+    /// Evaluate the server's model on the fixed tasks, in a thread.
+    pub fn evaluate(&mut self, p: &Provider, ctx: &egui::Context) {
+        if self.evaluation.as_ref().is_some_and(|e| e.running) {
+            return;
+        }
+        let (tx, rx) = channel();
+        let stop = Arc::new(AtomicBool::new(false));
+        let (p, s, c) = (p.clone(), stop.clone(), ctx.clone());
+        std::thread::Builder::new()
+            .name("terraflux-evaluation".into())
+            .spawn(move || crate::eval::run(p, tx, s, c))
+            .expect("a thread for the evaluation");
+        self.evaluation = Some(Evaluation { rx, stop, at: None, outcomes: Vec::new(), running: true });
+    }
+
     fn poll_setup(&mut self) {
+        if let Some(e) = &mut self.evaluation {
+            while let Ok(ev) = e.rx.try_recv() {
+                match ev {
+                    crate::eval::Event::Began(k) => e.at = Some(k),
+                    crate::eval::Event::Ended(_, o) => e.outcomes.push(o),
+                    crate::eval::Event::Done => {
+                        e.running = false;
+                        e.at = None;
+                        self.scores = None;
+                    }
+                }
+            }
+        }
         if let Some(rx) = &self.listing
             && let Ok(found) = rx.try_recv()
         {
@@ -488,6 +533,32 @@ fn context(s: &Session) -> String {
     t
 }
 
+/// The nodes a tool's call names (`node`, `nodes`, `id`, `rename`, a reference's node in `from`, `key`), in its
+/// `scope`, given a halo on the canvas while the assistant works on them.
+fn pulse(s: &mut Session, args: &str) {
+    let Ok(a) = serde_json::from_str::<Value>(args) else { return };
+    let path: Vec<String> = tools::opt_text(&a, "scope")
+        .map(|t| t.split('/').filter(|x| !x.is_empty()).map(String::from).collect())
+        .unwrap_or_default();
+    let mut named: Vec<String> = Vec::new();
+    for k in ["node", "id", "rename", "from", "key"] {
+        if let Some(t) = a.get(k).and_then(Value::as_str) {
+            named.push(t.trim_start_matches('$').split(['.', '/']).next().unwrap_or_default().to_string());
+        }
+    }
+    if let Some(list) = a.get("nodes").and_then(Value::as_array) {
+        named.extend(list.iter().filter_map(Value::as_str).map(String::from));
+    }
+    let Some(scope) = s.source.scope(&path) else { return };
+    let now = std::time::Instant::now();
+    for id in named {
+        if scope.iter().any(|n| n.id == id) {
+            s.editor.pulse.retain(|(p, k, _)| *p != path || *k != id);
+            s.editor.pulse.push((path.clone(), id, now));
+        }
+    }
+}
+
 /// A change of the model open by one of the [`tools::EDITS`]: made on a copy, taken when it worked (an edit of
 /// its own), the node it touched selected.
 fn change(s: &mut Session, r: &Registry, name: &str, a: &Value, stamp: &Stamp) -> Reply {
@@ -516,6 +587,8 @@ fn change(s: &mut Session, r: &Registry, name: &str, a: &Value, stamp: &Stamp) -
         && let Some(id) = touched.filter(|id| s.source.nodes.iter().any(|n| n.id == *id))
     {
         crate::builder::select(s, r, &id);
+        // (a node added: its halo too, as those it named)
+        pulse(s, &json!({ "node": id }).to_string());
     }
     Ok(format!("{done}\n{}", tools::problems(&s.source, &s.base(), r)))
 }
@@ -1005,6 +1078,8 @@ fn setup(ui: &mut Ui, c: &mut Chat) {
             });
         }
         ui.add_space(10.0);
+        evaluation_ui(ui, c, &p);
+        ui.add_space(10.0);
         ui.horizontal(|ui| {
             if ui.button("Add a server").clicked() {
                 crate::settings::update(|s| {
@@ -1028,6 +1103,62 @@ fn setup(ui: &mut Ui, c: &mut Chat) {
             }
         });
     });
+}
+
+/// The server's model evaluated on the fixed tasks ([`crate::eval`]): its last score, a new evaluation and how it
+/// goes.
+fn evaluation_ui(ui: &mut Ui, c: &mut Chat, p: &Provider) {
+    theme::section(ui, "Evaluation");
+    ui.label(
+        RichText::new(format!(
+            "The same {} tasks for every model: drawing, changing, fixing, explaining and running models, each \
+             checked on what it made. A task can take minutes.",
+            crate::eval::TASKS.len()
+        ))
+        .weak()
+        .small(),
+    );
+    let scores = c.scores.get_or_insert_with(crate::eval::kept);
+    if let Some(sc) = scores.get(&crate::eval::key_of(p)) {
+        ui.label(format!("{}: {} of {} tasks, {}", p.model.trim(), sc.passed(), sc.outcomes.len(), sc.date));
+        for o in sc.outcomes.iter().filter(|o| !o.passed()) {
+            let why = o.failed.clone().unwrap_or_default();
+            ui.label(RichText::new(format!("✖ {}: {why}", o.task)).small().weak());
+        }
+    }
+    let running = c.evaluation.as_ref().is_some_and(|e| e.running);
+    ui.horizontal(|ui| {
+        if running {
+            ui.spinner();
+            if let Some(k) = c.evaluation.as_ref().and_then(|e| e.at) {
+                ui.label(format!("task {} of {}: {}", k + 1, crate::eval::TASKS.len(), crate::eval::TASKS[k].name));
+            }
+            if ui.button("Stop").clicked()
+                && let Some(e) = &c.evaluation
+            {
+                e.stop.store(true, Ordering::Relaxed);
+            }
+        } else if ui
+            .button("Evaluate this model")
+            .on_hover_text("ask it the fixed tasks, one after another, each in a model of its own (not the one open)")
+            .clicked()
+        {
+            c.evaluate(p, ui.ctx());
+        }
+    });
+    if let Some(e) = &c.evaluation {
+        for o in &e.outcomes {
+            let (mark, colour) =
+                if o.passed() { ("✔", Color32::from_rgb(92, 196, 92)) } else { ("✖", ui.visuals().error_fg_color) };
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(colour, mark);
+                ui.label(format!("{} ({:.0} s, {} tools)", o.task, o.seconds, o.tools));
+                if let Some(why) = &o.failed {
+                    ui.label(RichText::new(why).small().weak());
+                }
+            });
+        }
+    }
 }
 
 /// The conversation, the last at the bottom; while the assistant answers, a line saying so.
@@ -1479,6 +1610,25 @@ mod tests {
         assert!(!s.source.nodes.is_empty() && s.source.node("land").is_none());
         let told = context(&s);
         assert!(told.contains("```toml") && !told.contains("pos = "), "{told}");
+    }
+
+    #[test]
+    fn the_nodes_a_tool_names_glow() {
+        let mut m = Model::new("m");
+        m.nodes.push(terraflux_graph::Node::new("land", "nlm.random"));
+        m.nodes.push(terraflux_graph::Node::new("high", "raster.calc").input("x", "land.map"));
+        let mut s = Session::from_model(m).unwrap();
+        pulse(&mut s, r#"{ "node": "high", "from": "land.map", "rename": "nowhere" }"#);
+        let mut named: Vec<&str> = s.editor.pulse.iter().map(|(_, k, _)| k.as_str()).collect();
+        named.sort();
+        assert_eq!(named, ["high", "land"], "the nodes the call names, those of the model only");
+        // named again: one halo, made new
+        pulse(&mut s, r#"{ "nodes": ["land"] }"#);
+        assert_eq!(s.editor.pulse.len(), 2);
+        // not JSON, or another scope's: nothing
+        pulse(&mut s, "not json");
+        pulse(&mut s, r#"{ "node": "land", "scope": "nowhere" }"#);
+        assert_eq!(s.editor.pulse.len(), 2);
     }
 
     #[test]
