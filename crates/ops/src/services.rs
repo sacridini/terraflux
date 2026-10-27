@@ -19,7 +19,14 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(Habitat));
     r.add(Arc::new(Water));
     r.add(Arc::new(Sdr));
+    r.add(Arc::new(ndr::Ndr));
+    r.add(Arc::new(pollination::Pollination));
+    r.add(Arc::new(swy::SeasonalWaterYield));
 }
+
+mod ndr;
+mod pollination;
+mod swy;
 
 const POOLS: [&str; 4] = ["c_above", "c_below", "c_soil", "c_dead"];
 /// kWh produced by a cubic metre falling one metre (InVEST's constant).

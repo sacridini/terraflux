@@ -68,7 +68,8 @@ pub const FILE_OPS: [&str; 9] = [
 ];
 
 /// Other settings that may name a file (a text naming one; other values are left alone), treated as `path` is.
-pub const FILE_SETTINGS: [(&str, &str); 1] = [("services.habitat_quality", "threats")];
+pub const FILE_SETTINGS: [(&str, &str); 2] =
+    [("services.habitat_quality", "threats"), ("services.pollination", "guilds")];
 
 /// The settings of a node that name files: `path` of the [`FILE_OPS`], and the [`FILE_SETTINGS`].
 pub fn file_settings(n: &mut Node) -> impl Iterator<Item = &mut String> {
