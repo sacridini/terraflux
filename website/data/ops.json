@@ -20050,6 +20050,90 @@
   "container": false
  },
  {
+  "name": "sdm.bias_surface",
+  "doc": "The sampling effort as a surface (landschaft's bias_surface): a Gaussian kernel density of the records of a whole group (the same taxa, collectors and decades) on the grid of the predictors, MASS::kde2d's at the cells' centres, with R's bw.nrd in each direction by default. The bias of sdm.background, which draws the background with the records' bias (a target-group background, Phillips et al. 2009; Maxent's bias file). kde2d(h = H) is bandwidth = H / 4.",
+  "inputs": [
+   {
+    "name": "occurrences",
+    "type": "any",
+    "required": true,
+    "doc": "the records of the target group: points, or a table with coordinate columns"
+   },
+   {
+    "name": "env",
+    "type": "any",
+    "required": true,
+    "doc": "the predictors: a stack or a map (its grid)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "bias",
+    "type": "map",
+    "required": true,
+    "doc": "the density (records per unit of area of the coordinate system) or rescaled"
+   },
+   {
+    "name": "bandwidth",
+    "type": "any",
+    "required": true,
+    "doc": "the bandwidths used, [x, y]"
+   }
+  ],
+  "params": [
+   {
+    "name": "x",
+    "type": "text",
+    "required": false,
+    "doc": "the table's x column (default x, lon, longitude...)"
+   },
+   {
+    "name": "y",
+    "type": "text",
+    "required": false,
+    "doc": "the table's y column (default y, lat, latitude...)"
+   },
+   {
+    "name": "bandwidth",
+    "type": "any",
+    "required": false,
+    "doc": "the kernel's standard deviation in the grid's units (metres, or degrees on lon/lat): a number, [x, y], or nrd (default: R's bw.nrd in each direction, kde2d's)"
+   },
+   {
+    "name": "isotropic",
+    "type": "bool",
+    "required": false,
+    "doc": "the larger bandwidth in both directions (default false)"
+   },
+   {
+    "name": "limits",
+    "type": "any",
+    "required": false,
+    "doc": "[min, max]: bandwidths raised or lowered to them (either null); a floor keeps a clustered group's surface from collapsing on its records"
+   },
+   {
+    "name": "weights",
+    "type": "text",
+    "required": false,
+    "doc": "a column of the records: each one's weight (specimens, visits); default 1"
+   },
+   {
+    "name": "rescale",
+    "type": "any",
+    "required": false,
+    "doc": "[lo, hi]: the densities mapped linearly to them, e.g. [0.05, 0.95], so that every cell keeps a chance"
+   },
+   {
+    "name": "mask",
+    "type": "bool",
+    "required": false,
+    "doc": "no value on the cells without a value in every predictor (default true)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
   "name": "sdm.boyce",
   "doc": "The continuous Boyce index (landschaft's boyce, ecospat's ecospat.boyce): the correlation between the classes of suitability and their ratio of predicted to expected presences, in a moving window (default) or in classes.",
   "inputs": [
@@ -20623,7 +20707,7 @@
  },
  {
   "name": "sdm.fit",
-  "doc": "A species distribution model with cross-validation (landschaft's fit): MaxNet (the default), a GLM (scikit-learn's StandardScaler and LogisticRegression) or a random forest (scikit-learn's RandomForestClassifier, the same trees); one fit per fold of the records (AUC of the training and test records and their difference, the largest TSS, Boyce's index, the omission rates at the minimum and 10th percentile training presence), their means and standard deviations, and the model on every record with its threshold of maximum sensitivity plus specificity.",
+  "doc": "A species distribution model with cross-validation (landschaft's fit): MaxNet (the default), a GLM (scikit-learn's StandardScaler and LogisticRegression) or a random forest (scikit-learn's RandomForestClassifier, the same trees); one fit per fold of the records (AUC of the training and test records and their difference, the largest TSS, Boyce's index, the omission rates at the minimum and 10th percentile training presence), their means and standard deviations, the records' out-of-fold predictions (for models stacked on them), and the model on every record with its threshold of maximum sensitivity plus specificity.",
   "inputs": [
    {
     "name": "records",
@@ -20656,6 +20740,12 @@
     "type": "number",
     "required": true,
     "doc": "the threshold of maximum sensitivity plus specificity"
+   },
+   {
+    "name": "predictions",
+    "type": "any",
+    "required": true,
+    "doc": "with cross-validation, the records with a column prediction: the suitability from the model fitted without the record's fold (none in fold 0), to score the model on what it did not see or to feed a model stacked on it (an ensemble, a calibration, the distance to an expert range: Merow et al. 2017)"
    }
   ],
   "params": [
