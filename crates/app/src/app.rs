@@ -2378,6 +2378,13 @@ impl TerrafluxApp {
                             problems = true;
                         }
                     }
+                    // the model's health: how its checks fared in the last run
+                    let checks = crate::checks::of(s);
+                    if let (Some(h), Some(w)) = (crate::checks::health(&checks), crate::checks::worst(&checks)) {
+                        ui.separator();
+                        ui.label(RichText::new(format!("{} {h}", w.symbol())).color(w.colour(ui.visuals())))
+                            .on_hover_text(crate::document_view::check_list(&checks));
+                    }
                 });
             }
         });

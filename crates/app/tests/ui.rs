@@ -631,6 +631,60 @@ fn the_model_reads_as_a_document() {
     until(&mut h, "the run again", |a| !a.session.as_ref().unwrap().running());
 }
 
+/// The checks (check.assert) after a run: one passed, one only warned, one turned off; their badges' verdicts, the
+/// model's health at the top of the document and in the status bar, each check's step with its badge.
+#[test]
+fn checks_show_how_they_fared() {
+    use terraflux_app::checks::{self, Verdict};
+    use terraflux_graph::{Model, Node};
+    let mut m = Model::new("checks");
+    m.nodes.push(Node::new("land", "nlm.random").param("rows", 30).param("columns", 40).param("seed", 1));
+    m.nodes.push(Node::new("whole", "check.assert").param("expression", "land >= 0").input("land", "land.map"));
+    m.nodes.push(
+        Node::new("half", "check.assert")
+            .param("expression", "land > 0.5")
+            .param("message", "not all of it is above a half")
+            .param("warn", true)
+            .input("land", "land.map"),
+    );
+    let mut off = Node::new("off", "check.assert").param("expression", "land < 0").input("land", "land.map");
+    off.bypass = true;
+    m.nodes.push(off);
+    let path = tmp("checks.toml");
+    m.save(&path).unwrap();
+    let mut h = harness(new_app(Some(path)));
+    loaded(&mut h);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        let before: Vec<Verdict> = checks::of(s).into_iter().map(|c| c.verdict).collect();
+        assert_eq!(before, [Verdict::NotRun, Verdict::NotRun, Verdict::Off], "before a run");
+    }
+    h.state_mut().session.as_mut().unwrap().start(Box::new(|| {}));
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("whole", "ok").is_some()
+    });
+    let found = checks::of(h.state().session.as_ref().unwrap());
+    let verdict = |id: &str| found.iter().find(|c| c.id == id).unwrap().verdict.clone();
+    assert_eq!(verdict("whole"), Verdict::Passed);
+    let Verdict::Warned(said) = verdict("half") else { panic!("{:?}", verdict("half")) };
+    assert!(said.starts_with("not all of it is above a half (land > 0.5: "), "{said}");
+    assert_eq!(verdict("off"), Verdict::Off);
+    let badges = checks::badges(&found, &[]);
+    assert_eq!(badges.len(), 3);
+    h.run_steps(2);
+    assert!(h.query_by_label_contains("3 checks: 1 passed, 1 warned, 1 off").is_some(), "in the status bar");
+    h.state_mut().focus(Pane::Document);
+    h.run_steps(4);
+    assert!(h.query_all_by_label_contains("3 checks: 1 passed, 1 warned, 1 off").count() >= 2, "in the document");
+    assert!(h.query_by_label_contains("✔ passed").is_some(), "the step of the check that passed");
+    assert!(h.query_by_label_contains("! failed, warning only: not all of it").is_some());
+    shot(&mut h, "45-checks");
+    h.state_mut().focus(Pane::Model);
+    h.run_steps(4);
+    shot(&mut h, "46-checks-canvas");
+}
+
 /// A model in stages: zoomed out, the canvas frames and names each stage; grouped by stage, it shows a block per
 /// stage with its note, and the document a section per group, the maps of the groups' steps kept from the run.
 #[test]

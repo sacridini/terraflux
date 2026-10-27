@@ -266,6 +266,16 @@ fn title_ui(ui: &mut Ui, step: &Step, num: &str, size: f32, asked: &mut Asked) {
     });
 }
 
+/// A check's badge: how it fared in the last run.
+fn check_ui(ui: &mut Ui, s: &Session, step: &Step) {
+    if step.op != "check.assert" {
+        return;
+    }
+    let Some(c) = crate::checks::of(s).into_iter().find(|c| c.id == step.id && c.path == step.path) else { return };
+    let colour = c.verdict.colour(ui.visuals());
+    ui.label(RichText::new(format!("{} {}", c.verdict.symbol(), c.verdict.words())).color(colour).strong());
+}
+
 /// A step: a line, or a card (`nested`: within its container's card, without a frame of its own).
 fn step_ui(ui: &mut Ui, s: &mut Session, r: &Registry, step: &Step, num: &str, nested: bool, asked: &mut Asked) {
     let selected = s.selected.as_deref() == Some(step.id.as_str()) && s.editor.path == step.path;
@@ -288,6 +298,7 @@ fn step_ui(ui: &mut Ui, s: &mut Session, r: &Registry, step: &Step, num: &str, n
             if let Some(n) = &step.note {
                 ui.label(RichText::new(format!("— {n}")).italics());
             }
+            check_ui(ui, s, step);
         });
         return;
     }
@@ -301,6 +312,7 @@ fn step_ui(ui: &mut Ui, s: &mut Session, r: &Registry, step: &Step, num: &str, n
     let resp = frame.show(ui, |ui| {
         ui.set_width(ui.available_width());
         title_ui(ui, step, num, 13.5, asked);
+        check_ui(ui, s, step);
         match &step.note {
             Some(n) => {
                 ui.label(RichText::new(n).italics());
@@ -494,6 +506,18 @@ pub fn export(s: &mut Session, r: &Registry) {
 }
 
 /// The Document pane; whether the Parameters pane is asked for.
+/// The checks, a line each: how each fared.
+pub fn check_list(checks: &[crate::checks::Check]) -> String {
+    checks
+        .iter()
+        .map(|c| {
+            let at = c.path.iter().chain(std::iter::once(&c.id)).cloned().collect::<Vec<_>>().join("/");
+            format!("{} {at} ({}): {}", c.verdict.symbol(), c.expression, c.verdict.words())
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 pub fn pane(ui: &mut Ui, s: &mut Session, r: &Registry) -> bool {
     let doc = Document::of(&s.source, r);
     let mut asked = Asked::default();
@@ -501,6 +525,12 @@ pub fn pane(ui: &mut Ui, s: &mut Session, r: &Registry) -> bool {
         ui.horizontal(|ui| {
             let steps = doc.steps().iter().filter(|st| st.size != Size::Line).count();
             ui.label(weak(format!("{steps} steps")).small());
+            // the model's health: how its checks fared
+            let checks = crate::checks::of(s);
+            if let (Some(h), Some(w)) = (crate::checks::health(&checks), crate::checks::worst(&checks)) {
+                ui.label(RichText::new(format!("· {} {h}", w.symbol())).color(w.colour(ui.visuals())).small())
+                    .on_hover_text(check_list(&checks));
+            }
             let unexplained = doc.unexplained();
             if unexplained > 0 {
                 ui.label(weak(format!("· {unexplained} without a note or a why")).small())

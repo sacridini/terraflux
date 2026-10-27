@@ -6,6 +6,13 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- The checks' badges: each `check.assert` shows how it fared in the last run (passed in green, failed and only
+  warned in amber, failed and stopped the run in red, not run or turned off in grey) on its node, where the tooltip
+  says what failed, and on its step of the document; a container shows the worst of the checks it holds, inside
+  loops and groups too. The model's health is a line in the status bar and at the top of the document ("3 checks:
+  2 passed, 1 warned"), each check listed on hover.
+
 ## [1.21.0] - 2026-10-27
 
 ### Added

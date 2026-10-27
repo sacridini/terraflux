@@ -8,7 +8,8 @@
 //! or take it away, ctrl+A selects all, Esc none): dragging one of them moves them all. Drag with the middle or the right
 //! button to move the view, the wheel zooms around the pointer, Home fits the graph. Each node shows how it did
 //! in the last run: running, done (or taken from the cache), failed; a node with problems (an input it needs not
-//! given, the run's error) has a mark that tells them on hover. A box that reads or writes a file names it at
+//! given, the run's error) has a mark that tells them on hover; a check (`check.assert`) a badge of how it fared
+//! (passed, warned, failed, not run), a container the worst of its checks'. A box that reads or writes a file names it at
 //! its bottom; the boxes of data (the model's inputs, what reads, writes, stacks or plots) may have a header in the
 //! colour of the type they give (a map's blue, vectors' pink...), an option of the settings.
 //!
@@ -1226,6 +1227,7 @@ pub fn show(
     shown: Option<(&str, &str)>,
     problems: &HashMap<String, Vec<(bool, String)>>,
     layers: &HashMap<String, usize>,
+    checks: &HashMap<String, crate::checks::Verdict>,
 ) -> Vec<Action> {
     let mut actions = Vec::new();
     let Some(nodes) = model.scope(&st.path) else {
@@ -1622,12 +1624,31 @@ pub fn show(
             painter.text(c, Align2::CENTER_CENTER, "!", FontId::proportional(radius * 1.6), Color32::BLACK);
         }
     }
-    // the nodes that ran once per layer: ×12, at the left of the marks of problems
+    // the checks' badges (a container's: the worst of its checks), at the left of the marks of problems
+    for &i in &in_view {
+        let b = &scene.boxes[i];
+        let Some(verdict) = checks.get(&b.key) else { continue };
+        let left = if problems.contains_key(&b.key) { 42.0 } else { 26.0 };
+        let c = screen(b.rect.right_top() + Vec2::new(-left, 10.0));
+        let radius = (6.0 * cam.zoom).max(3.5);
+        painter.circle_filled(c, radius, verdict.colour(&v));
+        if radius >= 5.0 {
+            painter.text(
+                c,
+                Align2::CENTER_CENTER,
+                verdict.symbol(),
+                FontId::proportional(radius * 1.4),
+                Color32::BLACK,
+            );
+        }
+    }
+    // the nodes that ran once per layer: ×12, at the left of the marks of problems and checks
     if ports {
         for &i in &in_view {
             let b = &scene.boxes[i];
             let Some(n) = layers.get(&b.key) else { continue };
-            let left = if problems.contains_key(&b.key) { 36.0 } else { 20.0 };
+            let marks = problems.contains_key(&b.key) as u8 + checks.contains_key(&b.key) as u8;
+            let left = 20.0 + 16.0 * marks as f32;
             painter.text(
                 screen(b.rect.right_top() + Vec2::new(-left, 10.0)),
                 Align2::RIGHT_CENTER,
@@ -1733,6 +1754,10 @@ pub fn show(
                 let b = &scene.boxes[i];
                 let mut text: Vec<String> =
                     problems.get(&b.key).into_iter().flatten().map(|(_, m)| format!("⚠ {m}")).collect();
+                if let Some(c) = checks.get(&b.key) {
+                    let what = if b.op == "check.assert" { "the check" } else { "the worst of its checks" };
+                    text.push(format!("{} {what}: {}", c.symbol(), c.words()));
+                }
                 if let Some(n) = layers.get(&b.key) {
                     text.push(format!(
                         "×{n}: given {n} layers where it takes one map, it ran once per layer (its maps a stack, \

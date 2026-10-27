@@ -283,6 +283,10 @@ escrevendo scripts). Depois, nesta ordem:
 
 1. **Selos de verificação** (fase 5 de "O modelo como registro"): o `check.assert` existe, faltam os selos verde e
    vermelho com a razão no canvas e no documento, e o resumo da saúde do modelo no topo.
+   **Feito** (Unreleased): `checks.rs`; o selo de cada `check.assert` (passou, só avisou, falhou e parou, não rodou
+   ou desligado) no nó, com a razão no tooltip, e no seu passo do documento; um contêiner com o pior dos seus; a
+   saúde na barra de status e no topo do documento. Falta: os selos no relatório (HTML e PDF) e os `check.*` como
+   operadores próprios (hoje tudo é uma expressão do `check.assert`).
 2. **Execução e depuração:**
    - o `manifest.json` também nas execuções do aplicativo (hoje só o `terraflux run`);
    - o Stop que para de verdade os operadores longos (MSPA, circuitos, ajuste dos SDM, `prioritize.evaluate`,

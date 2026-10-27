@@ -249,6 +249,13 @@ failed, its message and what it was given side by side (each input's grid: size,
 differs marked), with what likely does not fit and what puts it right (raster.match, raster.reproject); then the
 graph's checks and the data's findings, each a click away from its node. The assistant is told the same.
 
+**Is the model healthy?** The model's own checks (`check.assert`: the demand met, the areas summing to the total,
+the probabilities between 0 and 1) carry a badge of how they fared in the last run: green when it passed, amber
+when it failed and only warned, red when it failed and stopped the run, grey when it has not run or is turned off.
+The badge is on the check's node (a container's is the worst of the checks it holds; its tooltip says what failed)
+and on its step of the document, and the status bar and the document's top line give the model's health at a
+glance ("3 checks: 2 passed, 1 warned"), each check listed on hover.
+
 ### Models as text
 
 A model is a graph of operators. Each node reads the model's inputs (`$name`), other nodes' outputs

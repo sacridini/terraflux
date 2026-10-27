@@ -1677,6 +1677,7 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
     }
     let problems = problems(s);
     let layers = per_layer(s, r);
+    let checks = crate::checks::badges(&crate::checks::of(s), &s.editor.path);
     // escape on the canvas, nothing selected (escape lets the nodes selected go first): back up a level
     let nothing_chosen = s.editor.chosen.is_empty();
     let actions = crate::editor_view::show(
@@ -1691,6 +1692,7 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
         shown.as_ref().map(|(n, p)| (n.as_str(), p.as_str())),
         &problems,
         &layers,
+        &checks,
     );
     if let (Some((last, _)), Some(rect)) = (s.editor.path.split_last(), s.editor.canvas()) {
         inside(ui, rect, last, container_kind(s).as_deref().unwrap_or("a container"));

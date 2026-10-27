@@ -10,6 +10,7 @@ pub mod calc_view;
 pub mod canvas_gpu;
 pub mod charts;
 pub mod chat;
+pub mod checks;
 pub mod commands;
 pub mod computers;
 pub mod diagnose;
