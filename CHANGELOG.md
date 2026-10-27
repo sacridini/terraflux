@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.21.0] - 2026-10-27
+
 ### Added
 - Three more of InVEST's models (natcap.invest 3.20) as landschaft 1.54 reimplements them, the same float32 and
   float64 bits (landschaft's references, `tests/data/reference/services_invest.npz`):

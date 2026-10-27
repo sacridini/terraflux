@@ -577,10 +577,10 @@ Registro de 2026-10-16. O aplicativo avisa quando há uma versão nova e a insta
 **Fases.**
 1. Verificar, avisar, baixar, conferir a assinatura e instalar o `.msi` (2 a 3 dias).
    **Feito** (1.19.0), conferido pelo `SHA256SUMS.txt` do release (sem assinatura ed25519); o `.msi` por usuário,
-   sem administrador. **Corrigido** (Unreleased): o PowerShell lançado sem console (`DETACHED_PROCESS`) terminava
+   sem administrador. **Corrigido** (1.21.0): o PowerShell lançado sem console (`DETACHED_PROCESS`) terminava
    sem rodar nada, e o app fechava sem instalar.
 2. A troca no macOS e no zip/tar.gz, o repositório apt.
-   **Feito** (Unreleased): o `Terraflux.app` (numa pasta que o usuário pode escrever) trocado pelo do zip, a pasta
+   **Feito** (1.21.0): o `Terraflux.app` (numa pasta que o usuário pode escrever) trocado pelo do zip, a pasta
    do `.tar.gz` pela nova, os pacotes `.deb`, `.rpm` e do Arch pelo gerenciador com o `pkexec`; a atualização que
    não instalou dita ao abrir de novo, com o log. Falta: o zip do Windows, o repositório apt, a assinatura.
 
@@ -988,7 +988,7 @@ enviado a alguém roda sem a biblioteca.
 **Fase 5: a IA.** O Assistant escreve o script de uma calculadora a partir de um pedido: o parser confere, os nomes
 e as bandas contra as entradas reais, uma prévia, e a mudança passa pelo painel Changes. Também explica um script e
 salva um nó do usuário.
-- **Feito** (Unreleased): as ferramentas `write_calc` e `explain_calc` (no app e no `terraflux mcp`, também entre as
+- **Feito** (1.21.0): as ferramentas `write_calc` e `explain_calc` (no app e no `terraflux mcp`, também entre as
   poucas dos modelos pequenos). O `write_calc` confere o script antes de mudar o modelo (a linguagem, os nomes
   contra as entradas do nó, as camadas das pilhas) e o roda numa amostra das células (os valores da última
   execução, ou os rasters lidos dos arquivos; no MCP, o modelo rodado até o que ele lê): recusado com o motivo, ou
