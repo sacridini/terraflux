@@ -299,7 +299,8 @@ escrevendo scripts). Depois, nesta ordem:
      as saídas em `<modelo>.frozen/<nó>/` (`terraflux_exec::frozen`), seguradas no cache (`Cache::hold`) e usadas
      no lugar de rodá-lo, no aplicativo e no `terraflux run`; o que só ele lê não roda. Falta: congelar um nó dentro
      de um contêiner; os agentes, as árvores e os dados do Biodiverse em disco;
-   - rodar um laço passo a passo, como um breakpoint.
+   - **Feito** (Unreleased): rodar um laço passo a passo, como um breakpoint (`runner::Gate`: Step, Next,
+     Continue na barra de status). Falta: parar num nó escolhido (um breakpoint de verdade, não só entre passos).
 3. **Vista Document:** frases escritas à mão por operador para os parâmetros; editar listas e tabelas no lugar
    (hoje pelo painel Node); as paletas do viewer nas miniaturas.
 4. **Painel Changes:** comparar com um commit qualquer (hoje só o último); as tabelas lado a lado (hoje em

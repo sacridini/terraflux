@@ -26,6 +26,9 @@ minor versions.
   instead of running it, in later sessions and by `terraflux run` too, whatever it reads; what only it reads does
   not run either. A ❄ marks it on the canvas. Unchecked, the files go and it runs again. A node frozen before it
   ran is frozen when it runs; a random generator, agents or a series not of maps cannot be.
+- A loop step by step, as at a breakpoint: with **Step** on in the status bar, the run pauses after each step of a
+  loop (its maps shown as they come), the status bar saying where ("paused at years: step 2 of 10") with **Next**
+  (the next step) and **Continue** (on to the end); Stop stops it there.
 
 ## [1.21.0] - 2026-10-27
 

@@ -26,7 +26,7 @@ use crate::builder::{Library, Looks};
 use crate::editor_view::{EditorState, NodeStatus};
 use crate::map_view::{Hover, MapView, Thumbs, class_counts, legend};
 use crate::palette::Coloring;
-use crate::runner::{Message, Record, Run};
+use crate::runner::{Gate, Message, Record, Run};
 use crate::theme;
 use crate::wizard::{Outcome, Wizard};
 
@@ -535,6 +535,8 @@ pub struct Session {
     pub validation: Validation,
     /// The outputs of the nodes run, kept between runs (a run only runs what changed).
     pub cache: Arc<Mutex<Cache>>,
+    /// Step by step: the runs pause after each step of a loop (Step in the status bar), until Next or Continue.
+    pub gate: Arc<Gate>,
     /// How each top-level node did in the last run.
     pub status: BTreeMap<String, NodeStatus>,
     /// How long each node took when it last ran (its place: `node`, `container/inner`; a loop's body summed over its
@@ -692,6 +694,7 @@ impl Session {
             selected: None,
             validation: Validation { windows: "1, 3, 5, 7, 9, 11".into(), ..Default::default() },
             cache: Arc::new(Mutex::new(Cache::default())),
+            gate: Arc::new(Gate::default()),
             status: BTreeMap::new(),
             timings: BTreeMap::new(),
             revision: 0,
@@ -979,7 +982,8 @@ impl Session {
             _ => None,
         };
         self.recorded = None;
-        self.run = Some(Run::start(self.model.clone(), inputs, base, self.cache.clone(), target, record, repaint));
+        let (cache, gate) = (self.cache.clone(), self.gate.clone());
+        self.run = Some(Run::start(self.model.clone(), inputs, base, cache, target, record, gate, repaint));
     }
 
     /// After an edit, run up to the node shown (when the edits paused a moment and nothing runs).
@@ -1757,6 +1761,19 @@ impl TerrafluxApp {
                     .on_hover_text("run the whole model (F5)")
                     .clicked();
                 stop = ui.add_enabled(s.running() && s.stopping.is_none(), egui::Button::new("Stop")).clicked();
+                // step by step: paused after each step of a loop
+                let mut stepping = s.gate.stepping.load(std::sync::atomic::Ordering::Relaxed);
+                if ui
+                    .toggle_value(&mut stepping, "Step")
+                    .on_hover_text("step by step: the run pauses after each step of a loop (its maps shown), until Next or Continue")
+                    .changed()
+                {
+                    if stepping {
+                        s.gate.stepping.store(true, std::sync::atomic::Ordering::Relaxed);
+                    } else {
+                        s.gate.resume();
+                    }
+                }
                 ui.separator();
                 // the model's name, a dot when it has edits not saved
                 let title = ui.label(RichText::new(s.title()).strong());
@@ -1772,7 +1789,17 @@ impl TerrafluxApp {
                     ui.spinner();
                     ui.label(RichText::new("reading the data...").weak());
                 }
-                if s.running() && s.stopping.is_none() {
+                if s.running() && s.stopping.is_none() && s.gate.paused() {
+                    // paused after a step (in place of the progress)
+                    let at = s.progress.as_ref().map(|(at, step, of)| format!("{at}: step {step} of {of}"));
+                    ui.label(RichText::new(format!("paused at {}", at.unwrap_or_default())).color(theme::accent()));
+                    if ui.button("Next").on_hover_text("run the next step and pause again").clicked() {
+                        s.gate.next();
+                    }
+                    if ui.button("Continue").on_hover_text("run on to the end without pausing").clicked() {
+                        s.gate.resume();
+                    }
+                } else if s.running() && s.stopping.is_none() {
                     let (frac, text) = s.run_progress();
                     theme::progress(ui, Some(frac), &text, 140.0);
                 }

@@ -256,6 +256,13 @@ The badge is on the check's node (a container's is the worst of the checks it ho
 and on its step of the document, and the status bar and the document's top line give the model's health at a
 glance ("3 checks: 2 passed, 1 warned"), each check listed on hover.
 
+**Running and debugging.** **Step** in the status bar runs a loop step by step: the run pauses after each step, its
+maps shown, until **Next** or **Continue**. **Stop** stops the long operators between their parts (MSPA's tiles,
+the circuits' batches of points, a fit's folds, the metrics' blocks). **Freeze** in the Node pane keeps a node's
+result on disk next to the model (a ❄ on the canvas) and uses it instead of running the node, in later sessions
+and by `terraflux run` too; what only it reads does not run either. A whole run of a model saved writes its outputs
+and the run's manifest (`output/manifest.json`), as `terraflux run` does, for `terraflux reproduce`.
+
 ### Models as text
 
 A model is a graph of operators. Each node reads the model's inputs (`$name`), other nodes' outputs

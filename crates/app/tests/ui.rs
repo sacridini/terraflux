@@ -750,6 +750,47 @@ fn a_frozen_result_is_kept_between_sessions() {
     assert!(!folder.exists());
 }
 
+/// Step by step: the run pauses after a step of a loop, the status bar says where with Next and Continue.
+#[test]
+fn a_loop_pauses_step_by_step() {
+    use std::sync::atomic::Ordering;
+    use terraflux_graph::{Body, Model, Node};
+    let mut m = Model::new("steps");
+    m.nodes.push(Node::new("years", "control.repeat").literal("times", 3).body(Body {
+        nodes: vec![Node::new("land", "nlm.random").param("rows", 20).param("columns", 30).param("seed", 1)],
+        collect: [("maps".to_string(), "land.map".to_string())].into(),
+        ..Default::default()
+    }));
+    let path = tmp("steps.toml");
+    m.save(&path).unwrap();
+    let mut h = harness(new_app(Some(path)));
+    loaded(&mut h);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.gate.stepping.store(true, Ordering::Relaxed);
+        s.start(Box::new(|| {}));
+    }
+    until(&mut h, "the first step", |a| a.session.as_ref().unwrap().gate.paused());
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("paused at years: step 1 of 3").is_some());
+    // (drawn while the run waits: not `shot`, which waits for its end)
+    h.run_steps(4);
+    if let Ok(img) = h.render() {
+        img.save(tmp("ui-48-step.png")).unwrap();
+    }
+    h.get_by_label("Next").click();
+    h.run_steps(2);
+    until(&mut h, "the second step", |a| {
+        let s = a.session.as_ref().unwrap();
+        s.gate.paused() && s.progress.as_ref().is_some_and(|p| p.1 == 2)
+    });
+    h.get_by_label("Continue").click();
+    until(&mut h, "the run", |a| !a.session.as_ref().unwrap().running());
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.error.is_none(), "{:?}", s.error);
+    assert!(!s.gate.stepping.load(Ordering::Relaxed));
+}
+
 /// A model in stages: zoomed out, the canvas frames and names each stage; grouped by stage, it shows a block per
 /// stage with its note, and the document a section per group, the maps of the groups' steps kept from the run.
 #[test]
