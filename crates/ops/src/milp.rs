@@ -2739,8 +2739,15 @@ pub fn solve_bounded(
 
 /// eval_replacement_importance: for every unit selected, how much the objective worsens when the others stay
 /// selected and it may not be (prioritizr's replacement cost), rescaled to [0.01, 1] with `rescale`. The solves
-/// run in parallel, a HiGHS thread each.
-pub fn replacement_importance(p: &Problem, s: &[f64], gap: f64, rescale_it: bool) -> Result<Vec<f64>, String> {
+/// run in parallel, a HiGHS thread each, so many at a time: `tell` is told how many were solved of how many before
+/// each lot (false: stopped).
+pub fn replacement_importance(
+    p: &Problem,
+    s: &[f64],
+    gap: f64,
+    rescale_it: bool,
+    tell: &mut dyn FnMut(usize, usize) -> bool,
+) -> Result<Vec<f64>, String> {
     use rayon::prelude::*;
     let n = p.units.n();
     let sel = selected(s)?;
@@ -2754,17 +2761,20 @@ pub fn replacement_importance(p: &Problem, s: &[f64], gap: f64, rescale_it: bool
     if !base.has_solution {
         return Err("the solution is not feasible for the problem".into());
     }
-    let objs: Vec<Result<f64, String>> = sel
-        .par_iter()
-        .map(|&i| {
+    let mut objs: Vec<Result<f64, String>> = Vec::with_capacity(sel.len());
+    for lot in sel.chunks(4 * rayon::current_num_threads()) {
+        if !tell(objs.len(), sel.len()) {
+            return Err("stopped".into());
+        }
+        objs.par_extend(lot.par_iter().map(|&i| {
             ffi::set_threads(1);
             let (mut lo, mut hi) = (lb.clone(), ub.clone());
             lo[i] = 0.0;
             hi[i] = 0.0;
             let r = solve_bounded(&m, n, &lo, &hi, gap, &[])?;
             Ok(if r.has_solution { r.objective } else { f64::INFINITY })
-        })
-        .collect();
+        }));
+    }
     let mut out = Vec::with_capacity(sel.len());
     for o in objs {
         let d = o? - base.objective;
@@ -2800,14 +2810,15 @@ pub type Budgets = Vec<(f64, f64)>;
 
 /// eval_rank_importance: the units selected ranked by the budget at which an incremental solution first takes
 /// them (n budgets from the locked units' cost to the solution's, or those given), rescaled to [0.01, 1] with
-/// `rescale`; and per budget the objective reached.
+/// `rescale`; and per budget the objective reached. `tell` is told how many budgets were solved of how many (false:
+/// stopped).
 pub fn rank_importance(
     p: &Problem,
     s: &[f64],
-    n_budgets: Option<usize>,
-    budgets: Option<Vec<f64>>,
+    (n_budgets, budgets): (Option<usize>, Option<Vec<f64>>),
     gap: f64,
     rescale_it: bool,
+    tell: &mut dyn FnMut(usize, usize) -> bool,
 ) -> Result<(Vec<f64>, Budgets), String> {
     let u = &p.units;
     let n = u.n();
@@ -2853,6 +2864,9 @@ pub fn rank_importance(
     let mut prev: Vec<f64> = Vec::new();
     let mut info = Vec::new();
     for (k, &b) in budgets.iter().enumerate() {
+        if !tell(k, budgets.len()) {
+            return Err("stopped".into());
+        }
         m.rhs[rows[0]] = b;
         for i in 0..n.min(prev.len()) {
             if prev[i] > 1e-10 {

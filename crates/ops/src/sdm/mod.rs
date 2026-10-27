@@ -1337,7 +1337,7 @@ impl Operator for Fit {
         )
     }
 
-    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let (x, y, folds) = records_xy(args)?;
         let categorical = categorical_of(args)?;
         let classes: String = args.param("classes", "default".into())?;
@@ -1379,8 +1379,15 @@ impl Operator for Fit {
                 w => return Err(bad(args, format!("weights: balanced or equal, not {w:?}"))),
             },
         };
-        let f = workflow::fit(&x, &y, weights.as_deref(), folds.as_deref(), &learner, args.param("cv", true)?)
-            .map_err(|e| bad(args, e))?;
+        // (stopped between two fits: the folds' and the last on every record)
+        let mut tell = |k: usize, of: usize| {
+            let what =
+                if k + 1 < of { format!("fold {} of {}", k + 1, of - 1) } else { "the model on every record".into() };
+            ctx.progress(Some(k as f64 / of as f64), what)
+        };
+        let f =
+            workflow::fit(&x, &y, weights.as_deref(), folds.as_deref(), &learner, args.param("cv", true)?, &mut tell)
+                .map_err(|e| bad(args, e))?;
         let mut metrics = Table::new(
             std::iter::once("fold".to_string()).chain(workflow::METRICS.iter().map(|m| m.to_string())).collect(),
         );

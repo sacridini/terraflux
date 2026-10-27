@@ -105,6 +105,7 @@ pub fn fit(
     folds: Option<&[f64]>,
     s: &Learner,
     cv: bool,
+    tell: &mut dyn FnMut(usize, usize) -> bool,
 ) -> Result<Fitted, String> {
     let mut metrics = Vec::new();
     let mut oof = None;
@@ -114,6 +115,9 @@ pub fn fit(
         ks.sort_by(|a, b| a.partial_cmp(b).unwrap());
         ks.dedup();
         for (n, k) in ks.iter().enumerate() {
+            if !tell(n, ks.len() + 1) {
+                return Err("stopped".into());
+            }
             let train: Vec<usize> = (0..y.len()).filter(|&i| f[i] != *k).collect();
             let test: Vec<usize> = (0..y.len()).filter(|&i| f[i] == *k).collect();
             let ytr: Vec<f64> = train.iter().map(|&i| y[i]).collect();
@@ -131,6 +135,10 @@ pub fn fit(
             row.extend(fold_metrics(&pred, y, &train, &test)?);
             metrics.push(row);
         }
+    }
+    let fits = metrics.len() + 1;
+    if !tell(fits - 1, fits) {
+        return Err("stopped".into());
     }
     let model = s.fit(x, y, weights)?;
     let pred = suitability(&model, x)?;

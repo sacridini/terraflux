@@ -26,7 +26,7 @@ use crate::builder::{Library, Looks};
 use crate::editor_view::{EditorState, NodeStatus};
 use crate::map_view::{Hover, MapView, Thumbs, class_counts, legend};
 use crate::palette::Coloring;
-use crate::runner::{Message, Run};
+use crate::runner::{Message, Record, Run};
 use crate::theme;
 use crate::wizard::{Outcome, Wizard};
 
@@ -518,6 +518,8 @@ pub struct Session {
     pub warnings: Vec<String>,
     pub error: Option<String>,
     pub elapsed: Option<Duration>,
+    /// What the last whole run wrote: its manifest (`output/manifest.json`, with the outputs), or why not.
+    pub recorded: Option<Result<PathBuf, String>>,
     pub started: Option<Instant>,
     pub view: MapView,
     pub thumbs: Thumbs,
@@ -678,6 +680,7 @@ impl Session {
             warnings: Vec::new(),
             error: None,
             elapsed: None,
+            recorded: None,
             started: None,
             view: MapView::default(),
             thumbs: Thumbs::default(),
@@ -903,7 +906,16 @@ impl Session {
         self.started = Some(Instant::now());
         // the data read already, unless the model's inputs changed since
         let inputs = self.inputs.clone().filter(|_| self.inputs_of == self.model.inputs);
-        self.run = Some(Run::start(self.model.clone(), inputs, base, self.cache.clone(), target, repaint));
+        // a whole run of the model as saved: its outputs and its manifest written next to it, as `terraflux run`
+        let record = match &self.path {
+            Some(p) if target.is_none() && !self.dirty => Some(Record {
+                model_file: std::path::absolute(p).unwrap_or_else(|_| p.clone()),
+                out: base.join("output"),
+            }),
+            _ => None,
+        };
+        self.recorded = None;
+        self.run = Some(Run::start(self.model.clone(), inputs, base, self.cache.clone(), target, record, repaint));
     }
 
     /// After an edit, run up to the node shown (when the edits paused a moment and nothing runs).
@@ -1061,6 +1073,7 @@ impl Session {
                     self.progress = Some((at, step, of));
                 }
                 Message::Warning(w) => self.warnings.push(w),
+                Message::Recorded(r) => self.recorded = Some(r),
                 Message::Done(r) => done = Some(r),
             }
         }
@@ -1701,6 +1714,26 @@ impl TerrafluxApp {
                     ui.label(RichText::new("stopping...").weak());
                 } else if let Some(e) = s.elapsed.filter(|_| !s.running()) {
                     ui.label(RichText::new(format!("done in {:.2} s", e.as_secs_f64())).weak());
+                    match &s.recorded {
+                        Some(Ok(p)) => {
+                            let at = p.parent().unwrap_or(p);
+                            if ui
+                                .link(RichText::new("manifest").weak())
+                                .on_hover_text(format!(
+                                    "the outputs and the manifest of the run written in {} (terraflux reproduce runs it again); click to open the folder",
+                                    at.display()
+                                ))
+                                .clicked()
+                            {
+                                crate::batch_view::open_folder(at);
+                            }
+                        }
+                        Some(Err(e)) => {
+                            ui.label(RichText::new("manifest ✖").color(ui.visuals().warn_fg_color))
+                                .on_hover_text(format!("the outputs and the manifest of the run were not written: {e}"));
+                        }
+                        None => {}
+                    }
                 }
             }
             // the tools and the settings, at the right

@@ -83,9 +83,20 @@ fn tile_mspa(tile: &[u8], ny: usize, nx: usize, s: Settings) -> Result<Vec<u8>> 
     })
 }
 
-/// The MSPA of a row of tiles: its rows kept (ky1 - ky0 rows of the map's width). `read` gives the input of a
-/// window (x0, y0, width, height) in GTB's codes.
+/// How far the tiles are (`done` of `total`) told; an error when the run was stopped (between two tiles: a tile's
+/// MSPA runs to its end).
+fn tell(ctx: &mut Ctx, done: usize, total: usize) -> Result<()> {
+    if total > 1 && !ctx.progress(Some(done as f64 / total as f64), format!("tile {} of {total}", done + 1)) {
+        return Err(Error::msg("stopped"));
+    }
+    Ok(())
+}
+
+/// The MSPA of a row of tiles (the `row`-th of `rows`): its rows kept (ky1 - ky0 rows of the map's width). `read`
+/// gives the input of a window (x0, y0, width, height) in GTB's codes.
 fn tile_row(
+    ctx: &mut Ctx,
+    (row, rows): (usize, usize),
     (y0, y1, ky0, ky1): Span,
     cols: &[Span],
     nx: usize,
@@ -93,7 +104,8 @@ fn tile_row(
     read: &dyn Fn(usize, usize, usize, usize) -> Result<Vec<u8>>,
 ) -> Result<Vec<u8>> {
     let mut kept = vec![0u8; (ky1 - ky0) * nx];
-    for &(x0, x1, kx0, kx1) in cols {
+    for (k, &(x0, x1, kx0, kx1)) in cols.iter().enumerate() {
+        tell(ctx, row * cols.len() + k, rows * cols.len())?;
         let w = x1 - x0;
         let m = tile_mspa(&read(x0, y0, w, y1 - y0)?, y1 - y0, w, s)?;
         for y in ky0..ky1 {
@@ -137,7 +149,7 @@ impl Operator for MspaTiled {
         ))
     }
 
-    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let fail = |e: Error| Error::msg(format!("node {:?}: {e}", args.node));
         let s = Settings {
             connectivity: args.param("connectivity", 8)?,
@@ -159,8 +171,8 @@ impl Operator for MspaTiled {
                     Ok((y0..y0 + h).flat_map(|y| input[y * nx + x0..y * nx + x0 + w].iter().copied()).collect())
                 };
                 let mut out = Vec::with_capacity(ny * nx);
-                for &row in &rows {
-                    out.extend(tile_row(row, &cols, nx, s, &read).map_err(fail)?);
+                for (k, &row) in rows.iter().enumerate() {
+                    out.extend(tile_row(ctx, (k, rows.len()), row, &cols, nx, s, &read).map_err(fail)?);
                 }
                 Ok(outputs([("map", map_of(map, out))]))
             }
@@ -184,7 +196,7 @@ impl Operator for MspaTiled {
                     let win = Window { x0: x0 as i64, y0: y0 as i64, width: w, height: h };
                     gtb_code(args, &foreground, &r.window(r.chosen, win)?, false)
                 };
-                to_file(r, &path, s, tile_size, overlap, &read).map_err(fail)?;
+                to_file(ctx, r, &path, s, tile_size, overlap, &read).map_err(fail)?;
                 let written = Rasters::open(&path.to_string_lossy(), None, None)?;
                 Ok(outputs([("map", Value::Raster(Arc::new(written)))]))
             }
@@ -197,6 +209,7 @@ impl Operator for MspaTiled {
 /// MSPA by GTB's tiles of rasters on disk into a GeoTIFF: a row of tiles at a time (read by windows), the rows
 /// kept written as they come ([`RowsWriter`]); in memory a row of tiles and 512 rows.
 fn to_file(
+    ctx: &mut Ctx,
     r: &Rasters,
     path: &Path,
     s: Settings,
@@ -209,8 +222,8 @@ fn to_file(
     let (ny, nx) = (grid.height, grid.width);
     let (rows, cols) = tiles_of(ny, nx, tile_size, overlap)?;
     let mut out = RowsWriter::create(path, &grid, "mspa", DataType::U8, None)?;
-    for &row in &rows {
-        out.push(tile_row(row, &cols, nx, s, read)?.into_iter().map(f64::from))?;
+    for (k, &row) in rows.iter().enumerate() {
+        out.push(tile_row(ctx, (k, rows.len()), row, &cols, nx, s, read)?.into_iter().map(f64::from))?;
     }
     out.finish()
 }

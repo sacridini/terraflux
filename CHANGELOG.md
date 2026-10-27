@@ -12,6 +12,14 @@ minor versions.
   says what failed, and on its step of the document; a container shows the worst of the checks it holds, inside
   loops and groups too. The model's health is a line in the status bar and at the top of the document ("3 checks:
   2 passed, 1 warned"), each check listed on hover.
+- A whole run in the application of a model saved writes the model's outputs and the manifest of the run
+  (`output/manifest.json` next to the model), as `terraflux run` does: `terraflux reproduce` runs it again. The
+  status bar says so after the time of the run ("manifest", which opens the folder).
+- Stop stops the long operators between their parts, and they tell how far they are: MSPA by tiles
+  (`landscape.mspa_tiled`, between two tiles), the circuits from one to all and all to one (`circuit.one_to_all`
+  and the INI files' runs, between two batches of points), the folds of `sdm.fit`, the replacement and rank
+  importance of `prioritize.evaluate` (between two lots of solves, between two budgets) and the metrics by blocks
+  (`metrics.*` with `block_rows` or rasters on disk, between two blocks; `metrics.window`, between two strips).
 
 ## [1.21.0] - 2026-10-27
 

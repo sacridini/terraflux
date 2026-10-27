@@ -503,7 +503,7 @@ pub struct CsResult {
 
 /// Run a Circuitscape INI file on rasters (landschaft's circuitscape_ini): `write` writes the outputs as
 /// Circuitscape; `batch` the one-to-all problems solved together.
-pub fn circuitscape_ini(path: &Path, write: bool, batch: usize) -> Result<CsResult> {
+pub fn circuitscape_ini(ctx: &mut Ctx, path: &Path, write: bool, batch: usize) -> Result<CsResult> {
     let base = path.canonicalize().ok().and_then(|p| p.parent().map(Path::to_path_buf)).unwrap_or_default();
     let mut cfg: Vec<(String, String)> =
         CS_DEFAULTS[..38].iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
@@ -712,7 +712,7 @@ pub fn circuitscape_ini(path: &Path, write: bool, batch: usize) -> Result<CsResu
                 batch,
             };
             let mut c = Circuit { g: g.clone(), poly: poly.clone(), points, nx, ny };
-            let r = one_to_all(&mut c, &o)?;
+            let r = one_to_all(ctx, &mut c, &o)?;
             result.resistances = Some(r.ids.iter().zip(&r.values).map(|(i, v)| vec![*i as f64, *v]).collect());
             result.cum = o.cum.then_some(r.cum);
             result.max = o.max.then_some(r.max);
@@ -797,12 +797,12 @@ impl Operator for CircuitscapeIni {
         ))
     }
 
-    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let fail = |e: Error| Error::msg(format!("node {:?}: {e}", args.node));
         let path: String = args.param("path", String::new())?;
         let threads = crate::threads::ensure();
         let batch = args.opt_param::<usize>("batch")?.unwrap_or(4 * threads).max(1);
-        let r = circuitscape_ini(Path::new(&path), args.param("write_outputs", true)?, batch).map_err(fail)?;
+        let r = circuitscape_ini(ctx, Path::new(&path), args.param("write_outputs", true)?, batch).map_err(fail)?;
         let grid = Arc::new(r.meta.as_ref().unwrap().grid());
         let map = |v: Vec<f64>| Value::Map(Map::new(grid.clone(), v));
         let mut out = Outputs::new();

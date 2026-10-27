@@ -288,10 +288,13 @@ escrevendo scripts). Depois, nesta ordem:
    saúde na barra de status e no topo do documento. Falta: os selos no relatório (HTML e PDF) e os `check.*` como
    operadores próprios (hoje tudo é uma expressão do `check.assert`).
 2. **Execução e depuração:**
-   - o `manifest.json` também nas execuções do aplicativo (hoje só o `terraflux run`);
-   - o Stop que para de verdade os operadores longos (MSPA, circuitos, ajuste dos SDM, `prioritize.evaluate`,
-     métricas por blocos), com `ctx.stopped()` e `ctx.progress(...)` nos seus laços (item 3 de "Paridade com o
-     landschaft");
+   - **Feito** (Unreleased): o `manifest.json` também nas execuções do aplicativo (hoje só o `terraflux run`): uma
+     execução inteira de um modelo salvo escreve as saídas e o `output/manifest.json` (`runner::Record`);
+   - **Feito** (Unreleased): o Stop que para de verdade os operadores longos (MSPA, circuitos, ajuste dos SDM,
+     `prioritize.evaluate`, métricas por blocos), com `ctx.progress(...)` entre as partes (telhas, lotes de pontos,
+     dobras, lotes de soluções, orçamentos, blocos, faixas). Falta: dentro de uma chamada do C++ (o MSPA de uma
+     telha, o `landscape.mspa` inteiro, o `circuit.pairwise`, o Omniscape) ainda não para; precisaria de um
+     `watch` no landschaft, como o do `opt_solve_watched`;
    - congelar o resultado de um nó entre sessões (o cache em disco);
    - rodar um laço passo a passo, como um breakpoint.
 3. **Vista Document:** frases escritas à mão por operador para os parâmetros; editar listas e tabelas no lugar

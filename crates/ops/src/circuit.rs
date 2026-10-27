@@ -793,7 +793,7 @@ impl Operator for OneToAll {
         ))
     }
 
-    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let fail = |e: String| Error::msg(format!("node {:?}: {e}", args.node));
         let (mut c, grid) = Circuit::of(args)?;
         let strengths: Option<Vec<(f64, f64)>> = match args.params.get("strengths") {
@@ -818,7 +818,7 @@ impl Operator for OneToAll {
             four_neighbors: args.param("four_neighbors", false)?,
             batch: args.opt_param::<usize>("batch")?.unwrap_or(4 * threads).max(1),
         };
-        let r = one_to_all(&mut c, &o)?;
+        let r = one_to_all(ctx, &mut c, &o)?;
         let mut t =
             crate::Table::new(vec!["id".into(), if o.one_to_all { "resistance".into() } else { "value".into() }]);
         t.rows = r.ids.iter().zip(&r.values).map(|(u, v)| vec![*u as f64, *v]).collect();
@@ -865,7 +865,7 @@ pub struct OneToAllResult {
 }
 
 /// Circuitscape's one-to-all (all-to-one) driver (landschaft's _one_to_all, run_onetoall).
-pub fn one_to_all(c: &mut Circuit, o: &OneToAllOptions) -> Result<OneToAllResult> {
+pub fn one_to_all(ctx: &mut Ctx, c: &mut Circuit, o: &OneToAllOptions) -> Result<OneToAllResult> {
     let (nx, ny) = (c.nx, c.ny);
     let one_to_all = o.one_to_all;
     let mut strengths = o.strengths.clone();
@@ -968,6 +968,11 @@ pub fn one_to_all(c: &mut Circuit, o: &OneToAllOptions) -> Result<OneToAllResult
     let batch = o.batch.max(1);
     let mut b0 = 0;
     while b0 < unique.len() {
+        // (stopped between two batches: a batch's solves run to their end)
+        let what = if one_to_all { "one to all" } else { "all to one" };
+        if !ctx.progress(Some(b0 as f64 / unique.len() as f64), format!("{what}: {b0} of {} points", unique.len())) {
+            return Err(Error::msg("stopped"));
+        }
         let range = b0..(b0 + batch).min(unique.len());
         let probs: Vec<(usize, Option<Problem>)> = range.clone().map(|i| (i, problem(i))).collect();
         for (i, q) in &probs {

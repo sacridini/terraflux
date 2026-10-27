@@ -62,6 +62,7 @@ mod services;
 mod services_invest;
 mod signatures;
 mod stats;
+mod stopping;
 mod surface;
 mod swat;
 mod tiled_metrics;

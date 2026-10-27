@@ -3191,12 +3191,19 @@ impl Operator for Evaluate {
         }
         let gap: f64 = args.param("gap", 0.1)?;
         if args.param("replacement", false)? {
-            per_unit.push(("replacement".into(), milp::replacement_importance(&p, &s, gap, rescale).map_err(err)?));
+            let mut tell = |k: usize, of: usize| {
+                ctx.progress(Some(k as f64 / of as f64), format!("replacement: {k} of {of} units"))
+            };
+            let r = milp::replacement_importance(&p, &s, gap, rescale, &mut tell).map_err(err)?;
+            per_unit.push(("replacement".into(), r));
         }
         let n_rank: Option<usize> = args.opt_param("rank")?;
         let budgets: Option<Vec<f64>> = args.opt_param("budgets")?;
         if n_rank.is_some() || budgets.is_some() {
-            let (rs, info) = milp::rank_importance(&p, &s, n_rank, budgets, gap, rescale).map_err(err)?;
+            let mut tell = |k: usize, of: usize| {
+                ctx.progress(Some(k as f64 / of as f64), format!("rank: budget {} of {of}", k + 1))
+            };
+            let (rs, info) = milp::rank_importance(&p, &s, (n_rank, budgets), gap, rescale, &mut tell).map_err(err)?;
             per_unit.push(("rank".into(), rs));
             let mut t = Table::new(vec!["budget".into(), "objective".into()]);
             t.rows = info.into_iter().map(|(b, o)| vec![b, o]).collect();

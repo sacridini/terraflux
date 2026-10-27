@@ -226,7 +226,7 @@ impl Source {
     pub fn measure(&self, options: &ffi::LsmOptions, specs: &[(&'static str, &str)]) -> Result<Measured> {
         match self {
             Source::Whole(m) => measure(m, options, specs, false),
-            _ => measure_tiled(self.rows(), options, specs, self.block_rows(), Labels::None),
+            _ => measure_tiled(self.rows(), options, specs, (self.block_rows(), Labels::None), &mut |_, _| true),
         }
     }
 }
@@ -284,13 +284,14 @@ pub enum Labels<'a> {
 /// The metrics `specs` of a map read block by block of rows (landschaft's out-of-core landscape, `block_rows`):
 /// the same values as [`measure`], with only a few blocks in memory at a time. The file (or map) is read twice,
 /// three times for core areas, gyrate, circle and enn (four for gyrate with cell_center), once more for the
-/// patches (`labels`: in memory, or to a file block by block).
+/// patches (`labels`: in memory, or to a file block by block). `tell` is told each block read (which of how many;
+/// false: stopped).
 pub fn measure_tiled(
     source: Rows,
     options: &ffi::LsmOptions,
     specs: &[(&'static str, &str)],
-    rows: Option<usize>,
-    labels: Labels,
+    (rows, labels): (Option<usize>, Labels),
+    tell: &mut dyn FnMut(usize, usize) -> bool,
 ) -> Result<Measured> {
     let grid = source.grid().clone();
     let (nx, ny) = (grid.width, grid.height);
@@ -302,8 +303,11 @@ pub fn measure_tiled(
     let step = block_rows(rows, nx);
     let blocks: Vec<(usize, usize)> = (0..ny).step_by(step).map(|y0| (y0, step.min(ny - y0))).collect();
     // every block with `halo` rows of context above and below
-    let each = |halo: usize, f: &mut BlockFn| {
-        for &(y0, n) in &blocks {
+    let mut each = |halo: usize, f: &mut BlockFn| {
+        for (k, &(y0, n)) in blocks.iter().enumerate() {
+            if !tell(k, blocks.len()) {
+                return Err(Error::msg("stopped"));
+            }
             let (above, below) = (halo.min(y0), halo.min(ny - y0 - n));
             let (values, na) = source.read(y0 - above, y0 + n + below)?;
             f(&values, &na, y0, n, above, below)?;
@@ -590,7 +594,7 @@ impl Operator for Metrics {
         }
     }
 
-    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let rows = rows_param(args)?;
         // the map in memory, or rasters on disk read by blocks (when large, or asked to)
         let (in_memory, disk) = match args.get("map") {
@@ -634,15 +638,17 @@ impl Operator for Metrics {
         let show = show.map(|m| m.metric);
         let specs: Vec<(&'static str, &str)> = metrics.iter().map(|m| (self.level, m.metric)).collect();
         let patch = self.level == "patch";
+        // (by blocks: stopped between two blocks)
+        let mut tell = |k: usize, of: usize| ctx.progress(None, format!("block {} of {of}", k + 1));
         let m = match (&in_memory, &disk) {
             (Some(map), _) if !tiled => measure(map, &options(args)?, &specs, patch),
             (Some(map), _) => {
                 let labels = if patch { Labels::Memory } else { Labels::None };
-                measure_tiled(Rows::Memory(map), &options(args)?, &specs, rows, labels)
+                measure_tiled(Rows::Memory(map), &options(args)?, &specs, (rows, labels), &mut tell)
             }
             (None, Some(r)) => {
                 let labels = patches_path.as_deref().map_or(Labels::None, Labels::File);
-                measure_tiled(Rows::Disk(r), &options(args)?, &specs, rows, labels)
+                measure_tiled(Rows::Disk(r), &options(args)?, &specs, (rows, labels), &mut tell)
             }
             (None, None) => unreachable!(),
         }
@@ -770,7 +776,7 @@ impl Operator for Window {
         ))
     }
 
-    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let fail = |e: Error| Error::msg(format!("node {:?}: {e}", args.node));
         let source = Source::of(args, "map")?;
         let metrics = chosen(args, "landscape")?;
@@ -808,6 +814,13 @@ impl Operator for Window {
         };
         // strips of at least four times the halo's rows, the cells measured twice at most a third of them
         let step = block_rows(source.block_rows(), nx).max(block_rows(Some(4 * halo), nx));
+        // how far the strips are (stopped between two strips)
+        let told = |ctx: &mut Ctx, y0: usize| {
+            if ny > step && !ctx.progress(Some(y0 as f64 / ny as f64), format!("rows {y0} of {ny}")) {
+                return Err(fail(Error::msg("stopped")));
+            }
+            Ok(())
+        };
         match &source {
             Source::Disk(r, _) => {
                 let path = match args.opt_param::<String>("path")?.filter(|p| !p.is_empty()) {
@@ -828,6 +841,7 @@ impl Operator for Window {
                 let mut out =
                     crate::files::RowsWriter::create_bands(&path, &grid, &bands, DataType::F64, None).map_err(fail)?;
                 for y0 in (0..ny).step_by(step) {
+                    told(ctx, y0)?;
                     let maps = strip(y0, step.min(ny - y0)).map_err(fail)?;
                     let maps: Vec<&[f64]> = maps.iter().map(Vec::as_slice).collect();
                     out.push_bands(&maps).map_err(fail)?;
@@ -840,6 +854,7 @@ impl Operator for Window {
                 let mut layers = vec![Vec::with_capacity(ny * nx); names.len()];
                 let step = if source.tiled() { step } else { ny.max(1) };
                 for y0 in (0..ny).step_by(step) {
+                    told(ctx, y0)?;
                     for (l, m) in layers.iter_mut().zip(strip(y0, step.min(ny - y0)).map_err(fail)?) {
                         l.extend(m);
                     }

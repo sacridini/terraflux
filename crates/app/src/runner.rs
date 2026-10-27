@@ -1,9 +1,10 @@
 //! Running a model in the background: the engine in a thread, its progress, maps and warnings sent to the
 //! application as they come, and a way to stop it. The outputs of the nodes are kept in a cache shared with
-//! the application (which shows them), so that a run after an edit only runs what changed.
+//! the application (which shows them), so that a run after an edit only runs what changed. A whole run of a model
+//! saved writes its outputs and the manifest of the run (`output/manifest.json`), as `terraflux run` does.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
@@ -45,8 +46,39 @@ pub enum Message {
     },
     /// The node that stopped the run.
     Failed(String),
+    /// The outputs and the manifest written (the manifest's file), or why not.
+    Recorded(Result<PathBuf, String>),
     /// The run ended.
     Done(Result<Results, String>),
+}
+
+/// Where a whole run writes what it gave: the model's file (as saved: the manifest hashes it) and the folder of
+/// its outputs.
+pub struct Record {
+    pub model_file: PathBuf,
+    pub out: PathBuf,
+}
+
+impl Record {
+    /// The model's outputs (`set_output`) written into the folder, and the manifest of the run with them.
+    fn write(&self, model: &Model, base: &Path, results: &Results) -> Result<PathBuf, String> {
+        let files = terraflux_exec::write_outputs(model, results, &self.out).map_err(|e| e.to_string())?;
+        let written: Vec<(String, PathBuf)> = model.outputs.keys().cloned().zip(files).collect();
+        let manifest = terraflux_exec::testing::manifest(
+            &self.model_file,
+            model,
+            &std::path::absolute(base).unwrap_or_else(|_| base.to_path_buf()),
+            &BTreeMap::new(),
+            None,
+            &[],
+            &written,
+        )
+        .map_err(|e| e.to_string())?;
+        let path = self.out.join("manifest.json");
+        let text = serde_json::to_string_pretty(&manifest).map_err(|e| e.to_string())? + "\n";
+        std::fs::write(&path, text).map_err(|e| e.to_string())?;
+        Ok(path)
+    }
 }
 
 struct Sending {
@@ -107,13 +139,15 @@ pub struct Run {
 
 impl Run {
     /// Run the model in a thread on its inputs, read first (relative to `base`) when not given: every node, or
-    /// what `target` needs; the outputs kept in `cache`. `repaint` wakes the application.
+    /// what `target` needs; the outputs kept in `cache`, and written with the run's manifest when `record` says
+    /// where. `repaint` wakes the application.
     pub fn start(
         model: Model,
         inputs: Option<BTreeMap<String, Value>>,
         base: PathBuf,
         cache: Arc<Mutex<Cache>>,
         target: Option<String>,
+        record: Option<Record>,
         repaint: Box<dyn Fn() + Send>,
     ) -> Run {
         let (tx, rx) = channel();
@@ -133,6 +167,11 @@ impl Run {
                     let _ = obs.tx.send(Message::Failed(top));
                 }
                 let r = r.map_err(|e| e.to_string());
+                if let (Ok(results), Some(record)) = (&r, &record)
+                    && target.is_none()
+                {
+                    let _ = obs.tx.send(Message::Recorded(record.write(&model, &base, results)));
+                }
                 (obs.repaint)();
                 r
             })();
@@ -159,5 +198,56 @@ impl Drop for Run {
         if let Some(t) = self.thread.take() {
             let _ = t.join();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A whole run of a model saved writes its outputs and the run's manifest; a run up to a node does not.
+    #[test]
+    fn a_whole_run_writes_its_manifest() {
+        let dir = std::env::temp_dir().join(format!("terraflux-app-record-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("m.toml");
+        let text = [
+            "format = \"terraflux/1\"",
+            "[[nodes]]",
+            "id = \"land\"",
+            "op = \"nlm.random\"",
+            "params = { rows = 10, columns = 8, seed = 4 }",
+            "[outputs.land]",
+            "from = \"land.map\"",
+        ];
+        std::fs::write(&file, text.join("\n")).unwrap();
+        let model = Model::load_expanded(&file).unwrap();
+        let run = |target: Option<String>| {
+            let out = dir.join("output");
+            let record = Some(Record { model_file: file.clone(), out });
+            let cache = Arc::new(Mutex::new(Cache::default()));
+            let r = Run::start(model.clone(), None, dir.clone(), cache, target, record, Box::new(|| {}));
+            let mut recorded = None;
+            loop {
+                match r.rx.recv().unwrap() {
+                    Message::Recorded(x) => recorded = Some(x),
+                    Message::Done(d) => {
+                        d.unwrap();
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            recorded
+        };
+        assert!(run(Some("land".into())).is_none());
+        let manifest = run(None).unwrap().unwrap();
+        assert_eq!(manifest, dir.join("output").join("manifest.json"));
+        let mf: terraflux_exec::testing::Manifest =
+            serde_json::from_str(&std::fs::read_to_string(&manifest).unwrap()).unwrap();
+        assert_eq!(mf.seeds["land.seed"], serde_json::json!(4));
+        assert!(Path::new(&mf.outputs["land"].path).is_file());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
