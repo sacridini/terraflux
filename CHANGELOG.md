@@ -17,6 +17,10 @@ minor versions.
 - The document's pictures of maps in the viewer's palettes: the one chosen by hand for the output, else by what
   made it (MSPA's classes in GuidosToolbox's colours, elevations, ranks...), the classes in the model's legend's
   colours.
+- The Changes pane compares the model with any commit of its file ("Compare with a commit (git)": the last 50,
+  with their dates and messages), not only the last one.
+- A node's tables before and now side by side in the Changes pane, the cells that changed (by row and column
+  name) highlighted and the columns only one of them has in the colour of what was added or removed.
 
 ## [1.22.0] - 2026-10-27
 

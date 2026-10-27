@@ -309,6 +309,11 @@ escrevendo scripts). Depois, nesta ordem:
    Falta: frases para os outros operadores; as tabelas de mais de uma coluna (hoje só pares nome e valor).
 4. **Painel Changes:** comparar com um commit qualquer (hoje só o último); as tabelas lado a lado (hoje em
    palavras).
+   **Feito** (Unreleased): "Compare with a commit (git)" lista os últimos 50 commits do arquivo do modelo
+   (`review::commits`) e compara com o escolhido; as tabelas de um nó antes e agora lado a lado
+   (`review::tables_side_by_side`), as células que mudaram (por linha e nome de coluna) destacadas, as colunas
+   novas ou removidas na cor delas. Falta: as linhas casadas por uma chave (hoje pela posição); a tabela inteira
+   numa janela (hoje 12 linhas e 6 colunas).
 5. **Grupos e etapas:** ver no viewer o mapa de um nó de dentro de um grupo (hoje pelo documento); o cache por nó
    dentro de um grupo (hoje o grupo roda inteiro quando um nó muda).
 6. **Parameters e cenários:** a comparação pelos lotes distribuídos (hoje um cenário depois do outro, no app); as

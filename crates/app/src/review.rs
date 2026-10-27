@@ -426,13 +426,41 @@ pub fn compare_menu(ui: &mut Ui, s: &mut Session) -> bool {
         && let Some(p) = &file
     {
         ui.close();
-        match committed(p) {
+        match committed(p, "HEAD") {
             Ok(m) => {
                 compare(s, m, "the changes since the last commit");
                 begun = true;
             }
             Err(e) => s.notice = Some((e, std::time::Instant::now())),
         }
+    }
+    // any commit of the model's file
+    if let Some(p) = &file {
+        ui.menu_button("Compare with a commit (git)", |ui| match commits(p) {
+            Ok(list) if list.is_empty() => {
+                ui.label(RichText::new("no commit has the model's file").weak());
+            }
+            Ok(list) => {
+                egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+                    for c in &list {
+                        let text = format!("{}  {}  {}", c.hash, c.date, cut(&c.subject));
+                        if ui.button(RichText::new(text).small()).clicked() {
+                            ui.close();
+                            match committed(p, &c.hash) {
+                                Ok(m) => {
+                                    compare(s, m, &format!("the changes since {} ({})", c.hash, c.date));
+                                    begun = true;
+                                }
+                                Err(e) => s.notice = Some((e, std::time::Instant::now())),
+                            }
+                        }
+                    }
+                });
+            }
+            Err(e) => {
+                ui.label(RichText::new(e).weak());
+            }
+        });
     }
     if ui.button("Compare with a file...").clicked() {
         ui.close();
@@ -450,15 +478,68 @@ pub fn compare_menu(ui: &mut Ui, s: &mut Session) -> bool {
     begun
 }
 
-/// The model's file as its repository's last commit has it.
-fn committed(path: &Path) -> Result<Model, String> {
+/// A commit of the model's file.
+#[derive(Debug, Clone)]
+pub struct Commit {
+    pub hash: String,
+    pub date: String,
+    pub subject: String,
+}
+
+type Listed = Option<(std::path::PathBuf, std::time::Instant, Result<Vec<Commit>, String>)>;
+
+thread_local! {
+    /// The commits of the model's file last listed, and when (listed again after a few seconds: the menu asks every
+    /// frame it is open).
+    static COMMITS: std::cell::RefCell<Listed> = const { std::cell::RefCell::new(None) };
+}
+
+/// The model file's commits, the newest first (the last 50).
+pub fn commits(path: &Path) -> Result<Vec<Commit>, String> {
+    let fresh = |(p, t, _): &&(std::path::PathBuf, std::time::Instant, _)| {
+        p == path && t.elapsed() < std::time::Duration::from_secs(5)
+    };
+    if let Some(r) = COMMITS.with(|c| c.borrow().as_ref().filter(fresh).map(|(_, _, r)| r.clone())) {
+        return r;
+    }
+    let r = (|| {
+        let dir = path.parent().ok_or("the model has no folder")?;
+        let name = path.file_name().ok_or("the model has no file")?.to_string_lossy().into_owned();
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["log", "-n", "50", "--date=short", "--format=%h%x09%ad%x09%s", "--"])
+            .arg(&name)
+            .output()
+            .map_err(|e| format!("git did not run: {e}"))?;
+        if !out.status.success() {
+            return Err(format!("git: {}", String::from_utf8_lossy(&out.stderr).trim()));
+        }
+        Ok(String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter_map(|l| {
+                let mut f = l.splitn(3, '\t');
+                Some(Commit {
+                    hash: f.next()?.to_string(),
+                    date: f.next()?.to_string(),
+                    subject: f.next().unwrap_or_default().to_string(),
+                })
+            })
+            .collect())
+    })();
+    COMMITS.with(|c| *c.borrow_mut() = Some((path.to_path_buf(), std::time::Instant::now(), r.clone())));
+    r
+}
+
+/// The model's file as a commit of its repository has it (`rev`: HEAD, a hash).
+fn committed(path: &Path, rev: &str) -> Result<Model, String> {
     let dir = path.parent().ok_or("the model has no folder")?;
     let name = path.file_name().ok_or("the model has no file")?.to_string_lossy().into_owned();
     let out = std::process::Command::new("git")
         .arg("-C")
         .arg(dir)
         .arg("show")
-        .arg(format!("HEAD:./{name}"))
+        .arg(format!("{rev}:./{name}"))
         .output()
         .map_err(|e| format!("git did not run: {e}"))?;
     if !out.status.success() {
@@ -466,7 +547,7 @@ fn committed(path: &Path) -> Result<Model, String> {
     }
     let text = String::from_utf8_lossy(&out.stdout);
     let m = if name.to_lowercase().ends_with(".json") { Model::from_json(&text) } else { Model::from_toml(&text) };
-    m.map_err(|e| format!("{name} in the last commit: {e}"))
+    m.map_err(|e| format!("{name} in {rev}: {e}"))
 }
 
 /// The Changes pane: the review going on, its changes to accept or reject.
@@ -584,6 +665,13 @@ fn before_after(ui: &mut Ui, s: &mut Session, r: &Registry, k: usize, id: &str) 
                         }
                     });
                 }
+                (b @ (Some(V::Table(_)) | None), a @ (Some(V::Table(_)) | None)) => {
+                    let t = |v: &Option<V>| match v {
+                        Some(V::Table(t)) => Some(t.clone()),
+                        _ => None,
+                    };
+                    tables_side_by_side(ui, t(b).as_ref(), t(a).as_ref(), (k, id));
+                }
                 _ => {
                     let say = |v: &Option<V>| v.as_ref().map_or("not run".into(), crate::tools::summarise);
                     ui.label(RichText::new(format!("before: {}", say(&before))).small());
@@ -591,6 +679,73 @@ fn before_after(ui: &mut Ui, s: &mut Session, r: &Registry, k: usize, id: &str) 
                 }
             }
         });
+}
+
+/// The rows and columns of a table shown side by side, at most.
+const TABLE_ROWS: usize = 12;
+const TABLE_COLUMNS: usize = 6;
+
+/// A cell of a table, by row and column name.
+fn cell_of(t: Option<&terraflux_ops::Table>, row: usize, col: &str) -> Option<f64> {
+    let t = t?;
+    let j = t.columns.iter().position(|c| c == col)?;
+    t.rows.get(row)?.get(j).copied()
+}
+
+/// Whether a cell differs from the same cell (row, column name) of the other table.
+pub fn cell_differs(t: &terraflux_ops::Table, other: &terraflux_ops::Table, row: usize, col: &str) -> bool {
+    match (cell_of(Some(t), row, col), cell_of(Some(other), row, col)) {
+        (Some(a), Some(b)) => !(a == b || (a.is_nan() && b.is_nan())),
+        (None, None) => false,
+        _ => true,
+    }
+}
+
+/// A table before and now, side by side: the cells that differ (by row and column name) in the colour of a change,
+/// the columns only one of them has in the colour of what was removed or added.
+pub fn tables_side_by_side(
+    ui: &mut Ui,
+    before: Option<&terraflux_ops::Table>,
+    now: Option<&terraflux_ops::Table>,
+    salt: impl std::hash::Hash + std::fmt::Debug + Copy,
+) {
+    ui.horizontal_top(|ui| {
+        for (k, (label, t, other)) in [("before", before, now), ("now", now, before)].into_iter().enumerate() {
+            ui.vertical(|ui| {
+                ui.label(RichText::new(label).small().weak());
+                let Some(t) = t else {
+                    ui.label(RichText::new("not run").small().weak());
+                    return;
+                };
+                let w = (ui.available_width() / (2 - k) as f32 - 8.0).max(120.0);
+                egui::ScrollArea::horizontal().id_salt(("side by side", salt, k)).max_width(w).show(ui, |ui| {
+                    egui::Grid::new(("side by side grid", salt, k)).striped(true).spacing([8.0, 2.0]).show(ui, |ui| {
+                        let cols: Vec<&String> = t.columns.iter().take(TABLE_COLUMNS).collect();
+                        for c in &cols {
+                            let alone = other.is_some_and(|o| !o.columns.contains(c));
+                            let text = RichText::new(c.as_str()).small().strong();
+                            ui.label(if alone { text.color(if k == 0 { REMOVED } else { ADDED }) } else { text });
+                        }
+                        ui.end_row();
+                        for i in 0..t.rows.len().min(TABLE_ROWS) {
+                            for c in &cols {
+                                let v = cell_of(Some(t), i, c);
+                                let text =
+                                    RichText::new(v.map_or(String::new(), crate::report::cell)).small().monospace();
+                                let differs = other.is_some_and(|o| cell_differs(t, o, i, c));
+                                ui.label(if differs { text.color(CHANGED) } else { text });
+                            }
+                            ui.end_row();
+                        }
+                    });
+                });
+                if t.rows.len() > TABLE_ROWS || t.columns.len() > TABLE_COLUMNS {
+                    let more = format!("{} rows, {} columns", t.rows.len(), t.columns.len());
+                    ui.label(RichText::new(more).small().weak());
+                }
+            });
+        }
+    });
 }
 
 #[cfg(test)]
@@ -680,5 +835,55 @@ mod tests {
         follow(&mut s);
         assert_eq!(s.source, at);
         assert!(s.review.is_none());
+    }
+
+    #[test]
+    fn a_model_is_compared_with_any_of_its_commits() {
+        let dir = std::env::temp_dir().join(format!("terraflux-commits-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let git = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&dir)
+                .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
+                .args(args)
+                .output()
+                .is_ok_and(|o| o.status.success());
+            assert!(ok, "git {args:?}");
+        };
+        git(&["init", "-q"]);
+        let path = dir.join("m.toml");
+        let mut m = model();
+        m.save(&path).unwrap();
+        git(&["add", "m.toml"]);
+        git(&["commit", "-q", "-m", "the first threshold"]);
+        m.nodes[1].params.insert("expression".into(), "x > 0.7".into());
+        m.save(&path).unwrap();
+        git(&["commit", "-q", "-am", "a stricter threshold"]);
+        let all = commits(&path).unwrap();
+        let subjects: Vec<&str> = all.iter().map(|c| c.subject.as_str()).collect();
+        assert_eq!(subjects, ["a stricter threshold", "the first threshold"]);
+        assert_eq!(all[1].date.len(), 10, "{:?}", all[1]);
+        // the model as the first commit has it
+        let first = committed(&path, &all[1].hash).unwrap();
+        assert_eq!(first.node("high").unwrap().params["expression"], "x > 0.5");
+        assert_eq!(committed(&path, "HEAD").unwrap().node("high").unwrap().params["expression"], "x > 0.7");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn table_cells_differ_by_row_and_column_name() {
+        let t = |columns: &[&str], rows: Vec<Vec<f64>>| terraflux_ops::Table {
+            columns: columns.iter().map(|c| c.to_string()).collect(),
+            rows,
+        };
+        let before = t(&["class", "area"], vec![vec![1.0, 10.0], vec![2.0, f64::NAN]]);
+        let now = t(&["area", "class", "edge"], vec![vec![12.0, 1.0, 3.0], vec![f64::NAN, 2.0, 4.0]]);
+        assert!(!cell_differs(&before, &now, 0, "class"), "the same cell, the columns in another order");
+        assert!(cell_differs(&before, &now, 0, "area"));
+        assert!(!cell_differs(&before, &now, 1, "area"), "no data on both sides");
+        assert!(cell_differs(&now, &before, 0, "edge"), "a column only one has");
+        assert!(!cell_differs(&before, &now, 5, "area"), "a row neither has");
     }
 }
