@@ -2984,6 +2984,12 @@ impl TerrafluxApp {
         if self.batch.running() {
             ui.ctx().request_repaint_after(Duration::from_millis(500));
         }
+        // a comparison of the Parameters pane run in Many runs: its runs back there
+        self.params.in_batch = self.batch.compare.is_some() && self.batch.running();
+        if let Some(c) = self.batch.compared.take() {
+            self.params.from_batch = Some(c);
+            ui.ctx().request_repaint();
+        }
         // the cell under the pointer, from the map that has it this frame
         self.hover = None;
         if self.wizard.is_none() {
@@ -3153,6 +3159,20 @@ impl TerrafluxApp {
                 Some(crate::params_view::Asked::Calibrate) => {
                     crate::params_view::to_calibration(&mut self.batch, &s.source);
                     self.focus(Pane::Batch);
+                }
+                Some(crate::params_view::Asked::CompareInManyRuns(output)) => {
+                    let chosen = self.params.chosen.clone();
+                    crate::params_view::to_batch_compare(&mut self.batch, &s.source, &chosen, &output);
+                    match crate::batch_view::start(&mut self.batch, s, r, &mut self.computers, ui.ctx()) {
+                        Ok(()) => {
+                            self.params.in_batch = true;
+                            self.params.error = None;
+                        }
+                        Err(e) => {
+                            self.batch.compare = None;
+                            self.params.error = Some(e);
+                        }
+                    }
                 }
                 None => {}
             },

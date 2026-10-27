@@ -20,7 +20,7 @@ use crate::report::{Picture, Shown, visual};
 use crate::theme;
 
 /// What a comparison gave of each scenario: its value, or why it failed.
-type Compared = Vec<(String, Result<Value, String>)>;
+pub type Compared = Vec<(String, Result<Value, String>)>;
 
 /// The image of a value compared (none: not a map), and what of the value it is.
 type Image = Option<(TextureHandle, Option<String>)>;
@@ -41,6 +41,12 @@ pub struct State {
     pub editing: Option<String>,
     pub filter: String,
     pub error: Option<String>,
+    /// A comparison running in Many runs (on this computer and those helping it, or a cluster), and what it gave
+    /// when it ends (the application passes it on).
+    pub in_batch: bool,
+    pub from_batch: Option<(String, Compared)>,
+    /// Whether the maps compared are of classes, as the viewer shows them (their differences: their changes).
+    pub classes: bool,
 }
 
 impl State {
@@ -292,14 +298,71 @@ fn compare(st: &mut State, s: &Session, output: &str, ctx: &egui::Context) {
     st.images.clear();
 }
 
-/// A value's difference from another's: maps of the same grid cell by cell, tables of the same shape cell by cell,
-/// numbers; none otherwise.
-pub fn difference(a: &Value, b: &Value) -> Option<Value> {
-    let last = |v: &Value| match v {
+/// Whether the maps of a comparison of `output` (`node.port`) are of classes, as the viewer shows that output
+/// (its operator's palette, the model's legend, else its values).
+fn classes_of(s: &Session, output: &str, c: &Compared) -> bool {
+    let Ok(terraflux_graph::Ref::Port { node, port }) = terraflux_graph::Ref::parse(output) else { return false };
+    match c.iter().find_map(|(_, v)| v.as_ref().ok().and_then(last)) {
+        Some(Value::Map(m)) => {
+            matches!(crate::builder::output_look(s, &node, &port, &m).coloring, crate::palette::Coloring::Classes(_))
+        }
+        _ => false,
+    }
+}
+
+/// A value as compared: a series' last step.
+fn last(v: &Value) -> Option<Value> {
+    match v {
         Value::Series(s) => s.last().cloned(),
         v => Some(v.clone()),
-    };
+    }
+}
+
+/// Whether a map holds classes: whole numbers, a few of them.
+fn is_classes(data: &[f64]) -> bool {
+    let mut seen = BTreeSet::new();
+    for v in data.iter().filter(|v| v.is_finite()) {
+        if v.fract() != 0.0 || (seen.insert(*v as i64) && seen.len() > 32) {
+            return false;
+        }
+    }
+    !seen.is_empty()
+}
+
+/// The cells that changed class, of the cells both maps have, and each change (from, to) with its cells.
+pub type Changes = (usize, usize, Vec<((i64, i64), usize)>);
+
+/// How the classes of two maps of the same grid differ, the changes of the most cells first; none unless both are
+/// maps of classes.
+pub fn class_changes(a: &Value, b: &Value) -> Option<Changes> {
+    let (Value::Map(x), Value::Map(y)) = (last(a)?, last(b)?) else { return None };
+    if x.data.len() != y.data.len() || !is_classes(&x.data) || !is_classes(&y.data) {
+        return None;
+    }
+    let mut changes: BTreeMap<(i64, i64), usize> = BTreeMap::new();
+    let mut both = 0;
+    for (p, q) in x.data.iter().zip(y.data.iter()).filter(|(p, q)| p.is_finite() && q.is_finite()) {
+        both += 1;
+        if p != q {
+            *changes.entry((*p as i64, *q as i64)).or_default() += 1;
+        }
+    }
+    let mut list: Vec<((i64, i64), usize)> = changes.into_iter().collect();
+    list.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    Some((list.iter().map(|(_, n)| n).sum(), both, list))
+}
+
+/// A value's difference from another's: maps of classes (`classes`: as the viewer shows them) the class each cell
+/// changed to (no data where it did not change), other maps of the same grid cell by cell, tables of the same
+/// shape cell by cell, numbers; none otherwise.
+pub fn difference(a: &Value, b: &Value, classes: bool) -> Option<Value> {
     match (last(a)?, last(b)?) {
+        (Value::Map(x), Value::Map(y))
+            if classes && x.data.len() == y.data.len() && is_classes(&x.data) && is_classes(&y.data) =>
+        {
+            let d = x.data.iter().zip(y.data.iter()).map(|(p, q)| if p == q { f64::NAN } else { *q }).collect();
+            Some(Value::Map(terraflux_ops::Map::new(y.grid.clone(), d)))
+        }
         (Value::Map(x), Value::Map(y)) if x.data.len() == y.data.len() => {
             let d = x.data.iter().zip(y.data.iter()).map(|(p, q)| q - p).collect();
             Some(Value::Map(terraflux_ops::Map::new(y.grid.clone(), d)))
@@ -346,7 +409,7 @@ fn shown_value(ui: &mut Ui, img: &Image, v: &Value, w: f32) {
 }
 
 /// The images of a comparison's values and differences (made once, when it comes).
-fn images(ctx: &egui::Context, compared: &Compared) -> Vec<(String, Image)> {
+fn images(ctx: &egui::Context, compared: &Compared, classes: bool) -> Vec<(String, Image)> {
     let pic = |name: &str, v: &Value| {
         let vis = visual(v, 256)?;
         let Shown::Picture(Picture { width, height, rgba }) = &vis.shown else { return None };
@@ -361,7 +424,7 @@ fn images(ctx: &egui::Context, compared: &Compared) -> Vec<(String, Image)> {
             continue;
         };
         out.push((name.clone(), pic(name, v)));
-        let d = first.and_then(|f| difference(f, v));
+        let d = first.and_then(|f| difference(f, v, classes));
         out.push((format!("{name} - first"), d.as_ref().and_then(|d| pic(&format!("{name}-diff"), d))));
     }
     out
@@ -415,6 +478,17 @@ pub enum Asked {
     ManyRuns,
     /// The parameters of a range to Many runs' calibration.
     Calibrate,
+    /// The scenarios checked compared through Many runs, on the output (`node.port`).
+    CompareInManyRuns(String),
+}
+
+/// The scenarios checked as a batch of Many runs that keeps the output compared, its runs sent back to the pane.
+pub fn to_batch_compare(st: &mut crate::batch_view::BatchState, m: &Model, chosen: &BTreeSet<String>, output: &str) {
+    to_batch(st, m);
+    st.scenarios.retain(|(name, _)| chosen.contains(name));
+    st.keep = Some([output.to_string()].into());
+    st.out = None;
+    st.compare = Some(output.to_string());
 }
 
 /// The Parameters pane.
@@ -424,8 +498,12 @@ pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) -> Optio
         && let Ok(c) = rx.try_recv()
     {
         st.running = None;
-        st.images = images(ui.ctx(), &c);
-        st.compared = Some((st.output.clone().unwrap_or_default(), c));
+        st.from_batch = Some((st.output.clone().unwrap_or_default(), c));
+    }
+    if let Some((output, c)) = st.from_batch.take() {
+        st.classes = classes_of(s, &output, &c);
+        st.images = images(ui.ctx(), &c, st.classes);
+        st.compared = Some((output, c));
     }
     egui::ScrollArea::vertical().id_salt("parameters pane").show(ui, |ui| {
         egui::Frame::new().inner_margin(egui::Margin::same(8)).show(ui, |ui| {
@@ -619,7 +697,7 @@ fn scenarios_ui(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry, aske
                 }
             });
         let chosen = s.source.scenarios.iter().filter(|sc| st.chosen.contains(&sc.name)).count();
-        let can = chosen >= 1 && st.output.is_some() && !st.running();
+        let can = chosen >= 1 && st.output.is_some() && !st.running() && !st.in_batch;
         if ui
             .add_enabled(can, crate::app::accent_button("Compare", true))
             .on_hover_text("run each scenario checked up to the output, side by side, with its difference from the first")
@@ -628,8 +706,22 @@ fn scenarios_ui(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry, aske
         {
             compare(st, s, &o, ui.ctx());
         }
-        if st.running() {
+        if ui
+            .add_enabled(can, egui::Button::new("Compare in Many runs"))
+            .on_hover_text(
+                "the same, the scenarios run at once as a batch: on this computer and those helping it, or a cluster \
+                 (Many runs' choice)",
+            )
+            .clicked()
+            && let Some(o) = st.output.clone()
+        {
+            *asked = Some(Asked::CompareInManyRuns(o));
+        }
+        if st.running() || st.in_batch {
             ui.spinner();
+        }
+        if st.in_batch {
+            ui.label(RichText::new("running in Many runs").small().weak());
         }
         if ui.button("To Many runs").on_hover_text("the scenarios as Many runs' table, to run them all at once (on other computers too)").clicked() {
             *asked = Some(Asked::ManyRuns);
@@ -670,15 +762,39 @@ fn scenarios_ui(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry, aske
                 for (k, (name, v)) in compared.iter().enumerate() {
                     ui.vertical(|ui| {
                         if k == 0 {
-                            ui.label(RichText::new("the others less this one:").small().weak());
+                            let text = if st.classes {
+                                "where the others' classes differ from this one's:"
+                            } else {
+                                "the others less this one:"
+                            };
+                            ui.label(RichText::new(text).small().weak());
                             return;
                         }
                         let (Some(f), Ok(v)) = (first, v) else { return };
-                        match difference(f, v) {
+                        match difference(f, v, st.classes) {
                             Some(d) => {
                                 let key = format!("{name} - first");
                                 let img = st.images.iter().find(|(n, _)| *n == key).and_then(|(_, i)| i.clone());
                                 shown_value(ui, &img, &d, w);
+                                // a map of classes: how many cells changed, and the changes the most first
+                                if let Some((changed, of, list)) = class_changes(f, v).filter(|_| st.classes) {
+                                    let share = 100.0 * changed as f64 / of.max(1) as f64;
+                                    ui.label(
+                                        RichText::new(format!("{changed} cells changed class ({share:.1}%)")).small(),
+                                    );
+                                    for ((from, to), n) in list.iter().take(5) {
+                                        ui.label(
+                                            RichText::new(format!("{from} → {to}: {n}")).small().monospace().weak(),
+                                        );
+                                    }
+                                    if list.len() > 5 {
+                                        ui.label(
+                                            RichText::new(format!("and {} more changes", list.len() - 5))
+                                                .small()
+                                                .weak(),
+                                        );
+                                    }
+                                }
                             }
                             None => {
                                 ui.label(RichText::new("not comparable").small().weak());
@@ -751,15 +867,39 @@ mod tests {
         let grid = std::sync::Arc::new(terraflux_raster::Grid::new(2, 1));
         let a = Value::Map(terraflux_ops::Map::new(grid.clone(), vec![1.0, 2.0]));
         let b = Value::Series(vec![Value::Map(terraflux_ops::Map::new(grid, vec![4.0, 0.0]))]);
-        let Some(Value::Map(d)) = difference(&a, &b) else { panic!() };
+        let Some(Value::Map(d)) = difference(&a, &b, false) else { panic!() };
         assert_eq!(d.data.as_ref(), &vec![3.0, -2.0], "the last step of a series, less the first");
         let mut t = terraflux_ops::Table::new(vec!["x".into()]);
         t.rows = vec![vec![1.0]];
         let mut u = t.clone();
         u.rows = vec![vec![1.5]];
-        let Some(Value::Table(d)) = difference(&Value::Table(t), &Value::Table(u)) else { panic!() };
+        let Some(Value::Table(d)) = difference(&Value::Table(t), &Value::Table(u), false) else { panic!() };
         assert_eq!(d.rows, vec![vec![0.5]]);
-        assert!(matches!(difference(&Value::Number(1.0), &Value::Number(3.0)), Some(Value::Number(2.0))));
-        assert!(difference(&Value::Number(1.0), &Value::Text("x".into())).is_none());
+        assert!(matches!(difference(&Value::Number(1.0), &Value::Number(3.0), false), Some(Value::Number(2.0))));
+        assert!(difference(&Value::Number(1.0), &Value::Text("x".into()), false).is_none());
+    }
+
+    #[test]
+    fn maps_of_classes_differ_by_their_changes() {
+        let grid = std::sync::Arc::new(terraflux_raster::Grid::new(3, 2));
+        let map = |v: Vec<f64>| Value::Map(terraflux_ops::Map::new(grid.clone(), v));
+        let a = map(vec![1.0, 1.0, 2.0, 2.0, 3.0, f64::NAN]);
+        let b = map(vec![1.0, 2.0, 2.0, 3.0, 2.0, 1.0]);
+        // the class each cell changed to, no data where it stayed
+        let Some(Value::Map(d)) = difference(&a, &b, true) else { panic!() };
+        let shown: Vec<String> = d.data.iter().map(|v| v.to_string()).collect();
+        assert_eq!(shown, ["NaN", "2", "NaN", "3", "2", "1"]);
+        // three changes of a cell each, of the five cells both have
+        let (changed, of, list) = class_changes(&a, &b).unwrap();
+        assert_eq!((changed, of), (3, 5));
+        assert_eq!(list, [((1, 2), 1), ((2, 3), 1), ((3, 2), 1)]);
+        // continuous values: subtracted, no changes of class
+        let fine = map(vec![0.5, 1.0, 2.0, 2.0, 3.0, 1.0]);
+        assert!(class_changes(&fine, &b).is_none());
+        let Some(Value::Map(d)) = difference(&fine, &b, true) else { panic!() };
+        assert_eq!(d.data[0], 0.5);
+        // classes the viewer does not show as classes (counts...): subtracted
+        let Some(Value::Map(d)) = difference(&a, &b, false) else { panic!() };
+        assert_eq!(d.data[1], 1.0);
     }
 }

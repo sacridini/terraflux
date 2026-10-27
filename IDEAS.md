@@ -324,6 +324,12 @@ escrevendo scripts). Depois, nesta ordem:
    Falta: o mesmo nos corpos dos laços e do switch (hoje rodam inteiros); congelar um nó de dentro de um grupo.
 6. **Parameters e cenários:** a comparação pelos lotes distribuídos (hoje um cenário depois do outro, no app); as
    diferenças em mapas de classes (hoje a subtração dos valores).
+   **Feito** (Unreleased): "Compare in Many runs" manda os cenários marcados como um lote do Many runs (o pool
+   deste computador e dos que ajudam, ou um cluster) que guarda só a saída comparada; no fim, cada execução é lida
+   de volta (`frozen::read_written`) e mostrada lado a lado no painel, na ordem dos cenários. Nos mapas de classes
+   (como o viewer os mostra: a paleta do operador, a legenda do modelo, os valores), a diferença é a classe para
+   a qual cada célula mudou (sem dado onde não mudou), com quantas células mudaram e as mudanças mais comuns
+   (`class_changes`). Falta: a matriz de transições inteira; mais de um resultado comparado por vez.
 7. **Trace:** a célula marcada nos mapas de cada passo ao selecionar um cartão; a mancha inteira de um operador de
    manchas (hoje a janela ao redor); a demanda do passo numa alocação explicada em palavras.
 8. **Assistant:** destacar os nós durante a edição (além da seleção); as edições passando pela revisão do painel

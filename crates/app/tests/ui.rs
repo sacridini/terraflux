@@ -967,6 +967,57 @@ fn parameters_and_scenarios_from_their_pane() {
     );
     assert!(h.query_by_label_contains("the others less this one").is_some());
     shot(&mut h, "45-parameters");
+    // the same through Many runs: the scenarios as a batch on this computer's pool, their maps back here
+    let runs = tmp("ui-params");
+    let _ = std::fs::remove_dir_all(&runs);
+    let _ = std::fs::remove_dir_all(tmp("ui-params-pool"));
+    {
+        let a = h.state_mut();
+        a.computers.pool = None;
+        a.computers.dir = Some(tmp("ui-params-pool"));
+        a.batch.workers = 2;
+        let s = a.session.as_mut().unwrap();
+        std::fs::create_dir_all(&runs).unwrap();
+        s.source.save(runs.join("neutral.toml")).unwrap();
+        s.path = Some(runs.join("neutral.toml"));
+        a.params.compared = None;
+    }
+    h.run_steps(1);
+    h.get_by_label("Compare in Many runs").click();
+    h.run_steps(2);
+    assert!(h.state().batch.running(), "{:?}", h.state().params.error);
+    assert!(h.state().params.in_batch);
+    until(&mut h, "the comparison in Many runs", |a| a.params.compared.is_some());
+    h.run_steps(3);
+    {
+        let a = h.state();
+        let (output, compared) = a.params.compared.as_ref().unwrap();
+        assert_eq!(output, "field.map");
+        let names: Vec<&str> = compared.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, ["fine", "coarse"], "in the scenarios' order");
+        for (n, v) in compared {
+            assert!(matches!(v, Ok(terraflux_ops::Value::Map(_))), "{n}: {:?}", v.as_ref().err());
+        }
+        assert!(!a.params.in_batch);
+        assert!(a.batch.finished.is_some(), "Many runs shows its runs too");
+    }
+    // maps of classes: their differences are the cells that changed class
+    {
+        let a = h.state_mut();
+        let s = a.session.as_mut().unwrap();
+        s.source.scenarios[0].values.insert("clusters.seed".into(), serde_json::json!(9));
+        s.edited();
+        a.params.output = Some("clusters.map".into());
+        a.params.compared = None;
+    }
+    h.run_steps(2);
+    h.get_by_label("Compare").click();
+    until(&mut h, "the comparison of classes", |a| a.params.compared.is_some());
+    h.run_steps(3);
+    assert!(h.state().params.classes, "the clusters are classes, as the viewer shows them");
+    assert!(h.query_by_label_contains("where the others' classes differ").is_some());
+    assert!(h.query_by_label_contains("cells changed class").is_some());
+    shot(&mut h, "51-scenario-classes");
     // a scenario applied: an edit of the model, run again
     h.get_all_by_label("Apply").next().unwrap().click();
     h.run_steps(2);

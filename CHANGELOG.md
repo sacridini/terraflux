@@ -23,6 +23,11 @@ minor versions.
   name) highlighted and the columns only one of them has in the colour of what was added or removed.
 - Inside a group, the node selected shows its map in the viewer, named by its place in the group
   (`preparation/temperature`), with its own outputs to choose from and Trace from its cells.
+- Compare in Many runs (Parameters): the scenarios checked run at once as a batch of Many runs (on this computer
+  and those helping it, or a cluster), their results shown side by side in the pane when it ends.
+- Scenarios compared on a map of classes differ by their changes: the class each cell changed to (nothing where
+  it stayed), how many cells changed class and the most common changes ("2 → 3: 8517"), instead of the values
+  subtracted.
 
 ### Changed
 - A group runs again only the nodes of its body that changed and what depends on them (and the same for the groups

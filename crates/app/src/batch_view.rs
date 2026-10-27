@@ -18,7 +18,7 @@ use terraflux_dist::evaluate::Evaluation;
 use terraflux_dist::proto::JobStatus;
 use terraflux_dist::run::{Batch, Event, Handle, Place, Progress, Start};
 use terraflux_graph::{Input, Model, Node, Source, Type};
-use terraflux_ops::Registry;
+use terraflux_ops::{Registry, Value};
 
 use crate::app::{Session, accent_button};
 use crate::computers::Computers;
@@ -362,6 +362,10 @@ pub struct BatchState {
     model_of: Option<String>,
     /// Where it runs: a cluster's name (none: this computer, and those helping it).
     pub on: Option<String>,
+    /// The output a comparison of the Parameters pane waits for from the batch running (`node.port`), and what
+    /// each run gave of it when it ends (by scenario), for that pane.
+    pub compare: Option<String>,
+    pub compared: Option<(String, crate::params_view::Compared)>,
 }
 
 impl Default for BatchState {
@@ -394,6 +398,8 @@ impl Default for BatchState {
             interrupted: None,
             model_of: None,
             on: None,
+            compare: None,
+            compared: None,
         }
     }
 }
@@ -444,6 +450,19 @@ impl BatchState {
         };
         let r = self.running.take().unwrap();
         r.record.drop_all();
+        if let Some(output) = self.compare.take() {
+            let runs = match &o {
+                Err(e) => vec![("the runs".into(), Err(e.clone()))],
+                Ok(o) => {
+                    let mut runs: Vec<(String, Result<Value, String>)> =
+                        o.results.iter().map(|t| (t.label.clone(), compared_of(&r.out, t, &output))).collect();
+                    // (in the scenarios' order, not the order they ended in)
+                    runs.sort_by_key(|(l, _)| self.scenarios.iter().position(|(n, _)| n == l));
+                    runs
+                }
+            };
+            self.compared = Some((output, runs));
+        }
         match o {
             Err(e) if e == terraflux_dist::run::STOPPED => self.error = None,
             Err(e) => self.error = Some(e),
@@ -518,11 +537,26 @@ impl BatchState {
                 finished: self.finished.take(),
                 interrupted: self.interrupted.take(),
                 on: self.on.take(),
+                compare: self.compare.take(),
                 model_of: Some(id),
                 ..Default::default()
             };
         }
     }
+}
+
+/// What a run of a batch gave of an output (`node.port`, kept as `node_port`), read back from its file.
+fn compared_of(out: &Path, t: &terraflux_dist::proto::TaskResult, output: &str) -> Result<Value, String> {
+    if !t.ok {
+        return Err(t.error.clone());
+    }
+    let name = output.replace(['.', '/'], "_");
+    let file = t
+        .files
+        .iter()
+        .find(|f| Path::new(&f.name).file_stem().is_some_and(|s| s.to_string_lossy() == name))
+        .ok_or_else(|| format!("the run wrote no {name}"))?;
+    terraflux_exec::frozen::read_written(&out.join(&t.label).join(&file.name)).map_err(|e| e.to_string())
 }
 
 /// A folder of results not used yet: `<model's folder>/<model> runs/<kind> <n>`.
@@ -652,7 +686,7 @@ fn default_start(m: &Model) -> Option<String> {
 }
 
 /// Start the batch chosen on the model of the session, on the application's pool.
-fn start(
+pub fn start(
     st: &mut BatchState,
     s: &Session,
     r: &Registry,

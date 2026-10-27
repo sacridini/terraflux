@@ -229,6 +229,31 @@ pub fn read(folder: &Path, node: &str) -> Result<(Outputs, u64)> {
     Ok((out, index.when))
 }
 
+/// A value [`write_value`] wrote (a run's output, a batch's), read back by its file's kind: rasters of one band a
+/// map, of more a series of maps (a step a band); CSV a table; JSON a number, else the JSON; a text.
+pub fn read_written(path: &Path) -> Result<Value> {
+    let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    Ok(match ext.as_str() {
+        "tif" | "tiff" => {
+            let r = Raster::read(path).map_err(|e| Error::Model(e.to_string()))?;
+            let grid = Arc::new(r.grid.clone());
+            let mut bands: Vec<Vec<f64>> = r.bands.iter().map(|b| b.masked(r.nodata)).collect();
+            if bands.len() == 1 {
+                Value::Map(Map::new(grid, bands.swap_remove(0)))
+            } else {
+                Value::Series(bands.into_iter().map(|b| Value::Map(Map::new(grid.clone(), b))).collect())
+            }
+        }
+        "csv" => Value::Table(table_of_csv(&std::fs::read_to_string(path)?)?),
+        "json" => {
+            let j: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path)?)
+                .map_err(|e| Error::Model(format!("{}: {e}", path.display())))?;
+            j.as_f64().map(Value::Number).unwrap_or(Value::Json(j))
+        }
+        _ => Value::Text(std::fs::read_to_string(path)?),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -291,6 +316,18 @@ mod tests {
         assert!(!folder.join("r").exists() && !folder.join(".r.new").exists());
         thaw(&folder, "n").unwrap();
         assert!(!folder.exists());
+        // the files a run writes, read back by their kind
+        let written = |name: &str, v: &Value| {
+            let p = dir.join(name);
+            write_value(v, &p, None).unwrap();
+            read_written(&p).unwrap()
+        };
+        let Value::Map(m) = written("one.tif", &Value::Map(classes.clone())) else { panic!("a map") };
+        assert_eq!(m.data[0], 1.0);
+        let steps = Value::Series(vec![Value::Map(classes.clone()), Value::Map(fine.clone())]);
+        assert!(matches!(written("steps.tif", &steps), Value::Series(s) if s.len() == 2));
+        assert!(matches!(written("t.csv", &Value::Table(table.clone())), Value::Table(t) if t.rows.len() == 2));
+        assert!(matches!(written("x.json", &Value::Number(2.5)), Value::Number(x) if x == 2.5));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
