@@ -109,6 +109,18 @@ const ESSENTIALS: &[(&str, &[&str])] = &[
     // neutral landscape models
     ("nlm.mosaic_field", &["rows", "columns", "resolution", "seed", "n", "mean", "sd"]),
     ("nlm.neigh", &["rows", "columns", "resolution", "seed", "categories", "proportions"]),
+    // ecosystem services
+    (
+        "services.ndr",
+        &[
+            "nitrogen",
+            "phosphorus",
+            "subsurface_critical_length",
+            "subsurface_efficiency",
+            "load_type_n",
+            "load_type_p",
+        ],
+    ),
 ];
 
 /// The essential inputs and settings of an operator of many settings (besides those it needs); none for an

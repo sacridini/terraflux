@@ -102,6 +102,11 @@
 #include "swat/swat.hpp"
 #include "serv/sdr.hpp"
 #include "serv/services.hpp"
+// services bridge (landschaft-d1)
+#include "serv/ndr.hpp"
+#include "serv/pollination.hpp"
+#include "serv/swy.hpp"
+// end services bridge (landschaft-d1)
 #include "sim/plus.hpp"
 #include "sim/rglm.hpp"
 #include "sim/rules.hpp"
@@ -4521,6 +4526,159 @@ rust::Vec<float> serv_sediment_deposition(rust::Slice<const std::int32_t> mfd, r
                                       sdr.data(), ny, nx, block, out.data(), out.data() + n);
     return to_rust<float>(out);
 }
+
+// services bridge (landschaft-d1): nutrient delivery, pollination, seasonal water yield
+
+rust::Vec<float> serv_ndr_retention(rust::Slice<const std::int32_t> mfd, rust::Slice<const std::uint8_t> d8,
+                                    rust::Slice<const std::uint8_t> stream, rust::Slice<const float> eff,
+                                    rust::Slice<const float> crit, std::int32_t ny, std::int32_t nx, double cell_size,
+                                    std::int32_t block) {
+    sized(stream, ny, nx, "the streams differ in size from the directions");
+    sized(eff, ny, nx, "the retention efficiency differs in size from the directions");
+    sized(crit, ny, nx, "the critical length differs in size from the directions");
+    std::vector<float> out(static_cast<std::size_t>(ny) * nx);
+    if (mfd.empty())
+        serv::ndr_retention_d8(sized(d8, ny, nx, "the directions differ in size"), stream.data(), eff.data(),
+                               crit.data(), ny, nx, cell_size, block, out.data());
+    else
+        serv::ndr_retention_mfd(sized(mfd, ny, nx, "the directions differ in size"), stream.data(), eff.data(),
+                                crit.data(), ny, nx, cell_size, block, out.data());
+    return to_rust<float>(out);
+}
+
+rust::Vec<float> serv_poll_kernel(double alpha, double max_distance) {
+    i64 size = 0;
+    return to_rust<float>(serv::exponential_kernel(alpha, max_distance, size));
+}
+
+rust::Vec<double> serv_poll_convolve(rust::Slice<const float> signal, std::int64_t ny, std::int64_t nx,
+                                     rust::Slice<const float> kernel, std::int32_t threads) {
+    check(ny >= 0 && nx >= 0 && signal.size() == static_cast<std::size_t>(ny * nx), "the map differs in size");
+    const auto k = static_cast<i64>(std::llround(std::sqrt(static_cast<double>(kernel.size()))));
+    check(k > 0 && static_cast<std::size_t>(k * k) == kernel.size(), "the kernel is a square");
+    std::vector<double> out(static_cast<std::size_t>(ny * nx));
+    serv::convolve_2d(signal.data(), ny, nx, kernel.data(), k, out.data(), threads);
+    return to_rust<double>(out);
+}
+
+rust::Vec<float> serv_poll_local(rust::Slice<const float> nesting, rust::Slice<const double> ns,
+                                 rust::Slice<const float> floral, rust::Slice<const double> fa, std::int64_t n,
+                                 std::int32_t threads) {
+    const auto nsub = static_cast<int>(ns.size()), nseason = static_cast<int>(fa.size());
+    check(nsub > 0 && nseason > 0, "no season or no substrate");
+    check(nesting.size() == static_cast<std::size_t>(nsub * n) && floral.size() == static_cast<std::size_t>(nseason * n),
+          "one map per substrate and per season");
+    std::vector<const float*> np, fp;
+    for (int s = 0; s < nsub; ++s) np.push_back(nesting.data() + s * n);
+    for (int j = 0; j < nseason; ++j) fp.push_back(floral.data() + j * n);
+    std::vector<float> out(static_cast<std::size_t>((2 + nseason) * n));
+    std::vector<float*> ff;
+    for (int j = 0; j < nseason; ++j) ff.push_back(out.data() + (2 + j) * n);
+    serv::pollination_local(np.data(), ns.data(), nsub, fp.data(), fa.data(), nseason, n, out.data(), ff.data(),
+                            out.data() + n, threads);
+    return to_rust<float>(out);
+}
+
+rust::Vec<float> serv_poll_supply(rust::Slice<const float> hn, rust::Slice<const double> fr, double sa,
+                                  std::int32_t threads) {
+    check(hn.size() == fr.size(), "the maps differ in size");
+    std::vector<float> out(hn.size());
+    serv::pollination_supply(hn.data(), fr.data(), sa, static_cast<i64>(hn.size()), out.data(), threads);
+    return to_rust<float>(out);
+}
+
+rust::Vec<float> serv_poll_abundance(rust::Slice<const float> ff, rust::Slice<const double> fr,
+                                     rust::Slice<const double> cps, rust::Slice<float> total, std::int32_t threads) {
+    check(ff.size() == fr.size() && ff.size() == cps.size() && ff.size() == total.size(), "the maps differ in size");
+    std::vector<float> out(ff.size());
+    serv::pollination_abundance(ff.data(), fr.data(), cps.data(), static_cast<i64>(ff.size()), out.data(),
+                                total.data(), threads);
+    return to_rust<float>(out);
+}
+
+rust::Vec<float> serv_poll_farm(rust::Slice<const float> half_sat, rust::Slice<const float> abundance,
+                                rust::Slice<float> total, std::int32_t threads) {
+    check(half_sat.size() == abundance.size() && half_sat.size() == total.size(), "the maps differ in size");
+    std::vector<float> out(half_sat.size());
+    serv::pollination_farm(half_sat.data(), abundance.data(), static_cast<i64>(half_sat.size()), out.data(),
+                           total.data(), threads);
+    return to_rust<float>(out);
+}
+
+rust::Vec<float> serv_poll_yield(rust::Slice<const float> managed, rust::Slice<const float> farm,
+                                 std::int32_t threads) {
+    check(managed.size() == farm.size(), "the maps differ in size");
+    const auto n = managed.size();
+    std::vector<float> out(2 * n);
+    serv::pollination_yield(managed.data(), farm.data(), static_cast<i64>(n), out.data(), out.data() + n, threads);
+    return to_rust<float>(out);
+}
+
+namespace {
+
+template <class P, class E>
+void swy_recharge(rust::Slice<const std::int32_t> mfd, rust::Slice<const std::uint8_t> d8, std::int32_t ny,
+                  std::int32_t nx, std::int32_t block, const P* precip, const E* et0, rust::Slice<const float> qf,
+                  rust::Slice<const float> kc, rust::Slice<const float> alpha, float beta, float gamma, double* out) {
+    const std::size_t n = static_cast<std::size_t>(ny) * nx;
+    serv::SwyMonths<P, E> in{precip, et0, qf.data(), kc.data(), alpha.data()};
+    if (mfd.empty())
+        serv::swy_local_recharge_d8(sized(d8, ny, nx, "the directions differ in size"), ny, nx, block, in, beta, gamma,
+                                    out, out + n, out + 2 * n, out + 3 * n, out + 4 * n);
+    else
+        serv::swy_local_recharge_mfd(sized(mfd, ny, nx, "the directions differ in size"), ny, nx, block, in, beta,
+                                     gamma, out, out + n, out + 2 * n, out + 3 * n, out + 4 * n);
+}
+
+}  // namespace
+
+rust::Vec<double> serv_swy_local_recharge(rust::Slice<const std::int32_t> mfd, rust::Slice<const std::uint8_t> d8,
+                                          std::int32_t ny, std::int32_t nx, std::int32_t block,
+                                          rust::Slice<const float> precip32, rust::Slice<const double> precip64,
+                                          rust::Slice<const float> et032, rust::Slice<const double> et064,
+                                          rust::Slice<const float> quickflow, rust::Slice<const float> kc,
+                                          rust::Slice<const float> alpha, float beta, float gamma) {
+    const std::size_t n = static_cast<std::size_t>(ny) * nx;
+    const bool p64 = !precip64.empty(), e64 = !et064.empty();
+    check((p64 ? precip64.size() : precip32.size()) == 12 * n, "the precipitation must be 12 months of the grid");
+    check((e64 ? et064.size() : et032.size()) == 12 * n, "the ET0 must be 12 months of the grid");
+    check(quickflow.size() == 12 * n && kc.size() == 12 * n, "the quickflow and Kc must be 12 months of the grid");
+    check(alpha.size() == 12, "alpha must hold 12 months");
+    std::vector<double> out(5 * n);
+    if (p64 && e64)
+        swy_recharge(mfd, d8, ny, nx, block, precip64.data(), et064.data(), quickflow, kc, alpha, beta, gamma,
+                     out.data());
+    else if (p64)
+        swy_recharge(mfd, d8, ny, nx, block, precip64.data(), et032.data(), quickflow, kc, alpha, beta, gamma,
+                     out.data());
+    else if (e64)
+        swy_recharge(mfd, d8, ny, nx, block, precip32.data(), et064.data(), quickflow, kc, alpha, beta, gamma,
+                     out.data());
+    else
+        swy_recharge(mfd, d8, ny, nx, block, precip32.data(), et032.data(), quickflow, kc, alpha, beta, gamma,
+                     out.data());
+    return to_rust<double>(out);
+}
+
+rust::Vec<double> serv_swy_baseflow(rust::Slice<const std::int32_t> mfd, rust::Slice<const std::uint8_t> d8,
+                                    std::int32_t ny, std::int32_t nx, std::int32_t block,
+                                    rust::Slice<const double> l, rust::Slice<const double> l_avail,
+                                    rust::Slice<const double> l_sum, rust::Slice<const std::uint8_t> stream) {
+    const std::size_t n = static_cast<std::size_t>(ny) * nx;
+    sized(l, ny, nx, "L differs in size from the directions");
+    sized(l_avail, ny, nx, "L_avail differs in size from the directions");
+    sized(l_sum, ny, nx, "L_sum differs in size from the directions");
+    sized(stream, ny, nx, "the streams differ in size from the directions");
+    std::vector<double> out(2 * n);
+    if (mfd.empty())
+        serv::swy_baseflow_d8(sized(d8, ny, nx, "the directions differ in size"), ny, nx, block, l.data(),
+                              l_avail.data(), l_sum.data(), stream.data(), out.data(), out.data() + n);
+    else
+        serv::swy_baseflow_mfd(sized(mfd, ny, nx, "the directions differ in size"), ny, nx, block, l.data(),
+                               l_avail.data(), l_sum.data(), stream.data(), out.data(), out.data() + n);
+    return to_rust<double>(out);
+}
+// end services bridge (landschaft-d1)
 
 // -- surfaces: geomorphons, hilltops, gravity ----------------------------------------------------------------------
 

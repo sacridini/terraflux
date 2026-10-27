@@ -59,6 +59,7 @@ mod sdm_prepare;
 mod sdm_workflow;
 mod sensitivity;
 mod services;
+mod services_invest;
 mod signatures;
 mod stats;
 mod surface;

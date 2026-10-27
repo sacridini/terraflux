@@ -2927,6 +2927,83 @@ pub mod ffi {
             nx: i32,
             block: i32,
         ) -> Result<Vec<f32>>;
+        // services bridge (landschaft-d1): nutrient delivery, pollination, seasonal water yield
+        /// InVEST's effective retention of a nutrient down to the streams (MFD directions, or D8 when mfd is
+        /// empty): float32, NaN where not reached.
+        #[allow(clippy::too_many_arguments)]
+        fn serv_ndr_retention(
+            mfd: &[i32],
+            d8: &[u8],
+            stream: &[u8],
+            eff: &[f32],
+            crit: &[f32],
+            ny: i32,
+            nx: i32,
+            cell_size: f64,
+            block: i32,
+        ) -> Result<Vec<f32>>;
+        /// pygeoprocessing's normalized exponential decay kernel (a float32 square), distances in pixels.
+        fn serv_poll_kernel(alpha: f64, max_distance: f64) -> Result<Vec<f32>>;
+        /// pygeoprocessing's convolve_2d (ignoring nodata and edges, nodata masked): float64, NaN missing.
+        fn serv_poll_convolve(signal: &[f32], ny: i64, nx: i64, kernel: &[f32], threads: i32) -> Result<Vec<f64>>;
+        /// A species' habitat nesting, local foraging effectiveness and foraged flowers by season, one after the
+        /// other (the substrates' and seasons' maps one after the other).
+        fn serv_poll_local(
+            nesting: &[f32],
+            ns: &[f64],
+            floral: &[f32],
+            fa: &[f64],
+            n: i64,
+            threads: i32,
+        ) -> Result<Vec<f32>>;
+        /// Pollinator supply sa HN FR (float32).
+        fn serv_poll_supply(hn: &[f32], fr: &[f64], sa: f64, threads: i32) -> Result<Vec<f32>>;
+        /// Pollinator abundance FF / FR conv(PS), added to `total` (float32).
+        fn serv_poll_abundance(
+            ff: &[f32],
+            fr: &[f64],
+            cps: &[f64],
+            total: &mut [f32],
+            threads: i32,
+        ) -> Result<Vec<f32>>;
+        /// On-farm pollinator abundance of a season, added to `total` (float32).
+        fn serv_poll_farm(half_sat: &[f32], abundance: &[f32], total: &mut [f32], threads: i32) -> Result<Vec<f32>>;
+        /// Total and wild pollinator yield, one after the other (float32).
+        fn serv_poll_yield(managed: &[f32], farm: &[f32], threads: i32) -> Result<Vec<f32>>;
+        /// InVEST's local recharge: L, L_avail, L_sum_avail, AET and P one after the other (float64, NaN where not
+        /// reached); the twelve months month-major, the precipitation and ET0 in float32 or float64 (the other
+        /// empty).
+        #[allow(clippy::too_many_arguments)]
+        fn serv_swy_local_recharge(
+            mfd: &[i32],
+            d8: &[u8],
+            ny: i32,
+            nx: i32,
+            block: i32,
+            precip32: &[f32],
+            precip64: &[f64],
+            et032: &[f32],
+            et064: &[f64],
+            quickflow: &[f32],
+            kc: &[f32],
+            alpha: &[f32],
+            beta: f32,
+            gamma: f32,
+        ) -> Result<Vec<f64>>;
+        /// InVEST's baseflow: B and B_sum one after the other (float64, NaN where not reached).
+        #[allow(clippy::too_many_arguments)]
+        fn serv_swy_baseflow(
+            mfd: &[i32],
+            d8: &[u8],
+            ny: i32,
+            nx: i32,
+            block: i32,
+            l: &[f64],
+            l_avail: &[f64],
+            l_sum: &[f64],
+            stream: &[u8],
+        ) -> Result<Vec<f64>>;
+        // end services bridge (landschaft-d1)
 
         /// Geomorphons (GRASS's r.geomorphon).
         #[allow(clippy::too_many_arguments)]

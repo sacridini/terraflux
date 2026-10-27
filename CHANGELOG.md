@@ -7,6 +7,18 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- Three more of InVEST's models (natcap.invest 3.20) as landschaft 1.54 reimplements them, the same float32 and
+  float64 bits (landschaft's references, `tests/data/reference/services_invest.npz`):
+  `services.ndr` (the nutrient delivery ratio: nitrogen and phosphorus loads, surface and subsurface, their
+  effective retention down to the streams, the delivery ratio, the exports, the index of connectivity and the
+  totals by watershed; MFD or D8; the load types for every class or by class code),
+  `services.pollination` (crop pollination by wild bees: each species' supply and abundance by season, the total
+  abundance, and with farm polygons the pollinators on the farms, the total and wild yields and the means by farm;
+  the guilds a list or InVEST's guild table, a file) and `services.seasonal_water_yield` (the monthly and annual
+  quickflow of the curve numbers and rain events, constant or by climate zone, the local recharge, the available
+  recharge, the evapotranspiration, the baseflow and its sum from upslope, the VRI, the tables by watershed and
+  by watershed and month; or the routing of a recharge map alone). scipy's `exp1` is ported for the quickflow.
+  The subsurface distance of the NDR is in metres (InVEST measures it in cells against a length in metres).
 - Terraflux updates itself on macOS and Linux too: the application (`Terraflux.app`, in a folder the user may
   write) is replaced by the release's zip, unpacked beside it; the folder of the `.tar.gz` by the release's; the
   `.deb`, `.rpm` and Arch packages are installed by the system's manager, the administrator's password asked

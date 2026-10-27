@@ -805,6 +805,36 @@ rust::Vec<float> serv_pgp_slope(rust::Slice<const double> z, std::int32_t ny, st
 rust::Vec<float> serv_sediment_deposition(rust::Slice<const std::int32_t> mfd, rust::Slice<const std::uint8_t> d8,
                                           rust::Slice<const float> e_prime, rust::Slice<const float> sdr,
                                           std::int32_t ny, std::int32_t nx, std::int32_t block);
+// services bridge (landschaft-d1): nutrient delivery, pollination, seasonal water yield
+rust::Vec<float> serv_ndr_retention(rust::Slice<const std::int32_t> mfd, rust::Slice<const std::uint8_t> d8,
+                                    rust::Slice<const std::uint8_t> stream, rust::Slice<const float> eff,
+                                    rust::Slice<const float> crit, std::int32_t ny, std::int32_t nx, double cell_size,
+                                    std::int32_t block);
+rust::Vec<float> serv_poll_kernel(double alpha, double max_distance);
+rust::Vec<double> serv_poll_convolve(rust::Slice<const float> signal, std::int64_t ny, std::int64_t nx,
+                                     rust::Slice<const float> kernel, std::int32_t threads);
+rust::Vec<float> serv_poll_local(rust::Slice<const float> nesting, rust::Slice<const double> ns,
+                                 rust::Slice<const float> floral, rust::Slice<const double> fa, std::int64_t n,
+                                 std::int32_t threads);
+rust::Vec<float> serv_poll_supply(rust::Slice<const float> hn, rust::Slice<const double> fr, double sa,
+                                  std::int32_t threads);
+rust::Vec<float> serv_poll_abundance(rust::Slice<const float> ff, rust::Slice<const double> fr,
+                                     rust::Slice<const double> cps, rust::Slice<float> total, std::int32_t threads);
+rust::Vec<float> serv_poll_farm(rust::Slice<const float> half_sat, rust::Slice<const float> abundance,
+                                rust::Slice<float> total, std::int32_t threads);
+rust::Vec<float> serv_poll_yield(rust::Slice<const float> managed, rust::Slice<const float> farm,
+                                 std::int32_t threads);
+rust::Vec<double> serv_swy_local_recharge(rust::Slice<const std::int32_t> mfd, rust::Slice<const std::uint8_t> d8,
+                                          std::int32_t ny, std::int32_t nx, std::int32_t block,
+                                          rust::Slice<const float> precip32, rust::Slice<const double> precip64,
+                                          rust::Slice<const float> et032, rust::Slice<const double> et064,
+                                          rust::Slice<const float> quickflow, rust::Slice<const float> kc,
+                                          rust::Slice<const float> alpha, float beta, float gamma);
+rust::Vec<double> serv_swy_baseflow(rust::Slice<const std::int32_t> mfd, rust::Slice<const std::uint8_t> d8,
+                                    std::int32_t ny, std::int32_t nx, std::int32_t block,
+                                    rust::Slice<const double> l, rust::Slice<const double> l_avail,
+                                    rust::Slice<const double> l_sum, rust::Slice<const std::uint8_t> stream);
+// end services bridge (landschaft-d1)
 
 // surfaces: geomorphons, hilltops, gravity
 GeomorphonsOut surf_geomorphons(rust::Slice<const float> z, std::int32_t ny, std::int32_t nx, double north,
