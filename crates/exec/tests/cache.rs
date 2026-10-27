@@ -164,3 +164,84 @@ fn a_frozen_result_is_used_whatever_it_came_from() {
     assert_eq!(r.get("c.y").unwrap().as_number(), Some(7.0));
     assert!(!cache.lock().unwrap().holds("b"));
 }
+
+#[test]
+fn a_group_runs_again_only_the_nodes_of_its_body_that_changed() {
+    let runs = Arc::new(AtomicUsize::new(0));
+    let mut r = Registry::standard();
+    r.add(Arc::new(Inc(runs.clone())));
+    let engine = Engine { registry: r };
+    // a -> g (first -> second -> third, and inner: one -> two) -> after
+    let mut m = Model::new("t");
+    m.nodes.push(Node::new("a", "test.inc").literal("x", 0));
+    m.nodes.push(Node::new("g", terraflux_graph::GROUP).input("x", "a.y").body(Body {
+        nodes: vec![
+            Node::new("first", "test.inc").input("x", "@x"),
+            Node::new("second", "test.inc").input("x", "first.y"),
+            Node::new("third", "test.inc").input("x", "second.y"),
+            Node::new("inner", terraflux_graph::GROUP).input("x", "first.y").body(Body {
+                nodes: vec![
+                    Node::new("one", "test.inc").input("x", "@x"),
+                    Node::new("two", "test.inc").input("x", "one.y"),
+                ],
+                outputs: [("y".to_string(), "two.y".to_string())].into(),
+                ..Default::default()
+            }),
+        ],
+        outputs: [("y".to_string(), "third.y".to_string()), ("z".to_string(), "inner.y".to_string())].into(),
+        ..Default::default()
+    }));
+    m.nodes.push(Node::new("after", "test.inc").input("x", "g.y"));
+    let cache = Mutex::new(Cache::default());
+    let none = BTreeMap::new();
+    let count = || runs.load(Ordering::SeqCst);
+    let first = engine.run_with(&m, &none, &mut Seen::default(), Some(&cache), None).unwrap();
+    assert_eq!(count(), 7);
+    assert_eq!(first.get("after.y").unwrap().as_number(), Some(5.0));
+    assert_eq!(first.get("g.z").unwrap().as_number(), Some(4.0));
+
+    // the second node of the group changed: it and the third run again, not the first nor the inner group's
+    let body = &mut m.nodes[1].body.as_mut().unwrap().nodes;
+    body[1].params.insert("by".into(), 10.into());
+    let r = engine.run_with(&m, &none, &mut Seen::default(), Some(&cache), None).unwrap();
+    assert_eq!(count(), 7 + 3, "second, third and after");
+    assert_eq!(r.get("after.y").unwrap().as_number(), Some(14.0));
+    assert_eq!(r.get("g.z").unwrap().as_number(), Some(4.0));
+    assert_eq!(r.values["g"]["inner.two.y"].as_number(), Some(4.0), "the inner group's nodes, as a group gives them");
+
+    // a node of the inner group changed: only it (and what reads the group, its outputs the same) runs again
+    let inner = &mut m.nodes[1].body.as_mut().unwrap().nodes[3].body.as_mut().unwrap().nodes;
+    inner[1].params.insert("by".into(), 2.into());
+    let r = engine.run_with(&m, &none, &mut Seen::default(), Some(&cache), None).unwrap();
+    assert_eq!(count(), 10 + 2, "two and after");
+    assert_eq!(r.get("g.z").unwrap().as_number(), Some(5.0));
+
+    // what the group reads changed: its whole body runs again
+    m.nodes[0].params.insert("by".into(), 5.into());
+    engine.run_with(&m, &none, &mut Seen::default(), Some(&cache), None).unwrap();
+    assert_eq!(count(), 12 + 7);
+
+    // a node taken out of the group: what was kept of it let go
+    m.nodes[1].body.as_mut().unwrap().nodes[3].body.as_mut().unwrap().outputs.clear();
+    m.nodes[1].body.as_mut().unwrap().outputs.remove("z");
+    m.nodes[1].body.as_mut().unwrap().nodes.remove(3);
+    engine.run_with(&m, &none, &mut Seen::default(), Some(&cache), None).unwrap();
+    let places: Vec<String> = cache.lock().unwrap().inner_nodes().map(String::from).collect();
+    assert_eq!(places, ["g/first", "g/second", "g/third"]);
+
+    // inside a loop, a group runs whole at each step (nothing of its body kept)
+    let mut l = Model::new("l");
+    l.nodes.push(Node::new("loop", "control.repeat").literal("times", 2).literal("v", 0).body(Body {
+        nodes: vec![Node::new("in", terraflux_graph::GROUP).input("x", "@v").body(Body {
+            nodes: vec![Node::new("add", "test.inc").input("x", "@x")],
+            outputs: [("y".to_string(), "add.y".to_string())].into(),
+            ..Default::default()
+        })],
+        carry: [("v".to_string(), "in.y".to_string())].into(),
+        ..Default::default()
+    }));
+    let cache = Mutex::new(Cache::default());
+    let r = engine.run_with(&l, &none, &mut Seen::default(), Some(&cache), None).unwrap();
+    assert_eq!(r.get("loop.v").unwrap().as_number(), Some(2.0));
+    assert_eq!(cache.lock().unwrap().inner_nodes().count(), 0);
+}

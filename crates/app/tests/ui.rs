@@ -882,6 +882,34 @@ fn the_model_reads_in_stages() {
     }
     assert!(h.query_by_label_contains("Not run.").is_none(), "the groups' steps shown from their run");
     shot(&mut h, "44-document-groups");
+    // inside a group: a node of its body selected, its map in the viewer
+    h.state_mut().focus(Pane::Model);
+    let r = terraflux_ops::Registry::standard();
+    let inner = {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.editor.path = vec!["preparation".into()];
+        let body = &s.source.node("preparation").unwrap().body.as_ref().unwrap().nodes;
+        let inner = body
+            .iter()
+            .find(|n| {
+                terraflux_app::editor::output_ports(n, &r)
+                    .first()
+                    .is_some_and(|(_, t)| *t == terraflux_graph::Type::Map)
+            })
+            .map(|n| n.id.clone())
+            .expect("a node of the preparation that gives a map");
+        terraflux_app::builder::select(s, &r, &inner);
+        let (node, port) = s.preview.clone().unwrap();
+        assert_eq!(node, "preparation");
+        assert!(port.starts_with(&format!("{inner}.")), "{port}");
+        assert!(s.preview_value().is_some(), "the group gives what its nodes gave");
+        inner
+    };
+    h.state_mut().focus(Pane::Viewer);
+    h.run_steps(4);
+    assert!(h.query_by_label(&format!("preparation/{inner}")).is_some(), "the viewer names the node by its place");
+    assert!(h.query_by_label_contains("Not run yet").is_none());
+    shot(&mut h, "50-group-viewer");
 }
 
 /// The model's parameters as a form: a setting offered with its range and help, its values kept as scenarios,

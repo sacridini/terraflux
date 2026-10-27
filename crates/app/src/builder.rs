@@ -1007,21 +1007,44 @@ pub(crate) fn first_output(n: &Node, r: &Registry) -> Option<String> {
         .map(|(p, _)| p.clone())
 }
 
+/// Where the viewer finds an output of a node of the scope `path`: the node itself at the top level; inside groups
+/// the top-level group, which gives what its body's nodes gave as `node.port` (`inner.node.port` for a group in
+/// it); none in a loop's or a switch's body (a value per step, a branch).
+pub fn shown_at(s: &Session, path: &[String], id: &str, port: &str) -> Option<(String, String)> {
+    crate::trace::key(&s.source, path, id, port)
+}
+
+/// The node of a group's body an output shown is of (`inner.node.port` of the group `node`), and the place of its
+/// outputs there (`inner.node`); none for a node's own output.
+pub fn inner_of(s: &Session, node: &str, port: &str) -> Option<(Node, String)> {
+    let (place, _) = port.rsplit_once('.')?;
+    let mut nodes = &s.source.nodes;
+    let mut n = nodes.iter().find(|n| n.id == node)?;
+    for id in place.split('.') {
+        nodes = &n.body.as_ref()?.nodes;
+        n = nodes.iter().find(|n| n.id == id)?;
+    }
+    Some((n.clone(), place.to_string()))
+}
+
 /// Select a node and show its first output.
 pub fn select(s: &mut Session, r: &Registry, id: &str) {
     if s.selected.as_deref() != Some(id) {
         s.fields.clear();
     }
     s.selected = Some(id.to_string());
-    if s.editor.path.is_empty()
-        && let Some(n) = s.source.nodes.iter().find(|n| n.id == id)
+    let path = s.editor.path.clone();
+    if let Some(n) = s.source.scope(&path).and_then(|ns| ns.iter().find(|n| n.id == id))
         && let Some(port) = first_output(n, r)
+        && let Some((node, port)) = shown_at(s, &path, id, &port)
     {
-        if s.preview.as_ref().is_none_or(|(p, _)| p != id) {
+        // (another node: its first band, not the one chosen for the last)
+        let place = |q: &str| q.rsplit_once('.').map(|(a, _)| a.to_string());
+        if s.preview.as_ref().is_none_or(|(p, q)| *p != node || place(q) != place(&port)) {
             s.preview_band = 0;
             s.preview_chosen = false;
         }
-        s.preview = Some((id.to_string(), port));
+        s.preview = Some((node, port));
     }
 }
 
@@ -1746,7 +1769,7 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
             }
             Action::Preview(id, port) => {
                 s.selected = Some(id.clone());
-                if s.editor.path.is_empty() {
+                if let Some((id, port)) = shown_at(s, &path, &id, &port) {
                     if s.preview.as_ref().is_none_or(|(n, p)| *n != id || *p != port) {
                         s.preview_band = 0;
                         s.preview_chosen = false;
@@ -2028,28 +2051,40 @@ pub fn add_write(s: &mut Session, r: &Registry, node: &str, port: &str, path: &P
 /// table, or a value; with a header to show its other outputs. `salt` tells apart the panes that show outputs.
 pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: &str) -> Option<Hover> {
     let (node, port) = (sh.node.clone(), sh.port.clone());
-    let op = s.model.nodes.iter().find(|n| n.id == node).map(|n| n.op.clone()).unwrap_or_default();
-    let ports: Vec<String> = s
-        .source
-        .nodes
-        .iter()
-        .find(|n| n.id == node)
-        .map(|n| crate::editor::output_ports(n, r))
-        .unwrap_or_default()
-        .into_iter()
-        .map(|(p, _)| p)
-        .collect();
+    // a node of a group's body: named by its place in the group, its own outputs to choose from (the group's
+    // `inner.node.port`)
+    let inner = inner_of(s, &node, &port);
+    let (title, op, ports): (String, String, Vec<(String, String)>) = match &inner {
+        Some((n, place)) => (
+            format!("{node}/{}", place.replace('.', "/")),
+            n.op.clone(),
+            crate::editor::output_ports(n, r).into_iter().map(|(p, _)| (format!("{place}.{p}"), p)).collect(),
+        ),
+        None => (
+            node.clone(),
+            s.model.nodes.iter().find(|n| n.id == node).map(|n| n.op.clone()).unwrap_or_default(),
+            s.source
+                .nodes
+                .iter()
+                .find(|n| n.id == node)
+                .map(|n| crate::editor::output_ports(n, r))
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(p, _)| (p.clone(), p))
+                .collect(),
+        ),
+    };
     let value = s.value_of(&node, &port);
     // the header: the node, its outputs, how it did
     egui::Frame::new().fill(theme::bar()).inner_margin(Margin::symmetric(8, 4)).show(ui, |ui| {
         ui.horizontal(|ui| {
-            ui.label(RichText::new(&node).strong());
+            ui.label(RichText::new(&title).strong());
             ui.label(RichText::new(&op).monospace().weak());
             // the node's outputs to choose from, when it has several
             if ports.len() > 1 {
                 ui.separator();
-                for p in &ports {
-                    if ui.selectable_label(*p == port, p).clicked() {
+                for (p, label) in &ports {
+                    if ui.selectable_label(*p == port, label).clicked() {
                         sh.port = p.clone();
                         sh.band = 0;
                         sh.chosen = false;
@@ -2084,7 +2119,9 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                             }
                             ui.close();
                         }
+                        // (a node of a group's body is not read from outside it: no write node)
                         if maps
+                            && inner.is_none()
                             && ui
                                 .button("As a file, and a write node in the model...")
                                 .on_hover_text("the model writes it again at every run")

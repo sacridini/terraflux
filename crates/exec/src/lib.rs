@@ -4,9 +4,10 @@
 //! This is the exact engine: whole maps in memory, the kernels in the order landschaft runs them, so a model
 //! gives the same maps as `ls.simulate` with the same seed.
 //!
-//! With a [`Cache`] ([`Engine::run_with`]) the outputs of the top-level nodes are kept between runs, and a node
-//! runs again only when it, a node it depends on, an input or a file it reads changed; a run may stop at a
-//! node (its ancestors only run). The application runs the model as it is edited this way.
+//! With a [`Cache`] ([`Engine::run_with`]) the outputs of the top-level nodes, and of the nodes of their groups,
+//! are kept between runs, and a node runs again only when it, a node it depends on, an input or a file it reads
+//! changed; a run may stop at a node (its ancestors only run). The application runs the model as it is edited
+//! this way.
 
 pub mod frozen;
 mod io;
@@ -164,10 +165,12 @@ struct Kept {
     held: bool,
 }
 
-/// The outputs of the top-level nodes of a model kept between runs ([`Engine::run_with`]).
+/// The outputs of the top-level nodes of a model kept between runs ([`Engine::run_with`]), and those of the nodes
+/// of their groups by place (`group/node`: a group runs again only the nodes of its body that changed).
 #[derive(Default)]
 pub struct Cache {
     kept: BTreeMap<String, Kept>,
+    inner: BTreeMap<String, Kept>,
 }
 
 impl Cache {
@@ -183,6 +186,13 @@ impl Cache {
 
     pub fn forget(&mut self, node: &str) {
         self.kept.remove(node);
+        let within = format!("{node}/");
+        self.inner.retain(|at, _| !at.starts_with(&within));
+    }
+
+    /// The places of the nodes of groups with outputs kept (`group/node`).
+    pub fn inner_nodes(&self) -> impl Iterator<Item = &str> {
+        self.inner.keys().map(String::as_str)
     }
 
     /// Hold a node's frozen result (read from disk, or the outputs it gave): used instead of running it while it
@@ -213,6 +223,7 @@ impl Cache {
 
     pub fn clear(&mut self) {
         self.kept.clear();
+        self.inner.clear();
     }
 }
 
@@ -311,6 +322,34 @@ fn fingerprint(
     Some(h.finish())
 }
 
+/// The ids of a node's body, its bodies' within too.
+fn own_ids<'a>(n: &'a Node, out: &mut std::collections::HashSet<&'a str>) {
+    for b in n.body.iter().flat_map(|b| &b.nodes) {
+        out.insert(&b.id);
+        own_ids(b, out);
+    }
+}
+
+/// The fingerprint of a node of a scope whose outputs are kept ([`Scope`]): the scope's and the node's as a
+/// top-level node's; none when it reads a node of another scope (an enclosing one) or one not kept.
+fn scoped_print(n: &Node, env: &Env, scope: &Scope, inputs: &BTreeMap<String, Value>) -> Option<u64> {
+    let among: std::collections::HashSet<&str> = env.prints.keys().map(String::as_str).collect();
+    let mut own = std::collections::HashSet::new();
+    own_ids(n, &mut own);
+    for r in terraflux_graph::references(n) {
+        if let Ok(Ref::Port { node, .. }) = Ref::parse(&r)
+            && !among.contains(node.as_str())
+            && !own.contains(node.as_str())
+        {
+            return None;
+        }
+    }
+    let p = fingerprint(n, scope.model, &among, inputs, &env.prints)?;
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (scope.print, p).hash(&mut h);
+    Some(h.finish())
+}
+
 /// The outputs of a node bypassed: each the first of its inputs (in its operator's order, then the others) of a
 /// type that fits it; the outputs no input fits are missing (what reads them is told).
 fn bypassed(sig: Option<&terraflux_graph::OpSignature>, values: BTreeMap<String, Value>) -> Outputs {
@@ -348,10 +387,29 @@ fn head(at: &str) -> &str {
     at.split(['/', '.']).next().unwrap_or(at)
 }
 
+/// A scope whose nodes' outputs are kept between runs: the top level, a group's body there or in another such
+/// group (not a loop's, whose nodes give a value per step); `print`, what its values carried in came from.
+#[derive(Clone, Copy)]
+struct Scope<'p> {
+    cache: &'p Mutex<Cache>,
+    model: &'p Model,
+    print: u64,
+}
+
 struct Env<'p> {
     parent: Option<&'p Env<'p>>,
     results: BTreeMap<String, Outputs>,
     carried: BTreeMap<String, Value>,
+    kept: Option<Scope<'p>>,
+    /// The fingerprints of the scope's nodes run (none: not kept, nor what depends on them).
+    prints: BTreeMap<String, Option<u64>>,
+}
+
+impl<'p> Env<'p> {
+    /// The scope of a container's body, under this one: not kept.
+    fn child(&'p self, carried: BTreeMap<String, Value>) -> Env<'p> {
+        Env { parent: Some(self), results: BTreeMap::new(), carried, kept: None, prints: BTreeMap::new() }
+    }
 }
 
 impl Env<'_> {
@@ -504,11 +562,16 @@ impl Engine {
                 return Err(Error::Model(format!("no value for the input ${name}")));
             }
         }
-        let mut env = Env { parent: None, results: BTreeMap::new(), carried: BTreeMap::new() };
+        let mut env = Env {
+            parent: None,
+            results: BTreeMap::new(),
+            carried: BTreeMap::new(),
+            kept: cache.map(|cache| Scope { cache, model, print: 0 }),
+            prints: BTreeMap::new(),
+        };
         let mut warnings = Vec::new();
         let ordered =
             order(&model.nodes, |n| dependencies_among(n, &among)).map_err(|e| Error::Model(e.to_string()))?;
-        let mut prints: BTreeMap<String, Option<u64>> = BTreeMap::new();
         for node in ordered {
             if !runs(&node.id) {
                 continue;
@@ -517,7 +580,7 @@ impl Engine {
                 return Err(Error::Cancelled);
             }
             let at = node.id.as_str();
-            let mut print = cache.and_then(|_| fingerprint(node, model, &among, inputs, &prints));
+            let mut print = cache.and_then(|_| fingerprint(node, model, &among, inputs, &env.prints));
             let kept = match (cache, print) {
                 // frozen: its result held, whatever it came from
                 (Some(c), _) if held.contains(at) => c.lock().unwrap().kept.get(&node.id).map(|k| {
@@ -539,10 +602,10 @@ impl Engine {
                     obs.warning(at, w);
                     warnings.push(format!("{at}: {w}"));
                 }
-                Self::replay(node, &out, obs);
+                Self::replay(node, at, &out, obs);
                 obs.done(at, true);
                 env.results.insert(node.id.clone(), out);
-                prints.insert(node.id.clone(), print);
+                env.prints.insert(node.id.clone(), print);
                 continue;
             }
             obs.node(at);
@@ -558,18 +621,20 @@ impl Engine {
                 let k = Kept { print: p, outputs: out.clone(), warnings: ws, held: false };
                 c.lock().unwrap().kept.insert(node.id.clone(), k);
             }
-            prints.insert(node.id.clone(), if keep { print } else { None });
+            env.prints.insert(node.id.clone(), if keep { print } else { None });
             obs.done(at, false);
             env.results.insert(node.id.clone(), out);
         }
         if let Some(c) = cache {
-            c.lock().unwrap().kept.retain(|id, _| by_id.contains_key(id.as_str()));
+            let mut c = c.lock().unwrap();
+            c.kept.retain(|id, _| by_id.contains_key(id.as_str()));
+            c.inner.retain(|at, _| by_id.contains_key(head(at)));
         }
         Ok(Results { values: env.results, warnings, timings: Vec::new() })
     }
 
     /// What a loop collected, step by step, from its kept outputs (as if it ran).
-    fn replay(node: &Node, out: &Outputs, obs: &mut dyn Observer) {
+    fn replay(node: &Node, at: &str, out: &Outputs, obs: &mut dyn Observer) {
         let Some(body) = node.body.as_ref().filter(|_| node.op == "control.repeat") else { return };
         let series: BTreeMap<&String, &Vec<Value>> = body
             .collect
@@ -583,8 +648,8 @@ impl Engine {
         for step in 1..=steps {
             let now: BTreeMap<String, Value> =
                 series.iter().filter_map(|(k, s)| s.get(step - 1).map(|v| ((*k).clone(), v.clone()))).collect();
-            obs.collected(&node.id, step, steps, &now);
-            obs.step(&node.id, step, steps);
+            obs.collected(at, step, steps, &now);
+            obs.step(at, step, steps);
         }
     }
 
@@ -642,10 +707,49 @@ impl Engine {
                 return Err(Error::Cancelled);
             }
             obs.node(&at);
+            // in a group's body kept: what did not change from the cache (a group inside it runs, its own body's
+            // nodes kept in turn)
+            let kept = env.kept;
+            let print = kept.and_then(|k| scoped_print(node, env, &k, inputs));
+            if let (Some(k), Some(p)) = (kept, print)
+                && node.op != terraflux_graph::GROUP
+            {
+                let found = k
+                    .cache
+                    .lock()
+                    .unwrap()
+                    .inner
+                    .get(&at)
+                    .filter(|c| c.print == p)
+                    .map(|c| (c.outputs.clone(), c.warnings.clone()));
+                if let Some((out, ws)) = found {
+                    for w in &ws {
+                        obs.warning(&at, w);
+                        warnings.push(format!("{at}: {w}"));
+                    }
+                    Self::replay(node, &at, &out, obs);
+                    env.results.insert(node.id.clone(), out);
+                    env.prints.insert(node.id.clone(), print);
+                    continue;
+                }
+            }
+            let before = warnings.len();
             let node = &with_product(node, nodes);
             let started = std::time::Instant::now();
             let out = self.run_node(node, env, inputs, &at, obs, warnings)?;
             obs.timed(&at, started.elapsed().as_secs_f64(), out.values().map(bytes_of).sum());
+            let keep = print.is_some() && node.op != "raster.write" && !out.values().any(holds_rng);
+            if let (Some(k), Some(p), true) = (kept, print, keep)
+                && node.op != terraflux_graph::GROUP
+            {
+                let prefix = format!("{at}: ");
+                let ws = warnings[before..].iter().map(|w| w.strip_prefix(&prefix).unwrap_or(w).to_string()).collect();
+                let c = Kept { print: p, outputs: out.clone(), warnings: ws, held: false };
+                k.cache.lock().unwrap().inner.insert(at.clone(), c);
+            }
+            if kept.is_some() {
+                env.prints.insert(node.id.clone(), if keep { print } else { None });
+            }
             env.results.insert(node.id.clone(), out);
         }
         Ok(())
@@ -871,8 +975,21 @@ impl Engine {
         warnings: &mut Vec<String>,
     ) -> Result<Outputs> {
         let body = node.body.as_ref().ok_or_else(|| Error::Node { at: at.into(), message: "no body".into() })?;
-        let mut child = Env { parent: Some(env), results: BTreeMap::new(), carried: values };
+        let mut child = env.child(values);
+        // in a scope kept: its body's nodes kept too, by what its inputs came from (the group without its body)
+        child.kept = env.kept.and_then(|k| {
+            let outer = Node { body: None, ..node.clone() };
+            scoped_print(&outer, env, &k, inputs).map(|print| Scope { print, ..k })
+        });
         self.run_scope(&body.nodes, &mut child, inputs, at, obs, warnings)?;
+        if let Some(k) = child.kept {
+            // (what was kept of nodes no longer in its body: let go)
+            let within = format!("{at}/");
+            k.cache.lock().unwrap().inner.retain(|p, _| {
+                p.strip_prefix(&within)
+                    .is_none_or(|rest| body.nodes.iter().any(|n| rest.split('/').next() == Some(n.id.as_str())))
+            });
+        }
         let mut out = Outputs::new();
         for (name, r) in &body.outputs {
             out.insert(
@@ -938,7 +1055,7 @@ impl Engine {
                 }
             })?;
         self.read_rasters(None, &mut values, at, obs, warnings)?;
-        let child = Env { parent: Some(env), results: BTreeMap::new(), carried: values };
+        let child = env.child(values);
         let inner = format!("{at}/{}", branch.id);
         obs.node(&inner);
         let mut out = self.run_node(branch, &child, inputs, &inner, obs, warnings)?;
@@ -986,7 +1103,7 @@ impl Engine {
             c.insert("item".into(), item);
             c.insert("index".into(), Value::Integer(i as i64 + 1));
             c.insert("name".into(), Value::Text(name.clone()));
-            let mut child = Env { parent: Some(env), results: BTreeMap::new(), carried: c };
+            let mut child = env.child(c);
             let element = |e: Error| match e {
                 Error::Node { at, message } => {
                     Error::Node { at, message: format!("{name:?} ({} of {n}): {message}", i + 1) }
@@ -1038,7 +1155,7 @@ impl Engine {
         for step in 1..=times {
             let mut c = carried.clone();
             c.insert("step".into(), Value::Integer(step as i64));
-            let mut child = Env { parent: Some(env), results: BTreeMap::new(), carried: c };
+            let mut child = env.child(c);
             self.run_scope(&body.nodes, &mut child, inputs, at, obs, warnings)?;
             obs.body(at, step, &child.results);
             if let Some(r) = &body.until {

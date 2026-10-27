@@ -316,6 +316,12 @@ escrevendo scripts). Depois, nesta ordem:
    numa janela (hoje 12 linhas e 6 colunas).
 5. **Grupos e etapas:** ver no viewer o mapa de um nó de dentro de um grupo (hoje pelo documento); o cache por nó
    dentro de um grupo (hoje o grupo roda inteiro quando um nó muda).
+   **Feito** (Unreleased): dentro de um grupo, o nó selecionado mostra seu mapa no viewer, pelo que o grupo de
+   cima dá (`inner.node.port`; `builder::shown_at`, `inner_of`), nomeado pelo lugar (`preparation/temperature`),
+   com as suas saídas para escolher e o Trace a partir dele; o cache guarda as saídas dos nós do corpo de um grupo
+   pelo lugar (`Cache.inner`, `group/node`), a impressão de cada um a do que entra no grupo mais a sua
+   (`scoped_print`): ao mudar um nó, só ele e o que depende dele rodam de novo, nos grupos dentro de grupos também.
+   Falta: o mesmo nos corpos dos laços e do switch (hoje rodam inteiros); congelar um nó de dentro de um grupo.
 6. **Parameters e cenários:** a comparação pelos lotes distribuídos (hoje um cenário depois do outro, no app); as
    diferenças em mapas de classes (hoje a subtração dos valores).
 7. **Trace:** a célula marcada nos mapas de cada passo ao selecionar um cartão; a mancha inteira de um operador de

@@ -299,7 +299,7 @@ fn resolve(m: &Model, path: &[String], reference: &str) -> Option<(Vec<String>, 
 
 /// Where the value of a node's port is kept after a run (as [`crate::document::Step::value_key`]): the top-level
 /// node's, or the top-level group's (`inner.port`, through groups); none in a loop.
-fn key(m: &Model, path: &[String], node: &str, port: &str) -> Option<(String, String)> {
+pub fn key(m: &Model, path: &[String], node: &str, port: &str) -> Option<(String, String)> {
     if path.is_empty() {
         return Some((node.to_string(), port.to_string()));
     }
@@ -332,7 +332,15 @@ pub fn trace(
     let (x, y) = centre(grid, cell.0, cell.1);
     let mut t = Trace { x, y, cell, steps: Vec::new(), cut: false };
     let mut seen: HashSet<(Vec<String>, String)> = HashSet::new();
-    let start = resolve(m, &[], &format!("{node}.{port}")).unwrap_or((Vec::new(), node.into(), port.into()));
+    let start = match port.rsplit_once('.') {
+        // a node of a group's body (the top-level group's `inner.node.port`)
+        Some((place, port)) => {
+            let mut path: Vec<String> = std::iter::once(node).chain(place.split('.')).map(String::from).collect();
+            let inner = path.pop().unwrap_or_default();
+            (path, inner, port.to_string())
+        }
+        None => resolve(m, &[], &format!("{node}.{port}")).unwrap_or((Vec::new(), node.into(), port.into())),
+    };
     walk(m, r, values, kept, &start.0, &start.1, &start.2, &mut t, &mut seen);
     t
 }

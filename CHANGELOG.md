@@ -21,6 +21,12 @@ minor versions.
   with their dates and messages), not only the last one.
 - A node's tables before and now side by side in the Changes pane, the cells that changed (by row and column
   name) highlighted and the columns only one of them has in the colour of what was added or removed.
+- Inside a group, the node selected shows its map in the viewer, named by its place in the group
+  (`preparation/temperature`), with its own outputs to choose from and Trace from its cells.
+
+### Changed
+- A group runs again only the nodes of its body that changed and what depends on them (and the same for the groups
+  inside it), not its whole body: the cache keeps the outputs of the nodes of the groups by place.
 
 ## [1.22.0] - 2026-10-27
 
