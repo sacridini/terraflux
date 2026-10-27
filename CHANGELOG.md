@@ -6,6 +6,18 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- The document says what a step does in a sentence written for its operator, with its settings and where its
+  inputs come from ("A Gaussian random field of 100 × 120 cells: autocorrelation range 10 cells, variance 5,
+  nugget 0.2; seed 7."; "Habitat split into habitat and matrix, a share 0.4 of it habitat."), for the operators
+  models use most (reading and writing, the neutral landscapes, Markov, regressions, weights of evidence,
+  allocation, metrics, MSPA, validation, SDM, carbon, prioritization); in the HTML and PDF reports too.
+- The document edits a setting's list or table in place, item by item (add, change, take away), as the Node pane
+  does.
+- The document's pictures of maps in the viewer's palettes: the one chosen by hand for the output, else by what
+  made it (MSPA's classes in GuidosToolbox's colours, elevations, ranks...), the classes in the model's legend's
+  colours.
+
 ## [1.22.0] - 2026-10-27
 
 ### Added

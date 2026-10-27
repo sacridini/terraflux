@@ -71,7 +71,7 @@ pub enum From {
 }
 
 impl From {
-    fn of(s: &Source) -> From {
+    pub fn of(s: &Source) -> From {
         match s {
             Source::Ref(r) => match Ref::parse(r) {
                 Ok(Ref::Port { node, port }) => From::Node { node, port },
@@ -182,6 +182,8 @@ pub struct Step {
     pub assumptions: Vec<String>,
     pub alternatives: Vec<String>,
     pub inputs: Vec<Link>,
+    /// What it does with its settings, in a sentence written for its operator ([`crate::phrases`]).
+    pub sentence: Option<String>,
     pub settings: Vec<Setting>,
     /// Map algebra's expression (its inputs are its variables).
     pub expression: Option<String>,
@@ -619,6 +621,7 @@ fn step(n: &Node, path: &[String], stage: Stage, r: &Registry, value: Option<(St
         assumptions: n.assumptions.clone(),
         alternatives: n.alternatives.clone(),
         inputs,
+        sentence: crate::phrases::sentence(n, sig),
         settings,
         expression,
         file,

@@ -336,6 +336,9 @@ impl Html<'_> {
         if let Some(w) = &s.why {
             let _ = write!(self.out, "<p><b>Why.</b> {}</p>", esc(w));
         }
+        if let Some(t) = &s.sentence {
+            let _ = write!(self.out, "<p>{}</p>", esc(t));
+        }
         if let Some(f) = &s.file {
             let _ = write!(self.out, "<p>File <code>{}</code></p>", esc(f));
         }
@@ -468,6 +471,9 @@ impl Html<'_> {
             );
             if let Some(n) = &row[0].note {
                 let _ = write!(self.out, "<i>{}</i><br>", esc(n));
+            }
+            if let (1, Some(t)) = (row.len(), &row[0].sentence) {
+                let _ = write!(self.out, "{}<br>", esc(t));
             }
             let files: Vec<String> =
                 row.iter().filter_map(|s| s.file.as_ref()).map(|f| format!("<code>{}</code>", esc(f))).collect();
@@ -1069,6 +1075,9 @@ impl PdfReport<'_> {
         if let Some(w) = &s.why {
             self.pdf.paragraph(&[run(Font::Bold, "Why. "), run(Font::Regular, w.clone())], 9.5, indent, 0.0);
         }
+        if let Some(t) = &s.sentence {
+            self.pdf.paragraph(&[run(Font::Regular, t.clone())], 9.5, indent, 0.0);
+        }
         if let Some(f) = &s.file {
             self.pdf.paragraph(&[run(Font::Regular, "File "), run(Font::Mono, f.clone())], 9.5, indent, 0.0);
         }
@@ -1269,6 +1278,9 @@ pub fn pdf(doc: &Document, values: Values, first: &dyn Fn(&str) -> Option<String
                 );
                 if let Some(n) = &row[0].note {
                     p.pdf.paragraph(&[run(Font::Italic, n.clone())], 9.5, 0.0, 0.0);
+                }
+                if let (1, Some(t)) = (row.len(), &row[0].sentence) {
+                    p.pdf.paragraph(&[run(Font::Regular, t.clone())], 9.5, 0.0, 0.0);
                 }
                 for f in row.iter().filter_map(|s| s.file.as_ref()) {
                     p.pdf.paragraph(&[run(Font::Mono, f.clone())], 9.0, 8.0, 0.0);

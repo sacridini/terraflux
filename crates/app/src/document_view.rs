@@ -36,13 +36,32 @@ fn identity(v: &Value) -> usize {
     }
 }
 
+/// The map a picture of a value shows (a stack's first layer, a series' last), in memory.
+fn shown_map(v: &Value) -> Option<terraflux_ops::Map> {
+    match v {
+        Value::Map(m) => Some(m.clone()),
+        Value::Stack(s) => Some(terraflux_ops::Map { grid: s.grid.clone(), data: s.layers.first()?.clone() }),
+        Value::Series(items) => shown_map(items.last()?),
+        _ => None,
+    }
+}
+
 /// The image of a node's output (made the first time it is asked for), and what of the value it is.
 fn picture(ui: &Ui, s: &Session, node: &str, port: &str) -> Option<Result<(TextureHandle, Option<String>), Visual>> {
     let v = s.value_of(node, port)?;
     if matches!(v, Value::Table(_)) {
         return visual(&v, 0).map(Err);
     }
-    let id = identity(&v);
+    // (the palette and the legend as the viewer has them: a new picture when they change)
+    let map = shown_map(&v);
+    let id = identity(&v)
+        ^ map.as_ref().map_or(0, |m| {
+            use std::hash::{Hash, Hasher};
+            let legend = crate::legend_view::legend_of(s, node, port, &crate::map_view::Source::Map(m.clone()));
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            format!("{:?}{legend:?}", crate::builder::palette_of(s, node, port)).hash(&mut h);
+            h.finish() as usize
+        });
     let key = (node.to_string(), port.to_string());
     if let Some((k, t, of)) = PICS.with(|p| p.borrow().get(&key).cloned())
         && k == id
@@ -50,7 +69,13 @@ fn picture(ui: &Ui, s: &Session, node: &str, port: &str) -> Option<Result<(Textu
     {
         return Some(Ok((t, of)));
     }
-    let vis = visual(&v, 256)?;
+    let mut vis = visual(&v, 256)?;
+    if let (Some(m), Shown::Picture(_)) = (&map, &vis.shown) {
+        let look = crate::builder::output_look(s, node, port, m);
+        let (img, _) = crate::palette::image(&m.data, m.grid.width, m.grid.height, 256, &look.coloring);
+        let rgba = img.pixels.iter().flat_map(|c| c.to_array()).collect();
+        vis.shown = Shown::Picture(Picture { width: img.size[0], height: img.size[1], rgba });
+    }
     let Shown::Picture(Picture { width, height, rgba }) = &vis.shown else { return Some(Err(vis)) };
     let img = egui::ColorImage::from_rgba_premultiplied([*width, *height], rgba);
     let t = ui.ctx().load_texture(format!("document-{node}-{port}"), img, egui::TextureOptions::NEAREST);
@@ -152,11 +177,16 @@ fn shown(ui: &mut Ui, s: &Session, node: &str, port: &str, w: f32) {
 
 /// A setting given: its words and its value, a single value edited in place.
 fn setting_ui(ui: &mut Ui, s: &mut Session, st: &Setting, step: &Step, asked: &mut Asked) {
+    let key = format!("doc.{}/{}.{}", step.path.join("/"), step.id, st.name);
+    // (a list or a table of plain values: its value as the model has it)
+    let list = (!st.plain)
+        .then(|| s.source.scope(&step.path)?.iter().find(|n| n.id == step.id)?.params.get(&st.name).cloned())
+        .flatten()
+        .filter(|v| crate::node_view::items(v).is_some());
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
         ui.label("•");
         ui.label(format!("{}:", st.label)).on_hover_text(format!("{}: {}", st.name, st.doc));
-        let key = format!("doc.{}/{}.{}", step.path.join("/"), step.id, st.name);
         if !st.choices.is_empty() && st.plain {
             let shown = match st.value.as_str() {
                 "yes" => "true".to_string(),
@@ -177,14 +207,22 @@ fn setting_ui(ui: &mut Ui, s: &mut Session, st: &Setting, step: &Step, asked: &m
             if resp.lost_focus() && text != st.value {
                 asked.set = Some((step.path.clone(), step.id.clone(), st.name.clone(), text.clone()));
             }
-            s.fields.insert(key, text);
-        } else {
+            s.fields.insert(key.clone(), text);
+        } else if list.is_none() {
             ui.label(RichText::new(&st.value).strong()).on_hover_text("edited in the Node pane (select the step)");
         }
         if let Some(d) = &st.default {
             ui.label(weak(format!("(default {d})")).small());
         }
     });
+    // a list or a table of plain values: edited item by item, in place
+    if let Some(v) = list {
+        ui.indent(&key, |ui| {
+            if let Some(text) = crate::node_view::values(ui, s, &format!("{key}."), &st.name, &v) {
+                asked.set = Some((step.path.clone(), step.id.clone(), st.name.clone(), text));
+            }
+        });
+    }
 }
 
 fn list(ui: &mut Ui, title: &str, items: &[String]) {
@@ -327,6 +365,9 @@ fn step_ui(ui: &mut Ui, s: &mut Session, r: &Registry, step: &Step, num: &str, n
                 ui.label(w);
             });
         }
+        if let Some(t) = &step.sentence {
+            ui.label(t);
+        }
         if let Some(f) = &step.file {
             ui.horizontal_wrapped(|ui| {
                 ui.label("File");
@@ -457,6 +498,9 @@ fn data_ui(ui: &mut Ui, s: &mut Session, r: &Registry, sec: &Section, num: &str,
                         ui.label(RichText::new(f).monospace().small());
                     }
                     if row.len() == 1 {
+                        if let Some(t) = &row[0].sentence {
+                            ui.label(t);
+                        }
                         for st in &row[0].settings {
                             setting_ui(ui, s, st, row[0], asked);
                         }

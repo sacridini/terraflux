@@ -676,11 +676,10 @@ fn setting(
             }
         });
     });
-    if let (Some(v), false) = (&list, raw) {
-        let c = values(ui, s, n, path, name, v);
-        if c.is_some() {
-            change = c;
-        }
+    if let (Some(v), false) = (&list, raw)
+        && let Some(text) = values(ui, s, "", name, v)
+    {
+        change = Some(crate::editor::set_param(&mut s.source, path, &n.id, name, &text));
     }
     change
 }
@@ -776,7 +775,7 @@ fn value_cell(
 
 /// The items of a value edited item by item: a list of numbers or texts, or a table of them by name (an object
 /// of plain values); none for others (lists of tables, nested values: edited as text).
-fn items(v: &serde_json::Value) -> Option<Vec<(Option<String>, serde_json::Value)>> {
+pub fn items(v: &serde_json::Value) -> Option<Vec<(Option<String>, serde_json::Value)>> {
     let plain = |v: &serde_json::Value| v.is_number() || v.is_string();
     match v {
         serde_json::Value::Array(a) if !a.is_empty() && a.iter().all(plain) => {
@@ -798,15 +797,9 @@ fn typed(text: &str) -> serde_json::Value {
 }
 
 /// A list or a table of values, a row per item: its number or name, its value, a button that takes it away; and a
-/// row to add one (a list's: a copy of its last). What it changed.
-fn values(
-    ui: &mut Ui,
-    s: &mut Session,
-    n: &Node,
-    path: &[String],
-    name: &str,
-    v: &serde_json::Value,
-) -> Option<Result<(), String>> {
+/// row to add one (a list's: a copy of its last). The setting's new text when it changed (empty: none left, the
+/// default). `at` tells its fields apart from those of another node's (the document shows many).
+pub fn values(ui: &mut Ui, s: &mut Session, at: &str, name: &str, v: &serde_json::Value) -> Option<String> {
     let rows = items(v)?;
     let table = rows.first().is_some_and(|(k, _)| k.is_some());
     let mut next: Option<Vec<(Option<String>, serde_json::Value)>> = None;
@@ -814,12 +807,12 @@ fn values(
         serde_json::Value::String(t) => t.clone(),
         v => v.to_string(),
     };
-    egui::Grid::new(("values", &n.id, name)).num_columns(3).spacing([6.0, 3.0]).show(ui, |ui| {
+    egui::Grid::new(("values", at, name)).num_columns(3).spacing([6.0, 3.0]).show(ui, |ui| {
         for (k, (key, value)) in rows.iter().enumerate() {
             let label = key.clone().unwrap_or_else(|| format!("{}", k + 1));
             ui.label(RichText::new(label).monospace().color(ui.visuals().weak_text_color()));
             let init = text_of(value);
-            let f = format!("item.{name}.{k}");
+            let f = format!("{at}item.{name}.{k}");
             let mut text = field(s, &f, init.clone());
             let resp = ui.add(egui::TextEdit::singleline(&mut text).desired_width(ui.available_width().min(140.0)));
             s.fields.insert(f, text.clone());
@@ -838,12 +831,12 @@ fn values(
     });
     ui.horizontal(|ui| {
         if table {
-            let mut key = field(s, &format!("newkey.{name}"), String::new());
+            let mut key = field(s, &format!("{at}newkey.{name}"), String::new());
             ui.add(egui::TextEdit::singleline(&mut key).desired_width(80.0).hint_text("name"));
-            s.fields.insert(format!("newkey.{name}"), key.clone());
-            let mut value = field(s, &format!("newvalue.{name}"), String::new());
+            s.fields.insert(format!("{at}newkey.{name}"), key.clone());
+            let mut value = field(s, &format!("{at}newvalue.{name}"), String::new());
             ui.add(egui::TextEdit::singleline(&mut value).desired_width(80.0).hint_text("value"));
-            s.fields.insert(format!("newvalue.{name}"), value.clone());
+            s.fields.insert(format!("{at}newvalue.{name}"), value.clone());
             if ui.button("Add").clicked() && !key.trim().is_empty() {
                 let mut r = rows.clone();
                 r.retain(|(k, _)| k.as_deref() != Some(key.trim()));
@@ -863,12 +856,11 @@ fn values(
         serde_json::Value::Array(r.into_iter().map(|(_, v)| v).collect())
     };
     // (none left: the setting's default)
-    let text = match &value {
+    Some(match &value {
         serde_json::Value::Array(a) if a.is_empty() => String::new(),
         serde_json::Value::Object(o) if o.is_empty() => String::new(),
         v => v.to_string(),
-    };
-    Some(crate::editor::set_param(&mut s.source, path, &n.id, name, &text))
+    })
 }
 
 #[cfg(test)]

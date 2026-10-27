@@ -29,6 +29,7 @@ pub mod my_nodes;
 pub mod node_view;
 pub mod palette;
 pub mod params_view;
+pub mod phrases;
 pub mod prepare;
 pub mod prepare_view;
 pub mod problems_view;

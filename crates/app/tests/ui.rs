@@ -791,6 +791,47 @@ fn a_loop_pauses_step_by_step() {
     assert!(!s.gate.stepping.load(Ordering::Relaxed));
 }
 
+/// The document says what each step does in a sentence, edits a list in place, and draws the maps in the viewer's
+/// palettes (MSPA's classes in GuidosToolbox's colours).
+#[test]
+fn the_document_reads_and_edits_in_place() {
+    use terraflux_graph::{Model, Node};
+    let mut m = Model::new("sentences");
+    m.nodes.push(
+        Node::new("patches", "nlm.random_cluster")
+            .param("rows", 60)
+            .param("columns", 80)
+            .param("seed", 2)
+            .param("weights", serde_json::json!([0.3, 0.7])),
+    );
+    m.nodes.push(Node::new("habitat", "nlm.binarize").input("map", "patches.map").param("breaks", 0.4));
+    m.nodes.push(Node::new("mspa", "landscape.mspa").input("map", "habitat.map").param("foreground", 1));
+    let path = tmp("sentences.toml");
+    m.save(&path).unwrap();
+    let mut h = harness(new_app(Some(path)));
+    loaded(&mut h);
+    h.state_mut().session.as_mut().unwrap().start(Box::new(|| {}));
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("mspa", "map").is_some()
+    });
+    h.state_mut().focus(Pane::Document);
+    h.run_steps(4);
+    shot(&mut h, "49-document-sentences");
+    assert!(
+        h.query_by_label_contains("Random clusters on 60 × 80 cells, a share 0.5 of the cells in clusters, the classes weighted 0.3, 0.7; seed 2.")
+            .is_some()
+    );
+    assert!(h.query_by_label_contains("Patches split into habitat and matrix, a share 0.4 of it habitat.").is_some());
+    assert!(h.query_by_label_contains("MSPA's patterns of habitat, its foreground 1").is_some());
+    // the list of weights, one more in place
+    h.get_by_label("+ add").click();
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    let weights = s.source.nodes[0].params.get("weights").cloned();
+    assert_eq!(weights, Some(serde_json::json!([0.3, 0.7, 0.7])));
+}
+
 /// A model in stages: zoomed out, the canvas frames and names each stage; grouped by stage, it shows a block per
 /// stage with its note, and the document a section per group, the maps of the groups' steps kept from the run.
 #[test]

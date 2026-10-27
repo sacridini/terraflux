@@ -419,6 +419,26 @@ pub fn class_name(look: &Look, v: f64) -> String {
 
 /// What a node gives at a port, through the plots that show it (they give what they are given): the product of
 /// GuidosToolbox it is, if one, and the ids of the nodes on the way.
+/// The palette of a node's output as the viewer shows it: the one chosen by hand, else by what made it.
+pub fn palette_of(s: &Session, node: &str, port: &str) -> Palette {
+    if let Some(p) = s.palettes.get(&(node.to_string(), port.to_string())) {
+        return *p;
+    }
+    let (made, mut hint) = producer(s, node, port);
+    hint.push_str(port);
+    Palette::of(made, &hint)
+}
+
+/// The look of a map of a node's output as the viewer gives it (the document's pictures): its palette and the
+/// classes' colours of the model's legend.
+pub fn output_look(s: &Session, node: &str, port: &str, map: &terraflux_ops::Map) -> Look {
+    let look = palette_of(s, node, port).look(&map.data);
+    match crate::legend_view::legend_of(s, node, port, &Source::Map(map.clone())) {
+        Some(c) => crate::legend_view::apply(&look, &c),
+        None => look,
+    }
+}
+
 fn producer(s: &Session, node: &str, port: &str) -> (Option<Product>, String) {
     let (mut id, mut port) = (node.to_string(), port.to_string());
     let mut names = String::new();

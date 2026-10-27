@@ -303,6 +303,10 @@ escrevendo scripts). Depois, nesta ordem:
      Continue na barra de status). Falta: parar num nó escolhido (um breakpoint de verdade, não só entre passos).
 3. **Vista Document:** frases escritas à mão por operador para os parâmetros; editar listas e tabelas no lugar
    (hoje pelo painel Node); as paletas do viewer nas miniaturas.
+   **Feito** (Unreleased): `phrases.rs`, uma frase por operador (os 36 mais usados) com os parâmetros e as
+   entradas, no documento e no relatório; as listas e tabelas editadas no lugar (o editor do painel Node,
+   `node_view::values`); as miniaturas na paleta do viewer e na legenda do modelo (`builder::output_look`).
+   Falta: frases para os outros operadores; as tabelas de mais de uma coluna (hoje só pares nome e valor).
 4. **Painel Changes:** comparar com um commit qualquer (hoje só o último); as tabelas lado a lado (hoje em
    palavras).
 5. **Grupos e etapas:** ver no viewer o mapa de um nó de dentro de um grupo (hoje pelo documento); o cache por nó
