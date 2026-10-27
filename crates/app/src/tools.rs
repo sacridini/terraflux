@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 use terraflux_exec::{Engine, Observer, load_inputs, write_outputs};
 use terraflux_graph::{Input, Model, Node, OpSignature, Output, PortSpec, Ref, Severity, check, valid_id};
 use terraflux_ops::Registry;
+use terraflux_ops::algebra_tools;
 
 use crate::{editor, editor_view};
 
@@ -24,6 +25,15 @@ macro_rules! nodes {
         "- A node runs one operator (`op`) and gives outputs (its ports). An input of a node reads `node.port` \
 (another node's output), `$name` (an input of the model), `@name` (inside a container: a value carried along a \
 loop, `@step`, a group's input) or is a literal value. Settings are the operator's options: a value, or a value read when the model runs (`\"$name\"`, `\"@step\"`, or `{\"from\": \"node.port\"}` for a node's number or text): a threshold that changes with the loop's step, a submodel's setting given as its input."
+    };
+}
+
+/// The calculators' scripts (told to every assistant).
+macro_rules! calc {
+    () => {
+        "- write_calc writes a map calculator's script (raster.calc): checked, and tried on a sample of its inputs' \
+cells, before anything changes; read what each output gives in its reply. explain_calc takes a script apart: what \
+each input is and what each name holds on a sample. Use them, not add_node or edit_node, for a calculator's script."
     };
 }
 
@@ -79,6 +89,9 @@ comparisons, a stack's layers as `s.layer`, and `out name = value` for each outp
 forms (`if c then a else b`, `^`, `&&`, `null`, `ln`) are refused. Write a script of a few named lines with a \
 comment: a reclassification is `classes = 1`, `classes[elev >= 700] = 2`, `classes[elev >= 1000] = 3`, \
 `out classes` (a line each).
+",
+    calc!(),
+    "
 - check_model checks the model and its data; run_model runs it and writes its outputs; inspect_file summarises a \
 raster (size, classes, statistics) or shows a table.
 - open_in_app opens the model in Terraflux's application: in the one the user has open (its model replaced, unless \
@@ -107,6 +120,9 @@ the problems the model still has (a model being built has some: inputs not conne
 - show_model gives the model as text; check_model checks it and its data; run_model runs it in the application \
 (its maps shown there) and summarises what its outputs gave; inspect_file summarises a raster or shows a table.
 - Files: a raster.read node reads a raster (setting `path`); give absolute paths.
+",
+    calc!(),
+    "
 - The model is the record of its choices: give each node you add a `note` (what it is for) and a `why` (why \
 this operator and these settings), and `refs`, `assumptions` and `alternatives` when there are. When you have \
 built or changed the model, give it a `summary` of what was asked and done (set_model_info).
@@ -116,7 +132,7 @@ built or changed the model, give it a `summary` of what was asked and done (set_
 );
 
 /// The tools that change a model.
-pub const EDITS: [&str; 17] = [
+pub const EDITS: [&str; 18] = [
     "set_model_info",
     "set_input",
     "remove_input",
@@ -134,12 +150,22 @@ pub const EDITS: [&str; 17] = [
     "remove_parameter",
     "set_scenario",
     "remove_scenario",
+    "write_calc",
 ];
 
 /// The tools given to a small model (fewer to choose from, a shorter request): to explain a model, change its
-/// settings, run it and check it.
-pub const FEW: [&str; 7] =
-    ["list_operators", "describe_operator", "show_model", "edit_node", "check_model", "run_model", "inspect_file"];
+/// settings, run it and check it, write and explain a calculator's script.
+pub const FEW: [&str; 9] = [
+    "list_operators",
+    "describe_operator",
+    "show_model",
+    "edit_node",
+    "check_model",
+    "run_model",
+    "inspect_file",
+    "write_calc",
+    "explain_calc",
+];
 
 /// The tools, with what they take (as the Model Context Protocol has them: `name`, `description`,
 /// `inputSchema`): those of `terraflux mcp`, or (`app`) those of the assistant in the application, which edit the
@@ -266,6 +292,8 @@ pub fn edit(name: &str, m: &mut Model, r: &Registry, dir: &Path, a: &Value) -> R
             Ok(format!("took {key} out of the parameters (the model keeps its value)"))
         }
         "set_scenario" => set_scenario(m, a),
+        // (the inputs' values not known: rasters read from their files)
+        "write_calc" => write_calc(m, r, dir, a, &|_| None),
         "remove_scenario" => {
             let name = text(a, "name")?;
             let before = m.scenarios.len();
@@ -426,6 +454,262 @@ pub fn trace_cell_run(engine: &Engine, source: &Model, dir: &Path, a: &Value, wa
         kept = crate::trace::keep_loops(source, dir, x, y)?;
     }
     trace_cell(source, &engine.registry, &values, &kept, a)
+}
+
+/// The values known of a model, by what reads them (`node.port` at the top level, `$input`): those of a run.
+pub type Known<'a> = &'a dyn Fn(&Ref) -> Option<terraflux_ops::Value>;
+
+/// The cells a calculator's script is tried on, at most (as the Calculator pane's preview).
+const CALC_SAMPLE: usize = 160_000;
+
+/// What each input of a calculator is, and the values known: a number given, a value of a run ([`Known`]: the
+/// outputs of nodes at the top level only, `top`), else a raster read from a file (its header and, for the
+/// preview, its cells sampled from the file: nothing runs).
+fn calc_inputs(
+    nodes: &[Node],
+    top: bool,
+    dir: &Path,
+    n: &Node,
+    known: Known,
+) -> (algebra_tools::Inputs, BTreeMap<String, terraflux_ops::Value>) {
+    use terraflux_ops::Value as V;
+    let (mut inputs, mut values) = (algebra_tools::Inputs::new(), BTreeMap::new());
+    for (port, src) in &n.inputs {
+        let value = match src {
+            terraflux_graph::Source::Literal(v) => v.as_f64().map(V::Number),
+            terraflux_graph::Source::Ref(s) => Ref::parse(s).ok().and_then(|r| {
+                let run = top || !matches!(r, Ref::Port { .. });
+                run.then(|| known(&r)).flatten().or_else(|| {
+                    let Ref::Port { node, .. } = &r else { return None };
+                    let read = nodes.iter().find(|n| n.id == *node && n.op == "raster.read")?;
+                    let file = read.params.get("path")?.as_str()?;
+                    let band = read.params.get("band").map(|b| b.as_str().map_or(b.to_string(), String::from));
+                    let at = dir.join(file).to_string_lossy().into_owned();
+                    let r = terraflux_ops::files::Rasters::open(&at, band.as_deref(), None).ok()?;
+                    Some(V::Raster(Arc::new(r.picking(band.is_some()))))
+                })
+            }),
+        };
+        inputs.insert(port.clone(), value.as_ref().map_or(algebra_tools::Input::Unknown, algebra_tools::describe));
+        if let Some(v) = value {
+            values.insert(port.clone(), v);
+        }
+    }
+    (inputs, values)
+}
+
+/// A map's cells in words: its classes and their shares (whole numbers, a dozen at most), else its least, mean and
+/// largest values; the cells without a value.
+fn cells_text(cells: &[f64]) -> String {
+    let (least, mean, largest, missing) = algebra_tools::summary(cells);
+    let mut classes = BTreeMap::new();
+    let whole = cells.iter().filter(|x| !x.is_nan()).all(|x| x.fract() == 0.0 && x.abs() < 1e9);
+    if whole {
+        for x in cells.iter().filter(|x| !x.is_nan()) {
+            *classes.entry(*x as i64).or_insert(0usize) += 1;
+        }
+    }
+    let with = cells.len() - missing;
+    let mut t = if with == 0 {
+        "no cell has a value".to_string()
+    } else if whole && classes.len() <= 12 {
+        let shares: Vec<String> =
+            classes.iter().map(|(c, k)| format!("{c} ({:.1} %)", 100.0 * *k as f64 / with as f64)).collect();
+        format!("classes {}", shares.join(", "))
+    } else {
+        format!("from {least:.6} to {largest:.6}, mean {mean:.6}")
+    };
+    if missing > 0 && with > 0 {
+        t.push_str(&format!("; {missing} of {} cells without a value", cells.len()));
+    }
+    t
+}
+
+/// What an output of map algebra gave, in words.
+fn out_text(o: &terraflux_ops::algebra::Out) -> String {
+    use terraflux_ops::algebra::Out;
+    match o {
+        Out::Number(x) => format!("the number {x}"),
+        Out::Map(cells) => format!("a map: {}", cells_text(cells)),
+        Out::Stack(layers) => {
+            let names: Vec<String> = layers.iter().take(8).map(|(k, _)| k.to_string()).collect();
+            let all: Vec<f64> = layers.iter().flat_map(|(_, c)| c.iter().copied()).collect();
+            let more = if layers.len() > 8 { ", ..." } else { "" };
+            format!("a stack of {} layers ({}{more}): {}", layers.len(), names.join(", "), cells_text(&all))
+        }
+    }
+}
+
+/// What an input of map algebra is, in words.
+fn input_text(i: &algebra_tools::Input) -> String {
+    use algebra_tools::Input;
+    match i {
+        Input::Map => "a map".into(),
+        Input::Number(Some(x)) => format!("the number {x}"),
+        Input::Number(None) => "a number".into(),
+        Input::Stack(Some(layers)) => {
+            let names: Vec<&str> = layers.iter().map(|(name, _)| name.as_str()).collect();
+            format!("a stack of {} layers, read as {}", layers.len(), names.join(", "))
+        }
+        Input::Stack(None) => "a stack".into(),
+        Input::Unknown => "not known yet (what it reads has not run)".into(),
+    }
+}
+
+/// What a script gave on a sample: each output in words (by name), and the sample.
+type Sampled = std::result::Result<(Vec<(String, String)>, String), String>;
+
+/// A script run on a sample of the cells of its inputs, with each name it gives a value an output too: what
+/// each one holds (by name), and the sample. None when an input it reads is not known.
+fn calc_sample(script: &str, values: &BTreeMap<String, terraflux_ops::Value>, every_name: bool) -> Option<Sampled> {
+    if algebra_tools::reads(script).iter().any(|name| !values.contains_key(name)) {
+        return None;
+    }
+    let mut text = script.to_string();
+    if every_name {
+        let outs = terraflux_graph::declared_outputs(script);
+        for name in algebra_tools::names_given(script) {
+            if !outs.contains(&name) {
+                text.push_str(&format!("\nout {name}"));
+            }
+        }
+    }
+    Some(match algebra_tools::preview(&text, values, CALC_SAMPLE) {
+        Ok(p) => {
+            let sample = if p.step > 1 {
+                format!("one cell in {} ({} x {} cells)", p.step * p.step, p.width, p.height)
+            } else {
+                format!("every cell ({} x {})", p.width, p.height)
+            };
+            Ok((p.outputs.iter().map(|(name, o)| (name.clone(), out_text(o))).collect(), sample))
+        }
+        Err(e) => Err(e.0),
+    })
+}
+
+/// Write the script of a map calculator (`raster.calc`): a new node of the id given, or the one of that id
+/// rewritten (its inputs connected as given). The script is checked first (its language, every name an input or
+/// given a value before, the layers a stack has) and run on a sample of its inputs' cells: refused with the
+/// reason, the model as it was, when it fails; else written, and what each output gives told.
+pub fn write_calc(m: &mut Model, r: &Registry, dir: &Path, a: &Value, known: Known) -> Reply {
+    let id = text(a, "node")?;
+    let script = text(a, "script")?;
+    let path = scope(a);
+    let nodes = m.scope(&path).ok_or_else(|| format!("no container {}", path.join("/")))?;
+    let exists = match nodes.iter().find(|n| n.id == id) {
+        Some(n) if n.op != "raster.calc" => {
+            return Err(format!("{id} is a {}, not a raster.calc: give another id for a new calculator", n.op));
+        }
+        found => found.is_some(),
+    };
+    let mut args = a.clone();
+    let o = args.as_object_mut().ok_or("the arguments are not an object")?;
+    o.remove("script");
+    o.insert("settings".into(), json!({ "expression": script }));
+    let mut next = m.clone();
+    let done = if exists {
+        edit_node(&mut next, r, &args)?
+    } else {
+        o.insert("id".into(), json!(id));
+        o.insert("op".into(), json!("raster.calc"));
+        add_node(&mut next, r, &args)?
+    };
+    let nodes = next.scope(&path).expect("the container");
+    let n = nodes.iter().find(|n| n.id == id).expect("the node written");
+    let (inputs, values) = calc_inputs(nodes, path.is_empty(), dir, n, known);
+    let refused = "the script was not written (the model is as it was)";
+    if let Some(p) = algebra_tools::problem(script, &inputs) {
+        let names: Vec<String> = inputs.iter().map(|(name, i)| format!("{name} ({})", input_text(i))).collect();
+        return Err(format!(
+            "{refused}: line {}: {}\nIts inputs: {}",
+            p.line,
+            p.message,
+            if names.is_empty() { "none (give `inputs`)".into() } else { names.join(", ") }
+        ));
+    }
+    let tried = match calc_sample(script, &values, false) {
+        Some(Ok((outs, sample))) => {
+            let outs: Vec<String> = outs.iter().map(|(name, t)| format!("- {name}: {t}")).collect();
+            format!("\nIts outputs, on a sample of {sample}:\n{}", outs.join("\n"))
+        }
+        Some(Err(e)) => return Err(format!("{refused}: on a sample of its inputs' cells it fails: {e}")),
+        None => "\nNo preview: an input it reads has not run yet (run the model, then explain_calc).".into(),
+    };
+    *m = next;
+    Ok(format!("{done}{tried}"))
+}
+
+/// A map calculator's script explained by what it does: each input (what it reads and what it is), each line with
+/// the names it reads, and what each name given a value holds on a sample of the cells.
+pub fn explain_calc(m: &Model, dir: &Path, a: &Value, known: Known) -> Reply {
+    let id = text(a, "node")?;
+    let path = scope(a);
+    let nodes = m.scope(&path).ok_or_else(|| format!("no container {}", path.join("/")))?;
+    let n = nodes.iter().find(|n| n.id == id).ok_or_else(|| format!("no node {id:?}"))?;
+    if n.op != "raster.calc" {
+        return Err(format!("{id} is a {}, not a raster.calc", n.op));
+    }
+    let script = match n.params.get("expression") {
+        Some(Value::String(t)) => t.clone(),
+        _ => return Err(format!("{id} has no script")),
+    };
+    let (inputs, values) = calc_inputs(nodes, path.is_empty(), dir, n, known);
+    let mut t = format!("The script of {id}:\n{script}\n\nIts inputs:");
+    for (name, i) in &inputs {
+        let from = match n.inputs.get(name) {
+            Some(terraflux_graph::Source::Ref(s)) => s.clone(),
+            Some(terraflux_graph::Source::Literal(v)) => v.to_string(),
+            None => "nothing".into(),
+        };
+        t.push_str(&format!("\n- {name} <- {from}: {}", input_text(i)));
+    }
+    let layers = algebra_tools::layers_read(&script);
+    if !layers.is_empty() {
+        let read: Vec<String> = layers.iter().map(|(name, l)| format!("{name}: {}", l.join(", "))).collect();
+        t.push_str(&format!("\nThe layers it reads: {}", read.join("; ")));
+    }
+    if let Some(p) = algebra_tools::problem(&script, &inputs) {
+        t.push_str(&format!("\nIts error: line {}: {}", p.line, p.message));
+        return Ok(t);
+    }
+    match calc_sample(&script, &values, true) {
+        Some(Ok((outs, sample))) => {
+            let declared = terraflux_graph::declared_outputs(&script);
+            t.push_str(&format!("\nWhat each name holds at the end, on a sample of {sample}:"));
+            for (name, what) in outs {
+                let out = if declared.contains(&name) { " (an output)" } else { "" };
+                t.push_str(&format!("\n- {name}{out}: {what}"));
+            }
+        }
+        Some(Err(e)) => t.push_str(&format!("\nOn a sample of its inputs' cells it fails: {e}")),
+        None => t.push_str("\nNo values: an input it reads has not run yet (run the model first)."),
+    }
+    Ok(t)
+}
+
+/// The values of a model's file known for its calculators (`terraflux mcp`): what a node gives, the model run up
+/// to it when asked (what ran kept for the next), and the model's inputs.
+pub fn known_by_running<'a>(
+    engine: &'a Engine,
+    source: &Model,
+    dir: &Path,
+) -> impl Fn(&Ref) -> Option<terraflux_ops::Value> + 'a {
+    let mut m = source.clone();
+    let expanded = terraflux_graph::submodel::expand(&mut m, dir).is_ok();
+    let inputs = load_inputs(&m, dir, &BTreeMap::new()).ok();
+    let cache = std::sync::Mutex::new(terraflux_exec::Cache::default());
+    move |r: &Ref| match r {
+        Ref::Input(name) => inputs.as_ref()?.get(name).cloned(),
+        Ref::Port { node, port } if expanded => {
+            if let Some(v) = cache.lock().unwrap().outputs(node).and_then(|o| o.get(port).cloned()) {
+                return Some(v);
+            }
+            let mut watcher = Watcher::new(None, None);
+            engine.run_with(&m, inputs.as_ref()?, &mut watcher, Some(&cache), Some(node)).ok()?;
+            cache.lock().unwrap().outputs(node)?.get(port).cloned()
+        }
+        _ => None,
+    }
 }
 
 /// A template's model (by its name), brought up to date and arranged.
@@ -851,6 +1135,31 @@ fn all() -> Vec<Value> {
             }),
             &["model", "node"],
             None,
+        ),
+        tool(
+            "write_calc",
+            "Write the script of a map calculator (raster.calc): a new node of that id, or the one of that id rewritten. Give `inputs` for the names the script reads (name -> `node.port` or `$input`; a stack's layers are read as `s.layer`). The script is checked before anything changes (its language, every name an input of the node or given a value before, the layers a stack has) and run on a sample of its inputs' cells: the reply tells what each output gives (a map's classes and their shares, or its least, mean and largest values), or why it was refused (the model as it was). Read the reply: a map of a single class, or no cell with a value, is seldom what was asked for.",
+            json!({
+                "model": model,
+                "node": { "type": "string", "description": "The calculator's id: one that exists (rewritten) or a new one." },
+                "script": { "type": "string", "description": "The script: a statement a line, a comment saying what it does, `out name = value` (or `out name`) for each output." },
+                "inputs": inputs,
+                "note": { "type": "string", "description": "What the calculator is for." },
+                "why": record["why"],
+                "refs": record["refs"],
+                "assumptions": record["assumptions"],
+                "alternatives": record["alternatives"],
+                "scope": scope,
+            }),
+            &["model", "node", "script"],
+            None,
+        ),
+        tool(
+            "explain_calc",
+            "A map calculator's script (raster.calc) taken apart: each input (what it reads, and what it is: a map, a stack and its layers, a number), the layers it reads, its error if it has one, and what each name it gives a value holds at the end on a sample of the cells (classes and their shares, or least, mean and largest values). Explain a script, or find why it gives what it gives, from it.",
+            json!({ "model": model, "node": { "type": "string" }, "scope": scope }),
+            &["model", "node"],
+            Some(&read_only),
         ),
         tool(
             "remove_node",

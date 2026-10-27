@@ -2989,6 +2989,10 @@ impl TerrafluxApp {
             Pane::Review => crate::review::pane(ui, s, r),
             Pane::Calculator => match crate::calc_view::pane(ui, &mut self.calculator, s) {
                 Some(crate::calc_view::Asked::RunTo(id)) => crate::builder::run_to(ui, s, Some(id)),
+                Some(crate::calc_view::Asked::Assistant(text)) => {
+                    self.chat.send(text, s, ui.ctx());
+                    self.focus(Pane::Assistant);
+                }
                 None => {}
             },
             Pane::Problems => {

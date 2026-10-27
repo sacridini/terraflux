@@ -360,6 +360,7 @@ impl Chat {
                 let values = |n: &str, p: &str| s.value_of(n, p);
                 Answer::Done(tools::trace_cell(&s.source, r, &values, &self.kept, &a.args))
             }
+            "explain_calc" => Answer::Done(tools::explain_calc(&s.source, &s.base(), &a.args, &|r| known(s, r))),
             edit if tools::EDITS.contains(&edit) => Answer::Done(change(s, r, edit, &a.args, &self.stamp)),
             other => Answer::Done(Err(format!("no tool {other:?}"))),
         };
@@ -492,7 +493,11 @@ fn context(s: &Session) -> String {
 fn change(s: &mut Session, r: &Registry, name: &str, a: &Value, stamp: &Stamp) -> Reply {
     let mut m = s.source.clone();
     let before: Vec<String> = m.nodes.iter().map(|n| n.id.clone()).collect();
-    let done = tools::edit(name, &mut m, r, &s.base(), a)?;
+    let done = match name {
+        // (the values of the calculator's inputs: the last run's, else the rasters' files)
+        "write_calc" => tools::write_calc(&mut m, r, &s.base(), a, &|r| known(s, r))?,
+        _ => tools::edit(name, &mut m, r, &s.base(), a)?,
+    };
     // (the author and request given by the model itself kept)
     if name != "set_model_info" || (a.get("author").is_none() && a.get("request").is_none()) {
         stamp.on(&mut m);
@@ -504,6 +509,7 @@ fn change(s: &mut Session, r: &Registry, name: &str, a: &Value, stamp: &Stamp) -
     let touched = match name {
         "add_node" => s.source.nodes.iter().find(|n| !before.contains(&n.id)).map(|n| n.id.clone()),
         "edit_node" => tools::opt_text(a, "rename").or(tools::opt_text(a, "node")).map(String::from),
+        "write_calc" => tools::opt_text(a, "node").map(String::from),
         _ => None,
     };
     if tools::opt_text(a, "scope").is_none()
@@ -512,6 +518,15 @@ fn change(s: &mut Session, r: &Registry, name: &str, a: &Value, stamp: &Stamp) -
         crate::builder::select(s, r, &id);
     }
     Ok(format!("{done}\n{}", tools::problems(&s.source, &s.base(), r)))
+}
+
+/// A value of the model open known by the last run in the application (a top-level node's output, an input).
+fn known(s: &Session, r: &terraflux_graph::Ref) -> Option<terraflux_ops::Value> {
+    match r {
+        terraflux_graph::Ref::Port { node, port } => s.value_of(node, port),
+        terraflux_graph::Ref::Input(name) => s.inputs.as_ref()?.get(name).cloned(),
+        terraflux_graph::Ref::Carried(_) => None,
+    }
 }
 
 /// A new model in place of the one open (an edit of its own: ctrl+Z goes back).

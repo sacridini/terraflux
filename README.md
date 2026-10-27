@@ -200,7 +200,16 @@ server of OpenAI's chat completions API with tool calling:
 
 Its settings take the server's address, its model and, when it asks for one, a key, kept in the system's store of
 credentials. "Test the connection" says whether the server answers, has the model and lets it call tools. For a
-small model, "Few tools" offers only those to explain, change settings, run and check.
+small model, "Few tools" offers only those to explain, change settings, run and check, and to write and explain a
+calculator's script.
+
+The assistant writes map algebra too: in the Calculator pane, say what to compute ("the NDVI of img in 3 classes",
+**Write**) or ask for the script to be explained (**Explain**). Its tool `write_calc` (also in `terraflux mcp`)
+checks the script before anything changes (its language, every name an input of the node, the layers a stack has)
+and tries it on a sample of the inputs' cells: a script that fails there is refused with the reason, and the reply
+says what each output gives (its classes and their shares, or its least, mean and largest values), for the
+assistant to see when it is not what was asked. `explain_calc` takes a script apart: what each input is and what
+each name holds on the sample.
 
 ![The assistant explaining a node, answered by the HU Berlin's Qwen](docs/images/assistant.png)
 

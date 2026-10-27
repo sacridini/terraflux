@@ -988,5 +988,14 @@ enviado a alguém roda sem a biblioteca.
 **Fase 5: a IA.** O Assistant escreve o script de uma calculadora a partir de um pedido: o parser confere, os nomes
 e as bandas contra as entradas reais, uma prévia, e a mudança passa pelo painel Changes. Também explica um script e
 salva um nó do usuário.
+- **Feito** (Unreleased): as ferramentas `write_calc` e `explain_calc` (no app e no `terraflux mcp`, também entre as
+  poucas dos modelos pequenos). O `write_calc` confere o script antes de mudar o modelo (a linguagem, os nomes
+  contra as entradas do nó, as camadas das pilhas) e o roda numa amostra das células (os valores da última
+  execução, ou os rasters lidos dos arquivos; no MCP, o modelo rodado até o que ele lê): recusado com o motivo, ou
+  escrito com o que cada saída dá (as classes e as suas partes, ou o menor, a média e o maior). O `explain_calc` dá
+  cada entrada e o que ela é, as camadas lidas e o que cada nome guarda na amostra. No painel Calculator, um campo
+  pede o script ao assistente (Write) e Explain pede a explicação; a mudança vai ao painel Changes como as outras.
+  Falta: salvar um nó do usuário pelo assistente (vai com o item 10 de "A interface: o que falta nas partes já
+  feitas").
 
 **Fase 6: o site.** O tutorial de álgebra de mapas reescrito com a linguagem nova; os templates só onde ela melhora.

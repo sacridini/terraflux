@@ -19,6 +19,16 @@ minor versions.
   recharge, the evapotranspiration, the baseflow and its sum from upslope, the VRI, the tables by watershed and
   by watershed and month; or the routing of a recharge map alone). scipy's `exp1` is ported for the quickflow.
   The subsurface distance of the NDR is in metres (InVEST measures it in cells against a length in metres).
+- The assistant writes map algebra. The tool `write_calc` (in the application and in `terraflux mcp`) writes a
+  `raster.calc`'s script, a new node or the one named: checked before anything changes (its language, every name
+  an input of the node or given a value before, the layers a stack has) and tried on a sample of its inputs' cells
+  (the last run's values, or the rasters' files, sampled; `terraflux mcp` runs the model up to what it reads): a
+  script that fails is refused with the reason and the model left as it was, and the reply says what each output
+  gives (a map's classes and their shares, or its least, mean and largest values). `explain_calc` takes a script
+  apart: each input and what it is (a map, a stack and the layers it is read as, a number), the layers read, and
+  what each name holds at the end on the sample. Both are among the few tools of a small model. In the Calculator
+  pane, a field asks the assistant to write the script (**Write**) and **Explain** asks it to explain it; the change
+  comes to the Changes pane like the assistant's others.
 - Terraflux updates itself on macOS and Linux too: the application (`Terraflux.app`, in a folder the user may
   write) is replaced by the release's zip, unpacked beside it; the folder of the `.tar.gz` by the release's; the
   `.deb`, `.rpm` and Arch packages are installed by the system's manager, the administrator's password asked

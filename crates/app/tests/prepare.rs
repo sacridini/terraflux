@@ -168,14 +168,16 @@ fn steps_put_data_on_the_reference_grid() {
     assert!(dist.data.iter().all(|v| *v >= 0.0 && v.is_finite()));
     let Value::Map(burnt) = res.get(&format!("{burnt}.map")).unwrap() else { panic!() };
     assert!(burnt.data.contains(&1.0) && burnt.data.contains(&2.0));
-    let Value::Map(to_class) = res.get(&format!("{to_class}.distance")).unwrap() else { panic!() };
+    // (the land use has two bands, the distance one layer each: its first band's)
+    let Value::Stack(to_class) = res.get(&format!("{to_class}.distance")).unwrap() else { panic!() };
+    assert_eq!(to_class.layers.len(), 2);
     // raster.read's raster stays rasters on disk until a node reads it
     let classes = match res.get("land.raster").unwrap() {
         Value::Raster(r) => r.map().unwrap(),
         Value::Map(m) => m.clone(),
         v => panic!("{:?}", v.ty()),
     };
-    for (c, v) in classes.data.iter().zip(to_class.data.iter()) {
+    for (c, v) in classes.data.iter().zip(to_class.layers[0].iter()) {
         if *c == 1.0 {
             assert_eq!(*v, 0.0);
         }

@@ -94,12 +94,39 @@ pub struct Calculator {
     recalled: Option<usize>,
     evaluating: Option<Receiver<Evaluated>>,
     images: usize,
+    /// What the assistant is asked to write.
+    request: String,
 }
 
 /// What the calculator asks of the application.
 pub enum Asked {
     /// The model run up to the node.
     RunTo(String),
+    /// A question for the assistant (the Assistant pane's).
+    Assistant(String),
+}
+
+/// What the assistant is asked to write a calculator's script (in a container: `path`).
+fn write_request(id: &str, path: &[String], request: &str) -> String {
+    format!(
+        "Write the script of the calculator {id}{} with write_calc: {}. Keep its inputs unless the request needs \
+         others; read what each output gives in write_calc's reply, and write it again if it is not what was asked.",
+        scope_words(path),
+        request.trim().trim_end_matches('.')
+    )
+}
+
+/// What the assistant is asked to explain a calculator's script.
+fn explain_request(id: &str, path: &[String]) -> String {
+    format!(
+        "Explain the script of the calculator {id}{} from explain_calc: what it reads, what each line does and what \
+         each name holds.",
+        scope_words(path)
+    )
+}
+
+fn scope_words(path: &[String]) -> String {
+    if path.is_empty() { String::new() } else { format!(" (scope {})", path.join("/")) }
 }
 
 /// The node a calculator edits: the node selected when it is a `raster.calc`, else the one it edited (while it is
@@ -588,6 +615,34 @@ pub fn pane(ui: &mut Ui, c: &mut Calculator, s: &mut Session) -> Option<Asked> {
                 });
             });
         });
+    egui::Panel::top("calculator assistant")
+        .frame(egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(Margin::symmetric(8, 4)))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(mono("✦").color(theme::accent())).on_hover_text("the assistant of the Assistant pane");
+                let width = (ui.available_width() - 150.0).max(120.0);
+                let field = ui.add(
+                    egui::TextEdit::singleline(&mut c.request)
+                        .hint_text("what to compute, for the assistant to write it (e.g. the NDVI of img in 3 classes)")
+                        .desired_width(width),
+                );
+                let enter = field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+                let can = !c.request.trim().is_empty();
+                let write = ui
+                    .add_enabled(can, egui::Button::new("Write"))
+                    .on_hover_text("the assistant writes the script: checked and tried on a sample before it is given")
+                    .clicked();
+                if can && (write || enter) {
+                    asked = Some(Asked::Assistant(write_request(&n.id, &path, &c.request)));
+                    c.request.clear();
+                    apply = true;
+                }
+                if ui.button("Explain").on_hover_text("the assistant explains the script, line by line").clicked() {
+                    asked = Some(Asked::Assistant(explain_request(&n.id, &path)));
+                    apply = true;
+                }
+            });
+        });
     egui::Panel::bottom("calculator console")
         .resizable(true)
         .default_size(160.0)
@@ -971,6 +1026,16 @@ mod tests {
     use terraflux_ops::Map;
 
     use super::*;
+
+    #[test]
+    fn the_assistant_is_asked_with_its_tools() {
+        let w = write_request("ndvi", &[], " the NDVI of img in 3 classes. ");
+        assert!(
+            w.starts_with("Write the script of the calculator ndvi with write_calc: the NDVI of img in 3 classes. ")
+        );
+        let e = explain_request("calc", &["year".to_string(), "inner".to_string()]);
+        assert!(e.starts_with("Explain the script of the calculator calc (scope year/inner) from explain_calc"), "{e}");
+    }
 
     #[test]
     fn numbers_as_written() {

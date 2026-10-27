@@ -323,7 +323,9 @@ fn the_builder_reads_analyses_and_writes() {
     {
         let s = h.state_mut().session.as_mut().unwrap();
         let path = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
-        let read = terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into())]).unwrap();
+        // (its first band: the file has two, and MSPA would run on each)
+        let read =
+            terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into()), ("band", "0".into())]).unwrap();
         assert_eq!(read, "raster_read");
         // forest (class 1) as the foreground, connected to the map read
         terraflux_app::builder::add(s, &r, "landscape.mspa", &[("foreground", 1.into())]).unwrap();
@@ -395,7 +397,8 @@ fn a_plot_shows_without_writing_and_saves_from_its_tab() {
     {
         let s = h.state_mut().session.as_mut().unwrap();
         let path = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
-        terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into())]).unwrap();
+        // (its first band: the file has two, and the plot would show a stack)
+        terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into()), ("band", "0".into())]).unwrap();
         terraflux_app::builder::add(s, &r, "raster.reclassify", &[("rules", "1 -> 1\n* -> 0".into())]).unwrap();
         terraflux_app::builder::add(s, &r, "view.plot", &[("title", "forest".into())]).unwrap();
         let plot = s.source.nodes.iter().find(|n| n.id == "view_plot").unwrap();
@@ -1112,7 +1115,9 @@ fn keys_switch_close_rename_and_disconnect() {
     // the model as text, and back to the diagram
     h.get_by_label("Text").click();
     h.run_steps(2);
-    assert!(h.query_by_label_contains("problems").is_some() || h.query_by_label_contains("No problem").is_some());
+    assert!(
+        h.query_all_by_label_contains("problems").next().is_some() || h.query_by_label_contains("No problem").is_some()
+    );
     h.get_by_label("Diagram").click();
     h.run_steps(2);
     assert!(!h.state().session.as_ref().unwrap().editor.text);

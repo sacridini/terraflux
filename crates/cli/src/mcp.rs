@@ -181,6 +181,16 @@ impl Server {
                 .ok_or_else(|| "no cell traced yet in the application (a right click on a cell of a map)".to_string()),
             "inspect_file" => tools::inspect_file(a),
             "open_in_app" => open_in_app(a),
+            "explain_calc" => {
+                let path = model_path(a)?;
+                let (m, dir) = (load(&path)?, folder(&path));
+                tools::explain_calc(&m, &dir, a, &tools::known_by_running(&self.engine, &m, &dir))
+            }
+            // (the values of the calculator's inputs: the model run up to what it reads)
+            "write_calc" => change(a, r, |m, r, dir| {
+                let known = tools::known_by_running(&self.engine, m, dir);
+                tools::write_calc(m, r, dir, a, &known)
+            }),
             edit if tools::EDITS.contains(&edit) => change(a, r, |m, r, dir| tools::edit(edit, m, r, dir, a)),
             _ => Err(format!("no tool {name:?}")),
         }
@@ -508,6 +518,60 @@ mod tests {
         assert!(!e, "{t}");
         let m = Model::load(&model).unwrap();
         assert!(m.parameters.is_empty() && m.scenarios.len() == 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_calculator_is_written_and_explained() {
+        let s = Server { engine: Engine::default() };
+        let dir = std::env::temp_dir().join(format!("terraflux-mcp-calc-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let model = dir.join("c.toml").to_string_lossy().into_owned();
+        assert!(!call(&s, "new_model", json!({ "model": model })).1);
+        let land = json!({ "model": model, "op": "nlm.random", "id": "land",
+            "settings": { "rows": 40, "columns": 60, "seed": 3 } });
+        assert!(!call(&s, "add_node", land).1);
+        let stack =
+            json!({ "model": model, "op": "stack.of", "id": "s", "inputs": { "low": "land.map", "high": "land.map" } });
+        assert!(!call(&s, "add_node", stack).1);
+        // refused, the file as it was: a name that is no input, a layer the stack does not have
+        let (t, e) = call(
+            &s,
+            "write_calc",
+            json!({ "model": model, "node": "classes", "script": "c = 1\nc[elev > 0.5] = 2\nout c",
+                "inputs": { "land": "land.map" } }),
+        );
+        assert!(e && t.contains("not written") && t.contains("elev") && t.contains("land (a map)"), "{t}");
+        let (t, e) = call(
+            &s,
+            "write_calc",
+            json!({ "model": model, "node": "classes", "script": "out x = s.middle", "inputs": { "s": "s.stack" } }),
+        );
+        assert!(e && t.contains("middle"), "{t}");
+        assert!(!call(&s, "show_model", json!({ "model": model })).0.contains("classes"));
+        // written, and what it gives told
+        let (t, e) = call(
+            &s,
+            "write_calc",
+            json!({ "model": model, "node": "classes",
+                "script": "# two classes of the random map\nc = 1\nc[land > 0.5] = 2\nout c",
+                "inputs": { "land": "land.map" }, "note": "the random map in two classes" }),
+        );
+        assert!(!e && t.contains("added classes (raster.calc)"), "{t}");
+        assert!(t.contains("- c: a map: classes 1 (") && t.contains(", 2 ("), "{t}");
+        // rewritten (an operator that is not a calculator is not)
+        let (t, e) = call(
+            &s,
+            "write_calc",
+            json!({ "model": model, "node": "classes", "script": "out high = s.high > 0.9", "inputs": { "s": "s.stack" } }),
+        );
+        assert!(!e && t.contains("changed classes") && t.contains("- high: a map: classes 0 ("), "{t}");
+        assert!(call(&s, "write_calc", json!({ "model": model, "node": "land", "script": "out x = 1" })).1);
+        let (t, e) = call(&s, "explain_calc", json!({ "model": model, "node": "classes" }));
+        assert!(!e, "{t}");
+        assert!(t.contains("- s <- s.stack: a stack of 2 layers, read as high, low"), "{t}");
+        assert!(t.contains("The layers it reads: s: high"), "{t}");
+        assert!(t.contains("- high (an output): a map: classes 0 ("), "{t}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
