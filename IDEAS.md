@@ -714,6 +714,14 @@ destravam outros são o 1 e o 3.
    - **Decidido** (2026-10-18): primeiro no landschaft (`ls.services`, o C++ em `src/cpp/serv`, bit a bit com o
      natcap.invest), depois aqui pelo `terraflux-ls-sys`, como os quatro de `services.rs`. Registrado no
      IDEAS do landschaft ("Do Terraflux para o landschaft", item 4).
+   - **Feito** (1.21.0): `services.ndr`, `services.pollination`, `services.seasonal_water_yield`.
+   - **A fazer** (landschaft 1.55.0, 2026-10-27): `services.coastal_vulnerability` (o C++ em
+     `src/cpp/serv/coastal.cpp`: os 16 raios de fetch por ponto da costa contra a terra, a profundidade ao longo
+     deles, as janelas de raster; o resto em Python/shapely em `services/_coastal.py`, a portar; referências
+     `tests/data/reference/invest/coastal_{full,required,lonlat}.npz/json`). E os serviços com entradas em grades
+     diferentes, alinhadas e cortadas às bacias ou à AOI como o InVEST (`services/_common.py` `align_inputs`, o warp
+     do landschaft com o transformador aproximado do GDAL); a correção do SWY (recarga sem dado = sem recarga) já
+     vale aqui, conferir com as referências novas.
 9. **Dispersão de espécies no tempo.** O SDM de vários períodos com a dispersão célula a célula (como o MigClim) ou
    com uma metapopulação (o modelo de função de incidência), juntando o `sdm.*` e o `conn.*` num laço.
    - **Feito** (0.97.0): `sdm.migrate`, o autômato do MigClim 1.6 (o mesmo resultado para uma semente: o
