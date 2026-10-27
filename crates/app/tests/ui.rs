@@ -685,6 +685,71 @@ fn checks_show_how_they_fared() {
     shot(&mut h, "46-checks-canvas");
 }
 
+/// A node's result frozen: written next to the model, used in a later session instead of running it (what only it
+/// reads not run either), marked on the canvas; thawed, it runs again. A whole run of the model saved writes its
+/// manifest.
+#[test]
+fn a_frozen_result_is_kept_between_sessions() {
+    use terraflux_app::editor_view::NodeStatus;
+    use terraflux_graph::{Model, Node};
+    let mut m = Model::new("frozen");
+    m.nodes.push(Node::new("land", "nlm.random").param("rows", 20).param("columns", 30).param("seed", 3));
+    m.nodes.push(Node::new("twice", "raster.calc").param("expression", "land * 2").input("land", "land.map"));
+    m.nodes.push(Node::new("half", "raster.calc").param("expression", "twice / 2").input("twice", "twice.map"));
+    let path = tmp("frozen.toml");
+    let folder = terraflux_exec::frozen::folder(&path);
+    let _ = std::fs::remove_dir_all(&folder);
+    m.save(&path).unwrap();
+    let run = |h: &mut Harness<TerrafluxApp>| {
+        h.state_mut().session.as_mut().unwrap().start(Box::new(|| {}));
+        until(h, "the run", |a| {
+            let s = a.session.as_ref().unwrap();
+            !s.running() && s.value_of("half", "map").is_some()
+        });
+    };
+    let mut h = harness(new_app(Some(path.clone())));
+    loaded(&mut h);
+    run(&mut h);
+    let given = h.state().session.as_ref().unwrap().value_of("twice", "map");
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        assert!(matches!(&s.recorded, Some(Ok(p)) if p.ends_with("manifest.json")), "{:?}", s.recorded);
+        s.freeze("twice", true).unwrap();
+        s.edited();
+        s.save().unwrap();
+    }
+    assert!(folder.join("twice").join("frozen.json").is_file());
+    // a later session: twice from disk, land not run
+    let mut h = harness(new_app(Some(path.clone())));
+    loaded(&mut h);
+    run(&mut h);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        assert_eq!(s.status.get("twice"), Some(&NodeStatus::Done { cached: true }));
+        assert_eq!(s.status.get("land"), None, "only twice reads land");
+        assert_eq!(s.status.get("half"), Some(&NodeStatus::Done { cached: false }));
+        let (Some(terraflux_ops::Value::Map(a)), Some(terraflux_ops::Value::Map(b))) =
+            (&given, s.value_of("twice", "map"))
+        else {
+            panic!()
+        };
+        assert_eq!(a.data, b.data);
+    }
+    h.state_mut().session.as_mut().unwrap().selected = Some("twice".into());
+    h.run_steps(4);
+    shot(&mut h, "47-frozen");
+    // thawed: land and twice run again, the files gone
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.freeze("twice", false).unwrap();
+        s.edited();
+    }
+    run(&mut h);
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.status.get("land"), Some(&NodeStatus::Done { cached: false }));
+    assert!(!folder.exists());
+}
+
 /// A model in stages: zoomed out, the canvas frames and names each stage; grouped by stage, it shows a block per
 /// stage with its note, and the document a section per group, the maps of the groups' steps kept from the run.
 #[test]

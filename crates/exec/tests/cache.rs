@@ -129,3 +129,38 @@ fn generators_are_not_kept() {
     engine.run_with(&m, &none, &mut seen, Some(&cache), None).unwrap();
     assert_eq!(seen.done, [("rng".to_string(), false), ("rng".to_string(), false)]);
 }
+
+#[test]
+fn a_frozen_result_is_used_whatever_it_came_from() {
+    let runs = Arc::new(AtomicUsize::new(0));
+    let mut r = Registry::standard();
+    r.add(Arc::new(Inc(runs.clone())));
+    let engine = Engine { registry: r };
+    // a -> b -> c, b frozen
+    let mut m = Model::new("t");
+    m.nodes.push(Node::new("a", "test.inc").literal("x", 0));
+    m.nodes.push(Node::new("b", "test.inc").input("x", "a.y"));
+    m.nodes.push(Node::new("c", "test.inc").input("x", "b.y"));
+    let none = BTreeMap::new();
+    // a later session: b's result read from disk and held; a, only read by b, does not run
+    let cache = Mutex::new(Cache::default());
+    m.nodes[1].frozen = true;
+    let held: Outputs = [("y".to_string(), Value::Number(41.0))].into();
+    assert!(cache.lock().unwrap().hold("b", Some(held), 7));
+    let mut seen = Seen::default();
+    let r = engine.run_with(&m, &none, &mut seen, Some(&cache), None).unwrap();
+    assert_eq!(runs.load(Ordering::SeqCst), 1);
+    assert_eq!(seen.done, [("b".to_string(), true), ("c".to_string(), false)]);
+    assert_eq!(r.get("c.y").unwrap().as_number(), Some(42.0));
+    // what it reads changed: still the frozen result
+    m.nodes[0].params.insert("by".into(), 5.into());
+    let r = engine.run_with(&m, &none, &mut Seen::default(), Some(&cache), Some("c")).unwrap();
+    assert_eq!(runs.load(Ordering::SeqCst), 1);
+    assert_eq!(r.get("c.y").unwrap().as_number(), Some(42.0));
+    // thawed: b runs again on what a gives now
+    m.nodes[1].frozen = false;
+    cache.lock().unwrap().release("b");
+    let r = engine.run_with(&m, &none, &mut Seen::default(), Some(&cache), None).unwrap();
+    assert_eq!(r.get("c.y").unwrap().as_number(), Some(7.0));
+    assert!(!cache.lock().unwrap().holds("b"));
+}

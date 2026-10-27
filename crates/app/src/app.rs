@@ -853,6 +853,69 @@ impl Session {
         !self.running() && !self.loading() && self.load_error.is_none()
     }
 
+    /// The folder of the model's frozen results, next to its file (none: not saved).
+    pub fn frozen_folder(&self) -> Option<PathBuf> {
+        self.path.as_deref().map(terraflux_exec::frozen::folder)
+    }
+
+    /// Freeze a top-level node's result (its outputs of the last run written next to the model and used instead of
+    /// running it, in later sessions too; not run yet: frozen when it runs) or thaw it. The flag is an edit of the
+    /// model (`edited` follows).
+    pub fn freeze(&mut self, id: &str, on: bool) -> Result<(), String> {
+        let folder = self.frozen_folder();
+        if on {
+            let folder = folder.ok_or("save the model first: a frozen result is kept next to its file")?;
+            let outputs = self.cache.lock().unwrap().outputs(id).cloned();
+            if let Some(outputs) = outputs {
+                terraflux_exec::frozen::freeze(&folder, id, &outputs).map_err(|e| format!("{id}: {e}"))?;
+                self.cache.lock().unwrap().hold(id, None, 0);
+            }
+        } else {
+            if let Some(f) = &folder {
+                terraflux_exec::frozen::thaw(f, id).map_err(|e| e.to_string())?;
+            }
+            self.cache.lock().unwrap().release(id);
+        }
+        crate::editor::set_frozen(&mut self.source, id, on).map_err(|e| e.to_string())
+    }
+
+    /// The frozen results held for the run as the model says: read from disk when not held yet (a new session),
+    /// let go of when thawed (an undo).
+    fn hold_frozen(&mut self) {
+        let folder = self.frozen_folder();
+        let mut c = self.cache.lock().unwrap();
+        for n in &self.model.nodes {
+            if n.frozen && !c.holds(&n.id) {
+                if let Some(f) = &folder
+                    && let Ok((outputs, when)) = terraflux_exec::frozen::read(f, &n.id)
+                {
+                    c.hold(&n.id, Some(outputs), when);
+                }
+            } else if !n.frozen && c.holds(&n.id) {
+                c.release(&n.id);
+            }
+        }
+    }
+
+    /// The nodes frozen without a result kept (frozen before they ran, or their files gone): what they gave in
+    /// this run written next to the model, and held.
+    fn freeze_new(&mut self) {
+        let Some(folder) = self.frozen_folder() else { return };
+        let mut c = self.cache.lock().unwrap();
+        for n in self.model.nodes.iter().filter(|n| n.frozen) {
+            if c.holds(&n.id) {
+                continue;
+            }
+            let Some(outputs) = c.outputs(&n.id).cloned() else { continue };
+            match terraflux_exec::frozen::freeze(&folder, &n.id, &outputs) {
+                Ok(()) => {
+                    c.hold(&n.id, None, 0);
+                }
+                Err(e) => self.warnings.push(format!("{}: its result could not be frozen: {e}", n.id)),
+            }
+        }
+    }
+
     /// Run the whole model.
     pub fn start(&mut self, repaint: Box<dyn Fn() + Send>) {
         self.start_to(None, repaint);
@@ -861,6 +924,7 @@ impl Session {
     /// Run what a node needs (none: the whole model); what did not change since the last run comes from the
     /// cache.
     pub fn start_to(&mut self, target: Option<String>, repaint: Box<dyn Fn() + Send>) {
+        self.hold_frozen();
         let base = self.base();
         self.edited_at = None;
         match &target {
@@ -1102,7 +1166,10 @@ impl Session {
             self.status.retain(|_, st| *st != NodeStatus::Running);
             self.status_rev += 1;
             match r {
-                Ok(results) => self.outputs.extend(results.values),
+                Ok(results) => {
+                    self.outputs.extend(results.values);
+                    self.freeze_new();
+                }
                 Err(e) => self.error = Some(e),
             }
             self.outputs.retain(|id, _| self.model.nodes.iter().any(|n| n.id == *id));

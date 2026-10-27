@@ -347,6 +347,18 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
         {
             change = Some(crate::editor::toggle_bypass(&mut s.source, &path, std::slice::from_ref(&n.id)));
         }
+        // its result frozen (a top-level node): kept next to the model, used instead of running it
+        if path.is_empty() {
+            let mut frozen = n.frozen;
+            if ui
+                .add_enabled(s.path.is_some(), egui::Checkbox::new(&mut frozen, "Freeze"))
+                .on_hover_text("its result kept on disk next to the model (name.frozen) and used instead of running it, in later sessions too, whatever it reads; what only it reads does not run either. Unchecked: it runs again")
+                .on_disabled_hover_text("save the model first: a frozen result is kept next to its file")
+                .changed()
+            {
+                change = Some(s.freeze(&n.id, frozen));
+            }
+        }
         let at = if path.is_empty() { n.id.clone() } else { format!("{}/{}", path.join("/"), n.id) };
         if let Some((secs, bytes)) = s.timings.get(&at) {
             let size = match *bytes {

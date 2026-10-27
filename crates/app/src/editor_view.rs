@@ -9,7 +9,8 @@
 //! button to move the view, the wheel zooms around the pointer, Home fits the graph. Each node shows how it did
 //! in the last run: running, done (or taken from the cache), failed; a node with problems (an input it needs not
 //! given, the run's error) has a mark that tells them on hover; a check (`check.assert`) a badge of how it fared
-//! (passed, warned, failed, not run), a container the worst of its checks'. A box that reads or writes a file names it at
+//! (passed, warned, failed, not run), a container the worst of its checks'; a node whose result is frozen a ❄ at its
+//! top left. A box that reads or writes a file names it at
 //! its bottom; the boxes of data (the model's inputs, what reads, writes, stacks or plots) may have a header in the
 //! colour of the type they give (a map's blue, vectors' pink...), an option of the settings.
 //!
@@ -471,6 +472,8 @@ struct BoxAt {
     unfolded: bool,
     /// Turned off (its inputs passed on): drawn faint.
     bypass: bool,
+    /// Its result frozen (kept on disk, used instead of running it): a mark at its top left.
+    frozen: bool,
 }
 
 /// The name of a file short enough for a box's row: its name without its folder, cut in the middle (the end kept,
@@ -840,6 +843,7 @@ impl Scene {
                 folded: Vec::new(),
                 unfolded: false,
                 bypass: false,
+                frozen: false,
             });
             y += HEAD + ROW + foot + 12.0;
         }
@@ -885,6 +889,7 @@ impl Scene {
                 folded,
                 unfolded: open,
                 bypass: n.bypass,
+                frozen: n.frozen,
             });
         }
         let index: HashMap<String, usize> = boxes.iter().enumerate().map(|(i, b)| (b.key.clone(), i)).collect();
@@ -1642,6 +1647,25 @@ pub fn show(
             );
         }
     }
+    // the nodes whose result is frozen: ❄ on their top left corner
+    for &i in &in_view {
+        let b = &scene.boxes[i];
+        if !b.frozen {
+            continue;
+        }
+        let c = screen(b.rect.left_top());
+        let radius = (8.0 * cam.zoom).max(4.5);
+        painter.circle(c, radius, Color32::from_rgb(170, 215, 245), Stroke::new(1.0, v.window_stroke().color));
+        if radius >= 5.0 {
+            painter.text(
+                c,
+                Align2::CENTER_CENTER,
+                "❄",
+                FontId::proportional(radius * 1.5),
+                Color32::from_rgb(20, 70, 120),
+            );
+        }
+    }
     // the nodes that ran once per layer: ×12, at the left of the marks of problems and checks
     if ports {
         for &i in &in_view {
@@ -1757,6 +1781,13 @@ pub fn show(
                 if let Some(c) = checks.get(&b.key) {
                     let what = if b.op == "check.assert" { "the check" } else { "the worst of its checks" };
                     text.push(format!("{} {what}: {}", c.symbol(), c.words()));
+                }
+                if b.frozen {
+                    text.push(
+                        "❄ its result frozen: kept on disk next to the model and used instead of running it (Freeze \
+                         in the Node pane thaws it)"
+                            .into(),
+                    );
                 }
                 if let Some(n) = layers.get(&b.key) {
                     text.push(format!(

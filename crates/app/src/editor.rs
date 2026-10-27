@@ -412,6 +412,12 @@ pub fn toggle_bypass(m: &mut Model, path: &[String], ids: &[String]) -> Result<(
     Ok(())
 }
 
+/// Freeze a top-level node's result or thaw it (the flag; its outputs kept on disk by the session).
+pub fn set_frozen(m: &mut Model, node: &str, on: bool) -> Result<()> {
+    node_mut(m, &[], node)?.frozen = on;
+    Ok(())
+}
+
 /// Set a setting (empty text: remove it).
 pub fn set_param(m: &mut Model, path: &[String], node: &str, name: &str, text: &str) -> Result<()> {
     let n = node_mut(m, path, node)?;

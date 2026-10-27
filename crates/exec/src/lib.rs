@@ -8,6 +8,7 @@
 //! runs again only when it, a node it depends on, an input or a file it reads changed; a run may stop at a
 //! node (its ancestors only run). The application runs the model as it is edited this way.
 
+pub mod frozen;
 mod io;
 pub mod lint;
 pub mod testing;
@@ -154,11 +155,13 @@ impl Results {
     }
 }
 
-/// The outputs of a top-level node kept, the fingerprint of what they came from and the node's warnings.
+/// The outputs of a top-level node kept, the fingerprint of what they came from and the node's warnings; `held`:
+/// its result frozen ([`Cache::hold`]), used while the node is frozen whatever it came from.
 struct Kept {
     print: u64,
     outputs: Outputs,
     warnings: Vec<String>,
+    held: bool,
 }
 
 /// The outputs of the top-level nodes of a model kept between runs ([`Engine::run_with`]).
@@ -180,6 +183,32 @@ impl Cache {
 
     pub fn forget(&mut self, node: &str) {
         self.kept.remove(node);
+    }
+
+    /// Hold a node's frozen result (read from disk, or the outputs it gave): used instead of running it while it
+    /// is frozen, those of its own run kept when it has them already. `print` tells what it was (its downstream
+    /// run again when it changes).
+    pub fn hold(&mut self, node: &str, outputs: Option<Outputs>, print: u64) -> bool {
+        match (self.kept.get_mut(node), outputs) {
+            (Some(k), _) => k.held = true,
+            (None, Some(outputs)) => {
+                self.kept.insert(node.to_string(), Kept { print, outputs, warnings: Vec::new(), held: true });
+            }
+            (None, None) => return false,
+        }
+        true
+    }
+
+    /// Whether a node's frozen result is held.
+    pub fn holds(&self, node: &str) -> bool {
+        self.kept.get(node).is_some_and(|k| k.held)
+    }
+
+    /// Let go of a node's frozen result (it runs again when its fingerprint differs).
+    pub fn release(&mut self, node: &str) {
+        if let Some(k) = self.kept.get_mut(node) {
+            k.held = false;
+        }
     }
 
     pub fn clear(&mut self) {
@@ -228,6 +257,7 @@ fn bare(n: &Node) -> Node {
     let mut n = n.unrecorded();
     n.pos = None;
     n.width = None;
+    n.frozen = false;
     if let Some(b) = &mut n.body {
         b.nodes = b.nodes.iter().map(bare).collect();
     }
@@ -409,20 +439,41 @@ impl Engine {
         };
         let among = ids(&model.nodes);
         let by_id: std::collections::HashMap<&str, &Node> = model.nodes.iter().map(|n| (n.id.as_str(), n)).collect();
-        // the nodes to run: every one, or the target's ancestors
+        // the nodes frozen whose result is held: what only they read does not run
+        let held: std::collections::HashSet<&str> = match cache {
+            Some(c) => {
+                let c = c.lock().unwrap();
+                model.nodes.iter().filter(|n| n.frozen && c.holds(&n.id)).map(|n| n.id.as_str()).collect()
+            }
+            None => Default::default(),
+        };
+        // the nodes to run: every one, or the target's ancestors (not those of a node held)
         let needed: Option<std::collections::BTreeSet<String>> = match target {
-            None => None,
-            Some(t) => {
-                if !by_id.contains_key(t) {
-                    return Err(Error::Model(format!("no node {t:?}")));
-                }
+            None if held.is_empty() => None,
+            _ => {
+                let todo: Vec<String> = match target {
+                    Some(t) => {
+                        if !by_id.contains_key(t) {
+                            return Err(Error::Model(format!("no node {t:?}")));
+                        }
+                        vec![t.to_string()]
+                    }
+                    // a whole run: from the nodes nothing reads
+                    None => {
+                        let read: std::collections::HashSet<String> =
+                            model.nodes.iter().flat_map(|n| dependencies_among(n, &among)).collect();
+                        model.nodes.iter().filter(|n| !read.contains(&n.id)).map(|n| n.id.clone()).collect()
+                    }
+                };
+                let mut todo = todo;
                 let mut set = std::collections::BTreeSet::new();
-                let mut todo = vec![t.to_string()];
                 while let Some(id) = todo.pop() {
                     if !set.contains(&id)
                         && let Some(n) = by_id.get(id.as_str())
                     {
-                        todo.extend(dependencies_among(n, &among));
+                        if !held.contains(id.as_str()) {
+                            todo.extend(dependencies_among(n, &among));
+                        }
                         set.insert(id);
                     }
                 }
@@ -466,8 +517,13 @@ impl Engine {
                 return Err(Error::Cancelled);
             }
             let at = node.id.as_str();
-            let print = cache.and_then(|_| fingerprint(node, model, &among, inputs, &prints));
+            let mut print = cache.and_then(|_| fingerprint(node, model, &among, inputs, &prints));
             let kept = match (cache, print) {
+                // frozen: its result held, whatever it came from
+                (Some(c), _) if held.contains(at) => c.lock().unwrap().kept.get(&node.id).map(|k| {
+                    print = Some(k.print);
+                    (k.outputs.clone(), k.warnings.clone())
+                }),
                 (Some(c), Some(p)) => c
                     .lock()
                     .unwrap()
@@ -499,7 +555,8 @@ impl Engine {
             if let (Some(c), Some(p), true) = (cache, print, keep) {
                 let prefix = format!("{at}: ");
                 let ws = warnings[before..].iter().map(|w| w.strip_prefix(&prefix).unwrap_or(w).to_string()).collect();
-                c.lock().unwrap().kept.insert(node.id.clone(), Kept { print: p, outputs: out.clone(), warnings: ws });
+                let k = Kept { print: p, outputs: out.clone(), warnings: ws, held: false };
+                c.lock().unwrap().kept.insert(node.id.clone(), k);
             }
             prints.insert(node.id.clone(), if keep { print } else { None });
             obs.done(at, false);

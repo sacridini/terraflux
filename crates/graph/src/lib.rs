@@ -370,6 +370,11 @@ pub struct Node {
     /// same type (a filter left out passes its map on), the others missing.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub bypass: bool,
+    /// Its result frozen: its outputs kept on disk next to the model (`<model>.frozen/<id>/`) and used instead of
+    /// running it, in later sessions too, until it is thawed (a top-level node). What only it reads does not run
+    /// either.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub frozen: bool,
     /// A group that is a node of the user's library: the name and version it was made from, what it takes and
     /// gives (its body a copy of that version's: see [`user_node`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -392,6 +397,7 @@ impl Node {
             pos: None,
             width: None,
             bypass: false,
+            frozen: false,
             uses: None,
         }
     }

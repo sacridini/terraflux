@@ -295,7 +295,10 @@ escrevendo scripts). Depois, nesta ordem:
      dobras, lotes de soluções, orçamentos, blocos, faixas). Falta: dentro de uma chamada do C++ (o MSPA de uma
      telha, o `landscape.mspa` inteiro, o `circuit.pairwise`, o Omniscape) ainda não para; precisaria de um
      `watch` no landschaft, como o do `opt_solve_watched`;
-   - congelar o resultado de um nó entre sessões (o cache em disco);
+   - **Feito** (Unreleased): congelar o resultado de um nó entre sessões (o cache em disco): `frozen = true` no nó,
+     as saídas em `<modelo>.frozen/<nó>/` (`terraflux_exec::frozen`), seguradas no cache (`Cache::hold`) e usadas
+     no lugar de rodá-lo, no aplicativo e no `terraflux run`; o que só ele lê não roda. Falta: congelar um nó dentro
+     de um contêiner; os agentes, as árvores e os dados do Biodiverse em disco;
    - rodar um laço passo a passo, como um breakpoint.
 3. **Vista Document:** frases escritas à mão por operador para os parâmetros; editar listas e tabelas no lugar
    (hoje pelo painel Node); as paletas do viewer nas miniaturas.

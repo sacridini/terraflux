@@ -907,7 +907,25 @@ fn main() -> Result<()> {
                 eprintln!("{}: inputs read ({:.1} s)", m.name.as_deref().unwrap_or("model"), t.elapsed().as_secs_f64());
             }
             let mut progress = Progress { quiet, start: t };
-            let results = engine.run(&m, &inputs, &mut progress)?;
+            // the nodes frozen in the application: their results kept next to the model, used instead of running them
+            let folder = terraflux_exec::frozen::folder(&model);
+            let mut held = terraflux_exec::Cache::default();
+            for n in m.nodes.iter().filter(|n| n.frozen) {
+                match terraflux_exec::frozen::read(&folder, &n.id) {
+                    Ok((outputs, when)) => {
+                        held.hold(&n.id, Some(outputs), when);
+                        if !quiet {
+                            eprintln!("{}: its result frozen ({})", n.id, folder.join(&n.id).display());
+                        }
+                    }
+                    Err(e) => eprintln!("  note: {}: frozen, its result not read ({e}): it runs", n.id),
+                }
+            }
+            let results = if m.nodes.iter().any(|n| n.frozen) {
+                engine.run_with(&m, &inputs, &mut progress, Some(&std::sync::Mutex::new(held)), None)?
+            } else {
+                engine.run(&m, &inputs, &mut progress)?
+            };
             if profile {
                 let mut t = results.timings.clone();
                 t.sort_by(|a, b| b.seconds.total_cmp(&a.seconds));

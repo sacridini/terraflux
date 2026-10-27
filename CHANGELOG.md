@@ -20,6 +20,12 @@ minor versions.
   and the INI files' runs, between two batches of points), the folds of `sdm.fit`, the replacement and rank
   importance of `prioritize.evaluate` (between two lots of solves, between two budgets) and the metrics by blocks
   (`metrics.*` with `block_rows` or rasters on disk, between two blocks; `metrics.window`, between two strips).
+- A node's result frozen (Freeze in the Node pane, `frozen = true` in the model file): its outputs written next to
+  the model (`<model>.frozen/<node>/`, a file each: maps in GeoTIFF, those not of whole numbers in float64, tables
+  in CSV, vectors in GeoPackage, numbers, texts and fitted models in JSON; the same values read back) and used
+  instead of running it, in later sessions and by `terraflux run` too, whatever it reads; what only it reads does
+  not run either. A ❄ marks it on the canvas. Unchecked, the files go and it runs again. A node frozen before it
+  ran is frozen when it runs; a random generator, agents or a series not of maps cannot be.
 
 ## [1.21.0] - 2026-10-27
 
