@@ -1,7 +1,7 @@
 //! The modelling workflow against landschaft's (tests/data/reference/sdm_workflow.npz and .json,
 //! tools/make_sdm_workflow_reference.py): the dataset, random folds and spatial blocks on it, MaxNet fitted with
-//! cross-validation over them (every fold's metrics, their means and standard deviations, the threshold and the
-//! coefficients), the response curves and the permutation importance, to the bit.
+//! cross-validation over them (every fold's metrics, their means and standard deviations, the threshold, the
+//! out-of-fold predictions and the coefficients), the response curves and the permutation importance, to the bit.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -75,6 +75,11 @@ fn workflow_is_landschafts() {
         let fit = run("sdm.fit", vec![("records", with)], serde_json::json!({"categorical": ["cover"]}));
         check(&format!("{case} metrics"), &flat(&fit["metrics"]), &z[&format!("{case}/metrics")].data);
         check(&format!("{case} summary"), &flat(&fit["summary"]), &z[&format!("{case}/summary")].data);
+        // the out-of-fold predictions: the records with a column prediction
+        let Value::Table(p) = &fit["predictions"] else { panic!() };
+        assert_eq!(p.columns.last().map(String::as_str), Some("prediction"));
+        let oof: Vec<f64> = p.rows.iter().map(|r| r[r.len() - 1]).collect();
+        check(&format!("{case} predictions"), &oof, &z[&format!("{case}/predictions")].data);
         let Value::Number(th) = fit["threshold"] else { panic!() };
         check(&format!("{case} threshold"), &[th], &z[&format!("{case}/threshold")].data);
         let Value::SdmModel(m) = &fit["model"] else { panic!() };
@@ -83,6 +88,7 @@ fn workflow_is_landschafts() {
     }
     let fit =
         run("sdm.fit", vec![("records", records.clone())], serde_json::json!({"categorical": ["cover"], "cv": false}));
+    assert!(!fit.contains_key("predictions"), "no predictions without cross-validation");
     for fixed in ["mean", "median"] {
         let c = run(
             "sdm.response_curves",

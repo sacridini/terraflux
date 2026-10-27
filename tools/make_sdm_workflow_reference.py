@@ -6,7 +6,8 @@ tests/data/reference/sdm_workflow.npz and .json:
 
 Presences and background points on a stack of three continuous predictors and a categorical one (a projected
 grid): the dataset (the predictors at the records), the model fitted with cross-validation over random folds and
-over spatial blocks (every fold's metrics, their means and standard deviations, the threshold), the response
+over spatial blocks (every fold's metrics, their means and standard deviations, the threshold, the out-of-fold
+predictions), the response
 curves (mean and median) and the permutation importance.
 """
 
@@ -60,6 +61,7 @@ def main() -> None:
         out[f"{name}/summary"] = r.summary.to_numpy(dtype=np.float64).ravel()
         out[f"{name}/threshold"] = np.array([r.thresholds["MaxNet"]])
         out[f"{name}/betas"] = np.array(list(r.models["MaxNet"].betas_.values()))
+        out[f"{name}/predictions"] = r.predictions["MaxNet"].to_numpy(dtype=np.float64)
         cases.append(name)
     r = S.fit(folds, S.MaxNet(categorical=["cover"]), cv=False)
     for fixed in ("mean", "median"):

@@ -296,9 +296,10 @@ const TOOLS: [&str; 12] = [
 ];
 
 /// The operators of a field that prepare its model's data.
-const PREPARING: [&str; 10] = [
+const PREPARING: [&str; 11] = [
     "sdm.prepare",
     "sdm.background",
+    "sdm.bias_surface",
     "sdm.clean_occurrences",
     "sdm.thin",
     "sdm.accessible_area",

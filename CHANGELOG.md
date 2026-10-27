@@ -6,6 +6,19 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- `sdm.bias_surface`: the sampling effort of a target group (the records of every species sampled the same way) as
+  a Gaussian kernel density on the grid of the predictors, the bias of `sdm.background` (a target-group background,
+  Maxent's bias file). It is landschaft's `bias_surface`, `MASS::kde2d`'s density at the cells' centres, with R's
+  `bw.nrd` in each direction by default (`kde2d(h = H)` is `bandwidth = H / 4`), a number or `[x, y]`, `isotropic`,
+  bandwidths raised or lowered to `limits`, the records' `weights` from a column, a linear `rescale` (e.g.
+  `[0.05, 0.95]`, so that every cell keeps a chance) and the cells without predictors masked. The bandwidths are
+  landschaft's to the bit, the density up to rounding.
+- `sdm.fit` gives the out-of-fold predictions (`predictions`): the records with a column `prediction`, each one's
+  suitability from the model fitted without its fold (none in fold 0), the same as landschaft's
+  `SDMResult.predictions`. They score the model on what it did not see and feed models stacked on it (an ensemble,
+  a calibration, the distance to an expert range).
+
 ## [1.19.0] - 2026-10-26
 
 ### Added

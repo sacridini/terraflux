@@ -45,6 +45,7 @@ mod restoration;
 mod rivers;
 mod sampling;
 mod sdm_area;
+mod sdm_bias;
 mod sdm_clean;
 mod sdm_evaluate;
 mod sdm_extrapolation;

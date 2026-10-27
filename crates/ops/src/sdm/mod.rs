@@ -3,6 +3,7 @@
 //! omission rates).
 
 pub mod area;
+pub mod bias;
 pub mod clean;
 pub mod evaluate;
 pub mod extrapolation;
@@ -40,6 +41,7 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(Thin));
     r.add(Arc::new(OnePerCell));
     r.add(Arc::new(Background));
+    r.add(Arc::new(BiasSurface));
     for kind in ["random", "jackknife", "quadrant", "checkerboard", "blocks", "clusters", "buffer"] {
         r.add(Arc::new(Folds { kind }));
     }
@@ -752,6 +754,128 @@ impl Operator for Background {
     }
 }
 
+struct BiasSurface;
+
+/// A setting given as a number or a pair [a, b] (either may be null when `open`).
+fn pair(args: &Args, name: &str) -> Result<Option<(Option<f64>, Option<f64>)>> {
+    match args.params.get(name) {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(serde_json::Value::Array(_)) => {
+            let v: Vec<Option<f64>> = args.param(name, vec![])?;
+            match v[..] {
+                [a, b] => Ok(Some((a, b))),
+                _ => Err(bad(args, format!("{name}: a number or [a, b]"))),
+            }
+        }
+        Some(_) => {
+            let v: f64 = args.param(name, 0.0)?;
+            Ok(Some((Some(v), Some(v))))
+        }
+    }
+}
+
+impl Operator for BiasSurface {
+    fn signature(&self) -> OpSignature {
+        coordinate_settings(
+            OpSignature::new(
+                "sdm.bias_surface",
+                "The sampling effort as a surface (landschaft's bias_surface): a Gaussian kernel density of the \
+                 records of a whole group (the same taxa, collectors and decades) on the grid of the predictors, \
+                 MASS::kde2d's at the cells' centres, with R's bw.nrd in each direction by default. The bias of \
+                 sdm.background, which draws the background with the records' bias (a target-group background, \
+                 Phillips et al. 2009; Maxent's bias file). kde2d(h = H) is bandwidth = H / 4.",
+                Access::Global,
+            )
+            .input(PortSpec::new(
+                "occurrences",
+                Type::Any,
+                "the records of the target group: points, or a table with coordinate columns",
+            ))
+            .input(PortSpec::new("env", Type::Any, "the predictors: a stack or a map (its grid)"))
+            .output(PortSpec::new(
+                "bias",
+                Type::Map,
+                "the density (records per unit of area of the coordinate system) or rescaled",
+            ))
+            .output(PortSpec::new("bandwidth", Type::Any, "the bandwidths used, [x, y]")),
+        )
+        .param(PortSpec::optional(
+            "bandwidth",
+            Type::Any,
+            "the kernel's standard deviation in the grid's units (metres, or degrees on lon/lat): a number, [x, y], \
+             or nrd (default: R's bw.nrd in each direction, kde2d's)",
+        ))
+        .param(PortSpec::optional("isotropic", Type::Bool, "the larger bandwidth in both directions (default false)"))
+        .param(PortSpec::optional(
+            "limits",
+            Type::Any,
+            "[min, max]: bandwidths raised or lowered to them (either null); a floor keeps a clustered group's \
+             surface from collapsing on its records",
+        ))
+        .param(PortSpec::optional(
+            "weights",
+            Type::Text,
+            "a column of the records: each one's weight (specimens, visits); default 1",
+        ))
+        .param(PortSpec::optional(
+            "rescale",
+            Type::Any,
+            "[lo, hi]: the densities mapped linearly to them, e.g. [0.05, 0.95], so that every cell keeps a chance",
+        ))
+        .param(PortSpec::optional(
+            "mask",
+            Type::Bool,
+            "no value on the cells without a value in every predictor (default true)",
+        ))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let occ = occurrences(args, "occurrences")?;
+        let (grid, layers) = layers_of(args, "env")?;
+        let refs: Vec<&[f64]> = layers.iter().map(|l| &l[..]).collect();
+        let xc: Option<String> = args.opt_param("x")?;
+        let yc: Option<String> = args.opt_param("y")?;
+        let (mut xs, mut ys, crs) = occ.coordinates(xc.as_deref(), yc.as_deref()).map_err(|e| bad(args, e))?;
+        points::to_crs(&mut xs, &mut ys, crs.as_deref(), points::grid_crs(&grid).as_deref())
+            .map_err(|e| bad(args, e))?;
+        let weights = match args.opt_param::<String>("weights")? {
+            Some(c) => Some(points::numbers(
+                occ.column(&c).ok_or_else(|| bad(args, format!("weights: the records have no column {c:?}")))?,
+            )),
+            None => None,
+        };
+        let bandwidth = match args.params.get("bandwidth") {
+            None | Some(serde_json::Value::Null) => bias::Bandwidth::Nrd,
+            Some(serde_json::Value::String(r)) if r == "nrd" => bias::Bandwidth::Nrd,
+            Some(serde_json::Value::String(r)) => {
+                return Err(bad(args, format!("bandwidth: nrd, a number or [x, y] (CRS units), not {r:?}")));
+            }
+            _ => match pair(args, "bandwidth")? {
+                Some((Some(x), Some(y))) => bias::Bandwidth::Given(x, y),
+                _ => return Err(bad(args, "bandwidth: nrd, a number or [x, y]")),
+            },
+        };
+        let rescale = match pair(args, "rescale")? {
+            None => None,
+            Some((Some(lo), Some(hi))) => Some((lo, hi)),
+            _ => return Err(bad(args, "rescale: [lo, hi]")),
+        };
+        let s = bias::Settings {
+            bandwidth,
+            isotropic: args.param("isotropic", false)?,
+            limits: pair(args, "limits")?.unwrap_or((None, None)),
+            rescale,
+            mask: args.param("mask", true)?,
+        };
+        let (z, (bx, by)) =
+            bias::bias_surface(&grid, &refs, &xs, &ys, weights.as_deref(), &s).map_err(|e| bad(args, e))?;
+        Ok(outputs([
+            ("bias", Value::Map(crate::Map::new(grid, z))),
+            ("bandwidth", Value::Json(serde_json::json!([bx, by]))),
+        ]))
+    }
+}
+
 /// The records of a partition: their coordinates, lon/lat or not, their classes (a presence column) and the
 /// records themselves.
 struct Partitioned {
@@ -1159,8 +1283,8 @@ impl Operator for Fit {
                  GLM (scikit-learn's StandardScaler and LogisticRegression) or a random forest (scikit-learn's \
                  RandomForestClassifier, the same trees); one fit per fold of the records (AUC of the training and test records and their difference, the largest TSS, \
                  Boyce's index, the omission rates at the minimum and 10th percentile training presence), their \
-                 means and standard deviations, and the model on every record with its threshold of maximum \
-                 sensitivity plus specificity.",
+                 means and standard deviations, the records' out-of-fold predictions (for models stacked on \
+                 them), and the model on every record with its threshold of maximum sensitivity plus specificity.",
                 Access::Global,
             )
             .output(PortSpec::new("model", Type::SdmModel, "the model on every record"))
@@ -1174,6 +1298,14 @@ impl Operator for Fit {
                 "threshold",
                 Type::Number,
                 "the threshold of maximum sensitivity plus specificity",
+            ))
+            .output(PortSpec::new(
+                "predictions",
+                Type::Any,
+                "with cross-validation, the records with a column prediction: the suitability from the model \
+                 fitted without the record's fold (none in fold 0), to score the model on what it did not see or \
+                 to feed a model stacked on it (an ensemble, a calibration, the distance to an expert range: \
+                 Merow et al. 2017)",
             )),
         ))
         .param(PortSpec::optional("cv", Type::Bool, "cross-validate over the folds (default true)"))
@@ -1258,12 +1390,17 @@ impl Operator for Fit {
         if !f.summary.is_empty() {
             summary.rows = vec![f.summary];
         }
-        Ok(outputs([
+        let mut out = outputs([
             ("model", Value::SdmModel(Arc::new(f.model))),
             ("metrics", Value::Table(metrics)),
             ("summary", Value::Table(summary)),
             ("threshold", Value::Number(f.threshold)),
-        ]))
+        ]);
+        if let Some(p) = f.predictions {
+            let records = occurrences(args, "records")?.with_columns(vec![("prediction".into(), p)]);
+            out.insert("predictions".into(), occurrences_out(records));
+        }
+        Ok(out)
     }
 }
 

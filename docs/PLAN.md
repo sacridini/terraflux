@@ -795,6 +795,11 @@ Pendências:
   linha LF) com o `print.prt` reescrito para as tabelas e o passo escolhidos (`set_print`) e dá as tabelas do SWAT+
   (`swat_tables.rs`, gerado do `_tables.py` do landschaft) e o clima diário, bit a bit com o landschaft no exemplo
   de Hubbard Brook (`tools/make_swat_reference.py`). O `swat.run` entrou nos `FILE_OPS`.
+- **SDM — viés de amostragem e predições fora da dobra (landschaft 1.53.0, 2026-10-27):** `sdm.bias_surface` (a
+  KDE gaussiana do `MASS::kde2d` nos centros das células, `bw.nrd` por eixo, `isotropic`, `limits`, pesos de uma
+  coluna, `rescale`, a máscara das células sem valor; as larguras bit a bit, a densidade a 1e-10, já que o numpy
+  soma com o produto de matrizes do BLAS: `tools/make_sdm_bias_reference.py`) e a saída `predictions` do `sdm.fit`
+  (os registros com a coluna `prediction`, a do modelo ajustado sem a dobra do registro, bit a bit).
 
 Pendências gerais, depois das fases:
 - reprojeção (PROJ), vetores e distâncias com um clique (feito: o painel Prepare);

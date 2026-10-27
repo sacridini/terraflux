@@ -1,6 +1,6 @@
 //! The modelling workflow of landschaft's sdm (MaxNet, a GLM or a random forest): the records' predictor values
 //! (dataset), the model fitted with cross-validation over folds (fit: AUC, TSS, Boyce and omission per fold, their means and
-//! standard deviations, the threshold of maximum sensitivity plus specificity), response curves and
+//! standard deviations, the threshold of maximum sensitivity plus specificity, the out-of-fold predictions), response curves and
 //! permutation importance (numpy's generator).
 
 use terraflux_ls_sys::ffi;
@@ -85,12 +85,15 @@ fn mean_sd(v: &[f64]) -> (f64, f64) {
 }
 
 /// A fitted model with its cross-validation: the model, a row of METRICS per fold (with the fold first), their
-/// means and standard deviations, and the threshold of maximum sensitivity plus specificity.
+/// means and standard deviations, the threshold of maximum sensitivity plus specificity, and the out-of-fold
+/// predictions (each record's suitability from the model fitted without its fold, NaN in fold 0; none without
+/// cross-validation).
 pub struct Fitted {
     pub model: Model,
     pub metrics: Vec<Vec<f64>>,
     pub summary: Vec<f64>,
     pub threshold: f64,
+    pub predictions: Option<Vec<f64>>,
 }
 
 /// landschaft's fit: the model on every record, and with folds (0: training only) one per fold; the records'
@@ -104,7 +107,9 @@ pub fn fit(
     cv: bool,
 ) -> Result<Fitted, String> {
     let mut metrics = Vec::new();
+    let mut oof = None;
     if let (true, Some(f)) = (cv, folds) {
+        let oof = oof.insert(vec![f64::NAN; y.len()]);
         let mut ks: Vec<f64> = f.iter().copied().filter(|k| *k > 0.0).collect();
         ks.sort_by(|a, b| a.partial_cmp(b).unwrap());
         ks.dedup();
@@ -120,6 +125,7 @@ pub fn fit(
             }
             for (i, v) in test.iter().zip(suitability(&m, &rows(x, &test))?) {
                 pred[*i] = v;
+                oof[*i] = v;
             }
             let mut row = vec![(n + 1) as f64];
             row.extend(fold_metrics(&pred, y, &train, &test)?);
@@ -142,7 +148,7 @@ pub fn fit(
             summary.push(sd);
         }
     }
-    Ok(Fitted { model, metrics, summary, threshold })
+    Ok(Fitted { model, metrics, summary, threshold, predictions: oof })
 }
 
 /// numpy's linspace(start, stop, n).
