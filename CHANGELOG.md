@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.22.0] - 2026-10-27
+
 ### Added
 - The checks' badges: each `check.assert` shows how it fared in the last run (passed in green, failed and only
   warned in amber, failed and stopped the run in red, not run or turned off in grey) on its node, where the tooltip
