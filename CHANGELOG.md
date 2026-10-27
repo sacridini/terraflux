@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.20.0] - 2026-10-27
+
 ### Added
 - `sdm.bias_surface`: the sampling effort of a target group (the records of every species sampled the same way) as
   a Gaussian kernel density on the grid of the predictors, the bias of `sdm.background` (a target-group background,
