@@ -83,6 +83,8 @@ impl State {
 pub enum Asked {
     /// The trace to the assistant, with the question.
     Assistant(String),
+    /// The viewer in front (a step's map shown, the cell outlined).
+    Viewer,
 }
 
 fn weak(t: impl Into<String>) -> RichText {
@@ -136,7 +138,7 @@ pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) -> Optio
             Explain::Here => {}
         }
     }
-    let mut select: Option<(Vec<String>, String)> = None;
+    let mut select: Option<(Vec<String>, String, String)> = None;
     egui::ScrollArea::vertical().id_salt("trace pane").auto_shrink([false, false]).show(ui, |ui| {
         egui::Frame::new().inner_margin(Margin::same(8)).show(ui, |ui| {
             theme::section(ui, "Trace of a cell");
@@ -209,10 +211,10 @@ pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) -> Optio
                             ui.label(RichText::new(format!("{}.", k + 1)).strong());
                             if ui
                                 .link(RichText::new(format!("{}.{}", step.node, step.port)).strong())
-                                .on_hover_text("select it")
+                                .on_hover_text("select it: its map in the viewer, this cell outlined")
                                 .clicked()
                             {
-                                select = Some((step.path.clone(), step.node.clone()));
+                                select = Some((step.path.clone(), step.node.clone(), step.port.clone()));
                             }
                             ui.label(weak(&step.op).monospace().small());
                             if !step.path.is_empty() {
@@ -262,13 +264,20 @@ pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) -> Optio
             }
         });
     });
-    if let Some((path, id)) = select {
+    if let Some((path, id, port)) = select {
         s.editor.path = path.clone();
-        if path.is_empty() {
-            crate::builder::select(s, r, &id);
-        } else {
-            s.fields.clear();
-            s.selected = Some(id.clone());
+        crate::builder::select(s, r, &id);
+        // its map in the viewer (a top-level node's, a group's body's), the cell traced outlined
+        if let Some((node, port)) = crate::builder::shown_at(s, &path, &id, &port)
+            && let Some(t) = &st.trace
+        {
+            let cell = s
+                .value_of(&node, &port)
+                .and_then(|v| crate::trace::grid_of(&v))
+                .and_then(|g| crate::trace::cell_of(&g, t.x, t.y));
+            s.preview = Some((node, port));
+            s.preview_view.picked = cell;
+            asked = asked.or(Some(Asked::Viewer));
         }
         s.editor.reveal(&id);
     }
@@ -330,6 +339,15 @@ fn how_ui(ui: &mut Ui, how: &How) {
         }
         How::Whole(what) => {
             ui.label(weak(format!("from the whole map: {what}")));
+        }
+        How::Patch { .. } => {
+            ui.label(weak(how.patch_text()));
+        }
+        How::Allocation { what, lines } => {
+            ui.label(weak(what));
+            for l in lines {
+                ui.label(RichText::new(l).small());
+            }
         }
         How::Loop => {
             ui.label(weak("a loop: its value at every step"));

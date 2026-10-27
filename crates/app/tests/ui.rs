@@ -1064,6 +1064,34 @@ fn a_cell_is_traced_from_its_map() {
     h.run_steps(4);
     assert!(h.query_all_by_label_contains("in the loop, allocate.landscape").next().is_some());
     shot(&mut h, "46-trace");
+    // a card selected: its node's map in the viewer, the cell traced outlined (its name is also an input's link,
+    // which only brings the card into view)
+    let links = h.get_all_by_label("land_2010.map").count();
+    for k in 0..links {
+        h.state_mut().focus(Pane::Trace);
+        h.run_steps(2);
+        if let Some(n) = h.get_all_by_label("land_2010.map").nth(k) {
+            n.click_accesskit();
+        }
+        h.run_steps(3);
+        let s = h.state().session.as_ref().unwrap();
+        if s.preview.as_ref().is_some_and(|(n, _)| n == "land_2010") {
+            break;
+        }
+    }
+    h.run_steps(2);
+    {
+        let a = h.state();
+        let s = a.session.as_ref().unwrap();
+        assert_eq!(s.preview, Some(("land_2010".to_string(), "map".to_string())));
+        assert_eq!(s.preview_view.picked, Some((40, 60)));
+        assert!(a.is_open(Pane::Viewer));
+    }
+    shot(&mut h, "52-trace-card");
+    h.state_mut().focus(Pane::Trace);
+    h.run_steps(3);
+    h.get_by_label("Ask the assistant why").scroll_to_me();
+    h.run_steps(30);
     // to the assistant (no server chosen: its settings shown)
     h.get_by_label("Ask the assistant why").click();
     h.run_steps(3);

@@ -332,6 +332,14 @@ escrevendo scripts). Depois, nesta ordem:
    (`class_changes`). Falta: a matriz de transições inteira; mais de um resultado comparado por vez.
 7. **Trace:** a célula marcada nos mapas de cada passo ao selecionar um cartão; a mancha inteira de um operador de
    manchas (hoje a janela ao redor); a demanda do passo numa alocação explicada em palavras.
+   **Feito** (Unreleased): o nome de um cartão seleciona o nó e mostra o seu mapa no viewer com a célula traçada
+   contornada (dentro de grupos também); os operadores de manchas (`raster.label`, `raster.sieve`, MSPA,
+   `metrics.patch`, `patches.observe`) dizem a mancha inteira da célula (`How::Patch`: a classe, as células unidas
+   por 4 ou 8 vizinhos, como o operador junta, e as linhas e colunas que ocupa); uma alocação (`lulcc.step`,
+   `dinamica.step`, sozinha ou num laço com o corpo guardado) diz em frases os passos em que a célula mudou de
+   classe e a demanda de cada um (as células de cada classe e quanto mudaram) ou a taxa da sua transição
+   (`How::Allocation`). Falta: a mancha desenhada no mapa; a razão da escolha da célula (a aptidão e a variável de
+   iteração do CLUE), que o operador não guarda.
 8. **Assistant:** destacar os nós durante a edição (além da seleção); as edições passando pela revisão do painel
    Changes; a avaliação de cada modelo com um conjunto fixo de tarefas.
 9. **Calculadora:** a prévia só da parte do mapa à vista (hoje o mapa inteiro em resolução reduzida); os tipos das

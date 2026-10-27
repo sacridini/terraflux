@@ -3146,9 +3146,13 @@ impl TerrafluxApp {
                 if let Some((_, _, k)) = &self.trace.kept {
                     self.chat.kept = k.clone();
                 }
-                if let Some(crate::trace_view::Asked::Assistant(text)) = asked {
-                    self.chat.send(text, s, ui.ctx());
-                    self.focus(Pane::Assistant);
+                match asked {
+                    Some(crate::trace_view::Asked::Assistant(text)) => {
+                        self.chat.send(text, s, ui.ctx());
+                        self.focus(Pane::Assistant);
+                    }
+                    Some(crate::trace_view::Asked::Viewer) => self.focus(Pane::Viewer),
+                    None => {}
                 }
             }
             Pane::Parameters => match crate::params_view::pane(ui, &mut self.params, s, r) {

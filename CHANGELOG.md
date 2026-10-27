@@ -28,6 +28,12 @@ minor versions.
 - Scenarios compared on a map of classes differ by their changes: the class each cell changed to (nothing where
   it stayed), how many cells changed class and the most common changes ("2 → 3: 8517"), instead of the values
   subtracted.
+- Trace: a card's name selects its node and shows its map in the viewer with the traced cell outlined; a patch
+  operator's cell (labels, sieves, MSPA, patch metrics) is explained by its whole patch (its class, the cells joined
+  to it by 4 or 8 neighbours as the operator joins them, the rows and columns it spans); an allocation (CLUE-S,
+  ordered, Dinamica's Expander and Patcher, alone or in a loop traced inside) tells the steps the cell changed
+  class at and each step's demand (the cells of each class and how much they changed) or the rate of its
+  transition.
 
 ### Changed
 - A group runs again only the nodes of its body that changed and what depends on them (and the same for the groups

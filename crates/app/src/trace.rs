@@ -19,6 +19,13 @@ use crate::report::cell;
 const MOST: usize = 60;
 /// The side of the window of cells shown of a neighbourhood's input, at most (an odd number).
 const WINDOW: usize = 5;
+/// The operators that work patch by patch: their cell explained by its whole patch.
+const PATCHES: &[&str] =
+    &["raster.label", "raster.sieve", "landscape.mspa", "landscape.mspa_tiled", "metrics.patch", "patches.observe"];
+/// The cells of a patch counted at most.
+const PATCH_MOST: usize = 4_000_000;
+/// The operators that allocate a step's demand: their cell explained by the demand of its changes.
+const ALLOCATIONS: &[&str] = &["lulcc.step", "dinamica.step"];
 
 /// A value at the cell.
 #[derive(Debug, Clone, PartialEq)]
@@ -89,10 +96,46 @@ pub enum How {
     Window { radius: u32, windows: Vec<(String, Vec<Vec<f64>>)> },
     /// From the whole map (a fit, an allocation, a sort): what the operator does, in a sentence.
     Whole(String),
+    /// From the patch of cells it is in (a patch's operator: labels, sieves, MSPA...): the cells of its input's
+    /// class joined to it by `neighbours` (8 or 4), how many (counted up to [`PATCH_MOST`]: `more` beyond) and the
+    /// rows and columns they span.
+    Patch {
+        port: String,
+        class: f64,
+        cells: usize,
+        more: bool,
+        neighbours: u8,
+        rows: (usize, usize),
+        cols: (usize, usize),
+    },
+    /// An allocation's step: what the operator does, and in sentences the cell's class before and after and the
+    /// demand (or the rates) of the steps it changed at.
+    Allocation { what: String, lines: Vec<String> },
     /// A loop: the value at every step (its body's nodes traced when a run kept them).
     Loop,
     /// A group: what its body gave.
     Group,
+}
+
+impl How {
+    /// A patch in words ("from the patch of map it is in: class 2, 1204 cells joined by 8 neighbours, rows 40 to
+    /// 80, columns 10 to 55"); empty for the others.
+    pub fn patch_text(&self) -> String {
+        let How::Patch { port, class, cells, more, neighbours, rows, cols } = self else { return String::new() };
+        if class.is_nan() {
+            return format!("on no patch of {port}: the cell has no value there");
+        }
+        format!(
+            "from the patch of {port} it is in: class {}, {}{cells} cells joined by {neighbours} neighbours, rows {} to \
+             {}, columns {} to {}",
+            cell(*class),
+            if *more { "more than " } else { "" },
+            rows.0,
+            rows.1,
+            cols.0,
+            cols.1
+        )
+    }
 }
 
 /// An input of a traced node: its port, where it comes from, its value at the cell, and the node traced from it.
@@ -455,6 +498,17 @@ fn walk(
         How::Expression { with_values: substituted(&text, &at_inputs), text }
     } else if !reads_nodes {
         How::Data
+    } else if let Some(p) = PATCHES.contains(&n.op.as_str()).then(|| patch_of(m, r, path, n, values, x, y)).flatten() {
+        p
+    } else if ALLOCATIONS.contains(&n.op.as_str()) {
+        let value = t.steps[k].value.clone();
+        How::Allocation {
+            what: format!(
+                "from the whole map: {}",
+                sig.map(|s| crate::node_view::first_sentence(&s.doc).0).unwrap_or_default()
+            ),
+            lines: allocation(m, path, n, values, value.as_ref(), &at_inputs),
+        }
     } else {
         match sig.map(|s| s.access) {
             Some(Access::Halo(rad)) => {
@@ -487,11 +541,189 @@ fn walk(
             }
         }
     }
+    // a loop that allocates (its body kept): the demand of the steps the cell changed at
+    let mut how = how;
+    if how == How::Loop
+        && let Some(b) = &n.body
+    {
+        let inner: Vec<String> = path.iter().cloned().chain([node.to_string()]).collect();
+        for x in b.nodes.iter().filter(|x| ALLOCATIONS.contains(&x.op.as_str())) {
+            let Some((_, after)) = body.iter().find(|(w, _)| *w == format!("{}.landscape", x.id)) else { continue };
+            // the map each step starts from: the loop's own at the first, then what the step before made
+            let carried = match x.inputs.get("landscape") {
+                Some(Source::Ref(rf)) => rf.strip_prefix('@').and_then(|c| at_inputs.get(c)).and_then(At::number),
+                _ => None,
+            };
+            let Some(start) = carried else { continue };
+            let before: Vec<f64> = std::iter::once(start).chain(after.iter().copied()).take(after.len()).collect();
+            let inputs: BTreeMap<String, At> = [("landscape".to_string(), At::Steps(before))].into();
+            how = How::Allocation {
+                what: format!("a loop: its value at every step, {} ({}) allocating each step", x.id, x.op),
+                lines: allocation(m, &inner, x, values, Some(&At::Steps(after.clone())), &inputs),
+            };
+            break;
+        }
+    }
     let step = &mut t.steps[k];
     step.inputs = inputs;
     step.how = how;
     step.body = body;
     Some(k)
+}
+
+/// The map an input of a node reads, by its source (a series: its last step).
+fn input_map(m: &Model, path: &[String], src: &Source, values: Values) -> Option<terraflux_ops::Map> {
+    let Source::Ref(rf) = src else { return None };
+    let (q, id, op_port) = resolve(m, path, rf)?;
+    let (kn, kp) = key(m, &q, &id, &op_port)?;
+    match values(&kn, &kp)? {
+        Value::Map(map) => Some(map),
+        Value::Series(s) => match s.last() {
+            Some(Value::Map(map)) => Some(map.clone()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// The patch of a patch operator's input the place is in: the cells of its class joined to it.
+fn patch_of(m: &Model, r: &Registry, path: &[String], n: &Node, values: Values, x: f64, y: f64) -> Option<How> {
+    // the neighbours that join a patch: the node's setting, else its operator's default (8 unless it says 4)
+    let sig = r.sig(&n.op);
+    let neighbours =
+        ["connectivity", "directions", "neighbours", "neighbourhood"].iter().find_map(|k| match n.params.get(*k) {
+            Some(v) => v.as_f64(),
+            None => {
+                let doc = &sig?.params.iter().find(|p| p.name == *k)?.doc;
+                (doc.contains("4 (default)") || doc.contains("default 4")).then_some(4.0)
+            }
+        });
+    let neighbours: u8 = if neighbours == Some(4.0) { 4 } else { 8 };
+    let (port, map) = n.inputs.iter().find_map(|(p, src)| Some((p.clone(), input_map(m, path, src, values)?)))?;
+    let (r, c) = cell_of(&map.grid, x, y)?;
+    let (w, h) = (map.grid.width, map.grid.height);
+    let class = map.data[r * w + c];
+    let (mut rows, mut cols) = ((r, r), (c, c));
+    if class.is_nan() {
+        return Some(How::Patch { port, class, cells: 0, more: false, neighbours, rows, cols });
+    }
+    let mut seen = vec![false; w * h];
+    let mut todo = vec![(r, c)];
+    seen[r * w + c] = true;
+    let mut cells = 0;
+    while let Some((i, j)) = todo.pop() {
+        cells += 1;
+        rows = (rows.0.min(i), rows.1.max(i));
+        cols = (cols.0.min(j), cols.1.max(j));
+        if cells >= PATCH_MOST {
+            return Some(How::Patch { port, class, cells, more: true, neighbours, rows, cols });
+        }
+        for (di, dj) in
+            [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)].iter().take(neighbours as usize)
+        {
+            let (a, b) = (i as i64 + di, j as i64 + dj);
+            if a < 0 || b < 0 || a >= h as i64 || b >= w as i64 {
+                continue;
+            }
+            let k = a as usize * w + b as usize;
+            if !seen[k] && map.data[k] == class {
+                seen[k] = true;
+                todo.push((a as usize, b as usize));
+            }
+        }
+    }
+    Some(How::Patch { port, class, cells, more: false, neighbours, rows, cols })
+}
+
+/// An allocation's step at the cell in sentences: its class before and after, and at each step it changed, the
+/// demand of that step (the cells of each class, and how many more or fewer than the step before) or the rate of
+/// its change (Dinamica's Markov chain).
+fn allocation(
+    m: &Model,
+    path: &[String],
+    n: &Node,
+    values: Values,
+    value: Option<&At>,
+    inputs: &BTreeMap<String, At>,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    // the steps it changed at: (step, from, to)
+    let same = |a: f64, b: f64| a == b || (a.is_nan() && b.is_nan());
+    let changes: Vec<(usize, f64, f64)> = match (inputs.get("landscape"), value) {
+        (Some(At::Steps(before)), Some(At::Steps(after))) => after
+            .iter()
+            .enumerate()
+            .filter_map(|(k, &to)| before.get(k).filter(|&&from| !same(from, to)).map(|&from| (k + 1, from, to)))
+            .collect(),
+        (Some(before), Some(after)) => {
+            let (Some(from), Some(to)) = (before.number(), after.number()) else { return lines };
+            let step = inputs.get("step").and_then(At::number).map_or(1, |s| s as usize);
+            if same(from, to) {
+                lines.push(format!("here the class stays {}", cell(from)));
+                return lines;
+            }
+            vec![(step, from, to)]
+        }
+        _ => return lines,
+    };
+    if changes.is_empty() {
+        let kept = inputs.get("landscape").and_then(At::number).map(cell).unwrap_or_default();
+        lines.push(format!("here the class stays {kept} at every step"));
+        return lines;
+    }
+    let read = |port: &str| {
+        n.inputs.get(port).and_then(|src| {
+            let Source::Ref(rf) = src else { return None };
+            let (q, id, p) = resolve(m, path, rf)?;
+            let (kn, kp) = key(m, &q, &id, &p)?;
+            values(&kn, &kp)
+        })
+    };
+    let demand = read("demand");
+    let rates = read("rates");
+    for (step, from, to) in changes.iter().take(5) {
+        let mut line = format!("step {step}: from class {} to {}", cell(*from), cell(*to));
+        match (&demand, &rates) {
+            (Some(Value::Demand(d)), _) => {
+                let (Some(now), Some(before)) = (d.table.get(*step), d.table.get(step - 1)) else {
+                    lines.push(line);
+                    continue;
+                };
+                let classes: Vec<String> = d
+                    .classes
+                    .iter()
+                    .enumerate()
+                    .map(|(i, c)| {
+                        let delta = now[i] - before[i];
+                        let sign = if delta > 0.0 { "+" } else { "" };
+                        format!("{} {} ({sign}{})", cell(*c), cell(now[i]), cell(delta))
+                    })
+                    .collect();
+                line.push_str(&format!("; the step's demand, in cells of each class: {}", classes.join(", ")));
+            }
+            (_, Some(Value::Markov(mk))) => {
+                let k = mk.k();
+                let (i, j) = (mk.classes.iter().position(|c| c == from), mk.classes.iter().position(|c| c == to));
+                if let (Some(i), Some(j)) = (i, j)
+                    && let Some(rate) = mk.multi.get(i * k + j)
+                {
+                    line.push_str(&format!(
+                        "; the rate of {} to {} each step: {} of the cells of {}",
+                        cell(*from),
+                        cell(*to),
+                        cell(*rate),
+                        cell(*from)
+                    ));
+                }
+            }
+            _ => {}
+        }
+        lines.push(line);
+    }
+    if changes.len() > 5 {
+        lines.push(format!("and {} more changes", changes.len() - 5));
+    }
+    lines
 }
 
 /// What keeps the values of the loops' bodies at a place, step by step, while the model runs.
@@ -576,6 +808,13 @@ impl Trace {
                     }
                 }
                 How::Whole(what) => out.push_str(&format!("   from the whole map: {what}\n")),
+                How::Patch { .. } => out.push_str(&format!("   {}\n", s.how.patch_text())),
+                How::Allocation { what, lines } => {
+                    out.push_str(&format!("   {what}\n"));
+                    for l in lines {
+                        out.push_str(&format!("   {l}\n"));
+                    }
+                }
                 How::Loop => out.push_str("   a loop: its value at every step above\n"),
                 How::Group => out.push_str("   a group: what its body gave\n"),
                 How::Local => {}
@@ -611,6 +850,8 @@ impl Trace {
             How::Expression { with_values, .. } => s.push_str(&format!(": {with_values}")),
             How::Whole(what) if !what.is_empty() => s.push_str(&format!(", made from the whole map ({what})")),
             How::Window { radius, .. } => s.push_str(&format!(", from the cells within {radius} around it")),
+            How::Patch { .. } => s.push_str(&format!(", {}", first.how.patch_text())),
+            How::Allocation { lines, .. } if !lines.is_empty() => s.push_str(&format!(" ({})", lines[0])),
             _ => {}
         }
         if !from.is_empty() {
@@ -695,5 +936,65 @@ mod tests {
         assert_eq!(t.steps[0].path, ["model"]);
         let calc = t.steps.iter().find(|s| s.node == "land_2010").unwrap();
         assert!(calc.value.is_some(), "a group's body's values kept by the run");
+    }
+
+    #[test]
+    fn a_patch_is_traced_whole() {
+        let r = Registry::standard();
+        // two patches of class 1 on a ground of 0: an L of 4 cells (joined by sides) and one cell alone, touching
+        // the L by a corner
+        let mut m = Model::new("m");
+        m.inputs.insert(
+            "x".into(),
+            terraflux_graph::Input::Map { path: "x.tif".into(), band: None, nodata: None, note: None },
+        );
+        m.nodes.push(Node::new("classes", "raster.calc").param("expression", "x").input("x", "$x"));
+        m.nodes.push(Node::new("patches", "raster.label").input("map", "classes.map"));
+        let grid = std::sync::Arc::new(terraflux_raster::Grid::new(4, 4));
+        #[rustfmt::skip]
+        let cells = vec![
+            1.0, 0.0, 0.0, 0.0,
+            1.0, 0.0, 0.0, 0.0,
+            1.0, 1.0, 0.0, 0.0,
+            0.0, 0.0, 1.0, 0.0,
+        ];
+        let x = Value::Map(terraflux_ops::Map::new(grid.clone(), cells));
+        let inputs = [("x".to_string(), x)].into();
+        let res = terraflux_exec::Engine::default().run(&m, &inputs, &mut terraflux_exec::Quiet).unwrap();
+        let values = |n: &str, p: &str| res.values.get(n)?.get(p).cloned();
+        let t = trace(&m, &r, &values, &Kept::new(), "patches", "map", &grid, (0, 0));
+        let How::Patch { port, class, cells, more, neighbours, rows, cols } = t.steps[0].how.clone() else {
+            panic!("{:?}", t.steps[0].how)
+        };
+        assert_eq!((port.as_str(), class, cells, more), ("map", 1.0, 4, false));
+        assert_eq!((neighbours, rows, cols), (4, (0, 2), (0, 1)), "raster.label joins by 4 neighbours by default");
+        assert!(t.sentence().contains("from the patch of map it is in: class 1, 4 cells"), "{}", t.sentence());
+        // by 8 neighbours the cell alone joins the L
+        m.nodes[1].params.insert("neighbours".into(), 8.into());
+        let res = terraflux_exec::Engine::default().run(&m, &inputs, &mut terraflux_exec::Quiet).unwrap();
+        let values = |n: &str, p: &str| res.values.get(n)?.get(p).cloned();
+        let t = trace(&m, &r, &values, &Kept::new(), "patches", "map", &grid, (3, 2));
+        assert!(matches!(t.steps[0].how, How::Patch { cells: 5, neighbours: 8, .. }), "{:?}", t.steps[0].how);
+    }
+
+    #[test]
+    fn an_allocation_tells_the_demand_of_its_steps() {
+        let r = Registry::standard();
+        let m = crate::templates::TEMPLATES.iter().find(|t| t.name == "CLUE-S").unwrap().model();
+        let res = terraflux_exec::Engine::default().run(&m, &Default::default(), &mut terraflux_exec::Quiet).unwrap();
+        let values = |n: &str, p: &str| res.values.get(n)?.get(p).cloned();
+        let Some(Value::Series(maps)) = values("simulation", "maps") else { panic!() };
+        let (Value::Map(first), Value::Map(last)) = (&maps[0], &maps[maps.len() - 1]) else { panic!() };
+        // a cell that changed class along the steps
+        let i = (0..first.data.len()).find(|&i| first.data[i] != last.data[i] && last.data[i].is_finite()).unwrap();
+        let w = first.grid.width;
+        let grid = first.grid.clone();
+        let (x, y) = centre(&grid, i / w, i % w);
+        let kept = keep_loops(&m, std::path::Path::new(""), x, y).unwrap();
+        let t = trace(&m, &r, &values, &kept, "simulation", "maps", &grid, (i / w, i % w));
+        let How::Allocation { what, lines } = &t.steps[0].how else { panic!("{:?}", t.steps[0].how) };
+        assert!(what.contains("allocate (lulcc.step)"), "{what}");
+        assert!(lines.iter().any(|l| l.starts_with("step ") && l.contains("the step's demand")), "{lines:?}");
+        assert!(t.text().contains("the step's demand, in cells of each class"));
     }
 }
