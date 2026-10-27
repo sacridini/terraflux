@@ -6,6 +6,23 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Terraflux updates itself on macOS and Linux too: the application (`Terraflux.app`, in a folder the user may
+  write) is replaced by the release's zip, unpacked beside it; the folder of the `.tar.gz` by the release's; the
+  `.deb`, `.rpm` and Arch packages are installed by the system's manager, the administrator's password asked
+  (`pkexec`). Each closes, waits, installs and opens again with the model, as on Windows. Elsewhere (Windows' zip, a
+  build, a folder the user may not write) the release's page is opened, as before.
+- An update that did not install is told when Terraflux opens again ("Terraflux X was not installed"), with its log
+  (`terraflux-update.log` in the temporary folder: the installer's on Windows, the script's elsewhere).
+
+### Fixed
+- The update on Windows closed Terraflux and installed nothing: PowerShell, started detached from any console to
+  install once the application had closed, ends before it runs anything. It now has a console of its own, not
+  shown (and leaves the application's job when the job lets it). A Terraflux 1.20.0 or older still has the old
+  updater: install 1.21.0 by hand once.
+- The settings are kept on macOS (`~/Library/Application Support/Terraflux`) and on Linux without `XDG_CONFIG_HOME`
+  (`~/.config/Terraflux`); they were not kept there at all.
+
 ## [1.20.0] - 2026-10-27
 
 ### Added

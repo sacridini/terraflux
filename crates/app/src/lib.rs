@@ -107,6 +107,11 @@ pub fn run(model: Option<PathBuf>) -> eframe::Result<()> {
                 settings::update(|s| s.seen_version = Some(now.to_string()));
             }
             update::clean();
+            // an update that did not install: told, with its log
+            if let Some(e) = update::not_installed() {
+                app.updater.fail(e);
+                app.update_told = true;
+            }
             let ctx = cc.egui_ctx.clone();
             app.updater.check_if_due(move || ctx.request_repaint());
             // maximized once shown (made maximized, a window shown after its first frame is not, on Windows)

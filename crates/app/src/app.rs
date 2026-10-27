@@ -1253,7 +1253,7 @@ pub struct TerrafluxApp {
     update_asked: Option<crate::update::Release>,
     update_go: bool,
     /// The updates' failures told in the toolbar (the user asked), not those of the check at the start.
-    update_told: bool,
+    pub update_told: bool,
     /// Terraflux was updated since it ran last: from which version, told in the toolbar for a while.
     pub updated_from: Option<(String, Instant)>,
     /// The bytes in the caches (rasters made, data downloaded), measured when (counted again every few seconds
@@ -1911,7 +1911,7 @@ impl TerrafluxApp {
                 let fraction = total.map(|t| done as f32 / t.max(1) as f32);
                 theme::progress(ui, fraction, &format!("downloading Terraflux ({:.0} MB)", done as f64 / 1e6), 120.0);
             }
-            State::Ready(_) => {
+            State::Ready(..) => {
                 ui.spinner();
                 ui.label(RichText::new("installing...").weak());
             }
@@ -1930,7 +1930,8 @@ impl TerrafluxApp {
         let mut open = true;
         let (mut go, mut later) = (None, false);
         let dirty = self.session.as_ref().is_some_and(|s| s.dirty);
-        let installer = crate::update::installed_here().is_some() && r.installer.is_some();
+        let how = crate::update::install().filter(|how| r.package(how).is_some());
+        let installer = how.is_some();
         egui::Window::new(format!("Terraflux {}", show(r.version)))
             .open(&mut open)
             .collapsible(false)
@@ -1940,11 +1941,8 @@ impl TerrafluxApp {
                 ui.set_max_width(420.0);
                 ui.label(format!("Terraflux {} is out (this one is {}).", show(r.version), env!("CARGO_PKG_VERSION")));
                 ui.add_space(4.0);
-                if installer {
-                    ui.label(
-                        "Terraflux closes, installs it (its progress shown, nothing to answer, no administrator's \
-                         permission) and opens again with this model.",
-                    );
+                if let Some(how) = &how {
+                    ui.label(how.tell());
                     if dirty {
                         ui.add_space(4.0);
                         ui.label(
@@ -1954,8 +1952,8 @@ impl TerrafluxApp {
                     }
                 } else {
                     ui.label(
-                        "This Terraflux is not the one of the Windows installer (the zip, macOS or Linux): download \
-                         the new one from its page.",
+                        "This Terraflux cannot replace itself (Windows' zip, an application or a folder in a place \
+                         you may not write, a build): download the new one from its page.",
                     );
                 }
                 ui.add_space(8.0);
@@ -2006,13 +2004,13 @@ impl TerrafluxApp {
     /// The installer downloaded and checked, the user's word given: installed once this application closes, then
     /// opened again with the model.
     fn install_update(&mut self, ctx: &egui::Context) {
-        let crate::update::State::Ready(msi) = self.updater.state() else { return };
+        let crate::update::State::Ready(version, ready) = self.updater.state() else { return };
         if !std::mem::take(&mut self.update_go) {
             return;
         }
-        let Some(exe) = crate::update::installed_here() else { return };
+        let Some(how) = crate::update::install() else { return };
         let model = self.session.as_ref().filter(|s| !s.dirty).and_then(|s| s.path.clone());
-        match crate::update::install_after_exit(&msi, &exe, model.as_deref()) {
+        match crate::update::install_after_exit(&how, version, &ready, model.as_deref()) {
             Ok(()) => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
             Err(e) => self.updater.fail(e),
         }
@@ -2121,7 +2119,7 @@ impl TerrafluxApp {
                         .on_hover_text("asks GitHub which Terraflux is the latest; nothing else is sent");
                     ui.horizontal(|ui| {
                         let state = self.updater.state();
-                        let busy = matches!(state, State::Checking | State::Downloading(..) | State::Ready(_));
+                        let busy = matches!(state, State::Checking | State::Downloading(..) | State::Ready(..));
                         if ui.add_enabled(!busy, egui::Button::new("Check now")).clicked() {
                             self.update_told = true;
                             let c = ctx.clone();
@@ -2143,7 +2141,7 @@ impl TerrafluxApp {
                             State::Downloading(..) => {
                                 ui.label(RichText::new("downloading...").weak());
                             }
-                            State::Ready(_) => {
+                            State::Ready(..) => {
                                 ui.label(RichText::new("installing...").weak());
                             }
                             State::Failed(e) => {

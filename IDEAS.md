@@ -275,6 +275,39 @@ da seleção, a revisão da fase 3, a avaliação.
 confiança no que o agente faz. A 7 é o diferencial. A 4 e a 5 são baratas e podem entrar em paralelo. Tudo isso é
 independente do port do landschaft para Rust (`RUST_PORT.md` no landschaft) e vale igual na versão web.
 
+## A interface: o que falta nas partes já feitas
+
+Registro de 2026-10-27. As sobras das vistas e painéis já lançados, juntadas de cada seção (as "Falta:" acima e
+em "A calculadora de rasters" e "A linguagem do grafo"). Antes delas: a fase 5 da calculadora (o Assistant
+escrevendo scripts). Depois, nesta ordem:
+
+1. **Selos de verificação** (fase 5 de "O modelo como registro"): o `check.assert` existe, faltam os selos verde e
+   vermelho com a razão no canvas e no documento, e o resumo da saúde do modelo no topo.
+2. **Execução e depuração:**
+   - o `manifest.json` também nas execuções do aplicativo (hoje só o `terraflux run`);
+   - o Stop que para de verdade os operadores longos (MSPA, circuitos, ajuste dos SDM, `prioritize.evaluate`,
+     métricas por blocos), com `ctx.stopped()` e `ctx.progress(...)` nos seus laços (item 3 de "Paridade com o
+     landschaft");
+   - congelar o resultado de um nó entre sessões (o cache em disco);
+   - rodar um laço passo a passo, como um breakpoint.
+3. **Vista Document:** frases escritas à mão por operador para os parâmetros; editar listas e tabelas no lugar
+   (hoje pelo painel Node); as paletas do viewer nas miniaturas.
+4. **Painel Changes:** comparar com um commit qualquer (hoje só o último); as tabelas lado a lado (hoje em
+   palavras).
+5. **Grupos e etapas:** ver no viewer o mapa de um nó de dentro de um grupo (hoje pelo documento); o cache por nó
+   dentro de um grupo (hoje o grupo roda inteiro quando um nó muda).
+6. **Parameters e cenários:** a comparação pelos lotes distribuídos (hoje um cenário depois do outro, no app); as
+   diferenças em mapas de classes (hoje a subtração dos valores).
+7. **Trace:** a célula marcada nos mapas de cada passo ao selecionar um cartão; a mancha inteira de um operador de
+   manchas (hoje a janela ao redor); a demanda do passo numa alocação explicada em palavras.
+8. **Assistant:** destacar os nós durante a edição (além da seleção); as edições passando pela revisão do painel
+   Changes; a avaliação de cada modelo com um conjunto fixo de tarefas.
+9. **Calculadora:** a prévia só da parte do mapa à vista (hoje o mapa inteiro em resolução reduzida); os tipos das
+   portas de `out` (hoje "qualquer valor"); as camadas de uma pilha calculada no script no autocomplete
+   (`s2 = s * 2`, então `s2.`); o autocomplete no campo do painel do nó.
+10. **My nodes:** bibliotecas do grupo e compartilhadas; as configurações de um nó do usuário como configurações
+    (hoje entradas com valor próprio); os nós do usuário na busca rápida (`/`), no MCP e no Assistant.
+
 ## Paridade com o landschaft na priorização, progresso e parada
 
 Registro de 2026-10-16. O `prioritize.optimize` passou a resolver como o landschaft (o motor de corte e o de
@@ -543,7 +576,13 @@ Registro de 2026-10-16. O aplicativo avisa quando há uma versão nova e a insta
 
 **Fases.**
 1. Verificar, avisar, baixar, conferir a assinatura e instalar o `.msi` (2 a 3 dias).
+   **Feito** (1.19.0), conferido pelo `SHA256SUMS.txt` do release (sem assinatura ed25519); o `.msi` por usuário,
+   sem administrador. **Corrigido** (Unreleased): o PowerShell lançado sem console (`DETACHED_PROCESS`) terminava
+   sem rodar nada, e o app fechava sem instalar.
 2. A troca no macOS e no zip/tar.gz, o repositório apt.
+   **Feito** (Unreleased): o `Terraflux.app` (numa pasta que o usuário pode escrever) trocado pelo do zip, a pasta
+   do `.tar.gz` pela nova, os pacotes `.deb`, `.rpm` e do Arch pelo gerenciador com o `pkexec`; a atualização que
+   não instalou dita ao abrir de novo, com o log. Falta: o zip do Windows, o repositório apt, a assinatura.
 
 ## Ferramentas gerais de raster, vetor e análise
 

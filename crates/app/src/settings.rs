@@ -66,6 +66,8 @@ pub struct Settings {
     pub updates_checked: Option<u64>,
     /// The version that ran last: another one now, the application says it was updated.
     pub seen_version: Option<String>,
+    /// The version an update was to install when the application closed: told if it is not the one that opens.
+    pub update_tried: Option<String>,
 }
 
 impl Default for Settings {
@@ -94,18 +96,29 @@ impl Default for Settings {
             check_updates: true,
             updates_checked: None,
             seen_version: None,
+            update_tried: None,
         }
     }
 }
 
-/// Where the settings are kept (`TERRAFLUX_SETTINGS`, else the user's application data).
+/// Where the settings are kept (`TERRAFLUX_SETTINGS`, else the user's application data; on macOS
+/// `~/Library/Application Support`, on Linux `~/.config` when `XDG_CONFIG_HOME` is not set).
 pub fn file() -> Option<PathBuf> {
     if let Some(f) = std::env::var_os("TERRAFLUX_SETTINGS") {
         return Some(PathBuf::from(f));
     }
     std::env::var_os("APPDATA")
         .or_else(|| std::env::var_os("XDG_CONFIG_HOME"))
-        .map(|d| PathBuf::from(d).join("Terraflux").join("settings.json"))
+        .map(PathBuf::from)
+        .or_else(|| {
+            let home = PathBuf::from(std::env::var_os("HOME")?);
+            Some(if cfg!(target_os = "macos") {
+                home.join("Library").join("Application Support")
+            } else {
+                home.join(".config")
+            })
+        })
+        .map(|d| d.join("Terraflux").join("settings.json"))
 }
 
 fn global() -> &'static Mutex<Settings> {
