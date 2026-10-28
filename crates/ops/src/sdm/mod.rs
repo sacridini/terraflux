@@ -795,7 +795,7 @@ impl Operator for BiasSurface {
             .output(PortSpec::new(
                 "bias",
                 Type::Map,
-                "the density (records per unit of area of the coordinate system) or rescaled",
+                "the density (the share of the records per unit of area of the coordinate system: it sums to 1 over the plane) or rescaled",
             ))
             .output(PortSpec::new("bandwidth", Type::Any, "the bandwidths used, [x, y]")),
         )

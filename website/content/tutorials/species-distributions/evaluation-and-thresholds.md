@@ -5,7 +5,7 @@ description: What AUC, TSS, the Boyce index and omission rates measure, how to c
 order: 50
 level: intermediate
 time: 50 min
-ops: [sdm.evaluate, sdm.threshold, sdm.boyce, sdm.omission_rate, sdm.dataset, sdm.maxnet_predict, raster.calc]
+ops: [sdm.evaluate, sdm.threshold, sdm.boyce, sdm.omission_rate, sdm.dataset, sdm.maxnet_predict, sdm.fit, table.filter, raster.calc]
 series: Species distribution models
 part: 5
 ---
@@ -15,7 +15,8 @@ separate the places where the species is from the others? And where, if a yes-or
 between suitable and unsuitable be drawn? In this part you will compute the usual scores for the sloth's model by
 hand in a graph (AUC, TSS, the Boyce index and omission rates), see what each measures and what it hides, and turn
 the suitability into presence and absence with eight different thresholds, which give suitable areas from 6 % to
-96 % of the accessible area.
+96 % of the accessible area. Last, you will score the model on its out-of-fold predictions, the predictions of each
+record by a model that did not see it, and use them for calibration, thresholds and a map of residuals.
 
 We use the model [part 4](../fitting-models/) arrived at: MaxNet with linear, quadratic and hinge features
 (`classes = "lqh"`) and a regularisation multiplier of 2, fitted to the 83 presences and 2 000 background points
@@ -200,6 +201,93 @@ inputs = { presences = "p_pres.prediction", background = "p_back.prediction" }
 For **independent test data**, give node 3 a table of the test records (points read with [[vector.read]]) and the
 background of the test region to node 4: the same nodes give the test scores.
 
+### Out-of-fold predictions
+
+The predictions above are the model's on the records it was fitted to. [[sdm.fit]] also keeps the predictions its
+cross-validation made: for every record, the suitability given by the model fitted **without that record's fold**,
+on its `predictions` output. They are called **out-of-fold** predictions. With the five folds of spatial blocks of
+part 4, each record's prediction comes from a model fitted on the other four folds, which never saw its block.
+
+```tfgraph
+#! caption: The out-of-fold predictions of the fit (node 4), split into presences (node 5) and background points (node 6), evaluated (node 7) and thresholded (node 8). They are the same records as above, each predicted by a model that did not see its fold.
+#! numbered: true
+#! highlight: oof_pres, oof_back, oof_evaluation, oof_threshold
+format = "terraflux/1"
+
+[[nodes]]
+id = "records"
+op = "vector.read"
+params = { path = "bradypus.csv" }
+
+[[nodes]]
+id = "climate"
+op = "raster.read"
+params = { path = "bioclim.tif" }
+
+[[nodes]]
+id = "data"
+op = "sdm.prepare"
+inputs = { occurrences = "records.vector", env = "climate.raster" }
+params = { thin = 50000, area = 500000, background = 2000, folds = { size = 500000, k = 5 }, seed = 1 }
+
+[[nodes]]
+id = "fit"
+op = "sdm.fit"
+inputs = { records = "data.records" }
+params = { model = "maxnet", regmult = 2, classes = "lqh" }
+
+[[nodes]]
+id = "oof_pres"
+op = "table.filter"
+inputs = { table = "fit.predictions" }
+params = { expression = "presence == 1" }
+
+[[nodes]]
+id = "oof_back"
+op = "table.filter"
+inputs = { table = "fit.predictions" }
+params = { expression = "presence == 0" }
+
+[[nodes]]
+id = "oof_evaluation"
+op = "sdm.evaluate"
+inputs = { presences = "oof_pres.table", background = "oof_back.table" }
+params = { column = "prediction" }
+
+[[nodes]]
+id = "oof_threshold"
+op = "sdm.threshold"
+inputs = { presences = "oof_pres.table", background = "oof_back.table" }
+params = { column = "prediction", method = "p10" }
+```
+
+<div class="steps" markdown>
+
+1. **The out-of-fold predictions** (node 4): the `predictions` output of [[sdm.fit]] is the records table it was
+   given, a row per presence and per background point, with one column more, `prediction`. A record in fold 0
+   (in every training set, in no test fold) has no prediction (no value). The output exists only with
+   cross-validation: with `cv = false`, or without a `fold` column, there are no folds to leave out.
+2. **Presences and background apart** (nodes 5 and 6): [[table.filter]] (library subject *Tables*) keeps the rows
+   where `presence == 1`, and another the rows where `presence == 0`.
+3. **Their evaluation and a threshold** (nodes 7 and 8): [[sdm.evaluate]] and [[sdm.threshold]] as before, with
+   `column = "prediction"` to name the column of the predictions (by default they take a table's first column,
+   here `x`).
+
+</div>
+
+The first rows of the table, three presences and two background points:
+
+```tftable
+data: /data/tutorials/species-distributions/evaluation-and-thresholds/oof_excerpt.csv
+digits: 3
+caption: "The out-of-fold predictions of the sloth's model (sdm.fit's predictions, the first three presences and first two background points): the coordinates, presence, the four predictors, the fold and the suitability predicted by the model fitted without that fold. The three presences, in the lowlands of Bolivia, are in fold 5; the model fitted on folds 1 to 4 gives them 0.15 to 0.25, against a median of 0.65 over all presences."
+```
+
+To use them elsewhere (a calibration, an ensemble learned from several models' predictions, a model that combines
+them with an expert's range map as Merow et al. (2017) did, an analysis in R or Python), add
+`[outputs.predictions]` with `from = "fit.predictions"` and run the model from the command line: the table is
+written as `predictions.csv`. In the application, click the `predictions` port of `fit` to see it under the canvas.
+
 ### Thresholds and the binary map
 
 ```tfgraph
@@ -344,6 +432,59 @@ The suitable area changes fifteen-fold between methods, from the same model. Whi
   data: here one calls 6 % of the area suitable and the other 96 %.
 - **`no_omission` and `mtp`** let the single least suitable record decide, often a doubtful one.
 
+### What the out-of-fold predictions say
+
+**Scores on what the model did not see, with every presence at once.** The scores of [[sdm.fit]]'s `metrics` are
+computed fold by fold, each on 14 to 20 presences. Pooling the out-of-fold predictions of all five folds scores
+all 83 presences, each predicted by a model that did not see it (node 7):
+
+| Score | Training predictions (node 7 of the first graph) | Out-of-fold, pooled | Mean over the 5 test folds |
+|---|---|---|---|
+| AUC | 0.72 | 0.70 | 0.70 ± 0.09 |
+| Largest TSS | 0.31 | 0.29 | 0.37 ± 0.11 |
+| Boyce | 0.92 | 0.93 | 0.55 ± 0.31 |
+
+The pooled AUC and TSS are a little below the training ones, as test scores should be. The pooled Boyce index
+(0.93) is far above the mean of the folds (0.55): with all the presences in one curve, the predicted-to-expected
+ratio is no longer noisy, and it says the model orders unseen places well. Keep in mind what pooling does: it puts
+side by side the predictions of five different models, so a fold whose model predicts higher everywhere shifts the
+pooled scores. Report the fold scores, and the pooled ones beside them.
+
+**Calibration.** A model is well **calibrated** if its predictions mean what they say: for presence-only data,
+whether places of twice the suitability hold twice the share of presences. Phillips and Elith (2010) showed how to
+read this from the predicted-to-expected ratio of the Boyce index (their presence-only calibration plot): for
+a model whose suitability is proportional to the probability of presence, the ratio grows in proportion to the
+suitability. Drawn from out-of-fold predictions, the curve tests the calibration on records the model did not see:
+
+![The predicted-to-expected ratio of the training and the out-of-fold predictions.](/img/tutorials/species-distributions/evaluation-and-thresholds/oof_boyce.png "The predicted-to-expected ratio (sdm.evaluate's boyce table) of the sloth's model, from its predictions at the records it was fitted to (grey) and from its out-of-fold predictions (orange). Both are near 1 between 0.3 and 0.65: in that range, the suitability barely separates the places with presences from the others. Above 0.7 both rise steeply, but the out-of-fold curve peaks at 5.7 where the training curve reaches 9.5: on new records, the highest values of the map overstate how much more often the sloth is found there.")
+
+The curve is not a straight line: flat through the middle of the range and steep at the top. Read the map's
+values as a ranking (the top of the range is clearly better than the rest) rather than as proportional to the
+chance of finding the sloth. Phillips and Elith (2010) used such curves to recalibrate badly calibrated models;
+that is a model fitted on the out-of-fold predictions, done outside Terraflux on the exported table.
+
+**Thresholds from out-of-fold values.** A threshold set on the training predictions is set on records the model
+has seen, which it predicts higher than it would predict new ones. Set on the out-of-fold predictions, it says
+where new presences fall. For the sloth the difference is small: the 10th percentile of the presences is 0.29 out
+of fold (node 8) and 0.33 on the training predictions; the threshold of the largest TSS is 0.65 and 0.66. Apply
+the threshold to the map of the model fitted on every record, as before (connect `oof_threshold.threshold` to
+`t` of the `binary` node).
+
+**Residuals on a map.** A presence with a low out-of-fold suitability is one the model would have missed had it
+not seen its block: its **residual**, 1 minus its prediction, is large. Residuals that cluster in space say that
+something about that region is not in the model (a missing predictor, conditions found nowhere else in the
+records) or not right in the records:
+
+![The sloth's presences by their out-of-fold suitability.](/img/tutorials/species-distributions/evaluation-and-thresholds/oof_map.png "The sloth's 83 presences coloured by their out-of-fold suitability, over the map of the model fitted on every record (grey, darker for higher suitability). Circled: the 8 presences below the out-of-fold 10th percentile (0.29). Five are in fold 5, in the lowlands of Bolivia, two in the Amazon of Peru and one in northern Venezuela, all in fold 3.")
+
+The circled presences share a climate: a larger annual range of temperature (bio7 of 14.1 to 17.9 °C, against a
+median of 11.4 °C over all presences) and, all but the one in Venezuela, a hotter warmest month (bio5 of 31.7 to
+33.8 °C, against 31.6 °C). They are at the seasonal edge of the climate the sloth was recorded in. Only 12 of the 83
+presences have an annual range above 14 °C, and 5 of them are in fold 5: leaving that fold out removes almost half
+the records of that edge at once. All 12 get an out-of-fold suitability of 0.50 or less. If these records are
+right (check them first), the model's picture of that edge rests on a handful of records, and its map there is the
+least certain.
+
 ### Reporting
 
 Report the scores on test data (the folds' means and standard deviations, or independent data), with the
@@ -361,6 +502,9 @@ say why that method suits the use.
   range wide by default (`window`); `nclass` sets classes instead. Few presences make the index noisy whatever the
   window.
 - **The threshold method**, as the slider shows: a factor of 15 in the area called suitable.
+- **Training or out-of-fold predictions.** The same scores and thresholds from the out-of-fold predictions are
+  test scores; the pooled Boyce index (0.93) and the fold mean (0.55) differ because of the number of presences per
+  curve, not the model.
 
 ## Common pitfalls
 
@@ -371,6 +515,11 @@ say why that method suits the use.
 - **Kappa with background points.** It depends on the prevalence, which the number of background points sets.
 - **A binary map where a continuous one would do.** Thresholds throw away the gradient of suitability; keep it for
   prioritization, connectivity and comparisons.
+- **Out-of-fold predictions from random folds.** They are only as independent as the folds: with random folds,
+  a record's neighbours are in the training set, and the out-of-fold predictions flatter the model as the fold
+  scores do (part 4).
+- **Pooling without the fold scores.** The pooled out-of-fold predictions come from five models; report them with
+  the scores of each fold.
 - **Reading specificity as absence.** A background point predicted suitable is not an error in the field: it may hold
   the species.
 
@@ -393,5 +542,7 @@ say why that method suits the use.
 - Liu, C., Berry, P. M., Dawson, T. P., & Pearson, R. G. (2005). Selecting thresholds of occurrence in the prediction of species distributions. *Ecography*, 28(3), 385–393. https://doi.org/10.1111/j.0906-7590.2005.03957.x
 - Liu, C., White, M., & Newell, G. (2013). Selecting thresholds for the prediction of species occurrence with presence-only data. *Journal of Biogeography*, 40(4), 778–789. https://doi.org/10.1111/jbi.12058
 - Lobo, J. M., Jiménez-Valverde, A., & Real, R. (2008). AUC: a misleading measure of the performance of predictive distribution models. *Global Ecology and Biogeography*, 17(2), 145–151. https://doi.org/10.1111/j.1466-8238.2007.00358.x
+- Merow, C., Wilson, A. M., & Jetz, W. (2017). Integrating occurrence data and expert maps for improved species range predictions. *Global Ecology and Biogeography*, 26(2), 243–258. https://doi.org/10.1111/geb.12539
 - Muscarella, R., Galante, P. J., Soley-Guardia, M., Boria, R. A., Kass, J. M., Uriarte, M., & Anderson, R. P. (2014). ENMeval: an R package for conducting spatially independent evaluations and estimating optimal model complexity for Maxent ecological niche models. *Methods in Ecology and Evolution*, 5(11), 1198–1205. https://doi.org/10.1111/2041-210X.12261
+- Phillips, S. J., & Elith, J. (2010). POC plots: calibrating species distribution models with presence-only data. *Ecology*, 91(8), 2476–2484. https://doi.org/10.1890/09-0760.1
 - Radosavljevic, A., & Anderson, R. P. (2014). Making better Maxent models of species distributions: complexity, overfitting and evaluation. *Journal of Biogeography*, 41(4), 629–643. https://doi.org/10.1111/jbi.12227

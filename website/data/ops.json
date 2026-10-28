@@ -20071,7 +20071,7 @@
     "name": "bias",
     "type": "map",
     "required": true,
-    "doc": "the density (records per unit of area of the coordinate system) or rescaled"
+    "doc": "the density (the share of the records per unit of area of the coordinate system: it sums to 1 over the plane) or rescaled"
    },
    {
     "name": "bandwidth",

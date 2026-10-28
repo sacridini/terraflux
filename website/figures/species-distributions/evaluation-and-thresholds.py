@@ -4,7 +4,10 @@
 
 The sloth's model of part 4 (MaxNet, regmult 2, classes lqh) on the records prepared by sdm.prepare; its predictions
 at the presences and at the background points (sdm.dataset of each, sdm.maxnet_predict on the tables); sdm.evaluate's
-scores, confusion table and Boyce classes; the thresholds of sdm.threshold by every method and the maps they give.
+scores, confusion table and Boyce classes; the thresholds of sdm.threshold by every method and the maps they give;
+and the fit's out-of-fold predictions (sdm.fit's predictions): their scores, thresholds, Boyce curve and map.
+
+    python website/figures/species-distributions/evaluation-and-thresholds.py oof   # only the out-of-fold part
 """
 
 from __future__ import annotations
@@ -157,5 +160,100 @@ def histogram(p, b, rows, png):
     S.save(fig, png)
 
 
+def oof_model() -> str:
+    """The fit's out-of-fold predictions split into presences and background, evaluated and thresholded, as the
+    page's graph; with the training predictions of the same records for comparison."""
+    m = S.prepared()
+    m += S.node("fit", "sdm.fit", {"records": "data.records"}, FIT)
+    m += S.node("oof_pres", "table.filter", {"table": "fit.predictions"}, {"expression": "presence == 1"})
+    m += S.node("oof_back", "table.filter", {"table": "fit.predictions"}, {"expression": "presence == 0"})
+    m += S.node("oof_evaluation", "sdm.evaluate", {"presences": "oof_pres.table", "background": "oof_back.table"},
+                {"column": "prediction"})
+    m += S.node("oof_threshold", "sdm.threshold", {"presences": "oof_pres.table", "background": "oof_back.table"},
+                {"column": "prediction", "method": "p10"})
+    return m
+
+
+def out_of_fold():
+    w = S.work(SLUG + "_oof")
+    m = oof_model()
+    m += S.node("t_mss", "sdm.threshold", {"presences": "oof_pres.table", "background": "oof_back.table"},
+                {"column": "prediction", "method": "max_spec_sens"})
+    m += S.node("at_presences", "sdm.dataset", {"presences": "data.presences", "env": "data.env"})
+    m += S.node("at_background", "sdm.dataset", {"presences": "data.background_points", "env": "data.env"})
+    m += S.node("p_pres", "sdm.maxnet_predict", {"model": "fit.model", "env": "at_presences.records"})
+    m += S.node("p_back", "sdm.maxnet_predict", {"model": "fit.model", "env": "at_background.records"})
+    m += S.node("evaluation", "sdm.evaluate", {"presences": "p_pres.prediction", "background": "p_back.prediction"})
+    m += S.node("t_p10_train", "sdm.threshold", {"presences": "p_pres.prediction", "background": "p_back.prediction"},
+                {"method": "p10"})
+    m += S.node("predict", "sdm.maxnet_predict", {"model": "fit.model", "env": "data.env"})
+    m += S.node("w_pred", "raster.write", {"value": "predict.prediction"}, {"path": "prediction.tif"})
+    m += S.outputs({"predictions": "fit.predictions", "oof_stats": "oof_evaluation.stats",
+                    "oof_boyce": "oof_evaluation.boyce", "oof_p10": "oof_threshold.threshold",
+                    "oof_mss": "t_mss.threshold", "stats": "evaluation.stats", "boyce": "evaluation.boyce",
+                    "train_p10": "t_p10_train.threshold", "fit_threshold": "fit.threshold",
+                    "summary": "fit.summary", "train_pres": "p_pres.prediction"})
+    S.run(m, w)
+    pred = S.table(w, "predictions.csv")
+    print("columns", list(pred), "rows", len(pred["prediction"]), "nan", int(np.isnan(pred["prediction"]).sum()))
+    print("folds", {int(k): int((pred["fold"] == k).sum()) for k in np.unique(pred["fold"])})
+    res = {k: S.out(w, f"{k}.csv")[0] for k in ("oof_stats", "stats", "summary")}
+    res.update({k: S.out(w, f"{k}.json") for k in ("oof_p10", "oof_mss", "train_p10", "fit_threshold")})
+    for k, v in res.items():
+        print(k, v)
+    pres = pred["presence"] == 1
+    # an excerpt of the table, for the page
+    cols = [c for c in pred if c not in ("weight", "cell")]
+    head = []
+    for i in list(np.flatnonzero(pres)[:3]) + list(np.flatnonzero(~pres)[:2]):
+        head.append({c: (round(float(pred[c][i]), 3) if c not in ("presence", "fold") else int(pred[c][i]))
+                     for c in cols})
+    figs.write_csv(DAT / "oof_excerpt.csv", head)
+    print("excerpt", head)
+    # the training predictions of the same presences, in the same order
+    train = S.table(w, "train_pres.csv")["prediction"]
+    p = pred["prediction"][pres]
+    print("presences", int(pres.sum()), "median train", float(np.median(train)), "median oof", float(np.median(p)))
+    # per fold: the presences' median out-of-fold suitability
+    for k in np.unique(pred["fold"]):
+        s = pres & (pred["fold"] == k)
+        print("fold", int(k), "presences", int(s.sum()), "median oof", round(float(np.median(pred["prediction"][s])), 3),
+              "below oof p10", int(np.sum(pred["prediction"][s] < float(res["oof_p10"]))))
+    # Boyce's P/E curves, training and out-of-fold
+    tb, ob = S.table(w, "boyce.csv"), S.table(w, "oof_boyce.csv")
+    fig, ax = plt.subplots(figsize=(7.2, 3.4), dpi=150)
+    for t, col, lab in ((tb, "#6b7a72", "Training predictions (the model on every record)"),
+                        (ob, "#e8901f", "Out-of-fold predictions (each fold from a model without it)")):
+        ok = np.isfinite(t["f_ratio"])
+        ax.plot(t["hs"][ok], t["f_ratio"][ok], color=col, lw=2, label=lab)
+    ax.axhline(1, color=figs.INK2, lw=0.8, ls=(0, (3, 2)))
+    ax.set_xlabel("Predicted suitability (the window's middle)")
+    ax.set_ylabel("Predicted / expected")
+    ax.legend(fontsize=8.5, loc="upper left", frameon=False)
+    fig.tight_layout()
+    S.save(fig, IMG / "oof_boyce.png")
+    # the map: every presence by its out-of-fold suitability, over the training map in grey
+    a, info = figs.read(w / "prediction.tif")
+    fig, ax = S.map_axes(760, legend_frac=0.2)
+    S.base(ax)
+    S.surface(ax, a, info, cmap="Greys", vmin=-0.4, vmax=1.6)
+    from matplotlib import colors as mc
+    sc = ax.scatter(pred["x"][pres], pred["y"][pres], c=p, cmap="plasma", norm=mc.Normalize(0, 1), s=30,
+                    edgecolors="white", linewidths=0.5, zorder=4)
+    low = pres & (pred["prediction"] < float(res["oof_p10"]))
+    ax.scatter(pred["x"][low], pred["y"][low], s=95, facecolors="none", edgecolors=figs.INK, linewidths=1.0, zorder=5)
+    S.base_limits(ax)
+    ax.set_xlim(-95, -33)
+    ax.set_ylim(-30, 20)
+    S.colorbar(fig, sc, "Out-of-fold suitability", rect=(0.84, 0.25, 0.03, 0.5))
+    S.save(fig, IMG / "oof_map.png")
+    return res
+
+
 if __name__ == "__main__":
-    main()
+    import sys
+    if sys.argv[1:] == ["oof"]:
+        print(out_of_fold())
+    else:
+        main()
+        print(out_of_fold())

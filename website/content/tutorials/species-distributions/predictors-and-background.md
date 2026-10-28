@@ -277,8 +277,9 @@ inputs = { presences = "thin.occurrences", background = "background.points", env
    distance from the records, or a band `[from, to]` (metres on longitude and latitude grids, the grid's units on
    projected ones); `envelope = 0.05`, only cells
    outside the records' 5th to 95th percentiles of every predictor (a background of clearly different conditions,
-   sometimes used for pseudo-absences); `bias`, a map of weights (the target-group background of [part
-   2](../occurrence-data/#sampling-bias-and-the-background)).
+   sometimes used for pseudo-absences); `bias`, a map of weights, such as the sampling effort of a target group
+   made by [[sdm.bias_surface]] (the target-group background of [part
+   2](../occurrence-data/#sampling-bias-and-the-background); use `tryf = 1` with it).
 2. **The data set** (node 8): [[sdm.dataset]] takes the presences, the background points and the predictors, and
    returns a table with one row per record: `x`, `y`, `presence` (1 for a record, 0 for a background point) and one
    column per predictor, the value of its cell. Records without a value in some predictor (in the sea of a coarse

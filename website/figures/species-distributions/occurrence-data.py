@@ -4,7 +4,12 @@
 
 GBIF's records of the sloth (sdm.download_gbif; downloaded once and kept in website/.cache/gbif, so that the
 figures can be made again offline), the cleaning of the wild potato Solanum acaule's records by CoordinateCleaner's
-tests (sdm.clean_occurrences), and the sloth's records one per cell and thinned at several distances (sdm.thin).
+tests (sdm.clean_occurrences), the sloth's records one per cell and thinned at several distances (sdm.thin), and a
+target-group background: the GBIF specimens of Pilosa and Cingulata (also kept in website/.cache/gbif) as a surface
+of sampling effort (sdm.bias_surface) that weights sdm.background.
+
+    python website/figures/species-distributions/occurrence-data.py bias     # only the target group (or acaule,
+                                                                             # thin, gbif)
 """
 
 from __future__ import annotations
@@ -12,6 +17,7 @@ from __future__ import annotations
 import csv
 import json
 import shutil
+import sys
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -182,8 +188,175 @@ def thinning():
     return n_clean, rows
 
 
+# the target group of the sloth: the museum specimens of its order (sloths and anteaters) and of the armadillos
+GROUP = {"Pilosa": 1494, "Cingulata": 735}   # GBIF backbone taxon keys
+
+
+def group_records(w):
+    """The group's specimens with coordinates in GBIF (sdm.download_gbif, kept in website/.cache/gbif), in one
+    GeoPackage in the work folder: the file the page's model reads."""
+    import geopandas as gpd
+    import pandas as pd
+    GBIF.mkdir(parents=True, exist_ok=True)
+    parts, queries = [], {}
+    for name, key in GROUP.items():
+        cached = GBIF / f"{name.lower()}_specimens.gpkg"
+        query = GBIF / f"{name.lower()}_specimens_query.json"
+        if not cached.exists():
+            d = S.work(SLUG + "_download", files=())
+            m = S.HEAD + S.node("gbif", "sdm.download_gbif",
+                                params={"species": key, "basis_of_record": "PRESERVED_SPECIMEN"})
+            m += S.node("save", "vector.write", {"vector": "gbif.occurrences"}, {"path": "gbif.gpkg"})
+            m += S.outputs({"query": "gbif.query"})
+            S.run(m, d, name="download.toml")
+            shutil.copy(d / "gbif.gpkg", cached)
+            shutil.copy(d / "output" / "query.json", query)
+        g = gpd.read_file(cached)
+        keep = [c for c in ("species", "family", "year", "basisOfRecord", "institutionCode") if c in g]
+        g = g[keep + ["geometry"]]
+        g["order"] = name
+        parts.append(g)
+        queries[name] = json.loads(query.read_text(encoding="utf-8"))
+    g = gpd.GeoDataFrame(pd.concat(parts, ignore_index=True), crs=parts[0].crs)
+    g.to_file(w / "xenarthra.gpkg", driver="GPKG")
+    return g, queries
+
+
+BIAS_MODEL = S.HEAD + S.READ + '''
+[[nodes]]
+id = "group"
+op = "vector.read"
+params = { path = "xenarthra.gpkg" }
+
+[[nodes]]
+id = "clean"
+op = "sdm.clean_occurrences"
+inputs = { occurrences = "records.vector" }
+
+[[nodes]]
+id = "cells"
+op = "sdm.one_per_cell"
+inputs = { occurrences = "clean.occurrences", raster = "climate.raster" }
+
+[[nodes]]
+id = "thin"
+op = "sdm.thin"
+inputs = { occurrences = "cells.occurrences" }
+params = { distance = 50000 }
+
+[[nodes]]
+id = "clean_group"
+op = "sdm.clean_occurrences"
+inputs = { occurrences = "group.vector" }
+
+[[nodes]]
+id = "effort"
+op = "sdm.bias_surface"
+inputs = { occurrences = "clean_group.occurrences", env = "climate.stack" }
+
+[[nodes]]
+id = "background"
+op = "sdm.background"
+inputs = { env = "climate.stack", occurrences = "thin.occurrences", bias = "effort.bias" }
+params = { n = 2000, tryf = 1, seed = 1 }
+'''
+
+
+def bias():
+    """sdm.bias_surface on the group's specimens, the background drawn with it (tryf 1 and the default 3), one
+    drawn without, the surface at other bandwidths, and the effort at each background's points."""
+    import geopandas as gpd
+    from matplotlib import colors as mcolors
+    w = S.work(SLUG + "_bias")
+    g, queries = group_records(w)
+    m = BIAS_MODEL
+    m += S.node("random", "sdm.background", {"env": "climate.stack", "occurrences": "thin.occurrences"},
+                {"n": 2000, "seed": 1})
+    m += S.node("tryf3", "sdm.background",
+                {"env": "climate.stack", "occurrences": "thin.occurrences", "bias": "effort.bias"},
+                {"n": 2000, "seed": 1, "tryf": 3})
+    # the rescaled surface: every cell keeps a chance
+    m += S.node("effort_floor", "sdm.bias_surface", {"occurrences": "clean_group.occurrences", "env": "climate.stack"},
+                {"rescale": [0.05, 0.95]})
+    m += S.node("floor", "sdm.background",
+                {"env": "climate.stack", "occurrences": "thin.occurrences", "bias": "effort_floor.bias"},
+                {"n": 2000, "seed": 1, "tryf": 1})
+    writes = {"thin": "thin.occurrences", "group_clean": "clean_group.occurrences", "bg_group": "background.points",
+              "bg_random": "random.points", "bg_tryf3": "tryf3.points", "bg_floor": "floor.points"}
+    for f, ref in writes.items():
+        m += S.node(f"w_{f}", "vector.write", {"vector": ref}, {"path": f"{f}.gpkg"})
+    outs = {"bandwidth": "effort.bandwidth", "counts": "clean_group.counts"}
+    m += S.node("w_effort", "raster.write", {"value": "effort.bias"}, {"path": "effort_nrd.tif"})
+    for b in (1, 2):
+        m += S.node(f"effort_{b}", "sdm.bias_surface",
+                    {"occurrences": "clean_group.occurrences", "env": "climate.stack"}, {"bandwidth": b})
+        m += S.node(f"w_effort_{b}", "raster.write", {"value": f"effort_{b}.bias"}, {"path": f"effort_{b}.tif"})
+    m += S.outputs(outs)
+    S.run(m, w)
+    bw = S.out(w, "bandwidth.json")
+    counts = S.out(w, "counts.csv")[0]
+    clean = gpd.read_file(w / "group_clean.gpkg")
+    thin = gpd.read_file(w / "thin.gpkg")
+    thin = gpd.GeoDataFrame(thin, geometry=gpd.points_from_xy(num(thin["lon"]), num(thin["lat"])))
+    # the effort relative to the map's average (1: an average cell), the same colours for every bandwidth
+    norm = mcolors.LogNorm(vmin=0.05, vmax=20)
+    surf = {}
+    for b in ("nrd", 1, 2):
+        a, info = figs.read(w / f"effort_{b}.tif", 1)
+        a = np.array(np.ma.filled(np.ma.asarray(a, dtype=float), np.nan))
+        rel = a / np.nanmean(a)
+        surf[b] = rel
+        fig, ax = S.map_axes(820, legend_frac=0.22)
+        S.base(ax)
+        im = S.surface(ax, np.clip(rel, 0.05, 20), info, cmap="viridis", norm=norm)
+        S.points(ax, clean.geometry.x, clean.geometry.y, color="white", size=2.0, edge="none", alpha=0.6)
+        S.base_limits(ax)
+        cb = S.colorbar(fig, im, label="Sampling effort (1 = the map's average)", rect=(0.80, 0.22, 0.03, 0.55),
+                        ticks=[0.1, 1, 10])
+        cb.ax.set_yticklabels(["0.1", "1", "10"])
+        S.save(fig, IMG / f"bias_surface_{b}.png")
+    # the backgrounds, drawn alike for a before-and-after
+    for name in ("random", "group"):
+        p = gpd.read_file(w / f"bg_{name}.gpkg")
+        fig, ax = S.map_axes(700)
+        S.base(ax)
+        S.points(ax, p.geometry.x, p.geometry.y, color=S.BACK, size=3, edge="none", alpha=0.8, z=2)
+        S.points(ax, thin.geometry.x, thin.geometry.y, size=12)
+        S.base_limits(ax)
+        S.save(fig, IMG / f"background_{name}.png")
+    # the effort and the climate at each background's points
+    rel = surf["nrd"].ravel()
+    top = np.nanquantile(rel, 0.75)
+    v1 = np.ma.filled(np.ma.asarray(figs.read(S.DATA / "bioclim.tif", 1)[0], dtype=float), np.nan)
+    v12 = np.ma.filled(np.ma.asarray(figs.read(S.DATA / "bioclim.tif", 7)[0], dtype=float), np.nan)
+    rows = []
+    for name, f in (("Random", "bg_random"), ("Target group, tryf = 3", "bg_tryf3"),
+                    ("Target group, tryf = 1", "bg_group"), ("Rescaled to [0.05, 0.95], tryf = 1", "bg_floor")):
+        c = gpd.read_file(w / f"{f}.gpkg")["cell"].to_numpy().astype(int)
+        rows.append({"background": name, "points": len(c), "effort": round(float(np.mean(rel[c])), 2),
+                     "top_quarter": round(100 * float(np.mean(rel[c] >= top)), 1),
+                     "bio1": float(np.median(np.ravel(v1)[c])), "bio12": float(np.median(np.ravel(v12)[c]))})
+    figs.write_csv(DAT / "target_group.csv", [{"Background": r["background"],
+                                                "Mean effort at the points": r["effort"],
+                                                "Points in the busiest quarter (%)": r["top_quarter"]}
+                                               for r in rows])
+    stats = {b: {"max_over_median": round(float(np.nanmax(r) / np.nanmedian(r)), 1),
+                 "under_0.1": round(100 * float(np.nanmean(r < 0.1)), 1)} for b, r in surf.items()}
+    nq = {k: q.get("count") for k, q in queries.items()}
+    return {"downloaded": len(g), "per_order": g["order"].value_counts().to_dict(), "gbif_counts": nq,
+            "cleaned": len(clean), "counts": counts, "bandwidth": bw, "rows": rows, "surfaces": stats,
+            "cells": int(np.isfinite(rel).sum()), "n_institutions": int(clean["institutionCode"].nunique()),
+            "years": [int(clean["year"].min()), int(clean["year"].max())] if "year" in clean else None}
+
+
 if __name__ == "__main__":
-    print("acaule rows", acaule_csv())
-    print("acaule", acaule())
-    print("thin", thinning())
-    print("gbif", gbif())
+    only = sys.argv[1:]
+    if not only or "acaule" in only:
+        print("acaule rows", acaule_csv())
+        print("acaule", acaule())
+    if not only or "thin" in only:
+        print("thin", thinning())
+    if not only or "gbif" in only:
+        print("gbif", gbif())
+    if not only or "bias" in only:
+        print("bias", bias())

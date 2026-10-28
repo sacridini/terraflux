@@ -1,11 +1,11 @@
 ---
 title: "Occurrence data: download, clean and thin"
 short: Occurrence data
-description: Download records of a species from GBIF, flag the suspicious ones with CoordinateCleaner's tests, keep one per cell and thin them against sampling bias.
+description: Download records of a species from GBIF, flag the suspicious ones with CoordinateCleaner's tests, keep one per cell, thin them against sampling bias, and draw a background with the sampling effort of a target group.
 order: 20
 level: beginner
 time: 45 min
-ops: [sdm.download_gbif, sdm.clean_occurrences, sdm.reference_data, sdm.one_per_cell, sdm.thin, sdm.background, vector.read]
+ops: [sdm.download_gbif, sdm.clean_occurrences, sdm.reference_data, sdm.one_per_cell, sdm.thin, sdm.bias_surface, sdm.background, vector.read]
 series: Species distribution models
 part: 2
 ---
@@ -54,7 +54,7 @@ Each problem has a standard cure, and Terraflux has a node for each:
 | Wrong coordinates | CoordinateCleaner's tests (Zizka et al., 2019) | [[sdm.clean_occurrences]] |
 | Pseudo-replication | one record per cell of the predictors | [[sdm.one_per_cell]] |
 | Sampling bias | spatial thinning (Aiello-Lammens et al., 2015) | [[sdm.thin]] |
-| Sampling bias | a background drawn with the same bias (Phillips et al., 2009) | [[sdm.background]] with `bias` |
+| Sampling bias | a background drawn with the same bias (Phillips et al., 2009) | [[sdm.bias_surface]], then [[sdm.background]] with `bias` |
 
 !!! science "Key idea: CoordinateCleaner"
     Zizka et al. (2019) collected the errors that most often affect records from biological collections into an
@@ -82,8 +82,8 @@ go).
 Thinning is not the only cure for bias. When you have the records of many species collected the same way (all
 the mammals of a museum, all the birds of a citizen science scheme), a **target-group background** is often
 better: the background points are drawn with the density of those records, so that the bias is the same for the
-presences and the background and cancels out (Phillips et al., 2009). Terraflux draws such a background with the
-`bias` input of [[sdm.background]], a map of weights per cell (the density of the group's records, for example).
+presences and the background and cancels out (Phillips et al., 2009). In Terraflux, [[sdm.bias_surface]] makes
+the map of the group's sampling effort and the `bias` input of [[sdm.background]] draws the background with it.
 
 ## What you need
 
@@ -94,6 +94,8 @@ presences and the background and cancels out (Phillips et al., 2009). Terraflux 
 - An internet connection the first time the tests of the sea, urban areas or countries run (Natural Earth's
   polygons are downloaded once), or your own polygons on the `seas_ref`, `urban_ref` and `countries_ref` inputs.
 - The predictors' grid, for one record per cell (the climate of [part 1](../ideas/)).
+- For a target-group background, the records of the group: points or a table of coordinates, from GBIF
+  ([[sdm.download_gbif]]) or your own collections.
 
 Data of this part:
 
@@ -368,27 +370,187 @@ and the seed.
 
 ## Sampling bias and the background
 
-Thinning acts on the presences. The other cure acts on the background: draw it with the same bias. The `bias`
-input of [[sdm.background]] takes a map of weights per cell; cells are drawn with a chance proportional to their
-weight. With a map of the density of records of the target group (all the sloths, anteaters and armadillos of
-the same collections, say), the background has the same geographic bias as the presences, and what remains to
-tell them apart is the environment (Phillips et al., 2009).
+Thinning acts on the presences. The other cure acts on the background: draw it with the same bias. The
+**background** (part 3) is a sample of the places available to the species, which the model compares with the
+places where it was recorded. If the records crowd along rivers and around a few research stations while the
+background is spread evenly, part of what the model learns is "where collectors went", not "where sloths live".
+
+!!! science "Key idea: a target-group background"
+    The records of a **target group**, all the species recorded by the same methods (the same collections, the same
+    collectors, the same decades), show where people looked. Phillips et al. (2009) proposed to draw the background
+    where the group was recorded: it then has the same geographic bias as the presences, and what still sets the
+    presences apart is the environment the species chose. Over 226 species from diverse regions, the target-group
+    background improved the average performance of every method they tried, by as much as the choice of method
+    itself, and most where the group's records were most biased. Barber et al. (2022) compared four corrections on
+    the hoverflies of Britain, whose sampling effort is known: the target-group background came closest to it, though
+    it overcompensated in places.
+
+### The sampling effort as a surface
+
+[[sdm.bias_surface]] turns the group's records into a map of sampling effort: a **kernel density**, a smooth
+surface that is high where records are many and close together, and falls off with the distance to them. Every
+record puts a small bell-shaped hill on the map, and the surface is their sum, evaluated at the centre of every cell
+of the predictors.
+
+!!! science "Key idea: the kernel density"
+    At a cell whose centre is \((x, y)\), with the group's records at \((x_k, y_k)\) and weights \(w_k\):
+
+    \[ b(x, y) = \frac{1}{\sum_k w_k} \sum_k \frac{w_k}{h_x h_y} \, \phi\!\left(\frac{x - x_k}{h_x}\right)
+    \phi\!\left(\frac{y - y_k}{h_y}\right) \]
+
+    \(\phi\) is the standard normal density (the bell curve), and \(h_x\), \(h_y\) the **bandwidths**: the standard
+    deviations of the bell in x and in y, in the units of the grid (degrees here, metres on a projected grid). A wide
+    bandwidth makes a smooth surface that ignores small clusters; a narrow one sticks to the records. The default
+    is R's normal reference rule, `bw.nrd`, in each direction:
+    \(h = 1.06 \, \min(s, \mathrm{IQR}/1.34) \, n^{-1/5}\), where \(s\) is the standard deviation of the records'
+    coordinates, IQR their interquartile range and \(n\) the number of records. The surface is the one R's
+    `MASS::kde2d` computes; note that `kde2d(h = H)` corresponds to `bandwidth = H / 4` here. Dividing by
+    \(\sum_k w_k\) makes \(b\) a density whose total over the plane is 1: the share of the group's records per unit
+    of area (per square degree on this grid). Only its relative values matter for the background.
+
+Such a surface is what Maxent calls a "bias file". Fourcade et al. (2014) made theirs as a Gaussian kernel density
+of the records, rescaled from 1 to 20, and compared it with other corrections on a virtual species: thinning the
+records was the only one that did well whatever the species and the kind of bias. Kramer-Schadt et al. (2013),
+with the Malay civet of Borneo, also found thinning better, and a biased background the choice when records are
+too few to thin. Both built the bias from the species' own records; a target group's records are better evidence
+of where people looked, since they do not also hold where the species is common. Thinning and a target-group
+background can be combined, as below.
+
+For the sloth, we take as the target group the **museum specimens** of its order, Pilosa (sloths and anteaters),
+and of the armadillos, Cingulata: 5 056 specimens with coordinates in GBIF (1 876 and 3 180), downloaded with
+[[sdm.download_gbif]] (`species` = GBIF's taxon keys 1494 and 735, `basis_of_record = "PRESERVED_SPECIMEN"`, in
+October 2026) and saved together in one file with [[vector.write]]. The group goes through the same cleaning as
+the presences: 294 records are flagged (132 in the sea, 50 at capitals, 30 at country or province centroids, 73
+outliers of their species, 11 at institutions; a record can fail several tests), and 4 762 remain, from 118
+institutions and nearly two centuries (1826 to 2025). In a real study, choose the group by how the presences were
+collected: specimens for specimens, the observations of the same scheme for observations.
 
 ```tfgraph
-#! caption: A target-group background: the density of the records of related species (node 3, a raster you make from their records) weights the draw of the background points (node 4).
-#! fragment: true
-#! highlight: background
+#! caption: A target-group background. The sloth's records are cleaned and thinned as above (nodes 4 to 6); the group's specimens (node 3) are cleaned the same way (node 7) and turned into a surface of sampling effort (node 8), which weights the draw of the background (node 9).
+#! numbered: true
+#! highlight: group, clean_group, effort, background
+format = "terraflux/1"
+
 [[nodes]]
-id = "group_density"
+id = "records"
+op = "vector.read"
+params = { path = "bradypus.csv" }
+
+[[nodes]]
+id = "climate"
 op = "raster.read"
-params = { path = "target_group_density.tif" }
+params = { path = "bioclim.tif" }
+
+[[nodes]]
+id = "group"
+op = "vector.read"
+params = { path = "xenarthra.gpkg" }
+
+[[nodes]]
+id = "clean"
+op = "sdm.clean_occurrences"
+inputs = { occurrences = "records.vector" }
+
+[[nodes]]
+id = "cells"
+op = "sdm.one_per_cell"
+inputs = { occurrences = "clean.occurrences", raster = "climate.raster" }
+
+[[nodes]]
+id = "thin"
+op = "sdm.thin"
+inputs = { occurrences = "cells.occurrences" }
+params = { distance = 50000 }
+
+[[nodes]]
+id = "clean_group"
+op = "sdm.clean_occurrences"
+inputs = { occurrences = "group.vector" }
+
+[[nodes]]
+id = "effort"
+op = "sdm.bias_surface"
+inputs = { occurrences = "clean_group.occurrences", env = "climate.stack" }
 
 [[nodes]]
 id = "background"
 op = "sdm.background"
-inputs = { env = "climate.stack", occurrences = "thin.occurrences", bias = "group_density.raster" }
-params = { n = 2000, seed = 1 }
+inputs = { env = "climate.stack", occurrences = "thin.occurrences", bias = "effort.bias" }
+params = { n = 2000, tryf = 1, seed = 1 }
 ```
+
+<div class="steps" markdown>
+
+1. **The group's records** (node 3): [[vector.read]] of the group's points (`xenarthra.gpkg`, the GBIF records of
+   both orders). A table with coordinate columns works as well: columns named `x`/`y`, `lon`/`lat`,
+   `longitude`/`latitude` or GBIF's `decimalLongitude`/`decimalLatitude` are found by themselves, and the `x` and
+   `y` settings of [[sdm.bias_surface]] name others. Records in another coordinate system are transformed to the grid's.
+2. **Clean them** (node 7): the same [[sdm.clean_occurrences]] as the presences. A specimen at a capital is no
+   more evidence of effort there than of the species.
+3. **The effort** (node 8): add [[sdm.bias_surface]] from the library's *Species distributions* subject. Connect
+   the cleaned group to `occurrences` and the predictors to `env` (a stack or a single map: only its grid is used,
+   and, with `mask` on, which cells have a value in every predictor). Its outputs: `bias`, the surface on the
+   grid of the predictors, and `bandwidth`, the two bandwidths it used, `[x, y]`. Its settings:
+    - `bandwidth`: `nrd` (the rule above, the default), one number for both directions, or `[x, y]`, in the grid's
+      units;
+    - `isotropic`: the larger of the two bandwidths in both directions (default `false`);
+    - `limits`: `[min, max]`, the rule's bandwidths raised to the minimum or lowered to the maximum (either may be
+      left empty, `null`); a floor keeps a tightly clustered group from making a surface of spikes on its records;
+    - `weights`: a column of the records with each one's weight (specimens in a lot, visits to a site); default 1
+      each;
+    - `rescale`: `[lo, hi]`, the densities mapped linearly onto this range, for instance `[0.05, 0.95]`, so that
+      every cell keeps some chance of being drawn;
+    - `mask`: no value on the cells without a value in every predictor (default `true`).
+4. **The background** (node 9): connect `effort.bias` to the `bias` input of [[sdm.background]]. Each cell is then
+   drawn with a chance proportional to its effort (on a longitude-latitude grid, also to its width, as without a
+   bias); cells with no value are never drawn, nor cells of effort 0. Set `tryf = 1` (below).
+
+</div>
+
+With the default rule, the bandwidths are 3.34° in longitude and 4.43° in latitude (about 370 and 490 km at the
+equator):
+
+```tfslider
+label: Bandwidth (degrees)
+caption: "The sampling effort of the target group (sdm.bias_surface), relative to the average cell (1), on a logarithmic scale; the group's 4 762 cleaned specimens in white. With the default rule (nrd, 3.34° by 4.43°) the surface is smooth: the busiest cell has 4.6 times the effort of the median cell. With a bandwidth of 1° the clusters of collecting show (Texas, with 448 specimens of the nine-banded armadillo; the Andes of Colombia; Paraguay and northern Argentina) and so do the gaps, such as the central Amazon and north-eastern Brazil: the busiest cell has 33 times the median's effort."
+frames:
+  - { value: "1", src: /img/tutorials/species-distributions/occurrence-data/bias_surface_1.png, stats: { "Busiest / median cell": "32.7", "Cells below 0.1": "8.0 %" } }
+  - { value: "2", src: /img/tutorials/species-distributions/occurrence-data/bias_surface_2.png, stats: { "Busiest / median cell": "9.8", "Cells below 0.1": "4.4 %" } }
+  - { value: "nrd (3.34, 4.43)", src: /img/tutorials/species-distributions/occurrence-data/bias_surface_nrd.png, stats: { "Busiest / median cell": "4.6", "Cells below 0.1": "2.0 %" } }
+start: 2
+play: false
+```
+
+The rule of `bw.nrd` was made for a single, roughly normal cloud of points. A group spread over a continent in
+several clusters gets a wide bandwidth from it, which smooths the clusters away. There is no correct bandwidth;
+choose one in the range of the clusters you can see on a map of the group's records, compare the surfaces, and
+report the one you used.
+
+### How the bias reaches the background
+
+[[sdm.background]] draws its points as R's dismo does: it first draws `n × tryf` candidate cells **without
+replacement**, with the chances given by the bias, leaves out the cells of the records, and then keeps `n` of the
+candidates at random. With the default `tryf = 3`, the 2 000 points come from 6 000 candidates, 61 % of the 9 775
+cells with a climate: nearly all the busy cells are among the candidates, but so are most of the others, and the final
+random choice dilutes the bias. With `tryf = 1` the bias acts fully. The cost: candidates that fall on a record's
+cell are dropped and not replaced, so the sloth's background has 1 975 points instead of 2 000 (the node warns).
+
+```tftable
+data: /data/tutorials/species-distributions/occurrence-data/target_group.csv
+digits: 2
+caption: "The sampling effort (the default surface, 1 = the map's average) at the points of four backgrounds of the sloth, and the share of the points in the quarter of the cells with the most effort. A background drawn at random has the map's average effort and a quarter of its points in the busiest quarter; the target-group background with tryf = 1 has half of them there."
+```
+
+```tfcompare
+caption: The sloth's 83 thinned records (red) with 2 000 background points drawn at random from the whole map (left of the handle) and 1 975 drawn with the effort of the target group, tryf = 1 (right). The target-group background crowds into Texas and Mexico, the Andes of Colombia and the Chaco of Paraguay and Argentina, where the group was collected, and thins out over the central Amazon, north-eastern Brazil and Patagonia.
+before: { src: /img/tutorials/species-distributions/occurrence-data/background_random.png, label: Random }
+after: { src: /img/tutorials/species-distributions/occurrence-data/background_group.png, label: Target group }
+```
+
+The difference in climate is smaller than the difference on the map: the median annual rainfall at the background
+points goes from about 1 240 mm (random) to 1 250 mm (target group), against 2 496 mm at the sloth's records. The group
+was collected in dry places as well as wet ones. The background's purpose is not to look like the presences, but to
+share their bias; what the model learns from it is part 4's subject.
 
 The template [Species distribution model](../ideas/#a-virtual-species-first) uses the same input the other way
 round: it draws the *presences* of its virtual species with the suitability as the bias. [Part
@@ -400,6 +562,9 @@ What to keep and report from this part:
 
 - **How many records at each step**: downloaded (or read), passing the tests (and which tests removed how many:
   the `counts` output), one per cell, thinned. For the sloth: 116, 113, 92, 83.
+- **For a target-group background**: the group (taxa, kind of record, source and date of the download), its
+  records before and after cleaning (5 056 and 4 762), the bandwidths (the `bandwidth` output: 3.34° and 4.43°), any
+  `limits`, `weights` or `rescale`, and the background's `n`, `tryf` and seed.
 - **The settings**: the tests used and their options, the thinning distance and its seed, the date of the GBIF
   query and its filters (country, years, uncertainty).
 - **A map** of the records kept and removed, in the supplementary material.
@@ -417,6 +582,12 @@ large share of the records (the 1 823 coastal sloths): check whether it is right
   the flagged records before dropping them.
 - **The GBIF filters**: limiting the records to the years of the climate layers, or to precise coordinates,
   changes both the number of records and their bias.
+- **The bandwidth of the effort** (the slider above): from 1° to the rule's 3.3° by 4.4°, the busiest cell goes
+  from 33 to 4.6 times the median one.
+- **`tryf` with a bias**: with the default of 3, the sloth's background has 37.5 % of its points in the busiest
+  quarter of the map; with 1, 51.2 % (a random background: 23.9 %).
+- **`rescale`**: `[0.05, 0.95]` gives the emptiest cell a chance 19 times smaller than the busiest one's, instead
+  of nearly none; here it moves the share in the busiest quarter from 51.2 % to 46.9 %.
 
 ## Common pitfalls
 
@@ -431,6 +602,17 @@ large share of the records (the 1 823 coastal sloths): check whether it is right
 - **Uncertain coordinates and fine predictors.** A record with an uncertainty of 20 km is useless with predictors
   at 1 km. Use `max_uncertainty`.
 - **Thinning too hard.** With 20 records left, the model will be crude whatever the bias.
+- **A target group that was not sampled like the presences.** Specimens of a group show where museums collected,
+  not where a citizen-science scheme observed. A group whose effort differs from the presences' brings a bias of
+  its own.
+- **Not looking at the group's records.** They need the same cleaning as the presences, and a look: among the
+  group's specimens in Texas are 18 of *Glyptotherium texanum*, an extinct glyptodont. Filter by `year` or by
+  species where it matters.
+- **A bias diluted by `tryf`.** With the default `tryf = 3` and a coarse grid, the candidates cover most of the
+  map; use `tryf = 1` with a bias.
+- **Bandwidths in degrees.** On a longitude-latitude grid the bandwidths are in degrees, and a degree of
+  longitude shrinks towards the poles (to 87 % of its equatorial width at 30°, half at 60°): over a wide range of
+  latitudes, the kernel is narrower in kilometres far from the equator. A projected grid in metres avoids this.
 
 ## Going further
 
@@ -444,7 +626,10 @@ large share of the records (the 1 823 coastal sloths): check whether it is right
 ## References
 
 - Aiello-Lammens, M. E., Boria, R. A., Radosavljevic, A., Vilela, B., & Anderson, R. P. (2015). spThin: an R package for spatial thinning of species occurrence records for use in ecological niche models. *Ecography*, 38(5), 541–545. https://doi.org/10.1111/ecog.01132
+- Barber, R. A., Ball, S. G., Morris, R. K. A., & Gilbert, F. (2022). Target-group backgrounds prove effective at correcting sampling bias in Maxent models. *Diversity and Distributions*, 28(1), 128–141. https://doi.org/10.1111/ddi.13442
 - Boria, R. A., Olson, L. E., Goodman, S. M., & Anderson, R. P. (2014). Spatial filtering to reduce sampling bias can improve the performance of ecological niche models. *Ecological Modelling*, 275, 73–77. https://doi.org/10.1016/j.ecolmodel.2013.12.012
+- Fourcade, Y., Engler, J. O., Rödder, D., & Secondi, J. (2014). Mapping species distributions with MAXENT using a geographically biased sample of presence data: a performance assessment of methods for correcting sampling bias. *PLoS ONE*, 9(5), e97122. https://doi.org/10.1371/journal.pone.0097122
+- Kramer-Schadt, S., Niedballa, J., Pilgrim, J. D., Schröder, B., Lindenborn, J., Reinfelder, V., Stillfried, M., Heckmann, I., Scharf, A. K., Augeri, D. M., Cheyne, S. M., Hearn, A. J., Ross, J., Macdonald, D. W., Mathai, J., Eaton, J., Marshall, A. J., Semiadi, G., Rustam, R., Bernard, H., Alfred, R., Samejima, H., Duckworth, J. W., Breitenmoser-Wuersten, C., Belant, J. L., Hofer, H., & Wilting, A. (2013). The importance of correcting for sampling bias in MaxEnt species distribution models. *Diversity and Distributions*, 19(11), 1366–1379. https://doi.org/10.1111/ddi.12096
 - Park, D. S., Xie, Y., Thammavong, H. T., Tulaiha, R., & Feng, X. (2023). Artificial Hotspot Occurrence Inventory (AHOI). *Journal of Biogeography*, 50(2), 441–449. https://doi.org/10.1111/jbi.14543
 - Phillips, S. J., Dudík, M., Elith, J., Graham, C. H., Lehmann, A., Leathwick, J., & Ferrier, S. (2009). Sample selection bias and presence-only distribution models: implications for background and pseudo-absence data. *Ecological Applications*, 19(1), 181–197. https://doi.org/10.1890/07-2153.1
 - Zizka, A., Silvestro, D., Andermann, T., Azevedo, J., Duarte Ritter, C., Edler, D., Farooq, H., Herdean, A., Ariza, M., Scharn, R., Svantesson, S., Wengström, N., Zizka, V., & Antonelli, A. (2019). CoordinateCleaner: standardized cleaning of occurrence records from biological collection databases. *Methods in Ecology and Evolution*, 10(5), 744–751. https://doi.org/10.1111/2041-210X.13152

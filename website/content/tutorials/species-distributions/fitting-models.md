@@ -189,8 +189,10 @@ inputs = { model = "fit.model", records = "data.records" }
 2. **Fit** (node 4): add [[sdm.fit]] from the library's *Species distributions* subject and drag `data.records`
    to its `records` input. In the Node pane, `model` chooses the algorithm (`maxnet`, `glm` or `random_forest`);
    the other settings belong to one algorithm or another (below). Its outputs: `model` (the model fitted on every
-   record), `metrics` (a row per fold), `summary` (the mean and standard deviation of each score over the folds)
-   and `threshold` (the suitability that maximises sensitivity plus specificity on all the records).
+   record), `metrics` (a row per fold), `summary` (the mean and standard deviation of each score over the folds),
+   `threshold` (the suitability that maximises sensitivity plus specificity on all the records) and `predictions`
+   (the records with a column `prediction`: each one's suitability from the model fitted without its fold; [part
+   5](../evaluation-and-thresholds/#out-of-fold-predictions) scores and maps them).
 3. **Map** (node 5): [[sdm.maxnet_predict]] applies any fitted model (despite its name, also a GLM or a forest) to
    a stack of the predictors, found by name: connect `fit.model` to `model` and `data.env` to `env`. For a projection
    to another climate, connect a stack of the same predictors under the same names ([part
