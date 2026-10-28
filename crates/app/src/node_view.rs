@@ -32,7 +32,20 @@ pub fn label_of(name: &str) -> String {
 pub fn default_of(doc: &str) -> String {
     if let Some(at) = doc.find("(default ") {
         let rest = &doc[at + 1..];
-        let end = rest.find([')', ',', ';', ':']).unwrap_or(rest.len());
+        // up to the first ) , ; or : outside brackets: a list's commas are its own ("(default [0.05, 0.95])")
+        let mut depth = 0usize;
+        let mut end = rest.len();
+        for (i, c) in rest.char_indices() {
+            match c {
+                '[' | '{' | '(' => depth += 1,
+                ']' | '}' | ')' if depth > 0 => depth -= 1,
+                ')' | ',' | ';' | ':' if depth == 0 => {
+                    end = i;
+                    break;
+                }
+                _ => {}
+            }
+        }
         let d = rest[..end].trim();
         if d.chars().count() <= 32 {
             return d.to_string();
@@ -965,6 +978,8 @@ mod tests {
     fn defaults_from_docs() {
         assert_eq!(default_of("the relative optimality gap (default 0.1, as prioritizr)"), "default 0.1");
         assert_eq!(default_of("seconds (default none)"), "default none");
+        assert_eq!(default_of("the grid's ends, as shares (default [0.05, 0.95])"), "default [0.05, 0.95]");
+        assert_eq!(default_of("the weights (default [0.5, 0.5]: two classes)"), "default [0.5, 0.5]");
         assert_eq!(default_of("the weight of edges to no unit (0.5)"), "0.5");
         assert_eq!(default_of("the objectives with a budget: the cost they may spend"), "");
         assert_eq!(default_of("a share of each feature's total (or one for all)"), "");
