@@ -23,6 +23,7 @@ use terraflux_ops::algebra::Out;
 use terraflux_ops::algebra_tools::{
     self, Completion, FUNCTION_HELP, Input, Inputs, METHOD_HELP, Part, Preview, Problem,
 };
+use terraflux_raster::tiff::Window;
 
 use crate::app::Session;
 use crate::palette::Coloring;
@@ -85,6 +86,9 @@ pub struct Calculator {
     computing: Option<Receiver<(u64, Result<Preview, String>)>>,
     /// The last preview: what it was of, its outputs (or why there are none), the sample's size and step.
     shown: Option<(u64, Result<Vec<Shown>, String>, String)>,
+    /// The part of the inputs' grid the preview is of (none: all of it), and the part the last preview was of.
+    view: Option<Window>,
+    shown_window: Option<Window>,
     /// What the inputs connected to rasters not run yet are, by their headers (by path and band).
     headers: HashMap<(String, String), Input>,
     /// The console's lines, its prompt, what was typed in it (up and down bring it back), a line being computed.
@@ -157,15 +161,7 @@ fn script_of(n: &Node) -> String {
 fn connected(c: &mut Calculator, s: &Session, path: &[String], n: &Node) -> (Inputs, BTreeMap<String, Value>) {
     let (mut inputs, mut values) = (Inputs::new(), BTreeMap::new());
     for (port, src) in &n.inputs {
-        let value = match src {
-            Source::Literal(v) => v.as_f64().map(Value::Number),
-            Source::Ref(r) => match Ref::parse(r) {
-                // (the outputs of the nodes in a container are not kept)
-                Ok(Ref::Port { node, port: p }) if path.is_empty() => s.value_of(&node, &p),
-                Ok(Ref::Input(name)) => s.inputs.as_ref().and_then(|i| i.get(&name)).cloned(),
-                _ => None,
-            },
-        };
+        let value = value_of(s, path, src);
         let input = match &value {
             Some(v) => algebra_tools::describe(v),
             None => header(c, s, path, src),
@@ -176,6 +172,19 @@ fn connected(c: &mut Calculator, s: &Session, path: &[String], n: &Node) -> (Inp
         }
     }
     (inputs, values)
+}
+
+/// The value an input of a node has, when known.
+fn value_of(s: &Session, path: &[String], src: &Source) -> Option<Value> {
+    match src {
+        Source::Literal(v) => v.as_f64().map(Value::Number),
+        Source::Ref(r) => match Ref::parse(r) {
+            // (the outputs of the nodes in a container are not kept)
+            Ok(Ref::Port { node, port: p }) if path.is_empty() => s.value_of(&node, &p),
+            Ok(Ref::Input(name)) => s.inputs.as_ref().and_then(|i| i.get(&name)).cloned(),
+            _ => None,
+        },
+    }
 }
 
 /// What an input connected to a raster read and not run yet is, by the raster's header (read once).
@@ -198,6 +207,13 @@ fn header(c: &mut Calculator, s: &Session, path: &[String], src: &Source) -> Inp
     };
     c.headers.insert(key, input.clone());
     input
+}
+
+/// What a part of the grid a preview is of adds to its key.
+fn view_key(view: Option<Window>) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    view.map(|w| (w.x0, w.y0, w.width, w.height)).hash(&mut h);
+    h.finish()
 }
 
 /// What a preview is of: the script and the values it reads (the same data: the same preview).
@@ -278,24 +294,40 @@ fn layout(ui: &Ui, text: &str, inputs: &Inputs, problem: Option<&Problem>, wrap:
 }
 
 /// A script edited where a node's settings are (the Node pane): in the terminal's font, its words in colour, its
-/// first error underlined and told under it. The node's inputs are known by their names only (what they are, and
-/// the rest, in the Calculator). The editor's response.
-pub fn script_field(ui: &mut Ui, id: egui::Id, text: &mut String, n: &Node) -> egui::Response {
-    let inputs: Inputs = n.inputs.keys().map(|k| (k.clone(), Input::Unknown)).collect();
+/// first error underlined and told under it, the names completed as they are typed (as in the Calculator). The
+/// node's inputs are known by the values they had in the last run (a raster not read yet, by its name only). The
+/// editor's response.
+pub fn script_field(
+    ui: &mut Ui,
+    s: &Session,
+    path: &[String],
+    id: egui::Id,
+    text: &mut String,
+    n: &Node,
+) -> egui::Response {
+    let inputs: Inputs = n
+        .inputs
+        .iter()
+        .map(|(k, src)| (k.clone(), value_of(s, path, src).map_or(Input::Unknown, |v| algebra_tools::describe(&v))))
+        .collect();
     let problem = if text.trim().is_empty() { None } else { algebra_tools::problem(text, &inputs) };
+    let mut popup: Popup = ui.data(|d| d.get_temp(id.with("popup"))).flatten();
+    let focused = ui.memory(|m| m.has_focus(id));
+    let (explicit, _) = completion_keys(ui, id, text, &mut popup);
     let mut layouter = |ui: &Ui, t: &dyn egui::TextBuffer, wrap: f32| {
         ui.fonts_mut(|f| f.layout_job(layout(ui, t.as_str(), &inputs, problem.as_ref(), wrap)))
     };
-    let resp = egui::TextEdit::multiline(text)
+    let out = egui::TextEdit::multiline(text)
         .id(id)
         .code_editor()
         .desired_rows(4)
         .desired_width(f32::INFINITY)
         .hint_text(mono("out classes = 1 if elev < 700 else 2").weak())
         .layouter(&mut layouter)
-        .show(ui)
-        .response
-        .response;
+        .show(ui);
+    completion_popup(ui, id, text, &mut popup, &inputs, &out, focused, explicit);
+    ui.data_mut(|d| d.insert_temp(id.with("popup"), popup));
+    let resp = out.response.response;
     if let Some(p) = &problem {
         ui.label(RichText::new(format!("line {}: {}", p.line, p.message)).small().color(ui.visuals().error_fg_color));
     }
@@ -393,6 +425,7 @@ impl Calculator {
                     self.computing = None;
                     let shown = match r {
                         Ok(p) => {
+                            self.shown_window = Some(p.window);
                             let (outs, sample) = self.show_preview(ctx, p);
                             (key, Ok(outs), sample)
                         }
@@ -451,15 +484,15 @@ impl Calculator {
         if reads.iter().any(|r| !wanted.contains_key(r) && !algebra_tools::names_given(&self.text).contains(r)) {
             return;
         }
-        let key = key_of(&self.text, &wanted);
+        let key = key_of(&self.text, &wanted) ^ view_key(self.view);
         if self.asked == Some(key) {
             return;
         }
         self.asked = Some(key);
         let (tx, rx) = channel();
-        let (text, ctx) = (self.text.clone(), ctx.clone());
+        let (text, ctx, view) = (self.text.clone(), ctx.clone(), self.view);
         std::thread::spawn(move || {
-            let r = algebra_tools::preview(&text, &wanted, SAMPLE).map_err(|e| e.0);
+            let r = algebra_tools::preview_in(&text, &wanted, SAMPLE, view).map_err(|e| e.0);
             let _ = tx.send((key, r));
             ctx.request_repaint();
         });
@@ -552,6 +585,7 @@ pub fn pane(ui: &mut Ui, c: &mut Calculator, s: &mut Session) -> Option<Asked> {
         c.popup = None;
         c.shown = None;
         c.asked = None;
+        c.view = None;
     } else if script != c.applied && c.text == c.applied {
         c.text = script.clone();
         c.applied = script;
@@ -683,39 +717,10 @@ pub fn pane(ui: &mut Ui, c: &mut Calculator, s: &mut Session) -> Option<Asked> {
 fn editor(ui: &mut Ui, c: &mut Calculator, inputs: &Inputs, problem: Option<&Problem>) -> (bool, bool) {
     let id = editor_id();
     let focused = ui.memory(|m| m.has_focus(id));
-    let none = egui::Modifiers::NONE;
-    // the keys of the completions, and ctrl+enter, taken before the editor sees them
-    let (mut accept, mut run, mut explicit) = (None, false, false);
-    if focused {
-        ui.input_mut(|i| {
-            run = i.consume_key(egui::Modifiers::COMMAND, Key::Enter);
-            explicit = i.consume_key(egui::Modifiers::COMMAND, Key::Space);
-            if let Some((_, list, chosen)) = &mut c.popup {
-                if i.consume_key(none, Key::ArrowDown) {
-                    *chosen = (*chosen + 1) % list.len();
-                }
-                if i.consume_key(none, Key::ArrowUp) {
-                    *chosen = (*chosen + list.len() - 1) % list.len();
-                }
-                if i.consume_key(none, Key::Tab) || i.consume_key(none, Key::Enter) {
-                    accept = Some(*chosen);
-                }
-                if i.consume_key(none, Key::Escape) {
-                    c.popup = None;
-                }
-            }
-        });
-    }
-    if let Some(k) = accept
-        && let Some((range, list, _)) = c.popup.take()
-    {
-        let chosen = &list[k];
-        c.text.replace_range(range.clone(), &chosen.text);
-        let end = c.text[..range.start + chosen.text.len()].chars().count();
-        if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), id) {
-            state.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(end))));
-            state.store(ui.ctx(), id);
-        }
+    // ctrl+enter, and the keys of the completions, taken before the editor sees them
+    let run = focused && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, Key::Enter));
+    let (explicit, accepted) = completion_keys(ui, id, &mut c.text, &mut c.popup);
+    if accepted {
         c.typed_at = Some(Instant::now());
     }
     let mut left = false;
@@ -755,39 +760,8 @@ fn editor(ui: &mut Ui, c: &mut Calculator, inputs: &Inputs, problem: Option<&Pro
                 c.typed_at = Some(Instant::now());
             }
             left = out.response.response.lost_focus();
-            // the completions: as a name is typed, after a dot, or asked for (ctrl+space)
-            let cursor = out.cursor_range.map(|r| byte_at(&c.text, r.primary.index.into()));
-            if let Some(at) = cursor
-                && (out.response.response.changed() || explicit)
-            {
-                let before = c.text[..at].chars().next_back();
-                let typing = before.is_some_and(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '.');
-                let (range, list) = algebra_tools::complete(&c.text, at, inputs);
-                c.popup = if (typing || explicit)
-                    && !list.is_empty()
-                    && (explicit || !range.is_empty() || before == Some('.'))
-                {
-                    Some((range, list, 0))
-                } else {
-                    None
-                };
-            }
-            if !focused || cursor.is_none() {
-                c.popup = c.popup.take().filter(|_| out.response.response.has_focus());
-            }
-            let mut clicked = None;
-            if let (Some(at), Some((range, list, chosen))) = (cursor, &c.popup) {
-                // under the cursor's line, at the word's beginning
-                let ch = c.text[..at].chars().count();
-                let start = c.text[..range.start].chars().count();
-                let pos = egui::pos2(
-                    out.galley_pos.x + out.galley.pos_from_cursor(CCursor::new(start)).left().max(0.0),
-                    out.galley_pos.y + out.galley.pos_from_cursor(CCursor::new(ch)).bottom() + 2.0,
-                );
-                clicked = completions(ui, pos, list, *chosen);
-            }
-            if let Some(k) = clicked {
-                accept_now(ui, c, k);
+            if completion_popup(ui, id, &mut c.text, &mut c.popup, inputs, &out, focused, explicit) {
+                c.typed_at = Some(Instant::now());
             }
         });
     });
@@ -807,65 +781,141 @@ fn editor(ui: &mut Ui, c: &mut Calculator, inputs: &Inputs, problem: Option<&Pro
     (left && c.popup.is_none(), run)
 }
 
-/// The completion clicked, put in at once.
-fn accept_now(ui: &Ui, c: &mut Calculator, k: usize) {
-    let Some((range, list, _)) = c.popup.take() else { return };
-    let chosen = &list[k];
-    c.text.replace_range(range.clone(), &chosen.text);
-    let end = c.text[..range.start + chosen.text.len()].chars().count();
-    if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), editor_id()) {
-        state.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(end))));
-        state.store(ui.ctx(), editor_id());
+/// The completions shown under a script's cursor: the bytes of the word they replace, the names, the one chosen.
+type Popup = Option<(Range<usize>, Vec<Completion>, usize)>;
+
+/// The keys of the completions of the script editor `id`, taken before it sees them (when it has the focus):
+/// up and down choose, enter and tab put the one chosen in, escape closes them. Whether they were asked for
+/// (ctrl+space) and whether one was put in.
+fn completion_keys(ui: &mut Ui, id: egui::Id, text: &mut String, popup: &mut Popup) -> (bool, bool) {
+    if !ui.memory(|m| m.has_focus(id)) {
+        return (false, false);
     }
-    ui.memory_mut(|m| m.request_focus(editor_id()));
-    c.typed_at = Some(Instant::now());
+    let none = egui::Modifiers::NONE;
+    let (mut accept, mut explicit) = (None, false);
+    ui.input_mut(|i| {
+        explicit = i.consume_key(egui::Modifiers::COMMAND, Key::Space);
+        if let Some((_, list, chosen)) = popup {
+            if i.consume_key(none, Key::ArrowDown) {
+                *chosen = (*chosen + 1) % list.len();
+            }
+            if i.consume_key(none, Key::ArrowUp) {
+                *chosen = (*chosen + list.len() - 1) % list.len();
+            }
+            if i.consume_key(none, Key::Tab) || i.consume_key(none, Key::Enter) {
+                accept = Some(*chosen);
+            }
+            if i.consume_key(none, Key::Escape) {
+                *popup = None;
+            }
+        }
+    });
+    let accepted = accept.is_some_and(|k| put_in(ui, id, text, popup, k));
+    (explicit, accepted)
+}
+
+/// The completions of the script editor `id` once it is shown: found as a name is typed, after a dot, or when
+/// asked for (ctrl+space), shown under the cursor's line at the word's beginning. Whether one was clicked (and
+/// put in).
+#[allow(clippy::too_many_arguments)]
+fn completion_popup(
+    ui: &Ui,
+    id: egui::Id,
+    text: &mut String,
+    popup: &mut Popup,
+    inputs: &Inputs,
+    out: &egui::text_edit::TextEditOutput,
+    focused: bool,
+    explicit: bool,
+) -> bool {
+    let cursor = out.cursor_range.map(|r| byte_at(text, r.primary.index.into()));
+    if let Some(at) = cursor
+        && (out.response.response.changed() || explicit)
+    {
+        let before = text[..at].chars().next_back();
+        let typing = before.is_some_and(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '.');
+        let (range, list) = algebra_tools::complete(text, at, inputs);
+        *popup = if (typing || explicit) && !list.is_empty() && (explicit || !range.is_empty() || before == Some('.')) {
+            Some((range, list, 0))
+        } else {
+            None
+        };
+    }
+    if !focused || cursor.is_none() {
+        *popup = popup.take().filter(|_| out.response.response.has_focus());
+    }
+    let mut clicked = None;
+    if let (Some(at), Some((range, list, chosen))) = (cursor, &*popup) {
+        let ch = text[..at].chars().count();
+        let start = text[..range.start].chars().count();
+        let pos = egui::pos2(
+            out.galley_pos.x + out.galley.pos_from_cursor(CCursor::new(start)).left().max(0.0),
+            out.galley_pos.y + out.galley.pos_from_cursor(CCursor::new(ch)).bottom() + 2.0,
+        );
+        clicked = completions(ui, id, pos, list, *chosen);
+    }
+    clicked.is_some_and(|k| {
+        let done = put_in(ui, id, text, popup, k);
+        ui.memory_mut(|m| m.request_focus(id));
+        done
+    })
+}
+
+/// The completion `k` put in the script of the editor `id`, its cursor after it; the completions closed.
+fn put_in(ui: &Ui, id: egui::Id, text: &mut String, popup: &mut Popup, k: usize) -> bool {
+    let Some((range, list, _)) = popup.take() else { return false };
+    let chosen = &list[k];
+    text.replace_range(range.clone(), &chosen.text);
+    let end = text[..range.start + chosen.text.len()].chars().count();
+    if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), id) {
+        state.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(end))));
+        state.store(ui.ctx(), id);
+    }
+    true
 }
 
 /// The completions under the cursor, the one chosen marked, its help beside: the one clicked.
-fn completions(ui: &Ui, at: egui::Pos2, list: &[Completion], chosen: usize) -> Option<usize> {
+fn completions(ui: &Ui, id: egui::Id, at: egui::Pos2, list: &[Completion], chosen: usize) -> Option<usize> {
     let mut clicked = None;
-    egui::Area::new(egui::Id::new("calculator completions")).order(egui::Order::Foreground).fixed_pos(at).show(
-        ui.ctx(),
-        |ui| {
-            egui::Frame::popup(ui.style()).inner_margin(Margin::same(4)).show(ui, |ui| {
-                ui.set_max_width(460.0);
-                // (a window of the list around the one chosen)
-                let first = chosen.saturating_sub(9).min(list.len().saturating_sub(10));
-                for (k, item) in list.iter().enumerate().skip(first).take(10) {
-                    let mut job = LayoutJob::default();
-                    let style = ui.style().clone();
-                    mono(&item.label).color(colour(ui, item.part)).append_to(
-                        &mut job,
-                        &style,
-                        egui::FontSelection::Default,
-                        egui::Align::Center,
-                    );
-                    mono(format!("  {}", item.detail)).weak().small().append_to(
-                        &mut job,
-                        &style,
-                        egui::FontSelection::Default,
-                        egui::Align::Center,
-                    );
-                    // the one chosen filled in the selection's colour (the keyboard's place in the list)
-                    let fill = if k == chosen { ui.visuals().selection.bg_fill } else { egui::Color32::TRANSPARENT };
-                    let b = egui::Button::new(job)
-                        .fill(fill)
-                        .frame_when_inactive(k == chosen)
-                        .min_size(egui::vec2(ui.available_width(), 0.0));
-                    if ui.add(b).clicked() {
-                        clicked = Some(k);
-                    }
+    egui::Area::new(id.with("completions")).order(egui::Order::Foreground).fixed_pos(at).show(ui.ctx(), |ui| {
+        egui::Frame::popup(ui.style()).inner_margin(Margin::same(4)).show(ui, |ui| {
+            ui.set_max_width(460.0);
+            // (a window of the list around the one chosen)
+            let first = chosen.saturating_sub(9).min(list.len().saturating_sub(10));
+            for (k, item) in list.iter().enumerate().skip(first).take(10) {
+                let mut job = LayoutJob::default();
+                let style = ui.style().clone();
+                mono(&item.label).color(colour(ui, item.part)).append_to(
+                    &mut job,
+                    &style,
+                    egui::FontSelection::Default,
+                    egui::Align::Center,
+                );
+                mono(format!("  {}", item.detail)).weak().small().append_to(
+                    &mut job,
+                    &style,
+                    egui::FontSelection::Default,
+                    egui::Align::Center,
+                );
+                // the one chosen filled in the selection's colour (the keyboard's place in the list)
+                let fill = if k == chosen { ui.visuals().selection.bg_fill } else { egui::Color32::TRANSPARENT };
+                let b = egui::Button::new(job)
+                    .fill(fill)
+                    .frame_when_inactive(k == chosen)
+                    .min_size(egui::vec2(ui.available_width(), 0.0));
+                if ui.add(b).clicked() {
+                    clicked = Some(k);
                 }
-                let all = if list.len() > 10 { format!("{} in all · ", list.len()) } else { String::new() };
-                ui.label(mono(format!("{all}up, down: choose · enter, tab: put it in · esc")).weak().small());
-            });
-        },
-    );
+            }
+            let all = if list.len() > 10 { format!("{} in all · ", list.len()) } else { String::new() };
+            ui.label(mono(format!("{all}up, down: choose · enter, tab: put it in · esc")).weak().small());
+        });
+    });
     clicked
 }
 
 /// The preview of the outputs, on a sample of the cells.
-fn preview(ui: &mut Ui, c: &Calculator, inputs: &Inputs, values: &BTreeMap<String, Value>, problem: bool) {
+fn preview(ui: &mut Ui, c: &mut Calculator, inputs: &Inputs, values: &BTreeMap<String, Value>, problem: bool) {
     egui::ScrollArea::vertical().id_salt("calculator preview").auto_shrink(false).show(ui, |ui| {
         let reads = algebra_tools::reads(&c.text);
         let given = algebra_tools::names_given(&c.text);
@@ -904,6 +954,25 @@ fn preview(ui: &mut Ui, c: &Calculator, inputs: &Inputs, values: &BTreeMap<Strin
                 ui.label(RichText::new(format!("✖ {e}")).color(ui.visuals().error_fg_color));
             }
             Ok(outs) => {
+                let mut view = None;
+                // a part of the map: which, and the way back to all of it
+                if let (Some(_), Some(w)) = (c.view, c.shown_window) {
+                    ui.horizontal_wrapped(|ui| {
+                        let part = format!(
+                            "part: columns {}-{}, rows {}-{}",
+                            w.x0 + 1,
+                            w.x0 + w.width as i64,
+                            w.y0 + 1,
+                            w.y0 + w.height as i64
+                        );
+                        ui.label(RichText::new(part).weak().small());
+                        let all =
+                            ui.small_button("Whole map").on_hover_text("the preview of all the map (double-click)");
+                        if all.clicked() {
+                            view = Some(None);
+                        }
+                    });
+                }
                 for o in outs {
                     ui.horizontal(|ui| {
                         ui.label(mono(&o.name).strong());
@@ -916,17 +985,68 @@ fn preview(ui: &mut Ui, c: &Calculator, inputs: &Inputs, values: &BTreeMap<Strin
                         }
                         // (as wide as the column, its cells as squares)
                         let size = t.size_vec2() * (ui.available_width() / t.size_vec2().x.max(1.0));
-                        ui.image((t.id(), size));
+                        if let Some(v) = preview_image(ui, t, size, c.shown_window) {
+                            view = Some(v);
+                        }
                     }
                     ui.add_space(8.0);
                 }
-                ui.label(RichText::new(sample).weak().small()).on_hover_text(
+                ui.label(RichText::new(sample.as_str()).weak().small()).on_hover_text(
                     "the outputs computed on a sample of the cells (the neighbourhoods' radii and the numbers of \
-                     whole maps the sample's); the node computes every cell",
+                     whole maps the sample's); the node computes every cell. Drag a rectangle on a map: its part \
+                     computed alone, in more detail",
                 );
+                if let Some(v) = view {
+                    c.view = v;
+                }
             }
         }
     });
+}
+
+/// An image of a preview's output (of the part `shown` of the grid): a rectangle dragged on it is the part to
+/// see (the window asked for), a double-click the whole map (none).
+fn preview_image(ui: &mut Ui, t: &TextureHandle, size: egui::Vec2, shown: Option<Window>) -> Option<Option<Window>> {
+    let r = ui
+        .add(egui::Image::new((t.id(), size)).sense(egui::Sense::click_and_drag()))
+        .on_hover_cursor(egui::CursorIcon::Crosshair);
+    if r.double_clicked() {
+        return Some(None);
+    }
+    let shown = shown?;
+    // (where the drag began, kept: the pointer's press is gone once it is released)
+    let began = r.id.with("drag began");
+    if r.drag_started()
+        && let Some(p) = ui.input(|i| i.pointer.press_origin())
+    {
+        ui.data_mut(|d| d.insert_temp(began, p));
+    }
+    let start: egui::Pos2 = ui.data(|d| d.get_temp(began))?;
+    let end = r.interact_pointer_pos().or_else(|| ui.input(|i| i.pointer.latest_pos()))?;
+    let part = egui::Rect::from_two_pos(start, end).intersect(r.rect);
+    if r.dragged() {
+        let stroke = egui::Stroke::new(1.5, theme::accent());
+        ui.painter().rect_stroke(part, 0.0, stroke, egui::StrokeKind::Middle);
+    }
+    if !r.drag_stopped() {
+        return None;
+    }
+    ui.data_mut(|d| d.remove::<egui::Pos2>(began));
+    (part.width() >= 4.0 && part.height() >= 4.0).then(|| Some(window_of(part, r.rect, shown)))
+}
+
+/// The cells of the grid under a rectangle drawn on an image (`image`) of its part `shown`: 8 at least each way.
+fn window_of(part: egui::Rect, image: egui::Rect, shown: Window) -> Window {
+    let cells = |f0: f32, f1: f32, at: i64, len: usize| {
+        let lo = ((f0.clamp(0.0, 1.0) * len as f32).floor() as usize).min(len.saturating_sub(1));
+        let hi = ((f1.clamp(0.0, 1.0) * len as f32).ceil() as usize).min(len);
+        (at + lo as i64, hi.saturating_sub(lo).max(8))
+    };
+    let fx = |x: f32| (x - image.left()) / image.width();
+    let fy = |y: f32| (y - image.top()) / image.height();
+    let (x0, width) = cells(fx(part.left()), fx(part.right()), shown.x0, shown.width);
+    let (y0, height) = cells(fy(part.top()), fy(part.bottom()), shown.y0, shown.height);
+    Window { x0, y0, width, height }
 }
 
 /// The console: what was computed, and a line to compute in the scope of the script.
@@ -1035,6 +1155,19 @@ mod tests {
         );
         let e = explain_request("calc", &["year".to_string(), "inner".to_string()]);
         assert!(e.starts_with("Explain the script of the calculator calc (scope year/inner) from explain_calc"), "{e}");
+    }
+
+    #[test]
+    fn a_rectangle_on_a_preview_is_its_part_of_the_grid() {
+        let image = egui::Rect::from_min_size(egui::pos2(100.0, 50.0), egui::vec2(200.0, 100.0));
+        let shown = Window { x0: 0, y0: 0, width: 1000, height: 500 };
+        // a quarter of the image's width, half its height
+        let part = egui::Rect::from_min_max(egui::pos2(150.0, 75.0), egui::pos2(200.0, 125.0));
+        assert_eq!(window_of(part, image, shown), Window { x0: 250, y0: 125, width: 250, height: 250 });
+        // in a part already: within it, 8 cells at least
+        let shown = Window { x0: 40, y0: 10, width: 20, height: 10 };
+        let part = egui::Rect::from_min_max(egui::pos2(100.0, 50.0), egui::pos2(102.0, 52.0));
+        assert_eq!(window_of(part, image, shown), Window { x0: 40, y0: 10, width: 8, height: 8 });
     }
 
     #[test]

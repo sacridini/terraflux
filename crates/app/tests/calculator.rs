@@ -132,3 +132,69 @@ out n = s.",
         Err(e) => eprintln!("no renderer ({e}): the calculator not drawn"),
     }
 }
+
+fn drag(h: &mut Harness<TerrafluxApp>, from: egui::Pos2, to: egui::Pos2) {
+    let button = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    h.event(egui::Event::PointerMoved(from));
+    h.event(button(from, true));
+    h.run_steps(2);
+    for k in 1..=5 {
+        h.event(egui::Event::PointerMoved(from + (to - from) * (k as f32 / 5.0)));
+        h.run_steps(1);
+    }
+    h.event(button(to, false));
+    h.run_steps(2);
+}
+
+#[test]
+fn a_part_of_the_preview_and_the_node_panes_script_completed() {
+    let mut h = harness();
+    h.state_mut().session.as_mut().unwrap().selected = Some("calc".into());
+    h.state_mut().focus(Pane::Calculator);
+    h.run_steps(3);
+    h.get_by_label("Apply and run").click();
+    until(&mut h, "the run", |h| h.query_by_label_contains("min 0").is_some());
+    assert!(h.query_by_label_contains("on every cell (60 x 40)").is_some());
+    // a rectangle dragged on the map: its part alone (the map's top, the part of it in view in the pane)
+    let under = h.get_by_label_contains("min 0").rect();
+    let at = egui::pos2(under.left() + 10.0, under.bottom() + 5.0);
+    drag(&mut h, at, at + egui::vec2(60.0, 6.0));
+    // (a part, not the whole map)
+    until(&mut h, "the part's preview", |h| {
+        h.query_by_label_contains("part: columns ").is_some()
+            && h.query_by_label_contains("on every cell (60 x 40)").is_none()
+    });
+    assert!(h.query_by_label_contains("columns 1-60, rows 1-40").is_none());
+    if let Ok(img) = h.render() {
+        img.save(PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("ui-calculator-part.png")).unwrap();
+    }
+    // and back to the whole map
+    h.get_by_label("Whole map").click();
+    until(&mut h, "the whole map", |h| {
+        h.query_by_label_contains("on every cell (60 x 40)").is_some() && h.query_by_label("Whole map").is_none()
+    });
+    // the script in the Node pane: its inputs known by their values, a stack's layers completed
+    h.state_mut().focus(Pane::Node);
+    h.run_steps(3);
+    let path: &[String] = &[];
+    let id = egui::Id::new(("node script", path, &"calc".to_string()));
+    h.ctx.memory_mut(|m| m.request_focus(id));
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::End);
+    typed(&mut h, "\nout q = s.l");
+    assert!(h.query_by_label_contains("low  layer").is_some(), "the layer low offered in the Node pane");
+    h.key_press(egui::Key::Tab);
+    h.run_steps(2);
+    // a stack the script made: its layers too
+    typed(&mut h, "\nd = s * 2\nout r = d.h");
+    assert!(h.query_by_label_contains("high  layer").is_some(), "the layers of d offered");
+    h.key_press(egui::Key::Enter);
+    h.run_steps(2);
+    let text = h.state().session.as_ref().unwrap().fields.get("param.expression").cloned().unwrap_or_default();
+    assert!(text.ends_with("out q = s.low\nd = s * 2\nout r = d.high"), "{text:?}");
+}

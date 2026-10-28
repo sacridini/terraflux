@@ -472,9 +472,52 @@ pub fn names_given(text: &str) -> Vec<String> {
     out
 }
 
+/// The layers of a value, when it is a stack whose layers are known: a stack, its cells changed one by one
+/// (`s * 2`, `abs(s)`, `s if s > 0 else 0`), keeps its layers; a layer, a function of the layers (`mean(s)`) or a
+/// method (`s.mean()`) is a map or a number.
+fn layers_of(e: &Expr, known: &BTreeMap<String, Vec<(String, String)>>) -> Option<Vec<(String, String)>> {
+    match e {
+        Expr::Var(n) => known.get(n).cloned(),
+        Expr::Unary(_, x) => layers_of(x, known),
+        Expr::Binary(_, a, b) => layers_of(a, known).or_else(|| layers_of(b, known)),
+        Expr::If(c, a, b) => layers_of(a, known).or_else(|| layers_of(b, known)).or_else(|| layers_of(c, known)),
+        Expr::Call(f, args) => {
+            let reduces = crate::algebra::REDUCTIONS.contains(&f.as_str())
+                && !(matches!(f.as_str(), "min" | "max") && args.len() > 1);
+            if reduces { None } else { args.iter().find_map(|a| layers_of(a, known)) }
+        }
+        _ => None,
+    }
+}
+
+/// The stacks of known layers by name before the byte `end` of a script: its stack inputs, and the names given a
+/// value that is one (`s2 = s * 2`), its lines read one by one.
+fn stacks_before(text: &str, end: usize, inputs: &Inputs) -> BTreeMap<String, Vec<(String, String)>> {
+    let mut known: BTreeMap<String, Vec<(String, String)>> = inputs
+        .iter()
+        .filter_map(|(n, i)| match i {
+            Input::Stack(Some(l)) => Some((n.clone(), l.clone())),
+            _ => None,
+        })
+        .collect();
+    for line in text[..end].lines().flat_map(|l| l.split('#').next().unwrap_or("").split(';')) {
+        let Ok(script) = parse_script(line) else { continue };
+        for (_, st) in script.statements {
+            if let Stmt::Set { name, layer: None, mask: None, value, .. } = st {
+                match layers_of(&value, &known) {
+                    Some(l) => known.insert(name, l),
+                    None => known.remove(&name),
+                };
+            }
+        }
+    }
+    known
+}
+
 /// What fits where the cursor is (`cursor`, bytes): the word typed there (the bytes it covers, replaced by the
 /// completion chosen) and the names that begin with it, then those that have it (of three letters or more). After `s.`, a stack's layers and
-/// the methods; else the inputs, the names given a value in the script, the functions and the words.
+/// the methods (the layers of a stack the script made too: `s2 = s * 2`, then `s2.`); else the inputs, the names
+/// given a value in the script, the functions and the words.
 pub fn complete(text: &str, cursor: usize, inputs: &Inputs) -> (Range<usize>, Vec<Completion>) {
     let cursor = cursor.min(text.len());
     let b = text.as_bytes();
@@ -500,7 +543,7 @@ pub fn complete(text: &str, cursor: usize, inputs: &Inputs) -> (Range<usize>, Ve
         if of.is_empty() && !(start >= 2 && b[start - 2] == b')') {
             return (at, Vec::new());
         }
-        if let Some(Input::Stack(Some(layers))) = inputs.get(of) {
+        if let Some(layers) = stacks_before(text, line_start, inputs).get(of) {
             for (i, (name, raw)) in layers.iter().enumerate() {
                 let detail = if raw == name { format!("layer {}", i + 1) } else { format!("layer {}: {raw}", i + 1) };
                 all.push(Completion { label: name.clone(), text: name.clone(), detail, part: Part::Layer });
@@ -530,9 +573,11 @@ pub fn complete(text: &str, cursor: usize, inputs: &Inputs) -> (Range<usize>, Ve
             };
             all.push(Completion { label: name.clone(), text: name.clone(), detail, part: Part::Input });
         }
+        let stacks = stacks_before(text, line_start, inputs);
         for name in names_given(text) {
             if !inputs.contains_key(&name) && name != typed {
-                all.push(Completion { label: name.clone(), text: name, detail: "name".into(), part: Part::Name });
+                let detail = stacks.get(&name).map_or("name".into(), |l| format!("stack of {} layers", l.len()));
+                all.push(Completion { label: name.clone(), text: name, detail, part: Part::Name });
             }
         }
         for (f, written, help) in FUNCTION_HELP {
@@ -577,6 +622,8 @@ pub struct Preview {
     pub width: usize,
     pub height: usize,
     pub step: usize,
+    /// The cells of the inputs' grid it is of (all of them, or the window asked for within the grid).
+    pub window: Window,
     pub outputs: Vec<(String, Out)>,
 }
 
@@ -584,6 +631,7 @@ pub struct Preview {
 struct Cells<'a> {
     width: usize,
     height: usize,
+    window: Window,
     maps: Vec<(&'a str, Cow<'a, [f64]>)>,
     numbers: Vec<(&'a str, f64)>,
     stacks: Vec<(&'a str, Layers<'a>)>,
@@ -617,22 +665,27 @@ fn step_for(width: usize, height: usize, most: usize) -> usize {
     step
 }
 
-/// One cell every `step` rows and columns.
-fn sample<'a>(cells: &'a [f64], width: usize, height: usize, step: usize) -> Cow<'a, [f64]> {
-    if step == 1 {
+/// One cell every `step` rows and columns of a window of a map `width` cells wide.
+fn sample<'a>(cells: &'a [f64], width: usize, win: Window, step: usize) -> Cow<'a, [f64]> {
+    let (x0, y0) = (win.x0 as usize, win.y0 as usize);
+    if step == 1 && x0 == 0 && y0 == 0 && win.width == width && win.width * win.height == cells.len() {
         return Cow::Borrowed(cells);
     }
-    let w = width.div_ceil(step);
-    let mut out = Vec::with_capacity(w * height.div_ceil(step));
-    for r in (0..height).step_by(step) {
-        out.extend((0..width).step_by(step).map(|c| cells[r * width + c]));
+    let mut out = Vec::with_capacity(win.width.div_ceil(step) * win.height.div_ceil(step));
+    for r in (y0..y0 + win.height).step_by(step) {
+        out.extend((x0..x0 + win.width).step_by(step).map(|c| cells[r * width + c]));
     }
     Cow::Owned(out)
 }
 
-/// The inputs' cells, one every `step` rows and columns (`most`: the cells a sample has at most; none: every
-/// cell). Rasters on disk are read sampled (the whole of a layer when every cell is wanted).
-fn cells<'a>(inputs: &'a BTreeMap<String, Value>, most: Option<usize>) -> Result<(Cells<'a>, usize)> {
+/// The inputs' cells in a window of their grid (none: all of it), one every `step` rows and columns (`most`: the
+/// cells a sample has at most; none: every cell). Rasters on disk are read sampled (the whole of a layer when
+/// every cell is wanted).
+fn cells<'a>(
+    inputs: &'a BTreeMap<String, Value>,
+    most: Option<usize>,
+    window: Option<Window>,
+) -> Result<(Cells<'a>, usize)> {
     let mut grid: Option<(usize, usize, &str)> = None;
     let mut check = |w: usize, h: usize, name: &'a str| -> Result<()> {
         match grid {
@@ -656,28 +709,41 @@ fn cells<'a>(inputs: &'a BTreeMap<String, Value>, most: Option<usize>) -> Result
         }
     }
     let (width, height) = grid.map_or((0, 0), |(w, h, _)| (w, h));
-    let step = most.map_or(1, |m| step_for(width, height, m));
+    let full = Window { x0: 0, y0: 0, width, height };
+    // (the window within the grid)
+    let win = window.map_or(full, |w| {
+        let x0 = (w.x0.max(0) as usize).min(width.saturating_sub(1));
+        let y0 = (w.y0.max(0) as usize).min(height.saturating_sub(1));
+        Window {
+            x0: x0 as i64,
+            y0: y0 as i64,
+            width: w.width.clamp(1, width.saturating_sub(x0).max(1)),
+            height: w.height.clamp(1, height.saturating_sub(y0).max(1)),
+        }
+    });
+    let win = if width * height == 0 { full } else { win };
+    let step = most.map_or(1, |m| step_for(win.width, win.height, m));
     let mut c = Cells {
-        width: width.div_ceil(step),
-        height: height.div_ceil(step),
+        width: win.width.div_ceil(step),
+        height: win.height.div_ceil(step),
+        window: win,
         maps: Vec::new(),
         numbers: Vec::new(),
         stacks: Vec::new(),
     };
-    let full = Window { x0: 0, y0: 0, width, height };
     let read = |r: &crate::files::Rasters, layer: usize| -> Result<Cow<'a, [f64]>> {
-        Ok(if step == 1 {
+        Ok(if step == 1 && win == full {
             Cow::Owned(r.read(layer)?.to_vec())
         } else {
-            Cow::Owned(r.sample(layer, full, step)?.into_iter().map(f64::from).collect())
+            Cow::Owned(r.sample(layer, win, step)?.into_iter().map(f64::from).collect())
         })
     };
     for (name, v) in inputs {
         match v {
-            Value::Map(m) => c.maps.push((name, sample(&m.data, width, height, step))),
+            Value::Map(m) => c.maps.push((name, sample(&m.data, width, win, step))),
             Value::Stack(s) => c.stacks.push((
                 name,
-                s.keys.iter().cloned().zip(s.layers.iter().map(|l| sample(l, width, height, step))).collect(),
+                s.keys.iter().cloned().zip(s.layers.iter().map(|l| sample(l, width, win, step))).collect(),
             )),
             Value::Raster(r) if r.layers.len() > 1 && !r.picked => {
                 let layers = r
@@ -744,13 +810,24 @@ fn sampled_radii(script: &mut Script, step: usize) {
 /// A script run on a sample of its inputs' cells, at most `most` of them (the neighbourhoods' radii made the
 /// sample's): what each output looks like, at once. The numbers of a whole map (`x.mean()`) are the sample's.
 pub fn preview(text: &str, inputs: &BTreeMap<String, Value>, most: usize) -> Result<Preview> {
+    preview_in(text, inputs, most, None)
+}
+
+/// [`preview`] of a window of the inputs' grid only (the part of the map in view: its cells sampled more
+/// densely, all of them when they are few enough). A value of all the cells (`x.mean()`) is then the window's.
+pub fn preview_in(
+    text: &str,
+    inputs: &BTreeMap<String, Value>,
+    most: usize,
+    window: Option<Window>,
+) -> Result<Preview> {
     let mut script = parse_script(text)?;
-    let (c, step) = cells(inputs, Some(most))?;
+    let (c, step) = cells(inputs, Some(most), window)?;
     if step > 1 {
         sampled_radii(&mut script, step);
     }
     let outputs = script.run(&c.scope())?;
-    Ok(Preview { width: c.width, height: c.height, step, outputs })
+    Ok(Preview { width: c.width, height: c.height, step, window: c.window, outputs })
 }
 
 /// A line computed in the scope of a script, on every cell of the inputs (the script's names given their values
@@ -789,7 +866,7 @@ pub fn evaluate_line(script: &str, line: &str, inputs: &BTreeMap<String, Value>)
         }
     }
     let script = Script { statements, lines: false };
-    let (c, _) = cells(inputs, None)?;
+    let (c, _) = cells(inputs, None, None)?;
     let mut out = script.run(&c.scope())?;
     let (_, v) = out.pop().ok_or_else(|| Error::msg("nothing to compute"))?;
     Ok((c.width, c.height, v))
@@ -979,6 +1056,31 @@ out u = t.a + h.b",
         assert_eq!(names_given("a = 1\nout b = a\nc[a > 0] = 2 # d = 3\ns.x = 1; e == 2\nout a"), ["a", "b", "c", "s"]);
     }
 
+    #[test]
+    fn a_stack_the_script_made_has_its_layers() {
+        let i = inputs();
+        let layers = |t: &str| {
+            complete(t, t.len(), &i)
+                .1
+                .into_iter()
+                .filter(|c| c.part == Part::Layer)
+                .map(|c| c.label)
+                .collect::<Vec<_>>()
+        };
+        // its cells changed one by one: the same layers
+        assert_eq!(layers("s2 = img * 2\nx = s2."), ["red", "nir", "_1997"]);
+        assert_eq!(layers("a = abs(img - 1); b = 0\nc = a if a > 0 else 0\nx = c.n"), ["nir"]);
+        // a function of its layers, a layer, a number: none
+        assert!(layers("m = mean(img)\nx = m.").is_empty());
+        assert!(layers("r = img.red\nx = r.").is_empty());
+        // given again a map: none
+        assert!(layers("s2 = img * 2\ns2 = land\nx = s2.").is_empty());
+        // shown as a stack among the names
+        let c = complete("s2 = img + 1\nx = s", 18, &i).1;
+        let s2 = c.iter().find(|c| c.label == "s2").unwrap();
+        assert_eq!(s2.detail, "stack of 3 layers");
+    }
+
     fn grid(w: usize, h: usize) -> Arc<terraflux_raster::Grid> {
         Arc::new(terraflux_raster::Grid::new(w, h))
     }
@@ -1013,6 +1115,16 @@ out u = t.a + h.b",
         // what only shows when it runs
         let e = preview("out x = s + land.max() + q", &inputs, 2000).unwrap_err();
         assert!(e.0.contains("no input"), "{}", e.0);
+        // the part in view: its cells, every one when they are few enough; a value of all the cells, the window's
+        let win = Window { x0: 60, y0: 10, width: 30, height: 20 };
+        let p = preview_in("out m = s.b\nout top = land.max()", &inputs, 2000, Some(win)).unwrap();
+        assert_eq!((p.width, p.height, p.step, p.window), (30, 20, 1, win));
+        let Out::Map(m) = &p.outputs[0].1 else { panic!() };
+        assert_eq!((m[0], m[29], m[30]), (180.0, 267.0, 180.0));
+        assert!(matches!(p.outputs[1].1, Out::Number(x) if x == 89.0));
+        // a window past the grid's edges: what is in it
+        let p = preview_in("land", &inputs, 2000, Some(Window { x0: 90, y0: 70, width: 50, height: 50 })).unwrap();
+        assert_eq!((p.width, p.height, p.window), (10, 10, Window { x0: 90, y0: 70, width: 10, height: 10 }));
     }
 
     #[test]

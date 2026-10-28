@@ -39,6 +39,12 @@ minor versions.
   tasks of drawing, changing, fixing, explaining and running models, each in a model of its own and checked on what
   it made (a threshold cell by cell, a loop's last number...); the last score of each model kept and shown with
   its server, so models are compared on the same tasks.
+- Calculator: a rectangle dragged on a map of the preview computes that part alone, every cell of it when they
+  are few enough (Whole map, or a double-click, goes back to all of it).
+- Calculator: a stack the script makes from another, its cells changed one by one (`s2 = s * 2`), has its layers
+  completed after a dot (`s2.`).
+- The script of a calculator in the Node pane completes names as it is typed, as the Calculator does, its inputs
+  known by their values in the last run.
 
 ### Changed
 - A group runs again only the nodes of its body that changed and what depends on them (and the same for the groups

@@ -603,7 +603,8 @@ fn script(
     };
     let key = format!("param.{name}");
     let mut text = field(s, &key, init.clone());
-    let resp = crate::calc_view::script_field(ui, egui::Id::new(("node script", path, &n.id)), &mut text, n);
+    let id = egui::Id::new(("node script", path, &n.id));
+    let resp = crate::calc_view::script_field(ui, s, path, id, &mut text, n);
     s.fields.insert(key, text.clone());
     if resp.lost_focus() && text != init {
         change = Some(crate::editor::set_param(&mut s.source, path, &n.id, name, &text));

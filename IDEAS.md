@@ -355,6 +355,13 @@ escrevendo scripts). Depois, nesta ordem:
 9. **Calculadora:** a prévia só da parte do mapa à vista (hoje o mapa inteiro em resolução reduzida); os tipos das
    portas de `out` (hoje "qualquer valor"); as camadas de uma pilha calculada no script no autocomplete
    (`s2 = s * 2`, então `s2.`); o autocomplete no campo do painel do nó.
+   **Feito** (Unreleased): um retângulo arrastado num mapa da prévia é a parte calculada sozinha, com todas as
+   células quando cabem na amostra (`algebra_tools::preview_in`, a janela lida do disco só nela), "Whole map" ou
+   um duplo clique voltam ao mapa inteiro; um nome que o script dá a uma pilha mudada célula a célula (`s * 2`,
+   `abs(s)`, `a if c else b`) tem as camadas dela no autocomplete (`stacks_before`; uma redução, uma camada ou um
+   método não); o campo do painel do nó completa como a calculadora, as entradas conhecidas pelos valores da
+   última execução. Falta: os tipos das portas de `out` (em `ops/algebra.rs` e no checker do grafo, onde outra
+   sessão tinha mudanças abertas); a prévia seguir o zoom do viewer.
 10. **My nodes:** bibliotecas do grupo e compartilhadas; as configurações de um nó do usuário como configurações
     (hoje entradas com valor próprio); os nós do usuário na busca rápida (`/`), no MCP e no Assistant.
 
