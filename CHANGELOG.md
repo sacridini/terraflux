@@ -32,7 +32,17 @@ minor versions.
   Compare in Many runs, shared node libraries (`TERRAFLUX_NODES`) and updates on macOS and Linux; checks, tests
   and reproducible runs (`check.assert`, `terraflux test`, `terraflux reproduce`, the manifest, frozen nodes).
 
+### Changed
+- A run's manifest holds the files the nodes read (`reads`: a `raster.read`'s, a `table.read`'s, the threats of
+  habitat quality...), the files they wrote (`writes`, compared again by `terraflux reproduce`, but a GeoPackage)
+  and the frozen results used (`frozen`), each with its SHA-256, and every path also from the manifest's folder.
+- `terraflux test` and `terraflux reproduce` use the results of the frozen nodes, as `terraflux run` does (a
+  frozen result changed or gone since the run noted); `--thaw` runs every node instead.
+
 ### Fixed
+- `terraflux reproduce` of a study whose folder moved (copied to another computer, renamed) stopped with "The
+  system cannot find the path specified": the model, the inputs and the files read are found from the manifest's
+  folder first, and a file found at neither place is named.
 - `terraflux run model.toml` (a model named without its folder) stopped with "cannot make an empty path
   absolute": a model's folder is now the current one when its path names none, in every command.
 - A setting's default given as a list (`(default [0.05, 0.95])`) was cut at its first comma in the Node pane's

@@ -1,6 +1,7 @@
 //! Reproducing a run and testing a model: the manifest a run writes with its outputs (the version of Terraflux, the
-//! model, the scenario and the values set, every input file's SHA-256 and every output's, the seeds), and the
-//! comparison of a value with the file of what it should be (`terraflux test`).
+//! model, the scenario and the values set, the SHA-256 of every file it read, of the frozen results it used, of the
+//! files its nodes wrote and of its outputs, the seeds), and the comparison of a value with the file of what it
+//! should be (`terraflux test`).
 
 use std::collections::BTreeMap;
 use std::io::Read;
@@ -8,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use terraflux_graph::{Input, Model, Node};
+use terraflux_graph::{FILE_OPS, FILE_SETTINGS, Input, Model, Node, is_sent};
 use terraflux_ops::Value;
 
 use crate::{Error, Result};
@@ -17,9 +18,34 @@ use crate::{Error, Result};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Hashed {
     pub path: String,
+    /// The path from the manifest's folder (when they share a root): found there when the study's folder moved.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relative: Option<String>,
     pub sha256: String,
     pub bytes: u64,
 }
+
+impl Hashed {
+    /// Where the file is now, for a manifest in `dir`: from its relative path when a file is there (the study's
+    /// folder moved with the manifest), else its absolute one.
+    pub fn found(&self, dir: &Path) -> PathBuf {
+        match &self.relative {
+            Some(r) if dir.join(r).exists() => dir.join(r),
+            _ => PathBuf::from(&self.path),
+        }
+    }
+
+    /// The places looked at, to say that the file is at neither.
+    pub fn places(&self, dir: &Path) -> String {
+        match &self.relative {
+            Some(r) => format!("{} or {}", dir.join(r).display(), self.path),
+            None => self.path.clone(),
+        }
+    }
+}
+
+/// The operators that write the file their `path` names (the others of [`FILE_OPS`] read it).
+const WRITERS: [&str; 3] = ["raster.write", "vector.write", "table.write"];
 
 /// What a run was: enough to run it again and to tell whether it gave the same.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -37,10 +63,41 @@ pub struct Manifest {
     /// The inputs of files, hashed; the inputs of values, their values.
     pub files: BTreeMap<String, Hashed>,
     pub values: BTreeMap<String, serde_json::Value>,
+    /// The files the nodes read (`node.path`, `container/node.threats`), hashed.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub reads: BTreeMap<String, Hashed>,
+    /// The results of the frozen nodes, used instead of running them (their folders), hashed by node.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub frozen: BTreeMap<String, Hashed>,
     /// The settings named seed of the nodes (`node.seed`, `container/node.seed`).
     pub seeds: BTreeMap<String, serde_json::Value>,
+    /// The files the nodes wrote (`raster.write`...), hashed after the run (`node.path`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub writes: BTreeMap<String, Hashed>,
     /// The outputs written, hashed (by the output's name).
     pub outputs: BTreeMap<String, Hashed>,
+}
+
+impl Manifest {
+    /// Write it to `file`, every path also given from the file's folder (so that the study's folder can move).
+    pub fn save(mut self, file: &Path) -> Result<()> {
+        let dir = std::path::absolute(file.parent().unwrap_or(Path::new("."))).unwrap_or_default();
+        let all = std::iter::once(&mut self.model)
+            .chain(self.files.values_mut())
+            .chain(self.reads.values_mut())
+            .chain(self.frozen.values_mut())
+            .chain(self.writes.values_mut())
+            .chain(self.outputs.values_mut());
+        for h in all {
+            let r = terraflux_graph::relative_path(Path::new(&h.path), &dir);
+            if Path::new(&r).is_relative() {
+                h.relative = Some(r);
+            }
+        }
+        let text = serde_json::to_string_pretty(&self).map_err(|e| Error::Model(e.to_string()))? + "\n";
+        std::fs::write(file, text)?;
+        Ok(())
+    }
 }
 
 /// The SHA-256 of a file and its size (a folder: its files' in order, for a folder of rasters).
@@ -65,7 +122,43 @@ pub fn hash(path: &Path) -> Result<Hashed> {
         }
     }
     let sha256 = h.finalize().iter().map(|b| format!("{b:02x}")).collect();
-    Ok(Hashed { path: path.to_string_lossy().into_owned(), sha256, bytes })
+    let path = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    Ok(Hashed { path: path.to_string_lossy().into_owned(), relative: None, sha256, bytes })
+}
+
+/// The files the nodes name (`path` of the [`FILE_OPS`], the [`FILE_SETTINGS`]), those read and those written, by
+/// `node.setting` (`container/node.setting` inside containers), found from `base` when relative. Those not there
+/// (a pattern, a file a step names) are left out.
+fn files_of(nodes: &[Node], prefix: &str, base: &Path, reads: &mut BTreeMap<String, Hashed>, writes: &mut Vec<(String, PathBuf)>) {
+    for n in nodes {
+        let at = if prefix.is_empty() { n.id.clone() } else { format!("{prefix}/{}", n.id) };
+        for (k, v) in &n.params {
+            let named = (k == "path" && FILE_OPS.contains(&n.op.as_str()))
+                || FILE_SETTINGS.iter().any(|(o, s)| *o == n.op && k == s);
+            let serde_json::Value::String(p) = v else { continue };
+            if !named || is_sent(p) {
+                continue;
+            }
+            let file = if Path::new(p).is_absolute() { PathBuf::from(p) } else { base.join(p) };
+            if WRITERS.contains(&n.op.as_str()) {
+                writes.push((format!("{at}.{k}"), file));
+            } else if file.exists()
+                && let Ok(h) = hash(&file)
+            {
+                reads.insert(format!("{at}.{k}"), h);
+            }
+        }
+        if let Some(b) = &n.body {
+            files_of(&b.nodes, &at, base, reads, writes);
+        }
+    }
+}
+
+/// The files the nodes of a model wrote, hashed (after its run, or after it ran again to compare them).
+pub fn writes(model: &Model, base: &Path) -> BTreeMap<String, Hashed> {
+    let (mut reads, mut writes) = (BTreeMap::new(), Vec::new());
+    files_of(&model.nodes, "", base, &mut reads, &mut writes);
+    writes.into_iter().filter(|(_, f)| f.is_file()).filter_map(|(k, f)| hash(&f).ok().map(|h| (k, h))).collect()
 }
 
 fn seeds(nodes: &[Node], prefix: &str, out: &mut BTreeMap<String, serde_json::Value>) {
@@ -118,6 +211,16 @@ pub fn manifest(
             }
         }
     }
+    let (mut reads, mut ignored) = (BTreeMap::new(), Vec::new());
+    files_of(&model.nodes, "", base, &mut reads, &mut ignored);
+    let folder = crate::frozen::folder(model_file);
+    let mut frozen = BTreeMap::new();
+    for n in model.nodes.iter().filter(|n| n.frozen) {
+        let dir = folder.join(&n.id);
+        if dir.is_dir() {
+            frozen.insert(n.id.clone(), hash(&dir)?);
+        }
+    }
     let mut s = BTreeMap::new();
     seeds(&model.nodes, "", &mut s);
     let mut outs = BTreeMap::new();
@@ -133,7 +236,10 @@ pub fn manifest(
         set: set.to_vec(),
         files,
         values,
+        reads,
+        frozen,
         seeds: s,
+        writes: writes(model, base),
         outputs: outs,
     })
 }

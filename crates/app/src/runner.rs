@@ -75,8 +75,7 @@ impl Record {
         )
         .map_err(|e| e.to_string())?;
         let path = self.out.join("manifest.json");
-        let text = serde_json::to_string_pretty(&manifest).map_err(|e| e.to_string())? + "\n";
-        std::fs::write(&path, text).map_err(|e| e.to_string())?;
+        manifest.save(&path).map_err(|e| e.to_string())?;
         Ok(path)
     }
 }

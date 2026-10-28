@@ -89,6 +89,9 @@ enum Command {
         /// Print only what differs.
         #[arg(short, long)]
         quiet: bool,
+        /// Run the frozen nodes too, instead of using their results kept next to the model.
+        #[arg(long)]
+        thaw: bool,
     },
     /// Test models: run each (a folder: its models) and check what its [[tests]] say against the files of what they
     /// should be, and its check.assert nodes; `--update` writes those files from this run instead.
@@ -102,6 +105,9 @@ enum Command {
         /// Print only the failures.
         #[arg(short, long)]
         quiet: bool,
+        /// Run the frozen nodes too, instead of using their results kept next to the model.
+        #[arg(long)]
+        thaw: bool,
     },
     /// Write a model as a document: its data, preparation, model, validation and results, step by step, with the
     /// note, why and settings of each (an HTML page, or a PDF by the extension).
@@ -399,11 +405,17 @@ fn apply_set(m: &mut Model, set: &[String], engine: &Engine) -> Result<BTreeMap<
 }
 
 /// `terraflux reproduce`: a run made again from its manifest, its outputs compared with the manifest's.
-fn reproduce(path: &Path, out: Option<PathBuf>, quiet: bool, engine: &Engine) -> Result<()> {
+fn reproduce(path: &Path, out: Option<PathBuf>, quiet: bool, thaw: bool, engine: &Engine) -> Result<()> {
     use terraflux_exec::testing::{Manifest, hash};
     let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-    let mf: Manifest = serde_json::from_str(&text).with_context(|| format!("{}: not a manifest", path.display()))?;
-    let model = PathBuf::from(&mf.model.path);
+    let mf: Manifest =
+        serde_json::from_str(&text).with_context(|| format!("{}: not a manifest", path.display()))?;
+    // the files from the manifest's folder first: the study's folder may have moved with it
+    let here = folder_of(path);
+    let model = mf.model.found(&here);
+    if !model.is_file() {
+        bail!("the model of the manifest is not found: neither {}", mf.model.places(&here));
+    }
     let mut changed = Vec::new();
     if mf.terraflux != env!("CARGO_PKG_VERSION") {
         changed.push(format!("Terraflux is {} now, {} then", env!("CARGO_PKG_VERSION"), mf.terraflux));
@@ -417,12 +429,45 @@ fn reproduce(path: &Path, out: Option<PathBuf>, quiet: bool, engine: &Engine) ->
     }
     let mut overrides = apply_set(&mut m, &mf.set, engine)?;
     for (name, f) in &mf.files {
-        match hash(Path::new(&f.path)) {
-            Ok(h) if h.sha256 == f.sha256 => {}
-            Ok(_) => changed.push(format!("the input {name} ({}) changed", f.path)),
-            Err(e) => changed.push(format!("the input {name} ({}): {e}", f.path)),
+        let file = f.found(&here);
+        if !file.exists() {
+            bail!("the input {name} of the manifest is not found: neither {}", f.places(&here));
         }
-        overrides.insert(name.clone(), f.path.clone());
+        match hash(&file) {
+            Ok(h) if h.sha256 == f.sha256 => {}
+            Ok(_) => changed.push(format!("the input {name} ({}) changed", file.display())),
+            Err(e) => changed.push(format!("the input {name} ({}): {e}", file.display())),
+        }
+        overrides.insert(name.clone(), file.to_string_lossy().into_owned());
+    }
+    for (at, f) in &mf.reads {
+        let file = f.found(&here);
+        match hash(&file) {
+            Ok(h) if h.sha256 == f.sha256 => {}
+            Ok(_) => changed.push(format!("the file {at} reads ({}) changed", file.display())),
+            Err(_) => changed.push(format!("the file {at} read is not found: neither {}", f.places(&here))),
+        }
+    }
+    // the frozen results: those of the run, unless told to run their nodes again
+    let folder = terraflux_exec::frozen::folder(&model);
+    if thaw {
+        for n in m.nodes.iter_mut() {
+            n.frozen = false;
+        }
+    } else {
+        for (id, f) in &mf.frozen {
+            let now = hash(&folder.join(id)).ok();
+            if !m.nodes.iter().any(|n| n.frozen && &n.id == id) {
+                changed.push(format!("{id} is no longer frozen: it runs"));
+            } else if now.is_none() {
+                changed.push(format!("the frozen result of {id} is gone ({}): it runs", folder.join(id).display()));
+            } else if now.is_some_and(|h| h.sha256 != f.sha256) {
+                changed.push(format!("the frozen result of {id} changed ({})", folder.join(id).display()));
+            }
+        }
+        for n in m.nodes.iter().filter(|n| n.frozen && !mf.frozen.contains_key(&n.id)) {
+            changed.push(format!("{} is frozen now, not then", n.id));
+        }
     }
     for c in &changed {
         eprintln!("  note: {c}");
@@ -430,23 +475,38 @@ fn reproduce(path: &Path, out: Option<PathBuf>, quiet: bool, engine: &Engine) ->
     let dir = folder_of(&model);
     let inputs = load_inputs(&m, &dir, &overrides)?;
     let t = Instant::now();
-    let results = engine.run(&m, &inputs, &mut Progress { quiet: true, start: t })?;
-    let out = out.unwrap_or_else(|| folder_of(&path).join("reproduced"));
+    let results = run_frozen(engine, &model, &m, &inputs, &mut Progress { quiet: true, start: t }, true)?;
+    let out = out.unwrap_or_else(|| here.join("reproduced"));
     let files = write_outputs(&m, &results, &out)?;
     let mut differ = 0;
-    for (name, file) in m.outputs.keys().zip(&files) {
-        let Some(then) = mf.outputs.get(name) else { continue };
-        let now = hash(file)?;
-        let same = now.sha256 == then.sha256 || same_features(file, Path::new(&then.path));
+    let mut tell = |same: bool, what: &str, file: &Path| {
         if !same {
             differ += 1;
         }
         if !same || !quiet {
-            println!("{} {name} ({})", if same { "same   " } else { "DIFFERS" }, file.display());
+            println!("{} {what} ({})", if same { "same   " } else { "DIFFERS" }, file.display());
         }
+    };
+    for (name, file) in m.outputs.keys().zip(&files) {
+        let Some(then) = mf.outputs.get(name) else { continue };
+        let now = hash(file)?;
+        tell(now.sha256 == then.sha256 || same_features(file, &then.found(&here)), name, file);
+    }
+    // the files the nodes wrote, written again where they were (a GeoPackage records when: not compared)
+    let written = terraflux_exec::testing::writes(&m, &dir);
+    for (at, then) in &mf.writes {
+        let Some(now) = written.get(at) else { continue };
+        let file = PathBuf::from(&now.path);
+        if file.extension().is_some_and(|e| e.eq_ignore_ascii_case("gpkg")) {
+            if !quiet {
+                println!("written {at} ({}): a GeoPackage, not compared", file.display());
+            }
+            continue;
+        }
+        tell(now.sha256 == then.sha256, at, &file);
     }
     if differ > 0 {
-        bail!("{differ} of {} outputs differ from the run of the manifest", mf.outputs.len());
+        bail!("{differ} of {} files differ from the run of the manifest", mf.outputs.len() + mf.writes.len());
     }
     if !quiet {
         println!("reproduced: every output the same ({:.1} s)", t.elapsed().as_secs_f64());
@@ -464,7 +524,7 @@ fn same_features(a: &Path, b: &Path) -> bool {
 
 /// `terraflux test`: every model run, its check.assert nodes and its tests checked (or their files written with
 /// `--update`).
-fn test(paths: &[PathBuf], update: bool, quiet: bool, engine: &Engine) -> Result<()> {
+fn test(paths: &[PathBuf], update: bool, quiet: bool, thaw: bool, engine: &Engine) -> Result<()> {
     let mut models = Vec::new();
     for p in paths {
         if p.is_dir() {
@@ -485,18 +545,24 @@ fn test(paths: &[PathBuf], update: bool, quiet: bool, engine: &Engine) -> Result
             failed += 1;
             println!("FAIL {name}: {what}");
         };
-        let m = match Model::load_expanded(path) {
+        let mut m = match Model::load_expanded(path) {
             Ok(m) => m,
             Err(e) => {
                 fail(e.to_string());
                 continue;
             }
         };
-        let dir = folder_of(&path);
+        // the frozen nodes' results used, as terraflux run uses them, unless told to run them again
+        if thaw {
+            m.nodes.iter_mut().for_each(|n| n.frozen = false);
+        }
+        let dir = folder_of(path);
         let t = Instant::now();
         let results = match load_inputs(&m, &dir, &BTreeMap::new())
             .map_err(|e| e.to_string())
-            .and_then(|i| engine.run(&m, &i, &mut Progress { quiet: true, start: t }).map_err(|e| e.to_string()))
+            .and_then(|i| {
+                run_frozen(engine, path, &m, &i, &mut Progress { quiet: true, start: t }, true).map_err(|e| e.to_string())
+            })
         {
             Ok(r) => r,
             // (a check.assert that fails stops the run: its message says what)
@@ -590,6 +656,35 @@ impl Observer for Progress {
     fn warning(&mut self, at: &str, message: &str) {
         eprintln!("  warning: {at}: {message}");
     }
+}
+
+/// A run with the nodes frozen in the application: their results kept next to the model (`<model>.frozen/`), used
+/// instead of running them (a node whose result cannot be read runs, with a note).
+fn run_frozen(
+    engine: &Engine,
+    model_file: &Path,
+    m: &Model,
+    inputs: &BTreeMap<String, terraflux_ops::Value>,
+    progress: &mut Progress,
+    quiet: bool,
+) -> Result<terraflux_exec::Results> {
+    if !m.nodes.iter().any(|n| n.frozen) {
+        return Ok(engine.run(m, inputs, progress)?);
+    }
+    let folder = terraflux_exec::frozen::folder(model_file);
+    let mut held = terraflux_exec::Cache::default();
+    for n in m.nodes.iter().filter(|n| n.frozen) {
+        match terraflux_exec::frozen::read(&folder, &n.id) {
+            Ok((outputs, when)) => {
+                held.hold(&n.id, Some(outputs), when);
+                if !quiet {
+                    eprintln!("{}: its result frozen ({})", n.id, folder.join(&n.id).display());
+                }
+            }
+            Err(e) => eprintln!("  note: {}: frozen, its result not read ({e}): it runs", n.id),
+        }
+    }
+    Ok(engine.run_with(m, inputs, progress, Some(&std::sync::Mutex::new(held)), None)?)
 }
 
 /// The folder a model's relative paths are read from: "." for a model named without one (`terraflux run m.toml`),
@@ -916,25 +1011,7 @@ fn main() -> Result<()> {
                 eprintln!("{}: inputs read ({:.1} s)", m.name.as_deref().unwrap_or("model"), t.elapsed().as_secs_f64());
             }
             let mut progress = Progress { quiet, start: t };
-            // the nodes frozen in the application: their results kept next to the model, used instead of running them
-            let folder = terraflux_exec::frozen::folder(&model);
-            let mut held = terraflux_exec::Cache::default();
-            for n in m.nodes.iter().filter(|n| n.frozen) {
-                match terraflux_exec::frozen::read(&folder, &n.id) {
-                    Ok((outputs, when)) => {
-                        held.hold(&n.id, Some(outputs), when);
-                        if !quiet {
-                            eprintln!("{}: its result frozen ({})", n.id, folder.join(&n.id).display());
-                        }
-                    }
-                    Err(e) => eprintln!("  note: {}: frozen, its result not read ({e}): it runs", n.id),
-                }
-            }
-            let results = if m.nodes.iter().any(|n| n.frozen) {
-                engine.run_with(&m, &inputs, &mut progress, Some(&std::sync::Mutex::new(held)), None)?
-            } else {
-                engine.run(&m, &inputs, &mut progress)?
-            };
+            let results = run_frozen(&engine, &model, &m, &inputs, &mut progress, quiet)?;
             if profile {
                 let mut t = results.timings.clone();
                 t.sort_by(|a, b| b.seconds.total_cmp(&a.seconds));
@@ -958,7 +1035,7 @@ fn main() -> Result<()> {
                 &set,
                 &written,
             )?;
-            std::fs::write(out.join("manifest.json"), serde_json::to_string_pretty(&manifest)? + "\n")?;
+            manifest.save(&out.join("manifest.json"))?;
             if !quiet {
                 for f in files {
                     eprintln!("wrote {}", f.display());
@@ -967,8 +1044,8 @@ fn main() -> Result<()> {
                 eprintln!("done in {:.1} s", t.elapsed().as_secs_f64());
             }
         }
-        Command::Reproduce { manifest, out, quiet } => reproduce(&manifest, out, quiet, &engine)?,
-        Command::Test { models, update, quiet } => test(&models, update, quiet, &engine)?,
+        Command::Reproduce { manifest, out, quiet, thaw } => reproduce(&manifest, out, quiet, thaw, &engine)?,
+        Command::Test { models, update, quiet, thaw } => test(&models, update, quiet, thaw, &engine)?,
         Command::Report { model, out, run } => {
             let source = Model::load(&model).with_context(|| format!("reading {}", model.display()))?;
             let dir = folder_of(&model);
@@ -1083,16 +1160,83 @@ mod tests {
         assert_eq!(mf.seeds["land.seed"], serde_json::json!(3));
         let manifest = out.join("manifest.json");
         std::fs::write(&manifest, serde_json::to_string(&mf).unwrap()).unwrap();
-        reproduce(&manifest, None, true, &engine).unwrap();
+        reproduce(&manifest, None, true, false, &engine).unwrap();
         // tested: the files written, then checked; another seed fails
-        test(std::slice::from_ref(&model), true, true, &engine).unwrap();
-        test(std::slice::from_ref(&dir), false, true, &engine).unwrap();
+        test(std::slice::from_ref(&model), true, true, false, &engine).unwrap();
+        test(std::slice::from_ref(&dir), false, true, false, &engine).unwrap();
         std::fs::write(&model, text(4)).unwrap();
-        let e = test(std::slice::from_ref(&model), false, true, &engine).unwrap_err().to_string();
+        let e = test(std::slice::from_ref(&model), false, true, false, &engine).unwrap_err().to_string();
         assert!(e.contains("1 of 1 models failed"), "{e}");
         // and the run of another seed does not reproduce the manifest's
-        assert!(reproduce(&manifest, None, true, &engine).is_err());
+        assert!(reproduce(&manifest, None, true, false, &engine).is_err());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A study's folder moved with its manifest is reproduced from it: the model, the files its nodes read and wrote
+    /// found from the manifest's folder, the frozen result used as the run used it (its node run again with --thaw).
+    #[test]
+    fn a_moved_study_with_a_frozen_node_is_reproduced() {
+        let root = std::env::temp_dir().join(format!("terraflux-moved-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = root.join("a");
+        std::fs::create_dir_all(&dir).unwrap();
+        let data = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/inputs/sibuyan_landuse.tif");
+        std::fs::copy(data, dir.join("lu.tif")).unwrap();
+        let model = dir.join("m.toml");
+        let text = |seed: u32, frozen: bool| {
+            format!(
+                "format = \"terraflux/1\"\n\n[[nodes]]\nid = \"lu\"\nop = \"raster.read\"\nparams = {{ path = \"lu.tif\" }}\n\n\
+                 [[nodes]]\nid = \"land\"\nop = \"nlm.random\"\nfrozen = {frozen}\nparams = {{ rows = 30, columns = 20, seed = {seed} }}\n\n\
+                 [[nodes]]\nid = \"forest\"\nop = \"raster.calc\"\ninputs = {{ x = \"lu.raster\" }}\nparams = {{ expression = \"x._2011 == 1\" }}\n\n\
+                 [[nodes]]\nid = \"save\"\nop = \"raster.write\"\ninputs = {{ value = \"forest.map\" }}\nparams = {{ path = \"forest.tif\" }}\n\n\
+                 [outputs.land]\nfrom = \"land.map\"\n"
+            )
+        };
+        let engine = Engine::default();
+        let start = || Progress { quiet: true, start: Instant::now() };
+        // the result of seed 9 frozen; the model then says seed 3, its node frozen
+        std::fs::write(&model, text(9, false)).unwrap();
+        let m = Model::load_expanded(&model).unwrap();
+        let results = engine.run(&m, &load_inputs(&m, &dir, &BTreeMap::new()).unwrap(), &mut start()).unwrap();
+        terraflux_exec::frozen::freeze(&terraflux_exec::frozen::folder(&model), "land", &results.values["land"]).unwrap();
+        std::fs::write(&model, text(3, true)).unwrap();
+        let m = Model::load_expanded(&model).unwrap();
+        let inputs = load_inputs(&m, &dir, &BTreeMap::new()).unwrap();
+        let results = run_frozen(&engine, &model, &m, &inputs, &mut start(), true).unwrap();
+        let out = dir.join("output");
+        let files = write_outputs(&m, &results, &out).unwrap();
+        let written: Vec<(String, PathBuf)> = m.outputs.keys().cloned().zip(files).collect();
+        let mf = terraflux_exec::testing::manifest(&model, &m, &dir, &BTreeMap::new(), None, &[], &written).unwrap();
+        assert!(mf.reads.contains_key("lu.path"), "{:?}", mf.reads.keys());
+        assert!(mf.frozen.contains_key("land"));
+        assert!(mf.writes.contains_key("save.path"), "{:?}", mf.writes.keys());
+        mf.save(&out.join("manifest.json")).unwrap();
+        // the folder moved (copied, its model taken out of the old one: the run holds its rasters open): found from
+        // the manifest's
+        fn copy(from: &Path, to: &Path) {
+            std::fs::create_dir_all(to).unwrap();
+            for e in std::fs::read_dir(from).unwrap().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    copy(&p, &to.join(e.file_name()));
+                } else {
+                    std::fs::copy(&p, to.join(e.file_name())).unwrap();
+                }
+            }
+        }
+        let moved = root.join("b");
+        copy(&dir, &moved);
+        std::fs::remove_file(&model).unwrap();
+        let manifest = moved.join("output").join("manifest.json");
+        reproduce(&manifest, None, true, false, &engine).unwrap();
+        // the frozen node run again gives seed 3's, not the frozen result
+        let e = reproduce(&manifest, None, true, true, &engine).unwrap_err().to_string();
+        assert!(e.contains("1 of 2 files differ"), "{e}");
+        // the model gone: said where it was looked for
+        std::fs::rename(moved.join("m.toml"), moved.join("other.toml")).unwrap();
+        let e = reproduce(&manifest, None, true, false, &engine).unwrap_err().to_string();
+        assert!(e.contains("not found") && e.contains("m.toml"), "{e}");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
