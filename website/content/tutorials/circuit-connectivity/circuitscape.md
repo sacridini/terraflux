@@ -320,7 +320,11 @@ and none of them appears on the corridor map. The effective resistance between t
 - **Focal areas at the map's edge.** Current cannot go around them, and the edge looks like a barrier. Buffer
   the study area (Koen et al., 2010).
 - **Too many pairs.** Pairwise mode solves one problem per area (and every pair with it); hundreds of areas are
-  fine, thousands slow. For many areas, Omniscape or one-to-all is cheaper.
+  fine, thousands slow. For many areas, Omniscape or one-to-all is cheaper. One-to-all and all-to-one (as
+  nodes, or in an INI file run by [[circuit.circuitscape_ini]]) solve the areas in batches (`batch`, by default
+  four per thread) and tell how far they are in the application's status bar (`one_to_all: one to all: 16 of 120
+  points`); **Stop** stops them between two batches. Pairwise cannot stop in the middle of its solves: after
+  **Stop** the run ends, and the node goes on in the background until it is done.
 - **Effective resistance read as a probability.** It is a distance, relative to the resistance surface; only
   its ranking and its correlation with other measures carry over between studies.
 

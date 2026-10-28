@@ -455,6 +455,11 @@ and runs it tile by tile, and writes the result to a GeoTIFF (`path`). Two setti
 Memory grows with the tile's area, not the map's. The other settings are MSPA's own, and must be the same as in an
 MSPA of the whole map you would compare it with.
 
+A national map takes a while. In the application, the node tells which tile it is on (`tiled: tile 4 of 16` in the
+status bar, and a bar along the bottom of its box that fills as the tiles are done), and **Stop** stops it between
+two tiles: the tile being computed is finished, the others are not started. [[landscape.mspa]] of a whole map cannot
+stop in the middle; after **Stop** it goes on in the background until it is done.
+
 ```tfgraph
 #! caption: MSPA of the forest by tiles of 300 cells overlapping by 60, beside MSPA of the whole map.
 #! highlight: tiled

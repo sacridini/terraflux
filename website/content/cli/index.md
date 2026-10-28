@@ -15,9 +15,10 @@ is written; the next pages go through the commands by what they are for:
 
 | Page | Commands |
 |---|---|
-| [Running models](/cli/models/) | `run`, `check`, `new`, `convert`, `ops`, `resample`, `app` |
+| [Running models](/cli/models/) | `run`, `check`, `test`, `reproduce`, `new`, `convert`, `ops`, `resample`, `app` |
 | [Batches: replicates, scenarios, calibration](/cli/batches/) | `submit`, `calibrate`, `jobs`, `results` |
 | [Many machines](/cli/distributed/) | `serve`, `worker`, `workers`, `cluster`, `cloud-init` |
+| [The model's document](/tutorials/building-models/the-model-document/) | `report` (the document as an HTML page or a PDF) |
 | [AI assistants](/cli/assistants/) | `mcp` |
 | [Environment and files](/cli/environment/) | the environment variables and where Terraflux keeps its files |
 
@@ -44,7 +45,7 @@ Check that it works:
 
 ```text
 > terraflux --version
-terraflux 0.80.0
+terraflux {{version}}
 ```
 
 If the terminal answers that it does not know the command, open a new terminal (the `PATH` is read when a
@@ -114,7 +115,9 @@ failed). The most common messages:
 :   A node names an operator that does not exist in this version; `terraflux ops` lists them all.
 
 Before running a long model, `terraflux check model.toml` finds most problems in a fraction of a second: every
-operator, every connection between nodes and every input file is checked without running anything.
+operator, every connection between nodes and every input file is checked without running anything. After a
+change to a model, `terraflux test` tells whether it still gives what it gave before (see
+[Running models](/cli/models/#terraflux-test)).
 
 ## Going further
 

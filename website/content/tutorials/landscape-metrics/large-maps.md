@@ -133,6 +133,13 @@ The time of a moving window grows with the number of cells *times* the window's 
 quadruples the time. For large maps, choose the window from the ecology (part 4), then the grain: the same window in
 metres on cells twice as large is sixteen times faster.
 
+!!! app "In the application: how far a long run is, and Stop"
+    Read by blocks or strips, the metrics tell how far they are while they run, in the status bar and in the bar
+    over the canvas: `land: block 3 of 12` for the landscape level (counted again at each of its passes over the
+    file), `window: rows 1024 of 2000` for a moving window, whose bar fills and whose box fills along its bottom
+    too. **Stop**, in the status bar, stops the node between two blocks or two strips: the one being read is
+    finished, and the run ends there, not at the end of the map.
+
 ## Signatures, sampling and series
 
 [[metrics.signatures]], [[metrics.sample]] and [[metrics.series]] take `block_rows` too. Their zones (squares of a

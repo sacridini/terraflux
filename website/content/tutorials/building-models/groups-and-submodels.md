@@ -141,6 +141,13 @@ images:
     trail beside it, *Whole model › context*, to any level). To set an output, select the group and, in the Node pane's **Body**
     section, choose `outputs`, type its name (`share`) and the inner reference (`share.map`), and click **Set**.
 
+    Inside the group, a node selected shows its map in the viewer as any node does, named by its place in the
+    group: `context/share`, with that node's own outputs to choose from, and **Trace** from its cells.
+
+A group does not compute its whole body again at every run. The application keeps the outputs of the nodes inside
+it, and a run computes again only the nodes of the body that changed and what depends on them (the same for groups
+inside groups): change the radius of `nbmean` in `share`, and `share` and `edge` are computed again, `forest` is not.
+
 ## A submodel: a model used as a node
 
 A group is part of one model. To use the same steps in several models, or several times in one, write them as a
@@ -207,6 +214,7 @@ language.
 #! caption: main.toml. The two submodel nodes run lib/forest_core.toml, one on each date; change compares their core maps.
 #! highlight: core1997, core2011
 #! numbered: true
+#! fragment: true
 format = "terraflux/1"
 name = "Core forest lost"
 
@@ -345,6 +353,9 @@ change a method, no risk that the two dates were treated differently. The edge w
 - [Loops](../loops/): [[control.repeat]], the container that runs its body many times.
 - [Map algebra](../map-algebra/): the expressions of [[raster.calc]].
 - [Plugins in WebAssembly](../plugins/): your own operator, written in any language.
+- [Checks, tests and reproducible runs](../checks-and-tests/): a group or a loop shows the worst of the
+  [[check.assert]] nodes inside it on its box, and a slow group at the top level can be frozen (**Freeze** in the
+  Node pane), its result kept next to the model and used instead of running it again.
 - [MSPA](../../habitat-patterns/mspa/), and the [Land change simulation](../../land-change/) tutorials, whose
   models use groups inside their loops.
 

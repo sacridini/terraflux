@@ -51,7 +51,7 @@ Terraflux keeps its own files in the folders each system provides for applicatio
 | What | Windows | macOS | Linux |
 |---|---|---|---|
 | Settings, layout of the panes, your templates, your nodes (`nodes`), saved clusters (`clusters.toml`) | `%APPDATA%\Terraflux` | `~/Library/Application Support/Terraflux` | `$XDG_CONFIG_HOME/Terraflux` (`~/.config/Terraflux`) |
-| Downloaded data (`cache`) and basemap tiles (`web-tiles`) | `%LOCALAPPDATA%\Terraflux` | `~/Library/Caches/Terraflux` | `$XDG_CACHE_HOME` (`~/.cache`) |
+| Downloaded data (`cache`) and basemap tiles (`web-tiles`) | `%LOCALAPPDATA%\Terraflux` | `~/Library/Caches/Terraflux` | the data in `$XDG_CACHE_HOME/terraflux` (`~/.cache/terraflux`); the tiles in the temporary folder, `/tmp/Terraflux/web-tiles` (`$TMPDIR` when it is set) |
 | A coordinator's data and jobs (`serve` without `--data`) | the user's application data, `Terraflux/coordinator` | | |
 
 Your models, data and results are never kept there: they stay where you put them. The outputs of `run` go next to

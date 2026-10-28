@@ -29,11 +29,14 @@ minor versions.
   nutrient delivery (`services.ndr`), seasonal water yield (`services.seasonal_water_yield`) and crop pollination
   by wild bees (`services.pollination`). New pages and sections for the application: the model's document and its
   reports, Trace, the Changes pane, the application's own assistant, Step through a loop, the Parameters pane and
-  Compare in Many runs, shared node libraries (`TERRAFLUX_NODES`) and updates on macOS and Linux.
+  Compare in Many runs, shared node libraries (`TERRAFLUX_NODES`) and updates on macOS and Linux; checks, tests
+  and reproducible runs (`check.assert`, `terraflux test`, `terraflux reproduce`, the manifest, frozen nodes).
 
 ### Fixed
 - `terraflux run model.toml` (a model named without its folder) stopped with "cannot make an empty path
   absolute": a model's folder is now the current one when its path names none, in every command.
+- A setting's default given as a list (`(default [0.05, 0.95])`) was cut at its first comma in the Node pane's
+  hint and the document ("default [0.05").
 
 ## [1.23.0] - 2026-10-28
 

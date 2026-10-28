@@ -203,6 +203,10 @@ figures, and the outputs. The images come from the **last run**: run the model b
 say *Not run.* The report's maps are drawn in colours fitted to their values (a colour per class, or a ramp), not
 in the palette chosen in the Viewer. A line at the end says which version of Terraflux made it and on which day.
 
+From the command line, `terraflux report ./model.toml` writes the same report next to the model (its name and
+`.html`); `--out report.pdf` chooses the file and its kind by the extension, and `--run` runs the model first, so
+that the steps have their maps and tables.
+
 !!! tip "Send the model with its report"
     The report is what a colleague reads; the model file is what they run. Send both: the report says what the
     model does, and `terraflux run` on the file gives the same results.
@@ -227,6 +231,8 @@ in the palette chosen in the Viewer. A line at the end says which version of Ter
 - [The tour](../../getting-started/tour/) shows the Document and Changes panes among the others, and how to
   trace why a cell has its value.
 - [AI assistants](/cli/assistants/): what an assistant built, checked in the document and in the Changes pane.
+- [Checks, tests and reproducible runs](../checks-and-tests/): the checks behind the badges and the health line,
+  tests, manifests and frozen nodes.
 - [Plots and tables](../plots-and-tables/): the plots that become the document's figures.
 - [Groups and submodels](../groups-and-submodels/): groups, which the document reads as sections.
 

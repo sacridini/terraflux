@@ -96,6 +96,25 @@ of 2024 or newer.
     It installs Terraflux in `/opt/terraflux`, the command in `/usr/bin` and an entry in the desktop's menu.
     To remove it: `sudo apt remove terraflux`.
 
+=== "Fedora / openSUSE (.rpm)"
+
+    ```bash
+    sudo dnf install ./terraflux-<version>-1.x86_64.rpm
+    ```
+
+    On openSUSE, `sudo zypper install ./terraflux-<version>-1.x86_64.rpm`. As the `.deb`, it installs Terraflux in
+    `/opt/terraflux`, the command in `/usr/bin` and an entry in the menu, and it recommends the desktop's graphics
+    libraries (EGL, Vulkan, X11's and Wayland's), which `dnf` installs with it unless told not to. To remove it:
+    `sudo dnf remove terraflux`.
+
+=== "Arch Linux (.pkg.tar.zst)"
+
+    ```bash
+    sudo pacman -U terraflux-<version>-1-x86_64.pkg.tar.zst
+    ```
+
+    The same `/opt/terraflux`, `/usr/bin` and menu entry. To remove it: `sudo pacman -R terraflux`.
+
 === "Archive (.tar.gz)"
 
     No root needed:
@@ -110,7 +129,7 @@ of 2024 or newer.
     to the menu, for your user alone. If `terraflux` is not found afterwards, `~/.local/bin` is not on your PATH:
     add `export PATH="$HOME/.local/bin:$PATH"` to `~/.bashrc` and open a new terminal.
 
-Both bring GDAL (its library and every library it needs except the C and C++ runtimes, with GDAL's and PROJ's
+All of them bring GDAL (its library and every library it needs except the C and C++ runtimes, with GDAL's and PROJ's
 data and the web's certificates) and the OpenMP runtime. The application also needs your desktop's own graphics
 libraries: **EGL or Vulkan**, and **X11's `libxkbcommon-x11`** or **Wayland**. A desktop installation has them; a
 minimal server or container does not (see below). The command line alone (`terraflux run`) needs none of them.
@@ -143,7 +162,7 @@ terraflux 0.80.0
 | Windows, installer | on the PATH: open a **new** terminal after installing |
 | Windows, zip | in the folder you unpacked: use its full path, or add the folder to the PATH |
 | macOS | inside the application: link it once with `ln -s /Applications/Terraflux.app/Contents/MacOS/terraflux /usr/local/bin/terraflux` (with `sudo` if `/usr/local/bin` is not yours) |
-| Linux, .deb | `/usr/bin/terraflux` |
+| Linux, .deb, .rpm or Arch's package | `/usr/bin/terraflux` |
 | Linux, .tar.gz | `~/.local/bin/terraflux` |
 
 `terraflux` with no command opens the application; `terraflux app model.toml` opens it with a model. The
@@ -225,6 +244,6 @@ vectors...** to see the message.
 |---|---|---|---|
 | Settings, layout, favourites | `%APPDATA%\Terraflux` | `~/Library/Application Support/Terraflux` | `~/.config/Terraflux` (or `$XDG_CONFIG_HOME/Terraflux`) |
 | Your templates | `%APPDATA%\Terraflux\templates` | `~/Library/Application Support/Terraflux/templates` | `~/.config/Terraflux/templates` |
-| Basemap tiles (a cache) | `%LOCALAPPDATA%\Terraflux\web-tiles` | `~/Library/Caches/Terraflux/web-tiles` | `/tmp/Terraflux/web-tiles` (the temporary folder) |
+| Basemap tiles (a cache) | `%LOCALAPPDATA%\Terraflux\web-tiles` | `~/Library/Caches/Terraflux/web-tiles` | `/tmp/Terraflux/web-tiles` (the temporary folder, `$TMPDIR` when it is set: emptied when the computer restarts on many systems) |
 
 Removing these folders resets Terraflux to how it was installed.

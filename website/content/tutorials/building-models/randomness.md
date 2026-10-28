@@ -183,6 +183,27 @@ with all the cores and a run with one:
 mspa.tif of seed 7, all threads: 4c6420c9005fbb4c; one thread: 4c6420c9005fbb4c
 ```
 
+You do not need a script for that: every `terraflux run` writes `manifest.json` with its outputs, the record of the
+run, with the fingerprint of every output and every seed it used (each node's setting whose name contains `seed`,
+after any `--set`), and `terraflux reproduce` runs it again and compares. Run with seed 8, then reproduce the run
+with a single thread:
+
+```text
+> terraflux run ./model.toml --set landscape.seed=8
+...
+wrote .\output\manifest.json (terraflux reproduce runs it again)
+
+> terraflux --threads 1 reproduce output/manifest.json
+same    classes (output\reproduced\classes.csv)
+same    landscape (output\reproduced\landscape.tif)
+same    mspa (output\reproduced\mspa.tif)
+reproduced: every output the same (0.0 s)
+```
+
+The manifest's `seeds` reads `{ "landscape.seed": 8 }` and its `set` the `--set` given, so the run can be told and
+repeated exactly. [Checks, tests and reproducible runs](../checks-and-tests/) explains the manifest, and tests that
+keep a model's results from changing unnoticed.
+
 ## Many seeds: replicates
 
 Running a model 100 times by hand is no fun. `terraflux submit` runs a **batch**: the model many times, each run a
@@ -332,6 +353,8 @@ more precisely than with independent seeds.
 - [Loops](../loops/): simulations step by step.
 - [Neutral landscape models](../../neutral-landscapes/): random landscapes as null models.
 - The [parallel computing guide](/parallel/): replicates and scenarios on many computers, and calibration.
+- [Checks, tests and reproducible runs](../checks-and-tests/): the manifest of a run, `terraflux reproduce` and
+  `terraflux test`.
 
 ## References
 

@@ -1,11 +1,11 @@
 ---
 title: Running models
-description: Run, check, create and convert models from the command line, list the operators and resample a raster.
+description: Run, check, test, reproduce, create and convert models from the command line, list the operators and resample a raster.
 order: 10
 ---
 
-These are the commands you use every day: `run` a model, `check` it first, create a land change model from
-your maps with `new`, and a few helpers. The examples use the classic Dinamica EGO example of Sibuyan Island
+These are the commands you use every day: `run` a model, `check` it first, `test` it after a change and
+`reproduce` a run from its manifest, create a land change model from your maps with `new`, and a few helpers. The examples use the classic Dinamica EGO example of Sibuyan Island
 (two land use maps, 1997 and 2011, and thirteen explanatory variables), the outputs shown are real.
 
 ## terraflux run
@@ -28,7 +28,14 @@ done in 0.2 s
 ```
 
 The outputs go to a folder named `output` next to the model, unless `--out` names another. Run again, they are
-overwritten.
+overwritten. With them, every run writes `manifest.json`, the record of the run that
+[`terraflux reproduce`](#terraflux-reproduce) runs again (it prints `wrote output\manifest.json (terraflux
+reproduce runs it again)`).
+
+!!! note "A model named without its folder"
+    In Terraflux 1.23.0, a model named by its file alone (`terraflux run model.toml`) stops with *cannot make an
+    empty path absolute*. Write `./model.toml` (or `.\model.toml`), or the model's folder and name; the next
+    version fixes it.
 
 ### Changing an input without editing the model
 
@@ -78,6 +85,76 @@ model.toml: no errors
 ```
 
 Use it before a long run, after editing a model by hand, and in scripts before a batch.
+
+## terraflux test
+
+Runs models and checks what they give against files of what they should give. A model's tests are `[[tests]]` in
+its file, each naming a value (`from`, a node's output) and the file of what it should be (`expected`, relative to
+the model: a raster, a CSV table, a JSON value or a text), within a `tolerance` (by default `1e-9`):
+
+```toml
+[[tests]]
+from = "loss.map"
+expected = "expected/loss.tif"
+
+[[tests]]
+from = "forest.after"
+expected = "expected/forest2011.json"
+```
+
+```tfcli
+test
+```
+
+`--update` runs the model and writes the expected files from what it gives, once you trust its results; without
+it, the files are compared. A model passes when it runs to its end (every [[check.assert]] that does not only warn
+passed) and every test holds:
+
+```text
+> terraflux test ./model.toml --update
+written ./model.toml: 2 test(s), 3 check(s) (0.0 s)
+1 model(s) passed
+
+> terraflux test ./model.toml
+ok   ./model.toml: 2 test(s), 3 check(s) (0.0 s)
+1 model(s) passed
+
+> terraflux test ./model.toml          # after an edit that changed the map
+FAIL ./model.toml: loss.map: 243 values differ, the first at 440: 0 instead of 1
+Error: 1 of 1 models failed
+```
+
+Give it a folder to test every model in it (its `.toml` and `.json` files, not its subfolders'). The command ends
+with an error when any model fails, so a script can stop on it. A model without `[[tests]]` is still run and its
+checks counted. The tutorial [Checks, tests and reproducible runs](/tutorials/building-models/checks-and-tests/)
+builds a model with its checks and tests step by step.
+
+## terraflux reproduce
+
+Runs again what a run's `manifest.json` records and tells whether every output is the same, byte for byte. The
+manifest, written by every `terraflux run` (and by a whole run of a saved model in the application) beside the
+outputs, holds the version of Terraflux, the platform, the model file and every input file of `[inputs]` with
+their SHA-256 fingerprints, the values of the inputs, the scenario and `--set` given, every node's setting whose name
+contains `seed`, and the SHA-256 of every output of `[outputs]`.
+
+```tfcli
+reproduce
+```
+
+```text
+> terraflux reproduce output/manifest.json
+same    forest2011 (output\reproduced\forest2011.json)
+same    loss (output\reproduced\loss.tif)
+reproduced: every output the same (0.0 s)
+```
+
+It says first what changed since the run (*Terraflux is ... now, ... then*, *the model ... changed*, *the input ...
+changed*), runs anyway, and marks each output `same` or `DIFFERS`; any difference ends it with an error (*1 of 2
+outputs differ from the run of the manifest*). The outputs go to `reproduced`, next to the manifest, unless `--out`
+names another folder; `--quiet` prints only what differs. Vectors in GeoPackage are the same when they hold the same
+features (the file records when it was written). The manifest names the files by their full paths, so it
+reproduces a run on the computer that made it, or where the study's folders are at the same place; on another
+computer, use `terraflux test`, whose paths are relative to the model.
 
 ## terraflux new
 

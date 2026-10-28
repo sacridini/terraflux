@@ -14,13 +14,13 @@ credit to the people who created the methods.
 Cite the version you used (`terraflux --version` prints it):
 
 > Lacerda, E. (2026). *Terraflux: landscape ecology and land change modelling from a laptop to a cluster*
-> (Version 0.80.0) [Computer software]. https://github.com/sacridini/terraflux
+> (Version {{version}}) [Computer software]. https://github.com/sacridini/terraflux
 
 ```bibtex
 @software{terraflux,
   author  = {Lacerda, Eduardo},
   title   = {Terraflux: landscape ecology and land change modelling from a laptop to a cluster},
-  version = {0.80.0},
+  version = {{{version}}},
   year    = {2026},
   url     = {https://github.com/sacridini/terraflux},
   license = {GPL-3.0-or-later}
@@ -33,7 +33,7 @@ A paper describing Terraflux is in preparation; this page will give its referenc
 
 Each method below gives the same results as the reference implementation named, which Terraflux's tests check
 against. In a methods section, a sentence such as *"MSPA (Soille & Vogt, 2009) was computed with Terraflux
-0.80.0, which reproduces GuidosToolbox (Vogt & Riitters, 2017)"* tells the reader both what was done and how.
+{{version}}, which reproduces GuidosToolbox (Vogt & Riitters, 2017)"* tells the reader both what was done and how.
 
 | Method | Operators | Cite |
 |---|---|---|
@@ -58,6 +58,26 @@ against. In a methods section, a sentence such as *"MSPA (Soille & Vogt, 2009) w
 
 Each tutorial lists, at its end, the papers behind the method it teaches, including those of variants and
 settings not in this table. Cite those you used.
+
+## Make the analysis reproducible
+
+A citation says which software ran the analysis; the files let a reader run it again. In a paper's supplementary
+material (or a data repository), put:
+
+- **the model files** (`.toml`), with the submodels they use: they hold every step, setting and seed;
+- **the `manifest.json` of each run you report**, written by `terraflux run` (and by a whole run of a saved model
+  in the application) beside its outputs: it records the version of Terraflux, the SHA-256 fingerprints of the
+  model and of its input files, the values and seeds used, and the fingerprint of every output, so a reader can
+  tell that a file they have is the one you reported. `terraflux reproduce manifest.json` runs it again and says
+  whether every output is the same, byte for byte;
+- **the data**, or where to get them, when they can be shared;
+- the model's **tests** (`[[tests]]` and their `expected` files) when it has them: `terraflux test` checks the
+  results on another computer, within each test's tolerance (the manifest names full paths, so `reproduce` works
+  where the files are at the same place).
+
+[Checks, tests and reproducible runs](/tutorials/building-models/checks-and-tests/) shows each of these on an
+example; [Randomness and reproducibility](/tutorials/building-models/randomness/) explains why the same seed gives
+the same bits.
 
 ## References
 

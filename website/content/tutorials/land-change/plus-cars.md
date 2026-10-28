@@ -281,9 +281,13 @@ The settings of `cars.step`, with their meaning:
 A `restrictions` input keeps the cells it marks (non-zero) as they are: a protected area, water.
 
 In the application, `cars.step` and `plus.demand` are in the **Land change simulation** subject, group **PLUS**.
-Build the loop as in the other tutorials: add `control.repeat` (Model flow), double-click it to edit the body,
-add `cars.step`, connect `@landscape`, `@step` and the outer `growth.stack` and `demand.demand`, then in the
-loop's Node pane set `landscape` as a carried value and collect `maps`.
+Build the loop as in the other tutorials: add `control.repeat` (Model flow) and, in its Node pane, give it `times`
+(`demand.steps`) and an input named like the carried value, `landscape` (`lu1991.raster`). Double-click the loop
+(or **Open inside** in the Node pane) to go inside its body: the column on the left lists what the body can read,
+`@landscape`, `@step` and the outer nodes. Add `cars.step` and connect `@landscape`, `@step` and the outer
+`growth.stack` and `demand.demand`. Then go back up (**‹ Back**, or ++esc++ on the canvas), select the loop, and in
+its Node pane's **Body** section choose `carry`, type `landscape` and `cars.landscape` and click **Set**; choose
+`collect` and do the same for `maps` (`cars.landscape`) and `info` (`cars.info`).
 
 ### 4. Compare with 1999
 

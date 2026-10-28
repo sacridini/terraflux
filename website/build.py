@@ -114,7 +114,8 @@ class Page:
             end = text.index("\n---", 3)
             self.meta = yaml.safe_load(text[3:end]) or {}
             text = text[end + 4 :]
-        self.body = text
+        # {{version}}: the version of Terraflux the site describes (data/cli.json), kept current at each release
+        self.body = text.replace("{{version}}", SITE["version"])
         parts = self.src[:-3].split("/")
         if parts[-1] == "index":
             parts = parts[:-1]

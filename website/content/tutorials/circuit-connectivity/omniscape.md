@@ -70,7 +70,9 @@ and discuss how their maps differ. When the question is about particular areas, 
   window should cover the dispersal distance of interest). Here 10 to 50 cells, 1 to 5 km.
 - **Time.** Omniscape solves one circuit per target. With `block_size = 1`, a map of 250,000 cells means 250,000
   circuits; `block_size` makes one target per block (and spreads its result over the block), dividing the work by
-  its square. The four runs below took about five minutes together.
+  its square. The four runs below took about five minutes together. Try the settings on a small extent first:
+  **Stop** in the application ends the run, but Omniscape cannot stop in the middle of its circuits and goes on in
+  the background until it is done.
 
 ## Build the model
 

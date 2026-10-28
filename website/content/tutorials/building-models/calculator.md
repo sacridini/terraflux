@@ -108,8 +108,9 @@ note = "The forest's years, its loss, and a habitat index of the forest of 1997.
     Open the two files (++ctrl+o++, or drag them from the **Files** drawer), add a [[raster.calc]] from the
     library's **Map algebra** subject and connect each file's `raster` port to an input of it named `lu` and `d`
     (drag from the output to the `+ new input` row; the Node pane's **Add input** names an input too). The Node
-    pane shows the node's script in an editor of its own, its words in colour and its first error underlined, for
-    a script of a few lines. For the full editor, press the orange **Expand** button beside the script's name, or
+    pane shows the node's script in an editor of its own, its words in colour, its first error underlined and its
+    names completed as you type (its inputs known by their values in the last run), for a script of a few lines.
+    For the full editor, press the orange **Expand** button beside the script's name, or
     choose **View > Calculator**: the calculator edits the script of the map algebra node selected.
 
 The pane has three parts. At the top, the node's inputs and what they are (`lu: stack · 2`, `d: stack · 13`;
@@ -150,7 +151,10 @@ layers at each cell: 2 where the cell was forest in both years, 1 in one of them
 
 `forest._1997 and not forest._2011` reads two layers by name. When you type `forest.` or `d.`, the calculator
 offers the layers of that stack, with their names in the file beside them; ++tab++ or ++enter++ takes the one
-chosen, and ++ctrl+space++ asks for the names at any point.
+chosen, and ++ctrl+space++ asks for the names at any point. `forest` is not an input but a stack the script made,
+and it is completed all the same: a stack changed cell by cell (`lu == 1`, `d * 2`, `abs(d)`) keeps the layers of
+the one it came from, so `forest.` offers `_1997` and `_2011`. A reduction over the layers (`sum(forest)`) is a
+map, with no layers to offer.
 
 ![The layers of the drivers offered after the dot](/img/tutorials/building-models/calculator/completion.png "Typing d.dist_ offers the drivers' layers that begin with it: dist_sea, dist_roads, dist_urban and dist_streams. The functions, the methods and the inputs are completed the same way, each with a line of help. Drawn by Terraflux.")
 
@@ -187,6 +191,11 @@ leaves the node without the cells that line 10 took away.
 The preview beside the script is computed about a third of a second after you stop typing, on a sample of up to
 160,000 cells, so it stays quick on large maps; the node itself computes every cell when the model runs.
 
+To look at one part closely (a valley, the edge of a reserve), drag a rectangle on any map of the preview: that
+part alone is computed, every cell of it when it has 160,000 cells or fewer, and a line over the outputs says
+which columns and rows it shows. **Whole map**, beside that line, or a double-click on a map goes back to all of
+it.
+
 ### Errors, where they are
 
 A mistake is underlined where it is and told under the script with its line: a name that is neither an input
@@ -222,6 +231,17 @@ all the inputs and every name the script gives are there. Type a line and press 
 
 Use it to check a value before you write it into the script: the share of forest that is lost, the range of a
 driver, a threshold.
+
+## Ask the assistant
+
+Under the inputs, a field marked **✦** passes a request to the
+[application's own assistant](/cli/assistants/#the-applications-own-assistant). Type what to compute ("the forest
+lost between the two years, and its share of the forest of 1997") and press **Write** or ++enter++: the assistant
+writes the node's script, checked and tried on a sample of the cells before the node is given it, and says what each
+output gives. **Explain** asks it to explain the script there, line by line: what it reads, what each line does and
+what each name holds. Both give the node the script typed in the pane first, and the answer comes in the
+**Assistant** pane. A script the assistant wrote is a change like its others, which you review and keep or undo;
+read it as you would a colleague's before you trust its numbers.
 
 ## Read the results
 
