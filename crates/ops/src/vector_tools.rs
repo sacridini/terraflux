@@ -12,9 +12,11 @@ use std::sync::Arc;
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 use terraflux_raster::vector::{Column, Geometry, Vector, Xy};
 
+use crate::algebra::{Script, parse_script};
 use crate::raster_neighbours::patches;
 use crate::signatures::NumpyRng;
 use crate::vector::{attribute_table, vector_of, with_columns};
+use crate::vector_algebra;
 use crate::{Args, Ctx, Error, Operator, Outputs, Registry, Result, Value, outputs};
 
 pub fn register(r: &mut Registry) {
@@ -281,12 +283,15 @@ impl Operator for Polygonize {
     }
 }
 
-/// An expression's value for every feature: its attributes that are numbers by name (`feature` its number 1..),
-/// the node's other inputs that are numbers by their port.
-fn evaluate(args: &Args, v: &Vector) -> Result<Vec<f64>> {
+/// The script of a node over features (its setting `expression`), and what it gives.
+fn scripted(args: &Args, v: &Vector) -> Result<(Script, Vec<(String, Column)>)> {
+    let node = args.node;
     let text: String =
-        args.opt_param("expression")?.ok_or_else(|| Error::msg(format!("node {:?}: no expression", args.node)))?;
-    crate::table_ops::evaluate(args, &attribute_table(v), &text)
+        args.opt_param("expression")?.ok_or_else(|| Error::msg(format!("node {node:?}: no expression")))?;
+    let script = parse_script(&text).map_err(|x| Error::msg(format!("node {node:?}: the expression: {}", x.0)))?;
+    let given =
+        vector_algebra::run(v, &args.inputs, &script).map_err(|x| Error::msg(format!("node {node:?}: {}", x.0)))?;
+    Ok((script, given))
 }
 
 /// `vector.filter`.
@@ -297,22 +302,41 @@ impl Operator for Filter {
         OpSignature::new(
             "vector.filter",
             "The features where an expression over their attributes is true, as QGIS's Select by Expression or \
-             geopandas' query: the attributes that are numbers by their names (feature: the number 1..), the \
-             expressions of map algebra (area > 10000 and class == 2), the node's other inputs as numbers by their \
-             names. A feature where it is missing is left out.",
+             geopandas' query, in map algebra's language (Python's syntax): the attributes by their names, numbers \
+             and texts (area > 10000 and uso == \"forest\"; float(code) reads a text as a number), the geometry's \
+             measures (geometry.area, geometry.perimeter, geometry.length, geometry.x, geometry.y), feature (the \
+             number 1..), the node's other inputs (numbers and texts) by their names. A script of several lines \
+             gives names values (density = pop / geometry.area) and ends with the condition. A feature where it \
+             is missing is left out.",
             Access::None,
         )
         .input(PortSpec::new("vector", Type::Vector, "the features"))
         .extra(Type::Any)
         .output(PortSpec::new("vector", Type::Vector, "the features kept"))
         .output(PortSpec::new("table", Type::Table, "their attributes"))
-        .param(PortSpec::new("expression", Type::Text, "what a feature kept is, e.g. area > 10000"))
+        .param(PortSpec::new(
+            "expression",
+            Type::Text,
+            "what a feature kept is, e.g. geometry.area > 10000 and uso == \"forest\" (a script: its last line)",
+        ))
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let node = args.node;
         let v = vector_of(args, "vector")?;
+        let (script, mut given) = scripted(args, v)?;
+        if !script.outputs().is_empty() {
+            return Err(Error::msg(format!(
+                "node {node:?}: vector.filter keeps the features where the script's last line is true: no out"
+            )));
+        }
+        let Column::Numbers(keep) = given.remove(0).1 else {
+            return Err(Error::msg(format!(
+                "node {node:?}: the expression gives texts: a feature is kept where it is true (uso == \"forest\")"
+            )));
+        };
         let keep: Vec<usize> =
-            evaluate(args, v)?.iter().enumerate().filter(|(_, k)| !k.is_nan() && **k != 0.0).map(|(i, _)| i).collect();
+            keep.iter().enumerate().filter(|(_, k)| !k.is_nan() && **k != 0.0).map(|(i, _)| i).collect();
         Ok(out(v.select(&keep)))
     }
 }
@@ -324,28 +348,57 @@ impl Operator for Calc {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "vector.calc",
-            "An attribute computed for every feature from an expression over the others, as QGIS's field \
-             calculator: the attributes that are numbers by their names, the expressions of map algebra \
-             (area / 10000, 1 if class == 1 else 0), the node's other inputs as numbers by their names. An \
-             attribute of the same name is replaced, else it is added.",
+            "Attributes computed for every feature from a script over the others, as QGIS's field calculator, in \
+             map algebra's language (Python's syntax): the attributes by their names, numbers and texts (\"high\" \
+             if pop > 100 else \"low\"; uso == \"forest\"; float(code) reads a text as a number), the geometry's \
+             measures (geometry.area, geometry.perimeter, geometry.length, geometry.x, geometry.y), feature (the \
+             number 1..), x.sum() and the other methods over all the features, the node's other inputs (numbers \
+             and texts) by their names. One statement a line (# a comment): name = value, name[where] = value, and \
+             out name = value (or out name) for each attribute given; without out, the last value is the \
+             attribute `column`. An attribute of the same name is replaced, else it is added.",
             Access::None,
         )
         .input(PortSpec::new("vector", Type::Vector, "the features"))
         .extra(Type::Any)
-        .output(PortSpec::new("vector", Type::Vector, "the features with the attribute"))
+        .output(PortSpec::new("vector", Type::Vector, "the features with the attributes"))
         .output(PortSpec::new("table", Type::Table, "their attributes"))
-        .param(PortSpec::new("column", Type::Text, "the attribute's name"))
-        .param(PortSpec::new("expression", Type::Text, "its value, e.g. area / 10000"))
+        .param(PortSpec::optional("column", Type::Text, "the attribute's name (a script without out)"))
+        .param(PortSpec::new(
+            "expression",
+            Type::Text,
+            "its value, e.g. geometry.area / 10000; or a script: density = pop / geometry.area; out dense = density \
+             > 100",
+        ))
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let node = args.node;
         let v = vector_of(args, "vector")?;
         let column: String = args.param("column", String::new())?;
-        if column.is_empty() {
-            return Err(Error::msg(format!("node {:?}: name the column", args.node)));
+        let (script, mut given) = scripted(args, v)?;
+        match (script.outputs().is_empty(), column.is_empty()) {
+            (true, true) => {
+                return Err(Error::msg(format!(
+                    "node {node:?}: name the column, or give the attributes with out (out density = pop / \
+                     geometry.area)"
+                )));
+            }
+            (true, false) => given[0].0 = column,
+            (false, false) => {
+                return Err(Error::msg(format!(
+                    "node {node:?}: the column {column:?} and a script with out: the out lines name the attributes \
+                     (leave the column empty)"
+                )));
+            }
+            (false, true) => {}
         }
-        let values = evaluate(args, v)?;
-        let (v, _) = with_columns(v, vec![(column, values)]);
+        let mut v = v.as_ref().clone();
+        for (name, c) in given {
+            match v.attributes.iter_mut().find(|(n, _)| *n == name) {
+                Some((_, old)) => *old = c,
+                None => v.attributes.push((name, c)),
+            }
+        }
         Ok(out(v))
     }
 }
@@ -371,38 +424,38 @@ impl Operator for Measure {
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let v = vector_of(args, "vector")?;
-        let polys = Geometry::polygons;
-        let mut area: Vec<f64> = v.geometries.iter().map(|g| polys(g).iter().map(|p| polygon_area(p)).sum()).collect();
+        let mut columns: Vec<(String, Vec<f64>)> =
+            MEASURES.iter().map(|m| (m.to_string(), measure(v, m).expect("a measure"))).collect();
         if args.param("geodesic", false)? {
-            area = terraflux_gdal::geodesic_areas(v).map_err(|e| Error::msg(format!("node {:?}: {e}", args.node)))?;
+            columns[0].1 =
+                terraflux_gdal::geodesic_areas(v).map_err(|e| Error::msg(format!("node {:?}: {e}", args.node)))?;
         }
-        let perimeter = v
-            .geometries
-            .iter()
-            .map(|g| polys(g).iter().flat_map(|p| p.iter()).map(|r| length(r, true)).sum())
-            .collect();
-        let lines = v
-            .geometries
-            .iter()
-            .map(|g| match g {
-                Geometry::LineString(l) => length(l, false),
-                Geometry::MultiLineString(ls) => ls.iter().map(|l| length(l, false)).sum(),
-                _ => 0.0,
-            })
-            .collect();
-        let c: Vec<Xy> = v.geometries.iter().map(centroid).collect();
-        let (v, _) = with_columns(
-            v,
-            vec![
-                ("area".into(), area),
-                ("perimeter".into(), perimeter),
-                ("length".into(), lines),
-                ("x".into(), c.iter().map(|p| p[0]).collect()),
-                ("y".into(), c.iter().map(|p| p[1]).collect()),
-            ],
-        );
+        let (v, _) = with_columns(v, columns);
         Ok(out(v))
     }
+}
+
+/// The measures of a geometry, as `vector.geometry` gives them and map algebra reads them (`geometry.area`).
+pub(crate) const MEASURES: [&str; 5] = ["area", "perimeter", "length", "x", "y"];
+
+/// A measure of every feature's geometry, in the features' units: the area and perimeter of polygons (their holes
+/// left out of the area, their rings in the perimeter), the length of lines, the centroid's x and y (of the area,
+/// the length or the points). None for a name that is not one of [`MEASURES`].
+pub(crate) fn measure(v: &Vector, name: &str) -> Option<Vec<f64>> {
+    let polys = Geometry::polygons;
+    let each = |f: &dyn Fn(&Geometry) -> f64| v.geometries.iter().map(f).collect();
+    Some(match name {
+        "area" => each(&|g| polys(g).iter().map(|p| polygon_area(p)).sum()),
+        "perimeter" => each(&|g| polys(g).iter().flat_map(|p| p.iter()).map(|r| length(r, true)).sum()),
+        "length" => each(&|g| match g {
+            Geometry::LineString(l) => length(l, false),
+            Geometry::MultiLineString(ls) => ls.iter().map(|l| length(l, false)).sum(),
+            _ => 0.0,
+        }),
+        "x" => each(&|g| centroid(g)[0]),
+        "y" => each(&|g| centroid(g)[1]),
+        _ => return None,
+    })
 }
 
 /// Features in the coordinate system of others (reprojected by GDAL when both are known and differ).

@@ -405,8 +405,8 @@ pub const SETTINGS: [(&str, &str, bool); 10] = [
     ("value.calc", "expression", false),
     ("table.filter", "expression", false),
     ("table.calc", "expression", false),
-    ("vector.filter", "expression", false),
-    ("vector.calc", "expression", false),
+    ("vector.filter", "expression", true),
+    ("vector.calc", "expression", true),
     ("uncertainty.delta", "expression", false),
     ("uncertainty.monte_carlo", "expression", false),
 ];

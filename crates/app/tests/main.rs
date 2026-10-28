@@ -7,6 +7,7 @@ mod canvas;
 mod charts;
 mod my_nodes;
 mod prepare;
+mod vector_calc;
 mod vector_tiles;
 
 /// Every file of `tests` is a module here (or a program of its own in Cargo.toml): with `autotests = false` a file

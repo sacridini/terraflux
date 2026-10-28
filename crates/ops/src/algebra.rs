@@ -14,6 +14,8 @@
 //!
 //! - **Values:** numbers, `pi`, `None` (a missing cell), `True` and `False` (1 and 0); the node's inputs by port
 //!   name (maps, numbers, stacks) and a stack's layers as `stack.layer` (their names made names: [`band_names`]).
+//!   Texts (`"forest"`, `'forest'`) and `float(x)` are for the attributes of vector features
+//!   ([`crate::vector_algebra`]), refused on maps.
 //! - **Operators:** `+ - * / %`, `**` (a power), comparisons `< <= > >= == !=` (1 or 0; chained as in Python,
 //!   `5 <= x < 8`), `and or not`, `a if c else b`. A missing value makes the result missing (`isnull` tests it).
 //! - **Functions:** `abs sqrt exp log log10 floor ceil round min max clamp(x, lo, hi) isnull(x) coalesce(x, y)`
@@ -43,6 +45,8 @@ use crate::{Args, Ctx, Error, Key, Map, Operator, Outputs, Registry, Result, Sta
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Num(f64),
+    /// A text: `"forest"` (the attributes of vector features).
+    Str(String),
     Var(String),
     /// A layer of a stack: `stack.layer`.
     Layer(String, String),
@@ -57,6 +61,7 @@ pub enum Expr {
 #[derive(Debug, Clone, PartialEq)]
 enum Tok {
     Num(f64),
+    Str(String),
     Id(String),
     Op(&'static str),
     /// The end of a statement: a new line outside brackets, or `;`.
@@ -120,6 +125,33 @@ fn lex(s: &str, script: bool) -> std::result::Result<Lexed, (Error, usize)> {
             }
             let t = &s[start..i];
             out.push(Tok::Num(t.parse().map_err(|_| (Error::msg(format!("{t:?} is not a number")), start))?));
+            lines.push(line);
+            spans.push(start..i);
+        } else if c == '"' || c == '\'' {
+            // a text, between quotes of one kind (a backslash keeps the character after it)
+            let start = i;
+            let mut text = String::new();
+            i += 1;
+            loop {
+                match s[i..].chars().next() {
+                    None | Some('\n') => {
+                        let open = s[start..].lines().next().unwrap_or_default();
+                        return Err((Error::msg(format!("a text not closed (its quote at its end): {open}")), start));
+                    }
+                    Some(q) if q == c => break,
+                    Some('\\') if i + 1 < b.len() => {
+                        let k = s[i + 1..].chars().next().unwrap();
+                        text.push(k);
+                        i += 1 + k.len_utf8();
+                    }
+                    Some(k) => {
+                        text.push(k);
+                        i += k.len_utf8();
+                    }
+                }
+            }
+            i += 1;
+            out.push(Tok::Str(text));
             lines.push(line);
             spans.push(start..i);
         } else if c.is_ascii_alphabetic() || c == '_' {
@@ -221,7 +253,7 @@ impl Parser {
             None => "at the end".into(),
             Some(Tok::End) => "at the end of the line".into(),
             Some(Tok::Num(n)) => format!("before {n}"),
-            Some(Tok::Id(x)) => format!("before {x:?}"),
+            Some(Tok::Str(x)) | Some(Tok::Id(x)) => format!("before {x:?}"),
             Some(Tok::Op(o)) => format!("before {o:?}"),
         }
     }
@@ -424,6 +456,7 @@ impl Parser {
         };
         match t {
             Tok::Num(n) => Ok(Expr::Num(n)),
+            Tok::Str(t) => Ok(Expr::Str(t)),
             Tok::Op("(") => {
                 let e = self.expr()?;
                 self.expect_op(")")?;
@@ -547,6 +580,9 @@ fn check_call(name: &str, args: &[Expr]) -> Result<()> {
     if name == "count" {
         return if args.len() == 1 { Ok(()) } else { Err(Error::msg("count takes 1 value: a stack")) };
     }
+    if name == "float" {
+        return if args.len() == 1 { Ok(()) } else { Err(Error::msg("float takes 1 value: a text attribute")) };
+    }
     let (_, lo, hi) =
         FUNCTIONS.iter().find(|(f, _, _)| *f == name).ok_or_else(|| Error::msg(format!("no function {name:?}")))?;
     if args.len() < *lo || args.len() > *hi {
@@ -627,7 +663,7 @@ impl Script {
         out
     }
 
-    fn at(&self, line: usize, e: Error) -> Error {
+    pub(crate) fn at(&self, line: usize, e: Error) -> Error {
         if self.lines { Error::msg(format!("line {line}: {}", e.0)) } else { e }
     }
 }
@@ -1290,6 +1326,16 @@ impl<'s, 'a> Compiler<'s, 'a> {
     fn lower(&mut self, e: &Expr) -> Result<Val> {
         Ok(match e {
             Expr::Num(x) => Val::One(Arg::Num(*x)),
+            Expr::Str(t) => {
+                return Err(Error::msg(format!(
+                    "a text ({t:?}) is a value of vector features' attributes (vector.calc, vector.filter), not of a map"
+                )));
+            }
+            Expr::Call(f, _) if f == "float" => {
+                return Err(Error::msg(
+                    "float(x) reads a text attribute of vector features as numbers (vector.calc, vector.filter)",
+                ));
+            }
             Expr::Var(name) => self.named_value(name)?,
             Expr::Layer(stack, layer) => {
                 let known = self.vars.contains_key(stack.as_str())
@@ -2143,6 +2189,7 @@ mod tests {
             let n = s.width * s.height;
             Ok(match self {
                 Expr::Num(x) => V::One(*x),
+                Expr::Str(_) => return Err(Error::msg("a text")),
                 Expr::Var(name) => {
                     if let Some(m) = s.maps.get(name.as_str()) {
                         V::Cells(m.to_vec())

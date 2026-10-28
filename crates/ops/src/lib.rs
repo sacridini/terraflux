@@ -100,6 +100,7 @@ pub mod validate;
 pub mod value;
 pub mod values;
 pub mod vector;
+pub mod vector_algebra;
 pub mod vector_tiled;
 pub mod vector_tools;
 pub mod view;

@@ -6,6 +6,22 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- `vector.calc` and `vector.filter` read texts: the features' text attributes compared with texts
+  (`uso == "floresta"`, `"a" <= nome < "n"`), chosen (`"alto" if pop > 100 else "baixo"`, `coalesce`,
+  `uso[pop > 100] = "outro"`), tested with `isnull` (an empty text has no value) and counted (`uso.count()`); a
+  text input of the node compared too, and `float(cod)` reads a text attribute that holds numbers. A text where a
+  number goes (a sum, `uso > 3`, `uso.mean()`) is refused before running, saying what to write instead.
+- The features' measures in their scripts: `geometry.area`, `geometry.perimeter`, `geometry.length`,
+  `geometry.x`, `geometry.y` (those of `vector.geometry`), and `feature`, the feature's number.
+- `vector.calc` runs scripts of many lines, as `raster.calc` does: each `out name = ...` gives an attribute, new
+  or replacing one, and the column is left empty; without `out` the last line goes to the column as before.
+  `vector.filter` runs scripts too, ending with the condition.
+- The assistant and the MCP server write and explain these calculators (write_calc with `op` vector.calc or
+  vector.filter, explain_calc): the script checked and tried on a sample of the features (up to 5000) before the
+  model changes, the reply telling each attribute given (its classes or texts and their shares) or how many
+  features the filter keeps.
+
 ## [1.23.0] - 2026-10-28
 
 ### Added
