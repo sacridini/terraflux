@@ -391,7 +391,9 @@ below anything that matters: here 0.0003 mm at most.
 
 - [Sediment delivery ratio](/tutorials/ecosystem-services/sediment/), the next part: the same watersheds and
   the soil they lose.
-- [Ecosystem service models: the ideas](/tutorials/ecosystem-services/ideas/) for the four services together.
+- [Ecosystem service models: the ideas](/tutorials/ecosystem-services/ideas/) for the series' models together.
+- [Seasonal water yield](/tutorials/ecosystem-services/seasonal-water-yield/), part 7: when the water arrives,
+  monthly quickflow from the curve number, recharge and dry-season baseflow.
 - [Monte Carlo uncertainty](/tutorials/uncertainty/monte-carlo/) to carry the uncertainty of \(Z\) and the
   tables into the yield.
 - The operator's reference: [[services.water_yield]], [[hydro.watersheds]].

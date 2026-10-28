@@ -109,6 +109,9 @@ terraflux submit model.toml --scenarios scenarios.toml --out scenarios
 To run every scenario with replicates, write a scenario per seed (`trend_1`, `trend_2`... with `"$seed"`), or one
 `--replicates` batch per scenario model.
 
+A model can also keep its scenarios in its own file, made and compared in the application's **Parameters** pane
+([below](#in-the-application-parameters-and-scenarios)).
+
 ### Calibration
 
 ```bash
@@ -168,6 +171,61 @@ open it again, and the pane offers to **go on** (the runs done are not run again
 or to let it go. While a batch runs, the computer does not go to sleep. At the end, **Open the folder**, **Show the
 runs of ... in the model** (a [[raster.read]] of `runs/*/file.tif`, every run as one series to analyse), and, for a
 calibration, its scores against each setting and **Apply the best settings to the model**.
+
+### In the application: parameters and scenarios
+
+A model's **parameters** are the values someone using it is meant to change: an input of a value (`$name`) or a
+node's setting (`node.setting`, `loop/node.setting` inside a container), each with a label, a unit, a range, a
+step, a few choices or a line of help. The **Parameters** pane (**View > Parameters**) shows them as a form, so a
+colleague can try another assumption without touching the graph: a slider for a number with a least and a most
+value, a list for a few choices, a box for yes or no, a field for the rest. **+ Parameter** adds one from the
+model's settings and inputs, ✏ edits its label, unit, range, choices and help, and **x** takes it out of the form
+(the model keeps its value). Each change is an edit of the model (++ctrl+z++ undoes it), and the model runs again.
+
+**Scenarios** are sets of those values kept by name. Type a name and press **Save the values** to keep the values
+now as one (a scenario of the same name is replaced). Each scenario's row has a box to check it for a
+comparison, its values, **Apply** (its values in the model) and **x** (forget it). The model file keeps both:
+
+```toml
+[[parameters]]
+key = "patches.isometry"
+label = "Isometry of the new patches"
+min = 0.5
+max = 2.5
+step = 0.5
+help = "The isometry of the new patches."
+
+[[scenarios]]
+name = "compact_growth"
+note = "The trend, with an isometry of 2."
+values = { "patches.isometry" = 2.0 }
+```
+
+These are not the `[[scenario]]` tables of a scenarios file for `submit`: in the model they are `[[scenarios]]`
+with `values`. `terraflux run model.toml --scenario compact_growth` runs one from the command line.
+
+To compare scenarios, check them, choose the output to compare (the model's outputs, the values its plots show,
+else each node's first output) and press one of:
+
+- **Compare**: each scenario checked runs here, one after the other, up to that output;
+- **Compare in Many runs**: the scenarios checked run at once as a batch of the Many runs pane, wherever its **Run
+  on** says (this computer and those helping it, or a cluster), each run keeping only the output compared. The
+  pane says *running in Many runs* until the batch ends.
+
+Either way, the results come back to the Parameters pane side by side, a column per scenario in the pane's order.
+The first is the reference: under each of the others, its difference from the first. For a series (the maps of a
+simulation), the last step is compared. Continuous maps, tables of the same shape and numbers are subtracted
+("the others less this one"). **Maps of classes** (land use, MSPA's classes: whole numbers that the viewer draws as
+classes) are not subtracted, since class 3 minus class 2 means nothing: the difference is a map of the **changes**,
+the class each cell changed to and nothing where it stayed the same. Under it are how many cells changed class
+(*N cells changed class (S%)*, the share of the cells that have a value in both maps) and the five most common
+changes, from the first scenario's class to this one's, with their cells (*2 → 3: 8517*). This is what to read
+when two scenarios of a land change model are compared: not only how much forest each leaves, but where they
+differ and into what.
+
+**To Many runs** puts all the scenarios in the Scenarios tab of Many runs (a row each, a column per value), for a
+batch with every option of that pane; **Calibrate** puts the parameters that have a range in its Calibration tab,
+each tried from its least to its most value (five values, or one per step when they are fewer).
 
 ## Read the results
 

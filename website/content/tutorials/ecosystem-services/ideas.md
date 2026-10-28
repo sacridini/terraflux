@@ -1,7 +1,7 @@
 ---
 title: "Ecosystem service models: the ideas"
 short: 1. The ideas
-description: What an ecosystem service model is, how InVEST turns a land use map and a few tables into maps of carbon, habitat, water and sediment, how Terraflux runs InVEST's models, and a first run on four services at once.
+description: What an ecosystem service model is, how InVEST turns a land use map and a few tables into maps of carbon, habitat, water, sediment, nutrients and pollination, how Terraflux runs InVEST's models, and a first run on four of them at once.
 order: 10
 level: beginner
 time: 35 min
@@ -13,10 +13,11 @@ part: 1
 A forest stores carbon, shelters species, takes water from the soil and holds the soil on the slope. Clear it for
 pasture and all four change at once: less carbon, less habitat, more water running off, more mud in the river.
 **Ecosystem service models** put numbers on those changes, map by map, so that a land use plan, a restoration
-project or a scenario of the future can be compared on more than its hectares. This series teaches the four
-models of **InVEST** that Terraflux runs: carbon storage, habitat quality, annual water yield and sediment
-retention. In this first part you will learn what these models have in common, what they need and what they can
-and cannot tell you, and you will run all four on one landscape, for today and for a scenario of 2040.
+project or a scenario of the future can be compared on more than its hectares. This series teaches the seven
+models of **InVEST** that Terraflux runs: carbon storage, habitat quality, annual water yield, sediment
+retention, nutrient retention, seasonal water yield and crop pollination. In this first part you will learn what
+these models have in common, what they need and what they can and cannot tell you, and you will run four of them
+on one landscape, for today and for a scenario of 2040.
 
 ## The idea
 
@@ -72,11 +73,13 @@ to people at all but the state of biodiversity, which is why it is so often run 
 
 ### InVEST in Terraflux
 
-Terraflux's four operators (in the library's subject *Ecosystem services*) are InVEST 3.20's models as
+Terraflux's seven operators (in the library's subject *Ecosystem services*) are InVEST 3.20's models as
 **landschaft**, the library behind Terraflux, reimplements them in C++: the same inputs, the same equations, and
 the same arithmetic (the same 32-bit floating point numbers, the same order of the sums), so that the maps are
 InVEST's **bit for bit**. You can check it: the table below compares Terraflux with InVEST 3.20.2 on InVEST's own
-runs (the reference cases landschaft is tested against), cell by cell.
+runs (the reference cases landschaft is tested against), cell by cell. The seasonal water yield model is the one
+exception: landschaft corrects four errors of InVEST 3.20.2 in it, so only part of its maps are InVEST's to the bit
+([part 7](/tutorials/ecosystem-services/seasonal-water-yield/) says which).
 
 ```tftable
 data: /data/tutorials/ecosystem-services/ideas/against-invest.csv
@@ -126,7 +129,7 @@ What these models are **not**:
 ## What you need
 
 **A land use map** in a *projected* coordinate system, in metres (a *CRS*, coordinate reference system, says how
-the numbers of the map relate to places on Earth; a projected one, such as UTM, measures in metres). The four
+the numbers of the map relate to places on Earth; a projected one, such as UTM, measures in metres). These four
 operators refuse a map in longitude and latitude, as InVEST does, because they need the area of a cell in
 hectares and distances in metres. The codes must be whole numbers; cells with no value (outside the study area)
 are left out. See [Coordinate systems](/tutorials/getting-started/coordinate-systems/) if your map is not
@@ -153,7 +156,7 @@ has class(es) [7] that the table lacks"). Classes in the table that the map lack
 
 ### The landscape of this series
 
-The four tutorials use **Ribeirão Claro**, an imaginary landscape made for them (the numbers are invented, the
+The tutorials of this series use **Ribeirão Claro**, an imaginary landscape made for them (the numbers are invented, the
 methods are real): 7.2 by 5.4 km of hills between 530 and 1,100 m in cells of 30 m, in SIRGAS 2000 / UTM zone 23S
 (EPSG:31983). Two valleys drain south; native forest covers the steep slopes, pasture and cropland the gentler
 ground, with four eucalyptus plantations and a town near the outlets. Download it to follow along:
@@ -338,8 +341,14 @@ Three choices change every model of this series:
 - [Annual water yield](/tutorials/ecosystem-services/water-yield/): Budyko's curve, consumption and hydropower.
 - [Sediment delivery ratio](/tutorials/ecosystem-services/sediment/): soil loss, connectivity, export and
   retention.
+- [Nutrient delivery ratio](/tutorials/ecosystem-services/nutrients/): nitrogen and phosphorus, their loads and
+  what the land between a field and the river retains.
+- [Seasonal water yield](/tutorials/ecosystem-services/seasonal-water-yield/): quickflow, recharge and baseflow
+  month by month.
+- [Crop pollination by wild bees](/tutorials/ecosystem-services/pollination/): guilds of bees, their nests and
+  flowers, and the pollination of coffee farms.
 - The operators' reference: [[services.carbon]], [[services.habitat_quality]], [[services.water_yield]],
-  [[services.sdr]].
+  [[services.sdr]], [[services.ndr]], [[services.seasonal_water_yield]], [[services.pollination]].
 
 ## References
 

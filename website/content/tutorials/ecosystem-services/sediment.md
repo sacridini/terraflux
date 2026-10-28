@@ -368,7 +368,9 @@ caption: "Export and deposition of the two watersheds with each routing, and wit
 
 ## Going further
 
-- [Ecosystem service models: the ideas](/tutorials/ecosystem-services/ideas/) for the four services together.
+- [Ecosystem service models: the ideas](/tutorials/ecosystem-services/ideas/) for the series' models together.
+- [Nutrient delivery ratio](/tutorials/ecosystem-services/nutrients/), the next part: nitrogen and phosphorus on the
+  same connectivity.
 - [Annual water yield](/tutorials/ecosystem-services/water-yield/) on the same watersheds.
 - [Terrain from an elevation model](/tutorials/surface-metrics/terrain/) for slopes and the shape of the land.
 - The operators' reference: [[services.sdr]], [[hydro.connectivity_index]], [[hydro.watersheds]].

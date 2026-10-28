@@ -32,6 +32,9 @@ Windows 10 and 11, 64-bit.
     Terraflux again with the model. Its version is beside its name at the top left, in the window's title and in
     the settings (**Check now** there asks at once).
 
+    The updater of Terraflux 1.20.0 and older closed Terraflux and installed nothing: from one of those, install
+    1.21.0 or later by hand once, and the updates work from then on.
+
     To remove it: **Settings > Apps > Installed apps > Terraflux > Uninstall** (no administrator either).
 
     !!! note "Installed by a version before 1.18?"
@@ -72,6 +75,13 @@ download small.
     ctrl-click) **Terraflux** in Applications and choose **Open**, then **Open** again in the dialog. macOS
     remembers the choice; from then on a double click works.
 
+**Updates.** As on Windows, Terraflux asks GitHub for a newer version when it starts (once a day; turn it off in
+the settings, ⚙), and **Update to X.Y.Z** appears in orange at the top. When `Terraflux.app` is in a folder you
+may write, it updates itself: it downloads the release's `.zip`, checks it against the release's checksums,
+unpacks it beside the application, then closes, puts the new `Terraflux.app` in the place of the old one and
+opens again with the model. If the application is in a folder you may not write, the window offers **Open its
+page** instead: download the new version from there and install it as the first time.
+
 ## Linux
 
 x86-64 with glibc 2.39 or newer: Ubuntu 24.04 and later, Debian 13, Fedora 40 and later, and other distributions
@@ -104,6 +114,20 @@ Both bring GDAL (its library and every library it needs except the C and C++ run
 data and the web's certificates) and the OpenMP runtime. The application also needs your desktop's own graphics
 libraries: **EGL or Vulkan**, and **X11's `libxkbcommon-x11`** or **Wayland**. A desktop installation has them; a
 minimal server or container does not (see below). The command line alone (`terraflux run`) needs none of them.
+
+**Updates.** Terraflux tells of a newer version as on Windows (**Update to X.Y.Z**, in orange at the top), and
+how it updates itself depends on how it was installed:
+
+- **The archive (.tar.gz)**, in a folder you may write: the release's `.tar.gz` is downloaded, checked against
+  the release's checksums and unpacked beside the folder; Terraflux closes, the new folder takes the place (and
+  the name) of the old one, and Terraflux opens again with the model.
+- **The packages (.deb, .rpm, Arch's .pkg.tar.zst)**, in `/opt/terraflux`: the new package is downloaded and
+  checked, Terraflux closes, and the system's package manager installs it (`dpkg`, `rpm` or `pacman`), asking for
+  the administrator's password through `pkexec`; then Terraflux opens again with the model. This needs `pkexec`
+  (part of polkit, which most desktop installations have) on the PATH.
+
+Without these (a folder you may not write, no `pkexec`, Terraflux built from source), the window offers **Open
+its page**, to download the new version and install it by hand.
 
 ## The command line
 
@@ -142,6 +166,15 @@ sudo apt install libegl1 libxkbcommon-x11-0
 On a server without a screen, use the command line only: `terraflux run`, `check` and `submit` do not open a
 window. A message about `GLIBC_2.39` means the distribution is older than the packages; use a newer one, or build
 Terraflux from source (see the README in the repository).
+
+### An update did not install
+
+When Terraflux opens again after an update and is still the old version, the top of the window says **the update
+failed**; its tooltip, and **Updates** in the settings, say *Terraflux X.Y.Z was not installed (this is still
+...); its log: ...*. The log is `terraflux-update.log` in the system's temporary folder: the installer's own log
+on Windows (`%TEMP%\terraflux-update.log`), the output of the script that replaced the application or ran the
+package manager on macOS and Linux. A wrong administrator's password, or the dialog of `pkexec` closed, ends there
+as *not installed*. Read it, then install the new version by hand from the [download page](/download/).
 
 ### The window stutters when it is moved or resized
 

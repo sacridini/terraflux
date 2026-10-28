@@ -228,6 +228,19 @@ before: { src: /img/tutorials/land-change/validating-a-simulation/change_observe
 after: { src: /img/tutorials/land-change/validating-a-simulation/change_simulated.png, label: Simulated change }
 ```
 
+!!! app "Why was this cell missed? Trace it"
+    The map of outcomes says *where* the model was wrong; the application's **Trace** says *why* at one cell. In the
+    model that simulates (the template **Dinamica EGO**, or the model of the
+    [Dinamica series](/tutorials/land-change/dinamica-on-sibuyan/)), select the loop, click a cell of its map that is
+    a miss or a false alarm, then **Trace this cell** and, in the Trace pane, **Trace inside the loops**: the model
+    runs again keeping what the loop gives at that cell, step by step. The loop's card then tells the steps at
+    which the cell changed class, each with the rate of its transition (Dinamica's Markov chain: the share of the
+    cells of the origin class that change each step) or, in a CLUE-S model, the step's demand (the cells of each
+    class, and how many more or fewer than at the step before); a missed cell says that its class stayed the same at
+    every step. Traced on a few hits, misses, wrong hits and false alarms, this tells when the model changed each
+    cell and to what, beside what was observed, and how much change that step had to place. See the
+    [tour](/tutorials/getting-started/tour/#why-a-cell-has-its-value-trace) for the Trace pane.
+
 ### Against the yardsticks
 
 The same comparisons for the model, for the same model with two drivers only (elevation and slope), and for

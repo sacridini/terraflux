@@ -274,11 +274,19 @@ On the canvas its box names it `forest_hsi@1`, and its ports have the colours of
 
 Your nodes are listed in the **Operators** pane under **My nodes** (the search finds them by name and by what they
 do) and in the commands (`Add forest_hsi@1`). A click adds one after the node selected, as an operator is added.
-Hover over it to see what it takes and gives.
+Hover over it to see what it takes and gives. The quick search finds them too: press ++slash++ anywhere, type
+`hsi`, and your nodes come first, named `my:forest_hsi`; ++enter++ adds the one chosen.
 
 When you connect a stack to it, Terraflux checks the layers it reads: a land use stack whose bands are named
 otherwise (`lu_1997`, say) is told at once, in the node's pane and when the model runs, with the layers missing
 and those the stack has.
+
+A node of yours is set like an operator. Its inputs that take a value (a number, a whole number, yes or no, a
+text) and that no other node feeds are its **settings**: in the Node pane they are under **Settings**, each
+field showing the node's own value (the one given in the dialog) until you type another, and emptying the field
+gives that value back. On the canvas they are folded away with the optional inputs, so the box shows only the
+data it takes. Connect another node's output to one, and it is an input again. A threshold saved with the node,
+say `min_hsi = 0.6`, is then a setting the next user can change without opening the node.
 
 ### Versions
 
@@ -310,6 +318,34 @@ model of last year gives the same result today, even if you have improved the no
 a model only when you press **Update to forest_hsi@2** in the node's pane (what the node is given is kept where the
 new version still takes it). The pane also tells when the node was changed inside the model since its version, and
 offers to save the change as a new version, or to make it a plain group again.
+
+### Libraries shared with your group
+
+Your library is a folder of files, one per version (`forest_hsi@1.toml`, `forest_hsi@2.toml`...). A lab that
+uses the same habitat index, the same cleaning of a land cover map or the same set of thresholds can keep such
+nodes in a **shared library**: a folder on a shared drive, or a repository that everyone clones.
+
+!!! app "In the application"
+    Open the settings (⚙). Under **Node libraries**, the first line is the folder of your own library; **Add a
+    shared library...** adds another folder, and **x** beside one stops using it here (its folder stays). A folder
+    that is gone is marked *(not found)*. The nodes of each shared library are listed in the **Operators** pane
+    beside yours, in a section named after its folder, and the quick search (++slash++) finds them as it finds
+    yours. When you save a node and there is a shared library, the dialog's **Library** chooses where it goes;
+    its version is the next one in that library.
+
+A few things to know:
+
+- **The same name in two libraries.** Your own library comes first, then the shared ones in their order in the
+  settings; a node of a name is taken from the first library that has it.
+- **Taking a node out.** A right click on it in the Operators pane offers to take it out of its library, every
+  version. The models that use it, yours and others', keep their copies and still run.
+- **A colleague does not need the library to run your model**, since the model keeps its copy of the version;
+  a shared library is for building new models with the same nodes.
+- **The assistant uses them too**: its tools (and those of `terraflux mcp`) list the nodes of your libraries,
+  describe one by its name (`my:forest_hsi`) and add it to a model with its settings.
+
+The folder of your own library is `nodes` in Terraflux's settings folder, unless the environment variable
+`TERRAFLUX_NODES` names another (see [Environment and files](/cli/environment/)).
 
 ## The language in full
 

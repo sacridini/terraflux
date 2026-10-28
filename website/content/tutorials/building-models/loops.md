@@ -251,6 +251,25 @@ loop and prints each step.
     In the application, a loop's collected series named `maps` is followed as the run goes: the cells of each
     class at every step are counted and drawn in the **Areas** pane.
 
+### Step 5: run it step by step
+
+A rule that goes wrong usually goes wrong at a step you can name: the city jumps at step 1, or stops moving at
+step 12. To look at each step as it comes, run the loop **step by step**, as a programmer stops a program at a
+breakpoint.
+
+!!! app "In the application"
+    Turn on **Step** in the toolbar, beside **Run** and **Stop**, and run the model (++f5++). The run pauses after
+    each step of a loop (not after its last), and in place of the progress the toolbar says where it is:
+    *paused at growth: step 2 of 25*. Then:
+
+    - **Next** runs the next step and pauses again;
+    - **Continue** runs on to the end without pausing, and turns **Step** off (as turning it off yourself does);
+    - **Stop** stops the run where it is.
+
+    Because the series is named `maps`, the **Simulation** pane shows each step's map as it comes, and the
+    **Areas** pane its cells of each class, so you can watch the city take its cells one step at a time. Unless
+    you pressed **Continue**, **Step** is still on for the next run.
+
 ## Read the results
 
 ```tfslider

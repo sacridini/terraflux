@@ -1,0 +1,7 @@
+class,cells,precipitation,quickflow,aet,recharge,baseflow
+Forest,17077,1563,61,1131,371,372
+Pasture,15501,1470,59,904,506,506
+Cropland,8225,1516,60,827,630,630
+Eucalyptus,611,1508,15,1214,280,280
+Urban,624,1418,255,365,798,798
+Water,260,1410,1160,1222,-972,0

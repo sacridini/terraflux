@@ -1,0 +1,11 @@
+transition,ha,quickflow,aet,baseflow
+Pasture to Cropland,565,42.7,-63.2,20.5
+Forest to Pasture,532,72.1,-259.9,187.5
+Forest to Cropland,82,112.0,-308.8,196.7
+Pasture to Forest,61,-102.5,271.3,-154.3
+Cropland to Forest,54,-151.6,331.3,-176.2
+Pasture to Urban,33,174.0,-550.7,376.6
+Cropland to Urban,27,76.0,-488.1,412.0
+Pasture to Eucalyptus,19,-39.1,315.1,-276.0
+Forest to Urban,13,337.4,-812.3,474.9
+Forest to Eucalyptus,9,16.6,54.6,-71.2

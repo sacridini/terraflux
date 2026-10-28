@@ -399,7 +399,7 @@ densities at once, run the model many times with values drawn from their ranges
 
 - [Habitat quality and rarity](/tutorials/ecosystem-services/habitat-quality/), the next part: the same
   landscape seen as habitat.
-- [Ecosystem service models: the ideas](/tutorials/ecosystem-services/ideas/) for the landscape and the four
+- [Ecosystem service models: the ideas](/tutorials/ecosystem-services/ideas/) for the landscape and the series'
   models together.
 - [Monte Carlo uncertainty](/tutorials/uncertainty/monte-carlo/) to carry the uncertainty of the densities into
   the totals.

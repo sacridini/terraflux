@@ -66,17 +66,23 @@ Here is the same window after a template has run, with its parts numbered:
 
 ![The parts of the window](/img/tutorials/getting-started/tour/window.png "The window with the template 'MSPA of a forest' run. Numbers are explained below. Screenshot of Terraflux 0.79 on Windows (the theme Default).")
 
-1. **The toolbar.** *New* (an empty model), *Open...* (a model file), *Templates* (models to start from),
-   *Operators* (the library as a menu), *Settings*, *Many runs...*, *Computers...*, *Wizard...* (a land change
-   model built step by step from your maps), *View* (panes on and off), *Save* and *Save as...*.
+1. **The toolbar.** The **File** menu (*New model*, *Open...*, *Open recent*, *Save*, *Save as...*, *Open a raster
+   or vectors...*, *Compare* and *Export report...*), *Templates* (models to start from), *Operators* (the library
+   as a menu) and *View* (panes on and off); at the right, *Wizard...* (a land change model built step by step from
+   your maps), *Many runs...*, *Computers...*, *Assistant...* and **⚙**, the settings.
 2. **Run and Stop**, then the model's name and how long the last run took (*done in 0.04 s*). **Run** (++f5++) runs
-   the whole model.
+   the whole model. Beside them, **Step** pauses a run after each step of a loop, until *Next* or *Continue* (see
+   [Loops](../../building-models/loops/#step-5-run-it-step-by-step)).
 3. **The Node pane**: the node you selected. Its name (which you can change with *Rename*), its operator
-   (`landscape.mspa`) and what that operator does, **Why** (the node's note: why it is in the model), its
-   **Inputs** (what is connected to it), its **Settings**, and *Delete node*.
+   (`landscape.mspa`) and what that operator does, its **Inputs** (what is connected to it), its **Settings**, then
+   its record: **Note** (what the node is for, shown on the canvas), **Why** (why this operator and these
+   settings), the collapsible **References, assumptions, alternatives**, and *Delete node*. With no node selected,
+   the pane holds the model's own record (its name, description, request, summary and author).
 4. **The Prepare pane**, a tab beside Node: the data of the node selected compared with the model's *reference
    grid*, and the steps that put it on that grid in a click (see [One grid for all your maps](../one-grid/)).
-5. **The Model pane**: the canvas where the nodes and their connections are drawn. A node is as wide as its
+5. **The Model pane**: the canvas where the nodes and their connections are drawn. Its tab has the **Document**
+   tab beside it, the same model read as text ([The model's document](../../building-models/the-model-document/)).
+   A node is as wide as its
    names need (an input's and an output's never run into each other); drag its right edge to make it wider, and
    double-click the edge to bring it back to the width its names need.
 6. **The Model pane's bar**: where you are in the model (*Whole model*, or inside a loop), **Run to here** (run the
@@ -223,6 +229,38 @@ and the MSPA tab shows wider edges and smaller cores. Settings with a few possib
 Hover over the name of a setting to read what it means. Every setting of every operator is also in the
 [operator reference](/operators/).
 
+### Why a cell has its value: Trace
+
+Looking at every step tells you what each node gives. **Trace** answers a narrower question that comes up as soon
+as a result surprises you: why does *this* cell have *this* value? Select `mspa`, click a cell of the forest's core
+in the Viewer (the cell is outlined), and click **Trace this cell** in the bar above the map; a right click on the
+cell offers the same in a menu. The **Trace** pane opens at the right of the window. At its top are the node and the
+cell (its row, its column and its coordinates) and a sentence that sums up the answer; under it, a card per node,
+from the cell back through the graph to the data, each with the node's value at that cell and how the node made it:
+
+- for map algebra ([[raster.calc]]), its expression, and the same expression with the cell's values in place of
+  the names (`2 if 1 == 1 and 0.71 > 0.45 else 1`);
+- for an operator that reads the cells around (a moving window), the window of values around the cell;
+- for an operator that works patch by patch ([[raster.label]], [[raster.sieve]], [[landscape.mspa]],
+  [[metrics.patch]]...), the whole **patch** the cell is in: its class, how many cells it has, joined by 4 or 8
+  neighbours as the operator joins them, and the rows and columns it spans. Here the card of `mspa` names the patch
+  of `forest` (class 2) the cell belongs to: a core cell is part of a patch of forest wide enough to have a core;
+- for an operator that uses the whole map (a regression fitted, a Markov chain), what it does, in a sentence;
+- for the data read or drawn, nothing more: the chain ends there.
+
+A card's name selects its node and shows that node's map in the Viewer with the same cell outlined, so you can
+walk the chain on the maps themselves; the name of an input in a card jumps to that input's card. When the model
+has a loop, **Trace inside the loops** runs it again keeping what the loop's nodes give at that cell, step by step.
+A land change allocation ([[lulcc.step]] for CLUE-S and ordered allocation, [[dinamica.step]] for Dinamica EGO's
+Expander and Patcher) then tells the steps at which the cell changed class and, at each, the step's demand (the
+cells of each class, and how many more or fewer than at the step before) or the rate of its transition; a cell that
+never changed says so. Inside a group, the node selected shows its map in the Viewer too, named by its place in the
+group (`preparation/temperature`), and its cells are traced the same way.
+
+**Copy** copies the trace as text. **Ask the assistant why** gives it to the application's assistant, to explain
+in words; **Explain with an MCP assistant**, in the cell's right-click menu, keeps it for an assistant connected
+through `terraflux mcp` and copies a request to paste in it ([AI assistants](/cli/assistants/)).
+
 ## The operators' library
 
 Terraflux has about 300 operators. There are three ways to add one to a model.
@@ -293,9 +331,27 @@ it (and ++b++ again takes it away).
     a real place usually has one. A basemap also needs an Internet connection the first time an area is shown. See
     [Coordinate systems](../coordinate-systems/) for files without a CRS.
 
+## The model as a document
+
+Beside the Model pane's tab is the **Document** tab: the same model read as the methods section of a paper, for
+whoever reads, checks or reviews it rather than builds it. Its nodes are told in stages (*Data*, *Preparation*,
+*Model*, *Validation*, *Results*), a step each, with its note, a sentence of what it does with its settings and
+where its inputs come from ("MSPA's patterns of forest: connected by 8 neighbours, the edges 1 cell wide."), its
+settings, and its map or table from the last run; the plots are its numbered figures. A step's name selects its
+node, and a setting can be changed there as in the Node pane. **Export report...** writes it as a web page or a PDF.
+[The model's document](../../building-models/the-model-document/) explains it all.
+
+## The Changes pane
+
+The **Changes** pane (**View > Changes**) lists what changed in the model since an earlier version of it, node by
+node, each change to keep or undo: what an AI assistant changed, or the differences with the saved file, with a
+commit of the model's file in git, or with another model file (**File > Compare**). For a node changed, it shows its
+map or table before and now, side by side. [AI assistants](/cli/assistants/#the-changes-pane-what-the-assistant-changed)
+explains it.
+
 ## Settings
 
-**Settings** in the toolbar opens a small window:
+**⚙** at the right of the toolbar opens the settings, a small window:
 
 - **Theme**: the colours of the window (*Default*, *Immaterial*, *Riparian*, *Angst Robot*, *Twenty Four Carat*);
 - **Text size** and **Interface zoom**: for a small laptop screen or a projector;

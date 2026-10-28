@@ -510,6 +510,8 @@ model with each changed by, say, half, and see which conclusions survive.
 - [Annual water yield](/tutorials/ecosystem-services/water-yield/), the next part.
 - [Carbon storage and sequestration](/tutorials/ecosystem-services/carbon/) for the same scenario in tons of
   carbon.
+- [Crop pollination by wild bees](/tutorials/ecosystem-services/pollination/), part 8: the forest as the home of
+  the bees that pollinate the farms around it.
 - [Ecological intactness](/tutorials/distance-restoration/ecological-intactness/), another index of how intact a
   landscape is, from the distance to human pressures.
 - [Fragmentation](/tutorials/fragmentation/fragmentation-and-habitat-loss/) and

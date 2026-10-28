@@ -25,6 +25,15 @@ minor versions.
   in full, recipes and pitfalls, and a playground where scripts run as you type over Sibuyan's maps and land-use
   patches, computed in the browser by Terraflux's own map algebra built to WebAssembly (the crate
   `terraflux-calc-web`). Every example on the pages gives what `terraflux run` gives.
+- The website's series on ecosystem services has three parts more, each from real runs on Ribeirão Claro:
+  nutrient delivery (`services.ndr`), seasonal water yield (`services.seasonal_water_yield`) and crop pollination
+  by wild bees (`services.pollination`). New pages and sections for the application: the model's document and its
+  reports, Trace, the Changes pane, the application's own assistant, Step through a loop, the Parameters pane and
+  Compare in Many runs, shared node libraries (`TERRAFLUX_NODES`) and updates on macOS and Linux.
+
+### Fixed
+- `terraflux run model.toml` (a model named without its folder) stopped with "cannot make an empty path
+  absolute": a model's folder is now the current one when its path names none, in every command.
 
 ## [1.23.0] - 2026-10-28
 

@@ -20,12 +20,13 @@ problems found in it, and summaries of the results).
 | Tool | What it does |
 |---|---|
 | `list_templates`, `new_model` | Lists the templates (small models that run as they are) and starts a model, empty or from a template |
-| `list_operators`, `describe_operator` | Finds operators by what they do; gives an operator's inputs, outputs and settings, with an example node |
-| `add_node`, `edit_node`, `remove_node` | Adds a node connected and set, changes it (its connections, settings, note, name), removes it |
+| `list_operators`, `describe_operator` | Finds operators by what they do; gives an operator's inputs, outputs and settings, with an example node. The nodes of your own and shared [libraries](/tutorials/building-models/calculator/#libraries-shared-with-your-group) are listed too, named `my:name` |
+| `add_node`, `edit_node`, `remove_node` | Adds a node connected and set (an operator, or a node of your libraries by its `my:name`), changes it (its connections, settings, note, name), removes it |
 | `set_input`, `set_output`, `edit_container` | The model's inputs and outputs, and what a loop or group carries, collects or gives |
 | `show_model`, `check_model`, `arrange` | Shows the model as text, checks it and its data, and puts its nodes in tidy columns |
 | `write_calc`, `explain_calc` | Writes a calculator's script ([raster.calc, vector.calc or vector.filter](../../calculators/)), checked and tried on a sample of its inputs before the model changes, and takes a script apart: what each name holds |
 | `run_model`, `inspect_file` | Runs the model, then summarises a result: a raster's classes or statistics, a table's first lines |
+| `trace_cell`, `last_trace` | Tells why a cell of a result has its value, node by node back through the model; or reads the cell you traced last in the application (see [the tour](/tutorials/getting-started/tour/#why-a-cell-has-its-value-trace)) |
 | `open_in_app` | Opens the model in the application you have open (a new window when none is, or when yours has edits not saved) |
 
 Every edit is checked the way the application checks the edits you make yourself. A connection of the wrong
@@ -146,6 +147,33 @@ A good way to work:
     assistant's version is taken with your nodes where you put them. To avoid the question, save before asking
     the assistant for more.
 
+## The application's own assistant
+
+The application has an assistant of its own too, in the **Assistant** pane (**View > Assistant**): a chat with a
+language model on a server you choose, which reads, explains, changes and runs the model open with the same tools
+as `terraflux mcp`. Its **⚙** (the server's settings) starts with a list of servers: *HU Berlin (KI-Service)*,
+*GWDG Chat AI (Academic Cloud)*, *Ollama (this computer)* and *LM Studio (this computer)* (offline, no key),
+*OpenAI*, *Claude (Anthropic)*, and *Other* (any server of OpenAI's chat completions API). A key, when the server
+needs one, is kept in your system's store of credentials. **Test the connection** checks that the server answers,
+has the model, and lets it call tools.
+
+While it works, the nodes it reads or changes **glow on the canvas**: a halo in the accent colour that widens and
+fades in a couple of seconds, so you can follow which part of the model it is looking at. Each change it makes is an
+edit of its own (++ctrl+z++ undoes it), and its pane counts the changes not reviewed yet (*3 change(s) to review*),
+with **Review**, **Accept all** and **Reject all**.
+
+!!! note "Evaluate this model"
+    Language models differ a lot in how well they use Terraflux's tools, and a small model on your own computer may
+    not manage what a large one does. Under **Evaluation**, in the server's settings, **Evaluate this model** asks
+    the server's model the same 8 tasks every model gets, one after another, each in a model of its own (not the
+    one open): drawing a neutral landscape and running it, a threshold in [[raster.calc]], a template changed, a
+    model fixed, a node explained without changing the model, landscape metrics, a rename that keeps the
+    connections, and a loop. Each is checked on what the assistant made (the threshold cell by cell, the loop's
+    last number, the model left unchanged...), with the seconds it took and the tools it called; a task can take
+    minutes, and **Stop** ends the evaluation. The last score of each model is kept and shown with its server
+    (*2 of 8 tasks*, the date, and why each failed task failed), so the models you try are compared on the same
+    tasks.
+
 ## Check what the assistant built
 
 An assistant can be wrong: it may choose an operator that does not fit your question, or a setting that does not
@@ -156,6 +184,41 @@ Before you use the results:
 - check the settings that carry ecological meaning (an edge width, a dispersal distance, a threshold) against
   your species and your data;
 - compare a result with what you know of the place, as you would for any model you built yourself.
+
+### The Changes pane: what the assistant changed
+
+When an assistant changes the model open in the application, Terraflux keeps the model as it was before the first
+change and lists what differs from it in the **Changes** pane, at the right of the window. When the change comes
+through `terraflux mcp`, the pane comes to the front as soon as the application reads the changed file; the
+[application's own assistant](#the-applications-own-assistant) counts its changes in its pane instead, and its
+**Review** opens them here. **View > Changes** opens the pane at any time. It works like the review of a pull
+request: you go through the changes one by one and keep or undo each.
+
+Each change is a card, marked **+** for a node added, **~** for a node changed and **−** for a node removed; the
+model's inputs, its outputs and its record (its name, description, request, summary and author) have cards of their
+own. Under the title, a line per difference, before and after: `setting edge_width: 1 → 2`, `input map:
+forest.map`, a note or a why rewritten, a node added inside a loop. A node that was only moved on the canvas is not
+a change. On the canvas, the nodes added are outlined in green and the nodes changed in amber.
+
+For a node added or changed, the card also shows what its first output gives, **before** the changes and **now**:
+two small maps side by side, drawn in the same colours, or two tables side by side, in which the cells that changed
+(matched by the row and by the column's name) are in amber, and a column only one of the tables has is in red
+(before) or green (now). A number or a text is said in words. *Before* is what the last run before the changes
+gave; *now* fills in when the model runs again. This is the quickest way to see whether a new threshold changed
+the map a little or a lot.
+
+On each card, **✔** keeps the change (it leaves the list), **✖** undoes it (the model as it was there, an edit
+that ++ctrl+z++ undoes in its turn), and **Show** selects the node on the canvas. **Accept all** keeps every change
+and **Reject all** puts the whole model back as it was. When no change is left, the review ends.
+
+!!! tip "Compare the model with an earlier version"
+    The same pane compares the model with any other version of it. **File > Compare** offers **Compare with the
+    saved file** (the edits not saved yet), **Compare with the last commit (git)**, **Compare with a commit
+    (git)** (the last 50 commits of the model's file, each with its short hash, date and message) and **Compare
+    with a file...** (another model file). The Changes pane then lists what differs from that version, to keep or
+    undo one by one; that version has not been run, so its side of the maps and tables says *not run*. If you
+    keep your models in a git repository (git must be installed), this is how you see everything an assistant,
+    a colleague or you yourself changed since a version you trust, before you report its results.
 
 Terraflux keeps the model as a plain file, so the work stays reproducible: what the assistant built runs again
 with `terraflux run`, without the assistant.
