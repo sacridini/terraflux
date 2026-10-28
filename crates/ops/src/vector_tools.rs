@@ -13,6 +13,7 @@ use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 use terraflux_raster::vector::{Column, Geometry, Vector, Xy};
 
 use crate::algebra::{Script, parse_script};
+use crate::measures::{MEASURES, measure, polygon_area, ring_area};
 use crate::raster_neighbours::patches;
 use crate::signatures::NumpyRng;
 use crate::vector::{attribute_table, vector_of, with_columns};
@@ -34,79 +35,6 @@ pub fn register(r: &mut Registry) {
 fn out(v: Vector) -> Outputs {
     let t = attribute_table(&v);
     outputs([("vector", Value::Vector(Arc::new(v))), ("table", Value::Table(t))])
-}
-
-/// The signed area of a ring (its last point the first or not): positive when it turns counterclockwise.
-fn ring_area(r: &[Xy]) -> f64 {
-    let n = r.len();
-    (0..n).map(|i| r[i][0] * r[(i + 1) % n][1] - r[(i + 1) % n][0] * r[i][1]).sum::<f64>() / 2.0
-}
-
-/// The length of a line, or of a ring closed.
-fn length(l: &[Xy], closed: bool) -> f64 {
-    let d = |a: Xy, b: Xy| ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt();
-    let open: f64 = l.windows(2).map(|w| d(w[0], w[1])).sum();
-    match (closed, l.first(), l.last()) {
-        (true, Some(a), Some(b)) => open + d(*b, *a),
-        _ => open,
-    }
-}
-
-/// The area of a polygon (its holes left out).
-fn polygon_area(p: &[Vec<Xy>]) -> f64 {
-    p.iter().enumerate().map(|(i, r)| if i == 0 { ring_area(r).abs() } else { -ring_area(r).abs() }).sum()
-}
-
-/// The centroid of a ring's area and its area (both by the ring's turn).
-fn ring_centroid(r: &[Xy]) -> (Xy, f64) {
-    let n = r.len();
-    let (mut cx, mut cy) = (0.0, 0.0);
-    for i in 0..n {
-        let (a, b) = (r[i], r[(i + 1) % n]);
-        let cross = a[0] * b[1] - b[0] * a[1];
-        cx += (a[0] + b[0]) * cross;
-        cy += (a[1] + b[1]) * cross;
-    }
-    let area = ring_area(r);
-    ([cx / (6.0 * area), cy / (6.0 * area)], area)
-}
-
-/// The centroid of a geometry: of its area (polygons), its length (lines) or its points.
-fn centroid(g: &Geometry) -> Xy {
-    let weighted = |parts: Vec<(Xy, f64)>| {
-        let w: f64 = parts.iter().map(|p| p.1).sum();
-        if w > 0.0 {
-            [parts.iter().map(|p| p.0[0] * p.1).sum::<f64>() / w, parts.iter().map(|p| p.0[1] * p.1).sum::<f64>() / w]
-        } else {
-            [f64::NAN, f64::NAN]
-        }
-    };
-    let lines = |ls: &[&Vec<Xy>]| {
-        weighted(
-            ls.iter()
-                .flat_map(|l| l.windows(2))
-                .map(|s| ([(s[0][0] + s[1][0]) / 2.0, (s[0][1] + s[1][1]) / 2.0], length(s, false)))
-                .collect(),
-        )
-    };
-    match g {
-        Geometry::Empty => [f64::NAN, f64::NAN],
-        Geometry::Point(p) => *p,
-        Geometry::MultiPoint(ps) => weighted(ps.iter().map(|p| (*p, 1.0)).collect()),
-        Geometry::LineString(l) => lines(&[l]),
-        Geometry::MultiLineString(ls) => lines(&ls.iter().collect::<Vec<_>>()),
-        Geometry::Polygon(_) | Geometry::MultiPolygon(_) => weighted(
-            g.polygons()
-                .iter()
-                .flat_map(|p| {
-                    p.iter().enumerate().map(|(i, r)| {
-                        let (c, a) = ring_centroid(r);
-                        (c, if i == 0 { a.abs() } else { -a.abs() })
-                    })
-                })
-                .collect(),
-        ),
-    }
 }
 
 /// Whether a point lies inside a ring (crossings of a ray to its right).
@@ -283,15 +211,17 @@ impl Operator for Polygonize {
     }
 }
 
-/// The script of a node over features (its setting `expression`), and what it gives.
-fn scripted(args: &Args, v: &Vector) -> Result<(Script, Vec<(String, Column)>)> {
+/// The script of a node over features (its setting `expression`).
+fn script_of(args: &Args) -> Result<Script> {
     let node = args.node;
     let text: String =
         args.opt_param("expression")?.ok_or_else(|| Error::msg(format!("node {node:?}: no expression")))?;
-    let script = parse_script(&text).map_err(|x| Error::msg(format!("node {node:?}: the expression: {}", x.0)))?;
-    let given =
-        vector_algebra::run(v, &args.inputs, &script).map_err(|x| Error::msg(format!("node {node:?}: {}", x.0)))?;
-    Ok((script, given))
+    parse_script(&text).map_err(|x| Error::msg(format!("node {node:?}: the expression: {}", x.0)))
+}
+
+/// An error of a node's script, told with the node.
+fn of_node(node: &str) -> impl Fn(Error) -> Error + '_ {
+    move |x| Error::msg(format!("node {node:?}: {}", x.0))
 }
 
 /// `vector.filter`.
@@ -322,21 +252,8 @@ impl Operator for Filter {
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
-        let node = args.node;
         let v = vector_of(args, "vector")?;
-        let (script, mut given) = scripted(args, v)?;
-        if !script.outputs().is_empty() {
-            return Err(Error::msg(format!(
-                "node {node:?}: vector.filter keeps the features where the script's last line is true: no out"
-            )));
-        }
-        let Column::Numbers(keep) = given.remove(0).1 else {
-            return Err(Error::msg(format!(
-                "node {node:?}: the expression gives texts: a feature is kept where it is true (uso == \"forest\")"
-            )));
-        };
-        let keep: Vec<usize> =
-            keep.iter().enumerate().filter(|(_, k)| !k.is_nan() && **k != 0.0).map(|(i, _)| i).collect();
+        let keep = vector_algebra::kept(v, &args.inputs, &script_of(args)?).map_err(of_node(args.node))?;
         Ok(out(v.select(&keep)))
     }
 }
@@ -372,34 +289,10 @@ impl Operator for Calc {
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
-        let node = args.node;
         let v = vector_of(args, "vector")?;
         let column: String = args.param("column", String::new())?;
-        let (script, mut given) = scripted(args, v)?;
-        match (script.outputs().is_empty(), column.is_empty()) {
-            (true, true) => {
-                return Err(Error::msg(format!(
-                    "node {node:?}: name the column, or give the attributes with out (out density = pop / \
-                     geometry.area)"
-                )));
-            }
-            (true, false) => given[0].0 = column,
-            (false, false) => {
-                return Err(Error::msg(format!(
-                    "node {node:?}: the column {column:?} and a script with out: the out lines name the attributes \
-                     (leave the column empty)"
-                )));
-            }
-            (false, true) => {}
-        }
-        let mut v = v.as_ref().clone();
-        for (name, c) in given {
-            match v.attributes.iter_mut().find(|(n, _)| *n == name) {
-                Some((_, old)) => *old = c,
-                None => v.attributes.push((name, c)),
-            }
-        }
-        Ok(out(v))
+        let script = script_of(args)?;
+        Ok(out(vector_algebra::calculated(v, &args.inputs, &script, &column).map_err(of_node(args.node))?))
     }
 }
 
@@ -433,29 +326,6 @@ impl Operator for Measure {
         let (v, _) = with_columns(v, columns);
         Ok(out(v))
     }
-}
-
-/// The measures of a geometry, as `vector.geometry` gives them and map algebra reads them (`geometry.area`).
-pub(crate) const MEASURES: [&str; 5] = ["area", "perimeter", "length", "x", "y"];
-
-/// A measure of every feature's geometry, in the features' units: the area and perimeter of polygons (their holes
-/// left out of the area, their rings in the perimeter), the length of lines, the centroid's x and y (of the area,
-/// the length or the points). None for a name that is not one of [`MEASURES`].
-pub(crate) fn measure(v: &Vector, name: &str) -> Option<Vec<f64>> {
-    let polys = Geometry::polygons;
-    let each = |f: &dyn Fn(&Geometry) -> f64| v.geometries.iter().map(f).collect();
-    Some(match name {
-        "area" => each(&|g| polys(g).iter().map(|p| polygon_area(p)).sum()),
-        "perimeter" => each(&|g| polys(g).iter().flat_map(|p| p.iter()).map(|r| length(r, true)).sum()),
-        "length" => each(&|g| match g {
-            Geometry::LineString(l) => length(l, false),
-            Geometry::MultiLineString(ls) => ls.iter().map(|l| length(l, false)).sum(),
-            _ => 0.0,
-        }),
-        "x" => each(&|g| centroid(g)[0]),
-        "y" => each(&|g| centroid(g)[1]),
-        _ => return None,
-    })
 }
 
 /// Features in the coordinate system of others (reprojected by GDAL when both are known and differ).

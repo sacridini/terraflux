@@ -425,6 +425,41 @@ def fence_table(source, language, class_name, options, md, **kwargs):
     )
 
 
+def calc_version() -> str:
+    """A hash of the playgrounds' files (their scripts, styles, engine and data), for the browsers' caches."""
+    files = ["js/calc.js", "css/calc.css", "js/calc-engine.js", "data/calculators/raster.js", "data/calculators/vector.js"]
+    return hashlib.sha1(b"".join((STATIC / f).read_bytes() for f in files if (STATIC / f).exists())).hexdigest()[:8]
+
+
+def fence_calc(source, language, class_name, options, md, **kwargs):
+    """A calculator's playground (static/js/calc.js): a script over Sibuyan's maps (`kind: raster`, raster.calc) or
+    its patches (`kind: vector`, vector.calc and vector.filter), computed in the page by Terraflux's own engine
+    built to WebAssembly (tools/build_calc.py), on the data of figures/calculators/playground.py. `presets`: the
+    examples offered (name, script; for features op, column, inputs), `start` the one shown first."""
+    s = spec_of(source, "tfcalc")
+    kind = s.get("kind", "raster")
+    presets = s.get("presets") or []
+    if kind not in ("raster", "vector"):
+        warn(f"tfcalc: kind {kind!r} is neither raster nor vector")
+    if not presets:
+        warn("tfcalc without presets")
+        return ""
+    for p in presets:
+        if not p.get("name") or not p.get("script"):
+            warn("tfcalc: a preset without a name or a script")
+    spec = {"kind": kind, "presets": presets, "start": s.get("start", 0)}
+    v = calc_version()
+    first = presets[spec["start"]]["script"]
+    cap = s.get("caption", "")
+    return (
+        f'<figure class="tf-calc-fig"><div class="tf-calc" data-spec=\'{esc(json.dumps(spec))}\' data-v="{v}" '
+        f'data-src="/data/calculators/{kind}.js?v={v}"><noscript><p>The playground needs JavaScript. Its first '
+        f'example:</p>{highlight(first, "python")}</noscript></div>'
+        + (f"<figcaption>{md_inline(cap)}</figcaption>" if cap else "")
+        + "</figure>"
+    )
+
+
 def fence_cli(source, language, class_name, options, md, **kwargs):
     """The help of a command, from data/cli.json: ```tfcli\nrun\n``` or ```tfcli\ncluster add\n```."""
     name = source.strip().split()
@@ -477,6 +512,7 @@ def md_config():
         {"name": "tfgallery", "class": "tfgallery", "format": fence_gallery},
         {"name": "tfcli", "class": "tfcli", "format": fence_cli},
         {"name": "tftable", "class": "tftable", "format": fence_table},
+        {"name": "tfcalc", "class": "tfcalc", "format": fence_calc},
     ]
     return {
         "toc": {"permalink": "#", "permalink_title": "Link to this section", "toc_depth": "2-3", "slugify": slugify_unicode},
@@ -781,6 +817,7 @@ def build(out: pathlib.Path, only: str | None = None, check=False, offline=False
     cats = tutorial_tree(all_pages)
     asset_v = hashlib.sha1(b"".join((STATIC / x).read_bytes() for x in ("css/site.css", "js/site.js") if (STATIC / x).exists())).hexdigest()[:8]
     env.globals["asset_v"] = asset_v
+    env.globals["calc_v"] = calc_version()
     dl = downloads()
     search = []
 

@@ -5,6 +5,8 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+{% endif %}{% if 'tf-calc' in page.html %}
+<link rel="stylesheet" href="/css/calc.css?v={{ calc_v }}">
 {% endif %}{% endblock %}
 {% block main %}
 <div class="doc-layout">
@@ -50,3 +52,4 @@
   </aside>
 </div>
 {% endblock %}
+{% block scripts %}{% if 'tf-calc' in page.html %}<script src="/js/calc.js?v={{ calc_v }}" defer></script>{% endif %}{% endblock %}

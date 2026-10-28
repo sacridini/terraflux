@@ -395,6 +395,8 @@ the distance to cells of some values (to class 40, water courses, for example), 
 
 ## Going further
 
+- [The vector calculator](../../../calculators/vector/): attributes computed from the others and from the
+  geometry (areas, lengths, centroids) with [[vector.calc]], and features kept by a condition with [[vector.filter]].
 - [Coordinate systems and reprojection](../coordinate-systems/): why the CRS of every layer matters.
 - [One grid for all your maps](../one-grid/): the reference grid and the Prepare pane.
 - The operators: [[vector.read]], [[vector.rasterize]], [[vector.zonal]], [[vector.extract]],

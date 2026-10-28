@@ -1,0 +1,22 @@
+[package]
+name = "terraflux-calc-web"
+description = "Terraflux's calculators (raster.calc, vector.calc, vector.filter) for a web page: the very map algebra of terraflux-ops, its editor's help and its features' scripts, built to WebAssembly for the website's playgrounds"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+# the modules of terraflux-ops it is made of are tested there
+test = false
+doctest = false
+
+[dependencies]
+rayon.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+terraflux-graph = { path = "../graph" }
+terraflux-raster = { path = "../raster" }

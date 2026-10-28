@@ -4564,6 +4564,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "terraflux-calc-web"
+version = "1.23.0"
+dependencies = [
+ "rayon",
+ "serde",
+ "serde_json",
+ "terraflux-graph",
+ "terraflux-raster",
+]
+
+[[package]]
 name = "terraflux-cli"
 version = "1.23.0"
 dependencies = [

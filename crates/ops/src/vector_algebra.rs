@@ -20,7 +20,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use terraflux_raster::vector::{Column, Vector};
 
 use crate::algebra::{Expr, Out, Scope, Script, Stmt};
-use crate::vector_tools::{MEASURES, measure};
+use crate::measures::{MEASURES, measure};
 use crate::{Error, Key, Result, Value};
 
 /// What a value is, for every feature.
@@ -385,6 +385,48 @@ pub fn run(v: &Vector, inputs: &BTreeMap<String, Value>, script: &Script) -> Res
         .collect()
 }
 
+/// The features `vector.filter` keeps, by their place: those where the script's last line is true (a feature
+/// where it is missing left out).
+pub fn kept(v: &Vector, inputs: &BTreeMap<String, Value>, script: &Script) -> Result<Vec<usize>> {
+    let mut given = run(v, inputs, script)?;
+    if !script.outputs().is_empty() {
+        return Err(Error::msg("vector.filter keeps the features where the script's last line is true: no out"));
+    }
+    let Column::Numbers(keep) = given.remove(0).1 else {
+        return Err(Error::msg("the expression gives texts: a feature is kept where it is true (uso == \"forest\")"));
+    };
+    Ok(keep.iter().enumerate().filter(|(_, k)| !k.is_nan() && **k != 0.0).map(|(i, _)| i).collect())
+}
+
+/// The features with the attributes `vector.calc` gives: each `out` (a script without, its last value as
+/// `column`), an attribute of the same name replaced, else added.
+pub fn calculated(v: &Vector, inputs: &BTreeMap<String, Value>, script: &Script, column: &str) -> Result<Vector> {
+    let mut given = run(v, inputs, script)?;
+    match (script.outputs().is_empty(), column.is_empty()) {
+        (true, true) => {
+            return Err(Error::msg(
+                "name the column, or give the attributes with out (out density = pop / geometry.area)",
+            ));
+        }
+        (true, false) => given[0].0 = column.to_string(),
+        (false, false) => {
+            return Err(Error::msg(format!(
+                "the column {column:?} and a script with out: the out lines name the attributes (leave the column \
+                 empty)"
+            )));
+        }
+        (false, true) => {}
+    }
+    let mut v = v.clone();
+    for (name, c) in given {
+        match v.attributes.iter_mut().find(|(n, _)| *n == name) {
+            Some((_, old)) => *old = c,
+            None => v.attributes.push((name, c)),
+        }
+    }
+    Ok(v)
+}
+
 /// The name [`every_name`] gives the value of a script's last line (one without `out`).
 pub const LAST_LINE: &str = "(its last line)";
 
@@ -534,7 +576,8 @@ mod tests {
         assert!(same(&numbers(&r[0].1), &[1.0, 0.0, f64::NAN]));
         assert!(same(&numbers(&r[1].1), &[10.0, 5.0, 10.0]));
         let s = parse_script("out label = 'a'\nn = 2").unwrap();
-        let names: Vec<String> = every_name(&squares(), &BTreeMap::new(), &s).unwrap().into_iter().map(|x| x.0).collect();
+        let names: Vec<String> =
+            every_name(&squares(), &BTreeMap::new(), &s).unwrap().into_iter().map(|x| x.0).collect();
         assert_eq!(names, ["label", "n"]);
     }
 

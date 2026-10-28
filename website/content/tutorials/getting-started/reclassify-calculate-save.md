@@ -370,6 +370,7 @@ the node selected.
 
 ## Going further
 
+- [The raster calculator](../../../calculators/raster/): the language of raster.calc, with a playground.
 - [Your first model](../first-model/): nodes, ports, the cache and the model file.
 - [Map algebra](../../building-models/) in the Building models tutorials, and [Surface metrics](../../surface-metrics/).
 - The operators: [[raster.reclassify]], [[raster.calc]], [[raster.fill]], [[raster.terrain]], [[raster.write]],

@@ -21,6 +21,10 @@ minor versions.
   vector.filter, explain_calc): the script checked and tried on a sample of the features (up to 5000) before the
   model changes, the reply telling each attribute given (its classes or texts and their shares) or how many
   features the filter keeps.
+- The website has a Calculators section: the raster calculator and the vector calculator, each with its language
+  in full, recipes and pitfalls, and a playground where scripts run as you type over Sibuyan's maps and land-use
+  patches, computed in the browser by Terraflux's own map algebra built to WebAssembly (the crate
+  `terraflux-calc-web`). Every example on the pages gives what `terraflux run` gives.
 
 ## [1.23.0] - 2026-10-28
 

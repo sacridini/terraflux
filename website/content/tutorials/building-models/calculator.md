@@ -352,6 +352,9 @@ by layer and must have the same number of layers.
 
 ## Going further
 
+- [The raster calculator](../../../calculators/raster/): every part of the language with a playground that
+  runs Terraflux's engine in your browser, recipes and pitfalls; and [the vector calculator](../../../calculators/vector/)
+  for the attributes of features.
 - [Map algebra from scratch](../map-algebra/): the ideas behind the operations, missing values, edges and buffers.
 - [Stacks and layers](../stacks-and-layers/): build stacks from maps and folders of files.
 - [Groups and submodels](../groups-and-submodels/): groups, and other model files used as one node.

@@ -58,6 +58,7 @@ pub mod lsm_catalog;
 pub mod lulcc;
 pub mod map_validation;
 pub mod markov;
+mod measures;
 pub mod metapopulation;
 pub mod metrics;
 pub mod milp;

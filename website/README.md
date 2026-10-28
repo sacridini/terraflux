@@ -37,7 +37,7 @@ that touches `website/`. Enable Pages with **GitHub Actions** as its source in t
 ## Writing
 
 See [AUTHORING.md](AUTHORING.md): the audience, the shape of a tutorial, the components (model graphs,
-sliders, before-and-after, charts, galleries), how figures are made from real runs, and how to check a page.
+sliders, before-and-after, charts, galleries, calculator playgrounds), how figures are made from real runs, and how to check a page.
 
 ## After a new release of Terraflux
 
@@ -45,6 +45,8 @@ sliders, before-and-after, charts, galleries), how figures are made from real ru
 python website/tools/refresh_data.py       # operators and commands from target/release/terraflux
 python website/tools/extract_templates.py  # the application's templates
 python website/figures/<category>/<tutorial>.py   # figures whose operators changed
+python website/tools/build_calc.py          # the calculators' engine (WebAssembly), when the map algebra changed
+python website/figures/calculators/playground.py   # the playgrounds' data, their examples checked against terraflux run
 ```
 
 When the packages of a release are published on GitHub, set `releases_public: true` in `site.yaml`: the

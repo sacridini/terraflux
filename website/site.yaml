@@ -44,6 +44,7 @@ downloads:
 nav:
   - { title: Quickstart, url: /quickstart/ }
   - { title: Tutorials, url: /tutorials/ }
+  - { title: Calculators, url: /calculators/ }
   - { title: Parallel computing, url: /parallel/ }
   - { title: CLI, url: /cli/ }
   - { title: Operators, url: /operators/ }
@@ -51,6 +52,7 @@ nav:
 # The sections of the documentation: a folder of content/ each, its pages ordered by their `order`.
 sections:
   quickstart: { title: Quickstart, dir: quickstart }
+  calculators: { title: Calculators, dir: calculators }
   parallel: { title: Parallel and distributed computing, dir: parallel }
   cli: { title: CLI reference, dir: cli }
   about: { title: About, dir: about }

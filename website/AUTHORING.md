@@ -218,6 +218,28 @@ caption: Cells that went from each class (rows) to each class (columns), 1997 to
 
 `tfchart` also takes `xlog: true` for a logarithmic x axis (numbers of draws, distances, areas).
 
+### Calculator playgrounds: ```tfcalc
+
+A script editor that runs Terraflux's own calculator in the browser (the map algebra of `crates/ops`, compiled to
+WebAssembly in `static/js/calc-engine.js`) over Sibuyan's maps (`kind: raster`) or its land-use patches
+(`kind: vector`), with the examples as presets. The page loads `calc.js` and `calc.css` only where a block is.
+
+```yaml
+kind: vector                  # raster (the default) or vector
+start: 0                      # optional: the preset shown first
+presets:
+  - name: Areas in hectares
+    op: filter                # vector only: calc (the default) or filter
+    column: area_ha           # vector.calc only: the column of a script with no out
+    inputs: { min_ha: 10 }    # optional: the node's inputs, numbers or texts ("forest")
+    script: |
+      out area_ha = geometry.area / 10000
+caption: Edit the script: the results follow as you type.
+```
+
+Every preset is checked against `terraflux run` by `python website/figures/calculators/playground.py` (with
+Node.js): run it after changing the presets or the engine.
+
 ### Command help: ```tfcli
 
 The help of a command, from the binary: a block whose content is `run`, `submit`, `cluster add`... (an empty

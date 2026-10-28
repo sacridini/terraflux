@@ -115,7 +115,7 @@ h1, h2, h3, h4 { font-family: var(--serif); font-weight: 560; line-height: 1.18;
 .mainnav { display: flex; gap: 4px; flex: 1; }
 .mainnav a {
   color: var(--ink-2); text-decoration: none; font-weight: 600; font-size: 15.5px;
-  padding: 6px 11px; border-radius: var(--r-s);
+  padding: 6px 11px; border-radius: var(--r-s); white-space: nowrap;
 }
 .mainnav a:hover { color: var(--ink); background: var(--surface-2); }
 .mainnav a[aria-current] { color: var(--forest-ink); background: var(--forest-soft); }
@@ -628,9 +628,11 @@ input[type="range"] { width: 100%; accent-color: var(--forest); }
   .doc-layout { grid-template-columns: 250px minmax(0, 1fr); }
   .doc-toc { display: none; }
   .doc-main { padding: 30px 40px; }
+  .search-open { min-width: 0; } .search-open span, .search-open kbd { display: none; }
+  .topbar-in { gap: 18px; }
+  .mainnav a { padding: 6px 8px; }
 }
 @media (max-width: 1020px) {
-  .search-open { min-width: 0; } .search-open span, .search-open kbd { display: none; }
   .hero-in { grid-template-columns: 1fr; padding-top: 48px; gap: 40px; }
   .split { grid-template-columns: 1fr; gap: 32px; }
   .split.rev .split-text { order: 0; }

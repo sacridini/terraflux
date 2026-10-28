@@ -24,6 +24,7 @@ problems found in it, and summaries of the results).
 | `add_node`, `edit_node`, `remove_node` | Adds a node connected and set, changes it (its connections, settings, note, name), removes it |
 | `set_input`, `set_output`, `edit_container` | The model's inputs and outputs, and what a loop or group carries, collects or gives |
 | `show_model`, `check_model`, `arrange` | Shows the model as text, checks it and its data, and puts its nodes in tidy columns |
+| `write_calc`, `explain_calc` | Writes a calculator's script ([raster.calc, vector.calc or vector.filter](../../calculators/)), checked and tried on a sample of its inputs before the model changes, and takes a script apart: what each name holds |
 | `run_model`, `inspect_file` | Runs the model, then summarises a result: a raster's classes or statistics, a table's first lines |
 | `open_in_app` | Opens the model in the application you have open (a new window when none is, or when yours has edits not saved) |
 
