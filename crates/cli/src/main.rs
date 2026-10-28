@@ -427,11 +427,11 @@ fn reproduce(path: &Path, out: Option<PathBuf>, quiet: bool, engine: &Engine) ->
     for c in &changed {
         eprintln!("  note: {c}");
     }
-    let dir = model.parent().map(Path::to_path_buf).unwrap_or_default();
+    let dir = folder_of(&model);
     let inputs = load_inputs(&m, &dir, &overrides)?;
     let t = Instant::now();
     let results = engine.run(&m, &inputs, &mut Progress { quiet: true, start: t })?;
-    let out = out.unwrap_or_else(|| path.parent().map(Path::to_path_buf).unwrap_or_default().join("reproduced"));
+    let out = out.unwrap_or_else(|| folder_of(&path).join("reproduced"));
     let files = write_outputs(&m, &results, &out)?;
     let mut differ = 0;
     for (name, file) in m.outputs.keys().zip(&files) {
@@ -492,7 +492,7 @@ fn test(paths: &[PathBuf], update: bool, quiet: bool, engine: &Engine) -> Result
                 continue;
             }
         };
-        let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
+        let dir = folder_of(&path);
         let t = Instant::now();
         let results = match load_inputs(&m, &dir, &BTreeMap::new())
             .map_err(|e| e.to_string())
@@ -589,6 +589,15 @@ impl Observer for Progress {
 
     fn warning(&mut self, at: &str, message: &str) {
         eprintln!("  warning: {at}: {message}");
+    }
+}
+
+/// The folder a model's relative paths are read from: "." for a model named without one (`terraflux run m.toml`),
+/// whose parent is the empty path.
+fn folder_of(model: &Path) -> PathBuf {
+    match model.parent() {
+        Some(d) if !d.as_os_str().is_empty() => d.to_path_buf(),
+        _ => PathBuf::from("."),
     }
 }
 
@@ -862,7 +871,7 @@ fn main() -> Result<()> {
             if let Some(name) = &scenario {
                 m = m.with_scenario(name)?;
             }
-            let dir = model.parent().map(Path::to_path_buf).unwrap_or_default();
+            let dir = folder_of(&model);
             if tiled {
                 let mut o = BTreeMap::new();
                 for s in &set {
@@ -962,7 +971,7 @@ fn main() -> Result<()> {
         Command::Test { models, update, quiet } => test(&models, update, quiet, &engine)?,
         Command::Report { model, out, run } => {
             let source = Model::load(&model).with_context(|| format!("reading {}", model.display()))?;
-            let dir = model.parent().map(Path::to_path_buf).unwrap_or_default();
+            let dir = folder_of(&model);
             let results = if run {
                 let m = Model::load_expanded(&model)?;
                 let inputs = load_inputs(&m, &dir, &BTreeMap::new())?;
@@ -982,7 +991,7 @@ fn main() -> Result<()> {
         Command::Check { model } => {
             let m = read_model(&model)?;
             let mut ok = report(&m, &engine);
-            let dir = model.parent().map(Path::to_path_buf).unwrap_or_default();
+            let dir = folder_of(&model);
             match load_inputs(&m, &dir, &BTreeMap::new()) {
                 Err(e) => {
                     eprintln!("error: the inputs: {e}");
