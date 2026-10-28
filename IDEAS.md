@@ -364,6 +364,17 @@ escrevendo scripts). Depois, nesta ordem:
    sessão tinha mudanças abertas); a prévia seguir o zoom do viewer.
 10. **My nodes:** bibliotecas do grupo e compartilhadas; as configurações de um nó do usuário como configurações
     (hoje entradas com valor próprio); os nós do usuário na busca rápida (`/`), no MCP e no Assistant.
+    **Feito** (Unreleased): bibliotecas compartilhadas (as pastas de um grupo num drive compartilhado, um
+    repositório clonado) nas configurações (`node_libraries`, "Add a shared library..."), os seus nós no painel de
+    operadores numa seção de cada uma, o diálogo de salvar escolhendo em qual biblioteca, o painel do nó dizendo de
+    qual ela é (`my_nodes::libraries`, `library_of`; um nome em duas: a do usuário primeiro). As entradas de valor
+    (número, inteiro, sim ou não, texto) de um nó do usuário que nenhum nó alimenta são configurações: no painel do
+    nó, sob Settings, com o próprio valor como dica e de volta a ele quando esvaziadas; no canvas, dobradas como as
+    opcionais (`my_nodes::is_setting`). Os nós das bibliotecas na busca rápida (`my:nome`, antes dos operadores) e
+    nas ferramentas do Assistant e do MCP: `list_operators` os lista, `describe_operator("my:nome")` diz as entradas,
+    as configurações e as saídas, `add_node` com `op = "my:nome"` (ou `my:nome@2`) os acrescenta, as configurações
+    dadas em `settings`. Falta: biblioteca remota (uma URL, um repositório git puxado pelo app); permissões de quem
+    salva numa compartilhada.
 
 ## Paridade com o landschaft na priorização, progresso e parada
 

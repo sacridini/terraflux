@@ -162,6 +162,9 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
     let essentials = terraflux_ops::essentials::essentials(&n.op);
     let essential = |name: &str| essentials.is_some_and(|e| e.contains(&name));
     let ports = crate::editor::input_ports(&n, r);
+    // a node of the user's: its values not fed by another node are its settings (below, as an operator's)
+    let (own_settings, ports): (Vec<_>, Vec<_>) =
+        ports.into_iter().partition(|(port, ty, _)| crate::my_nodes::is_setting(&n, port, *ty));
     let (shown, folded): (Vec<_>, Vec<_>) =
         ports.into_iter().partition(|(port, _, required)| *required || n.inputs.contains_key(port) || essential(port));
     // a row each: its name at the left, what feeds it (cut to the pane) or its value at the right
@@ -219,6 +222,15 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
             .id_salt(("optional inputs", &n.op))
             .default_open(false)
             .show(ui, |ui| input_rows(ui, &folded));
+    }
+    if !own_settings.is_empty() {
+        ui.separator();
+        ui.label(RichText::new("Settings").strong());
+        for (port, ty, required) in &own_settings {
+            if let Some(c) = user_setting(ui, s, r, &n, &path, port, *ty, *required, label_w) {
+                change = Some(c);
+            }
+        }
     }
     if sig.as_ref().is_some_and(|g| g.extra.is_some() || g.container) && n.uses.is_none() {
         ui.horizontal_wrapped(|ui| {
@@ -560,6 +572,72 @@ fn name_cell(
         });
     });
     out
+}
+
+/// A setting of a node of the user's (an input of a value, not fed by another node), a row: its name at the left,
+/// its value at the right (a box to tick for a yes or no), its own value when it is emptied. What it changed.
+#[allow(clippy::too_many_arguments)]
+fn user_setting(
+    ui: &mut Ui,
+    s: &mut Session,
+    r: &Registry,
+    n: &Node,
+    path: &[String],
+    port: &str,
+    ty: terraflux_graph::Type,
+    required: bool,
+    label_w: f32,
+) -> Option<Result<(), String>> {
+    let declared = n.uses.as_ref().and_then(|u| u.inputs.get(port));
+    let default = declared.and_then(|i| i.default.clone());
+    let mut change = None;
+    ui.horizontal(|ui| {
+        let name = if required { format!("{port} *") } else { port.to_string() };
+        let mut hover = format!("{port}: {}", ty.name());
+        if let Some(d) = declared.and_then(|i| i.doc.as_ref()) {
+            hover.push_str(&format!("\n{d}"));
+        }
+        if let Some(d) = &default {
+            hover.push_str(&format!("\nits own value: {d}"));
+        }
+        ui.allocate_ui_with_layout(egui::vec2(label_w, 20.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+            ui.set_min_width(label_w);
+            ui.add(egui::Label::new(name).truncate()).on_hover_text(hover);
+        });
+        let now = match n.inputs.get(port) {
+            Some(Source::Literal(v)) => Some(v.clone()),
+            _ => None,
+        };
+        if ty == terraflux_graph::Type::Bool {
+            let mut on = now.as_ref().or(default.as_ref()).and_then(|v| v.as_bool()).unwrap_or(false);
+            if ui.checkbox(&mut on, "").changed() {
+                change = Some(crate::editor::set_literal(&mut s.source, r, path, &n.id, port, &on.to_string()));
+            }
+            return;
+        }
+        let shown = |v: &serde_json::Value| v.as_str().map_or_else(|| v.to_string(), String::from);
+        let init = now.as_ref().map(shown).unwrap_or_default();
+        let key = format!("in.{port}");
+        let mut text = field(s, &key, init.clone());
+        let hint = default.as_ref().map_or("needed".to_string(), shown);
+        let resp = ui.add(egui::TextEdit::singleline(&mut text).desired_width(ui.available_width()).hint_text(hint));
+        s.fields.insert(key, text.clone());
+        if resp.lost_focus() && text != init {
+            // (emptied: its own value again)
+            let value = match (&default, text.trim().is_empty()) {
+                (Some(d), true) => shown(d),
+                _ => text.clone(),
+            };
+            // (a text a text, though it reads as a number)
+            let value = if ty == terraflux_graph::Type::Text && !value.trim().is_empty() {
+                serde_json::Value::String(value.trim().to_string()).to_string()
+            } else {
+                value
+            };
+            change = Some(crate::editor::set_literal(&mut s.source, r, path, &n.id, port, &value));
+        }
+    });
+    change
 }
 
 /// A `raster.calc`'s script: its name, and at the right, in orange, Expand (the Calculator, the full editor, in a

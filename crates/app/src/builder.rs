@@ -198,10 +198,23 @@ pub struct Quick {
     focused: bool,
 }
 
+/// A node of the user's libraries as the quick search offers it: `my:name`, what it does and takes.
+fn mine_entry(u: &terraflux_graph::UserNode) -> Entry {
+    let mut doc = u.description.clone().unwrap_or_else(|| format!("{}: a node of your libraries", u.label()));
+    let takes: Vec<String> = u.inputs.iter().map(|(k, i)| format!("{k}: {}", i.summary())).collect();
+    if !takes.is_empty() {
+        doc.push_str(&format!(" (takes {})", takes.join(", ")));
+    }
+    Entry { name: format!("{}{}", crate::my_nodes::PREFIX, u.name), doc, subject: "My nodes", group: None }
+}
+
 /// The search of the operators from the keyboard, over the panes, while it is open.
 pub fn quick_add(ctx: &egui::Context, s: &mut Session, r: &Registry, lib: &Library) {
     let Some(mut q) = s.editor.quick.take() else { return };
-    let found = lib.find(&q.query);
+    // the nodes of the user's libraries first (`my:name`), then the operators
+    let mine = Library { entries: crate::my_nodes::nodes().iter().map(mine_entry).collect() };
+    let mut found = mine.find(&q.query);
+    found.extend(lib.find(&q.query));
     let (down, up, enter, escape) = ctx.input_mut(|i| {
         (
             i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown),
@@ -277,10 +290,14 @@ pub fn quick_add(ctx: &egui::Context, s: &mut Session, r: &Registry, lib: &Libra
     if ctx.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer() {
         close = true;
     }
-    if let Some(op) = chosen
-        && let Err(e) = add(s, r, &op, &[])
-    {
-        s.editor.message = Some(e);
+    if let Some(op) = chosen {
+        let added = match crate::my_nodes::named(&op) {
+            Some((name, v)) => crate::my_nodes::get(name, v).and_then(|u| crate::my_nodes::add(s, r, &u)).map(|_| ()),
+            None => add(s, r, &op, &[]).map(|_| ()),
+        };
+        if let Err(e) = added {
+            s.editor.message = Some(e);
+        }
     }
     if close {
         ctx.memory_mut(|m| {

@@ -45,8 +45,16 @@ minor versions.
   completed after a dot (`s2.`).
 - The script of a calculator in the Node pane completes names as it is typed, as the Calculator does, its inputs
   known by their values in the last run.
+- Shared libraries of nodes (a group's folder on a shared drive, a repository cloned), added in the settings: their
+  nodes in the operators' pane beside yours, each library in a section of its own, and the library to save a node
+  in chosen in the dialog.
+- A node of your libraries in the quick search (`/`) and in the assistant's and the MCP server's tools:
+  `list_operators` lists them, `describe_operator` tells one (`my:name`), `add_node` adds it with its settings.
 
 ### Changed
+- The values a node of your library takes (numbers, whole numbers, yes or no, texts), unless another node feeds
+  them, are its settings: in the Node pane's Settings, its own value shown and given back when the field is
+  emptied; on the canvas folded away as an operator's optional inputs.
 - A group runs again only the nodes of its body that changed and what depends on them (and the same for the groups
   inside it), not its whole body: the cache keeps the outputs of the nodes of the groups by place.
 

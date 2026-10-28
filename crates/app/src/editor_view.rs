@@ -120,14 +120,16 @@ fn port_names(n: &Node, r: &Registry) -> (Vec<String>, Vec<String>) {
 
 /// A node's inputs as its box shows them: those it needs, those given (connected or a value), its operator's
 /// essential ones, the optional others when `unfolded`, and the place of a new one (an operator that takes any);
-/// the optional ones not shown.
+/// the optional ones not shown (and the settings of a node of the user's: its values, set in the Node pane).
 fn shown_inputs(n: &Node, r: &Registry, unfolded: bool) -> (Vec<Port>, Vec<(String, Type)>) {
     let mut shown = Vec::new();
     let mut folded = Vec::new();
     let essentials = terraflux_ops::essentials::essentials(&n.op).unwrap_or_default();
     for (name, ty, required) in editor::input_ports(n, r) {
         let connected = n.inputs.contains_key(&name);
-        if required || connected || unfolded || essentials.contains(&name.as_str()) {
+        // (a node of the user's: a value it is given is a setting, in the Node pane, unless it must still be given)
+        let setting = crate::my_nodes::is_setting(n, &name, ty) && !(required && !connected);
+        if !setting && (required || connected || essentials.contains(&name.as_str())) || unfolded {
             shown.push(Port { connected, name, ty, required });
         } else {
             folded.push((name, ty));

@@ -68,6 +68,9 @@ pub struct Settings {
     pub seen_version: Option<String>,
     /// The version an update was to install when the application closed: told if it is not the one that opens.
     pub update_tried: Option<String>,
+    /// The libraries of nodes shared with others (a group's folder on a shared drive, a repository cloned), beside
+    /// the user's own.
+    pub node_libraries: Vec<PathBuf>,
 }
 
 impl Default for Settings {
@@ -97,6 +100,7 @@ impl Default for Settings {
             updates_checked: None,
             seen_version: None,
             update_tried: None,
+            node_libraries: Vec::new(),
         }
     }
 }

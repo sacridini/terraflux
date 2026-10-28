@@ -20,23 +20,133 @@ pub fn dir() -> PathBuf {
     std::env::var_os("TERRAFLUX_NODES").map(PathBuf::from).unwrap_or_else(|| crate::settings::data_dir().join("nodes"))
 }
 
+/// The user's own library.
 pub fn library() -> Library {
     Library::new(dir())
 }
 
-fn cache() -> &'static Mutex<Option<Vec<UserNode>>> {
-    static C: OnceLock<Mutex<Option<Vec<UserNode>>>> = OnceLock::new();
+/// A library of nodes: the user's own, or one shared with others (a folder of the settings').
+#[derive(Debug, Clone)]
+pub struct Shelf {
+    pub lib: Library,
+    /// What it is called: "My nodes", or its folder's name.
+    pub name: String,
+    pub mine: bool,
+}
+
+/// The libraries: the user's own first, then the shared ones of the settings.
+pub fn libraries() -> Vec<Shelf> {
+    let mut out = vec![Shelf { lib: library(), name: "My nodes".into(), mine: true }];
+    for d in crate::settings::get().node_libraries {
+        let name = d.file_name().map_or_else(|| d.display().to_string(), |n| n.to_string_lossy().into_owned());
+        out.push(Shelf { lib: Library::new(d), name, mine: false });
+    }
+    out
+}
+
+/// The library a node's name is in (the first that has it: the user's own before the shared), else the user's.
+pub fn library_of(name: &str) -> Shelf {
+    let all = libraries();
+    let at = all.iter().position(|l| !l.lib.versions(name).is_empty()).unwrap_or(0);
+    all.into_iter().nth(at).expect("the user's library")
+}
+
+/// The last version of a node of the libraries (none: the last there is).
+pub fn get(name: &str, version: Option<u32>) -> Result<UserNode, String> {
+    library_of(name).lib.get(name, version).map_err(|e| e.to_string())
+}
+
+/// The nodes of the libraries as read, with the library each is in (none: to be read).
+type Shelved = Mutex<Option<Vec<(usize, UserNode)>>>;
+
+fn cache() -> &'static Shelved {
+    static C: OnceLock<Shelved> = OnceLock::new();
     C.get_or_init(|| Mutex::new(None))
 }
 
-/// The last version of each node of the library (read once, and again after [`changed`]).
-pub fn nodes() -> Vec<UserNode> {
-    cache().lock().unwrap().get_or_insert_with(|| library().list()).clone()
+/// The last version of each node of the libraries, with the library it is in (its place in [`libraries`]): a
+/// name in two of them, the first's (read once, and again after [`changed`]).
+pub fn shelved() -> Vec<(usize, UserNode)> {
+    cache()
+        .lock()
+        .unwrap()
+        .get_or_insert_with(|| {
+            let mut out: Vec<(usize, UserNode)> = Vec::new();
+            for (k, l) in libraries().iter().enumerate() {
+                for u in l.lib.list() {
+                    if !out.iter().any(|(_, v)| v.name == u.name) {
+                        out.push((k, u));
+                    }
+                }
+            }
+            out
+        })
+        .clone()
 }
 
-/// The library changed: read it again.
+/// The last version of each node of the libraries.
+pub fn nodes() -> Vec<UserNode> {
+    shelved().into_iter().map(|(_, u)| u).collect()
+}
+
+/// The libraries changed: read them again.
 pub fn changed() {
     *cache().lock().unwrap() = None;
+}
+
+/// What the assistant and the quick search call a node of the libraries as an operator: `my:name`.
+pub const PREFIX: &str = "my:";
+
+/// The node of the libraries an operator's name is (`my:name`, `my:name@2`): its name and version.
+pub fn named(op: &str) -> Option<(&str, Option<u32>)> {
+    let rest = op.strip_prefix(PREFIX)?;
+    Some(match rest.rsplit_once('@') {
+        Some((name, v)) if v.parse::<u32>().is_ok() => (name, v.parse().ok()),
+        _ => (rest, None),
+    })
+}
+
+/// A node of the libraries in words, for the assistant: what it does, what it takes (its settings: the values it
+/// has of its own) and gives.
+pub fn describe(u: &UserNode) -> String {
+    let mut s = format!("{PREFIX}{} (version {}): a node of the user's libraries", u.name, u.version);
+    if let Some(d) = &u.description {
+        s.push_str(&format!("\n{d}"));
+    }
+    let doc = |d: &Option<String>| d.as_ref().map_or(String::new(), |d| format!(": {d}"));
+    for (title, settings) in [("Inputs", false), ("Settings", true)] {
+        let ports: Vec<_> = u.inputs.iter().filter(|(_, i)| is_setting_type(i.ty) == settings).collect();
+        if !ports.is_empty() {
+            s.push_str(&format!("\n\n{title}:"));
+            for (k, i) in ports {
+                let need = if i.required() { "" } else { ", optional" };
+                s.push_str(&format!("\n  {k} ({}{need}){}", i.summary(), doc(&i.doc)));
+            }
+        }
+    }
+    if !u.outputs.is_empty() {
+        s.push_str("\n\nOutputs:");
+        for (k, o) in &u.outputs {
+            s.push_str(&format!("\n  {k} ({}){}", o.ty.name(), doc(&o.doc)));
+        }
+    }
+    s.push_str(&format!(
+        "\n\nAdd it with add_node, op = \"{PREFIX}{}\"; its inputs and settings are given as inputs (a value or \
+         node.port).",
+        u.name
+    ));
+    s
+}
+
+/// Whether an input of a node of the user's of this type is a setting (a value, set in the Node pane as an
+/// operator's settings are) rather than data.
+pub fn is_setting_type(ty: Type) -> bool {
+    matches!(ty, Type::Number | Type::Integer | Type::Bool | Type::Text)
+}
+
+/// Whether an input of a node is a setting of a node of the user's: a value's, not fed by another node.
+pub fn is_setting(n: &Node, port: &str, ty: Type) -> bool {
+    n.op == GROUP && n.uses.is_some() && is_setting_type(ty) && !matches!(n.inputs.get(port), Some(Source::Ref(_)))
 }
 
 /// The types a port of a node of the user's is offered.
@@ -268,6 +378,8 @@ pub struct Draft {
     pub description: String,
     pub inputs: Vec<Port>,
     pub outputs: Vec<Port>,
+    /// The folder of the library it is saved in.
+    pub library: PathBuf,
     pub error: Option<String>,
 }
 
@@ -344,6 +456,7 @@ pub fn draft(s: &Session, r: &Registry, path: &[String], id: &str) -> Result<Dra
         description: u.description.clone().unwrap_or_default(),
         inputs: u.inputs.iter().map(|(k, i)| port(k, i.ty, &i.bands, i.default.as_ref(), &i.doc)).collect(),
         outputs: u.outputs.iter().map(|(k, o)| port(k, o.ty, &[], None, &o.doc)).collect(),
+        library: library_of(&u.name).lib.dir,
         error: None,
     })
 }
@@ -355,7 +468,7 @@ pub fn save(s: &mut Session, r: &Registry, d: &Draft) -> Result<UserNode, String
     let mut uses = d.uses()?;
     let (mut m, g) = as_group(s, r, &d.path, &d.id)?;
     crate::editor::set_uses(&mut m, r, &d.path, &d.id, Some(uses.clone()))?;
-    let lib = library();
+    let lib = Library::new(&d.library);
     let saved =
         lib.save(&UserNode::new(uses.clone(), g.body.clone().unwrap_or_default())).map_err(|e| e.to_string())?;
     uses.version = saved.version;
@@ -388,7 +501,8 @@ pub fn dialog(ctx: &egui::Context, s: &mut Session, r: &Registry) {
     let mut open = true;
     let mut cancel = false;
     let mut done = false;
-    let versions = library().versions(d.name.trim());
+    let versions = Library::new(&d.library).versions(d.name.trim());
+    let shelves = libraries();
     egui::Window::new("Save as my node")
         .id(egui::Id::new("save my node"))
         .open(&mut open)
@@ -410,12 +524,24 @@ pub fn dialog(ctx: &egui::Context, s: &mut Session, r: &Registry) {
                 ui.horizontal(|ui| {
                     ui.add(egui::TextEdit::singleline(&mut d.name).desired_width(180.0));
                     let note = match versions.last() {
-                        Some(v) => format!("version {} of {} in your library", v + 1, d.name.trim()),
+                        Some(v) => format!("version {} of {} in the library", v + 1, d.name.trim()),
                         None => "a new node: version 1".into(),
                     };
                     ui.label(RichText::new(note).size(11.0).color(ui.visuals().weak_text_color()));
                 });
                 ui.end_row();
+                if shelves.len() > 1 {
+                    ui.label("Library");
+                    let shown = shelves.iter().find(|l| l.lib.dir == d.library).map_or("?", |l| l.name.as_str());
+                    egui::ComboBox::from_id_salt("my node library").selected_text(shown).show_ui(ui, |ui| {
+                        for l in &shelves {
+                            let what =
+                                if l.mine { "yours".to_string() } else { format!("shared: {}", l.lib.dir.display()) };
+                            ui.selectable_value(&mut d.library, l.lib.dir.clone(), &l.name).on_hover_text(what);
+                        }
+                    });
+                    ui.end_row();
+                }
                 ui.label("What it does");
                 ui.add(egui::TextEdit::multiline(&mut d.description).desired_rows(2).desired_width(f32::INFINITY));
                 ui.end_row();
@@ -467,14 +593,17 @@ pub fn dialog(ctx: &egui::Context, s: &mut Session, r: &Registry) {
                     cancel = true;
                 }
                 ui.label(
-                    RichText::new(format!("in {}", dir().display())).size(10.5).color(ui.visuals().weak_text_color()),
+                    RichText::new(format!("in {}", d.library.display()))
+                        .size(10.5)
+                        .color(ui.visuals().weak_text_color()),
                 );
             });
         });
     if done {
         match save(s, r, &d) {
             Ok(u) => {
-                s.editor.message = Some(format!("saved {} in your library", u.label()));
+                let shelf = shelves.iter().find(|l| l.lib.dir == d.library).map_or("the library", |l| l.name.as_str());
+                s.editor.message = Some(format!("saved {} in {shelf}", u.label()));
                 return;
             }
             Err(e) => d.error = Some(e),
@@ -505,11 +634,12 @@ pub fn begin(s: &mut Session, r: &Registry, id: &str) {
 /// The library's nodes in the operators' pane (those a search finds, when there is one): a click adds one; a right
 /// click takes it out of the library.
 pub fn list(ui: &mut Ui, s: &mut Session, r: &Registry, query: &str) {
-    let all = nodes();
+    let shelves = libraries();
+    let all = shelved();
     let query = query.trim().to_lowercase();
-    let found: Vec<&UserNode> = all
+    let found: Vec<&(usize, UserNode)> = all
         .iter()
-        .filter(|u| {
+        .filter(|(_, u)| {
             query.is_empty()
                 || u.name.to_lowercase().contains(&query)
                 || u.description.as_deref().is_some_and(|d| d.to_lowercase().contains(&query))
@@ -518,30 +648,64 @@ pub fn list(ui: &mut Ui, s: &mut Session, r: &Registry, query: &str) {
     if found.is_empty() && !query.is_empty() {
         return;
     }
-    crate::theme::section(ui, "My nodes");
-    if all.is_empty() {
-        ui.label(
-            RichText::new("Select a group or a calculator, then Save as my node (in its pane) to use it in any model.")
-                .size(11.0)
-                .color(ui.visuals().weak_text_color()),
-        );
-        return;
-    }
     let mut chosen = None;
     let mut removed = None;
+    // the user's library, then each shared one (shown when it has nodes)
+    for (k, shelf) in shelves.iter().enumerate() {
+        let here: Vec<&UserNode> = found.iter().filter(|(at, _)| *at == k).map(|(_, u)| u).collect();
+        if !shelf.mine && here.is_empty() {
+            continue;
+        }
+        crate::theme::section(ui, &shelf.name);
+        if !shelf.mine {
+            ui.label(RichText::new(format!("shared · {}", shelf.lib.dir.display())).size(10.5).weak());
+        } else if !all.iter().any(|(at, _)| *at == 0) {
+            ui.label(
+                RichText::new(
+                    "Select a group or a calculator, then Save as my node (in its pane) to use it in any model.",
+                )
+                .size(11.0)
+                .color(ui.visuals().weak_text_color()),
+            );
+        }
+        shelf_nodes(ui, &here, &mut chosen, &mut removed, shelf);
+    }
+    if let Some(u) = chosen
+        && let Err(e) = add(s, r, &u)
+    {
+        s.editor.message = Some(e);
+    }
+    if let Some((name, shelf)) = removed {
+        if let Err(e) = shelf.lib.remove(&name) {
+            s.editor.message = Some(e.to_string());
+        }
+        changed();
+    }
+    ui.add_space(4.0);
+}
+
+/// The nodes of a library in the operators' pane: the one clicked, the one taken out of it.
+fn shelf_nodes(
+    ui: &mut Ui,
+    found: &[&UserNode],
+    chosen: &mut Option<UserNode>,
+    removed: &mut Option<(String, Shelf)>,
+    shelf: &Shelf,
+) {
     for u in found {
         let resp = ui.add(
             egui::Button::selectable(false, RichText::new(u.label()).monospace())
                 .min_size(Vec2::new(ui.available_width(), 20.0)),
         );
         resp.context_menu(|ui| {
-            if ui.button(format!("Take {} out of the library (every version)", u.name)).clicked() {
-                removed = Some(u.name.clone());
+            if ui.button(format!("Take {} out of {} (every version)", u.name, shelf.name)).clicked() {
+                *removed = Some((u.name.clone(), shelf.clone()));
                 ui.close();
             }
-            ui.label(RichText::new("models using it keep their copies").size(10.5).weak());
+            let others = if shelf.mine { "models using it" } else { "models using it, yours and others'," };
+            ui.label(RichText::new(format!("{others} keep their copies")).size(10.5).weak());
         });
-        let mut hover = u.description.clone().unwrap_or_else(|| "a node of yours".into());
+        let mut hover = u.description.clone().unwrap_or_else(|| format!("a node of {}", shelf.name));
         for (k, i) in &u.inputs {
             hover.push_str(&format!("\n{k}: {}", i.summary()));
         }
@@ -549,21 +713,9 @@ pub fn list(ui: &mut Ui, s: &mut Session, r: &Registry, query: &str) {
             hover.push_str(&format!("\n→ {k}: {}", o.ty.name()));
         }
         if resp.on_hover_text(hover).clicked() {
-            chosen = Some(u.clone());
+            *chosen = Some((*u).clone());
         }
     }
-    if let Some(u) = chosen
-        && let Err(e) = add(s, r, &u)
-    {
-        s.editor.message = Some(e);
-    }
-    if let Some(name) = removed {
-        if let Err(e) = library().remove(&name) {
-            s.editor.message = Some(e.to_string());
-        }
-        changed();
-    }
-    ui.add_space(4.0);
 }
 
 /// What the node pane tells of a node of the user's: its name and version, what it does, what its inputs need
@@ -584,7 +736,10 @@ pub fn pane(ui: &mut Ui, s: &mut Session, r: &Registry, path: &[String], n: &Nod
         return None;
     };
     ui.add_space(2.0);
-    ui.label(RichText::new(format!("{} · a node of yours", u.label())).strong());
+    let shelf = library_of(&u.name);
+    let whose = if shelf.mine { "a node of yours".to_string() } else { format!("a node of {} (shared)", shelf.name) };
+    ui.label(RichText::new(format!("{} · {whose}", u.label())).strong())
+        .on_hover_text(shelf.lib.dir.display().to_string());
     if let Some(d) = &u.description {
         ui.label(d);
     }
@@ -595,7 +750,7 @@ pub fn pane(ui: &mut Ui, s: &mut Session, r: &Registry, path: &[String], n: &Nod
     for (k, why) in lacking(s, path, n) {
         ui.colored_label(ui.visuals().warn_fg_color, format!("{k}: {why}"));
     }
-    let lib = library();
+    let lib = shelf.lib;
     let last = lib.versions(&u.name).last().copied();
     let mine = lib.get(&u.name, Some(u.version)).ok().filter(|v| v.label() == u.label());
     let edited = mine.as_ref().is_none_or(|v| v.differs(n));
@@ -619,7 +774,7 @@ pub fn pane(ui: &mut Ui, s: &mut Session, r: &Registry, path: &[String], n: &Nod
             }));
         }
         if edited {
-            let what = if mine.is_some() { "changed here since" } else { "not in your library:" };
+            let what = if mine.is_some() { "changed here since" } else { "not in the library:" };
             ui.label(RichText::new(format!("{what} {}", u.label())).size(11.5).color(ui.visuals().warn_fg_color));
             if ui.button("Save as a new version...").clicked() {
                 begin(s, r, &n.id);
@@ -687,6 +842,31 @@ mod tests {
     }
 
     #[test]
+    fn a_node_of_the_libraries_named_as_an_operator() {
+        assert_eq!(named("my:ndvi"), Some(("ndvi", None)));
+        assert_eq!(named("my:ndvi@2"), Some(("ndvi", Some(2))));
+        assert_eq!(named("my:a@b"), Some(("a@b", None)));
+        assert_eq!(named("raster.calc"), None);
+        // its values are its settings, its data its inputs (unless fed by another node)
+        let mut g = Node::new("veg", GROUP).literal("k", 2).input("img", "s.stack").input("t", "x.value");
+        let mut u = Uses {
+            name: "veg".into(),
+            version: 1,
+            description: None,
+            inputs: Default::default(),
+            outputs: Default::default(),
+        };
+        for (k, ty) in [("k", Type::Number), ("img", Type::Stack), ("t", Type::Text)] {
+            u.inputs.insert(k.into(), UserInput::new(ty));
+        }
+        g.uses = Some(u);
+        assert!(is_setting(&g, "k", Type::Number));
+        assert!(!is_setting(&g, "img", Type::Stack));
+        assert!(!is_setting(&g, "t", Type::Text), "fed by another node: an input");
+        assert!(!is_setting(&Node::new("calc", "raster.calc").literal("k", 2), "k", Type::Number));
+    }
+
+    #[test]
     fn a_draft_reads_as_what_the_node_declares() {
         let d = Draft {
             path: Vec::new(),
@@ -717,6 +897,7 @@ mod tests {
                 default: "".into(),
                 doc: "".into(),
             }],
+            library: PathBuf::new(),
             error: None,
         };
         let u = d.uses().unwrap();

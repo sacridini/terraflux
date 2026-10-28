@@ -1394,6 +1394,7 @@ pub fn list_operators(r: &Registry, query: Option<&str>) -> String {
             for (f, names) in families {
                 out.push_str(&format!("{f}: {}\n", names.join(", ")));
             }
+            out.push_str(&mine_listed(None));
             out
         }
         Some(q) => {
@@ -1405,10 +1406,11 @@ pub fn list_operators(r: &Registry, query: Option<&str>) -> String {
                     words.iter().all(|w| hay.contains(w.as_str()))
                 })
                 .collect();
-            if found.is_empty() {
+            let mine = mine_listed(Some(&words));
+            if found.is_empty() && mine.is_empty() {
                 return format!("No operator has all of {q:?}: try fewer or other words.");
             }
-            let mut out = String::new();
+            let mut out = mine;
             for s in found.iter().take(60) {
                 out.push_str(&format!("{}: {}\n", s.name, first_sentence(&s.doc)));
             }
@@ -1418,6 +1420,30 @@ pub fn list_operators(r: &Registry, query: Option<&str>) -> String {
             out
         }
     }
+}
+
+/// The nodes of the user's libraries (those that have all the words, when given), a line each, for
+/// list_operators: empty when there are none.
+fn mine_listed(words: Option<&[String]>) -> String {
+    let found: Vec<terraflux_graph::UserNode> = crate::my_nodes::nodes()
+        .into_iter()
+        .filter(|u| {
+            let hay = format!("{} {}", u.name, u.description.clone().unwrap_or_default()).to_lowercase();
+            words.is_none_or(|w| w.iter().all(|w| hay.contains(w.as_str())))
+        })
+        .collect();
+    if found.is_empty() {
+        return String::new();
+    }
+    let p = crate::my_nodes::PREFIX;
+    let mut out = format!(
+        "Nodes of the user's libraries (add_node with op = \"{p}name\"; describe_operator tells what they take):\n"
+    );
+    for u in found {
+        let what = u.description.as_deref().map_or(String::new(), |d| format!(": {}", first_sentence(d)));
+        out.push_str(&format!("{p}{} (version {}){what}\n", u.name, u.version));
+    }
+    out
 }
 
 fn port_line(p: &PortSpec) -> String {
@@ -1445,6 +1471,9 @@ fn like(r: &Registry, name: &str) -> String {
 }
 
 pub fn describe_operator(r: &Registry, name: &str) -> Reply {
+    if let Some((mine, version)) = crate::my_nodes::named(name) {
+        return crate::my_nodes::get(mine, version).map(|u| crate::my_nodes::describe(&u));
+    }
     let sig = r.sig(name).ok_or_else(|| format!("no operator {name:?}{}", like(r, name)))?;
     let mut s = format!("{}\n{}\n", sig.name, sig.doc);
     if sig.container {
@@ -1548,9 +1577,15 @@ fn set_settings(m: &mut Model, r: &Registry, path: &[String], id: &str, settings
     let map = v.as_object().ok_or("`settings` is an object: setting -> value")?;
     let op = m.scope(path).and_then(|n| n.iter().find(|n| n.id == id)).map(|n| n.op.clone()).ok_or("no such node")?;
     let sig = r.sig(&op).cloned();
+    // (a node of the user's: its settings are its inputs of a value)
+    let declared: Vec<String> = m
+        .scope(path)
+        .and_then(|n| n.iter().find(|n| n.id == id))
+        .and_then(|n| n.uses.as_ref())
+        .map_or_else(Vec::new, |u| u.inputs.keys().cloned().collect());
     for (name, value) in map {
         // (a literal input given as a setting: set as the input it is)
-        if sig.as_ref().is_some_and(|s| s.input_spec(name).is_some()) {
+        if sig.as_ref().is_some_and(|s| s.input_spec(name).is_some()) || declared.contains(name) {
             set_inputs(m, r, path, id, Some(&json!({ name: value })))?;
             continue;
         }
@@ -1626,10 +1661,12 @@ fn outputs_of(m: &Model, r: &Registry, path: &[String], id: &str) -> String {
 fn add_node(m: &mut Model, r: &Registry, a: &Value) -> Reply {
     let op = text(a, "op")?;
     let path = scope(a);
-    if r.sig(op).is_none() {
-        return Err(format!("no operator {op:?}{}", like(r, op)));
-    }
-    let mut id = editor::add_node(m, r, &path, op, [0.0, 0.0])?;
+    let mut id = match crate::my_nodes::named(op) {
+        // a node of the user's libraries
+        Some((name, version)) => editor::add_user_node(m, &path, &crate::my_nodes::get(name, version)?, [0.0, 0.0])?,
+        None if r.sig(op).is_none() => return Err(format!("no operator {op:?}{}", like(r, op))),
+        None => editor::add_node(m, r, &path, op, [0.0, 0.0])?,
+    };
     if let Some(want) = opt_text(a, "id") {
         editor::rename_node(m, &path, &id, want)?;
         id = want.to_string();

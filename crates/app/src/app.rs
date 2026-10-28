@@ -1991,10 +1991,7 @@ impl TerrafluxApp {
                         None => s.editor.message = Some("select a group or a calculator first".into()),
                     },
                     Do::AddMine(name) => {
-                        let added = crate::my_nodes::library()
-                            .get(&name, None)
-                            .map_err(|e| e.to_string())
-                            .and_then(|u| crate::my_nodes::add(s, r, &u));
+                        let added = crate::my_nodes::get(&name, None).and_then(|u| crate::my_nodes::add(s, r, &u));
                         if let Err(e) = added {
                             s.editor.message = Some(e);
                         }
@@ -2238,6 +2235,41 @@ impl TerrafluxApp {
                     );
                 });
                 ui.end_row();
+                ui.label("Node libraries");
+                ui.vertical(|ui| {
+                    ui.label(RichText::new(crate::my_nodes::dir().display().to_string()).size(11.0))
+                        .on_hover_text("your own library: the nodes you save");
+                    let mut gone = None;
+                    for (k, d) in st.node_libraries.iter().enumerate() {
+                        ui.horizontal(|ui| {
+                            if ui.small_button("x").on_hover_text("no longer used here (its folder stays)").clicked() {
+                                gone = Some(k);
+                            }
+                            let missing = if d.is_dir() { "" } else { " (not found)" };
+                            ui.label(RichText::new(format!("{}{missing}", d.display())).size(11.0));
+                        });
+                    }
+                    if let Some(k) = gone {
+                        st.node_libraries.remove(k);
+                        crate::my_nodes::changed();
+                    }
+                    if ui.button("Add a shared library...").clicked()
+                        && let Some(d) = rfd::FileDialog::new().pick_folder()
+                        && !st.node_libraries.contains(&d)
+                    {
+                        st.node_libraries.push(d);
+                        crate::my_nodes::changed();
+                    }
+                    ui.label(
+                        RichText::new(
+                            "folders of nodes shared with others (a group's folder on a shared drive, a repository \
+                             cloned): their nodes offered beside yours, and saved in them when chosen",
+                        )
+                        .weak()
+                        .size(11.0),
+                    );
+                });
+                ui.end_row();
                 ui.label("Updates");
                 ui.vertical(|ui| {
                     use crate::update::{State, show};
@@ -2303,6 +2335,7 @@ impl TerrafluxApp {
                     lend_code: st.lend_code.clone(),
                     lend_threads: st.lend_threads,
                     lend_idle: st.lend_idle,
+                    node_libraries: st.node_libraries.clone(),
                     ..Default::default()
                 };
             }

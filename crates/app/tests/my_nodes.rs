@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 use terraflux_app::TerrafluxApp;
 use terraflux_app::app::Pane;
 use terraflux_graph::{GROUP, Model, Node, Type};
@@ -121,4 +121,64 @@ fn a_calculator_saved_as_my_node_and_used_again() {
     let again = s.source.nodes.iter().find(|n| n.id == "ndvi").expect("added");
     assert_eq!(again.inputs["s"], terraflux_graph::Source::Ref("s.stack".into()));
     assert!(s.issues.iter().all(|i| i.severity != terraflux_graph::Severity::Error), "{:?}", s.issues);
+    // its value k a setting in the Node pane, changed there
+    h.state_mut().focus(Pane::Node);
+    h.run_steps(3);
+    assert!(h.query_by_label("Settings").is_some());
+    let field = h
+        .get_all_by_value("10")
+        .find(|n| n.accesskit_node().role() == egui::accesskit::Role::TextInput)
+        .expect("the field of k");
+    field.focus();
+    h.run_steps(2);
+    h.key_press(egui::Key::End);
+    h.event(egui::Event::Text("5".into()));
+    h.key_press(egui::Key::Enter);
+    h.run_steps(2);
+    let s = h.state().session.as_ref().unwrap();
+    let k = &s.source.nodes.iter().find(|n| n.id == "ndvi").unwrap().inputs["k"];
+    assert_eq!(*k, terraflux_graph::Source::Literal(105.into()));
+    // the quick search (/) finds it as my:ndvi; enter adds it
+    h.state_mut().session.as_mut().unwrap().editor.quick = Some(Default::default());
+    h.run_steps(2);
+    h.event(egui::Event::Text("ndvi".into()));
+    h.run_steps(2);
+    assert!(h.query_by_label_contains("my:ndvi").is_some(), "offered by the quick search");
+    h.key_press(egui::Key::Enter);
+    h.run_steps(2);
+    let s = h.state().session.as_ref().unwrap();
+    let of_it = s.source.nodes.iter().filter(|n| n.uses.as_ref().is_some_and(|u| u.name == "ndvi")).count();
+    assert_eq!(of_it, 3, "added by the quick search");
+    // the assistant's tools (and the MCP server's) list it, tell it and add it, its settings given
+    let r = terraflux_ops::Registry::standard();
+    let listed = terraflux_app::tools::list_operators(&r, Some("vegetation"));
+    assert!(listed.contains("my:ndvi (version 1): the vegetation index"), "{listed}");
+    let told = terraflux_app::tools::describe_operator(&r, "my:ndvi").unwrap();
+    assert!(told.contains("Settings:\n  k (whole number = 10, optional)"), "{told}");
+    assert!(told.contains("Inputs:\n  s (stack (nir, red))"), "{told}");
+    let mut m = model();
+    let a = serde_json::json!({ "op": "my:ndvi", "id": "veg", "inputs": { "s": "s.stack" }, "settings": { "k": 3 } });
+    terraflux_app::tools::edit("add_node", &mut m, &r, &dir, &a).unwrap();
+    let veg = m.nodes.iter().find(|n| n.id == "veg").unwrap();
+    assert_eq!(veg.uses.as_ref().unwrap().label(), "ndvi@1");
+    assert_eq!(veg.inputs["k"], terraflux_graph::Source::Literal(3.into()));
+    assert!(
+        terraflux_app::tools::edit("add_node", &mut m, &r, &dir, &serde_json::json!({ "op": "my:nothing" })).is_err()
+    );
+    // a library shared with others, set in the settings: its nodes offered beside the user's
+    let shared = dir.join("shared");
+    let mut u = terraflux_graph::user_node::Library::new(dir.join("nodes")).get("ndvi", None).unwrap();
+    u.name = "group_ndvi".into();
+    terraflux_graph::user_node::Library::new(&shared).save(&u).unwrap();
+    terraflux_app::settings::update(|st| st.node_libraries = vec![shared.clone()]);
+    terraflux_app::my_nodes::changed();
+    let libs = terraflux_app::my_nodes::libraries();
+    assert_eq!(libs.iter().map(|l| l.name.as_str()).collect::<Vec<_>>(), ["My nodes", "shared"]);
+    assert_eq!(terraflux_app::my_nodes::library_of("group_ndvi").lib.dir, shared);
+    h.state_mut().focus(Pane::Operators);
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("group_ndvi@1").is_some(), "the shared library's node in the operators' pane");
+    shot(&mut h, "shared");
+    terraflux_app::settings::update(|st| st.node_libraries.clear());
+    terraflux_app::my_nodes::changed();
 }
