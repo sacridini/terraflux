@@ -604,7 +604,7 @@ fn text_view(ui: &mut Ui, s: &mut Session) {
         if let Some(e) = &s.load_error {
             ui.colored_label(ui.visuals().error_fg_color, format!("the inputs could not be read: {e}"));
         }
-        let problems = s.issues.len() + s.findings.len();
+        let problems = s.shown_issues().count() + s.findings.len();
         ui.label(
             RichText::new(if problems == 0 {
                 "No problem found in the model or its data.".to_string()
@@ -614,7 +614,7 @@ fn text_view(ui: &mut Ui, s: &mut Session) {
             .strong(),
         );
         egui::ScrollArea::vertical().id_salt("problems").max_height(200.0).show(ui, |ui| {
-            for i in &s.issues {
+            for i in s.shown_issues() {
                 let c = if i.severity == Severity::Error {
                     ui.visuals().error_fg_color
                 } else {
@@ -1875,7 +1875,7 @@ fn problems(s: &Session) -> std::collections::HashMap<String, Vec<(bool, String)
     use terraflux_exec::lint::Level;
     let mut out: std::collections::HashMap<String, Vec<(bool, String)>> = Default::default();
     let prefix = if s.editor.path.is_empty() { String::new() } else { format!("{}/", s.editor.path.join("/")) };
-    for i in &s.issues {
+    for i in s.shown_issues() {
         let head = i.at.split('.').next().unwrap_or("");
         if let Some(rest) = head.strip_prefix(&prefix) {
             let id = rest.split('/').next().unwrap_or(rest);

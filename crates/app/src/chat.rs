@@ -1534,7 +1534,12 @@ mod tests {
         assert!(t.contains("The run failed: node x: no input"), "{t}");
         assert!(c.problems_to_tell(&s).is_none(), "a failure told once");
         // an answer ended, the model in error
-        s.issues.push(terraflux_graph::Issue { severity: Severity::Error, at: "a".into(), message: "needs b".into() });
+        s.issues.push(terraflux_graph::Issue {
+            severity: Severity::Error,
+            at: "a".into(),
+            message: "needs b".into(),
+            unfilled: false,
+        });
         c.answered = true;
         assert!(c.problems_to_tell(&s).unwrap().contains("needs b"));
         c.answered = true;

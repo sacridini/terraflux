@@ -91,7 +91,10 @@ pub struct Calculator {
     shown_window: Option<Window>,
     /// What the inputs connected to rasters not run yet are, by their headers (by path and band).
     headers: HashMap<(String, String), Input>,
-    /// The console's lines, its prompt, what was typed in it (up and down bring it back), a line being computed.
+    /// Whether the console is open (closed, a bar that opens it) and was just opened (its prompt to be typed in); its
+    /// lines, its prompt, what was typed in it (up and down bring it back), a line being computed.
+    console: bool,
+    opened: bool,
     lines: Vec<Line>,
     input: String,
     typed: Vec<String>,
@@ -677,12 +680,27 @@ pub fn pane(ui: &mut Ui, c: &mut Calculator, s: &mut Session) -> Option<Asked> {
                 }
             });
         });
-    egui::Panel::bottom("calculator console")
-        .resizable(true)
-        .default_size(160.0)
-        .min_size(70.0)
-        .frame(egui::Frame::new().fill(fill).inner_margin(Margin::symmetric(10, 6)))
-        .show(ui, |ui| console(ui, c, &values, &inputs));
+    // the console closed until it is wanted: a bar that opens it
+    if c.console {
+        egui::Panel::bottom("calculator console")
+            .resizable(true)
+            .default_size(160.0)
+            .min_size(70.0)
+            .frame(egui::Frame::new().fill(fill).inner_margin(Margin::symmetric(10, 6)))
+            .show(ui, |ui| console(ui, c, &values, &inputs));
+    } else {
+        egui::Panel::bottom("calculator console bar")
+            .frame(egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(Margin::symmetric(8, 3)))
+            .show(ui, |ui| {
+                let open = ui.add(egui::Button::new(mono("❯ console").small()).frame(false)).on_hover_text(
+                    "a line computed with the script's names (img.mean(), ndvi > 0.5), the node unchanged",
+                );
+                if open.clicked() {
+                    c.console = true;
+                    c.opened = true;
+                }
+            });
+    }
     egui::Panel::right("calculator preview")
         .resizable(true)
         .default_size(260.0)
@@ -1078,12 +1096,28 @@ fn console(ui: &mut Ui, c: &mut Calculator, values: &BTreeMap<String, Value>, in
         }
     }
     let enter = typing && ui.input_mut(|i| i.consume_key(none, Key::Enter));
+    egui::Panel::top("calculator console head").frame(egui::Frame::new().inner_margin(Margin::symmetric(0, 2))).show(
+        ui,
+        |ui| {
+            ui.horizontal(|ui| {
+                ui.label(mono("console").weak().small());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let close = ui
+                        .add(egui::Button::new(mono("close").small()).frame(false))
+                        .on_hover_text("close the console");
+                    if close.clicked() {
+                        c.console = false;
+                    }
+                });
+            });
+        },
+    );
     egui::Panel::bottom("calculator prompt").frame(egui::Frame::new().inner_margin(Margin::symmetric(0, 4))).show(
         ui,
         |ui| {
             ui.horizontal(|ui| {
                 ui.label(mono("❯").color(theme::accent()));
-                ui.add(
+                let prompt = ui.add(
                     egui::TextEdit::singleline(&mut c.input)
                         .id(id)
                         .frame(egui::Frame::NONE)
@@ -1092,6 +1126,10 @@ fn console(ui: &mut Ui, c: &mut Calculator, values: &BTreeMap<String, Value>, in
                         .desired_width(f32::INFINITY)
                         .hint_text(mono("img.mean() · ndvi > 0.5 · help").weak()),
                 );
+                // (opened: its prompt typed in at once)
+                if std::mem::take(&mut c.opened) {
+                    prompt.request_focus();
+                }
             });
         },
     );

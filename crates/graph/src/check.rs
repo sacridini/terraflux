@@ -24,6 +24,9 @@ pub struct Issue {
     pub severity: Severity,
     pub at: String,
     pub message: String,
+    /// A node not filled in yet (an input it needs not connected): an error that stops a run, worth telling only
+    /// when one is asked for (a node just added has none of its inputs).
+    pub unfilled: bool,
 }
 
 impl std::fmt::Display for Issue {
@@ -75,11 +78,16 @@ impl<'a> Checker<'a> {
     }
 
     fn error(&mut self, at: &str, message: String) {
-        self.issues.push(Issue { severity: Severity::Error, at: at.to_string(), message });
+        self.issues.push(Issue { severity: Severity::Error, at: at.to_string(), message, unfilled: false });
+    }
+
+    /// An input a node needs not connected yet.
+    fn unfilled(&mut self, at: &str, message: String) {
+        self.issues.push(Issue { severity: Severity::Error, at: at.to_string(), message, unfilled: true });
     }
 
     fn warn(&mut self, at: &str, message: String) {
-        self.issues.push(Issue { severity: Severity::Warning, at: at.to_string(), message });
+        self.issues.push(Issue { severity: Severity::Warning, at: at.to_string(), message, unfilled: false });
     }
 
     /// Why a key of a parameter or scenario (`$input`, `node.setting`, `container/node.setting`) names nothing the
@@ -353,12 +361,12 @@ impl<'a> Checker<'a> {
             }
             for p in sig.inputs.iter().filter(|p| p.required) {
                 if !n.inputs.contains_key(&p.name) {
-                    self.error(&at, format!("{} needs the input {:?} ({})", n.op, p.name, p.doc));
+                    self.unfilled(&at, format!("{} needs the input {:?} ({})", n.op, p.name, p.doc));
                 }
             }
             if let Some(u) = n.uses.as_ref().filter(|_| n.op == crate::GROUP) {
                 for (k, i) in u.inputs.iter().filter(|(k, i)| i.required() && !n.inputs.contains_key(*k)) {
-                    self.error(&at, format!("{} needs the input {k:?} ({})", u.label(), i.summary()));
+                    self.unfilled(&at, format!("{} needs the input {k:?} ({})", u.label(), i.summary()));
                 }
                 let given: BTreeSet<&String> = n.body.iter().flat_map(|b| b.outputs.keys()).collect();
                 let declared: BTreeSet<&String> = u.outputs.keys().collect();
@@ -672,6 +680,11 @@ inputs = { a = "s.stack" }
         assert!(e.iter().any(|x| x.contains("has no input \"q\"")), "{e:?}");
         let m = model(&GOOD.replace("inputs = { map = \"$t0\" }", ""));
         assert!(errors(&m).iter().any(|x| x.contains("needs the input \"map\"")));
+        // an input not connected yet: the node not filled in, the others' errors not
+        let all = check(&m, &Ops);
+        assert!(all.iter().any(|i| i.unfilled && i.message.contains("needs the input \"map\"")), "{all:?}");
+        let m = model(&GOOD.replace("op = \"fit\"", "op = \"fitt\""));
+        assert!(check(&m, &Ops).iter().all(|i| !i.unfilled));
     }
 
     #[test]

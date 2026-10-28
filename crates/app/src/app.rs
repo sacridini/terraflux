@@ -487,6 +487,9 @@ pub struct Session {
     /// The model's file (none: not saved yet).
     pub path: Option<PathBuf>,
     pub issues: Vec<Issue>,
+    /// Whether the nodes not filled in yet are told among the problems: once a run is asked for, until every node is
+    /// filled in.
+    pub unfilled_shown: bool,
     pub findings: Vec<Finding>,
     pub inputs: Option<BTreeMap<String, Value>>,
     /// The model's inputs `inputs` are of (a run reads them again when they changed).
@@ -659,6 +662,7 @@ impl Session {
             fields: BTreeMap::new(),
             path,
             issues,
+            unfilled_shown: false,
             findings: Vec::new(),
             inputs: None,
             inputs_of: BTreeMap::new(),
@@ -803,6 +807,7 @@ impl Session {
         match terraflux_graph::submodel::expand(&mut m, &self.base()) {
             Ok(()) => {
                 self.issues = check(&m, &Registry::standard());
+                self.unfilled_shown &= self.issues.iter().any(|i| i.unfilled);
                 self.toml = None;
                 self.model = m;
             }
@@ -848,6 +853,34 @@ impl Session {
             && self.load_error.is_none()
             && !self.issues.iter().any(|i| i.severity == Severity::Error)
             && !self.findings.iter().any(|f| f.level == Level::Error)
+    }
+
+    /// The problems told: those of the nodes not filled in yet (a node just added) only once a run was asked for.
+    pub fn shown_issues(&self) -> impl Iterator<Item = &Issue> {
+        self.issues.iter().filter(|i| !i.unfilled || self.unfilled_shown)
+    }
+
+    /// Whether a run may be asked for: it runs ([`Session::can_run`]), or it tells what the nodes not filled in
+    /// need ([`Session::ask_run`]).
+    pub fn can_ask_run(&self) -> bool {
+        self.can_run() || (!self.running() && !self.loading() && self.load_error.is_none() && self.unfilled_only())
+    }
+
+    /// A run asked for: whether it may start; when the nodes not filled in stop it, they are told from then on.
+    pub fn ask_run(&mut self) -> bool {
+        if self.can_run() {
+            return true;
+        }
+        if self.issues.iter().any(|i| i.unfilled) {
+            self.unfilled_shown = true;
+        }
+        false
+    }
+
+    /// Whether the only errors are of nodes not filled in (some at least).
+    fn unfilled_only(&self) -> bool {
+        let mut errors = self.issues.iter().filter(|i| i.severity == Severity::Error).peekable();
+        errors.peek().is_some() && errors.all(|i| i.unfilled) && !self.findings.iter().any(|f| f.level == Level::Error)
     }
 
     /// Whether a run may stop at a node: only the errors of the nodes it needs count, and the engine checks
@@ -927,6 +960,8 @@ impl Session {
     /// Run what a node needs (none: the whole model); what did not change since the last run comes from the
     /// cache.
     pub fn start_to(&mut self, target: Option<String>, repaint: Box<dyn Fn() + Send>) {
+        // (a run asked for: the nodes not filled in told)
+        self.unfilled_shown = self.issues.iter().any(|i| i.unfilled);
         self.hold_frozen();
         let base = self.base();
         self.edited_at = None;
@@ -1570,11 +1605,13 @@ impl TerrafluxApp {
 
     /// Run the whole model.
     fn run_all(&mut self, ctx: &egui::Context) {
-        if let Some(s) = &mut self.session
-            && s.can_run()
-        {
+        let Some(s) = &mut self.session else { return };
+        if s.ask_run() {
             let ctx = ctx.clone();
             s.start(Box::new(move || ctx.request_repaint()));
+        } else if s.unfilled_shown {
+            // what the nodes not filled in need
+            self.focus(Pane::Problems);
         }
     }
 
@@ -1757,8 +1794,12 @@ impl TerrafluxApp {
                 && self.wizard.is_none()
             {
                 run = ui
-                    .add_enabled(s.can_run(), accent_button("Run", s.can_run()))
-                    .on_hover_text("run the whole model (F5)")
+                    .add_enabled(s.can_ask_run(), accent_button("Run", s.can_run()))
+                    .on_hover_text(if s.can_run() {
+                        "run the whole model (F5)"
+                    } else {
+                        "run the whole model (F5): nodes not filled in yet, told among the problems"
+                    })
                     .clicked();
                 stop = ui.add_enabled(s.running() && s.stopping.is_none(), egui::Button::new("Stop")).clicked();
                 // step by step: paused after each step of a loop
@@ -2882,14 +2923,13 @@ impl TerrafluxApp {
         if keys.shortcuts {
             self.shortcuts_open = !self.shortcuts_open;
         }
-        if let Some(s) = &mut self.session {
-            if keys.open {
-                crate::builder::open_data(s, &self.registry);
-            }
-            if keys.run && s.can_run() {
-                let ctx = ctx.clone();
-                s.start(Box::new(move || ctx.request_repaint()));
-            }
+        if let Some(s) = &mut self.session
+            && keys.open
+        {
+            crate::builder::open_data(s, &self.registry);
+        }
+        if keys.run {
+            self.run_all(ctx);
         }
     }
 

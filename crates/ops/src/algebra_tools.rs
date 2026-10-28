@@ -832,7 +832,8 @@ pub fn preview_in(
 
 /// A line computed in the scope of a script, on every cell of the inputs (the script's names given their values
 /// first; the script left out when it has an error): a value (`img.mean()`, `ndvi > 0.5`) or a statement, whose
-/// name's value it gives (`x = a * 2`). The grid's size and the value.
+/// name's value it gives (`x = a * 2`). An input's name is the input as it is connected, also when the script
+/// changes it (`land[land > 40] = 1`: the script's `land` is what the preview shows). The grid's size and the value.
 pub fn evaluate_line(script: &str, line: &str, inputs: &BTreeMap<String, Value>) -> Result<(usize, usize, Out)> {
     let mut statements: Vec<(usize, Stmt)> = parse_script(script)
         .map(|s| s.statements)
@@ -844,6 +845,33 @@ pub fn evaluate_line(script: &str, line: &str, inputs: &BTreeMap<String, Value>)
             Stmt::Out(_) | Stmt::Value(_) => None,
         })
         .collect();
+    // the inputs the script changes: in the script, a name of their own (one that cannot be typed) given the input
+    let mut inputs = inputs.clone();
+    let changed: Vec<String> = statements
+        .iter()
+        .filter_map(|(_, st)| match st {
+            Stmt::Set { name, .. } if inputs.contains_key(name) => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
+    for name in changed {
+        let own = format!("{name}'");
+        if inputs.contains_key(&own) {
+            continue;
+        }
+        inputs.insert(own.clone(), inputs[&name].clone());
+        for (_, st) in &mut statements {
+            if let Stmt::Set { name: n, mask, value, .. } = st {
+                if *n == name {
+                    *n = own.clone();
+                }
+                if let Some(m) = mask {
+                    renamed(m, &name, &own);
+                }
+                renamed(value, &name, &own);
+            }
+        }
+    }
     let asked = parse_script(line).map_err(|e| Error::msg(e.0))?;
     let n = asked.statements.len();
     for (k, (_, st)) in asked.statements.into_iter().enumerate() {
@@ -866,10 +894,37 @@ pub fn evaluate_line(script: &str, line: &str, inputs: &BTreeMap<String, Value>)
         }
     }
     let script = Script { statements, lines: false };
-    let (c, _) = cells(inputs, None, None)?;
+    let (c, _) = cells(&inputs, None, None)?;
     let mut out = script.run(&c.scope())?;
     let (_, v) = out.pop().ok_or_else(|| Error::msg("nothing to compute"))?;
     Ok((c.width, c.height, v))
+}
+
+/// The name `from` of an expression made `to` (its values and its layers).
+fn renamed(e: &mut Expr, from: &str, to: &str) {
+    match e {
+        Expr::Var(n) | Expr::Layer(n, _) => {
+            if n == from {
+                *n = to.to_string();
+            }
+        }
+        Expr::Unary(_, a) => renamed(a, from, to),
+        Expr::Binary(_, a, b) => {
+            renamed(a, from, to);
+            renamed(b, from, to);
+        }
+        Expr::If(c, a, b) => {
+            renamed(c, from, to);
+            renamed(a, from, to);
+            renamed(b, from, to);
+        }
+        Expr::Call(_, args) => args.iter_mut().for_each(|a| renamed(a, from, to)),
+        Expr::Method(x, _, args) => {
+            renamed(x, from, to);
+            args.iter_mut().for_each(|a| renamed(a, from, to));
+        }
+        Expr::Num(_) | Expr::Str(_) => {}
+    }
 }
 
 /// The values of all the cells of a map that have one: the least, the mean, the largest and how many are missing.
@@ -1147,6 +1202,14 @@ out u = t.a + h.b",
         // a script with an error: the inputs alone
         assert_eq!(evaluate_line("half = ", "land.min()", &inputs).unwrap().2, Out::Number(0.0));
         assert!(evaluate_line(script, "nothing + 1", &inputs).is_err());
+        // an input the script changes: the input as connected, the names made of it the script's
+        let changes = "land[land > 40] = 1\nhigh = land == 1";
+        let sum = |line: &str| match evaluate_line(changes, line, &inputs).unwrap().2 {
+            Out::Map(c) => c.iter().sum::<f64>(),
+            o => panic!("{o:?}"),
+        };
+        assert_eq!(sum("land > 50"), 49.0);
+        assert_eq!(sum("high"), 60.0);
         assert_eq!(summary(&[1.0, f64::NAN, 3.0]), (1.0, 2.0, 3.0, 1));
         assert_eq!(reads("a = land * k\nb = a + img.red\nc[x > 0] = 1\nout d"), ["land", "k", "img", "c", "x", "d"]);
     }

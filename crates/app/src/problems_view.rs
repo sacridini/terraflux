@@ -31,10 +31,10 @@ pub fn last_failure(s: &Session) -> Option<Diagnosis> {
 pub fn counts(s: &Session) -> (usize, usize) {
     let errors = usize::from(s.error.is_some())
         + usize::from(s.load_error.is_some())
-        + s.issues.iter().filter(|i| i.severity == Severity::Error).count()
+        + s.shown_issues().filter(|i| i.severity == Severity::Error).count()
         + s.findings.iter().filter(|f| f.level == terraflux_exec::lint::Level::Error).count();
     let warnings = s.warnings.len()
-        + s.issues.iter().filter(|i| i.severity == Severity::Warning).count()
+        + s.shown_issues().filter(|i| i.severity == Severity::Warning).count()
         + s.findings.iter().filter(|f| f.level == terraflux_exec::lint::Level::Warning).count();
     (errors, warnings)
 }
@@ -170,7 +170,7 @@ pub fn pane(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Asked> {
                 ui.add_space(6.0);
             }
             // the graph's checks
-            let mut issues: Vec<&terraflux_graph::Issue> = s.issues.iter().collect();
+            let mut issues: Vec<&terraflux_graph::Issue> = s.shown_issues().collect();
             issues.sort_by_key(|i| std::cmp::Reverse(i.severity));
             if !issues.is_empty() {
                 ui.label(RichText::new("The graph").strong());
@@ -226,4 +226,29 @@ pub fn pane(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Asked> {
         s.editor.reveal(&id);
     }
     asked
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_node_not_filled_in_is_told_once_a_run_is_asked_for() {
+        let r = Registry::standard();
+        let mut s = Session::blank();
+        let a = crate::builder::add_at(&mut s, &r, "nlm.random", &[], Some([0.0, 0.0])).unwrap();
+        let b = crate::builder::add_at(&mut s, &r, "raster.write", &[("path", "out.tif".into())], Some([300.0, 0.0]))
+            .unwrap();
+        // just added: its input not connected, an error not told yet
+        assert!(s.issues.iter().any(|i| i.unfilled), "{:?}", s.issues);
+        assert_eq!(counts(&s).0, 0);
+        assert!(!s.ask_run());
+        // a run asked for: told, until the node is filled in
+        assert!(s.unfilled_shown);
+        assert!(counts(&s).0 > 0);
+        crate::editor::connect(&mut s.source, &r, &[], &format!("{a}.map"), &b, "value").unwrap();
+        s.edited();
+        assert!(!s.issues.iter().any(|i| i.unfilled), "{:?}", s.issues);
+        assert!(!s.unfilled_shown);
+    }
 }

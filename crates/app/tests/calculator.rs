@@ -110,7 +110,10 @@ fn a_script_typed_completed_previewed_and_given_to_its_node() {
     until(&mut h, "the run to the node", |h| {
         h.state().session.as_ref().unwrap().outputs.get("calc").is_some_and(|o| o.contains_key("m"))
     });
-    // a line of the console, computed at once
+    // the console closed until it is opened; a line of it computed at once
+    assert!(h.query_by_label_contains("img.mean() · ndvi > 0.5").is_none());
+    h.get_by_label("❯ console").click();
+    h.run_steps(2);
     h.ctx.memory_mut(|m| m.request_focus(egui::Id::new("calculator console input")));
     h.run_steps(2);
     typed(&mut h, "s.high.max() / s.low.max()");

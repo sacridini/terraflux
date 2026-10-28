@@ -73,8 +73,7 @@ pub fn first_sentence(doc: &str) -> (String, bool) {
 /// The issues of a node of a scope (those of its ports and, for a container, of its body).
 fn issues_of<'a>(s: &'a Session, path: &[String], id: &str) -> Vec<&'a Issue> {
     let at = if path.is_empty() { id.to_string() } else { format!("{}/{id}", path.join("/")) };
-    s.issues
-        .iter()
+    s.shown_issues()
         .filter(|i| {
             let head = i.at.split('.').next().unwrap_or("");
             head == at || head.strip_prefix(&at).is_some_and(|rest| rest.starts_with('/'))
@@ -811,8 +810,11 @@ fn value_cell(
     if resp.lost_focus() && text != init {
         change = Some(crate::editor::set_param(&mut s.source, path, &n.id, name, &text));
     }
-    // a file: chosen in a dialog
-    if name == "path" && terraflux_graph::FILE_OPS.contains(&n.op.as_str()) && ui.button("Choose...").clicked() {
+    // a file: chosen in a dialog (its buttons in the accent: what the node needs first)
+    if name == "path"
+        && terraflux_graph::FILE_OPS.contains(&n.op.as_str())
+        && ui.add(crate::app::accent_button("Choose...", true)).clicked()
+    {
         let dialog = match n.op.as_str() {
             terraflux_graph::PLUGIN => rfd::FileDialog::new().add_filter("WebAssembly", &["wasm", "wat"]),
             "vector.read" | "vector.write" => rfd::FileDialog::new()
@@ -837,7 +839,7 @@ fn value_cell(
     if name == "path"
         && (n.op == "raster.read" || n.op == "swat.run")
         && ui
-            .button("A folder...")
+            .add(crate::app::accent_button("A folder...", true))
             .on_hover_text(if n.op == "swat.run" {
                 "a TxtInOut folder (with file.cio)"
             } else {
