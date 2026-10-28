@@ -507,6 +507,14 @@ Two limits are worth knowing:
   another computer, send the folder with its `expected` files and run `terraflux test` there: a test's paths are
   relative to the model.
 
+!!! note "What the next version changes"
+    From the version after 1.23.0, the manifest also holds the files the nodes read (`reads`, by `node.setting`)
+    and those they wrote (`writes`, compared again by `terraflux reproduce`, but a GeoPackage, which records when it
+    was written), and the frozen results the run used (`frozen`). Every path is also given from the manifest's
+    folder, so a study's folder moved or copied with its manifest is reproduced where it is now; a file found at
+    neither place is named. `terraflux test` and `terraflux reproduce` use the frozen results as `terraflux run`
+    does, and `--thaw` runs every node instead.
+
 ## Freeze a result
 
 Some steps take minutes or hours (a species distribution model fitted with cross-validation, a circuit map of a
@@ -560,7 +568,7 @@ in `model.frozen` too, since nothing else will.
     the danger: unfreeze it before the final runs of a study. `terraflux test` and `terraflux reproduce` do not
     use frozen results: they run every node. A model whose frozen result no longer matches what its node gives
     passes or fails its tests on what the node gives now, and a run made with the frozen result does not
-    reproduce.
+    reproduce. (From the next version they use the frozen results, as `terraflux run` does; see the note above.)
 
 ## Settings that change the answer
 
@@ -576,14 +584,16 @@ in `model.frozen` too, since nothing else will.
 
 ## Common pitfalls
 
-- **Data read by nodes rather than inputs.** A file read by a [[raster.read]] node is not in the manifest, so
-  `terraflux reproduce` cannot say it changed. Make the data the model's `[inputs]`.
+- **Data read by nodes rather than inputs.** In 1.23.0 a file read by a [[raster.read]] node is not in the
+  manifest, so `terraflux reproduce` cannot say it changed. Make the data the model's `[inputs]` (the next version
+  records both).
 - **A check that never fails.** Try each check once with data that should fail it (`--set tenth.warn=false`
   above, or another file with `--set lu1997=...`): a check written wrongly can pass on everything.
 - **Updating the expected files without looking.** `terraflux test --update` makes whatever the model gives now
   the reference. Run it only after checking the new results, never to make a failing test pass.
 - **Results reported from files outside `[outputs]`.** Neither the manifest nor `terraflux reproduce` sees them.
-- **A manifest moved to another computer.** It names full paths: use tests to check a model elsewhere.
+- **A manifest moved to another computer.** In 1.23.0 it names full paths: use tests to check a model elsewhere
+  (the next version finds the files from the manifest's folder).
 - **A node left frozen.** Its result no longer follows the data. Before the final runs, untick **Freeze**, or at
   least check the ❄ marks on the canvas.
 - **A model named without its folder.** In Terraflux 1.23.0, `terraflux run model.toml` stops with *cannot make an

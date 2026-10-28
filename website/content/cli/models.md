@@ -156,6 +156,14 @@ features (the file records when it was written). The manifest names the files by
 reproduces a run on the computer that made it, or where the study's folders are at the same place; on another
 computer, use `terraflux test`, whose paths are relative to the model.
 
+!!! note "What the next version changes"
+    From the version after 1.23.0, the manifest also holds the files the nodes read (`reads`, by `node.setting`)
+    and those they wrote (`writes`, compared again by `terraflux reproduce`, but a GeoPackage, which records when it
+    was written), and the frozen results the run used (`frozen`). Every path is also given from the manifest's
+    folder, so a study's folder moved or copied with its manifest is reproduced where it is now; a file found at
+    neither place is named. `terraflux test` and `terraflux reproduce` use the frozen results as `terraflux run`
+    does, and `--thaw` runs every node instead.
+
 ## terraflux new
 
 Writes a complete land change model from your maps, fitted with the classic methods. The model is written out
