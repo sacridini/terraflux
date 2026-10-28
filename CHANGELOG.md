@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.23.0] - 2026-10-28
+
 ### Added
 - The document says what a step does in a sentence written for its operator, with its settings and where its
   inputs come from ("A Gaussian random field of 100 × 120 cells: autocorrelation range 10 cells, variance 5,
