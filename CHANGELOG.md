@@ -6,6 +6,11 @@ minor versions.
 
 ## [Unreleased]
 
+### Fixed
+- `move.extract_covariates` reads rasters whose coordinate system is only an EPSG code (as `data.download`'s)
+  under tracks in another one: every value was empty, the tracks were not reprojected. The species
+  distribution operators read such rasters the same way now.
+
 ## [1.24.1] - 2026-10-29
 
 1.24.0 was not published: its Linux build failed. This release has its additions and these fixes.

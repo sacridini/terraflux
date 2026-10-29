@@ -544,7 +544,7 @@ fn covariates_are_amts() {
     g.geo.wkt = Some("EPSG:32723".into());
     let every = e["na_every"].as_f64().unwrap();
     let data: Vec<f64> = (1..=ny * nx).map(|i| i as f64).map(|v| if v % every == 0.0 { f64::NAN } else { v }).collect();
-    let cover = Value::Map(Map::new(Arc::new(g), data));
+    let cover = Value::Map(Map::new(Arc::new(g), data.clone()));
     let utm = set("utm");
     let x = |t: &Value, p: serde_json::Value, c: &str| {
         num(
@@ -562,6 +562,25 @@ fn covariates_are_amts() {
         "steps",
     ));
     same("random", &x(&r, serde_json::json!({}), "cover"), want("extract/random"));
+    // lon/lat tracks over a raster whose coordinate system is only an EPSG code (no WKT, as a download's)
+    let mut g = Grid::new(nx, ny);
+    for (k, v) in e["transform"].as_array().unwrap().iter().enumerate() {
+        g.transform[k] = v.as_f64().unwrap();
+    }
+    g.geo.geokeys = Some(vec![1, 1, 0, 1, 3072, 0, 1, 32723]);
+    let cover = Value::Map(Map::new(Arc::new(g), data));
+    let ll = Value::Vector(vector(
+        &go("vector.reproject", vec![("vector", utm)], serde_json::json!({"crs": "EPSG:4326"})),
+        "vector",
+    ));
+    let got = num(
+        &vector(
+            &go("move.extract_covariates", vec![("tracks", ll), ("cover", cover)], serde_json::json!({})),
+            "tracks",
+        ),
+        "cover",
+    );
+    same("lon/lat over EPSG", &got, want("extract/track"));
 }
 
 #[test]

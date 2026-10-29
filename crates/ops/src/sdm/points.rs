@@ -244,9 +244,9 @@ pub fn grid_cells(xs: &[f64], ys: &[f64], g: &Grid) -> Vec<i64> {
         .collect()
 }
 
-/// The grid's coordinate system (WKT), if known.
+/// The grid's coordinate system (its WKT, else its EPSG code), if known.
 pub fn grid_crs(g: &Grid) -> Option<String> {
-    g.geo.wkt.clone()
+    crate::prepare::crs_of(g)
 }
 
 /// spThin's thinning: the records left at least `distance` metres apart (great-circle), the best of `reps`

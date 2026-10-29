@@ -613,7 +613,7 @@ impl Operator for Covariates {
         for (xs, ys, suffix) in &points {
             for (name, grid, values) in &layers {
                 let (mut px, mut py) = (xs.clone(), ys.clone());
-                to_crs(&mut px, &mut py, v.crs.as_deref(), grid.geo.wkt.as_deref())
+                to_crs(&mut px, &mut py, v.crs.as_deref(), crate::prepare::crs_of(grid).as_deref())
                     .map_err(|e| Error::msg(format!("node {node:?}: {e}")))?;
                 let cells = grid_cells(&px, &py, grid);
                 let vals = cells.iter().map(|&c| if c >= 0 { values[c as usize] } else { f64::NAN }).collect();
