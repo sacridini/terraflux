@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.24.0] - 2026-10-29
+
 ### Added
 - Animal movement, `move.*` (landschaft's `ls.move`: the methods of move2 and amt), each bit for bit with
   landschaft on its reference tracks (`tools/make_move_reference.py`):
