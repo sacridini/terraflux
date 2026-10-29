@@ -6,6 +6,10 @@ minor versions.
 
 ## [Unreleased]
 
+### Fixed
+- Vectors are written to GeoPackage (and SQLite) in one transaction: 47 000 points in half a second, not 29
+  seconds (a commit per feature before).
+
 ## [1.24.0] - 2026-10-29
 
 ### Added

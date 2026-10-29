@@ -86,6 +86,8 @@ struct Api {
     GDALDatasetGetLayer: unsafe extern "C" fn(H, c_int) -> H,
     GDALDatasetGetLayerByName: unsafe extern "C" fn(H, *const c_char) -> H,
     GDALDatasetCreateLayer: unsafe extern "C" fn(H, *const c_char, H, c_int, *mut *mut c_char) -> H,
+    GDALDatasetStartTransaction: unsafe extern "C" fn(H, c_int) -> c_int,
+    GDALDatasetCommitTransaction: unsafe extern "C" fn(H) -> c_int,
     OGR_L_GetName: unsafe extern "C" fn(H) -> *const c_char,
     OGR_L_ResetReading: unsafe extern "C" fn(H),
     OGR_L_GetNextFeature: unsafe extern "C" fn(H) -> H,
@@ -343,6 +345,8 @@ impl Gdal {
             GDALDatasetGetLayer: f!(GDALDatasetGetLayer),
             GDALDatasetGetLayerByName: f!(GDALDatasetGetLayerByName),
             GDALDatasetCreateLayer: f!(GDALDatasetCreateLayer),
+            GDALDatasetStartTransaction: f!(GDALDatasetStartTransaction),
+            GDALDatasetCommitTransaction: f!(GDALDatasetCommitTransaction),
             OGR_L_GetName: f!(OGR_L_GetName),
             OGR_L_ResetReading: f!(OGR_L_ResetReading),
             OGR_L_GetNextFeature: f!(OGR_L_GetNextFeature),
@@ -1138,6 +1142,9 @@ pub fn write_vector(path: impl AsRef<Path>, layer: &str, v: &Vector) -> Result<(
             }
         }
         let defn = unsafe { (a.OGR_L_GetLayerDefn)(lyr) };
+        // the features in one transaction where the driver has them (GeoPackage, SQLite: a commit per feature
+        // otherwise, half a millisecond each); the others write them as they come
+        let transaction = unsafe { (a.GDALDatasetStartTransaction)(ds, 0) } == 0;
         for (k, geom) in v.geometries.iter().enumerate() {
             let f = unsafe { (a.OGR_F_Create)(defn) };
             for (i, (_, c)) in v.attributes.iter().enumerate() {
@@ -1165,6 +1172,9 @@ pub fn write_vector(path: impl AsRef<Path>, layer: &str, v: &Vector) -> Result<(
             if e != 0 {
                 return Err(g.last_error(&format!("{name}: feature {k} cannot be written")));
             }
+        }
+        if transaction && unsafe { (a.GDALDatasetCommitTransaction)(ds) } != 0 {
+            return Err(g.last_error(&format!("{name}: the features cannot be written")));
         }
         Ok(())
     })();
