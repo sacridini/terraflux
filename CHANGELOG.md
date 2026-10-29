@@ -7,6 +7,27 @@ minor versions.
 ## [Unreleased]
 
 ### Added
+- Animal movement, `move.*` (landschaft's `ls.move`: the methods of move2 and amt), each bit for bit with
+  landschaft on its reference tracks (`tools/make_move_reference.py`):
+  - tracks: `move.read_tracks` reads Movebank's files (csv, csv.gz or zip, the columns typed as pandas does),
+    `move.as_tracks` makes tracks of points or of a table's coordinates, `move.simulate_brownian` draws Brownian
+    tracks; a track is a point vector with a time column (ISO 8601 texts, read in UTC, or numbers) and a track
+    column, both found by their usual names or given by the `time` and `track` settings;
+  - measures, each a column added: `move.distance` (on the ellipsoid in longitude and latitude),
+    `move.time_lags`, `move.speed`, `move.azimuth`, `move.turn_angle`, in the units chosen;
+  - filters: `move.filter_unique` (the duplicated times, by subsets or the first, last or a sample),
+    `move.filter_per_interval`, `move.filter_movebank_visible`;
+  - lines: `move.track_lines`, `move.segments`, `move.track_data`; `move.interpolate` (at given times or every
+    unit, the great circles of s2 in longitude and latitude) and `move.aeqd_crs` (the azimuthal equidistant CRS
+    centred on the tracks, and the tracks in it);
+  - amt: `move.resample` (rate and tolerance, the bursts), `move.filter_min_n_burst`, `move.steps`,
+    `move.time_of_day` (day, night, dawn and dusk from the sun's times), `move.nsd`, `move.track_summary`
+    (distances, straightness, mean squared displacement, sinuosity, temporal autocorrelation of the directions);
+  - step selection: `move.distribution` and `move.fit_distribution` (gamma, exponential, log-normal, half-normal,
+    von Mises, uniform; the fits with their covariances), `move.random_numbers`, `move.random_steps` (the control
+    steps drawn as amt draws them) and `move.extract_covariates` (the maps' values at the steps' ends or starts).
+  A step distribution is a new type of the graph's values, written as JSON. The library has a subject for them,
+  Animal movement.
 - `vector.calc` and `vector.filter` read texts: the features' text attributes compared with texts
   (`uso == "floresta"`, `"a" <= nome < "n"`), chosen (`"alto" if pop > 100 else "baixo"`, `coalesce`,
   `uso[pop > 100] = "outro"`), tested with `isnull` (an empty text has no value) and counted (`uso.count()`); a

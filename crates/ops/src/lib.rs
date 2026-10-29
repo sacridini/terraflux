@@ -64,6 +64,7 @@ pub mod metrics;
 pub mod milp;
 pub mod ml;
 pub mod molusce;
+pub mod movement;
 pub mod mspa_tiled;
 pub mod nlm;
 pub mod npmath;
@@ -394,6 +395,7 @@ impl Registry {
         metrics::register(&mut r);
         ml::register(&mut r);
         molusce::register(&mut r);
+        movement::register(&mut r);
         nlm::register(&mut r);
         conn::register(&mut r);
         sdm::register(&mut r);

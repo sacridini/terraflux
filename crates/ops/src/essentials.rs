@@ -106,6 +106,8 @@ const ESSENTIALS: &[(&str, &[&str])] = &[
     ("futures.simulation", &[]),
     ("futures.calibrate", &["compactness_means", "compactness_ranges", "discount_factors", "repeat", "seed"]),
     ("woe.fit", &["markov", "increment", "ranges", "categorical", "transitions"]),
+    // movement ecology
+    ("move.distribution", &["shape", "scale", "rate", "kappa"]),
     // neutral landscape models
     ("nlm.mosaic_field", &["rows", "columns", "resolution", "seed", "n", "mean", "sd"]),
     ("nlm.neigh", &["rows", "columns", "resolution", "seed", "categories", "proportions"]),

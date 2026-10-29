@@ -31,6 +31,7 @@ fn main() {
     println!("cargo:rerun-if-changed={}", source.join("src").join("cpp").join("hydro").display());
     println!("cargo:rerun-if-changed={}", source.join("src").join("cpp").join("serv").display());
     println!("cargo:rerun-if-changed={}", source.join("src").join("cpp").join("swat").display());
+    println!("cargo:rerun-if-changed={}", source.join("src").join("cpp").join("move").display());
 
     let target = std::env::var("TARGET").unwrap();
     if target.contains("msvc") && std::env::var_os("CMAKE").is_none() {
@@ -69,6 +70,7 @@ fn main() {
 
     println!("cargo:rustc-link-search=native={}", dst.join("lib").display());
     for lib in [
+        "movecore",
         "sdmcore",
         "surfcore",
         "hydrocore",

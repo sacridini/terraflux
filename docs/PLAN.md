@@ -800,6 +800,13 @@ Pendências:
   coluna, `rescale`, a máscara das células sem valor; as larguras bit a bit, a densidade a 1e-10, já que o numpy
   soma com o produto de matrizes do BLAS: `tools/make_sdm_bias_reference.py`) e a saída `predictions` do `sdm.fit`
   (os registros com a coluna `prediction`, a do modelo ajustado sem a dobra do registro, bit a bit).
+- **Movimento animal (landschaft 1.54.0+, 2026-10-29):** o `movecore` ligado e os `move.*`, os métodos do move2
+  (trilhas lidas do Movebank, `as_tracks`, distâncias, intervalos, velocidades, azimutes e ângulos de giro,
+  `filter_unique`, `filter_per_interval`, `filter_movebank_visible`, linhas, segmentos, interpolação pelo s2, o CRS
+  aeqd, trilhas brownianas) e os do amt (`resample`, rajadas, passos, hora do dia pelo sol, NSD, resumos das
+  trilhas, distribuições ajustadas, números e passos aleatórios como o amt os sorteia, covariáveis), bit a bit com
+  o landschaft (`tools/make_move_reference.py`). Um tipo novo, `step distribution`, nos valores do grafo, nos
+  congelados e nas saídas (JSON). O `move.read_tracks` entrou nos `FILE_OPS`.
 
 Pendências gerais, depois das fases:
 - reprojeção (PROJ), vetores e distâncias com um clique (feito: o painel Prepare);

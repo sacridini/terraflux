@@ -837,6 +837,9 @@ fn value_cell(
                 .add_filter("Tables", &["csv", "tsv", "txt", "json"])
                 .add_filter("Every file", &["*"]),
             "swat.run" => rfd::FileDialog::new().add_filter("A zipped TxtInOut folder", &["zip"]),
+            "move.read_tracks" => rfd::FileDialog::new()
+                .add_filter("Movebank files", &["csv", "gz", "zip"])
+                .add_filter("Every file", &["*"]),
             _ => rfd::FileDialog::new()
                 .add_filter("Rasters", &terraflux_ops::files::RASTER_EXTENSIONS)
                 .add_filter("Every file", &["*"]),

@@ -17,6 +17,7 @@ const PHRASES: &[(&str, &str)] = &[
     ("vector.read", "Reads the features of {path}[, layer {layer}]."),
     ("vector.write", "Writes the features of <vector> to {path}[, layer {layer}]."),
     ("table.read", "Reads the table {path}."),
+    ("move.read_tracks", "Reads the animal tracks of {path}."),
     ("view.plot", "Shows[ <value>][ <features>][ <table>][ over <under>][ as \"{title}\"]."),
     ("nlm.random", "A random map of {rows} × {columns} cells[ of side {resolution}], seed {seed}."),
     (

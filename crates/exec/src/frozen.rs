@@ -130,6 +130,7 @@ pub fn freeze(folder: &Path, node: &str, outputs: &Outputs) -> Result<()> {
                 Value::Patches(_) => part("patches", file(write_value(v, &at, None)?)),
                 Value::SdmModel(_) => part("sdm_model", file(write_value(v, &at, None)?)),
                 Value::MlModel(_) => part("ml_model", file(write_value(v, &at, None)?)),
+                Value::StepDistribution(_) => part("step_distribution", file(write_value(v, &at, None)?)),
                 other => {
                     return Err(Error::Model(format!("its output {port} ({}) cannot be kept on disk", kind_of(other))));
                 }
@@ -222,6 +223,7 @@ pub fn read(folder: &Path, node: &str) -> Result<(Outputs, u64)> {
             "patches" => Value::Patches(model(&path()?)?),
             "sdm_model" => Value::SdmModel(model(&path()?)?),
             "ml_model" => Value::MlModel(model(&path()?)?),
+            "step_distribution" => Value::StepDistribution(model(&path()?)?),
             k => return Err(Error::Model(format!("{port}: an output of an unknown kind {k:?}"))),
         };
         out.insert(port, v);

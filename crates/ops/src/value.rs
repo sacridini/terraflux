@@ -399,6 +399,8 @@ pub enum Value {
     SdmModel(Arc<crate::sdm::model::Model>),
     /// A fitted machine learning model.
     MlModel(Arc<crate::ml::Model>),
+    /// A distribution of step lengths or turn angles.
+    StepDistribution(Arc<crate::movement::Distribution>),
 }
 
 impl Value {
@@ -429,6 +431,7 @@ impl Value {
             Value::HabitatGraph(_) => Type::HabitatGraph,
             Value::SdmModel(_) => Type::SdmModel,
             Value::MlModel(_) => Type::MlModel,
+            Value::StepDistribution(_) => Type::StepDistribution,
         }
     }
 

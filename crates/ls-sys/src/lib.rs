@@ -1263,6 +1263,38 @@ pub mod ffi {
         stations: Vec<String>,
     }
 
+    /// Points (or tracks) as their x and y.
+    struct MovePoints {
+        x: Vec<f64>,
+        y: Vec<f64>,
+    }
+
+    /// amt's steps: the length, direction and turn angle at each location (the control steps: their ends' x in
+    /// `sl`, y in `dir`, and their turn angles).
+    struct MoveAmtSteps {
+        sl: Vec<f64>,
+        dir: Vec<f64>,
+        ta: Vec<f64>,
+    }
+
+    /// fitdistrplus' gamma fit as amt's fit_distr makes it: shape, scale, the variances of (scale, shape)
+    /// row-major (empty when the hessian is singular), Nelder-Mead's code and the log-likelihood.
+    struct MoveGammaFit {
+        shape: f64,
+        scale: f64,
+        vcov: Vec<f64>,
+        fail: i32,
+        loglik: f64,
+    }
+
+    /// suncalc's sunrise, sunset, dawn and dusk (seconds since 1970, NaN when the sun does not reach them).
+    struct MoveSun {
+        sunrise: Vec<f64>,
+        sunset: Vec<f64>,
+        dawn: Vec<f64>,
+        dusk: Vec<f64>,
+    }
+
     /// Dinamica's cost map from the nearest source and the predecessor directions (empty when not asked for).
     struct FrictionOut {
         cost: Vec<f64>,
@@ -3113,6 +3145,66 @@ pub mod ffi {
             lottery: bool,
             seed: u64,
         ) -> Result<Vec<u8>>;
+
+        // movement ecology (landschaft's ls.move): move2's and amt's steps of tracks
+        /// move2's mt_distance: to the next location of the same track (s2's sphere in lon / lat; NaN last).
+        fn move_distances(x: &[f64], y: &[f64], track: &[i64], lonlat: bool, threads: i32) -> Result<Vec<f64>>;
+        /// move2's mt_azimuth (radians): lwgeom's geodesic azimuth on the spheroid (a, 1 / f), atan2(dx, dy) else.
+        fn move_azimuths(
+            x: &[f64],
+            y: &[f64],
+            track: &[i64],
+            lonlat: bool,
+            a: f64,
+            inv_flattening: f64,
+            threads: i32,
+        ) -> Result<Vec<f64>>;
+        /// move2's mt_turnangle from mt_azimuth's values.
+        fn move_turn_angles(azimuth: &[f64], threads: i32) -> Vec<f64>;
+        /// Points at a fraction of steps: s2's interpolation in lon / lat, sf's st_line_sample otherwise.
+        fn move_interpolate(
+            x0: &[f64],
+            y0: &[f64],
+            x1: &[f64],
+            y1: &[f64],
+            fraction: &[f64],
+            lonlat: bool,
+        ) -> Result<MovePoints>;
+        /// s2's centroid of points (degrees): [lon, lat].
+        fn move_s2_centroid(lon: &[f64], lat: &[f64]) -> Result<Vec<f64>>;
+        /// mt_sim_brownian_motion of one track drawn from R's generator (sigma: one or one per step).
+        fn move_brownian(rng: Pin<&mut RRng>, t: &[f64], sigma: &[f64], x0: f64, y0: f64) -> Result<MovePoints>;
+        /// amt's steps of groups (tracks or bursts): length, direction and turn angle (NaN at each group's last).
+        fn move_amt_steps(x: &[f64], y: &[f64], group: &[i64], lonlat: bool) -> Result<MoveAmtSteps>;
+        fn move_amt_tac(ta: &[f64]) -> f64;
+        fn move_amt_sinuosity(sl: &[f64], ta: &[f64]) -> Result<f64>;
+        fn move_amt_msd(x: &[f64], y: &[f64]) -> Result<f64>;
+        /// R's sum() of doubles (long double).
+        fn move_r_sum(x: &[f64]) -> f64;
+        fn move_fit_gamma(x: &[f64]) -> Result<MoveGammaFit>;
+        /// circular's mle.vonmises: [mu, kappa, se_mu, se_kappa].
+        fn move_fit_vonmises(x: &[f64]) -> Result<Vec<f64>>;
+        fn move_fit_exp(x: &[f64]) -> Result<f64>;
+        /// [meanlog, sdlog]
+        fn move_fit_lnorm(x: &[f64]) -> Result<Vec<f64>>;
+        /// amt's random_numbers of a distribution ("gamma" shape, scale; "exp" rate; "lnorm"; "hnorm" sd; "unif"
+        /// min, max; "vonmises" kappa, mu).
+        fn move_random_numbers(rng: Pin<&mut RRng>, name: &str, params: &[f64], n: i64) -> Result<Vec<f64>>;
+        /// amt's track_resample: each location's burst (1, 2...) or -1 when left out.
+        fn move_amt_resample(t: &[f64], group: &[i64], rate: f64, tolerance: f64, start: i64) -> Result<Vec<i64>>;
+        /// amt's control steps from (x1, y1): their ends and turn angles.
+        #[allow(clippy::too_many_arguments)]
+        fn move_amt_controls(
+            x1: &[f64],
+            y1: &[f64],
+            x0: &[f64],
+            y0: &[f64],
+            angle: &[f64],
+            sl: &[f64],
+            ta: &[f64],
+        ) -> Result<MoveAmtSteps>;
+        /// suncalc's sun times at (lon, lat) on the day of `noon` (seconds since 1970).
+        fn move_sun_times(lon: &[f64], lat: &[f64], noon: &[f64]) -> Result<MoveSun>;
     }
 }
 

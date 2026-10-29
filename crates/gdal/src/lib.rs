@@ -140,6 +140,9 @@ struct Api {
     OSRSetAxisMappingStrategy: unsafe extern "C" fn(H, c_int),
     OSRIsSame: unsafe extern "C" fn(H, H) -> c_int,
     OSRIsGeographic: unsafe extern "C" fn(H) -> c_int,
+    OSRGetSemiMajor: unsafe extern "C" fn(H, *mut c_int) -> f64,
+    OSRGetInvFlattening: unsafe extern "C" fn(H, *mut c_int) -> f64,
+    OSRGetLinearUnits: unsafe extern "C" fn(H, *mut *mut c_char) -> f64,
     OCTNewCoordinateTransformation: unsafe extern "C" fn(H, H) -> H,
     OCTDestroyCoordinateTransformation: unsafe extern "C" fn(H),
     OCTTransformEx: unsafe extern "C" fn(H, c_int, *mut f64, *mut f64, *mut f64, *mut c_int) -> c_int,
@@ -392,6 +395,9 @@ impl Gdal {
             OSRSetAxisMappingStrategy: f!(OSRSetAxisMappingStrategy),
             OSRIsSame: f!(OSRIsSame),
             OSRIsGeographic: f!(OSRIsGeographic),
+            OSRGetSemiMajor: f!(OSRGetSemiMajor),
+            OSRGetInvFlattening: f!(OSRGetInvFlattening),
+            OSRGetLinearUnits: f!(OSRGetLinearUnits),
             OCTNewCoordinateTransformation: f!(OCTNewCoordinateTransformation),
             OCTDestroyCoordinateTransformation: f!(OCTDestroyCoordinateTransformation),
             OCTTransformEx: f!(OCTTransformEx),
@@ -1829,4 +1835,24 @@ pub fn is_geographic(crs: &str) -> Result<bool> {
     let geo = unsafe { (g.api.OSRIsGeographic)(h) } != 0;
     unsafe { (g.api.OSRDestroySpatialReference)(h) };
     Ok(geo)
+}
+
+/// The ellipsoid of a coordinate system: its semi-major axis (metres) and inverse flattening (0 for a sphere).
+pub fn ellipsoid(crs: &str) -> Result<(f64, f64)> {
+    let g = gdal().map_err(String::from)?;
+    let h = g.srs(crs)?;
+    let mut e: c_int = 0;
+    let a = unsafe { (g.api.OSRGetSemiMajor)(h, &mut e) };
+    let rf = unsafe { (g.api.OSRGetInvFlattening)(h, &mut e) };
+    unsafe { (g.api.OSRDestroySpatialReference)(h) };
+    Ok((a, rf))
+}
+
+/// Metres per unit of a projected coordinate system's axes (1 for metres).
+pub fn linear_units(crs: &str) -> Result<f64> {
+    let g = gdal().map_err(String::from)?;
+    let h = g.srs(crs)?;
+    let f = unsafe { (g.api.OSRGetLinearUnits)(h, std::ptr::null_mut()) };
+    unsafe { (g.api.OSRDestroySpatialReference)(h) };
+    Ok(f)
 }

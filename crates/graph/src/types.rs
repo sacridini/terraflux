@@ -56,6 +56,8 @@ pub enum Type {
     SdmModel,
     /// A fitted machine learning model (random forests).
     MlModel,
+    /// A distribution of step lengths or turn angles (amt's, `move.*`).
+    StepDistribution,
 }
 
 impl Type {
@@ -87,6 +89,7 @@ impl Type {
             Type::HabitatGraph => "habitat graph",
             Type::SdmModel => "distribution model",
             Type::MlModel => "fitted model",
+            Type::StepDistribution => "step distribution",
         }
     }
 

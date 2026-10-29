@@ -27,7 +27,7 @@ use crate::theme;
 /// the groups of its operators.
 /// The subjects of the library and the operators of each: by the prefix of their names, or by name (before the
 /// prefixes).
-const SUBJECTS: [(&str, &[&str]); 31] = [
+const SUBJECTS: [(&str, &[&str]); 32] = [
     ("IO", &[]),
     ("Data preparation", &["raster", "vector", "data"]),
     (
@@ -84,6 +84,7 @@ const SUBJECTS: [(&str, &[&str]); 31] = [
     ("Biodiversity analysis", &["bio"]),
     ("Spatial prioritization", &["prioritize"]),
     ("Species distributions", &["sdm"]),
+    ("Animal movement", &["move"]),
     ("Ecosystem services", &["services"]),
     ("Carbon and REDD+", &["carbon", "redd"]),
     ("Forest Code (Brazil)", &["forest_code"]),

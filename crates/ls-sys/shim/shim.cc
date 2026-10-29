@@ -53,6 +53,10 @@
 #include "gtb/mspa.hpp"
 #include "gtb/spa.hpp"
 #include "lsm/landscape.hpp"
+#include "move/amt.hpp"
+#include "move/distr.hpp"
+#include "move/geo.hpp"
+#include "move/track.hpp"
 #include "opt/actions.hpp"
 #include "opt/closure.hpp"
 #include "opt/cover.hpp"
@@ -4899,5 +4903,186 @@ SwatOut swat_run(const rust::Vec<rust::String>& names, rust::Slice<const std::ui
     for (int i = 1; i <= s.db_mx.wst; ++i) out.stations.push_back(rust::String(s.wst(i).name));
     return out;
 }
+
+// movement ecology (landschaft's ls.move): move2's and amt's steps of tracks, as its Python bindings call them
+
+namespace {
+
+std::int64_t move_check(rust::Slice<const double> x, rust::Slice<const double> y,
+                        rust::Slice<const std::int64_t> track) {
+    check(y.size() == x.size() && track.size() == x.size(), "x, y and track: the same length");
+    return static_cast<std::int64_t>(x.size());
+}
+
+rust::Vec<double> move_vec(std::size_t n) {
+    rust::Vec<double> v;
+    v.reserve(n);
+    for (std::size_t i = 0; i < n; ++i) v.push_back(0.0);
+    return v;
+}
+
+}  // namespace
+
+rust::Vec<double> move_distances(rust::Slice<const double> x, rust::Slice<const double> y,
+                                 rust::Slice<const std::int64_t> track, bool lonlat, std::int32_t threads) {
+    const std::int64_t n = move_check(x, y, track);
+    rust::Vec<double> out = move_vec(static_cast<std::size_t>(n));
+    move::distances(x.data(), y.data(), track.data(), n, lonlat ? move::Coords::LonLat : move::Coords::Planar,
+                    threads, out.data());
+    return out;
+}
+
+rust::Vec<double> move_azimuths(rust::Slice<const double> x, rust::Slice<const double> y,
+                                rust::Slice<const std::int64_t> track, bool lonlat, double a, double inv_flattening,
+                                std::int32_t threads) {
+    const std::int64_t n = move_check(x, y, track);
+    rust::Vec<double> out = move_vec(static_cast<std::size_t>(n));
+    move::azimuths(x.data(), y.data(), track.data(), n, lonlat ? move::Coords::LonLat : move::Coords::Planar, a,
+                   inv_flattening, threads, out.data());
+    return out;
+}
+
+rust::Vec<double> move_turn_angles(rust::Slice<const double> azimuth, std::int32_t threads) {
+    rust::Vec<double> out = move_vec(azimuth.size());
+    move::turn_angles(azimuth.data(), static_cast<std::int64_t>(azimuth.size()), threads, out.data());
+    return out;
+}
+
+MovePoints move_interpolate(rust::Slice<const double> x0, rust::Slice<const double> y0, rust::Slice<const double> x1,
+                            rust::Slice<const double> y1, rust::Slice<const double> fraction, bool lonlat) {
+    const std::size_t n = x0.size();
+    check(y0.size() == n && x1.size() == n && y1.size() == n && fraction.size() == n,
+          "x0, y0, x1, y1 and fraction: the same length");
+    MovePoints out;
+    out.x = move_vec(n);
+    out.y = move_vec(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        if (lonlat)
+            move::s2_interpolate(x0[i], y0[i], x1[i], y1[i], fraction[i], out.x[i], out.y[i]);
+        else
+            move::planar_sample(x0[i], y0[i], x1[i], y1[i], fraction[i], out.x[i], out.y[i]);
+    }
+    return out;
+}
+
+rust::Vec<double> move_s2_centroid(rust::Slice<const double> lon, rust::Slice<const double> lat) {
+    check(lat.size() == lon.size(), "lon and lat: the same length");
+    double x = 0, y = 0;
+    move::s2_centroid(lon.data(), lat.data(), static_cast<long long>(lon.size()), x, y);
+    rust::Vec<double> out;
+    out.push_back(x);
+    out.push_back(y);
+    return out;
+}
+
+MovePoints move_brownian(nlm::RRng& rng, rust::Slice<const double> t, rust::Slice<const double> sigma, double x0,
+                         double y0) {
+    const auto n = static_cast<std::int64_t>(t.size());
+    check(sigma.size() == 1 || static_cast<std::int64_t>(sigma.size()) == (n > 0 ? n - 1 : 0),
+          "sigma: one value or one per step");
+    MovePoints out;
+    out.x = move_vec(t.size());
+    out.y = move_vec(t.size());
+    move::brownian(&rng, t.data(), n, sigma.data(), static_cast<std::int64_t>(sigma.size()), x0, y0, out.x.data(),
+                   out.y.data());
+    return out;
+}
+
+MoveAmtSteps move_amt_steps(rust::Slice<const double> x, rust::Slice<const double> y,
+                            rust::Slice<const std::int64_t> group, bool lonlat) {
+    const std::int64_t n = move_check(x, y, group);
+    MoveAmtSteps out;
+    out.sl = move_vec(x.size());
+    out.dir = move_vec(x.size());
+    out.ta = move_vec(x.size());
+    move::amt_steps(x.data(), y.data(), group.data(), n, lonlat, out.sl.data(), out.dir.data(), out.ta.data());
+    return out;
+}
+
+double move_amt_tac(rust::Slice<const double> ta) {
+    return move::amt_tac(ta.data(), static_cast<std::int64_t>(ta.size()));
+}
+
+double move_amt_sinuosity(rust::Slice<const double> sl, rust::Slice<const double> ta) {
+    check(sl.size() == ta.size() && sl.size() >= 2, "sl and ta: two steps or more");
+    return move::amt_sinuosity(sl.data(), ta.data(), static_cast<std::int64_t>(sl.size()));
+}
+
+double move_amt_msd(rust::Slice<const double> x, rust::Slice<const double> y) {
+    check(x.size() == y.size() && !x.empty(), "x and y: the same length");
+    return move::amt_msd(x.data(), y.data(), static_cast<std::int64_t>(x.size()));
+}
+
+double move_r_sum(rust::Slice<const double> x) { return move::r_sum_of(x.data(), static_cast<std::int64_t>(x.size())); }
+
+MoveGammaFit move_fit_gamma(rust::Slice<const double> x) {
+    const move::GammaFit f = move::fit_gamma(x.data(), static_cast<std::int64_t>(x.size()));
+    MoveGammaFit out;
+    out.shape = f.shape;
+    out.scale = f.scale;
+    out.vcov = to_rust<double>(f.vcov);
+    out.fail = f.fail;
+    out.loglik = f.loglik;
+    return out;
+}
+
+rust::Vec<double> move_fit_vonmises(rust::Slice<const double> x) {
+    const move::VonMisesFit f = move::fit_vonmises(x.data(), static_cast<std::int64_t>(x.size()));
+    return to_rust<double>(std::vector<double>{f.mu, f.kappa, f.se_mu, f.se_kappa});
+}
+
+double move_fit_exp(rust::Slice<const double> x) { return move::fit_exp(x.data(), static_cast<std::int64_t>(x.size())); }
+
+rust::Vec<double> move_fit_lnorm(rust::Slice<const double> x) {
+    return to_rust<double>(move::fit_lnorm(x.data(), static_cast<std::int64_t>(x.size())));
+}
+
+rust::Vec<double> move_random_numbers(nlm::RRng& rng, rust::Str name, rust::Slice<const double> params,
+                                      std::int64_t n) {
+    check(n >= 0, "n: 0 or more");
+    rust::Vec<double> out = move_vec(static_cast<std::size_t>(n));
+    move::random_numbers(rng, std::string(name).c_str(), to_std(params), n, out.data());
+    return out;
+}
+
+rust::Vec<std::int64_t> move_amt_resample(rust::Slice<const double> t, rust::Slice<const std::int64_t> group,
+                                          double rate, double tolerance, std::int64_t start) {
+    check(group.size() == t.size(), "t and group: the same length");
+    std::vector<std::int64_t> out(t.size());
+    move::amt_resample(t.data(), group.data(), static_cast<std::int64_t>(t.size()), rate, tolerance, start,
+                       out.data());
+    return to_rust<std::int64_t>(out);
+}
+
+MoveAmtSteps move_amt_controls(rust::Slice<const double> x1, rust::Slice<const double> y1,
+                               rust::Slice<const double> x0, rust::Slice<const double> y0,
+                               rust::Slice<const double> angle, rust::Slice<const double> sl,
+                               rust::Slice<const double> ta) {
+    const std::size_t n = x1.size();
+    check(y1.size() == n && x0.size() == n && y0.size() == n && angle.size() == n && sl.size() == n && ta.size() == n,
+          "arrays of the same length");
+    // the ends' x in sl, their y in dir, the turn angles in ta
+    MoveAmtSteps out;
+    out.sl = move_vec(n);
+    out.dir = move_vec(n);
+    out.ta = move_vec(n);
+    move::amt_controls(x1.data(), y1.data(), x0.data(), y0.data(), angle.data(), sl.data(), ta.data(),
+                       static_cast<std::int64_t>(n), out.sl.data(), out.dir.data(), out.ta.data());
+    return out;
+}
+
+MoveSun move_sun_times(rust::Slice<const double> lon, rust::Slice<const double> lat, rust::Slice<const double> noon) {
+    const std::size_t n = lon.size();
+    check(lat.size() == n && noon.size() == n, "lon, lat and noon: the same length");
+    MoveSun out;
+    out.sunrise = move_vec(n);
+    out.sunset = move_vec(n);
+    out.dawn = move_vec(n);
+    out.dusk = move_vec(n);
+    for (std::size_t i = 0; i < n; ++i)
+        move::sun_times(lon[i], lat[i], noon[i], &out.sunrise[i], &out.sunset[i], &out.dawn[i], &out.dusk[i]);
+    return out;
+}
+// end movement ecology
 
 }  // namespace tfx

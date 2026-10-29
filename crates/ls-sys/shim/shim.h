@@ -871,4 +871,41 @@ rust::Vec<std::uint8_t> sim_pathways(rust::Slice<const std::uint8_t> network, ru
 SwatOut swat_run(const rust::Vec<rust::String>& names, rust::Slice<const std::uint8_t> data,
                  rust::Slice<const std::int64_t> offsets, bool c_factor_plant);
 
+// movement ecology (landschaft's ls.move): move2's and amt's steps of tracks
+struct MovePoints;
+struct MoveAmtSteps;
+struct MoveGammaFit;
+struct MoveSun;
+rust::Vec<double> move_distances(rust::Slice<const double> x, rust::Slice<const double> y,
+                                 rust::Slice<const std::int64_t> track, bool lonlat, std::int32_t threads);
+rust::Vec<double> move_azimuths(rust::Slice<const double> x, rust::Slice<const double> y,
+                                rust::Slice<const std::int64_t> track, bool lonlat, double a, double inv_flattening,
+                                std::int32_t threads);
+rust::Vec<double> move_turn_angles(rust::Slice<const double> azimuth, std::int32_t threads);
+MovePoints move_interpolate(rust::Slice<const double> x0, rust::Slice<const double> y0, rust::Slice<const double> x1,
+                            rust::Slice<const double> y1, rust::Slice<const double> fraction, bool lonlat);
+rust::Vec<double> move_s2_centroid(rust::Slice<const double> lon, rust::Slice<const double> lat);
+MovePoints move_brownian(nlm::RRng& rng, rust::Slice<const double> t, rust::Slice<const double> sigma, double x0,
+                         double y0);
+MoveAmtSteps move_amt_steps(rust::Slice<const double> x, rust::Slice<const double> y,
+                            rust::Slice<const std::int64_t> group, bool lonlat);
+double move_amt_tac(rust::Slice<const double> ta);
+double move_amt_sinuosity(rust::Slice<const double> sl, rust::Slice<const double> ta);
+double move_amt_msd(rust::Slice<const double> x, rust::Slice<const double> y);
+double move_r_sum(rust::Slice<const double> x);
+MoveGammaFit move_fit_gamma(rust::Slice<const double> x);
+rust::Vec<double> move_fit_vonmises(rust::Slice<const double> x);
+double move_fit_exp(rust::Slice<const double> x);
+rust::Vec<double> move_fit_lnorm(rust::Slice<const double> x);
+rust::Vec<double> move_random_numbers(nlm::RRng& rng, rust::Str name, rust::Slice<const double> params,
+                                      std::int64_t n);
+rust::Vec<std::int64_t> move_amt_resample(rust::Slice<const double> t, rust::Slice<const std::int64_t> group,
+                                          double rate, double tolerance, std::int64_t start);
+MoveAmtSteps move_amt_controls(rust::Slice<const double> x1, rust::Slice<const double> y1,
+                               rust::Slice<const double> x0, rust::Slice<const double> y0,
+                               rust::Slice<const double> angle, rust::Slice<const double> sl,
+                               rust::Slice<const double> ta);
+MoveSun move_sun_times(rust::Slice<const double> lon, rust::Slice<const double> lat, rust::Slice<const double> noon);
+// end movement ecology
+
 }  // namespace tfx
