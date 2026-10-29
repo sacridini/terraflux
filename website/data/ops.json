@@ -12844,6 +12844,1472 @@
   "container": false
  },
  {
+  "name": "move.aeqd_crs",
+  "doc": "An azimuthal equidistant projection centred on the tracks (move2's mt_aeqd_crs): distances and directions from the centre are true in it, a local metric projection for tracks anywhere; and the tracks in it. The centre: the centroid of the locations (on the sphere for longitude / latitude), the middle of their longitude and latitude ranges (center), or [longitude, latitude]. move2 takes the centroid to EPSG:4236 (Hu Tzu Shan) where WGS84 is meant, about a kilometre off; here it stays in WGS84, as landschaft's.",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "crs",
+    "type": "text",
+    "required": true,
+    "doc": "the projection, a PROJ string (for vector.reproject's crs)"
+   },
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks in it"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   }
+  ],
+  "params": [
+   {
+    "name": "center",
+    "type": "any",
+    "required": false,
+    "doc": "centroid (default), center or [longitude, latitude]"
+   },
+   {
+    "name": "units",
+    "type": "text",
+    "required": false,
+    "doc": "m (default) or km",
+    "choices": [
+     "m",
+     "km"
+    ]
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "move.as_tracks",
+  "doc": "Tracks from points or a table of locations (move2's mt_as_move2, landschaft's as_tracks): ordered by track and time (stable), the tracks in the order they first appear, as every move node needs. The time is a column of datetimes as text (ISO 8601, UTC) or of numbers; the track one of names or numbers. A table's x and y columns become points in the coordinate system given.",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": false,
+    "doc": "points, one per location"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": false,
+    "doc": "or a table with a column of x and one of y"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the locations, ordered"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   }
+  ],
+  "params": [
+   {
+    "name": "x",
+    "type": "text",
+    "required": false,
+    "doc": "a table's column of the x or longitude (x)"
+   },
+   {
+    "name": "y",
+    "type": "text",
+    "required": false,
+    "doc": "a table's column of the y or latitude (y)"
+   },
+   {
+    "name": "crs",
+    "type": "text",
+    "required": false,
+    "doc": "a table's coordinate system: EPSG:4326, a WKT..."
+   },
+   {
+    "name": "sort",
+    "type": "bool",
+    "required": false,
+    "doc": "order by track and time (true)"
+   },
+   {
+    "name": "time",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the time (default: timestamp, time, datetime, date_time or t)"
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track (default: individual-tag-local-identifier, individual-local-identifier, track, track_id, id, individual or animal)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "move.azimuth",
+  "doc": "The direction of each step, clockwise from north (move2's mt_azimuth): the geodesic azimuth on the coordinate system's ellipsoid in longitude / latitude (lwgeom's st_geod_azimuth, GeographicLib, the same numbers), in (-pi, pi]; the direction on the grid, atan2(dx, dy), in a projected system or without one. NaN at the last location of each track and where a location repeats the previous.",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks: points ordered by track and time"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks with the column"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   }
+  ],
+  "params": [
+   {
+    "name": "units",
+    "type": "text",
+    "required": false,
+    "doc": "rad (default) or deg",
+    "choices": [
+     "rad",
+     "deg"
+    ]
+   },
+   {
+    "name": "column",
+    "type": "text",
+    "required": false,
+    "doc": "the column given (azimuth)"
+   },
+   {
+    "name": "time",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the time (default: timestamp, time, datetime, date_time or t)"
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track (default: individual-tag-local-identifier, individual-local-identifier, track, track_id, id, individual or animal)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "move.distance",
+  "doc": "The distance from each location to the next of its track (move2's mt_distance, the same numbers): on the sphere of S2 (radius 6 371 010 m, as sf::st_distance with s2) in longitude / latitude, the straight line in the coordinate system's units otherwise. NaN at the last location of each track.",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks: points ordered by track and time"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks with the column"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   }
+  ],
+  "params": [
+   {
+    "name": "units",
+    "type": "text",
+    "required": false,
+    "doc": "m (the default in longitude / latitude) or km; none keeps metres or the CRS's units",
+    "choices": [
+     "m",
+     "km"
+    ]
+   },
+   {
+    "name": "column",
+    "type": "text",
+    "required": false,
+    "doc": "the column given (distance)"
+   },
+   {
+    "name": "time",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the time (default: timestamp, time, datetime, date_time or t)"
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track (default: individual-tag-local-identifier, individual-local-identifier, track, track_id, id, individual or animal)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "move.distribution",
+  "doc": "A distribution of step lengths or turn angles (amt's make_distribution): gamma (shape, and scale or rate), exp (rate), lnorm (meanlog, sdlog), hnorm (sd) for step lengths; vonmises (kappa, mu 0) or unif (min, max) for turn angles. The parameters not given take amt's defaults (gamma 1, 1; exp 1; lnorm 0, 1; hnorm 1; unif -pi, pi; von Mises 1, 0).",
+  "inputs": [],
+  "outputs": [
+   {
+    "name": "distribution",
+    "type": "step_distribution",
+    "required": true,
+    "doc": "the distribution"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "its parameters"
+   }
+  ],
+  "params": [
+   {
+    "name": "name",
+    "type": "text",
+    "required": true,
+    "doc": "gamma, exp, lnorm, hnorm, vonmises or unif",
+    "choices": [
+     "gamma",
+     "exp",
+     "lnorm",
+     "hnorm",
+     "vonmises",
+     "unif"
+    ]
+   },
+   {
+    "name": "shape",
+    "type": "number",
+    "required": false,
+    "doc": "the parameter shape (of the distributions that have it)"
+   },
+   {
+    "name": "scale",
+    "type": "number",
+    "required": false,
+    "doc": "the parameter scale (of the distributions that have it)"
+   },
+   {
+    "name": "rate",
+    "type": "number",
+    "required": false,
+    "doc": "the parameter rate (of the distributions that have it)"
+   },
+   {
+    "name": "meanlog",
+    "type": "number",
+    "required": false,
+    "doc": "the parameter meanlog (of the distributions that have it)"
+   },
+   {
+    "name": "sdlog",
+    "type": "number",
+    "required": false,
+    "doc": "the parameter sdlog (of the distributions that have it)"
+   },
+   {
+    "name": "sd",
+    "type": "number",
+    "required": false,
+    "doc": "the parameter sd (of the distributions that have it)"
+   },
+   {
+    "name": "min",
+    "type": "number",
+    "required": false,
+    "doc": "the parameter min (of the distributions that have it)"
+   },
+   {
+    "name": "max",
+    "type": "number",
+    "required": false,
+    "doc": "the parameter max (of the distributions that have it)"
+   },
+   {
+    "name": "kappa",
+    "type": "number",
+    "required": false,
+    "doc": "the parameter kappa (of the distributions that have it)"
+   },
+   {
+    "name": "mu",
+    "type": "number",
+    "required": false,
+    "doc": "the parameter mu (of the distributions that have it)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "move.extract_covariates",
+  "doc": "The values of rasters at locations, or at the ends or starts of steps (amt's extract_covariates): the value of the cell holding each point (terra's extract: a point on the edge between two cells takes the cell to its right / below), none outside the raster or on no data. Connect the rasters as inputs of any names (forest, elev...): a column each, named by its input (a stack's layers input_layer). The points are taken to each raster's coordinate system.",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "tracks, their steps (move.steps) or random steps"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the features with a column per raster (or layer)"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   }
+  ],
+  "params": [
+   {
+    "name": "where",
+    "type": "text",
+    "required": false,
+    "doc": "steps: at their end (default), start or both (columns suffixed _start and _end)",
+    "choices": [
+     "end",
+     "start",
+     "both"
+    ]
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "extra": "any"
+ },
+ {
+  "name": "move.filter_min_n_burst",
+  "doc": "The bursts (move.resample) of at least min_n locations (amt's filter_min_n_burst).",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks in bursts"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the bursts kept"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   }
+  ],
+  "params": [
+   {
+    "name": "min_n",
+    "type": "integer",
+    "required": false,
+    "doc": "the least locations of a burst (3)"
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track (default: the usual names)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "move.filter_movebank_visible",
+  "doc": "The tracks without the locations Movebank hides (move2's mt_filter_movebank_visible): those of the column visible when there is one; otherwise the records not marked as outliers (manually, by an algorithm or on import), and those marked valid by hand.",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks (move.read_tracks)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the locations Movebank shows"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   }
+  ],
+  "params": [],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "move.filter_per_interval",
+  "doc": "One location per time interval of each track (move2's mt_filter_per_interval): the intervals of lubridate's floor_date, multiples counted from the start of the next larger unit (minutes within the hour, hours within the day, days within the month), weeks from Sunday; the first, the last or one at random (R's sample.int after set.seed(seed), move2's picks). The times must be datetimes.",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "a location per interval"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   }
+  ],
+  "params": [
+   {
+    "name": "unit",
+    "type": "text",
+    "required": false,
+    "doc": "the interval: hour (default), 15 mins, 2 hours, day, week, month, year..."
+   },
+   {
+    "name": "criterion",
+    "type": "text",
+    "required": false,
+    "doc": "first (default), last or random",
+    "choices": [
+     "first",
+     "last",
+     "random"
+    ]
+   },
+   {
+    "name": "seed",
+    "type": "integer",
+    "required": false,
+    "doc": "random: the seed of R's generator (1)"
+   },
+   {
+    "name": "time",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the time (default: timestamp, time, datetime, date_time or t)"
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track (default: individual-tag-local-identifier, individual-local-identifier, track, track_id, id, individual or animal)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "move.filter_unique",
+  "doc": "The tracks without duplicated times within a track (move2's mt_filter_unique and mt_unique). criterion subsets (default): of the records of a track with the same time, those that only repeat another or hold less (each value equal to the other's or missing) are dropped, with a warning when some remain; subsets_equal the same with numbers equal within R's all.equal (1.5e-8); first, last: the first or last record of each time; sample: one at random (R's sample.int after set.seed(seed), move2's picks).",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the records kept"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   }
+  ],
+  "params": [
+   {
+    "name": "criterion",
+    "type": "text",
+    "required": false,
+    "doc": "subsets (default), subsets_equal, first, last or sample",
+    "choices": [
+     "subsets",
+     "subsets_equal",
+     "first",
+     "last",
+     "sample"
+    ]
+   },
+   {
+    "name": "columns_also",
+    "type": "any",
+    "required": false,
+    "doc": "more columns whose values must also match for records to be duplicates (a list)"
+   },
+   {
+    "name": "seed",
+    "type": "integer",
+    "required": false,
+    "doc": "sample: the seed of R's generator (1)"
+   },
+   {
+    "name": "time",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the time (default: timestamp, time, datetime, date_time or t)"
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track (default: individual-tag-local-identifier, individual-local-identifier, track, track_id, id, individual or animal)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "move.fit_distribution",
+  "doc": "A distribution fitted to step lengths or turn angles (amt's fit_distr, the same numbers): gamma by maximum likelihood with R's Nelder-Mead from the closed-form estimates (fitdistrplus' fitdist; steps of length 0 take the smallest other length); exp the maximum likelihood rate 1 / mean(x) (amt fits it by BFGS, which fails for rates under 0.001); lnorm by Nelder-Mead; hnorm sqrt(mean(x^2)); unif the smallest and largest value; vonmises kappa by maximum likelihood (circular's mle.vonmises), mu 0. The missing values are left out.",
+  "inputs": [
+   {
+    "name": "values",
+    "type": "any",
+    "required": true,
+    "doc": "the steps (move.steps) or a table"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "distribution",
+    "type": "step_distribution",
+    "required": true,
+    "doc": "the distribution fitted"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "its parameters"
+   }
+  ],
+  "params": [
+   {
+    "name": "name",
+    "type": "text",
+    "required": true,
+    "doc": "gamma, exp, lnorm, hnorm, vonmises or unif",
+    "choices": [
+     "gamma",
+     "exp",
+     "lnorm",
+     "hnorm",
+     "vonmises",
+     "unif"
+    ]
+   },
+   {
+    "name": "column",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the values (sl_ for gamma, exp, lnorm and hnorm; ta_ for vonmises and unif)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "move.interpolate",
+  "doc": "Locations at given times between the recorded ones (move2's mt_interpolate). Without times, the records without a location (empty points) get one between the locations before and after them. With times (a list, or a unit such as 1 hour or 15 mins for a regular sequence from the first to the last time), a record is added for each time within the span of each track that the track does not have, and located. A location is placed on the great circle between its neighbours in proportion to the time (in longitude / latitude, and through it in a projected system, as move2 does with s2), on the straight line without a coordinate system. Gaps longer than max_time_lag are left empty. Ordered by track and time.",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks with the locations interpolated"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   }
+  ],
+  "params": [
+   {
+    "name": "times",
+    "type": "any",
+    "required": false,
+    "doc": "the times: a list (datetimes as text, or numbers), or a unit (1 hour, 15 mins, day...)"
+   },
+   {
+    "name": "max_time_lag",
+    "type": "number",
+    "required": false,
+    "doc": "gaps longer than this (seconds) left empty"
+   },
+   {
+    "name": "omit",
+    "type": "bool",
+    "required": false,
+    "doc": "keep only the records at the times (false)"
+   },
+   {
+    "name": "time",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the time (default: timestamp, time, datetime, date_time or t)"
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track (default: individual-tag-local-identifier, individual-local-identifier, track, track_id, id, individual or animal)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "move.nsd",
+  "doc": "The net squared displacement: the squared distance of each location from the first of its track (amt's nsd), in the units of the coordinates (squared degrees in longitude / latitude, as amt).",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks with the column"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   }
+  ],
+  "params": [
+   {
+    "name": "column",
+    "type": "text",
+    "required": false,
+    "doc": "the column given (nsd)"
+   },
+   {
+    "name": "time",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the time (default: timestamp, time, datetime, date_time or t)"
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track (default: individual-tag-local-identifier, individual-local-identifier, track, track_id, id, individual or animal)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "move.random_numbers",
+  "doc": "Draws of a distribution of steps (amt's random_numbers), from R's generator after set.seed(seed): amt's numbers. Turn angles of a von Mises distribution are wrapped to (-pi, pi].",
+  "inputs": [
+   {
+    "name": "distribution",
+    "type": "step_distribution",
+    "required": true,
+    "doc": "the distribution"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the draws (value)"
+   }
+  ],
+  "params": [
+   {
+    "name": "n",
+    "type": "integer",
+    "required": false,
+    "doc": "how many (100)"
+   },
+   {
+    "name": "seed",
+    "type": "integer",
+    "required": false,
+    "doc": "the seed of R's generator (1)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "move.random_steps",
+  "doc": "Each observed step with n_control random steps from its start (amt's random_steps, the same steps): the data of a step selection function. For each step but the first of a track (or of a burst), the observed step (case_ 1) and n_control steps from the same start (case_ 0) whose lengths and turn angles are drawn from sl_distr and ta_distr (default: a gamma and a von Mises distribution fitted to each track's steps), turned from the direction of the previous step; step_id_ names the stratum. As amt, n_draws numbers are drawn from each distribution once per track and each random step takes one of them at random. Bursts of fewer than 3 steps are left out. R's generator after set.seed(seed), the tracks in turn. The steps must be in a projected coordinate system (move.aeqd_crs).",
+  "inputs": [
+   {
+    "name": "steps",
+    "type": "vector",
+    "required": true,
+    "doc": "the steps (move.steps), projected"
+   },
+   {
+    "name": "sl_distr",
+    "type": "step_distribution",
+    "required": false,
+    "doc": "the distribution of the step lengths"
+   },
+   {
+    "name": "ta_distr",
+    "type": "step_distribution",
+    "required": false,
+    "doc": "the distribution of the turn angles"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "steps",
+    "type": "vector",
+    "required": true,
+    "doc": "the observed and random steps (case_, step_id_)"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   },
+   {
+    "name": "distributions",
+    "type": "vector",
+    "required": true,
+    "doc": "the distributions of each track (sl_distr, ta_distr and their parameters), without geometries"
+   }
+  ],
+  "params": [
+   {
+    "name": "n_control",
+    "type": "integer",
+    "required": false,
+    "doc": "random steps per observed step (10)"
+   },
+   {
+    "name": "n_draws",
+    "type": "integer",
+    "required": false,
+    "doc": "numbers drawn from each distribution per track (100000)"
+   },
+   {
+    "name": "seed",
+    "type": "integer",
+    "required": false,
+    "doc": "the seed of R's generator (1)"
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track (default: the usual names)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "move.read_tracks",
+  "doc": "Animal tracks from a Movebank file (move2's mt_read, landschaft's load_tracks): the CSV files Movebank exports (also .csv.gz) and the zip files of Env-DATA (the CSV inside), as points in EPSG:4326, one per record. The time is timestamp (UTC), the track the individual (individual-local-identifier; when an individual carried several tags, the individual and the tag, in a new individual-tag-local-identifier column, as move2 does); the outlier flags are numbers 1 and 0. Records without coordinates (other sensors) keep an empty location. Ordered by track and time (stable), as every move node needs.",
+  "inputs": [],
+  "outputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the locations: points with the file's columns"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   }
+  ],
+  "params": [
+   {
+    "name": "path",
+    "type": "text",
+    "required": true,
+    "doc": "the file (.csv, .csv.gz, .zip), relative to the model's folder"
+   },
+   {
+    "name": "sort",
+    "type": "bool",
+    "required": false,
+    "doc": "order by track and time (true; move2 keeps the file's order)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "move.resample",
+  "doc": "Locations at a regular rate, in bursts (amt's track_resample, the same locations and bursts): from the location start of each track, the next location kept is the first at least rate - tolerance later, in the same burst when it is at most rate + tolerance later, else it starts a new burst; the locations in between are dropped. Each location kept gets its burst (1, 2... within its track) in the column burst_, which move.steps and move.random_steps follow.",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the locations kept, with burst_"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   }
+  ],
+  "params": [
+   {
+    "name": "rate",
+    "type": "any",
+    "required": true,
+    "doc": "the rate: seconds, or a text such as 2h or 15min"
+   },
+   {
+    "name": "tolerance",
+    "type": "any",
+    "required": true,
+    "doc": "the tolerance: seconds, or a text such as 15min"
+   },
+   {
+    "name": "start",
+    "type": "integer",
+    "required": false,
+    "doc": "the location (0-based, in each track) to start at (0)"
+   },
+   {
+    "name": "time",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the time (default: timestamp, time, datetime, date_time or t)"
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track (default: individual-tag-local-identifier, individual-local-identifier, track, track_id, id, individual or animal)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "move.segments",
+  "doc": "The step from each location to the next of its track as a line (move2's mt_segments): one feature per location with its attributes, a two-point line per step and the location itself (a point) at the last location of each track.",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "segments",
+    "type": "vector",
+    "required": true,
+    "doc": "a line per step"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   }
+  ],
+  "params": [
+   {
+    "name": "time",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the time (default: timestamp, time, datetime, date_time or t)"
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track (default: individual-tag-local-identifier, individual-local-identifier, track, track_id, id, individual or animal)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "move.simulate_brownian",
+  "doc": "Tracks of Brownian motion (move2's mt_sim_brownian_motion): each step moves by normal draws of standard deviation sqrt(sigma^2 dt) along x and along y, from the start. R's generator after set.seed(seed): the same tracks as move2 (the tracks one after the other, x before y). Columns time and track, points without a coordinate system.",
+  "inputs": [],
+  "outputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the locations"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "time and track of each"
+   }
+  ],
+  "params": [
+   {
+    "name": "t",
+    "type": "any",
+    "required": false,
+    "doc": "the times (numbers; default 1 to 10): one list for every track, or a list of one per track"
+   },
+   {
+    "name": "sigma",
+    "type": "any",
+    "required": false,
+    "doc": "the diffusion: a number or one per step, for every track, or a list of one per track (1)"
+   },
+   {
+    "name": "tracks",
+    "type": "any",
+    "required": false,
+    "doc": "how many tracks (ids 1, 2...) or their ids (2)"
+   },
+   {
+    "name": "start",
+    "type": "any",
+    "required": false,
+    "doc": "the first location [x, y], or a list of one per track ([0, 0])"
+   },
+   {
+    "name": "seed",
+    "type": "integer",
+    "required": false,
+    "doc": "the seed of R's generator (1)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "move.speed",
+  "doc": "The speed of each step: the distance over the time lag (move2's mt_speed). Locations of a track must not share their time (move.filter_unique drops them). NaN at the last location of each track.",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks: points ordered by track and time"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks with the column"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   }
+  ],
+  "params": [
+   {
+    "name": "units",
+    "type": "text",
+    "required": false,
+    "doc": "m/s, km/h, m/h or km/d (default: metres, or the CRS's units, per second)",
+    "choices": [
+     "m/s",
+     "km/h",
+     "m/h",
+     "km/d"
+    ]
+   },
+   {
+    "name": "column",
+    "type": "text",
+    "required": false,
+    "doc": "the column given (speed)"
+   },
+   {
+    "name": "time",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the time (default: timestamp, time, datetime, date_time or t)"
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track (default: individual-tag-local-identifier, individual-local-identifier, track, track_id, id, individual or animal)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "move.steps",
+  "doc": "The steps between consecutive locations of each track (amt's steps and steps_by_burst, the same numbers), of each burst when the tracks have move.resample's burst_: a line per step, with its track, burst_, start and end (x1_, x2_, y1_, y2_), length sl_, direction direction_p (anticlockwise from east, in (-pi, pi]), turn angle ta_ from the previous step (NaN at the first step of each track or burst and after a step of length 0), the times t1_, t2_ and dt_ (seconds). In longitude / latitude the lengths are great-circle distances in metres (sf::st_distance) and the directions geodesic bearings turned into angles from east: amt reads the bearing, clockwise from north, as if it were that angle; here it is converted, pi / 2 - bearing.",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "steps",
+    "type": "vector",
+    "required": true,
+    "doc": "a line per step"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   }
+  ],
+  "params": [
+   {
+    "name": "lonlat",
+    "type": "bool",
+    "required": false,
+    "doc": "lengths and directions on the sphere (default: when the coordinate system is geographic)"
+   },
+   {
+    "name": "keep_cols",
+    "type": "text",
+    "required": false,
+    "doc": "the tracks' other columns kept: start (of the location a step starts at), end, both (suffixes _start and _end) or none",
+    "choices": [
+     "none",
+     "start",
+     "end",
+     "both"
+    ]
+   },
+   {
+    "name": "time",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the time (default: timestamp, time, datetime, date_time or t)"
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track (default: individual-tag-local-identifier, individual-local-identifier, track, track_id, id, individual or animal)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "move.time_lags",
+  "doc": "The time from each location to the next of its track (move2's mt_time_lags), exact between datetimes (differences of nanoseconds). NaN at the last location of each track.",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks: points ordered by track and time"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks with the column"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   }
+  ],
+  "params": [
+   {
+    "name": "units",
+    "type": "text",
+    "required": false,
+    "doc": "s (default), min, h or d",
+    "choices": [
+     "s",
+     "min",
+     "h",
+     "d"
+    ]
+   },
+   {
+    "name": "column",
+    "type": "text",
+    "required": false,
+    "doc": "the column given (time_lag)"
+   },
+   {
+    "name": "time",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the time (default: timestamp, time, datetime, date_time or t)"
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track (default: individual-tag-local-identifier, individual-local-identifier, track, track_id, id, individual or animal)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "move.time_of_day",
+  "doc": "Day or night at each location, or at the end or start of each step (amt's time_of_day): sunrise and sunset of the location's date (UTC) as suncalc computes them (the sun's upper edge at -0.833 degrees), and with include_crepuscule dawn and dusk (the sun at -6 degrees, civil twilight). A column of day, night (and dawn, dusk); empty where the sun does not rise or set that day. suncalc takes the noon of the machine's time zone; here, the noon of UTC.",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "tracks (with a coordinate system) or their steps"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks or steps with the column"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   }
+  ],
+  "params": [
+   {
+    "name": "include_crepuscule",
+    "type": "bool",
+    "required": false,
+    "doc": "also dawn and dusk (false)"
+   },
+   {
+    "name": "where",
+    "type": "text",
+    "required": false,
+    "doc": "steps: at their end (default) or start",
+    "choices": [
+     "end",
+     "start"
+    ]
+   },
+   {
+    "name": "column",
+    "type": "text",
+    "required": false,
+    "doc": "the column given (tod)"
+   },
+   {
+    "name": "time",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the time (default: timestamp, time, datetime, date_time or t)"
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track (default: individual-tag-local-identifier, individual-local-identifier, track, track_id, id, individual or animal)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "move.track_data",
+  "doc": "One row per track (in the order they appear) with the columns whose value does not change within a track (move2's mt_track_data): the animal's, the tag's, the study's... as features without a geometry.",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "a feature per track, without a geometry"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   }
+  ],
+  "params": [
+   {
+    "name": "time",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the time (default: timestamp, time, datetime, date_time or t)"
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track (default: individual-tag-local-identifier, individual-local-identifier, track, track_id, id, individual or animal)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "move.track_lines",
+  "doc": "Each track as a line through its locations in time order (move2's mt_track_lines): one feature per track, its id, the number of locations (n_locations) and the columns whose value does not change within a track (move.track_data's). Empty locations are left out; a track with a single location gets no line (an empty geometry).",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "lines",
+    "type": "vector",
+    "required": true,
+    "doc": "a line per track"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   }
+  ],
+  "params": [
+   {
+    "name": "time",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the time (default: timestamp, time, datetime, date_time or t)"
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track (default: individual-tag-local-identifier, individual-local-identifier, track, track_id, id, individual or animal)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "move.track_summary",
+  "doc": "amt's summaries of each track, a line per track (move.track_lines's, with n_locations and the track's data): cum_dist (the sum of its steps, metres in longitude / latitude), tot_dist (from the first to the last location), straightness (tot_dist / cum_dist), msd (the mean squared distance of the locations from their centre), sinuosity (Benhamou 2004, the turn angles in radians: amt takes them as degrees; NaN under two steps) and tac (the turn angle correlation, Dray et al. 2010).",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "a line per track with its summaries"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   }
+  ],
+  "params": [
+   {
+    "name": "time",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the time (default: timestamp, time, datetime, date_time or t)"
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track (default: individual-tag-local-identifier, individual-local-identifier, track, track_id, id, individual or animal)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
+  "name": "move.turn_angle",
+  "doc": "The change of direction at each location, in [-pi, pi) (move2's mt_turnangle): the azimuth of the step leaving it minus that of the step arriving, positive to the right. NaN at the first and last location of each track.",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks: points ordered by track and time"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks with the column"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   }
+  ],
+  "params": [
+   {
+    "name": "units",
+    "type": "text",
+    "required": false,
+    "doc": "rad (default) or deg",
+    "choices": [
+     "rad",
+     "deg"
+    ]
+   },
+   {
+    "name": "column",
+    "type": "text",
+    "required": false,
+    "doc": "the column given (turn_angle)"
+   },
+   {
+    "name": "time",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the time (default: timestamp, time, datetime, date_time or t)"
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track (default: individual-tag-local-identifier, individual-local-identifier, track, track_id, id, individual or animal)"
+   }
+  ],
+  "access": "none",
+  "container": false
+ },
+ {
   "name": "networks.conefor",
   "doc": "The habitat network of an MSPA map as Conefor Sensinode's inputs, as GuidosToolbox's nw_cs22 (landschaft's conefor_inputs): the cores as nodes (negative ids, their area) and the bridges (positive ids, area 0), a link from every bridge to every core it touches at distance 1.",
   "inputs": [
@@ -26165,7 +27631,7 @@
  },
  {
   "name": "vector.calc",
-  "doc": "An attribute computed for every feature from an expression over the others, as QGIS's field calculator: the attributes that are numbers by their names, the expressions of map algebra (area / 10000, 1 if class == 1 else 0), the node's other inputs as numbers by their names. An attribute of the same name is replaced, else it is added.",
+  "doc": "Attributes computed for every feature from a script over the others, as QGIS's field calculator, in map algebra's language (Python's syntax): the attributes by their names, numbers and texts (\"high\" if pop > 100 else \"low\"; uso == \"forest\"; float(code) reads a text as a number), the geometry's measures (geometry.area, geometry.perimeter, geometry.length, geometry.x, geometry.y), feature (the number 1..), x.sum() and the other methods over all the features, the node's other inputs (numbers and texts) by their names. One statement a line (# a comment): name = value, name[where] = value, and out name = value (or out name) for each attribute given; without out, the last value is the attribute `column`. An attribute of the same name is replaced, else it is added.",
   "inputs": [
    {
     "name": "vector",
@@ -26179,7 +27645,7 @@
     "name": "vector",
     "type": "vector",
     "required": true,
-    "doc": "the features with the attribute"
+    "doc": "the features with the attributes"
    },
    {
     "name": "table",
@@ -26192,14 +27658,14 @@
    {
     "name": "column",
     "type": "text",
-    "required": true,
-    "doc": "the attribute's name"
+    "required": false,
+    "doc": "the attribute's name (a script without out)"
    },
    {
     "name": "expression",
     "type": "text",
     "required": true,
-    "doc": "its value, e.g. area / 10000"
+    "doc": "its value, e.g. geometry.area / 10000; or a script: density = pop / geometry.area; out dense = density > 100"
    }
   ],
   "access": "none",
@@ -26488,7 +27954,7 @@
  },
  {
   "name": "vector.filter",
-  "doc": "The features where an expression over their attributes is true, as QGIS's Select by Expression or geopandas' query: the attributes that are numbers by their names (feature: the number 1..), the expressions of map algebra (area > 10000 and class == 2), the node's other inputs as numbers by their names. A feature where it is missing is left out.",
+  "doc": "The features where an expression over their attributes is true, as QGIS's Select by Expression or geopandas' query, in map algebra's language (Python's syntax): the attributes by their names, numbers and texts (area > 10000 and uso == \"forest\"; float(code) reads a text as a number), the geometry's measures (geometry.area, geometry.perimeter, geometry.length, geometry.x, geometry.y), feature (the number 1..), the node's other inputs (numbers and texts) by their names. A script of several lines gives names values (density = pop / geometry.area) and ends with the condition. A feature where it is missing is left out.",
   "inputs": [
    {
     "name": "vector",
@@ -26516,7 +27982,7 @@
     "name": "expression",
     "type": "text",
     "required": true,
-    "doc": "what a feature kept is, e.g. area > 10000"
+    "doc": "what a feature kept is, e.g. geometry.area > 10000 and uso == \"forest\" (a script: its last line)"
    }
   ],
   "access": "none",
