@@ -39,7 +39,9 @@ the order and keep **all** of the substance:
 3. `## The idea` (or a better title): the concept in plain words, with a figure. Where it comes from: the
    researchers and papers that developed it, with years, and what problem they were solving.
    Use `!!! science "Key idea"` boxes for the central concepts and formulas (`\( ... \)` inline,
-   `\[ ... \]` display; KaTeX renders them). Explain every symbol of a formula.
+   `\[ ... \]` display; KaTeX renders them). Explain every symbol of a formula. A display formula is a block
+   of its own, with a blank line before and after it (and one between two formulas): with text on the next
+   line, Markdown reads it as a paragraph, drops its backslashes and it shows as raw text.
 4. `## When to use it`: the questions it answers, examples from the literature, what it is *not* for, and the
    alternatives (link the other tutorials).
 5. `## What you need`: the data (kinds, resolution, classes, coordinate systems), and the template to start from

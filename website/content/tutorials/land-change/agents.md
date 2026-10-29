@@ -52,8 +52,11 @@ read.
     Every year \(t\), each farmer \(a\) with a parcel of mean fertility \(f_a\) (0 to 1) applies, in order,
 
     \[ p_t = 10 - 0.25\,t \]
+
     \[ y_{a,t} = \begin{cases} 2\, f_a\, p_t & \text{if the farmer farms} \\ 1 & \text{otherwise} \end{cases} \]
+
     \[ w_{a,t} = w_{a,t-1} + y_{a,t} - 7 \]
+
     \[ \text{farming}_{a,t} = \text{farming}_{a,t-1} \text{ if } w_{a,t} > 0, \text{ else } 0 \]
 
     \(p_t\) is the price of the crop, falling by a quarter every year; \(y_{a,t}\) the income; \(w_{a,t}\) the

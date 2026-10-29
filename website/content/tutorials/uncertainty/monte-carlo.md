@@ -38,7 +38,9 @@ in estimates of forest biomass (Chave et al., 2004).
 !!! science "Key idea: Monte Carlo"
     With \(n\) draws \(\theta^{(1)}, \dots, \theta^{(n)}\) of the parameters, the model gives \(y^{(i)} = g(\theta^{(i)})\)
     for each. Then
+
     \[ \bar y = \frac{1}{n}\sum_i y^{(i)}, \qquad s = \sqrt{\frac{1}{n-1}\sum_i \left(y^{(i)} - \bar y\right)^2} \]
+
     estimate the mean and the standard deviation of \(y\), and the sorted draws give its quantiles (the 2.5% and
     97.5% quantiles bound an interval holding 95% of the draws). These estimates are themselves uncertain: the
     *Monte Carlo error* of the mean is \(s / \sqrt{n}\), so four times as many draws halve it.

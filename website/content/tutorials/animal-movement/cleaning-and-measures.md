@@ -46,9 +46,11 @@ to and from it are both high and the turn at it is close to 180°. Movebank lets
 
     - **Distance** ([[move.distance]]): the great-circle distance between two locations on a sphere of radius
       \( R = 6\,371\,010 \) m, as move2 computes it (with the s2 geometry library),
-      \[ d = 2R \arcsin \sqrt{\sin^2\frac{\varphi_2 - \varphi_1}{2} + \cos\varphi_1 \cos\varphi_2
-      \sin^2\frac{\lambda_2 - \lambda_1}{2}} \]
-      where \( \varphi \) is the latitude and \( \lambda \) the longitude, in radians.
+
+        \[ d = 2R \arcsin \sqrt{\sin^2\frac{\varphi_2 - \varphi_1}{2} + \cos\varphi_1 \cos\varphi_2
+        \sin^2\frac{\lambda_2 - \lambda_1}{2}} \]
+
+        where \( \varphi \) is the latitude and \( \lambda \) the longitude, in radians.
     - **Time lag** ([[move.time_lags]]): the time to the next location, exact to the nanosecond.
     - **Speed** ([[move.speed]]): distance over time lag, the average speed along the straight line between
       the two locations.

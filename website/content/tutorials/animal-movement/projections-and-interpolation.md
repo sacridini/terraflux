@@ -65,7 +65,9 @@ shortest path between the recorded locations before and after the time.
 !!! science "Key idea: linear interpolation in time"
     For a time \( t \) between two recorded times \( t_i < t < t_{i+1} \), the location is placed on the line
     from \( p_i \) to \( p_{i+1} \) at the fraction of the time elapsed,
+
     \[ f = \frac{t - t_i}{t_{i+1} - t_i}, \qquad p(t) = p_i + f\,(p_{i+1} - p_i). \]
+
     In longitude and latitude, "the line" is the great circle between the two locations, as move2 places it
     (with the s2 library). A time outside the span of a track gets no location; so does a time in a gap longer
     than a threshold, where the straight line is a poor guess (`max_time_lag`).
