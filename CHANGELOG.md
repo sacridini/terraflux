@@ -6,9 +6,17 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.24.1] - 2026-10-29
+
+1.24.0 was not published: its Linux build failed. This release has its additions and these fixes.
+
 ### Fixed
+- The Linux build: landschaft's x87 `log1p` (R's, which the movement operators use) did not compile with GCC.
 - Vectors are written to GeoPackage (and SQLite) in one transaction: 47 000 points in half a second, not 29
   seconds (a commit per feature before).
+- `vector.filter` and `vector.calc` read attributes whose names have other characters than letters, digits and
+  `_`, as Movebank's: `individual-local-identifier` is `individual_local_identifier` in a script,
+  `eobs:type-of-fix` is `eobs_type_of_fix` (the error of a name not found lists them so).
 
 ## [1.24.0] - 2026-10-29
 
