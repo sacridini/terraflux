@@ -225,6 +225,33 @@ impl Kinds<'_> {
     }
 }
 
+/// The name a script reads an attribute by: each character that is not a letter, a digit or `_` as `_`, and `_`
+/// before a leading digit (Movebank's `individual-local-identifier` as `individual_local_identifier`,
+/// `eobs:type-of-fix` as `eobs_type_of_fix`).
+pub fn script_name(attribute: &str) -> String {
+    let mut s: String = attribute.chars().map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' }).collect();
+    if s.is_empty() || s.starts_with(|c: char| c.is_ascii_digit()) {
+        s.insert(0, '_');
+    }
+    s
+}
+
+/// The features with their attributes by the names a script reads ([`script_name`]), unless another attribute
+/// has that name already.
+fn by_script_names(v: &Vector) -> Option<Vector> {
+    if v.attributes.iter().all(|(n, _)| script_name(n) == *n) {
+        return None;
+    }
+    let mut a = v.clone();
+    for (n, _) in a.attributes.iter_mut() {
+        let s = script_name(n);
+        if s != *n && v.column(&s).is_none() {
+            *n = s;
+        }
+    }
+    Some(a)
+}
+
 /// The name in the scope of a text attribute read as numbers (not a name a script can write).
 fn float_name(attribute: &str) -> String {
     format!("float({attribute})")
@@ -277,6 +304,8 @@ fn met(script: &Script) -> (BTreeSet<String>, BTreeSet<String>, BTreeSet<String>
 /// each, a value per feature (a number for all given to every feature). The node's other inputs are numbers and
 /// texts by their names (the features and tables among them left out).
 pub fn run(v: &Vector, inputs: &BTreeMap<String, Value>, script: &Script) -> Result<Vec<(String, Column)>> {
+    let renamed = by_script_names(v);
+    let v = renamed.as_ref().unwrap_or(v);
     let mut others = BTreeMap::new();
     for (port, x) in inputs {
         match x {
@@ -547,6 +576,21 @@ mod tests {
         assert!(e("u = uso\nfloat(u)").contains("u is a text the script computes"));
         assert!(e("nbsum(pop, 1)").contains("no neighbours"));
         assert!(e("usos == 'a'").contains("neither an attribute (the features': uso, pop, code) nor an input"));
+    }
+
+    #[test]
+    fn names_a_script_cannot_write() {
+        let mut v = squares();
+        v.attributes
+            .push(("individual-local-identifier".into(), Column::Texts(vec!["M4".into(), "M5".into(), "M4".into()])));
+        v.attributes.push(("2010".into(), Column::Numbers(vec![1.0, 2.0, 3.0])));
+        let run = |t: &str| run(&v, &BTreeMap::new(), &parse_script(t).unwrap());
+        let r = run("individual_local_identifier == \"M4\"").unwrap();
+        assert!(same(&numbers(&r[0].1), &[1.0, 0.0, 1.0]));
+        assert!(same(&numbers(&run("_2010 * 2").unwrap()[0].1), &[2.0, 4.0, 6.0]));
+        let e = run("individual == 1").unwrap_err().0;
+        assert!(e.contains("uso, pop, code, individual_local_identifier, _2010"), "{e}");
+        assert_eq!(script_name("eobs:type-of-fix"), "eobs_type_of_fix");
     }
 
     #[test]

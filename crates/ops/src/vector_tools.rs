@@ -232,9 +232,10 @@ impl Operator for Filter {
         OpSignature::new(
             "vector.filter",
             "The features where an expression over their attributes is true, as QGIS's Select by Expression or \
-             geopandas' query, in map algebra's language (Python's syntax): the attributes by their names, numbers \
-             and texts (area > 10000 and uso == \"forest\"; float(code) reads a text as a number), the geometry's \
-             measures (geometry.area, geometry.perimeter, geometry.length, geometry.x, geometry.y), feature (the \
+             geopandas' query, in map algebra's language (Python's syntax): the attributes by their names (the \
+             characters other than letters, digits and _ as _: individual-local-identifier as \
+             individual_local_identifier), numbers and texts (area > 10000 and uso == \"forest\"; float(code) \
+             reads a text as a number), the geometry's measures (geometry.area, geometry.perimeter, geometry.length, geometry.x, geometry.y), feature (the \
              number 1..), the node's other inputs (numbers and texts) by their names. A script of several lines \
              gives names values (density = pop / geometry.area) and ends with the condition. A feature where it \
              is missing is left out.",
@@ -266,8 +267,9 @@ impl Operator for Calc {
         OpSignature::new(
             "vector.calc",
             "Attributes computed for every feature from a script over the others, as QGIS's field calculator, in \
-             map algebra's language (Python's syntax): the attributes by their names, numbers and texts (\"high\" \
-             if pop > 100 else \"low\"; uso == \"forest\"; float(code) reads a text as a number), the geometry's \
+             map algebra's language (Python's syntax): the attributes by their names (the characters other than \
+             letters, digits and _ as _: individual-local-identifier as individual_local_identifier), numbers and \
+             texts (\"high\" if pop > 100 else \"low\"; uso == \"forest\"; float(code) reads a text as a number), the geometry's \
              measures (geometry.area, geometry.perimeter, geometry.length, geometry.x, geometry.y), feature (the \
              number 1..), x.sum() and the other methods over all the features, the node's other inputs (numbers \
              and texts) by their names. One statement a line (# a comment): name = value, name[where] = value, and \
