@@ -1,0 +1,5 @@
+term,coef,se,exp(coef)
+forest (tree cover at the end of the step),1.221,0.078,3.391
+elevation (per 100 m),0.219,0.129,1.244
+log(step length),0.027,0.01,1.027
+cos(turn angle),-0.236,0.019,0.79

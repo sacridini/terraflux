@@ -1,0 +1,5 @@
+time of day,steps,share (%),median step (m),mean step (m)
+day,1553,20.8,22.6,55.8
+dusk,46,0.6,24.7,62.0
+night,5661,75.7,85.0,123.6
+dawn,220,2.9,65.3,117.5

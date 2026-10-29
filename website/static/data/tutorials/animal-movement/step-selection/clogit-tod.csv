@@ -1,0 +1,6 @@
+term,coef,se
+forest (by day),1.328,0.217
+forest × night (the difference at night),-0.124,0.232
+elevation (per 100 m),0.218,0.129
+log(step length),0.027,0.01
+cos(turn angle),-0.236,0.019
