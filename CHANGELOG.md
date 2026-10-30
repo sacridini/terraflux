@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.26.0] - 2026-10-30
+
 ### Added
 - The table gathered from the files of a folder names each row's file in its column `layer` (`clc_r0c0`), where it
   held the file's number. Tables can name the numbers of a column (`labels`, as a factor in R): the CSV, the JSON
