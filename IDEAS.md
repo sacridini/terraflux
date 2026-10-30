@@ -1137,7 +1137,9 @@ nome (o ano de `forest_2010`) ou a posição (1, 2...), não o nome do arquivo. 
 (o `Table` inteiro); por ora o registro `.json` e o relatório dão o nome de cada número.
 
 **A ordem:** (fase 1) a cadeia por arquivo, os nomes, o `raster.write` na cadeia, as falhas que não param, as
-entradas de raster ×N e o "Run on a folder..." (itens 1 a 3);
+entradas de raster ×N e o "Run on a folder..." (itens 1 a 3); (fase 2) o paralelo, o retomável, o registro e o
+retorno enquanto roda (itens 4 e 5); (fase 3) os nós de entrada no lugar dos `$` e `@`; (fase 4) o pareamento por
+nome, o "Processar uma pasta", a conversão do `batch.run` e o tutorial (itens 6 a 8).
 - **Feito** (Unreleased), fase 1: no executor, `Engine::chain` acha a cadeia quando um nó recebe os arquivos de uma
   pasta (rasters em disco de vários arquivos, sem banda escolhida) onde toma um mapa: ele e os nós depois dele que
   tomam os seus mapas, com tudo o mais que leem já dado, e os `raster.write` dos seus mapas que gravam um arquivo
@@ -1168,6 +1170,17 @@ entradas de raster ×N e o "Run on a folder..." (itens 1 a 3);
   nota; apagar, desconectando quem a lia). "Make it a node" faz da entrada de um arquivo um `raster.read` dele
   (que pode então ler uma pasta), e "Make it an input of the model", no menu de um `raster.read` do nível de
   cima, o contrário (um mapa quando ele escolhe uma banda ou o arquivo tem uma, senão uma pilha). Falta, se
-  fizer falta: um nó "Input" de verdade dentro dos contêineres (hoje é a caixa que se move). (fase 2) o paralelo, o retomável, o registro e o
-retorno enquanto roda (itens 4 e 5); (fase 3) os nós de entrada no lugar dos `$` e `@`; (fase 4) o pareamento por
-nome, o "Processar uma pasta", a conversão do `batch.run` e o tutorial (itens 6 a 8).
+  fizer falta: um nó "Input" de verdade dentro dos contêineres (hoje é a caixa que se move).
+- **Feito** (Unreleased), fase 4: um nó que recebe duas pastas (ou mais) roda nos arquivos pareados pelo nome
+  (`paired` no executor): os nomes iguais, ou, quando isso pareia menos, os nomes sem o começo e o fim comuns de
+  cada pasta, cortados num `_`, `-`, `.` ou espaço (`uso_bacia_01` com `estradas_bacia_01`); os sem par ficam de
+  fora, ditos num aviso; o registro e o retomável cobrem os arquivos pareados. "Process a folder..." no menu File,
+  na paleta de comandos e no canvas vazio: a pasta, depois o operador (a busca rápida, só os que tomam um mapa), e o
+  modelo montado (`editor::process_folder`: `raster.read` da pasta, o operador, `raster.write` do primeiro mapa em
+  `<pasta>_<op>/{name}_<op>.tif` e `table.write` da primeira tabela em `<pasta>_<op>.csv`), o operador
+  selecionado para escolher as configurações. "Make it a chain of nodes" no painel de um `batch.run`
+  (`editor::batch_to_chain`), explícito e não ao abrir, porque um `batch.run` cuja tabela ou relatório alguém lê
+  não tem equivalente (é recusado, dizendo quem lê); também recusados uma lista de arquivos e o `recursive`. O
+  tutorial "Batch processing" reescrito na forma nova (rodado nos 16 tiles do CORINE), e a seção de lotes de
+  "Large maps" também. Falta: a lista das falhas num painel (fase 2) e, com texto nas tabelas, o nome do arquivo
+  na coluna `layer`.

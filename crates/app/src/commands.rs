@@ -27,6 +27,8 @@ pub enum Do {
     Save,
     SaveAs,
     OpenData,
+    /// Process a folder...: every raster of a folder through an operator.
+    ProcessFolder,
     Run,
     Stop,
     RunToHere,

@@ -25,7 +25,9 @@ The **Graph** tab of the application edits the model:
   runs and the scenarios change.
 - **A folder of rasters:** **Run on a folder...** (in the side panel, or a node's right-click menu) reads a
   folder where the node takes its first map. The node, and the nodes after it that take its maps, then run as
-  one chain, file by file and several files at a time; see the README's *A folder of rasters*.
+  one chain, file by file and several files at a time; see the README's *A folder of rasters*. **File >
+  Process a folder...** builds the nodes from a folder and an operator, and **Make it a chain of nodes**, in a
+  `batch.run`'s side panel, turns it into those nodes.
 - **Nodes and connections:** each node shows its input ports on the left (required ones in orange until
   connected) and its output ports on the right. To connect two nodes, drag from an output to an input. Each
   connection is checked when it is made: a value of the wrong type, a cycle or a port the operator lacks is

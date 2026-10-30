@@ -197,6 +197,28 @@ pub struct Quick {
     pub at: usize,
     /// Whether the search was given the keyboard's focus.
     focused: bool,
+    /// The folder to process (Process a folder...): the operators that take a map, the one chosen run on every
+    /// raster of it ([`process_folder`]).
+    pub folder: Option<String>,
+}
+
+/// Process a folder...: choose the folder of the rasters, then the operator (the quick search, [`Quick::folder`]).
+pub fn process_folder_dialog(s: &mut Session) {
+    if let Some(folder) = rfd::FileDialog::new().set_title("The folder of the rasters to process").pick_folder() {
+        s.editor.quick = Some(Quick { folder: Some(folder.to_string_lossy().into_owned()), ..Default::default() });
+    }
+}
+
+/// Every raster of a folder through an operator, written beside the folder ([`crate::editor::process_folder`]),
+/// the operator's node selected to choose its settings.
+pub fn process_folder(s: &mut Session, r: &Registry, folder: &str, op: &str) -> Result<String, String> {
+    let path = s.editor.path.clone();
+    let nodes = s.source.scope(&path).cloned().unwrap_or_default();
+    let at = beside(&nodes, None);
+    let id = crate::editor::process_folder(&mut s.source, r, &path, folder, op, at)?;
+    s.edited();
+    select(s, r, &id);
+    Ok(id)
 }
 
 /// A node of the user's libraries as the quick search offers it: `my:name`, what it does and takes.
@@ -209,6 +231,11 @@ fn mine_entry(u: &terraflux_graph::UserNode) -> Entry {
     Entry { name: format!("{}{}", crate::my_nodes::PREFIX, u.name), doc, subject: "My nodes", group: None }
 }
 
+/// What Process a folder... does.
+pub const PROCESS_HELP: &str = "Choose a folder, then an operator (MSPA, a metric, a reclassification...): it runs on \
+     every raster of the folder, file by file, each written beside the folder by its name (a table of all of them \
+     for the metrics). Choose its settings, then run.";
+
 /// The search of the operators from the keyboard, over the panes, while it is open.
 pub fn quick_add(ctx: &egui::Context, s: &mut Session, r: &Registry, lib: &Library) {
     let Some(mut q) = s.editor.quick.take() else { return };
@@ -216,6 +243,10 @@ pub fn quick_add(ctx: &egui::Context, s: &mut Session, r: &Registry, lib: &Libra
     let mine = Library { entries: crate::my_nodes::nodes().iter().map(mine_entry).collect() };
     let mut found = mine.find(&q.query);
     found.extend(lib.find(&q.query));
+    // a folder to process: the operators that take a map
+    if q.folder.is_some() {
+        found.retain(|e| crate::editor::folder_port(&terraflux_graph::Node::new("x", &e.name), r).is_some());
+    }
     let (down, up, enter, escape) = ctx.input_mut(|i| {
         (
             i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown),
@@ -240,8 +271,21 @@ pub fn quick_add(ctx: &egui::Context, s: &mut Session, r: &Registry, lib: &Libra
         .show(ctx, |ui| {
             egui::Frame::popup(ui.style()).inner_margin(Margin::same(10)).show(ui, |ui| {
                 ui.set_width(width);
-                let to = s.selected.as_ref().map_or("a new node".to_string(), |id| format!("after {id}"));
-                ui.label(RichText::new(format!("Add an operator · {to}")).strong());
+                match &q.folder {
+                    Some(f) => {
+                        let name =
+                            std::path::Path::new(f).file_name().map_or(f.clone(), |n| n.to_string_lossy().into());
+                        ui.label(
+                            RichText::new(format!("Process the folder {name} · the operator for every raster"))
+                                .strong(),
+                        )
+                        .on_hover_text(f);
+                    }
+                    None => {
+                        let to = s.selected.as_ref().map_or("a new node".to_string(), |id| format!("after {id}"));
+                        ui.label(RichText::new(format!("Add an operator · {to}")).strong());
+                    }
+                }
                 let edit = ui.add(
                     egui::TextEdit::singleline(&mut q.query)
                         .hint_text("its name or what it does (mspa, reclassify, distance...)")
@@ -291,7 +335,11 @@ pub fn quick_add(ctx: &egui::Context, s: &mut Session, r: &Registry, lib: &Libra
     if ctx.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer() {
         close = true;
     }
-    if let Some(op) = chosen {
+    if let (Some(op), Some(folder)) = (&chosen, &q.folder) {
+        if let Err(e) = process_folder(s, r, folder, op) {
+            s.editor.message = Some(e);
+        }
+    } else if let Some(op) = chosen {
         let added = match crate::my_nodes::named(&op) {
             Some((name, v)) => crate::my_nodes::get(name, v).and_then(|u| crate::my_nodes::add(s, r, &u)).map(|_| ()),
             None => add(s, r, &op, &[]).map(|_| ()),
@@ -1794,13 +1842,18 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
         }
     }
     if s.source.nodes.is_empty() && s.editor.path.is_empty() {
+        let c = ui.max_rect().center();
         ui.painter().text(
-            ui.max_rect().center(),
+            c,
             egui::Align2::CENTER_CENTER,
             "Open a raster, click an operator of the library or press / to start; or begin from a template (Templates)",
             egui::FontId::proportional(15.0),
             ui.visuals().weak_text_color(),
         );
+        let b = egui::Rect::from_center_size(c + Vec2::new(0.0, 36.0), Vec2::new(260.0, 26.0));
+        if ui.put(b, egui::Button::new("Process a folder of rasters...")).on_hover_text(PROCESS_HELP).clicked() {
+            process_folder_dialog(s);
+        }
     }
     for a in actions {
         let path = s.editor.path.clone();

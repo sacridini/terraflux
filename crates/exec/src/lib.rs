@@ -14,7 +14,7 @@ mod io;
 pub mod lint;
 pub mod testing;
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -109,12 +109,17 @@ pub fn bytes_of(v: &Value) -> usize {
 /// kept ([`Engine::run_chain`]).
 const KEPT_BYTES: usize = 2 << 30;
 
+/// Files by name, one of each folder ([`paired`]).
+type Files = Vec<(String, Vec<Value>)>;
+
 /// A chain of nodes run file by file ([`Engine::chain`]).
 struct Chain {
-    /// What gives the files (`node.port`, `$input`, `@value`).
-    source: String,
-    /// The files (each a layer of rasters on disk), by name.
-    files: Vec<(String, Value)>,
+    /// What gives the files (`node.port`, `$input`, `@value`): a folder, or several paired by name.
+    source: Vec<String>,
+    /// The files (each a layer of rasters on disk), by name: one of each folder, as `source`.
+    files: Files,
+    /// The files of the folders that have no pair in the others (left out), by folder.
+    left: Vec<Vec<String>>,
     /// Its nodes, in order: the first takes the files.
     nodes: Vec<Node>,
     /// How many files at the same time: the `workers` of the `raster.read` of the folder, else the threads.
@@ -240,6 +245,70 @@ fn resumable(nodes: &[Node], chain: &Chain, wanted: &BTreeSet<String>) -> bool {
             .all(|n| others.contains(n.id.as_str()) || !terraflux_graph::references(n).iter().any(|r| read(r)))
 }
 
+/// The files of several folders paired by name, one of each, under the first folder's names (in its order): the
+/// same names, or, when that pairs fewer, the same once each folder's common start and end are cut at a `_`, `-`,
+/// `.` or space (`uso_bacia_01` with `estradas_bacia_01`, `clc_r0c0_2018` with `roads_r0c0`). The names with no pair,
+/// by folder. One folder: its files as they are.
+fn paired(lists: Vec<Vec<(String, Value)>>) -> (Files, Vec<Vec<String>>) {
+    let names: Vec<Vec<String>> = lists.iter().map(|l| l.iter().map(|(n, _)| n.clone()).collect()).collect();
+    let cut: Vec<Vec<String>> = names.iter().map(|n| common_cut(n)).collect();
+    // by each name of the first folder, its file's place in each folder
+    let pairs = |keys: &[Vec<String>]| -> Vec<Vec<usize>> {
+        let at: Vec<HashMap<&str, usize>> =
+            keys.iter().map(|k| k.iter().enumerate().map(|(i, k)| (k.as_str(), i)).collect()).collect();
+        if at.iter().zip(keys).any(|(a, k)| a.len() < k.len()) {
+            return Vec::new(); // two files of a folder the same
+        }
+        keys[0].iter().filter_map(|k| at.iter().map(|a| a.get(k.as_str()).copied()).collect()).collect()
+    };
+    let exact = pairs(&names);
+    let chosen = if exact.len() == names[0].len() || lists.len() == 1 {
+        exact
+    } else {
+        let loose = pairs(&cut);
+        if loose.len() > exact.len() { loose } else { exact }
+    };
+    let mut used: Vec<Vec<bool>> = lists.iter().map(|l| vec![false; l.len()]).collect();
+    let files = chosen
+        .iter()
+        .map(|places| {
+            for (u, &i) in used.iter_mut().zip(places) {
+                u[i] = true;
+            }
+            let values = lists.iter().zip(places).map(|(l, &i)| l[i].1.clone()).collect();
+            (lists[0][places[0]].0.clone(), values)
+        })
+        .collect();
+    let left = names
+        .into_iter()
+        .zip(used)
+        .map(|(n, u)| n.into_iter().zip(u).filter(|(_, u)| !u).map(|(n, _)| n).collect())
+        .collect();
+    (files, left)
+}
+
+/// Names without what they all start and end with, cut at a `_`, `-`, `.` or space (`uso_bacia_01`,
+/// `uso_bacia_02`: `01`, `02`).
+fn common_cut(names: &[String]) -> Vec<String> {
+    let sep = |b: u8| matches!(b, b'_' | b'-' | b'.' | b' ');
+    let Some(first) = names.first() else { return Vec::new() };
+    let mut start = first.len();
+    for n in names {
+        start = start.min(first.bytes().zip(n.bytes()).take_while(|(a, b)| a == b).count());
+    }
+    // the start up to its last separator
+    start = first.as_bytes()[..start].iter().rposition(|&b| sep(b)).map_or(0, |i| i + 1);
+    let rest: Vec<&[u8]> = names.iter().map(|n| &n.as_bytes()[start..]).collect();
+    let mut end = rest[0].len();
+    for r in &rest {
+        end = end.min(rest[0].iter().rev().zip(r.iter().rev()).take_while(|(a, b)| a == b).count());
+    }
+    // the end from its first separator
+    let tail = &rest[0][rest[0].len() - end..];
+    end = tail.iter().position(|&b| sep(b)).map_or(0, |i| end - i);
+    rest.iter().map(|r| String::from_utf8_lossy(&r[..r.len() - end]).into_owned()).collect()
+}
+
 /// The file on disk a chain's file is (the file of its layer).
 fn file_path(file: &Value) -> Option<std::path::PathBuf> {
     match file {
@@ -248,23 +317,26 @@ fn file_path(file: &Value) -> Option<std::path::PathBuf> {
     }
 }
 
-/// What a file run through a chain depends on, as a hex SHA-256: the file (its path, size and time) and the chain's
-/// nodes (operators, inputs, settings). None for a chain that writes no file, or a file not on disk.
-fn print_of(chain: &Chain, file: &Value) -> Option<String> {
+/// What a file run through a chain depends on, as a hex SHA-256: the files (one of each folder: their paths, sizes
+/// and times) and the chain's nodes (operators, inputs, settings). None for a chain that writes no file, or a file
+/// not on disk.
+fn print_of(chain: &Chain, files: &[Value]) -> Option<String> {
     use sha2::{Digest, Sha256};
     chain.nodes.iter().find(|m| m.op == "raster.write")?;
-    let path = file_path(file)?;
-    let meta = std::fs::metadata(&path).ok()?;
-    let time = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
+    let mut h = Sha256::new();
+    for file in files {
+        let path = file_path(file)?;
+        let meta = std::fs::metadata(&path).ok()?;
+        let time = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
+        h.update(path.to_string_lossy().as_bytes());
+        h.update(meta.len().to_le_bytes());
+        h.update(time.to_le_bytes());
+    }
     let nodes: Vec<serde_json::Value> = chain
         .nodes
         .iter()
         .map(|m| serde_json::json!({"id": m.id, "op": m.op, "inputs": m.inputs, "params": m.params}))
         .collect();
-    let mut h = Sha256::new();
-    h.update(path.to_string_lossy().as_bytes());
-    h.update(meta.len().to_le_bytes());
-    h.update(time.to_le_bytes());
     h.update(serde_json::to_string(&nodes).ok()?.as_bytes());
     Some(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
@@ -277,9 +349,10 @@ fn record_path(chain: &Chain, name: &str) -> Option<std::path::PathBuf> {
     Some(std::path::Path::new(&terraflux_ops::files::layer_path(p, name)).with_extension("json"))
 }
 
-/// Record a file run through a chain (as `batch.run` does): the file read, the files written, the nodes and
-/// their settings, how long it took, Terraflux's version, and what it depends on (`print`, [`print_of`]).
-fn record(chain: &Chain, name: &str, file: &Value, print: &str, outs: &[Outputs], seconds: f64) {
+/// Record a file run through a chain (as `batch.run` does): the file read (and those paired with it), the files
+/// written, the nodes and their settings, how long it took, Terraflux's version, and what it depends on (`print`,
+/// [`print_of`]).
+fn record(chain: &Chain, name: &str, files: &[Value], print: &str, outs: &[Outputs], seconds: f64) {
     let Some(path) = record_path(chain, name) else { return };
     let written: serde_json::Map<String, serde_json::Value> = chain
         .nodes
@@ -293,8 +366,10 @@ fn record(chain: &Chain, name: &str, file: &Value, print: &str, outs: &[Outputs]
         .collect();
     let nodes: Vec<serde_json::Value> =
         chain.nodes.iter().map(|m| serde_json::json!({"id": m.id, "op": m.op, "params": m.params})).collect();
-    let r = serde_json::json!({
-        "input": file_path(file).map(|p| p.to_string_lossy().into_owned()),
+    let paths: Vec<Option<String>> =
+        files.iter().map(|f| file_path(f).map(|p| p.to_string_lossy().into_owned())).collect();
+    let mut r = serde_json::json!({
+        "input": paths.first().cloned().flatten(),
         "name": name,
         "outputs": written,
         "nodes": nodes,
@@ -302,6 +377,9 @@ fn record(chain: &Chain, name: &str, file: &Value, print: &str, outs: &[Outputs]
         "terraflux": env!("CARGO_PKG_VERSION"),
         "print": print,
     });
+    if paths.len() > 1 {
+        r["paired"] = paths[1..].into();
+    }
     let _ = std::fs::write(path, serde_json::to_string_pretty(&r).unwrap_or_default());
 }
 
@@ -1042,8 +1120,9 @@ impl Engine {
     /// The chain a node begins when it is given the files of a folder (rasters on disk of many files) where it
     /// takes one map: it and the nodes after it that take, where they take one map, what it gives (and so on),
     /// with all else they read already given, and the `raster.write`s of their maps that write a file per file. Run
-    /// file by file ([`Engine::run_chain`]), not each node on all the files before the next. None when the node is
-    /// given another value of many layers where it takes one map (then paired with the files, layer by layer).
+    /// file by file ([`Engine::run_chain`]), not each node on all the files before the next. Given several folders,
+    /// their files are paired by name ([`paired`]). None when the node is given another value of many layers where
+    /// it takes one map (then paired with the files, layer by layer).
     fn chain(
         &self,
         nodes: &[Node],
@@ -1057,7 +1136,7 @@ impl Engine {
         if node.bypass || sig.container {
             return None;
         }
-        let mut source: Option<(String, Value)> = None;
+        let mut sources: Vec<(String, Value)> = Vec::new();
         for (port, src) in &node.inputs {
             let Source::Ref(r) = src else { continue };
             if !sig.per_layer(port) {
@@ -1065,18 +1144,21 @@ impl Engine {
             }
             let v = self.resolve(src, env, inputs, at).ok()?;
             if of_files(&v) {
-                match &source {
-                    Some((s, _)) if s != r => return None,
-                    Some(_) => {}
-                    None => source = Some((r.clone(), v)),
+                if !sources.iter().any(|(s, _)| s == r) {
+                    sources.push((r.clone(), v));
                 }
             } else if terraflux_ops::files::layers(&v).is_some() {
                 return None;
             }
         }
-        let (source, value) = source?;
-        let files = terraflux_ops::files::layers(&value)?;
-        let grids = matches!(&value, Value::Raster(r) if r.mixed);
+        if sources.is_empty() {
+            return None;
+        }
+        let lists: Vec<Vec<(String, Value)>> =
+            sources.iter().map(|(_, v)| terraflux_ops::files::layers(v)).collect::<Option<_>>()?;
+        let (files, left) = paired(lists);
+        let grids = sources.iter().any(|(_, v)| matches!(v, Value::Raster(r) if r.mixed));
+        let source: Vec<String> = sources.into_iter().map(|(r, _)| r).collect();
         let among = ids(nodes);
         let ordered = order(nodes, |n| dependencies_among(n, &among)).ok()?;
         let after = ordered.iter().position(|n| n.id == node.id)? + 1;
@@ -1090,8 +1172,10 @@ impl Engine {
             if ms.container {
                 continue;
             }
-            let reads =
-                |r: &str| r == source || matches!(Ref::parse(r), Ok(Ref::Port { node: n, .. }) if inside.contains(&n));
+            let reads = |r: &str| {
+                source.iter().any(|s| s == r)
+                    || matches!(Ref::parse(r), Ok(Ref::Port { node: n, .. }) if inside.contains(&n))
+            };
             // a file per file: {name} in its path, or maps of different grids (no file of them all)
             let writes = m.op == "raster.write"
                 && (grids || m.params.get("path").and_then(|p| p.as_str()).is_some_and(|p| p.contains("{name}")));
@@ -1125,7 +1209,7 @@ impl Engine {
             }
         }
         // the files at the same time: as the folder's raster.read says, else as many as the threads
-        let workers = match Ref::parse(&source) {
+        let workers = match Ref::parse(&source[0]) {
             Ok(Ref::Port { node: from, .. }) => nodes
                 .iter()
                 .find(|n| n.id == from && n.op == "raster.read")
@@ -1135,7 +1219,7 @@ impl Engine {
             _ => None,
         };
         let workers = workers.unwrap_or_else(rayon::current_num_threads);
-        Some(Chain { source, files, nodes: members, workers })
+        Some(Chain { source, files, left, nodes: members, workers })
     }
 
     /// A chain run file by file: for each file, its nodes in order on it (the file read, passed along, written,
@@ -1159,7 +1243,11 @@ impl Engine {
         wanted: Option<&BTreeSet<String>>,
     ) -> Result<(BTreeMap<String, Outputs>, BTreeSet<String>)> {
         let prefix = at.strip_suffix(chain.nodes[0].id.as_str()).unwrap_or("");
-        let source = Ref::parse(&chain.source).map_err(|e| Error::Node { at: at.into(), message: e.to_string() })?;
+        let source: Vec<Ref> = chain
+            .source
+            .iter()
+            .map(|r| Ref::parse(r).map_err(|e| Error::Node { at: at.into(), message: e.to_string() }))
+            .collect::<Result<_>>()?;
         let n = chain.files.len();
         let droppable = wanted.map_or_else(Vec::new, |w| droppable(nodes, chain, w));
         // what it gives read by nothing but its files: a file done before need not run again
@@ -1183,7 +1271,7 @@ impl Engine {
         };
         let workers = chain.workers.min(n).max(1);
         if workers == 1 {
-            for (i, (name, file)) in chain.files.iter().enumerate() {
+            for (i, (name, files)) in chain.files.iter().enumerate() {
                 if obs.cancelled() {
                     return Err(Error::Cancelled);
                 }
@@ -1194,7 +1282,7 @@ impl Engine {
                         text: format!("{name} ({} of {n})", i + 1),
                     },
                 );
-                let d = self.run_file(nodes, chain, &source, env, inputs, prefix, name, file, resumable, obs);
+                let d = self.run_file(nodes, chain, &source, env, inputs, prefix, name, files, resumable, obs);
                 if matches!(d.outputs, Err(Error::Cancelled)) {
                     return Err(Error::Cancelled);
                 }
@@ -1215,10 +1303,11 @@ impl Engine {
                             if stop.load(Ordering::Relaxed) {
                                 return;
                             }
-                            let (name, file) = &chain.files[i];
+                            let (name, files) = &chain.files[i];
                             let mut relay = Relay { stop };
-                            let d = self
-                                .run_file(nodes, chain, source, env, inputs, prefix, name, file, resumable, &mut relay);
+                            let d = self.run_file(
+                                nodes, chain, source, env, inputs, prefix, name, files, resumable, &mut relay,
+                            );
                             let _ = tx.send((i, d));
                         })
                     })
@@ -1301,6 +1390,16 @@ impl Engine {
             let more = if failed.len() > 5 { format!("; and {} more", failed.len() - 5) } else { String::new() };
             tell(format!("{} of the {n} files failed, the others went on: {}{more}", failed.len(), shown.join("; ")));
         }
+        let left: Vec<String> = chain
+            .source
+            .iter()
+            .zip(&chain.left)
+            .filter(|(_, l)| !l.is_empty())
+            .map(|(s, l)| format!("of {s}: {}", listed(l)))
+            .collect();
+        if !left.is_empty() {
+            tell(format!("files with no pair of the same name in the other folders, left out: {}", left.join("; ")));
+        }
         if skipped > 0 {
             tell(format!(
                 "{skipped} of the {n} files were done before with the same nodes and settings (their records): not \
@@ -1335,35 +1434,39 @@ impl Engine {
         &self,
         nodes: &[Node],
         chain: &Chain,
-        source: &Ref,
+        source: &[Ref],
         env: &Env,
         inputs: &BTreeMap<String, Value>,
         prefix: &str,
         name: &str,
-        file: &Value,
+        files: &[Value],
         resumable: bool,
         obs: &mut dyn Observer,
     ) -> Done {
-        let print = print_of(chain, file);
+        let print = print_of(chain, files);
         if resumable && let Some(outs) = print.as_deref().and_then(|p| done_before(chain, name, p)) {
             return Done { outputs: Ok(outs), warnings: Vec::new(), skipped: true };
         }
         let started = std::time::Instant::now();
         let mut child = env.child(BTreeMap::new());
         let mut given = None;
-        match source {
-            Ref::Port { node, port } => {
-                let mut o = env.outputs(node).cloned().unwrap_or_default();
-                o.insert(port.clone(), file.clone());
-                child.results.insert(node.clone(), o);
-            }
-            Ref::Input(k) => {
-                let mut x = inputs.clone();
-                x.insert(k.clone(), file.clone());
-                given = Some(x);
-            }
-            Ref::Carried(k) => {
-                child.carried.insert(k.clone(), file.clone());
+        // each folder's file in its place
+        for (s, file) in source.iter().zip(files) {
+            match s {
+                Ref::Port { node, port } => {
+                    if !child.results.contains_key(node) {
+                        child.results.insert(node.clone(), env.outputs(node).cloned().unwrap_or_default());
+                    }
+                    if let Some(o) = child.results.get_mut(node) {
+                        o.insert(port.clone(), file.clone());
+                    }
+                }
+                Ref::Input(k) => {
+                    given.get_or_insert_with(|| inputs.clone()).insert(k.clone(), file.clone());
+                }
+                Ref::Carried(k) => {
+                    child.carried.insert(k.clone(), file.clone());
+                }
             }
         }
         let given = given.as_ref().unwrap_or(inputs);
@@ -1382,7 +1485,7 @@ impl Engine {
         }
         let outs: Vec<Outputs> = chain.nodes.iter().map(|m| child.results.remove(&m.id).unwrap_or_default()).collect();
         if let Some(p) = &print {
-            record(chain, name, file, p, &outs, started.elapsed().as_secs_f64());
+            record(chain, name, files, p, &outs, started.elapsed().as_secs_f64());
         }
         Done { outputs: Ok(outs), warnings: muffled.warnings, skipped: false }
     }

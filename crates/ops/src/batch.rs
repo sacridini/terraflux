@@ -300,7 +300,9 @@ impl Operator for Run {
              after the input and the operator: maps <name>_<operator>[_<output>].tif, tables .csv, texts .txt, \
              and <name>_<operator>.json with the parameters, the files, the numbers and the time (an input whose \
              JSON exists is skipped unless overwrite). MSPA with GuidosToolbox's naming. A row per input: ok, \
-             skipped (done before), seconds, files written; the errors in the report.",
+             skipped (done before), seconds, files written; the errors in the report. A folder given to any node \
+             that takes a map does the same, its maps seen and its settings in its pane (Make it a chain of nodes, \
+             in the app).",
             Access::None,
         )
         .output(PortSpec::new(

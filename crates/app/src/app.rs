@@ -1562,6 +1562,17 @@ impl TerrafluxApp {
         self.focus(Pane::Model);
     }
 
+    /// Process a folder...: in the model open (a new one if none), the folder's rasters through an operator.
+    fn process_folder(&mut self) {
+        if self.session.is_none() || self.wizard.is_some() {
+            self.new_model();
+        }
+        self.focus(Pane::Model);
+        if let Some(s) = &mut self.session {
+            crate::builder::process_folder_dialog(s);
+        }
+    }
+
     /// The models handed by `terraflux mcp` (open_in_app): opened here and the window brought to the front, unless
     /// the model open has edits not saved or a wizard is open (the answer says why, and it opens a window of its own).
     fn take_handoffs(&mut self, ctx: &egui::Context) {
@@ -1668,6 +1679,10 @@ impl TerrafluxApp {
         {
             ui.close();
             crate::builder::open_data(s, &self.registry);
+        }
+        if ui.button("Process a folder...").on_hover_text(crate::builder::PROCESS_HELP).clicked() {
+            ui.close();
+            self.process_folder();
         }
         ui.separator();
         if let Some(s) = &mut self.session {
@@ -1933,6 +1948,7 @@ impl TerrafluxApp {
             action("New model", format!("{c}N"), Do::New),
             action("Open a model...", format!("{c}shift+O"), Do::Open),
             action("Open a raster or vectors...", format!("{c}O"), Do::OpenData),
+            action("Process a folder of rasters...", String::new(), Do::ProcessFolder),
             action("Add an operator", "/".into(), Do::Add(String::new())),
             action("Arrange the nodes", format!("{c}L"), Do::Arrange),
             action("Group the nodes selected", format!("{c}G"), Do::Group),
@@ -1980,6 +1996,7 @@ impl TerrafluxApp {
         match d {
             Do::New => self.new_model(),
             Do::Open => self.open_dialog(),
+            Do::ProcessFolder => self.process_folder(),
             Do::OpenRecent(p) => {
                 self.wizard = None;
                 self.open(&p);

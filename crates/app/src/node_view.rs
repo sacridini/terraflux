@@ -99,6 +99,11 @@ pub const FOLDER_HELP: &str = "every raster of a folder through this node, file 
      that take its maps, run once per file (a file that fails does not stop the others), each file's name kept; a \
      raster.write after them writes a file per file, the tables are gathered in one";
 
+/// What "Make it a chain of nodes" does.
+pub const CHAIN_HELP: &str = "the folder read by a raster.read, the operator a node of its own (its settings in its \
+     pane, its maps seen), what it gives written by raster.write and table.write: run file by file as here, the \
+     files done before not run again";
+
 pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
     let path = s.editor.path.clone();
     let Some(id) = s.selected.clone() else {
@@ -253,6 +258,13 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
     {
         let folder = folder.to_string_lossy().into_owned();
         change = Some(crate::editor::run_on_folder(&mut s.source, r, &path, &n.id, &folder).map(|_| ()));
+    }
+    // the old way of a folder: made the new one
+    if n.op == "batch.run" && ui.button("Make it a chain of nodes").on_hover_text(CHAIN_HELP).clicked() {
+        change = Some(crate::editor::batch_to_chain(&mut s.source, r, &path, &n.id).map(|id| {
+            s.editor.chosen = [id.clone()].into();
+            s.selected = Some(id);
+        }));
     }
     if !own_settings.is_empty() {
         ui.separator();

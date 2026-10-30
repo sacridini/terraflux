@@ -270,7 +270,9 @@ and the nodes after it that take its maps, run as one chain, file by file. The f
 `raster.write` after them writes a file per file (`{name}` in its path, or for files of different grids the
 file's name before its own), and the tables are gathered in one. A file that fails does not stop the others.
 Several files run at the same time (`raster.read`'s `workers`), its `first` tries the chain on a few files, and
-a chain that writes files records each one (`.json`) and does not run again the files already done.
+a chain that writes files records each one (`.json`) and does not run again the files already done. Two folders
+given to one node are paired file by file by name. **File > Process a folder...** builds the whole model from a
+folder and an operator, and a `batch.run` of an older model becomes the same nodes (**Make it a chain of nodes**).
 
 ### Models as text
 

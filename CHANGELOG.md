@@ -38,6 +38,19 @@ minor versions.
 - "Run on a folder..." in the node pane and in a node's new right-click menu on the canvas. It reads a folder
   where the node takes its first map: the `raster.read` that feeds that input reads the folder, else one is
   added at the node's left.
+- A node given two folders (or more) where it takes maps runs on their files paired by name: `uso/bacia_07.tif`
+  with `estradas/bacia_07.tif`. Names that differ are paired once each folder's common start and end are cut at a
+  `_`, `-`, `.` or space (`uso_bacia_07` with `estradas_bacia_07`). The files with no pair are left out, with a
+  warning. The records and the resuming cover the files paired.
+- **Process a folder...** in the File menu, the command palette and the empty canvas. It asks for the folder, then
+  for the operator (the operators that take a map), and builds the nodes: a `raster.read` of the folder, the
+  operator, a `raster.write` of its map to `<folder>_<op>/{name}_<op>.tif` and a `table.write` of its table to
+  `<folder>_<op>.csv`. The operator is selected, to choose its settings.
+- **Make it a chain of nodes** in the Node pane of a `batch.run` turns it into the same nodes: a `raster.read` of
+  its folder, its operator with its settings, and writers to its output folder. It is refused, saying why, when
+  something reads its table or report, or when it reads a list of files or the sub-folders.
+- The tutorial "Batch processing" is rewritten for folders given to the nodes, and so is the batch section of
+  "Large maps".
 
 ### Fixed
 - The files of a folder of different grids (tiles, basins, municipalities) keep their names through the nodes

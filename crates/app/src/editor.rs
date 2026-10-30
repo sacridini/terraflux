@@ -307,6 +307,132 @@ pub fn run_on_folder(m: &mut Model, r: &Registry, path: &[String], node: &str, f
     Ok(id)
 }
 
+/// Process every raster of a folder by an operator (Process a folder...): a `raster.read` of the folder, the
+/// operator on it (run once per file) and what writes what it gives beside the folder: its first map a file per
+/// raster (`<folder>_<op>/{name}_<op>.tif`), its first table one table of all of them (`<folder>_<op>.csv`), at `at`
+/// and to its right. The id of the operator's node.
+pub fn process_folder(
+    m: &mut Model,
+    r: &Registry,
+    path: &[String],
+    folder: &str,
+    op: &str,
+    at: [f32; 2],
+) -> Result<String> {
+    let sig = r.sig(op).ok_or_else(|| format!("no operator {op:?}"))?.clone();
+    let before = scope_mut(m, path)?.len();
+    let built = (|| {
+        let id = add_node(m, r, path, op, [at[0] + 260.0, at[1]])?;
+        run_on_folder(m, r, path, &id, folder)?;
+        let short = op.rsplit('.').next().unwrap_or(op);
+        let dir = std::path::Path::new(folder.trim_end_matches(['/', '\\']));
+        let base = dir.file_name().map_or("folder".into(), |n| n.to_string_lossy().into_owned());
+        let beside = |name: String| dir.with_file_name(name).to_string_lossy().into_owned();
+        let mut y = at[1];
+        if let Some(p) =
+            sig.outputs.iter().find(|p| p.required && matches!(p.ty, Type::Map | Type::Stack | Type::Raster))
+        {
+            let w = add_node(m, r, path, "raster.write", [at[0] + 520.0, y])?;
+            let file = std::path::Path::new(&beside(format!("{base}_{short}"))).join(format!("{{name}}_{short}.tif"));
+            node_mut(m, path, &w)?.params.insert("path".into(), file.to_string_lossy().into_owned().into());
+            connect(m, r, path, &format!("{id}.{}", p.name), &w, "value")?;
+            y += 120.0;
+        }
+        if let Some(p) = sig.outputs.iter().find(|p| p.required && p.ty == Type::Table) {
+            let w = add_node(m, r, path, "table.write", [at[0] + 520.0, y])?;
+            node_mut(m, path, &w)?.params.insert("path".into(), beside(format!("{base}_{short}.csv")).into());
+            connect(m, r, path, &format!("{id}.{}", p.name), &w, "table")?;
+        }
+        Ok(id)
+    })();
+    if built.is_err() {
+        scope_mut(m, path)?.truncate(before);
+    }
+    built
+}
+
+/// A `batch.run` made a chain of nodes (Make it a chain of nodes): a `raster.read` of its folder (or pattern), its
+/// operator with its parameters and a `raster.write` of each map it gives to its output folder
+/// (`{name}_<op>[_<output>].tif`), its table gathered in one (`<op>.csv`); run file by file as it ran, done files
+/// not run again. Refused when something reads what it gives (its table, its report), it reads a list of rasters
+/// or the sub-folders too. The id of the operator's node.
+pub fn batch_to_chain(m: &mut Model, r: &Registry, path: &[String], id: &str) -> Result<String> {
+    let n = scope_mut(m, path)?.iter().find(|n| n.id == id).cloned().ok_or_else(|| format!("no node {id:?}"))?;
+    if n.op != "batch.run" {
+        return Err(format!("{id} is not a batch.run"));
+    }
+    let reads = |r: &str| matches!(Ref::parse(r), Ok(Ref::Port { node, .. }) if node == id);
+    let mut readers: Vec<String> = scope_mut(m, path)?
+        .iter()
+        .filter(|x| terraflux_graph::references(x).iter().any(|r| reads(r)))
+        .map(|x| x.id.clone())
+        .collect();
+    if path.is_empty() {
+        readers.extend(m.outputs.iter().filter(|(_, o)| reads(&o.from)).map(|(k, _)| format!("the output {k}")));
+    }
+    if !readers.is_empty() {
+        return Err(format!("{} read its table or report: not made a chain", readers.join(", ")));
+    }
+    let text = |k: &str| n.params.get(k).and_then(|v| v.as_str()).map(str::trim).filter(|v| !v.is_empty());
+    let op = text("operator").ok_or("batch.run: give its operator first")?.to_string();
+    let sig = r.sig(&op).ok_or_else(|| format!("no operator {op:?}"))?.clone();
+    let folder =
+        text("inputs").ok_or("batch.run: its inputs are a list of rasters (or none): give a folder or a pattern")?;
+    if n.params.get("recursive").and_then(|v| v.as_bool()) == Some(true) {
+        return Err("batch.run reads the sub-folders too: a chain reads one folder".into());
+    }
+    let out_dir = text("output_dir").unwrap_or(".");
+    let at = n.pos.unwrap_or([0.0, 0.0]);
+    let before = scope_mut(m, path)?.clone();
+    let built = (|| {
+        let id = add_node(m, r, path, &op, [at[0] + 260.0, at[1]])?;
+        if let Some(serde_json::Value::Object(p)) = n.params.get("params") {
+            node_mut(m, path, &id)?.params.extend(p.clone());
+        }
+        let port = match text("input") {
+            Some(p) => p.to_string(),
+            None => folder_port(&Node::new("x", &op), r).ok_or_else(|| format!("{op} takes no map"))?,
+        };
+        let read = add_node(m, r, path, "raster.read", at)?;
+        let reader = node_mut(m, path, &read)?;
+        reader.params.insert("path".into(), folder.into());
+        if let Some(w) = n.params.get("workers").filter(|w| w.is_number()) {
+            reader.params.insert("workers".into(), w.clone());
+        }
+        reader.note = Some(format!("every raster of the folder, {id} run on each, file by file"));
+        connect(m, r, path, &format!("{read}.raster"), &id, &port)?;
+        let short = op.rsplit('.').next().unwrap_or(&op);
+        let maps: Vec<&String> = sig
+            .outputs
+            .iter()
+            .filter(|p| p.required && matches!(p.ty, Type::Map | Type::Stack | Type::Raster))
+            .map(|p| &p.name)
+            .collect();
+        let mut y = at[1];
+        for p in &maps {
+            let w = add_node(m, r, path, "raster.write", [at[0] + 520.0, y])?;
+            let file =
+                if maps.len() > 1 { format!("{{name}}_{short}_{p}.tif") } else { format!("{{name}}_{short}.tif") };
+            let file = std::path::Path::new(out_dir).join(file);
+            node_mut(m, path, &w)?.params.insert("path".into(), file.to_string_lossy().into_owned().into());
+            connect(m, r, path, &format!("{id}.{p}"), &w, "value")?;
+            y += 120.0;
+        }
+        if let Some(p) = sig.outputs.iter().find(|p| p.required && p.ty == Type::Table) {
+            let w = add_node(m, r, path, "table.write", [at[0] + 520.0, y])?;
+            let file = std::path::Path::new(out_dir).join(format!("{short}.csv"));
+            node_mut(m, path, &w)?.params.insert("path".into(), file.to_string_lossy().into_owned().into());
+            connect(m, r, path, &format!("{id}.{}", p.name), &w, "table")?;
+        }
+        scope_mut(m, path)?.retain(|x| x.id != n.id);
+        Ok(id)
+    })();
+    if built.is_err() {
+        *scope_mut(m, path)? = before;
+    }
+    built
+}
+
 /// Add a node of the user's library to a scope: a group holding a copy of that version's body; its id (from the
 /// node's name).
 pub fn add_user_node(m: &mut Model, path: &[String], u: &UserNode, pos: [f32; 2]) -> Result<String> {
@@ -1038,6 +1164,66 @@ mod tests {
         assert_eq!(folder_port(&m.nodes[2], &r).as_deref(), Some("map"));
         m.nodes.push(Node::new("t", "table.filter"));
         assert!(run_on_folder(&mut m, &r, &[], "t", "tiles").unwrap_err().contains("takes no map"));
+    }
+
+    #[test]
+    fn a_folder_is_processed_by_an_operator() {
+        let r = Registry::standard();
+        let mut m = Model::new("t");
+        let folder = std::path::Path::new("data").join("tiles");
+        let folder = folder.to_string_lossy();
+        // a map: written a file per raster, beside the folder
+        let id = process_folder(&mut m, &r, &[], &folder, "landscape.mspa", [0.0, 0.0]).unwrap();
+        let ops: Vec<&str> = m.nodes.iter().map(|n| n.op.as_str()).collect();
+        assert_eq!(ops, ["landscape.mspa", "raster.read", "raster.write"]);
+        assert_eq!(m.nodes[1].params["path"], *folder);
+        assert_eq!(m.nodes[0].inputs["map"], Source::Ref("raster_read.raster".into()));
+        let out = std::path::Path::new("data").join("tiles_mspa").join("{name}_mspa.tif");
+        assert_eq!(m.nodes[2].params["path"], *out.to_string_lossy());
+        assert_eq!(m.nodes[2].inputs["value"], Source::Ref(format!("{id}.map")));
+        assert!(check(&m, &r).iter().all(|i| i.severity != Severity::Error), "{:?}", check(&m, &r));
+        // a table: one of all of them
+        let mut m = Model::new("t");
+        process_folder(&mut m, &r, &[], &folder, "metrics.class", [0.0, 0.0]).unwrap();
+        let w = m.nodes.iter().find(|n| n.op == "table.write").unwrap();
+        assert_eq!(w.params["path"], *std::path::Path::new("data").join("tiles_class.csv").to_string_lossy());
+        // an operator of no map: refused, nothing left
+        assert!(process_folder(&mut m, &r, &[], &folder, "table.filter", [0.0, 0.0]).is_err());
+        assert_eq!(m.nodes.len(), 3);
+    }
+
+    #[test]
+    fn a_batch_run_is_made_a_chain_of_nodes() {
+        let r = Registry::standard();
+        let mut m = Model::new("t");
+        let mut b = Node::new("batch", "batch.run")
+            .param("operator", "landscape.mspa")
+            .param("inputs", "tiles/*.tif")
+            .param("output_dir", "out")
+            .param("params", serde_json::json!({"edge_width": 2}))
+            .param("workers", 4);
+        b.pos = Some([100.0, 50.0]);
+        m.nodes.push(b.clone());
+        // its table read: refused, the model as it was
+        m.nodes.push(Node::new("w", "table.write").input("table", "batch.table").param("path", "runs.csv"));
+        assert!(batch_to_chain(&mut m, &r, &[], "batch").unwrap_err().contains("w read its table"));
+        assert_eq!(m.nodes.len(), 2);
+        m.nodes.pop();
+        let id = batch_to_chain(&mut m, &r, &[], "batch").unwrap();
+        let ops: Vec<&str> = m.nodes.iter().map(|n| n.op.as_str()).collect();
+        assert_eq!(ops, ["landscape.mspa", "raster.read", "raster.write"]);
+        let (mspa, read, write) = (&m.nodes[0], &m.nodes[1], &m.nodes[2]);
+        assert_eq!(mspa.id, id);
+        assert_eq!(mspa.params["edge_width"], 2);
+        assert_eq!((read.params["path"].as_str(), read.params["workers"].as_i64()), (Some("tiles/*.tif"), Some(4)));
+        assert_eq!(read.pos, Some([100.0, 50.0]));
+        assert_eq!(mspa.inputs["map"], Source::Ref(format!("{}.raster", read.id)));
+        let out = std::path::Path::new("out").join("{name}_mspa.tif");
+        assert_eq!(write.params["path"], *out.to_string_lossy());
+        // a list of rasters: refused
+        let mut m = Model::new("t");
+        m.nodes.push(b.param("inputs", serde_json::json!(["a.tif", "b.tif"])));
+        assert!(batch_to_chain(&mut m, &r, &[], "batch").unwrap_err().contains("list of rasters"));
     }
 
     #[test]

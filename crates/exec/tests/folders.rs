@@ -45,9 +45,28 @@ impl Operator for Log {
     }
 }
 
+/// `test.pair`: map `a` as it is, the widths of `a` and `b` written down when it runs.
+struct Pair(Arc<Mutex<Vec<String>>>);
+
+impl Operator for Pair {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new("test.pair", "", Access::Global)
+            .input(PortSpec::new("a", Type::Map, ""))
+            .input(PortSpec::new("b", Type::Map, ""))
+            .output(PortSpec::new("map", Type::Map, ""))
+    }
+
+    fn run(&self, _: &mut Ctx, a: &Args) -> terraflux_ops::Result<Outputs> {
+        let (x, y) = (a.map("a")?, a.map("b")?);
+        self.0.lock().unwrap().push(format!("{} {}+{}", a.node, x.grid.width, y.grid.width));
+        Ok([("map".to_string(), Value::Map(x.clone()))].into())
+    }
+}
+
 fn engine(log: &Arc<Mutex<Vec<String>>>) -> Engine {
     let mut r = Registry::standard();
     r.add(Arc::new(Log(log.clone())));
+    r.add(Arc::new(Pair(log.clone())));
     Engine { registry: r }
 }
 
@@ -60,6 +79,12 @@ fn folder(name: &str) -> PathBuf {
 
 /// A map of classes 1 (background) and 2 (forest) of `width` x 20 cells, written as `tiles/<name>.tif`.
 fn tile(dir: &Path, name: &str, width: usize, x: f64) {
+    tile_in(dir, "tiles", name, width, x)
+}
+
+/// [`tile`] in another folder (`<sub>/<name>.tif`).
+fn tile_in(dir: &Path, sub: &str, name: &str, width: usize, x: f64) {
+    std::fs::create_dir_all(dir.join(sub)).unwrap();
     let mut grid = terraflux_raster::Grid::new(width, 20);
     grid.transform[0] = x;
     let data: Vec<f64> = (0..width * 20).map(|i| if (i / 7 + i % 5) % 3 == 0 { 1.0 } else { 2.0 }).collect();
@@ -69,7 +94,7 @@ fn tile(dir: &Path, name: &str, width: usize, x: f64) {
         dtype: terraflux_raster::DataType::U8,
         nodata: None,
     };
-    terraflux_ops::prepare::write_with_crs(&raster, &dir.join("tiles").join(format!("{name}.tif"))).unwrap();
+    terraflux_ops::prepare::write_with_crs(&raster, &dir.join(sub).join(format!("{name}.tif"))).unwrap();
 }
 
 fn read(dir: &Path) -> Node {
@@ -294,5 +319,39 @@ fn the_first_files_of_a_folder_try_the_chain() {
     let r = engine(&log).run(&m, &BTreeMap::new(), &mut Told::default()).unwrap();
     let Value::Series(maps) = r.get("seen.map").unwrap() else { panic!() };
     assert_eq!(maps.len(), 2);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn files_of_two_folders_are_paired_by_name() {
+    let dir = folder("pairs");
+    for (i, basin) in ["01", "02", "03"].iter().enumerate() {
+        tile_in(&dir, "uso", &format!("uso_bacia_{basin}"), 30 + 10 * i, 100.0 * i as f64);
+    }
+    // the roads of basin 03 missing, of another order
+    tile_in(&dir, "estradas", "estradas_bacia_02", 40, 100.0);
+    tile_in(&dir, "estradas", "estradas_bacia_01", 30, 0.0);
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let mut m = Model::new("t");
+    let folder =
+        |id: &str| Node::new(id, "raster.read").param("path", dir.join(id).to_string_lossy()).param("workers", 1);
+    m.nodes.push(folder("uso"));
+    m.nodes.push(folder("estradas"));
+    m.nodes.push(Node::new("both", "test.pair").input("a", "uso.raster").input("b", "estradas.raster"));
+    let out = dir.join("out").join("{name}_both.tif");
+    m.nodes.push(Node::new("w", "raster.write").input("value", "both.map").param("path", out.to_string_lossy()));
+    let mut told = Told::default();
+    let r = engine(&log).run(&m, &BTreeMap::new(), &mut told).unwrap();
+    // each land use with the roads of its basin
+    assert_eq!(*log.lock().unwrap(), ["both 30+30", "both 40+40"]);
+    let Value::Series(maps) = r.get("both.map").unwrap() else { panic!() };
+    let names: Vec<_> = maps.iter().map(|v| terraflux_ops::files::layer_name(v).unwrap()).collect();
+    assert_eq!(names, ["uso_bacia_01", "uso_bacia_02"]);
+    assert!(dir.join("out").join("uso_bacia_02_both.tif").exists());
+    assert!(
+        told.0.iter().any(|(at, w)| at == "both" && w.contains("left out") && w.contains("uso_bacia_03")),
+        "{:?}",
+        told.0
+    );
     std::fs::remove_dir_all(&dir).ok();
 }

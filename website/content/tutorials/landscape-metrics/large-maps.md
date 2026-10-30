@@ -151,27 +151,35 @@ keeping it in memory.
 ## Many maps: a batch
 
 A large study area is often delivered as many tiles, or a study compares many landscapes, each a file. Instead of a
-model per file, [[batch.run]] runs one operator on every raster of a folder in parallel, as GuidosToolbox's batch
-process does:
+model per file, give the folder to [[raster.read]]: [[metrics.landscape]] runs once per raster, several at the same
+time, and its tables come out as one, a row per raster (see [Batch processing](../../large-data/batch-processing/)):
 
 ```tfgraph
-#! caption: The landscape metrics of every raster of a folder, each written to a CSV named after it.
+#! caption: The landscape metrics of every raster of a folder, each read by blocks: one table, a row per raster.
 format = "terraflux/1"
 
 [[nodes]]
-id = "batch"
-op = "batch.run"
-params = { operator = "metrics.landscape", inputs = "tiles/*.tif", output_dir = "metrics", params = { metrics = ["np", "ed", "ai", "shdi"], block_rows = 512 } }
-note = "One worker per raster; a CSV each."
+id = "tiles"
+op = "raster.read"
+params = { path = "tiles/*.tif", workers = 4 }
+note = "Every raster of the folder; four at the same time."
+
+[[nodes]]
+id = "metrics"
+op = "metrics.landscape"
+inputs = { map = "tiles.raster" }
+params = { metrics = ["np", "ed", "ai", "shdi"], block_rows = 512 }
+
+[[nodes]]
+id = "write"
+op = "table.write"
+inputs = { table = "metrics.table" }
+params = { path = "metrics.csv" }
 ```
 
-`inputs` is a folder, a pattern or a list of files; `params` the operator's settings, here the metrics and the
-blocks; `workers` how many rasters run at once (by default, the threads). Every raster gets its results in
-`output_dir`, in files named after the raster and the operator, and the node's `table` says which ran, in how
-many seconds, which failed, and which were skipped. Rasters already done (their record is in `output_dir`) are
-skipped unless `overwrite = true`, so a batch stopped half-way resumes where it was; the table's `skipped` column
-says which were not computed again. Choose `workers` and `block_rows` together: four workers reading blocks of 512 rows of
-a map 100,000 cells wide hold about four times 51 million cells.
+The table's first column, `layer`, is the raster's number in the folder's alphabetical order. A raster that fails
+does not stop the others (the node warns which failed and why). Choose `workers` and `block_rows` together: four
+workers reading blocks of 512 rows of a map 100,000 cells wide hold about four times 51 million cells.
 
 For batches across several machines, the [parallel computing](/parallel/) guide shows `terraflux submit` and a
 cluster of workers.
