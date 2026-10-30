@@ -25,7 +25,7 @@ fn signatures() -> Table {
                 .collect()
         })
         .collect();
-    Table { columns, rows }
+    Table { columns, rows, ..Default::default() }
 }
 
 fn run(op: &str, t: &Table, params: serde_json::Value) -> Outputs {
@@ -125,6 +125,7 @@ fn charts_of_signatures() {
                 })
             })
             .collect(),
+        ..Default::default()
     };
     let lines = Chart::suggested(&series, Kind::Lines);
     assert_eq!((lines.x, lines.by), (Some(1), Some(0)));

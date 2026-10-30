@@ -694,7 +694,7 @@ impl Operator for Metrics {
                         out.insert("map".into(), Value::Map(Map::new(map.grid.clone(), painted)));
                     }
                 }
-                out.insert("table".into(), Value::Table(Table { columns, rows }));
+                out.insert("table".into(), Value::Table(Table { columns, rows, ..Default::default() }));
                 Ok(out)
             }
             "class" => {
@@ -734,7 +734,7 @@ impl Operator for Metrics {
                         .collect();
                     out.insert("map".into(), Value::Map(Map::new(map.grid.clone(), painted)));
                 }
-                out.insert("table".into(), Value::Table(Table { columns, rows }));
+                out.insert("table".into(), Value::Table(Table { columns, rows, ..Default::default() }));
                 Ok(out)
             }
             _ => {
@@ -745,7 +745,7 @@ impl Operator for Metrics {
                         row[j] = r.value;
                     }
                 }
-                Ok(outputs([("table", Value::Table(Table { columns, rows: vec![row] }))]))
+                Ok(outputs([("table", Value::Table(Table { columns, rows: vec![row], ..Default::default() }))]))
             }
         }
     }

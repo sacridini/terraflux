@@ -118,5 +118,21 @@ fn tiles_on_disk_are_landschafts() {
     let disk = Value::Raster(Arc::new(Rasters::open(dir.join("input.tif").to_str().unwrap(), None, None).unwrap()));
     run(disk, &serde_json::json!({"tile_size": 600, "overlap": 200}));
     assert!(dir.join("input_8_1_1_1.tif").exists());
+    // a folder: each file, by its name, the same maps as one by one
+    let folder = dir.join("folder");
+    std::fs::create_dir_all(&folder).unwrap();
+    for name in ["input", "shortcuts"] {
+        std::fs::copy(dir.join(format!("{name}.tif")), folder.join(format!("{name}.tif"))).unwrap();
+    }
+    let disk = Value::Raster(Arc::new(Rasters::open(folder.to_str().unwrap(), None, None).unwrap()));
+    let out_path = dir.join("out").join("{name}_mspa.tif");
+    let p = serde_json::json!({"tile_size": 600, "overlap": 200, "path": out_path.to_string_lossy()});
+    let Value::Raster(written) = &run(disk, &p)["map"] else { panic!("maps on disk") };
+    assert_eq!(written.images.len(), 2);
+    let names: Vec<&str> = written.layers.iter().map(|l| l.name.as_str()).collect();
+    assert_eq!(names, ["input_mspa", "shortcuts_mspa"]);
+    let alone = Raster::read(dir.join("input_8_1_1_1.tif")).unwrap();
+    let each = Raster::read(dir.join("out").join("input_mspa.tif")).unwrap();
+    assert_eq!(alone.bands[0].data, each.bands[0].data);
     std::fs::remove_dir_all(&dir).ok();
 }

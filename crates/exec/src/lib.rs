@@ -50,6 +50,9 @@ pub trait Observer {
     fn step(&mut self, _at: &str, _step: usize, _of: usize) {}
     /// A warning of an operator.
     fn warning(&mut self, _at: &str, _message: &str) {}
+    /// The files of a folder that failed in a chain of nodes run file by file, the others gone on (`at`: the
+    /// chain's first node): each file's name and why.
+    fn failures(&mut self, _at: &str, _failed: &[(String, String)]) {}
     /// The values a container collected at a step (the application draws the maps as they come).
     fn collected(&mut self, _at: &str, _step: usize, _of: usize, _values: &BTreeMap<String, Value>) {}
     /// A top-level node is done: run, or its outputs taken from the cache.
@@ -189,6 +192,9 @@ impl Observer for Muffled<'_> {
     fn warning(&mut self, at: &str, message: &str) {
         self.warnings.push((at.to_string(), message.to_string()))
     }
+    fn failures(&mut self, at: &str, failed: &[(String, String)]) {
+        self.inner.failures(at, failed)
+    }
     fn collected(&mut self, at: &str, step: usize, of: usize, values: &BTreeMap<String, Value>) {
         self.inner.collected(at, step, of, values)
     }
@@ -229,20 +235,68 @@ impl Observer for Relay<'_> {
     }
 }
 
-/// Whether a chain's files done before need not run again: it writes files, and nothing but its `raster.write`s
-/// reads what its other nodes give (no node after it, not the model's outputs).
-fn resumable(nodes: &[Node], chain: &Chain, wanted: &BTreeSet<String>) -> bool {
+/// The outputs of a chain's nodes read from outside it (by the nodes after it, the model's outputs), by node.
+type Needed = BTreeMap<String, BTreeSet<String>>;
+
+/// Whether a chain's files done before need not run again, and what of them is read from outside it: a chain
+/// that writes files. What its other nodes give and is read from outside is kept in each file's record when it is
+/// small (a table, a number, a text: [`kept_value`]); a file whose record lacks it runs again.
+fn resumable(nodes: &[Node], chain: &Chain, wanted: &BTreeSet<String>) -> Option<Needed> {
     let writes: HashSet<&str> = chain.nodes.iter().filter(|m| m.op == "raster.write").map(|m| m.id.as_str()).collect();
     if writes.is_empty() {
-        return false;
+        return None;
     }
-    let others: HashSet<&str> = chain.nodes.iter().map(|m| m.id.as_str()).filter(|id| !writes.contains(id)).collect();
-    let read = |r: &str| matches!(Ref::parse(r), Ok(Ref::Port { node, .. }) if others.contains(node.as_str()));
-    !wanted.iter().any(|r| read(r))
-        && nodes
-            .iter()
-            .filter(|n| !writes.contains(n.id.as_str()))
-            .all(|n| others.contains(n.id.as_str()) || !terraflux_graph::references(n).iter().any(|r| read(r)))
+    let inside: HashSet<&str> = chain.nodes.iter().map(|m| m.id.as_str()).collect();
+    let mut needed = Needed::new();
+    let refs = nodes
+        .iter()
+        .filter(|n| !inside.contains(n.id.as_str()))
+        .flat_map(terraflux_graph::references)
+        .chain(wanted.iter().cloned());
+    for r in refs {
+        if let Ok(Ref::Port { node, port }) = Ref::parse(&r)
+            && inside.contains(node.as_str())
+            && !writes.contains(node.as_str())
+        {
+            needed.entry(node).or_default().insert(port);
+        }
+    }
+    Some(needed)
+}
+
+/// A value kept in a file's record (small: a table, a number, a text, a yes or no), as JSON.
+fn kept_value(v: &Value) -> Option<serde_json::Value> {
+    Some(match v {
+        Value::Table(t) => serde_json::json!({ "table": t }),
+        Value::Number(x) => serde_json::json!({ "number": x }),
+        Value::Integer(x) => serde_json::json!({ "integer": x }),
+        Value::Bool(x) => serde_json::json!({ "bool": x }),
+        Value::Text(x) => serde_json::json!({ "text": x }),
+        _ => return None,
+    })
+}
+
+/// A value kept in a file's record, as it was ([`kept_value`]).
+fn kept_back(j: &serde_json::Value) -> Option<Value> {
+    let (kind, v) = j.as_object()?.iter().next()?;
+    Some(match kind.as_str() {
+        "table" => {
+            // NaN written as null
+            let rows = v.get("rows")?.as_array()?;
+            let rows = rows
+                .iter()
+                .map(|r| Some(r.as_array()?.iter().map(|x| x.as_f64().unwrap_or(f64::NAN)).collect()))
+                .collect::<Option<Vec<Vec<f64>>>>()?;
+            let columns = serde_json::from_value(v.get("columns")?.clone()).ok()?;
+            let labels = v.get("labels").and_then(|l| serde_json::from_value(l.clone()).ok()).unwrap_or_default();
+            Value::Table(terraflux_ops::Table { columns, rows, labels })
+        }
+        "number" => Value::Number(v.as_f64().unwrap_or(f64::NAN)),
+        "integer" => Value::Integer(v.as_i64()?),
+        "bool" => Value::Bool(v.as_bool()?),
+        "text" => Value::Text(v.as_str()?.to_string()),
+        _ => return None,
+    })
 }
 
 /// The files of several folders paired by name, one of each, under the first folder's names (in its order): the
@@ -350,9 +404,18 @@ fn record_path(chain: &Chain, name: &str) -> Option<std::path::PathBuf> {
 }
 
 /// Record a file run through a chain (as `batch.run` does): the file read (and those paired with it), the files
-/// written, the nodes and their settings, how long it took, Terraflux's version, and what it depends on (`print`,
-/// [`print_of`]).
-fn record(chain: &Chain, name: &str, files: &[Value], print: &str, outs: &[Outputs], seconds: f64) {
+/// written, the nodes and their settings, how long it took, Terraflux's version, what it depends on (`print`,
+/// [`print_of`]), and what of its other nodes is read from outside the chain (`needed`), when small.
+#[allow(clippy::too_many_arguments)]
+fn record(
+    chain: &Chain,
+    name: &str,
+    files: &[Value],
+    print: &str,
+    outs: &[Outputs],
+    needed: &Needed,
+    seconds: f64,
+) {
     let Some(path) = record_path(chain, name) else { return };
     let written: serde_json::Map<String, serde_json::Value> = chain
         .nodes
@@ -380,12 +443,28 @@ fn record(chain: &Chain, name: &str, files: &[Value], print: &str, outs: &[Outpu
     if paths.len() > 1 {
         r["paired"] = paths[1..].into();
     }
+    let mut values = serde_json::Map::new();
+    for (m, o) in chain.nodes.iter().zip(outs) {
+        let ports: serde_json::Map<String, serde_json::Value> = needed
+            .get(&m.id)
+            .into_iter()
+            .flatten()
+            .filter_map(|p| Some((p.clone(), kept_value(o.get(p)?)?)))
+            .collect();
+        if !ports.is_empty() {
+            values.insert(m.id.clone(), ports.into());
+        }
+    }
+    if !values.is_empty() {
+        r["values"] = values.into();
+    }
     let _ = std::fs::write(path, serde_json::to_string_pretty(&r).unwrap_or_default());
 }
 
 /// A file a chain ran on before with the same nodes and settings, its record saying so and its files there: what
-/// its `raster.write`s gave (the files), nothing for its other nodes.
-fn done_before(chain: &Chain, name: &str, print: &str) -> Option<Vec<Outputs>> {
+/// its `raster.write`s gave (the files), and of its other nodes what is read from outside the chain (`needed`,
+/// kept in the record; none when it is not there).
+fn done_before(chain: &Chain, name: &str, print: &str, needed: &Needed) -> Option<Vec<Outputs>> {
     let text = std::fs::read_to_string(record_path(chain, name)?).ok()?;
     let r: serde_json::Value = serde_json::from_str(&text).ok()?;
     if r.get("print")?.as_str()? != print {
@@ -397,7 +476,13 @@ fn done_before(chain: &Chain, name: &str, print: &str) -> Option<Vec<Outputs>> {
         .iter()
         .map(|m| {
             if m.op != "raster.write" {
-                return Some(Outputs::new());
+                let kept = r.get("values").and_then(|v| v.get(&m.id));
+                return needed
+                    .get(&m.id)
+                    .into_iter()
+                    .flatten()
+                    .map(|p| Some((p.clone(), kept_back(kept?.get(p)?)?)))
+                    .collect();
             }
             let p = written.get(&m.id)?.as_str()?;
             std::path::Path::new(p).exists().then(|| [("path".to_string(), Value::Text(p.to_string()))].into())
@@ -420,6 +505,9 @@ impl Observer for Timed<'_> {
     }
     fn warning(&mut self, at: &str, message: &str) {
         self.inner.warning(at, message)
+    }
+    fn failures(&mut self, at: &str, failed: &[(String, String)]) {
+        self.inner.failures(at, failed)
     }
     fn collected(&mut self, at: &str, step: usize, of: usize, values: &BTreeMap<String, Value>) {
         self.inner.collected(at, step, of, values)
@@ -1250,8 +1338,9 @@ impl Engine {
             .collect::<Result<_>>()?;
         let n = chain.files.len();
         let droppable = wanted.map_or_else(Vec::new, |w| droppable(nodes, chain, w));
-        // what it gives read by nothing but its files: a file done before need not run again
-        let resumable = wanted.is_some_and(|w| resumable(nodes, chain, w));
+        // a chain that writes files: a file done before need not run again
+        let resume = wanted.and_then(|w| resumable(nodes, chain, w));
+        let resume = resume.as_ref();
         let mut drop: Option<bool> = None;
         let mut slots: Vec<Option<Done>> = (0..n).map(|_| None).collect();
         // a file done: its maps only written not kept when they would take too much memory (told by the first)
@@ -1282,7 +1371,7 @@ impl Engine {
                         text: format!("{name} ({} of {n})", i + 1),
                     },
                 );
-                let d = self.run_file(nodes, chain, &source, env, inputs, prefix, name, files, resumable, obs);
+                let d = self.run_file(nodes, chain, &source, env, inputs, prefix, name, files, resume, obs);
                 if matches!(d.outputs, Err(Error::Cancelled)) {
                     return Err(Error::Cancelled);
                 }
@@ -1306,7 +1395,7 @@ impl Engine {
                             let (name, files) = &chain.files[i];
                             let mut relay = Relay { stop };
                             let d = self.run_file(
-                                nodes, chain, source, env, inputs, prefix, name, files, resumable, &mut relay,
+                                nodes, chain, source, env, inputs, prefix, name, files, resume, &mut relay,
                             );
                             let _ = tx.send((i, d));
                         })
@@ -1381,6 +1470,10 @@ impl Engine {
                 e => e,
             });
         }
+        if !failed.is_empty() {
+            let all: Vec<(String, String)> = failed.iter().map(|(name, e)| (name.clone(), e.to_string())).collect();
+            obs.failures(at, &all);
+        }
         let mut tell = |w: String| {
             obs.warning(at, &w);
             warnings.push(format!("{at}: {w}"));
@@ -1414,8 +1507,12 @@ impl Engine {
                 KEPT_BYTES >> 30
             ));
         }
-        if drop || skipped > 0 {
+        if drop {
             partial.extend(droppable.iter().map(|(j, _)| chain.nodes[*j].id.clone()));
+        }
+        // the files taken from their records: of the nodes but the writes, only what is read from outside
+        if skipped > 0 {
+            partial.extend(chain.nodes.iter().filter(|m| m.op != "raster.write").map(|m| m.id.clone()));
         }
         let out = chain
             .nodes
@@ -1427,8 +1524,9 @@ impl Engine {
     }
 
     /// One file through a chain, in place of the folder: its nodes in order on it. What each node gave (by its
-    /// place in the chain) or the error, and the warnings told. `resumable`: taken from its record when it was
-    /// done before ([`done_before`]); a chain that writes files records it ([`record`]).
+    /// place in the chain) or the error, and the warnings told. `resume` (what is read from outside the chain):
+    /// taken from its record when it was done before ([`done_before`]); a chain that writes files records it
+    /// ([`record`]).
     #[allow(clippy::too_many_arguments)]
     fn run_file(
         &self,
@@ -1440,11 +1538,13 @@ impl Engine {
         prefix: &str,
         name: &str,
         files: &[Value],
-        resumable: bool,
+        resume: Option<&Needed>,
         obs: &mut dyn Observer,
     ) -> Done {
         let print = print_of(chain, files);
-        if resumable && let Some(outs) = print.as_deref().and_then(|p| done_before(chain, name, p)) {
+        if let (Some(needed), Some(p)) = (resume, print.as_deref())
+            && let Some(outs) = done_before(chain, name, p, needed)
+        {
             return Done { outputs: Ok(outs), warnings: Vec::new(), skipped: true };
         }
         let started = std::time::Instant::now();
@@ -1485,7 +1585,8 @@ impl Engine {
         }
         let outs: Vec<Outputs> = chain.nodes.iter().map(|m| child.results.remove(&m.id).unwrap_or_default()).collect();
         if let Some(p) = &print {
-            record(chain, name, files, p, &outs, started.elapsed().as_secs_f64());
+            let none = Needed::new();
+            record(chain, name, files, p, &outs, resume.unwrap_or(&none), started.elapsed().as_secs_f64());
         }
         Done { outputs: Ok(outs), warnings: muffled.warnings, skipped: false }
     }
@@ -1950,7 +2051,14 @@ fn elements(v: Value) -> Option<Vec<(String, Value)>> {
             .iter()
             .map(|row| {
                 let name = row.first().map_or(String::new(), |x| number(*x));
-                (name, Value::Table(terraflux_ops::Table { columns: t.columns.clone(), rows: vec![row.clone()] }))
+                (
+                    name,
+                    Value::Table(terraflux_ops::Table {
+                        columns: t.columns.clone(),
+                        rows: vec![row.clone()],
+                        ..Default::default()
+                    }),
+                )
             })
             .collect(),
         Value::Vector(v) => {
@@ -2013,28 +2121,34 @@ fn gather(outs: Vec<Outputs>, names: &[String], series: bool, column: &str) -> O
 
 /// The tables of the layers as one, each row after a column `name` (`layer`, or `item` of control.each; `input_<name>` when they have one): the
 /// layers' names when they are numbers, else the number each ends with when they all end with a different one
-/// (the year of `forest_2010`), else their places (1, 2...).
+/// (the year of `forest_2010`), else their places (1, 2...) named by them (`clc_r0c0`: [`terraflux_ops::Table::labels`]).
 fn tables(all: &[&Value], names: &[String], name: &str) -> terraflux_ops::Table {
     let trailing = |n: &str| {
         let digits: String = n.chars().rev().take_while(char::is_ascii_digit).collect();
         digits.chars().rev().collect::<String>().parse::<f64>().ok()
     };
     let distinct = |v: &Vec<f64>| v.iter().enumerate().all(|(i, x)| !v[..i].contains(x));
-    let at: Vec<f64> = names
+    let numbers = names
         .iter()
         .map(|n| n.trim().parse::<f64>().ok())
         .collect::<Option<Vec<f64>>>()
-        .or_else(|| names.iter().map(|n| trailing(n)).collect::<Option<Vec<f64>>>().filter(distinct))
-        .unwrap_or_else(|| (1..=names.len()).map(|i| i as f64).collect());
+        .or_else(|| names.iter().map(|n| trailing(n)).collect::<Option<Vec<f64>>>().filter(distinct));
+    let named = numbers.is_none();
+    let at = numbers.unwrap_or_else(|| (1..=names.len()).map(|i| i as f64).collect());
     let parts: Vec<terraflux_ops::Table> = all
         .iter()
         .zip(&at)
         .filter_map(|(v, &x)| {
             let Value::Table(t) = v else { return None };
             let column = if t.columns.iter().any(|c| c == name) { format!("input_{name}") } else { name.to_string() };
+            let mut labels = t.labels.clone();
+            if named {
+                labels.insert(column.clone(), names.to_vec());
+            }
             Some(terraflux_ops::Table {
                 columns: std::iter::once(column.to_string()).chain(t.columns.iter().cloned()).collect(),
                 rows: t.rows.iter().map(|r| std::iter::once(x).chain(r.iter().copied()).collect()).collect(),
+                labels,
             })
         })
         .collect();

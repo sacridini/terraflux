@@ -454,7 +454,7 @@ impl Operator for Sample {
             }
         }
         entries.sort_by_key(|e| e.0);
-        let table = Table { columns, rows: entries.into_iter().map(|(_, r)| r).collect() };
+        let table = Table { columns, rows: entries.into_iter().map(|(_, r)| r).collect(), ..Default::default() };
         let mut attributes = vec![("plot_id".to_string(), Column::Numbers(plot_ids))];
         if several {
             attributes.push(("size".into(), Column::Numbers(plot_sizes)));
@@ -726,7 +726,7 @@ impl Operator for Series {
                 }
             }
         }
-        Ok(outputs([("table", Value::Table(Table { columns, rows }))]))
+        Ok(outputs([("table", Value::Table(Table { columns, rows, ..Default::default() }))]))
     }
 }
 
@@ -924,6 +924,7 @@ impl Operator for Correlation {
         let out = Table {
             columns: columns.iter().map(|&j| t.columns[j].clone()).collect(),
             rows: (0..m).map(|i| r[i * m..(i + 1) * m].to_vec()).collect(),
+            ..Default::default()
         };
         Ok(outputs([("table", Value::Table(out))]))
     }

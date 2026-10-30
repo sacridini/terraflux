@@ -118,6 +118,7 @@ impl Operator for H3Units {
         let table = Table {
             columns: vec!["unit".into(), "cost".into()],
             rows: costs.iter().enumerate().map(|(i, c)| vec![(i + 1) as f64, *c]).collect(),
+            ..Default::default()
         };
         Ok(outputs([("units", Value::Vector(Arc::new(units))), ("table", Value::Table(table))]))
     }

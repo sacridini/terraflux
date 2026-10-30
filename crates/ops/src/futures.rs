@@ -630,7 +630,7 @@ pub fn simulate(ctx: &mut Ctx, s: &Settings, args: &Args) -> Result<Run> {
                 ctx.warn(format!("step {}, subregion {}: {}", k + 1, class_label(rid), msgs.join("; ")));
             }
         }
-        info.push(Table { columns, rows: vec![row] });
+        info.push(Table { columns, rows: vec![row], ..Default::default() });
     }
     Ok(Run { maps, development, info })
 }

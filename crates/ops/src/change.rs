@@ -45,7 +45,11 @@ fn signature(name: &str, doc: &str, stats: &str) -> OpSignature {
 
 /// A table of one row.
 fn row(columns: &[&str], values: Vec<f64>) -> Value {
-    Value::Table(Table { columns: columns.iter().map(|c| c.to_string()).collect(), rows: vec![values] })
+    Value::Table(Table {
+        columns: columns.iter().map(|c| c.to_string()).collect(),
+        rows: vec![values],
+        ..Default::default()
+    })
 }
 
 struct Simple;

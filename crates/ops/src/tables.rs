@@ -44,8 +44,11 @@ pub fn table_text(t: &Table, format: &str, sep: char, comma: bool) -> String {
                     .columns
                     .iter()
                     .zip(r)
-                    .map(|(c, v)| {
-                        (c.clone(), serde_json::Number::from_f64(*v).map_or(serde_json::Value::Null, Into::into))
+                    .map(|(c, v)| match t.label(c, *v) {
+                        Some(name) => (c.clone(), name.into()),
+                        None => {
+                            (c.clone(), serde_json::Number::from_f64(*v).map_or(serde_json::Value::Null, Into::into))
+                        }
                     })
                     .collect();
                 serde_json::Value::Object(o)
@@ -57,7 +60,13 @@ pub fn table_text(t: &Table, format: &str, sep: char, comma: bool) -> String {
     let mut out = t.columns.iter().map(|c| quoted(c, sep)).collect::<Vec<_>>().join(&s);
     out.push('\n');
     for r in &t.rows {
-        out.push_str(&r.iter().map(|v| number(*v, comma)).collect::<Vec<_>>().join(&s));
+        let cells: Vec<String> = t
+            .columns
+            .iter()
+            .zip(r)
+            .map(|(c, v)| t.label(c, *v).map_or_else(|| number(*v, comma), |name| quoted(name, sep)))
+            .collect();
+        out.push_str(&cells.join(&s));
         out.push('\n');
     }
     out

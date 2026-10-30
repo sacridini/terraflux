@@ -1165,7 +1165,7 @@ fn keyed(s: &Signatures, names: impl IntoIterator<Item = String>, values: &Matri
     let mut columns = s.key_names.clone();
     columns.extend(names);
     let rows = s.keys.iter().zip(values).map(|(k, v)| k.iter().chain(v).copied().collect()).collect();
-    Table { columns, rows }
+    Table { columns, rows, ..Default::default() }
 }
 
 fn positive(args: &Args, name: &str, default: Option<usize>) -> Result<Option<usize>> {
@@ -1229,7 +1229,7 @@ impl Operator for Pca {
             .collect();
         Ok(outputs([
             ("scores", Value::Table(keyed(&s, pcs, &scores))),
-            ("loadings", Value::Table(Table { columns, rows })),
+            ("loadings", Value::Table(Table { columns, rows, ..Default::default() })),
         ]))
     }
 }
@@ -1279,7 +1279,7 @@ impl Operator for Nmf {
             .collect();
         Ok(outputs([
             ("scores", Value::Table(keyed(&s, factors, &w))),
-            ("components", Value::Table(Table { columns, rows })),
+            ("components", Value::Table(Table { columns, rows, ..Default::default() })),
             ("error", Value::Number(err)),
             ("iterations", Value::Integer(it as i64)),
         ]))

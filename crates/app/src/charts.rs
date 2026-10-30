@@ -10,7 +10,7 @@ use egui_plot::{Arrows, Bar, BarChart, BoxElem, BoxPlot, BoxSpread, Heatmap, Lin
 use terraflux_ops::Table;
 
 use crate::palette::{Ramp, class_colour};
-use crate::table_view::cell;
+use crate::table_view::{cell, cell_of};
 
 /// What a table is drawn as.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -176,7 +176,10 @@ fn colour(g: usize, groups: usize) -> Color32 {
 /// A group's name in a legend.
 fn group_name(t: &Table, by: Option<usize>, g: Option<f64>) -> String {
     match (by, g) {
-        (Some(j), Some(v)) => format!("{} {}", t.columns[j], cell(v)),
+        (Some(j), Some(v)) => match t.label(&t.columns[j], v) {
+            Some(name) => name.to_string(),
+            None => format!("{} {}", t.columns[j], cell(v)),
+        },
         _ => String::new(),
     }
 }
@@ -344,7 +347,7 @@ fn panels(ui: &mut Ui, t: &Table, rows: &[usize], chart: &Chart, id: egui::Id) {
                     .y_axis_label(t.columns[j].clone());
                 match chart.kind {
                     Kind::Bars => {
-                        let labels: Vec<String> = rows.iter().map(|&i| cell(t.rows[i][x])).collect();
+                        let labels: Vec<String> = rows.iter().map(|&i| cell_of(t, x, t.rows[i][x])).collect();
                         let bars: Vec<Bar> = rows
                             .iter()
                             .enumerate()
@@ -352,7 +355,7 @@ fn panels(ui: &mut Ui, t: &Table, rows: &[usize], chart: &Chart, id: egui::Id) {
                             .map(|(k, &i)| {
                                 let g = split.iter().position(|(_, r)| r.contains(&i)).unwrap_or(0);
                                 Bar::new(k as f64, t.rows[i][j])
-                                    .name(cell(t.rows[i][x]))
+                                    .name(cell_of(t, x, t.rows[i][x]))
                                     .width(0.8)
                                     .fill(colour(g, many))
                             })
@@ -587,6 +590,7 @@ mod tests {
                 vec![3.0, 0.0, 1.0, 1.0],
                 vec![4.0, 0.0, -1.0, -2.0],
             ],
+            ..Default::default()
         };
         assert_eq!(ks(&t), [(1, 1), (2, 2), (3, 3)]);
         assert!(Kind::of(&t).contains(&Kind::Clustergram) && Kind::of(&t).contains(&Kind::Matrix));
@@ -621,6 +625,7 @@ mod tests {
         let t = Table {
             columns: vec!["component".into(), "explained".into(), "shdi".into(), "ed".into()],
             rows: vec![vec![1.0, 0.6, 0.7, 0.71], vec![2.0, 0.4, 0.71, -0.7]],
+            ..Default::default()
         };
         assert!(Kind::of(&t).contains(&Kind::Loadings));
         assert_eq!(Chart::suggested(&t, Kind::Loadings).components, [0, 1]);
@@ -631,6 +636,7 @@ mod tests {
         let t = Table {
             columns: vec!["class".into(), "date".into(), "ca".into(), "np".into()],
             rows: vec![vec![1.0, 2001.0, 3.0, 4.0]],
+            ..Default::default()
         };
         let lines = Chart::suggested(&t, Kind::Lines);
         assert_eq!((lines.columns, lines.x, lines.by), (vec![2], Some(1), Some(0)));

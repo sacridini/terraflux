@@ -221,6 +221,7 @@ mod tests {
         let t = crate::Table {
             columns: vec!["year".into(), "area".into()],
             rows: vec![vec![2000.0, 4.0], vec![2010.0, 6.0]],
+            ..Default::default()
         };
         let out = run(
             vec![("t", Value::Table(t.clone())), ("k", Value::Integer(3)), ("on", Value::Bool(true))],

@@ -50,7 +50,7 @@ fn tables() -> BTreeMap<String, Table> {
     raw.into_iter()
         .map(|(k, r)| {
             let rows = r.rows.into_iter().map(|row| row.into_iter().map(|v| v.unwrap_or(f64::NAN)).collect()).collect();
-            (k, Table { columns: r.columns, rows })
+            (k, Table { columns: r.columns, rows, ..Default::default() })
         })
         .collect()
 }

@@ -47,7 +47,10 @@ impl Operator for Share {
         let data = m.data.iter().enumerate().map(|(i, v)| v + plus.map_or(0.0, |p| p.data[i])).collect();
         Ok([
             ("share".to_string(), Value::Number(share)),
-            ("table".to_string(), Value::Table(Table { columns: vec!["share".into()], rows: vec![vec![share]] })),
+            (
+                "table".to_string(),
+                Value::Table(Table { columns: vec!["share".into()], rows: vec![vec![share]], ..Default::default() }),
+            ),
             ("map".to_string(), Value::Map(terraflux_ops::Map::new(m.grid.clone(), data))),
         ]
         .into())

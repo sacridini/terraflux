@@ -596,7 +596,7 @@ impl Operator for Spa {
         let counts: Vec<i64> = if variant == 2 { out.counts[..3].to_vec() } else { out.counts.clone() };
         let (columns, row): (Vec<String>, Vec<f64>) =
             names.iter().zip(&counts).filter(|(_, n)| **n >= 0).map(|(k, n)| (k.to_string(), *n as f64)).unzip();
-        let objects = Table { columns, rows: vec![row] };
+        let objects = Table { columns, rows: vec![row], ..Default::default() };
         let internal = contiguous + holes;
         let porosity = if internal > 0 { 100.0 - contiguous as f64 / internal as f64 * 100.0 } else { f64::NAN };
         let names: &[&str] = match variant {

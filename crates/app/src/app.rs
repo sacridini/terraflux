@@ -519,6 +519,9 @@ pub struct Session {
     pub shown: usize,
     pub follow: bool,
     pub warnings: Vec<String>,
+    /// The files of a folder that failed in the last run, by the chain of nodes they ran through (its first node's
+    /// path): each file's name and why.
+    pub failures: BTreeMap<String, Vec<(String, String)>>,
     pub error: Option<String>,
     pub elapsed: Option<Duration>,
     /// What the last whole run wrote: its manifest (`output/manifest.json`, with the outputs), or why not.
@@ -684,6 +687,7 @@ impl Session {
             shown: 0,
             follow: true,
             warnings: Vec::new(),
+            failures: BTreeMap::new(),
             error: None,
             elapsed: None,
             recorded: None,
@@ -998,6 +1002,7 @@ impl Session {
         self.counts.truncate(1);
         self.tables.clear();
         self.warnings.clear();
+        self.failures.clear();
         self.error = None;
         self.elapsed = None;
         self.shown = 0;
@@ -1176,6 +1181,9 @@ impl Session {
                     self.progress = Some((at, step, of));
                 }
                 Message::Warning(w) => self.warnings.push(w),
+                Message::Failures { at, failed } => {
+                    self.failures.insert(at, failed);
+                }
                 Message::Recorded(r) => self.recorded = Some(r),
                 Message::Done(r) => done = Some(r),
             }

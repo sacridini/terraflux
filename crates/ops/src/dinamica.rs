@@ -184,7 +184,7 @@ pub fn step(
     }
     let out: Vec<f64> =
         values.iter().zip(&current).map(|(&v, &c)| if v.is_nan() { f64::NAN } else { c as f64 }).collect();
-    Ok((Map::new(landscape.grid.clone(), out), Table { columns, rows: vec![row] }))
+    Ok((Map::new(landscape.grid.clone(), out), Table { columns, rows: vec![row], ..Default::default() }))
 }
 
 struct Observe;

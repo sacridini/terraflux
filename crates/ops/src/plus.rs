@@ -346,7 +346,7 @@ pub fn step(
              take the classes short of it)"
         ));
     }
-    Ok((Map::new(land.grid.clone(), out), Table { columns, rows: vec![values] }))
+    Ok((Map::new(land.grid.clone(), out), Table { columns, rows: vec![values], ..Default::default() }))
 }
 
 struct DemandOp;

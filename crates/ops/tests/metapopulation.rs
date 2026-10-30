@@ -70,6 +70,7 @@ fn the_operator_on_a_table() {
     let patches = Table {
         columns: ["x", "y", "area", "occupied"].map(String::from).to_vec(),
         rows: z["patches"].data.chunks(4).map(|r| r.to_vec()).collect(),
+        ..Default::default()
     };
     let o = run(
         "conn.metapopulation",

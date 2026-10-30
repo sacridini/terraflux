@@ -127,7 +127,8 @@ impl Operator for MspaTiled {
                  mspa_tiled, the same maps: MSPA of every tile (tile_size cells with an overlap), of each overlap \
                  the half nearest to each tile kept. An approximation, as GTB warns: near the seams the classes \
                  can differ from MSPA of the whole map where objects are larger than the overlap. Rasters on disk \
-                 are read and written tile by tile (to path, a GeoTIFF); a map in memory gives a map.",
+                 are read and written tile by tile (to path, a GeoTIFF; for a folder, a file of each by its name); a \
+                 map in memory gives a map.",
                 Access::Global,
             )
             .input(PortSpec::new("map", Type::Raster, "the map (0 missing, 1 background, 2 foreground) or rasters"))
@@ -177,27 +178,48 @@ impl Operator for MspaTiled {
                 Ok(outputs([("map", map_of(map, out))]))
             }
             Some(Value::Raster(r)) => {
-                let path = match args.opt_param::<String>("path")?.filter(|p| !p.is_empty()) {
-                    Some(p) => PathBuf::from(p).with_extension("tif"),
-                    None => {
-                        let src = r.images[r.layers[r.chosen].image].path();
-                        let stem = src.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-                        let suffix = format!("{}_{}_1_{}", s.connectivity, s.edge_width, u8::from(s.internal));
-                        src.with_file_name(format!("{stem}_{suffix}.tif"))
+                // the band chosen of each file (a folder's files: each, written by its name)
+                let band = r.layers[r.chosen].band;
+                let mut picks: Vec<usize> = Vec::new();
+                for (k, l) in r.layers.iter().enumerate() {
+                    if l.band == band && !picks.iter().any(|&j| r.layers[j].image == l.image) {
+                        picks.push(k);
                     }
-                };
-                if r.images.iter().any(|i| i.path() == path) {
-                    return Err(fail(Error::msg("the output must differ from the input")));
                 }
-                if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
-                    std::fs::create_dir_all(dir).map_err(|e| fail(Error::msg(format!("{}: {e}", dir.display()))))?;
+                if !picks.contains(&r.chosen) && picks.len() <= 1 {
+                    picks = vec![r.chosen];
                 }
-                let read = |x0: usize, y0: usize, w: usize, h: usize| -> Result<Vec<u8>> {
-                    let win = Window { x0: x0 as i64, y0: y0 as i64, width: w, height: h };
-                    gtb_code(args, &foreground, &r.window(r.chosen, win)?, false)
-                };
-                to_file(ctx, r, &path, s, tile_size, overlap, &read).map_err(fail)?;
-                let written = Rasters::open(&path.to_string_lossy(), None, None)?;
+                let given = args.opt_param::<String>("path")?.filter(|p| !p.is_empty());
+                let mut written = Vec::new();
+                for &k in &picks {
+                    let src = r.images[r.layers[k].image].path();
+                    let stem = src.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+                    let path = match &given {
+                        Some(p) if picks.len() > 1 => PathBuf::from(crate::files::layer_path(p, &stem)),
+                        Some(p) => PathBuf::from(p),
+                        None => {
+                            let suffix = format!("{}_{}_1_{}", s.connectivity, s.edge_width, u8::from(s.internal));
+                            src.with_file_name(format!("{stem}_{suffix}"))
+                        }
+                    }
+                    .with_extension("tif");
+                    if r.images.iter().any(|i| i.path() == path) {
+                        return Err(fail(Error::msg("the output must differ from the input")));
+                    }
+                    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+                        std::fs::create_dir_all(dir)
+                            .map_err(|e| fail(Error::msg(format!("{}: {e}", dir.display()))))?;
+                    }
+                    let read = |x0: usize, y0: usize, w: usize, h: usize| -> Result<Vec<u8>> {
+                        let win = Window { x0: x0 as i64, y0: y0 as i64, width: w, height: h };
+                        gtb_code(args, &foreground, &r.window(k, win)?, false)
+                    };
+                    to_file(ctx, r, k, &path, s, tile_size, overlap, &read)
+                        .map_err(|e| fail(Error::msg(format!("{}: {e}", src.display()))))?;
+                    written.push(path);
+                }
+                let label = given.unwrap_or_else(|| written[0].to_string_lossy().into_owned());
+                let written = Rasters::open_files(&label, written, None, None)?;
                 Ok(outputs([("map", Value::Raster(Arc::new(written)))]))
             }
             Some(v) => Err(fail(Error::msg(format!("map: a map or rasters, not a {:?}", v.ty())))),
@@ -208,16 +230,18 @@ impl Operator for MspaTiled {
 
 /// MSPA by GTB's tiles of rasters on disk into a GeoTIFF: a row of tiles at a time (read by windows), the rows
 /// kept written as they come ([`RowsWriter`]); in memory a row of tiles and 512 rows.
+#[allow(clippy::too_many_arguments)]
 fn to_file(
     ctx: &mut Ctx,
     r: &Rasters,
+    layer: usize,
     path: &Path,
     s: Settings,
     tile_size: usize,
     overlap: usize,
     read: &dyn Fn(usize, usize, usize, usize) -> Result<Vec<u8>>,
 ) -> Result<()> {
-    let mut grid = r.grid_of(r.chosen).clone();
+    let mut grid = r.grid_of(layer).clone();
     grid.geo.set_item("landschaft_product", Some("MSPA"));
     let (ny, nx) = (grid.height, grid.width);
     let (rows, cols) = tiles_of(ny, nx, tile_size, overlap)?;

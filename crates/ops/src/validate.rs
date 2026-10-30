@@ -168,6 +168,7 @@ impl Operator for AgreementOp {
                 a.false_alarms as f64,
                 a.wrong_hits as f64,
             ]],
+            ..Default::default()
         };
         Ok(outputs([("table", Value::Table(t))]))
     }

@@ -368,7 +368,7 @@ pub fn year(ctx: &mut Ctx, s: &Settings, y: Year<'_>) -> Result<YearOut> {
         columns.push(format!("cells_{}", class_label(sy)));
         row.push(c as f64);
     }
-    let info = Table { columns, rows: vec![row] };
+    let info = Table { columns, rows: vec![row], ..Default::default() };
     if !r.converged {
         ctx.warn(format!(
             "no solution in step {}: the demand was not met within the deviations in {} iterations; the simulation \

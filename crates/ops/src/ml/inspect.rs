@@ -155,7 +155,7 @@ impl Operator for Importance {
             .zip(&mean)
             .map(|(d, m)| (numpy_sum(&d.iter().map(|v| (v - m) * (v - m)).collect::<Vec<_>>()) / repeats as f64).sqrt())
             .collect();
-        let row = |v: Vec<f64>| Table { columns: x.names.clone(), rows: vec![v] };
+        let row = |v: Vec<f64>| Table { columns: x.names.clone(), rows: vec![v], ..Default::default() };
         let mut each = Table::new(std::iter::once("repeat".to_string()).chain(x.names.iter().cloned()).collect());
         for r in 0..repeats {
             each.rows.push(std::iter::once((r + 1) as f64).chain(drops.iter().map(|d| d[r])).collect());

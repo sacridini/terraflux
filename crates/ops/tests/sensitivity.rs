@@ -40,7 +40,11 @@ fn values(t: &Table) -> Vec<f64> {
 }
 
 fn results(y: &[f64]) -> Value {
-    Value::Table(Table { columns: vec!["output".into()], rows: y.iter().map(|v| vec![*v]).collect() })
+    Value::Table(Table {
+        columns: vec!["output".into()],
+        rows: y.iter().map(|v| vec![*v]).collect(),
+        ..Default::default()
+    })
 }
 
 #[test]

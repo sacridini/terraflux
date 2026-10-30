@@ -584,6 +584,7 @@ impl Operator for Analyze {
                 let pairs = |m: &[Vec<f64>]| Table {
                     columns: std::iter::once("factor".to_string()).chain(factors.iter().cloned()).collect(),
                     rows: m.iter().enumerate().map(|(k, r)| row(k, r)).collect(),
+                    ..Default::default()
                 };
                 let mut out = outputs([("indices", Value::Table(t))]);
                 if so {

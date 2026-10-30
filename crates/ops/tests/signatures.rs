@@ -46,7 +46,7 @@ fn signatures() -> Table {
         .zip(matrix(&r["table"]))
         .map(|(z, row)| std::iter::once(num(z)).chain(row).collect())
         .collect();
-    Table { columns, rows }
+    Table { columns, rows, ..Default::default() }
 }
 
 /// Values equal up to a relative tolerance (and an absolute one for those near zero).

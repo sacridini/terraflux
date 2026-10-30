@@ -24,6 +24,11 @@ pub fn cell(x: f64) -> String {
     if s.contains('.') { s.trim_end_matches('0').trim_end_matches('.').to_string() } else { s }
 }
 
+/// A cell of a table as shown: its name when its column names its numbers (the files of a folder), else the number.
+pub fn cell_of(t: &Table, j: usize, x: f64) -> String {
+    t.columns.get(j).and_then(|c| t.label(c, x)).map_or_else(|| cell(x), String::from)
+}
+
 /// A condition on a column: its index, the comparison and the number.
 fn condition(t: &Table, filter: &str) -> Option<Result<(usize, &'static str, f64), String>> {
     // the longest operators first
@@ -55,7 +60,8 @@ pub fn rows_shown(t: &Table, st: &TableState) -> Result<Vec<usize>, String> {
             let words: Vec<String> = filter.to_lowercase().split_whitespace().map(String::from).collect();
             (0..t.rows.len())
                 .filter(|&i| {
-                    let cells: Vec<String> = t.rows[i].iter().map(|&x| cell(x).to_lowercase()).collect();
+                    let cells: Vec<String> =
+                        t.rows[i].iter().enumerate().map(|(j, &x)| cell_of(t, j, x).to_lowercase()).collect();
                     words.iter().all(|w| cells.iter().any(|c| c == w || c.starts_with(w.as_str())))
                 })
                 .collect()
@@ -122,8 +128,14 @@ pub fn show(ui: &mut Ui, t: &Table, id: egui::Id) {
     let char_w = ui.fonts_mut(|f| f.glyph_width(&mono, '0'));
     let widths: Vec<f32> = (0..t.columns.len())
         .map(|j| {
-            let longest =
-                t.rows.iter().take(500).map(|r| cell(r[j]).len()).max().unwrap_or(0).max(t.columns[j].len() + 2);
+            let longest = t
+                .rows
+                .iter()
+                .take(500)
+                .map(|r| cell_of(t, j, r[j]).len())
+                .max()
+                .unwrap_or(0)
+                .max(t.columns[j].len() + 2);
             (longest as f32 * char_w + 14.0).clamp(48.0, 220.0)
         })
         .collect();
@@ -173,7 +185,7 @@ pub fn show(ui: &mut Ui, t: &Table, id: egui::Id) {
                         ui.painter().text(
                             egui::pos2(x, rect.center().y),
                             egui::Align2::LEFT_CENTER,
-                            cell(r[j]),
+                            cell_of(t, j, r[j]),
                             mono.clone(),
                             ui.visuals().text_color(),
                         );
@@ -194,6 +206,7 @@ mod tests {
         Table {
             columns: vec!["class".into(), "area".into(), "np".into()],
             rows: vec![vec![1.0, 2.5, 3.0], vec![2.0, f64::NAN, 1.0], vec![11.0, 0.5, 7.0]],
+            ..Default::default()
         }
     }
 

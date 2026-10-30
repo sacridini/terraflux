@@ -2670,3 +2670,28 @@ fn an_input_of_the_model_is_a_box_like_the_nodes() {
     assert!(s.source.inputs.is_empty());
     assert!(!s.source.node("mspa").unwrap().inputs.contains_key("map"));
 }
+
+#[test]
+fn the_files_that_failed_are_listed_in_the_node_pane() {
+    let path = tmp("ui-failed.toml");
+    let mut m = terraflux_graph::Model::new("failed");
+    let mut n = terraflux_graph::Node::new("mspa", "landscape.mspa").param("foreground", 1);
+    n.pos = Some([300.0, 0.0]);
+    m.nodes.push(n);
+    m.save(&path).unwrap();
+    let mut h = harness(new_app(Some(path)));
+    loaded(&mut h);
+    h.state_mut().focus(Pane::Model);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.failures.insert(
+            "mspa".into(),
+            vec![("basin_07".into(), "mspa: no forest".into()), ("basin_12".into(), "mspa: no forest".into())],
+        );
+        s.selected = Some("mspa".into());
+    }
+    h.run_steps(3);
+    assert!(h.query_by_label("Files that failed (2)").is_some());
+    assert!(h.query_by_label("basin_12").is_some());
+    assert!(h.query_by_label("Run again").is_some());
+}

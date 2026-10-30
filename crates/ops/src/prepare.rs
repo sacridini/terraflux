@@ -197,7 +197,14 @@ fn each_file(
     dest: &Dest,
     run: &dyn Fn(&Path, &Path) -> std::result::Result<(), String>,
 ) -> Result<Arc<Rasters>> {
-    let files: Vec<PathBuf> = sources.images.iter().map(|f| f.path()).collect();
+    // the files its layers are of (a view of one file of a folder: that file)
+    let mut files: Vec<PathBuf> = Vec::new();
+    for l in &sources.layers {
+        let p = sources.images[l.image].path();
+        if !files.contains(&p) {
+            files.push(p);
+        }
+    }
     if files.len() == 1 {
         let path = if dest.path.extension().is_none() { dest.path.with_extension("tif") } else { dest.path.clone() };
         made(&Dest { path: path.clone(), cached: dest.cached }, |to| run(&files[0], to).map_err(Error::msg))?;
@@ -693,7 +700,7 @@ impl Operator for Proximity {
                 .choices(["geo", "cells"]),
         )
         .param(PortSpec::optional("max_distance", Type::Number, "beyond it, no value"))
-        .param(PortSpec::optional("path", Type::Text, "the file made; else a cache"))
+        .param(PortSpec::optional("path", Type::Text, "the file (or folder, for a series) made; else a cache"))
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
@@ -715,6 +722,13 @@ impl Operator for Proximity {
             options.push(format!("MAXDIST={m}"));
         }
         let layer = &src.layers[src.chosen];
+        // a folder: each file
+        if src.mixed || src.layers.iter().any(|l| l.image != layer.image) {
+            let band = layer.band + 1;
+            let dest = destination(args, &src, "proximity", &[layer.band.to_string()])?;
+            let out = each_file(&src, &dest, &|from, to| terraflux_gdal::proximity(from, band, to, &options))?;
+            return Ok(outputs([("raster", Value::Raster(out))]));
+        }
         let file = src.images[layer.image].path();
         let mut dest = destination(args, &src, "proximity", &[layer.band.to_string()])?;
         dest.path = dest.path.with_extension("tif");

@@ -300,7 +300,7 @@ fn correlations_are_landscapemetrics() {
                 columns = t.columns;
                 rows.extend(t.rows);
             }
-            tables.push(("landscape", Table { columns, rows }));
+            tables.push(("landscape", Table { columns, rows, ..Default::default() }));
         }
         for (level, t) in &tables {
             for method in ["pearson", "spearman", "kendall"] {

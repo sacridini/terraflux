@@ -147,7 +147,7 @@ pub fn step(
         columns.push(format!("changed_{}_{}", class_label(c.from), class_label(c.to)));
         row.push(c.cells as f64);
     }
-    Ok((Map::new(land.grid.clone(), r.state), Table { columns, rows: vec![row] }))
+    Ok((Map::new(land.grid.clone(), r.state), Table { columns, rows: vec![row], ..Default::default() }))
 }
 
 struct RngNumpy;

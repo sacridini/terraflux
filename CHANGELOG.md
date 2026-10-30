@@ -6,6 +6,24 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- The table gathered from the files of a folder names each row's file in its column `layer` (`clc_r0c0`), where it
+  held the file's number. Tables can name the numbers of a column (`labels`, as a factor in R): the CSV, the JSON
+  and the text of `table.write`, the outputs of a run, the table viewer and the charts show the names. When the
+  files' names end in different numbers (`forest_2010`), the column still holds those numbers.
+- A chain of nodes run on a folder keeps in each file's record what is read after it, when small (a table, a
+  number, a text). A model with MSPA and its metrics no longer runs every file again: the files done before are
+  taken from their records, the table of all of them the same.
+- The files that failed in a chain of nodes are listed in the Node pane of its first node, each with why, with
+  **Run again** (the files done before not run again) and **Copy the list**. The engine tells them to its observer
+  (`Observer::failures`).
+- `distance.proximity` and `landscape.mspa_tiled` given a folder run on each of its files, as `raster.terrain`
+  and `raster.fill` do. `mspa_tiled` writes a file per file, by its name (`{name}` in `path`, else the name before
+  the file's).
+
+### Fixed
+- `distance.proximity` and `landscape.mspa_tiled` given a folder measured only its first file, without saying so.
+
 ## [1.25.0] - 2026-10-30
 
 ### Added

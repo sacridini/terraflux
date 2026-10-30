@@ -99,6 +99,10 @@ pub const FOLDER_HELP: &str = "every raster of a folder through this node, file 
      that take its maps, run once per file (a file that fails does not stop the others), each file's name kept; a \
      raster.write after them writes a file per file, the tables are gathered in one";
 
+/// What "Run again" of the files that failed does.
+pub const FAILED_HELP: &str = "runs the nodes again up to this one: when they write files, the files done before \
+     (their records, .json) are not run again, only those that failed";
+
 /// What "Make it a chain of nodes" does.
 pub const CHAIN_HELP: &str = "the folder read by a raster.read, the operator a node of its own (its settings in its \
      pane, its maps seen), what it gives written by raster.write and table.write: run file by file as here, the \
@@ -258,6 +262,31 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
     {
         let folder = folder.to_string_lossy().into_owned();
         change = Some(crate::editor::run_on_folder(&mut s.source, r, &path, &n.id, &folder).map(|_| ()));
+    }
+    // the files of a folder that failed in the last run, the chain run from this node
+    let at = if path.is_empty() { n.id.clone() } else { format!("{}/{}", path.join("/"), n.id) };
+    if let Some(failed) = s.failures.get(&at).cloned() {
+        ui.separator();
+        ui.label(
+            RichText::new(format!("Files that failed ({})", failed.len())).strong().color(ui.visuals().warn_fg_color),
+        );
+        egui::ScrollArea::vertical().id_salt("failed files").max_height(180.0).show(ui, |ui| {
+            for (name, why) in &failed {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(RichText::new(name).strong());
+                    ui.label(RichText::new(why).color(ui.visuals().weak_text_color()));
+                });
+            }
+        });
+        ui.horizontal(|ui| {
+            if ui.button("Run again").on_hover_text(FAILED_HELP).clicked() {
+                crate::builder::run_selected(ui.ctx(), s);
+            }
+            if ui.button("Copy the list").clicked() {
+                let text: Vec<String> = failed.iter().map(|(name, why)| format!("{name}\t{why}")).collect();
+                ui.ctx().copy_text(text.join("\n"));
+            }
+        });
     }
     // the old way of a folder: made the new one
     if n.op == "batch.run" && ui.button("Make it a chain of nodes").on_hover_text(CHAIN_HELP).clicked() {

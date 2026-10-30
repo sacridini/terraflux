@@ -91,11 +91,30 @@ pub fn class_label(v: f64) -> String {
 pub struct Table {
     pub columns: Vec<String>,
     pub rows: Vec<Vec<f64>>,
+    /// The names of the numbers of some columns, by column: 1 is the first name, 2 the second... (the files of a
+    /// table gathered from a folder's, in its column `layer`). Shown and written in place of the numbers.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub labels: std::collections::BTreeMap<String, Vec<String>>,
 }
 
 impl Table {
     pub fn new(columns: Vec<String>) -> Self {
-        Table { columns, rows: Vec::new() }
+        Table { columns, rows: Vec::new(), labels: Default::default() }
+    }
+
+    /// The name of a number of a column ([`Table::labels`]), if it has one.
+    pub fn label(&self, column: &str, v: f64) -> Option<&str> {
+        let names = self.labels.get(column)?;
+        (v.fract() == 0.0 && v >= 1.0).then(|| names.get(v as usize - 1).map(String::as_str)).flatten()
+    }
+
+    /// A cell as text: its name ([`Table::label`]), else the number (empty for none).
+    pub fn cell(&self, j: usize, v: f64) -> String {
+        match self.columns.get(j).and_then(|c| self.label(c, v)) {
+            Some(name) => name.to_string(),
+            None if v.is_nan() => String::new(),
+            None => format!("{v}"),
+        }
     }
 
     pub fn column(&self, name: &str) -> Option<Vec<f64>> {
@@ -115,6 +134,9 @@ impl Table {
         }
         let mut out = Table::new(columns.clone());
         for p in parts {
+            for (c, names) in &p.labels {
+                out.labels.entry(c.clone()).or_insert_with(|| names.clone());
+            }
             for r in &p.rows {
                 out.rows.push(
                     columns
@@ -132,13 +154,17 @@ impl Table {
         let mut s = self.columns.join(",");
         s.push('\n');
         for r in &self.rows {
-            let cells: Vec<String> =
-                r.iter().map(|v| if v.is_nan() { String::new() } else { format!("{v}") }).collect();
+            let cells: Vec<String> = r.iter().enumerate().map(|(j, v)| csv_text(&self.cell(j, *v))).collect();
             s.push_str(&cells.join(","));
             s.push('\n');
         }
         s
     }
+}
+
+/// A cell of CSV: quoted when it holds a comma, a quote or a line break.
+fn csv_text(t: &str) -> String {
+    if t.contains([',', '"', '\n']) { format!("\"{}\"", t.replace('"', "\"\"")) } else { t.to_string() }
 }
 
 /// A Markov chain of land change.

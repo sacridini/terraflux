@@ -82,6 +82,7 @@ fn rows_features_and_values_are_elements_too() {
     let table = Value::Table(Table {
         columns: vec!["code".into(), "area".into()],
         rows: vec![vec![31.0, 2.5], vec![35.0, 4.0]],
+        ..Default::default()
     });
     let features = Value::Vector(Arc::new(Vector {
         geometries: vec![Geometry::Point([0.0, 0.0]), Geometry::Point([1.0, 1.0])],

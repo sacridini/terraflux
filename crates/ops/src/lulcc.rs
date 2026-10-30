@@ -391,6 +391,7 @@ pub fn step(
     let table = Table {
         columns: info.iter().map(|(k, _)| k.clone()).collect(),
         rows: vec![info.iter().map(|(_, v)| *v).collect()],
+        ..Default::default()
     };
     Ok(Step {
         landscape: Map::new(landscape.grid.clone(), out),

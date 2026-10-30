@@ -28,6 +28,11 @@ pub enum Message {
         counts: Option<Vec<(f64, usize)>>,
     },
     Warning(String),
+    /// The files of a folder that failed in a chain of nodes (its first node), each with why.
+    Failures {
+        at: String,
+        failed: Vec<(String, String)>,
+    },
     /// How far a node running is, as its operator tells it.
     Progress {
         at: String,
@@ -164,6 +169,10 @@ impl Observer for Sending {
 
     fn warning(&mut self, at: &str, message: &str) {
         let _ = self.tx.send(Message::Warning(format!("{at}: {message}")));
+    }
+
+    fn failures(&mut self, at: &str, failed: &[(String, String)]) {
+        let _ = self.tx.send(Message::Failures { at: at.to_string(), failed: failed.to_vec() });
     }
 
     fn timed(&mut self, at: &str, seconds: f64, bytes: usize) {

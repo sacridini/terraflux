@@ -877,6 +877,7 @@ mod tests {
         let t = |columns: &[&str], rows: Vec<Vec<f64>>| terraflux_ops::Table {
             columns: columns.iter().map(|c| c.to_string()).collect(),
             rows,
+            ..Default::default()
         };
         let before = t(&["class", "area"], vec![vec![1.0, 10.0], vec![2.0, f64::NAN]]);
         let now = t(&["area", "class", "edge"], vec![vec![12.0, 1.0, 3.0], vec![f64::NAN, 2.0, 4.0]]);

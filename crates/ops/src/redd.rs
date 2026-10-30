@@ -437,6 +437,7 @@ impl Operator for Allocate {
                 .map(String::from)
                 .to_vec(),
             rows: vec![vec![ar, it as f64, target, allocated, filled as f64]],
+            ..Default::default()
         };
         Ok(outputs([("density", Value::Map(Map::new(c.grid.clone(), out))), ("info", Value::Table(info))]))
     }
@@ -626,6 +627,7 @@ impl Operator for Assess {
                 ts,
                 ti,
             ]],
+            ..Default::default()
         };
         Ok(outputs([
             ("table", Value::Table(t)),

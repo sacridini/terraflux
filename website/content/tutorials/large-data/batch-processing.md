@@ -168,7 +168,9 @@ It also lets a run resume where it stopped (below).
 
 A file that fails does not stop the others: they run, and the node warns which failed and why
 (*1 of the 16 files failed, the others went on: clc_r2c1 (mspa: ...)*). Only when every file fails is it an error.
-A warning that some files gave is told once, with their names.
+A warning that some files gave is told once, with their names. In the application, the Node pane of the node the
+files go through first lists every file that failed and why; **Run again** runs them again (the files done before
+not run again, when the nodes write files), and **Copy the list** copies it.
 
 ![The 16 tiles' MSPA put together](/img/tutorials/large-data/batch-processing/mosaic.png "The 16 MSPA maps of the batch, put back in their places (the lines are the tiles' borders). Each tile was analysed alone, blind to what lies across its borders.")
 
@@ -182,7 +184,8 @@ tiles, use the out-of-core operators of [Rasters larger than memory](../larger-t
 ### One table of all the files
 
 A node that gives a table, given a folder, gives **one** table: the tables of all the files, a column `layer` first
-with the file's number (in the folder's alphabetical order: 1 is `clc_r0c0`, 16 is `clc_r3c3`).
+with the file's name. (When the names end in different numbers, as `forest_2010` and `forest_2020`, the column holds
+those numbers, the years, to be plotted as numbers.)
 
 ```tfgraph
 #! caption: metrics.class of every tile: one table, a row per class of each tile, written by table.write.
@@ -210,9 +213,9 @@ params = { path = "metrics.csv" }
 
 ```text
 layer,class,pland,np,ed
-1,1,0.1916,1,0.176
-1,2,7.1476,9,4.8448
-1,3,0.1744,1,0.32
+clc_r0c0,1,0.1916,1,0.176
+clc_r0c0,2,7.1476,9,4.8448
+clc_r0c0,3,0.1744,1,0.32
 ...  (195 rows: a row per class of each tile)
 ```
 
@@ -233,7 +236,7 @@ caption: "The share of forest, arable land and urban land in each of the 16 tile
 ```
 
 The two models can be one: [[metrics.class]] given the MSPA maps (`mspa.map`) gives the metrics of MSPA's classes
-of every tile, run in the same pass, file by file.
+of every tile, run in the same pass, file by file (its table written by a [[table.write]] after it).
 
 ## Resume where it stopped
 
@@ -252,8 +255,9 @@ its map still there, is not run again. A batch of 500 watersheds that stopped at
 laptop) continues from the 301st when you run it again. Change a setting (`edge_width = 3`) and every file runs
 again; replace one input file, and only it runs. To run one file again, delete its record.
 
-Files are skipped only when nothing but the files written reads what the nodes give: in the metrics model above,
-the table needs every file's metrics, and every file runs.
+What the nodes after the files give and others read is kept in the records too when it is small (a table, a
+number, a text): with MSPA and its metrics in one model, the files done before are not run again, and the table
+of all of them is the same. A map read after the chain, not written, makes every file run again: write it.
 
 ## Two folders, file by file
 

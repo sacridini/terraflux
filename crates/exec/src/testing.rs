@@ -351,7 +351,7 @@ mod tests {
         assert!(
             differs(&m(vec![1.0, 2.0]), &m(vec![1.0, 2.5]), 1e-9).unwrap().contains("1 values differ, the first at 1")
         );
-        let t = |c: &str| Value::Table(Table { columns: vec![c.into()], rows: vec![vec![1.0]] });
+        let t = |c: &str| Value::Table(Table { columns: vec![c.into()], rows: vec![vec![1.0]], ..Default::default() });
         assert!(differs(&t("a"), &t("b"), 0.0).unwrap().contains("columns"));
         assert_eq!(differs(&Value::Text("x\n".into()), &Value::Text("x".into()), 0.0), None);
         assert!(differs(&Value::Integer(3), &Value::Number(3.5), 0.1).is_some());

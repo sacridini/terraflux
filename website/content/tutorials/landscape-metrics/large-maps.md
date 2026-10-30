@@ -177,7 +177,7 @@ inputs = { table = "metrics.table" }
 params = { path = "metrics.csv" }
 ```
 
-The table's first column, `layer`, is the raster's number in the folder's alphabetical order. A raster that fails
+The table's first column, `layer`, is the raster's name. A raster that fails
 does not stop the others (the node warns which failed and why). Choose `workers` and `block_rows` together: four
 workers reading blocks of 512 rows of a map 100,000 cells wide hold about four times 51 million cells.
 

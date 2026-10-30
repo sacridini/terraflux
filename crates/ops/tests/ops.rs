@@ -929,6 +929,10 @@ fn rasters_are_resampled_converted_joined_and_measured() {
             assert!(*dist >= 1.0);
         }
     }
+    // of a folder: a file each, as raster.terrain's
+    let each = run("distance.proximity", vec![("raster", halves["raster"].clone())], serde_json::json!({"values": 1}))
+        .unwrap();
+    assert_eq!(rasters(&each["raster"]).images.len(), 2);
     let _ = std::fs::remove_dir_all(dir);
 }
 

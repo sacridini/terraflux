@@ -10,13 +10,16 @@ use terraflux_exec::{Engine, Observer};
 use terraflux_graph::{Access, Model, Node, OpSignature, PortSpec, Type};
 use terraflux_ops::{Args, Ctx, Operator, Outputs, Registry, Value};
 
-/// The warnings told, by node.
+/// The warnings told, by node, and the files that failed.
 #[derive(Default)]
-struct Told(Vec<(String, String)>);
+struct Told(Vec<(String, String)>, Vec<(String, Vec<(String, String)>)>);
 
 impl Observer for Told {
     fn warning(&mut self, at: &str, message: &str) {
         self.0.push((at.to_string(), message.to_string()));
+    }
+    fn failures(&mut self, at: &str, failed: &[(String, String)]) {
+        self.1.push((at.to_string(), failed.to_vec()));
     }
 }
 
@@ -144,6 +147,13 @@ fn a_chain_runs_file_by_file_and_writes_each_by_its_name() {
     assert_eq!(t.columns[0], "layer");
     let layers: std::collections::BTreeSet<u64> = t.rows.iter().map(|r| r[0] as u64).collect();
     assert_eq!(layers.into_iter().collect::<Vec<_>>(), [1, 2, 3]);
+    // the numbers named by the files, shown and written by their names
+    assert_eq!(t.labels["layer"], ["basin_a", "basin_b", "basin_c"]);
+    assert!(t.to_csv().lines().nth(1).unwrap().starts_with("basin_a,"), "{}", t.to_csv());
+    let text = terraflux_ops::tables::table_text(t, "text", ';', true);
+    assert!(text.lines().last().unwrap().starts_with("basin_c;"), "{text}");
+    let json = terraflux_ops::tables::table_text(t, "json", ',', false);
+    assert!(json.contains("\"layer\": \"basin_a\""), "{json}");
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -169,6 +179,11 @@ fn a_file_that_fails_does_not_stop_the_others() {
         "{:?}",
         told.0
     );
+    // each file that failed and why, for the application's list
+    assert_eq!(told.1.len(), 1);
+    assert_eq!(told.1[0].0, "picky");
+    assert_eq!(told.1[0].1.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), ["a"]);
+    assert!(told.1[0].1[0].1.contains("too narrow"));
 
     // all of them: an error
     let mut m = m.clone();
@@ -296,13 +311,21 @@ fn files_done_before_are_not_run_again() {
     // another setting: all run
     let (_, seen, _) = run(&model(2));
     assert_eq!(seen.len(), 3);
-    // something reads what the chain gives: every file runs, nothing taken from the records
+    // a table of the chain read after it: kept in the records, taken from them the next time
     let mut m = model(2);
     m.nodes.push(
         Node::new("metrics", "metrics.class").input("map", "mspa.map").param("metrics", serde_json::json!(["pland"])),
     );
+    let csv = dir.join("metrics.csv");
+    m.nodes.push(Node::new("tw", "table.write").input("table", "metrics.table").param("path", csv.to_string_lossy()));
     let (_, seen, _) = run(&m);
     assert_eq!(seen.len(), 3);
+    let first = std::fs::read_to_string(&csv).unwrap();
+    std::fs::remove_file(&csv).unwrap();
+    let (_, seen, _) = run(&m);
+    assert_eq!(seen.len(), 0);
+    assert_eq!(std::fs::read_to_string(&csv).unwrap(), first);
+    assert!(first.lines().nth(1).unwrap().starts_with("a,"), "{first}");
     std::fs::remove_dir_all(&dir).ok();
 }
 
