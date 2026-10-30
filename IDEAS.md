@@ -1150,6 +1150,14 @@ entradas de raster ×N e o "Run on a folder..." (itens 1 a 3);
   As entradas de raster que tomam um mapa só (`PortSpec::one`, nos `metrics.*`) rodam ×N. No aplicativo, "Run on a
   folder..." no painel do nó e no menu novo do clique direito num nó do canvas (`editor::run_on_folder`). Ficou de
   fora: o `raster.terrain`, o `distance.proximity` e o `landscape.mspa_tiled`, que dão rasters em disco, não
-  rodam ×N (juntar rasters em disco por camada pede outra forma). (fase 2) o paralelo, o retomável, o registro e o
+  rodam ×N (juntar rasters em disco por camada pede outra forma).
+- **Feito** (Unreleased), fase 2: os arquivos em paralelo (`workers` do `raster.read`, por padrão as threads; num
+  pool de rayon de tantas threads, que os operadores dividem; os resultados, as falhas e os avisos os mesmos, na
+  ordem dos arquivos), o progresso no nó ("37 of 200 files"), o registro `.json` de cada arquivo ao lado do
+  primeiro arquivo gravado (o arquivo lido, os gravados, os nós e as configurações, o tempo, a versão e um
+  SHA-256 do que ele depende) e o retomável: quando só os `raster.write` da cadeia leem o que ela dá, um arquivo
+  feito antes com os mesmos nós, configurações e arquivo (e os seus arquivos lá) não roda de novo. Isso dá também
+  o "rodar de novo só as que falharam". O `first` do `raster.read` roda a cadeia nos primeiros arquivos. Falta: a
+  lista das falhas num painel do aplicativo (hoje é o aviso, no painel Problems). (fase 2) o paralelo, o retomável, o registro e o
 retorno enquanto roda (itens 4 e 5); (fase 3) os nós de entrada no lugar dos `$` e `@`; (fase 4) o pareamento por
 nome, o "Processar uma pasta", a conversão do `batch.run` e o tutorial (itens 6 a 8).

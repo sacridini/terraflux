@@ -269,6 +269,8 @@ Node pane, or a node's right-click menu on the canvas) reads the folder where th
 and the nodes after it that take its maps, run as one chain, file by file. The files' names follow the maps: a
 `raster.write` after them writes a file per file (`{name}` in its path, or for files of different grids the
 file's name before its own), and the tables are gathered in one. A file that fails does not stop the others.
+Several files run at the same time (`raster.read`'s `workers`), its `first` tries the chain on a few files, and
+a chain that writes files records each one (`.json`) and does not run again the files already done.
 
 ### Models as text
 

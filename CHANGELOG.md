@@ -16,6 +16,16 @@ minor versions.
   - A warning that some files give is told once, with the files that gave it.
   - At the top level, the maps of the chain that are only written to files are not kept in memory when they
     would take more than 2 GB.
+- A chain of nodes on the files of a folder runs several files at the same time, as many as the threads. The
+  `raster.read` setting `workers` sets fewer for large files, each of which is in memory while it runs. The
+  files run in a pool of that many threads, which the operators share. The results, failures and warnings are
+  the same, in the files' order, whatever the number of workers.
+- A chain that writes files records each file next to its first file written (`mspa/clc_r0c0_mspa.json`): the
+  file read, the files written, the nodes and their settings, the time taken and Terraflux's version. When
+  nothing but the chain's `raster.write`s reads what it gives, a file whose record says it was done with the
+  same nodes, settings and file, with its files still there, is not run again. A run stopped halfway goes on
+  where it stopped, and a run again after failures runs only the files that failed.
+- `raster.read`'s `first`: only the first files of a folder, to try the nodes after it on a few before all.
 - "Run on a folder..." in the node pane and in a node's new right-click menu on the canvas. It reads a folder
   where the node takes its first map: the `raster.read` that feeds that input reads the folder, else one is
   added at the node's left.

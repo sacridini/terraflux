@@ -312,7 +312,14 @@ impl Rasters {
     /// The rasters a path names (a file, a folder, a pattern), headers only; `band` chooses the layer of the
     /// map (by name or 0-based number), `nodata` replaces the files' no-data value.
     pub fn open(path: &str, band: Option<&str>, nodata: Option<f64>) -> Result<Rasters> {
-        let files = files_of(path)?;
+        Rasters::open_files(path, files_of(path)?, band, nodata)
+    }
+
+    /// The rasters of some files (those `path` names, or some of them).
+    pub fn open_files(path: &str, files: Vec<PathBuf>, band: Option<&str>, nodata: Option<f64>) -> Result<Rasters> {
+        if files.is_empty() {
+            return Err(Error::msg(format!("{path}: no raster")));
+        }
         let images: Vec<Arc<File>> = files.iter().map(|f| File::open(f).map(Arc::new)).collect::<Result<_>>()?;
         let grid = images[0].meta().grid.clone();
         let mut layers = Vec::new();
@@ -581,6 +588,17 @@ impl Operator for Read {
             "the band where a node takes a raster or any value (map algebra), by name or 0-based number (default the first)",
         ))
         .param(PortSpec::optional("nodata", Type::Number, "a no-data value replacing the files'"))
+        .param(PortSpec::optional(
+            "first",
+            Type::Integer,
+            "a folder: only its first files, this many (to try the nodes after it on a few before all)",
+        ))
+        .param(PortSpec::optional(
+            "workers",
+            Type::Integer,
+            "a folder whose files the nodes after it run on one by one: how many files at the same time (default \
+             the threads; fewer for large files, each in memory while it runs)",
+        ))
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
@@ -593,7 +611,11 @@ impl Operator for Read {
             Some(serde_json::Value::String(b)) => Some(b.clone()),
             Some(v) => Some(v.to_string()),
         };
-        let r = Rasters::open(&path, band.as_deref(), args.opt_param::<f64>("nodata")?)?;
+        let mut files = files_of(&path)?;
+        if let Some(n) = args.opt_param::<usize>("first")? {
+            files.truncate(n.max(1));
+        }
+        let r = Rasters::open_files(&path, files, band.as_deref(), args.opt_param::<f64>("nodata")?)?;
         // the rasters on disk, read whole only where a node needs a map (the band chosen) or a stack (every band);
         // the band chosen follows them through the operators that make new files of them
         Ok(outputs([("raster", Value::Raster(Arc::new(r)))]))
