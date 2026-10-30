@@ -11,7 +11,7 @@
 use std::collections::BTreeMap;
 
 use egui::{RichText, Ui};
-use terraflux_graph::{Issue, Node, Severity, Source};
+use terraflux_graph::{Input, Issue, Node, Severity, Source};
 use terraflux_ops::Registry;
 
 use crate::app::Session;
@@ -112,6 +112,12 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
         model_record(ui, s);
         return;
     };
+    // the box of something the scope reads: an input of the model (edited here), a container's value, a node
+    // outside the body
+    if crate::editor::is_source(&id) {
+        source_panel(ui, s, r, &id);
+        return;
+    }
     let Some(n) = s.source.scope(&path).and_then(|v| v.iter().find(|n| n.id == id)).cloned() else {
         s.selected = None;
         return;
@@ -441,6 +447,116 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
     }
     match change {
         Some(Ok(())) => {
+            s.fields.clear();
+            s.editor.message = None;
+            s.edited();
+        }
+        Some(Err(e)) => s.editor.message = Some(e),
+        None => {}
+    }
+}
+
+/// The pane of the box of something the scope reads. An input of the model: its name, its file (or value), its note,
+/// and to make it a node or take it away; else what it is.
+fn source_panel(ui: &mut Ui, s: &mut Session, r: &Registry, key: &str) {
+    let Some(name) = key.strip_prefix('$').map(String::from) else {
+        ui.label(RichText::new(key).monospace().strong());
+        ui.label(crate::editor_view::source_help(key));
+        return;
+    };
+    let Some(input) = s.source.inputs.get(&name).cloned() else {
+        s.selected = None;
+        return;
+    };
+    let mut change: Option<Result<(), String>> = None;
+    let mut renamed = None;
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("$").monospace().strong());
+        let mut text = field(s, "input_name", name.clone());
+        ui.add(egui::TextEdit::singleline(&mut text).desired_width((ui.available_width() - 70.0).clamp(60.0, 140.0)));
+        s.fields.insert("input_name".into(), text.clone());
+        if ui.button("Rename").clicked() {
+            change = Some(crate::editor::rename_input(&mut s.source, &name, text.trim()));
+            renamed = Some(format!("${}", text.trim()));
+        }
+    });
+    let kind = match &input {
+        Input::Map { .. } => "an input of the model: a map (one band of a raster file)",
+        Input::Stack { .. } => "an input of the model: a stack (the bands of a raster file)",
+        Input::Value { .. } => "an input of the model: a value",
+    };
+    ui.label(RichText::new(kind).color(ui.visuals().weak_text_color()));
+    ui.label(
+        RichText::new("what the command line (--set), Many runs and the scenarios change; drag its box to move it")
+            .small()
+            .color(ui.visuals().weak_text_color()),
+    );
+    ui.separator();
+    match &input {
+        Input::Map { path, .. } | Input::Stack { path, .. } => {
+            ui.label(RichText::new("File").strong());
+            let mut text = field(s, "input_path", path.clone());
+            let resp = ui.add(egui::TextEdit::singleline(&mut text).desired_width(f32::INFINITY));
+            s.fields.insert("input_path".into(), text.clone());
+            let mut chosen = (resp.lost_focus() && text != *path).then_some(text);
+            if ui.add(crate::app::accent_button("Choose...", true)).clicked()
+                && let Some(p) = rfd::FileDialog::new()
+                    .add_filter("Rasters", &terraflux_ops::files::RASTER_EXTENSIONS)
+                    .add_filter("Every file", &["*"])
+                    .pick_file()
+            {
+                chosen = Some(p.to_string_lossy().into_owned());
+            }
+            if let Some(p) = chosen {
+                let mut i = input.clone();
+                if let Input::Map { path, .. } | Input::Stack { path, .. } = &mut i {
+                    *path = p;
+                }
+                s.source.inputs.insert(name.clone(), i);
+                change = Some(Ok(()));
+            }
+        }
+        Input::Value { value, .. } => {
+            ui.label(RichText::new("Value").strong());
+            let init = value.to_string();
+            let mut text = field(s, "input_value", init.clone());
+            let resp = ui.add(egui::TextEdit::singleline(&mut text).desired_width(f32::INFINITY));
+            s.fields.insert("input_value".into(), text.clone());
+            if resp.lost_focus() && text != init {
+                s.source
+                    .inputs
+                    .insert(name.clone(), Input::Value { value: typed(&text), note: input.note().map(String::from) });
+                change = Some(Ok(()));
+            }
+        }
+    }
+    ui.separator();
+    let note = input.note().unwrap_or_default().to_string();
+    if let Some(t) = text_field(ui, s, "input_note", "Note", "what this input is", note, 2) {
+        let mut i = input.clone();
+        i.set_note((!t.trim().is_empty()).then(|| t.trim().to_string()));
+        s.source.inputs.insert(name.clone(), i);
+        change = Some(Ok(()));
+    }
+    ui.separator();
+    ui.horizontal(|ui| {
+        if !matches!(input, Input::Value { .. })
+            && ui.button("Make it a node").on_hover_text(crate::editor_view::MAKE_NODE_HELP).clicked()
+        {
+            change = Some(crate::editor::input_to_node(&mut s.source, r, &name).map(|id| {
+                renamed = Some(id);
+            }));
+        }
+        if ui.button("Delete the input").clicked() {
+            change = Some(crate::editor::remove_input(&mut s.source, &name).map(|_| s.selected = None));
+        }
+    });
+    match change {
+        Some(Ok(())) => {
+            if let Some(k) = renamed {
+                s.editor.chosen = [k.clone()].into();
+                s.selected = Some(k);
+            }
             s.fields.clear();
             s.editor.message = None;
             s.edited();

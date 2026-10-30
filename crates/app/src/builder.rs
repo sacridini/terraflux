@@ -886,7 +886,7 @@ pub fn keys(ui: &Ui, s: &mut Session, r: &Registry, canvas: bool) -> bool {
         let path = s.editor.path.clone();
         let mut removed = false;
         for id in &gone {
-            match crate::editor::remove_node(&mut s.source, &path, id) {
+            match crate::editor::remove_box(&mut s.source, &path, id) {
                 Ok(()) => removed = true,
                 Err(e) => s.editor.message = Some(e),
             }
@@ -926,8 +926,14 @@ pub fn forget_missing(s: &mut Session) {
     }
     let ids: std::collections::HashSet<String> =
         s.source.scope(&s.editor.path).map(|n| n.iter().map(|n| n.id.clone()).collect()).unwrap_or_default();
-    s.editor.chosen.retain(|id| ids.contains(id));
-    if s.selected.as_ref().is_some_and(|id| !ids.contains(id)) {
+    // (the box of something the scope reads: kept, unless it is an input of the model no more)
+    let inputs = &s.source.inputs;
+    let here = |id: &String| match id.strip_prefix('$') {
+        Some(name) => inputs.contains_key(name),
+        None => ids.contains(id) || crate::editor::is_source(id),
+    };
+    s.editor.chosen.retain(here);
+    if s.selected.as_ref().is_some_and(|id| !here(id)) {
         s.selected = None;
     }
     if s.preview.as_ref().is_some_and(|(n, _)| s.source.node(n).is_none()) {
@@ -942,6 +948,7 @@ fn chosen(s: &Session) -> Vec<Node> {
     if ids.is_empty() {
         ids.extend(s.selected.as_ref());
     }
+    ids.retain(|id| !crate::editor::is_source(id));
     let auto = crate::editor_view::auto_positions(nodes);
     nodes
         .iter()
@@ -1064,6 +1071,21 @@ pub fn select(s: &mut Session, r: &Registry, id: &str) {
         }
         s.preview = Some((node, port));
     }
+}
+
+/// The bands of the file a `raster.read` of the top level reads: from its last run, else from the file's header
+/// (relative to the model's folder); none when neither is known.
+fn bands_of(s: &Session, id: &str) -> Option<usize> {
+    if let Some(Value::Raster(r)) = s.outputs.get(id).and_then(|o| o.get("raster")) {
+        return Some(r.layers.len());
+    }
+    let n = s.source.nodes.iter().find(|n| n.id == id)?;
+    let path = std::path::PathBuf::from(n.params.get("path")?.as_str()?);
+    let path = match (&s.path, path.is_relative()) {
+        (Some(model), true) => model.parent()?.join(path),
+        _ => path,
+    };
+    terraflux_ops::files::Rasters::open(&path.to_string_lossy(), None, None).ok().map(|r| r.layers.len())
 }
 
 /// Where a new node goes: to the right of the node `from` (below what is there already), else below every node.
@@ -1506,6 +1528,7 @@ pub fn bypass_selected(s: &mut Session) {
     if ids.is_empty() {
         ids.extend(s.selected.clone());
     }
+    ids.retain(|id| !crate::editor::is_source(id));
     if ids.is_empty() {
         return;
     }
@@ -1520,6 +1543,7 @@ pub fn group_selected(s: &mut Session, r: &Registry) {
     if ids.is_empty() {
         ids.extend(s.selected.clone());
     }
+    ids.retain(|id| !crate::editor::is_source(id));
     let path = s.editor.path.clone();
     let Some(scope) = s.source.scope(&path) else { return };
     // in the order of the scope
@@ -1806,7 +1830,14 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
                 s.fields.clear();
                 Ok(false)
             }
-            // the canvas moved the node in its scene already: no new layout
+            // the canvas moved the node (or the box of something the scope reads) in its scene already: no new
+            // layout
+            Action::Move(id, p) if crate::editor::is_source(&id) => {
+                crate::editor::place_source(&mut s.source, &path, &id, p);
+                s.history.changed(&s.source);
+                s.dirty = true;
+                Ok(false)
+            }
             Action::Move(id, p) => crate::editor::move_node(&mut s.source, &path, &id, p).map(|_| {
                 s.history.changed(&s.source);
                 s.dirty = true;
@@ -1841,6 +1872,26 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
                     .map(|_| true),
                 None => Ok(false),
             },
+            Action::InputToNode(name) => crate::editor::input_to_node(&mut s.source, r, &name).map(|id| {
+                s.selected = Some(id.clone());
+                s.editor.chosen = [id].into();
+                true
+            }),
+            Action::NodeToInput(id) => {
+                let name = crate::editor::input_name(&s.source, &id);
+                let bands = bands_of(s, &id);
+                crate::editor::node_to_input(&mut s.source, r, &id, &name, bands).map(|_| {
+                    let key = format!("${name}");
+                    s.selected = Some(key.clone());
+                    s.editor.chosen = [key].into();
+                    true
+                })
+            }
+            Action::RemoveSource(key) => crate::editor::remove_box(&mut s.source, &path, &key).map(|_| {
+                s.selected = None;
+                s.editor.chosen.clear();
+                true
+            }),
         };
         match result {
             Ok(true) => {

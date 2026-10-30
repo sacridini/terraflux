@@ -227,6 +227,34 @@ pub enum Action {
     },
     /// A node run on every raster of a folder (chosen in a dialog): its menu's "Run on a folder...".
     RunOnFolder(String),
+    /// An input of the model made a node (a `raster.read` of its file).
+    InputToNode(String),
+    /// A `raster.read` made an input of the model.
+    NodeToInput(String),
+    /// The box of something the scope reads taken away: a model's input removed, with what read it.
+    RemoveSource(String),
+}
+
+/// What "Make it a node" does.
+pub const MAKE_NODE_HELP: &str = "the input a raster.read node of its file, read by what read it: a node like the \
+     others, which can read a folder";
+
+/// What "Make it an input of the model" does.
+pub const MAKE_INPUT_HELP: &str = "the raster.read an input of the model ($name), read by what read it: the file \
+     the command line, Many runs and the scenarios change";
+
+/// What the box of something a scope reads is, besides an input of the model.
+pub fn source_help(key: &str) -> String {
+    match key {
+        "@step" => "@step: the loop's step (1, 2...)".into(),
+        "@item" => "@item: the element of the collection the body runs on".into(),
+        "@index" => "@index: the element's place in the collection (1, 2...)".into(),
+        "@name" => "@name: the element's name".into(),
+        k if k.starts_with('@') => {
+            format!("{k}: a value the container gives its body (its input, or carried along its loop)")
+        }
+        k => format!("{k}: a node outside this body, read here"),
+    }
 }
 
 /// Where the view looks: the screen offset of the graph's origin from the canvas's corner, and the points per
@@ -297,8 +325,8 @@ pub struct EditorState {
     pub pulse: Vec<(Vec<String>, String, std::time::Instant)>,
     /// A node being saved as a node of the user's library: the dialog's state.
     pub saving: Option<crate::my_nodes::Draft>,
-    /// The node whose menu is open (right-clicked).
-    menu: Option<String>,
+    /// The box whose menu is open (right-clicked), and its operator (none for what a scope reads).
+    menu: Option<(String, String)>,
 }
 
 /// The inputs of a node a connection may go to, offered where it was let go.
@@ -837,7 +865,10 @@ impl Scene {
                 _ => None,
             });
             let foot = if file.is_some() { FOOT } else { 0.0 };
-            let rect = Rect::from_min_size(Pos2::new(sources_x, y), Vec2::new(sources_w, HEAD + ROW + foot));
+            // where it was moved, else in the column at the left
+            let placed = model.places.get(&terraflux_graph::place_key(path, s)).map(|&[x, y]| Pos2::new(x, y));
+            let rect =
+                Rect::from_min_size(placed.unwrap_or(Pos2::new(sources_x, y)), Vec2::new(sources_w, HEAD + ROW + foot));
             boxes.push(BoxAt {
                 key: s.clone(),
                 op: String::new(),
@@ -855,7 +886,9 @@ impl Scene {
                 bypass: false,
                 frozen: false,
             });
-            y += HEAD + ROW + foot + 12.0;
+            if placed.is_none() {
+                y += HEAD + ROW + foot + 12.0;
+            }
         }
         let missing = nodes.iter().any(|n| n.pos.is_none());
         let auto = if missing { auto_positions(nodes) } else { HashMap::new() };
@@ -1331,7 +1364,8 @@ pub fn show(
                 let b = &scene.boxes[i];
                 Drag::Resize(b.key.clone(), b.rect.left(), b.fitted)
             }
-            Some(Hit::Head(i) | Hit::Body(i) | Hit::Fold(i)) if !scene.boxes[i].source => {
+            // a node, or the box of something the scope reads: moved
+            Some(Hit::Head(i) | Hit::Body(i) | Hit::Fold(i)) => {
                 let key = &scene.boxes[i].key;
                 if !st.chosen.contains(key) {
                     if !adding {
@@ -1460,7 +1494,7 @@ pub fn show(
                 st.folds += 1;
                 ui.ctx().request_repaint();
             }
-            Some(Hit::Head(i) | Hit::Body(i) | Hit::Input(i, _) | Hit::Edge(i)) if !scene.boxes[i].source => {
+            Some(Hit::Head(i) | Hit::Body(i) | Hit::Input(i, _) | Hit::Edge(i)) => {
                 let key = scene.boxes[i].key.clone();
                 if adding {
                     // shift or ctrl: one more, or one less
@@ -1488,21 +1522,39 @@ pub fn show(
         let b = &scene.boxes[i];
         actions.push(Action::Disconnect { node: b.key.clone(), port: b.inputs[k].name.clone() });
     }
-    // a right click on a node: its menu (elsewhere none)
+    // a right click on a node, or on the box of something the scope reads: its menu (elsewhere none)
     if resp.secondary_clicked() {
         st.menu = at.and_then(|w| match scene.hit(w, reach(cam)) {
-            Some(Hit::Head(i) | Hit::Body(i)) if !scene.boxes[i].source => Some(scene.boxes[i].key.clone()),
+            Some(Hit::Head(i) | Hit::Body(i)) => Some((scene.boxes[i].key.clone(), scene.boxes[i].op.clone())),
             _ => None,
         });
     }
     resp.context_menu(|ui| {
-        let Some(key) = st.menu.clone() else {
+        let Some((key, op)) = st.menu.clone() else {
             ui.close();
             return;
         };
-        if ui.button("Run on a folder...").on_hover_text(crate::node_view::FOLDER_HELP).clicked() {
-            actions.push(Action::RunOnFolder(key));
-            ui.close();
+        let mut item = |ui: &mut Ui, text: &str, help: &str, action: Action| {
+            if ui.button(text).on_hover_text(help).clicked() {
+                actions.push(action);
+                ui.close();
+            }
+        };
+        if let Some(name) = key.strip_prefix('$') {
+            item(ui, "Make it a node", MAKE_NODE_HELP, Action::InputToNode(name.to_string()));
+            item(
+                ui,
+                "Delete the input",
+                "the model's input taken away; what read it reads nothing",
+                Action::RemoveSource(key.clone()),
+            );
+        } else if crate::editor::is_source(&key) {
+            ui.label(egui::RichText::new(source_help(&key)).weak());
+        } else {
+            item(ui, "Run on a folder...", crate::node_view::FOLDER_HELP, Action::RunOnFolder(key.clone()));
+            if op == "raster.read" && st.path.is_empty() {
+                item(ui, "Make it an input of the model", MAKE_INPUT_HELP, Action::NodeToInput(key.clone()));
+            }
         }
     });
     if resp.double_clicked()

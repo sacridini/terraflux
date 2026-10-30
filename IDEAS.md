@@ -1158,6 +1158,16 @@ entradas de raster ×N e o "Run on a folder..." (itens 1 a 3);
   SHA-256 do que ele depende) e o retomável: quando só os `raster.write` da cadeia leem o que ela dá, um arquivo
   feito antes com os mesmos nós, configurações e arquivo (e os seus arquivos lá) não roda de novo. Isso dá também
   o "rodar de novo só as que falharam". O `first` do `raster.read` roda a cadeia nos primeiros arquivos. Falta: a
-  lista das falhas num painel do aplicativo (hoje é o aviso, no painel Problems). (fase 2) o paralelo, o retomável, o registro e o
+  lista das falhas num painel do aplicativo (hoje é o aviso, no painel Problems).
+- **Feito** (Unreleased), fase 3, de outra forma que a escrita acima: as entradas continuam no formato
+  (`inputs`, `$nome`), porque o CLI (`--set`), os cenários, os parâmetros, o Many runs, o Server, o MCP e os
+  templates dependem dele. O que mudou foi o canvas: as caixas do que um escopo lê (as entradas do modelo, os
+  valores de um contêiner, os nós de fora que um corpo lê) se movem, são selecionadas e apagadas como os nós, e o
+  lugar fica no modelo (`Model::places`, pela chave `escopo|referência`). Uma entrada do modelo clicada é editada
+  no painel do nó (renomear, com as referências, os parâmetros e os cenários seguindo; o arquivo ou o valor; a
+  nota; apagar, desconectando quem a lia). "Make it a node" faz da entrada de um arquivo um `raster.read` dele
+  (que pode então ler uma pasta), e "Make it an input of the model", no menu de um `raster.read` do nível de
+  cima, o contrário (um mapa quando ele escolhe uma banda ou o arquivo tem uma, senão uma pilha). Falta, se
+  fizer falta: um nó "Input" de verdade dentro dos contêineres (hoje é a caixa que se move). (fase 2) o paralelo, o retomável, o registro e o
 retorno enquanto roda (itens 4 e 5); (fase 3) os nós de entrada no lugar dos `$` e `@`; (fase 4) o pareamento por
 nome, o "Processar uma pasta", a conversão do `batch.run` e o tutorial (itens 6 a 8).

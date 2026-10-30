@@ -162,6 +162,17 @@ pub struct Model {
     /// What `terraflux test` checks: outputs against the files of what they should be.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tests: Vec<ModelTest>,
+    /// Where the canvas draws the boxes of what a scope reads besides its nodes (a model's input, a container's
+    /// value, a node outside it), moved there: by the scope and the reference ([`place_key`]: `|$land`,
+    /// `loop|@step`). Those not given are drawn in a column at the scope's left.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub places: BTreeMap<String, [f32; 2]>,
+}
+
+/// The key of the place of a box of what a scope reads ([`Model::places`]): the scope's containers joined by `/`,
+/// `|`, the reference.
+pub fn place_key(scope: &[String], reference: &str) -> String {
+    format!("{}|{reference}", scope.join("/"))
 }
 
 /// A test of a model: a value it gives (`node.port`) against a file of what it should be (relative to the model's
@@ -246,6 +257,21 @@ pub enum Input {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         note: Option<String>,
     },
+}
+
+impl Input {
+    /// What the input is, as its maker wrote it.
+    pub fn note(&self) -> Option<&str> {
+        match self {
+            Input::Map { note, .. } | Input::Stack { note, .. } | Input::Value { note, .. } => note.as_deref(),
+        }
+    }
+
+    pub fn set_note(&mut self, text: Option<String>) {
+        match self {
+            Input::Map { note, .. } | Input::Stack { note, .. } | Input::Value { note, .. } => *note = text,
+        }
+    }
 }
 
 /// Where a node input comes from.
@@ -501,6 +527,7 @@ impl Model {
             parameters: Vec::new(),
             scenarios: Vec::new(),
             tests: Vec::new(),
+            places: BTreeMap::new(),
         }
     }
 

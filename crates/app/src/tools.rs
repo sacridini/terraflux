@@ -233,8 +233,8 @@ pub fn edit(name: &str, m: &mut Model, r: &Registry, dir: &Path, a: &Value) -> R
         "set_input" => set_input(m, a, dir),
         "remove_input" => {
             let name = text(a, "name")?.trim_start_matches('$');
-            m.inputs.remove(name).ok_or_else(|| format!("the model has no input ${name}"))?;
-            Ok(format!("removed the input ${name}"))
+            editor::remove_input(m, name)?;
+            Ok(format!("removed the input ${name} (what read it reads nothing now)"))
         }
         "add_node" => add_node(m, r, a),
         "edit_node" => edit_node(m, r, a),

@@ -14,9 +14,18 @@ let you change what a model does without changing Terraflux:
 
 The **Graph** tab of the application edits the model:
 
-- **What a scope reads:** the column on the left. At the top level these are the model's inputs. Inside a
-  container they also include its values (`@step` and the carried values of a loop, a group's inputs) and the
-  outer nodes its body reads.
+- **What a scope reads:** boxes in a column on the left, until moved. At the top level these are the model's
+  inputs (`$name`). Inside a container they also include its values (`@step` and the carried values of a loop, a
+  group's inputs) and the outer nodes its body reads. A box is moved, selected and deleted like a node, and its
+  place is saved in the model (`places`). Click an input of the model to edit it in the side panel: rename it
+  (what reads it follows), choose its file or type its value, write its note. Delete removes it, and what read
+  it then reads nothing. **Make it a node** (in the panel or the box's right-click menu) turns it into a
+  `raster.read` of its file, which can then read a folder. **Make it an input of the model** (the right-click
+  menu of a top-level `raster.read`) does the reverse: the file becomes what the command line (`--set`), Many
+  runs and the scenarios change.
+- **A folder of rasters:** **Run on a folder...** (in the side panel, or a node's right-click menu) reads a
+  folder where the node takes its first map. The node, and the nodes after it that take its maps, then run as
+  one chain, file by file and several files at a time; see the README's *A folder of rasters*.
 - **Nodes and connections:** each node shows its input ports on the left (required ones in orange until
   connected) and its output ports on the right. To connect two nodes, drag from an output to an input. Each
   connection is checked when it is made: a value of the wrong type, a cycle or a port the operator lacks is

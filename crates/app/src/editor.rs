@@ -66,6 +66,208 @@ pub fn add_node(m: &mut Model, r: &Registry, path: &[String], op: &str, pos: [f3
     Ok(id)
 }
 
+/// Whether a box of the canvas is of what a scope reads besides its nodes (a reference: a model's input `$name`, a
+/// container's value `@name`, a node outside it `node.port`), not a node: a node's id has no `.`, `$` nor `@`.
+pub fn is_source(key: &str) -> bool {
+    key.starts_with(['$', '@']) || key.contains('.')
+}
+
+/// Put the box of something a scope reads somewhere on the canvas ([`Model::places`]).
+pub fn place_source(m: &mut Model, path: &[String], reference: &str, pos: [f32; 2]) {
+    m.places.insert(terraflux_graph::place_key(path, reference), pos);
+}
+
+/// The references to `$name` taken away: the inputs that read it read nothing, the settings that read it their
+/// default, a container's values and the model's outputs of it gone; the parameters and scenarios that change
+/// it, and its boxes' places, too.
+fn forget_input(m: &mut Model, name: &str) {
+    fn in_nodes(nodes: &mut [Node], gone: &str) {
+        for n in nodes {
+            n.inputs.retain(|_, s| !matches!(s, Source::Ref(r) if r == gone));
+            n.params.retain(|_, v| terraflux_graph::setting_ref(v) != Some(gone));
+            if let Some(b) = &mut n.body {
+                in_nodes(&mut b.nodes, gone);
+                for map in [&mut b.carry, &mut b.collect, &mut b.outputs] {
+                    map.retain(|_, r| r != gone);
+                }
+            }
+        }
+    }
+    let gone = format!("${name}");
+    in_nodes(&mut m.nodes, &gone);
+    m.outputs.retain(|_, o| o.from != gone);
+    m.parameters.retain(|p| p.key != gone);
+    for s in &mut m.scenarios {
+        s.values.remove(&gone);
+    }
+    let place = format!("|{gone}");
+    m.places.retain(|k, _| !k.ends_with(&place));
+}
+
+/// Rename an input of the model: what reads it, the parameters and scenarios that change it and its boxes' places
+/// follow.
+pub fn rename_input(m: &mut Model, old: &str, new: &str) -> Result<()> {
+    if old == new {
+        return Ok(());
+    }
+    if !valid_id(new) {
+        return Err(format!("{new:?} is not a valid name (letters, digits and _, not first a digit)"));
+    }
+    if m.inputs.contains_key(new) {
+        return Err(format!("the model has an input ${new} already"));
+    }
+    let input = m.inputs.remove(old).ok_or_else(|| format!("the model has no input ${old}"))?;
+    m.inputs.insert(new.to_string(), input);
+    let (from, to) = (format!("${old}"), format!("${new}"));
+    for_each_ref(m, &[], &mut |r| {
+        if *r == from {
+            *r = to.clone();
+        }
+    });
+    for p in &mut m.parameters {
+        if p.key == from {
+            p.key = to.clone();
+        }
+    }
+    for s in &mut m.scenarios {
+        if let Some(v) = s.values.remove(&from) {
+            s.values.insert(to.clone(), v);
+        }
+    }
+    let place = format!("|{from}");
+    let moved: Vec<(String, [f32; 2])> =
+        m.places.iter().filter(|(k, _)| k.ends_with(&place)).map(|(k, p)| (k.clone(), *p)).collect();
+    for (k, p) in moved {
+        m.places.remove(&k);
+        m.places.insert(format!("{}{to}", &k[..k.len() - from.len()]), p);
+    }
+    Ok(())
+}
+
+/// Take an input of the model away, and what reads it with it ([`forget_input`]).
+pub fn remove_input(m: &mut Model, name: &str) -> Result<()> {
+    m.inputs.remove(name).ok_or_else(|| format!("the model has no input ${name}"))?;
+    forget_input(m, name);
+    Ok(())
+}
+
+/// Make an input of the model of a raster file a node of the top level: a `raster.read` of its file (its band
+/// chosen when it was a map), read by what read it. A stack of some bands of its file, or a value (what the
+/// forms and scenarios change), stays an input. The node's id: the input's name when no node has it.
+pub fn input_to_node(m: &mut Model, r: &Registry, name: &str) -> Result<String> {
+    let input = m.inputs.get(name).cloned().ok_or_else(|| format!("the model has no input ${name}"))?;
+    let (path, band, nodata, note) = match input {
+        terraflux_graph::Input::Map { path, band, nodata, note } => {
+            (path, Some(band.unwrap_or_else(|| "0".into())), nodata, note)
+        }
+        terraflux_graph::Input::Stack { path, bands: None, nodata, note } => (path, None, nodata, note),
+        terraflux_graph::Input::Stack { .. } => {
+            return Err(format!("${name} is some bands of its file: it stays an input"));
+        }
+        terraflux_graph::Input::Value { .. } => {
+            return Err(format!("${name} is a value, which the forms and scenarios change: it stays an input"));
+        }
+    };
+    let reference = format!("${name}");
+    let id = if valid_id(name) && !m.nodes.iter().any(|n| n.id == name) {
+        name.to_string()
+    } else {
+        fresh_id(&m.nodes, "raster.read")
+    };
+    let pos = m.places.get(&terraflux_graph::place_key(&[], &reference)).copied().unwrap_or_else(|| {
+        let reads = |n: &&Node| terraflux_graph::references(n).contains(&reference);
+        m.nodes.iter().find(reads).and_then(|n| n.pos).map_or([0.0, 0.0], |[x, y]| [x - 260.0, y])
+    });
+    guarded(m, r, std::slice::from_ref(&id), |c| {
+        let mut n = Node::new(&id, "raster.read").param("path", path.clone());
+        if let Some(b) = &band {
+            n = n.param("band", b.clone());
+        }
+        if let Some(v) = nodata {
+            n = n.param("nodata", v);
+        }
+        n.note = note.clone().or_else(|| Some(format!("the file of the model's input ${name}")));
+        n.pos = Some(pos);
+        let to = format!("{id}.raster");
+        for_each_ref(c, &[], &mut |r| {
+            if *r == reference {
+                *r = to.clone();
+            }
+        });
+        c.inputs.remove(name);
+        forget_input(c, name);
+        c.nodes.push(n);
+        Ok(())
+    })?;
+    Ok(id)
+}
+
+/// Make a `raster.read` of a file, of the top level, an input of the model named `name` (what the command line,
+/// Many runs and the scenarios change): a map of its band when it chose one or its file has one band (`bands`:
+/// its file's, when known), else a stack of every band. A folder stays a node.
+pub fn node_to_input(m: &mut Model, r: &Registry, id: &str, name: &str, bands: Option<usize>) -> Result<()> {
+    let n = m.nodes.iter().find(|n| n.id == id).cloned().ok_or_else(|| format!("no node {id:?} at the top level"))?;
+    if n.op != "raster.read" {
+        return Err(format!("{id} is a {}: only a raster.read becomes an input of the model", n.op));
+    }
+    let path = n.params.get("path").and_then(|p| p.as_str()).filter(|p| !p.is_empty()).map(String::from);
+    let path = path.ok_or_else(|| format!("{id} reads no file yet"))?;
+    if path.contains(['*', '?']) || std::path::Path::new(&path).is_dir() {
+        return Err(format!("{id} reads a folder: a model's input is one file"));
+    }
+    if !valid_id(name) {
+        return Err(format!("{name:?} is not a valid name (letters, digits and _, not first a digit)"));
+    }
+    if m.inputs.contains_key(name) {
+        return Err(format!("the model has an input ${name} already"));
+    }
+    let band = match n.params.get("band") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(serde_json::Value::String(b)) => Some(b.clone()),
+        Some(v) => Some(v.to_string()),
+    };
+    let nodata = n.params.get("nodata").and_then(|v| v.as_f64());
+    let input = if band.is_some() || bands.is_none_or(|b| b <= 1) {
+        terraflux_graph::Input::Map { path, band, nodata, note: n.note.clone() }
+    } else {
+        terraflux_graph::Input::Stack { path, bands: None, nodata, note: n.note.clone() }
+    };
+    let (from, to) = (format!("{id}.raster"), format!("${name}"));
+    guarded(m, r, &[], |c| {
+        for_each_ref(c, &[], &mut |r| {
+            if *r == from {
+                *r = to.clone();
+            }
+        });
+        c.nodes.retain(|x| x.id != id);
+        c.inputs.insert(name.to_string(), input);
+        if let Some(p) = n.pos {
+            c.places.insert(terraflux_graph::place_key(&[], &to), p);
+        }
+        Ok(())
+    })
+}
+
+/// A box of the canvas taken away: a node, or an input of the model (with what read it). A container's value or a
+/// node outside the scope is not taken away here: what reads it is.
+pub fn remove_box(m: &mut Model, path: &[String], key: &str) -> Result<()> {
+    match key.strip_prefix('$') {
+        Some(name) => remove_input(m, name),
+        None if is_source(key) => {
+            Err(format!("{}: not taken away here (disconnect what reads it)", crate::editor_view::source_help(key)))
+        }
+        None => remove_node(m, path, key),
+    }
+}
+
+/// The name of the input of the model a node becomes ([`node_to_input`]): its id, unless an input has it.
+pub fn input_name(m: &Model, id: &str) -> String {
+    if !m.inputs.contains_key(id) {
+        return id.to_string();
+    }
+    (2..).map(|k| format!("{id}_{k}")).find(|n| !m.inputs.contains_key(n)).unwrap()
+}
+
 /// The input of a node a folder goes to, to run it once per file: its first that takes one map.
 pub fn folder_port(n: &Node, r: &Registry) -> Option<String> {
     let sig = r.sig(&n.op)?;
@@ -762,6 +964,56 @@ mod tests {
         m.inputs.insert("t0".into(), Input::Map { path: "a.tif".into(), band: None, nodata: None, note: None });
         m.inputs.insert("t1".into(), Input::Map { path: "b.tif".into(), band: None, nodata: None, note: None });
         m
+    }
+
+    #[test]
+    fn inputs_of_the_model_are_moved_renamed_made_nodes_and_taken_away() {
+        let r = Registry::standard();
+        let mut m = model();
+        m.nodes.push(Node::new("mspa", "landscape.mspa").input("map", "$t0"));
+        m.nodes[0].pos = Some([400.0, 50.0]);
+        m.nodes.push(Node::new("calc", "raster.calc").input("a", "$t1").param("expression", "out x = a"));
+        m.parameters.push(terraflux_graph::Parameter { key: "$t1".into(), ..Default::default() });
+        // moved: its place kept
+        assert!(is_source("$t0") && is_source("@step") && is_source("a.map") && !is_source("mspa"));
+        place_source(&mut m, &[], "$t0", [10.0, 20.0]);
+        assert_eq!(m.places["|$t0"], [10.0, 20.0]);
+        // renamed: what reads it, its parameter and its place follow
+        rename_input(&mut m, "t0", "land").unwrap();
+        assert_eq!(m.nodes[0].inputs["map"], Source::Ref("$land".into()));
+        assert_eq!(m.places["|$land"], [10.0, 20.0]);
+        assert!(rename_input(&mut m, "land", "t1").unwrap_err().contains("already"));
+        assert!(rename_input(&mut m, "land", "2x").is_err());
+        // made a node: a raster.read of its file at its place, its band chosen (it was a map)
+        let id = input_to_node(&mut m, &r, "land").unwrap();
+        assert_eq!(id, "land");
+        let n = m.nodes.iter().find(|n| n.id == "land").unwrap();
+        assert_eq!(
+            (n.op.as_str(), n.params["path"].as_str(), n.params["band"].as_str()),
+            ("raster.read", Some("a.tif"), Some("0"))
+        );
+        assert_eq!(n.pos, Some([10.0, 20.0]));
+        assert_eq!(m.nodes[0].inputs["map"], Source::Ref("land.raster".into()));
+        assert!(!m.inputs.contains_key("land") && !m.places.contains_key("|$land"));
+        // and back: an input of one band, read by what read the node
+        node_to_input(&mut m, &r, "land", "land", Some(1)).unwrap();
+        assert!(matches!(&m.inputs["land"], Input::Map { path, band: Some(b), .. } if path == "a.tif" && b == "0"));
+        assert_eq!(m.nodes[0].inputs["map"], Source::Ref("$land".into()));
+        assert!(!m.nodes.iter().any(|n| n.id == "land"));
+        // a file of many bands, no band chosen: a stack
+        m.nodes.push(Node::new("bands", "raster.read").param("path", "s.tif"));
+        let name = input_name(&m, "bands");
+        node_to_input(&mut m, &r, "bands", &name, Some(3)).unwrap();
+        assert!(matches!(m.inputs["bands"], Input::Stack { .. }));
+        // a folder stays a node
+        m.nodes.push(Node::new("tiles", "raster.read").param("path", "tiles/*.tif"));
+        assert!(node_to_input(&mut m, &r, "tiles", "tiles", None).unwrap_err().contains("folder"));
+        // taken away: what read it reads nothing, its parameter gone
+        remove_box(&mut m, &[], "$t1").unwrap();
+        assert!(!m.nodes[1].inputs.contains_key("a") && m.parameters.is_empty());
+        assert!(remove_box(&mut m, &[], "@step").is_err());
+        remove_box(&mut m, &[], "tiles").unwrap();
+        assert!(!m.nodes.iter().any(|n| n.id == "tiles"));
     }
 
     #[test]

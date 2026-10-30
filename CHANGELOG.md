@@ -25,6 +25,15 @@ minor versions.
   nothing but the chain's `raster.write`s reads what it gives, a file whose record says it was done with the
   same nodes, settings and file, with its files still there, is not run again. A run stopped halfway goes on
   where it stopped, and a run again after failures runs only the files that failed.
+- The boxes of what a scope reads on the canvas (the model's inputs `$name`, a container's values `@name`, the
+  outer nodes a body reads) are moved, selected and deleted like the nodes. Their places are kept in the model
+  (`places`); those never moved stay in the column at the left.
+  - An input of the model, clicked, is edited in the Node pane: renamed (what reads it, its parameters and
+    scenarios follow), its file chosen or its value typed, its note written, or deleted.
+  - **Make it a node** turns an input of a raster file into a `raster.read` of its file, read by what read it.
+    **Make it an input of the model**, in a top-level `raster.read`'s right-click menu, does the reverse.
+  - Deleting an input of the model (Delete, its menu, or the MCP tool `remove_input`) disconnects what read it.
+    Before, the MCP tool left those references dangling.
 - `raster.read`'s `first`: only the first files of a folder, to try the nodes after it on a few before all.
 - "Run on a folder..." in the node pane and in a node's new right-click menu on the canvas. It reads a folder
   where the node takes its first map: the `raster.read` that feeds that input reads the folder, else one is

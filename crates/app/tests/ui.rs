@@ -2576,3 +2576,97 @@ params = { expression = "a + b" }
     h.run_steps(3);
     assert!(h.state().is_open(Pane::Problems));
 }
+
+/// The box of an input of the model is moved, selected and edited in the Node pane, made a node and back by its
+/// menus, and taken away with Delete, as a node is.
+#[test]
+fn an_input_of_the_model_is_a_box_like_the_nodes() {
+    let path = tmp("ui-inputs.toml");
+    let mut m = terraflux_graph::Model::new("inputs");
+    m.inputs.insert(
+        "land".into(),
+        terraflux_graph::Input::Map {
+            path: data("sibuyan_landuse.tif").to_string_lossy().into_owned(),
+            band: None,
+            nodata: None,
+            note: None,
+        },
+    );
+    let mut n = terraflux_graph::Node::new("mspa", "landscape.mspa").input("map", "$land").param("foreground", 1);
+    n.pos = Some([300.0, 0.0]);
+    m.nodes.push(n);
+    m.save(&path).unwrap();
+    let mut h = harness(new_app(Some(path)));
+    loaded(&mut h);
+    h.state_mut().focus(Pane::Model);
+    h.run_steps(3);
+    // dragged: moved, kept in the model, and selected
+    let at = h.state().session.as_ref().unwrap().editor.screen_of("$land").unwrap();
+    h.event(egui::Event::PointerMoved(at));
+    h.run_steps(1);
+    h.event(egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.run_steps(1);
+    for k in 1..=5 {
+        h.event(egui::Event::PointerMoved(at + egui::vec2(12.0 * k as f32, 6.0 * k as f32)));
+        h.run_steps(1);
+    }
+    let to = at + egui::vec2(60.0, 30.0);
+    h.event(egui::Event::PointerButton {
+        pos: to,
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.run_steps(3);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        assert!(s.source.places.contains_key("|$land"), "{:?}", s.source.places);
+        assert_eq!(s.selected.as_deref(), Some("$land"));
+        let now = s.editor.screen_of("$land").unwrap();
+        assert!((now - to).length() < (at - to).length(), "{at:?} {now:?} {to:?}");
+    }
+    shot(&mut h, "14-input");
+    // its pane: made a node
+    h.get_by_label("Make it a node").click();
+    h.run_steps(3);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        assert_eq!(s.source.node("land").unwrap().op, "raster.read");
+        assert_eq!(s.source.node("mspa").unwrap().inputs["map"], terraflux_graph::Source::Ref("land.raster".into()));
+        assert!(s.source.inputs.is_empty());
+    }
+    // the node's menu: an input again
+    let at = h.state().session.as_ref().unwrap().editor.screen_of("land").unwrap();
+    h.event(egui::Event::PointerMoved(at));
+    h.run_steps(1);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(1);
+    }
+    h.run_steps(2);
+    h.get_by_label("Make it an input of the model").click();
+    h.run_steps(3);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        assert!(s.source.inputs.contains_key("land") && s.source.node("land").is_none());
+        assert_eq!(s.selected.as_deref(), Some("$land"));
+    }
+    // Delete: taken away, what read it reads nothing
+    h.state_mut().focus(Pane::Model);
+    h.run_steps(2);
+    h.key_press(egui::Key::Delete);
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.source.inputs.is_empty());
+    assert!(!s.source.node("mspa").unwrap().inputs.contains_key("map"));
+}
