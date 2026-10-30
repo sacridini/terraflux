@@ -66,6 +66,45 @@ pub fn add_node(m: &mut Model, r: &Registry, path: &[String], op: &str, pos: [f3
     Ok(id)
 }
 
+/// The input of a node a folder goes to, to run it once per file: its first that takes one map.
+pub fn folder_port(n: &Node, r: &Registry) -> Option<String> {
+    let sig = r.sig(&n.op)?;
+    sig.inputs.iter().find(|p| sig.per_layer(&p.name)).map(|p| p.name.clone())
+}
+
+/// Run a node on every raster of a folder: the folder read where it takes its first map, so that it (and the nodes
+/// after it that take its maps) runs once per file. The `raster.read` that feeds that input reads the folder in
+/// place of its file; else a `raster.read` of the folder is added at the node's left. The id of the node reading
+/// the folder.
+pub fn run_on_folder(m: &mut Model, r: &Registry, path: &[String], node: &str, folder: &str) -> Result<String> {
+    let n = scope_mut(m, path)?.iter().find(|n| n.id == node).cloned().ok_or_else(|| format!("no node {node:?}"))?;
+    let port = folder_port(&n, r).ok_or_else(|| format!("{} takes no map: it cannot run on a folder", n.op))?;
+    let reader = match n.inputs.get(&port) {
+        Some(Source::Ref(reference)) => match Ref::parse(reference) {
+            Ok(Ref::Port { node: from, .. }) => {
+                scope_mut(m, path)?.iter().find(|x| x.id == from && x.op == "raster.read").map(|x| x.id.clone())
+            }
+            _ => None,
+        },
+        _ => None,
+    };
+    if let Some(id) = reader {
+        set_text_param(m, path, &id, "path", folder)?;
+        return Ok(id);
+    }
+    let [x, y] = n.pos.unwrap_or([0.0, 0.0]);
+    let id = add_node(m, r, path, "raster.read", [x - 260.0, y])?;
+    let read = node_mut(m, path, &id)?;
+    read.params.insert("path".into(), folder.into());
+    read.note = Some(format!("every raster of the folder, {node} run on each, file by file"));
+    let reference = format!("{id}.raster");
+    if let Err(e) = connect(m, r, path, &reference, node, &port) {
+        scope_mut(m, path)?.retain(|x| x.id != id);
+        return Err(e);
+    }
+    Ok(id)
+}
+
 /// Add a node of the user's library to a scope: a group holding a copy of that version's body; its id (from the
 /// node's name).
 pub fn add_user_node(m: &mut Model, path: &[String], u: &UserNode, pos: [f32; 2]) -> Result<String> {
@@ -723,6 +762,30 @@ mod tests {
         m.inputs.insert("t0".into(), Input::Map { path: "a.tif".into(), band: None, nodata: None, note: None });
         m.inputs.insert("t1".into(), Input::Map { path: "b.tif".into(), band: None, nodata: None, note: None });
         m
+    }
+
+    #[test]
+    fn a_node_is_run_on_a_folder() {
+        let r = Registry::standard();
+        let mut m = Model::new("t");
+        m.nodes.push(Node::new("mspa", "landscape.mspa"));
+        m.nodes[0].pos = Some([400.0, 100.0]);
+        // a folder read where it takes its map, at its left
+        let id = run_on_folder(&mut m, &r, &[], "mspa", "tiles").unwrap();
+        assert_eq!(id, "raster_read");
+        let read = m.nodes.iter().find(|n| n.id == id).unwrap();
+        assert_eq!(read.params["path"], "tiles");
+        assert_eq!(read.pos, Some([140.0, 100.0]));
+        assert_eq!(m.nodes[0].inputs["map"], Source::Ref("raster_read.raster".into()));
+        // fed by a raster.read already: that one reads the folder
+        assert_eq!(run_on_folder(&mut m, &r, &[], "mspa", "other").unwrap(), "raster_read");
+        assert_eq!(m.nodes.len(), 2);
+        assert_eq!(m.nodes[1].params["path"], "other");
+        // an operator of rasters on disk that takes one map: also; one of no map: refused
+        m.nodes.push(Node::new("metrics", "metrics.class"));
+        assert_eq!(folder_port(&m.nodes[2], &r).as_deref(), Some("map"));
+        m.nodes.push(Node::new("t", "table.filter"));
+        assert!(run_on_folder(&mut m, &r, &[], "t", "tiles").unwrap_err().contains("takes no map"));
     }
 
     #[test]

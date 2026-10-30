@@ -264,6 +264,12 @@ result on disk next to the model (a ❄ on the canvas) and uses it instead of ru
 and by `terraflux run` too; what only it reads does not run either. A whole run of a model saved writes its outputs
 and the run's manifest (`output/manifest.json`), as `terraflux run` does, for `terraflux reproduce`.
 
+**A folder of rasters.** Any node that takes a map runs on every raster of a folder: **Run on a folder...** (in the
+Node pane, or a node's right-click menu on the canvas) reads the folder where the node takes its map. The node,
+and the nodes after it that take its maps, run as one chain, file by file. The files' names follow the maps: a
+`raster.write` after them writes a file per file (`{name}` in its path, or for files of different grids the
+file's name before its own), and the tables are gathered in one. A file that fails does not stop the others.
+
 ### Models as text
 
 A model is a graph of operators. Each node reads the model's inputs (`$name`), other nodes' outputs

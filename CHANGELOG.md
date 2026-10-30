@@ -6,6 +6,30 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- A folder of rasters goes straight into any node that takes a map, and runs through the chain file by file.
+  A `raster.read` of a folder (or a pattern) feeds a node where it takes one map. That node, and the nodes after
+  it that take its maps, run as one chain, file by file: a file is read, passed along the chain and written,
+  then let go. Before, each node ran on all the files before the next one, with every result in memory.
+  - A file that fails does not stop the others. A warning says which files failed and why; the run fails only
+    when every file does.
+  - A warning that some files give is told once, with the files that gave it.
+  - At the top level, the maps of the chain that are only written to files are not kept in memory when they
+    would take more than 2 GB.
+- "Run on a folder..." in the node pane and in a node's new right-click menu on the canvas. It reads a folder
+  where the node takes its first map: the `raster.read` that feeds that input reads the folder, else one is
+  added at the node's left.
+
+### Fixed
+- The files of a folder of different grids (tiles, basins, municipalities) keep their names through the nodes
+  run once per file. `raster.write` with `{name}` wrote `10_mspa.tif` instead of `clc_r0c0_mspa.tif`.
+- `raster.write` of maps of different grids without `{name}` in its path writes a file each, named by the map's
+  name followed by the file's name (`mspa/mspa.tif` gives `mspa/clc_r0c0_mspa.tif`). Before, it wrote one
+  file on the first map's grid.
+- The landscape metrics of rasters on disk (`metrics.patch`, `metrics.class`, `metrics.landscape`,
+  `metrics.window`, `metrics.sample`) run once per file of a folder and per band of a stack, as the operators of
+  a map do. Before, they measured only the first file, without saying so.
+
 ## [1.24.2] - 2026-10-29
 
 ### Fixed

@@ -132,20 +132,30 @@ pub struct PortSpec {
     /// setting is optional and its doc says none).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub choices: Vec<String>,
+    /// An input of rasters that takes one map (read by blocks when on disk): given many layers (a folder, a
+    /// stack), the node runs once per layer, as for a map port ([`OpSignature::per_layer`]).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub one: bool,
 }
 
 impl PortSpec {
     pub fn new(name: &str, ty: Type, doc: &str) -> Self {
-        PortSpec { name: name.to_string(), ty, required: true, doc: doc.to_string(), choices: Vec::new() }
+        PortSpec { name: name.to_string(), ty, required: true, doc: doc.to_string(), choices: Vec::new(), one: false }
     }
 
     pub fn optional(name: &str, ty: Type, doc: &str) -> Self {
-        PortSpec { name: name.to_string(), ty, required: false, doc: doc.to_string(), choices: Vec::new() }
+        PortSpec { name: name.to_string(), ty, required: false, doc: doc.to_string(), choices: Vec::new(), one: false }
     }
 
     /// The values the setting takes (texts or numbers, as written in a model).
     pub fn choices<S: ToString>(mut self, values: impl IntoIterator<Item = S>) -> Self {
         self.choices = values.into_iter().map(|v| v.to_string()).collect();
+        self
+    }
+
+    /// An input of rasters that takes one map: given many layers, the node runs once per layer.
+    pub fn one(mut self) -> Self {
+        self.one = true;
         self
     }
 }
@@ -250,11 +260,13 @@ impl OpSignature {
         self.input_spec(name).map(|p| p.ty).or(self.extra)
     }
 
-    /// Whether the input takes one map and, given many layers (a stack, a series of maps, the bands of rasters on
-    /// disk), the node runs once per layer: a map port of an operator that is not a container and does not take
-    /// its maps together.
+    /// Whether the input takes one map and, given many layers (a stack, a series of maps, the bands or the files
+    /// of rasters on disk), the node runs once per layer: a map port (or an input of rasters that takes one,
+    /// [`PortSpec::one`]) of an operator that is not a container and does not take its maps together.
     pub fn per_layer(&self, name: &str) -> bool {
-        !self.container && !self.together && self.input_type(name) == Some(Type::Map)
+        !self.container
+            && !self.together
+            && (self.input_type(name) == Some(Type::Map) || self.input_spec(name).is_some_and(|p| p.one))
     }
 
     pub fn output_spec(&self, name: &str) -> Option<&PortSpec> {

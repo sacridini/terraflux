@@ -329,7 +329,9 @@ impl Operator for Sample {
                  when the plots' coordinate system is known, as landscapemetrics).",
                 Access::Global,
             )
-            .input(PortSpec::new("map", Type::Raster, "the map of classes (or rasters on disk, read plot by plot)"))
+            .input(
+                PortSpec::new("map", Type::Raster, "the map of classes (or rasters on disk, read plot by plot)").one(),
+            )
             .input(PortSpec::new("plots", Type::Vector, "points (buffers around them) or polygons"))
             .output(PortSpec::new(
                 "table",

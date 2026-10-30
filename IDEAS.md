@@ -1075,3 +1075,81 @@ salva um nó do usuário.
   feitas").
 
 **Fase 6: o site.** O tutorial de álgebra de mapas reescrito com a linguagem nova; os templates só onde ela melhora.
+
+## Lotes e laços: processar uma pasta tem de ser o mais fácil do Terraflux
+
+Registro de 2026-10-30. Pedido do usuário: "acho que temos que melhorar muito a forma de fazer batch.run e loops
+dentro do terraflux. Acho que todo node tipo um node de mspa, por exemplo, deve ter opção de fazer batch.run ao invés
+de ter que chamar um node específico de batch.run [...] Além disso, acho bem estranho os nós que começam com "$" pois
+vc não interage com eles, não pode mover, apagar...nada. [...] Quero que a opção de processar muitos dados como uma
+pasta de rasters para um mspa, por exemplo, seja o mais fácil e intuitivo possível. Hoje em dia isso é a pior parte
+do terraflux."
+
+**O diagnóstico.** Há três formas de repetir, que não conversam:
+
+- o `batch.run`: paralelo, retoma de onde parou, um arquivo por entrada, mas um operador só, configurado por texto
+  (`params = {...}`), e o MSPA vira uma configuração de outro nó, não um nó;
+- o `control.each`: um corpo de nós, mas um elemento por vez, tudo na memória;
+- o ×N: um nó que recebe muitas camadas onde toma um mapa roda uma vez por camada. É o comportamento certo, e já
+  vale para uma pasta (`raster.read` de uma pasta dá os arquivos como camadas, lidos só quando preciso). Mas cada nó
+  roda sozinho e guarda o resultado de todos os arquivos na memória antes do próximo, e numa pasta de arquivos de
+  grades diferentes (bacias, municípios, tiles) os mapas viram uma série sem nomes: o `raster.write` com `{name}`
+  grava `10_mspa.tif` em vez de `clc_r0c0_mspa.tif`. Além disso, os operadores que tomam um raster (os
+  `metrics.*`, que leem por blocos) não rodam ×N: o `metrics.class` de uma pasta mede só o primeiro arquivo, sem
+  aviso.
+
+**A ideia: uma pasta é um dado, e qualquer nó roda sobre ela.** Sem uma opção de lote em cada nó: quem decide é o
+dado que chega. Ligar uma pasta a um nó que toma um mapa o faz rodar ×N.
+
+1. **A pasta direto no nó.** O `raster.read` de uma pasta ou de um padrão (`*.tif`) é a coleção, lida arquivo por
+   arquivo. No clique direito de um nó, **"Run on a folder..."** escolhe a pasta e põe o `raster.read` ligado à
+   primeira entrada de mapa. As entradas de raster das métricas (os `metrics.*`, que leem por blocos e tomam um
+   mapa só) também rodam ×N.
+2. **Cadeias inteiras, arquivo por arquivo.** Pasta → reclassificar → MSPA → métricas: o motor roda a cadeia ×N como
+   um pipeline por arquivo (lê, passa pela cadeia toda, grava, solta), e não nó por nó com todos os arquivos na
+   memória. Os nomes dos arquivos seguem pela cadeia. Um arquivo que falha não para os outros: o aviso diz quais e
+   por quê.
+3. **A saída sem esforço.** Um `raster.write` na cadeia grava um arquivo por entrada com o nome dela (`{name}`; sem
+   `{name}`, o nome da entrada antes do do arquivo: `mspa.tif` → `clc_r0c0_mspa.tif`). As tabelas viram uma só, com
+   a coluna da entrada (o `table.write` dela grava um CSV só).
+4. **Paralelo e retomável.** Vários arquivos ao mesmo tempo (os workers, no máximo as threads do motor); o que já foi
+   feito pulado na execução seguinte (como o `batch.run`: os arquivos gravados e o registro `.json` de cada entrada,
+   com as configurações, o tempo e a versão).
+5. **Retorno enquanto roda.** "Testar no 1º arquivo" (ctrl+enter roda a cadeia só nele e mostra no Viewer); o
+   progresso no nó (37/200); a lista das falhas com o motivo e "rodar de novo só as que falharam".
+6. **Várias pastas pareadas pelo nome** (`uso/bacia_07.tif` com `estradas/bacia_07.tif`), não pela posição; as que
+   ficaram sem par ditas.
+7. **"Processar uma pasta" na tela inicial:** a pasta, o operador, as configurações e a pasta de saída, e o modelo
+   montado (editável).
+8. **O `batch.run` convertido** nessa forma ao abrir um modelo antigo (o operador como nó, a pasta como
+   `raster.read`, a saída como `raster.write`), e o tutorial "Batch processing" reescrito. O `control.each` fica para
+   o que pede um corpo explícito (as linhas de uma tabela, as feições de um vetor).
+
+**Os nós "$" (e "@") viram nós de verdade.** Hoje as entradas do modelo são caixas presas numa coluna à esquerda do
+canvas (`editor_view.rs`, montadas de `model.inputs`): não se movem, não se apagam, não se duplicam. A entrada do
+modelo passa a ser um nó comum (`raster.read`, a pasta, um valor) com a opção "é entrada do modelo: nome ___"; quem
+roda o modelo pelo CLI, pelo Many runs ou pelo Server só troca o caminho. O mesmo para os valores de um contêiner
+(`@step`, `@item`, as entradas de um grupo): um nó "Input" no corpo, que se move, como o *Group Input* do Blender. Os
+modelos antigos abrem convertidos (um `$x` vira esse nó).
+
+**Falta decidir:** as tabelas só têm números, então a coluna da entrada numa tabela juntada é o número do fim do
+nome (o ano de `forest_2010`) ou a posição (1, 2...), não o nome do arquivo. Texto nas tabelas é uma mudança grande
+(o `Table` inteiro); por ora o registro `.json` e o relatório dão o nome de cada número.
+
+**A ordem:** (fase 1) a cadeia por arquivo, os nomes, o `raster.write` na cadeia, as falhas que não param, as
+entradas de raster ×N e o "Run on a folder..." (itens 1 a 3);
+- **Feito** (Unreleased), fase 1: no executor, `Engine::chain` acha a cadeia quando um nó recebe os arquivos de uma
+  pasta (rasters em disco de vários arquivos, sem banda escolhida) onde toma um mapa: ele e os nós depois dele que
+  tomam os seus mapas, com tudo o mais que leem já dado, e os `raster.write` dos seus mapas que gravam um arquivo
+  por arquivo (`{name}` no caminho, ou arquivos de grades diferentes). O `run_chain` roda a cadeia arquivo por
+  arquivo; o que dão é juntado como o ×N junta. Um arquivo que falha não para os outros (um aviso diz quais e por
+  quê; erro só quando todos falham), e um aviso de alguns arquivos é dito uma vez, com eles. No nível de cima, os
+  mapas só gravados em arquivos não ficam na memória quando passariam de 2 GB, e esses nós não entram no cache. Os
+  mapas de grades diferentes juntados numa série levam o nome (o item `terraflux_layer` da grade, nunca gravado),
+  então o `{name}` dá `clc_r0c0` e não `10`; o `raster.write` desses mapas sem `{name}` grava um arquivo cada.
+  As entradas de raster que tomam um mapa só (`PortSpec::one`, nos `metrics.*`) rodam ×N. No aplicativo, "Run on a
+  folder..." no painel do nó e no menu novo do clique direito num nó do canvas (`editor::run_on_folder`). Ficou de
+  fora: o `raster.terrain`, o `distance.proximity` e o `landscape.mspa_tiled`, que dão rasters em disco, não
+  rodam ×N (juntar rasters em disco por camada pede outra forma). (fase 2) o paralelo, o retomável, o registro e o
+retorno enquanto roda (itens 4 e 5); (fase 3) os nós de entrada no lugar dos `$` e `@`; (fase 4) o pareamento por
+nome, o "Processar uma pasta", a conversão do `batch.run` e o tutorial (itens 6 a 8).

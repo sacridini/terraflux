@@ -4,7 +4,7 @@
 //! the edge: as wide as they need), drag from an output to an input to connect them, click a node to edit it in
 //! the side panel, double-click a container to edit its body (another node: its map in a tab of its own), click
 //! an output to see it. Drag a connection off an input to take it away (onto another input: moved there), or
-//! right-click the input. Drag the background to select the nodes in a box (shift or ctrl and a click add a node
+//! right-click the input; right-click a node for its menu (Run on a folder...). Drag the background to select the nodes in a box (shift or ctrl and a click add a node
 //! or take it away, ctrl+A selects all, Esc none): dragging one of them moves them all. Drag with the middle or the right
 //! button to move the view, the wheel zooms around the pointer, Home fits the graph. Each node shows how it did
 //! in the last run: running, done (or taken from the cache), failed; a node with problems (an input it needs not
@@ -225,6 +225,8 @@ pub enum Action {
         node: String,
         port: String,
     },
+    /// A node run on every raster of a folder (chosen in a dialog): its menu's "Run on a folder...".
+    RunOnFolder(String),
 }
 
 /// Where the view looks: the screen offset of the graph's origin from the canvas's corner, and the points per
@@ -295,6 +297,8 @@ pub struct EditorState {
     pub pulse: Vec<(Vec<String>, String, std::time::Instant)>,
     /// A node being saved as a node of the user's library: the dialog's state.
     pub saving: Option<crate::my_nodes::Draft>,
+    /// The node whose menu is open (right-clicked).
+    menu: Option<String>,
 }
 
 /// The inputs of a node a connection may go to, offered where it was let go.
@@ -1484,6 +1488,23 @@ pub fn show(
         let b = &scene.boxes[i];
         actions.push(Action::Disconnect { node: b.key.clone(), port: b.inputs[k].name.clone() });
     }
+    // a right click on a node: its menu (elsewhere none)
+    if resp.secondary_clicked() {
+        st.menu = at.and_then(|w| match scene.hit(w, reach(cam)) {
+            Some(Hit::Head(i) | Hit::Body(i)) if !scene.boxes[i].source => Some(scene.boxes[i].key.clone()),
+            _ => None,
+        });
+    }
+    resp.context_menu(|ui| {
+        let Some(key) = st.menu.clone() else {
+            ui.close();
+            return;
+        };
+        if ui.button("Run on a folder...").on_hover_text(crate::node_view::FOLDER_HELP).clicked() {
+            actions.push(Action::RunOnFolder(key));
+            ui.close();
+        }
+    });
     if resp.double_clicked()
         && let Some(w) = at
     {

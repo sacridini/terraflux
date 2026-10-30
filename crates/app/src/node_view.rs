@@ -94,6 +94,11 @@ fn issues_of<'a>(s: &'a Session, path: &[String], id: &str) -> Vec<&'a Issue> {
         .collect()
 }
 
+/// What "Run on a folder..." does.
+pub const FOLDER_HELP: &str = "every raster of a folder through this node, file by file: it, and the nodes after it \
+     that take its maps, run once per file (a file that fails does not stop the others), each file's name kept; a \
+     raster.write after them writes a file per file, the tables are gathered in one";
+
 pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
     let path = s.editor.path.clone();
     let Some(id) = s.selected.clone() else {
@@ -234,6 +239,14 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
             .id_salt(("optional inputs", &n.op))
             .default_open(false)
             .show(ui, |ui| input_rows(ui, &folded));
+    }
+    // a folder of rasters through it: it runs once per file
+    if crate::editor::folder_port(&n, r).is_some()
+        && ui.button("Run on a folder...").on_hover_text(FOLDER_HELP).clicked()
+        && let Some(folder) = rfd::FileDialog::new().set_title("The folder of the rasters").pick_folder()
+    {
+        let folder = folder.to_string_lossy().into_owned();
+        change = Some(crate::editor::run_on_folder(&mut s.source, r, &path, &n.id, &folder).map(|_| ()));
     }
     if !own_settings.is_empty() {
         ui.separator();

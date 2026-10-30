@@ -14,7 +14,7 @@ mod io;
 pub mod lint;
 pub mod testing;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::Mutex;
 
@@ -99,6 +99,103 @@ pub fn bytes_of(v: &Value) -> usize {
             n * 16
         }
         _ => 0,
+    }
+}
+
+/// The most memory the maps of a chain run file by file only written to files may take before they are no longer
+/// kept ([`Engine::run_chain`]).
+const KEPT_BYTES: usize = 2 << 30;
+
+/// A chain of nodes run file by file ([`Engine::chain`]).
+struct Chain {
+    /// What gives the files (`node.port`, `$input`, `@value`).
+    source: String,
+    /// The files (each a layer of rasters on disk), by name.
+    files: Vec<(String, Value)>,
+    /// Its nodes, in order: the first takes the files.
+    nodes: Vec<Node>,
+}
+
+/// Whether a value is the files of a folder (rasters on disk of many files, no band chosen).
+fn of_files(v: &Value) -> bool {
+    matches!(v, Value::Raster(r) if r.images.len() > 1 && r.layers.len() > 1 && !r.picked)
+}
+
+/// The outputs of a chain's nodes that only its `raster.write`s read (not the model's outputs, `wanted`, nor any
+/// other node): by node (its place in the chain) and port.
+fn droppable(nodes: &[Node], chain: &Chain, wanted: &BTreeSet<String>) -> Vec<(usize, String)> {
+    let writes: HashSet<&str> = chain.nodes.iter().filter(|m| m.op == "raster.write").map(|m| m.id.as_str()).collect();
+    let mut readers: BTreeMap<String, Vec<&str>> = BTreeMap::new();
+    for n in nodes {
+        for r in terraflux_graph::references(n) {
+            readers.entry(r).or_default().push(n.id.as_str());
+        }
+    }
+    let mut out = Vec::new();
+    for (j, m) in chain.nodes.iter().enumerate() {
+        let from = format!("{}.", m.id);
+        for (r, by) in &readers {
+            if let Some(port) = r.strip_prefix(&from)
+                && !wanted.contains(r)
+                && by.iter().all(|b| writes.contains(b))
+            {
+                out.push((j, port.to_string()));
+            }
+        }
+    }
+    out
+}
+
+/// A `raster.write` of a chain, for a file: its path that file's ([`terraflux_ops::files::layer_path`]).
+fn written_as<'a>(node: &std::borrow::Cow<'a, Node>, name: &str) -> std::borrow::Cow<'a, Node> {
+    let mut n = node.clone().into_owned();
+    if let Some(p) = n.params.get("path").and_then(|p| p.as_str()).filter(|p| !p.starts_with(['$', '@'])) {
+        let p = terraflux_ops::files::layer_path(p, name);
+        n.params.insert("path".into(), p.into());
+    }
+    std::borrow::Cow::Owned(n)
+}
+
+/// Some names, the first few: `files a, b, c and 4 more`.
+fn listed(names: &[String]) -> String {
+    let shown = names.iter().take(5).cloned().collect::<Vec<_>>().join(", ");
+    let more = if names.len() > 5 { format!(" and {} more", names.len() - 5) } else { String::new() };
+    format!("file{} {shown}{more}", if names.len() > 1 { "s" } else { "" })
+}
+
+/// An observer around another that keeps the warnings, to tell them once for many files.
+struct Muffled<'a> {
+    inner: &'a mut dyn Observer,
+    warnings: Vec<(String, String)>,
+}
+
+impl Observer for Muffled<'_> {
+    fn node(&mut self, at: &str) {
+        self.inner.node(at)
+    }
+    fn step(&mut self, at: &str, step: usize, of: usize) {
+        self.inner.step(at, step, of)
+    }
+    fn warning(&mut self, at: &str, message: &str) {
+        self.warnings.push((at.to_string(), message.to_string()))
+    }
+    fn collected(&mut self, at: &str, step: usize, of: usize, values: &BTreeMap<String, Value>) {
+        self.inner.collected(at, step, of, values)
+    }
+    fn done(&mut self, at: &str, cached: bool) {
+        self.inner.done(at, cached)
+    }
+    fn body(&mut self, at: &str, step: usize, results: &BTreeMap<String, Outputs>) {
+        self.inner.body(at, step, results)
+    }
+    fn timed(&mut self, at: &str, seconds: f64, bytes: usize) {
+        self.inner.timed(at, seconds, bytes)
+    }
+    fn progress(&mut self, at: &str, progress: &terraflux_ops::Progress) {
+        self.inner.progress(at, progress)
+    }
+    fn cancelled(&mut self) -> bool {
+        self.inner.cancelled()
     }
 }
 
@@ -403,12 +500,24 @@ struct Env<'p> {
     kept: Option<Scope<'p>>,
     /// The fingerprints of the scope's nodes run (none: not kept, nor what depends on them).
     prints: BTreeMap<String, Option<u64>>,
+    /// The outputs of the scope's nodes run ahead, in a chain run file by file ([`Engine::chain`]).
+    fused: BTreeMap<String, Outputs>,
+    /// The scope's nodes whose outputs were not all kept (a chain's maps only written to files): not cached.
+    partial: BTreeSet<String>,
 }
 
 impl<'p> Env<'p> {
     /// The scope of a container's body, under this one: not kept.
     fn child(&'p self, carried: BTreeMap<String, Value>) -> Env<'p> {
-        Env { parent: Some(self), results: BTreeMap::new(), carried, kept: None, prints: BTreeMap::new() }
+        Env {
+            parent: Some(self),
+            results: BTreeMap::new(),
+            carried,
+            kept: None,
+            prints: BTreeMap::new(),
+            fused: BTreeMap::new(),
+            partial: BTreeSet::new(),
+        }
     }
 }
 
@@ -417,6 +526,14 @@ impl Env<'_> {
         match self.results.get(node) {
             Some(o) => o.get(port),
             None => self.parent?.port(node, port),
+        }
+    }
+
+    /// All the outputs of a node of this scope or an enclosing one.
+    fn outputs(&self, node: &str) -> Option<&Outputs> {
+        match self.results.get(node) {
+            Some(o) => Some(o),
+            None => self.parent?.outputs(node),
         }
     }
 
@@ -568,7 +685,10 @@ impl Engine {
             carried: BTreeMap::new(),
             kept: cache.map(|cache| Scope { cache, model, print: 0 }),
             prints: BTreeMap::new(),
+            fused: BTreeMap::new(),
+            partial: BTreeSet::new(),
         };
+        let wanted: BTreeSet<String> = model.outputs.values().map(|o| o.from.clone()).collect();
         let mut warnings = Vec::new();
         let ordered =
             order(&model.nodes, |n| dependencies_among(n, &among)).map_err(|e| Error::Model(e.to_string()))?;
@@ -612,9 +732,13 @@ impl Engine {
             let before = warnings.len();
             let node = &with_product(node, &model.nodes);
             let started = std::time::Instant::now();
-            let out = self.run_node(node, &env, inputs, at, obs, &mut warnings)?;
+            let out =
+                self.produce(&model.nodes, node, &mut env, inputs, at, obs, &mut warnings, &runs, Some(&wanted))?;
             obs.timed(at, started.elapsed().as_secs_f64(), out.values().map(bytes_of).sum());
-            let keep = print.is_some() && node.op != "raster.write" && !out.values().any(holds_rng);
+            let keep = print.is_some()
+                && node.op != "raster.write"
+                && !out.values().any(holds_rng)
+                && !env.partial.contains(&node.id);
             if let (Some(c), Some(p), true) = (cache, print, keep) {
                 let prefix = format!("{at}: ");
                 let ws = warnings[before..].iter().map(|w| w.strip_prefix(&prefix).unwrap_or(w).to_string()).collect();
@@ -736,9 +860,12 @@ impl Engine {
             let before = warnings.len();
             let node = &with_product(node, nodes);
             let started = std::time::Instant::now();
-            let out = self.run_node(node, env, inputs, &at, obs, warnings)?;
+            let out = self.produce(nodes, node, env, inputs, &at, obs, warnings, &|_| true, None)?;
             obs.timed(&at, started.elapsed().as_secs_f64(), out.values().map(bytes_of).sum());
-            let keep = print.is_some() && node.op != "raster.write" && !out.values().any(holds_rng);
+            let keep = print.is_some()
+                && node.op != "raster.write"
+                && !out.values().any(holds_rng)
+                && !env.partial.contains(&node.id);
             if let (Some(k), Some(p), true) = (kept, print, keep)
                 && node.op != terraflux_graph::GROUP
             {
@@ -753,6 +880,265 @@ impl Engine {
             env.results.insert(node.id.clone(), out);
         }
         Ok(())
+    }
+
+    /// A node's outputs: those of a chain run file by file it is part of ([`Engine::chain`]), else it run. `runs`:
+    /// whether a node of the scope runs at all (a run that stops at a node); `wanted`: what the model's outputs read
+    /// (at the top level; none in a body, whose chains keep every map).
+    #[allow(clippy::too_many_arguments)]
+    fn produce(
+        &self,
+        nodes: &[Node],
+        node: &Node,
+        env: &mut Env,
+        inputs: &BTreeMap<String, Value>,
+        at: &str,
+        obs: &mut dyn Observer,
+        warnings: &mut Vec<String>,
+        runs: &dyn Fn(&str) -> bool,
+        wanted: Option<&BTreeSet<String>>,
+    ) -> Result<Outputs> {
+        if let Some(out) = env.fused.remove(&node.id) {
+            return Ok(out);
+        }
+        if let Some(chain) = self.chain(nodes, node, env, inputs, at, runs) {
+            let (mut outs, partial) = self.run_chain(nodes, &chain, env, inputs, at, obs, warnings, wanted)?;
+            let mine = outs.remove(&node.id).unwrap_or_default();
+            env.fused.extend(outs);
+            env.partial.extend(partial);
+            return Ok(mine);
+        }
+        self.run_node(node, env, inputs, at, obs, warnings)
+    }
+
+    /// The chain a node begins when it is given the files of a folder (rasters on disk of many files) where it
+    /// takes one map: it and the nodes after it that take, where they take one map, what it gives (and so on),
+    /// with all else they read already given, and the `raster.write`s of their maps that write a file per file. Run
+    /// file by file ([`Engine::run_chain`]), not each node on all the files before the next. None when the node is
+    /// given another value of many layers where it takes one map (then paired with the files, layer by layer).
+    fn chain(
+        &self,
+        nodes: &[Node],
+        node: &Node,
+        env: &Env,
+        inputs: &BTreeMap<String, Value>,
+        at: &str,
+        runs: &dyn Fn(&str) -> bool,
+    ) -> Option<Chain> {
+        let sig = self.registry.sig(&node.op)?;
+        if node.bypass || sig.container {
+            return None;
+        }
+        let mut source: Option<(String, Value)> = None;
+        for (port, src) in &node.inputs {
+            let Source::Ref(r) = src else { continue };
+            if !sig.per_layer(port) {
+                continue;
+            }
+            let v = self.resolve(src, env, inputs, at).ok()?;
+            if of_files(&v) {
+                match &source {
+                    Some((s, _)) if s != r => return None,
+                    Some(_) => {}
+                    None => source = Some((r.clone(), v)),
+                }
+            } else if terraflux_ops::files::layers(&v).is_some() {
+                return None;
+            }
+        }
+        let (source, value) = source?;
+        let files = terraflux_ops::files::layers(&value)?;
+        let grids = matches!(&value, Value::Raster(r) if r.mixed);
+        let among = ids(nodes);
+        let ordered = order(nodes, |n| dependencies_among(n, &among)).ok()?;
+        let after = ordered.iter().position(|n| n.id == node.id)? + 1;
+        let mut members = vec![node.clone()];
+        let mut inside: HashSet<String> = HashSet::from([node.id.clone()]);
+        for m in &ordered[after..] {
+            if env.results.contains_key(&m.id) || !runs(&m.id) || m.bypass {
+                continue;
+            }
+            let Some(ms) = self.registry.sig(&m.op) else { continue };
+            if ms.container {
+                continue;
+            }
+            let reads =
+                |r: &str| r == source || matches!(Ref::parse(r), Ok(Ref::Port { node: n, .. }) if inside.contains(&n));
+            // a file per file: {name} in its path, or maps of different grids (no file of them all)
+            let writes = m.op == "raster.write"
+                && (grids || m.params.get("path").and_then(|p| p.as_str()).is_some_and(|p| p.contains("{name}")));
+            let (mut each, mut whole) = (false, false);
+            for (p, src) in &m.inputs {
+                let Source::Ref(r) = src else { continue };
+                if reads(r) {
+                    if ms.per_layer(p) || (writes && p == "value") {
+                        each = true;
+                    } else {
+                        whole = true;
+                    }
+                } else if ms.per_layer(p)
+                    && self
+                        .resolve(src, env, inputs, at)
+                        .ok()
+                        .is_some_and(|v| terraflux_ops::files::layers(&v).is_some())
+                {
+                    whole = true;
+                }
+            }
+            // a setting that reads the chain reads what it gathered; what was not run yet, after it
+            whole |= m.params.values().filter_map(terraflux_graph::setting_ref).any(reads);
+            let ready = terraflux_graph::references(m).iter().all(|r| match Ref::parse(r) {
+                Ok(Ref::Port { node: n, .. }) => inside.contains(&n) || env.ran(&n),
+                _ => true,
+            });
+            if each && !whole && ready {
+                inside.insert(m.id.clone());
+                members.push((*m).clone());
+            }
+        }
+        Some(Chain { source, files, nodes: members })
+    }
+
+    /// A chain run file by file: for each file, its nodes in order on it (the file read, passed along, written,
+    /// let go); what they give gathered as a node run once per layer gathers it ([`gather`]), by the files' names.
+    /// A file that fails does not stop the others (told in a warning; an error when all fail). At the top level
+    /// (`wanted`), the maps only written to files are not kept when they would take more than [`KEPT_BYTES`]:
+    /// their nodes are given back as partial, not to be kept in the cache.
+    #[allow(clippy::too_many_arguments)]
+    fn run_chain(
+        &self,
+        nodes: &[Node],
+        chain: &Chain,
+        env: &Env,
+        inputs: &BTreeMap<String, Value>,
+        at: &str,
+        obs: &mut dyn Observer,
+        warnings: &mut Vec<String>,
+        wanted: Option<&BTreeSet<String>>,
+    ) -> Result<(BTreeMap<String, Outputs>, BTreeSet<String>)> {
+        let prefix = at.strip_suffix(chain.nodes[0].id.as_str()).unwrap_or("");
+        let source = Ref::parse(&chain.source).map_err(|e| Error::Node { at: at.into(), message: e.to_string() })?;
+        let n = chain.files.len();
+        let droppable = wanted.map_or_else(Vec::new, |w| droppable(nodes, chain, w));
+        let mut drop = false;
+        let mut kept: Vec<Vec<Outputs>> = vec![Vec::new(); chain.nodes.len()];
+        let mut names: Vec<String> = Vec::with_capacity(n);
+        let mut failed: Vec<(String, Error)> = Vec::new();
+        let mut told: Vec<(String, String, Vec<String>)> = Vec::new();
+        for (i, (name, file)) in chain.files.iter().enumerate() {
+            if obs.cancelled() {
+                return Err(Error::Cancelled);
+            }
+            obs.progress(
+                at,
+                &terraflux_ops::Progress {
+                    fraction: Some(i as f64 / n as f64),
+                    text: format!("{name} ({} of {n})", i + 1),
+                },
+            );
+            // the file where the folder was
+            let mut child = env.child(BTreeMap::new());
+            let mut given = None;
+            match &source {
+                Ref::Port { node, port } => {
+                    let mut o = env.outputs(node).cloned().unwrap_or_default();
+                    o.insert(port.clone(), file.clone());
+                    child.results.insert(node.clone(), o);
+                }
+                Ref::Input(k) => {
+                    let mut x = inputs.clone();
+                    x.insert(k.clone(), file.clone());
+                    given = Some(x);
+                }
+                Ref::Carried(k) => {
+                    child.carried.insert(k.clone(), file.clone());
+                }
+            }
+            let given = given.as_ref().unwrap_or(inputs);
+            let mut muffled = Muffled { inner: &mut *obs, warnings: Vec::new() };
+            let mut error = None;
+            for m in &chain.nodes {
+                let at_m = format!("{prefix}{}", m.id);
+                let m = with_product(m, nodes);
+                let m = if m.op == "raster.write" { written_as(&m, name) } else { m };
+                let mut ws = Vec::new();
+                match self.run_node(&m, &child, given, &at_m, &mut muffled, &mut ws) {
+                    Ok(out) => {
+                        child.results.insert(m.id.clone(), out);
+                    }
+                    Err(Error::Cancelled) => return Err(Error::Cancelled),
+                    Err(e) => {
+                        error = Some(e);
+                        break;
+                    }
+                }
+            }
+            for (w_at, w) in muffled.warnings {
+                match told.iter_mut().find(|(a, t, _)| *a == w_at && *t == w) {
+                    Some((_, _, whose)) => whose.push(name.clone()),
+                    None => told.push((w_at, w, vec![name.clone()])),
+                }
+            }
+            if let Some(e) = error {
+                failed.push((name.clone(), e));
+                continue;
+            }
+            let mut outs: Vec<Outputs> =
+                chain.nodes.iter().map(|m| child.results.remove(&m.id).unwrap_or_default()).collect();
+            if names.is_empty() {
+                let bytes: usize = droppable.iter().map(|(j, p)| outs[*j].get(p).map_or(0, bytes_of)).sum();
+                drop = bytes.saturating_mul(n) > KEPT_BYTES;
+            }
+            if drop {
+                for (j, p) in &droppable {
+                    outs[*j].remove(p);
+                }
+            }
+            for (j, o) in outs.into_iter().enumerate() {
+                kept[j].push(o);
+            }
+            names.push(name.clone());
+        }
+        for (w_at, w, whose) in told {
+            let w = format!("{w} ({})", if whose.len() == n { "every file".into() } else { listed(&whose) });
+            obs.warning(&w_at, &w);
+            warnings.push(format!("{w_at}: {w}"));
+        }
+        if names.is_empty()
+            && let Some((name, e)) = failed.drain(..).next()
+        {
+            return Err(match e {
+                Error::Node { at, message } => {
+                    Error::Node { at, message: format!("{name:?} (and every other of the {n} files): {message}") }
+                }
+                e => e,
+            });
+        }
+        if !failed.is_empty() {
+            let shown: Vec<String> = failed.iter().take(5).map(|(name, e)| format!("{name} ({e})")).collect();
+            let more = if failed.len() > 5 { format!("; and {} more", failed.len() - 5) } else { String::new() };
+            let w = format!("{} of the {n} files failed, the others went on: {}{more}", failed.len(), shown.join("; "));
+            obs.warning(at, &w);
+            warnings.push(format!("{at}: {w}"));
+        }
+        let mut partial = BTreeSet::new();
+        if drop {
+            let w = format!(
+                "the maps of the {n} files written by the chain were not kept in memory (they would take more than \
+                 {} GB): see them in the files written",
+                KEPT_BYTES >> 30
+            );
+            obs.warning(at, &w);
+            warnings.push(format!("{at}: {w}"));
+            partial.extend(droppable.iter().map(|(j, _)| chain.nodes[*j].id.clone()));
+        }
+        let out = chain
+            .nodes
+            .iter()
+            .zip(kept)
+            .map(|(m, outs)| (m.id.clone(), gather(outs, &names, false, "layer")))
+            .collect();
+        Ok((out, partial))
     }
 
     fn run_node(
@@ -914,7 +1300,10 @@ impl Engine {
             });
         }
         let names: Vec<String> = many[0].1.iter().map(|(name, _)| name.clone()).collect();
-        let series = many.iter().any(|(p, _)| matches!(values.get(p), Some(Value::Series(_))));
+        // a loop's series (not maps of different grids by their names) gives a series
+        let series = many.iter().any(|(p, _)| {
+            matches!(values.get(p), Some(Value::Series(s)) if s.first().and_then(terraflux_ops::files::layer_name).is_none())
+        });
         let mut outs = Vec::with_capacity(n);
         let mut told: Vec<(String, Vec<usize>)> = Vec::new();
         for (i, name) in names.iter().enumerate() {
@@ -1243,7 +1632,8 @@ fn elements(v: Value) -> Option<Vec<(String, Value)>> {
 }
 
 /// The outputs of a node run once per layer, by output: its maps a stack of the layers' names (a series when it
-/// was given a loop's series, or when they are of different grids), its tables one table ([`tables`]), its other
+/// was given a loop's series, or when they are of different grids, each map then named,
+/// [`terraflux_ops::files::named`]), its tables one table ([`tables`]), its other
 /// values a series. An output some layers did not give is left out.
 fn gather(outs: Vec<Outputs>, names: &[String], series: bool, column: &str) -> Outputs {
     let mut gathered = Outputs::new();
@@ -1260,6 +1650,10 @@ fn gather(outs: Vec<Outputs>, names: &[String], series: bool, column: &str) -> O
                     layers: maps.iter().map(|m| m.data.clone()).collect(),
                 })
             }
+            // of different grids (the files of a folder of tiles, of regions): a series, each map with its name
+            Some(maps) if !series => Value::Series(
+                maps.iter().zip(names).map(|(m, n)| Value::Map(terraflux_ops::files::named(m, n))).collect(),
+            ),
             _ if all.iter().all(|v| matches!(v, Value::Table(_))) => Value::Table(tables(&all, names, column)),
             _ => Value::Series(all.into_iter().cloned().collect()),
         };

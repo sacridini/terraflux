@@ -1833,6 +1833,14 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
             Action::Disconnect { node, port } => {
                 crate::editor::disconnect(&mut s.source, &path, &node, &port).map(|_| true)
             }
+            Action::RunOnFolder(node) => match rfd::FileDialog::new()
+                .set_title("The folder of the rasters")
+                .pick_folder()
+            {
+                Some(folder) => crate::editor::run_on_folder(&mut s.source, r, &path, &node, &folder.to_string_lossy())
+                    .map(|_| true),
+                None => Ok(false),
+            },
         };
         match result {
             Ok(true) => {

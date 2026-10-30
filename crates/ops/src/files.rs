@@ -490,9 +490,41 @@ pub fn as_port(v: Value, want: Type) -> Result<Value> {
     }
 }
 
+/// The metadata item that names a map of a series of maps of different grids (the files of a folder run once per
+/// file, each on its own grid, make no stack to keep their names): never written to a file.
+pub const LAYER_ITEM: &str = "terraflux_layer";
+
+/// The name a map carries ([`LAYER_ITEM`]).
+pub fn layer_name(v: &Value) -> Option<&str> {
+    match v {
+        Value::Map(m) => m.grid.geo.item(LAYER_ITEM),
+        _ => None,
+    }
+}
+
+/// A map named ([`LAYER_ITEM`]).
+pub fn named(m: &Map, name: &str) -> Map {
+    let mut grid = (*m.grid).clone();
+    grid.geo.set_item(LAYER_ITEM, Some(name));
+    Map { grid: Arc::new(grid), data: m.data.clone() }
+}
+
+/// A file name of a layer's file: `{name}` in it replaced by the layer's name (the characters a file name cannot
+/// hold made `_`), or the layer's name put before the file's when it has none (`mspa/out.tif`:
+/// `mspa/clc_r0c0_out.tif`).
+pub fn layer_path(path: &str, name: &str) -> String {
+    let name = file_name(name);
+    if path.contains("{name}") {
+        return path.replace("{name}", &name);
+    }
+    let p = Path::new(path);
+    let file = p.file_name().map_or(String::new(), |f| f.to_string_lossy().into_owned());
+    p.with_file_name(format!("{name}_{file}")).to_string_lossy().into_owned()
+}
+
 /// The layers of a value, by name, where one map is taken (a node runs once per layer, `raster.write` writes a file
 /// per layer): a stack's, the bands of rasters on disk (each alone; none when one was chosen, `raster.read`'s
-/// `band`), the maps of a series (a loop's steps, named 1, 2...); none for one map.
+/// `band`), the maps of a series (by the names they carry, else a loop's steps, named 1, 2...); none for one map.
 pub fn layers(v: &Value) -> Option<Vec<(String, Value)>> {
     match v {
         Value::Stack(s) => Some(
@@ -512,7 +544,13 @@ pub fn layers(v: &Value) -> Option<Vec<(String, Value)>> {
         Value::Series(items)
             if !items.is_empty() && items.iter().all(|v| matches!(v, Value::Map(_) | Value::Raster(_))) =>
         {
-            Some(items.iter().enumerate().map(|(i, v)| ((i + 1).to_string(), v.clone())).collect())
+            Some(
+                items
+                    .iter()
+                    .enumerate()
+                    .map(|(i, v)| (layer_name(v).map_or_else(|| (i + 1).to_string(), String::from), v.clone()))
+                    .collect(),
+            )
         }
         _ => None,
     }
@@ -571,7 +609,9 @@ impl Operator for Write {
             "Write a map, a stack (a band per map), the series of maps of a loop (a band per step) or rasters on \
              disk (copied in blocks, whatever their size) to a GeoTIFF file, in the smallest type that holds the \
              values unless one is given. With {name} in the file's name, a file per layer, {name} the layer's name \
-             (mspa/{name}_mspa.tif: forest_2010_mspa.tif, forest_2020_mspa.tif...).",
+             (mspa/{name}_mspa.tif: forest_2010_mspa.tif, forest_2020_mspa.tif...). Maps of different grids (the \
+             files of a folder of tiles or regions, run one by one) make no file together: a file each, also \
+             without {name}, each one's name before the file's (mspa/mspa.tif: mspa/clc_r0c0_mspa.tif...).",
             Access::Global,
         )
         .input(PortSpec::new("value", Type::Raster, "a map, a stack, a series of maps or rasters"))
@@ -604,20 +644,20 @@ impl Operator for Write {
         };
         let value = args.get("value").ok_or_else(|| Error::msg(format!("node {:?}: connect a value", args.node)))?;
         let product: Option<String> = args.opt_param::<String>("product")?.filter(|p| !p.is_empty());
-        // a file per layer, `{name}` its name
-        if path.contains("{name}") {
+        // a file per layer, `{name}` its name; also without it for maps of different grids (the files of a
+        // folder of tiles, of regions), which make no file together: their names before the file's
+        if path.contains("{name}") || of_grids(value) {
             let each = layers(value).unwrap_or_else(|| {
                 let name = match value {
                     Value::Raster(r) => r.layers.get(r.chosen).map_or("1".into(), |l| l.name.clone()),
-                    _ => "1".into(),
+                    v => layer_name(v).unwrap_or("1").into(),
                 };
                 vec![(name, value.clone())]
             });
             let written = each
                 .iter()
                 .map(|(name, v)| {
-                    let p = path.replace("{name}", &file_name(name));
-                    write_raster(args.node, &p, v, wanted, product.as_deref()).map(Value::Text)
+                    write_raster(args.node, &layer_path(&path, name), v, wanted, product.as_deref()).map(Value::Text)
                 })
                 .collect::<Result<Vec<_>>>()?;
             return Ok(outputs([("path", Value::Series(written))]));
@@ -627,8 +667,26 @@ impl Operator for Write {
     }
 }
 
+/// Whether a value is maps of different grids: a series of them, or rasters on disk of files of different grids.
+fn of_grids(v: &Value) -> bool {
+    match v {
+        Value::Series(items) => {
+            let mut grids = items.iter().map(|x| match x {
+                Value::Map(m) => Some(&m.grid),
+                _ => None,
+            });
+            match grids.next().flatten() {
+                Some(first) => grids.any(|g| g.is_some_and(|g| !g.same_as(first))),
+                None => false,
+            }
+        }
+        Value::Raster(r) => r.mixed && r.layers.len() > 1 && !r.picked,
+        _ => false,
+    }
+}
+
 /// A layer's name as a file's: the characters a file name cannot hold made `_`.
-fn file_name(name: &str) -> String {
+pub fn file_name(name: &str) -> String {
     name.chars()
         .map(|c| if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') { '_' } else { c })
         .collect()
@@ -674,6 +732,7 @@ fn write_raster(
     // the product the values are, not that of the maps they were made from
     let mut grid = grid.clone();
     grid.geo.set_item("landschaft_product", product);
+    grid.geo.set_item(LAYER_ITEM, None);
     let raster = Raster {
         grid,
         bands: layers.into_iter().map(|(name, d)| Band { name, data: d.to_vec() }).collect(),

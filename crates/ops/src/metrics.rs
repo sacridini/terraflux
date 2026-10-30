@@ -538,7 +538,7 @@ impl Operator for Metrics {
                  one metric if asked for.",
                 Access::Global,
             )
-            .input(PortSpec::new("map", Type::Raster, "the map of classes (or rasters on disk, by blocks)"))
+            .input(PortSpec::new("map", Type::Raster, "the map of classes (or rasters on disk, by blocks)").one())
             .output(PortSpec::new("table", Type::Table, "per patch: its class, its number and the metrics"))
             .output(PortSpec::optional(
                 "patches",
@@ -557,7 +557,7 @@ impl Operator for Metrics {
                  of a row per class, and the map of one metric if asked for.",
                 Access::Global,
             )
-            .input(PortSpec::new("map", Type::Raster, "the map of classes (or rasters on disk, by blocks)"))
+            .input(PortSpec::new("map", Type::Raster, "the map of classes (or rasters on disk, by blocks)").one())
             .output(PortSpec::new("table", Type::Table, "per class: the class and the metrics"))
             .output(PortSpec::optional(
                 "map",
@@ -570,7 +570,7 @@ impl Operator for Metrics {
                  contagion, edge density, aggregation, the patches' metrics summarised... A table of one row.",
                 Access::Global,
             )
-            .input(PortSpec::new("map", Type::Raster, "the map of classes (or rasters on disk, by blocks)"))
+            .input(PortSpec::new("map", Type::Raster, "the map of classes (or rasters on disk, by blocks)").one())
             .output(PortSpec::new("table", Type::Table, "the metrics")),
         };
         let sig = settings(sig).param(PortSpec::optional(
@@ -761,7 +761,7 @@ impl Operator for Window {
                 "Landscape-level metrics in a moving window, as landscapemetrics' window_lsm: for every cell, the metrics of the landscape the window centred on it covers (cells outside the map are NA). A map per metric, in a stack. Out of core (block_rows, or rasters on disk) by strips of rows with the window's half side above and below, the same maps; those of rasters on disk written to a GeoTIFF, a band per metric.",
                 Access::Global,
             )
-            .input(PortSpec::new("map", Type::Raster, "the map of classes (or rasters on disk, by blocks)"))
+            .input(PortSpec::new("map", Type::Raster, "the map of classes (or rasters on disk, by blocks)").one())
             .output(PortSpec::new("maps", Type::Raster, "a map per metric, by its name (on disk for rasters on disk)")),
         ))
         .param(PortSpec::optional("window", Type::Integer, "the window's side in cells, odd (default 5)"))
