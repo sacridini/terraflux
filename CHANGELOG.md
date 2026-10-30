@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.25.0] - 2026-10-30
+
 ### Added
 - A folder of rasters goes straight into any node that takes a map, and runs through the chain file by file.
   A `raster.read` of a folder (or a pattern) feeds a node where it takes one map. That node, and the nodes after
