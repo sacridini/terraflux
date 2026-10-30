@@ -7503,7 +7503,7 @@
     "name": "path",
     "type": "text",
     "required": false,
-    "doc": "the file made; else a cache"
+    "doc": "the file (or folder, for a series) made; else a cache"
    }
   ],
   "access": "global",
@@ -10195,7 +10195,7 @@
  },
  {
   "name": "landscape.mspa_tiled",
-  "doc": "MSPA of a map larger than memory by overlapping tiles, GuidosToolbox's MSPA Tiling as landschaft's mspa_tiled, the same maps: MSPA of every tile (tile_size cells with an overlap), of each overlap the half nearest to each tile kept. An approximation, as GTB warns: near the seams the classes can differ from MSPA of the whole map where objects are larger than the overlap. Rasters on disk are read and written tile by tile (to path, a GeoTIFF); a map in memory gives a map.",
+  "doc": "MSPA of a map larger than memory by overlapping tiles, GuidosToolbox's MSPA Tiling as landschaft's mspa_tiled, the same maps: MSPA of every tile (tile_size cells with an overlap), of each overlap the half nearest to each tile kept. An approximation, as GTB warns: near the seams the classes can differ from MSPA of the whole map where objects are larger than the overlap. Rasters on disk are read and written tile by tile (to path, a GeoTIFF; for a folder, a file of each by its name); a map in memory gives a map.",
   "inputs": [
    {
     "name": "map",
