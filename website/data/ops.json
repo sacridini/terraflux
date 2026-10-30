@@ -349,7 +349,7 @@
  },
  {
   "name": "batch.run",
-  "doc": "An operator run on many rasters in parallel (landschaft's batch, GuidosToolbox's Batch Process): each worker reads one raster, runs the operator on it and writes what it gives to the output folder, named after the input and the operator: maps <name>_<operator>[_<output>].tif, tables .csv, texts .txt, and <name>_<operator>.json with the parameters, the files, the numbers and the time (an input whose JSON exists is skipped unless overwrite). MSPA with GuidosToolbox's naming. A row per input: ok, skipped (done before), seconds, files written; the errors in the report.",
+  "doc": "An operator run on many rasters in parallel (landschaft's batch, GuidosToolbox's Batch Process): each worker reads one raster, runs the operator on it and writes what it gives to the output folder, named after the input and the operator: maps <name>_<operator>[_<output>].tif, tables .csv, texts .txt, and <name>_<operator>.json with the parameters, the files, the numbers and the time (an input whose JSON exists is skipped unless overwrite). MSPA with GuidosToolbox's naming. A row per input: ok, skipped (done before), seconds, files written; the errors in the report. A folder given to any node that takes a map does the same, its maps seen and its settings in its pane (Make it a chain of nodes, in the app).",
   "inputs": [],
   "outputs": [
    {
@@ -10590,7 +10590,8 @@
     "name": "map",
     "type": "raster",
     "required": true,
-    "doc": "the map of classes (or rasters on disk, by blocks)"
+    "doc": "the map of classes (or rasters on disk, by blocks)",
+    "one": true
    }
   ],
   "outputs": [
@@ -10965,7 +10966,8 @@
     "name": "map",
     "type": "raster",
     "required": true,
-    "doc": "the map of classes (or rasters on disk, by blocks)"
+    "doc": "the map of classes (or rasters on disk, by blocks)",
+    "one": true
    }
   ],
   "outputs": [
@@ -11195,7 +11197,8 @@
     "name": "map",
     "type": "raster",
     "required": true,
-    "doc": "the map of classes (or rasters on disk, by blocks)"
+    "doc": "the map of classes (or rasters on disk, by blocks)",
+    "one": true
    }
   ],
   "outputs": [
@@ -11425,7 +11428,8 @@
     "name": "map",
     "type": "raster",
     "required": true,
-    "doc": "the map of classes (or rasters on disk, read plot by plot)"
+    "doc": "the map of classes (or rasters on disk, read plot by plot)",
+    "one": true
    },
    {
     "name": "plots",
@@ -12043,7 +12047,8 @@
     "name": "map",
     "type": "raster",
     "required": true,
-    "doc": "the map of classes (or rasters on disk, by blocks)"
+    "doc": "the map of classes (or rasters on disk, by blocks)",
+    "one": true
    }
   ],
   "outputs": [
@@ -19326,6 +19331,18 @@
     "type": "number",
     "required": false,
     "doc": "a no-data value replacing the files'"
+   },
+   {
+    "name": "first",
+    "type": "integer",
+    "required": false,
+    "doc": "a folder: only its first files, this many (to try the nodes after it on a few before all)"
+   },
+   {
+    "name": "workers",
+    "type": "integer",
+    "required": false,
+    "doc": "a folder whose files the nodes after it run on one by one: how many files at the same time (default the threads; fewer for large files, each in memory while it runs)"
    }
   ],
   "access": "global",
@@ -19844,7 +19861,7 @@
  },
  {
   "name": "raster.write",
-  "doc": "Write a map, a stack (a band per map), the series of maps of a loop (a band per step) or rasters on disk (copied in blocks, whatever their size) to a GeoTIFF file, in the smallest type that holds the values unless one is given. With {name} in the file's name, a file per layer, {name} the layer's name (mspa/{name}_mspa.tif: forest_2010_mspa.tif, forest_2020_mspa.tif...).",
+  "doc": "Write a map, a stack (a band per map), the series of maps of a loop (a band per step) or rasters on disk (copied in blocks, whatever their size) to a GeoTIFF file, in the smallest type that holds the values unless one is given. With {name} in the file's name, a file per layer, {name} the layer's name (mspa/{name}_mspa.tif: forest_2010_mspa.tif, forest_2020_mspa.tif...). Maps of different grids (the files of a folder of tiles or regions, run one by one) make no file together: a file each, also without {name}, each one's name before the file's (mspa/mspa.tif: mspa/clc_r0c0_mspa.tif...).",
   "inputs": [
    {
     "name": "value",
