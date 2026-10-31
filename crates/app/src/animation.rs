@@ -112,7 +112,7 @@ fn fitted((w, h): (usize, usize), max_side: usize) -> (usize, usize, usize) {
 }
 
 /// A map's values, every `step` cells, and the size they make.
-fn values(src: &Source, max_side: usize) -> Result<(Vec<f32>, usize, usize), String> {
+pub(crate) fn values(src: &Source, max_side: usize) -> Result<(Vec<f32>, usize, usize), String> {
     let (w, h) = src.size();
     if w == 0 || h == 0 {
         return Err("an empty map".into());
@@ -137,7 +137,7 @@ fn values(src: &Source, max_side: usize) -> Result<(Vec<f32>, usize, usize), Str
 }
 
 /// The font of the captions.
-fn font() -> FontRef<'static> {
+pub(crate) fn font() -> FontRef<'static> {
     FontRef::try_from_slice(include_bytes!("../assets/fonts/SourceSans3-Regular.ttf")).expect("the bundled font")
 }
 

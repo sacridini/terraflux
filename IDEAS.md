@@ -421,6 +421,17 @@ ordem de impacto (começando pelo 1 e pelo 3):
    WorldClim só dela".
 5. **Figura pronta para publicação.** Um compositor: barra de escala, norte, legenda, grade de coordenadas, DPI,
    SVG e PDF, painéis A, B e C de vários mapas na mesma figura.
+   **Feito** (Unreleased): "Figure..." no painel do Viewer (`figure.rs`): o mapa sozinho, com o comparado (nas
+   cores que dividem) ou cada camada de uma pilha ou série (até 12; a série numa coloração só), em (a), (b)... com
+   as legendas, em colunas; o título, a largura (85 mm, uma coluna; 180 mm, a página), 150 a 1200 DPI, a legenda (uma
+   só à direita quando as cores são as mesmas, senão a de cada mapa embaixo dele; classes com os nomes da legenda,
+   ou a rampa com mínimo, meio e máximo), a barra de escala (um quarto do mapa, em m ou km; em graus pela latitude
+   do centro), a seta do norte (num mapa norte para cima), as coordenadas (linhas redondas, 1-2-5, rótulos em graus
+   com hemisfério ou em metros com espaços). A figura é montada uma vez em pontos (formas) e escrita em SVG (o texto
+   como texto, a editar no Inkscape; os mapas como PNG dentro, `href` e `xlink:href`) ou em PNG pelo tiny-skia (as
+   letras como contornos da fonte, `ab_glyph`), com o `pHYs` da resolução. Conferido: o SVG lido pelo Qt (QGIS).
+   Falta: PDF (o SVG abre no Inkscape e sai em PDF), um mapa de vetores por cima, o encarte de localização, a
+   fonte escolhida, mover a legenda e a barra à mão.
 6. **Catálogo visual de dados.** Os conjuntos que o `data.download` alcança (WorldClim, SoilGrids, MapBiomas,
    GBIF...) num catálogo com prévia, resolução, período e licença, em vez de só o operador.
 7. **Abrir no QGIS.** Exportar um projeto `.qgz` (ou um GeoPackage único) com todas as saídas, já com as cores e

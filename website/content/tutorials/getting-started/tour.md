@@ -328,6 +328,14 @@ Over a map:
   model's result of one place side by side. A name shows that map, and **Copy** copies the list;
 - clicking a cell of a **stack** draws a chart of that cell's value in every layer.
 
+**Figure...**, at the top of the panel beside the map, makes a figure for a paper of the map shown: alone, beside
+the map compared, or every layer of a stack or a series as panels (a), (b)... in columns. Give it a title, the
+width (85 mm is a journal's column, 180 mm its page) and the resolution (300 or 600 DPI, as journals ask), and
+choose the legend, the scale bar (in metres or kilometres, also on a map in longitudes and latitudes), the north
+arrow and the coordinates along the edges; the preview follows. **Save PNG...** records the resolution in the file,
+so that a word processor places it at its width; **Save SVG...** keeps the text as text, to change in Inkscape or
+Illustrator (and to turn into a PDF there).
+
 A map of several layers (a stack, the steps of a loop, the bands of a raster) has **Save as GIF...** under its
 slider: the layers as an animated GIF, for a talk or a class, each with its name in its corner and its legend
 under it. The steps of a series share one set of colours, so that a value keeps its colour from step to step; the

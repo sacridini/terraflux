@@ -20,6 +20,7 @@ pub mod document_view;
 pub mod editor;
 pub mod editor_view;
 pub mod eval;
+pub mod figure;
 pub mod files_view;
 pub mod handoff;
 pub mod legend_view;

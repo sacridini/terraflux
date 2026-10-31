@@ -549,6 +549,8 @@ pub struct Session {
     pub methods_open: bool,
     /// The window of the export of the run's maps to a QGIS project.
     pub qgis: crate::qgis::Export,
+    /// A figure being composed of the map shown (the Viewer's Figure...).
+    pub figure: Option<crate::figure::Composer>,
     /// The Problems pane asked for (why a node failed).
     pub ask_problems: bool,
     /// The calculator asked for (the script of the node selected).
@@ -728,6 +730,7 @@ impl Session {
             trace_asked: None,
             methods_open: false,
             qgis: Default::default(),
+            figure: None,
             ask_problems: false,
             ask_calculator: false,
             task: None,
@@ -3374,6 +3377,7 @@ impl TerrafluxApp {
         if let Some(s) = &mut self.session {
             crate::methods::window(ui.ctx(), s, &self.registry);
             crate::qgis::window(ui.ctx(), s);
+            crate::figure::window(ui.ctx(), s);
         }
         if self.commands.is_some() {
             let all = self.command_list();

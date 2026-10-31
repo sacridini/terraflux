@@ -21,6 +21,11 @@ minor versions.
 - **This cell in every map**: a cell clicked in the Viewer or a map tab lists its value in every map of the run at
   the same place (by their coordinates; a stack's first layer, rasters' band chosen), a name showing that map,
   the list copied as text.
+- **Figure...** in the Viewer: the map shown as a figure for a paper, alone, beside the one compared, or every layer
+  of a stack or a series as panels (a), (b)... in columns: a title, the width of a journal's column or page (mm),
+  150 to 1200 DPI, the legend (one for maps of the same colours, else each map's), a scale bar in metres or
+  kilometres (also on longitudes and latitudes), a north arrow and the coordinates along the edges, previewed as it
+  is set. Saved as PNG (its resolution recorded) or as SVG, its text kept as text to edit in Inkscape or Illustrator.
 - **Export to QGIS...** (File menu, ctrl+K, and the viewer's Save output): the maps and vector layers of the run
   chosen, written to a folder (GeoTIFF, GeoPackage; a raster read from a file referred to where it is) with a QGIS
   project that opens them in Terraflux's colours: the classes as a paletted map with their names, values on the

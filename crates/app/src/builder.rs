@@ -2550,6 +2550,57 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 if gw * gh > 100_000_000 {
                     ui.label(RichText::new("on disk: read where it is shown").weak().size(11.0));
                 }
+                // the map as a figure for a paper: alone, with the one compared, or every layer of it
+                if let Some(l) = &look
+                    && ui
+                        .button("Figure...")
+                        .on_hover_text(
+                            "this map as a figure for a paper: legend, scale bar, north arrow, coordinates; PNG or SVG",
+                        )
+                        .clicked()
+                {
+                    let panel =
+                        |src: &Source, lk: &Look, legend: Option<&[terraflux_ops::legend::Class]>, caption: String| {
+                            let names = match &lk.coloring {
+                                Coloring::Classes(c) => {
+                                    c.iter().map(|(v, _)| (*v, crate::legend_view::name(lk, legend, *v))).collect()
+                                }
+                                Coloring::Continuous { .. } => Vec::new(),
+                            };
+                            crate::figure::Panel { source: src.clone(), coloring: lk.coloring.clone(), names, caption }
+                        };
+                    let legend = legend_classes.as_deref();
+                    let mut choices = vec![("this map".to_string(), vec![panel(&maps[k], l, legend, String::new())])];
+                    if let Some((src, name, Some(cl))) = &compared {
+                        // (in the colours they share)
+                        let other = Look { coloring: l.coloring.clone(), ..cl.clone() };
+                        choices.push((
+                            "this map and the one compared".into(),
+                            vec![panel(&maps[k], l, legend, main_name.clone()), panel(src, &other, None, name.clone())],
+                        ));
+                    }
+                    if maps.len() > 1 && maps.len() <= 12 {
+                        // a series' steps in one colouring; a stack's layers each in its own
+                        let mut looks: Vec<Look> = maps
+                            .iter()
+                            .map(|m| {
+                                let lk = look_of(m, palette);
+                                legend.map_or(lk.clone(), |c| crate::legend_view::apply(&lk, c))
+                            })
+                            .collect();
+                        if matches!(value, Value::Series(_))
+                            && let Some(one) = looks.iter().map(|x| x.coloring.clone()).reduce(|a, b| a.shared(&b))
+                        {
+                            for x in &mut looks {
+                                x.coloring = one.clone();
+                            }
+                        }
+                        let all =
+                            maps.iter().zip(&looks).zip(&names).map(|((m, lk), n)| panel(m, lk, legend, n.clone()));
+                        choices.push((format!("every layer ({})", maps.len()), all.collect()));
+                    }
+                    s.figure = Some(crate::figure::Composer::new(choices, String::new()));
+                }
                 if maps.len() > 1 {
                     ui.add_space(4.0);
                     let mut b = k;

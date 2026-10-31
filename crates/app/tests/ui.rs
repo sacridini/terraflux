@@ -2898,3 +2898,48 @@ fn the_maps_of_a_run_to_qgis() {
     assert_eq!(p.name, "raster_reclassify.map");
     assert!(terraflux_app::qgis::exportable(&p.value));
 }
+
+/// The Viewer's Figure...: the map shown as a figure (its preview drawn), and every layer of a raster of several.
+#[test]
+fn a_map_as_a_figure() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let r = terraflux_ops::Registry::standard();
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let path = data("pie_landuse.tif").to_string_lossy().into_owned();
+        terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into())]).unwrap();
+        terraflux_app::builder::add(s, &r, "raster.reclassify", &[("rules", "1 -> 1\n* -> 2".into())]).unwrap();
+        s.preview = Some(("raster_reclassify".into(), "map".into()));
+    }
+    h.state_mut().focus(Pane::Viewer);
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("raster_reclassify", "map").is_some()
+    });
+    drawn(&mut h);
+    h.get_by_label("Figure...").click();
+    h.run_steps(4);
+    {
+        let f = h.state().session.as_ref().unwrap().figure.as_ref().expect("the figure's window");
+        // the map shown first (of the three the rules made of the raster's bands), a column wide
+        assert_eq!(f.choices[0].0, "this map");
+        assert_eq!(f.choices[0].1.len(), 1);
+        assert_eq!((f.layout.columns, f.layout.width_mm), (1, 85.0));
+    }
+    assert!(h.query_by_label("Save PNG...").is_some() && h.query_by_label("Save SVG...").is_some());
+    shot(&mut h, "14f-figure");
+    // the raster read, of three bands: each of them a panel
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.figure = None;
+        s.preview = Some(("raster_read".into(), "raster".into()));
+    }
+    drawn(&mut h);
+    h.get_by_label("Figure...").click();
+    h.run_steps(3);
+    let f = h.state().session.as_ref().unwrap().figure.as_ref().unwrap();
+    let names: Vec<&str> = f.choices.iter().map(|c| c.0.as_str()).collect();
+    assert_eq!(names, ["this map", "every layer (3)"]);
+    assert_eq!(f.choices[1].1.len(), 3);
+}
