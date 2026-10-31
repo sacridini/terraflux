@@ -2862,3 +2862,39 @@ fn a_cell_in_every_map() {
     // a map of two layers: they make an animation
     assert!(h.query_by_label("Save as GIF...").is_some());
 }
+
+/// File > Export to QGIS: the run's maps listed, the one shown chosen, the export button counting them.
+#[test]
+fn the_maps_of_a_run_to_qgis() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let r = terraflux_ops::Registry::standard();
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let path = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
+        terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into()), ("band", "0".into())]).unwrap();
+        terraflux_app::builder::add(s, &r, "raster.reclassify", &[("rules", "1 -> 10\n* -> 0".into())]).unwrap();
+        s.preview = Some(("raster_reclassify".into(), "map".into()));
+    }
+    h.state_mut().focus(Pane::Viewer);
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("raster_reclassify", "map").is_some()
+    });
+    h.state_mut().session.as_mut().unwrap().qgis.open = true;
+    h.run_steps(3);
+    // both maps of the run listed, the one shown chosen
+    let names: Vec<String> =
+        terraflux_app::qgis::candidates(h.state().session.as_ref().unwrap()).into_iter().map(|c| c.2).collect();
+    assert_eq!(names, ["raster_read", "raster_reclassify.map"]);
+    assert!(h.query_by_label("Export 1 layer...").is_some());
+    shot(&mut h, "14e-qgis");
+    h.get_by_label("all").click();
+    h.run_steps(2);
+    assert!(h.query_by_label("Export 2 layers...").is_some());
+    // what is exported of the map shown: its palette, the classes of its look
+    let s = h.state().session.as_ref().unwrap();
+    let p = terraflux_app::qgis::pick(s, "raster_reclassify", "map").unwrap();
+    assert_eq!(p.name, "raster_reclassify.map");
+    assert!(terraflux_app::qgis::exportable(&p.value));
+}

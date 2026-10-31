@@ -36,6 +36,7 @@ pub mod phrases;
 pub mod prepare;
 pub mod prepare_view;
 pub mod problems_view;
+pub mod qgis;
 pub mod report;
 pub mod review;
 pub mod runner;

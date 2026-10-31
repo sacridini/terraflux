@@ -359,6 +359,16 @@ background) and, for maps, **As a file, and a write node in the model...**, whic
 so that the model writes it again at every run. **Save as a raster...** in the Operators pane adds such a node after
 the node selected.
 
+### Opening the results in QGIS
+
+**File > Export to QGIS...** (or **Save output > In a QGIS project...** in the viewer) lists the maps and vector
+layers of the run; tick those you want (the model's outputs and the map shown are ticked at first) and choose a
+folder. Terraflux writes each map as a GeoTIFF and each vector layer as a GeoPackage, with a QGIS project (`.qgs`)
+that opens them all, in the colours you see in Terraflux: the classes as a paletted map with their names (those of
+the legend you gave, or MSPA's), values on the same ramp from the same minimum to the same maximum. **Open in QGIS**
+opens the project. A raster read from a file is referred to where it is, not copied, and each GeoTIFF written has
+its style beside it (a `.qml` of the same name), which QGIS uses when you add the file to another project by hand.
+
 ## Common pitfalls
 
 - **Ranges that overlap or leave gaps.** `0..10 -> 1` and `10..20 -> 2` both take 10 (the first rule wins);

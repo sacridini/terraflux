@@ -21,6 +21,11 @@ minor versions.
 - **This cell in every map**: a cell clicked in the Viewer or a map tab lists its value in every map of the run at
   the same place (by their coordinates; a stack's first layer, rasters' band chosen), a name showing that map,
   the list copied as text.
+- **Export to QGIS...** (File menu, ctrl+K, and the viewer's Save output): the maps and vector layers of the run
+  chosen, written to a folder (GeoTIFF, GeoPackage; a raster read from a file referred to where it is) with a QGIS
+  project that opens them in Terraflux's colours: the classes as a paletted map with their names, values on the
+  same ramp and range, the vector layers on top, the coordinate system of the maps; a `.qml` style beside each map
+  written. **Open in QGIS** opens it.
 - **Save as GIF...**: the steps of a simulation (the Simulation pane), the maps of an input's stack, or the
   layers of a series, a stack or rasters (the Viewer) as an animated GIF, for a talk or a class. Each map in the
   colours it is shown in (a series' steps in one colouring), its step or name in its corner and its legend under

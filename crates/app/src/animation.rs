@@ -212,7 +212,7 @@ fn text_px(side: usize) -> f32 {
 }
 
 /// A number of a legend, short.
-fn short(v: f64) -> String {
+pub(crate) fn short(v: f64) -> String {
     if v == v.trunc() && v.abs() < 1e15 {
         format!("{}", v as i64)
     } else if v.abs() >= 100.0 {

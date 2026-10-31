@@ -547,6 +547,8 @@ pub struct Session {
     pub trace_asked: Option<crate::trace_view::Ask>,
     /// The window of the model's methods and citations open.
     pub methods_open: bool,
+    /// The window of the export of the run's maps to a QGIS project.
+    pub qgis: crate::qgis::Export,
     /// The Problems pane asked for (why a node failed).
     pub ask_problems: bool,
     /// The calculator asked for (the script of the node selected).
@@ -725,6 +727,7 @@ impl Session {
             run_done: 0,
             trace_asked: None,
             methods_open: false,
+            qgis: Default::default(),
             ask_problems: false,
             ask_calculator: false,
             task: None,
@@ -1760,6 +1763,14 @@ impl TerrafluxApp {
                 ui.close();
                 s.methods_open = true;
             }
+            if ui
+                .button("Export to QGIS...")
+                .on_hover_text("the run's maps and vector layers, in their colours, as a QGIS project")
+                .clicked()
+            {
+                ui.close();
+                s.qgis.open = true;
+            }
         }
     }
 
@@ -2116,6 +2127,7 @@ impl TerrafluxApp {
             action("Settings", String::new(), Do::Settings),
             action("Keyboard shortcuts", "F1".into(), Do::Shortcuts),
             action("Methods and citations: the model as a paper's methods", String::new(), Do::Methods),
+            action("Export to QGIS: the run's maps as a QGIS project", String::new(), Do::Qgis),
             action("Reset the layout", String::new(), Do::ResetLayout),
         ];
         for p in Pane::ALL {
@@ -2165,6 +2177,11 @@ impl TerrafluxApp {
             Do::Methods => {
                 if let Some(s) = &mut self.session {
                     s.methods_open = true;
+                }
+            }
+            Do::Qgis => {
+                if let Some(s) = &mut self.session {
+                    s.qgis.open = true;
                 }
             }
             Do::Wizard => self.wizard = Some(Wizard::default()),
@@ -3356,6 +3373,7 @@ impl TerrafluxApp {
         self.shortcuts_open = shortcuts;
         if let Some(s) = &mut self.session {
             crate::methods::window(ui.ctx(), s, &self.registry);
+            crate::qgis::window(ui.ctx(), s);
         }
         if self.commands.is_some() {
             let all = self.command_list();

@@ -1509,6 +1509,15 @@ pub fn geodesic_areas(v: &Vector) -> Result<Vec<f64>> {
     result.map(|_| out)
 }
 
+/// A coordinate system as WKT, from whatever GDAL reads as one (`EPSG:32651`, WKT, PROJ.4...).
+pub fn crs_wkt(input: &str) -> Result<String> {
+    let g = gdal().map_err(String::from)?;
+    let h = g.srs(input)?;
+    let w = g.wkt_of(h);
+    unsafe { (g.api.OSRDestroySpatialReference)(h) };
+    w.ok_or_else(|| format!("no WKT of {input:?}"))
+}
+
 /// Whether two coordinate systems are the same (by OGR).
 pub fn same_crs(a_wkt: &str, b_wkt: &str) -> Result<bool> {
     let g = gdal().map_err(String::from)?;

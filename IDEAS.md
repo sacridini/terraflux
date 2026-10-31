@@ -425,6 +425,16 @@ ordem de impacto (começando pelo 1 e pelo 3):
    GBIF...) num catálogo com prévia, resolução, período e licença, em vez de só o operador.
 7. **Abrir no QGIS.** Exportar um projeto `.qgz` (ou um GeoPackage único) com todas as saídas, já com as cores e
    as legendas do viewer: muitos usuários terminam o mapa lá.
+   **Feito** (Unreleased): "Export to QGIS..." (menu File, ctrl+K, e "Save output > In a QGIS project..." no
+   Viewer; `qgis.rs`): as saídas de mapa e de vetor escolhidas (de início as do modelo e a mostrada), gravadas numa
+   pasta (GeoTIFF, GeoPackage; um raster lido de arquivo referido onde está, sem cópia) com um projeto `.qgs` que as
+   abre nas cores do Viewer: as classes como mapa "paletted" com os nomes da legenda (ou do produto, do MSPA), os
+   valores numa rampa "singlebandpseudocolor" de 11 paradas (as de log espaçadas pelo log), os vetores por cima num
+   símbolo simples (cores de Okabe e Ito), o sistema de coordenadas em WKT (um código EPSG convertido pelo GDAL,
+   `terraflux_gdal::crs_wkt`), um `.qml` ao lado de cada mapa gravado. Conferido no QGIS 3.34 (PyQGIS: as camadas
+   válidas, os renderizadores, as classes, o CRS do projeto). Falta: o `.qgz` (zip), as cores e espessuras dos
+   vetores do Viewer ("Vectors over the map"), os mapas por cima com sua opacidade, a legenda contínua com rótulos
+   escolhidos, e um GeoPackage único com os rasters dentro.
 8. **O modelo como script Python do landschaft.** Um script equivalente ao modelo, para o artigo, o orientador ou
    um revisor que pede o código.
 9. **Paletas para daltônicos.** viridis e cividis à mão, e uma prévia do mapa como um daltônico o vê (deuteranopia,

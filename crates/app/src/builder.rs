@@ -2091,7 +2091,7 @@ pub enum CompareWith {
 }
 
 /// How an output is named in the viewer: a raster read by its node's name, else `node.port`.
-fn output_name(node: &str, port: &str) -> String {
+pub(crate) fn output_name(node: &str, port: &str) -> String {
     if port == "raster" { node.to_string() } else { format!("{node}.{port}") }
 }
 
@@ -2318,6 +2318,23 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                                 if let Err(e) = add_write(s, r, &node, &port, &p) {
                                     s.editor.message = Some(e);
                                 }
+                            }
+                            ui.close();
+                        }
+                        // the window of the export to QGIS, this output chosen (with the others chosen there)
+                        if inner.is_none()
+                            && value.as_ref().is_some_and(crate::qgis::exportable)
+                            && ui
+                                .button("In a QGIS project...")
+                                .on_hover_text("in its colours, with the run's other maps if you like")
+                                .clicked()
+                        {
+                            s.qgis.open = true;
+                            if s.qgis.chosen.is_none() {
+                                s.qgis.chosen = Some(Default::default());
+                            }
+                            if let Some(c) = &mut s.qgis.chosen {
+                                c.insert((node.clone(), port.clone()));
                             }
                             ui.close();
                         }

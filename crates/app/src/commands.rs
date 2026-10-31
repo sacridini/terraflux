@@ -44,6 +44,8 @@ pub enum Do {
     Shortcuts,
     /// The window of the model's methods and citations.
     Methods,
+    /// The window of the export to QGIS.
+    Qgis,
     Wizard,
     Pane(Pane),
     ResetLayout,
