@@ -747,11 +747,17 @@ enum Take {
 }
 
 /// Rules `from -> to`, one per line or separated by `;`: `from` values (`1 2 3`), ranges (`0..10`, both ends
-/// in) or `*` (every other value); `to` a number or `nan`.
+/// in) or `*` (every other value); `to` a number or `nan`. A line of three fields without `->`, `from to
+/// becomes` (`0 10 2`, `0, 10, 2` or a table's row pasted with tabs), is the range `from..to -> becomes`.
 fn rules(text: &str) -> std::result::Result<Vec<(Vec<Take>, f64)>, String> {
     let mut out = Vec::new();
     for line in text.split(['\n', ';']).map(str::trim).filter(|l| !l.is_empty()) {
-        let (from, to) = line.split_once("->").ok_or_else(|| format!("{line:?}: a rule is `from -> to`"))?;
+        let fields: Vec<&str> = line.split([' ', ',', '\t']).map(str::trim).filter(|f| !f.is_empty()).collect();
+        let (from, to) = match line.split_once("->") {
+            Some((from, to)) => (from.to_string(), to),
+            None if fields.len() == 3 => (format!("{}..{}", fields[0], fields[1]), fields[2]),
+            None => return Err(format!("{line:?}: a rule is `from -> to` (or `from to becomes`, a range)")),
+        };
         let to = match to.trim().to_lowercase().as_str() {
             "nan" | "none" | "nodata" => f64::NAN,
             t => t.parse::<f64>().map_err(|_| format!("{line:?}: {t:?} is not a number"))?,
@@ -779,8 +785,8 @@ impl Operator for Reclassify {
         OpSignature::new(
             "raster.reclassify",
             "A map's values changed by rules, one per line: `1 2 3 -> 1` (values), `0..10 -> 2` (a range, both \
-             ends in), `* -> nan` (every other value); values no rule takes stay as they are. The first rule that \
-             takes a value gives it.",
+             ends in; also written `0 10 2`, from, to, becomes), `* -> nan` (every other value); values no rule \
+             takes stay as they are. The first rule that takes a value gives it.",
             Access::Local,
         )
         .input(PortSpec::new("map", Type::Map, "the map"))
@@ -788,7 +794,8 @@ impl Operator for Reclassify {
         .param(PortSpec::new(
             "rules",
             Type::Text,
-            "the values -> their new value, a rule per line: `3 -> 1`, `1 2 -> 1`, `0..10 -> 2`, `* -> 0`, `5 -> nan`",
+            "the values -> their new value, a rule per line: `3 -> 1`, `1 2 -> 1`, `0..10 -> 2` (or `0 10 2`: from, \
+             to, becomes), `* -> 0`, `5 -> nan`",
         ))
     }
 
@@ -834,5 +841,11 @@ mod tests {
         assert_eq!(r[1], (vec![Take::Range(3.0, 5.0)], 20.0));
         assert!(r[2].1.is_nan() && r[2].0 == [Take::Rest]);
         assert!(rules("1 => 2").is_err());
+        // from, to, becomes: a range
+        let r = rules("0 10 2\n10.5, 20, nan\n-5\t-1\t7").unwrap();
+        assert_eq!(r[0], (vec![Take::Range(0.0, 10.0)], 2.0));
+        assert!(r[1].0 == [Take::Range(10.5, 20.0)] && r[1].1.is_nan());
+        assert_eq!(r[2], (vec![Take::Range(-5.0, -1.0)], 7.0));
+        assert!(rules("1 2").is_err() && rules("1 2 3 4").is_err());
     }
 }

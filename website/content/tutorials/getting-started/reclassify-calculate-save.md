@@ -65,6 +65,8 @@ The CORINE land cover around Hanover and the SRTM elevation model of Oregon from
 | `3 -> 1` | the value 3 becomes 1 |
 | `1 2 3 -> 1` | 1, 2 and 3 become 1 |
 | `0..10 -> 2` | every value from 0 to 10, **both ends included**, becomes 2 (decimals too: 4.5) |
+| `0 10 2` | the same range: three fields, from, to, becomes (a table's rows pasted, with commas or tabs, read so too) |
+| `700..inf -> 3` | 700 and every value above it becomes 3 |
 | `5 -> nan` | 5 becomes **no data** |
 | `* -> 0` | every value no rule above took becomes 0 |
 
@@ -127,9 +129,10 @@ A reclassification changes the classes, so the legend of the original map does n
 classes with a [[raster.legend]] node after it, as above.
 
 !!! app "In the application: rules as a table"
-    Select a [[raster.reclassify]] node: the Node pane shows its rules as a **table**, one row per rule (the values
-    a rule takes, `1 2 3`, `0..10` or `*`, and the value they get), with **+ a rule** and **+ every other value**
-    (a rule `* -> 0`). Beside it the classes of the map it reads are listed with their share; **A rule per class**
+    Select a [[raster.reclassify]] node: the Node pane shows its rules as a **table**, one row per rule in three
+    columns, **from**, **to** and **becomes**. A range is its start in *from* and its end in *to* (`0`, `10`,
+    `2`: from 0 to 10 becomes 2), no `..` to type; leave *to* empty for values (`1 2 3` or `*`) and write `inf`
+    in it for every value above the start. Under it **+ a rule** and **+ every other value** (a rule `* -> 0`). Beside it the classes of the map it reads are listed with their share; **A rule per class**
     fills the table with one row for each of them, ready to edit. For a continuous map it shows the range instead,
     and **4 equal ranges** writes four rules of ranges of the same width, giving 1 to 4.
 

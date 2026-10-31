@@ -2752,25 +2752,75 @@ fn other(ui: &mut Ui, v: &Value) {
     }
 }
 
-/// The rules of a reclassification as rows `(from, to)`, from its text (a rule per line or `;`).
-pub fn rule_rows(text: &str) -> Vec<(String, String)> {
-    text.split(['\n', ';'])
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .map(|l| match l.split_once("->") {
-            Some((a, b)) => (a.trim().to_string(), b.trim().to_string()),
-            None => (l.to_string(), String::new()),
-        })
-        .collect()
+/// A rule of a reclassification as the table shows it: the values it takes (`from`: a value, values, `*`, or
+/// where a range starts), where the range ends (`to`, empty for values), the value they get (`becomes`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RuleRow {
+    pub from: String,
+    pub to: String,
+    pub becomes: String,
 }
 
-/// The text of rows of rules (rows with nothing in them left out).
-pub fn rule_text(rows: &[(String, String)]) -> String {
+impl RuleRow {
+    pub fn new(from: &str, to: &str, becomes: &str) -> Self {
+        RuleRow { from: from.into(), to: to.into(), becomes: becomes.into() }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.from.trim().is_empty() && self.to.trim().is_empty() && self.becomes.trim().is_empty()
+    }
+}
+
+/// The rules of a reclassification as rows, from its text (a rule per line or `;`): `from -> becomes`, a range
+/// `a..b` its own `from` and `to`; a line of three fields without `->` (`0 10 2`) is from, to, becomes. Lines
+/// of tabs are rows as they are being written ([`rule_draft`]), their fields as typed.
+pub fn rule_rows(text: &str) -> Vec<RuleRow> {
+    let mut rows = Vec::new();
+    for line in text.split('\n') {
+        if line.contains('\t') {
+            let mut f = line.splitn(3, '\t');
+            let mut next = || f.next().unwrap_or("").to_string();
+            rows.push(RuleRow { from: next(), to: next(), becomes: next() });
+            continue;
+        }
+        for l in line.split(';').map(str::trim).filter(|l| !l.is_empty()) {
+            let fields: Vec<&str> = l.split([' ', ',']).map(str::trim).filter(|f| !f.is_empty()).collect();
+            rows.push(match l.split_once("->") {
+                Some((a, b)) => {
+                    let (a, b) = (a.trim(), b.trim());
+                    match a.split_once("..") {
+                        Some((x, y)) if !a.contains([' ', ',']) => RuleRow::new(x, y, b),
+                        _ => RuleRow::new(a, "", b),
+                    }
+                }
+                None if fields.len() == 3 => RuleRow::new(fields[0], fields[1], fields[2]),
+                None => RuleRow::new(l, "", ""),
+            });
+        }
+    }
+    rows
+}
+
+/// The text of rows of rules (rows with nothing in them left out): `from -> becomes`, or `from..to -> becomes`
+/// when the row has a `to` (`-inf..to` without a `from`: every value up to it).
+pub fn rule_text(rows: &[RuleRow]) -> String {
     rows.iter()
-        .filter(|(a, b)| !a.trim().is_empty() || !b.trim().is_empty())
-        .map(|(a, b)| format!("{} -> {}", a.trim(), b.trim()))
+        .filter(|r| !r.is_empty())
+        .map(|r| {
+            let (from, to, becomes) = (r.from.trim(), r.to.trim(), r.becomes.trim());
+            match (from.is_empty(), to.is_empty()) {
+                (_, true) => format!("{from} -> {becomes}"),
+                (true, false) => format!("-inf..{to} -> {becomes}"),
+                (false, false) => format!("{from}..{to} -> {becomes}"),
+            }
+        })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Rows as they are being written (empty ones too, their fields as typed): a line of tabs each.
+fn rule_draft(rows: &[RuleRow]) -> String {
+    rows.iter().map(|r| format!("{}\t{}\t{}", r.from, r.to, r.becomes)).collect::<Vec<_>>().join("\n")
 }
 
 /// A number as rules write it (whole numbers without a decimal point).
@@ -2864,11 +2914,12 @@ pub(crate) fn reclassify_rules(ui: &mut Ui, s: &mut Session, n: &Node, path: &[S
                         )
                         .clicked()
                     {
-                        let taken: Vec<String> = rows.iter().map(|(a, _)| a.clone()).collect();
+                        let taken: Vec<String> =
+                            rows.iter().filter(|r| r.to.trim().is_empty()).map(|r| r.from.trim().to_string()).collect();
                         for (v, _) in classes {
                             let t = number(*v);
                             if !taken.contains(&t) {
-                                rows.push((t.clone(), t));
+                                rows.push(RuleRow::new(&t, "", &t));
                             }
                         }
                         commit = true;
@@ -2877,7 +2928,7 @@ pub(crate) fn reclassify_rules(ui: &mut Ui, s: &mut Session, n: &Node, path: &[S
                     Coloring::Continuous { min, max, .. } => {
                         ui.label(
                             RichText::new(format!(
-                                "The map's values go from {} to {}: take them by ranges (from..to).",
+                                "The map's values go from {} to {}: take them by ranges (from, to).",
                                 number(*min),
                                 number(*max)
                             ))
@@ -2889,10 +2940,10 @@ pub(crate) fn reclassify_rules(ui: &mut Ui, s: &mut Session, n: &Node, path: &[S
                             .clicked()
                         {
                             let w = (max - min) / 4.0;
-                            rows.retain(|(a, b)| !a.trim().is_empty() || !b.trim().is_empty());
+                            rows.retain(|r| !r.is_empty());
                             for k in 0..4 {
                                 let (a, b) = (min + w * k as f64, if k == 3 { *max } else { min + w * (k + 1) as f64 });
-                                rows.push((format!("{}..{}", number(a), number(b)), (k + 1).to_string()));
+                                rows.push(RuleRow::new(&number(a), &number(b), &(k + 1).to_string()));
                             }
                             commit = true;
                         }
@@ -2903,19 +2954,26 @@ pub(crate) fn reclassify_rules(ui: &mut Ui, s: &mut Session, n: &Node, path: &[S
     ui.add_space(4.0);
     // the rules, a row each
     let mut gone = None;
-    egui::Grid::new(("rules", &n.id)).num_columns(4).spacing([6.0, 4.0]).show(ui, |ui| {
-        ui.label(RichText::new("the values").size(11.0).color(weak));
+    // the three fields share the pane's width ("->", the button and the gaps aside)
+    let w = ((ui.available_width() - 70.0) / 3.4).clamp(40.0, 110.0);
+    egui::Grid::new(("rules", &n.id)).num_columns(5).spacing([6.0, 4.0]).show(ui, |ui| {
+        ui.label(RichText::new("from").size(11.0).color(weak)).on_hover_text(
+            "the value the rule takes (1 2 3: several; *: every other value), or where its range starts",
+        );
+        ui.label(RichText::new("to").size(11.0).color(weak))
+            .on_hover_text("where the range ends (both ends in); empty: only the values in from");
         ui.label("");
-        ui.label(RichText::new("become").size(11.0).color(weak));
+        ui.label(RichText::new("becomes").size(11.0).color(weak)).on_hover_text("the new value (nan: no data)");
         ui.end_row();
-        for (k, (from, to)) in rows.iter_mut().enumerate() {
-            let a = ui.add(egui::TextEdit::singleline(from).desired_width(110.0).hint_text("1 2 3, 0..10 or *"));
+        for (k, r) in rows.iter_mut().enumerate() {
+            let a = ui.add(egui::TextEdit::singleline(&mut r.from).desired_width(w * 1.4).hint_text("1 2 3 or *"));
+            let b = ui.add(egui::TextEdit::singleline(&mut r.to).desired_width(w).hint_text("end"));
             ui.label("->");
-            let b = ui.add(egui::TextEdit::singleline(to).desired_width(60.0).hint_text("value"));
+            let c = ui.add(egui::TextEdit::singleline(&mut r.becomes).desired_width(w).hint_text("value"));
             if ui.small_button("x").on_hover_text("take this rule away").clicked() {
                 gone = Some(k);
             }
-            commit |= a.lost_focus() || b.lost_focus();
+            commit |= a.lost_focus() || b.lost_focus() || c.lost_focus();
             ui.end_row();
         }
     });
@@ -2925,10 +2983,10 @@ pub(crate) fn reclassify_rules(ui: &mut Ui, s: &mut Session, n: &Node, path: &[S
     }
     ui.horizontal(|ui| {
         if ui.button("+ a rule").clicked() {
-            rows.push((String::new(), String::new()));
+            rows.push(RuleRow::default());
         }
         if ui.button("+ every other value").on_hover_text("a rule `* -> 0`: what no rule above takes").clicked() {
-            rows.push(("*".into(), "0".into()));
+            rows.push(RuleRow::new("*", "", "0"));
             commit = true;
         }
     });
@@ -2936,12 +2994,16 @@ pub(crate) fn reclassify_rules(ui: &mut Ui, s: &mut Session, n: &Node, path: &[S
         .id_salt(("rules help", &n.id))
         .show(ui, |ui| {
             egui::Grid::new(("rules examples", &n.id)).num_columns(2).spacing([12.0, 2.0]).show(ui, |ui| {
+                ui.label(RichText::new("from | to | becomes").size(11.0).color(weak));
+                ui.label("");
+                ui.end_row();
                 for (rule, says) in [
-                    ("3 -> 1", "3 becomes 1"),
-                    ("1 2 3 -> 1", "1, 2 and 3 become 1"),
-                    ("0..10 -> 2", "from 0 to 10 (both in) become 2"),
-                    ("* -> 0", "every value no rule above takes becomes 0"),
-                    ("5 -> nan", "5 becomes no data"),
+                    ("3 |    | 1", "3 becomes 1"),
+                    ("1 2 3 |    | 1", "1, 2 and 3 become 1"),
+                    ("0 | 10 | 2", "from 0 to 10 (both in, decimals too) become 2"),
+                    ("700 | inf | 3", "700 and above become 3"),
+                    ("* |    | 0", "every value no rule above takes becomes 0"),
+                    ("5 |    | nan", "5 becomes no data"),
                 ] {
                     ui.label(RichText::new(rule).monospace());
                     ui.label(RichText::new(says).size(11.5));
@@ -2950,16 +3012,15 @@ pub(crate) fn reclassify_rules(ui: &mut Ui, s: &mut Session, n: &Node, path: &[S
             });
             ui.label(
                 RichText::new(
-                    "For MSPA, say: the forest's classes -> 2 and * -> 1 (the background); cells without a value \
-                     stay missing.",
+                    "For MSPA, say: the forest's classes become 2 and * becomes 1 (the background); cells without a \
+                     value stay missing. In the model's file a range is written 0..10 -> 2.",
                 )
                 .size(11.0)
                 .color(weak),
             );
         });
     // the rows as they are being written (empty ones too), until the next change of the model
-    let shown: String = rows.iter().map(|(a, b)| format!("{a} -> {b}")).collect::<Vec<_>>().join("\n");
-    s.fields.insert(key, shown);
+    s.fields.insert(key, rule_draft(&rows));
     let new = rule_text(&rows);
     (commit && new != committed).then(|| crate::editor::set_param(&mut s.source, path, &n.id, "rules", &new))
 }
@@ -3095,4 +3156,26 @@ pub fn metrics_param(
     let ordered: Vec<&str> = of_level.iter().map(|m| m.metric).filter(|m| set.contains(m)).collect();
     let text = if ordered.is_empty() { String::new() } else { serde_json::to_string(&ordered).unwrap_or_default() };
     Some(crate::editor::set_param(&mut s.source, path, &n.id, param, &text))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rules_as_rows_from_to_becomes() {
+        let rows = rule_rows("1 2 -> 10\n0..10 -> 2; * -> 0\n700 inf 3\n-5..-1 -> nan");
+        assert_eq!(rows[0], RuleRow::new("1 2", "", "10"));
+        assert_eq!(rows[1], RuleRow::new("0", "10", "2"));
+        assert_eq!(rows[2], RuleRow::new("*", "", "0"));
+        assert_eq!(rows[3], RuleRow::new("700", "inf", "3"));
+        assert_eq!(rows[4], RuleRow::new("-5", "-1", "nan"));
+        assert_eq!(rule_text(&rows), "1 2 -> 10\n0..10 -> 2\n* -> 0\n700..inf -> 3\n-5..-1 -> nan");
+        // no from: every value up to the end; empty rows left out
+        let rows = [RuleRow::new("", "10", "1"), RuleRow::default()];
+        assert_eq!(rule_text(&rows), "-inf..10 -> 1");
+        // the rows being written come back as typed, empty ones and spaces too
+        let rows = vec![RuleRow::new("1 ", "", ""), RuleRow::default(), RuleRow::new("0", "5", "2")];
+        assert_eq!(rule_rows(&rule_draft(&rows)), rows);
+    }
 }

@@ -6,6 +6,13 @@ minor versions.
 
 ## [Unreleased]
 
+### Changed
+- The rules of **raster.reclassify** are a table of three columns in the Node pane, **from**, **to** and
+  **becomes**: a range is its start and its end in two fields (`0`, `10`, `2`), no `0..10` to type; `to` left
+  empty takes only the values in from (`1 2 3`, `*`), `inf` as the end takes every value above the start. The
+  rules' text takes a line of three fields too, `0 10 2` (or a table's rows pasted, with commas or tabs), the
+  range `0..10 -> 2`; models written with `..` read as before.
+
 ## [1.27.0] - 2026-10-31
 
 ### Added
