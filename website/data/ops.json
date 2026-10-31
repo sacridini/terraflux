@@ -19350,7 +19350,7 @@
  },
  {
   "name": "raster.reclassify",
-  "doc": "A map's values changed by rules, one per line: `1 2 3 -> 1` (values), `0..10 -> 2` (a range, both ends in), `* -> nan` (every other value); values no rule takes stay as they are. The first rule that takes a value gives it.",
+  "doc": "A map's values changed by rules, one per line: `1 2 3 -> 1` (values), `0..10 -> 2` (a range, both ends in; also written `0 10 2`, from, to, becomes), `* -> nan` (every other value); values no rule takes stay as they are. The first rule that takes a value gives it.",
   "inputs": [
    {
     "name": "map",
@@ -19372,7 +19372,7 @@
     "name": "rules",
     "type": "text",
     "required": true,
-    "doc": "the values -> their new value, a rule per line: `3 -> 1`, `1 2 -> 1`, `0..10 -> 2`, `* -> 0`, `5 -> nan`"
+    "doc": "the values -> their new value, a rule per line: `3 -> 1`, `1 2 -> 1`, `0..10 -> 2` (or `0 10 2`: from, to, becomes), `* -> 0`, `5 -> nan`"
    }
   ],
   "access": "local",
