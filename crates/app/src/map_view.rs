@@ -375,6 +375,8 @@ pub struct MapView {
     pointer: Option<Vec2>,
     /// A cell marked by a cross: where the pointer is in a view beside this one (the same place).
     pub ghost: Option<Vec2>,
+    /// Features being drawn on the map (clicks add their vertices instead of picking a cell).
+    pub drawing: Option<crate::draw::Sketch>,
 }
 
 impl MapView {
@@ -724,7 +726,8 @@ impl MapView {
         if w == 0 || h == 0 {
             return None;
         }
-        if !self.fitted || response.double_clicked() {
+        // (a double click while drawing ends a feature)
+        if !self.fitted || (response.double_clicked() && self.drawing.is_none()) {
             self.zoom = (rect.width() / w as f32).min(rect.height() / h as f32).max(1e-6);
             self.center = Vec2::new(w as f32 / 2.0, h as f32 / 2.0);
             self.fitted = true;
@@ -981,6 +984,17 @@ impl MapView {
                 }
             });
         }
+        if let Some(mut sketch) = self.drawing.take() {
+            let (zoom, center) = (self.zoom, self.center);
+            crate::draw::interact(
+                &mut sketch,
+                ui,
+                &response,
+                |p| self.to_cell(rect, p),
+                |c| rect.center() + (c - center) * zoom,
+            );
+            self.drawing = Some(sketch);
+        }
         let p = response.hover_pos()?;
         let c = self.to_cell(rect, p);
         self.pointer = Some(c);
@@ -1005,7 +1019,7 @@ impl MapView {
             }
             response.clone().on_hover_text_at_pointer(text);
         }
-        if (response.clicked() || response.secondary_clicked()) && !blank {
+        if (response.clicked() || response.secondary_clicked()) && !blank && self.drawing.is_none() {
             self.picked = inside.then_some((c.y as usize, c.x as usize));
         }
         // close enough to see the cells: the one under the pointer outlined

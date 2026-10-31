@@ -146,6 +146,14 @@ params = { title = "Everything" }
     feature to read its attributes (`feature 2`, `id: 2`, `name: North`, `year: 1998`). **Maps over it** does the
     same for other maps, each with its opacity.
 
+!!! app "In the application: draw a study area"
+    **Draw on the map**, under those, draws features on the map shown: **polygons** (a click a vertex; Enter, a
+    double click or a click on the first vertex closes one), **rectangles** (a corner, then the opposite one),
+    **points** (a click each) or **lines**. Backspace takes back the last vertex, Escape the feature being drawn.
+    **Add to the model** writes them as a GeoPackage beside the model (`drawn/study_area.gpkg`, an `id` each, in
+    the map's coordinate system) and adds a [[vector.read]] node that reads it, so the model keeps them: clip by
+    them, rasterize them, sample in them as with any vector layer, and open them in QGIS.
+
 ## Burn polygons into the grid
 
 Most methods work on rasters, so polygons often have to become a map: a map of reserves for a prioritization,

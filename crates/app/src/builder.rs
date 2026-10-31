@@ -2235,6 +2235,95 @@ pub fn add_write(s: &mut Session, r: &Registry, node: &str, port: &str, path: &P
 
 /// What a node's output is: a map (with its legend), the maps of a stack or of a loop's steps one at a time, a
 /// table, or a value; with a header to show its other outputs. `salt` tells apart the panes that show outputs.
+/// Features drawn on the map shown (a study area, plots, a transect): the kind drawn, what to do, and the
+/// features written beside the model (`drawn/<name>.gpkg`) and read into it by a `vector.read` node, then drawn
+/// over the map.
+fn draw_section(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, grid: &terraflux_raster::Grid, salt: &str) {
+    use crate::draw::{Kind, Sketch};
+    theme::section(ui, "Draw on the map");
+    ui.horizontal_wrapped(|ui| {
+        for kind in Kind::ALL {
+            let on = sh.view.drawing.as_ref().is_some_and(|d| d.kind == kind);
+            // (a layer is of one kind of geometry: another kind once some are drawn, after Add or Clear)
+            let free = sh.view.drawing.as_ref().is_none_or(|d| d.features.is_empty() && d.current.is_empty());
+            if ui.add_enabled(on || free, egui::Button::selectable(on, kind.name())).clicked() && !on {
+                sh.view.drawing = Some(Sketch::new(kind));
+            }
+        }
+    });
+    let Some(d) = &mut sh.view.drawing else {
+        ui.label(
+            RichText::new("a study area, plots, a transect: drawn on the map, kept in the model").weak().size(11.0),
+        );
+        return;
+    };
+    ui.label(RichText::new(d.kind.how()).weak().size(11.0));
+    ui.label(RichText::new("Backspace takes back a vertex, Escape the feature being drawn").weak().size(11.0));
+    let n = d.features.len();
+    let mut stop = false;
+    ui.horizontal(|ui| {
+        ui.label(format!("{n} drawn"));
+        if ui.small_button("Undo").clicked() {
+            d.undo();
+        }
+        if ui.small_button("Clear").clicked() {
+            *d = Sketch::new(d.kind);
+        }
+        if ui.small_button("Stop").on_hover_text("stop drawing; what is drawn is lost").clicked() {
+            stop = true;
+        }
+    });
+    if stop {
+        sh.view.drawing = None;
+    }
+    let Some(d) = &sh.view.drawing else { return };
+    let id = egui::Id::new(("drawn name", salt));
+    let mut name = ui.data(|m| m.get_temp::<String>(id)).unwrap_or_else(|| "study_area".into());
+    ui.horizontal(|ui| {
+        ui.label("Name");
+        ui.add(egui::TextEdit::singleline(&mut name).desired_width(140.0));
+    });
+    let name: String = name.chars().map(|c| if c.is_alphanumeric() || c == '-' { c } else { '_' }).collect();
+    ui.data_mut(|m| m.insert_temp(id, name.clone()));
+    let add = ui
+        .add_enabled(n > 0 && !name.is_empty(), egui::Button::new("Add to the model"))
+        .on_hover_text("written as a GeoPackage beside the model (drawn/), read by a vector.read node");
+    if !add.clicked() {
+        return;
+    }
+    // beside the model (a name not taken), or where asked when it is not saved yet
+    let path = match s.path.as_ref().and_then(|p| p.parent()) {
+        Some(dir) => {
+            let mut p = dir.join("drawn").join(format!("{name}.gpkg"));
+            let mut k = 2;
+            while p.exists() {
+                p = dir.join("drawn").join(format!("{name}_{k}.gpkg"));
+                k += 1;
+            }
+            Some(p)
+        }
+        None => rfd::FileDialog::new()
+            .set_title("Save the features drawn")
+            .add_filter("GeoPackage", &["gpkg"])
+            .set_file_name(format!("{name}.gpkg"))
+            .save_file(),
+    };
+    let Some(path) = path else { return };
+    let result = crate::draw::write(d, grid, &path).and_then(|()| add_file(s, r, &path, None));
+    match result {
+        Ok(node) => {
+            s.notice = Some((
+                format!("{n} {} drawn: {} (node {node})", d.kind.name(), path.display()),
+                std::time::Instant::now(),
+            ));
+            // drawn over the map once it is read
+            sh.overlays.push((node, "vector".into(), Default::default()));
+            sh.view.drawing = None;
+        }
+        Err(e) => s.notice = Some((format!("not added: {e}"), std::time::Instant::now())),
+    }
+}
+
 pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: &str) -> Option<Hover> {
     let (node, port) = (sh.node.clone(), sh.port.clone());
     // a node of a group's body: named by its place in the group, its own outputs to choose from (the group's
@@ -2902,6 +2991,8 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                         });
                     }
                 }
+                ui.add_space(8.0);
+                draw_section(ui, s, r, sh, maps[k].grid(), salt);
             });
         });
     let mut overlays: Vec<crate::vector_tiles::Overlay> = plot_vectors

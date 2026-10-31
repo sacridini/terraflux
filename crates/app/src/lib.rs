@@ -17,6 +17,7 @@ pub mod computers;
 pub mod diagnose;
 pub mod document;
 pub mod document_view;
+pub mod draw;
 pub mod editor;
 pub mod editor_view;
 pub mod eval;

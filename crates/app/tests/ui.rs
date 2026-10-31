@@ -2943,3 +2943,77 @@ fn a_map_as_a_figure() {
     assert_eq!(names, ["this map", "every layer (3)"]);
     assert_eq!(f.choices[1].1.len(), 3);
 }
+
+/// Draw on the map: a polygon clicked on the Viewer's map, closed on its first vertex, added to the model as a
+/// GeoPackage beside it read by a vector.read node.
+#[test]
+fn a_study_area_drawn_on_the_map() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let r = terraflux_ops::Registry::standard();
+    let dir = tmp("drawn-model");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    // a model saved (its folder takes what is drawn), then edited
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source.save(dir.join("model.toml")).unwrap();
+        s.path = Some(dir.join("model.toml"));
+    }
+    h.run_steps(3);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let path = data("pie_landuse.tif").to_string_lossy().into_owned();
+        terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into()), ("band", "0".into())]).unwrap();
+        s.preview = Some(("raster_read".into(), "raster".into()));
+    }
+    h.state_mut().focus(Pane::Viewer);
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("raster_read", "raster").is_some()
+    });
+    drawn(&mut h);
+    // (scrolled to, at the bottom of the panel beside the map)
+    h.get_by_label("polygons").scroll_to_me();
+    h.run_steps(3);
+    h.get_by_label("polygons").click();
+    h.run_steps(2);
+    assert!(h.state().session.as_ref().unwrap().preview_view.drawing.is_some());
+    let rect = h.state().session.as_ref().unwrap().preview_view.rect().unwrap();
+    let c = rect.center();
+    let click = |h: &mut Harness<TerrafluxApp>, at: egui::Pos2| {
+        h.event(egui::Event::PointerMoved(at));
+        h.run_steps(1);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+            h.run_steps(1);
+        }
+        // (apart: not a double click)
+        h.run_steps(30);
+    };
+    for v in [egui::vec2(-60.0, -40.0), egui::vec2(70.0, -30.0), egui::vec2(20.0, 60.0)] {
+        click(&mut h, c + v);
+    }
+    assert_eq!(h.state().session.as_ref().unwrap().preview_view.drawing.as_ref().unwrap().current.len(), 3);
+    shot(&mut h, "14g-drawing");
+    // a click on the first vertex closes it
+    click(&mut h, c + egui::vec2(-60.0, -40.0));
+    assert_eq!(h.state().session.as_ref().unwrap().preview_view.drawing.as_ref().unwrap().features.len(), 1);
+    // (scrolled to, at the bottom of the panel beside the map)
+    h.get_by_label("Add to the model").scroll_to_me();
+    h.run_steps(3);
+    h.get_by_label("Add to the model").click();
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.preview_view.drawing.is_none(), "{:?}", s.notice);
+    let file = dir.join("drawn").join("study_area.gpkg");
+    assert!(file.exists(), "{:?}", s.notice);
+    let v = terraflux_gdal::read_vector(&file, None).unwrap();
+    assert_eq!(v.len(), 1);
+    assert!(s.source.nodes.iter().any(|n| n.op == "vector.read"), "the node that reads it");
+}

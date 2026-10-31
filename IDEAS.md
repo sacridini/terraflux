@@ -419,6 +419,14 @@ ordem de impacto (começando pelo 1 e pelo 3):
 4. **Desenhar no mapa.** Um retângulo ou polígono como a área de estudo (o recorte e a região dos downloads do
    `data.download`), pontos de amostragem, áreas protegidas propostas para os cenários: "desenhe a área e baixe o
    WorldClim só dela".
+   **Feito** (Unreleased): "Draw on the map" no painel do Viewer (`draw.rs`, `MapView::drawing`): polígonos (um
+   clique por vértice; Enter, duplo clique ou um clique no primeiro vértice fecha), retângulos (dois cantos),
+   pontos e linhas, com Backspace (desfaz um vértice) e Escape; um clique desenha em vez de escolher a célula, e o
+   duplo clique não reenquadra. "Add to the model" grava um GeoPackage ao lado do modelo (`drawn/<nome>.gpkg`, um
+   `id` por feição, no sistema de coordenadas do mapa; um EPSG convertido pelo GDAL) e põe um `vector.read` dele no
+   modelo, desenhado por cima do mapa. Falta: o recorte de um download do `data.download` pela área desenhada,
+   editar uma feição já desenhada (mover vértices), atributos digitados, o preenchimento de polígonos côncavos
+   (hoje só o contorno), e desenhar sobre o mapa de uma aba de mapa (hoje no Viewer).
 5. **Figura pronta para publicação.** Um compositor: barra de escala, norte, legenda, grade de coordenadas, DPI,
    SVG e PDF, painéis A, B e C de vários mapas na mesma figura.
    **Feito** (Unreleased): "Figure..." no painel do Viewer (`figure.rs`): o mapa sozinho, com o comparado (nas
