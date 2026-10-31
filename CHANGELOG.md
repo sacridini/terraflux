@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.27.0] - 2026-10-31
+
 ### Added
 - Modern themes: **Slate** (dark), **Paper** (light, in the colours and the font of the website, Source Sans 3)
   and **Canopy**, beside the classic ones, kept as they were. Rounded tabs and panes, the Node pane in cards
