@@ -1126,7 +1126,7 @@ pub fn legend(ui: &mut Ui, coloring: &Coloring, counts: &[(f64, usize)], names: 
             for (col, name, n) in legend_lines(c, counts, names) {
                 ui.horizontal(|ui| {
                     let (r, _) = ui.allocate_exact_size(Vec2::splat(12.0), Sense::hover());
-                    ui.painter().rect_filled(r, 2.0, col);
+                    ui.painter().rect_filled(r, 2.0, crate::palette::seen(col));
                     // the count on the right, the name in what is left (cut short when long)
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(egui::RichText::new(n.to_string()).weak().monospace());
@@ -1146,7 +1146,7 @@ pub fn legend(ui: &mut Ui, coloring: &Coloring, counts: &[(f64, usize)], names: 
                 ui.painter().rect_filled(
                     Rect::from_min_max(Pos2::new(x0, r.top()), Pos2::new(x1, r.bottom())),
                     0.0,
-                    ramp.colour(i as f32 / (n - 1) as f32),
+                    crate::palette::seen(ramp.colour(i as f32 / (n - 1) as f32)),
                 );
             }
             let scale = if *log { "   (logarithmic)" } else { "" };

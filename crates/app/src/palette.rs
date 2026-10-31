@@ -62,9 +62,18 @@ pub enum Ramp {
     Vegetation,
     /// Dark to red: Zonation's priority ranks (the top fraction red), as landschaft's.
     Rank,
+    /// Cividis: blue to yellow, the same to readers with any colour vision (Nuñez et al. 2018).
+    Cividis,
+    /// Orange to white to purple, centred on 0 (ColorBrewer's PuOr): a diverging ramp read by colour-blind readers.
+    PurpleOrange,
 }
 
 impl Ramp {
+    /// Whether the ramp is centred on 0 (values on both sides of it).
+    pub fn diverging(self) -> bool {
+        matches!(self, Ramp::Diverging | Ramp::PurpleOrange)
+    }
+
     /// The colour at `t` in [0, 1].
     pub fn colour(self, t: f32) -> Color32 {
         let stops: &[[f32; 3]] = match self {
@@ -101,6 +110,25 @@ impl Ramp {
                 [215.0, 48.0, 39.0],
                 [165.0, 0.0, 38.0],
             ],
+            // viridisLite's cividis(6)
+            Ramp::Cividis => &[
+                [0.0, 32.0, 77.0],
+                [49.0, 68.0, 107.0],
+                [102.0, 105.0, 112.0],
+                [149.0, 143.0, 120.0],
+                [203.0, 186.0, 105.0],
+                [255.0, 234.0, 70.0],
+            ],
+            // PuOr (ColorBrewer, 7 classes), orange for the lowest
+            Ramp::PurpleOrange => &[
+                [179.0, 88.0, 6.0],
+                [241.0, 163.0, 64.0],
+                [254.0, 224.0, 182.0],
+                [247.0, 247.0, 247.0],
+                [216.0, 218.0, 235.0],
+                [153.0, 142.0, 195.0],
+                [84.0, 39.0, 136.0],
+            ],
             // RdYlGn (ColorBrewer)
             Ramp::Vegetation => &[
                 [165.0, 0.0, 38.0],
@@ -122,6 +150,87 @@ fn along(stops: &[[f32; 3]], t: f32) -> Color32 {
     let f = t - i as f32;
     let c: Vec<u8> = (0..3).map(|k| (stops[i][k] + f * (stops[i + 1][k] - stops[i][k])).round() as u8).collect();
     Color32::from_rgb(c[0], c[1], c[2])
+}
+
+/// How the maps are seen: as they are, or as a reader with a colour vision deficiency sees them (to check a
+/// figure before it is published).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Vision {
+    #[default]
+    Normal,
+    /// No red cones (about 1% of men).
+    Protanopia,
+    /// No green cones (about 1% of men; anomalous green vision, 5%, sees between).
+    Deuteranopia,
+    /// No blue cones (rare).
+    Tritanopia,
+}
+
+impl Vision {
+    pub const ALL: [Vision; 4] = [Vision::Normal, Vision::Protanopia, Vision::Deuteranopia, Vision::Tritanopia];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Vision::Normal => "normal colour vision",
+            Vision::Protanopia => "protanopia (red-blind)",
+            Vision::Deuteranopia => "deuteranopia (green-blind)",
+            Vision::Tritanopia => "tritanopia (blue-blind)",
+        }
+    }
+
+    /// Machado, Oliveira & Fernandes (2009)'s matrices at full severity, on linear RGB.
+    fn matrix(self) -> Option<[[f32; 3]; 3]> {
+        match self {
+            Vision::Normal => None,
+            Vision::Protanopia => Some([
+                [0.152286, 1.052583, -0.204868],
+                [0.114503, 0.786281, 0.099216],
+                [-0.003882, -0.048116, 1.051998],
+            ]),
+            Vision::Deuteranopia => {
+                Some([[0.367322, 0.860646, -0.227968], [0.280085, 0.672501, 0.047413], [-0.011820, 0.042940, 0.968881]])
+            }
+            Vision::Tritanopia => Some([
+                [1.255528, -0.076749, -0.178779],
+                [-0.078411, 0.930809, 0.147602],
+                [0.004733, 0.691367, 0.303900],
+            ]),
+        }
+    }
+
+    /// A colour as this vision sees it.
+    pub fn see(self, c: Color32) -> Color32 {
+        let Some(m) = self.matrix() else { return c };
+        let lin = |u: u8| {
+            let x = u as f32 / 255.0;
+            if x <= 0.04045 { x / 12.92 } else { ((x + 0.055) / 1.055).powf(2.4) }
+        };
+        let enc = |x: f32| {
+            let x = x.clamp(0.0, 1.0);
+            let y = if x <= 0.0031308 { x * 12.92 } else { 1.055 * x.powf(1.0 / 2.4) - 0.055 };
+            (y * 255.0).round() as u8
+        };
+        let v = [lin(c.r()), lin(c.g()), lin(c.b())];
+        let o: Vec<u8> = m.iter().map(|row| enc(row[0] * v[0] + row[1] * v[1] + row[2] * v[2])).collect();
+        Color32::from_rgba_unmultiplied(o[0], o[1], o[2], c.a())
+    }
+}
+
+/// The vision the application draws its maps for (every map, legend and picture, until set back).
+static VISION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+pub fn vision() -> Vision {
+    Vision::ALL[VISION.load(std::sync::atomic::Ordering::Relaxed) as usize % 4]
+}
+
+pub fn set_vision(v: Vision) {
+    let k = Vision::ALL.iter().position(|x| *x == v).unwrap_or(0) as u8;
+    VISION.store(k, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// A colour as the application's vision sees it.
+pub fn seen(c: Color32) -> Color32 {
+    vision().see(c)
 }
 
 /// How a map is coloured.
@@ -239,6 +348,8 @@ impl Coloring {
     pub fn key(&self) -> u64 {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
+        // (another vision: other textures)
+        (vision() as u8).hash(&mut h);
         match self {
             Coloring::Classes(c) => {
                 0u8.hash(&mut h);
@@ -304,10 +415,10 @@ impl Coloring {
         if v.is_nan() {
             return Color32::TRANSPARENT;
         }
-        match self {
+        seen(match self {
             Coloring::Classes(c) => c.iter().find(|(k, _)| *k == v).map_or(Color32::GRAY, |(_, col)| *col),
             Coloring::Continuous { min, max, ramp, log } => ramp.colour(Coloring::position(*min, *max, *log, v)),
-        }
+        })
     }
 }
 
@@ -331,7 +442,7 @@ impl Lut {
             Coloring::Continuous { min, max, ramp, log } => {
                 let mut t = Box::new([Color32::BLACK; 256]);
                 for (i, c) in t.iter_mut().enumerate() {
-                    *c = ramp.colour(i as f32 / 255.0);
+                    *c = seen(ramp.colour(i as f32 / 255.0));
                 }
                 Lut { classes: None, ramp: Some((*min, *max, *log, t)) }
             }
@@ -381,6 +492,32 @@ pub fn image(values: &[f64], width: usize, height: usize, max_side: usize, color
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn colours_as_colour_blind_readers_see_them() {
+        let (red, green) = (Color32::from_rgb(213, 94, 0), Color32::from_rgb(0, 158, 115));
+        // grey stays grey (each matrix's rows sum to 1), and the normal vision changes nothing
+        for v in Vision::ALL {
+            let g = v.see(Color32::from_rgb(128, 128, 128));
+            assert!([g.r(), g.g(), g.b()].iter().all(|c| c.abs_diff(128) <= 1), "{v:?} {g:?}");
+        }
+        assert_eq!(Vision::Normal.see(red), red);
+        // red and green come closer to a red-blind and a green-blind reader, not to a blue-blind one as much
+        let gap = |a: Color32, b: Color32| {
+            [(a.r(), b.r()), (a.g(), b.g()), (a.b(), b.b())].iter().map(|(x, y)| x.abs_diff(*y) as u32).sum::<u32>()
+        };
+        let before = gap(red, green);
+        for v in [Vision::Protanopia, Vision::Deuteranopia] {
+            assert!(gap(v.see(red), v.see(green)) < before / 2, "{v:?}");
+        }
+        // the transparency kept
+        assert_eq!(Vision::Tritanopia.see(Color32::from_rgba_unmultiplied(10, 200, 30, 90)).a(), 90);
+        // the colour-blind ramps: cividis from blue to yellow, PuOr from orange to purple through white
+        assert_eq!(Ramp::Cividis.colour(0.0), Color32::from_rgb(0, 32, 77));
+        assert_eq!(Ramp::Cividis.colour(1.0), Color32::from_rgb(255, 234, 70));
+        assert_eq!(Ramp::PurpleOrange.colour(0.5), Color32::from_rgb(247, 247, 247));
+        assert!(Ramp::PurpleOrange.diverging() && !Ramp::Cividis.diverging());
+    }
 
     #[test]
     fn two_maps_compared_share_their_colours() {

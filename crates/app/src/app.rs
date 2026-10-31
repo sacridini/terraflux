@@ -1834,6 +1834,22 @@ impl TerrafluxApp {
             ui.close();
         }
         ui.separator();
+        // the maps as a reader with a colour vision deficiency sees them
+        ui.menu_button("Colour vision", |ui| {
+            ui.label(
+                RichText::new("every map and legend drawn as this reader sees them, to check a figure")
+                    .weak()
+                    .size(11.0),
+            );
+            let now = crate::palette::vision();
+            for v in crate::palette::Vision::ALL {
+                if ui.radio(now == v, v.name()).clicked() {
+                    crate::palette::set_vision(v);
+                    ui.close();
+                }
+            }
+        });
+        ui.separator();
         if ui.add(egui::Button::new("Commands...").shortcut_text(format!("{c}K"))).clicked() {
             self.commands = Some(Default::default());
             ui.close();
@@ -1859,6 +1875,16 @@ impl TerrafluxApp {
             ui.label(RichText::new(env!("CARGO_PKG_VERSION")).weak().size(11.0))
                 .on_hover_text("Terraflux's version (its updates: ⚙, the settings)");
             self.update_strip(ui);
+            // (maps seen as a colour-blind reader sees them: said, and undone in a click)
+            let vision = crate::palette::vision();
+            if vision != crate::palette::Vision::Normal
+                && ui
+                    .button(RichText::new(format!("seen with {} · back to normal", vision.name())).color(theme::accent()).size(11.5))
+                    .on_hover_text("back to normal colour vision (View > Colour vision)")
+                    .clicked()
+            {
+                crate::palette::set_vision(crate::palette::Vision::Normal);
+            }
             ui.add_space(6.0);
             ui.menu_button("File", |ui| self.file_menu(ui, &mut save));
             ui.menu_button("Templates", |ui| self.templates_menu(ui));

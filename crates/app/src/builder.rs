@@ -383,9 +383,11 @@ pub enum Palette {
 }
 
 /// The ramps a map can be shown in by hand, by name.
-pub const RAMPS: [(&str, Ramp); 6] = [
+pub const RAMPS: [(&str, Ramp); 8] = [
     ("viridis", Ramp::Viridis),
+    ("cividis (for colour-blind readers)", Ramp::Cividis),
     ("blue to red, centred on 0", Ramp::Diverging),
+    ("orange to purple, centred on 0 (for colour-blind readers)", Ramp::PurpleOrange),
     ("terrain", Ramp::Terrain),
     ("grey", Ramp::Grey),
     ("red to green", Ramp::Vegetation),
@@ -452,8 +454,8 @@ impl Palette {
             Palette::Chosen(r, log) => {
                 // centred on 0 for the diverging ramp, over the percentiles for the others
                 let coloring = match (r, log, &auto.coloring) {
-                    (Ramp::Diverging, false, Coloring::Continuous { ramp: Ramp::Diverging, .. }) => {
-                        auto.coloring.clone()
+                    (r, false, Coloring::Continuous { ramp: Ramp::Diverging, .. }) if r.diverging() => {
+                        auto.coloring.clone().with_ramp(r)
                     }
                     _ => Coloring::continuous(values, r, log),
                 };

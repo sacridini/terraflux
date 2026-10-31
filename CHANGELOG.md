@@ -18,6 +18,10 @@ minor versions.
   Terraflux, which reproduces GuidosToolbox (Vogt & Riitters, 2017)."); the model step by step; the references
   in the APA style (those of the website's Cite Terraflux, and the nodes' own), copied, or saved as BibTeX or RIS.
 
+- Colour-blind readers: the ramps **cividis** and **orange to purple, centred on 0** (ColorBrewer's PuOr) in the
+  Viewer's colours, and **View > Colour vision**, every map, legend and picture drawn as a reader with
+  protanopia, deuteranopia or tritanopia sees them (Machado et al. 2009), said in the bar at the top until set back.
+
 ### Changed
 - The rules of **raster.reclassify** are a table of three columns in the Node pane, **from**, **to** and
   **becomes**: a range is its start and its end in two fields (`0`, `10`, `2`), no `0..10` to type; `to` left
