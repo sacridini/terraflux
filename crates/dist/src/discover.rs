@@ -3,7 +3,7 @@
 //! code that does not give the code away; a worker with the same code listens for that beacon. Networks that
 //! do not carry broadcasts (some offices' Wi-Fi) need the coordinator's address typed instead.
 
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -38,19 +38,22 @@ pub fn hostname() -> String {
 }
 
 /// Say, every two seconds until the task is stopped, that a coordinator of this code listens on `port` (the
-/// beacons go to the port `to`).
-pub fn announce(code: &Code, port: u16, to: u16) -> Result<tokio::task::JoinHandle<()>> {
+/// beacons go to the port `to`). A coordinator listening on this computer only (`on` a loopback address) says it
+/// to this computer only: no socket open to the networks (none for the firewall to ask about).
+pub fn announce(code: &Code, port: u16, to: u16, on: IpAddr) -> Result<tokio::task::JoinHandle<()>> {
+    let local = on.is_loopback();
     let s = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
-    s.set_broadcast(true)?;
+    s.set_broadcast(!local)?;
     s.set_nonblocking(true)?;
-    s.bind(&SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)).into())?;
+    let from = if local { Ipv4Addr::LOCALHOST } else { Ipv4Addr::UNSPECIFIED };
+    s.bind(&SocketAddr::from((from, 0)).into())?;
     let socket = UdpSocket::from_std(s.into())?;
     let b = Beacon { terraflux: crate::coordinator::VERSION.into(), port, name: hostname(), beacon: code.beacon() };
     let bytes = serde_json::to_vec(&b)?;
     Ok(tokio::spawn(async move {
         let targets = [SocketAddrV4::new(Ipv4Addr::BROADCAST, to), SocketAddrV4::new(Ipv4Addr::LOCALHOST, to)];
         loop {
-            for t in targets {
+            for t in targets.iter().copied().filter(|t| !local || t.ip().is_loopback()) {
                 let _ = socket.send_to(&bytes, t).await;
             }
             tokio::time::sleep(Duration::from_secs(2)).await;

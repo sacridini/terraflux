@@ -912,37 +912,59 @@ fn key_button(ui: &Ui, text: &str) -> egui::Button<'static> {
 
 /// The line at the top: the server and its model; a new conversation, the server's settings.
 fn bar(ui: &mut Ui, c: &mut Chat) {
-    ui.horizontal(|ui| {
-        let st = crate::settings::get();
-        let chosen = Chat::provider();
-        let mut k = st.provider;
-        egui::ComboBox::from_id_salt("assistant provider")
-            .selected_text(chosen.as_ref().map_or("Choose a server...".to_string(), |p| p.name.clone()))
-            .width(200.0)
-            .show_ui(ui, |ui| {
-                for (i, p) in st.providers.iter().enumerate() {
-                    ui.selectable_value(&mut k, Some(i), &p.name);
+    // its buttons at the right first, the server and its model in the room left (cut short when it is small, on a
+    // row of its own when there is next to none)
+    let below = ui
+        .horizontal(|ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.selectable_label(c.setup, "⚙").on_hover_text("the server's settings").clicked() {
+                    c.setup = !c.setup;
                 }
-            });
-        if k != st.provider {
-            crate::settings::update(|s| s.provider = k);
-            c.tested.clear();
-            c.listed.clear();
-            c.list_error = None;
-            c.key_text.clear();
-        }
-        if let Some(p) = &chosen {
-            ui.label(mono_small(ui, &p.model).weak());
-        }
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.selectable_label(c.setup, "⚙").on_hover_text("the server's settings").clicked() {
-                c.setup = !c.setup;
-            }
-            if ui.button("New").on_hover_text("a new conversation").clicked() {
-                c.clear();
+                if ui.button("New").on_hover_text("a new conversation").clicked() {
+                    c.clear();
+                }
+                let below = ui.available_width() < 90.0;
+                if !below {
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| server(ui, c));
+                }
+                below
+            })
+            .inner
+        })
+        .inner;
+    if below {
+        ui.horizontal(|ui| server(ui, c));
+    }
+}
+
+/// The server chosen, to choose another, and its model (in a narrow room the server alone).
+fn server(ui: &mut Ui, c: &mut Chat) {
+    let st = crate::settings::get();
+    let chosen = Chat::provider();
+    let mut k = st.provider;
+    let room = ui.available_width();
+    let width = if room < 120.0 { room - 2.0 } else { room * 0.75 }.clamp(16.0, 200.0);
+    egui::ComboBox::from_id_salt("assistant provider")
+        .selected_text(chosen.as_ref().map_or("Choose a server...".to_string(), |p| p.name.clone()))
+        .width(width)
+        .truncate()
+        .show_ui(ui, |ui| {
+            for (i, p) in st.providers.iter().enumerate() {
+                ui.selectable_value(&mut k, Some(i), &p.name);
             }
         });
-    });
+    if k != st.provider {
+        crate::settings::update(|s| s.provider = k);
+        c.tested.clear();
+        c.listed.clear();
+        c.list_error = None;
+        c.key_text.clear();
+    }
+    if let Some(p) = &chosen
+        && ui.available_width() >= 40.0
+    {
+        ui.add(egui::Label::new(mono_small(ui, &p.model).weak()).truncate());
+    }
 }
 
 /// The settings of the server chosen: its address, model, key, and a test of it.
@@ -1272,13 +1294,14 @@ fn text_with_code(ui: &mut Ui, text: &str) {
             // (the block's language, on its first line, left out)
             let code =
                 part.split_once('\n').map_or(part, |(first, rest)| if first.contains(' ') { part } else { rest });
-            egui::Frame::new().fill(ui.visuals().panel_fill).corner_radius(2.0).inner_margin(Margin::same(6)).show(
-                ui,
-                |ui| {
+            egui::Frame::new()
+                .fill(ui.visuals().panel_fill)
+                .corner_radius(crate::theme::rounded(2.0))
+                .inner_margin(Margin::same(6))
+                .show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.label(mono(code.trim_end()));
-                },
-            );
+                });
         } else {
             markdown(ui, part.trim());
         }
@@ -1399,12 +1422,13 @@ fn input(ui: &mut Ui, c: &mut Chat, s: &mut Session) -> bool {
     ui.add_space(4.0);
     ui.horizontal_wrapped(|ui| {
         if c.busy() {
-            ui.label(mono_small(ui, "esc stops · /help").weak());
+            ui.add(egui::Label::new(mono_small(ui, "esc stops · /help").weak()).truncate());
             if ui.add(key_button(ui, "Stop")).clicked() {
                 c.stop();
             }
         } else {
-            ui.label(mono_small(ui, "enter sends · ↑ earlier · /help").weak())
+            // (cut short in a pane narrower than it)
+            ui.add(egui::Label::new(mono_small(ui, "enter sends · ↑ earlier · /help").weak()).truncate())
                 .on_hover_text("shift+enter: a new line; up and down: what was typed before");
             if let Some(id) = s.selected.clone()
                 && ui.add(key_button(ui, &format!("Explain {id}"))).on_hover_text("what the node selected does, and why").clicked()

@@ -95,7 +95,7 @@ impl Pool {
             } else {
                 coordinator::serve(SocketAddr::from(([127, 0, 0, 1], 0)), options).await?
             };
-            let beacons = if shared { Some(discover::announce(&code, addr.port(), beacons)?) } else { None };
+            let beacons = if shared { Some(discover::announce(&code, addr.port(), beacons, ip)?) } else { None };
             Ok::<_, crate::Error>(Server { url: format!("http://127.0.0.1:{}", addr.port()), service, handle, beacons })
         })?;
         self.server = Some(server);

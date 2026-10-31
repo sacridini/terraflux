@@ -619,13 +619,20 @@ pub fn node_pane(ui: &mut Ui, s: &mut Session, r: &Registry) {
 pub fn model_pane(ui: &mut Ui, s: &mut Session, r: &Registry) {
     egui::Panel::top("builder_bar")
         .frame(egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(Margin::symmetric(8, 5)))
-        .show(ui, |ui| bar(ui, s, r));
+        .show(ui, |ui| {
+            theme::quiet(ui);
+            bar(ui, s, r)
+        });
     if s.editor.text {
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(Margin::same(8)))
             .show(ui, |ui| text_view(ui, s));
     } else {
-        egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::canvas())).show(ui, |ui| canvas(ui, s, r));
+        // (the modern look: its corners rounded)
+        let radius = if theme::modern() { 6 } else { 0 };
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().fill(theme::canvas()).corner_radius(radius))
+            .show(ui, |ui| canvas(ui, s, r));
     }
     rename_box(ui.ctx(), s, r);
     crate::my_nodes::dialog(ui.ctx(), s, r);
@@ -1458,12 +1465,12 @@ fn library(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library) {
     let query = s.editor.search.trim().to_lowercase();
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         let entry = |ui: &mut Ui, e: &Entry, chosen: &mut Option<String>| {
-            // the whole name in one line, the squares of its collections at the right
+            // the name in one line (cut short where the pane is narrow), the squares of its collections at the right
             let colls = crate::settings::collections_of(&e.name);
             let room = " ".repeat(3 * colls.len());
             let resp = ui.add(
                 egui::Button::selectable(false, op_name(ui, &e.name, false))
-                    .wrap_mode(egui::TextWrapMode::Extend)
+                    .wrap_mode(egui::TextWrapMode::Truncate)
                     .right_text(RichText::new(room).size(10.5))
                     .min_size(Vec2::new(ui.available_width(), 20.0)),
             );
@@ -1507,28 +1514,30 @@ fn library(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library) {
                     if *subject != "Other" {
                         ui.add_enabled(
                             false,
-                            egui::Button::new(RichText::new(format!("    {subject}")).size(12.5)).frame(false),
+                            egui::Button::new(RichText::new(format!("    {subject}")).size(12.5))
+                                .frame(false)
+                                .wrap_mode(egui::TextWrapMode::Truncate),
                         );
                     }
                     continue;
                 }
-                egui::CollapsingHeader::new(RichText::new(*subject).strong())
-                    .default_open(OPEN.contains(subject))
-                    .show(ui, |ui| {
-                        // the operators of no group, then each group a level below, closed until opened
-                        for e in in_it.iter().filter(|e| e.group.is_none()) {
-                            entry(ui, e, &mut chosen);
-                        }
-                        let mut groups: Vec<&str> = in_it.iter().filter_map(|e| e.group).collect();
-                        groups.dedup();
-                        for g in groups {
-                            egui::CollapsingHeader::new(g).id_salt((*subject, g)).default_open(false).show(ui, |ui| {
-                                for e in in_it.iter().filter(|e| e.group == Some(g)) {
-                                    entry(ui, e, &mut chosen);
-                                }
-                            });
-                        }
-                    });
+                let id = ui.make_persistent_id(*subject);
+                theme::fold(ui, id, RichText::new(*subject).strong(), OPEN.contains(subject), |ui| {
+                    // the operators of no group, then each group a level below, closed until opened
+                    for e in in_it.iter().filter(|e| e.group.is_none()) {
+                        entry(ui, e, &mut chosen);
+                    }
+                    let mut groups: Vec<&str> = in_it.iter().filter_map(|e| e.group).collect();
+                    groups.dedup();
+                    for g in groups {
+                        let id = ui.make_persistent_id((*subject, g));
+                        theme::fold(ui, id, g, false, |ui| {
+                            for e in in_it.iter().filter(|e| e.group == Some(g)) {
+                                entry(ui, e, &mut chosen);
+                            }
+                        });
+                    }
+                });
             }
         } else {
             for e in lib.find(&query) {
@@ -1699,9 +1708,9 @@ fn bar(ui: &mut Ui, s: &mut Session, r: &Registry) {
             }
         });
     }
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         // where in the model: inside a container, a button back up and its kind; the levels above, each a button
-        // back to it; the level shown, in bold
+        // back to it; the level shown, in bold (on a second line what a narrow pane has no room for)
         let depth = s.editor.path.len();
         if depth > 0 {
             let up =
@@ -2695,19 +2704,26 @@ fn series_chart(
     let pts: Vec<[f64; 2]> = xs.iter().zip(values).filter(|(_, v)| !v.is_nan()).map(|(x, v)| [*x, *v]).collect();
     let mut clicked = None;
     let weak = ui.visuals().weak_text_color();
-    let resp = Plot::new(("series", salt)).height(150.0).allow_scroll(false).show_background(false).show(ui, |p| {
-        p.line(Line::new("values", pts.clone()).color(theme::accent()).width(1.8));
-        p.points(Points::new("", pts.clone()).color(theme::accent()).radius(2.5));
-        if let Some(x) = xs.get(shown) {
-            p.vline(VLine::new("shown", *x).color(weak));
-        }
-        if p.response().clicked()
-            && let Some(c) = p.pointer_coordinate()
-        {
-            clicked =
-                xs.iter().enumerate().min_by(|a, b| (a.1 - c.x).abs().total_cmp(&(b.1 - c.x).abs())).map(|(i, _)| i);
-        }
-    });
+    let resp = crate::theme::plot(Plot::new(("series", salt)))
+        .height(150.0)
+        .allow_scroll(false)
+        .show_background(false)
+        .show(ui, |p| {
+            p.line(Line::new("values", pts.clone()).color(theme::accent()).width(1.8));
+            p.points(Points::new("", pts.clone()).color(theme::accent()).radius(2.5));
+            if let Some(x) = xs.get(shown) {
+                p.vline(VLine::new("shown", *x).color(weak));
+            }
+            if p.response().clicked()
+                && let Some(c) = p.pointer_coordinate()
+            {
+                clicked = xs
+                    .iter()
+                    .enumerate()
+                    .min_by(|a, b| (a.1 - c.x).abs().total_cmp(&(b.1 - c.x).abs()))
+                    .map(|(i, _)| i);
+            }
+        });
     resp.response.on_hover_text("the cell's value in every layer; click to show a layer");
     clicked
 }
@@ -2799,40 +2815,48 @@ pub(crate) fn reclassify_rules(ui: &mut Ui, s: &mut Session, n: &Node, path: &[S
         _ => None,
     };
     let look = source.as_ref().and_then(|src| s.looks.get(ui.ctx(), src, Palette::Auto));
-    egui::Frame::new().fill(theme::well()).corner_radius(4.0).inner_margin(Margin::same(6)).show(ui, |ui| {
-        ui.set_width(ui.available_width());
-        match (&source, &look) {
-            (None, _) => {
-                ui.label(
-                    RichText::new("Connect a map and run it (ctrl+enter) to see its values here.")
-                        .size(11.5)
-                        .color(weak),
-                );
-            }
-            (Some(_), None) => {
-                ui.horizontal(|ui| {
-                    ui.spinner();
-                    ui.label(RichText::new("the values of the map...").size(11.5).color(weak));
-                });
-            }
-            (Some(_), Some(l)) => match &l.coloring {
-                Coloring::Classes(classes) => {
-                    let total: usize = l.counts.iter().map(|(_, c)| c).sum::<usize>().max(1);
-                    ui.label(RichText::new(format!("The map has {} classes:", classes.len())).size(11.5));
-                    ui.horizontal_wrapped(|ui| {
-                        for (v, col) in classes {
-                            let cells = l.counts.iter().find(|(k, _)| k == v).map_or(0, |(_, c)| *c);
-                            let (rect, _) = ui.allocate_exact_size(Vec2::splat(10.0), egui::Sense::hover());
-                            ui.painter().rect_filled(rect, 2.0, *col);
-                            ui.label(
-                                RichText::new(format!("{} ({:.1}%)", number(*v), 100.0 * cells as f64 / total as f64))
+    egui::Frame::new()
+        .fill(theme::well())
+        .corner_radius(crate::theme::rounded(4.0))
+        .inner_margin(Margin::same(6))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            match (&source, &look) {
+                (None, _) => {
+                    ui.label(
+                        RichText::new("Connect a map and run it (ctrl+enter) to see its values here.")
+                            .size(11.5)
+                            .color(weak),
+                    );
+                }
+                (Some(_), None) => {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label(RichText::new("the values of the map...").size(11.5).color(weak));
+                    });
+                }
+                (Some(_), Some(l)) => match &l.coloring {
+                    Coloring::Classes(classes) => {
+                        let total: usize = l.counts.iter().map(|(_, c)| c).sum::<usize>().max(1);
+                        ui.label(RichText::new(format!("The map has {} classes:", classes.len())).size(11.5));
+                        ui.horizontal_wrapped(|ui| {
+                            for (v, col) in classes {
+                                let cells = l.counts.iter().find(|(k, _)| k == v).map_or(0, |(_, c)| *c);
+                                let (rect, _) = ui.allocate_exact_size(Vec2::splat(10.0), egui::Sense::hover());
+                                ui.painter().rect_filled(rect, 2.0, *col);
+                                ui.label(
+                                    RichText::new(format!(
+                                        "{} ({:.1}%)",
+                                        number(*v),
+                                        100.0 * cells as f64 / total as f64
+                                    ))
                                     .size(11.5)
                                     .monospace(),
-                            );
-                            ui.add_space(4.0);
-                        }
-                    });
-                    if ui
+                                );
+                                ui.add_space(4.0);
+                            }
+                        });
+                        if ui
                         .small_button("A rule per class")
                         .on_hover_text(
                             "a row for every class of the map no rule takes yet, giving it its own value: then change \
@@ -2849,33 +2873,33 @@ pub(crate) fn reclassify_rules(ui: &mut Ui, s: &mut Session, n: &Node, path: &[S
                         }
                         commit = true;
                     }
-                }
-                Coloring::Continuous { min, max, .. } => {
-                    ui.label(
-                        RichText::new(format!(
-                            "The map's values go from {} to {}: take them by ranges (from..to).",
-                            number(*min),
-                            number(*max)
-                        ))
-                        .size(11.5),
-                    );
-                    if ui
-                        .small_button("4 equal ranges")
-                        .on_hover_text("four rules of ranges of the same width, giving 1 to 4")
-                        .clicked()
-                    {
-                        let w = (max - min) / 4.0;
-                        rows.retain(|(a, b)| !a.trim().is_empty() || !b.trim().is_empty());
-                        for k in 0..4 {
-                            let (a, b) = (min + w * k as f64, if k == 3 { *max } else { min + w * (k + 1) as f64 });
-                            rows.push((format!("{}..{}", number(a), number(b)), (k + 1).to_string()));
-                        }
-                        commit = true;
                     }
-                }
-            },
-        }
-    });
+                    Coloring::Continuous { min, max, .. } => {
+                        ui.label(
+                            RichText::new(format!(
+                                "The map's values go from {} to {}: take them by ranges (from..to).",
+                                number(*min),
+                                number(*max)
+                            ))
+                            .size(11.5),
+                        );
+                        if ui
+                            .small_button("4 equal ranges")
+                            .on_hover_text("four rules of ranges of the same width, giving 1 to 4")
+                            .clicked()
+                        {
+                            let w = (max - min) / 4.0;
+                            rows.retain(|(a, b)| !a.trim().is_empty() || !b.trim().is_empty());
+                            for k in 0..4 {
+                                let (a, b) = (min + w * k as f64, if k == 3 { *max } else { min + w * (k + 1) as f64 });
+                                rows.push((format!("{}..{}", number(a), number(b)), (k + 1).to_string()));
+                            }
+                            commit = true;
+                        }
+                    }
+                },
+            }
+        });
     ui.add_space(4.0);
     // the rules, a row each
     let mut gone = None;

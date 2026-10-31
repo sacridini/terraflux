@@ -590,37 +590,41 @@ fn change_ui(ui: &mut Ui, s: &mut Session, r: &Registry, k: usize, c: &Change) {
         Kind::Removed => ("−", REMOVED),
         Kind::Changed => ("~", CHANGED),
     };
-    egui::Frame::new().fill(theme::well()).corner_radius(4.0).inner_margin(Margin::same(6)).show(ui, |ui| {
-        ui.set_width(ui.available_width());
-        ui.horizontal(|ui| {
-            ui.label(RichText::new(mark).strong().color(colour));
-            ui.label(RichText::new(&c.title).strong());
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.small_button("✖").on_hover_text("reject: as it was").clicked() {
-                    reject(s, &c.target);
-                }
-                if ui.small_button("✔").on_hover_text("accept: keep it").clicked() {
-                    accept(s, &c.target);
-                }
-                if let Target::Node(id) = &c.target
-                    && c.kind != Kind::Removed
-                    && ui.small_button("Show").on_hover_text("select it on the canvas").clicked()
-                {
-                    s.editor.path.clear();
-                    crate::builder::select(s, r, id);
-                    s.editor.reveal(id);
-                }
+    egui::Frame::new()
+        .fill(theme::well())
+        .corner_radius(crate::theme::rounded(4.0))
+        .inner_margin(Margin::same(6))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(mark).strong().color(colour));
+                ui.label(RichText::new(&c.title).strong());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.small_button("✖").on_hover_text("reject: as it was").clicked() {
+                        reject(s, &c.target);
+                    }
+                    if ui.small_button("✔").on_hover_text("accept: keep it").clicked() {
+                        accept(s, &c.target);
+                    }
+                    if let Target::Node(id) = &c.target
+                        && c.kind != Kind::Removed
+                        && ui.small_button("Show").on_hover_text("select it on the canvas").clicked()
+                    {
+                        s.editor.path.clear();
+                        crate::builder::select(s, r, id);
+                        s.editor.reveal(id);
+                    }
+                });
             });
+            for d in &c.details {
+                ui.label(RichText::new(d).small().monospace());
+            }
+            if let Target::Node(id) = &c.target
+                && c.kind != Kind::Removed
+            {
+                before_after(ui, s, r, k, id);
+            }
         });
-        for d in &c.details {
-            ui.label(RichText::new(d).small().monospace());
-        }
-        if let Target::Node(id) = &c.target
-            && c.kind != Kind::Removed
-        {
-            before_after(ui, s, r, k, id);
-        }
-    });
 }
 
 /// What a changed node gives, before the changes and now: its maps side by side, else its values in words.

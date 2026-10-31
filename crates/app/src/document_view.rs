@@ -345,7 +345,7 @@ fn step_ui(ui: &mut Ui, s: &mut Session, r: &Registry, step: &Step, num: &str, n
     let frame = egui::Frame::new()
         .fill(if inner { Color32::TRANSPARENT } else { theme::well() })
         .stroke(stroke)
-        .corner_radius(5.0)
+        .corner_radius(crate::theme::rounded(5.0))
         .inner_margin(if inner { Margin::symmetric(2, 4) } else { Margin::same(10) });
     let resp = frame.show(ui, |ui| {
         ui.set_width(ui.available_width());
@@ -375,10 +375,14 @@ fn step_ui(ui: &mut Ui, s: &mut Session, r: &Registry, step: &Step, num: &str, n
             });
         }
         if let Some(e) = &step.expression {
-            egui::Frame::new().fill(theme::bar()).corner_radius(3.0).inner_margin(Margin::same(6)).show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                ui.label(RichText::new(e).monospace());
-            });
+            egui::Frame::new()
+                .fill(theme::bar())
+                .corner_radius(crate::theme::rounded(3.0))
+                .inner_margin(Margin::same(6))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.label(RichText::new(e).monospace());
+                });
             if !step.inputs.is_empty() {
                 ui.horizontal_wrapped(|ui| {
                     ui.label("where");
@@ -465,65 +469,69 @@ fn figure_ui(ui: &mut Ui, s: &mut Session, r: &Registry, f: &crate::document::Fi
 
 fn data_ui(ui: &mut Ui, s: &mut Session, r: &Registry, sec: &Section, num: &str, asked: &mut Asked) {
     for (k, row) in data_rows(&sec.steps).iter().enumerate() {
-        egui::Frame::new().fill(theme::well()).corner_radius(5.0).inner_margin(Margin::same(8)).show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.horizontal_top(|ui| {
-                // the maps of the row, small
-                for st in row.iter().take(4) {
-                    if let Some((port, _)) = &st.shows
-                        && let Some((node, key)) = st.value_key(port)
-                        && let Some(Ok((t, _))) = picture(ui, s, &node, &key)
-                    {
-                        let size = t.size_vec2();
-                        ui.add(egui::Image::new((t.id(), size * (40.0 / size.x.max(1.0))))).on_hover_text(&st.id);
-                    }
-                }
-                ui.vertical(|ui| {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label(RichText::new(format!("{num}.{}", k + 1)).strong());
-                        for (j, st) in row.iter().enumerate() {
-                            if j > 0 {
-                                ui.label(",");
-                            }
-                            if ui.link(RichText::new(&st.id).strong()).on_hover_text("select it").clicked() {
-                                asked.select = Some((st.path.clone(), st.id.clone()));
-                            }
-                        }
-                        ui.label(weak(&row[0].op).monospace().small());
-                    });
-                    if let Some(n) = &row[0].note {
-                        ui.label(RichText::new(n).italics());
-                    }
-                    for f in row.iter().filter_map(|st| st.file.as_ref()) {
-                        ui.label(RichText::new(f).monospace().small());
-                    }
-                    if row.len() == 1 {
-                        if let Some(t) = &row[0].sentence {
-                            ui.label(t);
-                        }
-                        for st in &row[0].settings {
-                            setting_ui(ui, s, st, row[0], asked);
-                        }
-                    } else {
-                        let set: Vec<String> = row_settings(row).iter().map(|(l, v)| format!("{l}: {v}")).collect();
-                        if !set.is_empty() {
-                            ui.label(weak(set.join("; ")).small());
+        egui::Frame::new()
+            .fill(theme::well())
+            .corner_radius(crate::theme::rounded(5.0))
+            .inner_margin(Margin::same(8))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.horizontal_top(|ui| {
+                    // the maps of the row, small
+                    for st in row.iter().take(4) {
+                        if let Some((port, _)) = &st.shows
+                            && let Some((node, key)) = st.value_key(port)
+                            && let Some(Ok((t, _))) = picture(ui, s, &node, &key)
+                        {
+                            let size = t.size_vec2();
+                            ui.add(egui::Image::new((t.id(), size * (40.0 / size.x.max(1.0))))).on_hover_text(&st.id);
                         }
                     }
-                    if let Some(w) = &row[0].why {
+                    ui.vertical(|ui| {
                         ui.horizontal_wrapped(|ui| {
-                            ui.label(RichText::new("Why.").strong());
-                            ui.label(w);
+                            ui.label(RichText::new(format!("{num}.{}", k + 1)).strong());
+                            for (j, st) in row.iter().enumerate() {
+                                if j > 0 {
+                                    ui.label(",");
+                                }
+                                if ui.link(RichText::new(&st.id).strong()).on_hover_text("select it").clicked() {
+                                    asked.select = Some((st.path.clone(), st.id.clone()));
+                                }
+                            }
+                            ui.label(weak(&row[0].op).monospace().small());
                         });
-                    }
+                        if let Some(n) = &row[0].note {
+                            ui.label(RichText::new(n).italics());
+                        }
+                        for f in row.iter().filter_map(|st| st.file.as_ref()) {
+                            ui.label(RichText::new(f).monospace().small());
+                        }
+                        if row.len() == 1 {
+                            if let Some(t) = &row[0].sentence {
+                                ui.label(t);
+                            }
+                            for st in &row[0].settings {
+                                setting_ui(ui, s, st, row[0], asked);
+                            }
+                        } else {
+                            let set: Vec<String> = row_settings(row).iter().map(|(l, v)| format!("{l}: {v}")).collect();
+                            if !set.is_empty() {
+                                ui.label(weak(set.join("; ")).small());
+                            }
+                        }
+                        if let Some(w) = &row[0].why {
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label(RichText::new("Why.").strong());
+                                ui.label(w);
+                            });
+                        }
+                    });
                 });
-            });
-            for st in row.iter() {
-                for f in &st.figures {
-                    figure_ui(ui, s, r, f, asked);
+                for st in row.iter() {
+                    for f in &st.figures {
+                        figure_ui(ui, s, r, f, asked);
+                    }
                 }
-            }
-        });
+            });
         ui.add_space(4.0);
     }
 }

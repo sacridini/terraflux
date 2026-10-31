@@ -1209,7 +1209,7 @@ fn finished_ui(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry) 
                 .filter_map(|c| Some([c.settings.get(key)?.as_f64()?, c.score]))
                 .filter(|p| p[1].is_finite())
                 .collect();
-            Plot::new(("calibration", key))
+            crate::theme::plot(Plot::new(("calibration", key)))
                 .height(160.0)
                 .legend(Legend::default())
                 .x_axis_label(key.as_str())
@@ -1354,17 +1354,24 @@ pub fn pane(ui: &mut Ui, st: &mut BatchState, s: &mut Session, r: &Registry, com
                 }
                 ui.horizontal(|ui| {
                     ui.label("Results in");
-                    let shown = st.out.clone().unwrap_or_else(|| next_out(s, st.kind));
-                    ui.label(RichText::new(shown.display().to_string()).monospace().weak());
-                    if ui.small_button("Change...").clicked()
-                        && let Some(p) = rfd::FileDialog::new().set_title("The folder of the results").pick_folder()
-                    {
-                        st.out = Some(p);
-                    }
-                    if st.out.is_some() && ui.small_button("x").on_hover_text("a new folder for every batch").clicked()
-                    {
-                        st.out = None;
-                    }
+                    let shown = st.out.clone().unwrap_or_else(|| next_out(s, st.kind)).display().to_string();
+                    // its buttons at the right, the folder in the room left (cut short, whole under the pointer)
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if st.out.is_some()
+                            && ui.small_button("x").on_hover_text("a new folder for every batch").clicked()
+                        {
+                            st.out = None;
+                        }
+                        if ui.small_button("Change...").clicked()
+                            && let Some(p) = rfd::FileDialog::new().set_title("The folder of the results").pick_folder()
+                        {
+                            st.out = Some(p);
+                        }
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            ui.add(egui::Label::new(RichText::new(&shown).monospace().weak()).truncate())
+                                .on_hover_text(&shown);
+                        });
+                    });
                 });
                 let clusters = terraflux_dist::remote::load(&crate::settings::data_dir());
                 if !clusters.is_empty() {

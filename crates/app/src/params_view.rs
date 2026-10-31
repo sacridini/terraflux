@@ -541,48 +541,52 @@ fn parameters_ui(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) {
         let (doc, _) = doc_of(&s.source, r, &p.key);
         let default = crate::node_view::default_of(&doc);
         let hint = if default.is_empty() { "default".to_string() } else { default };
-        egui::Frame::new().fill(theme::well()).corner_radius(4.0).inner_margin(egui::Margin::same(6)).show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(label(&p)).strong()).on_hover_text(&p.key);
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui
-                        .small_button("x")
-                        .on_hover_text("take it out of the form (the model keeps its value)")
-                        .clicked()
-                    {
-                        removed = Some(k);
+        egui::Frame::new()
+            .fill(theme::well())
+            .corner_radius(crate::theme::rounded(4.0))
+            .inner_margin(egui::Margin::same(6))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(label(&p)).strong()).on_hover_text(&p.key);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .small_button("x")
+                            .on_hover_text("take it out of the form (the model keeps its value)")
+                            .clicked()
+                        {
+                            removed = Some(k);
+                        }
+                        let editing = st.editing.as_deref() == Some(p.key.as_str());
+                        if ui.small_button("✏").on_hover_text("its label, unit, range, choices and help").clicked() {
+                            st.editing = if editing { None } else { Some(p.key.clone()) };
+                        }
+                        if k > 0 && ui.small_button("⏶").on_hover_text("up").clicked() {
+                            moved = Some((k, k - 1));
+                        }
+                    });
+                });
+                ui.horizontal_wrapped(|ui| {
+                    if let Some(v) = control(ui, s, &p, now.as_ref(), &hint) {
+                        change = Some((p.key.clone(), v));
                     }
-                    let editing = st.editing.as_deref() == Some(p.key.as_str());
-                    if ui.small_button("✏").on_hover_text("its label, unit, range, choices and help").clicked() {
-                        st.editing = if editing { None } else { Some(p.key.clone()) };
+                    let slider = p.min.is_some() && p.max.is_some() && now.as_ref().is_some_and(Json::is_number);
+                    if let Some(u) = p.unit.as_ref().filter(|_| !slider) {
+                        ui.label(RichText::new(u).weak());
                     }
-                    if k > 0 && ui.small_button("⏶").on_hover_text("up").clicked() {
-                        moved = Some((k, k - 1));
+                    if now.is_none() {
+                        ui.label(RichText::new("(the operator's default)").small().weak());
                     }
                 });
-            });
-            ui.horizontal_wrapped(|ui| {
-                if let Some(v) = control(ui, s, &p, now.as_ref(), &hint) {
-                    change = Some((p.key.clone(), v));
+                if let Some(h) = &p.help {
+                    ui.label(RichText::new(h).small().weak());
                 }
-                let slider = p.min.is_some() && p.max.is_some() && now.as_ref().is_some_and(Json::is_number);
-                if let Some(u) = p.unit.as_ref().filter(|_| !slider) {
-                    ui.label(RichText::new(u).weak());
-                }
-                if now.is_none() {
-                    ui.label(RichText::new("(the operator's default)").small().weak());
+                if st.editing.as_deref() == Some(p.key.as_str())
+                    && let Some(d) = describe(ui, s, k)
+                {
+                    described = Some((k, d));
                 }
             });
-            if let Some(h) = &p.help {
-                ui.label(RichText::new(h).small().weak());
-            }
-            if st.editing.as_deref() == Some(p.key.as_str())
-                && let Some(d) = describe(ui, s, k)
-            {
-                described = Some((k, d));
-            }
-        });
         ui.add_space(3.0);
     }
     // a setting of the model to the form
@@ -617,7 +621,7 @@ fn parameters_ui(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) {
 
 fn scenarios_ui(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry, asked: &mut Option<Asked>) {
     // the values now, kept as a scenario
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.add(egui::TextEdit::singleline(&mut st.name).desired_width(150.0).hint_text("a scenario's name"));
         let can = !st.name.trim().is_empty() && !s.source.parameters.is_empty();
         if ui

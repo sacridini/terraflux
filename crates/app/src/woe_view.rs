@@ -150,7 +150,7 @@ pub fn show(ui: &mut Ui, s: &mut Session, node: &str, model: &WoeModel, salt: &s
             })
             .collect();
         let labels = names.clone();
-        Plot::new(id.with("bars"))
+        crate::theme::plot(Plot::new(id.with("bars")))
             .height(200.0)
             .allow_scroll(false)
             .y_axis_label("W+")

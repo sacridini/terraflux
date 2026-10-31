@@ -58,5 +58,9 @@ name = "ui"
 path = "tests/ui.rs"
 
 [[test]]
+name = "fit"
+path = "tests/fit.rs"
+
+[[test]]
 name = "readme_images"
 path = "tests/readme_images.rs"

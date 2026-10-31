@@ -6,6 +6,21 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Modern themes: **Slate** (dark), **Paper** (light, in the colours and the font of the website, Source Sans 3)
+  and **Canopy**, beside the classic ones, kept as they were. Rounded tabs and panes, the Node pane in cards
+  (inputs, settings, body, the run), its references as coloured chips, switches for Bypass and Freeze, lighter
+  plot grids and a quieter toolbar. Slate and Canopy use Inter.
+
+### Fixed
+- Larger text (Settings, **Text size**) no longer spills out of its boxes, in the classic and the modern looks:
+  the toolbar puts its tools in a **Tools** menu when there is no room, the status bar, the Node pane's name and
+  **Rename**, the Operators pane (long subjects and names cut short), the model's bar, the Files pane, Many
+  runs, Parameters and the Assistant fit their panes at every size. A test draws every pane, menu and window at
+  each size and theme and checks that nothing overflows.
+- Windows no longer asks for the firewall when a pool shared on this computer only (the tests) announces itself:
+  its beacons stay on this computer. The firewall is asked only when the computer is shared or lent on the network.
+
 ## [1.26.0] - 2026-10-30
 
 ### Added

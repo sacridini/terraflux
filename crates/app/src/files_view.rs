@@ -868,7 +868,9 @@ pub fn pane(ui: &mut Ui, f: &mut Files, s: &mut Session, r: &Registry) -> Option
     egui::Frame::new().inner_margin(egui::Margin::symmetric(6, 6)).show(ui, |ui| {
         // the bar: back, forward, up, read again; the path (its folders as buttons, or typed); pinned
         ui.horizontal(|ui| {
+            // (narrow buttons: the five fit a narrow pane)
             ui.spacing_mut().item_spacing.x = 2.0;
+            ui.spacing_mut().button_padding.x = 4.0;
             if tool(ui, "\u{23f4}", !f.back.is_empty(), "back (alt+left)") {
                 todo.push(Do::Back);
             }
@@ -1109,7 +1111,9 @@ fn path_bar(ui: &mut Ui, f: &mut Files, dir: &Path, todo: &mut Vec<Do>) {
         }
         return;
     }
-    let (rect, bar) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::click());
+    // (as tall as a button, whatever the text's size)
+    let height = ui.spacing().interact_size.y.max(22.0);
+    let (rect, bar) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click());
     ui.painter().rect_filled(rect, 3.0, ui.visuals().extreme_bg_color);
     if bar.on_hover_text("click to type a path (ctrl+L)").clicked() {
         f.typed = Some((dir.to_string_lossy().into_owned(), true));
@@ -1290,9 +1294,13 @@ fn list(ui: &mut Ui, f: &mut Files, rows: &[Row], todo: &mut Vec<Do>) {
             let chosen = f.chosen.contains(&e.path);
             let p = ui.painter_at(rect);
             if chosen {
-                p.rect_filled(rect, 2.0, v.selection.bg_fill.gamma_multiply(if f.active { 0.9 } else { 0.5 }));
+                p.rect_filled(
+                    rect,
+                    crate::theme::rounded(2.0),
+                    v.selection.bg_fill.gamma_multiply(if f.active { 0.9 } else { 0.5 }),
+                );
             } else if resp.hovered() {
-                p.rect_filled(rect, 2.0, v.widgets.hovered.weak_bg_fill);
+                p.rect_filled(rect, crate::theme::rounded(2.0), v.widgets.hovered.weak_bg_fill);
             }
             if cursor_row == Some(k) && f.active {
                 p.rect_stroke(

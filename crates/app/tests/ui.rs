@@ -2695,3 +2695,67 @@ fn the_files_that_failed_are_listed_in_the_node_pane() {
     assert!(h.query_by_label("basin_12").is_some());
     assert!(h.query_by_label("Run again").is_some());
 }
+
+/// The themes side by side: the same model, run, in each (screenshots `ui-theme-<name>-<pane>.png` in the tests'
+/// folder). Run by hand: `cargo test -p terraflux-app --test ui theme_gallery -- --ignored`.
+#[test]
+#[ignore]
+fn theme_gallery() {
+    for name in ["Default", "Immaterial", "Slate", "Paper", "Canopy"] {
+        terraflux_app::settings::update(|s| s.theme = name.into());
+        let mut h = harness(new_app(Some(model())));
+        loaded(&mut h);
+        h.state_mut().focus(Pane::Simulation);
+        h.run_steps(3);
+        // (the modern themes' button with its sign)
+        let modern = ["Slate", "Paper", "Canopy"].contains(&name);
+        h.get_by_label(if modern { "▶  Run" } else { "Run" }).click();
+        h.run_steps(1);
+        until(&mut h, "the run", |a| !a.session.as_ref().unwrap().running());
+        h.run_steps(3);
+        shot(&mut h, &format!("theme-{name}-map"));
+        h.state_mut().focus(Pane::Model);
+        h.state_mut().session.as_mut().unwrap().selected = Some("markov".into());
+        h.run_steps(3);
+        shot(&mut h, &format!("theme-{name}-graph"));
+        // the other panes, the menus and the windows: of the default and two modern themes
+        if !["Default", "Slate", "Paper"].contains(&name) {
+            continue;
+        }
+        for (pane, what) in [
+            (Pane::Operators, "operators"),
+            (Pane::Files, "files"),
+            (Pane::Areas, "areas"),
+            (Pane::Problems, "problems"),
+            (Pane::Assistant, "assistant"),
+            (Pane::Batch, "batch"),
+        ] {
+            // (each in the layout of a session begun)
+            h.state_mut().dock = Some(terraflux_app::app::default_layout());
+            h.state_mut().focus(pane);
+            h.run_steps(3);
+            shot(&mut h, &format!("theme-{name}-{what}"));
+        }
+        h.state_mut().dock = Some(terraflux_app::app::default_layout());
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.selected = Some("woe".into());
+        s.fields.clear();
+        s.preview = Some(("woe".into(), "table".into()));
+        h.state_mut().focus(Pane::Viewer);
+        h.run_steps(3);
+        shot(&mut h, &format!("theme-{name}-table"));
+        h.state_mut().settings_open = true;
+        h.run_steps(3);
+        shot(&mut h, &format!("theme-{name}-settings"));
+        h.state_mut().settings_open = false;
+        h.state_mut().commands = Some(Default::default());
+        h.run_steps(3);
+        shot(&mut h, &format!("theme-{name}-commands"));
+        h.state_mut().commands = None;
+        h.run_steps(2);
+        h.get_by_label("File").click();
+        h.run_steps(3);
+        shot(&mut h, &format!("theme-{name}-menu"));
+    }
+    terraflux_app::settings::update(|s| s.theme = "Default".into());
+}

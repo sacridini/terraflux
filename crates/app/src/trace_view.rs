@@ -203,7 +203,7 @@ pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) -> Optio
             for (k, step) in t.steps.iter().enumerate() {
                 let resp = egui::Frame::new()
                     .fill(theme::well())
-                    .corner_radius(4.0)
+                    .corner_radius(crate::theme::rounded(4.0))
                     .inner_margin(Margin::same(6))
                     .show(ui, |ui| {
                         ui.set_width(ui.available_width());
@@ -315,10 +315,14 @@ fn how_ui(ui: &mut Ui, how: &How) {
         }
         How::Expression { text, with_values } => {
             for (label, t) in [("", text), ("here: ", with_values)] {
-                egui::Frame::new().fill(theme::bar()).corner_radius(3.0).inner_margin(Margin::same(4)).show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.label(RichText::new(format!("{label}{t}")).monospace());
-                });
+                egui::Frame::new()
+                    .fill(theme::bar())
+                    .corner_radius(crate::theme::rounded(3.0))
+                    .inner_margin(Margin::same(4))
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.label(RichText::new(format!("{label}{t}")).monospace());
+                    });
             }
         }
         How::Window { radius, windows } => {

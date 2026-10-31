@@ -353,7 +353,9 @@ explains it.
 
 **⚙** at the right of the toolbar opens the settings, a small window:
 
-- **Theme**: the colours of the window (*Default*, *Immaterial*, *Riparian*, *Angst Robot*, *Twenty Four Carat*);
+- **Theme**: the colours of the window. The classic themes (*Default*, *Immaterial*, *Field Notes*, *Riparian*,
+  *Angst Robot*, *Twenty Four Carat*) keep the square look; the modern ones (*Slate*, dark; *Paper*, light, in the
+  colours of this website; *Canopy*, dark green) have rounded panes and cards, switches and a font of their own;
 - **Text size** and **Interface zoom**: for a small laptop screen or a projector;
 - **Threads**: how many of the computer's cores the operators use. By default all the cores but one, so that the
   computer stays usable while a model runs; the change takes effect at the next start.

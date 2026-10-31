@@ -345,7 +345,49 @@ fn dock_style(ui: &Ui) -> egui_dock::Style {
     st.tab.focused.text_color = theme::accent();
     st.tab.active.text_color = ui.visuals().strong_text_color();
     st.main_surface_border_stroke = egui::Stroke::NONE;
+    if theme::modern() {
+        modern_dock(&mut st);
+    }
     st
+}
+
+/// The modern look of the dock: each pane a rounded card on the bar's colour, its tabs rounded at the top, the
+/// others' text weak until the pointer is over them.
+fn modern_dock(st: &mut egui_dock::Style) {
+    let p = theme::current();
+    let top = egui::CornerRadius { nw: 7, ne: 7, sw: 0, se: 0 };
+    st.tab_bar.height = 30.0;
+    st.tab.spacing = 2.0;
+    let t = &mut st.tab;
+    for s in [
+        &mut t.active,
+        &mut t.inactive,
+        &mut t.focused,
+        &mut t.hovered,
+        &mut t.active_with_kb_focus,
+        &mut t.inactive_with_kb_focus,
+        &mut t.focused_with_kb_focus,
+    ] {
+        s.corner_radius = top;
+        s.outline_color = Color32::TRANSPARENT;
+    }
+    t.inactive.bg_fill = p.bar;
+    t.inactive.text_color = p.weak;
+    t.inactive_with_kb_focus.bg_fill = p.bar;
+    t.hovered.bg_fill = p.panel.lerp_to_gamma(p.bar, 0.5);
+    t.hovered.text_color = p.text;
+    t.tab_body.corner_radius = egui::CornerRadius { nw: 0, ne: 8, sw: 8, se: 8 };
+    t.tab_body.stroke = egui::Stroke::NONE;
+    t.tab_body.bg_fill = p.panel;
+    // the gutters between the panes, in the bar's colour
+    st.separator.width = 6.0;
+    st.separator.color_idle = p.bar;
+    st.separator.color_hovered = p.hover;
+    st.separator.color_dragged = p.accent;
+    st.buttons.close_tab_color = p.weak;
+    st.buttons.close_tab_active_color = p.text;
+    st.buttons.close_tab_bg_fill = p.hover;
+    st.dock_area_padding = Some(Margin { left: 6, right: 6, top: 0, bottom: 6 });
 }
 
 /// Comparing the last simulated map with an observed one.
@@ -1794,6 +1836,8 @@ impl TerrafluxApp {
         let mut save = None;
         let (mut run, mut stop) = (false, false);
         ui.horizontal(|ui| {
+            // (the modern look: the bar's buttons without a frame until the pointer is over them)
+            theme::quiet(ui);
             let (mark, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
             crate::logo::paint_mark(ui.painter(), mark, theme::accent(), theme::current().text);
             ui.label(crate::logo::wordmark(14.0, theme::current().text, theme::accent()))
@@ -1816,8 +1860,9 @@ impl TerrafluxApp {
             if let Some(s) = &self.session
                 && self.wizard.is_none()
             {
+                let label = if theme::modern() { "▶  Run" } else { "Run" };
                 run = ui
-                    .add_enabled(s.can_ask_run(), accent_button("Run", s.can_run()))
+                    .add_enabled(s.can_ask_run(), accent_button(label, s.can_run()))
                     .on_hover_text(if s.can_run() {
                         "run the whole model (F5)"
                     } else {
@@ -1839,96 +1884,154 @@ impl TerrafluxApp {
                     }
                 }
                 ui.separator();
-                // the model's name, a dot when it has edits not saved
-                let title = ui.label(RichText::new(s.title()).strong());
-                if let Some(p) = &s.path {
-                    title.on_hover_text(p.display().to_string());
-                }
-                if s.dirty {
-                    let (r, resp) = ui.allocate_exact_size(Vec2::splat(10.0), egui::Sense::hover());
-                    ui.painter().circle_filled(r.center(), 3.5, ui.visuals().warn_fg_color);
-                    resp.on_hover_text(format!("not saved ({}S saves it)", crate::commands::cmd()));
-                }
-                if s.loading() {
-                    ui.spinner();
-                    ui.label(RichText::new("reading the data...").weak());
-                }
-                if s.running() && s.stopping.is_none() && s.gate.paused() {
-                    // paused after a step (in place of the progress)
-                    let at = s.progress.as_ref().map(|(at, step, of)| format!("{at}: step {step} of {of}"));
-                    ui.label(RichText::new(format!("paused at {}", at.unwrap_or_default())).color(theme::accent()));
-                    if ui.button("Next").on_hover_text("run the next step and pause again").clicked() {
-                        s.gate.next();
-                    }
-                    if ui.button("Continue").on_hover_text("run on to the end without pausing").clicked() {
-                        s.gate.resume();
-                    }
-                } else if s.running() && s.stopping.is_none() {
-                    let (frac, text) = s.run_progress();
-                    theme::progress(ui, Some(frac), &text, 140.0);
-                }
-                if s.stopping.is_some() {
-                    ui.spinner();
-                    ui.label(RichText::new("stopping...").weak());
-                } else if let Some(e) = s.elapsed.filter(|_| !s.running()) {
-                    ui.label(RichText::new(format!("done in {:.2} s", e.as_secs_f64())).weak());
-                    match &s.recorded {
-                        Some(Ok(p)) => {
-                            let at = p.parent().unwrap_or(p);
-                            if ui
-                                .link(RichText::new("manifest").weak())
-                                .on_hover_text(format!(
-                                    "the outputs and the manifest of the run written in {} (terraflux reproduce runs it again); click to open the folder",
-                                    at.display()
-                                ))
-                                .clicked()
-                            {
-                                crate::batch_view::open_folder(at);
-                            }
-                        }
-                        Some(Err(e)) => {
-                            ui.label(RichText::new("manifest ✖").color(ui.visuals().warn_fg_color))
-                                .on_hover_text(format!("the outputs and the manifest of the run were not written: {e}"));
-                        }
-                        None => {}
-                    }
-                }
             }
-            // the tools and the settings, at the right
+            // the tools and the settings at the right first, the model's name and how its run goes (the modern
+            // look: in a pill) in the room left; too little room: the tools in a menu (the modern look: their names
+            // without dots)
+            let tool = |t: &str| if theme::modern() { t.to_string() } else { format!("{t}...") };
+            let (menu_id, wide_id) = (ui.id().with("tools in a menu"), ui.id().with("tools' width"));
+            let in_menu = ui.data(|d| d.get_temp::<bool>(menu_id)).unwrap_or(false);
+            let (mut asked, mut wizard, mut settings) = (None, false, false);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
                     .add(egui::Button::new(RichText::new("⚙").size(15.0)).frame(false))
                     .on_hover_text("Settings: the theme, the text's size, the threads...")
                     .clicked()
                 {
-                    self.settings_open = !self.settings_open;
+                    settings = true;
                 }
                 ui.separator();
-                if ui
-                    .button("Assistant...")
-                    .on_hover_text("a chat with a model (of a university, this computer or a provider) that explains, changes and runs the model")
-                    .clicked()
-                {
-                    self.focus(Pane::Assistant);
+                let tools = |ui: &mut Ui, asked: &mut Option<Pane>, wizard: &mut bool| {
+                    if ui
+                        .button(tool("Assistant"))
+                        .on_hover_text("a chat with a model (of a university, this computer or a provider) that explains, changes and runs the model")
+                        .clicked()
+                    {
+                        *asked = Some(Pane::Assistant);
+                    }
+                    if ui
+                        .button(tool("Computers"))
+                        .on_hover_text("other computers helping with the runs, this one helping another")
+                        .clicked()
+                    {
+                        *asked = Some(Pane::Computers);
+                    }
+                    if ui
+                        .button(tool("Many runs"))
+                        .on_hover_text("the model run many times: replicates, scenarios, calibration")
+                        .clicked()
+                    {
+                        *asked = Some(Pane::Batch);
+                    }
+                    if ui.button(tool("Wizard")).on_hover_text("a land change model from your maps, step by step").clicked() {
+                        *wizard = true;
+                    }
+                };
+                if in_menu {
+                    ui.menu_button("Tools", |ui| {
+                        // (in the menu's order, top to bottom: as at the bar's left to right)
+                        ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| tools(ui, &mut asked, &mut wizard));
+                        if asked.is_some() || wizard {
+                            ui.close();
+                        }
+                    });
+                } else {
+                    tools(ui, &mut asked, &mut wizard);
                 }
-                if ui
-                    .button("Computers...")
-                    .on_hover_text("other computers helping with the runs, this one helping another")
-                    .clicked()
-                {
-                    self.focus(Pane::Computers);
+                // the room left: the tools in a menu below a fifth of the bar, back on it when they fit again
+                let width = ui.min_rect().width();
+                let room = ui.available_width();
+                let least = 220.0;
+                let to_menu = if in_menu {
+                    let wide = ui.data(|d| d.get_temp::<f32>(wide_id)).unwrap_or(f32::INFINITY);
+                    room + width - wide >= least + 40.0
+                } else {
+                    ui.data_mut(|d| d.insert_temp(wide_id, width));
+                    room < least
+                };
+                if to_menu {
+                    ui.data_mut(|d| d.insert_temp(menu_id, !in_menu));
+                    ui.ctx().request_discard("the bar's tools in a menu, or out of it");
                 }
-                if ui
-                    .button("Many runs...")
-                    .on_hover_text("the model run many times: replicates, scenarios, calibration")
-                    .clicked()
+                if let Some(s) = &self.session
+                    && self.wizard.is_none()
                 {
-                    self.focus(Pane::Batch);
-                }
-                if ui.button("Wizard...").on_hover_text("a land change model from your maps, step by step").clicked() {
-                    self.wizard = Some(Wizard::default());
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        theme::pill(ui, |ui| {
+                        // the model's name, a dot when it has edits not saved
+                        // (cut short when the bar has no room for it)
+                        let title = ui
+                            .scope(|ui| {
+                                ui.set_max_width((ui.available_width() * 0.6).max(60.0));
+                                ui.add(egui::Label::new(RichText::new(s.title()).strong()).truncate())
+                            })
+                            .inner;
+                        if let Some(p) = &s.path {
+                            title.on_hover_text(p.display().to_string());
+                        }
+                        if s.dirty {
+                            let (r, resp) = ui.allocate_exact_size(Vec2::splat(10.0), egui::Sense::hover());
+                            ui.painter().circle_filled(r.center(), 3.5, ui.visuals().warn_fg_color);
+                            resp.on_hover_text(format!("not saved ({}S saves it)", crate::commands::cmd()));
+                        }
+                        if s.loading() {
+                            ui.spinner();
+                            ui.label(RichText::new("reading the data...").weak());
+                        }
+                        if s.running() && s.stopping.is_none() && s.gate.paused() {
+                            // paused after a step (in place of the progress)
+                            let at = s.progress.as_ref().map(|(at, step, of)| format!("{at}: step {step} of {of}"));
+                            ui.label(RichText::new(format!("paused at {}", at.unwrap_or_default())).color(theme::accent()));
+                            if ui.button("Next").on_hover_text("run the next step and pause again").clicked() {
+                                s.gate.next();
+                            }
+                            if ui.button("Continue").on_hover_text("run on to the end without pausing").clicked() {
+                                s.gate.resume();
+                            }
+                        } else if s.running() && s.stopping.is_none() {
+                            let (frac, text) = s.run_progress();
+                            theme::progress(ui, Some(frac), &text, 140.0);
+                        }
+                        if s.stopping.is_some() {
+                            ui.spinner();
+                            ui.label(RichText::new("stopping...").weak());
+                        } else if let Some(e) = s.elapsed.filter(|_| !s.running()) {
+                            let done = RichText::new(format!("done in {:.2} s", e.as_secs_f64())).weak();
+                            ui.add(egui::Label::new(done).truncate());
+                            match &s.recorded {
+                                Some(Ok(p)) => {
+                                    let at = p.parent().unwrap_or(p);
+                                    if ui
+                                        .link(RichText::new("manifest").weak())
+                                        .on_hover_text(format!(
+                                            "the outputs and the manifest of the run written in {} (terraflux reproduce runs it again); click to open the folder",
+                                            at.display()
+                                        ))
+                                        .clicked()
+                                    {
+                                        crate::batch_view::open_folder(at);
+                                    }
+                                }
+                                Some(Err(e)) => {
+                                    ui.label(RichText::new("manifest ✖").color(ui.visuals().warn_fg_color))
+                                        .on_hover_text(format!("the outputs and the manifest of the run were not written: {e}"));
+                                }
+                                None => {}
+                            }
+                        }
+                        });
+                    });
                 }
             });
+            if settings {
+                self.settings_open = !self.settings_open;
+            }
+            if let Some(p) = asked {
+                self.focus(p);
+            }
+            if wizard {
+                self.wizard = Some(Wizard::default());
+            }
         });
         if run {
             self.run_all(ui.ctx());
@@ -2456,7 +2559,7 @@ impl TerrafluxApp {
                     } else {
                         (v.widgets.inactive.weak_bg_fill, v.text_color())
                     };
-                    ui.painter().rect_filled(tab, 3.0, fill);
+                    ui.painter().rect_filled(tab, crate::theme::rounded(3.0), fill);
                     // the word along it, bottom to top
                     let galley = ui.painter().layout_no_wrap(word.to_string(), egui::FontId::proportional(10.5), text);
                     let at = egui::pos2(tab.center().x - galley.size().y / 2.0, tab.center().y + galley.size().x / 2.0);
@@ -2549,32 +2652,14 @@ impl TerrafluxApp {
         let mut problems = false;
         ui.horizontal(|ui| {
             let weak = ui.visuals().weak_text_color();
-            match &self.hover {
-                Some(h) => {
-                    let value = if h.value.is_nan() {
-                        "no value".to_string()
-                    } else {
-                        format!("value {}", terraflux_ops::value::class_label(h.value))
-                    };
-                    ui.label(RichText::new(value).strong());
-                    ui.label(
-                        RichText::new(format!("row {}  column {}   x {:.2}  y {:.2}", h.row, h.col, h.x, h.y))
-                            .monospace()
-                            .color(weak),
-                    );
-                }
-                None if self.session.is_some() => {
-                    ui.label(RichText::new(hints(focused)).color(weak));
-                }
-                None => {}
-            }
             let batch = match (&self.batch.running, &self.batch.interrupted) {
                 (Some(_), _) => Some("a batch runs (Many runs)"),
                 (None, Some(r)) if !r.elsewhere() => Some("a batch stopped before its end (Many runs)"),
                 _ => None,
             };
-            if let Some(s) = &self.session {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            // the right side first, what is at the left in the room left (cut short when it does not fit)
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if let Some(s) = &self.session {
                     if let Some(b) = batch {
                         ui.label(RichText::new(b).strong());
                         ui.separator();
@@ -2611,8 +2696,24 @@ impl TerrafluxApp {
                         ui.label(RichText::new(format!("{} {h}", w.symbol())).color(w.colour(ui.visuals())))
                             .on_hover_text(crate::document_view::check_list(&checks));
                     }
+                }
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| match &self.hover {
+                    Some(h) => {
+                        let value = if h.value.is_nan() {
+                            "no value".to_string()
+                        } else {
+                            format!("value {}", terraflux_ops::value::class_label(h.value))
+                        };
+                        ui.label(RichText::new(value).strong());
+                        let at = format!("row {}  column {}   x {:.2}  y {:.2}", h.row, h.col, h.x, h.y);
+                        ui.add(egui::Label::new(RichText::new(at).monospace().color(weak)).truncate());
+                    }
+                    None if self.session.is_some() => {
+                        ui.add(egui::Label::new(RichText::new(hints(focused)).color(weak)).truncate());
+                    }
+                    None => {}
                 });
-            }
+            });
         });
         problems
     }
@@ -2806,20 +2907,24 @@ impl TerrafluxApp {
             Some(Coloring::Classes(v)) => v.iter().find(|(k, _)| *k == c).map_or(Color32::GRAY, |(_, x)| *x),
             _ => Color32::GRAY,
         };
-        Plot::new("areas").legend(Legend::default()).x_axis_label("step").y_axis_label("cells").show(ui, |p| {
-            for &c in &classes {
-                let pts: Vec<[f64; 2]> = areas
-                    .iter()
-                    .enumerate()
-                    .map(|(k, a)| [k as f64, a.iter().find(|(x, _)| *x == c).map_or(0, |(_, n)| *n) as f64])
-                    .collect();
-                p.line(
-                    Line::new(format!("class {}", terraflux_ops::value::class_label(c)), pts)
-                        .color(colour(c))
-                        .width(2.0),
-                );
-            }
-        });
+        crate::theme::plot(Plot::new("areas"))
+            .legend(Legend::default())
+            .x_axis_label("step")
+            .y_axis_label("cells")
+            .show(ui, |p| {
+                for &c in &classes {
+                    let pts: Vec<[f64; 2]> = areas
+                        .iter()
+                        .enumerate()
+                        .map(|(k, a)| [k as f64, a.iter().find(|(x, _)| *x == c).map_or(0, |(_, n)| *n) as f64])
+                        .collect();
+                    p.line(
+                        Line::new(format!("class {}", terraflux_ops::value::class_label(c)), pts)
+                            .color(colour(c))
+                            .width(2.0),
+                    );
+                }
+            });
     }
 
     fn validation_tab(&mut self, ui: &mut Ui) {
@@ -3104,7 +3209,8 @@ impl TerrafluxApp {
             }
         }
         let bar = egui::Frame::new().fill(theme::bar()).inner_margin(Margin::symmetric(8, 5));
-        egui::Panel::top("toolbar").frame(bar).show(ui, |ui| self.toolbar(ui));
+        let top = if theme::modern() { bar.inner_margin(Margin::symmetric(10, 7)) } else { bar };
+        egui::Panel::top("toolbar").frame(top).show(ui, |ui| self.toolbar(ui));
         let focused = self.focused();
         let problems = egui::Panel::bottom("status")
             .frame(bar.inner_margin(Margin::symmetric(8, 3)))

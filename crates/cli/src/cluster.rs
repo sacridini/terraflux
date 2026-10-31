@@ -156,7 +156,9 @@ pub async fn serve(
                 );
             }
             found
-                .then(|| terraflux_dist::discover::announce(c, addr.port(), terraflux_dist::discover::PORT))
+                .then(|| {
+                    terraflux_dist::discover::announce(c, addr.port(), terraflux_dist::discover::PORT, listen.ip())
+                })
                 .transpose()?
         }
         None => {

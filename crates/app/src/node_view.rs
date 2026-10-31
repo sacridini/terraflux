@@ -132,18 +132,36 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
         return;
     };
     let mut change: Option<Result<(), String>> = None;
+    let modern = crate::theme::modern();
     ui.horizontal(|ui| {
         let mut name = field(s, "id", n.id.clone());
-        // (as wide as the pane lets it, beside its button)
-        ui.add(egui::TextEdit::singleline(&mut name).desired_width((ui.available_width() - 70.0).clamp(60.0, 140.0)));
+        // (as wide as the pane lets it, beside its button; the modern look: the name as a heading, its button
+        // when it was changed, Enter renaming too)
+        let edited = name != n.id;
+        let button = crate::theme::button_room(ui, "Rename");
+        let resp = if modern {
+            let room = ui.available_width() - if edited { button } else { 0.0 };
+            ui.add(
+                egui::TextEdit::singleline(&mut name)
+                    .font(egui::FontId::proportional(egui::TextStyle::Body.resolve(ui.style()).size * 1.25))
+                    .desired_width(room.max(40.0)),
+            )
+        } else {
+            let room = (ui.available_width() - button).clamp(40.0, 140.0);
+            ui.add(egui::TextEdit::singleline(&mut name).desired_width(room))
+        };
         s.fields.insert("id".into(), name.clone());
-        if ui.button("Rename").clicked() {
+        let entered = modern && resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        if ((!modern || edited) && ui.button("Rename").clicked()) || (entered && name != n.id) {
             change = Some(crate::editor::rename_node(&mut s.source, &path, &n.id, &name).map(|_| {
                 s.selected = Some(name.clone());
             }));
         }
     });
-    ui.label(RichText::new(crate::editor_view::op_label(&n)).monospace().color(ui.visuals().weak_text_color()));
+    crate::theme::chip(
+        ui,
+        RichText::new(crate::editor_view::op_label(&n)).monospace().color(ui.visuals().weak_text_color()),
+    );
     // a node of the user's library: what it is, against the library; a group or a calculator: to save as one
     if let Some(c) = crate::my_nodes::pane(ui, s, r, &path, &n) {
         change = Some(c);
@@ -188,8 +206,6 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
             ui.data_mut(|d| d.insert_temp(open_id, open));
         }
     }
-    ui.separator();
-    ui.label(RichText::new("Inputs").strong());
     // those it needs, those given and the essential ones, then the optional others folded away
     let essentials = terraflux_ops::essentials::essentials(&n.op);
     let essential = |name: &str| essentials.is_some_and(|e| e.contains(&name));
@@ -199,70 +215,106 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
         ports.into_iter().partition(|(port, ty, _)| crate::my_nodes::is_setting(&n, port, *ty));
     let (shown, folded): (Vec<_>, Vec<_>) =
         ports.into_iter().partition(|(port, _, required)| *required || n.inputs.contains_key(port) || essential(port));
-    // a row each: its name at the left, what feeds it (cut to the pane) or its value at the right
-    let label_w = (ui.available_width() * 0.46).clamp(72.0, 160.0);
-    let mut input_rows = |ui: &mut Ui, rows: &[(String, terraflux_graph::Type, bool)]| {
-        for (port, ty, required) in rows {
-            ui.horizontal(|ui| {
-                let name = if *required { format!("{port} *") } else { port.clone() };
-                let need = if *required { "needed" } else { "optional" };
-                ui.allocate_ui_with_layout(
-                    egui::vec2(label_w, 20.0),
-                    egui::Layout::left_to_right(egui::Align::Center),
-                    |ui| {
-                        ui.set_min_width(label_w);
-                        ui.add(egui::Label::new(name).truncate())
-                            .on_hover_text(format!("{port}: {} ({need})", ty.name()));
-                    },
-                );
-                match n.inputs.get(port) {
-                    Some(Source::Ref(reference)) => {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.small_button("x").on_hover_text("disconnect").clicked() {
-                                change = Some(crate::editor::disconnect(&mut s.source, &path, &n.id, port));
+    // (the room of a card's rows, in the modern look)
+    let label_w = if modern {
+        (ui.available_width() * 0.35 - 10.0).clamp(48.0, 150.0)
+    } else {
+        (ui.available_width() * 0.46).clamp(72.0, 160.0)
+    };
+    // (the modern look: the inputs' names as wide as the longest, what feeds them the rest)
+    let inputs_w = if modern {
+        let widest = shown.iter().chain(&folded).map(|(port, _, required)| {
+            let name = if *required { format!("{port} *") } else { port.clone() };
+            egui::WidgetText::from(name)
+                .into_galley(ui, Some(egui::TextWrapMode::Extend), f32::INFINITY, egui::TextStyle::Body)
+                .size()
+                .x
+        });
+        (widest.fold(0.0, f32::max) + 8.0).clamp(32.0, label_w.max(32.0))
+    } else {
+        label_w
+    };
+    crate::theme::card(ui, "Inputs", |ui| {
+        // a row each: its name at the left, what feeds it (cut to the pane) or its value at the right
+        let mut input_rows = |ui: &mut Ui, rows: &[(String, terraflux_graph::Type, bool)]| {
+            for (port, ty, required) in rows {
+                ui.horizontal(|ui| {
+                    let name = if *required { format!("{port} *") } else { port.clone() };
+                    let need = if *required { "needed" } else { "optional" };
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(inputs_w, 20.0),
+                        egui::Layout::left_to_right(egui::Align::Center),
+                        |ui| {
+                            ui.set_min_width(inputs_w);
+                            ui.add(egui::Label::new(name).truncate())
+                                .on_hover_text(format!("{port}: {} ({need})", ty.name()));
+                        },
+                    );
+                    match n.inputs.get(port) {
+                        Some(Source::Ref(reference)) => {
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                let x = if modern {
+                                    crate::theme::quiet(ui);
+                                    ui.small_button(RichText::new("×").color(ui.visuals().weak_text_color()))
+                                } else {
+                                    ui.small_button("x")
+                                };
+                                if x.on_hover_text("disconnect").clicked() {
+                                    change = Some(crate::editor::disconnect(&mut s.source, &path, &n.id, port));
+                                }
+                                if modern {
+                                    let dark = crate::theme::current().dark;
+                                    let colour = crate::editor_view::type_colour(*ty, dark)
+                                        .unwrap_or(ui.visuals().weak_text_color());
+                                    ref_chip(ui, &reference.to_string(), colour).on_hover_text(reference);
+                                } else {
+                                    ui.add(
+                                        egui::Label::new(RichText::new(format!("<- {reference}")).monospace())
+                                            .truncate(),
+                                    )
+                                    .on_hover_text(reference);
+                                }
+                            });
+                        }
+                        other => {
+                            let init = match other {
+                                Some(Source::Literal(v)) => v.to_string(),
+                                _ => String::new(),
+                            };
+                            let key = format!("in.{port}");
+                            let mut text = field(s, &key, init.clone());
+                            let edit = egui::TextEdit::singleline(&mut text)
+                                .desired_width(ui.available_width())
+                                .hint_text("value");
+                            let resp = ui.add(edit);
+                            s.fields.insert(key, text.clone());
+                            if resp.lost_focus() && text != init {
+                                change = Some(crate::editor::set_literal(&mut s.source, r, &path, &n.id, port, &text));
                             }
-                            ui.add(egui::Label::new(RichText::new(format!("<- {reference}")).monospace()).truncate())
-                                .on_hover_text(reference);
-                        });
-                    }
-                    other => {
-                        let init = match other {
-                            Some(Source::Literal(v)) => v.to_string(),
-                            _ => String::new(),
-                        };
-                        let key = format!("in.{port}");
-                        let mut text = field(s, &key, init.clone());
-                        let edit = egui::TextEdit::singleline(&mut text)
-                            .desired_width(ui.available_width())
-                            .hint_text("value");
-                        let resp = ui.add(edit);
-                        s.fields.insert(key, text.clone());
-                        if resp.lost_focus() && text != init {
-                            change = Some(crate::editor::set_literal(&mut s.source, r, &path, &n.id, port, &text));
                         }
                     }
-                }
-            });
+                });
+            }
+        };
+        if shown.is_empty() && folded.is_empty() {
+            ui.label(RichText::new("none").color(ui.visuals().weak_text_color()));
         }
-    };
-    if shown.is_empty() && folded.is_empty() {
-        ui.label(RichText::new("none").color(ui.visuals().weak_text_color()));
-    }
-    input_rows(ui, &shown);
-    if !folded.is_empty() {
-        egui::CollapsingHeader::new(RichText::new(format!("Optional inputs ({})", folded.len())).size(11.5))
-            .id_salt(("optional inputs", &n.op))
-            .default_open(false)
-            .show(ui, |ui| input_rows(ui, &folded));
-    }
-    // a folder of rasters through it: it runs once per file
-    if crate::editor::folder_port(&n, r).is_some()
-        && ui.button("Run on a folder...").on_hover_text(FOLDER_HELP).clicked()
-        && let Some(folder) = rfd::FileDialog::new().set_title("The folder of the rasters").pick_folder()
-    {
-        let folder = folder.to_string_lossy().into_owned();
-        change = Some(crate::editor::run_on_folder(&mut s.source, r, &path, &n.id, &folder).map(|_| ()));
-    }
+        input_rows(ui, &shown);
+        if !folded.is_empty() {
+            egui::CollapsingHeader::new(RichText::new(format!("Optional inputs ({})", folded.len())).size(11.5))
+                .id_salt(("optional inputs", &n.op))
+                .default_open(false)
+                .show(ui, |ui| input_rows(ui, &folded));
+        }
+        // a folder of rasters through it: it runs once per file
+        if crate::editor::folder_port(&n, r).is_some()
+            && ui.button("Run on a folder...").on_hover_text(FOLDER_HELP).clicked()
+            && let Some(folder) = rfd::FileDialog::new().set_title("The folder of the rasters").pick_folder()
+        {
+            let folder = folder.to_string_lossy().into_owned();
+            change = Some(crate::editor::run_on_folder(&mut s.source, r, &path, &n.id, &folder).map(|_| ()));
+        }
+    });
     // the files of a folder that failed in the last run, the chain run from this node
     let at = if path.is_empty() { n.id.clone() } else { format!("{}/{}", path.join("/"), n.id) };
     if let Some(failed) = s.failures.get(&at).cloned() {
@@ -296,13 +348,13 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
         }));
     }
     if !own_settings.is_empty() {
-        ui.separator();
-        ui.label(RichText::new("Settings").strong());
-        for (port, ty, required) in &own_settings {
-            if let Some(c) = user_setting(ui, s, r, &n, &path, port, *ty, *required, label_w) {
-                change = Some(c);
+        crate::theme::card(ui, "Settings", |ui| {
+            for (port, ty, required) in &own_settings {
+                if let Some(c) = user_setting(ui, s, r, &n, &path, port, *ty, *required, label_w) {
+                    change = Some(c);
+                }
             }
-        }
+        });
     }
     if sig.as_ref().is_some_and(|g| g.extra.is_some() || g.container) && n.uses.is_none() {
         ui.horizontal_wrapped(|ui| {
@@ -334,156 +386,182 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
     if !params.is_empty() {
         let readable = readable(s, r, &n, &path);
         let readable = readable.as_slice();
-        ui.separator();
-        ui.label(RichText::new("Settings").strong());
-        // an operator of many settings: those it needs and its essential ones, the others folded as advanced
-        // (a name of the list that is an input's is the input's: `features` of prioritize.optimize)
-        let input = |name: &str| sig.as_ref().is_some_and(|g| g.inputs.iter().any(|i| i.name == name));
-        let (main, advanced): (Vec<_>, Vec<_>) = params.into_iter().partition(|(name, _, spec)| {
-            essentials.is_none() || spec.as_ref().is_none_or(|p| p.required) || (essential(name) && !input(name))
-        });
-        for (name, doc, spec) in &main {
-            if let Some(c) = setting(ui, s, &n, &path, name, doc, spec.as_ref(), label_w, readable) {
-                change = Some(c);
+        crate::theme::card(ui, "Settings", |ui| {
+            // an operator of many settings: those it needs and its essential ones, the others folded as advanced
+            // (a name of the list that is an input's is the input's: `features` of prioritize.optimize)
+            let input = |name: &str| sig.as_ref().is_some_and(|g| g.inputs.iter().any(|i| i.name == name));
+            let (main, advanced): (Vec<_>, Vec<_>) = params.into_iter().partition(|(name, _, spec)| {
+                essentials.is_none() || spec.as_ref().is_none_or(|p| p.required) || (essential(name) && !input(name))
+            });
+            for (name, doc, spec) in &main {
+                if let Some(c) = setting(ui, s, &n, &path, name, doc, spec.as_ref(), label_w, readable) {
+                    change = Some(c);
+                }
             }
-        }
-        if !advanced.is_empty() {
-            let given = advanced.iter().filter(|(name, _, _)| n.params.contains_key(name)).count();
-            let title = if given > 0 {
-                format!("Advanced ({} · {given} given)", advanced.len())
-            } else {
-                format!("Advanced ({})", advanced.len())
-            };
-            ui.add_space(2.0);
-            egui::CollapsingHeader::new(RichText::new(title).size(11.5))
-                .id_salt(("advanced settings", &n.id))
-                .default_open(given > 0)
-                .show(ui, |ui| {
-                    for (name, doc, spec) in &advanced {
-                        if let Some(c) = setting(ui, s, &n, &path, name, doc, spec.as_ref(), label_w, readable) {
-                            change = Some(c);
+            if !advanced.is_empty() {
+                let given = advanced.iter().filter(|(name, _, _)| n.params.contains_key(name)).count();
+                let title = if given > 0 {
+                    format!("Advanced ({} · {given} given)", advanced.len())
+                } else {
+                    format!("Advanced ({})", advanced.len())
+                };
+                ui.add_space(2.0);
+                egui::CollapsingHeader::new(RichText::new(title).size(11.5))
+                    .id_salt(("advanced settings", &n.id))
+                    .default_open(given > 0)
+                    .show(ui, |ui| {
+                        for (name, doc, spec) in &advanced {
+                            if let Some(c) = setting(ui, s, &n, &path, name, doc, spec.as_ref(), label_w, readable) {
+                                change = Some(c);
+                            }
                         }
-                    }
-                });
-        }
+                    });
+            }
+        });
     }
     if let Some(b) = &n.body {
-        ui.separator();
-        ui.label(RichText::new("Body").strong());
-        let maps: Vec<(&str, &BTreeMap<String, String>)> = if n.op == terraflux_graph::GROUP {
-            vec![("outputs", &b.outputs)]
-        } else if n.op == terraflux_graph::EACH {
-            vec![("collect", &b.collect)]
-        } else if n.op == terraflux_graph::SWITCH {
-            Vec::new()
-        } else {
-            vec![("carry", &b.carry), ("collect", &b.collect)]
-        };
-        for (which, map) in &maps {
-            for (k, v) in map.iter() {
-                ui.label(RichText::new(format!("{which}: {k} <- {v}")).monospace());
+        crate::theme::card(ui, "Body", |ui| {
+            let maps: Vec<(&str, &BTreeMap<String, String>)> = if n.op == terraflux_graph::GROUP {
+                vec![("outputs", &b.outputs)]
+            } else if n.op == terraflux_graph::EACH {
+                vec![("collect", &b.collect)]
+            } else if n.op == terraflux_graph::SWITCH {
+                Vec::new()
+            } else {
+                vec![("carry", &b.carry), ("collect", &b.collect)]
+            };
+            for (which, map) in &maps {
+                for (k, v) in map.iter() {
+                    ui.label(RichText::new(format!("{which}: {k} <- {v}")).monospace());
+                }
             }
-        }
-        // (a node of the user's gives what it declares)
-        if n.uses.is_none() {
-            ui.horizontal(|ui| {
-                let mut which = field(s, "body_which", maps[0].0.to_string());
-                egui::ComboBox::from_id_salt("which").selected_text(&which).show_ui(ui, |ui| {
-                    for (w, _) in &maps {
-                        ui.selectable_value(&mut which, w.to_string(), *w);
+            // (a node of the user's gives what it declares)
+            if n.uses.is_none() {
+                ui.horizontal(|ui| {
+                    let mut which = field(s, "body_which", maps[0].0.to_string());
+                    egui::ComboBox::from_id_salt("which").selected_text(&which).show_ui(ui, |ui| {
+                        for (w, _) in &maps {
+                            ui.selectable_value(&mut which, w.to_string(), *w);
+                        }
+                    });
+                    s.fields.insert("body_which".into(), which.clone());
+                    let mut name = field(s, "body_name", String::new());
+                    ui.add(egui::TextEdit::singleline(&mut name).desired_width(80.0).hint_text("name"));
+                    let mut reference = field(s, "body_ref", String::new());
+                    ui.add(
+                        egui::TextEdit::singleline(&mut reference).desired_width(110.0).hint_text("node.port inside"),
+                    );
+                    s.fields.insert("body_name".into(), name.clone());
+                    s.fields.insert("body_ref".into(), reference.clone());
+                    if ui.button("Set").clicked() {
+                        let mut inner = path.clone();
+                        inner.push(n.id.clone());
+                        change = Some(crate::editor::set_body_map(
+                            &mut s.source,
+                            r,
+                            &inner,
+                            &which,
+                            &name,
+                            reference.trim(),
+                        ));
                     }
                 });
-                s.fields.insert("body_which".into(), which.clone());
-                let mut name = field(s, "body_name", String::new());
-                ui.add(egui::TextEdit::singleline(&mut name).desired_width(80.0).hint_text("name"));
-                let mut reference = field(s, "body_ref", String::new());
-                ui.add(egui::TextEdit::singleline(&mut reference).desired_width(110.0).hint_text("node.port inside"));
-                s.fields.insert("body_name".into(), name.clone());
-                s.fields.insert("body_ref".into(), reference.clone());
-                if ui.button("Set").clicked() {
-                    let mut inner = path.clone();
-                    inner.push(n.id.clone());
-                    change =
-                        Some(crate::editor::set_body_map(&mut s.source, r, &inner, &which, &name, reference.trim()));
-                }
-            });
-        }
-        let open = egui::Button::new(RichText::new("Open inside ›").color(crate::theme::on_accent()).strong())
-            .fill(crate::theme::accent());
-        if ui
-            .add(open)
-            .on_hover_text("its nodes on the canvas (a double-click on it does it too); ‹ Back or Esc to come out")
-            .clicked()
-        {
-            s.editor.path.push(n.id.clone());
-            s.selected = None;
-            s.fields.clear();
-        }
+            }
+            let open = egui::Button::new(RichText::new("Open inside ›").color(crate::theme::on_accent()).strong())
+                .fill(crate::theme::accent());
+            if ui
+                .add(open)
+                .on_hover_text("its nodes on the canvas (a double-click on it does it too); ‹ Back or Esc to come out")
+                .clicked()
+            {
+                s.editor.path.push(n.id.clone());
+                s.selected = None;
+                s.fields.clear();
+            }
+        });
     }
     // turned off (B on the canvas), and how long it took when it last ran
-    ui.separator();
-    ui.horizontal(|ui| {
-        let mut off = n.bypass;
-        if ui
-            .checkbox(&mut off, "Bypass")
-            .on_hover_text("turned off without being taken away: it does not run, each of its outputs the first of its inputs of the same type (B on the canvas)")
-            .changed()
-        {
-            change = Some(crate::editor::toggle_bypass(&mut s.source, &path, std::slice::from_ref(&n.id)));
-        }
-        // its result frozen (a top-level node): kept next to the model, used instead of running it
-        if path.is_empty() {
-            let mut frozen = n.frozen;
+    crate::theme::card(ui, "", |ui| {
+        let row = |ui: &mut Ui| {
+            let mut off = n.bypass;
             if ui
-                .add_enabled(s.path.is_some(), egui::Checkbox::new(&mut frozen, "Freeze"))
-                .on_hover_text("its result kept on disk next to the model (name.frozen) and used instead of running it, in later sessions too, whatever it reads; what only it reads does not run either. Unchecked: it runs again")
-                .on_disabled_hover_text("save the model first: a frozen result is kept next to its file")
+                .add(crate::theme::toggle(&mut off, "Bypass"))
+                .on_hover_text("turned off without being taken away: it does not run, each of its outputs the first of its inputs of the same type (B on the canvas)")
                 .changed()
             {
-                change = Some(s.freeze(&n.id, frozen));
+                change = Some(crate::editor::toggle_bypass(&mut s.source, &path, std::slice::from_ref(&n.id)));
             }
-        }
-        let at = if path.is_empty() { n.id.clone() } else { format!("{}/{}", path.join("/"), n.id) };
-        if let Some((secs, bytes)) = s.timings.get(&at) {
-            let size = match *bytes {
-                0 => String::new(),
-                b if b < 1 << 20 => format!(" · {:.1} KB", b as f64 / 1024.0),
-                b if b < 1 << 30 => format!(" · {:.1} MB", b as f64 / 1048576.0),
-                b => format!(" · {:.2} GB", b as f64 / 1073741824.0),
-            };
-            ui.label(RichText::new(format!("last run {}{size}", seconds_text(*secs))).weak())
-                .on_hover_text("how long it took when it last ran (a loop's body: every step summed), and about how much memory what it gave holds");
+            // its result frozen (a top-level node): kept next to the model, used instead of running it
+            if path.is_empty() {
+                let mut frozen = n.frozen;
+                if ui
+                    .add_enabled(s.path.is_some(), crate::theme::toggle(&mut frozen, "Freeze"))
+                    .on_hover_text("its result kept on disk next to the model (name.frozen) and used instead of running it, in later sessions too, whatever it reads; what only it reads does not run either. Unchecked: it runs again")
+                    .on_disabled_hover_text("save the model first: a frozen result is kept next to its file")
+                    .changed()
+                {
+                    change = Some(s.freeze(&n.id, frozen));
+                }
+            }
+            let at = if path.is_empty() { n.id.clone() } else { format!("{}/{}", path.join("/"), n.id) };
+            if let Some((secs, bytes)) = s.timings.get(&at) {
+                let size = match *bytes {
+                    0 => String::new(),
+                    b if b < 1 << 20 => format!(" · {:.1} KB", b as f64 / 1024.0),
+                    b if b < 1 << 30 => format!(" · {:.1} MB", b as f64 / 1048576.0),
+                    b => format!(" · {:.2} GB", b as f64 / 1073741824.0),
+                };
+                ui.add(egui::Label::new(RichText::new(format!("last run {}{size}", seconds_text(*secs))).weak()).extend())
+                    .on_hover_text("how long it took when it last ran (a loop's body: every step summed), and about how much memory what it gave holds");
+            }
+        };
+        // (the modern look: what does not fit on the next row)
+        if modern {
+            ui.horizontal_wrapped(row);
+        } else {
+            ui.horizontal(row);
         }
     });
     // the record of the choice, written by whoever built the model (a person, the wizard, an agent): edited in
     // place
-    ui.separator();
-    let note = n.note.clone().unwrap_or_default();
-    if let Some(t) = text_field(ui, s, "note", "Note", "what this node is for (shown on the canvas)", note, 2) {
-        change = Some(crate::editor::set_note(&mut s.source, &path, &n.id, &t));
-    }
-    let why = n.why.clone().unwrap_or_default();
-    if let Some(t) = text_field(ui, s, "why", "Why", "why this operator and these settings", why, 2) {
-        change = Some(crate::editor::set_why(&mut s.source, &path, &n.id, &t));
-    }
-    let lists = [
-        ("refs", "References", "papers, methods, documentation: one a line", &n.refs),
-        ("assumptions", "Assumptions", "what the choice assumes: one a line", &n.assumptions),
-        ("alternatives", "Alternatives", "what was set aside, and why: one a line", &n.alternatives),
-    ];
-    let given = lists.iter().any(|(_, _, _, l)| !l.is_empty());
-    egui::CollapsingHeader::new(RichText::new("References, assumptions, alternatives").strong())
-        .id_salt(("node record", &n.id))
-        .default_open(given)
-        .show(ui, |ui| {
-            for (key, label, hint, list) in lists {
-                if let Some(t) = text_field(ui, s, key, label, hint, list.join("\n"), 2) {
-                    change = Some(crate::editor::set_list(&mut s.source, &path, &n.id, key, &t));
+    crate::theme::card(ui, "", |ui| {
+        let note = n.note.clone().unwrap_or_default();
+        if let Some(t) = text_field(ui, s, "note", "Note", "what this node is for (shown on the canvas)", note, 2) {
+            change = Some(crate::editor::set_note(&mut s.source, &path, &n.id, &t));
+        }
+        let why = n.why.clone().unwrap_or_default();
+        if let Some(t) = text_field(ui, s, "why", "Why", "why this operator and these settings", why, 2) {
+            change = Some(crate::editor::set_why(&mut s.source, &path, &n.id, &t));
+        }
+        let lists = [
+            ("refs", "References", "papers, methods, documentation: one a line", &n.refs),
+            ("assumptions", "Assumptions", "what the choice assumes: one a line", &n.assumptions),
+            ("alternatives", "Alternatives", "what was set aside, and why: one a line", &n.alternatives),
+        ];
+        let given = lists.iter().any(|(_, _, _, l)| !l.is_empty());
+        // (its title short, for a narrow pane; the three named when the pointer is over it)
+        let record = egui::CollapsingHeader::new(RichText::new("References").strong())
+            .id_salt(("node record", &n.id))
+            .default_open(given)
+            .show(ui, |ui| {
+                for (key, label, hint, list) in lists {
+                    if let Some(t) = text_field(ui, s, key, label, hint, list.join("\n"), 2) {
+                        change = Some(crate::editor::set_list(&mut s.source, &path, &n.id, key, &t));
+                    }
                 }
-            }
-        });
-    ui.separator();
-    if ui.button("Delete node").clicked() {
+            });
+        record.header_response.on_hover_text("References, assumptions, alternatives");
+    });
+    let delete = if modern {
+        ui.add_space(6.0);
+        let red = ui.visuals().error_fg_color;
+        egui::Button::new(RichText::new("Delete node").color(red))
+            .stroke(egui::Stroke::new(1.0, red.gamma_multiply(0.5)))
+    } else {
+        ui.separator();
+        egui::Button::new("Delete node")
+    };
+    if ui.add(delete).clicked() {
         change = Some(crate::editor::remove_node(&mut s.source, &path, &n.id).map(|_| s.selected = None));
     }
     match change {
@@ -514,7 +592,8 @@ fn source_panel(ui: &mut Ui, s: &mut Session, r: &Registry, key: &str) {
     ui.horizontal(|ui| {
         ui.label(RichText::new("$").monospace().strong());
         let mut text = field(s, "input_name", name.clone());
-        ui.add(egui::TextEdit::singleline(&mut text).desired_width((ui.available_width() - 70.0).clamp(60.0, 140.0)));
+        let room = (ui.available_width() - crate::theme::button_room(ui, "Rename")).clamp(40.0, 140.0);
+        ui.add(egui::TextEdit::singleline(&mut text).desired_width(room));
         s.fields.insert("input_name".into(), text.clone());
         if ui.button("Rename").clicked() {
             change = Some(crate::editor::rename_input(&mut s.source, &name, text.trim()));
@@ -605,6 +684,27 @@ fn source_panel(ui: &mut Ui, s: &mut Session, r: &Registry, key: &str) {
         Some(Err(e)) => s.editor.message = Some(e),
         None => {}
     }
+}
+
+/// What feeds an input, in a chip: a dot of its type's colour, its name (cut to the room left).
+fn ref_chip(ui: &mut Ui, text: &str, colour: egui::Color32) -> egui::Response {
+    // (5 of margin each side, the dot and its gap)
+    let around = 19.0;
+    let room = (ui.available_width() - around).max(12.0);
+    let galley = egui::WidgetText::from(RichText::new(text).monospace()).into_galley(
+        ui,
+        Some(egui::TextWrapMode::Truncate),
+        room,
+        egui::TextStyle::Monospace,
+    );
+    let size = egui::vec2(galley.size().x + around, galley.size().y + 4.0);
+    let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::hover());
+    let painter = ui.painter();
+    painter.rect_filled(rect, 5.0, crate::theme::well());
+    painter.circle_filled(egui::pos2(rect.left() + 8.0, rect.center().y), 3.0, colour);
+    let at = egui::pos2(rect.left() + 14.0, rect.center().y - galley.size().y / 2.0);
+    painter.galley(at, galley, ui.visuals().text_color());
+    resp
 }
 
 /// A field's text as typed so far (`init` until it is typed in).

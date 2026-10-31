@@ -114,7 +114,7 @@ pub fn pane(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Asked> {
             let warn = ui.visuals().warn_fg_color;
             // the last run's failure, explained
             if let Some(e) = s.error.clone() {
-                egui::Frame::new().fill(theme::well()).corner_radius(4.0).inner_margin(Margin::same(8)).show(ui, |ui| {
+                egui::Frame::new().fill(theme::well()).corner_radius(crate::theme::rounded(4.0)).inner_margin(Margin::same(8)).show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.label(RichText::new("The last run failed").strong().color(error));
                     match last_failure(s) {

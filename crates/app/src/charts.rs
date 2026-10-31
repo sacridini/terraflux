@@ -340,7 +340,7 @@ fn panels(ui: &mut Ui, t: &Table, rows: &[usize], chart: &Chart, id: egui::Id) {
     ui.horizontal_wrapped(|ui| {
         for &j in &columns {
             ui.allocate_ui(Vec2::new(w, h), |ui| {
-                let plot = Plot::new(id.with(("panel", j)))
+                let plot = crate::theme::plot(Plot::new(id.with(("panel", j))))
                     .width(w)
                     .height(h)
                     .allow_scroll(false)
@@ -461,7 +461,7 @@ fn wheel_zoom(p: &mut egui_plot::PlotUi) {
 fn draw_clustergram(ui: &mut Ui, cg: &Clustergram, n: usize, id: egui::Id) {
     let n = n.max(1) as f32;
     let line = ui.visuals().text_color().gamma_multiply(0.7);
-    Plot::new(id.with("clustergram"))
+    crate::theme::plot(Plot::new(id.with("clustergram")))
         .height(260.0)
         .allow_scroll(false)
         .x_axis_label("number of clusters (k)")
@@ -495,7 +495,7 @@ fn loadings(ui: &mut Ui, t: &Table, [a, b]: [usize; 2], id: egui::Id) {
     let colour = crate::theme::accent();
     let text = ui.visuals().text_color();
     let side = ui.available_width().clamp(240.0, 520.0);
-    Plot::new(id.with("loadings"))
+    crate::theme::plot(Plot::new(id.with("loadings")))
         .width(side)
         .height(side)
         .data_aspect(1.0)
@@ -539,7 +539,7 @@ fn matrix(ui: &mut Ui, t: &Table, id: egui::Id) {
     let names = t.columns.clone();
     let names_y = t.columns.clone();
     let side = ui.available_width().clamp(200.0, 520.0);
-    Plot::new(id.with("matrix"))
+    crate::theme::plot(Plot::new(id.with("matrix")))
         .width(side)
         .height(side)
         .data_aspect(1.0)

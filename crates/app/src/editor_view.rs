@@ -610,13 +610,15 @@ fn box_rects(b: &BoxAt, state: Option<NodeStatus>, v: &egui::Visuals, colours: b
         _ if b.bypass => (v.warn_fg_color, 1.5),
         _ => (stroke, 1.0),
     };
-    rects.push(RectInstance::new(b.rect.min.into(), b.rect.size().into(), 4.0, fill, border, width));
+    let radius = crate::theme::shape().node_radius;
+    rects.push(RectInstance::new(b.rect.min.into(), b.rect.size().into(), radius, fill, border, width));
     // a node of data's header in the colour of the type it gives (a map's blue, vectors' pink...), when
     // asked: what flows from it at a glance
     if let Some(c) = b.tint().filter(|_| colours).and_then(|t| type_colour(t, v.dark_mode)) {
         let tint = fill.lerp_to_gamma(c, if v.dark_mode { 0.22 } else { 0.18 });
         let head = b.head().shrink(2.0);
-        rects.push(RectInstance::new(head.min.into(), head.size().into(), 3.0, tint, Color32::TRANSPARENT, 0.0));
+        let r = radius - 1.0;
+        rects.push(RectInstance::new(head.min.into(), head.size().into(), r, tint, Color32::TRANSPARENT, 0.0));
     }
     // the line over the row naming its file
     if let Some(f) = b.foot() {
