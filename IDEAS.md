@@ -397,6 +397,13 @@ ordem de impacto (começando pelo 1 e pelo 3):
    CRAFTY, movimento animal) fazem um mapa por passo. O painel Simulation já passa os passos (play, setas) e o
    Viewer tem o slider das camadas de uma série; falta exportar em GIF ou MP4 (para aula e congressos), o play
    também no Viewer, e o passo escrito sobre o mapa.
+   **Feito** (Unreleased): "Save as GIF..." no painel Simulation (os passos nas cores da simulação, ou os mapas
+   de uma pilha de entrada, cada um nas suas cores) e no Viewer (as camadas de uma série, numa coloração só; de
+   uma pilha ou de rasters, cada uma nas suas): `animation.rs`, o GIF feito numa thread, o mapa ampliado quando
+   pequeno (até 480 px) ou lido a cada poucas células quando grande (até 800 px), o passo ("step 12 of 50") ou o
+   nome da camada no canto, escrito na fonte do aplicativo (`ab_glyph`), a legenda (as classes ou a rampa e as
+   pontas) embaixo, o último quadro mais longo, em loop. Falta: MP4 (precisa de um codificador; o `ffmpeg` se
+   instalado?), o play no Viewer, a velocidade escolhida, e a animação como figura no relatório.
 3. **Métodos e citações.** Um botão que escreve o parágrafo de métodos a partir do modelo: os operadores na ordem
    em que rodam, os parâmetros, a versão do Terraflux, e as referências de cada algoritmo (Soille e Vogt no MSPA,
    McRae no Circuitscape, Phillips no MaxEnt, Hesselbarth no landscapemetrics...), com a lista em BibTeX e RIS.
@@ -851,7 +858,7 @@ Fora dos operadores:
 - **O nó de script em Python**, previsto no plano como componente opcional e isolado (um Python embutido), nunca no
   laço da simulação.
 - **Animações das simulações:** os mapas coletados num `control.repeat` exportados em GIF ou MP4, com a legenda e o
-  passo.
+  passo. **Feito** o GIF (Unreleased; ver "Linha do tempo das simulações" acima); falta o MP4.
 
 ## Rios como rede (do hydrographr)
 

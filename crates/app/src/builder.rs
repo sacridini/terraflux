@@ -536,7 +536,7 @@ const LOOK_SAMPLE: usize = 1024;
 
 /// The look of a source: of all its cells (a map in memory), or of a sample of about a million cells (rasters
 /// on disk, of any size), its counts scaled to the whole.
-fn look_of(source: &Source, palette: Palette) -> Look {
+pub(crate) fn look_of(source: &Source, palette: Palette) -> Look {
     match source {
         Source::Map(m) => palette.look(&m.data),
         Source::Rasters(r, l) => {
@@ -2547,6 +2547,35 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     });
                     ui.spacing_mut().slider_width = ui.available_width() - 8.0;
                     ui.add(egui::Slider::new(&mut b, 0..=maps.len() - 1).show_value(false));
+                    // the layers as an animation: the steps of a series in one colouring (a value the same colour
+                    // at every step), the layers of a stack or of rasters each in its own, as shown
+                    let series = matches!(value, Value::Series(_));
+                    let file = title.replace(['/', '\\', ':', ' '], "_");
+                    s.animations.button(ui, &file, if series { 200 } else { 600 }, || {
+                        let (maps, legend) = (maps.clone(), legend_classes.clone());
+                        let captions: Vec<String> = names.iter().map(|n| format!("{title} {n}")).collect();
+                        move || {
+                            let mut looks: Vec<Coloring> = maps
+                                .iter()
+                                .map(|m| {
+                                    let l = look_of(m, palette);
+                                    legend.as_ref().map_or(l.clone(), |c| crate::legend_view::apply(&l, c)).coloring
+                                })
+                                .collect();
+                            if series && let Some(one) = looks.iter().cloned().reduce(|a, b| a.shared(&b)) {
+                                looks = vec![one; maps.len()];
+                            }
+                            maps.into_iter()
+                                .zip(looks)
+                                .zip(captions)
+                                .map(|((source, coloring), caption)| crate::animation::Frame {
+                                    source,
+                                    coloring,
+                                    caption,
+                                })
+                                .collect()
+                        }
+                    });
                     // the cell clicked: its values along the layers (a click on the chart shows that layer)
                     if let Some((row, col)) = sh.view.picked {
                         let id = egui::Id::new(("series at", salt, &node, &port, row, col, maps.len()));

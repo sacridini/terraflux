@@ -613,6 +613,8 @@ pub struct Session {
     pub preview_rasters: Vec<(String, String, f32)>,
     /// The map compared with the map shown (by a curtain or side by side).
     pub preview_compare: crate::builder::Compare,
+    /// The animations (GIF) of steps or of a stack's maps being made, and what the last one said.
+    pub animations: crate::animation::Animations,
     pub looks: Looks,
     /// The outputs shown in map tabs of their own (a double click on a node), by tab; the tabs the dock is still
     /// to show.
@@ -763,6 +765,7 @@ impl Session {
             preview_overlays: Vec::new(),
             preview_rasters: Vec::new(),
             preview_compare: Default::default(),
+            animations: Default::default(),
             palettes: Default::default(),
             looks: Looks::default(),
             auto: true,
@@ -2867,6 +2870,45 @@ impl TerrafluxApp {
                             ui.label(format!("{}  ({} of {})", l.bands[l.shown].0, l.shown + 1, l.bands.len()));
                         }
                     }
+                    // the steps, or the maps of the stack, as an animation
+                    let name = match s.layer {
+                        None => "simulation".to_string(),
+                        Some(i) => s.layers[i].name.trim_start_matches('$').to_string(),
+                    };
+                    let coloring = current.as_ref().map(|c| c.1.coloring.clone());
+                    let delay = if s.layer.is_none() { 200 } else { 600 };
+                    let (maps, layers, layer) = (&s.maps, &s.layers, s.layer);
+                    s.animations.button(ui, &name, delay, || {
+                        let frames: Vec<(String, Map, Coloring)> = match layer {
+                            // every step in the simulation's colours
+                            None => {
+                                let (last, coloring) =
+                                    (maps.len() - 1, coloring.unwrap_or(Coloring::Classes(Vec::new())));
+                                let caption =
+                                    |k: usize| if k == 0 { "the start".into() } else { format!("step {k} of {last}") };
+                                maps.iter()
+                                    .enumerate()
+                                    .map(|(k, m)| (caption(k), m.clone(), coloring.clone()))
+                                    .collect()
+                            }
+                            // each map of the stack in its own colours, as shown
+                            Some(i) => layers[i]
+                                .bands
+                                .iter()
+                                .map(|(b, m, look)| (b.clone(), m.clone(), look.coloring.clone()))
+                                .collect(),
+                        };
+                        move || {
+                            frames
+                                .into_iter()
+                                .map(|(caption, m, coloring)| crate::animation::Frame {
+                                    source: (&m).into(),
+                                    coloring,
+                                    caption,
+                                })
+                                .collect()
+                        }
+                    });
                 }
                 // every map of a stack at once, a click shows one
                 if let Some(i) = s.layer

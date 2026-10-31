@@ -2,6 +2,7 @@
 //! what each node gives shown at once, the maps drawn as they come, the area of each class along the steps and
 //! the validation against an observed map.
 
+pub mod animation;
 pub mod app;
 pub mod basemap;
 pub mod batch_view;

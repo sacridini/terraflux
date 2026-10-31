@@ -21,6 +21,10 @@ minor versions.
 - **This cell in every map**: a cell clicked in the Viewer or a map tab lists its value in every map of the run at
   the same place (by their coordinates; a stack's first layer, rasters' band chosen), a name showing that map,
   the list copied as text.
+- **Save as GIF...**: the steps of a simulation (the Simulation pane), the maps of an input's stack, or the
+  layers of a series, a stack or rasters (the Viewer) as an animated GIF, for a talk or a class. Each map in the
+  colours it is shown in (a series' steps in one colouring), its step or name in its corner and its legend under
+  it, a small map enlarged and a large one read every few cells; made in the background, the last frame held.
 - Colour-blind readers: the ramps **cividis** and **orange to purple, centred on 0** (ColorBrewer's PuOr) in the
   Viewer's colours, and **View > Colour vision**, every map, legend and picture drawn as a reader with
   protanopia, deuteranopia or tritanopia sees them (Machado et al. 2009), said in the bar at the top until set back.

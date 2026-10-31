@@ -31,6 +31,9 @@ miniz_oxide = "0.8"
 sha2 = "0.11"
 hex = "0.4"
 rstar = "0.12"
+# the animations of a simulation's steps (GIF), their captions drawn in the application's font
+gif = "0.14"
+ab_glyph = "0.2"
 # the assistant's chat models: their APIs over HTTPS (the system's certificates trusted too)
 ureq = { version = "3", default-features = false, features = ["rustls", "platform-verifier"] }
 

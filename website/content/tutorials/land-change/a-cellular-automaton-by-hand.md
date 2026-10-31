@@ -247,7 +247,8 @@ from = "growth.maps"
 ## Read the results
 
 Move the slider, or press play, to watch the city grow. The chart beside it follows the slider: the share of the
-land (the cells that are neither water nor mountain) that is city.
+land (the cells that are neither water nor mountain) that is city. **Save as GIF...**, under the slider, saves
+the growth as an animation (each step written in its corner, the legend under the map) to show in a talk.
 
 ```tfslider
 label: Step

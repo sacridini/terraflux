@@ -328,6 +328,14 @@ Over a map:
   model's result of one place side by side. A name shows that map, and **Copy** copies the list;
 - clicking a cell of a **stack** draws a chart of that cell's value in every layer.
 
+A map of several layers (a stack, the steps of a loop, the bands of a raster) has **Save as GIF...** under its
+slider: the layers as an animated GIF, for a talk or a class, each with its name in its corner and its legend
+under it. The steps of a series share one set of colours, so that a value keeps its colour from step to step; the
+layers of a stack or a raster (often different variables) each keep their own, as the Viewer shows them. The
+**Simulation** pane has the same button for the steps of a run (*step 12 of 50*) and for the maps of an input's
+stack. A small map is enlarged, a large one is read every few cells (at most 800 pixels a side), and the GIF is
+made in the background while you keep working.
+
 ### Basemaps
 
 Under **Basemap** you can put a map of the world under your data: *Satellite (Esri)*, *Topographic (Esri)*,

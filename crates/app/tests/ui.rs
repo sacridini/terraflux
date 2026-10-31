@@ -112,6 +112,7 @@ fn a_model_runs_and_every_tab_draws() {
     }
     h.run_steps(3);
     assert!(h.query_by_label("MAP OF THE STACK").is_some());
+    assert!(h.query_by_label("Save as GIF...").is_some(), "the stack's maps as an animation");
     shot(&mut h, "1b-stack");
     h.key_press(egui::Key::ArrowRight);
     h.run_steps(2);
@@ -132,6 +133,7 @@ fn a_model_runs_and_every_tab_draws() {
     assert_eq!(s.tables.len(), 14);
     assert_eq!(s.shown, 14, "the view follows the run");
     assert_eq!(s.counts.len(), 15, "the areas of every map, counted in the run's thread");
+    assert!(h.query_by_label("Save as GIF...").is_some(), "the steps as an animation");
     shot(&mut h, "2-map");
     // run again: nothing changed, every node from the cache, the maps given back
     h.get_by_label("Run").click();
@@ -2857,4 +2859,6 @@ fn a_cell_in_every_map() {
     h.get_by_role_and_label(egui::accesskit::Role::Button, "raster_read (layer 1 of 2)").click();
     h.run_steps(3);
     assert_eq!(h.state().session.as_ref().unwrap().preview, Some(("raster_read".into(), "raster".into())));
+    // a map of two layers: they make an animation
+    assert!(h.query_by_label("Save as GIF...").is_some());
 }
