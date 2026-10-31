@@ -3017,3 +3017,45 @@ fn a_study_area_drawn_on_the_map() {
     assert_eq!(v.len(), 1);
     assert!(s.source.nodes.iter().any(|n| n.op == "vector.read"), "the node that reads it");
 }
+
+/// The data catalog: a dataset chosen by its card (CHELSA), its variables ticked, added to the model as a
+/// data.download node on the grid of the model's map, with its reference.
+#[test]
+fn a_dataset_from_the_catalog() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let r = terraflux_ops::Registry::standard();
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        // (no run: the download would go to the servers)
+        s.auto = false;
+        let path = data("pie_landuse.tif").to_string_lossy().into_owned();
+        terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into())]).unwrap();
+        s.catalog.open = true;
+    }
+    h.run_steps(3);
+    // the grid of the model's map by default; the datasets as cards
+    assert_eq!(h.state().session.as_ref().unwrap().catalog.choices.like.as_deref(), Some("raster_read.raster"));
+    h.get_by_label("CHELSA 2.1").click();
+    h.run_steps(2);
+    assert_eq!(h.state().session.as_ref().unwrap().catalog.chosen, 2);
+    h.get_by_label("precipitation").click();
+    h.run_steps(2);
+    shot(&mut h, "14h-catalog");
+    h.get_by_label("Add to the model").scroll_to_me();
+    drawn(&mut h);
+    h.get_by_label("Add to the model").click();
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    let n = s.source.nodes.iter().find(|n| n.op == "data.download").expect("the download node");
+    assert_eq!(n.params.get("source"), Some(&serde_json::json!("chelsa")));
+    assert_eq!(n.params.get("layers"), Some(&serde_json::json!([12, 13, 14, 15, 16, 17, 18, 19])));
+    assert!(n.params.get("extent").is_none(), "on the map's grid, not a box");
+    assert!(
+        matches!(n.inputs.get("like"), Some(terraflux_graph::Source::Ref(r)) if r == "raster_read.raster"),
+        "{:?}",
+        n.inputs
+    );
+    assert!(n.refs[0].contains("10.1038/sdata.2017.122"));
+    assert!(matches!(&s.catalog.said, Some(Ok(m)) if m.starts_with("added: data_download")), "{:?}", s.catalog.said);
+}

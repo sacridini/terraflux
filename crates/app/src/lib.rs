@@ -9,6 +9,7 @@ pub mod batch_view;
 pub mod builder;
 pub mod calc_view;
 pub mod canvas_gpu;
+pub mod catalog;
 pub mod charts;
 pub mod chat;
 pub mod checks;

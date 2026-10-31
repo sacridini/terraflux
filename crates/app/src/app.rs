@@ -549,6 +549,8 @@ pub struct Session {
     pub methods_open: bool,
     /// The window of the export of the run's maps to a QGIS project.
     pub qgis: crate::qgis::Export,
+    /// The data catalog's window (the datasets data.download fetches).
+    pub catalog: crate::catalog::Catalog,
     /// A figure being composed of the map shown (the Viewer's Figure...).
     pub figure: Option<crate::figure::Composer>,
     /// The Problems pane asked for (why a node failed).
@@ -730,6 +732,7 @@ impl Session {
             trace_asked: None,
             methods_open: false,
             qgis: Default::default(),
+            catalog: Default::default(),
             figure: None,
             ask_problems: false,
             ask_calculator: false,
@@ -1745,6 +1748,15 @@ impl TerrafluxApp {
             ui.close();
             crate::builder::open_data(s, &self.registry);
         }
+        if let Some(s) = &mut self.session
+            && ui
+                .button("Data catalog...")
+                .on_hover_text("climate, terrain, soil, land cover and rivers, downloaded onto the model's grid")
+                .clicked()
+        {
+            ui.close();
+            s.catalog.open = true;
+        }
         if ui.button("Process a folder...").on_hover_text(crate::builder::PROCESS_HELP).clicked() {
             ui.close();
             self.process_folder();
@@ -2131,6 +2143,7 @@ impl TerrafluxApp {
             action("Keyboard shortcuts", "F1".into(), Do::Shortcuts),
             action("Methods and citations: the model as a paper's methods", String::new(), Do::Methods),
             action("Export to QGIS: the run's maps as a QGIS project", String::new(), Do::Qgis),
+            action("Data catalog: climate, terrain, soil, land cover, rivers to download", String::new(), Do::Catalog),
             action("Reset the layout", String::new(), Do::ResetLayout),
         ];
         for p in Pane::ALL {
@@ -2185,6 +2198,11 @@ impl TerrafluxApp {
             Do::Qgis => {
                 if let Some(s) = &mut self.session {
                     s.qgis.open = true;
+                }
+            }
+            Do::Catalog => {
+                if let Some(s) = &mut self.session {
+                    s.catalog.open = true;
                 }
             }
             Do::Wizard => self.wizard = Some(Wizard::default()),
@@ -3377,6 +3395,7 @@ impl TerrafluxApp {
         if let Some(s) = &mut self.session {
             crate::methods::window(ui.ctx(), s, &self.registry);
             crate::qgis::window(ui.ctx(), s);
+            crate::catalog::window(ui.ctx(), s, &self.registry);
             crate::figure::window(ui.ctx(), s);
         }
         if self.commands.is_some() {

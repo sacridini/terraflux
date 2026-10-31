@@ -46,6 +46,8 @@ pub enum Do {
     Methods,
     /// The window of the export to QGIS.
     Qgis,
+    /// The data catalog's window.
+    Catalog,
     Wizard,
     Pane(Pane),
     ResetLayout,

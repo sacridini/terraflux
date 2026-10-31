@@ -24,6 +24,12 @@ minor versions.
 - **Draw on the map** (the Viewer): polygons, rectangles, points or lines clicked on the map shown, a study area
   or plots; **Add to the model** writes them as a GeoPackage beside the model, in the map's coordinate system, read
   by a new `vector.read` node and drawn over the map.
+- **Data catalog** (File menu, ctrl+K): the datasets `data.download` fetches as cards (WorldClim 2.1 and its
+  CMIP6 futures, CHELSA 2.1 and its futures, the Copernicus DEM, SoilGrids 2.0, MapBiomas Brazil, Hydrography90m),
+  each with its resolution, years, coverage, licence and the paper to cite; searched, filtered by theme. Its choices
+  (the bioclimatic variables by name, months, model, scenario and period, soil property and depths, years) and a
+  grid (a map of the model, or a box of longitudes and latitudes); **Add to the model** adds the `data.download`
+  node so set, the reference in its references (Methods and citations cites it).
 - **Figure...** in the Viewer: the map shown as a figure for a paper, alone, beside the one compared, or every layer
   of a stack or a series as panels (a), (b)... in columns: a title, the width of a journal's column or page (mm),
   150 to 1200 DPI, the legend (one for maps of the same colours, else each map's), a scale bar in metres or

@@ -442,6 +442,19 @@ ordem de impacto (começando pelo 1 e pelo 3):
    fonte escolhida, mover a legenda e a barra à mão.
 6. **Catálogo visual de dados.** Os conjuntos que o `data.download` alcança (WorldClim, SoilGrids, MapBiomas,
    GBIF...) num catálogo com prévia, resolução, período e licença, em vez de só o operador.
+   **Feito** (Unreleased): File > "Data catalog..." (e ctrl+K; `catalog.rs`): um cartão por fonte do
+   `data.download` (WorldClim 2.1 e seus futuros CMIP6, CHELSA 2.1 e seus futuros, Copernicus DEM, SoilGrids 2.0,
+   MapBiomas Brasil, Hydrography90m) com as cores do que traz, a resolução, os anos, a cobertura, a licença e a
+   referência a citar (com DOI, "copy") e a página do dado; busca e filtro por tema (clima, relevo, solo, cobertura,
+   rios). As escolhas de cada um (as variáveis bioclimáticas pelo nome, os meses, o modelo, cenário e período de um
+   futuro, a propriedade, profundidades e estatística do solo, os anos do MapBiomas como `1985-2000, 2024`, a
+   variável do Hydrography90m) e a grade: a de um mapa do modelo (`like`; de início o primeiro) ou uma caixa de
+   longitudes e latitudes. "Add to the model" põe o `data.download` assim configurado, com a referência nas
+   `refs` do nó (o Methods and citations a cita) e a licença no `why`. Licenças conferidas nas fontes (a do
+   Hydrography90m é CC BY-NC 4.0 no registro FRED, CC BY 4.0 em outro: dito como está). Conferido: CHELSA bio12 e
+   SoilGrids em duas profundidades baixados numa caixa de 1°. Falta: o GBIF (ocorrências, não rasters), uma prévia
+   do dado na área (uma miniatura baixada), saber o que já está no cache, a caixa tirada de uma área desenhada ou
+   de um vetor, e outros (ESA WorldCover, MODIS, Global Forest Change).
 7. **Abrir no QGIS.** Exportar um projeto `.qgz` (ou um GeoPackage único) com todas as saídas, já com as cores e
    as legendas do viewer: muitos usuários terminam o mapa lá.
    **Feito** (Unreleased): "Export to QGIS..." (menu File, ctrl+K, e "Save output > In a QGIS project..." no

@@ -39,6 +39,11 @@ In this tutorial the "future" is a simple scenario, not a climate projection: **
 **bio17 (the driest quarter's rain) 20 % lower** everywhere. Real studies use the outputs of several climate models
 for each scenario (WorldClim distributes them on the same grids as its present climate; Fick & Hijmans, 2017).
 
+!!! app "The climate of the future, from the data catalog"
+    **File > Data catalog...** adds the bioclimatic variables of a CMIP6 model, scenario and period (WorldClim 2.1's
+    futures, or CHELSA 2.1's at 1 km) as a [[data.download]] node on the grid of your present-day predictors, the
+    paper to cite in the node's references.
+
 ### Extrapolation
 
 Within the conditions of its records and background, a model **interpolates**. Outside them it **extrapolates**, and

@@ -299,6 +299,21 @@ The library is ordered by subject, the same subjects as the categories of this s
     Right-click an operator in the library to put it in a coloured collection of favourites (red, orange, yellow,
     green, blue, purple, grey). Your favourites are listed at the top of the drawer.
 
+### The data catalog
+
+**File > Data catalog...** (or "Data catalog" in ++ctrl+k++) lists the public datasets Terraflux downloads, a card
+each: WorldClim 2.1 and CHELSA 2.1 (the climate of today and CMIP6 futures), the Copernicus DEM, SoilGrids 2.0,
+MapBiomas Brazil and Hydrography90m. Search them (`rain`, `soil`, `Brazil`, `future`) or filter by theme. A card
+says what the dataset holds, its resolution, years and coverage, its **licence** (WorldClim's is non-commercial,
+CHELSA's public domain, Hydrography90m's non-commercial on its record) and the paper to cite, with a button that
+copies it.
+
+Choose what to fetch (the bioclimatic variables by name, the months, the scenario and period of a future, the
+soil's property and depths, MapBiomas' years as `1985-2000, 2024`) and the grid: a map of the model (by default
+the first), the data then warped onto its extent, cells and coordinate system, or a box of longitudes and
+latitudes. **Add to the model** adds a [[data.download]] node so set: it reads only the part the grid covers, once
+(the files stay in the cache), and carries the dataset's reference, which **Methods and citations** lists.
+
 ## The viewer
 
 Whatever the node selected gives is shown in the **Viewer**: a map with its legend, the layers of a stack one at a
