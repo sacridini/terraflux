@@ -450,6 +450,45 @@ fn a_plot_shows_without_writing_and_saves_from_its_tab() {
     assert!(ones(&m) > ones(&forest), "class 2 joined the ones");
 }
 
+/// Two maps compared in the viewer: the land use read and the forest reclassified from it, by a curtain and
+/// side by side; side by side, the two views move together.
+#[test]
+fn maps_compare_by_a_curtain_and_side_by_side() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let r = terraflux_ops::Registry::standard();
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let path = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
+        terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into()), ("band", "0".into())]).unwrap();
+        terraflux_app::builder::add(s, &r, "raster.reclassify", &[("rules", "1 -> 1\n* -> 0".into())]).unwrap();
+        s.preview = Some(("raster_reclassify".into(), "map".into()));
+        s.preview_compare.with =
+            Some(terraflux_app::builder::CompareWith::Output("raster_read".into(), "raster".into()));
+    }
+    h.state_mut().focus(Pane::Viewer);
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running()
+            && s.value_of("raster_reclassify", "map").is_some()
+            && s.value_of("raster_read", "raster").is_some()
+    });
+    h.run_steps(4);
+    drawn(&mut h);
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.preview_compare.with.is_some(), "the map compared kept");
+    shot(&mut h, "14b-compare-curtain");
+    // side by side: the second view drawn, at the first one's place
+    h.state_mut().session.as_mut().unwrap().preview_compare.side_by_side = true;
+    h.run_steps(4);
+    drawn(&mut h);
+    shot(&mut h, "14c-compare-side-by-side");
+    let s = h.state().session.as_ref().unwrap();
+    let (a, b) = (s.preview_view.camera(), s.preview_compare.view.camera());
+    assert!(s.preview_compare.view.rect().is_some(), "the view beside drawn");
+    assert!((a.0 - b.0).abs() < 1e-4 && (a.1 - b.1).length() < 1e-3, "the same grid, the same view: {a:?} {b:?}");
+}
+
 /// A basemap under the data: Esri's imagery warped onto the map's grid (UTM 51N), the data half transparent.
 /// Without the web, said and passed.
 #[test]
@@ -2758,4 +2797,23 @@ fn theme_gallery() {
         shot(&mut h, &format!("theme-{name}-menu"));
     }
     terraflux_app::settings::update(|s| s.theme = "Default".into());
+}
+
+/// The methods of a template as a paper's, in their window: MSPA cited with its papers and GuidosToolbox's.
+#[test]
+fn the_methods_and_citations_of_a_model() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let ctx = h.ctx.clone();
+    h.state_mut().start_template(&ctx, &terraflux_app::templates::TEMPLATES[0]);
+    h.run_steps(2);
+    h.state_mut().session.as_mut().unwrap().methods_open = true;
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("(MSPA; Soille & Vogt, 2009)").is_some(), "the paragraph");
+    assert!(h.query_by_label_contains("Vogt, P., & Riitters, K. (2017)").is_some(), "the references");
+    shot(&mut h, "18-methods");
+    // closed by its button: the session says so
+    h.get_by_label("Close window").click();
+    h.run_steps(2);
+    assert!(!h.state().session.as_ref().unwrap().methods_open);
 }

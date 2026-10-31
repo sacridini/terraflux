@@ -592,6 +592,13 @@ pub fn pane(ui: &mut Ui, s: &mut Session, r: &Registry) -> bool {
                 if ui.button("Export report...").on_hover_text("the document as a web page (HTML) or a PDF").clicked() {
                     export(s, r);
                 }
+                if ui
+                    .button("Methods and citations")
+                    .on_hover_text("the model's methods as a paper tells them, the papers to cite (BibTeX, RIS)")
+                    .clicked()
+                {
+                    s.methods_open = true;
+                }
             });
         });
     });

@@ -280,6 +280,26 @@ impl Coloring {
         }
     }
 
+    /// One colouring for this map and another compared with it, so that the same value is the same colour in
+    /// both: the classes of both (this one's colours, the other's own classes after them in the colours `like`
+    /// gives), or a ramp from the lower of the two minimums to the higher of the two maximums. A map of classes
+    /// and one of a ramp keep this one's.
+    pub fn shared(&self, other: &Coloring) -> Coloring {
+        match (self, other) {
+            (Coloring::Classes(a), Coloring::Classes(_)) => {
+                let mut all = a.clone();
+                if let Coloring::Classes(b) = other.clone().like(self) {
+                    all.extend(b.into_iter().filter(|(v, _)| !a.iter().any(|(k, _)| k == v)));
+                }
+                Coloring::Classes(all)
+            }
+            (Coloring::Continuous { min, max, ramp, log }, Coloring::Continuous { min: min2, max: max2, .. }) => {
+                Coloring::Continuous { min: min.min(*min2), max: max.max(*max2), ramp: *ramp, log: *log }
+            }
+            _ => self.clone(),
+        }
+    }
+
     pub fn colour(&self, v: f64) -> Color32 {
         if v.is_nan() {
             return Color32::TRANSPARENT;
@@ -361,6 +381,21 @@ pub fn image(values: &[f64], width: usize, height: usize, max_side: usize, color
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn two_maps_compared_share_their_colours() {
+        let a = Coloring::Classes(vec![(1.0, Color32::RED), (2.0, Color32::GREEN)]);
+        let b = Coloring::Classes(vec![(2.0, Color32::BLUE), (5.0, Color32::BLUE)]);
+        let Coloring::Classes(c) = a.shared(&b) else { panic!() };
+        // the first's colours, the other's own class after them
+        assert_eq!(&c[..2], &[(1.0, Color32::RED), (2.0, Color32::GREEN)]);
+        assert_eq!(c.len(), 3);
+        assert_eq!(c[2].0, 5.0);
+        let r = |min, max| Coloring::Continuous { min, max, ramp: Ramp::Viridis, log: false };
+        assert_eq!(r(0.0, 10.0).shared(&r(-2.0, 4.0)), r(-2.0, 10.0));
+        // classes and a ramp: each its own
+        assert_eq!(a.shared(&r(0.0, 1.0)), a);
+    }
 
     #[test]
     fn classes_or_continuous() {

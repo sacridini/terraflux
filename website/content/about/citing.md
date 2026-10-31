@@ -59,6 +59,11 @@ against. In a methods section, a sentence such as *"MSPA (Soille & Vogt, 2009) w
 Each tutorial lists, at its end, the papers behind the method it teaches, including those of variants and
 settings not in this table. Cite those you used.
 
+In the application, **Methods and citations** (File menu, or the Document pane) writes this for your model: a
+paragraph naming each method it uses with its papers and the software reproduced, the model step by step, and
+the references of this table that apply, to copy or save as BibTeX or RIS (see
+[The model's document](/tutorials/building-models/the-model-document/#methods-and-citations)).
+
 ## Make the analysis reproducible
 
 A citation says which software ran the analysis; the files let a reader run it again. In a paper's supplementary

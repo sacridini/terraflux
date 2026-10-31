@@ -42,6 +42,8 @@ pub enum Do {
     Text,
     Settings,
     Shortcuts,
+    /// The window of the model's methods and citations.
+    Methods,
     Wizard,
     Pane(Pane),
     ResetLayout,

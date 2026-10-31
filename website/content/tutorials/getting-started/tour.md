@@ -312,6 +312,12 @@ Over a map:
 - the corner shows the **coordinates** under the pointer, the **row** and **column** of the cell and its
   **value** (see [Your first raster](../first-raster/#what-the-viewer-shows));
 - **Colours** chooses a colour ramp (by default the colours fit the data: classes a colour each, values a ramp);
+- **Compare** puts another map beside this one: another output of the run (a scenario, another date, the
+  observed map) or another layer of the same one (step 1 and step 50 of a simulation). As a **Curtain**, the
+  other map is right of a line you drag across the map with its handle; **Side by side**, the two maps are in two
+  views that zoom and pan together, a cross marking in one where the pointer is in the other. Both maps are drawn
+  in the same colours (the classes of both, or one range from the lower minimum to the higher maximum), so that
+  the same value is the same colour, and the corner reads out the values of both under the pointer;
 - **Maps over it** draws other maps of the run over this one, each as opaque as you like, and **Vectors over the
   map** draws vector layers of the run over it;
 - clicking a cell of a **stack** draws a chart of that cell's value in every layer.
@@ -338,7 +344,8 @@ whoever reads, checks or reviews it rather than builds it. Its nodes are told in
 *Model*, *Validation*, *Results*), a step each, with its note, a sentence of what it does with its settings and
 where its inputs come from ("MSPA's patterns of forest: connected by 8 neighbours, the edges 1 cell wide."), its
 settings, and its map or table from the last run; the plots are its numbered figures. A step's name selects its
-node, and a setting can be changed there as in the Node pane. **Export report...** writes it as a web page or a PDF.
+node, and a setting can be changed there as in the Node pane. **Export report...** writes it as a web page or a PDF,
+and **Methods and citations** drafts the methods section of a paper from the model, with the papers to cite.
 [The model's document](../../building-models/the-model-document/) explains it all.
 
 ## The Changes pane

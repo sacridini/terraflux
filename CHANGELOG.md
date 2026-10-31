@@ -6,6 +6,18 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- **Compare** in the Viewer and the map tabs: another output of the run, or another layer of the one shown (a
+  step of a loop, a band), beside the map. As a **Curtain**, the other map right of a line dragged across the map
+  by its handle, the names of both at the top; **Side by side**, two views that zoom and pan together, a cross in
+  one where the pointer is in the other. The two in the same colours (the classes of both, or the range of both),
+  the values of both under the pointer; a map of another grid placed by its coordinates.
+- **Methods and citations** (File menu, the Document pane, ctrl+K): the methods section of a paper drafted from
+  the model. A paragraph with the version of Terraflux and each method the model uses, with its papers and the
+  software reproduced ("We computed morphological spatial pattern analysis (MSPA; Soille & Vogt, 2009) with
+  Terraflux, which reproduces GuidosToolbox (Vogt & Riitters, 2017)."); the model step by step; the references
+  in the APA style (those of the website's Cite Terraflux, and the nodes' own), copied, or saved as BibTeX or RIS.
+
 ### Changed
 - The rules of **raster.reclassify** are a table of three columns in the Node pane, **from**, **to** and
   **becomes**: a range is its start and its end in two fields (`0`, `10`, `2`), no `0..10` to type; `to` left

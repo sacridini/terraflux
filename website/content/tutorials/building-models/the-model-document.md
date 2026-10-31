@@ -211,6 +211,25 @@ that the steps have their maps and tables.
     The report is what a colleague reads; the model file is what they run. Send both: the report says what the
     model does, and `terraflux run` on the file gives the same results.
 
+## Methods and citations
+
+**Methods and citations**, at the top right of the Document pane, in the **File** menu or in the commands
+(ctrl+K), drafts the methods section of a paper from the model, in a window:
+
+- **a paragraph** that names the version of Terraflux and the methods the model uses, each with its papers and
+  the software whose results Terraflux reproduces: *"We computed morphological spatial pattern analysis (MSPA;
+  Soille & Vogt, 2009) with Terraflux, which reproduces GuidosToolbox (Vogt & Riitters, 2017)."*;
+- **the model, step by step**: each node's sentence (the one of the document), or the first words of its
+  operator's description and the settings given, with its note;
+- **the references**: those of the methods used and Terraflux's own, in the APA style, and the references the
+  nodes give in their notes (*refs*), as they are written.
+
+**Copy all**, **Copy the paragraph** and **Copy BibTeX** put them on the clipboard; **Save BibTeX...** and **Save
+RIS...** write the references for LaTeX, Zotero, Mendeley or EndNote. The papers are those of
+[Cite Terraflux](/about/citing/): a method without a paper there (a neutral landscape, map algebra) is told
+without one. The text is a draft: it says what the model does, not why each step was chosen; read it and complete
+it before it goes in a paper.
+
 ## Common pitfalls
 
 - **A step without a note or a why.** The document is only as good as the record: a card with *No note.* tells a

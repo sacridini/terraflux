@@ -545,6 +545,8 @@ pub struct Session {
     pub run_done: usize,
     /// A cell's trace asked for (a map's cell clicked, then Trace this cell).
     pub trace_asked: Option<crate::trace_view::Ask>,
+    /// The window of the model's methods and citations open.
+    pub methods_open: bool,
     /// The Problems pane asked for (why a node failed).
     pub ask_problems: bool,
     /// The calculator asked for (the script of the node selected).
@@ -609,6 +611,8 @@ pub struct Session {
     pub preview_overlays: Vec<(String, String, crate::vector_tiles::Style)>,
     /// The maps drawn over the map shown: (node, port, opacity).
     pub preview_rasters: Vec<(String, String, f32)>,
+    /// The map compared with the map shown (by a curtain or side by side).
+    pub preview_compare: crate::builder::Compare,
     pub looks: Looks,
     /// The outputs shown in map tabs of their own (a double click on a node), by tab; the tabs the dock is still
     /// to show.
@@ -718,6 +722,7 @@ impl Session {
             run_total: 0,
             run_done: 0,
             trace_asked: None,
+            methods_open: false,
             ask_problems: false,
             ask_calculator: false,
             task: None,
@@ -757,6 +762,7 @@ impl Session {
             preview_view: MapView::default(),
             preview_overlays: Vec::new(),
             preview_rasters: Vec::new(),
+            preview_compare: Default::default(),
             palettes: Default::default(),
             looks: Looks::default(),
             auto: true,
@@ -1743,6 +1749,14 @@ impl TerrafluxApp {
                 ui.close();
                 crate::document_view::export(s, &self.registry);
             }
+            if ui
+                .button("Methods and citations...")
+                .on_hover_text("the model's methods as a paper tells them, the papers to cite (BibTeX, RIS)")
+                .clicked()
+            {
+                ui.close();
+                s.methods_open = true;
+            }
         }
     }
 
@@ -2072,6 +2086,7 @@ impl TerrafluxApp {
             action("Wizard: a land change model from your maps", String::new(), Do::Wizard),
             action("Settings", String::new(), Do::Settings),
             action("Keyboard shortcuts", "F1".into(), Do::Shortcuts),
+            action("Methods and citations: the model as a paper's methods", String::new(), Do::Methods),
             action("Reset the layout", String::new(), Do::ResetLayout),
         ];
         for p in Pane::ALL {
@@ -2118,6 +2133,11 @@ impl TerrafluxApp {
             Do::Stop => self.stop_run(),
             Do::Settings => self.settings_open = true,
             Do::Shortcuts => self.shortcuts_open = true,
+            Do::Methods => {
+                if let Some(s) = &mut self.session {
+                    s.methods_open = true;
+                }
+            }
             Do::Wizard => self.wizard = Some(Wizard::default()),
             Do::Pane(p) => self.focus(p),
             Do::ResetLayout => {
@@ -3266,6 +3286,9 @@ impl TerrafluxApp {
         let mut shortcuts = self.shortcuts_open;
         crate::commands::shortcuts_window(ui.ctx(), &mut shortcuts);
         self.shortcuts_open = shortcuts;
+        if let Some(s) = &mut self.session {
+            crate::methods::window(ui.ctx(), s, &self.registry);
+        }
         if self.commands.is_some() {
             let all = self.command_list();
             if let Some(d) = crate::commands::show(ui.ctx(), &mut self.commands, &all) {

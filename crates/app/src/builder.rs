@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-use egui::{Margin, RichText, Ui, Vec2};
+use egui::{Color32, Margin, Rect, RichText, Ui, Vec2};
 use terraflux_graph::{Node, Type};
 use terraflux_ops::landscape::Product;
 use terraflux_ops::{Map, Registry, Value};
@@ -2037,6 +2037,7 @@ fn preview(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Hover> {
         view: std::mem::take(&mut s.preview_view),
         overlays: std::mem::take(&mut s.preview_overlays),
         rasters: std::mem::take(&mut s.preview_rasters),
+        compare: std::mem::take(&mut s.preview_compare),
     };
     let before = s.preview.clone();
     let hover = output(ui, s, r, &mut shown, "viewer");
@@ -2049,6 +2050,7 @@ fn preview(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Hover> {
     s.preview_view = shown.view;
     s.preview_overlays = shown.overlays;
     s.preview_rasters = shown.rasters;
+    s.preview_compare = shown.compare;
     hover
 }
 
@@ -2065,6 +2067,49 @@ pub struct Shown {
     pub overlays: Vec<(String, String, crate::vector_tiles::Style)>,
     /// Other maps drawn over the map: (node, port, opacity), the last on top.
     pub rasters: Vec<(String, String, f32)>,
+    /// Another map compared with this one.
+    pub compare: Compare,
+}
+
+/// A comparison of the map shown with another: which, by a curtain or side by side (the other in a view of its
+/// own following this one's).
+#[derive(Default)]
+pub struct Compare {
+    pub with: Option<CompareWith>,
+    pub side_by_side: bool,
+    pub view: crate::map_view::MapView,
+}
+
+/// The map compared: another output of the run (node, port), or another layer of the one shown (of a stack, of
+/// the steps of a loop, of rasters on disk).
+#[derive(Debug, Clone, PartialEq)]
+pub enum CompareWith {
+    Output(String, String),
+    Layer(usize),
+}
+
+/// How an output is named in the viewer: a raster read by its node's name, else `node.port`.
+fn output_name(node: &str, port: &str) -> String {
+    if port == "raster" { node.to_string() } else { format!("{node}.{port}") }
+}
+
+/// Two views side by side following each other: the one that moved since the last frame (`before`) moves the
+/// other, through the place of the right one's grid on the left one's; the pointer over one marked in the other.
+pub fn follow(
+    left: &mut crate::map_view::MapView,
+    right: &mut crate::map_view::MapView,
+    place: crate::map_view::Place,
+    before: [(f32, Vec2); 2],
+) {
+    let (l, r) = (left.camera(), right.camera());
+    let scale = place.scale.x.abs().max(1e-12);
+    if r != before[1] && l == before[0] {
+        left.set_camera(r.0 / scale, place.to_view(r.1));
+    } else {
+        right.set_camera(l.0 * scale, place.to_source(l.1));
+    }
+    left.ghost = right.pointer().map(|p| place.to_view(p));
+    right.ghost = left.pointer().map(|p| place.to_source(p));
 }
 
 /// A layer a plot stacks: a map (its reference and opacity) or vector features.
@@ -2445,6 +2490,36 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         (Some(l), Some(c)) => Some(crate::legend_view::apply(l, c)),
         _ => look,
     };
+    // the map compared with it: its source, its name and its look; the two in one colouring (the same value the
+    // same colour on both sides), the legend that colouring's
+    let main_name = if maps.len() > 1 { format!("{title} {}", names[k]) } else { title.clone() };
+    let compared: Option<(Source, String, Option<crate::app::Look>)> = match &sh.compare.with {
+        Some(CompareWith::Layer(j)) if *j < maps.len() => {
+            let src = maps[*j].clone();
+            let l = s.looks.get(ui.ctx(), &src, palette);
+            Some((src, format!("{title} {}", names[*j]), l))
+        }
+        Some(CompareWith::Output(n, p)) => s.value_of(n, p).as_ref().and_then(first_source).map(|src| {
+            let (made, mut hint) = producer(s, n, p);
+            hint.push_str(p);
+            let pal = s.palettes.get(&(n.clone(), p.clone())).copied().unwrap_or_else(|| Palette::of(made, &hint));
+            let l = s.looks.get(ui.ctx(), &src, pal);
+            let l = match (l, crate::legend_view::legend_of(s, n, p, &src)) {
+                (Some(l), Some(c)) => Some(crate::legend_view::apply(&l, &c)),
+                (l, _) => l,
+            };
+            (src, output_name(n, p), l)
+        }),
+        _ => None,
+    };
+    let shared = match (&look, &compared) {
+        (Some(a), Some((_, _, Some(b)))) => Some(a.coloring.shared(&b.coloring)),
+        _ => None,
+    };
+    let look = match (look, &shared) {
+        (Some(l), Some(c)) => Some(crate::app::Look { coloring: c.clone(), ..l }),
+        (l, _) => l,
+    };
     egui::Panel::right(egui::Id::new(("output side", salt)))
         .resizable(true)
         .default_size(260.0)
@@ -2568,10 +2643,67 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     ui.add_enabled(show, egui::Slider::new(&mut opacity, 0.0..=1.0).text("opacity"));
                     v.transparency = 1.0 - opacity;
                 }
+                // another map compared with this one: another output of the run, or another layer of this one
+                ui.add_space(8.0);
+                theme::section(ui, "Compare");
+                let others = map_values(s, r, (&node, &port));
+                let cmp = &mut sh.compare;
+                let shown = match &cmp.with {
+                    None => "nothing".to_string(),
+                    Some(CompareWith::Layer(_)) => "another layer of this one".to_string(),
+                    Some(CompareWith::Output(n, p)) => output_name(n, p),
+                };
+                egui::ComboBox::from_id_salt(("compare", salt))
+                    .selected_text(shown)
+                    .width((ui.available_width() - 8.0).clamp(80.0, 200.0))
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut cmp.with, None, "nothing");
+                        if maps.len() > 1 {
+                            let first = if k == 0 { maps.len() - 1 } else { 0 };
+                            let layer = matches!(cmp.with, Some(CompareWith::Layer(_)));
+                            if ui.selectable_label(layer, "another layer of this one").clicked() && !layer {
+                                cmp.with = Some(CompareWith::Layer(first));
+                            }
+                        }
+                        for (mn, mp) in &others {
+                            let with = Some(CompareWith::Output(mn.clone(), mp.clone()));
+                            ui.selectable_value(&mut cmp.with, with, output_name(mn, mp));
+                        }
+                    })
+                    .response
+                    .on_hover_text("another map beside this one: a scenario, another date, the observed...");
+                // (an output gone from the run, or a layer of a map that has fewer now: nothing compared)
+                match &cmp.with {
+                    Some(CompareWith::Layer(j)) if *j >= maps.len() || maps.len() < 2 => cmp.with = None,
+                    Some(CompareWith::Output(n, p)) if !others.iter().any(|(a, b)| a == n && b == p) => cmp.with = None,
+                    _ => {}
+                }
+                if let Some(CompareWith::Layer(j)) = &mut cmp.with {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("with").weak());
+                        ui.spacing_mut().slider_width = (ui.available_width() - 70.0).clamp(40.0, 160.0);
+                        ui.add(egui::Slider::new(j, 0..=maps.len() - 1).show_value(false));
+                        ui.label(&names[*j]);
+                    });
+                }
+                if cmp.with.is_some() {
+                    ui.horizontal(|ui| {
+                        ui.selectable_value(&mut cmp.side_by_side, false, "Curtain")
+                            .on_hover_text("the other map right of a line dragged across the map");
+                        ui.selectable_value(&mut cmp.side_by_side, true, "Side by side")
+                            .on_hover_text("two maps that move together, the pointer marked in both");
+                    });
+                    if shared.is_some() {
+                        ui.label(
+                            RichText::new("both in the same colours: the classes of both, or one range")
+                                .weak()
+                                .size(11.0),
+                        );
+                    }
+                }
                 // other maps of the run over this one (placed by their coordinates), each as opaque as asked
                 ui.add_space(8.0);
                 theme::section(ui, "Maps over it");
-                let others = map_values(s, r, (&node, &port));
                 if others.is_empty() {
                     ui.label(RichText::new("no other map of the run").weak().size(11.0));
                 }
@@ -2654,13 +2786,108 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         })
         .collect();
     let mut hover = None;
+    // the map compared, in the colouring of both (none while its look is being made)
+    let other = match (&compared, &shared) {
+        (Some((src, name, Some(_))), Some(c)) => Some((src.clone(), name.clone(), c.clone())),
+        (Some((src, name, Some(l))), None) => Some((src.clone(), name.clone(), l.coloring.clone())),
+        _ => None,
+    };
     egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::well())).show(ui, |ui| {
-        if let Some(l) = &look {
-            hover = sh.view.show_stacked(ui, &maps[k], &l.coloring, &rasters, &overlays);
-        } else {
+        let Some(l) = &look else {
             ui.centered_and_justified(|ui| ui.spinner());
+            return;
+        };
+        match other {
+            None => hover = sh.view.show_stacked(ui, &maps[k], &l.coloring, &rasters, &overlays),
+            Some((src, name, coloring)) if !sh.compare.side_by_side => {
+                let layer = crate::map_view::RasterLayer { source: src, coloring, opacity: 1.0 };
+                let curtain = crate::map_view::Curtain { layer, names: [main_name.clone(), name] };
+                hover = sh.view.show_compared(ui, &maps[k], &l.coloring, &rasters, &overlays, Some(&curtain));
+            }
+            Some((src, name, coloring)) => {
+                hover = side_by_side(
+                    ui,
+                    sh,
+                    (&maps[k], &l.coloring, &main_name),
+                    (&src, &coloring, &name),
+                    &rasters,
+                    &overlays,
+                );
+            }
         }
     });
+    // the cell of the map compared side by side, traced from its menu: of the output it is, or of the layer
+    if let Some(explain) = sh.compare.view.trace_request.take()
+        && let Some(cell) = sh.compare.view.picked
+    {
+        let (n, p) = match &sh.compare.with {
+            Some(CompareWith::Output(n, p)) => (n.clone(), p.clone()),
+            _ => (node.clone(), port.clone()),
+        };
+        if let Some(grid) = s.value_of(&n, &p).as_ref().and_then(crate::trace::grid_of) {
+            s.trace_asked = Some((n, p, grid, cell, explain));
+        }
+    }
+    hover
+}
+
+/// Two maps side by side, each in a view of its own, the views moving together (the pointer over one marked in
+/// the other) and each named at its top. What is under the pointer, over either.
+fn side_by_side(
+    ui: &mut Ui,
+    sh: &mut Shown,
+    left: (&Source, &Coloring, &str),
+    right: (&Source, &Coloring, &str),
+    rasters: &[crate::map_view::RasterLayer],
+    overlays: &[crate::vector_tiles::Overlay],
+) -> Option<Hover> {
+    let Some(place) = crate::map_view::place_on(right.0.grid(), left.0.grid()) else {
+        ui.centered_and_justified(|ui| {
+            ui.label(
+                RichText::new(
+                    "The map compared is of another coordinate system, or rotated: put it on this map's grid \
+                     (raster.match) to see them side by side.",
+                )
+                .color(ui.visuals().error_fg_color),
+            );
+        });
+        return None;
+    };
+    let full = ui.available_rect_before_wrap();
+    let gap = 4.0;
+    let half = (full.width() - gap) / 2.0;
+    let a = Rect::from_min_size(full.min, Vec2::new(half, full.height()));
+    let b = Rect::from_min_size(egui::pos2(a.right() + gap, full.top()), Vec2::new(half, full.height()));
+    // (the one beside sees the world under it as this one does)
+    let (basemap, transparency, hide) = (sh.view.basemap, sh.view.transparency, sh.view.hide_data);
+    let v = &mut sh.compare.view;
+    (v.basemap, v.transparency, v.hide_data) = (basemap, transparency, hide);
+    let before = [sh.view.camera(), sh.compare.view.camera()];
+    let mut hover = None;
+    for (rect, (src, coloring, name), view) in [(a, left, &mut sh.view), (b, right, &mut sh.compare.view)] {
+        let h = ui
+            .scope_builder(egui::UiBuilder::new().max_rect(rect).id_salt(name), |ui| {
+                let h = view.show_stacked(ui, src, coloring, rasters, overlays);
+                let painter = ui.painter_at(rect);
+                let galley = painter.layout_no_wrap(name.to_string(), egui::FontId::proportional(12.0), Color32::WHITE);
+                let at = rect.left_top() + Vec2::new(10.0, 8.0);
+                painter.rect_filled(
+                    Rect::from_min_size(at, galley.size()).expand2(Vec2::new(5.0, 2.0)),
+                    3.0,
+                    Color32::from_black_alpha(160),
+                );
+                painter.galley(at, galley, Color32::WHITE);
+                h
+            })
+            .inner;
+        hover = hover.or(h);
+    }
+    ui.painter().rect_filled(
+        Rect::from_min_size(egui::pos2(a.right(), full.top()), Vec2::new(gap, full.height())),
+        0.0,
+        theme::bar(),
+    );
+    follow(&mut sh.view, &mut sh.compare.view, place, before);
     hover
 }
 
@@ -3177,5 +3404,27 @@ mod tests {
         // the rows being written come back as typed, empty ones and spaces too
         let rows = vec![RuleRow::new("1 ", "", ""), RuleRow::default(), RuleRow::new("0", "5", "2")];
         assert_eq!(rule_rows(&rule_draft(&rows)), rows);
+    }
+
+    #[test]
+    fn views_side_by_side_follow_each_other() {
+        use crate::map_view::{MapView, Place};
+        // the right map's cells twice as large, starting 10 cells right of the left one's
+        let place = Place { offset: Vec2::new(10.0, 0.0), scale: Vec2::splat(2.0) };
+        let (mut l, mut r) = (MapView::default(), MapView::default());
+        // the left one moved: the right one follows (the same place, its cells shown twice as large)
+        let before = [l.camera(), r.camera()];
+        l.set_camera(4.0, Vec2::new(30.0, 20.0));
+        follow(&mut l, &mut r, place, before);
+        assert_eq!(r.camera(), (8.0, Vec2::new(10.0, 10.0)));
+        // the right one moved: the left one follows
+        let before = [l.camera(), r.camera()];
+        r.set_camera(2.0, Vec2::new(0.0, 0.0));
+        follow(&mut l, &mut r, place, before);
+        assert_eq!(l.camera(), (1.0, Vec2::new(10.0, 0.0)));
+        // nothing moved: as they were
+        let before = [l.camera(), r.camera()];
+        follow(&mut l, &mut r, place, before);
+        assert_eq!([l.camera(), r.camera()], before);
     }
 }

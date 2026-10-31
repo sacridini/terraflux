@@ -288,16 +288,35 @@ pub struct RasterLayer {
     pub opacity: f32,
 }
 
+/// Another map compared with the one shown, right of a curtain dragged across the view: the map, and the names
+/// of the two (written at the top of each side).
+pub struct Curtain {
+    pub layer: RasterLayer,
+    pub names: [String; 2],
+}
+
 /// Where a source's cells are on the view's grid: a cell (x, y) at `offset + (x, y) * scale` cells of the view.
-#[derive(Clone, Copy)]
-struct Place {
-    offset: Vec2,
-    scale: Vec2,
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Place {
+    pub offset: Vec2,
+    pub scale: Vec2,
+}
+
+impl Place {
+    /// A cell of the source as a cell of the view.
+    pub fn to_view(self, c: Vec2) -> Vec2 {
+        self.offset + Vec2::new(c.x * self.scale.x, c.y * self.scale.y)
+    }
+
+    /// A cell of the view as a cell of the source.
+    pub fn to_source(self, c: Vec2) -> Vec2 {
+        Vec2::new((c.x - self.offset.x) / self.scale.x, (c.y - self.offset.y) / self.scale.y)
+    }
 }
 
 /// A grid's place on another: by their transforms, when they are of the same coordinate system (or neither has
 /// one) and neither is rotated.
-fn place_on(g: &terraflux_raster::Grid, base: &terraflux_raster::Grid) -> Option<Place> {
+pub fn place_on(g: &terraflux_raster::Grid, base: &terraflux_raster::Grid) -> Option<Place> {
     let (t, b) = (g.transform, base.transform);
     if t[2] != 0.0 || t[4] != 0.0 || b[2] != 0.0 || b[4] != 0.0 {
         return None;
@@ -350,6 +369,12 @@ pub struct MapView {
     pub trace_request: Option<crate::trace_view::Explain>,
     /// Where the view was drawn last.
     rect: Option<Rect>,
+    /// Where the curtain of a comparison is, a share of the view's width (none: in the middle).
+    curtain: Option<f32>,
+    /// The cell under the pointer at the last frame (none when the pointer is elsewhere).
+    pointer: Option<Vec2>,
+    /// A cell marked by a cross: where the pointer is in a view beside this one (the same place).
+    pub ghost: Option<Vec2>,
 }
 
 impl MapView {
@@ -406,6 +431,28 @@ impl MapView {
 
     pub fn zoom(&self) -> f32 {
         self.zoom
+    }
+
+    /// The zoom (screen points per cell) and the cell at the centre of the view.
+    pub fn camera(&self) -> (f32, Vec2) {
+        (self.zoom, self.center)
+    }
+
+    /// The view at this zoom and centre (a view beside another following it), not fitted again.
+    pub fn set_camera(&mut self, zoom: f32, center: Vec2) {
+        self.zoom = zoom;
+        self.center = center;
+        self.fitted = true;
+    }
+
+    /// The cell under the pointer at the last frame, if it was over the view.
+    pub fn pointer(&self) -> Option<Vec2> {
+        self.pointer
+    }
+
+    /// Where the curtain of a comparison is, a share of the view's width.
+    pub fn curtain(&self) -> f32 {
+        self.curtain.unwrap_or(0.5)
     }
 
     /// Whether tiles of the view (of the map or of its vector layers) are being made.
@@ -609,6 +656,16 @@ impl MapView {
         f64::NAN
     }
 
+    /// The value of a map drawn over the view's at a cell of the view (none outside it).
+    fn layer_value(&self, l: &RasterLayer, place: Place, at: Vec2) -> f64 {
+        let c = place.to_source(at);
+        let (w, h) = l.source.size();
+        if c.x < 0.0 || c.y < 0.0 || c.x >= w as f32 || c.y >= h as f32 {
+            return f64::NAN;
+        }
+        self.value_at(&l.source, c.x as usize, c.y as usize)
+    }
+
     pub fn show(&mut self, ui: &mut Ui, source: &Source, coloring: &Coloring) -> Option<Hover> {
         self.show_layers(ui, source, coloring, &[])
     }
@@ -635,7 +692,22 @@ impl MapView {
         rasters: &[RasterLayer],
         overlays: &[crate::vector_tiles::Overlay],
     ) -> Option<Hover> {
+        self.show_compared(ui, source, coloring, rasters, overlays, None)
+    }
+
+    /// [`MapView::show_stacked`], and another map compared with it right of a curtain (dragged across the view by
+    /// its handle): the map shown at the left, the other at the right, the values of both under the pointer.
+    pub fn show_compared(
+        &mut self,
+        ui: &mut Ui,
+        source: &Source,
+        coloring: &Coloring,
+        rasters: &[RasterLayer],
+        overlays: &[crate::vector_tiles::Overlay],
+        curtain: Option<&Curtain>,
+    ) -> Option<Hover> {
         let ctx = ui.ctx().clone();
+        self.pointer = None;
         let blank = matches!(source, Source::Blank(_));
         if self.workers.is_none() {
             self.workers = Some(Workers::new(ctx.clone()));
@@ -657,6 +729,25 @@ impl MapView {
             self.center = Vec2::new(w as f32 / 2.0, h as f32 / 2.0);
             self.fitted = true;
         }
+        // a comparison: the curtain's handle (over the map, so that dragging it does not move the map), and the
+        // other map's place on this one (none: of another coordinate system, or rotated)
+        let compared = curtain.and_then(|c| place_on(c.layer.source.grid(), source.grid()).map(|p| (c, p)));
+        let split = compared.is_some().then(|| {
+            let x = rect.left() + rect.width() * self.curtain();
+            let handle = ui
+                .interact(
+                    Rect::from_center_size(Pos2::new(x, rect.center().y), Vec2::new(16.0, rect.height())),
+                    ui.id().with("curtain"),
+                    Sense::drag(),
+                )
+                .on_hover_cursor(egui::CursorIcon::ResizeHorizontal);
+            if handle.dragged()
+                && let Some(p) = handle.interact_pointer_pos()
+            {
+                self.curtain = Some(((p.x - rect.left()) / rect.width()).clamp(0.0, 1.0));
+            }
+            rect.left() + rect.width() * self.curtain()
+        });
         if response.dragged() {
             self.center -= response.drag_delta() / self.zoom;
         }
@@ -694,7 +785,17 @@ impl MapView {
         self.clock += 1;
         if !blank {
             let base = Place { offset: Vec2::ZERO, scale: Vec2::splat(1.0) };
-            self.draw_source(&ctx, &painter, rect, source, coloring, tint, base, show_data, &mut wanted);
+            // compared: this map left of the curtain, the other right of it, as opaque as this one
+            let left = match split {
+                Some(x) => painter.with_clip_rect(Rect::from_min_max(rect.min, Pos2::new(x, rect.max.y))),
+                None => painter.clone(),
+            };
+            self.draw_source(&ctx, &left, rect, source, coloring, tint, base, show_data, &mut wanted);
+            if let (Some((c, place)), Some(x)) = (compared, split) {
+                let right = painter.with_clip_rect(Rect::from_min_max(Pos2::new(x, rect.min.y), rect.max));
+                let l = &c.layer;
+                self.draw_source(&ctx, &right, rect, &l.source, &l.coloring, tint, place, show_data, &mut wanted);
+            }
         }
         // the maps over it, placed by their coordinates on its grid (of its coordinate system)
         let mut layer_errors = Vec::new();
@@ -709,6 +810,12 @@ impl MapView {
                                            map's grid (raster.match)",
                 ),
             }
+        }
+        if curtain.is_some() && compared.is_none() {
+            layer_errors.push(
+                "the map compared is of another coordinate system or rotated: put it on this map's grid \
+                 (raster.match)",
+            );
         }
         // the workers' queue: what the view needs, the nearest the centre first; the rest let go
         wanted.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -739,6 +846,48 @@ impl MapView {
         // the vector layers over the map
         let cam = crate::vector_tiles::Camera { center: self.center, zoom: self.zoom, rect, pixels_per_point: ppp };
         let vector_errors = self.vectors.draw(&ctx, &painter, cam, source.grid(), overlays);
+        // the curtain: a line with a handle, the names of the two maps at the top of their sides
+        if let (Some((c, _)), Some(x)) = (compared, split) {
+            let accent = crate::theme::accent();
+            painter.vline(x, rect.y_range(), egui::Stroke::new(3.0, Color32::from_black_alpha(120)));
+            painter.vline(x, rect.y_range(), egui::Stroke::new(1.5, Color32::WHITE));
+            let knob = Pos2::new(x, rect.center().y);
+            painter.circle(knob, 11.0, accent, egui::Stroke::new(1.5, Color32::WHITE));
+            for side in [-1.0f32, 1.0] {
+                let tip = knob + Vec2::new(side * 7.0, 0.0);
+                let back = knob + Vec2::new(side * 2.5, 0.0);
+                painter.add(egui::Shape::convex_polygon(
+                    vec![tip, back + Vec2::new(0.0, -4.0), back + Vec2::new(0.0, 4.0)],
+                    Color32::WHITE,
+                    egui::Stroke::NONE,
+                ));
+            }
+            let font = egui::FontId::proportional(12.0);
+            for (k, name) in c.names.iter().enumerate() {
+                let galley = painter.layout_no_wrap(name.clone(), font.clone(), Color32::WHITE);
+                let at = if k == 0 {
+                    Pos2::new(x - 10.0 - galley.size().x, rect.top() + 8.0)
+                } else {
+                    Pos2::new(x + 10.0, rect.top() + 8.0)
+                };
+                let back = Rect::from_min_size(at, galley.size()).expand2(Vec2::new(5.0, 2.0));
+                painter.rect_filled(back, 3.0, Color32::from_black_alpha(160));
+                painter.galley(at, galley, Color32::WHITE);
+            }
+        }
+        // the place of the pointer in the view beside this one: a cross
+        if let Some(g) = self.ghost {
+            let p = rect.center() + (g - self.center) * self.zoom;
+            if rect.contains(p) {
+                for stroke in [
+                    egui::Stroke::new(3.5, Color32::from_black_alpha(140)),
+                    egui::Stroke::new(1.5, crate::theme::accent()),
+                ] {
+                    painter.line_segment([p - Vec2::new(9.0, 0.0), p + Vec2::new(9.0, 0.0)], stroke);
+                    painter.line_segment([p - Vec2::new(0.0, 9.0), p + Vec2::new(0.0, 9.0)], stroke);
+                }
+            }
+        }
         if let Some(e) = vector_errors.first() {
             painter.text(
                 rect.left_top() + Vec2::new(8.0, 26.0),
@@ -776,13 +925,20 @@ impl MapView {
             let font = egui::FontId::monospace((self.zoom / 6.0).clamp(9.0, 12.0));
             for y in y0..y1 {
                 for x in x0..x1 {
-                    let v = self.value_at(source, x, y);
+                    let cell = Vec2::new(x as f32 + 0.5, y as f32 + 0.5);
+                    let centre = rect.center() + (cell - self.center) * self.zoom;
+                    // (right of a curtain: the other map's value, in its colours)
+                    let (v, colours) = match (compared, split) {
+                        (Some((c, place)), Some(at)) if centre.x > at => {
+                            (self.layer_value(&c.layer, place, cell), &c.layer.coloring)
+                        }
+                        _ => (self.value_at(source, x, y), coloring),
+                    };
                     if v.is_nan() {
                         continue;
                     }
-                    let centre = rect.center() + (Vec2::new(x as f32 + 0.5, y as f32 + 0.5) - self.center) * self.zoom;
                     // dark on a light cell, light on a dark one
-                    let c = coloring.colour(v);
+                    let c = colours.colour(v);
                     let light = 0.299 * c.r() as f32 + 0.587 * c.g() as f32 + 0.114 * c.b() as f32 > 140.0;
                     let ink = if light && self.transparency < 0.5 { Color32::BLACK } else { Color32::WHITE };
                     painter.text(centre, egui::Align2::CENTER_CENTER, cell_text(v), font.clone(), ink);
@@ -827,6 +983,7 @@ impl MapView {
         }
         let p = response.hover_pos()?;
         let c = self.to_cell(rect, p);
+        self.pointer = Some(c);
         let g = &source.grid().transform;
         let inside = c.x >= 0.0 && c.y >= 0.0 && c.x < w as f32 && c.y < h as f32;
         // the feature under the pointer (4 points around), its attributes beside it
@@ -870,10 +1027,18 @@ impl MapView {
             // degrees to a hundred-thousandth, metres to a centimetre
             let digits = if g[1].abs() < 0.01 { 6 } else { 2 };
             let mut text = format!("x {x:.digits$}   y {y:.digits$}");
+            let said = |v: f64| if v.is_nan() { "no value".to_string() } else { terraflux_ops::value::class_label(v) };
             if inside && !blank {
-                let v = self.value_at(source, c.x as usize, c.y as usize);
-                let v = if v.is_nan() { "no value".to_string() } else { terraflux_ops::value::class_label(v) };
-                text.push_str(&format!("   ·   row {}  column {}   ·   {v}", c.y as usize, c.x as usize));
+                let v = said(self.value_at(source, c.x as usize, c.y as usize));
+                text.push_str(&format!("   ·   row {}  column {}", c.y as usize, c.x as usize));
+                // compared: the values of both, by their names
+                match compared {
+                    Some((cmp, place)) => {
+                        let w = said(self.layer_value(&cmp.layer, place, c));
+                        text.push_str(&format!("   ·   {} {v}   ·   {} {w}", cmp.names[0], cmp.names[1]));
+                    }
+                    None => text.push_str(&format!("   ·   {v}")),
+                }
             }
             let at = rect.left_bottom() + Vec2::new(6.0, -4.0);
             let galley = painter.layout_no_wrap(text, egui::FontId::monospace(11.0), Color32::WHITE);

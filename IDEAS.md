@@ -376,6 +376,55 @@ escrevendo scripts). Depois, nesta ordem:
     dadas em `settings`. Falta: biblioteca remota (uma URL, um repositório git puxado pelo app); permissões de quem
     salva numa compartilhada.
 
+## A interface para o cientista: funcionalidades modernas
+
+Registro de 2026-10-31. O usuário comum é um cientista de biogeografia, geografia, biologia e ecologia: compara
+mapas, roda cenários e simulações, publica figuras e precisa descrever os métodos. O que falta para isso, na
+ordem de impacto (começando pelo 1 e pelo 3):
+
+1. **Comparar mapas: cortina e vistas sincronizadas.** Uma cortina arrastada sobre o mapa ("antes" e "depois")
+   e dois mapas lado a lado com o zoom e o arraste ligados. Quase toda análise compara: a cobertura de 2000 com
+   a de 2020, um cenário com outro, o habitat atual com o futuro, o SDM com o observado. Hoje só as tabelas têm
+   comparação lado a lado (painel Changes, Parameters).
+   **Feito** (Unreleased): "Compare" no painel ao lado do mapa (Viewer e abas de mapa, `builder::Compare`): outra
+   saída da execução ou outra camada da mesma (um passo de um laço, uma banda); "Curtain" (`map_view::Curtain`,
+   `MapView::show_compared`: a outra à direita de uma linha arrastada pela alça, os nomes no alto, os valores das
+   duas no canto) ou "Side by side" (duas `MapView` que se seguem por `builder::follow`, pelo lugar de uma grade na
+   outra; uma cruz numa onde o ponteiro está na outra). As duas nas mesmas cores (`Coloring::shared`: as classes de
+   ambas, ou a faixa das duas). Falta: o mapa da diferença (ou das transições) como terceira vista; a comparação no
+   relatório (HTML e PDF); comparar mapas de sistemas de coordenadas diferentes sem `raster.match`.
+2. **Linha do tempo das simulações.** Os modelos com `control.repeat` (mudança de uso, autômatos celulares,
+   CRAFTY, movimento animal) fazem um mapa por passo. O painel Simulation já passa os passos (play, setas) e o
+   Viewer tem o slider das camadas de uma série; falta exportar em GIF ou MP4 (para aula e congressos), o play
+   também no Viewer, e o passo escrito sobre o mapa.
+3. **Métodos e citações.** Um botão que escreve o parágrafo de métodos a partir do modelo: os operadores na ordem
+   em que rodam, os parâmetros, a versão do Terraflux, e as referências de cada algoritmo (Soille e Vogt no MSPA,
+   McRae no Circuitscape, Phillips no MaxEnt, Hesselbarth no landscapemetrics...), com a lista em BibTeX e RIS.
+   Economiza horas, ajuda a reprodutibilidade e leva o Terraflux para os artigos (a citação dele também).
+   **Feito** (Unreleased): `methods.rs`, a janela "Methods and citations" (menu File, painel Document, ctrl+K): o
+   parágrafo (a versão, e uma frase por software reproduzido com os métodos usados e os seus artigos), o modelo
+   passo a passo (as frases do documento, ou o começo da descrição do operador e as configurações dadas, com a
+   nota), as referências em APA, copiadas ou salvas em BibTeX e RIS. As referências e os operadores de cada método
+   são os da página "Cite Terraflux" do site, o software reproduzido o que as descrições dos operadores dizem; nada
+   além disso é citado (os `refs` dos nós vão como estão escritos). Falta: os artigos das referências dos tutoriais
+   (modelos neutros, MESS, blockCV, spThin, MigClim, ProtConn, Omniscape de McRae et al. 2016...); os métodos no
+   relatório (HTML e PDF); `terraflux methods modelo.toml` na linha de comando e no MCP; o texto em português.
+4. **Desenhar no mapa.** Um retângulo ou polígono como a área de estudo (o recorte e a região dos downloads do
+   `data.download`), pontos de amostragem, áreas protegidas propostas para os cenários: "desenhe a área e baixe o
+   WorldClim só dela".
+5. **Figura pronta para publicação.** Um compositor: barra de escala, norte, legenda, grade de coordenadas, DPI,
+   SVG e PDF, painéis A, B e C de vários mapas na mesma figura.
+6. **Catálogo visual de dados.** Os conjuntos que o `data.download` alcança (WorldClim, SoilGrids, MapBiomas,
+   GBIF...) num catálogo com prévia, resolução, período e licença, em vez de só o operador.
+7. **Abrir no QGIS.** Exportar um projeto `.qgz` (ou um GeoPackage único) com todas as saídas, já com as cores e
+   as legendas do viewer: muitos usuários terminam o mapa lá.
+8. **O modelo como script Python do landschaft.** Um script equivalente ao modelo, para o artigo, o orientador ou
+   um revisor que pede o código.
+9. **Paletas para daltônicos.** viridis e cividis à mão, e uma prévia do mapa como um daltônico o vê (deuteranopia,
+   protanopia, tritanopia); as revistas cobram cada vez mais.
+10. **Uma célula, todas as camadas.** Clicar numa célula e ver o valor em cada mapa do modelo e, numa pilha
+    temporal, o gráfico ao longo do tempo (o Trace já explica uma célula passo a passo; isto é a consulta rápida).
+
 ## Paridade com o landschaft na priorização, progresso e parada
 
 Registro de 2026-10-16. O `prioritize.optimize` passou a resolver como o landschaft (o motor de corte e o de

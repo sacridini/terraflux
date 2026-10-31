@@ -26,6 +26,7 @@ pub mod llm;
 pub mod logo;
 pub mod map_view;
 pub mod metadata;
+pub mod methods;
 pub mod my_nodes;
 pub mod node_view;
 pub mod palette;
