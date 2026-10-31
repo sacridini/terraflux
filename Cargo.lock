@@ -4576,7 +4576,7 @@ dependencies = [
 
 [[package]]
 name = "terraflux-app"
-version = "1.27.0"
+version = "1.28.0"
 dependencies = [
  "ab_glyph",
  "bytemuck",
@@ -4608,7 +4608,7 @@ dependencies = [
 
 [[package]]
 name = "terraflux-calc-web"
-version = "1.27.0"
+version = "1.28.0"
 dependencies = [
  "rayon",
  "serde",
@@ -4619,7 +4619,7 @@ dependencies = [
 
 [[package]]
 name = "terraflux-cli"
-version = "1.27.0"
+version = "1.28.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -4638,7 +4638,7 @@ dependencies = [
 
 [[package]]
 name = "terraflux-dist"
-version = "1.27.0"
+version = "1.28.0"
 dependencies = [
  "hex",
  "hyper-util",
@@ -4668,7 +4668,7 @@ dependencies = [
 
 [[package]]
 name = "terraflux-engine"
-version = "1.27.0"
+version = "1.28.0"
 dependencies = [
  "bincode",
  "lz4_flex",
@@ -4685,7 +4685,7 @@ dependencies = [
 
 [[package]]
 name = "terraflux-exec"
-version = "1.27.0"
+version = "1.28.0"
 dependencies = [
  "rayon",
  "serde",
@@ -4700,7 +4700,7 @@ dependencies = [
 
 [[package]]
 name = "terraflux-gdal"
-version = "1.27.0"
+version = "1.28.0"
 dependencies = [
  "libloading",
  "terraflux-raster",
@@ -4708,7 +4708,7 @@ dependencies = [
 
 [[package]]
 name = "terraflux-graph"
-version = "1.27.0"
+version = "1.28.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4728,7 +4728,7 @@ dependencies = [
 
 [[package]]
 name = "terraflux-ops"
-version = "1.27.0"
+version = "1.28.0"
 dependencies = [
  "cxx",
  "flate2",
@@ -4755,7 +4755,7 @@ dependencies = [
 
 [[package]]
 name = "terraflux-raster"
-version = "1.27.0"
+version = "1.28.0"
 dependencies = [
  "flate2",
  "rayon",

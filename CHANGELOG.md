@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.28.0] - 2026-10-31
+
 ### Added
 - **Compare** in the Viewer and the map tabs: another output of the run, or another layer of the one shown (a
   step of a loop, a band), beside the map. As a **Curtain**, the other map right of a line dragged across the map
