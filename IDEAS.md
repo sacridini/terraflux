@@ -422,8 +422,17 @@ ordem de impacto (começando pelo 1 e pelo 3):
    um revisor que pede o código.
 9. **Paletas para daltônicos.** viridis e cividis à mão, e uma prévia do mapa como um daltônico o vê (deuteranopia,
    protanopia, tritanopia); as revistas cobram cada vez mais.
+   **Feito** (Unreleased): as rampas cividis e PuOr (laranja a roxo, centrada no 0) nas cores do Viewer; View >
+   Colour vision (`palette::Vision`, as matrizes de Machado et al. 2009 em RGB linear) em todo mapa, legenda e
+   imagem, dito na barra do alto até voltar ao normal. As classes já começavam pelas cores de Okabe e Ito. Falta: os
+   gráficos (egui_plot) na visão escolhida; avisar quando duas classes de um mapa ficam parecidas demais para um
+   daltônico.
 10. **Uma célula, todas as camadas.** Clicar numa célula e ver o valor em cada mapa do modelo e, numa pilha
     temporal, o gráfico ao longo do tempo (o Trace já explica uma célula passo a passo; isto é a consulta rápida).
+    **Feito** (Unreleased): "This cell in every map" no painel ao lado do mapa (`builder::cell_everywhere`): o valor
+    da célula clicada em cada mapa da execução, no mesmo lugar pelas coordenadas, guardado enquanto a célula e os
+    mapas são os mesmos; um nome mostra o mapa, "Copy" copia a lista. O gráfico ao longo das camadas de uma pilha já
+    existia. Falta: as camadas de todas as pilhas (hoje a primeira, ou a banda escolhida).
 
 ## Paridade com o landschaft na priorização, progresso e parada
 

@@ -18,6 +18,9 @@ minor versions.
   Terraflux, which reproduces GuidosToolbox (Vogt & Riitters, 2017)."); the model step by step; the references
   in the APA style (those of the website's Cite Terraflux, and the nodes' own), copied, or saved as BibTeX or RIS.
 
+- **This cell in every map**: a cell clicked in the Viewer or a map tab lists its value in every map of the run at
+  the same place (by their coordinates; a stack's first layer, rasters' band chosen), a name showing that map,
+  the list copied as text.
 - Colour-blind readers: the ramps **cividis** and **orange to purple, centred on 0** (ColorBrewer's PuOr) in the
   Viewer's colours, and **View > Colour vision**, every map, legend and picture drawn as a reader with
   protanopia, deuteranopia or tritanopia sees them (Machado et al. 2009), said in the bar at the top until set back.

@@ -2581,6 +2581,50 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                         });
                     }
                 }
+                // the cell clicked in every map of the run (at the same place, by their coordinates); a name
+                // clicked shows that map
+                if let Some((row, col)) = sh.view.picked {
+                    ui.add_space(8.0);
+                    theme::section(ui, "This cell in every map");
+                    let mut all = vec![(node.clone(), port.clone())];
+                    all.extend(map_values(s, r, (&node, &port)));
+                    let rows = cell_everywhere(s, &all, &maps[k], row, col, salt, ui);
+                    let mut show = None;
+                    // (a row each: the value at the right, the name in what is left, cut short when long)
+                    for (i, (name, v)) in rows.iter().enumerate() {
+                        ui.horizontal(|ui| {
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.label(RichText::new(v).monospace().size(11.5));
+                                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                                    let text = RichText::new(name).size(11.5);
+                                    let text = if i == 0 { text.strong() } else { text };
+                                    if i == 0 {
+                                        ui.add(egui::Label::new(text).truncate());
+                                    } else if ui
+                                        .add(egui::Button::new(text).frame(false).truncate())
+                                        .on_hover_text("show this map")
+                                        .clicked()
+                                    {
+                                        show = Some(all[i].clone());
+                                    }
+                                });
+                            });
+                        });
+                    }
+                    ui.horizontal(|ui| {
+                        if ui.small_button("Copy").on_hover_text("the names and values, a line each").clicked() {
+                            let text: Vec<String> = rows.iter().map(|(n, v)| format!("{n}\t{v}")).collect();
+                            ui.ctx().copy_text(format!("map\tvalue at row {row}, column {col}\n{}", text.join("\n")));
+                        }
+                        ui.label(RichText::new("click a name to show its map").weak().size(10.5));
+                    });
+                    if let Some((n, p)) = show {
+                        sh.node = n;
+                        sh.port = p;
+                        sh.band = 0;
+                        sh.chosen = false;
+                    }
+                }
                 // the world under the data (web maps, by GDAL), the data over it
                 ui.add_space(8.0);
                 // the colours by hand (remembered for this output), or by what the values are
@@ -2891,6 +2935,78 @@ fn side_by_side(
     );
     follow(&mut sh.view, &mut sh.compare.view, place, before);
     hover
+}
+
+/// A cell of the map shown (`base`, its row and column) in every map of `all` (node, port), at the same place by
+/// their coordinates: each map's name and the value there ("no value", "outside", "another coordinate system").
+/// Kept while the cell and the maps are the same (a raster on disk is read a cell at a time).
+fn cell_everywhere(
+    s: &Session,
+    all: &[(String, String)],
+    base: &Source,
+    row: usize,
+    col: usize,
+    salt: &str,
+    ui: &Ui,
+) -> Arc<Vec<(String, String)>> {
+    // each map's source (a stack's first layer, rasters' chosen one), which layer it is and of how many
+    let sources: Vec<Option<(Source, usize, usize)>> = all
+        .iter()
+        .map(|(n, p)| {
+            let v = s.value_of(n, p)?;
+            let (layer, layers) = match &v {
+                Value::Stack(st) => (0, st.layers.len()),
+                Value::Raster(r) => (r.chosen, r.layers.len()),
+                Value::Series(items) => (0, items.len()),
+                _ => (0, 1),
+            };
+            Some((first_source(&v)?, layer, layers))
+        })
+        .collect();
+    let id = egui::Id::new((
+        "cell everywhere",
+        salt,
+        row,
+        col,
+        base.key(),
+        sources.iter().map(|x| x.as_ref().map(|(src, _, _)| src.key())).collect::<Vec<_>>(),
+    ));
+    if let Some(rows) = ui.data(|d| d.get_temp::<Arc<Vec<(String, String)>>>(id)) {
+        return rows;
+    }
+    let at = Vec2::new(col as f32 + 0.5, row as f32 + 0.5);
+    let rows: Vec<(String, String)> = all
+        .iter()
+        .zip(&sources)
+        .map(|((n, p), src)| {
+            let mut name = output_name(n, p);
+            let value = match src {
+                None => "not run".to_string(),
+                Some((src, layer, layers)) => {
+                    if *layers > 1 {
+                        name.push_str(&format!(" (layer {} of {layers})", layer + 1));
+                    }
+                    match crate::map_view::place_on(src.grid(), base.grid()) {
+                        None => "another coordinate system".to_string(),
+                        Some(place) => {
+                            let c = place.to_source(at);
+                            let (w, h) = src.size();
+                            if c.x < 0.0 || c.y < 0.0 || c.x >= w as f32 || c.y >= h as f32 {
+                                "outside".to_string()
+                            } else {
+                                let v = series_at(std::slice::from_ref(src), c.y as usize, c.x as usize)[0];
+                                if v.is_nan() { "no value".to_string() } else { terraflux_ops::value::class_label(v) }
+                            }
+                        }
+                    }
+                }
+            };
+            (name, value)
+        })
+        .collect();
+    let rows = Arc::new(rows);
+    ui.data_mut(|d| d.insert_temp(id, rows.clone()));
+    rows
 }
 
 /// A cell's values along maps (NaN where it has none): of maps in memory at once, of rasters on disk a cell's

@@ -323,6 +323,9 @@ Over a map:
   the same value is the same colour, and the corner reads out the values of both under the pointer;
 - **Maps over it** draws other maps of the run over this one, each as opaque as you like, and **Vectors over the
   map** draws vector layers of the run over it;
+- clicking a cell lists, under **This cell in every map**, its value in every map of the run at the same place
+  (placed by their coordinates; *outside* where a map does not reach it): the land cover, the elevation and the
+  model's result of one place side by side. A name shows that map, and **Copy** copies the list;
 - clicking a cell of a **stack** draws a chart of that cell's value in every layer.
 
 ### Basemaps

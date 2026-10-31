@@ -2817,3 +2817,44 @@ fn the_methods_and_citations_of_a_model() {
     h.run_steps(2);
     assert!(!h.state().session.as_ref().unwrap().methods_open);
 }
+
+/// A cell clicked in the viewer: its value in every map of the run, at the same place; a name clicked shows that
+/// map.
+#[test]
+fn a_cell_in_every_map() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let r = terraflux_ops::Registry::standard();
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let path = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
+        terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into()), ("band", "0".into())]).unwrap();
+        terraflux_app::builder::add(s, &r, "raster.reclassify", &[("rules", "1 -> 10\n* -> 0".into())]).unwrap();
+        s.preview = Some(("raster_reclassify".into(), "map".into()));
+    }
+    h.state_mut().focus(Pane::Viewer);
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("raster_reclassify", "map").is_some()
+    });
+    // a cell of class 1 (forest): 10 after the rules
+    let (row, col) = {
+        let s = h.state().session.as_ref().unwrap();
+        let Some(terraflux_ops::Value::Map(m)) = s.value_of("raster_reclassify", "map") else { panic!() };
+        let i = m.data.iter().position(|v| *v == 10.0).unwrap();
+        (i / m.grid.width, i % m.grid.width)
+    };
+    h.state_mut().session.as_mut().unwrap().preview_view.picked = Some((row, col));
+    h.run_steps(4);
+    assert!(
+        h.query_by_label("This cell in every map").is_some() || h.query_by_label("THIS CELL IN EVERY MAP").is_some()
+    );
+    assert!(h.query_by_label("raster_read (layer 1 of 2)").is_some(), "the map read listed");
+    assert!(h.query_all_by_label("10").next().is_some() && h.query_all_by_label("1").next().is_some(), "both values");
+    shot(&mut h, "14d-cell-everywhere");
+    // the map read, shown by its name (the section's label, not the checkbox of the maps over it)
+    // (the file has two bands: the one read, the first, said)
+    h.get_by_role_and_label(egui::accesskit::Role::Button, "raster_read (layer 1 of 2)").click();
+    h.run_steps(3);
+    assert_eq!(h.state().session.as_ref().unwrap().preview, Some(("raster_read".into(), "raster".into())));
+}
