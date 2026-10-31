@@ -3059,3 +3059,38 @@ fn a_dataset_from_the_catalog() {
     assert!(n.refs[0].contains("10.1038/sdata.2017.122"));
     assert!(matches!(&s.catalog.said, Some(Ok(m)) if m.starts_with("added: data_download")), "{:?}", s.catalog.said);
 }
+
+/// File > Python script (landschaft)...: the model as a script, a call of landschaft a node, in its window.
+#[test]
+fn the_model_as_a_python_script() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let r = terraflux_ops::Registry::standard();
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.auto = false;
+        terraflux_app::builder::add(
+            s,
+            &r,
+            "nlm.random_cluster",
+            &[("p", "0.55".into()), ("weights", "[0.3, 0.7]".into())],
+        )
+        .unwrap();
+        terraflux_app::builder::add(s, &r, "raster.reclassify", &[("rules", "2 -> 2\n* -> 1".into())]).unwrap();
+        terraflux_app::builder::add(s, &r, "landscape.mspa", &[("edge_width", "2".into())]).unwrap();
+    }
+    h.run_steps(2);
+    h.get_by_label("File").click();
+    h.run_steps(3);
+    h.get_by_label("Python script (landschaft)...").click();
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    let v = s.python.as_ref().expect("the script's window");
+    assert_eq!((v.script.translated, v.script.left.len()), (3, 0));
+    let t = &v.script.text;
+    assert!(t.contains("nlm_random_cluster = ls.nlm.random_cluster(ncol=256, nrow=256, p=0.55, ai=[0.3, 0.7], seed=1, rescale=False)"), "{t}");
+    assert!(t.contains("raster_reclassify = ls.reclassify(nlm_random_cluster, {2: 2}, others=1)"), "{t}");
+    assert!(t.contains("landscape_mspa = ls.mspa(raster_reclassify.fillna(0).astype(\"uint8\"), edge_width=2)"), "{t}");
+    assert!(h.query_by_label("Copy").is_some() && h.query_by_label("Save as...").is_some());
+    shot(&mut h, "14i-python");
+}

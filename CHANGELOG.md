@@ -24,6 +24,13 @@ minor versions.
 - **Draw on the map** (the Viewer): polygons, rectangles, points or lines clicked on the map shown, a study area
   or plots; **Add to the model** writes them as a GeoPackage beside the model, in the map's coordinate system, read
   by a new `vector.read` node and drawn over the map.
+- **Python script (landschaft)** (File menu, ctrl+K): the model as a Python script of landschaft, for a paper's
+  code or a reviewer: a call a node in the order the model runs them, its note as a comment, its settings as the
+  function's arguments (by landschaft's names), its outputs saved by `ls.save`; a calculator's script kept and run
+  in numpy by a helper in the file, reclassification rules as `ls.reclassify`'s table, the foreground of the
+  patterns (MSPA, SPA, FAD, FOS, Accounting) through `ls.reclassify(foreground=...)`, the neutral landscapes with
+  Terraflux's seeds and defaults (the same maps). Nodes without a counterpart known stay as comments with their
+  settings, listed at the top and in the window; copied, or saved as a `.py`.
 - **Data catalog** (File menu, ctrl+K): the datasets `data.download` fetches as cards (WorldClim 2.1 and its
   CMIP6 futures, CHELSA 2.1 and its futures, the Copernicus DEM, SoilGrids 2.0, MapBiomas Brazil, Hydrography90m),
   each with its resolution, years, coverage, licence and the paper to cite; searched, filtered by theme. Its choices

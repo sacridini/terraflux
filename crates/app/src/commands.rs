@@ -48,6 +48,8 @@ pub enum Do {
     Qgis,
     /// The data catalog's window.
     Catalog,
+    /// The model as a Python script.
+    Python,
     Wizard,
     Pane(Pane),
     ResetLayout,

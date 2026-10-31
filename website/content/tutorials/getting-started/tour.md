@@ -387,6 +387,16 @@ and **Methods and citations** drafts the methods section of a paper from the mod
 ([Opening the results in QGIS](../reclassify-calculate-save/#opening-the-results-in-qgis)).
 [The model's document](../../building-models/the-model-document/) explains it all.
 
+**File > Python script (landschaft)...** writes the model as a Python script of
+[landschaft](https://github.com/sacridini/landschaft), the library whose methods Terraflux runs, for the paper's
+code availability, a supervisor or a reviewer who asks for the code: a call of landschaft a node, in the order the
+model runs them, its note as a comment and its settings as the function's arguments. A calculator keeps its script,
+run in numpy by a helper written at the top of the file; reclassification rules become `ls.reclassify`'s table, and
+the foreground of MSPA, FAD and the other patterns `ls.reclassify(map, foreground=...)`. The window says how many
+nodes were translated; a node without a counterpart known yet (a container, a land change model) stays as a
+comment with its settings, to write by hand. The neutral landscapes, the calculator, the reclassification and
+GuidosToolbox's patterns give the same maps as the model (the same seeds: NLMR's maps).
+
 ## The Changes pane
 
 The **Changes** pane (**View > Changes**) lists what changed in the model since an earlier version of it, node by

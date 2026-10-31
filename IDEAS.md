@@ -469,6 +469,19 @@ ordem de impacto (começando pelo 1 e pelo 3):
    escolhidos, e um GeoPackage único com os rasters dentro.
 8. **O modelo como script Python do landschaft.** Um script equivalente ao modelo, para o artigo, o orientador ou
    um revisor que pede o código.
+   **Feito** (Unreleased): File > "Python script (landschaft)..." (e ctrl+K; `python.rs`): o modelo como um script
+   do landschaft, uma chamada por nó na ordem em que o modelo os roda, a nota e o porquê como comentários, as
+   configurações como argumentos pelos nomes do landschaft (rows/columns → nrow/ncol, range → autocorr_range,
+   window → window_size...), as saídas por `ls.save`. Traduzidos à mão e conferidos: leitura e escrita (rasters,
+   vetores, tabelas), o raster.calc (o mesmo script, rodado em numpy por um ajudante escrito no arquivo,
+   `python_calc.py`: comparações encadeadas, and/or/not, a if c else b, None, nb*, estatísticas de pilha, x.mean()),
+   o raster.reclassify (a tabela do `ls.reclassify`, faixas com as duas pontas dentro), MSPA, SPA, FAD, FAD-MS, FOS,
+   Accounting (o foreground por `ls.reclassify(foreground=...)`) e os modelos neutros (com a semente 1 e os padrões
+   do Terraflux, p.ex. `rescale=False` no random cluster); 33 operadores cujos argumentos têm os mesmos nomes vão
+   por nome. Conferido rodando os dois: os mesmos mapas (as classes idênticas, os valores até a precisão do float32
+   que o Terraflux grava). Falta: os contêineres (loops, each, switch), os modelos de mudança (Dinamica, CLUE-S,
+   PLUS), SDM, priorização, métricas de paisagem, conectividade e o resto dos ~430 operadores, que ficam como
+   comentários com suas configurações.
 9. **Paletas para daltônicos.** viridis e cividis à mão, e uma prévia do mapa como um daltônico o vê (deuteranopia,
    protanopia, tritanopia); as revistas cobram cada vez mais.
    **Feito** (Unreleased): as rampas cividis e PuOr (laranja a roxo, centrada no 0) nas cores do Viewer; View >
