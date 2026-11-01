@@ -25,23 +25,67 @@ pub fn library() -> Library {
     Library::new(dir())
 }
 
-/// A library of nodes: the user's own, or one shared with others (a folder of the settings').
+/// A library of nodes: the user's own, one shared with others (a folder of the settings'), or a remote one (a git
+/// repository, a folder on the web: its copy here, only read).
 #[derive(Debug, Clone)]
 pub struct Shelf {
     pub lib: Library,
-    /// What it is called: "My nodes", or its folder's name.
+    /// What it is called: "My nodes", its `library.toml`'s name, or its folder's (its address's last part).
     pub name: String,
     pub mine: bool,
+    /// A remote library's address.
+    pub remote: Option<String>,
 }
 
-/// The libraries: the user's own first, then the shared ones of the settings.
+impl Shelf {
+    /// Whether the user saves in it and takes nodes out of it: the user's own, a shared one unless its
+    /// `library.toml` names its writers and the user is not one; never a remote one (only read).
+    pub fn may_save(&self) -> Result<(), String> {
+        if self.mine {
+            return Ok(());
+        }
+        if let Some(url) = &self.remote {
+            return Err(format!(
+                "{} is read from {url}, not written: add a node to it where it is kept (a clone of the repository, \
+                 pushed)",
+                self.name
+            ));
+        }
+        crate::node_remotes::may_save(&self.lib.dir).map_err(|e| format!("{}: {e}", self.name))
+    }
+
+    /// Where it is, as told beside its nodes.
+    pub fn whence(&self) -> String {
+        match &self.remote {
+            Some(url) => format!("from {url}"),
+            None if self.mine => self.lib.dir.display().to_string(),
+            None => format!("shared · {}", self.lib.dir.display()),
+        }
+    }
+}
+
+/// The libraries: the user's own first, then the shared ones of the settings, then the remote ones.
 pub fn libraries() -> Vec<Shelf> {
-    let mut out = vec![Shelf { lib: library(), name: "My nodes".into(), mine: true }];
-    for d in crate::settings::get().node_libraries {
-        let name = d.file_name().map_or_else(|| d.display().to_string(), |n| n.to_string_lossy().into_owned());
-        out.push(Shelf { lib: Library::new(d), name, mine: false });
+    let st = crate::settings::get();
+    let mut out = vec![Shelf { lib: library(), name: "My nodes".into(), mine: true, remote: None }];
+    for d in st.node_libraries {
+        let name = crate::node_remotes::about(&d).name.unwrap_or_else(|| {
+            d.file_name().map_or_else(|| d.display().to_string(), |n| n.to_string_lossy().into_owned())
+        });
+        out.push(Shelf { lib: Library::new(d), name, mine: false, remote: None });
+    }
+    for url in st.node_remotes {
+        let lib = Library::new(crate::node_remotes::dir_of(&url));
+        out.push(Shelf { lib, name: crate::node_remotes::name_of(&url), mine: false, remote: Some(url) });
     }
     out
+}
+
+/// The library a node is saved in when nothing else is chosen: the one it is in, when the user saves there, else
+/// the user's own.
+fn saved_in(name: &str) -> PathBuf {
+    let shelf = library_of(name);
+    if shelf.may_save().is_ok() { shelf.lib.dir } else { dir() }
 }
 
 /// The library a node's name is in (the first that has it: the user's own before the shared), else the user's.
@@ -456,7 +500,7 @@ pub fn draft(s: &Session, r: &Registry, path: &[String], id: &str) -> Result<Dra
         description: u.description.clone().unwrap_or_default(),
         inputs: u.inputs.iter().map(|(k, i)| port(k, i.ty, &i.bands, i.default.as_ref(), &i.doc)).collect(),
         outputs: u.outputs.iter().map(|(k, o)| port(k, o.ty, &[], None, &o.doc)).collect(),
-        library: library_of(&u.name).lib.dir,
+        library: saved_in(&u.name),
         error: None,
     })
 }
@@ -466,11 +510,17 @@ pub fn draft(s: &Session, r: &Registry, path: &[String], id: &str) -> Result<Dra
 /// (a type that does not fit what the node is given or what reads it).
 pub fn save(s: &mut Session, r: &Registry, d: &Draft) -> Result<UserNode, String> {
     let mut uses = d.uses()?;
+    // who saves in it: a remote library is only read, a shared one may name its writers
+    if let Some(shelf) = libraries().into_iter().find(|l| l.lib.dir == d.library) {
+        shelf.may_save()?;
+    }
     let (mut m, g) = as_group(s, r, &d.path, &d.id)?;
     crate::editor::set_uses(&mut m, r, &d.path, &d.id, Some(uses.clone()))?;
     let lib = Library::new(&d.library);
     let saved =
         lib.save(&UserNode::new(uses.clone(), g.body.clone().unwrap_or_default())).map_err(|e| e.to_string())?;
+    // its index, that a copy of the folder on the web is a library as it is
+    let _ = crate::node_remotes::write_index(&d.library);
     uses.version = saved.version;
     crate::editor::set_uses(&mut m, r, &d.path, &d.id, Some(uses))?;
     s.source = m;
@@ -535,9 +585,17 @@ pub fn dialog(ctx: &egui::Context, s: &mut Session, r: &Registry) {
                     let shown = shelves.iter().find(|l| l.lib.dir == d.library).map_or("?", |l| l.name.as_str());
                     egui::ComboBox::from_id_salt("my node library").selected_text(shown).show_ui(ui, |ui| {
                         for l in &shelves {
-                            let what =
-                                if l.mine { "yours".to_string() } else { format!("shared: {}", l.lib.dir.display()) };
-                            ui.selectable_value(&mut d.library, l.lib.dir.clone(), &l.name).on_hover_text(what);
+                            let what = if l.mine { "yours".to_string() } else { l.whence() };
+                            match l.may_save() {
+                                Ok(()) => {
+                                    ui.selectable_value(&mut d.library, l.lib.dir.clone(), &l.name).on_hover_text(what);
+                                }
+                                // not the user's to save in: shown, not chosen
+                                Err(why) => {
+                                    ui.add_enabled(false, egui::Button::selectable(false, &l.name))
+                                        .on_disabled_hover_text(why);
+                                }
+                            }
                         }
                     });
                     ui.end_row();
@@ -658,7 +716,11 @@ pub fn list(ui: &mut Ui, s: &mut Session, r: &Registry, query: &str) {
         }
         crate::theme::section(ui, &shelf.name);
         if !shelf.mine {
-            ui.label(RichText::new(format!("shared · {}", shelf.lib.dir.display())).size(10.5).weak());
+            let why = shelf.may_save().err();
+            let told = ui.label(RichText::new(shelf.whence()).size(10.5).weak());
+            if let Some(why) = why {
+                told.on_hover_text(format!("read only: {why}"));
+            }
         } else if !all.iter().any(|(at, _)| *at == 0) {
             ui.label(
                 RichText::new(
@@ -676,8 +738,11 @@ pub fn list(ui: &mut Ui, s: &mut Session, r: &Registry, query: &str) {
         s.editor.message = Some(e);
     }
     if let Some((name, shelf)) = removed {
-        if let Err(e) = shelf.lib.remove(&name) {
-            s.editor.message = Some(e.to_string());
+        match shelf.may_save().and_then(|_| shelf.lib.remove(&name).map_err(|e| e.to_string())) {
+            Ok(()) => {
+                let _ = crate::node_remotes::write_index(&shelf.lib.dir);
+            }
+            Err(e) => s.editor.message = Some(e),
         }
         changed();
     }
@@ -698,9 +763,16 @@ fn shelf_nodes(
                 .min_size(Vec2::new(ui.available_width(), 20.0)),
         );
         resp.context_menu(|ui| {
-            if ui.button(format!("Take {} out of {} (every version)", u.name, shelf.name)).clicked() {
-                *removed = Some((u.name.clone(), shelf.clone()));
-                ui.close();
+            match shelf.may_save() {
+                Ok(()) => {
+                    if ui.button(format!("Take {} out of {} (every version)", u.name, shelf.name)).clicked() {
+                        *removed = Some((u.name.clone(), shelf.clone()));
+                        ui.close();
+                    }
+                }
+                Err(why) => {
+                    ui.label(RichText::new(format!("read only: {why}")).size(10.5).weak());
+                }
             }
             let others = if shelf.mine { "models using it" } else { "models using it, yours and others'," };
             ui.label(RichText::new(format!("{others} keep their copies")).size(10.5).weak());
@@ -737,9 +809,19 @@ pub fn pane(ui: &mut Ui, s: &mut Session, r: &Registry, path: &[String], n: &Nod
     };
     ui.add_space(2.0);
     let shelf = library_of(&u.name);
-    let whose = if shelf.mine { "a node of yours".to_string() } else { format!("a node of {} (shared)", shelf.name) };
-    ui.label(RichText::new(format!("{} · {whose}", u.label())).strong())
-        .on_hover_text(shelf.lib.dir.display().to_string());
+    let whose = match (&shelf.remote, shelf.mine) {
+        (_, true) => "a node of yours".to_string(),
+        (Some(_), _) => format!("a node of {} (remote)", shelf.name),
+        (None, _) => format!("a node of {} (shared)", shelf.name),
+    };
+    let mut hover = shelf.whence();
+    if let Err(why) = shelf.may_save() {
+        hover.push_str(&format!(
+            "
+read only: {why}"
+        ));
+    }
+    ui.label(RichText::new(format!("{} · {whose}", u.label())).strong()).on_hover_text(hover);
     if let Some(d) = &u.description {
         ui.label(d);
     }

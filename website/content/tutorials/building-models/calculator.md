@@ -363,6 +363,40 @@ A few things to know:
   a shared library is for building new models with the same nodes.
 - **The assistant uses them too**: its tools (and those of `terraflux mcp`) list the nodes of your libraries,
   describe one by its name (`my:forest_hsi`) and add it to a model with its settings.
+- **Who saves in it.** A shared library's folder may hold a `library.toml`: its `name` (the section's name in the
+  Operators pane) and its `writers`, the user names of those who save in it and take nodes out of it:
+
+    ```toml
+    name = "Habitat lab"
+    writers = ["ana", "bruno"]
+    ```
+
+  Anyone else uses its nodes but does not save in it: the dialog's **Library** shows it greyed (its reason on
+  hover), and a node of it edited and saved again goes to your own library. A user name is the login of the
+  computer (`TERRAFLUX_USER` when set). Without `writers`, anyone who can write the folder saves in it.
+
+### A remote library
+
+A library can also be fetched from elsewhere, and is then only read: a **git repository** (on GitHub, GitLab,
+Codeberg or a server of your lab), or a **folder on the web**. Terraflux keeps a copy in its settings folder and
+fetches it again each time it starts.
+
+!!! app "In the application"
+    In the settings (⚙), under **Node libraries**, type the address beside **Add a remote library** and click
+    it: `https://github.com/lab/nodes`, `git@github.com:lab/nodes.git`, `https://lab.example.org/nodes/`. Each
+    remote library is listed with what it has (*3 nodes*), **Update** to fetch it now, and **x** to stop using it.
+    Its nodes are in the Operators pane in a section of its own, *from* its address.
+
+- **A git repository** is cloned, then pulled (only forward): Terraflux runs `git`, which must be installed. An
+  address ending in `.git`, starting with `git@` or `ssh://`, or a repository's page on GitHub, GitLab, Codeberg
+  or Bitbucket is one; a private repository needs your git to have its credentials already, since Terraflux asks
+  for none.
+- **A folder on the web** is read by its `index.txt`, a node's file a line (`forest_hsi@2.toml`). Terraflux writes
+  that index in each library it saves in, so a shared folder copied as it is to a web server (GitHub Pages, your
+  lab's site) is a remote library. A version already fetched is not fetched again: versions never change.
+- **To add a node to a remote library**, save it where the library is kept: in your clone of the repository (added
+  as a shared library), then commit and push. The others get it the next time Terraflux starts, or with
+  **Update**.
 
 The folder of your own library is `nodes` in Terraflux's settings folder, unless the environment variable
 `TERRAFLUX_NODES` names another (see [Environment and files](/cli/environment/)).

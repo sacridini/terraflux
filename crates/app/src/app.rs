@@ -2561,7 +2561,71 @@ impl TerrafluxApp {
                     ui.label(
                         RichText::new(
                             "folders of nodes shared with others (a group's folder on a shared drive, a repository \
-                             cloned): their nodes offered beside yours, and saved in them when chosen",
+                             cloned): their nodes offered beside yours, and saved in them when chosen; a folder's \
+                             library.toml may name its writers (writers = [\"ana\", \"bruno\"]), the only ones \
+                             who save in it",
+                        )
+                        .weak()
+                        .size(11.0),
+                    );
+                    // the remote ones: pulled, only read
+                    let mut gone = None;
+                    for (k, url) in st.node_remotes.iter().enumerate() {
+                        ui.horizontal(|ui| {
+                            if ui.small_button("x").on_hover_text("no longer used here (its copy stays)").clicked() {
+                                gone = Some(k);
+                            }
+                            ui.label(RichText::new(url).size(11.0));
+                            use crate::node_remotes::Pulled;
+                            match crate::node_remotes::state(url) {
+                                Some(Pulled::Pulling) => {
+                                    ui.spinner();
+                                }
+                                Some(Pulled::Done(Ok(what))) => {
+                                    ui.label(RichText::new(what).size(10.5).weak());
+                                }
+                                Some(Pulled::Done(Err(e))) => {
+                                    ui.label(
+                                        RichText::new("not fetched").size(10.5).color(ui.visuals().error_fg_color),
+                                    )
+                                    .on_hover_text(e);
+                                }
+                                None => {}
+                            }
+                            if ui.small_button("Update").on_hover_text("fetch its nodes again").clicked() {
+                                let c = ui.ctx().clone();
+                                crate::node_remotes::pull_later(url, move || c.request_repaint());
+                            }
+                        });
+                    }
+                    if let Some(k) = gone {
+                        st.node_remotes.remove(k);
+                        crate::my_nodes::changed();
+                    }
+                    ui.horizontal(|ui| {
+                        let id = egui::Id::new("remote node library");
+                        let mut url = ui.data_mut(|d| d.get_temp::<String>(id)).unwrap_or_default();
+                        ui.add(
+                            egui::TextEdit::singleline(&mut url)
+                                .hint_text("https://github.com/lab/nodes, or a folder on the web")
+                                .desired_width(300.0),
+                        );
+                        let url_given = url.trim().to_string();
+                        if ui.add_enabled(!url_given.is_empty(), egui::Button::new("Add a remote library")).clicked() {
+                            if !st.node_remotes.contains(&url_given) {
+                                st.node_remotes.push(url_given.clone());
+                                let c = ui.ctx().clone();
+                                crate::node_remotes::pull_later(&url_given, move || c.request_repaint());
+                            }
+                            url.clear();
+                        }
+                        ui.data_mut(|d| d.insert_temp(id, url));
+                    });
+                    ui.label(
+                        RichText::new(
+                            "a git repository (cloned and pulled when Terraflux starts; git installed) or a folder \
+                             on the web (its index.txt, which Terraflux writes in each library it saves in): its \
+                             nodes offered beside yours, only read",
                         )
                         .weak()
                         .size(11.0),
@@ -2634,6 +2698,7 @@ impl TerrafluxApp {
                     lend_threads: st.lend_threads,
                     lend_idle: st.lend_idle,
                     node_libraries: st.node_libraries.clone(),
+                    node_remotes: st.node_remotes.clone(),
                     ..Default::default()
                 };
             }

@@ -39,6 +39,7 @@ To keep one for good, add it to your shell's profile, or on Windows to the user'
 | `TERRAFLUX_SSH` | The SSH program used to reach clusters and servers (by default the system's `ssh`). |
 | `TERRAFLUX_SETTINGS` | The application's settings file, instead of the one in the user's application data. Useful to keep a separate setup, for teaching for example. |
 | `TERRAFLUX_NODES` | The folder of your own library of nodes (the groups and calculators saved with **Save as my node...**), instead of `nodes` in the folder of the settings file. It is read by the application and by `terraflux mcp`. Libraries shared with others are not set here but in the application's settings, **Node libraries** (see [Nodes of your own](/tutorials/building-models/calculator/#libraries-shared-with-your-group)). |
+| `TERRAFLUX_USER` | Who you are to a shared library of nodes whose `library.toml` names its `writers` (only they save in it), instead of the login of the computer (see [Nodes of your own](/tutorials/building-models/calculator/#libraries-shared-with-your-group)). |
 | `TERRAFLUX_TRACE` | When set, the tiled engine writes a line with the time of each phase to the error output, to see where a run spends its time. |
 | `TERRAFLUX_PRESENT` | How the application's frames reach the screen: `novsync` shows them as soon as they are drawn. Try it if the window stutters when moved or resized. |
 | `TERRAFLUX_LATENCY` | How many frames the application queues (1 by default; try 2 with the above). |

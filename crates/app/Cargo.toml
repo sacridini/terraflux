@@ -35,6 +35,7 @@ rstar = "0.12"
 gif = "0.14"
 ab_glyph = "0.2"
 # the assistant's chat models: their APIs over HTTPS (the system's certificates trusted too)
+toml.workspace = true
 ureq = { version = "3", default-features = false, features = ["rustls", "platform-verifier"] }
 
 # the keys of the assistant's chat models, in the system's store of credentials

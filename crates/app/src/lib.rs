@@ -35,6 +35,7 @@ pub mod map_view;
 pub mod metadata;
 pub mod methods;
 pub mod my_nodes;
+pub mod node_remotes;
 pub mod node_view;
 pub mod op_notes;
 pub mod palette;
@@ -130,6 +131,9 @@ pub fn run(model: Option<PathBuf>) -> eframe::Result<()> {
             }
             let ctx = cc.egui_ctx.clone();
             app.updater.check_if_due(move || ctx.request_repaint());
+            // the remote libraries of nodes, pulled
+            let ctx = cc.egui_ctx.clone();
+            node_remotes::pull_all(move || ctx.request_repaint());
             // maximized once shown (made maximized, a window shown after its first frame is not, on Windows)
             app.maximize = Some(0);
             // the panes where they were left

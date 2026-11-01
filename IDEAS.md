@@ -373,8 +373,7 @@ escrevendo scripts). Depois, nesta ordem:
     opcionais (`my_nodes::is_setting`). Os nós das bibliotecas na busca rápida (`my:nome`, antes dos operadores) e
     nas ferramentas do Assistant e do MCP: `list_operators` os lista, `describe_operator("my:nome")` diz as entradas,
     as configurações e as saídas, `add_node` com `op = "my:nome"` (ou `my:nome@2`) os acrescenta, as configurações
-    dadas em `settings`. Falta: biblioteca remota (uma URL, um repositório git puxado pelo app); permissões de quem
-    salva numa compartilhada.
+    dadas em `settings`. A biblioteca remota e as permissões: feitas depois (item 9 da lista de 2026-11-01).
 
 ## A interface para o cientista: funcionalidades modernas
 
@@ -657,6 +656,15 @@ item):
    onde não cabe é recusada no check. `terraflux_graph::script_types` dá os tipos às respostas das ferramentas
    (`its outputs: calc.share (number)`). Os 52 modelos e templates do site continuam sem erros.
 9. **My nodes:** biblioteca remota (URL ou repositório git) e permissões.
+   **Feito** (Unreleased): `node_remotes.rs`. Uma biblioteca remota é um repositório git (`git clone --depth 1`,
+   depois `git pull --ff-only`, sem janela de console e sem pedir senha) ou uma pasta na web lida pelo seu
+   `index.txt` (as versões que faltam, cada uma conferida como nó antes de gravada; o índice escrito pelo app em
+   cada biblioteca onde salva ou tira um nó). A cópia fica em `remote nodes/<nome>-<hash>` nos dados do app,
+   puxada quando o app abre e com **Update** (`settings.node_remotes`), e só é lida: `Shelf::may_save` a recusa
+   dizendo onde acrescentar. Permissões: o `library.toml` de uma biblioteca (`name`, `writers`); quem não está em
+   `writers` (o login, ou `TERRAFLUX_USER`) não salva nem tira nós, o diálogo a mostra desabilitada com a razão e
+   um nó dela editado vai para a biblioteca do usuário. Testes: o endereço (git ou web), os writers, uma pasta
+   servida em 127.0.0.1 e um repositório local clonado e puxado; no teste de UI, a seção da biblioteca remota.
 10. **A priorização multi-ação depois da atualização do landschaft** (pedido de 2026-11-01): conferir que o
     `prioritize.actions` e o `prioritize.actions_raster` continuam iguais ao landschaft novo (o submódulo, o shim, as
     referências). **Feito** (Unreleased): a mudança do landschaft 1.58.1 (81f5281) é só do Python (mais rápido, e

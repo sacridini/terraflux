@@ -4603,6 +4603,7 @@ dependencies = [
  "terraflux-raster",
  "tiny-skia",
  "tokio",
+ "toml",
  "ureq",
 ]
 

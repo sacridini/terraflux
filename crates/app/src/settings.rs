@@ -71,6 +71,9 @@ pub struct Settings {
     /// The libraries of nodes shared with others (a group's folder on a shared drive, a repository cloned), beside
     /// the user's own.
     pub node_libraries: Vec<PathBuf>,
+    /// The remote libraries of nodes, by address: git repositories, folders on the web (only read; their copies
+    /// pulled when the application starts).
+    pub node_remotes: Vec<String>,
 }
 
 impl Default for Settings {
@@ -101,6 +104,7 @@ impl Default for Settings {
             seen_version: None,
             update_tried: None,
             node_libraries: Vec::new(),
+            node_remotes: Vec::new(),
         }
     }
 }

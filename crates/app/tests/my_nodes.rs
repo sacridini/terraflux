@@ -179,6 +179,45 @@ fn a_calculator_saved_as_my_node_and_used_again() {
     h.run_steps(3);
     assert!(h.query_by_label_contains("group_ndvi@1").is_some(), "the shared library's node in the operators' pane");
     shot(&mut h, "shared");
-    terraflux_app::settings::update(|st| st.node_libraries.clear());
+    // who saves in it: anyone, until its library.toml names its writers
+    assert!(libs[1].may_save().is_ok());
+    std::fs::write(shared.join("library.toml"), "name = \"Lab\"\nwriters = [\"someone-else-entirely\"]\n").unwrap();
+    terraflux_app::my_nodes::changed();
+    let libs = terraflux_app::my_nodes::libraries();
+    assert_eq!(libs[1].name, "Lab");
+    let e = libs[1].may_save().unwrap_err();
+    assert!(e.contains("only someone-else-entirely save in this library"), "{e}");
+    // a node of it edited and saved again goes to the user's own library, not to it
+    let id = terraflux_app::my_nodes::add(h.state_mut().session.as_mut().unwrap(), &r, &u).unwrap();
+    let s = h.state().session.as_ref().unwrap();
+    let d = terraflux_app::my_nodes::draft(s, &r, &[], &id).unwrap();
+    assert_eq!(d.library, dir.join("nodes"));
+    let mut there = d.clone();
+    there.library = shared.clone();
+    let e = terraflux_app::my_nodes::save(h.state_mut().session.as_mut().unwrap(), &r, &there).unwrap_err();
+    assert!(e.contains("someone-else-entirely"), "{e}");
+    assert_eq!(terraflux_graph::user_node::Library::new(&shared).versions("group_ndvi"), [1]);
+    // a remote library (its copy here, as pulled): its nodes offered, only read
+    let url = "https://lab.example.org/nodes/";
+    let copy = terraflux_app::node_remotes::dir_of(url);
+    assert!(copy.starts_with(&dir), "{}", copy.display());
+    let mut w = u.clone();
+    w.name = "web_ndvi".into();
+    terraflux_graph::user_node::Library::new(&copy).save(&w).unwrap();
+    std::fs::write(copy.join("library.toml"), "name = \"Lab on the web\"\n").unwrap();
+    terraflux_app::settings::update(|st| st.node_remotes = vec![url.to_string()]);
+    terraflux_app::my_nodes::changed();
+    let libs = terraflux_app::my_nodes::libraries();
+    let web = libs.iter().find(|l| l.remote.is_some()).unwrap();
+    assert_eq!(web.name, "Lab on the web");
+    assert!(web.may_save().unwrap_err().contains("is read from https://lab.example.org/nodes/"));
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("web_ndvi@1").is_some(), "the remote library's node in the operators' pane");
+    assert!(h.query_by_label_contains("from https://lab.example.org/nodes/").is_some());
+    shot(&mut h, "remote");
+    terraflux_app::settings::update(|st| {
+        st.node_libraries.clear();
+        st.node_remotes.clear();
+    });
     terraflux_app::my_nodes::changed();
 }

@@ -71,6 +71,12 @@ minor versions.
   types of the node's inputs (a map, a stack, a number; rasters read a map or a stack): an output connected where it
   does not fit is refused when the model is checked, not when it runs (a number of all the cells where a map is
   taken, a map where a number is), and the assistants' replies say what each output is.
+- **Remote libraries of nodes**: a git repository (cloned, then pulled when the application starts; `git`
+  installed) or a folder on the web (read by its `index.txt`, which Terraflux now writes in every library it saves
+  in), added by its address under Settings, Node libraries; its nodes offered beside yours, only read, with
+  **Update** to fetch it again. A library's `library.toml` gives it a `name` and its `writers`: only they save in a
+  shared library and take nodes out of it, the others' dialog showing it greyed and saving a node of it edited in
+  their own library.
 
 ### Fixed
 - `prioritize.actions_raster` with a feature whose layer has no amounts (all 0) says that it dropped it ("The
