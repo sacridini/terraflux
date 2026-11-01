@@ -16,6 +16,13 @@ minor versions.
 - The sentences of the steps in Portuguese, for the 36 operators that have one (`Reads the rasters of…` is `Lê os
   rasters de…`), in the report and in the methods: a step of the methods in Portuguese is its sentence and its
   note, no longer only its note or its settings.
+- Sentences for 73 more operators, 109 in all, in English and in Portuguese: those the templates and tutorials
+  use most (map algebra, stacks and tables, vectors, terrain and water, the habitat graphs and circuits, the changes
+  between maps, agents, species distribution models, Zonation, Marxan and the services among them).
+- A setting that is a **table of several columns** is edited **cell by cell**, in the Document pane and in the Node
+  pane: a list of rows (a legend's `[[value, "name", "#colour"], ...]`), a list of records (`[{"class": 1,
+  "carbon": 50}, ...]`) or records by name (`{"forest": {"carbon": 50}, ...}`), under the columns' names, each
+  column as wide as its values; **+ row** (a copy of the last), **+ column** and **x** to take a row away.
 
 ## [1.29.0] - 2026-11-01
 

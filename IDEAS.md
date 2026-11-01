@@ -609,6 +609,12 @@ item):
    pergunta a língua (In English / Em português); `terraflux report modelo.toml -l pt`. As descrições dos
    operadores e das suas configurações continuam em inglês.
 2. **Vista Document:** frases para os operadores que ainda não têm (hoje são 36) e tabelas com mais de uma coluna.
+   **Feito** (Unreleased): mais 73 frases (109 ao todo), em inglês e português, as dos operadores mais usados nos
+   templates e nos tutoriais (um teste lê as frases de todos os templates nas duas línguas); um texto vazio conta
+   como não dado. As tabelas de várias colunas editadas célula a célula (`node_view::grid`, `Grid`, `grid_ui`): listas
+   de linhas, listas de registros e registros por nome, no documento e no painel Node; as colunas na ordem que o
+   modelo guarda (alfabética: o serde_json sem `preserve_order`). Falta: frases para os outros ~320 operadores;
+   tabelas dentro de tabelas (seguem como texto).
 3. **Painel Changes:** casar as linhas das tabelas por uma chave, não pela posição.
 4. **Grupos e laços:** ver no viewer o mapa de um nó de dentro dos corpos de `control.repeat`/`switch`, e congelar
    um nó de dentro de um grupo.
@@ -618,6 +624,9 @@ item):
    chamadas do C++.
 8. **Calculadora:** os tipos das portas de `out` no checker do grafo.
 9. **My nodes:** biblioteca remota (URL ou repositório git) e permissões.
+10. **A priorização multi-ação depois da atualização do landschaft** (pedido de 2026-11-01): conferir que o
+    `prioritize.actions` e o `prioritize.actions_raster` continuam iguais ao landschaft novo (o submódulo, o shim, as
+    referências).
 
 ## Paridade com o landschaft na priorização, progresso e parada
 

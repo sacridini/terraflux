@@ -1023,7 +1023,7 @@ fn setting(
     // a list or a table of plain values, item by item (or as text, when asked), under its name
     let raw_key = format!("raw.{name}");
     let raw = s.fields.get(&raw_key).is_some_and(|v| v == "1");
-    let list = n.params.get(name).filter(|v| items(v).is_some()).cloned();
+    let list = n.params.get(name).filter(|v| editable(v)).cloned();
     let mut change = None;
     ui.horizontal_top(|ui| {
         if let Some(c) = name_cell(ui, s, n, path, name, doc, label_w, readable) {
@@ -1167,7 +1167,9 @@ fn typed(text: &str) -> serde_json::Value {
 /// row to add one (a list's: a copy of its last). The setting's new text when it changed (empty: none left, the
 /// default). `at` tells its fields apart from those of another node's (the document shows many).
 pub fn values(ui: &mut Ui, s: &mut Session, at: &str, name: &str, v: &serde_json::Value) -> Option<String> {
-    let rows = items(v)?;
+    let Some(rows) = items(v) else {
+        return grid(v).and_then(|g| grid_ui(ui, s, at, name, &g));
+    };
     let table = rows.first().is_some_and(|(k, _)| k.is_some());
     let mut next: Option<Vec<(Option<String>, serde_json::Value)>> = None;
     let text_of = |v: &serde_json::Value| match v {
@@ -1230,9 +1232,261 @@ pub fn values(ui: &mut Ui, s: &mut Session, at: &str, name: &str, v: &serde_json
     })
 }
 
+/// Whether a value is edited in place, item by item or cell by cell: a list or a table of plain values
+/// ([`items`]), or a table of several columns ([`grid`]).
+pub fn editable(v: &serde_json::Value) -> bool {
+    items(v).is_some() || grid(v).is_some()
+}
+
+/// How a table of several columns is written in the model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GridKind {
+    /// A list of rows, each a list of values: `[[1, 2], [3, 4]]` (a matrix, `[[value, new value], ...]`).
+    Rows,
+    /// A list of records, the columns their names: `[{"class": 1, "carbon": 50}, ...]`.
+    Records,
+    /// Records by name, the rows' names first: `{"forest": {"carbon": 50}, ...}`.
+    Named,
+}
+
+/// A table of several columns edited cell by cell: its kind, its columns, its rows (a name each, for
+/// [`GridKind::Named`]) and their cells (none: not given).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Grid {
+    pub kind: GridKind,
+    pub columns: Vec<String>,
+    pub rows: Vec<(Option<String>, Vec<Option<serde_json::Value>>)>,
+}
+
+/// A value of a cell: a number, a text, a yes or no.
+fn cell_plain(v: &serde_json::Value) -> bool {
+    v.is_number() || v.is_string() || v.is_boolean() || v.is_null()
+}
+
+/// The columns of records, in the order they first come (a record's keys in the model's order).
+fn columns_of<'a>(records: impl Iterator<Item = &'a serde_json::Map<String, serde_json::Value>>) -> Vec<String> {
+    let mut columns: Vec<String> = Vec::new();
+    for r in records {
+        for k in r.keys() {
+            if !columns.contains(k) {
+                columns.push(k.clone());
+            }
+        }
+    }
+    columns
+}
+
+/// The table of several columns a value is, if it is one: rows of plain values of one length (two or more), records
+/// of plain values, or records by name; none for the others (a list of plain values is [`items`]'s).
+pub fn grid(v: &serde_json::Value) -> Option<Grid> {
+    use serde_json::Value as J;
+    let record = |r: &J| matches!(r, J::Object(o) if !o.is_empty() && o.values().all(cell_plain));
+    match v {
+        J::Array(a) if !a.is_empty() && a.iter().all(|r| matches!(r, J::Array(c) if c.iter().all(cell_plain))) => {
+            let rows: Vec<&Vec<J>> = a.iter().filter_map(J::as_array).collect();
+            let n = rows[0].len();
+            if n < 2 || rows.iter().any(|r| r.len() != n) {
+                return None;
+            }
+            let columns = (1..=n).map(|k| k.to_string()).collect();
+            let rows = rows.iter().map(|r| (None, r.iter().cloned().map(Some).collect())).collect();
+            Some(Grid { kind: GridKind::Rows, columns, rows })
+        }
+        J::Array(a) if !a.is_empty() && a.iter().all(record) => {
+            let columns = columns_of(a.iter().filter_map(J::as_object));
+            let rows = a
+                .iter()
+                .filter_map(J::as_object)
+                .map(|o| (None, columns.iter().map(|c| o.get(c).cloned()).collect()))
+                .collect();
+            Some(Grid { kind: GridKind::Records, columns, rows })
+        }
+        J::Object(o) if !o.is_empty() && o.values().all(record) => {
+            let columns = columns_of(o.values().filter_map(J::as_object));
+            let rows = o
+                .iter()
+                .filter_map(|(k, r)| Some((Some(k.clone()), r.as_object()?)))
+                .map(|(k, r)| (k, columns.iter().map(|c| r.get(c).cloned()).collect()))
+                .collect();
+            Some(Grid { kind: GridKind::Named, columns, rows })
+        }
+        _ => None,
+    }
+}
+
+impl Grid {
+    /// The table as the model writes it (a cell not given left out of its record; in a list of rows, no value).
+    pub fn value(&self) -> serde_json::Value {
+        use serde_json::Value as J;
+        let record = |cells: &[Option<J>]| -> serde_json::Map<String, J> {
+            self.columns.iter().zip(cells).filter_map(|(c, v)| Some((c.clone(), v.clone()?))).collect()
+        };
+        match self.kind {
+            GridKind::Rows => J::Array(
+                self.rows
+                    .iter()
+                    .map(|(_, c)| J::Array(c.iter().map(|v| v.clone().unwrap_or(J::Null)).collect()))
+                    .collect(),
+            ),
+            GridKind::Records => J::Array(self.rows.iter().map(|(_, c)| J::Object(record(c))).collect()),
+            GridKind::Named => {
+                J::Object(self.rows.iter().filter_map(|(k, c)| Some((k.clone()?, J::Object(record(c))))).collect())
+            }
+        }
+    }
+}
+
+/// A cell typed: empty is none given, else as [`typed`] reads it, true and false too.
+fn typed_cell(text: &str) -> Option<serde_json::Value> {
+    match text.trim() {
+        "" => None,
+        "true" => Some(serde_json::Value::Bool(true)),
+        "false" => Some(serde_json::Value::Bool(false)),
+        t => Some(typed(t)),
+    }
+}
+
+/// A table of several columns edited cell by cell: a header of its columns, a row each (its name first, for records
+/// by name) with a button that takes it away; rows added (a copy of the last) and columns added (by name, for
+/// records). The setting's new text when it changed (empty: no rows left, the default).
+pub fn grid_ui(ui: &mut Ui, s: &mut Session, at: &str, name: &str, g: &Grid) -> Option<String> {
+    let mut next: Option<Grid> = None;
+    let text_of = |v: &Option<serde_json::Value>| match v {
+        Some(serde_json::Value::String(t)) => t.clone(),
+        Some(serde_json::Value::Null) | None => String::new(),
+        Some(v) => v.to_string(),
+    };
+    let named = g.kind == GridKind::Named;
+    let rows_only = g.kind == GridKind::Rows;
+    egui::Grid::new(("grid", at, name)).spacing([6.0, 3.0]).striped(true).show(ui, |ui| {
+        // (the columns' names: a list of rows has none)
+        if !rows_only {
+            if named {
+                ui.label(RichText::new("name").small().color(ui.visuals().weak_text_color()));
+            }
+            for c in &g.columns {
+                ui.label(RichText::new(c).small().strong());
+            }
+            ui.end_row();
+        }
+        // each column as wide as its longest value
+        let widths: Vec<f32> = (0..g.columns.len())
+            .map(|j| {
+                let longest = g.rows.iter().map(|r| text_of(&r.1[j]).chars().count()).max().unwrap_or(0);
+                (longest as f32 * 7.5 + 14.0).clamp(44.0, 180.0)
+            })
+            .collect();
+        for (i, (key, cells)) in g.rows.iter().enumerate() {
+            if let Some(key) = key {
+                let f = format!("{at}gridkey.{name}.{i}");
+                let mut text = field(s, &f, key.clone());
+                let resp = ui.add(egui::TextEdit::singleline(&mut text).desired_width(80.0));
+                s.fields.insert(f, text.clone());
+                let t = text.trim();
+                let free = !t.is_empty() && !g.rows.iter().any(|(k, _)| k.as_deref() == Some(t));
+                if resp.lost_focus() && t != key && free {
+                    let mut n = g.clone();
+                    n.rows[i].0 = Some(t.to_string());
+                    next = Some(n);
+                }
+            }
+            for (j, v) in cells.iter().enumerate() {
+                let init = text_of(v);
+                let f = format!("{at}grid.{name}.{i}.{j}");
+                let mut text = field(s, &f, init.clone());
+                let size = egui::vec2(widths[j], ui.spacing().interact_size.y);
+                let resp = ui.add_sized(size, egui::TextEdit::singleline(&mut text));
+                s.fields.insert(f, text.clone());
+                if resp.lost_focus() && text != init {
+                    let mut n = g.clone();
+                    n.rows[i].1[j] = typed_cell(&text);
+                    next = Some(n);
+                }
+            }
+            if ui.small_button("x").on_hover_text("take the row away").clicked() {
+                let mut n = g.clone();
+                n.rows.remove(i);
+                next = Some(n);
+            }
+            ui.end_row();
+        }
+    });
+    ui.horizontal(|ui| {
+        if named {
+            let f = format!("{at}gridnew.{name}");
+            let mut key = field(s, &f, String::new());
+            ui.add(egui::TextEdit::singleline(&mut key).desired_width(80.0).hint_text("name"));
+            s.fields.insert(f, key.clone());
+            let k = key.trim().to_string();
+            if ui.small_button("+ row").on_hover_text("a row of this name, a copy of the last").clicked()
+                && !k.is_empty()
+                && !g.rows.iter().any(|(r, _)| r.as_deref() == Some(k.as_str()))
+            {
+                let mut n = g.clone();
+                let cells = g.rows.last().map(|r| r.1.clone()).unwrap_or_default();
+                n.rows.push((Some(k), cells));
+                next = Some(n);
+            }
+        } else if ui.small_button("+ row").on_hover_text("one more, a copy of the last").clicked() {
+            let mut n = g.clone();
+            n.rows.push(g.rows.last().cloned().unwrap_or((None, vec![None; g.columns.len()])));
+            next = Some(n);
+        }
+        let f = format!("{at}gridcol.{name}");
+        let mut col = field(s, &f, String::new());
+        if !rows_only {
+            ui.add(egui::TextEdit::singleline(&mut col).desired_width(80.0).hint_text("column"));
+            s.fields.insert(f, col.clone());
+        }
+        let c = col.trim().to_string();
+        let free = rows_only || (!c.is_empty() && !g.columns.contains(&c));
+        if ui.small_button("+ column").on_hover_text("a column, its cells empty (0 in a list of rows)").clicked()
+            && free
+        {
+            let mut n = g.clone();
+            n.columns.push(if rows_only { (g.columns.len() + 1).to_string() } else { c });
+            let empty = rows_only.then_some(serde_json::Value::from(0));
+            for r in &mut n.rows {
+                r.1.push(empty.clone());
+            }
+            next = Some(n);
+        }
+    });
+    let n = next?;
+    Some(if n.rows.is_empty() { String::new() } else { n.value().to_string() })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tables_of_several_columns() {
+        use serde_json::json;
+        let rows = json!([[1, 2, 3], [4, 5, 6]]);
+        let g = grid(&rows).unwrap();
+        assert_eq!((g.kind, g.columns.len(), g.rows.len()), (GridKind::Rows, 3, 2));
+        assert_eq!(g.value(), rows);
+        let records = json!([{"class": 1, "carbon": 50}, {"class": 2, "name": "pasture"}]);
+        let g = grid(&records).unwrap();
+        assert_eq!(g.kind, GridKind::Records);
+        assert_eq!(g.columns, ["carbon", "class", "name"], "in the order the model keeps them");
+        assert_eq!(g.rows[1].1, vec![None, Some(json!(2)), Some(json!("pasture"))]);
+        assert_eq!(g.value(), records, "the cells not given left out");
+        let named = json!({"forest": {"carbon": 50, "water": 0.4}, "pasture": {"carbon": 10}});
+        let g = grid(&named).unwrap();
+        assert_eq!(g.kind, GridKind::Named);
+        assert_eq!(g.rows[0].0.as_deref(), Some("forest"));
+        assert_eq!(g.value(), named);
+        // not tables of several columns: a list, a table of plain values, rows of other lengths, nested values
+        for v in [json!([1, 2]), json!({"a": 1}), json!([[1, 2], [3]]), json!([[1]]), json!([{"a": [1]}]), json!([])] {
+            assert!(grid(&v).is_none(), "{v}");
+        }
+        assert!(editable(&json!([1, 2])) && editable(&rows) && !editable(&json!([{"a": {"b": 1}}])));
+        assert_eq!(typed_cell(" "), None);
+        assert_eq!(typed_cell("true"), Some(json!(true)));
+        assert_eq!(typed_cell("12"), Some(json!(12)));
+    }
 
     #[test]
     fn names_in_words_and_first_sentences() {

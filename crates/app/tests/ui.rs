@@ -867,7 +867,7 @@ fn a_loop_pauses_step_by_step() {
     assert!(!s.gate.stepping.load(Ordering::Relaxed));
 }
 
-/// The document says what each step does in a sentence, edits a list in place, and draws the maps in the viewer's
+/// The document says what each step does in a sentence, edits a list and a table in place, and draws the maps in the viewer's
 /// palettes (MSPA's classes in GuidosToolbox's colours).
 #[test]
 fn the_document_reads_and_edits_in_place() {
@@ -882,6 +882,8 @@ fn the_document_reads_and_edits_in_place() {
     );
     m.nodes.push(Node::new("habitat", "nlm.binarize").input("map", "patches.map").param("breaks", 0.4));
     m.nodes.push(Node::new("mspa", "landscape.mspa").input("map", "habitat.map").param("foreground", 1));
+    let classes = serde_json::json!([[0, "matrix", "#cccccc"], [1, "habitat", "#228833"]]);
+    m.nodes.push(Node::new("legend", "raster.legend").input("map", "habitat.map").param("classes", classes));
     let path = tmp("sentences.toml");
     m.save(&path).unwrap();
     let mut h = harness(new_app(Some(path)));
@@ -906,6 +908,16 @@ fn the_document_reads_and_edits_in_place() {
     let s = h.state().session.as_ref().unwrap();
     let weights = s.source.nodes[0].params.get("weights").cloned();
     assert_eq!(weights, Some(serde_json::json!([0.3, 0.7, 0.7])));
+    // a table of several columns (the legend's value, name and colour), cell by cell: a row more in place
+    h.get_by_label("+ row").scroll_to_me();
+    h.run_steps(20);
+    h.get_by_label("+ row").click();
+    h.run_steps(3);
+    shot(&mut h, "49-document-table");
+    let s = h.state().session.as_ref().unwrap();
+    let classes = s.source.nodes.iter().find(|n| n.id == "legend").and_then(|n| n.params.get("classes")).cloned();
+    let three = serde_json::json!([[0, "matrix", "#cccccc"], [1, "habitat", "#228833"], [1, "habitat", "#228833"]]);
+    assert_eq!(classes, Some(three));
 }
 
 /// A model in stages: zoomed out, the canvas frames and names each stage; grouped by stage, it shows a block per

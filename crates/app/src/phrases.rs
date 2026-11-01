@@ -95,6 +95,155 @@ const PHRASES: &[(&str, &str)] = &[
         "The planning units chosen[ for <features>][ at the cost <cost>], the objective {objective}[ within a budget \
          of {budget}].",
     ),
+    ("raster.calc", "Maps computed cell by cell from its inputs by a script."),
+    ("stack.of", "Its inputs as the layers of a stack."),
+    ("table.of", "A table written in the model, its columns {columns}."),
+    ("table.write", "Writes <table> to {path}."),
+    ("table.filter", "The rows of <table> where {expression}."),
+    ("check.assert", "A check: {expression}[ ({message})]."),
+    ("conn.to_map", "The values of <table> painted on the patches of <graph>[, the column {column}]."),
+    (
+        "conn.graph_from_raster",
+        "A habitat graph of the patches[ of <map>][ of <vector>][, the habitat classes {habitat}], the distances \
+         by {distance}[ over <resistance>][ up to {max_distance}].",
+    ),
+    ("conn.nodes", "The nodes of the patches[ of <map>][ of <vector>][, the habitat classes {habitat}]."),
+    (
+        "conn.node_importance",
+        "Each node's importance in <graph>[ at a distance {distance}][, probability {probability}].",
+    ),
+    ("conn.overall", "The connectivity of <graph>[ at a distance {distance}][, probability {probability}]."),
+    (
+        "dynamic.distance_to",
+        "The distance from each cell of <landscape> to the nearest cell[ of the classes {classes}][, over the \
+         costs <cost>].",
+    ),
+    ("sdm.maxnet_predict", "The suitability by the model <model> on <env>[, output {type}]."),
+    ("stack.set", "<stack> with <map> as its layer {name}."),
+    ("hydro.flow_accumulation", "The flow accumulation of <dem> by {method}[, weighted by <weights>], in {units}."),
+    ("hydro.fill", "<dem> with its depressions filled."),
+    (
+        "hydro.streams",
+        "The streams of <accumulation>: the cells of an accumulation of {threshold} or more[, traced on <dem>].",
+    ),
+    ("rng.r", "R's random number generator, seed <seed>."),
+    ("vector.filter", "The features of <vector> where {expression}."),
+    ("vector.calc", "The attributes of <vector>[ ({column})] computed from the others by a script."),
+    ("vector.extract", "The values of <map> at the points of <vector>, by {method}[, in a radius of {buffer}]."),
+    ("vector.zonal", "The statistics of <map> in each polygon of <vector>[: {stats}]."),
+    ("vector.points", "Points ({method}) inside the polygons <vector>[, {n} in each][, {spacing} apart]; seed {seed}."),
+    ("vector.polygonize", "The patches of <map> as polygons[, {neighbours} neighbours]."),
+    ("agents.update", "The agents <agents> updated by the rules: {rules}."),
+    ("agents.parcels", "An agent per parcel of <parcels>, with the mean of the other maps in each."),
+    ("agents.map", "The attribute {column} of <agents> painted on their parcels <parcels>."),
+    ("agents.summary", "The number of agents in <agents> and the sum and mean of each attribute."),
+    ("lulcc.history", "The steps each cell of <landscape> has had its class[, from <history>]."),
+    (
+        "fragmentation.fos",
+        "The fragmentation of <map>[, its foreground {foreground}] at a fixed scale: {method} in a window of \
+         {window} cells.",
+    ),
+    (
+        "sdm.prepare",
+        "The records <occurrences> prepared for a species distribution model on <env>[, the species {species}][, \
+         thinned at {thin} m]; seed {seed}.",
+    ),
+    ("sdm.background", "{n} background points on <env>[ within <area>][, weighted by <bias>]; seed {seed}."),
+    ("sdm.clean_occurrences", "The records <occurrences> cleaned of suspicious coordinates (action: {action})."),
+    ("sdm.thin", "The records <occurrences> thinned to {distance} m apart, {reps} repetitions; seed {seed}."),
+    ("sdm.mess", "The environmental similarity (MESS) of <env> to <reference>."),
+    ("surface.terrain", "The {v} of <map>[ in {unit}][, {neighbors} neighbours]."),
+    ("raster.terrain", "The {measure} of <raster>[, gdaldem's options {options}]."),
+    ("surface.curvature", "The {type} curvature of <map>."),
+    ("surface.tpi", "The topographic position index of <map>[, a window of {scale}][, {win}]."),
+    (
+        "nlm.mosaic_tess",
+        "A Voronoi mosaic of random values on {rows} × {columns} cells[ of side {resolution}][, {germs} germs]; \
+         seed {seed}.",
+    ),
+    (
+        "nlm.percolation",
+        "A random binary map of {rows} × {columns} cells[ of side {resolution}], each cell 1 with probability \
+         {prob}; seed {seed}.",
+    ),
+    ("nlm.classify", "<map> in classes[: {n} by natural breaks][, the shares {weights}][ as in <real>]."),
+    ("change.transitions", "The transitions between the maps of <maps>[ dated {times}]."),
+    ("change.crosstab", "The transition matrix from <from> to <to>."),
+    (
+        "change.components",
+        "The components of the difference[ from <from>][ to <to>][ along <maps>], the analysis of {analysis}.",
+    ),
+    ("change.simple", "The change of the foreground[ {foreground}] from <before> to <after>."),
+    ("change.morphological", "The morphological change of the foreground[ {foreground}] from <before> to <after>."),
+    (
+        "change.fad",
+        "The change of fragmentation (FAD) from <before> to <after>[, the foreground {foreground}], in windows of \
+         {windows} cells.",
+    ),
+    ("restoration.plan", "A restoration plan by {method}[ within a budget of {budget}][, the target {target}]."),
+    ("metrics.signatures", "The spatial signatures of <maps>[ in the zones <plots>]."),
+    ("metrics.window", "The landscape metrics[ {metrics}] of <map> in a moving window."),
+    ("networks.gtn_components", "The components of the habitat network of the MSPA map <map>."),
+    ("circuit.pairwise", "Circuitscape's effective resistance between every pair of the points <points> on <habitat>."),
+    (
+        "circuit.omniscape",
+        "Omniscape's connectivity on <resistance>[ from the sources <source>], in windows of radius {radius} \
+         cells[, a target every {block_size} cells].",
+    ),
+    ("cost.passage", "The passages of a random walk from <origins> to <goals> through <transition>[, theta {theta}]."),
+    (
+        "prioritize.evaluate",
+        "The evaluation of the solution[ <solution>][ <selection>][ for <features>][ at the cost <cost>].",
+    ),
+    ("prioritize.zonation", "Zonation's priority ranking of <features> by the rule {rule}[ at the cost <cost>]."),
+    (
+        "prioritize.marxan",
+        "Marxan's reserves[ for <features>][ at the cost <cost>][, boundary length modifier {blm}], {num_reps} runs.",
+    ),
+    (
+        "services.pollination",
+        "The pollination of crops by wild bees on <lulc>, by the table <biophysical>[ and the farms <farms>].",
+    ),
+    (
+        "services.habitat_quality",
+        "The habitat quality of <lulc> under the threats <threat_maps>, by the sensitivities <sensitivity>[, and \
+         in the future <future>].",
+    ),
+    (
+        "plus.demand",
+        "The cells of each class at each step from <start>[ by the chain <markov>][ by the demand <demand>][ per \
+         region <regional>][, {steps} steps].",
+    ),
+    (
+        "landscape.accounting",
+        "The objects of the foreground of <map>[ ({foreground})] in size classes, connected by {connectivity} \
+         neighbours.",
+    ),
+    (
+        "raster.sieve",
+        "<map> with its patches of fewer than {threshold} cells merged into their largest neighbour[, {neighbours} \
+         neighbours].",
+    ),
+    (
+        "validate.similarity",
+        "The fuzzy similarity of the change in <simulated> and <observed>, both from <start>, in windows of \
+         {windows} cells.",
+    ),
+    (
+        "accuracy.sample",
+        "A stratified random sample of the cells of <map>[, {n} per stratum][ by <sizes>]; seed {seed}.",
+    ),
+    ("data.download", "Data downloaded[ from {source}][ ({variable})][ onto the grid of <like>][, cut to <area>]."),
+    ("raster.legend", "The names and colours of the classes of <map>."),
+    ("markov.matrix", "A Markov chain given in the model[, the classes {classes}], over {steps} steps."),
+    ("raster.stats", "A summary of <map>[: {stats}]."),
+    ("raster.clip", "<raster> cut to the extent {extent}."),
+    ("distance.euclidean", "The Euclidean distance to the edge of the foreground of <map>[ ({foreground})]."),
+    ("move.filter_unique", "The tracks <tracks> without duplicated times (criterion {criterion})."),
+    (
+        "uncertainty.monte_carlo",
+        "{n} draws of {expression}, its parameters drawn from normal distributions; seed {seed}.",
+    ),
 ];
 
 /// The phrases in Portuguese, the same placeholders as the English.
@@ -179,6 +328,168 @@ const PHRASES_PT: &[(&str, &str)] = &[
         "As unidades de planejamento escolhidas[ para <features>][ ao custo <cost>], o objetivo {objective}[ num \
          orçamento de {budget}].",
     ),
+    ("raster.calc", "Mapas calculados célula a célula a partir das entradas por um script."),
+    ("stack.of", "As entradas como as camadas de uma pilha."),
+    ("table.of", "Uma tabela escrita no modelo, as colunas {columns}."),
+    ("table.write", "Grava <table> em {path}."),
+    ("table.filter", "As linhas de <table> onde {expression}."),
+    ("check.assert", "Uma verificação: {expression}[ ({message})]."),
+    ("conn.to_map", "Os valores de <table> pintados nas manchas de <graph>[, a coluna {column}]."),
+    (
+        "conn.graph_from_raster",
+        "Um grafo de habitat das manchas[ de <map>][ de <vector>][, as classes de habitat {habitat}], as \
+         distâncias por {distance}[ sobre <resistance>][ até {max_distance}].",
+    ),
+    ("conn.nodes", "Os nós das manchas[ de <map>][ de <vector>][, as classes de habitat {habitat}]."),
+    (
+        "conn.node_importance",
+        "A importância de cada nó em <graph>[ à distância {distance}][, probabilidade {probability}].",
+    ),
+    ("conn.overall", "A conectividade de <graph>[ à distância {distance}][, probabilidade {probability}]."),
+    (
+        "dynamic.distance_to",
+        "A distância de cada célula de <landscape> à célula mais próxima[ das classes {classes}][, pelos custos \
+         <cost>].",
+    ),
+    ("sdm.maxnet_predict", "A adequabilidade pelo modelo <model> em <env>[, saída {type}]."),
+    ("stack.set", "<stack> com <map> como a camada {name}."),
+    (
+        "hydro.flow_accumulation",
+        "O fluxo acumulado de <dem> pelo método {method}[, ponderado por <weights>], em {units}.",
+    ),
+    ("hydro.fill", "<dem> com as depressões preenchidas."),
+    (
+        "hydro.streams",
+        "Os rios de <accumulation>: as células de acumulação de {threshold} ou mais[, traçados em <dem>].",
+    ),
+    ("rng.r", "O gerador de números aleatórios do R, semente <seed>."),
+    ("vector.filter", "As feições de <vector> onde {expression}."),
+    ("vector.calc", "Os atributos de <vector>[ ({column})] calculados a partir dos outros por um script."),
+    ("vector.extract", "Os valores de <map> nos pontos de <vector>, pelo método {method}[, num raio de {buffer}]."),
+    ("vector.zonal", "As estatísticas de <map> em cada polígono de <vector>[: {stats}]."),
+    (
+        "vector.points",
+        "Pontos ({method}) dentro dos polígonos <vector>[, {n} em cada][, a {spacing} de distância]; semente {seed}.",
+    ),
+    ("vector.polygonize", "As manchas de <map> como polígonos[, {neighbours} vizinhos]."),
+    ("agents.update", "Os agentes <agents> atualizados pelas regras: {rules}."),
+    ("agents.parcels", "Um agente por parcela de <parcels>, com a média dos outros mapas em cada uma."),
+    ("agents.map", "O atributo {column} de <agents> pintado nas suas parcelas <parcels>."),
+    ("agents.summary", "O número de agentes em <agents> e a soma e a média de cada atributo."),
+    ("lulcc.history", "Há quantos passos cada célula de <landscape> está na sua classe[, de <history>]."),
+    (
+        "fragmentation.fos",
+        "A fragmentação de <map>[, o primeiro plano {foreground}] numa escala fixa: {method} numa janela de \
+         {window} células.",
+    ),
+    (
+        "sdm.prepare",
+        "Os registros <occurrences> preparados para um modelo de distribuição de espécies em <env>[, a espécie \
+         {species}][, rarefeitos a {thin} m]; semente {seed}.",
+    ),
+    ("sdm.background", "{n} pontos de fundo em <env>[ dentro de <area>][, ponderados por <bias>]; semente {seed}."),
+    ("sdm.clean_occurrences", "Os registros <occurrences> limpos de coordenadas suspeitas (ação: {action})."),
+    (
+        "sdm.thin",
+        "Os registros <occurrences> rarefeitos a {distance} m uns dos outros, {reps} repetições; semente {seed}.",
+    ),
+    ("sdm.mess", "A similaridade ambiental (MESS) de <env> com <reference>."),
+    ("surface.terrain", "A medida {v} de <map>[ em {unit}][, {neighbors} vizinhos]."),
+    ("raster.terrain", "A medida {measure} de <raster>[, as opções do gdaldem {options}]."),
+    ("surface.curvature", "A curvatura {type} de <map>."),
+    ("surface.tpi", "O índice de posição topográfica de <map>[, uma janela de {scale}][, {win}]."),
+    (
+        "nlm.mosaic_tess",
+        "Um mosaico de Voronoi de valores aleatórios em {rows} × {columns} células[ de lado {resolution}][, \
+         {germs} germes]; semente {seed}.",
+    ),
+    (
+        "nlm.percolation",
+        "Um mapa binário aleatório de {rows} × {columns} células[ de lado {resolution}], cada célula 1 com \
+         probabilidade {prob}; semente {seed}.",
+    ),
+    ("nlm.classify", "<map> em classes[: {n} por quebras naturais][, as frações {weights}][ como em <real>]."),
+    ("change.transitions", "As transições entre os mapas de <maps>[ datados {times}]."),
+    ("change.crosstab", "A matriz de transição de <from> para <to>."),
+    (
+        "change.components",
+        "Os componentes da diferença[ de <from>][ para <to>][ ao longo de <maps>], a análise de {analysis}.",
+    ),
+    ("change.simple", "A mudança do primeiro plano[ {foreground}] de <before> para <after>."),
+    ("change.morphological", "A mudança morfológica do primeiro plano[ {foreground}] de <before> para <after>."),
+    (
+        "change.fad",
+        "A mudança da fragmentação (FAD) de <before> para <after>[, o primeiro plano {foreground}], em janelas de \
+         {windows} células.",
+    ),
+    (
+        "restoration.plan",
+        "Um plano de restauração pelo método {method}[ num orçamento de {budget}][, a meta {target}].",
+    ),
+    ("metrics.signatures", "As assinaturas espaciais de <maps>[ nas zonas <plots>]."),
+    ("metrics.window", "As métricas da paisagem[ {metrics}] de <map> numa janela móvel."),
+    ("networks.gtn_components", "Os componentes da rede de habitat do mapa do MSPA <map>."),
+    ("circuit.pairwise", "A resistência efetiva do Circuitscape entre cada par dos pontos <points> em <habitat>."),
+    (
+        "circuit.omniscape",
+        "A conectividade do Omniscape em <resistance>[ das fontes <source>], em janelas de raio {radius} células[, \
+         um alvo a cada {block_size} células].",
+    ),
+    (
+        "cost.passage",
+        "As passagens de um passeio aleatório de <origins> para <goals> por <transition>[, theta {theta}].",
+    ),
+    ("prioritize.evaluate", "A avaliação da solução[ <solution>][ <selection>][ para <features>][ ao custo <cost>]."),
+    ("prioritize.zonation", "A ordem de prioridade do Zonation de <features> pela regra {rule}[ ao custo <cost>]."),
+    (
+        "prioritize.marxan",
+        "As reservas do Marxan[ para <features>][ ao custo <cost>][, modificador do comprimento de fronteira \
+         {blm}], {num_reps} rodadas.",
+    ),
+    (
+        "services.pollination",
+        "A polinização das culturas por abelhas silvestres em <lulc>, pela tabela <biophysical>[ e as fazendas \
+         <farms>].",
+    ),
+    (
+        "services.habitat_quality",
+        "A qualidade do habitat de <lulc> sob as ameaças <threat_maps>, pelas sensibilidades <sensitivity>[, e no \
+         futuro <future>].",
+    ),
+    (
+        "plus.demand",
+        "As células de cada classe a cada passo a partir de <start>[ pela cadeia <markov>][ pela demanda \
+         <demand>][ por região <regional>][, {steps} passos].",
+    ),
+    (
+        "landscape.accounting",
+        "Os objetos do primeiro plano de <map>[ ({foreground})] em classes de tamanho, conectados por \
+         {connectivity} vizinhos.",
+    ),
+    (
+        "raster.sieve",
+        "<map> com as manchas de menos de {threshold} células juntadas à maior vizinha[, {neighbours} vizinhos].",
+    ),
+    (
+        "validate.similarity",
+        "A similaridade fuzzy da mudança em <simulated> e <observed>, os dois a partir de <start>, em janelas de \
+         {windows} células.",
+    ),
+    (
+        "accuracy.sample",
+        "Uma amostra aleatória estratificada das células de <map>[, {n} por estrato][ por <sizes>]; semente {seed}.",
+    ),
+    ("data.download", "Dados baixados[ de {source}][ ({variable})][ na grade de <like>][, recortados por <area>]."),
+    ("raster.legend", "Os nomes e as cores das classes de <map>."),
+    ("markov.matrix", "Uma cadeia de Markov dada no modelo[, as classes {classes}], em {steps} passos."),
+    ("raster.stats", "Um resumo de <map>[: {stats}]."),
+    ("raster.clip", "<raster> recortado na extensão {extent}."),
+    ("distance.euclidean", "A distância euclidiana à borda do primeiro plano de <map>[ ({foreground})]."),
+    ("move.filter_unique", "As trilhas <tracks> sem tempos duplicados (critério {criterion})."),
+    (
+        "uncertainty.monte_carlo",
+        "{n} sorteios de {expression}, os parâmetros sorteados de distribuições normais; semente {seed}.",
+    ),
 ];
 
 /// The phrase of an operator, if it has one.
@@ -199,7 +510,8 @@ pub fn operators() -> impl Iterator<Item = &'static str> {
 
 /// A setting's value in words: given, else the operator's default (none: neither).
 fn value(n: &Node, sig: Option<&OpSignature>, name: &str, given_only: bool, lang: Lang) -> Option<String> {
-    if let Some(v) = n.params.get(name) {
+    // (an empty text is none given)
+    if let Some(v) = n.params.get(name).filter(|v| v.as_str() != Some("")) {
         return Some(crate::document::words_in(v, lang).replace('\n', "; "));
     }
     if given_only {
@@ -284,6 +596,40 @@ mod tests {
             }
         }
         out
+    }
+
+    #[test]
+    fn the_templates_steps_read_as_sentences() {
+        let r = Registry::standard();
+        fn walk(nodes: &[Node], r: &Registry, out: &mut Vec<String>) {
+            for n in nodes {
+                let sig = r.sig(&n.op).map(|s| s.as_ref().clone());
+                for lang in [Lang::En, Lang::Pt] {
+                    if let Some(t) = sentence_in(n, sig.as_ref(), lang) {
+                        out.push(format!("{} {}: {t}", n.op, lang.code()));
+                    }
+                }
+                if let Some(b) = &n.body {
+                    walk(&b.nodes, r, out);
+                }
+            }
+        }
+        let mut said = Vec::new();
+        for t in crate::templates::TEMPLATES {
+            walk(&t.model().nodes, &r, &mut said);
+        }
+        if std::env::var("TERRAFLUX_PRINT").is_ok() {
+            said.sort();
+            said.dedup();
+            for s in &said {
+                eprintln!("{s}");
+            }
+        }
+        for s in &said {
+            assert!(!s.contains(['{', '}']) || s.contains("rules") || s.contains("expression"), "{s}");
+            assert!(!s.contains("[ ") && !s.contains(" ]"), "{s}");
+        }
+        assert!(said.len() > 200, "{}", said.len());
     }
 
     #[test]

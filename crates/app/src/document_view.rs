@@ -178,11 +178,11 @@ fn shown(ui: &mut Ui, s: &Session, node: &str, port: &str, w: f32) {
 /// A setting given: its words and its value, a single value edited in place.
 fn setting_ui(ui: &mut Ui, s: &mut Session, st: &Setting, step: &Step, asked: &mut Asked) {
     let key = format!("doc.{}/{}.{}", step.path.join("/"), step.id, st.name);
-    // (a list or a table of plain values: its value as the model has it)
+    // (a list or a table of plain values, or a table of several columns: its value as the model has it)
     let list = (!st.plain)
         .then(|| s.source.scope(&step.path)?.iter().find(|n| n.id == step.id)?.params.get(&st.name).cloned())
         .flatten()
-        .filter(|v| crate::node_view::items(v).is_some());
+        .filter(crate::node_view::editable);
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
         ui.label("•");
@@ -215,7 +215,7 @@ fn setting_ui(ui: &mut Ui, s: &mut Session, st: &Setting, step: &Step, asked: &m
             ui.label(weak(format!("(default {d})")).small());
         }
     });
-    // a list or a table of plain values: edited item by item, in place
+    // a list or a table: edited item by item (or cell by cell), in place
     if let Some(v) = list {
         ui.indent(&key, |ui| {
             if let Some(text) = crate::node_view::values(ui, s, &format!("{key}."), &st.name, &v) {

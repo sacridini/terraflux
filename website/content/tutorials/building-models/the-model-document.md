@@ -118,7 +118,7 @@ is a line.
 
 ## A sentence for each step
 
-For the operators models use most, a step is told in a sentence written for its operator, with the values of its
+For the operators models use most (109 of them), a step is told in a sentence written for its operator, with the values of its
 settings and the names of the nodes its inputs come from. The three steps of the template read:
 
 > Random clusters on 300 × 300 cells, a share 0.55 of the cells in clusters, the classes weighted 0.3, 0.15, 0.55;
@@ -138,13 +138,15 @@ The operators with a sentence:
 
 | Subject | Operators |
 |---|---|
-| Reading and writing | `raster.read`, `raster.write`, `vector.read`, `vector.write`, `table.read`, `view.plot` |
-| Neutral landscapes | `nlm.random`, `nlm.gaussian_field`, `nlm.random_cluster`, `nlm.fbm`, `nlm.planar_gradient`, `nlm.distance_gradient`, `nlm.binarize` |
-| Preparation | `raster.reclassify`, `raster.reproject`, `raster.resample` |
-| Land change | `markov.fit`, `glm.fit`, `glm.predict`, `woe.fit`, `woe.probability`, `demand.from_maps`, `dinamica.step`, `lulcc.step`, `patches.observe` |
-| Patterns and metrics | `landscape.mspa`, `metrics.class`, `metrics.landscape`, `metrics.patch` |
-| Validation | `validate.agreement`, `validate.kappa` |
-| Species, services, planning | `sdm.fit`, `sdm.area_of_habitat`, `services.carbon`, `prioritize.optimize` |
+| Reading and writing | `raster.read`, `raster.write`, `vector.read`, `vector.write`, `table.read`, `move.read_tracks`, `view.plot`, `table.write`, `data.download` |
+| Neutral landscapes | `nlm.random`, `nlm.gaussian_field`, `nlm.random_cluster`, `nlm.fbm`, `nlm.planar_gradient`, `nlm.distance_gradient`, `nlm.binarize`, `nlm.mosaic_tess`, `nlm.percolation`, `nlm.classify` |
+| Terrain and water | `hydro.flow_accumulation`, `hydro.fill`, `hydro.streams`, `surface.terrain`, `raster.terrain`, `surface.curvature`, `surface.tpi` |
+| Land change | `markov.fit`, `glm.fit`, `glm.predict`, `woe.fit`, `woe.probability`, `demand.from_maps`, `dinamica.step`, `lulcc.step`, `patches.observe`, `dynamic.distance_to`, `agents.update`, `agents.parcels`, `agents.map`, `agents.summary`, `lulcc.history`, `change.transitions`, `change.crosstab`, `change.components`, `change.simple`, `change.morphological`, `change.fad`, `plus.demand`, `markov.matrix` |
+| Patterns, metrics and connectivity | `metrics.class`, `metrics.landscape`, `metrics.patch`, `landscape.mspa`, `conn.to_map`, `conn.graph_from_raster`, `conn.nodes`, `conn.node_importance`, `conn.overall`, `fragmentation.fos`, `metrics.signatures`, `metrics.window`, `networks.gtn_components`, `circuit.pairwise`, `circuit.omniscape`, `cost.passage`, `landscape.accounting`, `distance.euclidean` |
+| Validation | `validate.agreement`, `validate.kappa`, `validate.similarity`, `accuracy.sample` |
+| Species and movement | `sdm.fit`, `sdm.area_of_habitat`, `sdm.maxnet_predict`, `sdm.prepare`, `sdm.background`, `sdm.clean_occurrences`, `sdm.thin`, `sdm.mess`, `move.filter_unique` |
+| Services and planning | `services.carbon`, `prioritize.optimize`, `restoration.plan`, `prioritize.evaluate`, `prioritize.zonation`, `prioritize.marxan`, `services.pollination`, `services.habitat_quality` |
+| Tools | `raster.reclassify`, `raster.reproject`, `raster.resample`, `raster.calc`, `stack.of`, `table.of`, `table.filter`, `check.assert`, `stack.set`, `rng.r`, `vector.filter`, `vector.calc`, `vector.extract`, `vector.zonal`, `vector.points`, `vector.polygonize`, `raster.sieve`, `raster.legend`, `raster.stats`, `raster.clip`, `uncertainty.monte_carlo` |
 
 The other operators have no sentence: their step lists their inputs and settings, and their note says the rest.
 The sentence never replaces the note: it says *what* the step does, the note *what for*, and the why *why this and
@@ -157,8 +159,12 @@ elsewhere; a setting with a few possible values (MSPA's `connectivity`, 8 or 4) 
 that is a list or a table of values (the weights of the classes of a neutral landscape, a list of class codes) is
 edited **item by item**, as in the Node pane: each item on a row, with its number or its name, its value, and **x** to take it
 away; **+ add** adds one more at the end of a list (a copy of the last), and a table has a *name* and a *value*
-field and **Add**. Other settings (nested tables) say *edited in the Node pane (select the step)* when you hover
-over them.
+field and **Add**. A table of **several columns** is edited **cell by cell**, a row per line under the columns'
+names: a list of rows (a legend's `[[value, "name", "#colour"], ...]`, a reclassification table), a list of records
+(`[{"class": 1, "carbon": 50}, ...]`) or records by name (`{"forest": {"carbon": 50}, ...}`, the name first).
+**+ row** adds a copy of the last row (records by name: give its name first), **+ column** a column (of a name you
+give, for records), **x** takes a row away; an empty cell is a value not given. Other settings (tables within
+tables) say *edited in the Node pane (select the step)* when you hover over them.
 
 After a change, the whole model runs again, since the document shows every step, and its sentences, maps and
 tables follow. Try it: in **3.1 mspa**, set the edge's width to 3. The sentence now reads *the edges 3 cell wide*,
