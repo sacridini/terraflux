@@ -40,6 +40,15 @@ minor versions.
 - The features drawn on the map are **edited** before they are added: a vertex dragged, a new one dragged from
   the middle of an edge, one taken away by a right click (a rectangle stays one). And their **attributes typed**:
   columns named as wished, a value per feature, written as numbers when all are, else as texts.
+- `data.download` reads three more sources: **ESA WorldCover** (`esa_worldcover`: land cover at 10 m, 2020 and
+  2021, its 3-degree tiles), Hansen's **Global Forest Change** (`global_forest_change`, v1.13: the tree cover of
+  2000, the year of loss up to 2025, gain, the mask) and **MODIS** (`modis`: NDVI or EVI of the MOD13Q1 16-day
+  composite begun on a `date` or last before it, one layer a date, found in Microsoft's Planetary Computer and
+  read with its anonymous tokens). Tiles over the sea are left out when warped, as before.
+- The **data catalog** has their cards and one for **GBIF** (a species, countries and years, within an area's
+  bounds), which adds an `sdm.download_gbif` node. It says what of the choices is **in the cache already**
+  (nothing to download, or so many layers to download), and **Preview** fetches the first layer over the grid,
+  coarse (200 cells a side), in the background and shows it, or GBIF's count of the records.
 
 ## [1.28.0] - 2026-10-31
 

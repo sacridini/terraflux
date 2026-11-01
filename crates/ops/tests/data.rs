@@ -5,7 +5,8 @@
 use std::sync::Arc;
 
 use terraflux_ops::data::{
-    chelsa, copernicus_tiles, h90m_tiles, hydrography90m, mapbiomas, soilgrids, worldclim, worldclim_future,
+    GFC, chelsa, copernicus_tiles, gfc_tiles, h90m_tiles, hydrography90m, mapbiomas, parse_date, plan, soilgrids,
+    worldclim, worldclim_future, worldcover_tiles,
 };
 use terraflux_ops::{Args, Ctx, Map, Outputs, Registry, Value};
 use terraflux_raster::vector::{Column, Geometry, Vector};
@@ -218,4 +219,81 @@ fn downloads_environment90m() {
     let Value::Map(m) = &out["map"] else { panic!() };
     assert!(m.data.iter().any(|x| x.is_finite()));
     println!("{} sub-catchments; bio01 {:?}", t.rows.len(), &temp[..3]);
+}
+
+#[test]
+fn the_tiles_of_worldcover_and_forest_change_and_modis_dates() {
+    // WorldCover's 3-degree tiles by their south-west corner: Campinas in S24W048
+    let t = worldcover_tiles(2021, [-47.2, -46.8], [-23.0, -22.7]).unwrap();
+    assert_eq!(t.len(), 1);
+    assert!(t[0].ends_with("/v200/2021/map/ESA_WorldCover_10m_2021_v200_S24W048_Map.tif"), "{}", t[0]);
+    assert!(worldcover_tiles(2020, [-1.0, 1.0], [-1.0, 1.0]).unwrap()[3].ends_with("v100_N00E000_Map.tif"));
+    assert!(worldcover_tiles(2019, [0.0, 1.0], [0.0, 1.0]).is_err());
+    // Forest Change's 10-degree tiles by their north-west corner: Campinas in 20S_050W
+    let (t, classes) = gfc_tiles("lossyear", [-47.2, -46.8], [-23.0, -22.7]).unwrap();
+    assert!(classes && t.len() == 1);
+    assert!(t[0].ends_with(&format!("/{GFC}/Hansen_{GFC}_lossyear_20S_050W.tif")), "{}", t[0]);
+    let (t, classes) = gfc_tiles("treecover2000", [-1.0, 1.0], [-1.0, 1.0]).unwrap();
+    assert!(!classes);
+    let names: Vec<&str> = t.iter().map(|p| &p[p.len() - 12..]).collect();
+    assert_eq!(names, ["00N_010W.tif", "00N_000E.tif", "10N_010W.tif", "10N_000E.tif"]);
+    assert!(gfc_tiles("loss", [0.0, 1.0], [0.0, 1.0]).is_err());
+    assert_eq!(parse_date("1970-01-01"), Ok(0));
+    assert_eq!(parse_date("2024-03-01").unwrap() - parse_date("2024-02-28").unwrap(), 2);
+    assert!(parse_date("2024-13-01").is_err() && parse_date("July").is_err());
+}
+
+#[test]
+fn what_a_download_fetches_found_offline() {
+    let params = serde_json::json!({"source": "global_forest_change", "variable": "lossyear",
+        "extent": [-47.2, -23.0, -46.8, -22.7], "cellsize": 0.01});
+    let params = params.as_object().cloned().unwrap();
+    let args = Args { node: "n", inputs: Default::default(), params: &params };
+    let p = plan(&args).unwrap();
+    assert_eq!((p.grid.width, p.grid.height), (40, 30));
+    assert_eq!(p.layers.len(), 1);
+    assert!(p.layers[0].classes && p.layers[0].name == "lossyear");
+    assert!(p.cached().is_empty() || p.dir.join("lossyear.tif").is_file());
+    // the same settings: the same folder; another grid: another
+    assert_eq!(plan(&args).unwrap().dir, p.dir);
+    let mut other = params.clone();
+    other.insert("cellsize".into(), serde_json::json!(0.02));
+    assert_ne!(plan(&Args { node: "n", inputs: Default::default(), params: &other }).unwrap().dir, p.dir);
+    // MODIS: a layer a date, looked up when warped
+    let m = serde_json::json!({"source": "modis", "variable": "evi", "date": ["2023-07-28", "2024-01-01"],
+        "extent": [-47.2, -23.0, -46.8, -22.7], "cellsize": 0.01});
+    let m = m.as_object().cloned().unwrap();
+    let p = plan(&Args { node: "n", inputs: Default::default(), params: &m }).unwrap();
+    let names: Vec<&str> = p.layers.iter().map(|l| l.name.as_str()).collect();
+    assert_eq!(names, ["evi_2023-07-28", "evi_2024-01-01"]);
+}
+
+#[test]
+#[ignore = "downloads from ESA WorldCover"]
+fn downloads_esa_worldcover() {
+    let l = window(serde_json::json!({"source": "esa_worldcover"}));
+    // its classes: 10 tree cover ... 100 moss and lichen
+    let classes: std::collections::BTreeSet<u32> = l[0].1.iter().filter(|x| x.is_finite()).map(|x| *x as u32).collect();
+    assert!(classes.iter().all(|c| [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 100].contains(c)), "{classes:?}");
+    assert!(classes.contains(&50), "built-up in Campinas: {classes:?}");
+}
+
+#[test]
+#[ignore = "downloads from Global Forest Change"]
+fn downloads_global_forest_change() {
+    let l = window(serde_json::json!({"source": "global_forest_change", "variable": "treecover2000"}));
+    assert!(l[0].1.iter().all(|x| (0.0..=100.0).contains(x)), "{:?}", &l[0].1[..4]);
+    assert!(l[0].1.iter().any(|x| *x > 50.0));
+}
+
+#[test]
+#[ignore = "downloads from MODIS on the Planetary Computer"]
+fn downloads_modis() {
+    let l = window(serde_json::json!({"source": "modis", "variable": "ndvi", "date": "2023-07-28"}));
+    // NDVI x 10000 of a winter's vegetation and city
+    let known: Vec<f64> = l[0].1.iter().copied().filter(|x| x.is_finite() && *x > -3000.0).collect();
+    assert!(known.len() > 1000, "{} cells", known.len());
+    assert!(known.iter().all(|x| (-2000.0..=10000.0).contains(x)), "{:?}", &known[..4]);
+    let mean = known.iter().sum::<f64>() / known.len() as f64;
+    assert!((1000.0..9000.0).contains(&mean), "{mean}");
 }

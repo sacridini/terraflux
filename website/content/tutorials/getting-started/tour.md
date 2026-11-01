@@ -303,7 +303,9 @@ The library is ordered by subject, the same subjects as the categories of this s
 
 **File > Data catalog...** (or "Data catalog" in ++ctrl+k++) lists the public datasets Terraflux downloads, a card
 each: WorldClim 2.1 and CHELSA 2.1 (the climate of today and CMIP6 futures), the Copernicus DEM, SoilGrids 2.0,
-MapBiomas Brazil and Hydrography90m. Search them (`rain`, `soil`, `Brazil`, `future`) or filter by theme. A card
+MapBiomas Brazil, Hydrography90m, ESA WorldCover (land cover at 10 m), Hansen's Global Forest Change (tree cover,
+the year of loss), MODIS' vegetation indices (NDVI and EVI every 16 days) and GBIF's occurrences of a species
+(added as an [[sdm.download_gbif]] node). Search them (`rain`, `soil`, `Brazil`, `future`) or filter by theme. A card
 says what the dataset holds, its resolution, years and coverage, its **licence** (WorldClim's is non-commercial,
 CHELSA's public domain, Hydrography90m's non-commercial on its record) and the paper to cite, with a button that
 copies it.
@@ -314,7 +316,10 @@ the first), the data then warped onto its extent, cells and coordinate system, o
 latitudes. **Cut to the area** takes polygons the model gives (an area drawn on the map, a region read): no data
 outside them, and the grid may then be **the area's bounds** (in longitudes and latitudes, widened to whole
 cells). **Add to the model** adds a [[data.download]] node so set: it reads only the part the grid covers, once
-(the files stay in the cache), and carries the dataset's reference, which **Methods and citations** lists.
+(the files stay in the cache), and carries the dataset's reference, which **Methods and citations** lists. Under
+the button, what is in the cache already for those choices (nothing to download, or so many layers); **Preview**
+fetches the first layer over the grid, coarse (200 cells a side), and shows it before anything is added, or, for
+GBIF, how many records it has.
 
 ## The viewer
 

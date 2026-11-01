@@ -3128,6 +3128,16 @@ fn a_dataset_from_the_catalog() {
     assert_eq!(h.state().session.as_ref().unwrap().catalog.chosen, 2);
     h.get_by_label("precipitation").click();
     h.run_steps(2);
+    // what is in the cache: the map not run, nothing to know; on a box, the layers to download
+    let said = |h: &Harness<TerrafluxApp>| {
+        h.state().session.as_ref().unwrap().catalog.status.as_ref().map(|(_, s, _)| s.clone()).unwrap()
+    };
+    assert!(said(&h).is_err_and(|e| e.contains("has not run")), "{:?}", said(&h));
+    let like = h.state_mut().session.as_mut().unwrap().catalog.choices.like.take();
+    h.run_steps(2);
+    assert!(said(&h).is_ok_and(|m| m.contains("120 × 120 cells")), "{:?}", said(&h));
+    h.state_mut().session.as_mut().unwrap().catalog.choices.like = like;
+    h.run_steps(2);
     shot(&mut h, "14h-catalog");
     h.get_by_label("Add to the model").scroll_to_me();
     drawn(&mut h);
@@ -3180,4 +3190,57 @@ fn the_model_as_a_python_script() {
     assert!(t.contains("landscape_mspa = ls.mspa(raster_reclassify.fillna(0).astype(\"uint8\"), edge_width=2)"), "{t}");
     assert!(h.query_by_label("Copy").is_some() && h.query_by_label("Save as...").is_some());
     shot(&mut h, "14i-python");
+}
+
+/// The catalog's preview: ESA WorldCover over a box (its first layer, coarse, fetched in a thread) and GBIF's
+/// count of a species' records. Needs the internet: `cargo test -p terraflux-app --test ui a_preview -- --ignored`.
+#[test]
+#[ignore = "downloads from ESA WorldCover and asks GBIF"]
+fn a_preview_from_the_catalog() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.auto = false;
+        s.catalog.open = true;
+        s.catalog.seen = true;
+        s.catalog.chosen = terraflux_app::catalog::DATASETS.iter().position(|d| d.source == "esa_worldcover").unwrap();
+        s.catalog.choices.extent = [-47.2, -23.0, -46.8, -22.7];
+        s.catalog.choices.cellsize = 1.0 / 1200.0;
+    }
+    h.run_steps(3);
+    let wait = |h: &mut Harness<TerrafluxApp>| {
+        h.get_by_label("Preview").click_accesskit();
+        h.run_steps(2);
+        for _ in 0..600 {
+            if h.state().session.as_ref().unwrap().catalog.preview.made.is_some()
+                && h.query_by_label("fetching the preview...").is_none()
+            {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            h.run_steps(1);
+        }
+        h.run_steps(3);
+    };
+    wait(&mut h);
+    {
+        let p = &h.state().session.as_ref().unwrap().catalog.preview;
+        let made = p.made.as_ref().unwrap().as_ref().expect("the preview");
+        assert!(made.map.is_some() && made.said.starts_with("worldcover2021"), "{}", made.said);
+    }
+    shot(&mut h, "14h2-catalog-preview");
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.catalog.chosen = terraflux_app::catalog::DATASETS.iter().position(|d| d.source == "gbif").unwrap();
+        s.catalog.choices.species = "Puma concolor".into();
+        s.catalog.choices.country = "BR".into();
+        s.catalog.preview.made = None;
+    }
+    h.run_steps(3);
+    wait(&mut h);
+    let p = &h.state().session.as_ref().unwrap().catalog.preview;
+    let made = p.made.as_ref().unwrap().as_ref().expect("the count");
+    assert!(made.said.contains("records with coordinates at GBIF"), "{}", made.said);
+    shot(&mut h, "14h3-catalog-gbif");
 }

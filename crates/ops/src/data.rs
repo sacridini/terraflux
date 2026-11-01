@@ -17,7 +17,7 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(Download));
 }
 
-const SOURCES: [&str; 8] = [
+pub const SOURCES: [&str; 11] = [
     "worldclim",
     "worldclim_future",
     "chelsa",
@@ -26,6 +26,9 @@ const SOURCES: [&str; 8] = [
     "soilgrids",
     "mapbiomas",
     "hydrography90m",
+    "esa_worldcover",
+    "global_forest_change",
+    "modis",
 ];
 
 /// A layer to fetch: its name (the file's), the GDAL path of its source and whether it holds classes.
@@ -236,6 +239,182 @@ pub fn hydrography90m(variable: &str, tiles: &[String]) -> std::result::Result<(
     Ok((paths, classes))
 }
 
+/// ESA WorldCover's tiles (3 degrees, named by their south-west corner) over a box of longitudes and latitudes:
+/// 2020 (v100) or 2021 (v200).
+pub fn worldcover_tiles(year: u32, lon: [f64; 2], lat: [f64; 2]) -> std::result::Result<Vec<String>, String> {
+    let version = match year {
+        2020 => "v100",
+        2021 => "v200",
+        y => return Err(format!("esa_worldcover: 2020 or 2021, not {y}")),
+    };
+    let mut out = Vec::new();
+    let from = |v: f64| (v / 3.0).floor() as i32 * 3;
+    let mut la = from(lat[0]);
+    while (la as f64) < lat[1] {
+        let mut lo = from(lon[0]);
+        while (lo as f64) < lon[1] {
+            let ns = if la < 0 { format!("S{:02}", -la) } else { format!("N{la:02}") };
+            let ew = if lo < 0 { format!("W{:03}", -lo) } else { format!("E{lo:03}") };
+            out.push(curl(&format!(
+                "https://esa-worldcover.s3.eu-central-1.amazonaws.com/{version}/{year}/map/\
+                 ESA_WorldCover_10m_{year}_{version}_{ns}{ew}_Map.tif"
+            )));
+            lo += 3;
+        }
+        la += 3;
+    }
+    Ok(out)
+}
+
+/// The version of Hansen's Global Forest Change read.
+pub const GFC: &str = "GFC-2025-v1.13";
+
+/// Global Forest Change's tiles of a variable (10 degrees, named by their north-west corner) over a box of
+/// longitudes and latitudes, and whether its values are classes.
+pub fn gfc_tiles(variable: &str, lon: [f64; 2], lat: [f64; 2]) -> std::result::Result<(Vec<String>, bool), String> {
+    let classes = match variable {
+        "treecover2000" => false,
+        "lossyear" | "gain" | "datamask" => true,
+        v => return Err(format!("global_forest_change: treecover2000, lossyear, gain or datamask, not {v:?}")),
+    };
+    let mut out = Vec::new();
+    for top in ((lat[0] / 10.0).floor() as i32 + 1)..=((lat[1] / 10.0).ceil() as i32) {
+        let t = top * 10;
+        for left in ((lon[0] / 10.0).floor() as i32)..((lon[1] / 10.0).ceil() as i32) {
+            let l = left * 10;
+            let ns = if t < 0 { format!("{:02}S", -t) } else { format!("{t:02}N") };
+            let ew = if l < 0 { format!("{:03}W", -l) } else { format!("{l:03}E") };
+            out.push(curl(&format!(
+                "https://storage.googleapis.com/earthenginepartners-hansen/{GFC}/Hansen_{GFC}_{variable}_{ns}_{ew}.tif"
+            )));
+        }
+    }
+    Ok((out, classes))
+}
+
+/// MODIS on Microsoft's Planetary Computer: its STAC catalog, and the tokens that sign its files (anonymous).
+const PLANETARY: &str = "https://planetarycomputer.microsoft.com/api";
+
+/// MODIS's vegetation indices (MOD13Q1, Terra, 16-day composites at 250 m): the asset of a variable.
+pub fn modis_asset(variable: &str) -> std::result::Result<&'static str, String> {
+    match variable {
+        "ndvi" => Ok("250m_16_days_NDVI"),
+        "evi" => Ok("250m_16_days_EVI"),
+        v => Err(format!("modis: ndvi or evi, not {v:?}")),
+    }
+}
+
+/// Days since 1970-01-01 of a date (proleptic Gregorian), and back.
+fn days_of(y: i64, m: i64, d: i64) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * ((m + 9) % 12) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146097 + doe - 719468
+}
+
+fn date_of(z: i64) -> (i64, i64, i64) {
+    let z = z + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    (if m <= 2 { yoe + era * 400 + 1 } else { yoe + era * 400 }, m, d)
+}
+
+/// A date written YYYY-MM-DD, as days since 1970.
+pub fn parse_date(t: &str) -> std::result::Result<i64, String> {
+    let p: Vec<i64> = t
+        .trim()
+        .split('-')
+        .map(|x| x.parse::<i64>())
+        .collect::<std::result::Result<_, _>>()
+        .map_err(|_| format!("{t:?}: a date as YYYY-MM-DD"))?;
+    match p[..] {
+        [y, m, d] if (1..=12).contains(&m) && (1..=31).contains(&d) => Ok(days_of(y, m, d)),
+        _ => Err(format!("{t:?}: a date as YYYY-MM-DD")),
+    }
+}
+
+/// The files of the MODIS composite of a date over a grid: the latest 16-day composite of Terra begun on the
+/// date or before (its tiles together), signed.
+fn modis_sources(asset: &str, date: &str, g: &Grid) -> std::result::Result<Vec<String>, String> {
+    let day = parse_date(date)?;
+    let (y0, m0, d0) = date_of(day - 40);
+    let (lon, lat) = lonlat_box(g).map_err(|e| e.to_string())?;
+    let get = |url: &str| -> std::result::Result<serde_json::Value, String> {
+        let (status, body) =
+            terraflux_gdal::fetch(url, &["TIMEOUT=60", "MAX_RETRY=3", "RETRY_DELAY=2", "USERAGENT=Terraflux"])?;
+        if status != 200 && status != 0 {
+            return Err(format!("{url}: HTTP {status}"));
+        }
+        serde_json::from_slice(&body).map_err(|e| format!("{url}: {e}"))
+    };
+    let collection = "modis-13Q1-061";
+    let url = format!(
+        "{PLANETARY}/stac/v1/search?collections={collection}&bbox={},{},{},{}&datetime={y0:04}-{m0:02}-{d0:02}T00:00:00Z/\
+         {date}T23:59:59Z&limit=200",
+        lon[0], lat[0], lon[1], lat[1]
+    );
+    let found = get(&url)?;
+    let items: Vec<&serde_json::Value> = found["features"]
+        .as_array()
+        .map(|a| a.iter().filter(|f| f["id"].as_str().is_some_and(|i| i.starts_with("MOD13Q1"))).collect())
+        .unwrap_or_default();
+    let start = |f: &serde_json::Value| f["properties"]["start_datetime"].as_str().unwrap_or("").to_string();
+    let last = items.iter().map(|f| start(f)).filter(|s| s.as_str() <= date || s.starts_with(date)).max();
+    let Some(last) = last else {
+        return Err(format!("modis: no composite over the grid in the 40 days up to {date}"));
+    };
+    // signed by a token of their storage account and container (https://ACCOUNT.blob.core.windows.net/CONTAINER/)
+    let hrefs: Vec<&str> =
+        items.iter().filter(|f| start(f) == last).filter_map(|f| f["assets"][asset]["href"].as_str()).collect();
+    let mut tokens: Vec<(String, String)> = Vec::new();
+    let mut out = Vec::new();
+    for h in hrefs {
+        let rest = h.strip_prefix("https://").ok_or_else(|| format!("modis: {h}: not on https"))?;
+        let (host, path) = rest.split_once('/').ok_or_else(|| format!("modis: {h}: no container"))?;
+        let account = host.split('.').next().unwrap_or(host);
+        let container = path.split('/').next().unwrap_or("");
+        let key = format!("{account}/{container}");
+        let token = match tokens.iter().find(|(k, _)| *k == key) {
+            Some((_, t)) => t.clone(),
+            None => {
+                let t = get(&format!("{PLANETARY}/sas/v1/token/{key}"))?["token"]
+                    .as_str()
+                    .ok_or("modis: the Planetary Computer gave no token")?
+                    .to_string();
+                tokens.push((key, t.clone()));
+                t
+            }
+        };
+        out.push(curl(&format!("{h}?{token}")));
+    }
+    Ok(out)
+}
+
+/// The files a layer is read from, found when it is warped: a MODIS composite looked up, the tiles there (the
+/// sea has none), else its path.
+fn sources_of(l: &Layer, g: &Grid) -> std::result::Result<Vec<String>, String> {
+    if let Some(key) = l.path.strip_prefix("modis:") {
+        let (asset, date) = key.split_once(':').ok_or("modis: asset:date")?;
+        return modis_sources(asset, date, g);
+    }
+    let all: Vec<String> = l.path.split('|').map(String::from).collect();
+    if all.len() == 1 {
+        return Ok(all);
+    }
+    let there: Vec<String> = all.into_iter().filter(|p| terraflux_gdal::Dataset::open(p).is_ok()).collect();
+    if there.is_empty() {
+        return Err(format!("{}: no tile over the grid (all sea?)", l.name));
+    }
+    Ok(there)
+}
+
 /// The grid to fill: a map's (any raster input), or an extent of longitudes and latitudes at a cell size.
 fn grid_of(args: &Args) -> Result<Grid> {
     let fail = |m: &str| Error::msg(format!("node {:?}: {m}", args.node));
@@ -369,15 +548,8 @@ fn layers_of(args: &Args, g: &Grid) -> Result<Vec<Layer>> {
         "copernicus_dem" => {
             let res: u32 = args.param("dem_resolution", 90)?;
             let (lon, lat) = lonlat_box(g)?;
-            let tiles: Vec<String> = copernicus_tiles(res, lon, lat)
-                .into_iter()
-                .filter(|p| terraflux_gdal::Dataset::open(p).is_ok())
-                .collect();
-            if tiles.is_empty() {
-                return Err(fail("the Copernicus DEM has no tile over the grid (all sea?)".into()));
-            }
-            // the tiles together, as a virtual mosaic of the sources
-            vec![layer("elevation".into(), tiles.join("|"))]
+            // the tiles together, as a virtual mosaic of the sources (those there, when warped)
+            vec![layer("elevation".into(), copernicus_tiles(res, lon, lat).join("|"))]
         }
         "soilgrids" => {
             let depths: Vec<String> = match args.params.get("depth") {
@@ -395,11 +567,39 @@ fn layers_of(args: &Args, g: &Grid) -> Result<Vec<Layer>> {
             let v = text(args, "variable", "sub_catchment")?;
             let (lon, lat) = lonlat_box(g)?;
             let (paths, classes) = hydrography90m(&v, &h90m_tiles(lon, lat)).map_err(fail)?;
-            let tiles: Vec<String> = paths.into_iter().filter(|p| terraflux_gdal::Dataset::open(p).is_ok()).collect();
-            if tiles.is_empty() {
-                return Err(fail("Hydrography90m has no tile over the grid (all sea?)".into()));
-            }
+            vec![Layer { name: v, path: paths.join("|"), classes }]
+        }
+        "esa_worldcover" => {
+            let (lon, lat) = lonlat_box(g)?;
+            numbers(args, "years", 2021..=2021)?
+                .into_iter()
+                .map(|y| {
+                    let tiles = worldcover_tiles(y, lon, lat).map_err(fail)?;
+                    Ok(Layer { name: format!("worldcover{y}"), path: tiles.join("|"), classes: true })
+                })
+                .collect::<Result<Vec<Layer>>>()?
+        }
+        "global_forest_change" => {
+            let v = text(args, "variable", "treecover2000")?;
+            let (lon, lat) = lonlat_box(g)?;
+            let (tiles, classes) = gfc_tiles(&v, lon, lat).map_err(fail)?;
             vec![Layer { name: v, path: tiles.join("|"), classes }]
+        }
+        "modis" => {
+            let v = text(args, "variable", "ndvi")?;
+            let asset = modis_asset(&v).map_err(fail)?;
+            let dates: Vec<String> = match args.params.get("date") {
+                None | Some(serde_json::Value::Null) => vec!["2024-07-01".into()],
+                Some(serde_json::Value::String(s)) => vec![s.clone()],
+                Some(d) => serde_json::from_value(d.clone()).map_err(|e| fail(format!("date: {e}")))?,
+            };
+            dates
+                .iter()
+                .map(|d| {
+                    parse_date(d).map_err(fail)?;
+                    Ok(layer(format!("{v}_{}", d.trim()), format!("modis:{asset}:{}", d.trim())))
+                })
+                .collect::<Result<Vec<Layer>>>()?
         }
         "" => {
             let urls: Vec<String> = match args.params.get("url") {
@@ -419,6 +619,42 @@ fn layers_of(args: &Args, g: &Grid) -> Result<Vec<Layer>> {
     })
 }
 
+/// What a node fetches, found without the network: the cache's folder for it (a folder per source, grid and
+/// area), the grid, the layers (a file each in the folder once fetched), the area and the resampling.
+pub struct Plan {
+    pub dir: PathBuf,
+    pub grid: Grid,
+    pub layers: Vec<Layer>,
+    pub area: Option<Arc<terraflux_raster::vector::Vector>>,
+    pub resampling: String,
+}
+
+impl Plan {
+    /// The layers already in the cache.
+    pub fn cached(&self) -> Vec<&Layer> {
+        self.layers.iter().filter(|l| self.dir.join(format!("{}.tif", l.name)).is_file()).collect()
+    }
+}
+
+/// What the node's settings and inputs fetch, and where in the cache.
+pub fn plan(args: &Args) -> Result<Plan> {
+    let grid = grid_of(args)?;
+    let layers = layers_of(args, &grid)?;
+    let resampling: String = args.param("resampling", "auto".to_string())?;
+    let area = area_of(args)?;
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for l in &layers {
+        l.path.hash(&mut h);
+    }
+    let g = &grid;
+    format!("{:?}{}{}{:?}{resampling}", g.transform, g.width, g.height, crate::prepare::crs_of(g)).hash(&mut h);
+    if let Some(a) = &area {
+        format!("{:?}{:?}", a.geometries, a.crs).hash(&mut h);
+    }
+    let dir = crate::sdm::refdata::cache_dir().join("data").join(format!("{:016x}", h.finish()));
+    Ok(Plan { dir, grid, layers, area, resampling })
+}
+
 struct Download;
 
 impl Operator for Download {
@@ -430,10 +666,12 @@ impl Operator for Download {
              (1981-2010; CMIP6 futures), the Copernicus DEM (30 or 90 m), SoilGrids (a property at depths) and \
              MapBiomas Brazil (land use and cover by year), Hydrography90m (the river network of the world at 90 m: \
              its sub-catchments, segments, basins, flow directions and accumulation, stream orders, slopes and \
-             distances), or any raster a url names; a file per layer kept in \
-             the cache (Terraflux's, TERRAFLUX_CACHE), downloaded once. Classes are resampled by the most common \
-             cell, values bilinearly. The values are the servers' (CHELSA's scaled integers: × 0.1, and - 273.15 \
-             for temperatures; SoilGrids' in its mapped units).",
+             distances), ESA WorldCover (land cover at 10 m, 2020 and 2021), Hansen's Global Forest Change \
+             (tree cover in 2000, the year of loss, gain, at 30 m), MODIS' vegetation indices (NDVI, EVI: \
+             16-day composites at 250 m, from Microsoft's Planetary Computer), or any raster a url names; a file \
+             per layer kept in the cache (Terraflux's, TERRAFLUX_CACHE), downloaded once. Classes are resampled \
+             by the most common cell, values bilinearly. The values are the servers' (CHELSA's scaled integers: \
+             × 0.1, and - 273.15 for temperatures; SoilGrids' in its mapped units; MODIS' indices × 0.0001).",
             Access::Global,
         )
         .input(PortSpec::optional("like", Type::Raster, "the map whose grid to fill (else extent and cellsize)"))
@@ -449,7 +687,8 @@ impl Operator for Download {
             Type::Text,
             "worldclim: bio (default), tavg, tmin, tmax, prec, srad, wind, vapr, elev; worldclim_future: bioc \
              (default), tmin, tmax, prec; hydrography90m: sub_catchment (default), segment, basin, outlet, direction, \
-             accumulation, order_strahler... (hydrographr's names)",
+             accumulation, order_strahler... (hydrographr's names); global_forest_change: treecover2000 (default), \
+             lossyear, gain, datamask; modis: ndvi (default), evi",
         ))
         .param(PortSpec::optional("layers", Type::Any, "the variables' numbers (bio 1-19, months 1-12; default all)"))
         .param(PortSpec::optional(
@@ -478,7 +717,17 @@ impl Operator for Download {
         .param(PortSpec::optional("depth", Type::Any, "soilgrids: 0-5cm (default), 5-15cm, ... 100-200cm, or a list"))
         .param(PortSpec::optional("stat", Type::Text, "soilgrids: mean (default), Q0.05, Q0.5, Q0.95, uncertainty"))
         .param(PortSpec::optional("collection", Type::Integer, "mapbiomas: 9, 10 (default) or 11"))
-        .param(PortSpec::optional("years", Type::Any, "mapbiomas: a year or a list (default 2023)"))
+        .param(PortSpec::optional(
+            "years",
+            Type::Any,
+            "mapbiomas: a year or a list (default 2023); esa_worldcover: 2020 or 2021 (default), or both",
+        ))
+        .param(PortSpec::optional(
+            "date",
+            Type::Any,
+            "modis: a date, YYYY-MM-DD (the 16-day composite begun on it or last before it; default 2024-07-01), \
+             or a list",
+        ))
         .param(PortSpec::optional("url", Type::Any, "any raster GDAL reads (a URL, a path), or a list"))
         .param(PortSpec::optional("extent", Type::Any, "without like: [west, south, east, north], degrees"))
         .param(PortSpec::optional(
@@ -496,20 +745,7 @@ impl Operator for Download {
     fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         crate::prepare::need_gdal(args.node)?;
         let fail = |m: String| Error::msg(format!("node {:?}: {m}", args.node));
-        let g = grid_of(args)?;
-        let layers = layers_of(args, &g)?;
-        let resampling: String = args.param("resampling", "auto".to_string())?;
-        let area = area_of(args)?;
-        // the cache: a folder per source, grid and area
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        for l in &layers {
-            l.path.hash(&mut h);
-        }
-        format!("{:?}{}{}{:?}{resampling}", g.transform, g.width, g.height, crate::prepare::crs_of(&g)).hash(&mut h);
-        if let Some(a) = &area {
-            format!("{:?}{:?}", a.geometries, a.crs).hash(&mut h);
-        }
-        let dir = crate::sdm::refdata::cache_dir().join("data").join(format!("{:016x}", h.finish()));
+        let Plan { dir, grid: g, layers, area, resampling } = plan(args)?;
         std::fs::create_dir_all(&dir).map_err(|e| fail(format!("{}: {e}", dir.display())))?;
         // the area as a file, gdalwarp's cutline (reprojected by it to the data's coordinates)
         let cutline = match &area {
@@ -556,7 +792,7 @@ impl Operator for Download {
             if let Some(c) = crate::prepare::crs_of(&g) {
                 a.extend(["-t_srs".into(), c]);
             }
-            let sources: Vec<PathBuf> = l.path.split('|').map(PathBuf::from).collect();
+            let sources: Vec<PathBuf> = sources_of(l, &g).map_err(fail)?.into_iter().map(PathBuf::from).collect();
             if let Some(file) = &cutline {
                 a.extend(["-cutline".into(), file.to_string_lossy().into_owned(), "-cl".into(), "area".into()]);
                 // outside the area no data: the data's own no-data value, else NaN (values) or 0 (classes)

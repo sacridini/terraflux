@@ -540,6 +540,16 @@ como o próximo bloco, nesta ordem (um commit por item):
    Falta: editar os vértices de uma camada já lida (só os do desenho em curso).
 5. **Catálogo:** GBIF, prévia do dado na área, saber o que já está no cache, e ESA WorldCover, MODIS e Global
    Forest Change.
+   **Feito** (Unreleased): fontes `esa_worldcover` (ladrilhos de 3° pelo canto sudoeste, 2020 v100 e 2021 v200,
+   COG), `global_forest_change` (Hansen v1.13, ladrilhos de 10° pelo canto noroeste; não são COG: uma janela lê
+   linhas inteiras do ladrilho, dito no cartão) e `modis` (MOD13Q1 NDVI/EVI pelo STAC do Planetary Computer: o
+   composto de 16 dias começado na data ou o último antes dela; o token anônimo é o da conta e contêiner do
+   arquivo, `/sas/v1/token/{conta}/{contêiner}`; o da coleção dava 403). O `data::plan` acha sem rede a pasta do
+   cache, a grade e as camadas (os ladrilhos que existem e o MODIS são resolvidos só no warp, `sources_of`), e o
+   catálogo diz o que já está no cache. "Preview": a primeira camada numa cópia grossa da grade (200 células no
+   lado maior) numa thread, mostrada num MapView; para o GBIF, a contagem da API (`limit=0`). O GBIF é um cartão
+   que põe `sdm.download_gbif` (espécie, países, anos, a área). O MODIS de cobertura da terra (MCD12Q1) ficou de
+   fora: só no LP DAAC, com conta Earthdata.
 6. **Figura:** PDF, vetores por cima, encarte de localização.
 7. **QGIS:** `.qgz` e as cores dos vetores do Viewer.
 8. **Script Python:** os contêineres (laços, each, switch), os modelos de mudança, SDM, priorização e métricas

@@ -19,10 +19,12 @@ pub enum Theme {
     Soil,
     LandCover,
     Water,
+    Species,
 }
 
 impl Theme {
-    pub const ALL: [Theme; 5] = [Theme::Climate, Theme::Terrain, Theme::Soil, Theme::LandCover, Theme::Water];
+    pub const ALL: [Theme; 6] =
+        [Theme::Climate, Theme::Terrain, Theme::Soil, Theme::LandCover, Theme::Water, Theme::Species];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -31,6 +33,7 @@ impl Theme {
             Theme::Soil => "soil",
             Theme::LandCover => "land cover",
             Theme::Water => "rivers",
+            Theme::Species => "species",
         }
     }
 }
@@ -64,7 +67,7 @@ const CHELSA_REF: &str = "Karger, D. N., Conrad, O., Böhner, J., Kawohl, T., Kr
 const TEMPERATURE: &[[u8; 3]] = &[[49, 54, 149], [116, 173, 209], [255, 255, 191], [244, 109, 67], [165, 0, 38]];
 const VIRIDIS: &[[u8; 3]] = &[[68, 1, 84], [59, 82, 139], [33, 145, 140], [94, 201, 98], [253, 231, 37]];
 
-pub const DATASETS: [Dataset; 8] = [
+pub const DATASETS: [Dataset; 12] = [
     Dataset {
         source: "worldclim",
         name: "WorldClim 2.1",
@@ -200,6 +203,91 @@ pub const DATASETS: [Dataset; 8] = [
         colours: &[[222, 235, 247], [158, 202, 225], [66, 146, 198], [8, 81, 156], [8, 48, 107]],
         classes: false,
     },
+    Dataset {
+        source: "esa_worldcover",
+        name: "ESA WorldCover",
+        theme: Theme::LandCover,
+        what: "The world's land cover at 10 m from Sentinel-1 and Sentinel-2 in 11 classes: tree cover, \
+               shrubland, grassland, cropland, built-up, bare and sparse vegetation, snow and ice, permanent water, \
+               herbaceous wetland, mangroves, moss and lichen (codes 10 to 100).",
+        resolution: "10 m",
+        period: "2020 (v100) and 2021 (v200)",
+        coverage: "the world",
+        licence: "CC BY 4.0 (ESA)",
+        reference: "Zanaga, D., Van De Kerchove, R., Daems, D., De Keersmaecker, W., Brockmann, C., Kirches, G., \
+                    Wevers, J., Cartus, O., Santoro, M., Fritz, S., Lesiv, M., Herold, M., Tsendbazar, N. E., Xu, \
+                    P., Ramoino, F., & Arino, O. (2022). ESA WorldCover 10 m 2021 v200. Zenodo. \
+                    https://doi.org/10.5281/zenodo.7254221",
+        home: "https://esa-worldcover.org",
+        colours: &[[0, 100, 0], [255, 187, 34], [255, 255, 76], [240, 150, 255], [250, 0, 0], [0, 100, 200]],
+        classes: true,
+    },
+    Dataset {
+        source: "global_forest_change",
+        name: "Global Forest Change",
+        theme: Theme::LandCover,
+        what: "Hansen's maps of the world's forests from Landsat: the tree canopy cover in 2000 (%), the year a \
+               forest was lost (1 = 2001 ... 25 = 2025), the gain of 2000-2012, and the mask of land and water. \
+               Its files are not tiled: a window reads whole rows of its 10-degree tile, so keep the area small.",
+        resolution: "1 arc-sec (~30 m)",
+        period: "2000–2025 (v1.13)",
+        coverage: "the world's land (80° N to 60° S)",
+        licence: "CC BY 4.0",
+        reference: "Hansen, M. C., Potapov, P. V., Moore, R., Hancher, M., Turubanova, S. A., Tyukavina, A., Thau, \
+                    D., Stehman, S. V., Goetz, S. J., Loveland, T. R., Kommareddy, A., Egorov, A., Chini, L., \
+                    Justice, C. O., & Townshend, J. R. G. (2013). High-resolution global maps of 21st-century forest \
+                    cover change. Science, 342(6160), 850–853. https://doi.org/10.1126/science.1244693",
+        home: "https://glad.earthengine.app/view/global-forest-change",
+        colours: &[[0, 0, 0], [0, 80, 0], [0, 160, 0], [120, 220, 60], [255, 230, 0], [255, 0, 0]],
+        classes: false,
+    },
+    Dataset {
+        source: "modis",
+        name: "MODIS vegetation indices",
+        theme: Theme::LandCover,
+        what: "The greenness of the vegetation from MODIS on Terra (MOD13Q1): NDVI and EVI of 16-day composites \
+               (their values × 0.0001), the composite begun on a date or last before it, read from Microsoft's \
+               Planetary Computer. Several dates give a series.",
+        resolution: "250 m",
+        period: "every 16 days since 2000",
+        coverage: "the world",
+        licence: "open, no restriction on reuse (NASA's Earth science data policy)",
+        reference: "Didan, K. (2021). MODIS/Terra Vegetation Indices 16-Day L3 Global 250m SIN Grid V061. NASA \
+                    EOSDIS Land Processes Distributed Active Archive Center. \
+                    https://doi.org/10.5067/MODIS/MOD13Q1.061",
+        home: "https://lpdaac.usgs.gov/products/mod13q1v061/",
+        colours: &[[140, 80, 30], [210, 180, 120], [240, 235, 160], [120, 190, 80], [20, 110, 40]],
+        classes: false,
+    },
+    Dataset {
+        source: GBIF,
+        name: "GBIF occurrences",
+        theme: Theme::Species,
+        what: "Records of where a species was seen or collected, from the Global Biodiversity Information \
+               Facility: points with their Darwin Core terms (date, basis of record, uncertainty, dataset...), \
+               up to 100 000 a query, within the area's bounds when one is chosen. Added as an \
+               sdm.download_gbif node (clean them with sdm.clean_occurrences).",
+        resolution: "points (each record's coordinates)",
+        period: "records of every year",
+        coverage: "the world",
+        licence: "each record its dataset's: CC0, CC BY or CC BY-NC",
+        reference: "GBIF.org (2026). GBIF occurrence search. https://www.gbif.org/occurrence/search (for a DOI to \
+                    cite, request a download of the query on gbif.org)",
+        home: "https://www.gbif.org",
+        colours: &[[78, 154, 6], [196, 160, 0], [32, 74, 135], [92, 53, 102], [164, 0, 0]],
+        classes: true,
+    },
+];
+
+/// The occurrences of GBIF: not a source of data.download, but of sdm.download_gbif.
+pub const GBIF: &str = "gbif";
+
+/// Global Forest Change's variables.
+const GFC_VARIABLES: [(&str, &str); 4] = [
+    ("treecover2000", "tree cover in 2000 (%)"),
+    ("lossyear", "the year of loss (1 = 2001)"),
+    ("gain", "gain 2000-2012"),
+    ("datamask", "land and water"),
 ];
 
 /// The bioclimatic variables, BIO1 to BIO19.
@@ -353,6 +441,16 @@ pub struct Choices {
     /// [west, south, east, north], degrees.
     pub extent: [f64; 4],
     pub cellsize: f64,
+    /// ESA WorldCover's years: 2020, 2021.
+    pub worldcover: [bool; 2],
+    pub gfc: String,
+    pub modis: String,
+    /// MODIS' dates, YYYY-MM-DD, by commas.
+    pub dates: String,
+    /// GBIF: the species, the countries (codes, by commas), the years (`2000-2024`).
+    pub species: String,
+    pub country: String,
+    pub gbif_years: String,
     /// Polygons to cut the data to (`node.port`, an area drawn): no data outside them.
     pub area: Option<String>,
     /// Without a map, the grid spans the area (its bounds), not the box.
@@ -388,6 +486,13 @@ impl Default for Choices {
             like: None,
             extent: [-48.0, -16.0, -47.0, -15.0],
             cellsize: 1.0 / 120.0,
+            worldcover: [false, true],
+            gfc: "treecover2000".into(),
+            modis: "ndvi".into(),
+            dates: "2024-07-01".into(),
+            species: String::new(),
+            country: String::new(),
+            gbif_years: String::new(),
             area: None,
             on_area: false,
         }
@@ -406,6 +511,9 @@ fn ticked(on: &[bool]) -> Result<Option<Vec<u32>>, String> {
 
 /// The settings of a `data.download` node for a dataset and its choices (the grid's apart).
 pub fn params(d: &Dataset, c: &Choices) -> Result<Vec<(&'static str, Value)>, String> {
+    if d.source == GBIF {
+        return gbif_params(c);
+    }
     let mut p: Vec<(&'static str, Value)> = vec![("source", json!(d.source))];
     let layers = |p: &mut Vec<(&'static str, Value)>, on: &[bool]| -> Result<(), String> {
         if let Some(l) = ticked(on)? {
@@ -454,6 +562,34 @@ pub fn params(d: &Dataset, c: &Choices) -> Result<Vec<(&'static str, Value)>, St
             p.push(("years", if years.len() == 1 { json!(years[0]) } else { json!(years) }));
         }
         "hydrography90m" => p.push(("variable", json!(c.hydro))),
+        "esa_worldcover" => {
+            let years: Vec<u32> =
+                [2020, 2021].into_iter().zip(c.worldcover).filter(|(_, on)| *on).map(|(y, _)| y).collect();
+            p.push((
+                "years",
+                match years[..] {
+                    [] => return Err("no year ticked".into()),
+                    [y] => json!(y),
+                    _ => json!(years),
+                },
+            ));
+        }
+        "global_forest_change" => p.push(("variable", json!(c.gfc))),
+        "modis" => {
+            p.push(("variable", json!(c.modis)));
+            let dates: Vec<&str> = c.dates.split([',', ';', ' ']).map(str::trim).filter(|d| !d.is_empty()).collect();
+            for d in &dates {
+                terraflux_ops::data::parse_date(d)?;
+            }
+            p.push((
+                "date",
+                match dates[..] {
+                    [] => return Err("no date: YYYY-MM-DD, several by commas".into()),
+                    [d] => json!(d),
+                    _ => json!(dates),
+                },
+            ));
+        }
         s => return Err(format!("{s}: not in the catalog")),
     }
     if c.like.is_none() && c.area.is_some() && c.on_area {
@@ -468,6 +604,38 @@ pub fn params(d: &Dataset, c: &Choices) -> Result<Vec<(&'static str, Value)>, St
         }
         p.push(("extent", json!(c.extent)));
         p.push(("cellsize", json!(c.cellsize)));
+    }
+    Ok(p)
+}
+
+/// The settings of an `sdm.download_gbif` node: the species, the countries and the years.
+fn gbif_params(c: &Choices) -> Result<Vec<(&'static str, Value)>, String> {
+    let species = c.species.trim();
+    if species.is_empty() {
+        return Err("the species: a scientific name".into());
+    }
+    let mut p = vec![("species", json!(species))];
+    let countries: Vec<String> =
+        c.country.split([',', ';', ' ']).map(|s| s.trim().to_uppercase()).filter(|s| !s.is_empty()).collect();
+    if countries.iter().any(|s| s.len() != 2 || !s.chars().all(|c| c.is_ascii_alphabetic())) {
+        return Err("countries: codes of two letters (BR, PT), by commas".into());
+    }
+    match countries.len() {
+        0 => {}
+        1 => p.push(("country", json!(countries[0]))),
+        _ => p.push(("country", json!(countries))),
+    }
+    let years = c.gbif_years.trim();
+    if !years.is_empty() {
+        let parts: Vec<&str> = years.split('-').map(str::trim).collect();
+        let ok = parts.len() <= 2 && parts.iter().all(|y| y.len() == 4 && y.parse::<u32>().is_ok());
+        if !ok {
+            return Err("years: a year (2020) or a range (2000-2024)".into());
+        }
+        p.push((
+            "year",
+            if parts.len() == 1 { json!(parts[0].parse::<u32>().unwrap()) } else { json!(parts.join(",")) },
+        ));
     }
     Ok(p)
 }
@@ -501,6 +669,23 @@ pub fn summary(d: &Dataset, c: &Choices) -> String {
         }
         "mapbiomas" => format!("collection {}, {}", c.collection, c.years.trim()),
         "hydrography90m" => c.hydro.clone(),
+        "esa_worldcover" => {
+            let y: Vec<&str> =
+                ["2020", "2021"].into_iter().zip(c.worldcover).filter(|(_, on)| *on).map(|(y, _)| y).collect();
+            y.join(", ")
+        }
+        "global_forest_change" => c.gfc.clone(),
+        "modis" => format!("{} of {}", c.modis.to_uppercase(), c.dates.trim()),
+        GBIF => {
+            let mut w = c.species.trim().to_string();
+            if !c.country.trim().is_empty() {
+                w += &format!(" in {}", c.country.trim().to_uppercase());
+            }
+            if !c.gbif_years.trim().is_empty() {
+                w += &format!(", {}", c.gbif_years.trim());
+            }
+            w
+        }
         _ => String::new(),
     };
     format!("{}: {what}", d.name)
@@ -520,6 +705,187 @@ pub struct Catalog {
     pub seen: bool,
     /// The grid's choices scrolled to (once: opened for an area drawn).
     pub to_grid: bool,
+    /// What the choices fetch and how much of it is in the cache (worked out again when they change, and every
+    /// few seconds).
+    pub status: Option<(String, Result<String, String>, std::time::Instant)>,
+    pub preview: Preview,
+}
+
+/// A look at the data before it is added: the first layer on a coarse copy of the grid (at most [`PREVIEW`]
+/// cells a side), or the number of GBIF's records; fetched in a thread.
+#[derive(Default)]
+pub struct Preview {
+    /// The choices it was asked for.
+    pub key: String,
+    pub made: Option<Result<Previewed, String>>,
+    job: Option<std::sync::mpsc::Receiver<Result<Previewed, String>>>,
+    pub view: crate::map_view::MapView,
+    /// Just arrived: scrolled to.
+    fresh: bool,
+}
+
+pub struct Previewed {
+    pub map: Option<(crate::map_view::Source, crate::palette::Coloring)>,
+    pub said: String,
+}
+
+/// The cells of a preview's longer side.
+pub const PREVIEW: usize = 200;
+
+/// The inputs of the node the choices make, from the run: the map whose grid (`like`) and the area; an error
+/// when one has not run.
+fn inputs_of(
+    s: &Session,
+    d: &Dataset,
+    c: &Choices,
+) -> Result<std::collections::BTreeMap<String, terraflux_ops::Value>, String> {
+    let mut inputs = std::collections::BTreeMap::new();
+    let wanted = [("like", c.like.as_ref().filter(|_| d.source != GBIF)), ("area", c.area.as_ref())];
+    for (port, from) in wanted {
+        let Some(from) = from else { continue };
+        let (node, out) = from.rsplit_once('.').unwrap_or((from, ""));
+        let v = s.value_of(node, out).ok_or_else(|| format!("{from} has not run: run the model to know"))?;
+        inputs.insert(port.to_string(), v);
+    }
+    Ok(inputs)
+}
+
+/// The key of the choices (what a preview or a status was worked out for).
+fn key_of(d: &Dataset, c: &Choices) -> String {
+    format!("{} {:?} {:?} {:?} {}", d.source, params(d, c), c.like, c.area, c.on_area)
+}
+
+/// How much of what the choices fetch is in the cache already (found without the network).
+pub fn status(s: &Session, d: &Dataset, c: &Choices) -> Result<String, String> {
+    let p = params(d, c)?;
+    if d.source == GBIF {
+        return Ok("asked of GBIF when the model runs (not kept in the cache)".into());
+    }
+    let params: serde_json::Map<String, Value> = p.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+    let args = terraflux_ops::Args { node: "catalog", inputs: inputs_of(s, d, c)?, params: &params };
+    let plan = terraflux_ops::data::plan(&args).map_err(|e| e.to_string().replace("node \"catalog\": ", ""))?;
+    let (n, have) = (plan.layers.len(), plan.cached().len());
+    let layers = |k: usize| if k == 1 { "1 layer".to_string() } else { format!("{k} layers") };
+    let cells = format!("{} × {} cells", plan.grid.width, plan.grid.height);
+    Ok(match have {
+        0 => format!("{} to download, {cells}", layers(n)),
+        h if h == n => format!(
+            "in the cache already: {} ({cells}), nothing to download",
+            if n == 1 { "its layer".into() } else { format!("all {n} layers") }
+        ),
+        h => format!("{} to download, {h} in the cache already ({cells})", layers(n - h)),
+    })
+}
+
+/// The preview asked for, in a thread: the first layer on a coarse copy of the grid, or GBIF's count.
+fn ask_preview(
+    s: &Session,
+    d: &Dataset,
+    c: &Choices,
+    ctx: &egui::Context,
+) -> Result<std::sync::mpsc::Receiver<Result<Previewed, String>>, String> {
+    let p = params(d, c)?;
+    let mut inputs = inputs_of(s, d, c)?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    let ctx = ctx.clone();
+    if d.source == GBIF {
+        let area = inputs.remove("area");
+        std::thread::Builder::new()
+            .name("terraflux-preview".into())
+            .spawn(move || {
+                let _ = tx.send(gbif_count(&p, area.as_ref()));
+                ctx.request_repaint();
+            })
+            .map_err(|e| e.to_string())?;
+        return Ok(rx);
+    }
+    let mut params: serde_json::Map<String, Value> = p.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+    // the grid, coarse: the same extent in at most PREVIEW cells a side
+    let args = terraflux_ops::Args { node: "preview", inputs: inputs.clone(), params: &params };
+    let plan = terraflux_ops::data::plan(&args).map_err(|e| e.to_string())?;
+    let (g, name) = (plan.grid, plan.layers.first().map(|l| l.name.clone()).unwrap_or_default());
+    let f = g.width.max(g.height).div_ceil(PREVIEW).max(1) as f64;
+    let mut coarse = terraflux_raster::Grid::new(
+        ((g.width as f64 / f).ceil() as usize).max(1),
+        ((g.height as f64 / f).ceil() as usize).max(1),
+    );
+    let t = g.transform;
+    coarse.transform = [t[0], t[1] * f, t[2] * f, t[3], t[4] * f, t[5] * f];
+    coarse.geo = g.geo.clone();
+    let blank = vec![f64::NAN; coarse.width * coarse.height];
+    inputs
+        .insert("like".into(), terraflux_ops::Value::Map(terraflux_ops::Map::new(std::sync::Arc::new(coarse), blank)));
+    for k in ["extent", "cellsize"] {
+        params.remove(k);
+    }
+    std::thread::Builder::new()
+        .name("terraflux-preview".into())
+        .spawn(move || {
+            let r = terraflux_ops::Registry::standard();
+            let args = terraflux_ops::Args { node: "preview", inputs, params: &params };
+            let made = r.get("data.download").ok_or("no data.download".to_string()).and_then(|op| {
+                op.run(&mut terraflux_ops::Ctx::default(), &args)
+                    .map_err(|e| e.to_string().replace("node \"preview\": ", ""))
+            });
+            let made = made.and_then(|out| {
+                let Some(terraflux_ops::Value::Raster(r)) = out.get("raster") else {
+                    return Err("no raster".to_string());
+                };
+                let m = r.map().map_err(|e| e.to_string())?;
+                let known: Vec<f64> = m.data.iter().copied().filter(|v| v.is_finite()).collect();
+                let said = if known.is_empty() {
+                    format!("{name}: no data here")
+                } else {
+                    let lo = known.iter().copied().fold(f64::INFINITY, f64::min);
+                    let hi = known.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+                    format!("{name}, {} × {} cells: from {lo} to {hi}", m.grid.width, m.grid.height)
+                };
+                let coloring = crate::app::Look::of(&m.data, None).coloring;
+                Ok(Previewed { map: Some((crate::map_view::Source::Map(m), coloring)), said })
+            });
+            let _ = tx.send(made);
+            ctx.request_repaint();
+        })
+        .map_err(|e| e.to_string())?;
+    Ok(rx)
+}
+
+/// How many records GBIF has with coordinates for the choices (its count now), within the area's bounds.
+fn gbif_count(p: &[(&'static str, Value)], area: Option<&terraflux_ops::Value>) -> Result<Previewed, String> {
+    let mut q: Vec<(String, String)> = vec![("hasCoordinate".into(), "true".into()), ("limit".into(), "0".into())];
+    for (k, v) in p {
+        let texts: Vec<String> = match v {
+            Value::Array(a) => a.iter().map(|x| x.as_str().map_or(x.to_string(), str::to_string)).collect(),
+            Value::String(t) => vec![t.clone()],
+            x => vec![x.to_string()],
+        };
+        let name = match *k {
+            "species" => "scientificName",
+            other => other,
+        };
+        for t in texts {
+            q.push((name.into(), t));
+        }
+    }
+    if let Some(terraflux_ops::Value::Vector(v)) = area {
+        let ll = match &v.crs {
+            Some(c) if !terraflux_gdal::same_crs(c, "EPSG:4326").unwrap_or(true) => {
+                terraflux_gdal::reproject_vector(v, "EPSG:4326")?
+            }
+            _ => (**v).clone(),
+        };
+        if let Some([w, s, e, n]) = ll.bounds() {
+            q.push(("decimalLongitude".into(), format!("{w},{e}")));
+            q.push(("decimalLatitude".into(), format!("{s},{n}")));
+        }
+    }
+    let found = terraflux_ops::sdm::gbif::http_get("occurrence/search", &q)?;
+    let n = found["count"].as_u64().ok_or("GBIF gave no count")?;
+    let said = format!(
+        "{n} records with coordinates at GBIF now{}",
+        if n > 100_000 { ": more than the 100 000 a query takes (narrow it by country, area or years)" } else { "" }
+    );
+    Ok(Previewed { map: None, said })
 }
 
 /// The datasets a search and a theme keep.
@@ -575,8 +941,9 @@ pub fn add(s: &mut Session, r: &Registry, d: &Dataset, c: &Choices) -> Result<St
     let nodes = s.source.scope(&path).cloned().unwrap_or_default();
     let from = c.like.as_ref().and_then(|l| l.rsplit_once('.')).map(|(n, _)| n.to_string());
     let pos = crate::builder::beside(&nodes, from.as_deref());
-    let id = crate::builder::add_at(s, r, "data.download", &[], Some(pos))?;
-    if let Some(l) = &c.like {
+    let op = if d.source == GBIF { "sdm.download_gbif" } else { "data.download" };
+    let id = crate::builder::add_at(s, r, op, &[], Some(pos))?;
+    if let Some(l) = c.like.as_ref().filter(|_| d.source != GBIF) {
         crate::editor::connect(&mut s.source, r, &path, l, &id, "like").map_err(|e| e.to_string())?;
     }
     if let Some(a) = &c.area {
@@ -747,6 +1114,39 @@ fn form(ui: &mut Ui, d: &Dataset, c: &mut Choices) {
                 ui.label(RichText::new(format!("{}–{}", range.start(), range.end())).weak());
             });
         }
+        "esa_worldcover" => row(ui, "Years", &mut |ui| {
+            ui.checkbox(&mut c.worldcover[0], "2020 (v100)");
+            ui.checkbox(&mut c.worldcover[1], "2021 (v200)");
+        }),
+        "global_forest_change" => row(ui, "Variable", &mut |ui| combo(ui, "catalog gfc", &mut c.gfc, &GFC_VARIABLES)),
+        "modis" => {
+            row(ui, "Index", &mut |ui| {
+                ui.radio_value(&mut c.modis, "ndvi".to_string(), "NDVI");
+                ui.radio_value(&mut c.modis, "evi".to_string(), "EVI");
+            });
+            row(ui, "Dates", &mut |ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut c.dates).hint_text("2024-07-01, 2024-01-01").desired_width(220.0),
+                );
+            });
+        }
+        GBIF => {
+            row(ui, "Species", &mut |ui| {
+                ui.add(egui::TextEdit::singleline(&mut c.species).hint_text("Puma concolor").desired_width(220.0));
+            });
+            row(ui, "Countries", &mut |ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut c.country).hint_text("BR, AR (all: empty)").desired_width(150.0),
+                );
+            });
+            row(ui, "Years", &mut |ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut c.gbif_years)
+                        .hint_text("2000-2024 (all: empty)")
+                        .desired_width(150.0),
+                );
+            });
+        }
         "hydrography90m" => {
             let shown = c.hydro.clone();
             row(ui, "Variable", &mut |ui| {
@@ -765,11 +1165,11 @@ fn form(ui: &mut Ui, d: &Dataset, c: &mut Choices) {
 }
 
 /// Where the data goes: the grid of a map of the model, or a box of longitudes and latitudes.
-fn grid_form(ui: &mut Ui, c: &mut Choices, maps: &[String], areas: &[String]) {
+fn grid_form(ui: &mut Ui, c: &mut Choices, maps: &[String], areas: &[String], points: bool) {
     const BOX: &str = "a box of longitudes and latitudes";
     const BOUNDS: &str = "the area's bounds";
     let weak = ui.visuals().weak_text_color();
-    ui.label(RichText::new("CUT TO THE AREA").size(10.5).strong().color(weak));
+    ui.label(RichText::new(if points { "IN THE AREA" } else { "CUT TO THE AREA" }).size(10.5).strong().color(weak));
     let shown = c.area.clone().unwrap_or_else(|| "none: all the grid".into());
     egui::ComboBox::from_id_salt("catalog area").selected_text(shown).width(250.0).show_ui(ui, |ui| {
         ui.selectable_value(&mut c.area, None, "none: all the grid");
@@ -780,7 +1180,11 @@ fn grid_form(ui: &mut Ui, c: &mut Choices, maps: &[String], areas: &[String]) {
     if areas.is_empty() {
         ui.label(RichText::new("an area drawn on a map (Draw on the map) or read: its polygons").weak().size(11.0));
     } else if c.area.is_some() {
-        ui.label(RichText::new("no data outside its polygons").weak().size(11.0));
+        let said = if points { "the records within its bounds" } else { "no data outside its polygons" };
+        ui.label(RichText::new(said).weak().size(11.0));
+    }
+    if points {
+        return;
     }
     if c.area.is_none() {
         c.on_area = false;
@@ -884,6 +1288,17 @@ pub fn window(ctx: &egui::Context, s: &mut Session, r: &Registry) {
     }
     let mut open = true;
     let mut add_it = false;
+    let mut preview_it = false;
+    // what is in the cache (worked out when the choices change, else every few seconds)
+    {
+        let d = &DATASETS[s.catalog.chosen.min(DATASETS.len() - 1)];
+        let key = key_of(d, &s.catalog.choices);
+        let old = s.catalog.status.as_ref().is_none_or(|(k, _, at)| *k != key || at.elapsed().as_secs() >= 3);
+        if old {
+            let said = status(s, d, &s.catalog.choices);
+            s.catalog.status = Some((key, said, std::time::Instant::now()));
+        }
+    }
     egui::Window::new("Data catalog")
         .open(&mut open)
         .default_size([820.0, 600.0])
@@ -1001,7 +1416,7 @@ pub fn window(ctx: &egui::Context, s: &mut Session, r: &Registry) {
                 if std::mem::take(&mut cat.to_grid) {
                     ui.scroll_to_cursor(Some(egui::Align::TOP));
                 }
-                grid_form(ui, &mut cat.choices, &maps, &areas);
+                grid_form(ui, &mut cat.choices, &maps, &areas, d.source == GBIF);
                 ui.add_space(8.0);
                 let ready = params(d, &cat.choices);
                 ui.horizontal(|ui| {
@@ -1014,10 +1429,69 @@ pub fn window(ctx: &egui::Context, s: &mut Session, r: &Registry) {
                     {
                         add_it = true;
                     }
+                    if ui
+                        .add_enabled(ready.is_ok() && cat.preview.job.is_none(), egui::Button::new("Preview"))
+                        .on_hover_text(if d.source == GBIF {
+                            "how many records GBIF has for these choices"
+                        } else {
+                            "the first layer, coarse (200 cells a side), over the grid"
+                        })
+                        .clicked()
+                    {
+                        preview_it = true;
+                    }
                     if let Err(e) = &ready {
                         ui.colored_label(ui.visuals().warn_fg_color, e);
                     }
                 });
+                if let Some((_, said, _)) = &cat.status {
+                    match said {
+                        Ok(m) => ui.label(RichText::new(m).size(11.5)),
+                        Err(e) => ui.label(RichText::new(e).size(11.5).weak()),
+                    };
+                }
+                if let Some(job) = &cat.preview.job {
+                    match job.try_recv() {
+                        Ok(made) => {
+                            cat.preview.made = Some(made);
+                            cat.preview.job = None;
+                            cat.preview.fresh = true;
+                            cat.preview.view = Default::default();
+                        }
+                        Err(std::sync::mpsc::TryRecvError::Empty) => {
+                            ui.horizontal(|ui| {
+                                ui.spinner();
+                                ui.label("fetching the preview...");
+                            });
+                        }
+                        Err(_) => cat.preview.job = None,
+                    }
+                }
+                let key = key_of(d, &cat.choices);
+                let preview = &mut cat.preview;
+                match &preview.made {
+                    Some(Ok(p)) => {
+                        let stale = preview.key != key;
+                        let said = if stale { format!("{} (of other choices)", p.said) } else { p.said.clone() };
+                        let mut shown = ui.label(RichText::new(said).size(11.5));
+                        if let Some((source, coloring)) = &p.map {
+                            let size = egui::vec2(ui.available_width().min(420.0), 220.0);
+                            shown = ui
+                                .allocate_ui(size, |ui| {
+                                    ui.set_min_size(size);
+                                    preview.view.show(ui, source, coloring);
+                                })
+                                .response;
+                        }
+                        if std::mem::take(&mut preview.fresh) {
+                            shown.scroll_to_me(Some(egui::Align::Max));
+                        }
+                    }
+                    Some(Err(e)) => {
+                        ui.colored_label(ui.visuals().error_fg_color, format!("no preview: {e}"));
+                    }
+                    None => {}
+                }
                 match &cat.said {
                     Some(Ok(m)) => {
                         ui.label(RichText::new(m).size(11.5));
@@ -1037,6 +1511,18 @@ pub fn window(ctx: &egui::Context, s: &mut Session, r: &Registry) {
                 );
             });
         });
+    if preview_it {
+        let d = &DATASETS[s.catalog.chosen.min(DATASETS.len() - 1)];
+        let c = s.catalog.choices.clone();
+        let key = key_of(d, &c);
+        match ask_preview(s, d, &c, ctx) {
+            Ok(rx) => {
+                s.catalog.preview.job = Some(rx);
+                s.catalog.preview.key = key;
+            }
+            Err(e) => s.catalog.preview.made = Some(Err(e)),
+        }
+    }
     if add_it {
         let d = &DATASETS[s.catalog.chosen.min(DATASETS.len() - 1)];
         let c = s.catalog.choices.clone();
@@ -1056,13 +1542,14 @@ mod tests {
         let r = Registry::standard();
         let sig = r.sig("data.download").unwrap();
         let source = sig.params.iter().find(|p| p.name == "source").unwrap();
-        for d in &DATASETS {
+        for d in DATASETS.iter().filter(|d| d.source != GBIF) {
             assert!(source.choices.iter().any(|c| c == d.source), "{}", d.source);
             assert!(d.reference.contains("https://doi.org/10."), "{}", d.name);
             assert!(d.home.starts_with("https://") && d.colours.len() >= 2);
         }
-        // every source of the download in the catalog
-        assert_eq!(source.choices.len(), DATASETS.len());
+        // every source of the download in the catalog, and GBIF's occurrences
+        assert_eq!(source.choices.len(), DATASETS.len() - 1);
+        assert!(r.sig("sdm.download_gbif").is_some());
     }
 
     #[test]
@@ -1119,5 +1606,34 @@ mod tests {
         assert_eq!(names("", Some(Theme::Soil)), ["soilgrids"]);
         assert_eq!(names("CMIP6", Some(Theme::Climate)), ["worldclim_future", "chelsa_future"]);
         assert_eq!(names("precipitation", None), ["worldclim", "worldclim_future", "chelsa"]);
+        assert_eq!(names("tree", Some(Theme::LandCover)), ["esa_worldcover", "global_forest_change"]);
+        assert_eq!(names("", Some(Theme::Species)), [GBIF]);
+    }
+
+    #[test]
+    fn the_new_sources_and_gbif_as_settings() {
+        let at = |s: &str| DATASETS.iter().find(|d| d.source == s).unwrap();
+        let c = Choices { like: Some("x.map".into()), worldcover: [true, true], ..Default::default() };
+        assert!(params(at("esa_worldcover"), &c).unwrap().contains(&("years", json!([2020, 2021]))));
+        let c = Choices { like: Some("x.map".into()), dates: "2023-07-28, 2024-01-01".into(), ..Default::default() };
+        let p = params(at("modis"), &c).unwrap();
+        assert!(p.contains(&("date", json!(["2023-07-28", "2024-01-01"]))) && p.contains(&("variable", json!("ndvi"))));
+        let bad = Choices { dates: "July".into(), ..c };
+        assert!(params(at("modis"), &bad).is_err());
+        // GBIF: no grid, no source; the species needed
+        let g = at(GBIF);
+        assert!(params(g, &Choices::default()).is_err());
+        let c = Choices {
+            species: " Puma concolor ".into(),
+            country: "br, ar".into(),
+            gbif_years: "2000-2024".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            params(g, &c).unwrap(),
+            vec![("species", json!("Puma concolor")), ("country", json!(["BR", "AR"])), ("year", json!("2000,2024"))]
+        );
+        assert!(params(g, &Choices { country: "Brazil".into(), ..c.clone() }).is_err());
+        assert_eq!(summary(g, &c), "GBIF occurrences: Puma concolor in BR, AR, 2000-2024");
     }
 }
