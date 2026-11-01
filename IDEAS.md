@@ -616,6 +616,10 @@ item):
    modelo guarda (alfabética: o serde_json sem `preserve_order`). Falta: frases para os outros ~320 operadores;
    tabelas dentro de tabelas (seguem como texto).
 3. **Painel Changes:** casar as linhas das tabelas por uma chave, não pela posição.
+   **Feito** (Unreleased): `review::key_column` escolhe a chave (uma coluna das duas tabelas de números inteiros ou
+   nomes, sem repetidos, com algum valor em comum; `id`, `key`, `class`, `value`... primeiro), `review::matched_rows`
+   casa as linhas por ela (sem chave, pela posição); a chave vem primeiro, "rows matched by …" acima, uma linha só
+   de antes em vermelho e só de agora em verde, as células comparadas com as da linha casada.
 4. **Grupos e laços:** ver no viewer o mapa de um nó de dentro dos corpos de `control.repeat`/`switch`, e congelar
    um nó de dentro de um grupo.
 5. **Cenários:** a matriz de transições inteira e mais de um resultado comparado por vez.

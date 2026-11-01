@@ -23,6 +23,10 @@ minor versions.
   pane: a list of rows (a legend's `[[value, "name", "#colour"], ...]`), a list of records (`[{"class": 1,
   "carbon": 50}, ...]`) or records by name (`{"forest": {"carbon": 50}, ...}`), under the columns' names, each
   column as wide as its values; **+ row** (a copy of the last), **+ column** and **x** to take a row away.
+- The **Changes** pane matches the rows of a table before and now by a **key** (*rows matched by class*): a column
+  of both of whole numbers or names, none twice, some in both (`id`, `key`, `class`, `value`... first), shown first.
+  A row only the table before has is in red, a row only the table now has in green, and a row matched is compared
+  cell by cell wherever it is; without a key the rows are matched by their place, as before.
 
 ### Fixed
 - `prioritize.actions_raster` with a feature whose layer has no amounts (all 0) says that it dropped it ("The

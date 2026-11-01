@@ -696,23 +696,83 @@ fn cell_of(t: Option<&terraflux_ops::Table>, row: usize, col: &str) -> Option<f6
     t.rows.get(row)?.get(j).copied()
 }
 
-/// Whether a cell differs from the same cell (row, column name) of the other table.
-pub fn cell_differs(t: &terraflux_ops::Table, other: &terraflux_ops::Table, row: usize, col: &str) -> bool {
-    match (cell_of(Some(t), row, col), cell_of(Some(other), row, col)) {
+/// Whether a cell differs from a cell of the other table: of the row matched to it (`row` there, none when the
+/// other has no such row), in the column of the same name.
+pub fn cell_differs(
+    t: &terraflux_ops::Table,
+    other: &terraflux_ops::Table,
+    row: usize,
+    matched: Option<usize>,
+    col: &str,
+) -> bool {
+    let theirs = matched.and_then(|m| cell_of(Some(other), m, col));
+    match (cell_of(Some(t), row, col), theirs) {
         (Some(a), Some(b)) => !(a == b || (a.is_nan() && b.is_nan())),
         (None, None) => false,
         _ => true,
     }
 }
 
-/// A table before and now, side by side: the cells that differ (by row and column name) in the colour of a change,
-/// the columns only one of them has in the colour of what was removed or added.
+/// The names a column that tells the rows apart is given most, in the order they are preferred.
+const KEYS: &[&str] = &["id", "key", "class", "value", "code", "name", "label", "pu", "feature", "zone", "layer"];
+
+/// A key's text in a row: its name where the column has names, else its number.
+fn key_of(t: &terraflux_ops::Table, j: usize, row: usize) -> Option<String> {
+    let v = *t.rows.get(row)?.get(j)?;
+    if v.is_nan() {
+        return None;
+    }
+    Some(t.label(&t.columns[j], v).map_or_else(|| format!("{v}"), String::from))
+}
+
+/// The column that tells the rows of two tables apart, if one does: a column of both whose values are whole numbers
+/// (or names) without a gap, none twice in either table, and some in both; the one named as keys are named most
+/// (`id`, `class`, `value`...), else the first. Rows are then matched by it, not by their place.
+pub fn key_column(a: &terraflux_ops::Table, b: &terraflux_ops::Table) -> Option<String> {
+    // a table's keys in a column, if they are keys (whole numbers or names, none missing, none twice)
+    let keys = |t: &terraflux_ops::Table, c: &String| -> Option<std::collections::HashSet<String>> {
+        let j = t.columns.iter().position(|x| x == c)?;
+        let mut seen = std::collections::HashSet::new();
+        for i in 0..t.rows.len() {
+            let v = *t.rows[i].get(j)?;
+            if v.fract() != 0.0 && t.label(c, v).is_none() || !seen.insert(key_of(t, j, i)?) {
+                return None;
+            }
+        }
+        Some(seen)
+    };
+    let fits = |c: &&String| keys(a, c).zip(keys(b, c)).is_some_and(|(x, y)| x.iter().any(|k| y.contains(k)));
+    let rank = |c: &&String| KEYS.iter().position(|k| c.eq_ignore_ascii_case(k)).unwrap_or(KEYS.len());
+    a.columns.iter().filter(|c| b.columns.contains(c)).filter(fits).min_by_key(rank).cloned()
+}
+
+/// The row of `other` matched to each row of `t`: the one of the same key (none when `other` has no such row), or
+/// without a key the one in the same place.
+pub fn matched_rows(t: &terraflux_ops::Table, other: &terraflux_ops::Table, key: Option<&str>) -> Vec<Option<usize>> {
+    let at = |t: &terraflux_ops::Table| key.and_then(|k| t.columns.iter().position(|c| c == k));
+    match at(t).zip(at(other)) {
+        Some((jt, jo)) => {
+            let theirs: std::collections::HashMap<String, usize> =
+                (0..other.rows.len()).filter_map(|i| Some((key_of(other, jo, i)?, i))).collect();
+            (0..t.rows.len()).map(|i| key_of(t, jt, i).and_then(|k| theirs.get(&k).copied())).collect()
+        }
+        None => (0..t.rows.len()).map(|i| (i < other.rows.len()).then_some(i)).collect(),
+    }
+}
+
+/// A table before and now, side by side: the rows matched by a key (`key_column`: a row only one of them has in the
+/// colour of what was removed or added) or else by their place, the cells that differ (by matched row and column
+/// name) in the colour of a change, the columns only one of them has in the colour of what was removed or added.
 pub fn tables_side_by_side(
     ui: &mut Ui,
     before: Option<&terraflux_ops::Table>,
     now: Option<&terraflux_ops::Table>,
     salt: impl std::hash::Hash + std::fmt::Debug + Copy,
 ) {
+    let key = before.zip(now).and_then(|(b, n)| key_column(b, n));
+    if let Some(key) = &key {
+        ui.label(RichText::new(format!("rows matched by {key}")).small().weak());
+    }
     ui.horizontal_top(|ui| {
         for (k, (label, t, other)) in [("before", before, now), ("now", now, before)].into_iter().enumerate() {
             ui.vertical(|ui| {
@@ -721,23 +781,42 @@ pub fn tables_side_by_side(
                     ui.label(RichText::new("not run").small().weak());
                     return;
                 };
+                let matched = other.map(|o| matched_rows(t, o, key.as_deref()));
+                let lone = if k == 0 { REMOVED } else { ADDED };
                 let w = (ui.available_width() / (2 - k) as f32 - 8.0).max(120.0);
                 egui::ScrollArea::horizontal().id_salt(("side by side", salt, k)).max_width(w).show(ui, |ui| {
                     egui::Grid::new(("side by side grid", salt, k)).striped(true).spacing([8.0, 2.0]).show(ui, |ui| {
-                        let cols: Vec<&String> = t.columns.iter().take(TABLE_COLUMNS).collect();
+                        // the key first
+                        let mut cols: Vec<&String> =
+                            key.iter().filter_map(|c| t.columns.iter().find(|x| *x == c)).collect();
+                        cols.extend(t.columns.iter().filter(|c| Some(*c) != key.as_ref()));
+                        cols.truncate(TABLE_COLUMNS);
                         for c in &cols {
                             let alone = other.is_some_and(|o| !o.columns.contains(c));
                             let text = RichText::new(c.as_str()).small().strong();
-                            ui.label(if alone { text.color(if k == 0 { REMOVED } else { ADDED }) } else { text });
+                            ui.label(if alone { text.color(lone) } else { text });
                         }
                         ui.end_row();
                         for i in 0..t.rows.len().min(TABLE_ROWS) {
+                            let m = matched.as_ref().and_then(|m| m[i]);
+                            // a row the other table has not
+                            let alone = other.is_some() && m.is_none();
                             for c in &cols {
+                                let j = t.columns.iter().position(|x| x == *c).unwrap_or(0);
                                 let v = cell_of(Some(t), i, c);
-                                let text =
-                                    RichText::new(v.map_or(String::new(), crate::report::cell)).small().monospace();
-                                let differs = other.is_some_and(|o| cell_differs(t, o, i, c));
-                                ui.label(if differs { text.color(CHANGED) } else { text });
+                                // its name where the column has names, else the number as the report writes it
+                                let say = |v: f64| {
+                                    t.label(&t.columns[j], v).map_or_else(|| crate::report::cell(v), String::from)
+                                };
+                                let text = RichText::new(v.map_or(String::new(), say)).small().monospace();
+                                let differs = other.is_some_and(|o| cell_differs(t, o, i, m, c));
+                                ui.label(if alone {
+                                    text.color(lone)
+                                } else if differs {
+                                    text.color(CHANGED)
+                                } else {
+                                    text
+                                });
                             }
                             ui.end_row();
                         }
@@ -885,10 +964,50 @@ mod tests {
         };
         let before = t(&["class", "area"], vec![vec![1.0, 10.0], vec![2.0, f64::NAN]]);
         let now = t(&["area", "class", "edge"], vec![vec![12.0, 1.0, 3.0], vec![f64::NAN, 2.0, 4.0]]);
-        assert!(!cell_differs(&before, &now, 0, "class"), "the same cell, the columns in another order");
-        assert!(cell_differs(&before, &now, 0, "area"));
-        assert!(!cell_differs(&before, &now, 1, "area"), "no data on both sides");
-        assert!(cell_differs(&now, &before, 0, "edge"), "a column only one has");
-        assert!(!cell_differs(&before, &now, 5, "area"), "a row neither has");
+        assert!(!cell_differs(&before, &now, 0, Some(0), "class"), "the same cell, the columns in another order");
+        assert!(cell_differs(&before, &now, 0, Some(0), "area"));
+        assert!(!cell_differs(&before, &now, 1, Some(1), "area"), "no data on both sides");
+        assert!(cell_differs(&now, &before, 0, Some(0), "edge"), "a column only one has");
+        assert!(!cell_differs(&before, &now, 5, None, "area"), "a row neither has");
+        assert!(cell_differs(&before, &now, 0, None, "class"), "a row the other has not");
+    }
+
+    #[test]
+    fn table_rows_match_by_a_key() {
+        let t = |columns: &[&str], rows: Vec<Vec<f64>>| terraflux_ops::Table {
+            columns: columns.iter().map(|c| c.to_string()).collect(),
+            rows,
+            ..Default::default()
+        };
+        // a class taken away and one added, the rows in another order: matched by class, not by place
+        let before = t(&["area", "class"], vec![vec![10.0, 1.0], vec![20.0, 2.0], vec![30.0, 3.0]]);
+        let now = t(&["class", "area"], vec![vec![3.0, 30.0], vec![1.0, 12.0], vec![4.0, 5.0]]);
+        assert_eq!(key_column(&before, &now).as_deref(), Some("class"));
+        assert_eq!(matched_rows(&before, &now, Some("class")), [Some(1), None, Some(0)]);
+        assert_eq!(matched_rows(&now, &before, Some("class")), [Some(2), Some(0), None]);
+        let m = matched_rows(&before, &now, Some("class"));
+        assert!(cell_differs(&before, &now, 0, m[0], "area"), "class 1's area changed");
+        assert!(!cell_differs(&before, &now, 2, m[2], "area"), "class 3's did not, in another place");
+        // without a key, by place
+        assert_eq!(matched_rows(&before, &t(&["class"], vec![vec![9.0]]), None), [Some(0), None, None]);
+        // an id named so comes before a column of whole numbers met first
+        let a = t(&["count", "id"], vec![vec![5.0, 1.0], vec![6.0, 2.0]]);
+        assert_eq!(key_column(&a, &a).as_deref(), Some("id"));
+        // not keys: fractions, a value twice, a value missing, no value in common
+        let frac = t(&["x"], vec![vec![0.5], vec![1.0]]);
+        let twice = t(&["x"], vec![vec![1.0], vec![1.0]]);
+        let missing = t(&["x"], vec![vec![1.0], vec![f64::NAN]]);
+        let other = t(&["x"], vec![vec![7.0], vec![8.0]]);
+        for (k, b) in [&frac, &twice, &missing, &other].into_iter().enumerate() {
+            let a = t(&["x"], vec![vec![1.0], vec![2.0]]);
+            assert_eq!(key_column(&a, b), None, "{k}");
+        }
+        // names of a column are keys too, matched by name though their numbers differ
+        let mut a = t(&["layer", "n"], vec![vec![1.0, 3.0], vec![2.0, 4.0]]);
+        a.labels.insert("layer".into(), vec!["forest".into(), "crop".into()]);
+        let mut b = t(&["layer", "n"], vec![vec![1.0, 4.0]]);
+        b.labels.insert("layer".into(), vec!["crop".into()]);
+        assert_eq!(key_column(&a, &b).as_deref(), Some("layer"));
+        assert_eq!(matched_rows(&a, &b, Some("layer")), [None, Some(0)]);
     }
 }

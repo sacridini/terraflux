@@ -204,7 +204,12 @@ a change. On the canvas, the nodes added are outlined in green and the nodes cha
 For a node added or changed, the card also shows what its first output gives, **before** the changes and **now**:
 two small maps side by side, drawn in the same colours, or two tables side by side, in which the cells that changed
 (matched by the row and by the column's name) are in amber, and a column only one of the tables has is in red
-(before) or green (now). A number or a text is said in words. *Before* is what the last run before the changes
+(before) or green (now). The rows are matched by a **key** when the tables have one, said above them (*rows matched
+by class*): a column of both whose values are whole numbers or names, none twice, some in both (`id`, `key`,
+`class`, `value`, `code`, `name`... first, else the first such column), shown first. So a class taken away, added
+or moved to another row is not a whole table of changes: a row only the table before has is in red, a row only the
+table now has in green, and a row matched is compared cell by cell wherever it is. Without a key the rows are
+matched by their place. A number or a text is said in words. *Before* is what the last run before the changes
 gave; *now* fills in when the model runs again. This is the quickest way to see whether a new threshold changed
 the map a little or a lot.
 
