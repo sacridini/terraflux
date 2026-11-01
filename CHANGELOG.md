@@ -77,6 +77,11 @@ minor versions.
   stack give the same maps. In the templates, 390 nodes are translated (319 before) and 170 left (229 before,
   counting none inside containers then).
 
+- **Methods and citations** in **Portuguese** too (a choice in its window): the paragraph, the methods' names and the
+  headings, Terraflux's reference ("Versão", "Software"); each step told by its node's note, else its settings.
+  **`terraflux methods model.toml`** on the command line (`--language en|pt`, `--format text|bibtex|ris`, `-o`
+  a file) and the **`methods`** tool of `terraflux mcp` and of the application's assistant, with the same choices.
+
 ### Fixed
 - The Python script's calculator: the neighbourhood sums (`nbsum`, `nbmean`, `nbcount`) are exact sums, not a mean
   times the cells (`3 / 9 * 9` was 2.9999999999999996, so `nbsum(...) >= 3` failed where Terraflux grew a cell).

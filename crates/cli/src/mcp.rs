@@ -169,6 +169,11 @@ impl Server {
                 let path = model_path(a)?;
                 tools::check_model(r, &load(&path)?, &folder(&path))
             }
+            "methods" => {
+                let path = model_path(a)?;
+                let file = path.file_name().map(|f| f.to_string_lossy().into_owned());
+                tools::methods(&load(&path)?, r, a, file.as_deref())
+            }
             "run_model" => {
                 let path = model_path(a)?;
                 tools::run_model(&self.engine, &load(&path)?, &folder(&path), a, watcher)
@@ -642,6 +647,14 @@ mod tests {
         let (t, e) = call(&s, "check_model", json!({ "model": model }));
         assert!(!e && t.contains("can run"), "{t}");
         assert!(!t.contains("advice"), "a template's nodes are not asked for a why: {t}");
+        // its methods, as a paper's: in English, in Portuguese, the references as BibTeX
+        let (t, e) = call(&s, "methods", json!({ "model": model }));
+        assert!(!e && t.starts_with("Methods\n\nThe analysis was run in Terraflux") && t.contains("(t.toml)"), "{t}");
+        let (t, e) = call(&s, "methods", json!({ "model": model, "language": "pt" }));
+        assert!(!e && t.starts_with("Métodos\n\nA análise foi feita no Terraflux"), "{t}");
+        let (t, e) = call(&s, "methods", json!({ "model": model, "format": "bibtex" }));
+        assert!(!e && t.starts_with("@software{terraflux,"), "{t}");
+        assert!(call(&s, "methods", json!({ "model": model, "language": "fr" })).1);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -98,6 +98,8 @@ comment: a reclassification is `classes = 1`, `classes[elev >= 700] = 2`, `class
     "
 - check_model checks the model and its data; run_model runs it and writes its outputs; inspect_file summarises a \
 raster (size, classes, statistics) or shows a table.
+- methods drafts the methods section of a paper from the model (the methods it uses, the papers to cite, the model \
+step by step, the references; or BibTeX, RIS), in English or Portuguese (`language`: pt).
 - open_in_app opens the model in Terraflux's application: in the one the user has open (its model replaced, unless \
 it has edits not saved), else in a new window. The application follows the file: what is edited after appears \
 there at once, and the user can undo it (ctrl+Z).
@@ -122,7 +124,8 @@ model open, only when the user wants a new model).
 with the reason and the model is left as it was; read the reason and correct the call. The reply to an edit lists \
 the problems the model still has (a model being built has some: inputs not connected yet).
 - show_model gives the model as text; check_model checks it and its data; run_model runs it in the application \
-(its maps shown there) and summarises what its outputs gave; inspect_file summarises a raster or shows a table.
+(its maps shown there) and summarises what its outputs gave; inspect_file summarises a raster or shows a table; \
+methods drafts the methods section of a paper from the model, with the papers to cite (`language`: en or pt).
 - Files: a raster.read node reads a raster (setting `path`); give absolute paths.
 ",
     calc!(),
@@ -976,6 +979,24 @@ pub fn problems(m: &Model, dir: &Path, r: &Registry) -> String {
     s
 }
 
+/// A model's methods section and the papers to cite (`file` the model's file name): as text (the paragraph, the
+/// steps, the references), BibTeX or RIS (`format`), in English or Portuguese (`language`).
+pub fn methods(m: &Model, r: &Registry, a: &Value, file: Option<&str>) -> Reply {
+    use crate::methods::Lang;
+    let lang = match opt_text(a, "language") {
+        None => Lang::En,
+        Some(t) => Lang::parse(t).ok_or_else(|| format!("the language {t:?}: en or pt"))?,
+    };
+    let version = env!("CARGO_PKG_VERSION");
+    let me = crate::methods::of_in(m, r, version, file, lang);
+    match opt_text(a, "format").unwrap_or("text") {
+        "text" => Ok(me.text()),
+        "bibtex" | "bib" => Ok(me.bibtex(version)),
+        "ris" => Ok(me.ris(version)),
+        f => Err(format!("the format {f:?}: text, bibtex or ris")),
+    }
+}
+
 /// The model and its data checked without running it.
 pub fn check_model(r: &Registry, source: &Model, dir: &Path) -> Reply {
     let mut m = source.clone();
@@ -1468,6 +1489,17 @@ fn all() -> Vec<Value> {
             json!({ "model": model }),
             &["model"],
             None,
+        ),
+        tool(
+            "methods",
+            "Draft the methods section of a paper from the model: a paragraph naming the methods it uses with the papers to cite (those of the software Terraflux reproduces), the model step by step, and the references (APA); or only the references, as BibTeX or RIS. In English or Portuguese.",
+            json!({
+                "model": model,
+                "language": { "type": "string", "enum": ["en", "pt"], "description": "en (default) or pt." },
+                "format": { "type": "string", "enum": ["text", "bibtex", "ris"], "description": "text (default): the paragraph, the steps and the references; bibtex or ris: the references." },
+            }),
+            &["model"],
+            Some(&read_only),
         ),
         tool(
             "check_model",

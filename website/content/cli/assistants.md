@@ -24,6 +24,7 @@ problems found in it, and summaries of the results).
 | `add_node`, `edit_node`, `remove_node` | Adds a node connected and set (an operator, or a node of your libraries by its `my:name`), changes it (its connections, settings, note, name), removes it |
 | `set_input`, `set_output`, `edit_container` | The model's inputs and outputs, and what a loop or group carries, collects or gives |
 | `show_model`, `check_model`, `arrange` | Shows the model as text, checks it and its data, and puts its nodes in tidy columns |
+| `methods` | Drafts the methods section of a paper from the model, with the papers to cite (in English or Portuguese), or its references as BibTeX or RIS |
 | `write_calc`, `explain_calc` | Writes a calculator's script ([raster.calc, vector.calc or vector.filter](../../calculators/)), checked and tried on a sample of its inputs before the model changes, and takes a script apart: what each name holds |
 | `run_model`, `inspect_file` | Runs the model, then summarises a result: a raster's classes or statistics, a table's first lines |
 | `trace_cell`, `last_trace` | Tells why a cell of a result has its value, node by node back through the model; or reads the cell you traced last in the application (see [the tour](/tutorials/getting-started/tour/#why-a-cell-has-its-value-trace)) |

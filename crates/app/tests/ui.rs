@@ -2849,6 +2849,15 @@ fn the_methods_and_citations_of_a_model() {
     assert!(h.query_by_label_contains("(MSPA; Soille & Vogt, 2009)").is_some(), "the paragraph");
     assert!(h.query_by_label_contains("Vogt, P., & Riitters, K. (2017)").is_some(), "the references");
     shot(&mut h, "18-methods");
+    // in Portuguese: the paragraph, the methods' names, the headings
+    h.get_by_label("Português").click();
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("A análise foi feita no Terraflux").is_some(), "the paragraph in Portuguese");
+    assert!(
+        h.query_by_label_contains("análise morfológica de padrões espaciais (MSPA; Soille & Vogt, 2009)").is_some()
+    );
+    assert!(h.query_by_label("REFERÊNCIAS").is_some(), "the headings (in capitals)");
+    shot(&mut h, "18-methods-pt");
     // closed by its button: the session says so
     h.get_by_label("Close window").click();
     h.run_steps(2);

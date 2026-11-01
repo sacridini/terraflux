@@ -15,7 +15,7 @@ is written; the next pages go through the commands by what they are for:
 
 | Page | Commands |
 |---|---|
-| [Running models](/cli/models/) | `run`, `check`, `test`, `reproduce`, `new`, `convert`, `ops`, `resample`, `app` |
+| [Running models](/cli/models/) | `run`, `check`, `test`, `reproduce`, `new`, `methods`, `convert`, `ops`, `resample`, `app` |
 | [Batches: replicates, scenarios, calibration](/cli/batches/) | `submit`, `calibrate`, `jobs`, `results` |
 | [Many machines](/cli/distributed/) | `serve`, `worker`, `workers`, `cluster`, `cloud-init` |
 | [The model's document](/tutorials/building-models/the-model-document/) | `report` (the document as an HTML page or a PDF) |

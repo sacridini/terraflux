@@ -120,6 +120,20 @@ enum Command {
         #[arg(long)]
         run: bool,
     },
+    /// Draft the methods section of a paper from a model: the methods it uses with the papers to cite, the model
+    /// step by step and the references; or the references as BibTeX or RIS.
+    Methods {
+        model: PathBuf,
+        /// The language: en (default) or pt.
+        #[arg(short, long, default_value = "en")]
+        language: String,
+        /// text (default), bibtex or ris.
+        #[arg(short, long, default_value = "text")]
+        format: String,
+        /// Write it to this file instead of printing it.
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+    },
     /// List the operators (`--json`: their full signatures).
     Ops {
         #[arg(long)]
@@ -1066,6 +1080,20 @@ fn main() -> Result<()> {
             terraflux_app::report::write(&out, &doc, &values, &first, &extras)
                 .with_context(|| format!("writing {}", out.display()))?;
             eprintln!("wrote {}", out.display());
+        }
+        Command::Methods { model, language, format, out } => {
+            let source = Model::load(&model).with_context(|| format!("reading {}", model.display()))?;
+            let file = model.file_name().map(|f| f.to_string_lossy().into_owned());
+            let args = serde_json::json!({ "language": language, "format": format });
+            let text = terraflux_app::tools::methods(&source, &engine.registry, &args, file.as_deref())
+                .map_err(|e| anyhow::anyhow!(e))?;
+            match out {
+                Some(p) => {
+                    std::fs::write(&p, &text).with_context(|| format!("writing {}", p.display()))?;
+                    eprintln!("wrote {}", p.display());
+                }
+                None => print!("{text}"),
+            }
         }
         Command::Check { model } => {
             let m = read_model(&model)?;

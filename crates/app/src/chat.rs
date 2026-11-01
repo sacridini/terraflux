@@ -365,7 +365,7 @@ impl Chat {
     /// A tool done on the model open.
     fn ask(&mut self, a: Ask, s: &mut Session, r: &Registry, ctx: &egui::Context) {
         let answer = match a.name.as_str() {
-            "show_model" | "check_model" => Answer::Model(Box::new(s.source.clone()), s.base()),
+            "show_model" | "check_model" | "methods" => Answer::Model(Box::new(s.source.clone()), s.base()),
             "run_model" => {
                 self.run = Some(RunWait { reply: a.reply, started: false });
                 self.follow_run(s, ctx);
@@ -788,6 +788,7 @@ impl Job {
                 Answer::Done(reply) => reply,
                 Answer::Model(m, dir) => match name {
                     "show_model" => tools::show_model(&m, &dir, r),
+                    "methods" => tools::methods(&m, r, a, None),
                     _ => tools::check_model(r, &m, &dir),
                 },
             },

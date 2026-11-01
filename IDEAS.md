@@ -422,7 +422,8 @@ ordem de impacto (começando pelo 1 e pelo 3):
    são os da página "Cite Terraflux" do site, o software reproduzido o que as descrições dos operadores dizem; nada
    além disso é citado (os `refs` dos nós vão como estão escritos). Falta: os artigos das referências dos tutoriais
    (modelos neutros, MESS, blockCV, spThin, MigClim, ProtConn, Omniscape de McRae et al. 2016...); os métodos no
-   relatório (HTML e PDF); `terraflux methods modelo.toml` na linha de comando e no MCP; o texto em português.
+   relatório (HTML e PDF); `terraflux methods modelo.toml` na linha de comando e no MCP; o texto em português
+   (feitos: ver o item 9 de "O que falta nas funções da 1.28.0").
 4. **Desenhar no mapa.** Um retângulo ou polígono como a área de estudo (o recorte e a região dos downloads do
    `data.download`), pontos de amostragem, áreas protegidas propostas para os cenários: "desenhe a área e baixe o
    WorldClim só dela".
@@ -585,6 +586,12 @@ como o próximo bloco, nesta ordem (um commit por item):
    extract), tabelas (calc, aggregate, filter), o GLM do CLUE-S, as zonas e as penalidades de conectividade no
    prioritize.
 9. **Métodos:** `terraflux methods` na linha de comando e no MCP; o texto em português.
+   **Feito** (Unreleased): `methods::Lang` (en, pt) e `of_in`: o parágrafo, os nomes dos 24 métodos (`name_pt`), os
+   títulos e a referência do Terraflux em português; cada etapa pela nota do nó, senão as configurações (as
+   descrições dos operadores e as frases do documento são em inglês). A escolha na janela (English / Português);
+   `terraflux methods modelo.toml [-l pt] [-f text|bibtex|ris] [-o arquivo]`; a ferramenta `methods` do MCP e do
+   assistente do aplicativo (`tools::methods`). Falta: as frases das etapas em português (as do documento,
+   `phrases.rs`), o relatório em português.
 
 ## Paridade com o landschaft na priorização, progresso e parada
 

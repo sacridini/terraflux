@@ -213,6 +213,31 @@ inside single quotes on macOS and Linux (`--allowed '[[1,1,0],[0,1,0],[1,1,1]]'`
 inner double quotes twice or keep the JSON in a variable. The tutorials on
 [land change simulation](/tutorials/#land-change) explain every setting.
 
+## terraflux methods
+
+Drafts the methods section of a paper from a model, as **File > Methods and citations** does in the application:
+a paragraph naming the methods the model uses with the papers to cite (those of the software Terraflux
+reproduces, and Terraflux itself), the model step by step, and the references in the APA style. Check the draft and
+add why each step was chosen.
+
+```bash
+terraflux methods model.toml                       # in English, on screen
+terraflux methods model.toml --language pt         # em português
+terraflux methods model.toml -f bibtex -o refs.bib # the references for LaTeX, Zotero, Mendeley
+terraflux methods model.toml -f ris -o refs.ris    # for EndNote
+```
+
+`-l`, `--language`
+:   `en` (the default) or `pt`. In Portuguese the paragraph, the methods' names and the headings are written in
+    Portuguese, and each step is told by its node's note (else its settings): the operators' own descriptions are
+    in English.
+
+`-f`, `--format`
+:   `text` (the default: the paragraph, the steps and the references), `bibtex` or `ris` (the references).
+
+`-o`, `--out`
+:   A file to write instead of printing.
+
 ## terraflux convert
 
 Writes a model in the other format, chosen by the extension: TOML (easy to read and edit) or JSON (easy for

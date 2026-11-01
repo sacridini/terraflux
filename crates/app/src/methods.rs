@@ -463,6 +463,8 @@ pub const REFERENCES: &[Reference] = &[
 pub struct Method {
     pub ops: &'static [&'static str],
     pub name: &'static str,
+    /// The name in Portuguese.
+    pub name_pt: &'static str,
     pub refs: &'static [&'static str],
     pub software: &'static str,
     pub software_refs: &'static [&'static str],
@@ -474,6 +476,7 @@ pub const METHODS: &[Method] = &[
     Method {
         ops: &["landscape.mspa", "landscape.mspa_tiled"],
         name: "morphological spatial pattern analysis (MSPA)",
+        name_pt: "a análise morfológica de padrões espaciais (MSPA)",
         refs: &["soille2009"],
         software: GTB,
         software_refs: &["vogt2017"],
@@ -481,6 +484,7 @@ pub const METHODS: &[Method] = &[
     Method {
         ops: &["fragmentation.fad", "fragmentation.fad_multiscale", "fragmentation.fos"],
         name: "fragmentation (FAD, FOS)",
+        name_pt: "a fragmentação (FAD, FOS)",
         refs: &[],
         software: GTB,
         software_refs: &["vogt2017"],
@@ -488,6 +492,7 @@ pub const METHODS: &[Method] = &[
     Method {
         ops: &["landscape.", "fragmentation."],
         name: "pattern analyses ({ops})",
+        name_pt: "as análises de padrões ({ops})",
         refs: &[],
         software: GTB,
         software_refs: &["vogt2017"],
@@ -495,6 +500,7 @@ pub const METHODS: &[Method] = &[
     Method {
         ops: &["networks.gtn_"],
         name: "the habitat network's components and importance",
+        name_pt: "os componentes e a importância da rede de habitat",
         refs: &[],
         software: GTB,
         software_refs: &["vogt2017"],
@@ -502,6 +508,7 @@ pub const METHODS: &[Method] = &[
     Method {
         ops: &["networks.conefor"],
         name: "the habitat network's inputs for Conefor",
+        name_pt: "as entradas da rede de habitat para o Conefor",
         refs: &["saura2009"],
         software: GTB,
         software_refs: &["vogt2017"],
@@ -516,6 +523,7 @@ pub const METHODS: &[Method] = &[
             "restoration.status",
         ],
         name: "the Restoration Planner's analyses ({ops})",
+        name_pt: "as análises do Restoration Planner ({ops})",
         refs: &[],
         software: GTB,
         software_refs: &["vogt2017"],
@@ -523,6 +531,7 @@ pub const METHODS: &[Method] = &[
     Method {
         ops: &["restoration."],
         name: "restoration planning ({ops})",
+        name_pt: "o planejamento da restauração ({ops})",
         refs: &["strassburg2020"],
         software: "",
         software_refs: &[],
@@ -530,6 +539,7 @@ pub const METHODS: &[Method] = &[
     Method {
         ops: &["metrics."],
         name: "landscape metrics",
+        name_pt: "as métricas de paisagem",
         refs: &["mcgarigal1995"],
         software: "landscapemetrics",
         software_refs: &["hesselbarth2019"],
@@ -537,6 +547,7 @@ pub const METHODS: &[Method] = &[
     Method {
         ops: &["conn."],
         name: "habitat availability and connectivity indices",
+        name_pt: "os índices de disponibilidade de habitat e de conectividade",
         refs: &["saura2007"],
         software: "Conefor Sensinode",
         software_refs: &["saura2009"],
@@ -544,6 +555,7 @@ pub const METHODS: &[Method] = &[
     Method {
         ops: &["circuit.omniscape", "circuit.omniscape_ini"],
         name: "omnidirectional connectivity",
+        name_pt: "a conectividade omnidirecional",
         refs: &["mcrae2008"],
         software: "Omniscape.jl",
         software_refs: &["landau2021"],
@@ -551,6 +563,7 @@ pub const METHODS: &[Method] = &[
     Method {
         ops: &["circuit."],
         name: "circuit-theory connectivity",
+        name_pt: "a conectividade pela teoria de circuitos",
         refs: &["mcrae2008"],
         software: "Circuitscape",
         software_refs: &[],
@@ -558,6 +571,7 @@ pub const METHODS: &[Method] = &[
     Method {
         ops: &["cost."],
         name: "least-cost and random-walk distances",
+        name_pt: "as distâncias de menor custo e de passeio aleatório",
         refs: &[],
         software: "gdistance",
         software_refs: &["vanetten2017"],
@@ -565,6 +579,7 @@ pub const METHODS: &[Method] = &[
     Method {
         ops: &["prioritize.zonation", "prioritize.zonation_project"],
         name: "spatial prioritization",
+        name_pt: "a priorização espacial",
         refs: &[],
         software: "Zonation 5",
         software_refs: &["moilanen2022"],
@@ -572,6 +587,7 @@ pub const METHODS: &[Method] = &[
     Method {
         ops: &["prioritize.actions", "prioritize.actions_raster"],
         name: "multi-action planning",
+        name_pt: "o planejamento de múltiplas ações",
         refs: &["salgadorojas2020"],
         software: "",
         software_refs: &[],
@@ -579,6 +595,7 @@ pub const METHODS: &[Method] = &[
     Method {
         ops: &["prioritize."],
         name: "systematic conservation planning by integer linear programming",
+        name_pt: "o planejamento sistemático da conservação por programação linear inteira",
         refs: &[],
         software: "prioritizr",
         software_refs: &["hanson2025"],
@@ -586,6 +603,7 @@ pub const METHODS: &[Method] = &[
     Method {
         ops: &["sdm.maxnet", "sdm.maxnet_predict", "sdm.fit"],
         name: "species distribution models (Maxent)",
+        name_pt: "os modelos de distribuição de espécies (Maxent)",
         refs: &[],
         software: "maxnet",
         software_refs: &["phillips2017"],
@@ -599,6 +617,7 @@ pub const METHODS: &[Method] = &[
             "sdm.omission_rate",
         ],
         name: "the models' partitions and evaluation",
+        name_pt: "as partições e a avaliação dos modelos",
         refs: &[],
         software: "ENMeval",
         software_refs: &["kass2021"],
@@ -606,6 +625,7 @@ pub const METHODS: &[Method] = &[
     Method {
         ops: &["sdm.clean_occurrences", "sdm.reference_data", "sdm.prepare"],
         name: "the cleaning of occurrence records",
+        name_pt: "a limpeza dos registros de ocorrência",
         refs: &[],
         software: "CoordinateCleaner",
         software_refs: &["zizka2019"],
@@ -613,6 +633,7 @@ pub const METHODS: &[Method] = &[
     Method {
         ops: &["bio."],
         name: "biodiversity analyses",
+        name_pt: "as análises de biodiversidade",
         refs: &[],
         software: "Biodiverse",
         software_refs: &["laffan2010"],
@@ -620,6 +641,7 @@ pub const METHODS: &[Method] = &[
     Method {
         ops: &["woe.", "patches.", "dinamica."],
         name: "land change simulation by weights of evidence, the Expander and the Patcher",
+        name_pt: "a simulação de mudanças de uso da terra por pesos de evidência, Expander e Patcher",
         refs: &["soaresfilho2002"],
         software: "Dinamica EGO",
         software_refs: &[],
@@ -627,6 +649,7 @@ pub const METHODS: &[Method] = &[
     Method {
         ops: &["glm.", "lulcc.", "demand."],
         name: "land use allocation (CLUE-S)",
+        name_pt: "a alocação de uso da terra (CLUE-S)",
         refs: &["verburg2002"],
         software: "lulcc",
         software_refs: &["moulds2015"],
@@ -634,6 +657,7 @@ pub const METHODS: &[Method] = &[
     Method {
         ops: &["plus.", "cars."],
         name: "land use simulation (PLUS)",
+        name_pt: "a simulação de uso da terra (PLUS)",
         refs: &["liang2021"],
         software: "",
         software_refs: &[],
@@ -641,6 +665,7 @@ pub const METHODS: &[Method] = &[
     Method {
         ops: &["futures."],
         name: "urban growth simulation (FUTURES)",
+        name_pt: "a simulação do crescimento urbano (FUTURES)",
         refs: &["meentemeyer2013"],
         software: "",
         software_refs: &[],
@@ -648,6 +673,7 @@ pub const METHODS: &[Method] = &[
     Method {
         ops: &["crafty."],
         name: "competition for land between agent functional types (CRAFTY)",
+        name_pt: "a competição pela terra entre tipos funcionais de agentes (CRAFTY)",
         refs: &["murrayrust2014"],
         software: "",
         software_refs: &[],
@@ -684,9 +710,33 @@ pub fn method_of(op: &str) -> Option<&'static Method> {
     METHODS.iter().find(|m| m.ops.iter().any(|p| if p.ends_with(['.', '_']) { op.starts_with(p) } else { op == *p }))
 }
 
+/// The language the methods are written in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Lang {
+    #[default]
+    En,
+    Pt,
+}
+
+impl Lang {
+    /// From its code: `en`, `pt` (`pt-BR`, `portuguese`...).
+    pub fn parse(t: &str) -> Option<Lang> {
+        let t = t.trim().to_lowercase();
+        if t.starts_with("en") {
+            Some(Lang::En)
+        } else if t.starts_with("pt") || t.starts_with("port") {
+            Some(Lang::Pt)
+        } else {
+            None
+        }
+    }
+}
+
 /// The methods of a model, told as a paper's.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Methods {
+    /// The language they are written in.
+    pub lang: Lang,
     /// The paragraph: Terraflux and its version, then a sentence for the methods of each software reproduced.
     pub paragraph: String,
     /// What each step does, in the order a reader follows them.
@@ -710,13 +760,41 @@ fn all_nodes(nodes: &[Node], depth: usize, out: &mut Vec<(usize, Node)>) {
     }
 }
 
-/// "a", "a and b", "a, b and c".
-fn and(items: &[String]) -> String {
+/// "a", "a and b", "a, b and c" (in Portuguese, "e").
+fn and(items: &[String], lang: Lang) -> String {
+    let word = if lang == Lang::Pt { "e" } else { "and" };
     match items {
         [] => String::new(),
         [one] => one.clone(),
-        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+        [rest @ .., last] => format!("{} {word} {last}", rest.join(", ")),
     }
+}
+
+/// What a step does in Portuguese: its note (written by whoever built the model), else the settings given (the
+/// operators' descriptions are in English).
+fn step_pt(n: &Node) -> String {
+    let mut out = format!("{} ({})", n.id, n.op);
+    match n.note.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+        Some(note) => out.push_str(&format!(": {}.", note.trim_end_matches('.'))),
+        None => {
+            let settings: Vec<String> = n
+                .params
+                .iter()
+                .filter(|(k, _)| !matches!(k.as_str(), "expression" | "script"))
+                .map(|(k, v)| {
+                    let mut w = crate::document::words(v);
+                    if w.chars().count() > 60 {
+                        w = format!("{}...", w.chars().take(57).collect::<String>());
+                    }
+                    format!("{k} = {w}")
+                })
+                .collect();
+            if !settings.is_empty() {
+                out.push_str(&format!(": {}.", settings.join(", ")));
+            }
+        }
+    }
+    out
 }
 
 /// What a step does: its operator's phrase with its settings, else the first words of its operator's
@@ -761,6 +839,12 @@ type Group<'a> = (&'static str, &'static [&'static str], Vec<(&'static Method, V
 
 /// The methods of a model, for Terraflux `version`; `file` the model's file name, if it has one.
 pub fn of(m: &Model, r: &Registry, version: &str, file: Option<&str>) -> Methods {
+    of_in(m, r, version, file, Lang::En)
+}
+
+/// The methods of a model in a language.
+pub fn of_in(m: &Model, r: &Registry, version: &str, file: Option<&str>, lang: Lang) -> Methods {
+    let pt = lang == Lang::Pt;
     let mut nodes = Vec::new();
     all_nodes(&m.nodes, 0, &mut nodes);
     let ops: Vec<&str> = nodes.iter().filter(|(_, n)| !n.bypass).map(|(_, n)| n.op.as_str()).collect();
@@ -796,19 +880,28 @@ pub fn of(m: &Model, r: &Registry, version: &str, file: Option<&str>) -> Methods
     };
     let seeds = nodes.iter().any(|(_, n)| n.params.contains_key("seed") || n.op.starts_with("rng."));
     let steps = nodes.iter().filter(|(_, n)| n.body.is_none()).count();
-    let mut paragraph = format!(
-        "The analysis was run in Terraflux {version} (Lacerda, 2026), as a model of {steps} step{}{}; the model's \
-         file, with every setting{}, is given with this paper.",
-        if steps == 1 { "" } else { "s" },
-        file.map(|f| format!(" ({f})")).unwrap_or_default(),
-        if seeds { " and random seed" } else { "" },
-    );
+    let file = file.map(|f| format!(" ({f})")).unwrap_or_default();
+    let mut paragraph = if pt {
+        format!(
+            "A análise foi feita no Terraflux {version} (Lacerda, 2026), num modelo de {steps} etapa{}{file}; o \
+             arquivo do modelo, com todas as configurações{}, acompanha este artigo.",
+            if steps == 1 { "" } else { "s" },
+            if seeds { " e sementes aleatórias" } else { "" },
+        )
+    } else {
+        format!(
+            "The analysis was run in Terraflux {version} (Lacerda, 2026), as a model of {steps} step{}{file}; the \
+             model's file, with every setting{}, is given with this paper.",
+            if steps == 1 { "" } else { "s" },
+            if seeds { " and random seed" } else { "" },
+        )
+    };
     for (software, software_refs, used) in &groups {
         // each method with its papers: "name (Author, year)", or inside the name's own brackets
         let mut keys: Vec<&'static str> = Vec::new();
         let mut names: Vec<String> = Vec::new();
         for (me, o) in used {
-            let name = me.name.replace("{ops}", &o.join(", "));
+            let name = if pt { me.name_pt } else { me.name }.replace("{ops}", &o.join(", "));
             keys.extend(me.refs.iter().filter(|k| !keys.contains(k)).copied().collect::<Vec<_>>());
             let cites = cite(me.refs).join("; ");
             names.push(match (cites.is_empty(), name.strip_suffix(')')) {
@@ -817,10 +910,17 @@ pub fn of(m: &Model, r: &Registry, version: &str, file: Option<&str>) -> Methods
                 (false, None) => format!("{name} ({cites})"),
             });
         }
-        let mut s = format!("We computed {}", and(&names));
-        s.push_str(" with Terraflux");
+        let mut s = if pt {
+            format!("Aplicamos {} com o Terraflux", and(&names, lang))
+        } else {
+            format!("We computed {} with Terraflux", and(&names, lang))
+        };
         if !software.is_empty() {
-            s.push_str(&format!(", which reproduces {software}"));
+            s.push_str(&if pt {
+                format!(", que reproduz o {software}")
+            } else {
+                format!(", which reproduces {software}")
+            });
             let own: Vec<&'static str> = software_refs.iter().copied().filter(|k| !keys.contains(k)).collect();
             let software_cites = cite(&own);
             if !software_cites.is_empty() {
@@ -841,20 +941,30 @@ pub fn of(m: &Model, r: &Registry, version: &str, file: Option<&str>) -> Methods
             }
         }
     }
-    let steps = nodes.iter().map(|(depth, n)| format!("{}{}", "    ".repeat(*depth), step(n, r))).collect::<Vec<_>>();
-    Methods { paragraph, steps, references, software: software_apa(version), own }
+    let steps = nodes
+        .iter()
+        .map(|(depth, n)| format!("{}{}", "    ".repeat(*depth), if pt { step_pt(n) } else { step(n, r) }))
+        .collect::<Vec<_>>();
+    Methods { lang, paragraph, steps, references, software: software_apa_in(version, lang), own }
 }
 
 /// Terraflux's reference in the APA style, for a version.
 pub fn software_apa(version: &str) -> String {
+    software_apa_in(version, Lang::En)
+}
+
+/// Terraflux's reference in the APA style, in a language.
+pub fn software_apa_in(version: &str, lang: Lang) -> String {
     let t = terraflux();
-    format!("{} ({}). {} (Version {version}) [Computer software]. {URL}", t.authors[0], t.year, t.title)
+    let (v, kind) = if lang == Lang::Pt { ("Versão", "Software") } else { ("Version", "Computer software") };
+    format!("{} ({}). {} ({v} {version}) [{kind}]. {URL}", t.authors[0], t.year, t.title)
 }
 
 impl Methods {
     /// All of it as plain text: the paragraph, the steps numbered (a container's body under it), the references.
     pub fn text(&self) -> String {
-        let mut out = format!("Methods\n\n{}\n\nThe model, step by step\n\n", self.paragraph);
+        let h = self.headings();
+        let mut out = format!("{}\n\n{}\n\n{}\n\n", h[0], self.paragraph, h[1]);
         let mut k = 0;
         for s in &self.steps {
             if s.starts_with(' ') {
@@ -864,7 +974,7 @@ impl Methods {
                 out.push_str(&format!("{k}. {s}\n"));
             }
         }
-        out.push_str("\nReferences\n\n");
+        out.push_str(&format!("\n{}\n\n", h[2]));
         let mut refs: Vec<String> = self.references.iter().map(|r| r.apa()).collect();
         refs.push(self.software.clone());
         refs.sort_by_key(|r| r.to_lowercase());
@@ -872,12 +982,20 @@ impl Methods {
             out.push_str(&format!("{r}\n"));
         }
         if !self.own.is_empty() {
-            out.push_str("\nGiven in the model's notes\n\n");
+            out.push_str(&format!("\n{}\n\n", h[3]));
             for r in &self.own {
                 out.push_str(&format!("{r}\n"));
             }
         }
         out
+    }
+
+    /// The headings: the methods, the steps, the references, those of the model's notes.
+    pub fn headings(&self) -> [&'static str; 4] {
+        match self.lang {
+            Lang::En => ["Methods", "The model, step by step", "References", "Given in the model's notes"],
+            Lang::Pt => ["Métodos", "O modelo, etapa por etapa", "Referências", "Dadas nas notas do modelo"],
+        }
     }
 
     /// The references as BibTeX, Terraflux first.
@@ -921,7 +1039,10 @@ pub fn window(ctx: &egui::Context, s: &mut crate::app::Session, r: &Registry) {
     }
     let version = env!("CARGO_PKG_VERSION");
     let file = s.path.as_ref().and_then(|p| p.file_name()).map(|f| f.to_string_lossy().into_owned());
-    let m = of(&s.source, r, version, file.as_deref());
+    let lang_id = egui::Id::new("methods language");
+    let lang = ctx.data(|d| d.get_temp::<Lang>(lang_id)).unwrap_or_default();
+    let m = of_in(&s.source, r, version, file.as_deref(), lang);
+    let h = m.headings();
     let said_id = egui::Id::new("methods said");
     let mut open = true;
     egui::Window::new("Methods and citations")
@@ -939,7 +1060,17 @@ pub fn window(ctx: &egui::Context, s: &mut crate::app::Session, r: &Registry) {
                 .size(11.5)
                 .color(weak),
             );
-            ui.hyperlink_to(RichText::new("What to cite, on the website").size(11.5), CITING);
+            ui.horizontal(|ui| {
+                ui.hyperlink_to(RichText::new("What to cite, on the website").size(11.5), CITING);
+                ui.add_space(12.0);
+                let mut l = lang;
+                ui.radio_value(&mut l, Lang::En, "English");
+                ui.radio_value(&mut l, Lang::Pt, "Português")
+                    .on_hover_text("the paragraph, the methods' names and the headings; each step its note");
+                if l != lang {
+                    ui.ctx().data_mut(|d| d.insert_temp(lang_id, l));
+                }
+            });
             ui.add_space(4.0);
             ui.horizontal_wrapped(|ui| {
                 let mut said = None;
@@ -982,10 +1113,10 @@ pub fn window(ctx: &egui::Context, s: &mut crate::app::Session, r: &Registry) {
             });
             ui.separator();
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                crate::theme::section(ui, "Methods");
+                crate::theme::section(ui, h[0]);
                 ui.add(egui::Label::new(&m.paragraph).selectable(true).wrap());
                 ui.add_space(10.0);
-                crate::theme::section(ui, "The model, step by step");
+                crate::theme::section(ui, h[1]);
                 let mut k = 0;
                 for st in &m.steps {
                     let depth = st.len() - st.trim_start().len();
@@ -1001,7 +1132,7 @@ pub fn window(ctx: &egui::Context, s: &mut crate::app::Session, r: &Registry) {
                     });
                 }
                 ui.add_space(10.0);
-                crate::theme::section(ui, "References");
+                crate::theme::section(ui, h[2]);
                 let mut refs: Vec<String> = m.references.iter().map(|r| r.apa()).collect();
                 refs.push(m.software.clone());
                 refs.sort_by_key(|r| r.to_lowercase());
@@ -1011,7 +1142,7 @@ pub fn window(ctx: &egui::Context, s: &mut crate::app::Session, r: &Registry) {
                 }
                 if !m.own.is_empty() {
                     ui.add_space(6.0);
-                    ui.label(RichText::new("Given in the model's notes (refs)").size(11.5).color(weak));
+                    ui.label(RichText::new(format!("{} (refs)", h[3])).size(11.5).color(weak));
                     for x in &m.own {
                         ui.add(egui::Label::new(RichText::new(x).size(12.5)).selectable(true).wrap());
                     }
@@ -1154,5 +1285,36 @@ inputs = { map = "mspa.map" }
         assert!(bib.starts_with("@software{terraflux,") && bib.contains("version     = {1.28.0}"), "{bib}");
         assert_eq!(bib.matches("\n@article{").count(), 3);
         assert!(x.ris("1.28.0").starts_with("TY  - COMP"));
+        // in Portuguese: the paragraph, the methods' names, the headings; each step its note, else its settings
+        let pt = of_in(&m, &r, "1.28.0", Some("forest.toml"), Lang::Pt);
+        assert!(
+            pt.paragraph.starts_with(
+                "A análise foi feita no Terraflux 1.28.0 (Lacerda, 2026), num modelo de 4 etapas (forest.toml)"
+            ),
+            "{}",
+            pt.paragraph
+        );
+        assert!(
+            pt.paragraph.contains(
+                "Aplicamos a análise morfológica de padrões espaciais (MSPA; Soille & Vogt, 2009) e as análises de \
+                 padrões (landscape.spa) com o Terraflux, que reproduz o GuidosToolbox (Vogt & Riitters, 2017)."
+            ),
+            "{}",
+            pt.paragraph
+        );
+        assert_eq!(pt.steps[1], "mspa (landscape.mspa): The forest's pattern.");
+        assert_eq!(pt.steps[0], "forest (raster.read): path = forest.tif.");
+        let text = pt.text();
+        assert!(text.starts_with("Métodos\n\n") && text.contains("\nO modelo, etapa por etapa\n\n1. forest"), "{text}");
+        assert!(text.contains("\nReferências\n\n") && text.contains("(Versão 1.28.0) [Software]"), "{text}");
+        assert!(text.contains("Dadas nas notas do modelo"));
+        assert_eq!(pt.references, x.references);
+        assert_eq!(Lang::parse("pt-BR"), Some(Lang::Pt));
+        assert_eq!(Lang::parse("EN"), Some(Lang::En));
+        assert_eq!(Lang::parse("fr"), None);
+        // every method has its name in Portuguese
+        assert!(
+            METHODS.iter().all(|m| !m.name_pt.is_empty() && m.name.contains("{ops}") == m.name_pt.contains("{ops}"))
+        );
     }
 }
