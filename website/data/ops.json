@@ -6497,13 +6497,19 @@
  },
  {
   "name": "data.download",
-  "doc": "Data downloaded on demand and warped onto a grid (gdalwarp straight from the servers: only the part the grid covers is read): WorldClim 2.1 (the 1970-2000 climate; CMIP6 futures), CHELSA 2.1 (1981-2010; CMIP6 futures), the Copernicus DEM (30 or 90 m), SoilGrids (a property at depths) and MapBiomas Brazil (land use and cover by year), Hydrography90m (the river network of the world at 90 m: its sub-catchments, segments, basins, flow directions and accumulation, stream orders, slopes and distances), or any raster a url names; a file per layer kept in the cache (Terraflux's, TERRAFLUX_CACHE), downloaded once. Classes are resampled by the most common cell, values bilinearly. The values are the servers' (CHELSA's scaled integers: × 0.1, and - 273.15 for temperatures; SoilGrids' in its mapped units).",
+  "doc": "Data downloaded on demand and warped onto a grid (gdalwarp straight from the servers: only the part the grid covers is read): WorldClim 2.1 (the 1970-2000 climate; CMIP6 futures), CHELSA 2.1 (1981-2010; CMIP6 futures), the Copernicus DEM (30 or 90 m), SoilGrids (a property at depths) and MapBiomas Brazil (land use and cover by year), Hydrography90m (the river network of the world at 90 m: its sub-catchments, segments, basins, flow directions and accumulation, stream orders, slopes and distances), ESA WorldCover (land cover at 10 m, 2020 and 2021), Hansen's Global Forest Change (tree cover in 2000, the year of loss, gain, at 30 m), MODIS' vegetation indices (NDVI, EVI: 16-day composites at 250 m, from Microsoft's Planetary Computer), or any raster a url names; a file per layer kept in the cache (Terraflux's, TERRAFLUX_CACHE), downloaded once. Classes are resampled by the most common cell, values bilinearly. The values are the servers' (CHELSA's scaled integers: × 0.1, and - 273.15 for temperatures; SoilGrids' in its mapped units; MODIS' indices × 0.0001).",
   "inputs": [
    {
     "name": "like",
     "type": "raster",
     "required": false,
     "doc": "the map whose grid to fill (else extent and cellsize)"
+   },
+   {
+    "name": "area",
+    "type": "vector",
+    "required": false,
+    "doc": "polygons to cut the data to (an area drawn): no data outside them; without like and extent, the grid              spans them"
    }
   ],
   "outputs": [
@@ -6528,14 +6534,17 @@
      "copernicus_dem",
      "soilgrids",
      "mapbiomas",
-     "hydrography90m"
+     "hydrography90m",
+     "esa_worldcover",
+     "global_forest_change",
+     "modis"
     ]
    },
    {
     "name": "variable",
     "type": "text",
     "required": false,
-    "doc": "worldclim: bio (default), tavg, tmin, tmax, prec, srad, wind, vapr, elev; worldclim_future: bioc (default), tmin, tmax, prec; hydrography90m: sub_catchment (default), segment, basin, outlet, direction, accumulation, order_strahler... (hydrographr's names)"
+    "doc": "worldclim: bio (default), tavg, tmin, tmax, prec, srad, wind, vapr, elev; worldclim_future: bioc (default), tmin, tmax, prec; hydrography90m: sub_catchment (default), segment, basin, outlet, direction, accumulation, order_strahler... (hydrographr's names); global_forest_change: treecover2000 (default), lossyear, gain, datamask; modis: ndvi (default), evi"
    },
    {
     "name": "layers",
@@ -6601,7 +6610,13 @@
     "name": "years",
     "type": "any",
     "required": false,
-    "doc": "mapbiomas: a year or a list (default 2023)"
+    "doc": "mapbiomas: a year or a list (default 2023); esa_worldcover: 2020 or 2021 (default), or both"
+   },
+   {
+    "name": "date",
+    "type": "any",
+    "required": false,
+    "doc": "modis: a date, YYYY-MM-DD (the 16-day composite begun on it or last before it; default 2024-07-01), or a list"
    },
    {
     "name": "url",
@@ -6619,7 +6634,7 @@
     "name": "cellsize",
     "type": "number",
     "required": false,
-    "doc": "with extent: the cells' side, degrees"
+    "doc": "with extent or an area: the cells' side, degrees (an area's default: its longer side in 500 cells)"
    },
    {
     "name": "resampling",
@@ -28631,6 +28646,12 @@
     "type": "raster",
     "required": false,
     "doc": "another plot's shown, drawn beneath this one"
+   },
+   {
+    "name": "compared",
+    "type": "raster",
+    "required": false,
+    "doc": "another map compared with the one shown (another date, a scenario, the observed), as compare says"
    }
   ],
   "outputs": [
@@ -28677,6 +28698,12 @@
     "type": "text",
     "required": false,
     "doc": "a table's chart: the column whose values make the groups"
+   },
+   {
+    "name": "compare",
+    "type": "text",
+    "required": false,
+    "doc": "with a map compared: curtain (the other right of a line dragged across the map), side by side (default), or difference (the other minus this one; between maps of classes, the transitions); the report shows both maps, and their difference when asked"
    }
   ],
   "access": "none",
