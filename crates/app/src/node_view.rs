@@ -525,12 +525,8 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
                     .on_hover_text("how long it took when it last ran (a loop's body: every step summed), and about how much memory what it gave holds");
             }
         };
-        // (the modern look: what does not fit on the next row)
-        if modern {
-            ui.horizontal_wrapped(row);
-        } else {
-            ui.horizontal(row);
-        }
+        // what does not fit on the next row (a narrow pane, a large text)
+        ui.horizontal_wrapped(row);
     });
     // the record of the choice, written by whoever built the model (a person, the wizard, an agent): edited in
     // place
