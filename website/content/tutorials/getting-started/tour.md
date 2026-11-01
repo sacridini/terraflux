@@ -358,13 +358,16 @@ arrow and the coordinates along the edges; the preview follows. **Save PNG...** 
 so that a word processor places it at its width; **Save SVG...** keeps the text as text, to change in Inkscape or
 Illustrator (and to turn into a PDF there).
 
-A map of several layers (a stack, the steps of a loop, the bands of a raster) has **Save as GIF...** under its
-slider: the layers as an animated GIF, for a talk or a class, each with its name in its corner and its legend
-under it. The steps of a series share one set of colours, so that a value keeps its colour from step to step; the
+A map of several layers (a stack, the steps of a loop, the bands of a raster) has **Play** beside its slider
+(the layers one after another, again and again; the arrows or the slider stop it), a **speed** in frames a second
+(the same for playing and for saving, and for the Simulation pane), and **Save as GIF...** under them: the layers
+as an animated GIF, for a talk or a class, each with its name in its corner and its legend under it. With
+[ffmpeg](https://ffmpeg.org) installed (on the PATH, or named by `TERRAFLUX_FFMPEG`), **Save as MP4...** saves the
+same frames as a video (H.264), which slides and video players take. The steps of a series share one set of colours, so that a value keeps its colour from step to step; the
 layers of a stack or a raster (often different variables) each keep their own, as the Viewer shows them. The
-**Simulation** pane has the same button for the steps of a run (*step 12 of 50*) and for the maps of an input's
-stack. A small map is enlarged, a large one is read every few cells (at most 800 pixels a side), and the GIF is
-made in the background while you keep working.
+**Simulation** pane has the same buttons for the steps of a run (*step 12 of 50*) and for the maps of an input's
+stack. A small map is enlarged, a large one is read every few cells (at most 800 pixels a side), and the
+animation is made in the background while you keep working.
 
 ### Basemaps
 

@@ -33,21 +33,53 @@ pub struct Job {
     rx: Receiver<Result<(), String>>,
 }
 
-/// What became of the GIFs asked for: the one being made, and what the last one said.
+/// What became of the animations asked for: the one being made, what the last one said, and the speed chosen
+/// (frames a second; none: each animation's own).
 #[derive(Default)]
 pub struct Animations {
     pub job: Option<Job>,
     pub said: Option<String>,
+    pub fps: Option<f32>,
 }
 
+/// The slowest and the fastest speeds offered, frames a second.
+const SPEEDS: std::ops::RangeInclusive<f32> = 0.5..=25.0;
+
 impl Animations {
-    /// The GIF of the frames `make` gives (in the thread: their colours may take a while to work out) written to
-    /// `path` by a thread, `delay` milliseconds a frame.
+    /// The time between two frames, milliseconds: as the speed chosen, else `default`.
+    pub fn delay(&self, default: u16) -> u16 {
+        self.fps.map_or(default, |f| (1000.0 / f.clamp(*SPEEDS.start(), *SPEEDS.end())).round() as u16)
+    }
+
+    /// The speed of the animations (playing and saved), a slider in frames a second, from `default` (the time
+    /// between two frames, milliseconds) until one is chosen.
+    pub fn speed(&mut self, ui: &mut Ui, default: u16) {
+        let mut fps = 1000.0 / f32::from(self.delay(default).max(1));
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("speed").weak());
+            ui.spacing_mut().slider_width = (ui.available_width() - 110.0).clamp(40.0, 160.0);
+            let s = egui::Slider::new(&mut fps, SPEEDS).logarithmic(true).max_decimals(1).suffix(" /s");
+            if ui.add(s).on_hover_text("frames a second, when playing and in the GIF or video saved").changed() {
+                self.fps = Some(fps);
+            }
+        });
+    }
+
+    /// The animation of the frames `make` gives (in the thread: their colours may take a while to work out)
+    /// written to `path` by a thread, `delay` milliseconds a frame: a video when the path ends in .mp4, else a
+    /// GIF.
     pub fn start(&mut self, make: impl FnOnce() -> Vec<Frame> + Send + 'static, delay: u16, path: PathBuf) {
         let (tx, rx) = channel();
         let to = path.clone();
+        let video = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("mp4"));
         std::thread::spawn(move || {
-            let _ = tx.send(write(&make(), delay, MAX_SIDE, &to));
+            let frames = make();
+            let made = match (video, ffmpeg()) {
+                (true, Some(ff)) => mp4(&frames, delay, MAX_SIDE, &to, &ff),
+                (true, None) => Err("ffmpeg is not installed".into()),
+                (false, _) => write(&frames, delay, MAX_SIDE, &to),
+            };
+            let _ = tx.send(made);
         });
         self.job = Some(Job { path, rx });
         self.said = None;
@@ -74,29 +106,41 @@ impl Animations {
         }
     }
 
-    /// A button that asks where to save the GIF of the frames (`prepare`, once clicked, gives what makes them in
-    /// the thread), `delay` milliseconds a frame, and what became of the last one.
-    pub fn button<F>(&mut self, ui: &mut Ui, name: &str, delay: u16, prepare: impl FnOnce() -> F)
+    /// The buttons that ask where to save the animation of the frames, as a GIF or (with ffmpeg) a video
+    /// (`prepare`, once clicked, gives what makes them in the thread), at the speed chosen (else `default`
+    /// milliseconds a frame); and what became of the last one.
+    pub fn button<F>(&mut self, ui: &mut Ui, name: &str, default: u16, prepare: impl FnOnce() -> F)
     where
         F: FnOnce() -> Vec<Frame> + Send + 'static,
     {
         let busy = self.busy();
+        let delay = self.delay(default);
         ui.horizontal_wrapped(|ui| {
-            let b = ui
+            let gif = ui
                 .add_enabled(!busy, egui::Button::new("Save as GIF..."))
                 .on_hover_text("an animation of the maps, each with its caption, for a talk or a class");
-            if b.clicked()
+            let ff = ffmpeg().is_some();
+            let video = ui
+                .add_enabled(!busy && ff, egui::Button::new("Save as MP4..."))
+                .on_hover_text("a video of the maps (H.264), for slides; made by ffmpeg")
+                .on_disabled_hover_text("a video needs ffmpeg (ffmpeg.org) installed, on the PATH");
+            let (ext, filter) = match (gif.clicked(), video.clicked()) {
+                (true, _) => ("gif", "Animated GIF"),
+                (_, true) => ("mp4", "Video (MP4)"),
+                _ => ("", ""),
+            };
+            if !ext.is_empty()
                 && let Some(path) = rfd::FileDialog::new()
                     .set_title("Save the animation")
-                    .add_filter("Animated GIF", &["gif"])
-                    .set_file_name(format!("{name}.gif"))
+                    .add_filter(filter, &[ext])
+                    .set_file_name(format!("{name}.{ext}"))
                     .save_file()
             {
                 self.start(prepare(), delay, path);
             }
             if busy {
                 ui.spinner();
-                ui.label(RichText::new("making the GIF...").weak().size(11.0));
+                ui.label(RichText::new("making the animation...").weak().size(11.0));
                 ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
             } else if let Some(t) = &self.said {
                 ui.label(RichText::new(t).weak().size(11.0));
@@ -375,6 +419,75 @@ pub fn write(frames: &[Frame], delay: u16, max_side: usize, path: &Path) -> Resu
     encode(frames, delay, max_side, std::io::BufWriter::new(file))
 }
 
+/// ffmpeg, when it is installed: the program `TERRAFLUX_FFMPEG` names, else `ffmpeg` on the PATH (asked once).
+pub fn ffmpeg() -> Option<PathBuf> {
+    static FOUND: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+    FOUND
+        .get_or_init(|| {
+            let p = std::env::var_os("TERRAFLUX_FFMPEG").map_or_else(|| PathBuf::from("ffmpeg"), PathBuf::from);
+            let mut c = std::process::Command::new(&p);
+            hidden(c.arg("-version")).output().ok().filter(|o| o.status.success()).map(|_| p)
+        })
+        .clone()
+}
+
+/// A program run without a console window of its own (on Windows).
+fn hidden(c: &mut std::process::Command) -> &mut std::process::Command {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        c.creation_flags(CREATE_NO_WINDOW);
+    }
+    c
+}
+
+/// A video of the frames (H.264 in an MP4, as slides and players take it), `delay` milliseconds each (the last one
+/// held longer), made by ffmpeg (`ff`) from the frames' pixels, with 4 threads at most.
+pub fn mp4(frames: &[Frame], delay: u16, max_side: usize, path: &Path, ff: &Path) -> Result<(), String> {
+    use std::io::Write;
+    let Some(first) = frames.first() else { return Err("no map to animate".into()) };
+    let size = first.source.size();
+    if let Some(f) = frames.iter().find(|f| f.source.size() != size) {
+        let (a, b) = (size, f.source.size());
+        return Err(format!("the maps are not of one size ({} x {}, then {} x {})", a.0, a.1, b.0, b.1));
+    }
+    let (_, zw, _, px) = layout_of(size, max_side);
+    let lines = frames.iter().map(|f| legend_lines(&f.coloring, zw, px)).max().unwrap_or(1);
+    let (rgba, w, h) = picture(first, max_side, lines)?;
+    let mut c = std::process::Command::new(ff);
+    hidden(c.args(["-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgba"]))
+        .args(["-s", &format!("{w}x{h}"), "-framerate", &format!("1000/{}", delay.max(1))])
+        .args(["-i", "-", "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2:color=white"])
+        .args(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-threads", "4", "-movflags", "+faststart"])
+        .arg(path)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped());
+    let mut child = c.spawn().map_err(|e| format!("ffmpeg did not start: {e}"))?;
+    let fed = (|| -> Result<(), String> {
+        let mut stdin = child.stdin.take().ok_or("no input to ffmpeg")?;
+        let feed = |stdin: &mut std::process::ChildStdin, px: &[u8]| stdin.write_all(px).map_err(|e| e.to_string());
+        feed(&mut stdin, &rgba)?;
+        let mut last = rgba;
+        for f in &frames[1..] {
+            last = picture(f, max_side, lines)?.0;
+            feed(&mut stdin, &last)?;
+        }
+        // (the last frame held: three more of it)
+        for _ in 0..3 {
+            feed(&mut stdin, &last)?;
+        }
+        Ok(())
+    })();
+    let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        let said = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        return Err(if said.is_empty() { "ffmpeg failed".into() } else { format!("ffmpeg: {said}") });
+    }
+    fed
+}
+
 /// The GIF of the frames as bytes (for a page that holds its images).
 pub fn gif(frames: &[Frame], delay: u16, max_side: usize) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();
@@ -420,6 +533,32 @@ mod tests {
     fn map(w: usize, h: usize, f: impl Fn(usize) -> f64) -> Source {
         let grid = Arc::new(terraflux_raster::Grid::new(w, h));
         Source::Map(Map::new(grid, (0..w * h).map(f).collect()))
+    }
+
+    #[test]
+    fn the_speed_chosen_and_a_video() {
+        let mut a = Animations::default();
+        assert_eq!(a.delay(200), 200, "each animation's own until one is chosen");
+        a.fps = Some(10.0);
+        assert_eq!((a.delay(200), a.delay(600)), (100, 100));
+        a.fps = Some(1000.0);
+        assert_eq!(a.delay(200), 40, "25 frames a second at most");
+        // a video, when ffmpeg is there: two steps of a map of 31 x 17 cells (sides made even)
+        let Some(ff) = ffmpeg() else { return };
+        let coloring = Coloring::Classes(vec![(1.0, Color32::from_rgb(0, 114, 178))]);
+        let frames: Vec<Frame> = (0..2)
+            .map(|k| Frame { source: map(31, 17, |_| 1.0), coloring: coloring.clone(), caption: format!("step {k}") })
+            .collect();
+        let path = std::env::temp_dir().join(format!("terraflux-anim-{}.mp4", std::process::id()));
+        mp4(&frames, 250, MAX_SIDE, &path, &ff).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(&bytes[4..8], b"ftyp", "an MP4");
+        assert!(bytes.windows(4).any(|w| w == b"avc1"), "H.264");
+        // a map of another size refused before ffmpeg starts
+        let mut odd = frames.clone();
+        odd[1].source = map(10, 10, |_| 1.0);
+        assert!(mp4(&odd, 250, MAX_SIDE, &path, &ff).unwrap_err().contains("not of one size"));
     }
 
     #[test]

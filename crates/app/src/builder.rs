@@ -2040,6 +2040,7 @@ fn preview(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Hover> {
         overlays: std::mem::take(&mut s.preview_overlays),
         rasters: std::mem::take(&mut s.preview_rasters),
         compare: std::mem::take(&mut s.preview_compare),
+        playing: s.preview_playing,
     };
     let before = s.preview.clone();
     let hover = output(ui, s, r, &mut shown, "viewer");
@@ -2053,6 +2054,7 @@ fn preview(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Hover> {
     s.preview_overlays = shown.overlays;
     s.preview_rasters = shown.rasters;
     s.preview_compare = shown.compare;
+    s.preview_playing = shown.playing;
     hover
 }
 
@@ -2071,6 +2073,8 @@ pub struct Shown {
     pub rasters: Vec<(String, String, f32)>,
     /// Another map compared with this one.
     pub compare: Compare,
+    /// Playing the layers (a series' steps, a stack's maps): when the last one came.
+    pub playing: Option<std::time::Instant>,
 }
 
 /// A comparison of the map shown with another: which, and how (by a curtain, side by side, the other in a view of
@@ -2807,22 +2811,45 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 if maps.len() > 1 {
                     ui.add_space(4.0);
                     let mut b = k;
+                    let series = matches!(value, Value::Series(_));
+                    let default = if series { 200 } else { 600 };
                     ui.horizontal(|ui| {
                         if ui.button("<").clicked() {
                             b = b.saturating_sub(1);
+                            sh.playing = None;
+                        }
+                        let play = if sh.playing.is_some() { "Pause" } else { "Play" };
+                        if ui
+                            .add(egui::Button::selectable(sh.playing.is_some(), play))
+                            .on_hover_text("go through the layers, again and again, at the speed below")
+                            .clicked()
+                        {
+                            sh.playing = if sh.playing.is_some() { None } else { Some(std::time::Instant::now()) };
                         }
                         if ui.button(">").clicked() {
                             b = (b + 1).min(maps.len() - 1);
+                            sh.playing = None;
                         }
                         ui.label(&names[k]);
                     });
                     ui.spacing_mut().slider_width = ui.available_width() - 8.0;
-                    ui.add(egui::Slider::new(&mut b, 0..=maps.len() - 1).show_value(false));
+                    if ui.add(egui::Slider::new(&mut b, 0..=maps.len() - 1).show_value(false)).dragged() {
+                        sh.playing = None;
+                    }
+                    // playing: the next layer at every tick, from the last to the first again
+                    if let Some(tick) = sh.playing {
+                        let period = std::time::Duration::from_millis(u64::from(s.animations.delay(default)));
+                        if tick.elapsed() >= period {
+                            b = (b + 1) % maps.len();
+                            sh.playing = Some(std::time::Instant::now());
+                        }
+                        ui.ctx().request_repaint_after(period);
+                    }
+                    s.animations.speed(ui, default);
                     // the layers as an animation: the steps of a series in one colouring (a value the same colour
                     // at every step), the layers of a stack or of rasters each in its own, as shown
-                    let series = matches!(value, Value::Series(_));
                     let file = title.replace(['/', '\\', ':', ' '], "_");
-                    s.animations.button(ui, &file, if series { 200 } else { 600 }, || {
+                    s.animations.button(ui, &file, default, || {
                         let (maps, legend) = (maps.clone(), legend_classes.clone());
                         let captions: Vec<String> = names.iter().map(|n| format!("{title} {n}")).collect();
                         move || {

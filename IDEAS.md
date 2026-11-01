@@ -524,6 +524,11 @@ como o próximo bloco, nesta ordem (um commit por item):
    quando o modelo muda), e a figura do relatório mostra os dois mapas nas cores que dividem e, com
    `difference`, a diferença com o que diz e a legenda (`report::compared`, `difference::make`).
 3. **Animação:** MP4, o play no Viewer e a velocidade escolhida.
+   **Feito** (Unreleased): o MP4 pelo ffmpeg quando instalado (`animation::ffmpeg`, no PATH ou em
+   `TERRAFLUX_FFMPEG`; os quadros em RGBA pela entrada do ffmpeg, H.264 com `yuv420p`, os lados tornados pares,
+   `-threads 4`, sem janela de console); "Play" no Viewer (`Shown::playing`, do último ao primeiro de novo); a
+   velocidade em quadros por segundo (`Animations::fps`, `speed`), a mesma para tocar (Viewer e Simulation) e
+   para o GIF e o vídeo. Falta: um codificador sem o ffmpeg (o `openh264`?).
 4. **Desenho → dados:** o `data.download` recortado pela área desenhada; editar vértices; digitar atributos.
 5. **Catálogo:** GBIF, prévia do dado na área, saber o que já está no cache, e ESA WorldCover, MODIS e Global
    Forest Change.

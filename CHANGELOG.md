@@ -27,6 +27,10 @@ minor versions.
   `side by side`, the default, or `difference`). Its tab opens with that comparison, and in the report its figure
   is the two maps side by side in the colours they share, and their difference when asked, with what it says and
   its key.
+- **Play** in the Viewer for a map of several layers (a loop's steps, a stack, a raster's bands), and a **speed**
+  in frames a second, the same for playing (here and in the Simulation pane) and for the animations saved.
+- **Save as MP4...** beside Save as GIF...: the same frames as an H.264 video, made by ffmpeg when it is installed
+  (on the PATH, or named by `TERRAFLUX_FFMPEG`), with 4 threads at most.
 
 ## [1.28.0] - 2026-10-31
 

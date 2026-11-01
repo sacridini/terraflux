@@ -621,6 +621,8 @@ pub struct Session {
     pub preview_rasters: Vec<(String, String, f32)>,
     /// The map compared with the map shown (by a curtain or side by side).
     pub preview_compare: crate::builder::Compare,
+    /// Playing the layers of the output shown in the viewer: when the last one came.
+    pub preview_playing: Option<Instant>,
     /// The animations (GIF) of steps or of a stack's maps being made, and what the last one said.
     pub animations: crate::animation::Animations,
     pub looks: Looks,
@@ -777,6 +779,7 @@ impl Session {
             preview_overlays: Vec::new(),
             preview_rasters: Vec::new(),
             preview_compare: Default::default(),
+            preview_playing: None,
             animations: Default::default(),
             palettes: Default::default(),
             looks: Looks::default(),
@@ -2858,7 +2861,8 @@ impl TerrafluxApp {
                 s.set_frame((s.frame() + 1).min(n - 1));
             }
             if s.playing {
-                let period = Duration::from_millis(if s.layer.is_none() { 200 } else { 600 });
+                let period =
+                    Duration::from_millis(u64::from(s.animations.delay(if s.layer.is_none() { 200 } else { 600 })));
                 if s.tick.elapsed() >= period {
                     s.tick = Instant::now();
                     s.set_frame((s.frame() + 1) % n);
@@ -2932,6 +2936,7 @@ impl TerrafluxApp {
                     };
                     let coloring = current.as_ref().map(|c| c.1.coloring.clone());
                     let delay = if s.layer.is_none() { 200 } else { 600 };
+                    s.animations.speed(ui, delay);
                     let (maps, layers, layer) = (&s.maps, &s.layers, s.layer);
                     s.animations.button(ui, &name, delay, || {
                         let frames: Vec<(String, Map, Coloring)> = match layer {
