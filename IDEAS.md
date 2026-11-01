@@ -622,6 +622,13 @@ item):
    de antes em vermelho e só de agora em verde, as células comparadas com as da linha casada.
 4. **Grupos e laços:** ver no viewer o mapa de um nó de dentro dos corpos de `control.repeat`/`switch`, e congelar
    um nó de dentro de um grupo.
+   **Feito** (Unreleased): o `control.repeat` dá o que os nós do corpo deram no último passo (`node.port`, como o
+   grupo), o `control.switch` o que o ramo que rodou deu por ele (`ramo.node.port`); `trace::shown_key` e
+   `builder::shown_at` levam o viewer até eles (nomeado `years/grow (the last step)` num laço), e o documento mostra
+   os passos do ramo que rodou. Congelar um nó de dentro de um grupo (grupos em grupos também): pelo lugar,
+   `group/node` (`terraflux_exec::frozen_places`, a pasta `<modelo>.frozen/group.node/`, `Cache::hold` no `inner`),
+   no app e no `terraflux run`; segurar ou soltar esquece o que o grupo de cima deu. Falta: o que só o nó congelado
+   lê dentro do grupo ainda roda; o `control.each` (o último elemento) e um passo escolhido do laço no viewer.
 5. **Cenários:** a matriz de transições inteira e mais de um resultado comparado por vez.
 6. **Trace:** a mancha desenhada no mapa e a razão da escolha da célula.
 7. **Depuração:** um breakpoint de verdade num nó escolhido (hoje o laço só para entre passos) e o Stop dentro das

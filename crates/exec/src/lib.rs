@@ -565,9 +565,18 @@ pub struct Cache {
 }
 
 impl Cache {
-    /// The outputs kept of a node.
+    /// The outputs kept of a node (of a group's body by its place, `group/node`).
     pub fn outputs(&self, node: &str) -> Option<&Outputs> {
-        self.kept.get(node).map(|k| &k.outputs)
+        self.of(node).get(node).map(|k| &k.outputs)
+    }
+
+    /// Where a node's outputs are kept: a top-level node's, or by place (`group/node`) those of the groups' bodies.
+    fn of(&self, node: &str) -> &BTreeMap<String, Kept> {
+        if node.contains('/') { &self.inner } else { &self.kept }
+    }
+
+    fn of_mut(&mut self, node: &str) -> &mut BTreeMap<String, Kept> {
+        if node.contains('/') { &mut self.inner } else { &mut self.kept }
     }
 
     /// The nodes with outputs kept.
@@ -588,27 +597,38 @@ impl Cache {
 
     /// Hold a node's frozen result (read from disk, or the outputs it gave): used instead of running it while it
     /// is frozen, those of its own run kept when it has them already. `print` tells what it was (its downstream
-    /// run again when it changes).
+    /// run again when it changes). A node of a group's body by its place (`group/node`).
     pub fn hold(&mut self, node: &str, outputs: Option<Outputs>, print: u64) -> bool {
-        match (self.kept.get_mut(node), outputs) {
+        let kept = self.of_mut(node);
+        match (kept.get_mut(node), outputs) {
             (Some(k), _) => k.held = true,
             (None, Some(outputs)) => {
-                self.kept.insert(node.to_string(), Kept { print, outputs, warnings: Vec::new(), held: true });
+                kept.insert(node.to_string(), Kept { print, outputs, warnings: Vec::new(), held: true });
+                self.regroup(node);
             }
             (None, None) => return false,
         }
         true
     }
 
-    /// Whether a node's frozen result is held.
+    /// A node of a group's body held or let go: what its top-level group gave, kept, no longer what it gives (its
+    /// fingerprint does not say whether a node of its body is frozen); the rest of its body kept.
+    fn regroup(&mut self, node: &str) {
+        if let Some((group, _)) = node.split_once('/') {
+            self.kept.remove(group);
+        }
+    }
+
+    /// Whether a node's frozen result is held (of a group's body by its place, `group/node`).
     pub fn holds(&self, node: &str) -> bool {
-        self.kept.get(node).is_some_and(|k| k.held)
+        self.of(node).get(node).is_some_and(|k| k.held)
     }
 
     /// Let go of a node's frozen result (it runs again when its fingerprint differs).
     pub fn release(&mut self, node: &str) {
-        if let Some(k) = self.kept.get_mut(node) {
+        if let Some(k) = self.of_mut(node).get_mut(node) {
             k.held = false;
+            self.regroup(node);
         }
     }
 
@@ -771,6 +791,25 @@ fn setting_value(v: &Value) -> Option<serde_json::Value> {
         Value::Json(j) => j.clone(),
         _ => return None,
     })
+}
+
+/// The places of a model's frozen nodes: the top-level ones by their ids, those of groups' bodies (groups in groups
+/// too) by their places, `group/node`; a body's results are kept only through groups.
+pub fn frozen_places(m: &Model) -> Vec<String> {
+    fn walk(nodes: &[Node], prefix: &str, out: &mut Vec<String>) {
+        for n in nodes {
+            let at = if prefix.is_empty() { n.id.clone() } else { format!("{prefix}/{}", n.id) };
+            if n.frozen {
+                out.push(at.clone());
+            }
+            if let Some(b) = n.body.as_ref().filter(|_| n.op == terraflux_graph::GROUP) {
+                walk(&b.nodes, &at, out);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(&m.nodes, "", &mut out);
+    out
 }
 
 /// The top-level node of a place (`node`, `node.port`, `container/inner...`).
@@ -1128,7 +1167,23 @@ impl Engine {
             // in a group's body kept: what did not change from the cache (a group inside it runs, its own body's
             // nodes kept in turn)
             let kept = env.kept;
-            let print = kept.and_then(|k| scoped_print(node, env, &k, inputs));
+            let mut print = kept.and_then(|k| scoped_print(node, env, &k, inputs));
+            // frozen: its result held, whatever it came from (what reads it told by the print it was held with)
+            let held = kept.filter(|_| node.frozen).and_then(|k| {
+                let c = k.cache.lock().unwrap();
+                c.inner.get(&at).filter(|c| c.held).map(|c| (c.print, c.outputs.clone(), c.warnings.clone()))
+            });
+            if let Some((p, out, ws)) = held {
+                print = Some(p);
+                for w in &ws {
+                    obs.warning(&at, w);
+                    warnings.push(format!("{at}: {w}"));
+                }
+                Self::replay(node, &at, &out, obs);
+                env.results.insert(node.id.clone(), out);
+                env.prints.insert(node.id.clone(), print);
+                continue;
+            }
             if let (Some(k), Some(p)) = (kept, print)
                 && node.op != terraflux_graph::GROUP
             {
@@ -1897,7 +1952,14 @@ impl Engine {
         let child = env.child(values);
         let inner = format!("{at}/{}", branch.id);
         obs.node(&inner);
-        let mut out = self.run_node(branch, &child, inputs, &inner, obs, warnings)?;
+        let ran = self.run_node(branch, &child, inputs, &inner, obs, warnings)?;
+        // the branch's outputs the switch's; what its body's nodes gave (the branch group's `node.port`) by the
+        // branch, `branch.node.port`, as a group's body by the group (the application shows them)
+        let mut out = Outputs::new();
+        for (k, v) in ran {
+            let k = if k.contains('.') { format!("{}.{k}", branch.id) } else { k };
+            out.insert(k, v);
+        }
         out.insert("branch".into(), Value::Text(branch.id.clone()));
         Ok(out)
     }
@@ -1991,6 +2053,8 @@ impl Engine {
             carried.insert(name.clone(), v);
         }
         let mut series: BTreeMap<String, Vec<Value>> = body.collect.keys().map(|k| (k.clone(), Vec::new())).collect();
+        // what the body's nodes gave at the last step run
+        let mut last = BTreeMap::new();
         for step in 1..=times {
             let mut c = carried.clone();
             c.insert("step".into(), Value::Integer(step as i64));
@@ -2000,7 +2064,10 @@ impl Engine {
             if let Some(r) = &body.until {
                 let stop = self.resolve(&Source::Ref(r.clone()), &child, inputs, &format!("{at}/until"))?;
                 match stop {
-                    Value::Bool(true) => break,
+                    Value::Bool(true) => {
+                        last = std::mem::take(&mut child.results);
+                        break;
+                    }
                     Value::Bool(false) => {}
                     v => {
                         return Err(Error::Node {
@@ -2025,11 +2092,21 @@ impl Engine {
                 );
             }
             carried = next;
+            last = std::mem::take(&mut child.results);
             obs.step(at, step, times);
         }
         let mut out: Outputs = carried;
         for (name, s) in series {
             out.insert(name, Value::Series(s));
+        }
+        // what the body's nodes gave at the last step, as `node.port` (as a group's: the application shows a node of
+        // the body with it), their random generators aside
+        for (id, outs) in last {
+            for (port, v) in outs {
+                if !holds_rng(&v) {
+                    out.entry(format!("{id}.{port}")).or_insert(v);
+                }
+            }
         }
         Ok(out)
     }

@@ -49,6 +49,12 @@ minor versions.
   says which of its nodes draw data, to be replaced by the user's files.
 - Two tasks more in the Assistant's evaluation: landscape metrics asked in Portuguese, and a land change model's
   method reviewed (its missing validation) without changing it.
+- The viewer shows the map of a node inside a **loop's body** (the last step's, *years/grow (the last step)*) and
+  inside a **switch's branch** (the branch that ran), as inside a group: `control.repeat` gives what its body's
+  nodes gave at the last step as `node.port`, and `control.switch` what the branch that ran gave as
+  `branch.node.port`; the Document pane shows the steps of the branch that ran with their values.
+- A node inside a group (groups inside groups too) can be **frozen**: Freeze in the Node pane, its result kept in
+  `<model>.frozen/<group>.<node>/` and used whatever it reads, in the application and by `terraflux run`.
 
 ### Fixed
 - `prioritize.actions_raster` with a feature whose layer has no amounts (all 0) says that it dropped it ("The

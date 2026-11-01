@@ -142,7 +142,10 @@ images:
     section, choose `outputs`, type its name (`share`) and the inner reference (`share.map`), and click **Set**.
 
     Inside the group, a node selected shows its map in the viewer as any node does, named by its place in the
-    group: `context/share`, with that node's own outputs to choose from, and **Trace** from its cells.
+    group: `context/share`, with that node's own outputs to choose from, and **Trace** from its cells. The same
+    inside a [[control.switch]]'s branch (the branch that ran: a branch that did not run shows nothing) and inside
+    a loop's body, where the map is the one of the **last step** (*years/grow (the last step)*; **Step** in the
+    status bar shows the steps one by one).
 
 A group does not compute its whole body again at every run. The application keeps the outputs of the nodes inside
 it, and a run computes again only the nodes of the body that changed and what depends on them (the same for groups
@@ -354,8 +357,8 @@ change a method, no risk that the two dates were treated differently. The edge w
 - [Map algebra](../map-algebra/): the expressions of [[raster.calc]].
 - [Plugins in WebAssembly](../plugins/): your own operator, written in any language.
 - [Checks, tests and reproducible runs](../checks-and-tests/): a group or a loop shows the worst of the
-  [[check.assert]] nodes inside it on its box, and a slow group at the top level can be frozen (**Freeze** in the
-  Node pane), its result kept next to the model and used instead of running it again.
+  [[check.assert]] nodes inside it on its box, and a slow group, or a slow node inside a group, can be frozen
+  (**Freeze** in the Node pane), its result kept next to the model and used instead of running it again.
 - [MSPA](../../habitat-patterns/mspa/), and the [Land change simulation](../../land-change/) tutorials, whose
   models use groups inside their loops.
 

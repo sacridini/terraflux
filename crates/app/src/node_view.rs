@@ -491,8 +491,9 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
             {
                 change = Some(crate::editor::toggle_bypass(&mut s.source, &path, std::slice::from_ref(&n.id)));
             }
-            // its result frozen (a top-level node): kept next to the model, used instead of running it
-            if path.is_empty() {
+            // its result frozen (a top-level node, or one of a group's body): kept next to the model, used instead
+            // of running it
+            if crate::trace::in_groups(&s.source, &path) {
                 let mut frozen = n.frozen;
                 if ui
                     .add_enabled(s.path.is_some(), crate::theme::toggle(&mut frozen, "Freeze"))
@@ -500,7 +501,7 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
                     .on_disabled_hover_text("save the model first: a frozen result is kept next to its file")
                     .changed()
                 {
-                    change = Some(s.freeze(&n.id, frozen));
+                    change = Some(s.freeze(&path, &n.id, frozen));
                 }
             }
             let at = if path.is_empty() { n.id.clone() } else { format!("{}/{}", path.join("/"), n.id) };

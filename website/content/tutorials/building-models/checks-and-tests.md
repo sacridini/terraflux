@@ -528,8 +528,10 @@ reading and preparation of its data are skipped as well.
     then the box is greyed out: *save the model first: a frozen result is kept next to its file*). A node that has
     run is frozen at once with its outputs of the last run; one that has not run yet is frozen when it runs. A ❄
     marks it at the top left of its box on the canvas (*❄ its result frozen: kept on disk next to the model and
-    used instead of running it (Freeze in the Node pane thaws it)*). Only nodes of the model's top level can be
-    frozen; a group or a loop at the top level is a node like the others.
+    used instead of running it (Freeze in the Node pane thaws it)*). A node of the model's top level can be
+    frozen, a group or a loop among them, and so can a node inside a group (groups inside groups too): the group
+    runs, and its frozen node gives its result kept whatever it reads. A node of a loop's or a switch's body cannot
+    (a value per step, a branch): the box is not offered there.
 
 The node gets `frozen = true` in the model file, and its outputs go to a folder named after the model, a folder per
 node:
@@ -538,9 +540,10 @@ node:
 my-study/
 ├── model.toml
 └── model.frozen/
-    └── forest/
-        ├── frozen.json      (what each output is, and when it was frozen)
-        └── ...              (a file per output that needs one)
+    ├── forest/
+    │   ├── frozen.json      (what each output is, and when it was frozen)
+    │   └── ...              (a file per output that needs one)
+    └── model.fit/           (the node fit of the group model: its place, with a dot)
 ```
 
 Each output is kept so that it reads back as the same values: maps in GeoTIFF (whole numbers in the smallest type
@@ -554,7 +557,10 @@ with the output that cannot be kept.
 
 ```text
 forest: its result frozen (.\model.frozen\forest)
+model/fit: its result frozen (.\model.frozen\model.fit)
 ```
+
+A node frozen inside a group runs as one at the top level does, but what only it reads in the group still runs.
 
 When the folder is missing (the model was sent without it), the node runs, with a note: *forest: frozen, its
 result not read (...): it runs*.

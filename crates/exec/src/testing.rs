@@ -215,10 +215,10 @@ pub fn manifest(
     files_of(&model.nodes, "", base, &mut reads, &mut ignored);
     let folder = crate::frozen::folder(model_file);
     let mut frozen = BTreeMap::new();
-    for n in model.nodes.iter().filter(|n| n.frozen) {
-        let dir = folder.join(&n.id);
+    for at in crate::frozen_places(model) {
+        let dir = crate::frozen::dir(&folder, &at);
         if dir.is_dir() {
-            frozen.insert(n.id.clone(), hash(&dir)?);
+            frozen.insert(at, hash(&dir)?);
         }
     }
     let mut s = BTreeMap::new();

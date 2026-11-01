@@ -341,15 +341,41 @@ fn resolve(m: &Model, path: &[String], reference: &str) -> Option<(Vec<String>, 
 }
 
 /// Where the value of a node's port is kept after a run (as [`crate::document::Step::value_key`]): the top-level
-/// node's, or the top-level group's (`inner.port`, through groups); none in a loop.
+/// node's, or the top-level container's (`inner.port`, through groups and the branches of switches: a switch keeps
+/// what the branch that ran gave, `branch.node.port`); none in a loop.
 pub fn key(m: &Model, path: &[String], node: &str, port: &str) -> Option<(String, String)> {
+    kept_at(m, path, node, port, false)
+}
+
+/// As [`key`], and in a loop's body too: the value its last step gave (`control.repeat` keeps it, as a group what
+/// its body gave); what the viewer shows of a node of a body.
+pub fn shown_key(m: &Model, path: &[String], node: &str, port: &str) -> Option<(String, String)> {
+    kept_at(m, path, node, port, true)
+}
+
+/// Whether a place goes through a loop's body (`control.repeat`): what is shown there is its last step's.
+pub fn in_loop(m: &Model, path: &[String]) -> bool {
+    (0..path.len())
+        .any(|k| m.scope(&path[..k]).and_then(|ns| ns.iter().find(|n| n.id == path[k])).is_some_and(|n| n.op == REPEAT))
+}
+
+/// Whether a place is the top level or the body of a group (groups in groups): where a node's result can be
+/// frozen.
+pub fn in_groups(m: &Model, path: &[String]) -> bool {
+    (0..path.len())
+        .all(|k| m.scope(&path[..k]).and_then(|ns| ns.iter().find(|n| n.id == path[k])).is_some_and(|n| n.op == GROUP))
+}
+
+const REPEAT: &str = "control.repeat";
+
+fn kept_at(m: &Model, path: &[String], node: &str, port: &str, loops: bool) -> Option<(String, String)> {
     if path.is_empty() {
         return Some((node.to_string(), port.to_string()));
     }
-    // every container on the way a group
+    // every container on the way a group, a switch (its branches are groups) or, when asked, a loop
     for k in 0..path.len() {
         let n = m.scope(&path[..k])?.iter().find(|n| n.id == path[k])?;
-        if n.op != GROUP {
+        if !(n.op == GROUP || n.op == terraflux_graph::SWITCH || loops && n.op == REPEAT) {
             return None;
         }
     }

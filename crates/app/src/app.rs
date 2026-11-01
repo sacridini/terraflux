@@ -964,25 +964,27 @@ impl Session {
         self.path.as_deref().map(terraflux_exec::frozen::folder)
     }
 
-    /// Freeze a top-level node's result (its outputs of the last run written next to the model and used instead of
-    /// running it, in later sessions too; not run yet: frozen when it runs) or thaw it. The flag is an edit of the
-    /// model (`edited` follows).
-    pub fn freeze(&mut self, id: &str, on: bool) -> Result<(), String> {
+    /// Freeze a node's result (its outputs of the last run written next to the model and used instead of running
+    /// it, in later sessions too; not run yet: frozen when it runs) or thaw it: a top-level node's, or one of a
+    /// group's body (`path` the groups it is in). The flag is an edit of the model (`edited` follows).
+    pub fn freeze(&mut self, path: &[String], id: &str, on: bool) -> Result<(), String> {
         let folder = self.frozen_folder();
+        // its place: `group/node` in a group's body
+        let at = path.iter().map(String::as_str).chain([id]).collect::<Vec<_>>().join("/");
         if on {
             let folder = folder.ok_or("save the model first: a frozen result is kept next to its file")?;
-            let outputs = self.cache.lock().unwrap().outputs(id).cloned();
+            let outputs = self.cache.lock().unwrap().outputs(&at).cloned();
             if let Some(outputs) = outputs {
-                terraflux_exec::frozen::freeze(&folder, id, &outputs).map_err(|e| format!("{id}: {e}"))?;
-                self.cache.lock().unwrap().hold(id, None, 0);
+                terraflux_exec::frozen::freeze(&folder, &at, &outputs).map_err(|e| format!("{at}: {e}"))?;
+                self.cache.lock().unwrap().hold(&at, None, 0);
             }
         } else {
             if let Some(f) = &folder {
-                terraflux_exec::frozen::thaw(f, id).map_err(|e| e.to_string())?;
+                terraflux_exec::frozen::thaw(f, &at).map_err(|e| e.to_string())?;
             }
-            self.cache.lock().unwrap().release(id);
+            self.cache.lock().unwrap().release(&at);
         }
-        crate::editor::set_frozen(&mut self.source, id, on).map_err(|e| e.to_string())
+        crate::editor::set_frozen(&mut self.source, path, id, on).map_err(|e| e.to_string())
     }
 
     /// The frozen results held for the run as the model says: read from disk when not held yet (a new session),
@@ -990,16 +992,24 @@ impl Session {
     fn hold_frozen(&mut self) {
         let folder = self.frozen_folder();
         let mut c = self.cache.lock().unwrap();
-        for n in &self.model.nodes {
-            if n.frozen && !c.holds(&n.id) {
-                if let Some(f) = &folder
-                    && let Ok((outputs, when)) = terraflux_exec::frozen::read(f, &n.id)
-                {
-                    c.hold(&n.id, Some(outputs), when);
-                }
-            } else if !n.frozen && c.holds(&n.id) {
-                c.release(&n.id);
+        // (a node of a group's body by its place, group/node)
+        let frozen = terraflux_exec::frozen_places(&self.model);
+        for at in &frozen {
+            if !c.holds(at)
+                && let Some(f) = &folder
+                && let Ok((outputs, when)) = terraflux_exec::frozen::read(f, at)
+            {
+                c.hold(at, Some(outputs), when);
             }
+        }
+        let thawed: Vec<String> = c
+            .nodes()
+            .chain(c.inner_nodes())
+            .filter(|at| c.holds(at) && !frozen.iter().any(|f| f == at))
+            .map(String::from)
+            .collect();
+        for at in thawed {
+            c.release(&at);
         }
     }
 
@@ -1008,16 +1018,16 @@ impl Session {
     fn freeze_new(&mut self) {
         let Some(folder) = self.frozen_folder() else { return };
         let mut c = self.cache.lock().unwrap();
-        for n in self.model.nodes.iter().filter(|n| n.frozen) {
-            if c.holds(&n.id) {
+        for at in terraflux_exec::frozen_places(&self.model) {
+            if c.holds(&at) {
                 continue;
             }
-            let Some(outputs) = c.outputs(&n.id).cloned() else { continue };
-            match terraflux_exec::frozen::freeze(&folder, &n.id, &outputs) {
+            let Some(outputs) = c.outputs(&at).cloned() else { continue };
+            match terraflux_exec::frozen::freeze(&folder, &at, &outputs) {
                 Ok(()) => {
-                    c.hold(&n.id, None, 0);
+                    c.hold(&at, None, 0);
                 }
-                Err(e) => self.warnings.push(format!("{}: its result could not be frozen: {e}", n.id)),
+                Err(e) => self.warnings.push(format!("{at}: its result could not be frozen: {e}")),
             }
         }
     }

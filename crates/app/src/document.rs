@@ -612,10 +612,11 @@ fn step(n: &Node, path: &[String], stage: Stage, r: &Registry, value: Option<(St
             steps: reading_order(&b.nodes)
                 .into_iter()
                 .map(|m| {
-                    // what a group's body gave is kept with the group's outputs; a loop's, step by step, is not
+                    // what a group's body gave is kept with the group's outputs, a switch's branch that ran with
+                    // the switch's (`branch.node.port`); a loop's, step by step, is not
                     let kept = value
                         .as_ref()
-                        .filter(|_| n.op == GROUP)
+                        .filter(|_| n.op == GROUP || n.op == terraflux_graph::SWITCH)
                         .map(|(node, prefix)| (node.clone(), format!("{prefix}{}.", m.id)));
                     step(m, &inner, stage, r, kept, lang)
                 })

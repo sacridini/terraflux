@@ -26,6 +26,20 @@ impl Operator for Inc {
     }
 }
 
+/// `test.two`: whether x is 2 or more.
+struct Two;
+
+impl Operator for Two {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new("test.two", "", Access::None)
+            .input(PortSpec::new("x", Type::Number, ""))
+            .output(PortSpec::new("yes", Type::Bool, ""))
+    }
+    fn run(&self, _ctx: &mut Ctx, a: &Args) -> Result<Outputs> {
+        Ok([("yes".to_string(), Value::Bool(a.number("x")? >= 2.0))].into())
+    }
+}
+
 #[derive(Default)]
 struct Seen {
     done: Vec<(String, bool)>,
@@ -244,4 +258,83 @@ fn a_group_runs_again_only_the_nodes_of_its_body_that_changed() {
     let r = engine.run_with(&l, &none, &mut Seen::default(), Some(&cache), None).unwrap();
     assert_eq!(r.get("loop.v").unwrap().as_number(), Some(2.0));
     assert_eq!(cache.lock().unwrap().inner_nodes().count(), 0);
+}
+
+#[test]
+fn a_frozen_node_of_a_group_is_used_whatever_it_came_from() {
+    let runs = Arc::new(AtomicUsize::new(0));
+    let mut r = Registry::standard();
+    r.add(Arc::new(Inc(runs.clone())));
+    let engine = Engine { registry: r };
+    // a -> g (first -> second -> third), second frozen
+    let mut m = Model::new("t");
+    m.nodes.push(Node::new("a", "test.inc").literal("x", 0));
+    let mut second = Node::new("second", "test.inc").input("x", "first.y");
+    second.frozen = true;
+    m.nodes.push(Node::new("g", terraflux_graph::GROUP).input("x", "a.y").body(Body {
+        nodes: vec![
+            Node::new("first", "test.inc").input("x", "@x"),
+            second,
+            Node::new("third", "test.inc").input("x", "second.y"),
+        ],
+        outputs: [("y".to_string(), "third.y".to_string())].into(),
+        ..Default::default()
+    }));
+    assert_eq!(terraflux_exec::frozen_places(&m), ["g/second"]);
+    // a later session: its result read from disk and held by its place
+    let cache = Mutex::new(Cache::default());
+    let held: Outputs = [("y".to_string(), Value::Number(41.0))].into();
+    assert!(cache.lock().unwrap().hold("g/second", Some(held), 7));
+    assert!(cache.lock().unwrap().holds("g/second") && !cache.lock().unwrap().holds("second"));
+    let none = BTreeMap::new();
+    let r = engine.run_with(&m, &none, &mut Seen::default(), Some(&cache), None).unwrap();
+    assert_eq!(r.get("g.y").unwrap().as_number(), Some(42.0));
+    assert_eq!(runs.load(Ordering::SeqCst), 3, "a, first and third");
+    // what it reads changed: the group runs again, still with the frozen result
+    m.nodes[0].params.insert("by".into(), 5.into());
+    let r = engine.run_with(&m, &none, &mut Seen::default(), Some(&cache), None).unwrap();
+    assert_eq!(r.get("g.y").unwrap().as_number(), Some(42.0));
+    assert_eq!(r.values["g"]["second.y"].as_number(), Some(41.0));
+    // thawed: it runs again on what first gives now (a 5, first 6, second 7, third 8)
+    m.nodes[1].body.as_mut().unwrap().nodes[1].frozen = false;
+    cache.lock().unwrap().release("g/second");
+    let r = engine.run_with(&m, &none, &mut Seen::default(), Some(&cache), None).unwrap();
+    assert_eq!(r.get("g.y").unwrap().as_number(), Some(8.0));
+}
+
+#[test]
+fn a_loop_gives_what_its_body_gave_at_the_last_step() {
+    let runs = Arc::new(AtomicUsize::new(0));
+    let mut r = Registry::standard();
+    r.add(Arc::new(Inc(runs.clone())));
+    let engine = Engine { registry: r };
+    let mut l = Model::new("l");
+    l.nodes.push(Node::new("loop", "control.repeat").literal("times", 3).literal("v", 0).body(Body {
+        nodes: vec![
+            Node::new("add", "test.inc").input("x", "@v"),
+            Node::new("in", terraflux_graph::GROUP).input("x", "add.y").body(Body {
+                nodes: vec![Node::new("more", "test.inc").input("x", "@x").param("by", 10)],
+                outputs: [("y".to_string(), "more.y".to_string())].into(),
+                ..Default::default()
+            }),
+        ],
+        carry: [("v".to_string(), "add.y".to_string())].into(),
+        ..Default::default()
+    }));
+    let none = BTreeMap::new();
+    let r = engine.run(&l, &none, &mut Seen::default()).unwrap();
+    assert_eq!(r.get("loop.v").unwrap().as_number(), Some(3.0));
+    // the body's nodes, as `node.port`, at the last step: add 3, in 13 (a group in it, `in.more.y`)
+    assert_eq!(r.values["loop"]["add.y"].as_number(), Some(3.0));
+    assert_eq!(r.values["loop"]["in.y"].as_number(), Some(13.0));
+    assert_eq!(r.values["loop"]["in.more.y"].as_number(), Some(13.0));
+    // stopped by until: the step it stopped at
+    l.nodes[0].body.as_mut().unwrap().until = Some("stop.yes".into());
+    l.nodes[0].body.as_mut().unwrap().nodes.push(Node::new("stop", "test.two").input("x", "add.y"));
+    let mut r = Registry::standard();
+    r.add(Arc::new(Inc(runs.clone())));
+    r.add(Arc::new(Two));
+    let engine = Engine { registry: r };
+    let r = engine.run(&l, &none, &mut Seen::default()).unwrap();
+    assert_eq!(r.values["loop"]["add.y"].as_number(), Some(2.0));
 }

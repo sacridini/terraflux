@@ -779,9 +779,10 @@ pub fn toggle_bypass(m: &mut Model, path: &[String], ids: &[String]) -> Result<(
     Ok(())
 }
 
-/// Freeze a top-level node's result or thaw it (the flag; its outputs kept on disk by the session).
-pub fn set_frozen(m: &mut Model, node: &str, on: bool) -> Result<()> {
-    node_mut(m, &[], node)?.frozen = on;
+/// Freeze a node's result or thaw it (the flag; its outputs kept on disk by the session): a top-level node's or
+/// one of a group's body (`path`).
+pub fn set_frozen(m: &mut Model, path: &[String], node: &str, on: bool) -> Result<()> {
+    node_mut(m, path, node)?.frozen = on;
     Ok(())
 }
 

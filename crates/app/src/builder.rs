@@ -1090,10 +1090,10 @@ pub(crate) fn first_output(n: &Node, r: &Registry) -> Option<String> {
 }
 
 /// Where the viewer finds an output of a node of the scope `path`: the node itself at the top level; inside groups
-/// the top-level group, which gives what its body's nodes gave as `node.port` (`inner.node.port` for a group in
-/// it); none in a loop's or a switch's body (a value per step, a branch).
+/// the top-level container, which gives what its body's nodes gave as `node.port` (`inner.node.port` for a group in
+/// it): a group's, a switch's branch that ran (`branch.node.port`), a loop's last step; none in a `control.each`'s.
 pub fn shown_at(s: &Session, path: &[String], id: &str, port: &str) -> Option<(String, String)> {
-    crate::trace::key(&s.source, path, id, port)
+    crate::trace::shown_key(&s.source, path, id, port)
 }
 
 /// The node of a group's body an output shown is of (`inner.node.port` of the group `node`), and the place of its
@@ -2486,7 +2486,13 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     let inner = inner_of(s, &node, &port);
     let (title, op, ports): (String, String, Vec<(String, String)>) = match &inner {
         Some((n, place)) => (
-            format!("{node}/{}", place.replace('.', "/")),
+            {
+                // in a loop's body: what its last step gave
+                let path: Vec<String> =
+                    std::iter::once(node.clone()).chain(place.split('.').map(String::from)).collect();
+                let last = crate::trace::in_loop(&s.source, &path[..path.len() - 1]);
+                format!("{node}/{}{}", place.replace('.', "/"), if last { " (the last step)" } else { "" })
+            },
             n.op.clone(),
             crate::editor::output_ports(n, r).into_iter().map(|(p, _)| (format!("{place}.{p}"), p)).collect(),
         ),

@@ -1,4 +1,5 @@
-//! A node's result frozen: its outputs written next to the model (`<model>.frozen/<node>/`, a file each and
+//! A node's result frozen: its outputs written next to the model (`<model>.frozen/<node>/`, a node of a group's body
+//! `<model>.frozen/<group>.<node>/` by its place `group/node`; a file each and
 //! `frozen.json`, what each is), read back in a later session and used instead of running the node while it is
 //! frozen ([`Cache::hold`](crate::Cache::hold)). The same values: maps of whole numbers as they fit, the others in
 //! float64; tables as CSV (every digit); vectors as GeoPackage; numbers, texts and fitted models as JSON.
@@ -41,15 +42,21 @@ pub fn folder(model_file: &Path) -> PathBuf {
     model_file.with_file_name(format!("{stem}.frozen"))
 }
 
+/// The folder of a node's frozen result: by its id, a node of a group's body by its place (`group/node`, the folder
+/// `group.node`: no id has a dot).
+pub fn dir(folder: &Path, node: &str) -> PathBuf {
+    folder.join(node.replace('/', "."))
+}
+
 /// When a node's result was frozen (seconds since 1970), if it is.
 pub fn when(folder: &Path, node: &str) -> Option<u64> {
-    let text = std::fs::read_to_string(folder.join(node).join("frozen.json")).ok()?;
+    let text = std::fs::read_to_string(dir(folder, node).join("frozen.json")).ok()?;
     serde_json::from_str::<Index>(&text).ok().map(|i| i.when)
 }
 
 /// Forget a node's frozen result (its folder removed).
 pub fn thaw(folder: &Path, node: &str) -> Result<()> {
-    let dir = folder.join(node);
+    let dir = dir(folder, node);
     if dir.exists() {
         std::fs::remove_dir_all(&dir)?;
     }
@@ -81,8 +88,8 @@ fn kind_of(v: &Value) -> &'static str {
 /// Write a node's outputs into `folder/node` (what was there replaced); refused, with the reason, when one of them
 /// cannot be kept (a random generator, agents, a series not of maps...).
 pub fn freeze(folder: &Path, node: &str, outputs: &Outputs) -> Result<()> {
-    let dir = folder.join(node);
-    let tmp = folder.join(format!(".{node}.new"));
+    let dir = dir(folder, node);
+    let tmp = folder.join(format!(".{}.new", node.replace('/', ".")));
     if tmp.exists() {
         std::fs::remove_dir_all(&tmp)?;
     }
@@ -176,7 +183,7 @@ fn model<T: serde::de::DeserializeOwned>(path: &Path) -> Result<Arc<T>> {
 
 /// A node's frozen outputs, read back, and when they were frozen.
 pub fn read(folder: &Path, node: &str) -> Result<(Outputs, u64)> {
-    let dir = folder.join(node);
+    let dir = dir(folder, node);
     let text = std::fs::read_to_string(dir.join("frozen.json"))?;
     let index: Index = serde_json::from_str(&text).map_err(|e| Error::Model(format!("frozen.json: {e}")))?;
     let mut out = Outputs::new();

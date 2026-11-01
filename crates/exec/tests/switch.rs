@@ -164,3 +164,16 @@ params = { expression = { from = "v.text" } }
     assert!(matches!(out.get("v.text"), Some(Value::Text(t)) if t == "x * 4 + 4"));
     assert_eq!(data(out.get("scaled.map")), [8.0, 12.0]);
 }
+
+#[test]
+fn a_switch_gives_what_the_branch_that_ran_gave() {
+    // the body's nodes of the branch, by the branch (`branch.node.port`), as a group's by the group
+    let (out, _) = run(SWITCH, Value::Text("double".into()));
+    let out = out.unwrap();
+    assert_eq!(data(out.values["sw"].get("double.d.map")), [2.0, 4.0]);
+    assert!(
+        !out.values["sw"].keys().any(|k| k.starts_with("case_3.") || k.starts_with("d.")),
+        "{:?}",
+        out.values["sw"].keys().collect::<Vec<_>>()
+    );
+}

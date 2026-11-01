@@ -790,7 +790,7 @@ fn a_frozen_result_is_kept_between_sessions() {
     {
         let s = h.state_mut().session.as_mut().unwrap();
         assert!(matches!(&s.recorded, Some(Ok(p)) if p.ends_with("manifest.json")), "{:?}", s.recorded);
-        s.freeze("twice", true).unwrap();
+        s.freeze(&[], "twice", true).unwrap();
         s.edited();
         s.save().unwrap();
     }
@@ -817,12 +817,129 @@ fn a_frozen_result_is_kept_between_sessions() {
     // thawed: land and twice run again, the files gone
     {
         let s = h.state_mut().session.as_mut().unwrap();
-        s.freeze("twice", false).unwrap();
+        s.freeze(&[], "twice", false).unwrap();
         s.edited();
     }
     run(&mut h);
     let s = h.state().session.as_ref().unwrap();
     assert_eq!(s.status.get("land"), Some(&NodeStatus::Done { cached: false }));
+    assert!(!folder.exists());
+}
+
+/// A node of a group's body frozen: written next to the model by its place (`group.node`), used in a later session
+/// whatever it reads; and the viewer shows a node of a loop's body (its last step) and of a switch's branch.
+#[test]
+fn a_node_of_a_group_is_frozen_and_bodies_are_shown() {
+    use terraflux_graph::{Body, Model, Node};
+    let mut m = Model::new("frozen in a group");
+    m.nodes.push(Node::new("land", "nlm.random").param("rows", 20).param("columns", 30).param("seed", 3));
+    m.nodes.push(Node::new("g", terraflux_graph::GROUP).input("x", "land.map").body(Body {
+        nodes: vec![
+            Node::new("twice", "raster.calc").param("expression", "x * 2").input("x", "@x"),
+            Node::new("half", "raster.calc").param("expression", "twice / 2").input("twice", "twice.map"),
+        ],
+        outputs: [("map".to_string(), "half.map".to_string())].into(),
+        ..Default::default()
+    }));
+    m.nodes.push(Node::new("years", "control.repeat").literal("times", 3).literal("v", 0).body(Body {
+        nodes: vec![
+            Node::new("step", "value.calc").input("v", "@v").param("expression", "v + 1"),
+            Node::new("grow", "nlm.random").param("rows", 10).param("columns", 10).param("seed", 5),
+        ],
+        carry: [("v".to_string(), "step.value".to_string())].into(),
+        ..Default::default()
+    }));
+    m.nodes.push(Node::new("which", "value.calc").param("text", "a"));
+    m.nodes.push(Node::new("sw", terraflux_graph::SWITCH).input("case", "which.text").input("map", "land.map").body(Body {
+        nodes: vec![
+            Node::new("a", terraflux_graph::GROUP).input("x", "@map").body(Body {
+                nodes: vec![Node::new("inv", "raster.calc").param("expression", "1 - x").input("x", "@x")],
+                outputs: [("map".to_string(), "inv.map".to_string())].into(),
+                ..Default::default()
+            }),
+            Node::new("otherwise", terraflux_graph::GROUP).input("x", "@map").body(Body {
+                nodes: vec![Node::new("same", "raster.calc").param("expression", "x").input("x", "@x")],
+                outputs: [("map".to_string(), "same.map".to_string())].into(),
+                ..Default::default()
+            }),
+        ],
+        ..Default::default()
+    }));
+    let path = tmp("frozen_group.toml");
+    let folder = terraflux_exec::frozen::folder(&path);
+    let _ = std::fs::remove_dir_all(&folder);
+    m.save(&path).unwrap();
+    let run = |h: &mut Harness<TerrafluxApp>| {
+        h.state_mut().session.as_mut().unwrap().start(Box::new(|| {}));
+        until(h, "the run", |a| {
+            let s = a.session.as_ref().unwrap();
+            !s.running() && s.value_of("g", "map").is_some()
+        });
+    };
+    let map = |v: Option<terraflux_ops::Value>| match v {
+        Some(terraflux_ops::Value::Map(m)) => m.data.to_vec(),
+        v => panic!("{:?}", v.map(|v| v.ty())),
+    };
+    let mut h = harness(new_app(Some(path.clone())));
+    loaded(&mut h);
+    run(&mut h);
+    let r = terraflux_ops::Registry::standard();
+    let given = map(h.state().session.as_ref().unwrap().value_of("g", "twice.map"));
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        // a loop's body: the node's map at the last step, named so in the viewer
+        s.editor.path = vec!["years".into()];
+        terraflux_app::builder::select(s, &r, "grow");
+        assert_eq!(s.preview, Some(("years".to_string(), "grow.map".to_string())));
+        assert!(s.preview_value().is_some(), "the loop gives what its body gave at the last step");
+        // a switch's branch that ran
+        s.editor.path = vec!["sw".into(), "a".into()];
+        terraflux_app::builder::select(s, &r, "inv");
+        assert_eq!(s.preview, Some(("sw".to_string(), "a.inv.map".to_string())));
+        assert!(s.preview_value().is_some(), "the switch gives what its branch gave");
+        s.editor.path = vec!["sw".into(), "otherwise".into()];
+        terraflux_app::builder::select(s, &r, "same");
+        assert!(s.preview_value().is_none(), "a branch that did not run gives nothing");
+        // back to the loop's node, for the viewer
+        s.editor.path = vec!["years".into()];
+        terraflux_app::builder::select(s, &r, "grow");
+    }
+    h.state_mut().focus(Pane::Viewer);
+    h.run_steps(4);
+    assert!(h.query_by_label("years/grow (the last step)").is_some(), "the viewer says it is the last step");
+    shot(&mut h, "51-loop-body-viewer");
+    // twice, in the group, frozen
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.editor.path = vec!["g".into()];
+        s.freeze(&["g".to_string()], "twice", true).unwrap();
+        s.edited();
+        s.save().unwrap();
+    }
+    assert!(folder.join("g.twice").join("frozen.json").is_file());
+    // a later session, land drawn otherwise: twice from disk, half on it
+    let mut saved = Model::load(&path).unwrap();
+    assert!(saved.node("g").unwrap().body.as_ref().unwrap().nodes[0].frozen);
+    saved.nodes[0].params.insert("seed".into(), 4.into());
+    saved.save(&path).unwrap();
+    let mut h = harness(new_app(Some(path.clone())));
+    loaded(&mut h);
+    run(&mut h);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        assert_eq!(map(s.value_of("g", "twice.map")), given, "twice frozen, whatever land is now");
+        let half: Vec<f64> = given.iter().map(|x| x / 2.0).collect();
+        assert_eq!(map(s.value_of("g", "map")), half);
+    }
+    // thawed: twice runs again on land as it is now, the files gone
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.freeze(&["g".to_string()], "twice", false).unwrap();
+        s.edited();
+    }
+    run(&mut h);
+    let s = h.state().session.as_ref().unwrap();
+    assert_ne!(map(s.value_of("g", "twice.map")), given);
     assert!(!folder.exists());
 }
 

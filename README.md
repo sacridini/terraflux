@@ -270,7 +270,7 @@ glance ("3 checks: 2 passed, 1 warned"), each check listed on hover.
 maps shown, until **Next** or **Continue**. **Stop** stops the long operators between their parts (MSPA's tiles,
 the circuits' batches of points, a fit's folds, the metrics' blocks). **Freeze** in the Node pane keeps a node's
 result on disk next to the model (a ❄ on the canvas) and uses it instead of running the node, in later sessions
-and by `terraflux run` too; what only it reads does not run either. A whole run of a model saved writes its outputs
+and by `terraflux run` too, a node inside a group too; what only it reads does not run either. A whole run of a model saved writes its outputs
 and the run's manifest (`output/manifest.json`), as `terraflux run` does, for `terraflux reproduce`.
 
 **A folder of rasters.** Any node that takes a map runs on every raster of a folder: **Run on a folder...** (in the

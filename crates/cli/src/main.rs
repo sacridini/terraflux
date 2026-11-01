@@ -681,20 +681,22 @@ fn run_frozen(
     progress: &mut Progress,
     quiet: bool,
 ) -> Result<terraflux_exec::Results> {
-    if !m.nodes.iter().any(|n| n.frozen) {
+    let frozen = terraflux_exec::frozen_places(m);
+    if frozen.is_empty() {
         return Ok(engine.run(m, inputs, progress)?);
     }
     let folder = terraflux_exec::frozen::folder(model_file);
     let mut held = terraflux_exec::Cache::default();
-    for n in m.nodes.iter().filter(|n| n.frozen) {
-        match terraflux_exec::frozen::read(&folder, &n.id) {
+    // (a node of a group's body by its place, group/node)
+    for at in &frozen {
+        match terraflux_exec::frozen::read(&folder, at) {
             Ok((outputs, when)) => {
-                held.hold(&n.id, Some(outputs), when);
+                held.hold(at, Some(outputs), when);
                 if !quiet {
-                    eprintln!("{}: its result frozen ({})", n.id, folder.join(&n.id).display());
+                    eprintln!("{at}: its result frozen ({})", terraflux_exec::frozen::dir(&folder, at).display());
                 }
             }
-            Err(e) => eprintln!("  note: {}: frozen, its result not read ({e}): it runs", n.id),
+            Err(e) => eprintln!("  note: {at}: frozen, its result not read ({e}): it runs"),
         }
     }
     Ok(engine.run_with(m, inputs, progress, Some(&std::sync::Mutex::new(held)), None)?)
