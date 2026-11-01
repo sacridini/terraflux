@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.31.0] - 2026-11-01
+
 ### Changed
 - A new installation opens in **Slate**, the modern dark theme (a theme's name unknown in the settings too); the
   theme chosen before stays.
