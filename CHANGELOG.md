@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.30.0] - 2026-11-01
+
 ### Added
 - The **report in Portuguese**: File, Export report (and the Document pane's) asks for the language, In English or
   Em português, and `terraflux report model.toml -l pt` writes it so. The report's own words (the sections, the
