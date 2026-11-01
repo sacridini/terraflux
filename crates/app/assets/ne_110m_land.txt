@@ -1,0 +1,5 @@
+ne_110m_land.bin: the land of the world from Natural Earth (1:110 million, ne_110m_land), public domain
+(https://www.naturalearthdata.com/about/terms-of-use/), for the location inset of Terraflux's figures.
+
+Format: "NE01", the number of rings (u16, little-endian), then each ring: its number of points (u16) and the
+points as longitude and latitude in hundredths of a degree (i16 pairs).

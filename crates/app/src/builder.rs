@@ -2838,6 +2838,25 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                         )
                         .clicked()
                 {
+                    // the vector layers drawn over the map, in its coordinates and their colours there
+                    let styled = plot_vectors.iter().map(|v| (v.clone(), crate::vector_tiles::Style::default())).chain(
+                        sh.overlays.iter().filter_map(|(n, p, style)| match s.value_of(n, p) {
+                            Some(Value::Vector(v)) => Some((v, style.clone())),
+                            _ => None,
+                        }),
+                    );
+                    let vectors: Vec<crate::figure::Vectors> = styled
+                        .filter_map(|(v, style)| {
+                            let v = terraflux_ops::vector::on_grid(&v, maps[k].grid()).ok()?;
+                            let colours = crate::vector_tiles::colours(&v, &style);
+                            Some(crate::figure::Vectors {
+                                vector: v,
+                                colours,
+                                fill: style.fill,
+                                width: style.width * 0.6,
+                            })
+                        })
+                        .collect();
                     let panel =
                         |src: &Source, lk: &Look, legend: Option<&[terraflux_ops::legend::Class]>, caption: String| {
                             let names = match &lk.coloring {
@@ -2846,7 +2865,13 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                                 }
                                 Coloring::Continuous { .. } => Vec::new(),
                             };
-                            crate::figure::Panel { source: src.clone(), coloring: lk.coloring.clone(), names, caption }
+                            crate::figure::Panel {
+                                source: src.clone(),
+                                coloring: lk.coloring.clone(),
+                                names,
+                                caption,
+                                vectors: vectors.clone(),
+                            }
                         };
                     let legend = legend_classes.as_deref();
                     let mut choices = vec![("this map".to_string(), vec![panel(&maps[k], l, legend, String::new())])];
@@ -2871,6 +2896,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                                 coloring: d.coloring.clone(),
                                 names: d.names.clone(),
                                 caption,
+                                vectors: vectors.clone(),
                             };
                             choices.push(("the difference of the two".into(), vec![p]));
                         }

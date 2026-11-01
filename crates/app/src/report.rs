@@ -948,7 +948,7 @@ impl Font {
 }
 
 /// A character in the PDF's encoding (WinAnsi: Latin-1 and a few more); others as near as they come.
-fn ansi(c: char) -> Vec<u8> {
+pub(crate) fn ansi(c: char) -> Vec<u8> {
     match c {
         '\u{20}'..='\u{7e}' => vec![c as u8],
         '\u{a0}'..='\u{ff}' => vec![c as u32 as u8],
@@ -969,6 +969,11 @@ fn ansi(c: char) -> Vec<u8> {
         '\t' | '\n' | '\r' => vec![b' '],
         _ => vec![b'?'],
     }
+}
+
+/// A text's width in Helvetica (points).
+pub(crate) fn helvetica_width(size: f32, text: &str) -> f32 {
+    width(Font::Regular, size, text)
 }
 
 fn width(font: Font, size: f32, text: &str) -> f32 {

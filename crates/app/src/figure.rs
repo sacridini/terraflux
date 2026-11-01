@@ -1,8 +1,9 @@
 //! A map as a figure for a paper: one map or several side by side (a), (b)..., each with its caption, its
-//! coordinates along its edges, a scale bar, a north arrow and the legend, at the width of a journal's column and
-//! the resolution it asks for. Laid out once in points (1/72 inch) as shapes, then written as SVG (text as text,
-//! to edit in Inkscape or Illustrator; the maps as pictures in it) or drawn as PNG at the DPI chosen (the same
-//! letters, as the font's outlines).
+//! coordinates along its edges, a scale bar, a north arrow, a location inset (where in the world the map is), the
+//! vector layers drawn over it in the Viewer and the legend, at the width of a journal's column and the resolution
+//! it asks for. Laid out once in points (1/72 inch) as shapes, then written as SVG (text as text, to edit in
+//! Inkscape or Illustrator; the maps as pictures in it), as PDF (vectors and text, the maps as pictures) or drawn
+//! as PNG at the DPI chosen (the same letters, as the font's outlines).
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -14,13 +15,25 @@ use egui::{Color32, RichText};
 use crate::map_view::Source;
 use crate::palette::Coloring;
 
-/// A map of the figure: what it shows, its colours, the names of its classes, its caption.
+/// A map of the figure: what it shows, its colours, the names of its classes, its caption, and the vector layers
+/// drawn over it.
 #[derive(Clone)]
 pub struct Panel {
     pub source: Source,
     pub coloring: Coloring,
     pub names: Vec<(f64, String)>,
     pub caption: String,
+    pub vectors: Vec<Vectors>,
+}
+
+/// Features drawn over a map, in its coordinate system: a colour each, the polygons' fill (0 to 1) and the
+/// lines' width (points).
+#[derive(Clone)]
+pub struct Vectors {
+    pub vector: Arc<terraflux_raster::vector::Vector>,
+    pub colours: Vec<Color32>,
+    pub fill: f32,
+    pub width: f32,
 }
 
 /// How the figure is laid out.
@@ -35,6 +48,8 @@ pub struct Layout {
     pub scale_bar: bool,
     pub north: bool,
     pub grid: bool,
+    /// A small map of where in the world the map is.
+    pub inset: bool,
 }
 
 impl Default for Layout {
@@ -48,6 +63,7 @@ impl Default for Layout {
             scale_bar: true,
             north: true,
             grid: true,
+            inset: true,
         }
     }
 }
@@ -90,6 +106,15 @@ enum Shape {
         fill: Color32,
         stroke: Option<(Color32, f32)>,
     },
+    /// Rings (closed: filled by the even-odd rule, a polygon's holes left out) or lines.
+    Path {
+        rings: Vec<Vec<(f32, f32)>>,
+        closed: bool,
+        fill: Option<Color32>,
+        stroke: Option<(Color32, f32)>,
+    },
+    /// What follows drawn only inside a rectangle (x, y, w, h), up to `Clip(None)`.
+    Clip(Option<(f32, f32, f32, f32)>),
     /// A line of text: its point on the baseline, its size, read upwards when `up`.
     Text {
         x: f32,
@@ -327,6 +352,143 @@ fn picture(p: &Panel, px: usize) -> Result<(Arc<Vec<u8>>, usize, usize), String>
     Ok((Arc::new(rgba), w, h))
 }
 
+/// Features as shapes: polygons filled (and outlined), lines, points as small discs; `at` from the map's
+/// coordinates to the figure's points.
+fn vectors(out: &mut Vec<Shape>, v: &Vectors, at: &dyn Fn(f64, f64) -> (f32, f32)) {
+    use terraflux_raster::vector::Geometry;
+    let ring = |r: &[[f64; 2]]| -> Vec<(f32, f32)> { r.iter().map(|p| at(p[0], p[1])).collect() };
+    for (k, g) in v.vector.geometries.iter().enumerate() {
+        let c = v.colours.get(k).copied().unwrap_or(INK);
+        let stroke = (v.width > 0.0).then_some((c, v.width));
+        match g {
+            Geometry::Polygon(_) | Geometry::MultiPolygon(_) => {
+                let rings: Vec<Vec<(f32, f32)>> = g.polygons().into_iter().flatten().map(|r| ring(r)).collect();
+                let fill = (v.fill > 0.0).then(|| c.gamma_multiply(v.fill.clamp(0.0, 1.0)));
+                out.push(Shape::Path { rings, closed: true, fill, stroke: stroke.or(Some((c, 0.6))) });
+            }
+            Geometry::LineString(l) => {
+                out.push(Shape::Path {
+                    rings: vec![ring(l)],
+                    closed: false,
+                    fill: None,
+                    stroke: Some((c, v.width.max(0.3))),
+                });
+            }
+            Geometry::MultiLineString(m) => {
+                let rings = m.iter().map(|l| ring(l)).collect();
+                out.push(Shape::Path { rings, closed: false, fill: None, stroke: Some((c, v.width.max(0.3))) });
+            }
+            Geometry::Point(_) | Geometry::MultiPoint(_) => {
+                let r = 1.2 + v.width / 2.0;
+                let mut rings = Vec::new();
+                g.points(&mut |p| {
+                    let (x, y) = at(p[0], p[1]);
+                    rings.push(
+                        (0..16)
+                            .map(|i| {
+                                let a = i as f32 / 16.0 * std::f32::consts::TAU;
+                                (x + r * a.cos(), y + r * a.sin())
+                            })
+                            .collect(),
+                    );
+                });
+                out.push(Shape::Path { rings, closed: true, fill: Some(c), stroke: Some((Color32::WHITE, 0.3)) });
+            }
+            Geometry::Empty => {}
+        }
+    }
+}
+
+/// The world's land (Natural Earth's at 1:110 million, public domain): rings of longitudes and latitudes.
+fn land() -> &'static [Vec<(f32, f32)>] {
+    static LAND: std::sync::OnceLock<Vec<Vec<(f32, f32)>>> = std::sync::OnceLock::new();
+    LAND.get_or_init(|| {
+        let b: &[u8] = include_bytes!("../assets/ne_110m_land.bin");
+        let u16_at = |i: usize| u16::from_le_bytes([b[i], b[i + 1]]) as usize;
+        let i16_at = |i: usize| i16::from_le_bytes([b[i], b[i + 1]]) as f32 / 100.0;
+        let mut at = 6;
+        let mut rings = Vec::new();
+        for _ in 0..u16_at(4) {
+            let n = u16_at(at);
+            at += 2;
+            rings.push((0..n).map(|k| (i16_at(at + 4 * k), i16_at(at + 4 * k + 2))).collect());
+            at += 4 * n;
+        }
+        rings
+    })
+}
+
+/// A grid's longitudes and latitudes: west, south, east, north (its edges sampled, in WGS 84).
+fn lonlat(g: &terraflux_raster::Grid) -> Option<[f64; 4]> {
+    let (west, south, east, north) = extent(g);
+    if g.geo.is_geographic() == Some(true) {
+        return Some([west, south, east, north]);
+    }
+    let crs = g.geo.wkt.clone().or_else(|| g.geo.epsg().map(|c| format!("EPSG:{c}")))?;
+    let tr = terraflux_gdal::Transform::new(&crs, "EPSG:4326").ok()?;
+    let (mut xs, mut ys) = (Vec::new(), Vec::new());
+    for k in 0..=10 {
+        let f = k as f64 / 10.0;
+        for (x, y) in [
+            (west + f * (east - west), south),
+            (west + f * (east - west), north),
+            (west, south + f * (north - south)),
+            (east, south + f * (north - south)),
+        ] {
+            xs.push(x);
+            ys.push(y);
+        }
+    }
+    tr.points(&mut xs, &mut ys);
+    let ok = |v: &f64| v.is_finite();
+    let lo = |v: &[f64]| v.iter().copied().filter(ok).fold(f64::INFINITY, f64::min);
+    let hi = |v: &[f64]| v.iter().copied().filter(ok).fold(f64::NEG_INFINITY, f64::max);
+    let b = [lo(&xs), lo(&ys), hi(&xs), hi(&ys)];
+    (b.iter().all(|v| v.is_finite()) && b[2] >= b[0] && b[3] >= b[1]).then_some(b)
+}
+
+/// The location inset in the map's bottom right corner: the land around (several times the map's span, 24
+/// degrees at least) and the map's extent in red.
+fn inset(out: &mut Vec<Shape>, g: &terraflux_raster::Grid, (mx, my, mw, mh): (f32, f32, f32, f32)) {
+    let Some([w, s, e, n]) = lonlat(g) else { return };
+    let (iw, ih) = ((mw * 0.3).clamp(42.0, 110.0), (mw * 0.3).clamp(42.0, 110.0) * 0.72);
+    let (x0, y0) = (mx + mw - iw - 4.0, my + mh - ih - 4.0);
+    // longitudes shrunk by the cosine of the middle latitude, as the eye expects them there
+    let (cx, cy) = ((w + e) / 2.0, (s + n) / 2.0);
+    let k = cy.to_radians().cos().max(0.2);
+    let span_x = (((e - w) * k).max(n - s) * 6.0).max(24.0 * k).min(360.0 * k);
+    let span_y = span_x * f64::from(ih / iw);
+    let at = |lon: f64, lat: f64| -> (f32, f32) {
+        (x0 + (((lon - cx) * k / span_x + 0.5) as f32) * iw, y0 + ((0.5 - (lat - cy) / span_y) as f32) * ih)
+    };
+    out.push(Shape::Rect { x: x0, y: y0, w: iw, h: ih, fill: Some(Color32::from_rgb(232, 240, 247)), stroke: None });
+    out.push(Shape::Clip(Some((x0, y0, iw, ih))));
+    let rings: Vec<Vec<(f32, f32)>> =
+        land().iter().map(|r| r.iter().map(|&(lon, lat)| at(f64::from(lon), f64::from(lat))).collect()).collect();
+    let grey = Color32::from_rgb(205, 205, 200);
+    out.push(Shape::Path {
+        rings,
+        closed: true,
+        fill: Some(grey),
+        stroke: Some((Color32::from_rgb(150, 150, 145), 0.25)),
+    });
+    let (a, b) = (at(w, n), at(e, s));
+    let red = Color32::from_rgb(214, 39, 40);
+    if b.0 - a.0 < 3.0 || b.1 - a.1 < 3.0 {
+        // too small to see as a box: a ring around its middle
+        let (px, py) = at(cx, cy);
+        let ring = (0..20).map(|i| {
+            let t = i as f32 / 20.0 * std::f32::consts::TAU;
+            (px + 3.0 * t.cos(), py + 3.0 * t.sin())
+        });
+        out.push(Shape::Path { rings: vec![ring.collect()], closed: true, fill: None, stroke: Some((red, 0.9)) });
+    } else {
+        out.push(Shape::Rect { x: a.0, y: a.1, w: b.0 - a.0, h: b.1 - a.1, fill: None, stroke: Some((red, 0.9)) });
+    }
+    out.push(Shape::Clip(None));
+    out.push(Shape::Rect { x: x0, y: y0, w: iw, h: ih, fill: None, stroke: Some((INK, 0.5)) });
+}
+
 /// The figure of the panels laid out: its shapes, its size. `px_per_pt` sets how finely the maps are read.
 pub fn lay_out(panels: &[Panel], l: &Layout, px_per_pt: f32) -> Result<Drawing, String> {
     if panels.is_empty() {
@@ -431,9 +593,21 @@ pub fn lay_out(panels: &[Panel], l: &Layout, px_per_pt: f32) -> Result<Drawing, 
                     v += step;
                 }
             }
-            out.push(Shape::Rect { x: mx, y: yy, w: map_w, h: map_h, fill: None, stroke: Some((INK, 0.5)) });
-            // a north arrow, top right, on a north-up map
+            // a north-up map: the vectors over it, in its coordinates, inside it
             let north_up = g.transform[2] == 0.0 && g.transform[4] == 0.0 && g.transform[5] < 0.0;
+            if north_up && east > west && north > south && !p.vectors.is_empty() {
+                out.push(Shape::Clip(Some((mx, yy, map_w, map_h))));
+                for v in &p.vectors {
+                    vectors(&mut out, v, &|x, y| (at_x(x), at_y(y)));
+                }
+                out.push(Shape::Clip(None));
+            }
+            out.push(Shape::Rect { x: mx, y: yy, w: map_w, h: map_h, fill: None, stroke: Some((INK, 0.5)) });
+            // where in the world: bottom right
+            if l.inset && geo && map_w > 90.0 && map_h > 60.0 {
+                inset(&mut out, g, (mx, yy, map_w, map_h));
+            }
+            // a north arrow, top right, on a north-up map
             if l.north && north_up && map_h > 40.0 {
                 let (cx, top) = (mx + map_w - 10.0, yy + 4.0);
                 out.push(Shape::Rect { x: cx - 7.0, y: top, w: 14.0, h: 24.0, fill: Some(HALO), stroke: None });
@@ -540,6 +714,9 @@ fn paint_attrs(kind: &str, c: Color32) -> String {
     if a < 1.0 { format!(" {kind}=\"{hex}\" {kind}-opacity=\"{a:.3}\"") } else { format!(" {kind}=\"{hex}\"") }
 }
 
+/// A picture of a PDF: width, height, RGB deflated, alpha deflated (when not all opaque).
+type PdfImage = (usize, usize, Vec<u8>, Option<Vec<u8>>);
+
 impl Drawing {
     /// The figure as SVG, `width_mm` wide: its text as text (in the application's font, else a sans serif).
     pub fn svg(&self, width_mm: f32) -> String {
@@ -551,8 +728,32 @@ impl Drawing {
              <rect width=\"100%\" height=\"100%\" fill=\"#ffffff\"/>\n",
             self.w, self.h
         );
+        let mut clips = 0;
         for sh in &self.shapes {
             match sh {
+                Shape::Clip(Some((x, y, w, h))) => {
+                    clips += 1;
+                    s.push_str(&format!(
+                        "<clipPath id=\"clip{clips}\"><rect x=\"{x:.3}\" y=\"{y:.3}\" width=\"{w:.3}\" height=\"{h:.3}\"/></clipPath>\n<g clip-path=\"url(#clip{clips})\">\n"
+                    ));
+                }
+                Shape::Clip(None) => s.push_str("</g>\n"),
+                Shape::Path { rings, closed, fill, stroke } => {
+                    let mut d = String::new();
+                    for r in rings.iter().filter(|r| r.len() >= 2) {
+                        for (i, (x, y)) in r.iter().enumerate() {
+                            d.push_str(&format!("{}{x:.2},{y:.2} ", if i == 0 { "M" } else { "L" }));
+                        }
+                        if *closed {
+                            d.push_str("Z ");
+                        }
+                    }
+                    let f = fill.map_or(" fill=\"none\"".to_string(), |c| paint_attrs("fill", c));
+                    let st = stroke.map_or(String::new(), |(c, w)| {
+                        format!("{} stroke-width=\"{w}\" stroke-linejoin=\"round\"", paint_attrs("stroke", c))
+                    });
+                    s.push_str(&format!("<path d=\"{}\" fill-rule=\"evenodd\"{f}{st}/>\n", d.trim_end()));
+                }
                 Shape::Image { x, y, w, h, rgba, iw, ih } => {
                     let png = png_of(rgba, *iw, *ih).unwrap_or_default();
                     // (xlink:href too: SVG Tiny and older programs read only it)
@@ -602,6 +803,215 @@ impl Drawing {
         s
     }
 
+    /// The figure as a PDF of its own size: the lines, shapes and text as they are (the text in Helvetica), the
+    /// maps as pictures (their transparent cells kept so, by a soft mask).
+    pub fn pdf(&self, title: &str) -> Vec<u8> {
+        use std::fmt::Write as _;
+        let page_h = self.h;
+        let mut c = String::new();
+        // the opacities used, of fills and of strokes (ExtGStates /Fa.. and /Sa..)
+        let (mut fills, mut strokes): (Vec<u8>, Vec<u8>) = (Vec::new(), Vec::new());
+        // the pictures: width, height, RGB deflated, alpha deflated (when not all opaque)
+        let mut images: Vec<PdfImage> = Vec::new();
+        let colour = |c: Color32| {
+            let [r, g, b, _] = c.to_srgba_unmultiplied();
+            format!("{:.3} {:.3} {:.3}", r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0)
+        };
+        let mut paint = |c: &mut String, fill: Option<Color32>, stroke: Option<(Color32, f32)>| {
+            if let Some(f) = fill {
+                let a = f.to_srgba_unmultiplied()[3];
+                if a < 255 {
+                    if !fills.contains(&a) {
+                        fills.push(a);
+                    }
+                    let _ = write!(c, "/Fa{a} gs ");
+                }
+                let _ = write!(c, "{} rg ", colour(f));
+            }
+            if let Some((s, w)) = stroke {
+                let a = s.to_srgba_unmultiplied()[3];
+                if a < 255 {
+                    if !strokes.contains(&a) {
+                        strokes.push(a);
+                    }
+                    let _ = write!(c, "/Sa{a} gs ");
+                }
+                let _ = write!(c, "{} RG {w:.2} w 1 j ", colour(s));
+            }
+            match (fill.is_some(), stroke.is_some()) {
+                (true, true) => "B",
+                (true, false) => "f",
+                (false, true) => "S",
+                (false, false) => "n",
+            }
+        };
+        let text = |t: &str| {
+            let mut s = String::new();
+            for b in t.chars().map(|c| if c == '\u{2009}' { ' ' } else { c }).flat_map(crate::report::ansi) {
+                if matches!(b, b'(' | b')' | b'\\') {
+                    s.push('\\');
+                }
+                if b < 128 {
+                    s.push(b as char);
+                } else {
+                    let _ = write!(s, "\\{b:03o}");
+                }
+            }
+            s
+        };
+        for sh in &self.shapes {
+            match sh {
+                Shape::Clip(Some((x, y, w, h))) => {
+                    let _ = writeln!(c, "q {x:.2} {:.2} {w:.2} {h:.2} re W n", page_h - y - h);
+                }
+                Shape::Clip(None) => c.push_str("Q\n"),
+                Shape::Image { x, y, w, h, rgba, iw, ih } => {
+                    let (mut rgb, mut alpha) = (Vec::with_capacity(iw * ih * 3), Vec::with_capacity(iw * ih));
+                    for px in rgba.chunks(4) {
+                        let a = px[3];
+                        let un = |v: u8| {
+                            if a == 0 { 255 } else { ((v as u32 * 255 + a as u32 / 2) / a as u32).min(255) as u8 }
+                        };
+                        rgb.extend([un(px[0]), un(px[1]), un(px[2])]);
+                        alpha.push(a);
+                    }
+                    let mask =
+                        alpha.iter().any(|a| *a < 255).then(|| miniz_oxide::deflate::compress_to_vec_zlib(&alpha, 6));
+                    images.push((*iw, *ih, miniz_oxide::deflate::compress_to_vec_zlib(&rgb, 6), mask));
+                    let _ =
+                        writeln!(c, "q {w:.3} 0 0 {h:.3} {x:.3} {:.3} cm /Im{} Do Q", page_h - y - h, images.len() - 1);
+                }
+                Shape::Rect { x, y, w, h, fill, stroke } => {
+                    c.push_str("q ");
+                    let op = paint(&mut c, *fill, *stroke);
+                    let _ = writeln!(c, "{x:.3} {:.3} {w:.3} {h:.3} re {op} Q", page_h - y - h);
+                }
+                Shape::Line { points, colour: col, width } => {
+                    c.push_str("q ");
+                    let op = paint(&mut c, None, Some((*col, *width)));
+                    for (i, (x, y)) in points.iter().enumerate() {
+                        let _ = write!(c, "{x:.3} {:.3} {} ", page_h - y, if i == 0 { "m" } else { "l" });
+                    }
+                    let _ = writeln!(c, "{op} Q");
+                }
+                Shape::Polygon { points, fill, stroke } => {
+                    c.push_str("q ");
+                    let op = paint(&mut c, Some(*fill), *stroke);
+                    for (i, (x, y)) in points.iter().enumerate() {
+                        let _ = write!(c, "{x:.3} {:.3} {} ", page_h - y, if i == 0 { "m" } else { "l" });
+                    }
+                    let _ = writeln!(c, "h {op} Q");
+                }
+                Shape::Path { rings, closed, fill, stroke } => {
+                    c.push_str("q ");
+                    let op = paint(&mut c, *fill, *stroke);
+                    for r in rings.iter().filter(|r| r.len() >= 2) {
+                        for (i, (x, y)) in r.iter().enumerate() {
+                            let _ = write!(c, "{x:.2} {:.2} {} ", page_h - y, if i == 0 { "m" } else { "l" });
+                        }
+                        if *closed {
+                            c.push_str("h ");
+                        }
+                    }
+                    // (the even-odd rule: a polygon's holes left out)
+                    let op = match op {
+                        "f" => "f*",
+                        "B" => "B*",
+                        o => o,
+                    };
+                    let _ = writeln!(c, "{op} Q");
+                }
+                Shape::Text { x, y, size, text: t, anchor, colour: col, up } => {
+                    let w = crate::report::helvetica_width(*size, t);
+                    let back = match anchor {
+                        Anchor::Start => 0.0,
+                        Anchor::Middle => w / 2.0,
+                    };
+                    let (px, py) = if *up { (*x, page_h - y - back) } else { (x - back, page_h - y) };
+                    let m = if *up { format!("0 1 -1 0 {px:.3} {py:.3}") } else { format!("1 0 0 1 {px:.3} {py:.3}") };
+                    let _ = writeln!(c, "q {} rg BT /F1 {size} Tf {m} Tm ({}) Tj ET Q", colour(*col), text(t));
+                }
+            }
+        }
+        // objects: 1 catalog, 2 pages, 3 the page, 4 its content, 5 the font, 6 the information, then the pictures
+        // (and their masks)
+        let mut objects: Vec<Vec<u8>> = Vec::new();
+        objects.push(b"<< /Type /Catalog /Pages 2 0 R >>".to_vec());
+        objects.push(b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec());
+        let mut xo = String::new();
+        let mut next = 7;
+        let mut image_objects = Vec::new();
+        for (k, im) in images.iter().enumerate() {
+            let _ = write!(xo, "/Im{k} {next} 0 R ");
+            image_objects.push(next);
+            next += if im.3.is_some() { 2 } else { 1 };
+        }
+        let mut gs = String::new();
+        for a in &fills {
+            let _ = write!(gs, "/Fa{a} << /ca {:.3} >> ", *a as f32 / 255.0);
+        }
+        for a in &strokes {
+            let _ = write!(gs, "/Sa{a} << /CA {:.3} >> ", *a as f32 / 255.0);
+        }
+        objects.push(
+            format!(
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {:.3} {:.3}] /Resources << /Font << /F1 5 0 R >> \
+                 /XObject << {xo}>> /ExtGState << {gs}>> >> /Contents 4 0 R >>",
+                self.w, self.h
+            )
+            .into_bytes(),
+        );
+        let mut content = format!("<< /Length {} >>\nstream\n", c.len()).into_bytes();
+        content.extend(c.as_bytes());
+        content.extend(b"\nendstream");
+        objects.push(content);
+        objects.push(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>".to_vec());
+        objects.push(
+            format!("<< /Title ({}) /Producer (Terraflux {}) >>", text(title), env!("CARGO_PKG_VERSION")).into_bytes(),
+        );
+        for (k, (w, h, data, mask)) in images.iter().enumerate() {
+            let smask = if mask.is_some() { format!("/SMask {} 0 R ", image_objects[k] + 1) } else { String::new() };
+            let mut o = format!(
+                "<< /Type /XObject /Subtype /Image /Width {w} /Height {h} /ColorSpace /DeviceRGB /BitsPerComponent 8 \
+                 {smask}/Filter /FlateDecode /Length {} >>\nstream\n",
+                data.len()
+            )
+            .into_bytes();
+            o.extend(data);
+            o.extend(b"\nendstream");
+            objects.push(o);
+            if let Some(m) = mask {
+                let mut o = format!(
+                    "<< /Type /XObject /Subtype /Image /Width {w} /Height {h} /ColorSpace /DeviceGray \
+                     /BitsPerComponent 8 /Filter /FlateDecode /Length {} >>\nstream\n",
+                    m.len()
+                )
+                .into_bytes();
+                o.extend(m);
+                o.extend(b"\nendstream");
+                objects.push(o);
+            }
+        }
+        let mut out = b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n".to_vec();
+        let mut offsets = Vec::new();
+        for (k, o) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            out.extend(format!("{} 0 obj\n", k + 1).as_bytes());
+            out.extend(o);
+            out.extend(b"\nendobj\n");
+        }
+        let xref = out.len();
+        out.extend(format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1).as_bytes());
+        for o in offsets {
+            out.extend(format!("{o:010} 00000 n \n").as_bytes());
+        }
+        out.extend(
+            format!("trailer\n<< /Size {} /Root 1 0 R /Info 6 0 R >>\nstartxref\n{xref}\n%%EOF\n", objects.len() + 1)
+                .as_bytes(),
+        );
+        out
+    }
+
     /// The figure as pixels at `dpi` (premultiplied RGBA): its width and height.
     pub fn pixels(&self, dpi: u32) -> Result<tiny_skia::Pixmap, String> {
         let k = dpi as f32 / 72.0;
@@ -620,15 +1030,49 @@ impl Drawing {
             p.anti_alias = true;
             p
         };
+        let mut clip: Option<tiny_skia::Mask> = None;
         for sh in &self.shapes {
+            let mask = clip.as_ref();
             match sh {
+                Shape::Clip(Some((x, y, w, h))) => {
+                    let mut m = tiny_skia::Mask::new(pm.width(), pm.height()).ok_or("no mask of this size")?;
+                    if let Some(r) = tiny_skia::Rect::from_xywh(*x, *y, *w, *h) {
+                        m.fill_path(&tiny_skia::PathBuilder::from_rect(r), tiny_skia::FillRule::Winding, true, tr);
+                    }
+                    clip = Some(m);
+                }
+                Shape::Clip(None) => clip = None,
+                Shape::Path { rings, closed, fill, stroke } => {
+                    let mut pb = tiny_skia::PathBuilder::new();
+                    for r in rings.iter().filter(|r| r.len() >= 2) {
+                        for (i, (x, y)) in r.iter().enumerate() {
+                            if i == 0 { pb.move_to(*x, *y) } else { pb.line_to(*x, *y) }
+                        }
+                        if *closed {
+                            pb.close();
+                        }
+                    }
+                    if let Some(path) = pb.finish() {
+                        if let Some(c) = fill {
+                            pm.fill_path(&path, &paint(*c), tiny_skia::FillRule::EvenOdd, tr, mask);
+                        }
+                        if let Some((c, sw)) = stroke {
+                            let st = tiny_skia::Stroke {
+                                width: *sw,
+                                line_join: tiny_skia::LineJoin::Round,
+                                ..Default::default()
+                            };
+                            pm.stroke_path(&path, &paint(*c), &st, tr, mask);
+                        }
+                    }
+                }
                 Shape::Image { x, y, w, h, rgba, iw, ih } => {
                     let Some(size) = tiny_skia::IntSize::from_wh(*iw as u32, *ih as u32) else { continue };
                     let Some(img) = tiny_skia::Pixmap::from_vec(rgba.to_vec(), size) else { continue };
                     let pp =
                         tiny_skia::PixmapPaint { quality: tiny_skia::FilterQuality::Nearest, ..Default::default() };
                     let place = tiny_skia::Transform::from_row(w / *iw as f32, 0.0, 0.0, h / *ih as f32, *x, *y);
-                    pm.draw_pixmap(0, 0, img.as_ref(), &pp, place.post_concat(tr), None);
+                    pm.draw_pixmap(0, 0, img.as_ref(), &pp, place.post_concat(tr), mask);
                 }
                 Shape::Rect { x, y, w, h, fill, stroke } => {
                     let Some(r) = tiny_skia::Rect::from_xywh(*x, *y, *w, *h) else { continue };
@@ -636,11 +1080,11 @@ impl Drawing {
                     if let Some(c) = fill {
                         let mut p = paint(*c);
                         p.anti_alias = false;
-                        pm.fill_path(&path, &p, tiny_skia::FillRule::Winding, tr, None);
+                        pm.fill_path(&path, &p, tiny_skia::FillRule::Winding, tr, mask);
                     }
                     if let Some((c, sw)) = stroke {
                         let st = tiny_skia::Stroke { width: *sw, ..Default::default() };
-                        pm.stroke_path(&path, &paint(*c), &st, tr, None);
+                        pm.stroke_path(&path, &paint(*c), &st, tr, mask);
                     }
                 }
                 Shape::Line { points, colour, width } => {
@@ -744,14 +1188,19 @@ fn png_of(rgba: &[u8], w: usize, h: usize) -> Option<Vec<u8>> {
     tiny_skia::Pixmap::from_vec(rgba.to_vec(), size)?.encode_png().ok()
 }
 
-/// The figure written: as SVG when the path says so, else as PNG at the layout's DPI (which the file records).
+/// The figure written: as SVG or PDF when the path says so, else as PNG at the layout's DPI (which the file
+/// records).
 pub fn save(panels: &[Panel], l: &Layout, path: &std::path::Path) -> Result<(), String> {
-    let svg = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("svg"));
-    // the maps read as finely as the resolution shows them (an SVG: as for 300 DPI)
-    let dpi = if svg { 300 } else { l.dpi };
+    let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let (svg, pdf) = (ext == "svg", ext == "pdf");
+    // the maps read as finely as the resolution shows them (SVG and PDF: as for the DPI chosen, 300 at least)
+    let dpi = if svg || pdf { l.dpi.max(300) } else { l.dpi };
     let d = lay_out(panels, l, dpi as f32 / 72.0)?;
     if svg {
         return std::fs::write(path, d.svg(l.width_mm)).map_err(|e| e.to_string());
+    }
+    if pdf {
+        return std::fs::write(path, d.pdf(&l.title)).map_err(|e| e.to_string());
     }
     let pm = d.pixels(l.dpi)?;
     let bytes = pm.encode_png().map_err(|e| e.to_string())?;
@@ -880,12 +1329,16 @@ pub fn window(ctx: &egui::Context, s: &mut crate::app::Session) {
                 ui.checkbox(&mut l.scale_bar, "Scale bar");
                 ui.checkbox(&mut l.north, "North arrow");
                 ui.checkbox(&mut l.grid, "Coordinates");
+                ui.checkbox(&mut l.inset, "Location inset")
+                    .on_hover_text("a small map of where in the world the map is, in its bottom right corner");
                 ui.add_space(8.0);
                 let busy = c.job.is_some();
                 ui.horizontal(|ui| {
-                    for (label, ext, filter) in
-                        [("Save PNG...", "png", "PNG picture"), ("Save SVG...", "svg", "SVG drawing")]
-                    {
+                    for (label, ext, filter) in [
+                        ("Save PNG...", "png", "PNG picture"),
+                        ("Save SVG...", "svg", "SVG drawing"),
+                        ("Save PDF...", "pdf", "PDF document"),
+                    ] {
                         if ui.add_enabled(!busy, egui::Button::new(label)).clicked()
                             && let Some(path) = rfd::FileDialog::new()
                                 .set_title("Save the figure")
@@ -916,7 +1369,8 @@ pub fn window(ctx: &egui::Context, s: &mut crate::app::Session) {
                 }
                 ui.label(
                     RichText::new(
-                        "SVG keeps the text as text, to change in Inkscape or Illustrator; PNG records its resolution.",
+                        "SVG and PDF keep the text as text and the lines as lines (SVG to change in Inkscape or \
+                         Illustrator); PNG records its resolution.",
                     )
                     .size(10.5)
                     .weak(),
@@ -972,7 +1426,13 @@ mod tests {
         g.transform = [500000.0, 100.0, 0.0, 9000000.0, 0.0, -100.0];
         g.geo.wkt = Some("PROJCS[\"WGS 84 / UTM zone 23S\",GEOGCS[\"WGS 84\"]]".into());
         let m = Map::new(Arc::new(g), (0..2400).map(f).collect());
-        Panel { source: Source::Map(m), coloring, names: vec![(1.0, "forest".into())], caption: caption.into() }
+        Panel {
+            source: Source::Map(m),
+            coloring,
+            names: vec![(1.0, "forest".into())],
+            caption: caption.into(),
+            vectors: Vec::new(),
+        }
     }
 
     fn classes() -> Coloring {
@@ -1033,6 +1493,64 @@ mod tests {
         let svg = lay_out(&[a, b], &l, 1.0).unwrap().svg(180.0);
         assert!(svg.contains(">forest</text>") && svg.contains(">100</text>") && svg.contains(">50</text>"));
         assert!(!svg.contains("rotate(-90"), "no coordinates");
+    }
+
+    #[test]
+    fn vectors_over_the_map_an_inset_and_a_pdf() {
+        use terraflux_raster::vector::{Geometry, Vector};
+        let mut g = terraflux_raster::Grid::new(60, 40);
+        g.transform = [500000.0, 100.0, 0.0, 9000000.0, 0.0, -100.0];
+        g.geo.wkt = Some(terraflux_gdal::crs_wkt("EPSG:32723").unwrap());
+        let m = Map::new(Arc::new(g), (0..2400).map(|i| 1.0 + (i % 2) as f64).collect());
+        let magenta = Color32::from_rgb(255, 0, 255);
+        // a polygon with a hole, a line beyond the map (cut at its edge), a point
+        let ring = |x0: f64, y0: f64, x1: f64, y1: f64| vec![[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]];
+        let v = Vector {
+            geometries: vec![
+                Geometry::Polygon(vec![
+                    ring(501000.0, 8997000.0, 505000.0, 8999000.0),
+                    ring(502000.0, 8997500.0, 504000.0, 8998500.0),
+                ]),
+                Geometry::LineString(vec![[499000.0, 8996500.0], [507000.0, 8996500.0]]),
+                Geometry::Point([500500.0, 8999500.0]),
+            ],
+            attributes: Vec::new(),
+            crs: None,
+        };
+        let a = Panel {
+            source: Source::Map(m),
+            coloring: classes(),
+            names: Vec::new(),
+            caption: String::new(),
+            vectors: vec![Vectors { vector: Arc::new(v), colours: vec![magenta; 3], fill: 0.2, width: 1.0 }],
+        };
+        let l = Layout { width_mm: 120.0, columns: 1, legend: false, ..Default::default() };
+        let d = lay_out(std::slice::from_ref(&a), &l, 2.0).unwrap();
+        let svg = d.svg(120.0);
+        // clipped to the map, and the inset to its box; the hole by the even-odd rule
+        assert_eq!(svg.matches("<clipPath ").count(), 2, "{svg}");
+        assert!(svg.contains("fill-rule=\"evenodd\"") && svg.contains("stroke=\"#ff00ff\""));
+        // the inset: the land, and the map's place in red (São Paulo's zone: a ring, the map is small)
+        assert!(svg.contains("fill=\"#cdcdc8\"") && svg.contains("stroke=\"#d62728\""));
+        let pm = d.pixels(300).unwrap();
+        let count = |c: (u8, u8, u8)| pm.pixels().iter().filter(|p| (p.red(), p.green(), p.blue()) == c).count();
+        assert!(count((255, 0, 255)) > 300, "the outlines");
+        assert!(count((205, 205, 200)) > 300, "the land");
+        // nothing drawn left of the map: the line cut at its edge
+        let left = (0..pm.height()).filter(|&y| {
+            let p = pm.pixel(30, y).unwrap();
+            (p.red(), p.green(), p.blue()) == (255, 0, 255)
+        });
+        assert_eq!(left.count(), 0);
+        // as PDF: one page of the figure's size, vectors and text
+        let pdf = d.pdf("A figure");
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(text.starts_with("%PDF-1.4") && text.contains("/MediaBox [0 0 340.15"), "{}", &text[..400]);
+        assert!(text.contains(" re W n") && text.contains("B*") && text.contains("(N) Tj"));
+        assert!(text.contains("/Title (A figure)") && text.contains("/Subtype /Image"));
+        // without the inset: no land
+        let l = Layout { inset: false, ..l };
+        assert!(!lay_out(&[a], &l, 2.0).unwrap().svg(120.0).contains("#cdcdc8"));
     }
 
     #[test]

@@ -551,6 +551,15 @@ como o próximo bloco, nesta ordem (um commit por item):
    que põe `sdm.download_gbif` (espécie, países, anos, a área). O MODIS de cobertura da terra (MCD12Q1) ficou de
    fora: só no LP DAAC, com conta Earthdata.
 6. **Figura:** PDF, vetores por cima, encarte de localização.
+   **Feito** (Unreleased): `Drawing::pdf` (uma página do tamanho da figura; Helvetica WinAnsi pelo `report::ansi`
+   e as larguras do `report::helvetica_width`, o texto de pé por `Tm`; as opacidades por ExtGState; os mapas como
+   imagens RGB com SMask para as células sem valor). Novas formas `Path` (anéis pela regra par-ímpar, ou linhas) e
+   `Clip` (recorte num retângulo: `clipPath` no SVG, `Mask` no tiny-skia, `re W n` no PDF). `Panel::vectors`: as
+   camadas de "Vectors over the map" (e as de um `view.plot`), reprojetadas para a grade do mapa, nas cores do
+   estilo (`vector_tiles::colours`). O encarte (`Layout::inset`, ligado por padrão): a terra do Natural Earth
+   1:110m embutida (`assets/ne_110m_land.bin`, 20 KB, centésimos de grau), longitudes encolhidas pelo cosseno da
+   latitude do meio, seis vezes o vão do mapa (24° pelo menos), o mapa em vermelho (um anel quando pequeno
+   demais). Falta: a fonte escolhida, mover a legenda e a barra à mão, o encarte num mapa sem CRS conhecido.
 7. **QGIS:** `.qgz` e as cores dos vetores do Viewer.
 8. **Script Python:** os contêineres (laços, each, switch), os modelos de mudança, SDM, priorização e métricas
    (hoje ficam como comentários).

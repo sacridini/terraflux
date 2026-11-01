@@ -2945,12 +2945,41 @@ fn a_map_as_a_figure() {
         let path = data("pie_landuse.tif").to_string_lossy().into_owned();
         terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into())]).unwrap();
         terraflux_app::builder::add(s, &r, "raster.reclassify", &[("rules", "1 -> 1\n* -> 2".into())]).unwrap();
+        // a polygon over the middle of the map, drawn over it in the Viewer (and so in the figure)
+        let g = terraflux_gdal::Dataset::open(data("pie_landuse.tif")).unwrap().meta.grid.clone();
+        let t = g.transform;
+        let (w, h) = (g.width as f64 * t[1], g.height as f64 * -t[5]);
+        let (x0, y0) = (t[0] + w * 0.3, t[3] - h * 0.7);
+        let (x1, y1) = (t[0] + w * 0.6, t[3] - h * 0.4);
+        let v = terraflux_raster::vector::Vector {
+            geometries: vec![terraflux_raster::vector::Geometry::Polygon(vec![vec![
+                [x0, y0],
+                [x1, y0],
+                [x1, y1],
+                [x0, y1],
+                [x0, y0],
+            ]])],
+            attributes: Vec::new(),
+            crs: g.geo.wkt.clone(),
+        };
+        let gpkg = tmp("figure-area.gpkg");
+        let _ = std::fs::remove_file(&gpkg);
+        terraflux_gdal::write_vector(&gpkg, "area", &v).unwrap();
+        terraflux_app::builder::add(s, &r, "vector.read", &[("path", gpkg.to_string_lossy().into_owned().into())])
+            .unwrap();
+        s.preview_overlays = vec![("vector_read".into(), "vector".into(), Default::default())];
         s.preview = Some(("raster_reclassify".into(), "map".into()));
     }
     h.state_mut().focus(Pane::Viewer);
     until(&mut h, "the run", |a| {
         let s = a.session.as_ref().unwrap();
         !s.running() && s.value_of("raster_reclassify", "map").is_some()
+    });
+    // (the whole model: the vectors too)
+    h.state_mut().session.as_mut().unwrap().start(Box::new(|| {}));
+    until(&mut h, "the whole run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("vector_read", "vector").is_some()
     });
     drawn(&mut h);
     h.get_by_label("Figure...").click();
@@ -2961,8 +2990,15 @@ fn a_map_as_a_figure() {
         assert_eq!(f.choices[0].0, "this map");
         assert_eq!(f.choices[0].1.len(), 1);
         assert_eq!((f.layout.columns, f.layout.width_mm), (1, 85.0));
+        // the polygon over the map goes with it; the inset on by default; written as PDF and PNG
+        assert_eq!(f.choices[0].1[0].vectors.len(), 1);
+        assert!(f.layout.inset);
+        let pdf = tmp("figure.pdf");
+        terraflux_app::figure::save(&f.choices[0].1, &f.layout, &pdf).unwrap();
+        assert!(std::fs::read(&pdf).unwrap().starts_with(b"%PDF-1.4"));
+        terraflux_app::figure::save(&f.choices[0].1, &f.layout, &tmp("figure.png")).unwrap();
     }
-    assert!(h.query_by_label("Save PNG...").is_some() && h.query_by_label("Save SVG...").is_some());
+    assert!(h.query_by_label("Save PNG...").is_some() && h.query_by_label("Save PDF...").is_some());
     shot(&mut h, "14f-figure");
     // the raster read, of three bands: each of them a panel
     {
@@ -2971,6 +3007,14 @@ fn a_map_as_a_figure() {
         s.preview = Some(("raster_read".into(), "raster".into()));
     }
     drawn(&mut h);
+    // (its legend worked out in the background first)
+    for _ in 0..400 {
+        if h.query_by_label("Figure...").is_some() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+        h.run_steps(1);
+    }
     h.get_by_label("Figure...").click();
     h.run_steps(3);
     let f = h.state().session.as_ref().unwrap().figure.as_ref().unwrap();

@@ -49,6 +49,11 @@ minor versions.
   bounds), which adds an `sdm.download_gbif` node. It says what of the choices is **in the cache already**
   (nothing to download, or so many layers to download), and **Preview** fetches the first layer over the grid,
   coarse (200 cells a side), in the background and shows it, or GBIF's count of the records.
+- The **figure** (Figure... in the Viewer) is saved as **PDF** too: a page of the figure's size, its lines, shapes
+  and text as they are (Helvetica) and the maps as pictures. The **vector layers** drawn over the map in the Viewer
+  are drawn over it in the figure, in their colours (polygons filled and outlined, lines, points), cut at the map's
+  edge. A **location inset**, on by default: the land of the world around the map (Natural Earth's, public domain,
+  in the application) and the map's place in red, in its bottom right corner.
 
 ## [1.28.0] - 2026-10-31
 

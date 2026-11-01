@@ -361,9 +361,12 @@ Over a map:
 the map compared, or every layer of a stack or a series as panels (a), (b)... in columns. Give it a title, the
 width (85 mm is a journal's column, 180 mm its page) and the resolution (300 or 600 DPI, as journals ask), and
 choose the legend, the scale bar (in metres or kilometres, also on a map in longitudes and latitudes), the north
-arrow and the coordinates along the edges; the preview follows. **Save PNG...** records the resolution in the file,
-so that a word processor places it at its width; **Save SVG...** keeps the text as text, to change in Inkscape or
-Illustrator (and to turn into a PDF there).
+arrow, the coordinates along the edges and the **location inset** (a small map of the world around, the map's place
+in red, in its bottom right corner); the preview follows. The vector layers drawn over the map (**Vectors over the
+map**) are drawn over it in the figure too, in their colours, cut at the map's edge. **Save PNG...** records the
+resolution in the file, so that a word processor places it at its width; **Save SVG...** keeps the text as text,
+to change in Inkscape or Illustrator; **Save PDF...** writes a PDF of the figure's size, its lines and text as
+lines and text (in Helvetica) and the maps as pictures.
 
 A map of several layers (a stack, the steps of a loop, the bands of a raster) has **Play** beside its slider
 (the layers one after another, again and again; the arrows or the slider stop it), a **speed** in frames a second
