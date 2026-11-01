@@ -2220,7 +2220,7 @@ fn stack_of(m: &terraflux_graph::Model, id: &str, out: &mut Vec<PlotLayer>, seen
 }
 
 /// The first map of a value as a source (a stack's first layer, rasters' chosen one).
-fn first_source(v: &Value) -> Option<Source> {
+pub(crate) fn first_source(v: &Value) -> Option<Source> {
     match v {
         Value::Map(m) => Some(Source::from(m)),
         Value::Stack(st) => st.layers.first().map(|l| Source::Map(Map { grid: st.grid.clone(), data: l.clone() })),

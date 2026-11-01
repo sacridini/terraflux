@@ -204,7 +204,10 @@ figures, and the outputs. When the model has checks (`check.assert`), the top of
 container holding checks) carries its badge too: green when it held, amber when it only warned, red when it
 stopped the run, grey when the run did not come to it. The last section, **Methods and citations**, is the
 paragraph of the methods (the same as the Methods and citations window below, with the model file's name) and
-the references to cite in the APA style, Terraflux's among them, then those the nodes' references give. The
+the references to cite in the APA style, Terraflux's among them, then those the nodes' references give. The maps
+of a loop's steps (what a `control.repeat` collects) are an animation in the HTML (an animated GIF, the step
+written on each map and the legend under them; 40 steps at most, evenly spaced, the first and the last among
+them) and four steps in a row in the PDF (the first, the last and two between), all in one colouring. The
 images come from the **last run**: run the model before you export it, or its steps say *Not run.* The report's maps are drawn in colours fitted to their values (a colour per class, or a ramp), not
 in the palette chosen in the Viewer. A line at the end says which version of Terraflux made it and on which day.
 

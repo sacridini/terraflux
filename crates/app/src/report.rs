@@ -6,7 +6,9 @@ use std::fmt::Write as _;
 
 use terraflux_ops::Value;
 
+use crate::animation::Frame;
 use crate::document::{Body, Document, From, Section, Size, Stage, Step, data_rows, row_settings};
+use crate::map_view::Source;
 use crate::palette::{Coloring, image, image_f32};
 
 /// The largest side of the images of a report, pixels: a figure's, a step's.
@@ -123,6 +125,48 @@ pub fn visual(v: &Value, side: usize) -> Option<Visual> {
             of: None,
         }),
     }
+}
+
+/// The most steps the animation of a series shows (a longer series every few steps, its first and last always),
+/// and the steps of one a PDF lays in a row.
+const FRAMES: usize = 40;
+const STRIP: usize = 4;
+
+/// `most` of `n` steps, evenly spaced, the first and the last among them.
+fn picks(n: usize, most: usize) -> Vec<usize> {
+    if n <= most { (0..n).collect() } else { (0..most).map(|k| k * (n - 1) / (most - 1).max(1)).collect() }
+}
+
+/// The maps of a series (a loop's steps) to animate or lay in a row: `most` of its steps, in one colouring (a
+/// value the same colour at every step), each with its step written; none unless a series of two maps of one
+/// size or more.
+fn series_frames(v: &Value, most: usize) -> Option<Vec<Frame>> {
+    let Value::Series(items) = v else { return None };
+    let n = items.len();
+    let steps: Vec<(usize, Source)> =
+        picks(n, most).into_iter().filter_map(|i| Some((i, crate::builder::first_source(&items[i])?))).collect();
+    let size = steps.first()?.1.size();
+    if steps.len() < 2 || steps.iter().any(|(_, s)| s.size() != size) {
+        return None;
+    }
+    let coloring = steps
+        .iter()
+        .filter_map(|(_, s)| crate::animation::values(s, 256).ok())
+        .map(|(v, _, _)| Coloring::for_values(&v.iter().map(|&x| f64::from(x)).collect::<Vec<_>>()))
+        .reduce(|a, b| a.shared(&b))?;
+    let frame = |(i, source): (usize, Source)| Frame {
+        source,
+        coloring: coloring.clone(),
+        caption: format!("step {} of {n}", i + 1),
+    };
+    Some(steps.into_iter().map(frame).collect())
+}
+
+/// A frame as a picture at most `side` pixels on a side, in its colouring.
+fn frame_picture(f: &Frame, side: usize) -> Option<Picture> {
+    let (v, w, h) = crate::animation::values(&f.source, side).ok()?;
+    let img = image_f32(&v, w, h, &f.coloring);
+    Some(Picture { width: w, height: h, rgba: img.pixels.iter().flat_map(|c| c.to_array()).collect() })
 }
 
 /// The values of a run, by node and port.
@@ -270,6 +314,7 @@ th { font-weight: 600; }
 td.num { text-align: right; font-variant-numeric: tabular-nums; }
 figure { margin: 12px 0; }
 figure img, .thumb img { image-rendering: pixelated; border: 1px solid var(--line); max-width: 100%; height: auto; }
+img.anim { image-rendering: auto; }
 figcaption, .of { color: var(--weak); font-size: 0.88em; }
 .thumb { margin: 8px 0 2px; }
 .badge { display: inline-block; color: #fff; border-radius: 9px; padding: 0 8px; font-size: 0.8em; font-weight: 600; margin-right: 6px; }
@@ -318,6 +363,31 @@ fn html_visual(v: &Visual, alt: &str, width: usize) -> String {
         let _ = write!(s, r#"<div class="of">{}</div>"#, esc(of));
     }
     s
+}
+
+/// A series of maps as an animated GIF (the step written on each, the legend under them), `width` pixels wide on
+/// the page, and how many steps it shows.
+fn html_animation(v: &Value, alt: &str, width: usize) -> Option<String> {
+    let Value::Series(items) = v else { return None };
+    let frames = series_frames(v, FRAMES)?;
+    let gif = crate::animation::gif(&frames, 250, width).ok()?;
+    let n = items.len();
+    let shown = if frames.len() < n {
+        format!("the {n} steps, {} of them animated", frames.len())
+    } else {
+        format!("the {n} steps, animated")
+    };
+    Some(format!(
+        r#"<img class="anim" alt="{}" width="{width}" src="data:image/gif;base64,{}"><div class="of">{shown}</div>"#,
+        esc(alt),
+        base64(&gif)
+    ))
+}
+
+/// A value on the page: a series of maps animated, else as [`visual`] shows it; none when there is none.
+fn html_value(v: Option<Value>, alt: &str, side: usize, width: usize) -> Option<String> {
+    let v = v?;
+    html_animation(&v, alt, width).or_else(|| visual(&v, side).map(|x| html_visual(&x, alt, width)))
 }
 
 struct Html<'a> {
@@ -456,9 +526,8 @@ impl Html<'_> {
             && let Some((node, key)) = s.value_key(port)
         {
             let side = if matches!(s.stage, Stage::Data | Stage::Preparation) { STEP / 2 } else { STEP };
-            match (self.values)(&node, &key).and_then(|v| visual(&v, side)) {
-                Some(v) => {
-                    let h = html_visual(&v, &format!("{}.{port}", s.id), side);
+            match html_value((self.values)(&node, &key), &format!("{}.{port}", s.id), side, side) {
+                Some(h) => {
                     let _ = write!(self.out, r#"<div class="thumb">{h}</div>"#);
                 }
                 None => self.out.push_str(r#"<p class="missing">Not run.</p>"#),
@@ -471,9 +540,8 @@ impl Html<'_> {
     }
 
     fn figure(&mut self, f: &crate::document::Figure) {
-        let img = (self.values)(&f.node, &f.port)
-            .and_then(|v| visual(&v, FIGURE))
-            .map_or(r#"<p class="missing">Not run.</p>"#.to_string(), |v| html_visual(&v, &f.caption, FIGURE * 3 / 4));
+        let img = html_value((self.values)(&f.node, &f.port), &f.caption, FIGURE, FIGURE * 3 / 4)
+            .unwrap_or_else(|| r#"<p class="missing">Not run.</p>"#.to_string());
         let _ = write!(
             self.out,
             "<figure>{img}<figcaption><b>Figure {}.</b> {} (from {})</figcaption></figure>",
@@ -995,10 +1063,8 @@ impl Pdf {
         self.y -= 6.0;
     }
 
-    fn picture(&mut self, p: &Picture, w: f32, indent: f32) {
-        let h = w * p.height as f32 / p.width.max(1) as f32;
-        self.room(h + 6.0);
-        // composed on white (the pixels are premultiplied)
+    /// A picture as an image of the PDF (composed on white: the pixels are premultiplied), used on this page.
+    fn image(&mut self, p: &Picture) -> usize {
         let mut rgb = Vec::with_capacity(p.width * p.height * 3);
         for px in p.rgba.chunks(4) {
             let a = 255 - px[3];
@@ -1007,6 +1073,36 @@ impl Pdf {
         let k = self.images.len();
         self.images.push((p.width, p.height, miniz_oxide::deflate::compress_to_vec_zlib(&rgb, 6)));
         self.used.push(k);
+        k
+    }
+
+    /// Pictures in a row, each at most `each` points wide (narrower when they do not fit), their tops in line,
+    /// each with its caption under it.
+    fn strip(&mut self, pics: &[(Picture, String)], each: f32, indent: f32) {
+        if pics.is_empty() {
+            return;
+        }
+        let (gap, size) = (8.0, 8.0);
+        let avail = PAGE_W - 2.0 * MARGIN - indent;
+        let w = each.min((avail - gap * (pics.len() - 1) as f32) / pics.len() as f32);
+        let high = |p: &Picture| w * p.height as f32 / p.width.max(1) as f32;
+        let h = pics.iter().map(|(p, _)| high(p)).fold(0.0, f32::max);
+        self.room(h + size * 1.6 + 8.0);
+        self.y -= h + 4.0;
+        for (k, (p, caption)) in pics.iter().enumerate() {
+            let x = MARGIN + indent + k as f32 * (w + gap);
+            let id = self.image(p);
+            let ph = high(p);
+            let _ = writeln!(self.page, "q {w:.2} 0 0 {ph:.2} {x:.2} {:.2} cm /Im{id} Do Q", self.y + h - ph);
+            self.text_at(x, self.y - size * 1.3, Font::Italic, size, 0.4, caption);
+        }
+        self.y -= size * 1.6 + 2.0;
+    }
+
+    fn picture(&mut self, p: &Picture, w: f32, indent: f32) {
+        let h = w * p.height as f32 / p.width.max(1) as f32;
+        self.room(h + 6.0);
+        let k = self.image(p);
         self.y -= h + 4.0;
         let _ = writeln!(self.page, "q {w:.2} 0 0 {h:.2} {:.2} {:.2} cm /Im{k} Do Q", MARGIN + indent, self.y);
         self.y -= 2.0;
@@ -1127,6 +1223,16 @@ impl Pdf {
         );
         out
     }
+}
+
+/// A series of maps laid in a row in a PDF: its first, last and steps between, in one colouring, each `each`
+/// points wide at most; whether it was one.
+fn pdf_series(pdf: &mut Pdf, v: &Value, each: f32, indent: f32) -> bool {
+    let Some(frames) = series_frames(v, STRIP) else { return false };
+    let pics: Vec<(Picture, String)> =
+        frames.iter().filter_map(|f| Some((frame_picture(f, STEP)?, f.caption.clone()))).collect();
+    pdf.strip(&pics, each, indent);
+    true
 }
 
 struct PdfReport<'a> {
@@ -1296,9 +1402,12 @@ impl PdfReport<'_> {
             && let Some((node, key)) = s.value_key(port)
         {
             let small = matches!(s.stage, Stage::Data | Stage::Preparation);
-            match (self.values)(&node, &key).and_then(|v| visual(&v, STEP)) {
-                Some(v) => self.pdf.visual(&v, if small { 110.0 } else { 180.0 }, indent),
-                None => self.pdf.paragraph(&[run(Font::Italic, "Not run.")], 9.0, indent, 0.45),
+            let value = (self.values)(&node, &key);
+            if !value.as_ref().is_some_and(|v| pdf_series(&mut self.pdf, v, 110.0, indent)) {
+                match value.and_then(|v| visual(&v, STEP)) {
+                    Some(v) => self.pdf.visual(&v, if small { 110.0 } else { 180.0 }, indent),
+                    None => self.pdf.paragraph(&[run(Font::Italic, "Not run.")], 9.0, indent, 0.45),
+                }
             }
         }
         for f in &s.figures {
@@ -1308,9 +1417,12 @@ impl PdfReport<'_> {
 
     fn figure(&mut self, f: &crate::document::Figure, indent: f32) {
         self.pdf.space(4.0);
-        match (self.values)(&f.node, &f.port).and_then(|v| visual(&v, FIGURE)) {
-            Some(v) => self.pdf.visual(&v, 300.0, indent),
-            None => self.pdf.paragraph(&[run(Font::Italic, "Not run.")], 9.0, indent, 0.45),
+        let value = (self.values)(&f.node, &f.port);
+        if !value.as_ref().is_some_and(|v| pdf_series(&mut self.pdf, v, 150.0, indent)) {
+            match value.and_then(|v| visual(&v, FIGURE)) {
+                Some(v) => self.pdf.visual(&v, 300.0, indent),
+                None => self.pdf.paragraph(&[run(Font::Italic, "Not run.")], 9.0, indent, 0.45),
+            }
         }
         let caption = vec![
             run(Font::Bold, format!("Figure {}. ", f.number)),
@@ -1603,6 +1715,31 @@ mod tests {
         // without them, neither
         let plain = html(&d, &none, &first, &Extras::default());
         assert!(!plain.contains("Methods and citations") && !plain.contains("Checks."));
+    }
+
+    #[test]
+    fn a_series_is_animated_in_html_and_laid_in_a_row_in_a_pdf() {
+        use std::sync::Arc;
+        let map = |k: usize| {
+            let grid = Arc::new(terraflux_raster::Grid::new(20, 10));
+            Value::Map(terraflux_ops::Map::new(grid, (0..200).map(|i| f64::from(u8::from(i < k * 4))).collect()))
+        };
+        let series = Value::Series((0..50).map(map).collect());
+        assert_eq!(picks(50, 4), [0, 16, 32, 49]);
+        assert_eq!(picks(3, 4), [0, 1, 2]);
+        let frames = series_frames(&series, FRAMES).unwrap();
+        assert_eq!(frames.len(), FRAMES);
+        assert_eq!((frames[0].caption.as_str(), frames[39].caption.as_str()), ("step 1 of 50", "step 50 of 50"));
+        assert!(frames.iter().all(|f| f.coloring == frames[0].coloring), "one colouring");
+        let h = html_value(Some(series.clone()), "sim", STEP, STEP).unwrap();
+        assert!(h.contains("data:image/gif;base64,R0lGOD"), "a GIF");
+        assert!(h.contains("the 50 steps, 40 of them animated"));
+        let mut pdf = Pdf::new();
+        assert!(pdf_series(&mut pdf, &series, 110.0, 0.0));
+        assert_eq!(pdf.used.len(), 4, "four steps in a row");
+        assert!(pdf.page.contains("(of) Tj") || pdf.page.contains("(step 50 of 50) Tj"), "{}", pdf.page);
+        // a single map is not a series
+        assert!(series_frames(&map(3), FRAMES).is_none());
     }
 
     #[test]

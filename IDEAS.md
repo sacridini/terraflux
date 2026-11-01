@@ -516,6 +516,9 @@ como o próximo bloco, nesta ordem (um commit por item):
    execução; no `terraflux report` por `checks::of_run`, sem `Session`), a saúde no alto com uma linha por check,
    o selo no passo de cada check e nos contêineres (o pior), e a seção "Methods and citations" no fim (o
    parágrafo, as referências em APA, as dos nós). No PDF, o selo é um retângulo na cor com o rótulo em branco.
+   **Feito** (Unreleased) as animações: uma série de mapas (os passos de um laço) é um GIF animado no HTML
+   (`animation::gif`, em memória; até 40 passos, o primeiro e o último entre eles, numa coloração só) e quatro
+   passos lado a lado no PDF (`Pdf::strip`).
 3. **Animação:** MP4, o play no Viewer e a velocidade escolhida.
 4. **Desenho → dados:** o `data.download` recortado pela área desenhada; editar vértices; digitar atributos.
 5. **Catálogo:** GBIF, prévia do dado na área, saber o que já está no cache, e ESA WorldCover, MODIS e Global

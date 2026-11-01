@@ -20,6 +20,9 @@ minor versions.
   each check's step and on the containers holding checks (their worst). Its last section, **Methods and
   citations**, is the methods paragraph and the references to cite in the APA style (Terraflux's among them), and
   those the nodes give.
+- In the report, the maps of a loop's steps are an animation in the HTML (an animated GIF, each step written on
+  its map, the legend under them; 40 steps at most, the first and the last among them) and four steps in a row in
+  the PDF, in one colouring, instead of the last step alone.
 
 ## [1.28.0] - 2026-10-31
 

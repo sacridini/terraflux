@@ -369,8 +369,21 @@ fn picture(f: &Frame, max_side: usize, lines_high: usize) -> Result<(Vec<u8>, us
     Ok((rgba, zw, fh))
 }
 
-/// The GIF of the frames, `delay` milliseconds each (the last one held longer), looping.
+/// The GIF of the frames, `delay` milliseconds each (the last one held longer), looping, written to a file.
 pub fn write(frames: &[Frame], delay: u16, max_side: usize, path: &Path) -> Result<(), String> {
+    let file = std::fs::File::create(path).map_err(|e| e.to_string())?;
+    encode(frames, delay, max_side, std::io::BufWriter::new(file))
+}
+
+/// The GIF of the frames as bytes (for a page that holds its images).
+pub fn gif(frames: &[Frame], delay: u16, max_side: usize) -> Result<Vec<u8>, String> {
+    let mut out = Vec::new();
+    encode(frames, delay, max_side, &mut out)?;
+    Ok(out)
+}
+
+/// The GIF of the frames, `delay` milliseconds each (the last one held longer), looping.
+fn encode<W: std::io::Write>(frames: &[Frame], delay: u16, max_side: usize, to: W) -> Result<(), String> {
     let Some(first) = frames.first() else { return Err("no map to animate".into()) };
     let size = first.source.size();
     if let Some(f) = frames.iter().find(|f| f.source.size() != size) {
@@ -379,9 +392,8 @@ pub fn write(frames: &[Frame], delay: u16, max_side: usize, path: &Path) -> Resu
     }
     let (_, zw, _, px) = layout_of(size, max_side);
     let lines = frames.iter().map(|f| legend_lines(&f.coloring, zw, px)).max().unwrap_or(1);
-    let file = std::fs::File::create(path).map_err(|e| e.to_string())?;
-    let mut out: Option<(gif::Encoder<std::io::BufWriter<std::fs::File>>, usize, usize)> = None;
-    let mut file = Some(std::io::BufWriter::new(file));
+    let mut out: Option<(gif::Encoder<W>, usize, usize)> = None;
+    let mut file = Some(to);
     for (k, f) in frames.iter().enumerate() {
         let (mut rgba, w, h) = picture(f, max_side, lines)?;
         if out.is_none() {
