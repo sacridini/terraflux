@@ -4,7 +4,10 @@
 use std::path::Path;
 
 fn main() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().and_then(Path::parent).expect("the workspace");
+    // the folder read when the script runs, not when it is built: the worktrees beside this one share `target`,
+    // and a script built in one of them runs for the others
+    let manifest = std::env::var("CARGO_MANIFEST_DIR").expect("cargo's CARGO_MANIFEST_DIR");
+    let root = Path::new(&manifest).parent().and_then(Path::parent).expect("the workspace");
     let icon = root.join("assets").join("logo").join("terraflux.ico");
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed={}", icon.display());

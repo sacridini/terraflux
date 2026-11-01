@@ -10,6 +10,7 @@ mod batch;
 mod bio;
 mod bio_imports;
 mod bio_shapes;
+mod calc_types;
 mod carbon;
 mod change_analysis;
 mod circuit;

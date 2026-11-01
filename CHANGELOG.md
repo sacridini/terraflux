@@ -67,6 +67,10 @@ minor versions.
 - **Breakpoints**: Breakpoint in the Node pane (a red dot on the canvas) pauses the run before that node, at every
   step for a node of a loop's body, with what ran before it shown; the status bar says *paused before …* with
   **Next node** (run it, and pause before the next node) and **Continue** (on to the next breakpoint).
+- **Calculator**: the outputs of a script (`out`) have the type of their value in the graph's checker, from the
+  types of the node's inputs (a map, a stack, a number; rasters read a map or a stack): an output connected where it
+  does not fit is refused when the model is checked, not when it runs (a number of all the cells where a map is
+  taken, a map where a number is), and the assistants' replies say what each output is.
 
 ### Fixed
 - `prioritize.actions_raster` with a feature whose layer has no amounts (all 0) says that it dropped it ("The
@@ -74,6 +78,8 @@ minor versions.
   Checked against landschaft 1.58.1: the rasters' references regenerated the same, a new case of a feature without
   amounts (the same tables, relative targets and optimum), and `prioritize.actions` with units' ids unsorted, with
   gaps and as integers is the same problem as with ids 1..n.
+- `terraflux.exe` builds in a worktree beside another sharing `target`: the build script of its icon read the
+  folder it was built in, not the one it runs for.
 
 ## [1.29.0] - 2026-11-01
 

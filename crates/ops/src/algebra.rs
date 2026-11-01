@@ -674,6 +674,116 @@ pub fn parse_script(text: &str) -> Result<Script> {
     parse_located(text).map_err(|(e, line, _)| if lines { Error::msg(format!("line {line}: {}", e.0)) } else { e })
 }
 
+/// What a value of a script is, known before the script runs (from the types of its inputs).
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Kind {
+    Number,
+    Map,
+    Stack,
+    /// A map or a stack: rasters on disk (a stack when they have many bands), or what is made of them.
+    Grid,
+    /// Not known.
+    Unknown,
+}
+
+impl Kind {
+    fn of(t: Type) -> Kind {
+        match t {
+            Type::Number | Type::Integer | Type::Bool => Kind::Number,
+            Type::Map => Kind::Map,
+            Type::Stack => Kind::Stack,
+            Type::Raster => Kind::Grid,
+            _ => Kind::Unknown,
+        }
+    }
+
+    /// What a value made of two is, cell by cell (a stack's layers each).
+    fn join(self, other: Kind) -> Kind {
+        use Kind::*;
+        match (self, other) {
+            (Stack, _) | (_, Stack) => Stack,
+            (Unknown, _) | (_, Unknown) => Unknown,
+            (Grid, _) | (_, Grid) => Grid,
+            (Map, _) | (_, Map) => Map,
+            _ => Number,
+        }
+    }
+
+    fn ty(self) -> Type {
+        match self {
+            Kind::Number => Type::Number,
+            Kind::Map => Type::Map,
+            Kind::Stack => Type::Stack,
+            // what is read from rasters: it feeds what takes a map or a stack, not what takes a number
+            Kind::Grid => Type::Raster,
+            Kind::Unknown => Type::Any,
+        }
+    }
+}
+
+fn kind_of(e: &Expr, names: &HashMap<String, Kind>) -> Kind {
+    let all = |args: &[Expr]| args.iter().map(|a| kind_of(a, names)).fold(Kind::Number, Kind::join);
+    match e {
+        Expr::Num(_) => Kind::Number,
+        Expr::Str(_) => Kind::Unknown,
+        Expr::Var(n) => names.get(n).copied().unwrap_or(Kind::Unknown),
+        Expr::Layer(..) => Kind::Map,
+        Expr::Unary(_, x) => kind_of(x, names),
+        Expr::Binary(_, a, b) => kind_of(a, names).join(kind_of(b, names)),
+        Expr::If(c, a, b) => kind_of(c, names).join(kind_of(a, names)).join(kind_of(b, names)),
+        // a neighbourhood: of a map (a number made one), of each layer of a stack
+        Expr::Call(f, args) if f.starts_with("nb") => match args.first().map(|a| kind_of(a, names)) {
+            Some(Kind::Number) => Kind::Map,
+            Some(k) => k,
+            None => Kind::Unknown,
+        },
+        // a statistic of a stack's layers at each cell: a map
+        Expr::Call(f, args) if REDUCTIONS.contains(&f.as_str()) && (args.len() == 1 || f == "percentile") => {
+            match args.first().map(|a| kind_of(a, names)) {
+                Some(Kind::Map | Kind::Stack | Kind::Grid) => Kind::Map,
+                Some(k) => k,
+                None => Kind::Unknown,
+            }
+        }
+        Expr::Call(f, _) if f == "float" => Kind::Unknown,
+        Expr::Call(_, args) => all(args),
+        // a number from all the cells
+        Expr::Method(..) => Kind::Number,
+    }
+}
+
+/// The types of the outputs a script declares (`out`), from the types of its inputs by name, before it runs: a
+/// number, a map, a stack, rasters (a map or a stack, by their bands), or any value when it is not known; none
+/// when the script does not parse or declares no output (its value is then the operator's `map`).
+pub fn out_types(text: &str, inputs: &BTreeMap<String, Type>) -> Option<Vec<(String, Type)>> {
+    let script = parse_script(text).ok()?;
+    let outs = script.outputs();
+    if outs.is_empty() {
+        return None;
+    }
+    let mut names: HashMap<String, Kind> = inputs.iter().map(|(n, t)| (n.clone(), Kind::of(*t))).collect();
+    for (_, st) in &script.statements {
+        let Stmt::Set { name, layer, mask, value, .. } = st else { continue };
+        let v = kind_of(value, &names);
+        let k = match (layer, mask) {
+            // a layer of a stack given
+            (Some(_), _) => Kind::Stack,
+            (None, None) => v,
+            // given where a condition holds: what it was, joined to the condition and the value
+            (None, Some(m)) => names.get(name).copied().unwrap_or(Kind::Unknown).join(kind_of(m, &names)).join(v),
+        };
+        names.insert(name.clone(), k);
+    }
+    Some(
+        outs.into_iter()
+            .map(|o| {
+                let t = names.get(&o).copied().unwrap_or(Kind::Unknown).ty();
+                (o, t)
+            })
+            .collect(),
+    )
+}
+
 /// Parse a script; an error with its line and where it is in the text (bytes).
 pub(crate) fn parse_located(text: &str) -> std::result::Result<Script, (Error, usize, std::ops::Range<usize>)> {
     let lines = text.trim().contains(['\n', ';']);

@@ -247,7 +247,9 @@ fn table_ids_in_any_order() {
         tb
     };
     let mut t2 = t.clone();
-    let coprime = |n: usize| (2..n).rev().find(|s| (1..=*s).filter(|d| s % d == 0 && n % d == 0).max() == Some(1));
+    let coprime = |n: usize| {
+        (2..n).rev().find(|s| (1..=*s).filter(|d| s.is_multiple_of(*d) && n.is_multiple_of(*d)).max() == Some(1))
+    };
     for (port, columns) in
         [("pu", &["id"][..]), ("dist_features", &["pu"]), ("dist_threats", &["pu"]), ("boundary", &["id1", "id2"])]
     {

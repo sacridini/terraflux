@@ -469,6 +469,10 @@ impl Catalog for Registry {
     fn signature(&self, op: &str) -> Option<OpSignature> {
         self.sigs.get(op).map(|s| (**s).clone())
     }
+
+    fn script_outputs(&self, op: &str, script: &str, inputs: &BTreeMap<String, Type>) -> Option<Vec<(String, Type)>> {
+        (op == "raster.calc").then(|| algebra::out_types(script, inputs)).flatten()
+    }
 }
 
 /// `control.repeat`: the engine runs its body; the operator only declares it.

@@ -2,7 +2,7 @@
 //! compatible types, no cycles.
 
 use std::cell::RefCell;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::rc::Rc;
 
 use crate::{Body, Input, Model, Node, OpSignature, Ref, Source, Type, dependencies_among, ids, order, valid_id};
@@ -10,6 +10,17 @@ use crate::{Body, Input, Model, Node, OpSignature, Ref, Source, Type, dependenci
 /// The operators a model may use (the engine's registry).
 pub trait Catalog {
     fn signature(&self, op: &str) -> Option<OpSignature>;
+
+    /// The types of the outputs a node's script declares (`out`, [`OpSignature::outputs_from`]), from the types of
+    /// what the node's inputs are given, by name; none when they are not known (they are then of any type).
+    fn script_outputs(
+        &self,
+        _op: &str,
+        _script: &str,
+        _inputs: &BTreeMap<String, Type>,
+    ) -> Option<Vec<(String, Type)>> {
+        None
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -65,7 +76,12 @@ struct Checker<'a> {
     sigs: RefCell<HashMap<String, Option<Rc<OpSignature>>>>,
     /// whether each node runs once per layer ([`Checker::per_layer`]), found once, by the node's address
     layered: RefCell<HashMap<usize, Option<Type>>>,
+    /// the types of the outputs of each node's script ([`Checker::script_type`]), found once, by the node's address
+    scripted: RefCell<HashMap<usize, Option<Typed>>>,
 }
+
+/// Outputs and their types.
+type Typed = Vec<(String, Type)>;
 
 impl<'a> Checker<'a> {
     fn signature(&self, op: &str) -> Option<Rc<OpSignature>> {
@@ -217,8 +233,13 @@ impl<'a> Checker<'a> {
     fn port_type(&self, n: &'a Node, port: &str, scopes: &[Scope<'a>]) -> Result<Type, String> {
         let sig = self.signature(&n.op).ok_or_else(|| format!("unknown operator {:?}", n.op))?;
         if let Some(p) = sig.outputs_of(n).into_iter().find(|p| p.name == port) {
+            // an output of its script: what its value is, from what the script's inputs are
+            let ty = match p.ty {
+                Type::Any if sig.outputs_from.is_some() => self.script_type(n, &sig, port, scopes).unwrap_or(Type::Any),
+                t => t,
+            };
             // run once per layer: its maps a stack (a series of a loop's), its tables one, its other values a series
-            return Ok(match (self.per_layer(n, &sig, scopes), p.ty) {
+            return Ok(match (self.per_layer(n, &sig, scopes), ty) {
                 (None, t) | (Some(_), t @ Type::Table) => t,
                 (Some(many), Type::Map) => many,
                 (Some(_), _) => Type::Series,
@@ -274,6 +295,30 @@ impl<'a> Checker<'a> {
             }
         }
         Err(format!("node {:?} ({}) has no output {port:?}", n.id, n.op))
+    }
+
+    /// The type of an output a node's script declares (`out`): a map, a stack, a number, from the types of what
+    /// its inputs are given (rasters on disk a map or a stack, by their bands); none when it is not known.
+    fn script_type(&self, n: &'a Node, sig: &OpSignature, port: &str, scopes: &[Scope<'a>]) -> Option<Type> {
+        let key = n as *const Node as usize;
+        let known = self.scripted.borrow().get(&key).cloned();
+        let types = match known {
+            Some(t) => t,
+            None => {
+                let script = sig.outputs_from.as_ref().and_then(|p| n.params.get(p)).and_then(|v| v.as_str());
+                let t = script.and_then(|script| {
+                    let inputs = n
+                        .inputs
+                        .iter()
+                        .map(|(k, s)| (k.clone(), self.source_type(Some(s), scopes).unwrap_or(Type::Any)))
+                        .collect();
+                    self.catalog.script_outputs(&n.op, script, &inputs)
+                });
+                self.scripted.borrow_mut().insert(key, t.clone());
+                t
+            }
+        };
+        types?.into_iter().find(|(o, _)| o == port).map(|(_, t)| t)
     }
 
     /// Whether a node runs once per layer, and the type of the layers it is given (a stack, or a series when one
@@ -498,15 +543,39 @@ fn literal_type(v: &serde_json::Value) -> Type {
     }
 }
 
+impl<'a> Checker<'a> {
+    fn new(model: &'a Model, catalog: &'a dyn Catalog) -> Checker<'a> {
+        Checker {
+            model,
+            catalog,
+            issues: Vec::new(),
+            sigs: RefCell::new(HashMap::new()),
+            layered: RefCell::new(HashMap::new()),
+            scripted: RefCell::new(HashMap::new()),
+        }
+    }
+}
+
+/// The types of the outputs of a node's script (`out`), as the checker finds them from what its inputs are given:
+/// the node `id` in the body at `path` (the ids of the containers it is in, outermost first); none when it has no
+/// script (or is not there).
+pub fn script_types(model: &Model, catalog: &dyn Catalog, path: &[String], id: &str) -> Option<Typed> {
+    let c = Checker::new(model, catalog);
+    let mut scopes = vec![Scope::new(&model.nodes, None)];
+    for p in path {
+        let container = *scopes.last()?.index.get(p.as_str())?;
+        scopes.push(Scope::new(&container.body.as_ref()?.nodes, Some(container)));
+    }
+    let n = *scopes.last()?.index.get(id)?;
+    let sig = c.signature(&n.op)?;
+    sig.outputs_from.as_ref()?;
+    let ports = sig.outputs_of(n);
+    Some(ports.into_iter().map(|p| (p.name.clone(), c.port_type(n, &p.name, &scopes).unwrap_or(p.ty))).collect())
+}
+
 /// The problems of a model: errors stop it from running, warnings do not.
 pub fn check(model: &Model, catalog: &dyn Catalog) -> Vec<Issue> {
-    let mut c = Checker {
-        model,
-        catalog,
-        issues: Vec::new(),
-        sigs: RefCell::new(HashMap::new()),
-        layered: RefCell::new(HashMap::new()),
-    };
+    let mut c = Checker::new(model, catalog);
     for name in model.inputs.keys() {
         if !valid_id(name) {
             c.error("", format!("{name:?} is not a valid input name"));

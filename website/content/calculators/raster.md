@@ -237,6 +237,11 @@ the coast has a share of forest. Take it away with `share[isnull(lu._2011)] = No
   given before. An output takes the value its name has **at the end** of the script.
 - An output is a map, a stack or a number, an output port of the node named as in the script: `calc.years`,
   `calc.lost`, `calc.lost_km2`.
+- What each output is, is known before the model runs, from what the node's inputs are: a map made of maps is a
+  map, one made of a stack a stack, `x.mean()` a number, `mean(s)` of a stack's layers a map. Connecting an output
+  where it does not fit is refused when the model is checked: `calc.lost_km2` (a number) where a map is taken, or
+  `calc.lost` (a map) where a number is. One made of rasters read from files is a map or a stack (by their bands),
+  fit for either, but not for a number.
 - A script without `out` gives its last value as the output `map`: `lu._2011 == 1 and d.elevation > 500` is a
   script too.
 

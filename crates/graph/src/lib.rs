@@ -28,7 +28,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-pub use check::{Catalog, Issue, Severity, check};
+pub use check::{Catalog, Issue, Severity, check, script_types};
 pub use types::{Access, OpSignature, PortSpec, Type, declared_outputs};
 pub use user_node::{UserInput, UserNode, UserOutput, Uses};
 

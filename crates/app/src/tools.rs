@@ -1956,8 +1956,15 @@ fn place(m: &mut Model, path: &[String], id: &str) {
 /// The output ports of a node, as a text.
 fn outputs_of(m: &Model, r: &Registry, path: &[String], id: &str) -> String {
     let Some(n) = m.scope(path).and_then(|n| n.iter().find(|n| n.id == id)) else { return String::new() };
-    let ports: Vec<String> =
-        editor::output_ports(n, r).into_iter().map(|(p, t)| format!("{id}.{p} ({})", t.name())).collect();
+    // a calculator's: what each output of its script is, from what its inputs are given
+    let scripted = terraflux_graph::script_types(m, r, path, id).unwrap_or_default();
+    let ports: Vec<String> = editor::output_ports(n, r)
+        .into_iter()
+        .map(|(p, t)| {
+            let t = scripted.iter().find(|(o, _)| *o == p).map_or(t, |(_, t)| *t);
+            format!("{id}.{p} ({})", t.name())
+        })
+        .collect();
     if ports.is_empty() { "no outputs yet".into() } else { format!("its outputs: {}", ports.join(", ")) }
 }
 

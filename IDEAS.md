@@ -651,6 +651,11 @@ item):
    C++ do landschaft (como o `SolveWatch` do `opt_solve_watched`), registrado no IDEAS.md de lá; hoje o Stop
    solta a execução e o operador termina em segundo plano, o resultado descartado.
 8. **Calculadora:** os tipos das portas de `out` no checker do grafo.
+   **Feito** (Unreleased): `Catalog::script_outputs` (o registro do ops responde pelo `raster.calc` com
+   `algebra::out_types`, uma inferência sobre a árvore do script: número, mapa, pilha, rasters lidos, desconhecido)
+   e o checker a usa em `port_type` com os tipos do que chega às entradas do nó (guardados por nó); uma saída ligada
+   onde não cabe é recusada no check. `terraflux_graph::script_types` dá os tipos às respostas das ferramentas
+   (`its outputs: calc.share (number)`). Os 52 modelos e templates do site continuam sem erros.
 9. **My nodes:** biblioteca remota (URL ou repositório git) e permissões.
 10. **A priorização multi-ação depois da atualização do landschaft** (pedido de 2026-11-01): conferir que o
     `prioritize.actions` e o `prioritize.actions_raster` continuam iguais ao landschaft novo (o submódulo, o shim, as
