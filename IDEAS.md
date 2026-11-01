@@ -393,6 +393,13 @@ ordem de impacto (começando pelo 1 e pelo 3):
    outra; uma cruz numa onde o ponteiro está na outra). As duas nas mesmas cores (`Coloring::shared`: as classes de
    ambas, ou a faixa das duas). Falta: o mapa da diferença (ou das transições) como terceira vista; a comparação no
    relatório (HTML e PDF); comparar mapas de sistemas de coordenadas diferentes sem `raster.match`.
+   **Feito** (Unreleased): "Difference", a terceira vista (`difference.rs`, `builder::How`, `show_difference`): nos
+   mapas de valores o outro menos este numa rampa divergente centrada no 0 (a média, a faixa, quantas células
+   acima e abaixo); nos de classes as transições, uma classe cada com os nomes das legendas dos dois ("forest ->
+   pasture"; a seta da fonte do app não tem "→"), as mais comuns primeiro (até 24, as outras juntas), as que não
+   mudaram em cinza. Feita numa thread na grade do mapa (o outro lido onde estão as suas células; a cada poucas
+   células acima de 16 milhões), desenhada na vista do comparado seguindo a do mapa (o clique e o Trace são da
+   célula do mapa), e oferecida no "Figure...".
 2. **Linha do tempo das simulações.** Os modelos com `control.repeat` (mudança de uso, autômatos celulares,
    CRAFTY, movimento animal) fazem um mapa por passo. O painel Simulation já passa os passos (play, setas) e o
    Viewer tem o slider das camadas de uma série; falta exportar em GIF ou MP4 (para aula e congressos), o play
@@ -495,6 +502,26 @@ ordem de impacto (começando pelo 1 e pelo 3):
     da célula clicada em cada mapa da execução, no mesmo lugar pelas coordenadas, guardado enquanto a célula e os
     mapas são os mesmos; um nome mostra o mapa, "Copy" copia a lista. O gráfico ao longo das camadas de uma pilha já
     existia. Falta: as camadas de todas as pilhas (hoje a primeira, ou a banda escolhida).
+
+## O que falta nas funções da 1.28.0
+
+Registro de 2026-11-01. As sobras ("Falta:") dos itens de "A interface para o cientista", escolhidas pelo usuário
+como o próximo bloco, nesta ordem (um commit por item):
+
+1. **Comparar mapas:** o mapa da diferença ou das transições como terceira vista, e a comparação no relatório
+   (HTML e PDF). **Feito** (Unreleased) a terceira vista (ver o item 1 acima); a comparação no relatório vai
+   com o item 2.
+2. **Relatório:** levar para o HTML e o PDF os métodos e citações, os selos de verificação, a comparação e as
+   animações.
+3. **Animação:** MP4, o play no Viewer e a velocidade escolhida.
+4. **Desenho → dados:** o `data.download` recortado pela área desenhada; editar vértices; digitar atributos.
+5. **Catálogo:** GBIF, prévia do dado na área, saber o que já está no cache, e ESA WorldCover, MODIS e Global
+   Forest Change.
+6. **Figura:** PDF, vetores por cima, encarte de localização.
+7. **QGIS:** `.qgz` e as cores dos vetores do Viewer.
+8. **Script Python:** os contêineres (laços, each, switch), os modelos de mudança, SDM, priorização e métricas
+   (hoje ficam como comentários).
+9. **Métodos:** `terraflux methods` na linha de comando e no MCP; o texto em português.
 
 ## Paridade com o landschaft na priorização, progresso e parada
 

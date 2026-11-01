@@ -6,6 +6,16 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- **Difference**, the third way of **Compare** in the Viewer and the map tabs, beside Curtain and Side by side:
+  one map of how the two differ, drawn where the map is. Maps of values: the other map minus this one, in a ramp
+  centred on 0, with the mean difference, its range and the share of cells higher and lower. Maps of classes: the
+  transitions, a class each named by the legends of both maps ("forest -> pasture"), the most common first (24 at
+  most, the rest together), the cells that kept their class in grey, with how many cells changed. Made in the
+  background, on the map's grid (the other map read where its cells are, by their coordinates; every few cells
+  when the map has more than 16 million); a cell clicked on it is the map's cell, and **Figure...** offers it as a
+  figure.
+
 ## [1.28.0] - 2026-10-31
 
 ### Added

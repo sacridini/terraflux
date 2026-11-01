@@ -335,7 +335,12 @@ Over a map:
   other map is right of a line you drag across the map with its handle; **Side by side**, the two maps are in two
   views that zoom and pan together, a cross marking in one where the pointer is in the other. Both maps are drawn
   in the same colours (the classes of both, or one range from the lower minimum to the higher maximum), so that
-  the same value is the same colour, and the corner reads out the values of both under the pointer;
+  the same value is the same colour, and the corner reads out the values of both under the pointer. As a
+  **Difference**, one map shows how they differ: for maps of values, the other map minus this one, in a ramp
+  centred on 0 (with the mean difference and the share of cells higher and lower); for maps of classes, the
+  transitions, a class each named by both legends ("forest -> pasture", the most common first, the cells that
+  kept their class in grey), with how many cells changed. The difference is drawn where the map is, and
+  **Figure...** can make a figure of it;
 - **Maps over it** draws other maps of the run over this one, each as opaque as you like, and **Vectors over the
   map** draws vector layers of the run over it;
 - clicking a cell lists, under **This cell in every map**, its value in every map of the run at the same place

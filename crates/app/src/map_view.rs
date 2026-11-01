@@ -447,6 +447,11 @@ impl MapView {
         self.fitted = true;
     }
 
+    /// A map of this size shown next where the view is (a view following another), not fitted to it again.
+    pub fn hold(&mut self, size: (usize, usize)) {
+        self.size = size;
+    }
+
     /// The cell under the pointer at the last frame, if it was over the view.
     pub fn pointer(&self) -> Option<Vec2> {
         self.pointer

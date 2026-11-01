@@ -2073,13 +2073,73 @@ pub struct Shown {
     pub compare: Compare,
 }
 
-/// A comparison of the map shown with another: which, by a curtain or side by side (the other in a view of its
-/// own following this one's).
+/// A comparison of the map shown with another: which, and how (by a curtain, side by side, the other in a view of
+/// its own following this one's, or their difference, in that view too).
 #[derive(Default)]
 pub struct Compare {
     pub with: Option<CompareWith>,
-    pub side_by_side: bool,
+    pub how: How,
     pub view: crate::map_view::MapView,
+    pub difference: Difference,
+}
+
+/// How two maps are compared.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum How {
+    #[default]
+    Curtain,
+    SideBySide,
+    Difference,
+}
+
+/// The difference of the maps compared, made in a thread: of which maps (their sources, and the names of their
+/// classes when of classes) and those maps, the one made or why not, the one being made, the cell last picked on
+/// it.
+#[derive(Default)]
+pub struct Difference {
+    of: Option<(SourceKey, SourceKey, Option<u64>)>,
+    held: Option<(Source, Source)>,
+    pub made: Option<Result<Arc<crate::difference::Made>, String>>,
+    making: Option<Receiver<Result<crate::difference::Made, String>>>,
+    picked: Option<(usize, usize)>,
+}
+
+impl Difference {
+    /// The difference of `b` from `a` (of classes, by these names): the one made, else made in a thread (the view
+    /// drawn again when it comes).
+    fn want(
+        &mut self,
+        ctx: &egui::Context,
+        a: &Source,
+        b: &Source,
+        classes: Option<(crate::difference::Names, crate::difference::Names)>,
+    ) {
+        let names = classes.as_ref().map(|c| {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::hash::DefaultHasher::new();
+            c.hash(&mut h);
+            h.finish()
+        });
+        let of = (a.key(), b.key(), names);
+        if self.of != Some(of) {
+            self.of = Some(of);
+            // (the maps held, so that their keys are no other's while the difference is theirs)
+            self.held = Some((a.clone(), b.clone()));
+            self.made = None;
+            let (tx, rx) = channel();
+            let (a, b, ctx) = (a.clone(), b.clone(), ctx.clone());
+            let _ = std::thread::Builder::new().name("terraflux-difference".into()).spawn(move || {
+                let made = crate::difference::make(&a, &b, classes.as_ref().map(|(x, y)| (x, y)));
+                let _ = tx.send(made);
+                ctx.request_repaint();
+            });
+            self.making = Some(rx);
+        }
+        if let Some(made) = self.making.as_ref().and_then(|rx| rx.try_recv().ok()) {
+            self.made = Some(made.map(Arc::new));
+            self.making = None;
+        }
+    }
 }
 
 /// The map compared: another output of the run (node, port), or another layer of the one shown (of a stack, of
@@ -2628,6 +2688,26 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         (Some(l), Some(c)) => Some(crate::app::Look { coloring: c.clone(), ..l }),
         (l, _) => l,
     };
+    // their difference (made in a thread): the transitions when both are maps of classes, named by the legends
+    // of both, else the other's values minus this one's
+    if sh.compare.how == How::Difference
+        && let (Some(l), Some((src, _, Some(ol)))) = (&look, &compared)
+    {
+        let classes = match (&l.coloring, &ol.coloring) {
+            (Coloring::Classes(ca), Coloring::Classes(cb)) => {
+                let other_legend = match &sh.compare.with {
+                    Some(CompareWith::Output(n, p)) => crate::legend_view::legend_of(s, n, p, src),
+                    _ => legend_classes.clone(),
+                };
+                let names = |c: &[(f64, Color32)], lk: &Look, legend: Option<&[terraflux_ops::legend::Class]>| {
+                    c.iter().map(|(v, _)| (*v as i64, crate::legend_view::name(lk, legend, *v))).collect()
+                };
+                Some((names(ca, l, legend_classes.as_deref()), names(cb, ol, other_legend.as_deref())))
+            }
+            _ => None,
+        };
+        sh.compare.difference.want(ui.ctx(), &maps[k], src, classes);
+    }
     egui::Panel::right(egui::Id::new(("output side", salt)))
         .resizable(true)
         .default_size(260.0)
@@ -2667,6 +2747,23 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                             "this map and the one compared".into(),
                             vec![panel(&maps[k], l, legend, main_name.clone()), panel(src, &other, None, name.clone())],
                         ));
+                        // (their difference, as the view shows it)
+                        if sh.compare.how == How::Difference
+                            && let Some(Ok(d)) = &sh.compare.difference.made
+                        {
+                            let caption = if d.names.is_empty() {
+                                format!("{name} minus {main_name}")
+                            } else {
+                                format!("from {main_name} to {name}")
+                            };
+                            let p = crate::figure::Panel {
+                                source: d.source.clone(),
+                                coloring: d.coloring.clone(),
+                                names: d.names.clone(),
+                                caption,
+                            };
+                            choices.push(("the difference of the two".into(), vec![p]));
+                        }
                     }
                     if maps.len() > 1 && maps.len() <= 12 {
                         // a series' steps in one colouring; a stack's layers each in its own
@@ -2919,13 +3016,33 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     });
                 }
                 if cmp.with.is_some() {
-                    ui.horizontal(|ui| {
-                        ui.selectable_value(&mut cmp.side_by_side, false, "Curtain")
+                    ui.horizontal_wrapped(|ui| {
+                        ui.selectable_value(&mut cmp.how, How::Curtain, "Curtain")
                             .on_hover_text("the other map right of a line dragged across the map");
-                        ui.selectable_value(&mut cmp.side_by_side, true, "Side by side")
+                        ui.selectable_value(&mut cmp.how, How::SideBySide, "Side by side")
                             .on_hover_text("two maps that move together, the pointer marked in both");
+                        ui.selectable_value(&mut cmp.how, How::Difference, "Difference").on_hover_text(
+                            "values: the other map minus this one; classes: what each cell changed from and to",
+                        );
                     });
-                    if shared.is_some() {
+                    if cmp.how == How::Difference {
+                        match &cmp.difference.made {
+                            None => {
+                                ui.horizontal(|ui| {
+                                    ui.spinner();
+                                    ui.label(RichText::new("the difference...").weak());
+                                });
+                            }
+                            Some(Err(e)) => {
+                                ui.label(RichText::new(e).color(ui.visuals().error_fg_color).size(11.0));
+                            }
+                            Some(Ok(d)) => {
+                                ui.label(RichText::new(&d.summary).weak().size(11.0));
+                                ui.add_space(4.0);
+                                legend(ui, &d.coloring, &d.counts, &|v| d.name(v));
+                            }
+                        }
+                    } else if shared.is_some() {
                         ui.label(
                             RichText::new("both in the same colours: the classes of both, or one range")
                                 .weak()
@@ -3033,7 +3150,10 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         };
         match other {
             None => hover = sh.view.show_stacked(ui, &maps[k], &l.coloring, &rasters, &overlays),
-            Some((src, name, coloring)) if !sh.compare.side_by_side => {
+            Some(_) if sh.compare.how == How::Difference => {
+                hover = show_difference(ui, sh, &maps[k], &rasters, &overlays);
+            }
+            Some((src, name, coloring)) if sh.compare.how == How::Curtain => {
                 let layer = crate::map_view::RasterLayer { source: src, coloring, opacity: 1.0 };
                 let curtain = crate::map_view::Curtain { layer, names: [main_name.clone(), name] };
                 hover = sh.view.show_compared(ui, &maps[k], &l.coloring, &rasters, &overlays, Some(&curtain));
@@ -3061,6 +3181,55 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         if let Some(grid) = s.value_of(&n, &p).as_ref().and_then(crate::trace::grid_of) {
             s.trace_asked = Some((n, p, grid, cell, explain));
         }
+    }
+    hover
+}
+
+/// The difference of the maps compared, drawn in the view of the map compared, which follows the map shown's (the
+/// place kept, also when the difference is of fewer cells than the map); what is under the pointer and the cell
+/// picked (traced) as cells of the map shown.
+fn show_difference(
+    ui: &mut Ui,
+    sh: &mut Shown,
+    main: &Source,
+    rasters: &[crate::map_view::RasterLayer],
+    overlays: &[crate::vector_tiles::Overlay],
+) -> Option<Hover> {
+    let d = match &sh.compare.difference.made {
+        Some(Ok(d)) => d.clone(),
+        Some(Err(e)) => {
+            let e = e.clone();
+            ui.centered_and_justified(|ui| ui.label(RichText::new(e).color(ui.visuals().error_fg_color)));
+            return None;
+        }
+        None => {
+            ui.centered_and_justified(|ui| ui.spinner());
+            return None;
+        }
+    };
+    let place = crate::map_view::place_on(d.source.grid(), main.grid())?;
+    // (the world under it as the map shown has it; the view where that one's is, before it is drawn)
+    let (basemap, transparency, hide) = (sh.view.basemap, sh.view.transparency, sh.view.hide_data);
+    let (zoom, center) = sh.view.camera();
+    let v = &mut sh.compare.view;
+    (v.basemap, v.transparency, v.hide_data) = (basemap, transparency, hide);
+    v.hold(d.source.size());
+    v.set_camera(zoom * place.scale.x, place.to_source(center));
+    let before = [sh.view.camera(), v.camera()];
+    let mut hover = v.show_stacked(ui, &d.source, &d.coloring, rasters, overlays);
+    follow(&mut sh.view, &mut sh.compare.view, place, before);
+    (sh.view.ghost, sh.compare.view.ghost) = (None, None);
+    let step = d.step;
+    if let Some(h) = &mut hover {
+        (h.row, h.col) = (h.row * step, h.col * step);
+    }
+    let picked = sh.compare.view.picked;
+    if picked != sh.compare.difference.picked {
+        sh.compare.difference.picked = picked;
+        sh.view.picked = picked.map(|(r, c)| (r * step, c * step));
+    }
+    if let Some(t) = sh.compare.view.trace_request.take() {
+        sh.view.trace_request = Some(t);
     }
     hover
 }

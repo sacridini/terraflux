@@ -452,8 +452,8 @@ fn a_plot_shows_without_writing_and_saves_from_its_tab() {
     assert!(ones(&m) > ones(&forest), "class 2 joined the ones");
 }
 
-/// Two maps compared in the viewer: the land use read and the forest reclassified from it, by a curtain and
-/// side by side; side by side, the two views move together.
+/// Two maps compared in the viewer: the land use read and the forest reclassified from it, by a curtain, side by
+/// side (the two views moving together) and by their difference (the transitions).
 #[test]
 fn maps_compare_by_a_curtain_and_side_by_side() {
     let mut h = harness(new_app(None));
@@ -481,7 +481,7 @@ fn maps_compare_by_a_curtain_and_side_by_side() {
     assert!(s.preview_compare.with.is_some(), "the map compared kept");
     shot(&mut h, "14b-compare-curtain");
     // side by side: the second view drawn, at the first one's place
-    h.state_mut().session.as_mut().unwrap().preview_compare.side_by_side = true;
+    h.state_mut().session.as_mut().unwrap().preview_compare.how = terraflux_app::builder::How::SideBySide;
     h.run_steps(4);
     drawn(&mut h);
     shot(&mut h, "14c-compare-side-by-side");
@@ -489,6 +489,20 @@ fn maps_compare_by_a_curtain_and_side_by_side() {
     let (a, b) = (s.preview_view.camera(), s.preview_compare.view.camera());
     assert!(s.preview_compare.view.rect().is_some(), "the view beside drawn");
     assert!((a.0 - b.0).abs() < 1e-4 && (a.1 - b.1).length() < 1e-3, "the same grid, the same view: {a:?} {b:?}");
+    // their difference: both maps of classes, the transitions from the forest map to the land use, named
+    h.state_mut().session.as_mut().unwrap().preview_compare.how = terraflux_app::builder::How::Difference;
+    until(&mut h, "the difference", |a| a.session.as_ref().unwrap().preview_compare.difference.made.is_some());
+    h.run_steps(4);
+    drawn(&mut h);
+    shot(&mut h, "14c2-compare-difference");
+    let s = h.state().session.as_ref().unwrap();
+    let d = s.preview_compare.difference.made.as_ref().unwrap().as_ref().expect("the difference made");
+    assert_eq!(d.step, 1);
+    assert_eq!(d.names[0].1, "unchanged");
+    assert!(d.names.len() > 1 && d.names[1..].iter().all(|(_, n)| n.contains(" -> ")), "{:?}", d.names);
+    assert!(d.summary.contains("cells changed class"), "{}", d.summary);
+    let (a, b) = (s.preview_view.camera(), s.preview_compare.view.camera());
+    assert!((a.0 - b.0).abs() < 1e-4 && (a.1 - b.1).length() < 1e-3, "drawn where the map is: {a:?} {b:?}");
 }
 
 /// A basemap under the data: Esri's imagery warped onto the map's grid (UTM 51N), the data half transparent.
