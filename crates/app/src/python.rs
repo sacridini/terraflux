@@ -4,9 +4,16 @@
 //! function's arguments (by their names in landschaft), its outputs as the result or its fields. A calculator's
 //! script is kept as it is, run in numpy by a helper written into the script; reclassification rules become
 //! `ls.reclassify`'s table; the foreground of the habitat patterns (MSPA, FAD...) `ls.reclassify(foreground=...)`.
+//! Containers become Python's own: a loop (`control.repeat`) a `for` over its steps, its carried values assigned
+//! at the end of each, what it collects appended to lists; `control.each` a `for` over the collection's elements;
+//! `control.switch` an `if`/`elif` per branch; a group its body in place. The species distribution models
+//! (landschaft's prepare, fit and predict), the landscape metrics, a prioritization (prioritizr's `problem()`, as
+//! landschaft builds it), Zonation and the pieces of the land change models (Markov, weights of evidence, the
+//! changes and their validation) are calls of their own; the allocation of Dinamica, CLUE-S and PLUS, which
+//! landschaft runs only as a whole model (`ls.simulate.run`), is said so.
 //! A node with no counterpart known stays as a comment with its settings, the script saying which.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::Path;
 
 use serde_json::Value;
@@ -204,6 +211,121 @@ const MAPPED: &[Py] = &[
         kind: Kind::Plain,
     },
     Py {
+        op: "sdm.background",
+        call: "ls.sdm.background",
+        args: &[
+            ("env", ""),
+            ("n", "n"),
+            ("occurrences", "occ"),
+            ("area", "area"),
+            ("bias", "bias"),
+            ("distance", "distance"),
+            ("envelope", "envelope"),
+            ("exclude_occurrences", "exclude_occurrences"),
+            ("tryf", "tryf"),
+            ("lonlat_correction", "lonlat_correction"),
+            ("seed", "seed"),
+            ("x", "x"),
+            ("y", "y"),
+        ],
+        defaults: &[("seed", "1")],
+        outs: &[("points", "")],
+        kind: Kind::Plain,
+    },
+    Py {
+        op: "sdm.importance",
+        call: "ls.sdm.importance",
+        args: &[("model", ""), ("n_repeats", "n_repeats"), ("seed", "seed")],
+        defaults: &[],
+        outs: &[("importance", "")],
+        kind: Kind::Plain,
+    },
+    Py {
+        op: "sdm.response_curves",
+        call: "ls.sdm.response_curves",
+        args: &[("model", ""), ("of", "predictors"), ("n", "n"), ("fixed", "fixed")],
+        defaults: &[],
+        outs: &[("curves", "")],
+        kind: Kind::Plain,
+    },
+    Py {
+        op: "markov.fit",
+        call: "ls.simulate.Markov.from_maps",
+        args: &[("t0", ""), ("t1", ""), ("steps", "steps")],
+        defaults: &[],
+        outs: &[("markov", "")],
+        kind: Kind::Plain,
+    },
+    Py {
+        op: "woe.fit",
+        call: "ls.simulate.weights_of_evidence",
+        args: &[
+            ("t0", ""),
+            ("t1", ""),
+            ("drivers", ""),
+            ("ranges", "ranges"),
+            ("increment", "increment"),
+            ("min_delta", "min_delta"),
+            ("max_delta", "max_delta"),
+            ("tolerance", "tolerance"),
+            ("categorical", "categorical"),
+            ("fix_abnormal", "fix_abnormal"),
+            ("possible", "possible"),
+            ("transitions", "transitions"),
+        ],
+        defaults: &[],
+        outs: &[("model", ""), ("table", ".table")],
+        kind: Kind::Plain,
+    },
+    Py {
+        op: "change.transitions",
+        call: "ls.simulate.changes",
+        args: &[("maps", ""), ("times", "times"), ("cell_area", "cell_area")],
+        defaults: &[],
+        outs: &[("table", ".table"), ("one_step", ".one_step"), ("areas", ".areas"), ("matrix", ".matrix()")],
+        kind: Kind::Plain,
+    },
+    Py {
+        op: "validate.three_map",
+        call: "ls.simulate.three_map_comparison",
+        args: &[("t0", ""), ("t1", ""), ("simulated", ""), ("factors", "factors"), ("categories", "categories")],
+        defaults: &[],
+        outs: &[("table", ".table"), ("budget", ".agreement_budget"), ("figure_of_merit", ".figure_of_merit")],
+        kind: Kind::Plain,
+    },
+    Py {
+        op: "surface.terrain",
+        call: "ls.surface.terrain",
+        args: &[("map", ""), ("v", "v"), ("unit", "unit"), ("neighbors", "neighbors")],
+        defaults: &[],
+        outs: &[("map", "")],
+        kind: Kind::Plain,
+    },
+    Py {
+        op: "surface.tpi",
+        call: "ls.surface.tpi",
+        args: &[("map", ""), ("scale", "scale"), ("win", "win"), ("normalize", "normalize")],
+        defaults: &[],
+        outs: &[("map", "")],
+        kind: Kind::Plain,
+    },
+    Py {
+        op: "surface.vrm",
+        call: "ls.surface.vrm",
+        args: &[("map", ""), ("s", "s")],
+        defaults: &[],
+        outs: &[("map", "")],
+        kind: Kind::Plain,
+    },
+    Py {
+        op: "surface.curvature",
+        call: "ls.surface.curvature",
+        args: &[("map", ""), ("type", "type")],
+        defaults: &[],
+        outs: &[("map", "")],
+        kind: Kind::Plain,
+    },
+    Py {
         op: "nlm.classify",
         call: "ls.nlm.classify",
         args: &[("map", ""), ("n", "n"), ("weights", "weighting"), ("real", "real_land"), ("mask_value", "mask_val")],
@@ -253,6 +375,63 @@ const BY_NAME: &[(&str, &str)] = &[
 
 /// The helper that runs a calculator's script in numpy (written into the script when a calculator is in it).
 pub const CALC_HELPER: &str = include_str!("python_calc.py");
+
+/// The helpers of stacks, tables and containers (stack.of, table.of, control.each, control.switch).
+pub const FLOW_HELPER: &str = include_str!("python_flow.py");
+
+/// Zonation's settings and inputs of the same name in landschaft's `zonation`.
+const ZONATION: &[&str] = &[
+    "rule",
+    "rule_param",
+    "weights",
+    "abf_z",
+    "weight_groups",
+    "group_weights",
+    "thresholds",
+    "extract",
+    "nodata",
+    "zero_mode",
+    "keep_zeros",
+    "cost_in_ranking",
+    "area",
+    "bits",
+    "max_iterations",
+    "ranking_error",
+    "stop_on_plateau",
+    "smoothing_factor",
+    "curves_interval",
+    "seed",
+    "condition",
+    "renormalize",
+    "retention",
+    "connectivity",
+    "self_multiply",
+    "interaction",
+    "interaction2",
+    "matrix_connectivity",
+    "matrices",
+    "groups",
+    "preprocessing",
+    "impact_groups",
+    "impact_bins",
+    "impact",
+    "cumulative_impact",
+    "transformed",
+    "cost",
+    "hierarchic_mask",
+    "analysis_area",
+    "solution",
+];
+
+/// The objectives of a prioritization landschaft's problem takes, and whether they take a budget.
+const OBJECTIVES: &[(&str, bool)] = &[
+    ("min_set", false),
+    ("max_utility", true),
+    ("max_features", true),
+    ("min_shortfall", true),
+    ("min_largest_shortfall", true),
+    ("max_cover", true),
+];
 
 /// A model as a Python script.
 #[derive(Clone, Debug, Default)]
@@ -414,19 +593,312 @@ struct Made {
     outs: HashMap<String, String>,
 }
 
-/// The model as a Python script of landschaft (its top level; containers stay as comments).
+/// Where references are looked up: the nodes made and the values carried (`@name`) in a scope (a container's
+/// body), then in the scopes around it; the model's inputs (`$name`).
+struct Scope<'a> {
+    made: HashMap<String, Made>,
+    carried: HashMap<String, String>,
+    inputs: &'a BTreeMap<String, String>,
+    parent: Option<&'a Scope<'a>>,
+}
+
+impl<'a> Scope<'a> {
+    fn top(inputs: &'a BTreeMap<String, String>) -> Self {
+        Scope { made: HashMap::new(), carried: HashMap::new(), inputs, parent: None }
+    }
+
+    fn child<'b>(&'b self, carried: HashMap<String, String>) -> Scope<'b>
+    where
+        'a: 'b,
+    {
+        Scope { made: HashMap::new(), carried, inputs: self.inputs, parent: Some(self) }
+    }
+
+    fn made(&self, id: &str) -> Option<&Made> {
+        self.made.get(id).or_else(|| self.parent?.made(id))
+    }
+
+    fn carried(&self, name: &str) -> Option<&String> {
+        self.carried.get(name).or_else(|| self.parent?.carried(name))
+    }
+}
+
+/// The helpers a node's code calls (each written into the script once).
+#[derive(Clone, Copy, PartialEq)]
+enum Need {
+    Nothing,
+    Calc,
+    Flow,
+}
+
+/// The script being written: what was translated, the helpers it needs, the Python names taken.
+struct Writer<'r> {
+    r: &'r Registry,
+    out: Script,
+    calc: bool,
+    flow: bool,
+    names: HashSet<String>,
+}
+
+impl Writer<'_> {
+    /// A Python name not taken yet: the name, else with `_2`, `_3`...
+    fn fresh(&mut self, base: &str) -> String {
+        let mut v = base.to_string();
+        let mut k = 2;
+        while self.names.contains(&v) {
+            v = format!("{base}_{k}");
+            k += 1;
+        }
+        self.names.insert(v.clone());
+        v
+    }
+
+    /// The nodes of a scope in the order they run, a block each.
+    fn nodes(&mut self, nodes: &[Node], sc: &mut Scope, prefix: &str) -> String {
+        let ids = terraflux_graph::ids(nodes);
+        let order = terraflux_graph::order(nodes, |n| terraflux_graph::dependencies_among(n, &ids))
+            .unwrap_or_else(|_| nodes.iter().collect());
+        let mut body = String::new();
+        for n in order {
+            body.push_str(&self.block(n, sc, prefix));
+            body.push('\n');
+        }
+        body
+    }
+
+    /// A node's block: its note and why as comments, then its code; or why it is not translated and its settings.
+    fn block(&mut self, n: &Node, sc: &mut Scope, prefix: &str) -> String {
+        let mut block = String::new();
+        block.push_str(&format!("# {} ({})", n.id, n.op));
+        if let Some(note) = n.note.as_deref().filter(|t| !t.trim().is_empty()) {
+            block.push_str(&format!(": {}", one_line(note)));
+        }
+        block.push('\n');
+        if let Some(why) = n.why.as_deref().filter(|t| !t.trim().is_empty()) {
+            block.push_str(&format!("# why: {}\n", one_line(why)));
+        }
+        let var = self.fresh(&variable(&n.id));
+        let made = if n.body.is_some() { self.container(n, &var, sc, prefix) } else { node(n, self.r, &var, sc) };
+        match made {
+            Ok((code, outs, need)) => {
+                self.calc |= need == Need::Calc;
+                self.flow |= need == Need::Flow;
+                self.out.translated += 1;
+                block.push_str(&code);
+                sc.made.insert(n.id.clone(), Made { outs });
+            }
+            Err(why) => {
+                self.out.left.push((format!("{prefix}{}", n.id), n.op.clone(), why.clone()));
+                block.push_str(&format!("# not translated: {why}\n"));
+                for (k, v) in &n.params {
+                    block.push_str(&format!("#   {k} = {}\n", literal(v)));
+                }
+                for (k, s) in &n.inputs {
+                    let s = match s {
+                        Source::Ref(x) => x.clone(),
+                        Source::Literal(v) => literal(v),
+                    };
+                    block.push_str(&format!("#   input {k} <- {s}\n"));
+                }
+                block.push_str(&format!("{var} = None\n"));
+                sc.made.insert(n.id.clone(), Made { outs: HashMap::new() });
+            }
+        }
+        block
+    }
+
+    /// A container in Python's own terms: a loop's steps a `for`, its carried values assigned at the end of each and
+    /// what it collects appended to lists; a loop over a collection a `for` over its elements, what it collects
+    /// gathered; a switch an `if` per branch; a group its body in place. Its inputs (`@name` inside) a variable each.
+    fn container(&mut self, n: &Node, var: &str, sc: &Scope, prefix: &str) -> Result<Code, String> {
+        let body = n.body.as_ref().ok_or("no body")?;
+        let inner = format!("{prefix}{}/", n.id);
+        let own: &[&str] = match n.op.as_str() {
+            "control.repeat" => &["times"],
+            terraflux_graph::EACH => &["over"],
+            terraflux_graph::SWITCH => &["case"],
+            _ => &[],
+        };
+        if n.op == "control.repeat"
+            && let Some(name) = body.carry.keys().find(|k| !n.inputs.contains_key(*k))
+        {
+            return Err(format!("no first value for @{name}"));
+        }
+        let mut code = String::new();
+        let mut carried = HashMap::new();
+        for k in n.inputs.keys().filter(|k| !own.contains(&k.as_str())) {
+            let v = value_of(n, k, sc)?.unwrap_or_else(|| "None".into());
+            let name = self.fresh(&variable(&format!("{var}_{k}")));
+            code.push_str(&format!("{name} = {v}\n"));
+            carried.insert(k.clone(), name);
+        }
+        let mut outs: HashMap<String, String> = HashMap::new();
+        let mut need = Need::Nothing;
+        match n.op.as_str() {
+            "control.repeat" | terraflux_graph::EACH => {
+                let each = n.op == terraflux_graph::EACH;
+                let (head, items) = if each {
+                    let over = value_of(n, "over", sc)?.ok_or("nothing to go over (over)")?;
+                    let items = self.fresh(&format!("{var}_elements"));
+                    code.push_str(&format!("{items} = _elements({over})\n"));
+                    let (index, name, item) = (self.fresh("index"), self.fresh("name"), self.fresh("item"));
+                    let head = format!("for {index}, ({name}, {item}) in enumerate({items}, start=1):\n");
+                    for (k, v) in [("index", index), ("name", name), ("item", item)] {
+                        carried.insert(k.into(), v);
+                    }
+                    need = Need::Flow;
+                    (head, Some(items))
+                } else {
+                    let times = value_of(n, "times", sc)?.ok_or("its times are not given")?;
+                    let step = self.fresh("step");
+                    let head = format!("for {step} in range(1, int({times}) + 1):\n");
+                    carried.insert("step".into(), step);
+                    (head, None)
+                };
+                let mut series = Vec::new();
+                for k in body.collect.keys() {
+                    let list = self.fresh(&variable(&format!("{var}_{k}")));
+                    code.push_str(&format!("{list} = []\n"));
+                    series.push((k.clone(), list));
+                }
+                let mut child = sc.child(carried.clone());
+                let mut inside = self.nodes(&body.nodes, &mut child, &inner);
+                if let Some(u) = body.until.as_ref().filter(|_| !each) {
+                    let u = loose(u, &child, &mut inside);
+                    inside.push_str(&format!(
+                        "if {u}:  # the loop's end: this step neither collected nor carried\n    break\n"
+                    ));
+                }
+                for (k, list) in &series {
+                    let v = loose(&body.collect[k], &child, &mut inside);
+                    inside.push_str(&format!("{list}.append({v})\n"));
+                }
+                if !each && !body.carry.is_empty() {
+                    let names: Vec<&str> = body.carry.keys().map(|k| carried[k].as_str()).collect();
+                    let values: Vec<String> = body.carry.values().map(|r| loose(r, &child, &mut inside)).collect();
+                    inside.push_str(&format!("{} = {}\n", names.join(", "), values.join(", ")));
+                    for k in body.carry.keys() {
+                        outs.insert(k.clone(), carried[k].clone());
+                    }
+                }
+                code.push_str(&head);
+                code.push_str(&indent(&inside));
+                for (k, list) in series {
+                    if let Some(items) = &items {
+                        code.push_str(&format!("{list} = _gather({list}, [k for k, _ in {items}], \"item\")\n"));
+                    }
+                    outs.insert(k, list);
+                }
+            }
+            terraflux_graph::SWITCH => {
+                let case = value_of(n, "case", sc)?.ok_or("no case")?;
+                let cv = self.fresh(&format!("{var}_case"));
+                code.push_str(&format!("{cv} = _case({case})\n"));
+                need = Need::Flow;
+                let mut branches: Vec<Branch> = Vec::new();
+                for b in &body.nodes {
+                    let mut child = sc.child(carried.clone());
+                    let block = self.block(b, &mut child, &inner);
+                    let made = child.made.remove(&b.id).map(|m| m.outs).unwrap_or_default();
+                    let cond = match b.id.as_str() {
+                        "otherwise" => None,
+                        id => Some(match id.strip_prefix("case_") {
+                            Some(v) => format!("{cv} in ({}, {})", text(id), text(v)),
+                            None => format!("{cv} == {}", text(id)),
+                        }),
+                    };
+                    branches.push((cond, block, made, b.id.clone()));
+                }
+                let ports: BTreeSet<String> = branches.iter().flat_map(|b| b.2.keys().cloned()).collect();
+                // one output: the switch's own name; more, a name each
+                let mut names: Vec<(String, String)> = Vec::new();
+                for p in &ports {
+                    let name =
+                        if ports.len() == 1 { var.to_string() } else { self.fresh(&variable(&format!("{var}_{p}"))) };
+                    names.push((p.clone(), name));
+                }
+                let branch = self.fresh(&format!("{var}_branch"));
+                let filled = |b: &Branch| {
+                    let mut t = b.1.clone();
+                    for (p, name) in &names {
+                        t.push_str(&format!("{name} = {}\n", b.2.get(p).map_or("None", String::as_str)));
+                    }
+                    t.push_str(&format!("{branch} = {}\n", text(&b.3)));
+                    t
+                };
+                let (cases, otherwise): (Vec<_>, Vec<_>) = branches.iter().partition(|b| b.0.is_some());
+                for (i, b) in cases.iter().enumerate() {
+                    code.push_str(&format!("{} {}:\n", if i == 0 { "if" } else { "elif" }, b.0.as_deref().unwrap()));
+                    code.push_str(&indent(&filled(b)));
+                }
+                let rest = match otherwise.first() {
+                    Some(b) => filled(b),
+                    None => format!("raise ValueError(f\"no branch for the case {{{cv}!r}}\")\n"),
+                };
+                if cases.is_empty() {
+                    code.push_str(&rest);
+                } else {
+                    code.push_str("else:\n");
+                    code.push_str(&indent(&rest));
+                }
+                for (p, name) in names {
+                    outs.insert(p, name);
+                }
+                outs.insert("branch".into(), branch);
+            }
+            _ => {
+                // a group: its body in place, its outputs what they name
+                let mut child = sc.child(carried);
+                let inside = self.nodes(&body.nodes, &mut child, &inner);
+                if !inside.trim().is_empty() {
+                    code.push_str(inside.trim_end());
+                    code.push('\n');
+                }
+                for (name, r) in &body.outputs {
+                    let mut said = String::new();
+                    outs.insert(name.clone(), loose(r, &child, &mut said));
+                    code.push_str(&said);
+                }
+            }
+        }
+        Ok((code, outs, need))
+    }
+}
+
+/// The expression of a reference a container ends with (what it carries, collects, gives, its end): `None` when it
+/// is not translated (a node of its body left as a comment), said in a comment, the container kept.
+fn loose(r: &str, sc: &Scope, said: &mut String) -> String {
+    reference(r, sc).unwrap_or_else(|why| {
+        said.push_str(&format!("# ({why}: None here)\n"));
+        "None".into()
+    })
+}
+
+/// Code inside a block (a loop's, a branch's): four spaces in; `pass` when it has no statement.
+fn indent(code: &str) -> String {
+    let statement = code.lines().any(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'));
+    let mut out: String =
+        code.lines().map(|l| if l.trim().is_empty() { "\n".to_string() } else { format!("    {l}\n") }).collect();
+    while out.ends_with("\n\n") {
+        out.pop();
+    }
+    if !statement {
+        out.push_str("    pass\n");
+    }
+    out
+}
+
+/// The model as a Python script of landschaft.
 pub fn script(m: &Model, r: &Registry, model_path: Option<&Path>) -> Script {
-    let mut out = Script::default();
+    let mut w = Writer { r, out: Script::default(), calc: false, flow: false, names: HashSet::new() };
+    for taken in ["np", "ls", "Path", "MODEL_DIR", "OUT"] {
+        w.names.insert(taken.into());
+    }
     let mut body = String::new();
-    let mut made: HashMap<String, Made> = HashMap::new();
     let mut inputs: BTreeMap<String, String> = BTreeMap::new();
-    let mut calc = false;
-    let ids = terraflux_graph::ids(&m.nodes);
-    let order = terraflux_graph::order(&m.nodes, |n| terraflux_graph::dependencies_among(n, &ids))
-        .unwrap_or_else(|_| m.nodes.iter().collect());
     // the model's inputs
     for (name, input) in &m.inputs {
-        let v = variable(name);
+        let v = w.fresh(&variable(name));
         let line = match input {
             Input::Map { path: p, band, nodata, .. } => {
                 let mut a = vec![path(p)];
@@ -453,55 +925,20 @@ pub fn script(m: &Model, r: &Registry, model_path: Option<&Path>) -> Script {
     if !m.inputs.is_empty() {
         body.push('\n');
     }
-    for n in order {
-        let mut block = String::new();
-        block.push_str(&format!("# {} ({})", n.id, n.op));
-        if let Some(note) = n.note.as_deref().filter(|t| !t.trim().is_empty()) {
-            block.push_str(&format!(": {}", one_line(note)));
-        }
-        block.push('\n');
-        if let Some(why) = n.why.as_deref().filter(|t| !t.trim().is_empty()) {
-            block.push_str(&format!("# why: {}\n", one_line(why)));
-        }
-        let var = variable(&n.id);
-        match node(n, r, &var, &made, &inputs) {
-            Ok((code, outs, used_calc)) => {
-                calc |= used_calc;
-                out.translated += 1;
-                block.push_str(&code);
-                made.insert(n.id.clone(), Made { outs });
-            }
-            Err(why) => {
-                out.left.push((n.id.clone(), n.op.clone(), why.clone()));
-                block.push_str(&format!("# not translated: {why}\n"));
-                for (k, v) in &n.params {
-                    block.push_str(&format!("#   {k} = {}\n", literal(v)));
-                }
-                for (k, s) in &n.inputs {
-                    let s = match s {
-                        Source::Ref(x) => x.clone(),
-                        Source::Literal(v) => literal(v),
-                    };
-                    block.push_str(&format!("#   input {k} <- {s}\n"));
-                }
-                block.push_str(&format!("{var} = None\n"));
-                made.insert(n.id.clone(), Made { outs: HashMap::new() });
-            }
-        }
-        body.push_str(&block);
-        body.push('\n');
-    }
+    let mut sc = Scope::top(&inputs);
+    body.push_str(&w.nodes(&m.nodes, &mut sc, ""));
     // the model's outputs
     if !m.outputs.is_empty() {
         body.push_str("# the model's outputs\nOUT.mkdir(parents=True, exist_ok=True)\n");
         for (name, o) in &m.outputs {
             let file = text(&o.path.clone().unwrap_or_else(|| name.clone()));
-            body.push_str(&match reference(&o.from, &made, &inputs) {
+            body.push_str(&match reference(&o.from, &sc) {
                 Ok(value) => format!("ls.save({value}, OUT / {file})\n"),
                 Err(e) => format!("# ls.save(..., OUT / {file})  # {e}\n"),
             });
         }
     }
+    let mut out = w.out;
     // the header
     let title = m
         .name
@@ -545,10 +982,18 @@ pub fn script(m: &Model, r: &Registry, model_path: Option<&Path>) -> Script {
         None => "MODEL_DIR = Path(__file__).parent  # the model's paths are relative to its folder\n".into(),
     });
     head.push_str("OUT = MODEL_DIR / \"output\"\n\n");
-    if calc {
+    if w.calc {
         head.push_str("\n# --- Terraflux's calculator (raster.calc) in numpy ---\n\n");
         head.push_str(CALC_HELPER.trim_end());
-        head.push_str("\n\n# --- the model ---\n\n");
+        head.push_str("\n\n");
+    }
+    if w.flow {
+        head.push_str("\n# --- Terraflux's stacks, tables and containers ---\n\n");
+        head.push_str(FLOW_HELPER.trim_end());
+        head.push_str("\n\n");
+    }
+    if w.calc || w.flow {
+        head.push_str("# --- the model ---\n\n");
     }
     out.text = format!("{head}\n{}", body.trim_end()) + "\n";
     out
@@ -577,35 +1022,37 @@ fn wrap(t: &str, width: usize) -> String {
     lines.join("\n")
 }
 
-/// The expression of a reference: `$input`, `node.port`.
-fn reference(r: &str, made: &HashMap<String, Made>, inputs: &BTreeMap<String, String>) -> Result<String, String> {
+/// The expression of a reference: `$input`, `@name` (a container's), `node.port`.
+fn reference(r: &str, sc: &Scope) -> Result<String, String> {
     match Ref::parse(r).map_err(|e| e.to_string())? {
-        Ref::Input(name) => inputs.get(&name).cloned().ok_or_else(|| format!("${name}: not an input of the model")),
-        Ref::Carried(name) => Err(format!("@{name}: a value of a container")),
+        Ref::Input(name) => sc.inputs.get(&name).cloned().ok_or_else(|| format!("${name}: not an input of the model")),
+        Ref::Carried(name) => {
+            sc.carried(&name).cloned().ok_or_else(|| format!("@{name}: no value of a container here"))
+        }
         Ref::Port { node, port } => {
-            let m = made.get(&node).ok_or_else(|| format!("{node}: not a node before"))?;
+            let m = sc.made(&node).ok_or_else(|| format!("{node}: not a node before"))?;
             m.outs.get(&port).cloned().ok_or_else(|| format!("{node}.{port}: not translated"))
         }
     }
 }
 
 /// The value of a node's input or setting.
-fn value_of(
-    n: &Node,
-    name: &str,
-    made: &HashMap<String, Made>,
-    inputs: &BTreeMap<String, String>,
-) -> Result<Option<String>, String> {
+fn value_of(n: &Node, name: &str, sc: &Scope) -> Result<Option<String>, String> {
     if let Some(s) = n.inputs.get(name) {
         return match s {
-            Source::Ref(x) => reference(x, made, inputs).map(Some),
+            Source::Ref(x) => reference(x, sc).map(Some),
             Source::Literal(v) => Ok(Some(literal(v))),
         };
     }
+    setting(n, name, sc)
+}
+
+/// The value of a node's setting (not an input of the same name).
+fn setting(n: &Node, name: &str, sc: &Scope) -> Result<Option<String>, String> {
     match n.params.get(name) {
         None => Ok(None),
         Some(v) => match terraflux_graph::setting_ref(v) {
-            Some(x) => reference(x, made, inputs).map(Some),
+            Some(x) => reference(x, sc).map(Some),
             None if name == "path" => Ok(Some(v.as_str().map_or_else(|| literal(v), path))),
             None => Ok(Some(literal(v))),
         },
@@ -629,27 +1076,24 @@ fn dtype(t: &str) -> &str {
     }
 }
 
-type Code = (String, HashMap<String, String>, bool);
+type Code = (String, HashMap<String, String>, Need);
+
+/// A switch's branch: its condition (none: otherwise), its code, its outputs' expressions, its id.
+type Branch = (Option<String>, String, HashMap<String, String>, String);
 
 /// A node's code, and the expression of each output; or why it is not translated.
-fn node(
-    n: &Node,
-    r: &Registry,
-    var: &str,
-    made: &HashMap<String, Made>,
-    inputs: &BTreeMap<String, String>,
-) -> Result<Code, String> {
-    if n.body.is_some() {
-        return Err("a container (its body is not translated)".into());
-    }
+fn node(n: &Node, r: &Registry, var: &str, sc: &Scope) -> Result<Code, String> {
     if n.op.starts_with("view.") {
         // a chart: what it draws, by matplotlib (left as a comment: a window would stop the script)
-        let shown = ["value", "table", "features"].iter().find_map(|k| value_of(n, k, made, inputs).ok().flatten());
+        let shown = ["value", "table", "features"].iter().find_map(|k| value_of(n, k, sc).ok().flatten());
         let code = match shown {
             Some(v) => format!("# ls.plot({v})  # the chart (matplotlib)\n"),
             None => "# (a chart of a value not translated)\n".to_string(),
         };
-        return Ok((code, HashMap::new(), false));
+        return Ok((code, HashMap::new(), Need::Nothing));
+    }
+    if let Some(code) = special(n, var, sc)? {
+        return Ok(code);
     }
     let ports: Vec<String> = crate::editor::output_ports(n, r).into_iter().map(|(p, _)| p).collect();
     match n.op.as_str() {
@@ -657,7 +1101,7 @@ fn node(
             let script = n.params.get("expression").and_then(Value::as_str).ok_or("no script")?;
             let mut args = Vec::new();
             for k in n.inputs.keys() {
-                let v = value_of(n, k, made, inputs)?.unwrap_or_else(|| "None".into());
+                let v = value_of(n, k, sc)?.unwrap_or_else(|| "None".into());
                 args.push(format!("{}={v}", k));
             }
             let quoted = if script.contains("\"\"\"") || script.contains('\\') {
@@ -668,15 +1112,15 @@ fn node(
             let code = format!("{var} = _calc(\n    {quoted},\n    {},\n)\n", args.join(", "));
             // its outputs: the ports named by `out`, else `map`
             let outs = ports.iter().map(|p| (p.clone(), format!("{var}[{}]", text(p)))).collect();
-            return Ok((code, outs, true));
+            return Ok((code, outs, Need::Calc));
         }
         "raster.reclassify" => {
             let rules = n.params.get("rules").and_then(Value::as_str).ok_or("no rules")?;
             let (table, others) = reclassify_table(rules)?;
-            let map = value_of(n, "map", made, inputs)?.ok_or("its map is not connected")?;
+            let map = value_of(n, "map", sc)?.ok_or("its map is not connected")?;
             let others = others.map_or(String::new(), |o| format!(", others={o}"));
             let code = format!("{var} = ls.reclassify({map}, {table}{others})\n");
-            return Ok((code, HashMap::from([("map".to_string(), var.to_string())]), false));
+            return Ok((code, HashMap::from([("map".to_string(), var.to_string())]), Need::Nothing));
         }
         _ => {}
     }
@@ -686,23 +1130,23 @@ fn node(
         let mut skipped: Vec<String> = Vec::new();
         // a neutral landscape's size first: its `like`'s, else the settings', else 256
         if py.kind == Kind::Grid {
-            let like = value_of(n, "like", made, inputs)?;
+            let like = value_of(n, "like", sc)?;
             for (ours, theirs, dim) in [("columns", "ncol", "x"), ("rows", "nrow", "y")] {
                 let v = match &like {
                     Some(l) => format!("{l}.sizes[\"{dim}\"]"),
-                    None => value_of(n, ours, made, inputs)?.unwrap_or_else(|| "256".into()),
+                    None => value_of(n, ours, sc)?.unwrap_or_else(|| "256".into()),
                 };
                 args.push(format!("{theirs}={v}"));
                 given.push(theirs);
             }
         }
         for (ours, theirs) in py.args {
-            if given.contains(theirs) {
+            if !theirs.is_empty() && given.contains(theirs) {
                 continue;
             }
-            let Some(mut v) = value_of(n, ours, made, inputs)? else { continue };
+            let Some(mut v) = value_of(n, ours, sc)? else { continue };
             if py.kind == Kind::Habitat && *ours == "map" {
-                v = match value_of(n, "foreground", made, inputs)? {
+                v = match value_of(n, "foreground", sc)? {
                     Some(fg) => format!("ls.reclassify({v}, foreground={fg})"),
                     // coded as GuidosToolbox's (0 missing, 1 background, 2 foreground): as bytes
                     None => format!("{v}.fillna(0).astype(\"uint8\")"),
@@ -735,6 +1179,9 @@ fn node(
                 skipped.push(format!("{k} = {}", literal(v)));
             }
         }
+        for k in n.inputs.keys().filter(|k| !known.contains(&k.as_str())) {
+            skipped.push(format!("the input {k}"));
+        }
         let mut code = String::new();
         for s in &skipped {
             code.push_str(&format!("# (not passed: {s})\n"));
@@ -744,24 +1191,372 @@ fn node(
         for (port, field) in py.outs {
             outs.insert(port.to_string(), format!("{var}{field}"));
         }
-        return Ok((code, outs, false));
+        return Ok((code, outs, Need::Nothing));
     }
     if let Some((_, call)) = BY_NAME.iter().find(|(op, _)| *op == n.op) {
         let mut args = Vec::new();
         for k in n.inputs.keys().chain(n.params.keys()) {
-            if let Some(v) = value_of(n, k, made, inputs)? {
+            if let Some(v) = value_of(n, k, sc)? {
                 args.push(format!("{k}={v}"));
             }
         }
         let code = format!("{var} = {call}({})  # its arguments by their names\n", args.join(", "));
         let outs = ports.iter().map(|p| (p.clone(), var.to_string())).collect();
-        return Ok((code, outs, false));
+        return Ok((code, outs, Need::Nothing));
     }
     Err(if r.sig(&n.op).is_some() {
         "no landschaft function known for it yet".into()
     } else {
         "an operator unknown".into()
     })
+}
+
+/// The settings given among `names`, as `theirs=value` (a name each: ours, theirs).
+fn given(n: &Node, names: &[(&str, &str)], sc: &Scope) -> Result<Vec<String>, String> {
+    let mut out = Vec::new();
+    for (ours, theirs) in names {
+        if let Some(v) = setting(n, ours, sc)? {
+            out.push(format!("{theirs}={v}"));
+        }
+    }
+    Ok(out)
+}
+
+/// A setting's text as it is (a choice: `min_set`, `glm`...).
+fn choice<'n>(n: &'n Node, name: &str) -> Option<&'n str> {
+    n.params.get(name).and_then(Value::as_str)
+}
+
+/// The operators translated by code of their own, not one call with the arguments mapped: stacks and tables
+/// written in the model, the species distribution models (landschaft's prepare, fit and predict), the landscape
+/// metrics, a prioritization (prioritizr's problem, as landschaft builds it), Zonation, weights of evidence's
+/// probability; the allocation of the land change models, which landschaft runs only as a whole model, said so.
+fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
+    let v = |k: &str| value_of(n, k, sc);
+    let need =
+        |k: &str, what: &str| -> Result<String, String> { v(k)?.ok_or_else(|| format!("{what} is not connected")) };
+    let one = |port: &str| HashMap::from([(port.to_string(), var.to_string())]);
+    // the settings and inputs given but not passed, as comments
+    let unpassed = |names: &[&str]| -> String {
+        names
+            .iter()
+            .filter_map(|k| match (n.inputs.get(*k), n.params.get(*k)) {
+                (Some(_), _) => Some(format!("# (not passed: the input {k})\n")),
+                (None, Some(x)) => Some(format!("# (not passed: {k} = {})\n", literal(x))),
+                _ => None,
+            })
+            .collect()
+    };
+    let code = match n.op.as_str() {
+        "stack.of" => {
+            let mut entries = Vec::new();
+            for k in n.inputs.keys() {
+                entries.push(format!("{}: {}", text(k), v(k)?.unwrap_or_else(|| "None".into())));
+            }
+            (format!("{var} = _stack({{{}}})\n", entries.join(", ")), one("stack"), Need::Flow)
+        }
+        "table.of" => {
+            let columns = setting(n, "columns", sc)?.unwrap_or_else(|| "[]".into());
+            let rows = setting(n, "rows", sc)?.unwrap_or_else(|| "[]".into());
+            (format!("{var} = _table({columns}, {rows})\n"), one("table"), Need::Flow)
+        }
+        "sdm.prepare" => {
+            let occ = need("occurrences", "its occurrences")?;
+            let env = need("env", "its predictors (env)")?;
+            let mut args = vec![occ, env.clone()];
+            args.extend(given(
+                n,
+                &[
+                    ("species", "species"),
+                    ("clean", "clean"),
+                    ("one_per_cell", "one_per_cell"),
+                    ("thin", "thin"),
+                    ("predictors", "predictors"),
+                    ("background", "background"),
+                    ("folds", "folds"),
+                    ("seed", "seed"),
+                    ("x", "x"),
+                    ("y", "y"),
+                ],
+                sc,
+            )?);
+            // the accessible area: polygons given, else its setting
+            match n.inputs.get("area") {
+                Some(_) => args.push(format!("area={}", need("area", "its area")?)),
+                None => args.extend(given(n, &[("area", "area")], sc)?),
+            }
+            let mut code = String::new();
+            for k in ["regions", "within"] {
+                if n.inputs.contains_key(k) {
+                    code.push_str(&format!("# (not passed: the input {k})\n"));
+                }
+            }
+            if n.inputs.contains_key("background") {
+                code.push_str("# (not passed: the input background; its points drawn by ls.sdm.background instead)\n");
+            }
+            code.push_str(&format!("{var} = ls.sdm.prepare({})\n", args.join(", ")));
+            let outs = HashMap::from([
+                ("records".to_string(), var.to_string()),
+                ("env".to_string(), format!("{env}.sel(band={var}.predictors)")),
+                ("area".to_string(), format!("{var}.area")),
+                ("report".to_string(), format!("{var}.report")),
+                ("settings".to_string(), format!("{var}.settings")),
+            ]);
+            (code, outs, Need::Nothing)
+        }
+        "sdm.fit" => {
+            let records = need("records", "its records")?;
+            let model = choice(n, "model").unwrap_or("maxnet");
+            let mut code = unpassed(&["predictors", "presence", "fold", "weights"]);
+            let estimator = match model {
+                "maxnet" => format!(
+                    "ls.sdm.MaxNet({})",
+                    given(
+                        n,
+                        &[
+                            ("classes", "classes"),
+                            ("regmult", "regmult"),
+                            ("add_samples_to_background", "add_samples_to_background"),
+                            ("type", "type"),
+                            ("clamp", "clamp"),
+                            ("categorical", "categorical"),
+                        ],
+                        sc
+                    )?
+                    .join(", ")
+                ),
+                "glm" => {
+                    code.push_str("from sklearn.linear_model import LogisticRegression\n");
+                    let mut a = given(n, &[("C", "C")], sc)?;
+                    a.push("max_iter=1000".into());
+                    let glm = format!("LogisticRegression({})", a.join(", "));
+                    if n.params.get("standardize").and_then(Value::as_bool) == Some(false) {
+                        glm
+                    } else {
+                        code.push_str("from sklearn.pipeline import make_pipeline\n");
+                        code.push_str("from sklearn.preprocessing import StandardScaler\n");
+                        format!("make_pipeline(StandardScaler(), {glm})")
+                    }
+                }
+                "random_forest" => {
+                    code.push_str("from sklearn.ensemble import RandomForestClassifier\n");
+                    let mut a = given(
+                        n,
+                        &[
+                            ("n_estimators", "n_estimators"),
+                            ("min_samples_leaf", "min_samples_leaf"),
+                            ("min_samples_split", "min_samples_split"),
+                            ("max_depth", "max_depth"),
+                            ("bootstrap", "bootstrap"),
+                        ],
+                        sc,
+                    )?;
+                    match choice(n, "max_features") {
+                        Some("all") => a.push("max_features=None".into()),
+                        _ => a.extend(given(n, &[("max_features", "max_features")], sc)?),
+                    }
+                    let seed = setting(n, "random_state", sc)?.unwrap_or_else(|| "1".into());
+                    a.push(format!("random_state={seed}"));
+                    format!("RandomForestClassifier({})", a.join(", "))
+                }
+                other => return Err(format!("the model {other:?}: not in the script yet")),
+            };
+            let cv = given(n, &[("cv", "cv")], sc)?.into_iter().map(|c| format!(", {c}")).collect::<String>();
+            code.push_str(&format!("{var} = ls.sdm.fit({records}, {{{}: {estimator}}}{cv})\n", text(model)));
+            let outs = HashMap::from([
+                ("model".to_string(), var.to_string()),
+                ("metrics".to_string(), format!("{var}.metrics")),
+                ("summary".to_string(), format!("{var}.summary")),
+                ("threshold".to_string(), format!("{var}.thresholds")),
+                ("predictions".to_string(), format!("{var}.predictions")),
+            ]);
+            (code, outs, Need::Nothing)
+        }
+        "sdm.maxnet_predict" => {
+            let model = need("model", "its model")?;
+            let env = need("env", "its predictors (env)")?;
+            let mut code = unpassed(&["type"]);
+            let clamp = given(n, &[("clamp", "clamp")], sc)?.into_iter().map(|c| format!(", {c}")).collect::<String>();
+            code.push_str(&format!(
+                "{var} = ls.sdm.predict({model}, {env}, ensemble=None, sd=False{clamp}).isel(band=0, drop=True)\n"
+            ));
+            (code, one("prediction"), Need::Nothing)
+        }
+        "metrics.class" | "metrics.landscape" | "metrics.patch" => {
+            let map = need("map", "its map")?;
+            let level = &n.op["metrics.".len()..];
+            let mut args = vec![map, format!("level={}", text(level))];
+            for (k, x) in &n.params {
+                match k.as_str() {
+                    "show" | "patches_path" => {}
+                    "metrics" => args.push(format!("metric={}", setting(n, k, sc)?.unwrap_or_else(|| literal(x)))),
+                    // (landschaft's types end in " metric": "diversity metric")
+                    "type" if x.as_str().is_some_and(|t| !t.ends_with(" metric")) => {
+                        args.push(format!("type={}", text(&format!("{} metric", x.as_str().unwrap_or("")))))
+                    }
+                    _ => args.push(format!("{k}={}", setting(n, k, sc)?.unwrap_or_else(|| literal(x)))),
+                }
+            }
+            let code = format!("{var} = ls.landscape_metrics({})\n", args.join(", "));
+            (code, one("table"), Need::Nothing)
+        }
+        "woe.probability" => {
+            let model = need("model", "its model")?;
+            let landscape = need("landscape", "its landscape")?;
+            let drivers = need("drivers", "its drivers")?;
+            (format!("{var} = {model}.probability({landscape}, {drivers})\n"), one("probability"), Need::Nothing)
+        }
+        "prioritize.zonation" => {
+            let features = need("features", "its features")?;
+            let mut args = vec![features];
+            let mut skipped = Vec::new();
+            for k in n.inputs.keys().chain(n.params.keys()).filter(|k| *k != "features") {
+                if ZONATION.contains(&k.as_str()) {
+                    args.push(format!("{k}={}", v(k)?.unwrap_or_else(|| "None".into())));
+                } else {
+                    skipped.push(k.as_str());
+                }
+            }
+            let mut code = unpassed(&skipped);
+            code.push_str(&format!("{var} = ls.prioritize.zonation({})\n", args.join(", ")));
+            let outs = HashMap::from([
+                ("rank".to_string(), format!("{var}.rank")),
+                ("curves".to_string(), format!("{var}.summary_curves")),
+                ("features".to_string(), format!("{var}.features")),
+                ("auc".to_string(), format!("{var}.auc")),
+                ("iterations".to_string(), format!("{var}.iterations")),
+            ]);
+            (code, outs, Need::Nothing)
+        }
+        "prioritize.optimize" => {
+            for k in n.inputs.keys() {
+                if !["features", "cost", "locked_in", "locked_out"].contains(&k.as_str()) {
+                    return Err(format!("its input {k}: not in the script yet"));
+                }
+            }
+            const KNOWN: &[&str] = &[
+                "objective",
+                "budget",
+                "relative_targets",
+                "absolute_targets",
+                "feature_weights",
+                "boundary_penalty",
+                "edge_factor",
+                "neighbors",
+                "clamp",
+                "contiguity",
+                "decisions",
+                "portfolio",
+                "number_solutions",
+                "pool_gap",
+                "remove_duplicates",
+                "seed",
+                "solver",
+                "gap",
+                "time_limit",
+                "threads",
+            ];
+            let other: Vec<&str> = n.params.keys().map(String::as_str).filter(|k| !KNOWN.contains(k)).collect();
+            if !other.is_empty() {
+                return Err(format!("its settings {}: not in the script yet", other.join(", ")));
+            }
+            let cost = need("cost", "its cost")?;
+            let features = need("features", "its features")?;
+            let mut chain = vec![format!("ls.prioritize.problem({cost}, {features})")];
+            let objective = choice(n, "objective").unwrap_or("min_set");
+            match OBJECTIVES.iter().find(|(o, _)| *o == objective) {
+                Some((o, false)) => chain.push(format!(".add_{o}_objective()")),
+                Some((o, true)) => {
+                    let budget = setting(n, "budget", sc)?.ok_or_else(|| format!("{o} needs a budget"))?;
+                    chain.push(format!(".add_{o}_objective({budget})"));
+                }
+                None => return Err(format!("the objective {objective:?}: not in the script yet")),
+            }
+            for (k, method) in [
+                ("relative_targets", "add_relative_targets"),
+                ("absolute_targets", "add_absolute_targets"),
+                ("feature_weights", "add_feature_weights"),
+            ] {
+                if let Some(x) = setting(n, k, sc)? {
+                    chain.push(format!(".{method}({x})"));
+                }
+            }
+            if let Some(p) = setting(n, "boundary_penalty", sc)? {
+                let e = given(n, &[("edge_factor", "edge_factor")], sc)?.into_iter().map(|e| format!(", {e}"));
+                chain.push(format!(".add_boundary_penalties({p}{})", e.collect::<String>()));
+            }
+            if let Some(k) = setting(n, "neighbors", sc)? {
+                let c = given(n, &[("clamp", "clamp")], sc)?.into_iter().map(|e| format!(", {e}"));
+                chain.push(format!(".add_neighbor_constraints({k}{})", c.collect::<String>()));
+            }
+            if n.params.get("contiguity").and_then(Value::as_bool) == Some(true) {
+                chain.push(".add_contiguity_constraints()".into());
+            }
+            for (k, method) in
+                [("locked_in", "add_locked_in_constraints"), ("locked_out", "add_locked_out_constraints")]
+            {
+                if let Some(x) = v(k)? {
+                    chain.push(format!(".{method}({x})"));
+                }
+            }
+            match choice(n, "decisions").unwrap_or("binary") {
+                "binary" => chain.push(".add_binary_decisions()".into()),
+                "proportion" => chain.push(".add_proportion_decisions()".into()),
+                d => return Err(format!("the decisions {d:?}: not in the script yet")),
+            }
+            if let Some(p) = choice(n, "portfolio") {
+                let names: &[(&str, &str)] = match p {
+                    "gap" => &[("number_solutions", "number_solutions"), ("pool_gap", "pool_gap")],
+                    "cuts" | "top" => &[("number_solutions", "number_solutions")],
+                    "shuffle" => &[
+                        ("number_solutions", "number_solutions"),
+                        ("remove_duplicates", "remove_duplicates"),
+                        ("seed", "seed"),
+                    ],
+                    p => return Err(format!("the portfolio {p:?}: not in the script yet")),
+                };
+                chain.push(format!(".add_{p}_portfolio({})", given(n, names, sc)?.join(", ")));
+            }
+            let solver = choice(n, "solver").unwrap_or("highs");
+            let mut s = given(n, &[("gap", "gap"), ("time_limit", "time_limit")], sc)?;
+            if solver == "gurobi" {
+                s.extend(given(n, &[("threads", "threads")], sc)?);
+            }
+            if !s.is_empty() || solver != "highs" {
+                chain.push(format!(".add_{solver}_solver({})", s.join(", ")));
+            }
+            chain.push(".solve()".into());
+            let code = format!("{var} = (\n    {}\n)\n", chain.join("\n    "));
+            // the solution as a map (`selection`; `values` is one per unit); a portfolio's first, all and how often
+            let outs = if n.params.contains_key("portfolio") {
+                HashMap::from([
+                    ("solution".to_string(), format!("{var}[0].selection")),
+                    ("solutions".to_string(), format!("{var}.selection")),
+                    ("frequency".to_string(), format!("{var}.frequency")),
+                    ("coverage".to_string(), format!("{var}[0].coverage")),
+                ])
+            } else {
+                HashMap::from([
+                    ("solution".to_string(), format!("{var}.selection")),
+                    ("coverage".to_string(), format!("{var}.coverage")),
+                ])
+            };
+            (code, outs, Need::Nothing)
+        }
+        op @ ("dinamica.step" | "lulcc.step" | "cars.step") => {
+            let preset = match op {
+                "dinamica.step" => "preset=\"dinamica\"",
+                "cars.step" => "preset=\"plus\"",
+                _ => "preset=ls.simulate.presets.clue_s",
+            };
+            return Err(format!(
+                "landschaft allocates only within a whole model: ls.simulate.run(t0, t1, drivers, {preset}, \
+                 until=...) fits, validates and projects it"
+            ));
+        }
+        _ => return Ok(None),
+    };
+    Ok(Some(code))
 }
 
 /// The window of the script.
@@ -971,8 +1766,8 @@ params = { rules = "0..0.5 -> 1\n* -> 2" }
 
 [[nodes]]
 id = "flows"
-op = "markov.fit"
-inputs = {}
+op = "raster.sieve"
+inputs = { map = "classes.map" }
 
 [outputs.mspa]
 from = "mspa.map"
@@ -994,5 +1789,227 @@ from = "mspa.map"
         assert_eq!(s.left[0].0, "flows");
         assert!(t.contains("flows = None"), "{t}");
         assert!(t.contains("def _calc(script, **inputs):"));
+    }
+
+    #[test]
+    fn containers_as_python() {
+        let r = Registry::standard();
+        let m = Model::from_toml(
+            r#"
+format = "terraflux/1"
+
+[inputs.method]
+kind = "value"
+value = "near"
+
+[[nodes]]
+id = "land"
+op = "nlm.random"
+params = { columns = 20, rows = 10 }
+
+[[nodes]]
+id = "growth"
+op = "control.repeat"
+inputs = { times = 5, city = "land.map" }
+
+[[nodes.body.nodes]]
+id = "grow"
+op = "raster.calc"
+inputs = { c = "@city", s = "@step" }
+params = { expression = "c + s" }
+
+[[nodes.body.nodes]]
+id = "full"
+op = "value.calc"
+params = { expression = "1 > 2" }
+
+[nodes.body]
+carry = { city = "grow.map" }
+collect = { maps = "grow.map" }
+until = "full.value"
+
+[[nodes]]
+id = "per"
+op = "control.each"
+inputs = { over = "growth.maps" }
+
+[[nodes.body.nodes]]
+id = "twice"
+op = "raster.calc"
+inputs = { m = "@item" }
+params = { expression = "m * 2" }
+
+[nodes.body]
+collect = { doubled = "twice.map" }
+
+[[nodes]]
+id = "pick"
+op = "control.switch"
+inputs = { case = "$method", map = "growth.city" }
+
+[[nodes.body.nodes]]
+id = "near"
+op = "control.group"
+inputs = { m = "@map" }
+
+[[nodes.body.nodes.body.nodes]]
+id = "half"
+op = "raster.calc"
+inputs = { m = "@m" }
+params = { expression = "m / 2" }
+
+[nodes.body.nodes.body]
+outputs = { map = "half.map" }
+
+[[nodes.body.nodes]]
+id = "case_3"
+op = "control.group"
+inputs = { m = "@map" }
+
+[nodes.body.nodes.body]
+outputs = { map = "@m" }
+
+[[nodes.body.nodes]]
+id = "otherwise"
+op = "control.group"
+inputs = { m = "@map" }
+
+[nodes.body.nodes.body]
+outputs = { map = "@m" }
+
+[outputs.picked]
+from = "pick.map"
+"#,
+        )
+        .unwrap();
+        let s = script(&m, &r, None);
+        let t = &s.text;
+        // a loop: its first value, a list of what it collects, the steps, its end, what it carries
+        assert!(t.contains("growth_city = land\n"), "{t}");
+        assert!(t.contains("growth_maps = []\nfor step in range(1, int(5) + 1):\n"), "{t}");
+        assert!(t.contains("    grow = _calc(") && t.contains("c=growth_city, s=step,"), "{t}");
+        // its end, of a node left as a comment: None, said (the loop kept)
+        assert!(t.contains("    # (full.value: not translated: None here)\n    if None:  # the loop's end"), "{t}");
+        assert!(t.contains("    growth_maps.append(grow[\"map\"])\n    growth_city = grow[\"map\"]\n"), "{t}");
+        // over a collection: its elements, gathered
+        assert!(t.contains("per_elements = _elements(growth_maps)\n"), "{t}");
+        assert!(t.contains("for index, (name, item) in enumerate(per_elements, start=1):\n"), "{t}");
+        assert!(t.contains("per_doubled = _gather(per_doubled, [k for k, _ in per_elements], \"item\")"), "{t}");
+        // a switch: a branch each, its outputs the switch's
+        assert!(t.contains("pick_case = _case(method)\n"), "{t}");
+        assert!(t.contains("if pick_case == \"near\":\n"), "{t}");
+        assert!(t.contains("elif pick_case in (\"case_3\", \"3\"):\n"), "{t}");
+        assert!(t.contains("else:\n    # otherwise (control.group)"), "{t}");
+        assert!(t.contains("    pick = half[\"map\"]\n    pick_branch = \"near\"\n"), "{t}");
+        assert!(t.contains("    otherwise_m = pick_map\n    pick = otherwise_m\n"), "{t}");
+        assert!(t.contains("ls.save(pick, OUT / \"picked\")"), "{t}");
+        assert!(t.contains("def _elements(v):") && t.contains("def _gather(values, names, column):"));
+        // value.calc has no counterpart: left, by its place in the loop; the containers translated
+        assert!(s.left.iter().any(|(id, _, _)| id == "growth/full"), "{:?}", s.left);
+        assert_eq!(s.left.len(), 1, "{:?}", s.left);
+        // the Python parses (when there is one to ask)
+        if let Ok(o) = std::process::Command::new("python")
+            .args(["-I", "-c", "import ast, sys; ast.parse(sys.stdin.read())"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .and_then(|mut c| {
+                use std::io::Write;
+                c.stdin.take().unwrap().write_all(t.as_bytes())?;
+                c.wait_with_output()
+            })
+        {
+            assert!(o.status.success(), "{}\n{t}", String::from_utf8_lossy(&o.stderr));
+        }
+    }
+
+    #[test]
+    fn models_of_species_plans_metrics_and_change() {
+        let r = Registry::standard();
+        let m = Model::from_toml(
+            r#"
+format = "terraflux/1"
+
+[[nodes]]
+id = "a"
+op = "nlm.random"
+
+[[nodes]]
+id = "b"
+op = "nlm.random"
+
+[[nodes]]
+id = "env"
+op = "stack.of"
+inputs = { temp = "a.map", "1_to_2" = "b.map" }
+
+[[nodes]]
+id = "occ"
+op = "sdm.background"
+inputs = { env = "env.stack" }
+params = { n = 50 }
+
+[[nodes]]
+id = "data"
+op = "sdm.prepare"
+inputs = { occurrences = "occ.points", env = "env.stack" }
+params = { clean = false, folds = 4 }
+
+[[nodes]]
+id = "fit"
+op = "sdm.fit"
+inputs = { records = "data.records" }
+params = { model = "glm", C = 0.5 }
+
+[[nodes]]
+id = "map"
+op = "sdm.maxnet_predict"
+inputs = { model = "fit.model", env = "data.env" }
+
+[[nodes]]
+id = "plan"
+op = "prioritize.optimize"
+inputs = { cost = "a.map", features = "env.stack" }
+params = { objective = "max_utility", budget = 100, boundary_penalty = 0.1, gap = 0.01 }
+
+[[nodes]]
+id = "metrics"
+op = "metrics.landscape"
+inputs = { map = "a.map" }
+params = { type = "diversity", directions = 4 }
+
+[[nodes]]
+id = "markov"
+op = "markov.fit"
+inputs = { t0 = "a.map", t1 = "b.map", steps = 5 }
+
+[[nodes]]
+id = "step"
+op = "dinamica.step"
+"#,
+        )
+        .unwrap();
+        let s = script(&m, &r, None);
+        let t = &s.text;
+        assert!(t.contains("env = _stack({\"1_to_2\": b, \"temp\": a})"), "{t}");
+        assert!(t.contains("occ = ls.sdm.background(env, n=50, seed=1)"), "{t}");
+        assert!(
+            t.contains("data = ls.sdm.prepare(occ, env, clean=false, folds=4)".replace("false", "False").as_str()),
+            "{t}"
+        );
+        assert!(t.contains("fit = ls.sdm.fit(data, {\"glm\": make_pipeline(StandardScaler(), LogisticRegression(C=0.5, max_iter=1000))})"), "{t}");
+        assert!(t.contains("map_ = ls.sdm.predict(fit, env.sel(band=data.predictors), ensemble=None, sd=False).isel(band=0, drop=True)"), "{t}");
+        assert!(t.contains("    ls.prioritize.problem(a, env)\n    .add_max_utility_objective(100)\n    .add_boundary_penalties(0.1)\n    .add_binary_decisions()\n    .add_highs_solver(gap=0.01)\n    .solve()\n"), "{t}");
+        assert!(
+            t.contains(
+                "metrics = ls.landscape_metrics(a, level=\"landscape\", directions=4, type=\"diversity metric\")"
+            ),
+            "{t}"
+        );
+        assert!(t.contains("markov = ls.simulate.Markov.from_maps(a, b, steps=5)"), "{t}");
+        // the allocation: landschaft runs it as a whole model
+        let step = s.left.iter().find(|(id, _, _)| id == "step").unwrap();
+        assert!(step.2.contains("ls.simulate.run(t0, t1, drivers, preset=\"dinamica\""), "{}", step.2);
     }
 }

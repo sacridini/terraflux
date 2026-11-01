@@ -412,10 +412,17 @@ and **Methods and citations** drafts the methods section of a paper from the mod
 code availability, a supervisor or a reviewer who asks for the code: a call of landschaft a node, in the order the
 model runs them, its note as a comment and its settings as the function's arguments. A calculator keeps its script,
 run in numpy by a helper written at the top of the file; reclassification rules become `ls.reclassify`'s table, and
-the foreground of MSPA, FAD and the other patterns `ls.reclassify(map, foreground=...)`. The window says how many
-nodes were translated; a node without a counterpart known yet (a container, a land change model) stays as a
-comment with its settings, to write by hand. The neutral landscapes, the calculator, the reclassification and
-GuidosToolbox's patterns give the same maps as the model (the same seeds: NLMR's maps).
+the foreground of MSPA, FAD and the other patterns `ls.reclassify(map, foreground=...)`. Containers become
+Python's own: a loop a `for` over its steps (what it carries assigned at the end of each step, what it collects
+appended to a list, its end a `break`), a loop over a collection a `for` over its elements, a switch an `if` per
+branch, a group its body in place. A species distribution model becomes landschaft's `prepare`, `fit` and
+`predict`; landscape metrics `ls.landscape_metrics`; a prioritization prioritizr's `problem()` chain as landschaft
+builds it (objective, targets, penalties, constraints, the solver), Zonation `ls.prioritize.zonation`; Markov
+chains and weights of evidence their landschaft classes. The window says how many nodes were translated; a node
+without a counterpart known yet stays as a comment with its settings, to write by hand (the allocation of
+Dinamica, CLUE-S and PLUS, which landschaft runs only as a whole model with `ls.simulate.run`, says so). The
+neutral landscapes, the calculator, the reclassification, GuidosToolbox's patterns, Zonation, the prioritization,
+the species distribution model and the loops give the same maps as the model (the same seeds: NLMR's maps).
 
 ## The Changes pane
 

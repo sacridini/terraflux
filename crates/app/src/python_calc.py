@@ -106,8 +106,10 @@ def _nb(f, x, r):
         g = ndimage.minimum_filter if f == "nbmin" else ndimage.maximum_filter
         out = g(_np.where(valid, a, fill), size=size, mode="constant", cval=fill)
         return _np.where(_np.isinf(out), _np.nan, out)
-    n = ndimage.uniform_filter(valid.astype("float64"), size=size, mode="constant") * size * size
-    s = ndimage.uniform_filter(_np.where(valid, a, 0.0), size=size, mode="constant") * size * size
+    # summed with a box of ones, not a mean times the cells (3 / 9 * 9 is 2.9999999999999996: nbsum(...) >= 3 fails)
+    box = _np.ones((size, size))
+    n = ndimage.correlate(valid.astype("float64"), box, mode="constant", cval=0.0)
+    s = ndimage.correlate(_np.where(valid, a, 0.0), box, mode="constant", cval=0.0)
     n = _np.round(n)
     if f == "nbcount":
         return n

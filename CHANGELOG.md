@@ -59,6 +59,27 @@ minor versions.
   width, or by an attribute, its classes a colour each (a categorized renderer) or its range of numbers in seven
   ranges along the Viewer's ramp (a graduated renderer). The vector layers drawn over the map are chosen at first,
   with the map shown.
+- The **Python script (landschaft)** translates the **containers** into Python's own: a loop (`control.repeat`) a
+  `for` over its steps, its carried values assigned at the end of each step, what it collects appended to lists,
+  its end (`until`) a `break`; `control.each` a `for` over the collection's elements (`index`, `name`, `item`),
+  what it collects gathered (maps a stack of the elements' names, tables one table); `control.switch` an
+  `if`/`elif`/`else` per branch; a group its body in place, its inputs a variable each. A node of a body without a
+  counterpart stays a comment without losing the container. New counterparts: `stack.of` and `table.of`; the
+  **species distribution models** (`sdm.prepare`, `sdm.background`, `sdm.fit` with MaxNet, the GLM or the random
+  forest, its predictions, importance and response curves); the **landscape metrics** (`metrics.class`,
+  `metrics.landscape`, `metrics.patch`, by `ls.landscape_metrics`); **prioritization** (`prioritize.optimize` as
+  prioritizr's `problem()` chain landschaft builds: objective, targets, weights, boundary penalties, locked units,
+  neighbours, contiguity, decisions, portfolios, the solver's gap and time limit; `prioritize.zonation`); and the
+  pieces of the **land change models** (`markov.fit`, `woe.fit`, `woe.probability`, `change.transitions`,
+  `validate.three_map`), the allocation (Dinamica's, CLUE-S's, PLUS's) said to be landschaft's
+  `ls.simulate.run(..., preset=...)`, which runs only a whole model; and `surface.terrain`, `tpi`, `vrm`,
+  `curvature`. Checked by running both: Zonation, the prioritization, the SDM, a loop, a switch and a loop over a
+  stack give the same maps. In the templates, 390 nodes are translated (319 before) and 170 left (229 before,
+  counting none inside containers then).
+
+### Fixed
+- The Python script's calculator: the neighbourhood sums (`nbsum`, `nbmean`, `nbcount`) are exact sums, not a mean
+  times the cells (`3 / 9 * 9` was 2.9999999999999996, so `nbsum(...) >= 3` failed where Terraflux grew a cell).
 
 ## [1.28.0] - 2026-10-31
 

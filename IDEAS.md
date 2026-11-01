@@ -569,6 +569,21 @@ como o próximo bloco, nesta ordem (um commit por item):
    Viewer). Falta: rótulos dos vetores, regras (`ruleRenderer`) e símbolos de pontos além do círculo.
 8. **Script Python:** os contêineres (laços, each, switch), os modelos de mudança, SDM, priorização e métricas
    (hoje ficam como comentários).
+   **Feito** (Unreleased): `python.rs` com escopos (`Scope`: os nós feitos e os `@nomes` de cada corpo, depois os de
+   fora) e um `Writer` (nomes Python únicos por `fresh`): o laço vira `for step in range(...)` (carry no fim do passo,
+   collect em listas, until um `break`), o each um `for index, (name, item) in enumerate(_elements(...))` com
+   `_gather`, o switch `if/elif/else` (`_case`, `case_3` aceita "3"), o grupo o corpo no lugar; um nó do corpo sem
+   equivalente vira comentário e a referência a ele `None` (o contêiner fica). Ajudantes em `python_flow.py`
+   (`_stack`, `_table`, `_elements`, `_gather`, `_case`). Traduzidos: stack.of, table.of, sdm.prepare/background/fit
+   (MaxNet, GLM, floresta)/maxnet_predict/importance/response_curves, metrics.class/landscape/patch
+   (`ls.landscape_metrics`, o tipo com " metric"), prioritize.optimize (a cadeia do `problem()`; o que não cabe é
+   recusado, não aproximado) e zonation, markov.fit, woe.fit/probability, change.transitions, validate.three_map,
+   surface.terrain/tpi/vrm/curvature. Conferido rodando os dois (t13, t15, t17, t35, t46 e um each sobre uma pilha):
+   os mesmos mapas; achado e corrigido no caminho o `nbsum` do `python_calc.py` (média × 9 não é exata). Nos
+   templates: 390 traduzidos, 170 restantes. Falta: a alocação do Dinamica, CLUE-S e PLUS passo a passo (o
+   landschaft só a roda no modelo inteiro, `ls.simulate.run`, o que o script diz), vetores (pontos, polígonos,
+   extract), tabelas (calc, aggregate, filter), o GLM do CLUE-S, as zonas e as penalidades de conectividade no
+   prioritize.
 9. **Métodos:** `terraflux methods` na linha de comando e no MCP; o texto em português.
 
 ## Paridade com o landschaft na priorização, progresso e parada
