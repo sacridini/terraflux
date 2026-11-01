@@ -269,11 +269,12 @@ fn transitions(
         "no cell has a class in both maps".to_string()
     } else {
         format!(
-            "{} of {} cells changed class ({:.1}%), in {} transitions",
+            "{} of {} cells changed class ({:.1}%), in {} transition{}",
             changed * cells,
             both * cells,
             100.0 * changed as f64 / both as f64,
-            changes.len()
+            changes.len(),
+            if changes.len() == 1 { "" } else { "s" }
         )
     };
     (summary, data, Coloring::Classes(colours), counts, names)

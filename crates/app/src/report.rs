@@ -169,6 +169,67 @@ fn frame_picture(f: &Frame, side: usize) -> Option<Picture> {
     Some(Picture { width: w, height: h, rgba: img.pixels.iter().flat_map(|c| c.to_array()).collect() })
 }
 
+/// A plot's comparison as pictures: the map shown and the one compared, in the colours they share, each with its
+/// name; and their difference when asked: its picture, what it says, and its key (a colour and words each).
+struct Compared {
+    pics: Vec<(Picture, String)>,
+    said: Option<String>,
+    key: Vec<([u8; 3], String)>,
+}
+
+/// The last map of a value (a series' last step) as a source.
+fn last_source(v: &Value) -> Option<Source> {
+    match v {
+        Value::Series(items) => items.iter().rev().find_map(crate::builder::first_source),
+        v => crate::builder::first_source(v),
+    }
+}
+
+/// Two values compared (`names` theirs), pictures at most `side` pixels on a side; their difference too when
+/// `difference` (between maps of classes, the transitions).
+fn compared(a: &Value, b: &Value, names: [String; 2], difference: bool, side: usize) -> Option<Compared> {
+    let (sa, sb) = (last_source(a)?, last_source(b)?);
+    let colours = |s: &Source| {
+        let (v, _, _) = crate::animation::values(s, 256).ok()?;
+        Some(Coloring::for_values(&v.iter().map(|&x| f64::from(x)).collect::<Vec<_>>()))
+    };
+    let (ca, cb) = (colours(&sa)?, colours(&sb)?);
+    let shared = ca.shared(&cb);
+    let picture = |source: &Source, coloring: &Coloring| {
+        frame_picture(&Frame { source: source.clone(), coloring: coloring.clone(), caption: String::new() }, side)
+    };
+    let [na, nb] = names;
+    let mut pics = vec![(picture(&sa, &shared)?, na), (picture(&sb, &shared)?, nb)];
+    let (mut said, mut key) = (None, Vec::new());
+    if difference {
+        let classes = matches!((&ca, &cb), (Coloring::Classes(_), Coloring::Classes(_)));
+        let none = crate::difference::Names::new();
+        match crate::difference::make(&sa, &sb, classes.then_some((&none, &none))) {
+            Ok(d) => {
+                pics.push((picture(&d.source, &d.coloring)?, "difference".into()));
+                said = Some(d.summary.clone());
+                let rgb = |c: egui::Color32| [c.r(), c.g(), c.b()];
+                key = match &d.coloring {
+                    Coloring::Classes(c) => c
+                        .iter()
+                        .map(|(v, colour)| {
+                            let n = d.counts.iter().find(|(k, _)| k == v).map_or(0, |(_, n)| *n);
+                            (rgb(*colour), format!("{}: {n} cells", d.name(*v)))
+                        })
+                        .collect(),
+                    Coloring::Continuous { min, max, ramp, .. } => vec![
+                        (rgb(ramp.colour(0.0)), format!("lower, to {}", cell(*min))),
+                        (rgb(ramp.colour(0.5)), "the same".into()),
+                        (rgb(ramp.colour(1.0)), format!("higher, to {}", cell(*max))),
+                    ],
+                };
+            }
+            Err(e) => said = Some(e),
+        }
+    }
+    Some(Compared { pics, said, key })
+}
+
 /// The values of a run, by node and port.
 pub type Values<'a> = &'a dyn Fn(&str, &str) -> Option<Value>;
 
@@ -315,6 +376,9 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 figure { margin: 12px 0; }
 figure img, .thumb img { image-rendering: pixelated; border: 1px solid var(--line); max-width: 100%; height: auto; }
 img.anim { image-rendering: auto; }
+.pair { display: flex; flex-wrap: wrap; gap: 10px; }
+.key { list-style: none; padding-left: 0; font-size: 0.85em; margin: 6px 0; }
+.sw { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border: 1px solid var(--line); }
 figcaption, .of { color: var(--weak); font-size: 0.88em; }
 .thumb { margin: 8px 0 2px; }
 .badge { display: inline-block; color: #fff; border-radius: 9px; padding: 0 8px; font-size: 0.8em; font-weight: 600; margin-right: 6px; }
@@ -382,6 +446,41 @@ fn html_animation(v: &Value, alt: &str, width: usize) -> Option<String> {
         esc(alt),
         base64(&gif)
     ))
+}
+
+/// The comparison a figure asks for (its plot's `compared`), from the values of the run; none without one.
+fn figure_compared(
+    values: Values,
+    first: &dyn Fn(&str) -> Option<String>,
+    f: &crate::document::Figure,
+) -> Option<Compared> {
+    let (n, p, how) = f.compared.as_ref()?;
+    let (a, b) = (values(&f.node, &f.port)?, values(n, p)?);
+    let name = |node: &str, port: &str| From::Node { node: node.into(), port: port.into() }.text(first);
+    compared(&a, &b, [name(&f.node, &f.port), name(n, p)], how == "difference", FIGURE / 2)
+}
+
+/// A comparison on the page: the maps in a row, each named under it, what their difference says and its key.
+fn html_compared(c: &Compared) -> String {
+    let width = if c.pics.len() > 2 { 260 } else { 340 };
+    let mut s = String::from(r#"<div class="pair">"#);
+    for (p, name) in &c.pics {
+        let img = html_visual(&Visual { shown: Shown::Picture(p.clone()), of: None }, name, width);
+        let _ = write!(s, r#"<div>{img}<div class="of">{}</div></div>"#, esc(name));
+    }
+    s.push_str("</div>");
+    if let Some(t) = &c.said {
+        let _ = write!(s, r#"<div class="of">{}</div>"#, esc(t));
+    }
+    if !c.key.is_empty() {
+        s.push_str(r#"<ul class="key">"#);
+        for ([r, g, b], words) in &c.key {
+            let _ =
+                write!(s, r#"<li><span class="sw" style="background: rgb({r}, {g}, {b})"></span>{}</li>"#, esc(words));
+        }
+        s.push_str("</ul>");
+    }
+    s
 }
 
 /// A value on the page: a series of maps animated, else as [`visual`] shows it; none when there is none.
@@ -540,11 +639,19 @@ impl Html<'_> {
     }
 
     fn figure(&mut self, f: &crate::document::Figure) {
-        let img = html_value((self.values)(&f.node, &f.port), &f.caption, FIGURE, FIGURE * 3 / 4)
-            .unwrap_or_else(|| r#"<p class="missing">Not run.</p>"#.to_string());
+        let img = match figure_compared(self.values, self.first, f) {
+            Some(c) => html_compared(&c),
+            None => html_value((self.values)(&f.node, &f.port), &f.caption, FIGURE, FIGURE * 3 / 4)
+                .unwrap_or_else(|| r#"<p class="missing">Not run.</p>"#.to_string()),
+        };
+        let with = f
+            .compared
+            .as_ref()
+            .map(|(n, p, _)| format!(", compared with {}", self.from(&From::Node { node: n.clone(), port: p.clone() })))
+            .unwrap_or_default();
         let _ = write!(
             self.out,
-            "<figure>{img}<figcaption><b>Figure {}.</b> {} (from {})</figcaption></figure>",
+            "<figure>{img}<figcaption><b>Figure {}.</b> {} (from {}{with})</figcaption></figure>",
             f.number,
             esc(&f.caption),
             self.from(&From::Node { node: f.node.clone(), port: f.port.clone() })
@@ -1418,18 +1525,31 @@ impl PdfReport<'_> {
     fn figure(&mut self, f: &crate::document::Figure, indent: f32) {
         self.pdf.space(4.0);
         let value = (self.values)(&f.node, &f.port);
-        if !value.as_ref().is_some_and(|v| pdf_series(&mut self.pdf, v, 150.0, indent)) {
+        if let Some(c) = figure_compared(self.values, self.first, f) {
+            // the maps compared in a row, what their difference says and its key
+            self.pdf.strip(&c.pics, if c.pics.len() > 2 { 150.0 } else { 200.0 }, indent);
+            if let Some(t) = &c.said {
+                self.pdf.paragraph(&[run(Font::Italic, t.clone())], 8.5, indent, 0.35);
+            }
+            for (rgb, words) in &c.key {
+                self.pdf.badge(*rgb, "", &[run(Font::Regular, words.clone())], 8.0, indent + 4.0);
+            }
+        } else if !value.as_ref().is_some_and(|v| pdf_series(&mut self.pdf, v, 150.0, indent)) {
             match value.and_then(|v| visual(&v, FIGURE)) {
                 Some(v) => self.pdf.visual(&v, 300.0, indent),
                 None => self.pdf.paragraph(&[run(Font::Italic, "Not run.")], 9.0, indent, 0.45),
             }
         }
-        let caption = vec![
+        let mut caption = vec![
             run(Font::Bold, format!("Figure {}. ", f.number)),
             run(Font::Regular, format!("{} (from ", f.caption)),
             self.from(&From::Node { node: f.node.clone(), port: f.port.clone() }),
-            run(Font::Regular, ")"),
         ];
+        if let Some((n, p, _)) = &f.compared {
+            caption.push(run(Font::Regular, ", compared with "));
+            caption.push(self.from(&From::Node { node: n.clone(), port: p.clone() }));
+        }
+        caption.push(run(Font::Regular, ")"));
         self.pdf.paragraph(&caption, 9.0, indent, 0.25);
     }
 
@@ -1740,6 +1860,57 @@ mod tests {
         assert!(pdf.page.contains("(of) Tj") || pdf.page.contains("(step 50 of 50) Tj"), "{}", pdf.page);
         // a single map is not a series
         assert!(series_frames(&map(3), FRAMES).is_none());
+    }
+
+    #[test]
+    fn a_plot_compares_two_maps_and_their_difference() {
+        let r = Registry::standard();
+        let m = terraflux_graph::Model::from_toml(
+            r#"
+            format = "terraflux/1"
+            [[nodes]]
+            id = "before"
+            op = "nlm.random"
+            params = { rows = 20, columns = 30, seed = 1 }
+            [[nodes]]
+            id = "after"
+            op = "raster.calc"
+            inputs = { a = "before.map" }
+            params = { expression = "out x = 1 if a > 0.5 else 0" }
+            [[nodes]]
+            id = "was"
+            op = "raster.calc"
+            inputs = { a = "before.map" }
+            params = { expression = "out x = 1 if a > 0.3 else 0" }
+            [[nodes]]
+            id = "plot"
+            op = "view.plot"
+            inputs = { value = "was.x", compared = "after.x" }
+            params = { title = "Forest lost", compare = "difference" }
+            "#,
+        )
+        .unwrap();
+        let d = Document::of(&m, &r);
+        let f = d.steps().iter().flat_map(|s| s.figures.clone()).next().unwrap();
+        assert_eq!(f.compared, Some(("after".into(), "x".into(), "difference".into())));
+        let results =
+            terraflux_exec::Engine::default().run(&m, &Default::default(), &mut terraflux_exec::Quiet).unwrap();
+        let values = |n: &str, p: &str| results.values.get(n)?.get(p).cloned();
+        let first = |n: &str| crate::document::only_output(&m, &r, n);
+        let c = figure_compared(&values, &first, &f).unwrap();
+        assert_eq!(c.pics.iter().map(|(_, n)| n.as_str()).collect::<Vec<_>>(), ["was", "after", "difference"]);
+        assert!(c.said.as_deref().is_some_and(|t| t.contains("cells changed class")), "{:?}", c.said);
+        assert_eq!(c.key[0].1.split(':').next(), Some("unchanged"));
+        assert!(c.key.iter().any(|(_, w)| w.starts_with("1 -> 0: ")), "{:?}", c.key);
+        let h = html(&d, &values, &first, &Extras::default());
+        assert!(h.contains(r#"<div class="pair">"#) && h.contains("compared with <a"));
+        let p = pdf(&d, &values, &first, &Extras::default());
+        assert!(String::from_utf8_lossy(&p).contains("(compared) Tj"));
+        // side by side: the two maps, no difference
+        let mut f2 = f.clone();
+        f2.compared = Some(("after".into(), "x".into(), "side by side".into()));
+        let c = figure_compared(&values, &first, &f2).unwrap();
+        assert_eq!((c.pics.len(), c.said, c.key.len()), (2, None, 0));
     }
 
     #[test]

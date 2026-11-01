@@ -207,7 +207,10 @@ paragraph of the methods (the same as the Methods and citations window below, wi
 the references to cite in the APA style, Terraflux's among them, then those the nodes' references give. The maps
 of a loop's steps (what a `control.repeat` collects) are an animation in the HTML (an animated GIF, the step
 written on each map and the legend under them; 40 steps at most, evenly spaced, the first and the last among
-them) and four steps in a row in the PDF (the first, the last and two between), all in one colouring. The
+them) and four steps in a row in the PDF (the first, the last and two between), all in one colouring. A plot
+that compares (a `view.plot` with a map connected to **compared**) is a figure of the two maps side by side in
+the colours they share, and, with `compare = "difference"`, of their difference too, with what it says (how many
+cells changed class, or the mean difference) and its key. The
 images come from the **last run**: run the model before you export it, or its steps say *Not run.* The report's maps are drawn in colours fitted to their values (a colour per class, or a ramp), not
 in the palette chosen in the Viewer. A line at the end says which version of Terraflux made it and on which day.
 

@@ -503,6 +503,27 @@ fn maps_compare_by_a_curtain_and_side_by_side() {
     assert!(d.summary.contains("cells changed class"), "{}", d.summary);
     let (a, b) = (s.preview_view.camera(), s.preview_compare.view.camera());
     assert!((a.0 - b.0).abs() < 1e-4 && (a.1 - b.1).length() < 1e-3, "drawn where the map is: {a:?} {b:?}");
+    // a plot that compares: shown with its comparison, as it asks
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.preview_compare.with = None;
+        s.preview_compare.how = terraflux_app::builder::How::Curtain;
+        let plot = terraflux_app::builder::add(s, &r, "view.plot", &[("compare", "side by side".into())]).unwrap();
+        terraflux_app::editor::connect(&mut s.source, &r, &[], "raster_reclassify.map", &plot, "value").unwrap();
+        terraflux_app::editor::connect(&mut s.source, &r, &[], "raster_read.raster", &plot, "compared").unwrap();
+        s.edited();
+        s.preview = Some((plot, "shown".into()));
+    }
+    until(&mut h, "the plot", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.preview_compare.with.is_some()
+    });
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(
+        s.preview_compare.with,
+        Some(terraflux_app::builder::CompareWith::Output("raster_read".into(), "raster".into()))
+    );
+    assert_eq!(s.preview_compare.how, terraflux_app::builder::How::SideBySide);
 }
 
 /// A basemap under the data: Esri's imagery warped onto the map's grid (UTM 51N), the data half transparent.

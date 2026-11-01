@@ -2081,6 +2081,8 @@ pub struct Compare {
     pub how: How,
     pub view: crate::map_view::MapView,
     pub difference: Difference,
+    /// The comparison a plot asks for (`compared`, `compare`), as last applied: asked again only when it changes.
+    pub plotted: Option<Option<(String, String, String)>>,
 }
 
 /// How two maps are compared.
@@ -2543,6 +2545,21 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         });
         return None;
     };
+    // a plot that compares its map with another: shown with that comparison (again when the model changes it)
+    if op == "view.plot" {
+        let spec = s.model.nodes.iter().find(|n| n.id == node).and_then(crate::document::compared);
+        if sh.compare.plotted.as_ref() != Some(&spec) {
+            if let Some((n, p, how)) = &spec {
+                sh.compare.with = Some(CompareWith::Output(n.clone(), p.clone()));
+                sh.compare.how = match how.as_str() {
+                    "curtain" => How::Curtain,
+                    "difference" => How::Difference,
+                    _ => How::SideBySide,
+                };
+            }
+            sh.compare.plotted = Some(spec);
+        }
+    }
     // a plot over other plots: the lowest map shown, the others over it, the features over them all
     let stack = if op == "view.plot" { plot_stack(&s.model, &node) } else { Vec::new() };
     let mut over: Vec<(Source, f32, String, String)> = Vec::new();

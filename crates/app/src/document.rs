@@ -149,6 +149,8 @@ pub struct Figure {
     pub caption: String,
     /// Its number in the document (1, 2...).
     pub number: usize,
+    /// The map it compares with the one it shows, and how (`compare`): a node, its port, the way.
+    pub compared: Option<(String, String, String)>,
 }
 
 /// What a container carries, collects and gives, how many times it runs, and its body.
@@ -685,6 +687,15 @@ fn plotted(n: &Node) -> Option<(String, String)> {
     })
 }
 
+/// What a plot compares its map with (its `compared`: a node and a port) and how (`compare`; side by side when
+/// not said).
+pub fn compared(n: &Node) -> Option<(String, String, String)> {
+    let Source::Ref(r) = n.inputs.get("compared")? else { return None };
+    let Ref::Port { node, port } = Ref::parse(r).ok()? else { return None };
+    let how = n.params.get("compare").and_then(|v| v.as_str()).unwrap_or("side by side").to_string();
+    Some((node, port, how))
+}
+
 impl Document {
     /// The document of a model.
     pub fn of(m: &Model, r: &Registry) -> Document {
@@ -743,7 +754,8 @@ impl Document {
             let Some((node, port)) = plotted(plot) else { continue };
             let caption = plot.params.get("title").map(words).unwrap_or_else(|| format!("{node}.{port}"));
             let (path, id, step_port) = giver(&m.nodes, &node, &port);
-            let f = Figure { plot: plot.id.clone(), node: node.clone(), port, step_port, caption, number: 0 };
+            let compared = compared(plot);
+            let f = Figure { plot: plot.id.clone(), node: node.clone(), port, step_port, caption, number: 0, compared };
             let found = sections.iter_mut().find_map(|s| find_step(&mut s.steps, &path, &id));
             match found {
                 Some(s) => s.figures.push(f),

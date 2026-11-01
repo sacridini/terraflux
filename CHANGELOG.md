@@ -23,6 +23,10 @@ minor versions.
 - In the report, the maps of a loop's steps are an animation in the HTML (an animated GIF, each step written on
   its map, the legend under them; 40 steps at most, the first and the last among them) and four steps in a row in
   the PDF, in one colouring, instead of the last step alone.
+- `view.plot` compares: another map connected to its new **compared** input, and **compare** (`curtain`,
+  `side by side`, the default, or `difference`). Its tab opens with that comparison, and in the report its figure
+  is the two maps side by side in the colours they share, and their difference when asked, with what it says and
+  its key.
 
 ## [1.28.0] - 2026-10-31
 

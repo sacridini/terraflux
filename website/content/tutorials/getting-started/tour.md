@@ -340,7 +340,9 @@ Over a map:
   centred on 0 (with the mean difference and the share of cells higher and lower); for maps of classes, the
   transitions, a class each named by both legends ("forest -> pasture", the most common first, the cells that
   kept their class in grey), with how many cells changed. The difference is drawn where the map is, and
-  **Figure...** can make a figure of it;
+  **Figure...** can make a figure of it. A comparison worth keeping goes in the model: connect the other map to
+  a `view.plot` node's **compared** input and choose **compare** (curtain, side by side or difference); its tab
+  opens so, and the report shows the two maps, and their difference when asked;
 - **Maps over it** draws other maps of the run over this one, each as opaque as you like, and **Vectors over the
   map** draws vector layers of the run over it;
 - clicking a cell lists, under **This cell in every map**, its value in every map of the run at the same place

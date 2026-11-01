@@ -15,6 +15,9 @@ pub fn register(r: &mut Registry) {
 
 struct Plot;
 
+/// How a plot compares its map with another (`compare`).
+pub const COMPARE: [&str; 3] = ["curtain", "side by side", "difference"];
+
 impl Operator for Plot {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
@@ -26,6 +29,7 @@ impl Operator for Plot {
         .input(PortSpec::optional("features", Type::Vector, "vector features to show (over the map, if any)"))
         .input(PortSpec::optional("table", Type::Table, "a table to show, drawn as a chart"))
         .input(PortSpec::optional("under", Type::Raster, "another plot's shown, drawn beneath this one"))
+        .input(PortSpec::optional("compared", Type::Raster, "another map compared with the one shown (another date, a scenario, the observed), as compare says"))
         .output(PortSpec::new("shown", Type::Any, "the same value (the map, else the features, else the table), as shown"))
         .param(PortSpec::optional("title", Type::Text, "the tab's title (default: the node's id)"))
         .param(PortSpec::optional("opacity", Type::Number, "drawn over another plot: how opaque, 0 to 1 (1)"))
@@ -33,9 +37,18 @@ impl Operator for Plot {
         .param(PortSpec::optional("x", Type::Text, "a table's chart: the column along the x axis"))
         .param(PortSpec::optional("y", Type::Text, "a table's chart: the columns drawn, by name (comma-separated)"))
         .param(PortSpec::optional("by", Type::Text, "a table's chart: the column whose values make the groups"))
+        .param(PortSpec::optional("compare", Type::Text, "with a map compared: curtain (the other right of a line dragged across the map), side by side (default), or difference (the other minus this one; between maps of classes, the transitions); the report shows both maps, and their difference when asked"))
     }
 
     fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        if let Some(how) = args.opt_param::<String>("compare")?
+            && !COMPARE.contains(&how.as_str())
+        {
+            return Err(Error::msg(format!(
+                "node {:?}: compare is curtain, side by side or difference, not {how:?}",
+                args.node
+            )));
+        }
         let v = args.get("value").or_else(|| args.get("features")).or_else(|| args.get("table")).ok_or_else(|| {
             Error::msg(format!("node {:?}: connect what to show (a map, features or a table)", args.node))
         })?;
