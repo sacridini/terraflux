@@ -505,6 +505,15 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
                 }
             }
             let at = if path.is_empty() { n.id.clone() } else { format!("{}/{}", path.join("/"), n.id) };
+            // a breakpoint: the run pauses before it (in a loop's body, at every step)
+            let mut stops = s.gate.breaks_at(&at);
+            if ui
+                .add(crate::theme::toggle(&mut stops, "Breakpoint"))
+                .on_hover_text("the run pauses before this node (a red dot on the canvas), what ran before it shown; in a loop's body, at every step. Next node or Continue in the status bar goes on")
+                .changed()
+            {
+                s.gate.set_breakpoint(&at, stops);
+            }
             if let Some((secs, bytes)) = s.timings.get(&at) {
                 let size = match *bytes {
                     0 => String::new(),

@@ -64,6 +64,9 @@ minor versions.
   the cell; picking another cell lets it go). An allocation's card says **why** the cell changed: for `lulcc.step`
   its suitability for each class there, how the class it took ranks among the cells and the elasticity of the class
   it had; for `dinamica.step` its probability of that transition there and how it ranks.
+- **Breakpoints**: Breakpoint in the Node pane (a red dot on the canvas) pauses the run before that node, at every
+  step for a node of a loop's body, with what ran before it shown; the status bar says *paused before …* with
+  **Next node** (run it, and pause before the next node) and **Continue** (on to the next breakpoint).
 
 ### Fixed
 - `prioritize.actions_raster` with a feature whose layer has no amounts (all 0) says that it dropped it ("The

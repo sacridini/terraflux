@@ -270,6 +270,14 @@ breakpoint.
     **Areas** pane its cells of each class, so you can watch the city take its cells one step at a time. Unless
     you pressed **Continue**, **Step** is still on for the next run.
 
+    To stop at a node rather than after a step, give it a **breakpoint**: select it (inside the loop: enter the
+    loop first) and tick **Breakpoint** in the Node pane, beside **Bypass**. A red dot marks it on the canvas. The
+    run then pauses **before** that node runs, at every step for a node of a loop's body, and the toolbar says
+    *paused before growth/spread*: what ran before it is done and shown (the maps of the nodes before it in the
+    viewer), the node itself has not run yet. **Next node** runs it and pauses before the next node that starts;
+    **Continue** runs on to the next breakpoint, or to the end. Breakpoints belong to the session, not to the
+    model's file: they are gone when the application closes.
+
 ## Read the results
 
 ```tfslider

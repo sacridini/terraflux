@@ -267,7 +267,8 @@ and on its step of the document, and the status bar and the document's top line 
 glance ("3 checks: 2 passed, 1 warned"), each check listed on hover.
 
 **Running and debugging.** **Step** in the status bar runs a loop step by step: the run pauses after each step, its
-maps shown, until **Next** or **Continue**. **Stop** stops the long operators between their parts (MSPA's tiles,
+maps shown, until **Next** or **Continue**; **Breakpoint** in the Node pane pauses the run before that node (a red
+dot on the canvas), until **Next node** or **Continue**. **Stop** stops the long operators between their parts (MSPA's tiles,
 the circuits' batches of points, a fit's folds, the metrics' blocks). **Freeze** in the Node pane keeps a node's
 result on disk next to the model (a ❄ on the canvas) and uses it instead of running the node, in later sessions
 and by `terraflux run` too, a node inside a group too; what only it reads does not run either. A whole run of a model saved writes its outputs

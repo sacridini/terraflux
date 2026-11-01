@@ -2071,14 +2071,27 @@ impl TerrafluxApp {
                             ui.label(RichText::new("reading the data...").weak());
                         }
                         if s.running() && s.stopping.is_none() && s.gate.paused() {
-                            // paused after a step (in place of the progress)
-                            let at = s.progress.as_ref().map(|(at, step, of)| format!("{at}: step {step} of {of}"));
-                            ui.label(RichText::new(format!("paused at {}", at.unwrap_or_default())).color(theme::accent()));
-                            if ui.button("Next").on_hover_text("run the next step and pause again").clicked() {
-                                s.gate.next();
-                            }
-                            if ui.button("Continue").on_hover_text("run on to the end without pausing").clicked() {
-                                s.gate.resume();
+                            if let Some(at) = s.gate.paused_at() {
+                                // paused before a node (a breakpoint): what ran before it shown
+                                let why = if s.gate.breaks_at(&at) { "its breakpoint" } else { "Next node" };
+                                ui.label(RichText::new(format!("paused before {at}")).color(theme::accent()))
+                                    .on_hover_text(format!("{why}: what ran before it is shown; it has not run yet"));
+                                if ui.button("Next node").on_hover_text("run it, and pause before the next node").clicked() {
+                                    s.gate.next_node();
+                                }
+                                if ui.button("Continue").on_hover_text("run on to the next breakpoint, or to the end").clicked() {
+                                    s.gate.resume();
+                                }
+                            } else {
+                                // paused after a step (in place of the progress)
+                                let at = s.progress.as_ref().map(|(at, step, of)| format!("{at}: step {step} of {of}"));
+                                ui.label(RichText::new(format!("paused at {}", at.unwrap_or_default())).color(theme::accent()));
+                                if ui.button("Next").on_hover_text("run the next step and pause again").clicked() {
+                                    s.gate.next();
+                                }
+                                if ui.button("Continue").on_hover_text("run on to the end without pausing after the steps (the breakpoints still pause it)").clicked() {
+                                    s.gate.resume();
+                                }
                             }
                         } else if s.running() && s.stopping.is_none() {
                             let (frac, text) = s.run_progress();

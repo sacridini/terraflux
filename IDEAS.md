@@ -643,6 +643,13 @@ item):
    a sua posição. Falta: a variável de iteração do CLUE, que o C++ do landschaft não devolve (`CluesOut`).
 7. **Depuração:** um breakpoint de verdade num nó escolhido (hoje o laço só para entre passos) e o Stop dentro das
    chamadas do C++.
+   **Feito** (Unreleased): o breakpoint: `runner::Gate` guarda os lugares (`node`, `laço/node`) e a execução para
+   antes do nó (`Observer::node`), com o que rodou antes mostrado; "Breakpoint" no painel Node, um ponto vermelho
+   no canvas, "paused before …" com **Next node** (para antes do próximo nó) e **Continue** (até o próximo
+   breakpoint). Da sessão, não do arquivo do modelo. Falta: o Stop dentro das chamadas do C++ (o MSPA de uma
+   telha, o `landscape.mspa` inteiro, o `circuit.pairwise`, o Omniscape) precisa de um gancho de cancelamento no
+   C++ do landschaft (como o `SolveWatch` do `opt_solve_watched`), registrado no IDEAS.md de lá; hoje o Stop
+   solta a execução e o operador termina em segundo plano, o resultado descartado.
 8. **Calculadora:** os tipos das portas de `out` no checker do grafo.
 9. **My nodes:** biblioteca remota (URL ou repositório git) e permissões.
 10. **A priorização multi-ação depois da atualização do landschaft** (pedido de 2026-11-01): conferir que o

@@ -86,31 +86,76 @@ impl Record {
 }
 
 /// A run step by step: when `stepping`, the run pauses after each step of a loop until the next is let go (or it
-/// goes on to its end, or is stopped). Kept by the session from run to run.
+/// goes on to its end, or is stopped); and before each node with a breakpoint (by its place: `node`, `loop/node` in
+/// a body, at every step), or before the next node when asked. Kept by the session from run to run.
 #[derive(Default)]
 pub struct Gate {
     pub stepping: AtomicBool,
-    /// Paused, and the steps let go not taken yet.
+    /// The places of the nodes the run pauses before.
+    breakpoints: Mutex<std::collections::BTreeSet<String>>,
+    /// Pause before the next node that starts (Next node, from a pause).
+    next_node: AtomicBool,
+    /// Paused, and the pauses let go not taken yet.
     state: Mutex<(bool, u64)>,
+    /// Where it is paused: before a node (its place), or none (after a loop's step).
+    at: Mutex<Option<String>>,
     cv: Condvar,
 }
 
 impl Gate {
-    /// Whether the run waits after a step.
+    /// Whether the run waits (after a step, or before a node).
     pub fn paused(&self) -> bool {
         self.state.lock().unwrap().0
     }
 
-    /// Let the next step go.
+    /// The node the run is paused before (a breakpoint, or Next node), if it is.
+    pub fn paused_at(&self) -> Option<String> {
+        // (the place read and let go before the state is: `hold` takes the state, then the place)
+        let at = self.at.lock().unwrap().clone();
+        at.filter(|_| self.paused())
+    }
+
+    /// Whether the run pauses before the node at a place (`node`, `container/node`).
+    pub fn breaks_at(&self, place: &str) -> bool {
+        self.breakpoints.lock().unwrap().contains(place)
+    }
+
+    /// Put a breakpoint before the node at a place, or take it away.
+    pub fn set_breakpoint(&self, place: &str, on: bool) {
+        let mut b = self.breakpoints.lock().unwrap();
+        if on {
+            b.insert(place.to_string());
+        } else {
+            b.remove(place);
+        }
+    }
+
+    /// The places of the breakpoints.
+    pub fn breakpoints(&self) -> Vec<String> {
+        self.breakpoints.lock().unwrap().iter().cloned().collect()
+    }
+
+    /// Let the run go on to its next pause (the next step, stepping; the next breakpoint).
     pub fn next(&self) {
         self.state.lock().unwrap().1 += 1;
         self.cv.notify_all();
     }
 
-    /// Go on to the end without pausing.
+    /// Let the run go on to the next node that starts, and pause before it.
+    pub fn next_node(&self) {
+        self.next_node.store(true, Ordering::Relaxed);
+        self.next();
+    }
+
+    /// Go on without pausing after the steps (the breakpoints still pause it).
     pub fn resume(&self) {
         self.stepping.store(false, Ordering::Relaxed);
-        self.wake();
+        self.next_node.store(false, Ordering::Relaxed);
+        let mut st = self.state.lock().unwrap();
+        if st.0 {
+            st.1 += 1;
+        }
+        self.cv.notify_all();
     }
 
     /// Wake a run waiting (under the lock, not to be missed between its checks and its wait).
@@ -122,21 +167,36 @@ impl Gate {
     /// Paused no more, no step let go (a new run).
     fn reset(&self) {
         *self.state.lock().unwrap() = (false, 0);
+        *self.at.lock().unwrap() = None;
+        self.next_node.store(false, Ordering::Relaxed);
     }
 
     /// After a step: wait until the next is let go, the run goes on to its end or is stopped.
     fn wait(&self, stop: &AtomicBool, repaint: &dyn Fn()) {
-        if !self.stepping.load(Ordering::Relaxed) {
-            return;
+        if self.stepping.load(Ordering::Relaxed) {
+            self.hold(None, stop, repaint);
         }
+    }
+
+    /// Before a node starts: wait there when it has a breakpoint, or Next node asked for it.
+    fn before(&self, at: &str, stop: &AtomicBool, repaint: &dyn Fn()) {
+        if self.breaks_at(at) || self.next_node.swap(false, Ordering::Relaxed) {
+            self.hold(Some(at), stop, repaint);
+        }
+    }
+
+    /// Paused (before a node, or after a step) until let go or stopped.
+    fn hold(&self, at: Option<&str>, stop: &AtomicBool, repaint: &dyn Fn()) {
         let mut st = self.state.lock().unwrap();
+        *self.at.lock().unwrap() = at.map(String::from);
         st.0 = true;
         repaint();
-        while st.1 == 0 && self.stepping.load(Ordering::Relaxed) && !stop.load(Ordering::Relaxed) {
+        while st.1 == 0 && !stop.load(Ordering::Relaxed) {
             st = self.cv.wait(st).unwrap();
         }
         st.1 = st.1.saturating_sub(1);
         st.0 = false;
+        *self.at.lock().unwrap() = None;
     }
 }
 
@@ -152,6 +212,8 @@ struct Sending {
 impl Observer for Sending {
     fn node(&mut self, at: &str) {
         let _ = self.tx.send(Message::Node(at.to_string()));
+        // a breakpoint: paused before it runs (what ran before it shown)
+        self.gate.before(at, &self.stop, &*self.repaint);
     }
 
     fn collected(&mut self, at: &str, step: usize, of: usize, values: &BTreeMap<String, Value>) {

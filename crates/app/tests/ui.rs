@@ -1050,6 +1050,79 @@ fn a_loop_pauses_step_by_step() {
     assert!(!s.gate.stepping.load(Ordering::Relaxed));
 }
 
+/// A breakpoint on a node: the run pauses before it (what ran before it done and shown), the status bar says so;
+/// Next node pauses before the next one, Continue runs on to the next breakpoint (in a loop's body, every step).
+#[test]
+fn a_breakpoint_pauses_before_its_node() {
+    use terraflux_graph::{Body, Model, Node};
+    let mut m = Model::new("breakpoints");
+    m.nodes.push(Node::new("land", "nlm.random").param("rows", 20).param("columns", 30).param("seed", 1));
+    m.nodes.push(Node::new("twice", "raster.calc").param("expression", "land * 2").input("land", "land.map"));
+    m.nodes.push(Node::new("half", "raster.calc").param("expression", "twice / 2").input("twice", "twice.map"));
+    m.nodes.push(Node::new("years", "control.repeat").literal("times", 2).body(Body {
+        nodes: vec![Node::new("grow", "nlm.random").param("rows", 5).param("columns", 5).param("seed", 1)],
+        collect: [("maps".to_string(), "grow.map".to_string())].into(),
+        ..Default::default()
+    }));
+    let path = tmp("breakpoints.toml");
+    m.save(&path).unwrap();
+    let mut h = harness(new_app(Some(path)));
+    loaded(&mut h);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        // from the Node pane: twice selected, its breakpoint ticked
+        terraflux_app::builder::select(s, &terraflux_ops::Registry::standard(), "twice");
+    }
+    h.state_mut().focus(Pane::Node);
+    h.run_steps(3);
+    h.get_by_label("Breakpoint").click();
+    h.run_steps(2);
+    assert!(h.state().session.as_ref().unwrap().gate.breaks_at("twice"));
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.gate.set_breakpoint("years/grow", true);
+        s.start(Box::new(|| {}));
+    }
+    until(&mut h, "the breakpoint", |a| a.session.as_ref().unwrap().gate.paused());
+    h.run_steps(3);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        assert_eq!(s.gate.paused_at().as_deref(), Some("twice"));
+        assert!(s.value_of("land", "map").is_some(), "what ran before it is there");
+        assert!(s.cache.lock().unwrap().outputs("twice").is_none(), "it has not run");
+    }
+    assert!(h.query_by_label_contains("paused before twice").is_some());
+    h.state_mut().focus(Pane::Model);
+    h.run_steps(4);
+    if let Ok(img) = h.render() {
+        img.save(tmp("ui-54-breakpoint.png")).unwrap();
+    }
+    // Next node: twice runs, the run pauses before half
+    h.get_by_label("Next node").click();
+    until(&mut h, "the next node", |a| a.session.as_ref().unwrap().gate.paused_at().as_deref() == Some("half"));
+    assert!(!h.state().session.as_ref().unwrap().gate.breaks_at("half"));
+    // (the bar drawn again: its buttons where they are now)
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("paused before half").is_some());
+    // Continue: on to the breakpoint in the loop's body, at each step
+    h.get_by_label("Continue").click();
+    for step in 1..=2 {
+        // (paused before grow at this step: the steps before it done)
+        until(&mut h, "the loop's breakpoint", |a| {
+            let s = a.session.as_ref().unwrap();
+            s.gate.paused_at().as_deref() == Some("years/grow") && s.progress.as_ref().map_or(0, |p| p.1) == step - 1
+        });
+        h.run_steps(3);
+        assert!(h.query_by_label_contains("paused before years/grow").is_some(), "step {step}");
+        h.get_by_label("Continue").click();
+        h.run_steps(2);
+    }
+    until(&mut h, "the run", |a| !a.session.as_ref().unwrap().running());
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.error.is_none(), "{:?}", s.error);
+    assert!(s.value_of("years", "maps").is_some());
+}
+
 /// The document says what each step does in a sentence, edits a list and a table in place, and draws the maps in the viewer's
 /// palettes (MSPA's classes in GuidosToolbox's colours).
 #[test]

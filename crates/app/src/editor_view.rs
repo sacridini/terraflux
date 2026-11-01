@@ -1278,6 +1278,7 @@ pub fn show(
     problems: &HashMap<String, Vec<(bool, String)>>,
     layers: &HashMap<String, usize>,
     checks: &HashMap<String, crate::checks::Verdict>,
+    breakpoints: &HashSet<String>,
 ) -> Vec<Action> {
     let mut actions = Vec::new();
     let Some(nodes) = model.scope(&st.path) else {
@@ -1728,6 +1729,16 @@ pub fn show(
             );
         }
     }
+    // the nodes with a breakpoint: a red dot left of their title (a debugger's gutter)
+    for &i in &in_view {
+        let b = &scene.boxes[i];
+        if !breakpoints.contains(&b.key) {
+            continue;
+        }
+        let c = screen(b.rect.left_top() + Vec2::new(-10.0, HEAD * 0.5));
+        let radius = (6.0 * cam.zoom).max(3.5);
+        painter.circle(c, radius, Color32::from_rgb(210, 50, 50), Stroke::new(1.0, Color32::WHITE));
+    }
     // the nodes whose result is frozen: ❄ on their top left corner
     for &i in &in_view {
         let b = &scene.boxes[i];
@@ -1881,6 +1892,11 @@ pub fn show(
                 if let Some(c) = checks.get(&b.key) {
                     let what = if b.op == "check.assert" { "the check" } else { "the worst of its checks" };
                     text.push(format!("{} {what}: {}", c.symbol(), c.words()));
+                }
+                if breakpoints.contains(&b.key) {
+                    text.push(
+                        "● a breakpoint: the run pauses before it (Breakpoint in the Node pane takes it away)".into(),
+                    );
                 }
                 if b.frozen {
                     text.push(
