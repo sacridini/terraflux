@@ -1157,13 +1157,13 @@ fn parameters_and_scenarios_from_their_pane() {
     {
         let a = h.state_mut();
         a.params.chosen = ["fine".to_string(), "coarse".to_string()].into();
-        a.params.output = Some("field.map".into());
+        a.params.outputs = vec!["field.map".into()];
     }
     h.run_steps(1);
     h.get_by_label("Compare").click();
-    until(&mut h, "the comparison", |a| a.params.compared.is_some());
+    until(&mut h, "the comparison", |a| !a.params.compared.is_empty());
     h.run_steps(3);
-    let (_, compared) = h.state().params.compared.as_ref().unwrap();
+    let compared = &h.state().params.compared[0].compared;
     assert_eq!(compared.len(), 2);
     assert!(
         compared.iter().all(|(_, v)| v.is_ok()),
@@ -1185,18 +1185,18 @@ fn parameters_and_scenarios_from_their_pane() {
         std::fs::create_dir_all(&runs).unwrap();
         s.source.save(runs.join("neutral.toml")).unwrap();
         s.path = Some(runs.join("neutral.toml"));
-        a.params.compared = None;
+        a.params.compared.clear();
     }
     h.run_steps(1);
     h.get_by_label("Compare in Many runs").click();
     h.run_steps(2);
     assert!(h.state().batch.running(), "{:?}", h.state().params.error);
     assert!(h.state().params.in_batch);
-    until(&mut h, "the comparison in Many runs", |a| a.params.compared.is_some());
+    until(&mut h, "the comparison in Many runs", |a| !a.params.compared.is_empty());
     h.run_steps(3);
     {
         let a = h.state();
-        let (output, compared) = a.params.compared.as_ref().unwrap();
+        let (output, compared) = (&a.params.compared[0].output, &a.params.compared[0].compared);
         assert_eq!(output, "field.map");
         let names: Vec<&str> = compared.iter().map(|(n, _)| n.as_str()).collect();
         assert_eq!(names, ["fine", "coarse"], "in the scenarios' order");
@@ -1212,16 +1212,27 @@ fn parameters_and_scenarios_from_their_pane() {
         let s = a.session.as_mut().unwrap();
         s.source.scenarios[0].values.insert("clusters.seed".into(), serde_json::json!(9));
         s.edited();
-        a.params.output = Some("clusters.map".into());
-        a.params.compared = None;
+        // two outputs at once: the clusters' classes and the field's values
+        a.params.outputs = vec!["clusters.map".into(), "field.map".into()];
+        a.params.compared.clear();
     }
     h.run_steps(2);
     h.get_by_label("Compare").click();
-    until(&mut h, "the comparison of classes", |a| a.params.compared.is_some());
+    until(&mut h, "the comparison of classes", |a| !a.params.compared.is_empty());
     h.run_steps(3);
-    assert!(h.state().params.classes, "the clusters are classes, as the viewer shows them");
+    {
+        let c = &h.state().params.compared;
+        let outputs: Vec<&str> = c.iter().map(|c| c.output.as_str()).collect();
+        assert_eq!(outputs, ["clusters.map", "field.map"]);
+        assert!(c[0].classes, "the clusters are classes, as the viewer shows them");
+        assert!(!c[1].classes);
+        assert!(c.iter().all(|c| c.compared.iter().all(|(_, v)| v.is_ok())));
+    }
     assert!(h.query_by_label_contains("where the others' classes differ").is_some());
+    assert!(h.query_by_label_contains("the others less this one").is_some(), "the field's block too");
     assert!(h.query_by_label_contains("cells changed class").is_some());
+    // the whole transition matrix offered (params_view's tests check its counts)
+    assert!(h.query_by_label("the whole transition matrix").is_some());
     shot(&mut h, "51-scenario-classes");
     // a scenario applied: an edit of the model, run again
     h.get_all_by_label("Apply").next().unwrap().click();

@@ -3,8 +3,8 @@
 //! touching the graph: a slider for a number in a range, a list for a few choices, a box for yes or no, a field for
 //! the others; each change an edit of the model (ctrl+Z undoes it), the model run again. The values kept as named
 //! scenarios (`scenarios` in the model), applied in a click, sent to Many runs, or compared side by side: each run
-//! to an output chosen, its maps, tables or numbers in a column per scenario, with their differences from the
-//! first.
+//! to the outputs chosen (one or more), their maps, tables or numbers in a column per scenario, with their
+//! differences from the first (of maps of classes, the cells that changed class and the whole transition matrix).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::mpsc::{Receiver, channel};
@@ -25,18 +25,26 @@ pub type Compared = Vec<(String, Result<Value, String>)>;
 /// The image of a value compared (none: not a map), and what of the value it is.
 type Image = Option<(TextureHandle, Option<String>)>;
 
+/// A comparison of an output: what each scenario gave of it, whether its maps are of classes (as the viewer shows
+/// them: their differences are their changes) and their images.
+pub struct Comparison {
+    pub output: String,
+    pub compared: Compared,
+    pub classes: bool,
+    images: Vec<(String, Image)>,
+}
+
 /// The pane's state (the application's).
 #[derive(Default)]
 pub struct State {
     /// The name of the scenario to save the values as.
     pub name: String,
-    /// The scenarios checked to compare, and the output compared (`node.port`).
+    /// The scenarios checked to compare, and the outputs compared (`node.port`, one or more, in their order).
     pub chosen: BTreeSet<String>,
-    pub output: Option<String>,
-    /// A comparison running, and the last one done (the output it is of, the scenarios' values and images).
-    running: Option<Receiver<Compared>>,
-    pub compared: Option<(String, Compared)>,
-    images: Vec<(String, Image)>,
+    pub outputs: Vec<String>,
+    /// A comparison running, and the last one done: an output's after another's.
+    running: Option<Receiver<Vec<(String, Compared)>>>,
+    pub compared: Vec<Comparison>,
     /// The parameter whose description is edited, by key.
     pub editing: Option<String>,
     pub filter: String,
@@ -44,9 +52,7 @@ pub struct State {
     /// A comparison running in Many runs (on this computer and those helping it, or a cluster), and what it gave
     /// when it ends (the application passes it on).
     pub in_batch: bool,
-    pub from_batch: Option<(String, Compared)>,
-    /// Whether the maps compared are of classes, as the viewer shows them (their differences: their changes).
-    pub classes: bool,
+    pub from_batch: Option<Vec<(String, Compared)>>,
 }
 
 impl State {
@@ -259,9 +265,19 @@ fn comparable(m: &Model, r: &Registry) -> Vec<String> {
     out
 }
 
-/// Run each scenario (the source with its values) up to the node of `output` in a thread, its value sent back.
-fn compare(st: &mut State, s: &Session, output: &str, ctx: &egui::Context) {
-    let Ok(terraflux_graph::Ref::Port { node, port }) = terraflux_graph::Ref::parse(output) else { return };
+/// Run each scenario (the source with its values) up to the nodes of the `outputs` in a thread (once: what the
+/// outputs share run once, kept for the next), their values sent back, an output after another.
+fn compare(st: &mut State, s: &Session, outputs: &[String], ctx: &egui::Context) {
+    let wanted: Vec<(String, String, String)> = outputs
+        .iter()
+        .filter_map(|o| match terraflux_graph::Ref::parse(o) {
+            Ok(terraflux_graph::Ref::Port { node, port }) => Some((o.clone(), node, port)),
+            _ => None,
+        })
+        .collect();
+    if wanted.is_empty() {
+        return;
+    }
     let base = s.path.as_ref().and_then(|p| p.parent()).map(std::path::Path::to_path_buf).unwrap_or_default();
     let runs: Vec<(String, Result<Model, String>)> = s
         .source
@@ -274,28 +290,34 @@ fn compare(st: &mut State, s: &Session, output: &str, ctx: &egui::Context) {
     let ctx = ctx.clone();
     std::thread::spawn(move || {
         let engine = terraflux_exec::Engine::default();
-        let mut out = Vec::new();
+        let mut out: Vec<(String, Compared)> = wanted.iter().map(|(o, _, _)| (o.clone(), Vec::new())).collect();
         for (name, m) in runs {
-            let value = m.and_then(|mut m| {
+            let ready = m.and_then(|mut m| {
                 terraflux_graph::submodel::expand(&mut m, &base).map_err(|e| e.to_string())?;
                 let inputs = terraflux_exec::load_inputs(&m, &base, &BTreeMap::new()).map_err(|e| e.to_string())?;
-                let res = engine
-                    .run_with(&m, &inputs, &mut terraflux_exec::Quiet, None, Some(&node))
-                    .map_err(|e| e.to_string())?;
-                res.values
-                    .get(&node)
-                    .and_then(|o| o.get(&port))
-                    .cloned()
-                    .ok_or_else(|| format!("{node} gave no {port}"))
+                Ok((m, inputs))
             });
-            out.push((name, value));
+            // the scenario's nodes kept between its outputs
+            let cache = std::sync::Mutex::new(terraflux_exec::Cache::default());
+            for (k, (_, node, port)) in wanted.iter().enumerate() {
+                let value = ready.as_ref().map_err(Clone::clone).and_then(|(m, inputs)| {
+                    let res = engine
+                        .run_with(m, inputs, &mut terraflux_exec::Quiet, Some(&cache), Some(node))
+                        .map_err(|e| e.to_string())?;
+                    res.values
+                        .get(node)
+                        .and_then(|o| o.get(port))
+                        .cloned()
+                        .ok_or_else(|| format!("{node} gave no {port}"))
+                });
+                out[k].1.push((name.clone(), value));
+            }
         }
         let _ = tx.send(out);
         ctx.request_repaint();
     });
     st.running = Some(rx);
-    st.compared = None;
-    st.images.clear();
+    st.compared.clear();
 }
 
 /// Whether the maps of a comparison of `output` (`node.port`) are of classes, as the viewer shows that output
@@ -350,6 +372,25 @@ pub fn class_changes(a: &Value, b: &Value) -> Option<Changes> {
     let mut list: Vec<((i64, i64), usize)> = changes.into_iter().collect();
     list.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
     Some((list.iter().map(|(_, n)| n).sum(), both, list))
+}
+
+/// The whole transition matrix of two maps of classes of the same grid: the classes of either (in order), and the
+/// cells of each class of the first (a row) that are of each class in the second (a column), of the cells both
+/// have; none unless both are maps of classes.
+pub fn transitions(a: &Value, b: &Value) -> Option<(Vec<i64>, Vec<Vec<usize>>)> {
+    let (Value::Map(x), Value::Map(y)) = (last(a)?, last(b)?) else { return None };
+    if x.data.len() != y.data.len() || !is_classes(&x.data) || !is_classes(&y.data) {
+        return None;
+    }
+    let both = || x.data.iter().zip(y.data.iter()).filter(|(p, q)| p.is_finite() && q.is_finite());
+    let classes: Vec<i64> =
+        both().flat_map(|(p, q)| [*p as i64, *q as i64]).collect::<BTreeSet<_>>().into_iter().collect();
+    let at = |c: f64| classes.binary_search(&(c as i64)).unwrap_or(0);
+    let mut m = vec![vec![0usize; classes.len()]; classes.len()];
+    for (p, q) in both() {
+        m[at(*p)][at(*q)] += 1;
+    }
+    Some((classes, m))
 }
 
 /// A value's difference from another's: maps of classes (`classes`: as the viewer shows them) the class each cell
@@ -409,12 +450,12 @@ fn shown_value(ui: &mut Ui, img: &Image, v: &Value, w: f32) {
 }
 
 /// The images of a comparison's values and differences (made once, when it comes).
-fn images(ctx: &egui::Context, compared: &Compared, classes: bool) -> Vec<(String, Image)> {
+fn images(ctx: &egui::Context, output: &str, compared: &Compared, classes: bool) -> Vec<(String, Image)> {
     let pic = |name: &str, v: &Value| {
         let vis = visual(v, 256)?;
         let Shown::Picture(Picture { width, height, rgba }) = &vis.shown else { return None };
         let img = egui::ColorImage::from_rgba_premultiplied([*width, *height], rgba);
-        Some((ctx.load_texture(format!("scenario-{name}"), img, egui::TextureOptions::NEAREST), vis.of))
+        Some((ctx.load_texture(format!("scenario-{output}-{name}"), img, egui::TextureOptions::NEAREST), vis.of))
     };
     let mut out = Vec::new();
     let first = compared.first().and_then(|(_, v)| v.as_ref().ok());
@@ -478,17 +519,22 @@ pub enum Asked {
     ManyRuns,
     /// The parameters of a range to Many runs' calibration.
     Calibrate,
-    /// The scenarios checked compared through Many runs, on the output (`node.port`).
-    CompareInManyRuns(String),
+    /// The scenarios checked compared through Many runs, on the outputs (`node.port`).
+    CompareInManyRuns(Vec<String>),
 }
 
 /// The scenarios checked as a batch of Many runs that keeps the output compared, its runs sent back to the pane.
-pub fn to_batch_compare(st: &mut crate::batch_view::BatchState, m: &Model, chosen: &BTreeSet<String>, output: &str) {
+pub fn to_batch_compare(
+    st: &mut crate::batch_view::BatchState,
+    m: &Model,
+    chosen: &BTreeSet<String>,
+    outputs: &[String],
+) {
     to_batch(st, m);
     st.scenarios.retain(|(name, _)| chosen.contains(name));
-    st.keep = Some([output.to_string()].into());
+    st.keep = Some(outputs.iter().cloned().collect());
     st.out = None;
-    st.compare = Some(output.to_string());
+    st.compare = Some(outputs.to_vec());
 }
 
 /// The Parameters pane.
@@ -498,12 +544,17 @@ pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) -> Optio
         && let Ok(c) = rx.try_recv()
     {
         st.running = None;
-        st.from_batch = Some((st.output.clone().unwrap_or_default(), c));
+        st.from_batch = Some(c);
     }
-    if let Some((output, c)) = st.from_batch.take() {
-        st.classes = classes_of(s, &output, &c);
-        st.images = images(ui.ctx(), &c, st.classes);
-        st.compared = Some((output, c));
+    if let Some(all) = st.from_batch.take() {
+        st.compared = all
+            .into_iter()
+            .map(|(output, compared)| {
+                let classes = classes_of(s, &output, &compared);
+                let images = images(ui.ctx(), &output, &compared, classes);
+                Comparison { output, compared, classes, images }
+            })
+            .collect();
     }
     egui::ScrollArea::vertical().id_salt("parameters pane").show(ui, |ui| {
         egui::Frame::new().inner_margin(egui::Margin::same(8)).show(ui, |ui| {
@@ -687,28 +738,42 @@ fn scenarios_ui(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry, aske
     ui.add_space(4.0);
     // side by side
     let outputs = comparable(&s.source, r);
-    if st.output.as_ref().is_none_or(|o| !outputs.contains(o)) {
-        st.output = outputs.first().cloned();
+    st.outputs.retain(|o| outputs.contains(o));
+    if st.outputs.is_empty() {
+        st.outputs.extend(outputs.first().cloned());
     }
     ui.horizontal_wrapped(|ui| {
-        egui::ComboBox::from_id_salt("compare output")
-            .selected_text(st.output.clone().unwrap_or_else(|| "an output".into()))
-            .show_ui(ui, |ui| {
-                for o in &outputs {
-                    if ui.selectable_label(st.output.as_ref() == Some(o), o).clicked() {
-                        st.output = Some(o.clone());
+        // the outputs compared: one or more, checked (in the order they are offered)
+        let text = match st.outputs.len() {
+            0 => "an output".to_string(),
+            1..=2 => st.outputs.join(", "),
+            n => format!("{} and {} more", st.outputs[0], n - 1),
+        };
+        egui::ComboBox::from_id_salt("compare output").selected_text(text).show_ui(ui, |ui| {
+            for o in &outputs {
+                let mut on = st.outputs.contains(o);
+                if ui.checkbox(&mut on, o).changed() {
+                    if on {
+                        st.outputs.push(o.clone());
+                        st.outputs.sort_by_key(|x| outputs.iter().position(|y| y == x));
+                    } else if st.outputs.len() > 1 {
+                        st.outputs.retain(|x| x != o);
                     }
                 }
-            });
+            }
+        });
         let chosen = s.source.scenarios.iter().filter(|sc| st.chosen.contains(&sc.name)).count();
-        let can = chosen >= 1 && st.output.is_some() && !st.running() && !st.in_batch;
+        let can = chosen >= 1 && !st.outputs.is_empty() && !st.running() && !st.in_batch;
         if ui
             .add_enabled(can, crate::app::accent_button("Compare", true))
-            .on_hover_text("run each scenario checked up to the output, side by side, with its difference from the first")
+            .on_hover_text(
+                "run each scenario checked up to the outputs checked, side by side, with their differences from the \
+                 first",
+            )
             .clicked()
-            && let Some(o) = st.output.clone()
         {
-            compare(st, s, &o, ui.ctx());
+            let outputs = st.outputs.clone();
+            compare(st, s, &outputs, ui.ctx());
         }
         if ui
             .add_enabled(can, egui::Button::new("Compare in Many runs"))
@@ -717,9 +782,8 @@ fn scenarios_ui(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry, aske
                  (Many runs' choice)",
             )
             .clicked()
-            && let Some(o) = st.output.clone()
         {
-            *asked = Some(Asked::CompareInManyRuns(o));
+            *asked = Some(Asked::CompareInManyRuns(st.outputs.clone()));
         }
         if st.running() || st.in_batch {
             ui.spinner();
@@ -739,77 +803,119 @@ fn scenarios_ui(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry, aske
             *asked = Some(Asked::Calibrate);
         }
     });
-    if let Some((output, compared)) = &st.compared {
-        ui.label(RichText::new(output).monospace().weak());
-        let cols = compared.len().max(1);
-        let w = ((ui.available_width() - 8.0 * cols as f32) / cols as f32).clamp(60.0, 220.0);
-        egui::ScrollArea::horizontal().id_salt("compared").show(ui, |ui| {
-            egui::Grid::new("compared grid").spacing([8.0, 4.0]).show(ui, |ui| {
-                for (name, _) in compared {
-                    ui.label(RichText::new(name).strong());
-                }
-                ui.end_row();
-                for (name, v) in compared {
-                    ui.vertical(|ui| match v {
-                        Ok(v) => {
-                            let img = st.images.iter().find(|(n, _)| n == name).and_then(|(_, i)| i.clone());
-                            shown_value(ui, &img, v, w);
-                        }
-                        Err(e) => {
-                            ui.colored_label(ui.visuals().error_fg_color, e);
-                        }
-                    });
-                }
-                ui.end_row();
-                // the differences from the first
-                let first = compared.first().and_then(|(_, v)| v.as_ref().ok());
-                for (k, (name, v)) in compared.iter().enumerate() {
-                    ui.vertical(|ui| {
-                        if k == 0 {
-                            let text = if st.classes {
-                                "where the others' classes differ from this one's:"
-                            } else {
-                                "the others less this one:"
-                            };
-                            ui.label(RichText::new(text).small().weak());
-                            return;
-                        }
-                        let (Some(f), Ok(v)) = (first, v) else { return };
-                        match difference(f, v, st.classes) {
-                            Some(d) => {
-                                let key = format!("{name} - first");
-                                let img = st.images.iter().find(|(n, _)| *n == key).and_then(|(_, i)| i.clone());
-                                shown_value(ui, &img, &d, w);
-                                // a map of classes: how many cells changed, and the changes the most first
-                                if let Some((changed, of, list)) = class_changes(f, v).filter(|_| st.classes) {
-                                    let share = 100.0 * changed as f64 / of.max(1) as f64;
+    for c in &st.compared {
+        comparison_ui(ui, c);
+        ui.add_space(6.0);
+    }
+}
+
+/// A comparison of an output: what each scenario gave of it in a column, and below each its difference from the
+/// first.
+fn comparison_ui(ui: &mut Ui, c: &Comparison) {
+    let (output, compared) = (&c.output, &c.compared);
+    ui.label(RichText::new(output).monospace().weak());
+    let cols = compared.len().max(1);
+    let w = ((ui.available_width() - 8.0 * cols as f32) / cols as f32).clamp(60.0, 220.0);
+    egui::ScrollArea::horizontal().id_salt(("compared", output)).show(ui, |ui| {
+        egui::Grid::new(("compared grid", output)).spacing([8.0, 4.0]).show(ui, |ui| {
+            for (name, _) in compared {
+                ui.label(RichText::new(name).strong());
+            }
+            ui.end_row();
+            for (name, v) in compared {
+                ui.vertical(|ui| match v {
+                    Ok(v) => {
+                        let img = c.images.iter().find(|(n, _)| n == name).and_then(|(_, i)| i.clone());
+                        shown_value(ui, &img, v, w);
+                    }
+                    Err(e) => {
+                        ui.colored_label(ui.visuals().error_fg_color, e);
+                    }
+                });
+            }
+            ui.end_row();
+            // the differences from the first
+            let first = compared.first().and_then(|(_, v)| v.as_ref().ok());
+            for (k, (name, v)) in compared.iter().enumerate() {
+                ui.vertical(|ui| {
+                    if k == 0 {
+                        let text = if c.classes {
+                            "where the others' classes differ from this one's:"
+                        } else {
+                            "the others less this one:"
+                        };
+                        ui.label(RichText::new(text).small().weak());
+                        return;
+                    }
+                    let (Some(f), Ok(v)) = (first, v) else { return };
+                    match difference(f, v, c.classes) {
+                        Some(d) => {
+                            let key = format!("{name} - first");
+                            let img = c.images.iter().find(|(n, _)| *n == key).and_then(|(_, i)| i.clone());
+                            shown_value(ui, &img, &d, w);
+                            // a map of classes: how many cells changed, and the changes the most first
+                            if let Some((changed, of, list)) = class_changes(f, v).filter(|_| c.classes) {
+                                let share = 100.0 * changed as f64 / of.max(1) as f64;
+                                ui.label(RichText::new(format!("{changed} cells changed class ({share:.1}%)")).small());
+                                for ((from, to), n) in list.iter().take(5) {
+                                    ui.label(RichText::new(format!("{from} → {to}: {n}")).small().monospace().weak());
+                                }
+                                if list.len() > 5 {
                                     ui.label(
-                                        RichText::new(format!("{changed} cells changed class ({share:.1}%)")).small(),
+                                        RichText::new(format!("and {} more changes", list.len() - 5)).small().weak(),
                                     );
-                                    for ((from, to), n) in list.iter().take(5) {
-                                        ui.label(
-                                            RichText::new(format!("{from} → {to}: {n}")).small().monospace().weak(),
-                                        );
-                                    }
-                                    if list.len() > 5 {
-                                        ui.label(
-                                            RichText::new(format!("and {} more changes", list.len() - 5))
-                                                .small()
-                                                .weak(),
-                                        );
-                                    }
+                                }
+                                if let Some((classes, m)) = transitions(f, v) {
+                                    matrix_ui(ui, (output, name), &classes, &m);
                                 }
                             }
-                            None => {
-                                ui.label(RichText::new("not comparable").small().weak());
-                            }
                         }
-                    });
+                        None => {
+                            ui.label(RichText::new("not comparable").small().weak());
+                        }
+                    }
+                });
+            }
+            ui.end_row();
+        });
+    });
+}
+
+/// The whole transition matrix of a map of classes from the first scenario's to another's: the cells of each class
+/// of the first (a row) that are of each class in the other (a column), the cells that kept their class weak, with
+/// the totals.
+fn matrix_ui(ui: &mut Ui, salt: (&str, &str), classes: &[i64], m: &[Vec<usize>]) {
+    egui::CollapsingHeader::new(RichText::new("the whole transition matrix").small())
+        .id_salt(("transition matrix", salt))
+        .show(ui, |ui| {
+            ui.label(RichText::new("cells of each class (a row: the first; a column: this one)").small().weak());
+            egui::Grid::new(("transition matrix grid", salt)).striped(true).spacing([6.0, 1.0]).show(ui, |ui| {
+                let cell = |ui: &mut Ui, t: String, weak: bool| {
+                    let t = RichText::new(t).small().monospace();
+                    ui.label(if weak { t.weak() } else { t });
+                };
+                cell(ui, "from ↓ to →".into(), true);
+                for c in classes {
+                    ui.label(RichText::new(c.to_string()).small().strong());
                 }
+                ui.label(RichText::new("total").small().strong());
+                ui.end_row();
+                for (i, row) in m.iter().enumerate() {
+                    ui.label(RichText::new(classes[i].to_string()).small().strong());
+                    for (j, n) in row.iter().enumerate() {
+                        cell(ui, n.to_string(), i == j || *n == 0);
+                    }
+                    cell(ui, row.iter().sum::<usize>().to_string(), true);
+                    ui.end_row();
+                }
+                ui.label(RichText::new("total").small().strong());
+                for j in 0..classes.len() {
+                    cell(ui, m.iter().map(|r| r[j]).sum::<usize>().to_string(), true);
+                }
+                cell(ui, m.iter().flatten().sum::<usize>().to_string(), true);
                 ui.end_row();
             });
         });
-    }
 }
 
 #[cfg(test)]
@@ -897,9 +1003,16 @@ mod tests {
         let (changed, of, list) = class_changes(&a, &b).unwrap();
         assert_eq!((changed, of), (3, 5));
         assert_eq!(list, [((1, 2), 1), ((2, 3), 1), ((3, 2), 1)]);
+        // the whole matrix: a row per class of the first, a column per class of the second, kept on the diagonal
+        let (classes, m) = transitions(&a, &b).unwrap();
+        assert_eq!(classes, [1, 2, 3]);
+        assert_eq!(m, [vec![1, 1, 0], vec![0, 1, 1], vec![0, 1, 0]]);
+        assert_eq!(m.iter().flatten().sum::<usize>(), of);
+        assert_eq!(m.iter().flatten().sum::<usize>() - (0..3).map(|i| m[i][i]).sum::<usize>(), changed);
         // continuous values: subtracted, no changes of class
         let fine = map(vec![0.5, 1.0, 2.0, 2.0, 3.0, 1.0]);
         assert!(class_changes(&fine, &b).is_none());
+        assert!(transitions(&fine, &b).is_none());
         let Some(Value::Map(d)) = difference(&fine, &b, true) else { panic!() };
         assert_eq!(d.data[0], 0.5);
         // classes the viewer does not show as classes (counts...): subtracted

@@ -204,24 +204,28 @@ values = { "patches.isometry" = 2.0 }
 These are not the `[[scenario]]` tables of a scenarios file for `submit`: in the model they are `[[scenarios]]`
 with `values`. `terraflux run model.toml --scenario compact_growth` runs one from the command line.
 
-To compare scenarios, check them, choose the output to compare (the model's outputs, the values its plots show,
-else each node's first output) and press one of:
+To compare scenarios, check them, check the outputs to compare in the list beside **Compare** (one or more: the
+model's outputs, the values its plots show, else each node's first output) and press one of:
 
-- **Compare**: each scenario checked runs here, one after the other, up to that output;
+- **Compare**: each scenario checked runs here, one after the other, up to those outputs (what they share runs
+  once per scenario);
 - **Compare in Many runs**: the scenarios checked run at once as a batch of the Many runs pane, wherever its **Run
-  on** says (this computer and those helping it, or a cluster), each run keeping only the output compared. The
+  on** says (this computer and those helping it, or a cluster), each run keeping only the outputs compared. The
   pane says *running in Many runs* until the batch ends.
 
-Either way, the results come back to the Parameters pane side by side, a column per scenario in the pane's order.
+Either way, the results come back to the Parameters pane side by side, a block per output (the land use map, then
+the forest's area, say), in each a column per scenario in the pane's order.
 The first is the reference: under each of the others, its difference from the first. For a series (the maps of a
 simulation), the last step is compared. Continuous maps, tables of the same shape and numbers are subtracted
 ("the others less this one"). **Maps of classes** (land use, MSPA's classes: whole numbers that the viewer draws as
 classes) are not subtracted, since class 3 minus class 2 means nothing: the difference is a map of the **changes**,
 the class each cell changed to and nothing where it stayed the same. Under it are how many cells changed class
 (*N cells changed class (S%)*, the share of the cells that have a value in both maps) and the five most common
-changes, from the first scenario's class to this one's, with their cells (*2 → 3: 8517*). This is what to read
-when two scenarios of a land change model are compared: not only how much forest each leaves, but where they
-differ and into what.
+changes, from the first scenario's class to this one's, with their cells (*2 → 3: 8517*), and **the whole
+transition matrix** when opened: a row per class of the first scenario's map, a column per class of this one's,
+the cells of each pair (those that kept their class, on the diagonal, weak), with the totals of each row and
+column. This is what to read when two scenarios of a land change model are compared: not only how much forest
+each leaves, but where they differ and into what.
 
 **To Many runs** puts all the scenarios in the Scenarios tab of Many runs (a row each, a column per value), for a
 batch with every option of that pane; **Calibrate** puts the parameters that have a range in its Calibration tab,

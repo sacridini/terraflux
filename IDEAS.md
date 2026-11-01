@@ -630,6 +630,10 @@ item):
    no app e no `terraflux run`; segurar ou soltar esquece o que o grupo de cima deu. Falta: o que só o nó congelado
    lê dentro do grupo ainda roda; o `control.each` (o último elemento) e um passo escolhido do laço no viewer.
 5. **Cenários:** a matriz de transições inteira e mais de um resultado comparado por vez.
+   **Feito** (Unreleased): `params_view::transitions` (as classes de um e de outro, as células de cada par) e "the
+   whole transition matrix" sob cada cenário (as linhas a classe do primeiro, as colunas a deste, a diagonal fraca,
+   os totais); as saídas comparadas marcadas numa lista (`State::outputs`), cada cenário rodado uma vez até todas (o
+   cache dele entre elas), um bloco por saída (`Comparison`), também pelo Many runs (`compare`: as saídas).
 6. **Trace:** a mancha desenhada no mapa e a razão da escolha da célula.
 7. **Depuração:** um breakpoint de verdade num nó escolhido (hoje o laço só para entre passos) e o Stop dentro das
    chamadas do C++.

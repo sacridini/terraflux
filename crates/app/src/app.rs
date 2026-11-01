@@ -3532,9 +3532,9 @@ impl TerrafluxApp {
                     crate::params_view::to_calibration(&mut self.batch, &s.source);
                     self.focus(Pane::Batch);
                 }
-                Some(crate::params_view::Asked::CompareInManyRuns(output)) => {
+                Some(crate::params_view::Asked::CompareInManyRuns(outputs)) => {
                     let chosen = self.params.chosen.clone();
-                    crate::params_view::to_batch_compare(&mut self.batch, &s.source, &chosen, &output);
+                    crate::params_view::to_batch_compare(&mut self.batch, &s.source, &chosen, &outputs);
                     match crate::batch_view::start(&mut self.batch, s, r, &mut self.computers, ui.ctx()) {
                         Ok(()) => {
                             self.params.in_batch = true;

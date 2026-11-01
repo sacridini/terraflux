@@ -362,10 +362,10 @@ pub struct BatchState {
     model_of: Option<String>,
     /// Where it runs: a cluster's name (none: this computer, and those helping it).
     pub on: Option<String>,
-    /// The output a comparison of the Parameters pane waits for from the batch running (`node.port`), and what
-    /// each run gave of it when it ends (by scenario), for that pane.
-    pub compare: Option<String>,
-    pub compared: Option<(String, crate::params_view::Compared)>,
+    /// The outputs a comparison of the Parameters pane waits for from the batch running (`node.port`), and what
+    /// each run gave of each when it ends (by output, then by scenario), for that pane.
+    pub compare: Option<Vec<String>>,
+    pub compared: Option<Vec<(String, crate::params_view::Compared)>>,
 }
 
 impl Default for BatchState {
@@ -450,18 +450,22 @@ impl BatchState {
         };
         let r = self.running.take().unwrap();
         r.record.drop_all();
-        if let Some(output) = self.compare.take() {
-            let runs = match &o {
-                Err(e) => vec![("the runs".into(), Err(e.clone()))],
-                Ok(o) => {
-                    let mut runs: Vec<(String, Result<Value, String>)> =
-                        o.results.iter().map(|t| (t.label.clone(), compared_of(&r.out, t, &output))).collect();
-                    // (in the scenarios' order, not the order they ended in)
-                    runs.sort_by_key(|(l, _)| self.scenarios.iter().position(|(n, _)| n == l));
-                    runs
-                }
-            };
-            self.compared = Some((output, runs));
+        if let Some(outputs) = self.compare.take() {
+            let mut all = Vec::new();
+            for output in outputs {
+                let runs = match &o {
+                    Err(e) => vec![("the runs".into(), Err(e.clone()))],
+                    Ok(o) => {
+                        let mut runs: Vec<(String, Result<Value, String>)> =
+                            o.results.iter().map(|t| (t.label.clone(), compared_of(&r.out, t, &output))).collect();
+                        // (in the scenarios' order, not the order they ended in)
+                        runs.sort_by_key(|(l, _)| self.scenarios.iter().position(|(n, _)| n == l));
+                        runs
+                    }
+                };
+                all.push((output, runs));
+            }
+            self.compared = Some(all);
         }
         match o {
             Err(e) if e == terraflux_dist::run::STOPPED => self.error = None,

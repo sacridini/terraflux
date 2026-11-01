@@ -55,6 +55,11 @@ minor versions.
   `branch.node.port`; the Document pane shows the steps of the branch that ran with their values.
 - A node inside a group (groups inside groups too) can be **frozen**: Freeze in the Node pane, its result kept in
   `<model>.frozen/<group>.<node>/` and used whatever it reads, in the application and by `terraflux run`.
+- Scenarios compared on **several outputs at once**: the outputs checked in the list beside Compare, a block
+  per output, each scenario run once up to all of them (what they share run once), in the application and through
+  Many runs.
+- The **whole transition matrix** of two scenarios' maps of classes, under the most common changes: a row per class
+  of the first scenario's map, a column per class of the other's, the cells of each pair, with the totals.
 
 ### Fixed
 - `prioritize.actions_raster` with a feature whose layer has no amounts (all 0) says that it dropped it ("The
