@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.29.0] - 2026-11-01
+
 ### Added
 - **Difference**, the third way of **Compare** in the Viewer and the map tabs, beside Curtain and Side by side:
   one map of how the two differ, drawn where the map is. Maps of values: the other map minus this one, in a ramp
