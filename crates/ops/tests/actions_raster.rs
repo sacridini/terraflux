@@ -98,13 +98,19 @@ fn sensitivity() -> Table {
     t
 }
 
-fn run(ins: &Inputs, case: &serde_json::Value) -> terraflux_ops::Outputs {
+/// The operator on a case's settings (`empty_layer`: that feature's layer all 0), and the warnings it gave.
+fn run(ins: &Inputs, case: &serde_json::Value) -> (terraflux_ops::Outputs, Vec<String>) {
     let mut params = case["settings"].as_object().unwrap().clone();
     params.extend(case["problem"].as_object().unwrap().clone());
     params.insert("gap".into(), case["gap"].clone());
+    let mut features = ins.features.clone();
+    if let Some(k) = params.remove("empty_layer").and_then(|v| v.as_u64()) {
+        let k = k as usize - 1;
+        features.layers[k] = Arc::new(vec![0.0; features.layers[k].len()]);
+    }
     let mut inputs: BTreeMap<String, Value> = BTreeMap::new();
     inputs.insert("monitoring_cost".into(), Value::Map(ins.cost.clone()));
-    inputs.insert("features".into(), Value::Stack(ins.features.clone()));
+    inputs.insert("features".into(), Value::Stack(features));
     inputs.insert("threats".into(), Value::Stack(ins.threats.clone()));
     inputs.insert("maps".into(), Value::Stack(ins.maps.clone()));
     if params.remove("locked_in").is_some() {
@@ -118,7 +124,9 @@ fn run(ins: &Inputs, case: &serde_json::Value) -> terraflux_ops::Outputs {
     }
     let r = Registry::standard();
     let args = Args { node: "n", inputs, params: &params };
-    r.get("prioritize.actions_raster").unwrap().run(&mut Ctx::default(), &args).unwrap_or_else(|e| panic!("{e}"))
+    let mut ctx = Ctx::default();
+    let out = r.get("prioritize.actions_raster").unwrap().run(&mut ctx, &args).unwrap_or_else(|e| panic!("{e}"));
+    (out, ctx.warnings)
 }
 
 /// A table's rows, their first columns (landschaft's tables carry its internal ids after them).
@@ -144,7 +152,10 @@ fn rasters_are_landschafts() {
     let small = small();
     for (name, case) in refs.as_object().unwrap() {
         let ins = if name == "example" { example() } else { small.clone() };
-        let out = run(&ins, case);
+        let (out, warnings) = run(&ins, case);
+        // a feature without amounts: dropped, with prioriactions's warning (landschaft 1.58.1)
+        let dropped = warnings.iter().any(|w| w.contains("features are not represented"));
+        assert_eq!(dropped, case["settings"].get("empty_layer").is_some(), "{name}: {warnings:?}");
         let Value::Table(pu) = &out["pu"] else { panic!() };
         close(&pu.rows, &rows(&case["tables"]["pu"], 3), &format!("{name}: pu"));
         let Value::Table(dt) = &out["dist_threats"] else { panic!() };
@@ -196,6 +207,16 @@ fn targets_and_boundary() {
     .unwrap();
     assert_eq!(t.features.rows, rows(&refs["relative"]["tables"]["features"], 3));
     assert_eq!(t.dist_features.rows, rows(&refs["relative"]["tables"]["dist_features"], 3));
+    // a feature without amounts: the others' relative targets as with it (landschaft 1.58.1; they were once one per
+    // layer, and failed)
+    let mut empty = ins.features.clone();
+    empty.layers[1] = Arc::new(vec![0.0; empty.layers[1].len()]);
+    let (_, t) =
+        terraflux_ops::actions_raster::raster_data(&ins.cost, &empty, &ins.threats, &none, [None, None], None, &r)
+            .unwrap();
+    assert_eq!(t.features.rows, rows(&refs["no_amounts"]["tables"]["features"], 3));
+    let full = rows(&refs["relative"]["tables"]["features"], 3);
+    assert_eq!(t.features.rows, [full[0].clone(), full[2].clone()]);
     // the boundary's pairs (prioriactions's inputData() sorts them)
     let sorted = |mut v: Vec<Vec<f64>>| {
         v.sort_by(|x, y| x.partial_cmp(y).unwrap());

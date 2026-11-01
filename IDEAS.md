@@ -626,7 +626,12 @@ item):
 9. **My nodes:** biblioteca remota (URL ou repositório git) e permissões.
 10. **A priorização multi-ação depois da atualização do landschaft** (pedido de 2026-11-01): conferir que o
     `prioritize.actions` e o `prioritize.actions_raster` continuam iguais ao landschaft novo (o submódulo, o shim, as
-    referências).
+    referências). **Feito** (Unreleased): a mudança do landschaft 1.58.1 (81f5281) é só do Python (mais rápido, e
+    alvos relativos de rasters que não falham mais quando uma feição não tem quantidades); as referências de
+    rasters regeneradas saem iguais. Um caso novo (`no_amounts`: a camada de uma feição toda 0) dá as mesmas
+    tabelas, alvos e ótimo do landschaft; faltava só o aviso de feição descartada ("The following features are not
+    represented…"), que o Terraflux perdia. Um teste de ids das unidades fora de ordem, com lacunas e inteiros (o
+    `test_table_ids_in_any_order` do landschaft); o submódulo em 1.58.1 (nenhuma mudança no C++).
 
 ## Paridade com o landschaft na priorização, progresso e parada
 

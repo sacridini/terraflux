@@ -199,8 +199,15 @@ pub fn raster_data(
     };
     features_t.rows =
         kept.iter().enumerate().map(|(j, &k)| vec![(k + 1) as f64, r_round(rec[j], 3), r_round(cons[j], 3)]).collect();
-    let d = actions_data(&pu, &features_t, &dist_features, &threats_t, &dist_threats, sensitivity, boundary.as_ref())
-        .map_err(bad)?;
+    let first = d;
+    let mut d =
+        actions_data(&pu, &features_t, &dist_features, &threats_t, &dist_threats, sensitivity, boundary.as_ref())
+            .map_err(bad)?;
+    // the features dropped for having no amounts, said as prioriactions says it (the first build's warning: this one
+    // has only the features kept)
+    for w in first.warnings.iter().filter(|w| w.contains("features are not represented")).rev() {
+        d.warnings.insert(0, w.clone());
+    }
     let tables =
         RasterTables { pu, features: features_t, dist_features, threats: threats_t, dist_threats, boundary, cells };
     Ok((d, tables))

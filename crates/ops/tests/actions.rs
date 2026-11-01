@@ -224,3 +224,59 @@ fn figures_are_prioriactions() {
         }
     }
 }
+
+/// Units' ids unsorted, with gaps and as integers: the same problem as ids 1..n in order (landschaft 1.58.1's
+/// test_table_ids_in_any_order).
+#[test]
+fn table_ids_in_any_order() {
+    let (name, t, s) = cases().remove(0);
+    let new = |v: f64| (10.0 * v + 3.0).round();
+    // a table's rows with the units' ids mapped and in another order
+    let moved = |tb: &Table, columns: &[&str], step: usize| {
+        let mut tb = tb.clone();
+        let cs: Vec<usize> = columns.iter().map(|c| tb.columns.iter().position(|x| x == c).unwrap()).collect();
+        for r in tb.rows.iter_mut() {
+            for &c in &cs {
+                r[c] = new(r[c]);
+            }
+        }
+        let n = tb.rows.len();
+        let order: Vec<usize> = (0..n).map(|k| (k * step + n / 2) % n).collect();
+        assert_eq!(order.iter().collect::<std::collections::BTreeSet<_>>().len(), n, "{name}: a permutation");
+        tb.rows = order.iter().map(|&k| tb.rows[k].clone()).collect();
+        tb
+    };
+    let mut t2 = t.clone();
+    let coprime = |n: usize| (2..n).rev().find(|s| (1..=*s).filter(|d| s % d == 0 && n % d == 0).max() == Some(1));
+    for (port, columns) in
+        [("pu", &["id"][..]), ("dist_features", &["pu"]), ("dist_threats", &["pu"]), ("boundary", &["id1", "id2"])]
+    {
+        let step = coprime(t[port].rows.len()).unwrap_or(1);
+        t2.insert(port.into(), moved(&t[port], columns, step));
+    }
+    let (a, sa) = data(name, &t, s);
+    let (b, sb) = data(name, &t2, s);
+    let mut want: Vec<f64> = t["pu"].column("id").unwrap().into_iter().map(new).collect();
+    want.sort_by(f64::total_cmp);
+    assert_eq!(b.unit_ids, want);
+    let (ca, cb) = (compile(&a, &sa).unwrap(), compile(&b, &sb).unwrap());
+    assert_eq!((ca.start.len(), ca.obj.len(), ca.value.len()), (cb.start.len(), cb.obj.len(), cb.value.len()));
+    assert_eq!(ca.lb, cb.lb);
+    let sorted = |v: &[f64]| {
+        let mut v = v.to_vec();
+        v.sort_by(f64::total_cmp);
+        v
+    };
+    assert_eq!(sorted(&ca.obj), sorted(&cb.obj));
+    let registry = terraflux_ops::Registry::standard();
+    let objective = |t: &BTreeMap<String, Table>| {
+        let params = serde_json::json!({"model": "minimizeCosts", "gap": 0.0});
+        let inputs: BTreeMap<String, Value> = t.iter().map(|(k, v)| (k.clone(), Value::Table(v.clone()))).collect();
+        let args = Args { node: "n", inputs, params: params.as_object().unwrap() };
+        let out = registry.get("prioritize.actions").unwrap().run(&mut terraflux_ops::Ctx::default(), &args).unwrap();
+        let Value::Table(res) = &out["result"] else { panic!() };
+        res.column("objective").unwrap()[0]
+    };
+    let (oa, ob) = (objective(&t), objective(&t2));
+    assert!((oa - ob).abs() <= 1e-12 * oa.abs().max(1.0), "{oa} != {ob}");
+}

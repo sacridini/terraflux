@@ -88,11 +88,21 @@ def main() -> None:
                      {"action_cost": grids["action_cost"], "target_recovery": 0.2, "boundary": True},
                      {"model": "maximizeBenefits", "budget": 40.0, "blm": 0.05, "curve": 2}),
     }
+    # a feature without amounts (sp2's layer all 0): dropped, the relative targets the other features' shares
+    # (landschaft 1.58.1's test_raster_relative_targets_without_a_feature; the targets were once one per layer)
+    no_amounts = feats.copy()
+    no_amounts[1] = 0.0
+    cases["no_amounts"] = ({"action_cost": 1.0, "target_recovery": 0.5, "target_conservation": 0.25,
+                            "empty_layer": 2},
+                           {"action_cost": 1.0, "target_recovery": 0.5, "target_conservation": 0.25,
+                            "features": g(no_amounts, names=["sp1", "sp2", "sp3"])}, {})
     out = {}
     for name, (ours, theirs, problem) in cases.items():
+        theirs = dict(theirs)
+        features = theirs.pop("features", grids["features"])
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            d = P.actions_raster_data(grids["cost"], grids["features"], grids["threats"], **theirs)
+            d = P.actions_raster_data(grids["cost"], features, grids["threats"], **theirs)
             model = problem.get("model", "minimizeCosts")
             kw = {k: v for k, v in problem.items() if k != "model"}
             s = d.problem(model, **kw).add_highs_solver(gap=0).solve()

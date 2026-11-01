@@ -24,6 +24,13 @@ minor versions.
   "carbon": 50}, ...]`) or records by name (`{"forest": {"carbon": 50}, ...}`), under the columns' names, each
   column as wide as its values; **+ row** (a copy of the last), **+ column** and **x** to take a row away.
 
+### Fixed
+- `prioritize.actions_raster` with a feature whose layer has no amounts (all 0) says that it dropped it ("The
+  following features are not represented…"), as landschaft does; the feature was dropped, but without a word.
+  Checked against landschaft 1.58.1: the rasters' references regenerated the same, a new case of a feature without
+  amounts (the same tables, relative targets and optimum), and `prioritize.actions` with units' ids unsorted, with
+  gaps and as integers is the same problem as with ids 1..n.
+
 ## [1.29.0] - 2026-11-01
 
 ### Added
