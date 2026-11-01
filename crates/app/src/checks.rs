@@ -56,6 +56,27 @@ impl Verdict {
         }
     }
 
+    /// In a word, as a badge says it.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Verdict::Passed => "passed",
+            Verdict::Warned(_) => "warned",
+            Verdict::Failed(_) => "failed",
+            Verdict::NotRun => "not run",
+            Verdict::Off => "off",
+        }
+    }
+
+    /// Its colour on paper (a report): green, amber, red, grey.
+    pub fn rgb(&self) -> [u8; 3] {
+        match self {
+            Verdict::Passed => [31, 122, 90],
+            Verdict::Warned(_) => [196, 128, 0],
+            Verdict::Failed(_) => [192, 48, 48],
+            Verdict::NotRun | Verdict::Off => [128, 134, 140],
+        }
+    }
+
     pub fn colour(&self, v: &egui::Visuals) -> egui::Color32 {
         match self {
             Verdict::Passed => egui::Color32::from_rgb(90, 190, 90),
@@ -113,20 +134,39 @@ fn verdict(run: &Run, path: &[String], n: &Node, ok: Option<bool>, ran: bool) ->
 
 /// The model's checks, everywhere in it (the containers' bodies too), as the last run left them.
 pub fn of(s: &Session) -> Vec<Check> {
-    let run = Run { error: s.error.as_deref().and_then(crate::diagnose::failed_at), warnings: &s.warnings };
+    let ran = |id: &str| matches!(s.status.get(id), Some(NodeStatus::Done { .. }));
+    of_run(&s.source, &|n, p| s.value_of(n, p), &ran, s.error.as_deref(), &s.warnings)
+}
+
+/// The checks of a model as a run left them: its values, whether a node of the top level ran, the error that
+/// stopped it, its warnings.
+pub fn of_run(
+    m: &terraflux_graph::Model,
+    values: &dyn Fn(&str, &str) -> Option<Value>,
+    ran: &dyn Fn(&str) -> bool,
+    error: Option<&str>,
+    warnings: &[String],
+) -> Vec<Check> {
+    let run = Run { error: error.and_then(crate::diagnose::failed_at), warnings };
     let mut out = Vec::new();
-    for n in &s.source.nodes {
-        let ran = matches!(s.status.get(&n.id), Some(NodeStatus::Done { .. }));
-        walk(&run, s, &[], n, ran, &mut out);
+    for n in &m.nodes {
+        walk(&run, values, &[], n, ran(&n.id), &mut out);
     }
     out
 }
 
-fn walk(run: &Run, s: &Session, path: &[String], n: &Node, ran: bool, out: &mut Vec<Check>) {
+fn walk(
+    run: &Run,
+    values: &dyn Fn(&str, &str) -> Option<Value>,
+    path: &[String],
+    n: &Node,
+    ran: bool,
+    out: &mut Vec<Check>,
+) {
     if n.op == "check.assert" {
         // (the outputs of a container's body are not kept: its check passed when the container ran to its end)
         let ok = if path.is_empty() {
-            match s.value_of(&n.id, "ok") {
+            match values(&n.id, "ok") {
                 Some(Value::Bool(b)) => Some(b),
                 _ => None,
             }
@@ -143,7 +183,7 @@ fn walk(run: &Run, s: &Session, path: &[String], n: &Node, ran: bool, out: &mut 
     if let Some(body) = &n.body {
         let inner: Vec<String> = path.iter().cloned().chain(std::iter::once(n.id.clone())).collect();
         for b in &body.nodes {
-            walk(run, s, &inner, b, ran, out);
+            walk(run, values, &inner, b, ran, out);
         }
     }
 }

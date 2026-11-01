@@ -408,8 +408,7 @@ fn apply_set(m: &mut Model, set: &[String], engine: &Engine) -> Result<BTreeMap<
 fn reproduce(path: &Path, out: Option<PathBuf>, quiet: bool, thaw: bool, engine: &Engine) -> Result<()> {
     use terraflux_exec::testing::{Manifest, hash};
     let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-    let mf: Manifest =
-        serde_json::from_str(&text).with_context(|| format!("{}: not a manifest", path.display()))?;
+    let mf: Manifest = serde_json::from_str(&text).with_context(|| format!("{}: not a manifest", path.display()))?;
     // the files from the manifest's folder first: the study's folder may have moved with it
     let here = folder_of(path);
     let model = mf.model.found(&here);
@@ -558,12 +557,9 @@ fn test(paths: &[PathBuf], update: bool, quiet: bool, thaw: bool, engine: &Engin
         }
         let dir = folder_of(path);
         let t = Instant::now();
-        let results = match load_inputs(&m, &dir, &BTreeMap::new())
-            .map_err(|e| e.to_string())
-            .and_then(|i| {
-                run_frozen(engine, path, &m, &i, &mut Progress { quiet: true, start: t }, true).map_err(|e| e.to_string())
-            })
-        {
+        let results = match load_inputs(&m, &dir, &BTreeMap::new()).map_err(|e| e.to_string()).and_then(|i| {
+            run_frozen(engine, path, &m, &i, &mut Progress { quiet: true, start: t }, true).map_err(|e| e.to_string())
+        }) {
             Ok(r) => r,
             // (a check.assert that fails stops the run: its message says what)
             Err(e) => {
@@ -1061,7 +1057,13 @@ fn main() -> Result<()> {
             let values = |n: &str, p: &str| results.as_ref()?.values.get(n)?.get(p).cloned();
             let first = |n: &str| terraflux_app::document::only_output(&source, &engine.registry, n);
             let out = out.unwrap_or_else(|| model.with_extension("html"));
-            terraflux_app::report::write(&out, &doc, &values, &first)
+            // the methods and the papers to cite, how the checks fared in the run
+            let ran = |id: &str| results.as_ref().is_some_and(|r| r.values.contains_key(id));
+            let warnings = results.as_ref().map(|r| r.warnings.clone()).unwrap_or_default();
+            let checks = terraflux_app::checks::of_run(&source, &values, &ran, None, &warnings);
+            let file = model.file_name().map(|f| f.to_string_lossy().into_owned());
+            let extras = terraflux_app::report::Extras::of(&source, &engine.registry, file.as_deref(), checks);
+            terraflux_app::report::write(&out, &doc, &values, &first, &extras)
                 .with_context(|| format!("writing {}", out.display()))?;
             eprintln!("wrote {}", out.display());
         }
@@ -1198,7 +1200,8 @@ mod tests {
         std::fs::write(&model, text(9, false)).unwrap();
         let m = Model::load_expanded(&model).unwrap();
         let results = engine.run(&m, &load_inputs(&m, &dir, &BTreeMap::new()).unwrap(), &mut start()).unwrap();
-        terraflux_exec::frozen::freeze(&terraflux_exec::frozen::folder(&model), "land", &results.values["land"]).unwrap();
+        terraflux_exec::frozen::freeze(&terraflux_exec::frozen::folder(&model), "land", &results.values["land"])
+            .unwrap();
         std::fs::write(&model, text(3, true)).unwrap();
         let m = Model::load_expanded(&model).unwrap();
         let inputs = load_inputs(&m, &dir, &BTreeMap::new()).unwrap();

@@ -199,13 +199,18 @@ web page (HTML)* or as a *PDF*:
 
 Both hold the document as the pane shows it: the model's name, description, request, author and summary, the
 numbered sections and steps with their notes, sentences, settings, references, assumptions and alternatives, the
-figures, and the outputs. The images come from the **last run**: run the model before you export it, or its steps
-say *Not run.* The report's maps are drawn in colours fitted to their values (a colour per class, or a ramp), not
+figures, and the outputs. When the model has checks (`check.assert`), the top of the report says how they fared
+(so many passed, warned, failed or did not run), a line each with its badge, and each check's step (and a
+container holding checks) carries its badge too: green when it held, amber when it only warned, red when it
+stopped the run, grey when the run did not come to it. The last section, **Methods and citations**, is the
+paragraph of the methods (the same as the Methods and citations window below, with the model file's name) and
+the references to cite in the APA style, Terraflux's among them, then those the nodes' references give. The
+images come from the **last run**: run the model before you export it, or its steps say *Not run.* The report's maps are drawn in colours fitted to their values (a colour per class, or a ramp), not
 in the palette chosen in the Viewer. A line at the end says which version of Terraflux made it and on which day.
 
 From the command line, `terraflux report ./model.toml` writes the same report next to the model (its name and
 `.html`); `--out report.pdf` chooses the file and its kind by the extension, and `--run` runs the model first, so
-that the steps have their maps and tables.
+that the steps have their maps and tables and the checks their badges.
 
 !!! tip "Send the model with its report"
     The report is what a colleague reads; the model file is what they run. Send both: the report says what the

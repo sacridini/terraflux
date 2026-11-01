@@ -15,6 +15,11 @@ minor versions.
   background, on the map's grid (the other map read where its cells are, by their coordinates; every few cells
   when the map has more than 16 million); a cell clicked on it is the map's cell, and **Figure...** offers it as a
   figure.
+- The **report** (HTML and PDF, from the app and `terraflux report`) tells how the model's checks fared: the
+  health at the top (so many passed, warned, failed, not run), a line per check with its badge, and the badge on
+  each check's step and on the containers holding checks (their worst). Its last section, **Methods and
+  citations**, is the methods paragraph and the references to cite in the APA style (Terraflux's among them), and
+  those the nodes give.
 
 ## [1.28.0] - 2026-10-31
 

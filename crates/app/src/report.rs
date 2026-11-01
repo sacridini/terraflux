@@ -128,6 +128,54 @@ pub fn visual(v: &Value, side: usize) -> Option<Visual> {
 /// The values of a run, by node and port.
 pub type Values<'a> = &'a dyn Fn(&str, &str) -> Option<Value>;
 
+/// What a report adds to the model's document: its methods and the papers to cite, and how its checks fared in
+/// the run.
+#[derive(Default)]
+pub struct Extras {
+    pub methods: Option<crate::methods::Methods>,
+    pub checks: Vec<crate::checks::Check>,
+}
+
+impl Extras {
+    /// Of a model (`file` its file's name, if it has one) and the checks of its run, for this Terraflux.
+    pub fn of(
+        m: &terraflux_graph::Model,
+        r: &terraflux_ops::Registry,
+        file: Option<&str>,
+        checks: Vec<crate::checks::Check>,
+    ) -> Extras {
+        Extras { methods: Some(crate::methods::of(m, r, env!("CARGO_PKG_VERSION"), file)), checks }
+    }
+
+    /// The badge of a step of a scope (`path`): a check's verdict, a container's worst of the checks it holds.
+    fn badge(&self, path: &[String], id: &str) -> Option<(crate::checks::Verdict, bool)> {
+        let v = crate::checks::badges(&self.checks, path).remove(id)?;
+        let own = self.checks.iter().any(|c| c.path == path && c.id == id);
+        Some((v, own))
+    }
+
+    /// The references cited, in the APA style and in alphabetical order, Terraflux's among them.
+    fn references(&self) -> Vec<String> {
+        let Some(m) = &self.methods else { return Vec::new() };
+        let mut refs: Vec<String> = m.references.iter().map(|r| r.apa()).collect();
+        refs.push(m.software.clone());
+        refs.sort_by_key(|r| r.to_lowercase());
+        refs
+    }
+}
+
+/// What a badge says beside a step: a check's verdict in words (not again the badge's word), a container's worst.
+fn badge_words(v: &crate::checks::Verdict, own: bool) -> String {
+    use crate::checks::Verdict;
+    match (v, own) {
+        (_, false) => format!("the worst of the checks inside: {}", v.words()),
+        (Verdict::Passed, true) => "it held in the run".into(),
+        (Verdict::NotRun, true) => "the run did not come to it".into(),
+        (Verdict::Off, true) => "turned off (bypassed)".into(),
+        (_, true) => v.words(),
+    }
+}
+
 /// The numbers of the sections and steps: "2", "2.3", "2.3.1".
 fn number(prefix: &str, k: usize) -> String {
     if prefix.is_empty() { format!("{}", k + 1) } else { format!("{prefix}.{}", k + 1) }
@@ -224,6 +272,10 @@ figure { margin: 12px 0; }
 figure img, .thumb img { image-rendering: pixelated; border: 1px solid var(--line); max-width: 100%; height: auto; }
 figcaption, .of { color: var(--weak); font-size: 0.88em; }
 .thumb { margin: 8px 0 2px; }
+.badge { display: inline-block; color: #fff; border-radius: 9px; padding: 0 8px; font-size: 0.8em; font-weight: 600; margin-right: 6px; }
+.checks { margin: 4px 0 8px; padding-left: 0; list-style: none; }
+.checks li { margin: 3px 0; }
+.refs li { margin: 4px 0; }
 footer { margin-top: 48px; color: var(--weak); font-size: 0.85em; }
 a { color: var(--accent); text-decoration: none; }
 @media print { body { background: #fff; color: #000; } .step { break-inside: avoid; } }
@@ -271,6 +323,9 @@ fn html_visual(v: &Visual, alt: &str, width: usize) -> String {
 struct Html<'a> {
     out: String,
     values: Values<'a>,
+    extras: &'a Extras,
+    /// the containers the steps written are in
+    path: Vec<String>,
     /// the only output of a node, to name the node alone when it is what is taken
     first: &'a dyn Fn(&str) -> Option<String>,
 }
@@ -318,6 +373,9 @@ impl Html<'_> {
             if let Some(n) = &s.note {
                 let _ = write!(self.out, " — <i>{}</i>", esc(n));
             }
+            if let Some((v, own)) = self.extras.badge(&self.path, &s.id) {
+                let _ = write!(self.out, " {}", html_badge(&v, &badge_words(&v, own)));
+            }
             self.out.push_str("</div>");
             return;
         }
@@ -327,6 +385,10 @@ impl Html<'_> {
             esc(&s.id),
             esc(&s.op)
         );
+        if let Some((v, own)) = self.extras.badge(&self.path, &s.id) {
+            let words = badge_words(&v, own);
+            let _ = write!(self.out, "<p>{}{}</p>", html_badge(&v, &words), esc(&words));
+        }
         match &s.note {
             Some(n) => {
                 let _ = write!(self.out, r#"<p class="note"><i>{}</i></p>"#, esc(n));
@@ -383,7 +445,9 @@ impl Html<'_> {
             self.out.push_str("</ul>");
         }
         if let Some(b) = &s.body {
+            self.path.push(s.id.clone());
             self.body(b, num);
+            self.path.pop();
         }
         self.list("References", &s.refs);
         self.list("Assumptions", &s.assumptions);
@@ -509,9 +573,15 @@ impl Html<'_> {
     }
 }
 
+/// A check's verdict as a badge, in its colour, what it says shown over it.
+fn html_badge(v: &crate::checks::Verdict, title: &str) -> String {
+    let [r, g, b] = v.rgb();
+    format!(r#"<span class="badge" style="background: rgb({r}, {g}, {b})" title="{}">{}</span>"#, esc(title), v.label())
+}
+
 /// The report as an HTML page.
-pub fn html(doc: &Document, values: Values, first: &dyn Fn(&str) -> Option<String>) -> String {
-    let mut h = Html { out: String::new(), values, first };
+pub fn html(doc: &Document, values: Values, first: &dyn Fn(&str) -> Option<String>, extras: &Extras) -> String {
+    let mut h = Html { out: String::new(), values, extras, path: Vec::new(), first };
     let _ = write!(
         h.out,
         r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{}</title><style>{CSS}</style></head><body><main>"#,
@@ -525,6 +595,23 @@ pub fn html(doc: &Document, values: Values, first: &dyn Fn(&str) -> Option<Strin
         if let Some(v) = v {
             let _ = write!(h.out, r#"<p class="meta"><b>{label}.</b> {}</p>"#, esc(v));
         }
+    }
+    // the model's health: how its checks fared, each linked to its step
+    if let Some(health) = crate::checks::health(&extras.checks) {
+        let _ = write!(h.out, r#"<p class="meta"><b>Checks.</b> {}</p><ul class="checks">"#, esc(&health));
+        for c in &extras.checks {
+            let at = c.path.iter().chain(std::iter::once(&c.id)).cloned().collect::<Vec<_>>().join("/");
+            let _ = write!(
+                h.out,
+                r##"<li>{}<a href="#{}"><b>{}</b></a> <code>{}</code>: {}</li>"##,
+                html_badge(&c.verdict, &c.verdict.words()),
+                esc(c.path.first().unwrap_or(&c.id)),
+                esc(&at),
+                esc(&c.expression),
+                esc(&c.verdict.words())
+            );
+        }
+        h.out.push_str("</ul>");
     }
     let mut k = 0;
     if !doc.inputs.is_empty() {
@@ -618,6 +705,23 @@ pub fn html(doc: &Document, values: Values, first: &dyn Fn(&str) -> Option<Strin
             );
         }
         h.out.push_str("</table>");
+    }
+    // the methods as a paper tells them, and the papers to cite
+    if let Some(m) = &extras.methods {
+        k += 1;
+        let _ = write!(h.out, "<h2>{k}. Methods and citations</h2><p>{}</p>", esc(&m.paragraph));
+        h.out.push_str(r#"<h3>References</h3><ul class="refs">"#);
+        for r in extras.references() {
+            let _ = write!(h.out, "<li>{}</li>", esc(&r));
+        }
+        h.out.push_str("</ul>");
+        if !m.own.is_empty() {
+            h.out.push_str(r#"<h3>Given in the model's notes</h3><ul class="refs">"#);
+            for r in &m.own {
+                let _ = write!(h.out, "<li>{}</li>", esc(r));
+            }
+            h.out.push_str("</ul>");
+        }
     }
     let _ = write!(
         h.out,
@@ -861,6 +965,25 @@ impl Pdf {
         self.y -= h;
     }
 
+    /// A badge (its label in white on its colour) and runs of text after it, wrapped beside it.
+    fn badge(&mut self, rgb: [u8; 3], label: &str, rest: &[Run], size: f32, indent: f32) {
+        let lead = size * 1.35;
+        self.room(lead);
+        let y = self.y - lead;
+        let small = size * 0.85;
+        let bw = width(Font::Bold, small, label) + 8.0;
+        let x = MARGIN + indent;
+        let [r, g, b] = rgb.map(|c| f32::from(c) / 255.0);
+        let _ = writeln!(
+            self.page,
+            "{r:.3} {g:.3} {b:.3} rg {x:.2} {:.2} {bw:.2} {:.2} re f",
+            y - size * 0.28,
+            size * 1.15
+        );
+        self.text_at(x + 4.0, y, Font::Bold, small, 1.0, label);
+        self.paragraph(rest, size, indent + bw + 4.0, 0.0);
+    }
+
     fn rule(&mut self) {
         let _ = writeln!(
             self.page,
@@ -1009,6 +1132,9 @@ impl Pdf {
 struct PdfReport<'a> {
     pdf: Pdf,
     values: Values<'a>,
+    extras: &'a Extras,
+    /// the containers the steps written are in
+    path: Vec<String>,
     first: &'a dyn Fn(&str) -> Option<String>,
 }
 
@@ -1058,6 +1184,9 @@ impl PdfReport<'_> {
             }
             self.pdf.space(3.0);
             self.pdf.paragraph(&runs, 9.5, indent, 0.0);
+            if let Some((v, own)) = self.extras.badge(&self.path, &s.id) {
+                self.pdf.badge(v.rgb(), v.label(), &[run(Font::Regular, badge_words(&v, own))], 9.0, indent + 8.0);
+            }
             return;
         }
         self.pdf.space(8.0);
@@ -1068,6 +1197,9 @@ impl PdfReport<'_> {
             indent,
             0.0,
         );
+        if let Some((v, own)) = self.extras.badge(&self.path, &s.id) {
+            self.pdf.badge(v.rgb(), v.label(), &[run(Font::Regular, badge_words(&v, own))], 9.5, indent);
+        }
         match &s.note {
             Some(n) => self.pdf.paragraph(&[run(Font::Italic, n.clone())], 9.5, indent, 0.0),
             None => self.pdf.paragraph(&[run(Font::Italic, "No note.")], 9.0, indent, 0.45),
@@ -1151,9 +1283,11 @@ impl PdfReport<'_> {
             for h in head {
                 self.pdf.paragraph(&h, 9.5, indent, 0.0);
             }
+            self.path.push(s.id.clone());
             for (k, inner) in b.steps.iter().enumerate() {
                 self.step(inner, &number(num, k), indent + 14.0);
             }
+            self.path.pop();
         }
         self.list("References", &s.refs, indent);
         self.list("Assumptions", &s.assumptions, indent);
@@ -1196,8 +1330,8 @@ impl PdfReport<'_> {
 }
 
 /// The report as a PDF.
-pub fn pdf(doc: &Document, values: Values, first: &dyn Fn(&str) -> Option<String>) -> Vec<u8> {
-    let mut p = PdfReport { pdf: Pdf::new(), values, first };
+pub fn pdf(doc: &Document, values: Values, first: &dyn Fn(&str) -> Option<String>, extras: &Extras) -> Vec<u8> {
+    let mut p = PdfReport { pdf: Pdf::new(), values, extras, path: Vec::new(), first };
     p.pdf.paragraph(&[run(Font::Bold, doc.title.clone())], 20.0, 0.0, 0.0);
     if let Some(d) = &doc.description {
         p.pdf.paragraph(&[run(Font::Italic, d.clone())], 10.5, 0.0, 0.35);
@@ -1206,6 +1340,20 @@ pub fn pdf(doc: &Document, values: Values, first: &dyn Fn(&str) -> Option<String
         if let Some(v) = v {
             p.pdf.space(2.0);
             p.pdf.paragraph(&[run(Font::Bold, format!("{label}. ")), run(Font::Regular, v.clone())], 10.0, 0.0, 0.0);
+        }
+    }
+    // the model's health: how its checks fared
+    if let Some(health) = crate::checks::health(&extras.checks) {
+        p.pdf.space(2.0);
+        p.pdf.paragraph(&[run(Font::Bold, "Checks. "), run(Font::Regular, health)], 10.0, 0.0, 0.0);
+        for c in &extras.checks {
+            let at = c.path.iter().chain(std::iter::once(&c.id)).cloned().collect::<Vec<_>>().join("/");
+            let rest = [
+                run(Font::Bold, format!("{at} ")),
+                run(Font::Mono, c.expression.clone()),
+                run(Font::Regular, format!(": {}", c.verdict.words())),
+            ];
+            p.pdf.badge(c.verdict.rgb(), c.verdict.label(), &rest, 9.0, 8.0);
         }
     }
     let mut k = 0;
@@ -1329,6 +1477,26 @@ pub fn pdf(doc: &Document, values: Values, first: &dyn Fn(&str) -> Option<String
             p.pdf.paragraph(&runs, 9.5, 0.0, 0.0);
         }
     }
+    // the methods as a paper tells them, and the papers to cite
+    if let Some(m) = &extras.methods {
+        k += 1;
+        p.heading(&format!("{k}. Methods and citations"));
+        p.pdf.paragraph(&[run(Font::Regular, m.paragraph.clone())], 10.0, 0.0, 0.0);
+        p.pdf.space(6.0);
+        p.pdf.paragraph(&[run(Font::Bold, "References")], 10.5, 0.0, 0.0);
+        for r in extras.references() {
+            p.pdf.space(2.0);
+            p.pdf.paragraph(&[run(Font::Regular, r)], 9.0, 0.0, 0.0);
+        }
+        if !m.own.is_empty() {
+            p.pdf.space(6.0);
+            p.pdf.paragraph(&[run(Font::Bold, "Given in the model's notes")], 10.5, 0.0, 0.0);
+            for r in &m.own {
+                p.pdf.space(2.0);
+                p.pdf.paragraph(&[run(Font::Regular, r.clone())], 9.0, 0.0, 0.0);
+            }
+        }
+    }
     p.pdf.space(18.0);
     p.pdf.paragraph(
         &[run(
@@ -1348,11 +1516,12 @@ pub fn write(
     doc: &Document,
     values: Values,
     first: &dyn Fn(&str) -> Option<String>,
+    extras: &Extras,
 ) -> std::io::Result<()> {
     if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf")) {
-        std::fs::write(path, pdf(doc, values, first))
+        std::fs::write(path, pdf(doc, values, first, extras))
     } else {
-        std::fs::write(path, html(doc, values, first))
+        std::fs::write(path, html(doc, values, first, extras))
     }
 }
 
@@ -1386,7 +1555,7 @@ mod tests {
         let d = Document::of(&m, &r);
         let none = |_: &str, _: &str| None;
         let first = |_: &str| None;
-        let h = html(&d, &none, &first);
+        let h = html(&d, &none, &first, &Extras::default());
         assert!(h.starts_with("<!doctype html>"));
         assert!(h.contains("<h2>1. Data</h2>"));
         assert!(h.contains("<h2>3. Model</h2>"));
@@ -1394,9 +1563,46 @@ mod tests {
         assert!(h.contains("Not run."));
         assert!(h.contains("Figure 1.</b> Simulated land use"));
         assert!(h.contains("the range of the autocorrelation, in cells"));
-        let p = pdf(&d, &none, &first);
+        let p = pdf(&d, &none, &first, &Extras::default());
         assert!(p.starts_with(b"%PDF-1.4"));
         assert!(p.ends_with(b"%%EOF\n"));
+    }
+
+    #[test]
+    fn a_report_tells_the_methods_and_how_the_checks_fared() {
+        use crate::checks::{Check, Verdict};
+        let r = Registry::standard();
+        let mut m = template("Neutral landscapes");
+        let first_node = m.nodes[0].id.clone();
+        m.nodes.push(
+            terraflux_graph::Node::new("enough", "check.assert")
+                .input("value", &format!("{first_node}.raster"))
+                .param("expression", "value >= 0"),
+        );
+        let d = Document::of(&m, &r);
+        let none = |_: &str, _: &str| None;
+        let first = |_: &str| None;
+        let checks = vec![Check {
+            path: Vec::new(),
+            id: "enough".into(),
+            expression: "value >= 0".into(),
+            verdict: Verdict::Warned("some cells below".into()),
+        }];
+        let extras = Extras::of(&m, &r, Some("neutral.toml"), checks);
+        let h = html(&d, &none, &first, &extras);
+        assert!(h.contains("<b>Checks.</b> 1 check: 1 warned"), "the health at the top");
+        assert!(h.contains(">warned</span>"), "the badge");
+        assert!(h.contains("failed, warning only: some cells below"), "what it said, on its step");
+        assert!(h.contains(". Methods and citations</h2><p>The analysis was run in Terraflux"));
+        assert!(h.contains("(neutral.toml)"));
+        assert!(h.contains("<li>Lacerda, E. (2026). Terraflux"), "Terraflux among the references");
+        let p = pdf(&d, &none, &first, &extras);
+        let text = String::from_utf8_lossy(&p);
+        assert!(text.contains("(warned) Tj"));
+        assert!(text.contains("(citations) Tj") && text.contains("(Lacerda,) Tj"));
+        // without them, neither
+        let plain = html(&d, &none, &first, &Extras::default());
+        assert!(!plain.contains("Methods and citations") && !plain.contains("Checks."));
     }
 
     #[test]
@@ -1408,10 +1614,10 @@ mod tests {
         let d = Document::of(&m, &r);
         let values = |n: &str, p: &str| results.values.get(n)?.get(p).cloned();
         let first = |n: &str| crate::document::only_output(&m, &r, n);
-        let h = html(&d, &values, &first);
+        let h = html(&d, &values, &first, &Extras::default());
         assert!(h.contains("data:image/png;base64,"), "the maps as images");
         assert!(!h.contains("Not run."));
-        let p = pdf(&d, &values, &first);
+        let p = pdf(&d, &values, &first, &Extras::default());
         let text = String::from_utf8_lossy(&p);
         assert!(text.contains("/Subtype /Image"));
         // the cross-reference table points at the objects

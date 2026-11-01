@@ -512,7 +512,10 @@ como o próximo bloco, nesta ordem (um commit por item):
    (HTML e PDF). **Feito** (Unreleased) a terceira vista (ver o item 1 acima); a comparação no relatório vai
    com o item 2.
 2. **Relatório:** levar para o HTML e o PDF os métodos e citações, os selos de verificação, a comparação e as
-   animações.
+   animações. **Feito** (Unreleased) os métodos e os selos: `report::Extras` (os `Methods` e os `Check` da
+   execução; no `terraflux report` por `checks::of_run`, sem `Session`), a saúde no alto com uma linha por check,
+   o selo no passo de cada check e nos contêineres (o pior), e a seção "Methods and citations" no fim (o
+   parágrafo, as referências em APA, as dos nós). No PDF, o selo é um retângulo na cor com o rótulo em branco.
 3. **Animação:** MP4, o play no Viewer e a velocidade escolhida.
 4. **Desenho → dados:** o `data.download` recortado pela área desenhada; editar vértices; digitar atributos.
 5. **Catálogo:** GBIF, prévia do dado na área, saber o que já está no cache, e ESA WorldCover, MODIS e Global
