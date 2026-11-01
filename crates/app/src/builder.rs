@@ -210,14 +210,17 @@ pub fn process_folder_dialog(s: &mut Session) {
 }
 
 /// Every raster of a folder through an operator, written beside the folder ([`crate::editor::process_folder`]),
-/// the operator's node selected to choose its settings.
+/// the operator's node selected to choose its settings. Only the nodes are made: not shown in the preview, so
+/// nothing runs (on every file of the folder) until a run is asked for.
 pub fn process_folder(s: &mut Session, r: &Registry, folder: &str, op: &str) -> Result<String, String> {
     let path = s.editor.path.clone();
     let nodes = s.source.scope(&path).cloned().unwrap_or_default();
     let at = beside(&nodes, None);
     let id = crate::editor::process_folder(&mut s.source, r, &path, folder, op, at)?;
     s.edited();
-    select(s, r, &id);
+    s.fields.clear();
+    s.selected = Some(id.clone());
+    s.editor.reveal(&id);
     Ok(id)
 }
 
@@ -2777,6 +2780,16 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     // a palette chosen by hand for this output, else by what it is
     let palette = s.palettes.get(&(node.clone(), port.clone())).copied().unwrap_or_else(|| Palette::of(made, &hint));
     let look = s.looks.get(ui.ctx(), &maps[k], palette);
+    // while the look of another layer (a series' next step) is worked out, the last one: the map and its legend
+    // stay, not a spinner in their place
+    let held = egui::Id::new(("look held", salt, &node, &port));
+    let look = match look {
+        Some(l) => {
+            ui.data_mut(|d| d.insert_temp(held, l.clone()));
+            Some(l)
+        }
+        None => ui.data(|d| d.get_temp::<Look>(held)),
+    };
     // the names and colours of the classes the model or the map gives
     let legend_classes = crate::legend_view::legend_of(s, &node, &port, &maps[k]);
     let look = match (&look, &legend_classes) {
@@ -4037,6 +4050,22 @@ pub fn metrics_param(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_folder_to_process_is_only_built_not_run() {
+        let r = Registry::standard();
+        let mut s = Session::blank();
+        let folder = std::path::Path::new("data").join("tiles");
+        let id = process_folder(&mut s, &r, &folder.to_string_lossy(), "landscape.mspa").unwrap();
+        // its settings in the Node pane, but nothing in the preview: the run up to it does not start by itself
+        assert_eq!(s.selected.as_deref(), Some(id.as_str()));
+        assert!(s.preview.is_none());
+        assert!(!s.run_when_ready);
+        let ctx = egui::Context::default();
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        s.auto_run(&ctx);
+        assert!(!s.running());
+    }
 
     #[test]
     fn rules_as_rows_from_to_becomes() {

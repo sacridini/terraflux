@@ -280,7 +280,28 @@ pub const THEMES: [Palette; 9] = [
     },
 ];
 
-static CURRENT: AtomicUsize = AtomicUsize::new(0);
+/// The theme of a new installation (and of a name unknown): the modern dark one.
+pub const DEFAULT: &str = "Slate";
+
+const fn default_index() -> usize {
+    let mut i = 0;
+    while i < THEMES.len() {
+        let (a, b) = (THEMES[i].name.as_bytes(), DEFAULT.as_bytes());
+        if a.len() == b.len() {
+            let mut j = 0;
+            while j < a.len() && a[j] == b[j] {
+                j += 1;
+            }
+            if j == a.len() {
+                return i;
+            }
+        }
+        i += 1;
+    }
+    panic!("the default theme is not among the themes")
+}
+
+static CURRENT: AtomicUsize = AtomicUsize::new(default_index());
 
 /// The theme in use.
 pub fn current() -> &'static Palette {
@@ -292,9 +313,9 @@ pub fn shape() -> &'static Shape {
     if current().modern { &MODERN } else { &CLASSIC }
 }
 
-/// Use a theme, by name (the default for a name unknown); [`apply`] then.
+/// Use a theme, by name ([`DEFAULT`] for a name unknown); [`apply`] then.
 pub fn choose(name: &str) {
-    CURRENT.store(THEMES.iter().position(|t| t.name == name).unwrap_or(0), Ordering::Relaxed);
+    CURRENT.store(THEMES.iter().position(|t| t.name == name).unwrap_or(default_index()), Ordering::Relaxed);
 }
 
 pub fn accent() -> Color32 {
@@ -658,6 +679,14 @@ mod tests {
         };
         let (x, y) = (lum(a), lum(b));
         (x.max(y) + 0.05) / (x.min(y) + 0.05)
+    }
+
+    #[test]
+    fn a_new_installation_is_in_slate() {
+        let t = &THEMES[default_index()];
+        assert_eq!(t.name, "Slate");
+        assert!(t.modern && t.dark);
+        assert_eq!(crate::settings::Settings::default().theme, DEFAULT);
     }
 
     #[test]

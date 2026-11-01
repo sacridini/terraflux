@@ -79,7 +79,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Settings {
         Settings {
-            theme: "Default".into(),
+            theme: crate::theme::DEFAULT.into(),
             text: 1.0,
             zoom: 1.0,
             threads: None,

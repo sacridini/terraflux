@@ -391,6 +391,27 @@ pub struct MapView {
     pub ghost: Option<Vec2>,
     /// Features being drawn on the map (clicks add their vertices instead of picking a cell).
     pub drawing: Option<crate::draw::Sketch>,
+    /// The map drawn at the last frame and its colouring; the one shown before the map now, while it fades in.
+    last: Option<(Source, u64)>,
+    prior: Option<Prior>,
+}
+
+/// How long a map takes to fade in over the one shown before it (a series' next step), seconds.
+const FADE: f32 = 0.18;
+
+/// The map shown before the one now (of the same size), held under it until its tiles have come and it has
+/// faded in: no blank between two steps of a series.
+struct Prior {
+    source: Source,
+    colouring: u64,
+    since: std::time::Instant,
+}
+
+/// How a source's tiles are drawn: in a colouring, the tiles missing asked for; or only those kept in a colouring.
+#[derive(Clone, Copy)]
+enum Paint<'a> {
+    Asked(&'a Coloring),
+    Held(u64),
 }
 
 impl MapView {
@@ -505,7 +526,8 @@ impl MapView {
     }
 
     /// Draw a source's tiles in view, placed on the view's grid (the finest kept over a tile still to come,
-    /// stretched; a few tiles kept in another colouring coloured again); the tiles missing asked for.
+    /// stretched; a few tiles kept in another colouring coloured again); the tiles missing asked for. Held: only
+    /// the tiles kept in that colouring, nothing asked. Whether every tile in view was drawn (stretched or not).
     #[allow(clippy::too_many_arguments)]
     fn draw_source(
         &mut self,
@@ -513,15 +535,15 @@ impl MapView {
         painter: &egui::Painter,
         rect: Rect,
         source: &Source,
-        coloring: &Coloring,
+        paint: Paint<'_>,
         tint: Color32,
         place: Place,
         show: bool,
         wanted: &mut Vec<(f32, Job)>,
-    ) {
+    ) -> bool {
         let (w, h) = source.size();
         if w == 0 || h == 0 {
-            return;
+            return true;
         }
         let ppp = ctx.pixels_per_point();
         let top = source.top();
@@ -529,7 +551,11 @@ impl MapView {
         let cells_per_pixel = 1.0 / (self.zoom * place.scale.x.abs().min(place.scale.y.abs()) * ppp);
         let level = (cells_per_pixel.max(1.0).log2().floor() as u32).min(top);
         let src = source.key();
-        let colouring = coloring.key();
+        let (coloring, colouring) = match paint {
+            Paint::Asked(c) => (Some(c), c.key()),
+            Paint::Held(k) => (None, k),
+        };
+        let mut complete = true;
         let (center, zoom) = (self.center, self.zoom);
         let screen = |level: u32, tx: usize, ty: usize| -> Rect {
             let span = (TILE << level) as f32;
@@ -553,20 +579,27 @@ impl MapView {
         let (x0, y0, x1, y1) = range(level);
         let clock = self.clock;
         let full = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
-        let job = |key: TileKey| Job { key, source: source.clone(), coloring: coloring.clone(), colouring };
-        let mut recolour = 8;
+        let job = |key: TileKey, coloring: &Coloring| Job {
+            key,
+            source: source.clone(),
+            coloring: coloring.clone(),
+            colouring,
+        };
+        let mut recolour = if coloring.is_some() { 8 } else { 0 };
         // the top tiles over the view first: something to show at once
         let (tx0, ty0, tx1, ty1) = range(top);
         for ty in ty0..=(ty1.max(0) as usize) {
             for tx in tx0..=(tx1.max(0) as usize) {
                 let k = (src, top, tx, ty);
-                if self.tiles.get(&k).is_none_or(|t| t.texture.as_ref().is_none_or(|(c, _)| *c != colouring)) {
-                    wanted.push((-1.0, job(k)));
+                if let Some(c) = coloring
+                    && self.tiles.get(&k).is_none_or(|t| t.texture.as_ref().is_none_or(|(c, _)| *c != colouring))
+                {
+                    wanted.push((-1.0, job(k, c)));
                 }
             }
         }
         if x1 < x0 as i64 || y1 < y0 as i64 {
-            return;
+            return complete;
         }
         for ty in y0..=y1 as usize {
             for tx in x0..=x1 as usize {
@@ -576,6 +609,7 @@ impl MapView {
                 if let Some(t) = self.tiles.get_mut(&k)
                     && t.texture.as_ref().is_none_or(|(c, _)| *c != colouring)
                     && recolour > 0
+                    && let Some(coloring) = coloring
                 {
                     recolour -= 1;
                     let img = image_f32(&t.values, TILE, TILE, coloring);
@@ -597,9 +631,12 @@ impl MapView {
                 if drawn {
                     continue;
                 }
-                let d = (r.center() - rect.center()).length();
-                wanted.push((d, job(k)));
+                if let Some(c) = coloring {
+                    let d = (r.center() - rect.center()).length();
+                    wanted.push((d, job(k, c)));
+                }
                 // meanwhile the finest coarser tile kept over it, stretched
+                let mut stretched = false;
                 for up in level + 1..=top {
                     let shift = up - level;
                     let (ax, ay) = (tx >> shift, ty >> shift);
@@ -614,11 +651,14 @@ impl MapView {
                         if show {
                             painter.image(tex.id(), r, uv, tint);
                         }
+                        stretched = true;
                         break;
                     }
                 }
+                complete &= stretched;
             }
         }
+        complete
     }
 
     /// The cell under a screen point.
@@ -821,11 +861,45 @@ impl MapView {
                 Some(x) => painter.with_clip_rect(Rect::from_min_max(rect.min, Pos2::new(x, rect.max.y))),
                 None => painter.clone(),
             };
-            self.draw_source(&ctx, &left, rect, source, coloring, tint, base, show_data, &mut wanted);
+            // another map than at the last frame (a series' next step), or other colours: the last one kept under
+            // it while its tiles come, the new one fading in over it
+            let now = (source.key(), coloring.key());
+            if let Some((was, colouring)) = self.last.take()
+                && (was.key(), colouring) != now
+                && was.size() == (w, h)
+            {
+                self.prior = Some(Prior { source: was, colouring, since: std::time::Instant::now() });
+            }
+            let under = match &self.prior {
+                Some(p) if (p.source.key(), p.colouring) != now => {
+                    Some((p.source.clone(), p.colouring, (p.since.elapsed().as_secs_f32() / FADE).min(1.0)))
+                }
+                _ => None,
+            };
+            let fade = match under {
+                Some((was, colouring, fade)) => {
+                    let held = Paint::Held(colouring);
+                    self.draw_source(&ctx, &left, rect, &was, held, tint, base, show_data, &mut wanted);
+                    fade
+                }
+                None => 1.0,
+            };
+            let asked = Paint::Asked(coloring);
+            let faded = tint.gamma_multiply(fade);
+            let complete = self.draw_source(&ctx, &left, rect, source, asked, faded, base, show_data, &mut wanted);
+            if self.prior.is_some() {
+                if complete && fade >= 1.0 {
+                    self.prior = None;
+                } else {
+                    ctx.request_repaint();
+                }
+            }
+            self.last = Some((source.clone(), now.1));
             if let (Some((c, place)), Some(x)) = (compared, split) {
                 let right = painter.with_clip_rect(Rect::from_min_max(Pos2::new(x, rect.min.y), rect.max));
                 let l = &c.layer;
-                self.draw_source(&ctx, &right, rect, &l.source, &l.coloring, tint, place, show_data, &mut wanted);
+                let paint = Paint::Asked(&l.coloring);
+                self.draw_source(&ctx, &right, rect, &l.source, paint, tint, place, show_data, &mut wanted);
             }
         }
         // the maps over it, placed by their coordinates on its grid (of its coordinate system)
@@ -834,7 +908,8 @@ impl MapView {
             match place_on(l.source.grid(), source.grid()) {
                 Some(place) => {
                     let tint = Color32::from_white_alpha((l.opacity.clamp(0.0, 1.0) * 255.0).round() as u8);
-                    self.draw_source(&ctx, &painter, rect, &l.source, &l.coloring, tint, place, true, &mut wanted);
+                    let paint = Paint::Asked(&l.coloring);
+                    self.draw_source(&ctx, &painter, rect, &l.source, paint, tint, place, true, &mut wanted);
                 }
                 None => layer_errors.push(
                     "a map over it is of another coordinate system or rotated: put it on this \

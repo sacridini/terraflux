@@ -6,6 +6,15 @@ minor versions.
 
 ## [Unreleased]
 
+### Changed
+- A new installation opens in **Slate**, the modern dark theme (a theme's name unknown in the settings too); the
+  theme chosen before stays.
+- **Process a folder...** only builds the nodes (the folder read, the operator, what writes): its operator selected
+  for its settings, nothing runs on the folder's files until Run.
+- The steps of a **series** (and the layers of a stack) go from one to the next **smoothly**: the map shown is kept
+  under the next one while its tiles come, the next fading in over it, and its colours and legend stay until the
+  next one's are worked out (no longer a blank map or a spinner between two dates).
+
 ## [1.30.0] - 2026-11-01
 
 ### Added
