@@ -561,6 +561,12 @@ como o próximo bloco, nesta ordem (um commit por item):
    latitude do meio, seis vezes o vão do mapa (24° pelo menos), o mapa em vermelho (um anel quando pequeno
    demais). Falta: a fonte escolhida, mover a legenda e a barra à mão, o encarte num mapa sem CRS conhecido.
 7. **QGIS:** `.qgz` e as cores dos vetores do Viewer.
+   **Feito** (Unreleased): o projeto em `.qgz` (padrão; um zip escrito à mão, deflate do `miniz_oxide`, CRC32 da
+   figura) ou `.qgs`, escolha na janela. Os vetores com o estilo do Viewer (`preview_overlays`): cor, preenchimento
+   e espessura (px × 0,26 mm), ou por um atributo: `categorizedSymbol` (textos, inteiros até 24 classes, as cores de
+   `vector_tiles::colours`) ou `graduatedSymbol` (7 faixas na rampa sequencial). Os vetores sobre o mapa vêm
+   marcados. Conferido no QGIS 3.34 (PyQGIS: o `.qgz` lido, o mapa paletted, os vetores categorizados nas cores do
+   Viewer). Falta: rótulos dos vetores, regras (`ruleRenderer`) e símbolos de pontos além do círculo.
 8. **Script Python:** os contêineres (laços, each, switch), os modelos de mudança, SDM, priorização e métricas
    (hoje ficam como comentários).
 9. **Métodos:** `terraflux methods` na linha de comando e no MCP; o texto em português.

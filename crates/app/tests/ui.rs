@@ -2898,7 +2898,8 @@ fn a_cell_in_every_map() {
     assert!(h.query_by_label("Save as GIF...").is_some());
 }
 
-/// File > Export to QGIS: the run's maps listed, the one shown chosen, the export button counting them.
+/// File > Export to QGIS: the run's maps listed, the one shown chosen, the export button counting them; the
+/// features drawn over the map in the Viewer's colours (by an attribute), the project zipped (.qgz).
 #[test]
 fn the_maps_of_a_run_to_qgis() {
     let mut h = harness(new_app(None));
@@ -2909,29 +2910,67 @@ fn the_maps_of_a_run_to_qgis() {
         let path = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
         terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into()), ("band", "0".into())]).unwrap();
         terraflux_app::builder::add(s, &r, "raster.reclassify", &[("rules", "1 -> 10\n* -> 0".into())]).unwrap();
+        // two plots over the map, drawn by their use
+        let g = terraflux_gdal::Dataset::open(data("sibuyan_landuse.tif")).unwrap().meta.grid.clone();
+        let t = g.transform;
+        let (w, ht) = (g.width as f64 * t[1], g.height as f64 * -t[5]);
+        let square = |a: f64, b: f64| {
+            let (x0, y0, x1, y1) = (t[0] + w * a, t[3] - ht * b, t[0] + w * (a + 0.2), t[3] - ht * (b - 0.2));
+            terraflux_raster::vector::Geometry::Polygon(vec![vec![[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]])
+        };
+        let v = terraflux_raster::vector::Vector {
+            geometries: vec![square(0.2, 0.6), square(0.5, 0.9)],
+            attributes: vec![(
+                "use".into(),
+                terraflux_raster::vector::Column::Texts(vec!["forest".into(), "pasture".into()]),
+            )],
+            crs: g.geo.wkt.clone(),
+        };
+        let gpkg = tmp("qgis-plots.gpkg");
+        let _ = std::fs::remove_file(&gpkg);
+        terraflux_gdal::write_vector(&gpkg, "plots", &v).unwrap();
+        terraflux_app::builder::add(s, &r, "vector.read", &[("path", gpkg.to_string_lossy().into_owned().into())])
+            .unwrap();
+        let style = terraflux_app::vector_tiles::Style { by: Some("use".into()), ..Default::default() };
+        s.preview_overlays = vec![("vector_read".into(), "vector".into(), style)];
         s.preview = Some(("raster_reclassify".into(), "map".into()));
     }
     h.state_mut().focus(Pane::Viewer);
+    h.state_mut().session.as_mut().unwrap().start(Box::new(|| {}));
     until(&mut h, "the run", |a| {
         let s = a.session.as_ref().unwrap();
-        !s.running() && s.value_of("raster_reclassify", "map").is_some()
+        !s.running()
+            && s.value_of("raster_reclassify", "map").is_some()
+            && s.value_of("vector_read", "vector").is_some()
     });
     h.state_mut().session.as_mut().unwrap().qgis.open = true;
     h.run_steps(3);
     // both maps of the run listed, the one shown chosen
     let names: Vec<String> =
         terraflux_app::qgis::candidates(h.state().session.as_ref().unwrap()).into_iter().map(|c| c.2).collect();
-    assert_eq!(names, ["raster_read", "raster_reclassify.map"]);
-    assert!(h.query_by_label("Export 1 layer...").is_some());
+    assert_eq!(names, ["raster_read", "raster_reclassify.map", "vector_read.vector"]);
+    assert!(h.query_by_label(".qgz").is_some() && h.query_by_label(".qgs").is_some());
+    // the map shown and the features drawn over it
+    assert!(h.query_by_label("Export 2 layers...").is_some());
     shot(&mut h, "14e-qgis");
     h.get_by_label("all").click();
     h.run_steps(2);
-    assert!(h.query_by_label("Export 2 layers...").is_some());
+    assert!(h.query_by_label("Export 3 layers...").is_some());
     // what is exported of the map shown: its palette, the classes of its look
     let s = h.state().session.as_ref().unwrap();
     let p = terraflux_app::qgis::pick(s, "raster_reclassify", "map").unwrap();
     assert_eq!(p.name, "raster_reclassify.map");
     assert!(terraflux_app::qgis::exportable(&p.value));
+    // the features as the Viewer draws them; all of it as a .qgz
+    let plots = terraflux_app::qgis::pick(s, "vector_read", "vector").unwrap();
+    assert_eq!(plots.style.as_ref().and_then(|st| st.by.as_deref()), Some("use"));
+    let dir = tmp("qgis-export");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let picks = vec![p, plots];
+    let qgz = terraflux_app::qgis::export(&picks, &dir, "sibuyan", false).unwrap();
+    assert_eq!(qgz, dir.join("sibuyan.qgz"));
+    assert!(std::fs::read(&qgz).unwrap().starts_with(b"PK\x03\x04"));
 }
 
 /// The Viewer's Figure...: the map shown as a figure (its preview drawn), and every layer of a raster of several.

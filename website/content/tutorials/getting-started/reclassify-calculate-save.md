@@ -362,10 +362,13 @@ the node selected.
 ### Opening the results in QGIS
 
 **File > Export to QGIS...** (or **Save output > In a QGIS project...** in the viewer) lists the maps and vector
-layers of the run; tick those you want (the model's outputs and the map shown are ticked at first) and choose a
-folder. Terraflux writes each map as a GeoTIFF and each vector layer as a GeoPackage, with a QGIS project (`.qgs`)
-that opens them all, in the colours you see in Terraflux: the classes as a paletted map with their names (those of
-the legend you gave, or MSPA's), values on the same ramp from the same minimum to the same maximum. **Open in QGIS**
+layers of the run; tick those you want (the model's outputs, the map shown and the vector layers drawn over it are
+ticked at first) and choose a folder. Terraflux writes each map as a GeoTIFF and each vector layer as a GeoPackage,
+with a QGIS project that opens them all (`.qgz`, as QGIS saves its own, or `.qgs`, the same project as text: a
+choice in the window), in the colours you see in Terraflux: the classes as a paletted map with their names (those of
+the legend you gave, or MSPA's), values on the same ramp from the same minimum to the same maximum, and the vector
+layers as the viewer draws them over the map (their colour, fill and line width; by an attribute, a colour per class
+or ranges of its numbers along the ramp). **Open in QGIS**
 opens the project. A raster read from a file is referred to where it is, not copied, and each GeoTIFF written has
 its style beside it (a `.qml` of the same name), which QGIS uses when you add the file to another project by hand.
 

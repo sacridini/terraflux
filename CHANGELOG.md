@@ -54,6 +54,11 @@ minor versions.
   are drawn over it in the figure, in their colours (polygons filled and outlined, lines, points), cut at the map's
   edge. A **location inset**, on by default: the land of the world around the map (Natural Earth's, public domain,
   in the application) and the map's place in red, in its bottom right corner.
+- **Export to QGIS** writes the project as **`.qgz`**, QGIS's own (zipped), or as `.qgs` (text), a choice in its
+  window. The **vector layers** go in the colours they have over the map in the Viewer: their colour, fill and line
+  width, or by an attribute, its classes a colour each (a categorized renderer) or its range of numbers in seven
+  ranges along the Viewer's ramp (a graduated renderer). The vector layers drawn over the map are chosen at first,
+  with the map shown.
 
 ## [1.28.0] - 2026-10-31
 

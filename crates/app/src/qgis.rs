@@ -1,7 +1,8 @@
 //! The maps and vector layers of a run as a QGIS project: each written to a folder (GeoTIFF, GeoPackage; rasters
 //! read from a file referred to where they are), styled as the Viewer shows them (the classes in their colours
 //! and with their names, as a paletted map; values on the ramp from its minimum to its maximum), with a `.qml`
-//! style beside each map written (QGIS takes it when the map is added by hand), and the project (`.qgs`) that
+//! style beside each map written (QGIS takes it when the map is added by hand), the vector layers in the Viewer's
+//! colours (one, or by an attribute's classes or range), and the project (`.qgz`, QGIS's own, or `.qgs`) that
 //! opens them all in QGIS, the vector layers on top.
 
 use std::collections::BTreeSet;
@@ -31,6 +32,8 @@ pub struct Pick {
     pub palette: Palette,
     pub legend: Option<Vec<Class>>,
     pub band: usize,
+    /// A vector layer's style in the Viewer (when it is drawn over the map there).
+    pub style: Option<crate::vector_tiles::Style>,
 }
 
 /// Whether a value is a map or vector layer QGIS opens.
@@ -172,10 +175,20 @@ fn geometry_of(v: &terraflux_raster::vector::Vector) -> &'static str {
     }
 }
 
-/// A vector layer's renderer: one symbol, of the colour given (polygons filled half transparent).
-fn vector_renderer(geometry: &str, c: Color32) -> String {
+/// How a vector layer is drawn: its colour, the polygons' fill (0 to 1), the lines' width (millimetres).
+#[derive(Clone, Copy)]
+struct VectorLook {
+    colour: Color32,
+    fill: f32,
+    width_mm: f32,
+}
+
+/// A symbol of a vector layer, named `name`.
+fn symbol(name: &str, geometry: &str, l: VectorLook) -> String {
+    let c = l.colour;
     let rgb = format!("{},{},{}", c.r(), c.g(), c.b());
     let opt = |k: &str, v: &str| format!("<Option name=\"{k}\" type=\"QString\" value=\"{v}\"/>");
+    let w = format!("{:.2}", l.width_mm);
     let (kind, class, options) = match geometry {
         "Point" => (
             "marker",
@@ -184,29 +197,166 @@ fn vector_renderer(geometry: &str, c: Color32) -> String {
                 opt("name", "circle"),
                 opt("color", &format!("{rgb},255")),
                 opt("outline_color", "35,35,35,255"),
-                opt("size", "2.4"),
+                opt("size", &format!("{:.2}", 1.6 + l.width_mm * 2.0)),
             ]
             .concat(),
         ),
-        "Line" => ("line", "SimpleLine", [opt("line_color", &format!("{rgb},255")), opt("line_width", "0.6")].concat()),
-        _ => (
-            "fill",
-            "SimpleFill",
-            [
-                opt("color", &format!("{rgb},90")),
-                opt("outline_color", &format!("{rgb},255")),
-                opt("outline_width", "0.4"),
-                opt("style", "solid"),
-            ]
-            .concat(),
-        ),
+        "Line" => ("line", "SimpleLine", [opt("line_color", &format!("{rgb},255")), opt("line_width", &w)].concat()),
+        _ => {
+            let fill = (l.fill.clamp(0.0, 1.0) * 255.0).round() as u8;
+            let outline = if l.width_mm > 0.0 { "solid" } else { "no" };
+            (
+                "fill",
+                "SimpleFill",
+                [
+                    opt("color", &format!("{rgb},{fill}")),
+                    opt("outline_color", &format!("{rgb},255")),
+                    opt("outline_width", &w),
+                    opt("outline_style", outline),
+                    opt("style", if fill == 0 { "no" } else { "solid" }),
+                ]
+                .concat(),
+            )
+        }
     };
     format!(
-        "<renderer-v2 type=\"singleSymbol\" symbollevels=\"0\" enableorderby=\"0\" forceraster=\"0\"><symbols>\
-         <symbol type=\"{kind}\" name=\"0\" alpha=\"1\" clip_to_extent=\"1\" force_rhr=\"0\"><layer class=\"{class}\" \
-         enabled=\"1\" locked=\"0\" pass=\"0\"><Option type=\"Map\">{options}</Option></layer></symbol></symbols>\
-         </renderer-v2>"
+        "<symbol type=\"{kind}\" name=\"{}\" alpha=\"1\" clip_to_extent=\"1\" force_rhr=\"0\"><layer class=\"{class}\" \
+         enabled=\"1\" locked=\"0\" pass=\"0\"><Option type=\"Map\">{options}</Option></layer></symbol>",
+        esc(name)
     )
+}
+
+/// A vector layer's renderer: one symbol, of the colour given (polygons filled half transparent).
+fn vector_renderer(geometry: &str, c: Color32) -> String {
+    single(geometry, VectorLook { colour: c, fill: 90.0 / 255.0, width_mm: 0.4 })
+}
+
+fn single(geometry: &str, l: VectorLook) -> String {
+    format!(
+        "<renderer-v2 type=\"singleSymbol\" symbollevels=\"0\" enableorderby=\"0\" forceraster=\"0\"><symbols>{}\
+         </symbols></renderer-v2>",
+        symbol("0", geometry, l)
+    )
+}
+
+/// The ranges of a graduated renderer of values (the Viewer's sequential ramp across them).
+const RANGES: usize = 7;
+
+/// A vector layer's renderer in its style in the Viewer: one colour, or by an attribute (its classes, a colour
+/// each, as the Viewer gives them; a range of numbers in ranges along the ramp).
+fn styled_renderer(geometry: &str, v: &terraflux_raster::vector::Vector, style: &crate::vector_tiles::Style) -> String {
+    use terraflux_raster::vector::Column;
+    // (the Viewer's widths in pixels: about a quarter of a millimetre each)
+    let base = VectorLook { colour: style.colour, fill: style.fill, width_mm: style.width * 0.26 };
+    let Some((attr, column)) = style.by.as_ref().and_then(|b| v.column(b).map(|c| (b, c))) else {
+        return single(geometry, base);
+    };
+    let colours = crate::vector_tiles::colours(v, style);
+    let head = |kind: &str, extra: &str| {
+        format!(
+            "<renderer-v2 type=\"{kind}\" attr=\"{}\"{extra} symbollevels=\"0\" enableorderby=\"0\" forceraster=\"0\">",
+            esc(attr)
+        )
+    };
+    // classes: each value its colour (that of its first feature)
+    let categorized = |values: Vec<String>| {
+        let mut cats = String::new();
+        let mut symbols = String::new();
+        let mut seen: Vec<&String> = Vec::new();
+        for (k, value) in values.iter().enumerate() {
+            if seen.contains(&value) {
+                continue;
+            }
+            seen.push(value);
+            let i = seen.len() - 1;
+            cats.push_str(&format!(
+                "<category value=\"{v}\" label=\"{v}\" symbol=\"{i}\" render=\"true\"/>",
+                v = esc(value)
+            ));
+            symbols.push_str(&symbol(&i.to_string(), geometry, VectorLook { colour: colours[k], ..base }));
+        }
+        format!(
+            "{}<categories>{cats}</categories><symbols>{symbols}</symbols></renderer-v2>",
+            head("categorizedSymbol", "")
+        )
+    };
+    match column {
+        Column::Texts(t) => categorized(t.clone()),
+        Column::Numbers(x) => {
+            let mut distinct: Vec<f64> = x.iter().copied().filter(|v| !v.is_nan()).collect();
+            distinct.sort_by(f64::total_cmp);
+            distinct.dedup();
+            if distinct.len() <= 24 && distinct.iter().all(|v| v.fract() == 0.0) {
+                return categorized(x.iter().map(|v| if v.is_nan() { String::new() } else { num(*v) }).collect());
+            }
+            let (lo, hi) = (distinct.first().copied().unwrap_or(0.0), distinct.last().copied().unwrap_or(1.0));
+            let span = if hi > lo { hi - lo } else { 1.0 };
+            let mut ranges = String::new();
+            let mut symbols = String::new();
+            for i in 0..RANGES {
+                let (a, b) =
+                    (tidy(lo + span * i as f64 / RANGES as f64), tidy(lo + span * (i + 1) as f64 / RANGES as f64));
+                let mid = (i as f32 + 0.5) / RANGES as f32;
+                ranges.push_str(&format!(
+                    "<range lower=\"{}\" upper=\"{}\" label=\"{} - {}\" symbol=\"{i}\" render=\"true\"/>",
+                    num(a),
+                    num(b),
+                    esc(&crate::animation::short(a)),
+                    esc(&crate::animation::short(b))
+                ));
+                let colour = crate::palette::sequential(mid);
+                symbols.push_str(&symbol(&i.to_string(), geometry, VectorLook { colour, ..base }));
+            }
+            format!(
+                "{}<ranges>{ranges}</ranges><symbols>{symbols}</symbols></renderer-v2>",
+                head("graduatedSymbol", " graduatedMethod=\"GraduatedColor\"")
+            )
+        }
+    }
+}
+
+/// Files in a zip archive (deflated), as QGIS's `.qgz` holds its project.
+fn zip(files: &[(&str, &[u8])]) -> Vec<u8> {
+    let (mut out, mut central) = (Vec::new(), Vec::new());
+    for (name, data) in files {
+        let crc = crate::figure::crc32(data);
+        let packed = miniz_oxide::deflate::compress_to_vec(data, 6);
+        let offset = out.len() as u32;
+        // the version needed (2.0), no flags, deflated, at 1980-01-01 00:00
+        let common = |v: &mut Vec<u8>| {
+            v.extend(20u16.to_le_bytes());
+            v.extend(0u16.to_le_bytes());
+            v.extend(8u16.to_le_bytes());
+            v.extend(0u16.to_le_bytes());
+            v.extend(0x21u16.to_le_bytes());
+            v.extend(crc.to_le_bytes());
+            v.extend((packed.len() as u32).to_le_bytes());
+            v.extend((data.len() as u32).to_le_bytes());
+            v.extend((name.len() as u16).to_le_bytes());
+            v.extend(0u16.to_le_bytes());
+        };
+        out.extend(0x0403_4b50u32.to_le_bytes());
+        common(&mut out);
+        out.extend(name.as_bytes());
+        out.extend(&packed);
+        central.extend(0x0201_4b50u32.to_le_bytes());
+        central.extend(20u16.to_le_bytes());
+        common(&mut central);
+        // no comment, disk 0, no attributes (2 + 2 + 2 + 4 bytes), then the local header's place
+        central.extend([0u8; 10]);
+        central.extend(offset.to_le_bytes());
+        central.extend(name.as_bytes());
+    }
+    let (at, size) = (out.len() as u32, central.len() as u32);
+    out.extend(central);
+    out.extend(0x0605_4b50u32.to_le_bytes());
+    out.extend([0u8; 4]);
+    out.extend((files.len() as u16).to_le_bytes());
+    out.extend((files.len() as u16).to_le_bytes());
+    out.extend(size.to_le_bytes());
+    out.extend(at.to_le_bytes());
+    out.extend(0u16.to_le_bytes());
+    out
 }
 
 /// The colours of the vector layers, one after the other (Okabe and Ito's).
@@ -306,8 +456,9 @@ fn file_stem(name: &str) -> String {
     if s.is_empty() { "layer".into() } else { s }
 }
 
-/// The layers written into `dir` and the project `title.qgs` there that opens them; the project's file.
-pub fn export(picks: &[Pick], dir: &Path, title: &str) -> Result<PathBuf, String> {
+/// The layers written into `dir` and the project there that opens them (`title.qgz`, zipped as QGIS writes its
+/// own, or `title.qgs` when `plain`); the project's file.
+pub fn export(picks: &[Pick], dir: &Path, title: &str, plain: bool) -> Result<PathBuf, String> {
     if picks.is_empty() {
         return Err("no map chosen".into());
     }
@@ -326,12 +477,15 @@ pub fn export(picks: &[Pick], dir: &Path, title: &str) -> Result<PathBuf, String
             let file = terraflux_exec::write_value(&p.value, &dir.join(format!("{stem}.gpkg")), None)
                 .map_err(|e| format!("{}: {e}", p.name))?;
             let geometry = geometry_of(v);
-            let colour = VECTOR_COLOURS[vectors.len() % VECTOR_COLOURS.len()];
+            let renderer = match &p.style {
+                Some(style) => styled_renderer(geometry, v, style),
+                None => vector_renderer(geometry, VECTOR_COLOURS[vectors.len() % VECTOR_COLOURS.len()]),
+            };
             vectors.push(Written {
                 name: p.name.clone(),
                 source: format!("./{}|layername={stem}", file.file_name().unwrap().to_string_lossy()),
                 crs: v.crs.clone(),
-                kind: Kind::Vector { geometry, renderer: vector_renderer(geometry, colour) },
+                kind: Kind::Vector { geometry, renderer },
             });
             continue;
         }
@@ -365,8 +519,16 @@ pub fn export(picks: &[Pick], dir: &Path, title: &str) -> Result<PathBuf, String
         rasters.push(Written { name: p.name.clone(), source, crs, kind: Kind::Raster { renderer } });
     }
     vectors.extend(rasters);
-    let path = dir.join(format!("{}.qgs", file_stem(title)));
-    std::fs::write(&path, project(title, &vectors)).map_err(|e| e.to_string())?;
+    let stem = file_stem(title);
+    let xml = project(title, &vectors);
+    if plain {
+        let path = dir.join(format!("{stem}.qgs"));
+        std::fs::write(&path, xml).map_err(|e| e.to_string())?;
+        return Ok(path);
+    }
+    let path = dir.join(format!("{stem}.qgz"));
+    let name = format!("{stem}.qgs");
+    std::fs::write(&path, zip(&[(&name, xml.as_bytes())])).map_err(|e| e.to_string())?;
     Ok(path)
 }
 
@@ -375,11 +537,13 @@ pub fn export(picks: &[Pick], dir: &Path, title: &str) -> Result<PathBuf, String
 #[derive(Default)]
 pub struct Export {
     pub open: bool,
-    /// The outputs chosen (node, port); none until the window first opens (then the model's outputs and the one
-    /// shown).
+    /// The outputs chosen (node, port); none until the window first opens (then the model's outputs, the one
+    /// shown and the vector layers drawn over it).
     pub chosen: Option<BTreeSet<(String, String)>>,
     job: Option<(PathBuf, Receiver<Result<PathBuf, String>>)>,
     pub done: Option<Result<PathBuf, String>>,
+    /// The project as text (`.qgs`), not zipped as QGIS keeps its own (`.qgz`).
+    pub plain: bool,
 }
 
 /// The maps and vector layers of the run, in the model's order: (node, port, their name).
@@ -420,7 +584,16 @@ pub fn pick(s: &Session, node: &str, port: &str) -> Option<Pick> {
         }
     };
     let legend = band_source(&value, band).and_then(|src| crate::legend_view::legend_of(s, node, port, &src));
-    Some(Pick { name: name_of(s, node, port), palette: crate::builder::palette_of(s, node, port), legend, band, value })
+    // a vector layer as the Viewer draws it over the map
+    let style = s.preview_overlays.iter().find(|(n, p, _)| n == node && p == port).map(|(_, _, st)| st.clone());
+    Some(Pick {
+        name: name_of(s, node, port),
+        palette: crate::builder::palette_of(s, node, port),
+        legend,
+        band,
+        value,
+        style,
+    })
 }
 
 /// The window.
@@ -439,6 +612,12 @@ pub fn window(ctx: &egui::Context, s: &mut Session) {
             && all.iter().any(|(n, q, _)| (n, q) == (&p.0, &p.1))
         {
             c.insert(p.clone());
+        }
+        // and the vector layers drawn over it
+        for (n, p, _) in &s.preview_overlays {
+            if all.iter().any(|(m, q, _)| (m, q) == (n, p)) {
+                c.insert((n.clone(), p.clone()));
+            }
         }
         s.qgis.chosen = Some(c);
     }
@@ -494,6 +673,12 @@ pub fn window(ctx: &egui::Context, s: &mut Session) {
                 }
             });
             ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                ui.label("Project");
+                ui.radio_value(&mut s.qgis.plain, false, ".qgz").on_hover_text("zipped, as QGIS keeps its own");
+                ui.radio_value(&mut s.qgis.plain, true, ".qgs").on_hover_text("as text (XML)");
+            });
+            let chosen = s.qgis.chosen.as_mut().unwrap();
             let keys: Vec<(String, String)> = chosen.iter().cloned().collect();
             let busy = s.qgis.job.is_some();
             let n = keys.len();
@@ -516,8 +701,9 @@ pub fn window(ctx: &egui::Context, s: &mut Session) {
                     let (tx, rx) = channel();
                     let d = dir.clone();
                     let c = ui.ctx().clone();
+                    let plain = s.qgis.plain;
                     std::thread::spawn(move || {
-                        let _ = tx.send(export(&picks, &d, &title));
+                        let _ = tx.send(export(&picks, &d, &title, plain));
                         c.request_repaint();
                     });
                     s.qgis.job = Some((dir, rx));
@@ -534,7 +720,7 @@ pub fn window(ctx: &egui::Context, s: &mut Session) {
                         ui.label(RichText::new(format!("written: {}", p.display())).size(11.5));
                         if ui
                             .button("Open in QGIS")
-                            .on_hover_text("the project, in the program that opens .qgs files")
+                            .on_hover_text("the project, in the program that opens .qgz and .qgs files")
                             .clicked()
                         {
                             crate::batch_view::open_folder(p);
@@ -615,17 +801,26 @@ mod tests {
                 palette: Palette::Auto,
                 legend: None,
                 band: 0,
+                style: None,
             },
-            Pick { name: "land use".into(), value: Value::Map(ramp), palette: Palette::Auto, legend: None, band: 0 },
+            Pick {
+                name: "land use".into(),
+                value: Value::Map(ramp),
+                palette: Palette::Auto,
+                legend: None,
+                band: 0,
+                style: None,
+            },
             Pick {
                 name: "plots".into(),
                 value: Value::Vector(Arc::new(pts)),
                 palette: Palette::Auto,
                 legend: None,
                 band: 0,
+                style: None,
             },
         ];
-        let qgs = export(&picks, &dir, "A <model>").unwrap();
+        let qgs = export(&picks, &dir, "A <model>", true).unwrap();
         assert_eq!(qgs, dir.join("A__model.qgs"));
         for f in ["land_use.tif", "land_use.qml", "land_use_2.tif", "land_use_2.qml", "plots.gpkg"] {
             assert!(dir.join(f).exists(), "{f}");
@@ -646,7 +841,66 @@ mod tests {
         let qml = std::fs::read_to_string(dir.join("land_use.qml")).unwrap();
         assert!(qml.contains("<pipe><rasterrenderer type=\"paletted\""));
         // nothing chosen: said
-        assert!(export(&[], &dir, "x").is_err());
+        assert!(export(&[], &dir, "x", true).is_err());
+        // zipped (.qgz): the same project inside, as QGIS reads it
+        let qgz = export(&picks, &dir, "A <model>", false).unwrap();
+        assert_eq!(qgz, dir.join("A__model.qgz"));
+        let bytes = std::fs::read(&qgz).unwrap();
+        assert_eq!(&bytes[..4], b"PK\x03\x04");
+        let (packed, size, name) = (
+            u32::from_le_bytes(bytes[18..22].try_into().unwrap()) as usize,
+            u32::from_le_bytes(bytes[22..26].try_into().unwrap()) as usize,
+            u16::from_le_bytes(bytes[26..28].try_into().unwrap()) as usize,
+        );
+        assert_eq!(&bytes[30..30 + name], b"A__model.qgs");
+        let inner = miniz_oxide::inflate::decompress_to_vec(&bytes[30 + name..30 + name + packed]).unwrap();
+        assert_eq!(inner.len(), size);
+        assert_eq!(String::from_utf8(inner).unwrap(), x);
+        // the end of the central directory (the last 22 bytes): one entry, where the directory is and how long
+        let end = &bytes[bytes.len() - 22..];
+        assert_eq!(&end[..4], b"PK\x05\x06");
+        assert_eq!(u16::from_le_bytes(end[10..12].try_into().unwrap()), 1);
+        let (size_cd, at) = (
+            u32::from_le_bytes(end[12..16].try_into().unwrap()) as usize,
+            u32::from_le_bytes(end[16..20].try_into().unwrap()) as usize,
+        );
+        assert_eq!(at + size_cd, bytes.len() - 22);
+        // its entry: the file's name 46 bytes in, the local header at 0
+        let cd = &bytes[at..at + size_cd];
+        assert_eq!(&cd[..4], b"PK\x01\x02");
+        assert_eq!(u32::from_le_bytes(cd[42..46].try_into().unwrap()), 0);
+        assert_eq!(&cd[46..], b"A__model.qgs");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn vectors_in_the_viewers_colours() {
+        use terraflux_raster::vector::{Column, Vector};
+        let v = Vector {
+            geometries: vec![Geometry::Point([0.0, 0.0]), Geometry::Point([1.0, 1.0]), Geometry::Point([2.0, 2.0])],
+            attributes: vec![
+                ("use".into(), Column::Texts(vec!["forest".into(), "pasture".into(), "forest".into()])),
+                ("area".into(), Column::Numbers(vec![0.5, 12.25, 100.0])),
+            ],
+            crs: None,
+        };
+        let one = crate::vector_tiles::Style { colour: Color32::from_rgb(10, 20, 30), by: None, fill: 0.5, width: 2.0 };
+        let r = styled_renderer("Polygon", &v, &one);
+        assert!(r.contains("type=\"singleSymbol\"") && r.contains("value=\"10,20,30,128\""), "{r}");
+        assert!(r.contains("name=\"outline_width\" type=\"QString\" value=\"0.52\""), "{r}");
+        // by the classes of a text: a colour each, as the Viewer gives them
+        let by_use = crate::vector_tiles::Style { by: Some("use".into()), ..one.clone() };
+        let r = styled_renderer("Point", &v, &by_use);
+        let colours = crate::vector_tiles::colours(&v, &by_use);
+        assert!(r.contains("type=\"categorizedSymbol\" attr=\"use\""), "{r}");
+        assert_eq!(r.matches("<category ").count(), 2);
+        let rgb = |c: Color32| format!("{},{},{},255", c.r(), c.g(), c.b());
+        assert!(r.contains(&rgb(colours[0])) && r.contains(&rgb(colours[1])));
+        // by a range of numbers: ranges along the ramp
+        let by_area = crate::vector_tiles::Style { by: Some("area".into()), ..one };
+        let r = styled_renderer("Line", &v, &by_area);
+        assert!(r.contains("type=\"graduatedSymbol\" attr=\"area\""), "{r}");
+        assert_eq!(r.matches("<range ").count(), RANGES);
+        assert!(r.contains("lower=\"0.5\"") && r.contains("upper=\"100\""), "{r}");
     }
 }

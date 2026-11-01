@@ -1231,7 +1231,7 @@ fn with_dpi(png: &[u8], dpi: u32) -> Vec<u8> {
     out
 }
 
-fn crc32(bytes: &[u8]) -> u32 {
+pub(crate) fn crc32(bytes: &[u8]) -> u32 {
     let mut c = 0xffff_ffffu32;
     for &b in bytes {
         c ^= b as u32;
