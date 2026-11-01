@@ -243,8 +243,10 @@ from the cell back through the graph to the data, each with the node's value at 
 - for an operator that reads the cells around (a moving window), the window of values around the cell;
 - for an operator that works patch by patch ([[raster.label]], [[raster.sieve]], [[landscape.mspa]],
   [[metrics.patch]]...), the whole **patch** the cell is in: its class, how many cells it has, joined by 4 or 8
-  neighbours as the operator joins them, and the rows and columns it spans. Here the card of `mspa` names the patch
-  of `forest` (class 2) the cell belongs to: a core cell is part of a patch of forest wide enough to have a core;
+  neighbours as the operator joins them, and the rows and columns it spans; its card's name draws the patch's
+  border on the Viewer's map, around the cell (picking another cell lets it go). Here the card of `mspa` names the
+  patch of `forest` (class 2) the cell belongs to: a core cell is part of a patch of forest wide enough to have a
+  core;
 - for an operator that uses the whole map (a regression fitted, a Markov chain), what it does, in a sentence;
 - for the data read or drawn, nothing more: the chain ends there.
 
@@ -254,7 +256,11 @@ has a loop, **Trace inside the loops** runs it again keeping what the loop's nod
 A land change allocation ([[lulcc.step]] for CLUE-S and ordered allocation, [[dinamica.step]] for Dinamica EGO's
 Expander and Patcher) then tells the steps at which the cell changed class and, at each, the step's demand (the
 cells of each class, and how many more or fewer than at the step before) or the rate of its transition; a cell that
-never changed says so. Inside a group, the node selected shows its map in the Viewer too, named by its place in the
+never changed says so. A line **why** tells what made the cell the one chosen: for CLUE-S, its suitability for each
+class there, how the class it took ranks among the cells (*above 92% of the cells*) and the elasticity its own class
+held it with (the iteration variable CLUE adds to each class until the demand is met is not kept by the step, and
+the line says so); for Dinamica, its probability of that transition there and how it ranks, since the Expander
+and the Patcher draw the cells of each change among the most probable. Inside a group, the node selected shows its map in the Viewer too, named by its place in the
 group (`preparation/temperature`), and its cells are traced the same way.
 
 **Copy** copies the trace as text. **Ask the assistant why** gives it to the application's assistant, to explain

@@ -9,6 +9,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
+use serde_json::Value as Json;
 use terraflux_graph::{Access, GROUP, Model, Node, Ref, Source};
 use terraflux_ops::{Registry, Value};
 
@@ -24,6 +25,9 @@ const PATCHES: &[&str] =
     &["raster.label", "raster.sieve", "landscape.mspa", "landscape.mspa_tiled", "metrics.patch", "patches.observe"];
 /// The cells of a patch counted at most.
 const PATCH_MOST: usize = 4_000_000;
+
+/// The cells of a patch kept to draw it on the map, at most (a larger one is drawn as the rows and columns it spans).
+pub const PATCH_DRAWN: usize = 200_000;
 /// The operators that allocate a step's demand: their cell explained by the demand of its changes.
 const ALLOCATIONS: &[&str] = &["lulcc.step", "dinamica.step"];
 
@@ -107,6 +111,8 @@ pub enum How {
         neighbours: u8,
         rows: (usize, usize),
         cols: (usize, usize),
+        /// Its cells (row, column), to draw it on the map; none beyond [`PATCH_DRAWN`].
+        members: Vec<(usize, usize)>,
     },
     /// An allocation's step: what the operator does, and in sentences the cell's class before and after and the
     /// demand (or the rates) of the steps it changed at.
@@ -121,7 +127,7 @@ impl How {
     /// A patch in words ("from the patch of map it is in: class 2, 1204 cells joined by 8 neighbours, rows 40 to
     /// 80, columns 10 to 55"); empty for the others.
     pub fn patch_text(&self) -> String {
-        let How::Patch { port, class, cells, more, neighbours, rows, cols } = self else { return String::new() };
+        let How::Patch { port, class, cells, more, neighbours, rows, cols, .. } = self else { return String::new() };
         if class.is_nan() {
             return format!("on no patch of {port}: the cell has no value there");
         }
@@ -533,7 +539,7 @@ fn walk(
                 "from the whole map: {}",
                 sig.map(|s| crate::node_view::first_sentence(&s.doc).0).unwrap_or_default()
             ),
-            lines: allocation(m, path, n, values, value.as_ref(), &at_inputs),
+            lines: allocation(m, path, n, values, value.as_ref(), &at_inputs, (x, y)),
         }
     } else {
         match sig.map(|s| s.access) {
@@ -585,7 +591,7 @@ fn walk(
             let inputs: BTreeMap<String, At> = [("landscape".to_string(), At::Steps(before))].into();
             how = How::Allocation {
                 what: format!("a loop: its value at every step, {} ({}) allocating each step", x.id, x.op),
-                lines: allocation(m, &inner, x, values, Some(&At::Steps(after.clone())), &inputs),
+                lines: allocation(m, &inner, x, values, Some(&At::Steps(after.clone())), &inputs, (t.x, t.y)),
             };
             break;
         }
@@ -631,18 +637,24 @@ fn patch_of(m: &Model, r: &Registry, path: &[String], n: &Node, values: Values, 
     let class = map.data[r * w + c];
     let (mut rows, mut cols) = ((r, r), (c, c));
     if class.is_nan() {
-        return Some(How::Patch { port, class, cells: 0, more: false, neighbours, rows, cols });
+        return Some(How::Patch { port, class, cells: 0, more: false, neighbours, rows, cols, members: Vec::new() });
     }
     let mut seen = vec![false; w * h];
     let mut todo = vec![(r, c)];
     seen[r * w + c] = true;
     let mut cells = 0;
+    let mut members = Vec::new();
     while let Some((i, j)) = todo.pop() {
         cells += 1;
         rows = (rows.0.min(i), rows.1.max(i));
         cols = (cols.0.min(j), cols.1.max(j));
+        if cells <= PATCH_DRAWN {
+            members.push((i, j));
+        } else {
+            members = Vec::new();
+        }
         if cells >= PATCH_MOST {
-            return Some(How::Patch { port, class, cells, more: true, neighbours, rows, cols });
+            return Some(How::Patch { port, class, cells, more: true, neighbours, rows, cols, members });
         }
         for (di, dj) in
             [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)].iter().take(neighbours as usize)
@@ -658,7 +670,41 @@ fn patch_of(m: &Model, r: &Registry, path: &[String], n: &Node, values: Values, 
             }
         }
     }
-    Some(How::Patch { port, class, cells, more: false, neighbours, rows, cols })
+    Some(How::Patch { port, class, cells, more: false, neighbours, rows, cols, members })
+}
+
+/// What of a patch is drawn on the map: the sides of its cells that border a cell not in it, each from a corner to
+/// another (x a column, y a row, the cells' corners), or none when it has too many cells to keep (its rows and
+/// columns then, as a rectangle).
+pub fn patch_outline(how: &How) -> Option<crate::map_view::Outline> {
+    let How::Patch { members, rows, cols, cells, .. } = how else { return None };
+    if *cells == 0 {
+        return None;
+    }
+    let bounds = (cols.0 as f32, rows.0 as f32, cols.1 as f32 + 1.0, rows.1 as f32 + 1.0);
+    if members.is_empty() {
+        return Some(crate::map_view::Outline { edges: Vec::new(), bounds });
+    }
+    let set: HashSet<(usize, usize)> = members.iter().copied().collect();
+    let has = |r: i64, c: i64| r >= 0 && c >= 0 && set.contains(&(r as usize, c as usize));
+    let mut edges = Vec::new();
+    for &(r, c) in members {
+        let (x, y) = (c as f32, r as f32);
+        let (ri, ci) = (r as i64, c as i64);
+        if !has(ri - 1, ci) {
+            edges.push([(x, y), (x + 1.0, y)]);
+        }
+        if !has(ri + 1, ci) {
+            edges.push([(x, y + 1.0), (x + 1.0, y + 1.0)]);
+        }
+        if !has(ri, ci - 1) {
+            edges.push([(x, y), (x, y + 1.0)]);
+        }
+        if !has(ri, ci + 1) {
+            edges.push([(x + 1.0, y), (x + 1.0, y + 1.0)]);
+        }
+    }
+    Some(crate::map_view::Outline { edges, bounds })
 }
 
 /// An allocation's step at the cell in sentences: its class before and after, and at each step it changed, the
@@ -671,6 +717,7 @@ fn allocation(
     values: Values,
     value: Option<&At>,
     inputs: &BTreeMap<String, At>,
+    place: (f64, f64),
 ) -> Vec<String> {
     let mut lines = Vec::new();
     // the steps it changed at: (step, from, to)
@@ -749,7 +796,114 @@ fn allocation(
     if changes.len() > 5 {
         lines.push(format!("and {} more changes", changes.len() - 5));
     }
+    // why the cell: once per change (from, to) it made
+    let mut told: Vec<(f64, f64)> = Vec::new();
+    for (_, from, to) in changes.iter().take(5) {
+        if told.iter().any(|(a, b)| same(*a, *from) && same(*b, *to)) {
+            continue;
+        }
+        told.push((*from, *to));
+        let why = match n.op.as_str() {
+            "lulcc.step" => read("suitability").and_then(|s| clue_why(n, &s, demand.as_ref(), place, *from, *to)),
+            "dinamica.step" => read("probability").and_then(|p| patcher_why(&p, place, *from, *to)),
+            _ => None,
+        };
+        lines.extend(why);
+    }
     lines
+}
+
+/// The share of a layer's cells with a value below `v` (of those with a value), in percent.
+fn below(layer: &[f64], v: f64) -> f64 {
+    let (n, under) =
+        layer.iter().filter(|x| x.is_finite()).fold((0usize, 0usize), |(n, u), x| (n + 1, u + usize::from(*x < v)));
+    100.0 * under as f64 / n.max(1) as f64
+}
+
+/// Why CLUE's step gave the cell the class `to`: its suitability for each class there (the layers by class, else in
+/// the demand's order), how it ranks among the cells for `to`, the elasticity its class `from` held it with; the
+/// iteration variable CLUE adds to each class until the demand is met is not kept.
+fn clue_why(
+    n: &Node,
+    suitability: &Value,
+    demand: Option<&Value>,
+    (x, y): (f64, f64),
+    from: f64,
+    to: f64,
+) -> Option<String> {
+    let Value::Stack(s) = suitability else { return None };
+    let (r, c) = cell_of(&s.grid, x, y)?;
+    let k = r * s.grid.width + c;
+    let order: Vec<f64> = match demand {
+        Some(Value::Demand(d)) => d.classes.clone(),
+        _ => Vec::new(),
+    };
+    // each layer's class
+    let classes: Vec<Option<f64>> = s
+        .keys
+        .iter()
+        .enumerate()
+        .map(|(i, key)| match key {
+            terraflux_ops::Key::Class(c) => Some(*c),
+            _ => order.get(i).copied(),
+        })
+        .collect();
+    let here: Vec<(Option<f64>, String, f64)> = s
+        .keys
+        .iter()
+        .zip(&s.layers)
+        .zip(&classes)
+        .map(|((key, l), class)| (*class, class.map_or_else(|| key.to_string(), cell), l[k]))
+        .collect();
+    let mine = here.iter().position(|(c, _, _)| *c == Some(to))?;
+    let v = here[mine].2;
+    let highest = here.iter().all(|(_, _, w)| w.is_nan() || *w <= v);
+    let list: Vec<String> = here.iter().map(|(_, name, w)| format!("{name} {}", cell(*w))).collect();
+    let mut line = format!(
+        "why {} → {}: its suitability here, by class: {}; for class {}: {} ({}), above {:.0}% of the cells",
+        cell(from),
+        cell(to),
+        list.join(", "),
+        cell(to),
+        cell(v),
+        if highest { "its highest" } else { "not its highest" },
+        below(&s.layers[mine], v)
+    );
+    // the elasticity of the class it had: added to its suitability for that class, so it keeps it
+    let at = classes.iter().position(|c| *c == Some(from));
+    let elasticity = n.params.get("elasticity").and_then(|e| match e {
+        Json::Number(x) => x.as_f64(),
+        Json::Array(a) => at.and_then(|i| a.get(i)).and_then(Json::as_f64),
+        Json::Object(o) => {
+            o.iter().find(|(k, _)| k.trim().parse::<f64>().ok() == Some(from)).and_then(|(_, v)| v.as_f64())
+        }
+        _ => None,
+    });
+    if let Some(e) = elasticity.filter(|e| *e > 0.0) {
+        line.push_str(&format!("; its class {} held it with an elasticity of {}", cell(from), cell(e)));
+    }
+    line.push_str(
+        "; CLUE adds to each class a value of its own until the demand is met (the iteration variable, not kept by \
+         the step), and the cell takes the class of the highest sum",
+    );
+    Some(line)
+}
+
+/// Why Dinamica's step changed the cell from `from` to `to`: its probability of that transition there and how it
+/// ranks among the cells; the Expander and the Patcher draw the cells of each change among the most probable.
+fn patcher_why(probability: &Value, (x, y): (f64, f64), from: f64, to: f64) -> Option<String> {
+    let Value::Stack(s) = probability else { return None };
+    let (r, c) = cell_of(&s.grid, x, y)?;
+    let i = s.keys.iter().position(|k| *k == terraflux_ops::Key::Transition(from, to))?;
+    let v = s.layers[i][r * s.grid.width + c];
+    Some(format!(
+        "why {} → {}: its probability of that change here {}, above {:.0}% of the cells; the Expander and the \
+         Patcher draw the cells of each change among the most probable ones (prune_factor times the cells it needs)",
+        cell(from),
+        cell(to),
+        cell(v),
+        below(&s.layers[i], v)
+    ))
 }
 
 /// What keeps the values of the loops' bodies at a place, step by step, while the model runs.
@@ -989,10 +1143,15 @@ mod tests {
         let res = terraflux_exec::Engine::default().run(&m, &inputs, &mut terraflux_exec::Quiet).unwrap();
         let values = |n: &str, p: &str| res.values.get(n)?.get(p).cloned();
         let t = trace(&m, &r, &values, &Kept::new(), "patches", "map", &grid, (0, 0));
-        let How::Patch { port, class, cells, more, neighbours, rows, cols } = t.steps[0].how.clone() else {
+        let How::Patch { port, class, cells, more, neighbours, rows, cols, members } = t.steps[0].how.clone() else {
             panic!("{:?}", t.steps[0].how)
         };
         assert_eq!((port.as_str(), class, cells, more), ("map", 1.0, 4, false));
+        assert_eq!(members.len(), 4);
+        // drawn: the sides of its cells on its border (an L of 4 cells: 10 sides), within its rows and columns
+        let o = patch_outline(&t.steps[0].how).unwrap();
+        assert_eq!(o.edges.len(), 10);
+        assert_eq!(o.bounds, (0.0, 0.0, 2.0, 3.0));
         assert_eq!((neighbours, rows, cols), (4, (0, 2), (0, 1)), "raster.label joins by 4 neighbours by default");
         assert!(t.sentence().contains("from the patch of map it is in: class 1, 4 cells"), "{}", t.sentence());
         // by 8 neighbours the cell alone joins the L
@@ -1021,6 +1180,10 @@ mod tests {
         let How::Allocation { what, lines } = &t.steps[0].how else { panic!("{:?}", t.steps[0].how) };
         assert!(what.contains("allocate (lulcc.step)"), "{what}");
         assert!(lines.iter().any(|l| l.starts_with("step ") && l.contains("the step's demand")), "{lines:?}");
+        // why the cell: its suitability for each class there, the class it took ranked among the cells
+        let why = lines.iter().find(|l| l.starts_with("why ")).unwrap_or_else(|| panic!("{lines:?}"));
+        assert!(why.contains("its suitability here, by class") && why.contains("% of the cells"), "{why}");
+        assert!(why.contains("iteration variable"), "{why}");
         assert!(t.text().contains("the step's demand, in cells of each class"));
     }
 }

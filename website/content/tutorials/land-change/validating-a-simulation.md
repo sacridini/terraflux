@@ -237,7 +237,9 @@ after: { src: /img/tutorials/land-change/validating-a-simulation/change_simulate
     which the cell changed class, each with the rate of its transition (Dinamica's Markov chain: the share of the
     cells of the origin class that change each step) or, in a CLUE-S model, the step's demand (the cells of each
     class, and how many more or fewer than at the step before); a missed cell says that its class stayed the same at
-    every step. Traced on a few hits, misses, wrong hits and false alarms, this tells when the model changed each
+    every step. For a cell that changed, a line **why** gives its probability of that transition (Dinamica) or its
+    suitability for each class (CLUE-S), ranked among the cells: a false alarm with a high probability is the
+    model's map of probabilities at fault, one with a low probability the draw. Traced on a few hits, misses, wrong hits and false alarms, this tells when the model changed each
     cell and to what, beside what was observed, and how much change that step had to place. See the
     [tour](/tutorials/getting-started/tour/#why-a-cell-has-its-value-trace) for the Trace pane.
 

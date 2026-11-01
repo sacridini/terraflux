@@ -635,6 +635,12 @@ item):
    os totais); as saídas comparadas marcadas numa lista (`State::outputs`), cada cenário rodado uma vez até todas (o
    cache dele entre elas), um bloco por saída (`Comparison`), também pelo Many runs (`compare`: as saídas).
 6. **Trace:** a mancha desenhada no mapa e a razão da escolha da célula.
+   **Feito** (Unreleased): `How::Patch` guarda as células da mancha (até `PATCH_DRAWN`), `trace::patch_outline` os
+   lados da borda, e o nome do cartão desenha a mancha no mapa do viewer (`MapView::patch`; o retângulo das linhas e
+   colunas quando é grande demais; outra célula escolhida a solta). A razão da escolha numa alocação, uma linha
+   "why" por mudança: no `lulcc.step` a aptidão da célula para cada classe, a posição da classe que ela tomou entre
+   as células e a elasticidade da classe que ela tinha; no `dinamica.step` a probabilidade da transição na célula e
+   a sua posição. Falta: a variável de iteração do CLUE, que o C++ do landschaft não devolve (`CluesOut`).
 7. **Depuração:** um breakpoint de verdade num nó escolhido (hoje o laço só para entre passos) e o Stop dentro das
    chamadas do C++.
 8. **Calculadora:** os tipos das portas de `out` no checker do grafo.

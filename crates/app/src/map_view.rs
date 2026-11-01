@@ -340,6 +340,17 @@ struct Tile {
     _source: Source,
 }
 
+/// A patch's outline on the map: the sides of its cells on its border, from a corner to another (x a column, y a
+/// row), and the rectangle of the rows and columns it spans (drawn instead when it has too many sides).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Outline {
+    pub edges: Vec<[(f32, f32); 2]>,
+    pub bounds: (f32, f32, f32, f32),
+}
+
+/// The sides of an outline drawn one by one, at most (more: its rectangle).
+const OUTLINE_SIDES: usize = 60_000;
+
 #[derive(Default)]
 pub struct MapView {
     tiles: HashMap<TileKey, Tile>,
@@ -365,6 +376,9 @@ pub struct MapView {
     world: Option<(u64, Option<f64>)>,
     /// The cell clicked (row, column): its values along a stack's layers are shown beside the map.
     pub picked: Option<(usize, usize)>,
+    /// The patch of the cell traced drawn around it (a trace's card of a patch's operator selected); let go when
+    /// another cell is picked.
+    pub patch: Option<Outline>,
     /// The trace of the cell picked asked for from its menu (a right click), and who explains it.
     pub trace_request: Option<crate::trace_view::Explain>,
     /// Where the view was drawn last.
@@ -962,6 +976,28 @@ impl MapView {
                 }
             }
         }
+        // the patch of the cell traced, its border drawn (white under the accent, seen on any colour)
+        if let Some(o) = self.patch.as_ref().filter(|_| !blank) {
+            let at = |(x, y): (f32, f32)| rect.center() + (Vec2::new(x, y) - self.center) * self.zoom;
+            let clip = painter.clip_rect();
+            let strokes = [egui::Stroke::new(3.0, Color32::WHITE), egui::Stroke::new(1.5, crate::theme::accent())];
+            if o.edges.is_empty() || o.edges.len() > OUTLINE_SIDES {
+                let (x0, y0, x1, y1) = o.bounds;
+                let r = Rect::from_two_pos(at((x0, y0)), at((x1, y1)));
+                for s in strokes {
+                    painter.rect_stroke(r, 0.0, s, egui::StrokeKind::Middle);
+                }
+            } else {
+                for s in strokes {
+                    for [a, b] in &o.edges {
+                        let (p, q) = (at(*a), at(*b));
+                        if clip.intersects(Rect::from_two_pos(p, q).expand(1.0)) {
+                            painter.line_segment([p, q], s);
+                        }
+                    }
+                }
+            }
+        }
         // the cell clicked, outlined in the accent (its values along the layers beside the map)
         if let Some((row, col)) = self.picked.filter(|&(r, c)| r < h && c < w && !blank) {
             let cell = Vec2::new(col as f32, row as f32);
@@ -1034,7 +1070,11 @@ impl MapView {
             response.clone().on_hover_text_at_pointer(text);
         }
         if (response.clicked() || response.secondary_clicked()) && !blank && self.drawing.is_none() {
-            self.picked = inside.then_some((c.y as usize, c.x as usize));
+            let picked = inside.then_some((c.y as usize, c.x as usize));
+            if picked != self.picked {
+                self.patch = None;
+            }
+            self.picked = picked;
         }
         // close enough to see the cells: the one under the pointer outlined
         if inside && !blank && self.zoom >= 6.0 {

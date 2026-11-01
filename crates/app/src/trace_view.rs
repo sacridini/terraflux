@@ -138,7 +138,7 @@ pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) -> Optio
             Explain::Here => {}
         }
     }
-    let mut select: Option<(Vec<String>, String, String)> = None;
+    let mut select: Option<(Vec<String>, String, String, usize)> = None;
     egui::ScrollArea::vertical().id_salt("trace pane").auto_shrink([false, false]).show(ui, |ui| {
         egui::Frame::new().inner_margin(Margin::same(8)).show(ui, |ui| {
             theme::section(ui, "Trace of a cell");
@@ -214,7 +214,7 @@ pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) -> Optio
                                 .on_hover_text("select it: its map in the viewer, this cell outlined")
                                 .clicked()
                             {
-                                select = Some((step.path.clone(), step.node.clone(), step.port.clone()));
+                                select = Some((step.path.clone(), step.node.clone(), step.port.clone(), k));
                             }
                             ui.label(weak(&step.op).monospace().small());
                             if !step.path.is_empty() {
@@ -264,10 +264,11 @@ pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) -> Optio
             }
         });
     });
-    if let Some((path, id, port)) = select {
+    if let Some((path, id, port, k)) = select {
         s.editor.path = path.clone();
         crate::builder::select(s, r, &id);
-        // its map in the viewer (a top-level node's, a group's body's), the cell traced outlined
+        // its map in the viewer (a top-level node's, a group's body's), the cell traced outlined (and the patch
+        // it is in, a patch's operator's)
         if let Some((node, port)) = crate::builder::shown_at(s, &path, &id, &port)
             && let Some(t) = &st.trace
         {
@@ -277,6 +278,7 @@ pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) -> Optio
                 .and_then(|g| crate::trace::cell_of(&g, t.x, t.y));
             s.preview = Some((node, port));
             s.preview_view.picked = cell;
+            s.preview_view.patch = t.steps.get(k).and_then(|step| crate::trace::patch_outline(&step.how));
             asked = asked.or(Some(Asked::Viewer));
         }
         s.editor.reveal(&id);

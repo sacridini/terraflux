@@ -60,6 +60,10 @@ minor versions.
   Many runs.
 - The **whole transition matrix** of two scenarios' maps of classes, under the most common changes: a row per class
   of the first scenario's map, a column per class of the other's, the cells of each pair, with the totals.
+- **Trace**: the card of a patch's operator draws the patch the cell is in on the Viewer's map (its border, around
+  the cell; picking another cell lets it go). An allocation's card says **why** the cell changed: for `lulcc.step`
+  its suitability for each class there, how the class it took ranks among the cells and the elasticity of the class
+  it had; for `dinamica.step` its probability of that transition there and how it ranks.
 
 ### Fixed
 - `prioritize.actions_raster` with a feature whose layer has no amounts (all 0) says that it dropped it ("The

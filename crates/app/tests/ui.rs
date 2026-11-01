@@ -850,21 +850,23 @@ fn a_node_of_a_group_is_frozen_and_bodies_are_shown() {
         ..Default::default()
     }));
     m.nodes.push(Node::new("which", "value.calc").param("text", "a"));
-    m.nodes.push(Node::new("sw", terraflux_graph::SWITCH).input("case", "which.text").input("map", "land.map").body(Body {
-        nodes: vec![
-            Node::new("a", terraflux_graph::GROUP).input("x", "@map").body(Body {
-                nodes: vec![Node::new("inv", "raster.calc").param("expression", "1 - x").input("x", "@x")],
-                outputs: [("map".to_string(), "inv.map".to_string())].into(),
-                ..Default::default()
-            }),
-            Node::new("otherwise", terraflux_graph::GROUP).input("x", "@map").body(Body {
-                nodes: vec![Node::new("same", "raster.calc").param("expression", "x").input("x", "@x")],
-                outputs: [("map".to_string(), "same.map".to_string())].into(),
-                ..Default::default()
-            }),
-        ],
-        ..Default::default()
-    }));
+    m.nodes.push(Node::new("sw", terraflux_graph::SWITCH).input("case", "which.text").input("map", "land.map").body(
+        Body {
+            nodes: vec![
+                Node::new("a", terraflux_graph::GROUP).input("x", "@map").body(Body {
+                    nodes: vec![Node::new("inv", "raster.calc").param("expression", "1 - x").input("x", "@x")],
+                    outputs: [("map".to_string(), "inv.map".to_string())].into(),
+                    ..Default::default()
+                }),
+                Node::new("otherwise", terraflux_graph::GROUP).input("x", "@map").body(Body {
+                    nodes: vec![Node::new("same", "raster.calc").param("expression", "x").input("x", "@x")],
+                    outputs: [("map".to_string(), "same.map".to_string())].into(),
+                    ..Default::default()
+                }),
+            ],
+            ..Default::default()
+        },
+    ));
     let path = tmp("frozen_group.toml");
     let folder = terraflux_exec::frozen::folder(&path);
     let _ = std::fs::remove_dir_all(&folder);
@@ -941,6 +943,70 @@ fn a_node_of_a_group_is_frozen_and_bodies_are_shown() {
     let s = h.state().session.as_ref().unwrap();
     assert_ne!(map(s.value_of("g", "twice.map")), given);
     assert!(!folder.exists());
+}
+
+/// A cell of a patch's operator traced: its card selected, the patch it is in drawn on the viewer's map; another
+/// cell picked lets it go.
+#[test]
+fn the_patch_of_a_traced_cell_is_drawn() {
+    use terraflux_graph::{Model, Node};
+    let mut m = Model::new("patches");
+    m.nodes.push(
+        Node::new("land", "nlm.random_cluster").param("rows", 40).param("columns", 40).param("seed", 2).param("p", 0.5),
+    );
+    m.nodes.push(Node::new("habitat", "raster.calc").param("expression", "land >= 2").input("land", "land.map"));
+    m.nodes.push(Node::new("patches", "raster.label").input("map", "habitat.map"));
+    let path = tmp("patches.toml");
+    m.save(&path).unwrap();
+    let mut h = harness(new_app(Some(path)));
+    loaded(&mut h);
+    h.state_mut().session.as_mut().unwrap().start(Box::new(|| {}));
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("patches", "map").is_some()
+    });
+    // a cell of a patch (labelled), traced from its map's tab
+    let cell = {
+        let s = h.state().session.as_ref().unwrap();
+        let Some(terraflux_ops::Value::Map(p)) = s.value_of("patches", "map") else { panic!() };
+        let i = p.data.iter().position(|v| v.is_finite() && *v > 0.0).expect("a patch");
+        (i / p.grid.width, i % p.grid.width)
+    };
+    let id = h.state_mut().session.as_mut().unwrap().open_map("patches", "map");
+    h.run_steps(3);
+    h.state_mut().focus(Pane::Map(id));
+    h.state_mut().session.as_mut().unwrap().map_tabs.get_mut(&id).unwrap().view.picked = Some(cell);
+    h.run_steps(3);
+    h.get_by_label("Trace this cell").click();
+    h.run_steps(4);
+    let t = h.state().trace.trace.clone().expect("traced");
+    assert!(matches!(t.steps[0].how, terraflux_app::trace::How::Patch { .. }), "{:?}", t.steps[0].how);
+    // (its name is also an input's link, which only brings the card into view)
+    let links = h.get_all_by_label("patches.map").count();
+    for k in 0..links {
+        h.state_mut().focus(Pane::Trace);
+        h.run_steps(2);
+        if let Some(n) = h.get_all_by_label("patches.map").nth(k) {
+            n.click_accesskit();
+        }
+        h.run_steps(3);
+        if h.state().session.as_ref().unwrap().preview.as_ref().is_some_and(|(n, _)| n == "patches") {
+            break;
+        }
+    }
+    h.run_steps(2);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        assert_eq!(s.preview, Some(("patches".to_string(), "map".to_string())));
+        let o = s.preview_view.patch.as_ref().expect("the patch drawn");
+        assert!(!o.edges.is_empty());
+        let (x0, y0, x1, y1) = o.bounds;
+        let (r, c) = (cell.0 as f32, cell.1 as f32);
+        assert!(x0 <= c && c < x1 && y0 <= r && r < y1, "the cell in its patch's rows and columns");
+    }
+    h.state_mut().focus(Pane::Viewer);
+    h.run_steps(4);
+    shot(&mut h, "53-trace-patch");
 }
 
 /// Step by step: the run pauses after a step of a loop, the status bar says where with Next and Continue.
@@ -1301,6 +1367,7 @@ fn a_cell_is_traced_from_its_map() {
         let s = a.session.as_ref().unwrap();
         assert_eq!(s.preview, Some(("land_2010".to_string(), "map".to_string())));
         assert_eq!(s.preview_view.picked, Some((40, 60)));
+        assert!(s.preview_view.patch.is_none(), "no patch: not a patch's operator");
         assert!(a.is_open(Pane::Viewer));
     }
     shot(&mut h, "52-trace-card");
