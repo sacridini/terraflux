@@ -3039,10 +3039,49 @@ fn a_study_area_drawn_on_the_map() {
     // a click on the first vertex closes it
     click(&mut h, c + egui::vec2(-60.0, -40.0));
     assert_eq!(h.state().session.as_ref().unwrap().preview_view.drawing.as_ref().unwrap().features.len(), 1);
-    // (scrolled to, at the bottom of the panel beside the map)
-    h.get_by_label("Add to the model").scroll_to_me();
+    let ring = |h: &Harness<TerrafluxApp>| {
+        h.state().session.as_ref().unwrap().preview_view.drawing.as_ref().unwrap().features[0].clone()
+    };
+    let before = ring(&h);
+    let camera = h.state().session.as_ref().unwrap().preview_view.camera();
+    // its second vertex dragged (the map not moved)
+    let (from, to) = (c + egui::vec2(70.0, -30.0), c + egui::vec2(100.0, 0.0));
+    h.event(egui::Event::PointerMoved(from));
+    h.run_steps(1);
+    let button = |pressed, pos| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    h.event(button(true, from));
+    h.run_steps(1);
+    for k in 1..=10 {
+        h.event(egui::Event::PointerMoved(from + (to - from) * (k as f32 / 10.0)));
+        h.run_steps(1);
+    }
+    h.event(button(false, to));
+    h.run_steps(30);
+    let after = ring(&h);
+    assert_eq!((after.len(), after[0], after[2]), (before.len(), before[0], before[2]), "only it moved");
+    assert!((after[1][0] - before[1][0]).abs() > 1.0, "{before:?} -> {after:?}");
+    assert_eq!(h.state().session.as_ref().unwrap().preview_view.camera(), camera, "the map not moved");
+    // an attribute typed
+    h.get_by_label("+ an attribute").scroll_to_me();
+    h.run_steps(2);
+    h.get_by_label("+ an attribute").click_accesskit();
+    h.run_steps(2);
+    {
+        let d = h.state_mut().session.as_mut().unwrap().preview_view.drawing.as_mut().unwrap();
+        assert_eq!(d.columns, ["name"]);
+        d.values[0][0] = "Pie".into();
+    }
+    h.run_steps(2);
+    shot(&mut h, "14g2-drawing-edited");
+    // added, and the catalog opened to fetch data cut to it
+    h.get_by_label("Add, and data for it...").scroll_to_me();
     h.run_steps(3);
-    h.get_by_label("Add to the model").click();
+    h.get_by_label("Add, and data for it...").click();
     h.run_steps(3);
     let s = h.state().session.as_ref().unwrap();
     assert!(s.preview_view.drawing.is_none(), "{:?}", s.notice);
@@ -3050,7 +3089,20 @@ fn a_study_area_drawn_on_the_map() {
     assert!(file.exists(), "{:?}", s.notice);
     let v = terraflux_gdal::read_vector(&file, None).unwrap();
     assert_eq!(v.len(), 1);
-    assert!(s.source.nodes.iter().any(|n| n.op == "vector.read"), "the node that reads it");
+    assert_eq!(v.column("name"), Some(&terraflux_raster::vector::Column::Texts(vec!["Pie".into()])));
+    let read = s.source.nodes.iter().find(|n| n.op == "vector.read").expect("the node that reads it");
+    assert!(s.catalog.open && s.catalog.choices.on_area);
+    assert_eq!(s.catalog.choices.area, Some(format!("{}.vector", read.id)));
+    h.run_steps(3);
+    shot(&mut h, "14g3-catalog-area");
+    // the download added: the area connected, its grid the area's (no run: it would go to the servers)
+    h.state_mut().session.as_mut().unwrap().auto = false;
+    h.get_by_label("Add to the model").click_accesskit();
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    let n = s.source.nodes.iter().find(|n| n.op == "data.download").expect("the download");
+    assert!(n.params.contains_key("cellsize") && !n.params.contains_key("extent"), "{:?}", n.params);
+    assert!(format!("{:?}", n.inputs).contains("vector_read.vector"), "the area connected: {:?}", n.inputs);
 }
 
 /// The data catalog: a dataset chosen by its card (CHELSA), its variables ticked, added to the model as a

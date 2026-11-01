@@ -31,6 +31,15 @@ minor versions.
   in frames a second, the same for playing (here and in the Simulation pane) and for the animations saved.
 - **Save as MP4...** beside Save as GIF...: the same frames as an H.264 video, made by ffmpeg when it is installed
   (on the PATH, or named by `TERRAFLUX_FFMPEG`), with 4 threads at most.
+- `data.download` takes an **area**: polygons (an area drawn, a region) to cut the data to, no data outside them
+  (gdalwarp's cutline; the data's own no-data value, else NaN for values and 0 for classes). Without `like` and
+  `extent` the grid spans the area, in longitudes and latitudes widened to whole cells (`cellsize`, by default
+  the area's longer side in 500 cells). The data catalog offers it (**Cut to the area**, and the grid **the
+  area's bounds**), and **Add, and data for it...** under Draw on the map adds the polygons drawn and opens the
+  catalog so.
+- The features drawn on the map are **edited** before they are added: a vertex dragged, a new one dragged from
+  the middle of an edge, one taken away by a right click (a rectangle stays one). And their **attributes typed**:
+  columns named as wished, a value per feature, written as numbers when all are, else as texts.
 
 ## [1.28.0] - 2026-10-31
 

@@ -150,9 +150,15 @@ params = { title = "Everything" }
     **Draw on the map**, under those, draws features on the map shown: **polygons** (a click a vertex; Enter, a
     double click or a click on the first vertex closes one), **rectangles** (a corner, then the opposite one),
     **points** (a click each) or **lines**. Backspace takes back the last vertex, Escape the feature being drawn.
-    **Add to the model** writes them as a GeoPackage beside the model (`drawn/study_area.gpkg`, an `id` each, in
-    the map's coordinate system) and adds a [[vector.read]] node that reads it, so the model keeps them: clip by
-    them, rasterize them, sample in them as with any vector layer, and open them in QGIS.
+    Once drawn, drag a vertex to move it (a rectangle's corner keeps it a rectangle), drag the dot in the middle
+    of an edge to add one, and right-click a vertex to take it away. **Attributes** types values for the
+    features: **+ an attribute** adds a column (its name above it), a row per feature; a column whose values are
+    all numbers is written as numbers, else as texts.
+    **Add to the model** writes them as a GeoPackage beside the model (`drawn/study_area.gpkg`, an `id` each and
+    the attributes typed, in the map's coordinate system) and adds a [[vector.read]] node that reads it, so the
+    model keeps them: clip by them, rasterize them, sample in them as with any vector layer, and open them in
+    QGIS. For polygons, **Add, and data for it...** does that and opens the data catalog to download data cut to
+    the area: a [[data.download]] node with the area at its `area` input, no data outside it.
 
 ## Burn polygons into the grid
 

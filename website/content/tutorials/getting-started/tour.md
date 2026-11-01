@@ -311,7 +311,9 @@ copies it.
 Choose what to fetch (the bioclimatic variables by name, the months, the scenario and period of a future, the
 soil's property and depths, MapBiomas' years as `1985-2000, 2024`) and the grid: a map of the model (by default
 the first), the data then warped onto its extent, cells and coordinate system, or a box of longitudes and
-latitudes. **Add to the model** adds a [[data.download]] node so set: it reads only the part the grid covers, once
+latitudes. **Cut to the area** takes polygons the model gives (an area drawn on the map, a region read): no data
+outside them, and the grid may then be **the area's bounds** (in longitudes and latitudes, widened to whole
+cells). **Add to the model** adds a [[data.download]] node so set: it reads only the part the grid covers, once
 (the files stay in the cache), and carries the dataset's reference, which **Methods and citations** lists.
 
 ## The viewer

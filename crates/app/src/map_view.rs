@@ -756,7 +756,16 @@ impl MapView {
             }
             rect.left() + rect.width() * self.curtain()
         });
-        if response.dragged() {
+        // a vertex of a feature drawn dragged: the map stays
+        let editing = match self.drawing.as_mut() {
+            Some(sketch) => {
+                let (zoom, center) = (self.zoom, self.center);
+                let to_cell = |p: Pos2| center + (p - rect.center()) / zoom;
+                crate::draw::drag(sketch, ui, &response, to_cell, |c| rect.center() + (c - center) * zoom)
+            }
+            None => false,
+        };
+        if response.dragged() && !editing {
             self.center -= response.drag_delta() / self.zoom;
         }
         // B over the map: the satellite's imagery under it, or none

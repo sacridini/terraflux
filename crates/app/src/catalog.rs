@@ -353,6 +353,10 @@ pub struct Choices {
     /// [west, south, east, north], degrees.
     pub extent: [f64; 4],
     pub cellsize: f64,
+    /// Polygons to cut the data to (`node.port`, an area drawn): no data outside them.
+    pub area: Option<String>,
+    /// Without a map, the grid spans the area (its bounds), not the box.
+    pub on_area: bool,
 }
 
 impl Default for Choices {
@@ -384,6 +388,8 @@ impl Default for Choices {
             like: None,
             extent: [-48.0, -16.0, -47.0, -15.0],
             cellsize: 1.0 / 120.0,
+            area: None,
+            on_area: false,
         }
     }
 }
@@ -450,7 +456,12 @@ pub fn params(d: &Dataset, c: &Choices) -> Result<Vec<(&'static str, Value)>, St
         "hydrography90m" => p.push(("variable", json!(c.hydro))),
         s => return Err(format!("{s}: not in the catalog")),
     }
-    if c.like.is_none() {
+    if c.like.is_none() && c.area.is_some() && c.on_area {
+        if c.cellsize.is_nan() || c.cellsize <= 0.0 {
+            return Err("cells above 0".into());
+        }
+        p.push(("cellsize", json!(c.cellsize)));
+    } else if c.like.is_none() {
         let [w, s, e, n] = c.extent;
         if e <= w || n <= s || c.cellsize.is_nan() || c.cellsize <= 0.0 {
             return Err("the box: west below east, south below north, and cells above 0".into());
@@ -507,6 +518,8 @@ pub struct Catalog {
     pub said: Option<Result<String, String>>,
     /// Whether the grid was set to the model's first map (once).
     pub seen: bool,
+    /// The grid's choices scrolled to (once: opened for an area drawn).
+    pub to_grid: bool,
 }
 
 /// The datasets a search and a theme keep.
@@ -539,6 +552,21 @@ pub fn grids(s: &Session, r: &Registry) -> Vec<String> {
     out
 }
 
+/// The features the model gives (`node.port`), areas to cut the data to.
+pub fn areas(s: &Session, r: &Registry) -> Vec<String> {
+    let path = s.editor.path.clone();
+    let nodes = s.source.scope(&path).cloned().unwrap_or_default();
+    let mut out = Vec::new();
+    for n in &nodes {
+        for (port, ty) in crate::editor::output_ports(n, r) {
+            if matches!(ty, Type::Vector) {
+                out.push(format!("{}.{port}", n.id));
+            }
+        }
+    }
+    out
+}
+
 /// A `data.download` node of the dataset and its choices added to the model (in the scope edited), its `like`
 /// connected, the reference in its references; its id.
 pub fn add(s: &mut Session, r: &Registry, d: &Dataset, c: &Choices) -> Result<String, String> {
@@ -550,6 +578,9 @@ pub fn add(s: &mut Session, r: &Registry, d: &Dataset, c: &Choices) -> Result<St
     let id = crate::builder::add_at(s, r, "data.download", &[], Some(pos))?;
     if let Some(l) = &c.like {
         crate::editor::connect(&mut s.source, r, &path, l, &id, "like").map_err(|e| e.to_string())?;
+    }
+    if let Some(a) = &c.area {
+        crate::editor::connect(&mut s.source, r, &path, a, &id, "area").map_err(|e| e.to_string())?;
     }
     if let Some(n) = s.source.scope_mut(&path).and_then(|v| v.iter_mut().find(|n| n.id == id)) {
         for (k, v) in params {
@@ -734,14 +765,45 @@ fn form(ui: &mut Ui, d: &Dataset, c: &mut Choices) {
 }
 
 /// Where the data goes: the grid of a map of the model, or a box of longitudes and latitudes.
-fn grid_form(ui: &mut Ui, c: &mut Choices, maps: &[String]) {
-    ui.label(RichText::new("ON THE GRID OF").size(10.5).strong().color(ui.visuals().weak_text_color()));
-    let shown = c.like.clone().unwrap_or_else(|| "a box of longitudes and latitudes".into());
+fn grid_form(ui: &mut Ui, c: &mut Choices, maps: &[String], areas: &[String]) {
+    const BOX: &str = "a box of longitudes and latitudes";
+    const BOUNDS: &str = "the area's bounds";
+    let weak = ui.visuals().weak_text_color();
+    ui.label(RichText::new("CUT TO THE AREA").size(10.5).strong().color(weak));
+    let shown = c.area.clone().unwrap_or_else(|| "none: all the grid".into());
+    egui::ComboBox::from_id_salt("catalog area").selected_text(shown).width(250.0).show_ui(ui, |ui| {
+        ui.selectable_value(&mut c.area, None, "none: all the grid");
+        for a in areas {
+            ui.selectable_value(&mut c.area, Some(a.clone()), a);
+        }
+    });
+    if areas.is_empty() {
+        ui.label(RichText::new("an area drawn on a map (Draw on the map) or read: its polygons").weak().size(11.0));
+    } else if c.area.is_some() {
+        ui.label(RichText::new("no data outside its polygons").weak().size(11.0));
+    }
+    if c.area.is_none() {
+        c.on_area = false;
+    }
+    ui.add_space(4.0);
+    ui.label(RichText::new("ON THE GRID OF").size(10.5).strong().color(weak));
+    let shown = match (&c.like, c.on_area) {
+        (Some(l), _) => l.clone(),
+        (None, true) => BOUNDS.into(),
+        (None, false) => BOX.into(),
+    };
     egui::ComboBox::from_id_salt("catalog like").selected_text(shown).width(250.0).show_ui(ui, |ui| {
         for m in maps {
-            ui.selectable_value(&mut c.like, Some(m.clone()), m);
+            if ui.selectable_label(c.like.as_ref() == Some(m), m).clicked() {
+                c.like = Some(m.clone());
+            }
         }
-        ui.selectable_value(&mut c.like, None, "a box of longitudes and latitudes");
+        if c.area.is_some() && ui.selectable_label(c.like.is_none() && c.on_area, BOUNDS).clicked() {
+            (c.like, c.on_area) = (None, true);
+        }
+        if ui.selectable_label(c.like.is_none() && !c.on_area, BOX).clicked() {
+            (c.like, c.on_area) = (None, false);
+        }
     });
     if c.like.is_some() {
         ui.label(
@@ -749,6 +811,14 @@ fn grid_form(ui: &mut Ui, c: &mut Choices, maps: &[String]) {
                 .weak()
                 .size(11.0),
         );
+        return;
+    }
+    if c.on_area {
+        ui.horizontal(|ui| {
+            ui.label("cells");
+            cells_combo(ui, &mut c.cellsize);
+        });
+        ui.label(RichText::new("longitudes and latitudes, widened to whole cells").weak().size(11.0));
         return;
     }
     let [w, s, e, n] = &mut c.extent;
@@ -766,11 +836,7 @@ fn grid_form(ui: &mut Ui, c: &mut Choices, maps: &[String]) {
     });
     ui.horizontal(|ui| {
         ui.label("cells");
-        egui::ComboBox::from_id_salt("catalog cells").selected_text(cell_name(c.cellsize)).show_ui(ui, |ui| {
-            for (v, _) in CELLS {
-                ui.selectable_value(&mut c.cellsize, v, cell_name(v));
-            }
-        });
+        cells_combo(ui, &mut c.cellsize);
         let (cols, rows) = (((*e - *w) / c.cellsize).round(), ((*n - *s) / c.cellsize).round());
         if cols > 0.0 && rows > 0.0 {
             ui.label(RichText::new(format!("{cols} × {rows} cells")).weak());
@@ -786,6 +852,14 @@ const CELLS: [(f64, &str); 5] = [
     (1.0 / 1200.0, "3 arc-sec (~90 m)"),
 ];
 
+fn cells_combo(ui: &mut Ui, cellsize: &mut f64) {
+    egui::ComboBox::from_id_salt("catalog cells").selected_text(cell_name(*cellsize)).show_ui(ui, |ui| {
+        for (v, _) in CELLS {
+            ui.selectable_value(cellsize, v, cell_name(v));
+        }
+    });
+}
+
 fn cell_name(v: f64) -> String {
     CELLS.iter().find(|(c, _)| (c - v).abs() < 1e-12).map_or(format!("{v}°"), |(_, n)| n.to_string())
 }
@@ -796,6 +870,10 @@ pub fn window(ctx: &egui::Context, s: &mut Session, r: &Registry) {
         return;
     }
     let maps = grids(s, r);
+    let areas = areas(s, r);
+    if s.catalog.choices.area.as_ref().is_some_and(|a| !areas.contains(a)) {
+        s.catalog.choices.area = None;
+    }
     // a map gone: the box; the grid of the model's first map by default (once)
     if s.catalog.choices.like.as_ref().is_some_and(|l| !maps.contains(l)) {
         s.catalog.choices.like = None;
@@ -920,7 +998,10 @@ pub fn window(ctx: &egui::Context, s: &mut Session, r: &Registry) {
                 ui.label(RichText::new("WHAT TO FETCH").size(10.5).strong().color(ui.visuals().weak_text_color()));
                 form(ui, d, &mut cat.choices);
                 ui.add_space(6.0);
-                grid_form(ui, &mut cat.choices, &maps);
+                if std::mem::take(&mut cat.to_grid) {
+                    ui.scroll_to_cursor(Some(egui::Align::TOP));
+                }
+                grid_form(ui, &mut cat.choices, &maps, &areas);
                 ui.add_space(8.0);
                 let ready = params(d, &cat.choices);
                 ui.horizontal(|ui| {
@@ -1018,6 +1099,13 @@ mod tests {
         c.years = "1970".into();
         assert!(params(&DATASETS[6], &c).is_err());
         assert_eq!(summary(&DATASETS[6], &Choices::default()), "MapBiomas Brazil: collection 10, 2024");
+        // cut to an area drawn, on a grid spanning it: the cells' side only (the area connected apart)
+        let c = Choices { area: Some("study_area.vector".into()), on_area: true, ..Default::default() };
+        let p = params(&DATASETS[0], &c).unwrap();
+        assert!(p.contains(&("cellsize", json!(1.0 / 120.0))) && !p.iter().any(|(k, _)| *k == "extent"));
+        // on the box, cut to it
+        let c = Choices { area: Some("study_area.vector".into()), ..Default::default() };
+        assert!(params(&DATASETS[0], &c).unwrap().iter().any(|(k, _)| *k == "extent"));
     }
 
     #[test]

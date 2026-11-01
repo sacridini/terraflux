@@ -2304,6 +2304,62 @@ pub fn add_write(s: &mut Session, r: &Registry, node: &str, port: &str, path: &P
 /// Features drawn on the map shown (a study area, plots, a transect): the kind drawn, what to do, and the
 /// features written beside the model (`drawn/<name>.gpkg`) and read into it by a `vector.read` node, then drawn
 /// over the map.
+/// The attributes of the features drawn, typed: a column each (its name above), a row per feature (its id).
+fn attributes(ui: &mut Ui, d: &mut crate::draw::Sketch, salt: &str) {
+    let n = d.features.len();
+    d.values.resize(n, Vec::new());
+    for row in &mut d.values {
+        row.resize(d.columns.len(), String::new());
+    }
+    let mut drop = None;
+    egui::CollapsingHeader::new(format!("Attributes ({})", d.columns.len()))
+        .id_salt(("drawn attributes", salt))
+        .default_open(true)
+        .show(ui, |ui| {
+            if !d.columns.is_empty() {
+                egui::ScrollArea::both().max_height(180.0).id_salt(("drawn table", salt)).show(ui, |ui| {
+                    egui::Grid::new(("drawn grid", salt)).spacing([4.0, 2.0]).striped(true).show(ui, |ui| {
+                        ui.label(RichText::new("id").weak());
+                        for (k, c) in d.columns.iter_mut().enumerate() {
+                            ui.horizontal(|ui| {
+                                ui.add(egui::TextEdit::singleline(c).hint_text("name").desired_width(70.0));
+                                if ui.small_button("×").on_hover_text("this attribute taken away").clicked() {
+                                    drop = Some(k);
+                                }
+                            });
+                        }
+                        ui.end_row();
+                        for (f, row) in d.values.iter_mut().enumerate() {
+                            ui.label(RichText::new(format!("{}", f + 1)).weak());
+                            for v in row.iter_mut() {
+                                ui.add(egui::TextEdit::singleline(v).desired_width(88.0));
+                            }
+                            ui.end_row();
+                        }
+                    });
+                });
+            }
+            if ui
+                .small_button("+ an attribute")
+                .on_hover_text("a column typed for each feature: numbers when every value is one, else texts")
+                .clicked()
+            {
+                let names = ["name", "class", "value"];
+                let next = names.iter().find(|m| !d.columns.iter().any(|c| c == *m)).copied().unwrap_or("");
+                d.columns.push(next.to_string());
+                for row in &mut d.values {
+                    row.push(String::new());
+                }
+            }
+        });
+    if let Some(k) = drop {
+        d.columns.remove(k);
+        for row in &mut d.values {
+            row.remove(k);
+        }
+    }
+}
+
 fn draw_section(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, grid: &terraflux_raster::Grid, salt: &str) {
     use crate::draw::{Kind, Sketch};
     theme::section(ui, "Draw on the map");
@@ -2342,6 +2398,15 @@ fn draw_section(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, grid
     if stop {
         sh.view.drawing = None;
     }
+    let Some(d) = &mut sh.view.drawing else { return };
+    if n > 0 {
+        ui.label(
+            RichText::new("drag a vertex to move it, the dot amid an edge to add one; a right click takes one away")
+                .weak()
+                .size(11.0),
+        );
+        attributes(ui, d, salt);
+    }
     let Some(d) = &sh.view.drawing else { return };
     let id = egui::Id::new(("drawn name", salt));
     let mut name = ui.data(|m| m.get_temp::<String>(id)).unwrap_or_else(|| "study_area".into());
@@ -2351,10 +2416,23 @@ fn draw_section(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, grid
     });
     let name: String = name.chars().map(|c| if c.is_alphanumeric() || c == '-' { c } else { '_' }).collect();
     ui.data_mut(|m| m.insert_temp(id, name.clone()));
-    let add = ui
-        .add_enabled(n > 0 && !name.is_empty(), egui::Button::new("Add to the model"))
-        .on_hover_text("written as a GeoPackage beside the model (drawn/), read by a vector.read node");
-    if !add.clicked() {
+    let area = matches!(d.kind, Kind::Polygon | Kind::Rectangle);
+    let (add, fetch) = ui
+        .horizontal(|ui| {
+            let add = ui
+                .add_enabled(n > 0 && !name.is_empty(), egui::Button::new("Add to the model"))
+                .on_hover_text("written as a GeoPackage beside the model (drawn/), read by a vector.read node");
+            let fetch = area
+                && ui
+                    .add_enabled(n > 0 && !name.is_empty(), egui::Button::new("Add, and data for it..."))
+                    .on_hover_text(
+                        "added, then the data catalog opened to download data cut to it (no data outside the area)",
+                    )
+                    .clicked();
+            (add.clicked(), fetch)
+        })
+        .inner;
+    if !add && !fetch {
         return;
     }
     // beside the model (a name not taken), or where asked when it is not saved yet
@@ -2379,12 +2457,23 @@ fn draw_section(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, grid
     match result {
         Ok(node) => {
             s.notice = Some((
-                format!("{n} {} drawn: {} (node {node})", d.kind.name(), path.display()),
+                format!(
+                    "{n} {} drawn: {} (node {node})",
+                    if n == 1 { d.kind.name().trim_end_matches('s') } else { d.kind.name() },
+                    path.display()
+                ),
                 std::time::Instant::now(),
             ));
             // drawn over the map once it is read
-            sh.overlays.push((node, "vector".into(), Default::default()));
+            sh.overlays.push((node.clone(), "vector".into(), Default::default()));
             sh.view.drawing = None;
+            if fetch {
+                // the catalog, its data cut to the area and on a grid spanning it
+                let c = &mut s.catalog;
+                (c.open, c.seen, c.said, c.to_grid) = (true, true, None, true);
+                c.choices.area = Some(format!("{node}.vector"));
+                (c.choices.like, c.choices.on_area) = (None, true);
+            }
         }
         Err(e) => s.notice = Some((format!("not added: {e}"), std::time::Instant::now())),
     }

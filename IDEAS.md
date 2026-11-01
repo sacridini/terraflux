@@ -530,6 +530,14 @@ como o próximo bloco, nesta ordem (um commit por item):
    velocidade em quadros por segundo (`Animations::fps`, `speed`), a mesma para tocar (Viewer e Simulation) e
    para o GIF e o vídeo. Falta: um codificador sem o ffmpeg (o `openh264`?).
 4. **Desenho → dados:** o `data.download` recortado pela área desenhada; editar vértices; digitar atributos.
+   **Feito** (Unreleased): a entrada `area` do `data.download` (polígonos; fora deles sem dado, pelo `-cutline`
+   do gdalwarp com a área gravada em `area.gpkg` na pasta do cache; a área entra no hash do cache); sem `like` e
+   `extent`, a grade cobre a área em graus, alargada a células inteiras (`cellsize`, padrão o lado maior em 500
+   células). No catálogo, "Cut to the area" e a grade "the area's bounds"; no desenho, "Add, and data for it..."
+   adiciona e abre o catálogo assim. Vértices: arrastar (`draw::drag`, antes do arrasto do mapa), o ponto no meio
+   da aresta cria um, o botão direito tira (`Sketch::move_vertex`, `insert_vertex`, `remove_vertex`, `hit`).
+   Atributos: `Sketch::columns` e `values`, uma tabela na seção do desenho; números quando todos os valores são.
+   Falta: editar os vértices de uma camada já lida (só os do desenho em curso).
 5. **Catálogo:** GBIF, prévia do dado na área, saber o que já está no cache, e ESA WorldCover, MODIS e Global
    Forest Change.
 6. **Figura:** PDF, vetores por cima, encarte de localização.

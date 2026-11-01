@@ -246,9 +246,27 @@ fn grid_of(args: &Args) -> Result<Grid> {
         Some(v) => Err(fail(&format!("like: a raster, not a {:?}", v.ty()))),
         None => {
             let e: Option<[f64; 4]> = args.opt_param("extent")?;
-            let [xmin, ymin, xmax, ymax] =
-                e.ok_or_else(|| fail("connect a map whose grid to fill (like), or give extent and cellsize"))?;
-            let res: f64 = args.param("cellsize", f64::NAN)?;
+            let area = area_of(args)?;
+            let (e, res) = match (e, &area) {
+                (Some(e), _) => (e, args.param("cellsize", f64::NAN)?),
+                (None, Some(a)) => {
+                    // the area's bounds in longitudes and latitudes, widened to whole cells
+                    let b = lonlat_bounds(a)?;
+                    let side = (b[2] - b[0]).max(b[3] - b[1]);
+                    let res: f64 = args.param("cellsize", side / AREA_CELLS)?;
+                    if res.is_nan() || res <= 0.0 {
+                        return Err(fail("cellsize: degrees, above 0"));
+                    }
+                    let snap = |v: f64, up: bool| if up { (v / res).ceil() * res } else { (v / res).floor() * res };
+                    ([snap(b[0], false), snap(b[1], false), snap(b[2], true), snap(b[3], true)], res)
+                }
+                (None, None) => {
+                    return Err(fail(
+                        "connect a map whose grid to fill (like) or an area, or give extent and cellsize",
+                    ));
+                }
+            };
+            let [xmin, ymin, xmax, ymax] = e;
             if res.is_nan() || res <= 0.0 || xmax <= xmin || ymax <= ymin {
                 return Err(fail("extent: [west, south, east, north]; cellsize: degrees, above 0"));
             }
@@ -258,6 +276,45 @@ fn grid_of(args: &Args) -> Result<Grid> {
             g.geo.wkt = Some("EPSG:4326".into());
             Ok(g)
         }
+    }
+}
+
+/// Without a cell size, the cells across an area's longer side.
+const AREA_CELLS: f64 = 500.0;
+
+/// The area to cut the data to: its polygons (none: the whole grid).
+fn area_of(args: &Args) -> Result<Option<Arc<terraflux_raster::vector::Vector>>> {
+    let v = match args.get("area") {
+        None => return Ok(None),
+        Some(_) => crate::vector::vector_of(args, "area")?,
+    };
+    let keep: Vec<usize> = (0..v.len()).filter(|&i| v.geometries[i].is_polygonal()).collect();
+    if keep.is_empty() {
+        return Err(Error::msg(format!("node {:?}: area: polygons (an area drawn, a region), none given", args.node)));
+    }
+    Ok(Some(if keep.len() == v.len() { v.clone() } else { Arc::new(v.select(&keep)) }))
+}
+
+/// An area's bounds in longitudes and latitudes (its points reprojected to WGS 84).
+fn lonlat_bounds(v: &terraflux_raster::vector::Vector) -> Result<[f64; 4]> {
+    let (mut xs, mut ys) = (Vec::new(), Vec::new());
+    for g in &v.geometries {
+        g.points(&mut |p| {
+            xs.push(p[0]);
+            ys.push(p[1]);
+        });
+    }
+    if let Some(crs) = &v.crs {
+        let tr = terraflux_gdal::Transform::new(crs, "EPSG:4326").map_err(Error::msg)?;
+        tr.points(&mut xs, &mut ys);
+    }
+    let lo = |v: &[f64]| v.iter().copied().filter(|x| x.is_finite()).fold(f64::INFINITY, f64::min);
+    let hi = |v: &[f64]| v.iter().copied().filter(|x| x.is_finite()).fold(f64::NEG_INFINITY, f64::max);
+    let b = [lo(&xs), lo(&ys), hi(&xs), hi(&ys)];
+    if b.iter().all(|x| x.is_finite()) && b[2] > b[0] && b[3] > b[1] {
+        Ok(b)
+    } else {
+        Err(Error::msg("area: its bounds span no longitudes or latitudes"))
     }
 }
 
@@ -380,6 +437,11 @@ impl Operator for Download {
             Access::Global,
         )
         .input(PortSpec::optional("like", Type::Raster, "the map whose grid to fill (else extent and cellsize)"))
+        .input(PortSpec::optional(
+            "area",
+            Type::Vector,
+            "polygons to cut the data to (an area drawn): no data outside them; without like and extent, the grid              spans them",
+        ))
         .output(PortSpec::new("raster", Type::Raster, "the layers on the grid, a file each"))
         .param(PortSpec::optional("source", Type::Text, "the data (or url instead)").choices(SOURCES))
         .param(PortSpec::optional(
@@ -419,7 +481,11 @@ impl Operator for Download {
         .param(PortSpec::optional("years", Type::Any, "mapbiomas: a year or a list (default 2023)"))
         .param(PortSpec::optional("url", Type::Any, "any raster GDAL reads (a URL, a path), or a list"))
         .param(PortSpec::optional("extent", Type::Any, "without like: [west, south, east, north], degrees"))
-        .param(PortSpec::optional("cellsize", Type::Number, "with extent: the cells' side, degrees"))
+        .param(PortSpec::optional(
+            "cellsize",
+            Type::Number,
+            "with extent or an area: the cells' side, degrees (an area's default: its longer side in 500 cells)",
+        ))
         .param(PortSpec::optional(
             "resampling",
             Type::Text,
@@ -433,14 +499,30 @@ impl Operator for Download {
         let g = grid_of(args)?;
         let layers = layers_of(args, &g)?;
         let resampling: String = args.param("resampling", "auto".to_string())?;
-        // the cache: a folder per source and grid
+        let area = area_of(args)?;
+        // the cache: a folder per source, grid and area
         let mut h = std::collections::hash_map::DefaultHasher::new();
         for l in &layers {
             l.path.hash(&mut h);
         }
         format!("{:?}{}{}{:?}{resampling}", g.transform, g.width, g.height, crate::prepare::crs_of(&g)).hash(&mut h);
+        if let Some(a) = &area {
+            format!("{:?}{:?}", a.geometries, a.crs).hash(&mut h);
+        }
         let dir = crate::sdm::refdata::cache_dir().join("data").join(format!("{:016x}", h.finish()));
         std::fs::create_dir_all(&dir).map_err(|e| fail(format!("{}: {e}", dir.display())))?;
+        // the area as a file, gdalwarp's cutline (reprojected by it to the data's coordinates)
+        let cutline = match &area {
+            Some(a) => {
+                let file = dir.join("area.gpkg");
+                if !file.is_file() {
+                    let only = terraflux_raster::vector::Vector { attributes: Vec::new(), ..(**a).clone() };
+                    terraflux_gdal::write_vector(&file, "area", &only).map_err(|e| fail(format!("area: {e}")))?;
+                }
+                Some(file)
+            }
+            None => None,
+        };
         let t = g.transform;
         let (xmin, xmax) = (t[0], t[0] + t[1] * g.width as f64);
         let (ymax, ymin) = (t[3], t[3] + t[5] * g.height as f64);
@@ -475,6 +557,17 @@ impl Operator for Download {
                 a.extend(["-t_srs".into(), c]);
             }
             let sources: Vec<PathBuf> = l.path.split('|').map(PathBuf::from).collect();
+            if let Some(file) = &cutline {
+                a.extend(["-cutline".into(), file.to_string_lossy().into_owned(), "-cl".into(), "area".into()]);
+                // outside the area no data: the data's own no-data value, else NaN (values) or 0 (classes)
+                let own = terraflux_gdal::Dataset::open(&sources[0]).ok().and_then(|d| d.meta.nodata);
+                if own.is_none() {
+                    a.extend(["-dstnodata".into(), if l.classes { "0" } else { "nan" }.into()]);
+                    if !l.classes {
+                        a.extend(["-ot".into(), "Float32".into()]);
+                    }
+                }
+            }
             let refs: Vec<&Path> = sources.iter().map(PathBuf::as_path).collect();
             let tmp = dir.join(format!(".{}-{}.tif", l.name, std::process::id()));
             if let Err(e) = terraflux_gdal::warp(&refs, &tmp, &a) {

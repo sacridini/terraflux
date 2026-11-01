@@ -40,17 +40,144 @@ impl Kind {
     }
 }
 
-/// The features drawn so far, and the one being drawn: their vertices in cells of the map's grid (x, y).
+/// The features drawn so far, and the one being drawn: their vertices in cells of the map's grid (x, y); the
+/// attributes typed (their names, and a row of values per feature); the vertex being dragged.
 #[derive(Clone, Debug)]
 pub struct Sketch {
     pub kind: Kind,
     pub features: Vec<Vec<[f64; 2]>>,
     pub current: Vec<[f64; 2]>,
+    pub columns: Vec<String>,
+    pub values: Vec<Vec<String>>,
+    pub grabbed: Option<(usize, usize)>,
+}
+
+/// What is under the pointer of a feature drawn: a vertex, or the middle of an edge (after its vertex).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Hit {
+    Vertex(usize, usize),
+    Middle(usize, usize),
 }
 
 impl Sketch {
     pub fn new(kind: Kind) -> Sketch {
-        Sketch { kind, features: Vec::new(), current: Vec::new() }
+        Sketch {
+            kind,
+            features: Vec::new(),
+            current: Vec::new(),
+            columns: Vec::new(),
+            values: Vec::new(),
+            grabbed: None,
+        }
+    }
+
+    /// A feature's vertices that can be moved (a ring's closing vertex is its first).
+    fn movable(&self, f: usize) -> usize {
+        let n = self.features[f].len();
+        if matches!(self.kind, Kind::Polygon | Kind::Rectangle) { n - 1 } else { n }
+    }
+
+    /// A vertex moved to `to`; the vertex's index after (a rectangle stays one: the opposite corner kept).
+    pub fn move_vertex(&mut self, f: usize, v: usize, to: [f64; 2]) -> usize {
+        let closed = matches!(self.kind, Kind::Polygon | Kind::Rectangle);
+        let ring = &mut self.features[f];
+        if self.kind == Kind::Rectangle {
+            let o = ring[(v + 2) % 4];
+            let (x0, x1) = (o[0].min(to[0]), o[0].max(to[0]));
+            let (y0, y1) = (o[1].min(to[1]), o[1].max(to[1]));
+            *ring = vec![[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]];
+            return (0..4).find(|&k| ring[k] == to).unwrap_or(v);
+        }
+        ring[v] = to;
+        if closed && v == 0 {
+            let last = ring.len() - 1;
+            ring[last] = to;
+        }
+        v
+    }
+
+    /// A vertex put in the middle of an edge (after vertex `after`), at `at`; its index.
+    pub fn insert_vertex(&mut self, f: usize, after: usize, at: [f64; 2]) -> usize {
+        self.features[f].insert(after + 1, at);
+        after + 1
+    }
+
+    /// A vertex taken away; the feature too when it would be too small (a point, a rectangle's corner, a
+    /// line's second last, a polygon's third last).
+    pub fn remove_vertex(&mut self, f: usize, v: usize) {
+        let few = match self.kind {
+            Kind::Point | Kind::Rectangle => true,
+            Kind::Line => self.features[f].len() <= 2,
+            Kind::Polygon => self.movable(f) <= 3,
+        };
+        if few {
+            self.remove_feature(f);
+            return;
+        }
+        let ring = &mut self.features[f];
+        ring.remove(v);
+        if self.kind == Kind::Polygon && v == 0 {
+            let first = ring[0];
+            *ring.last_mut().unwrap() = first;
+        }
+    }
+
+    /// A feature taken away, with its values.
+    pub fn remove_feature(&mut self, f: usize) {
+        self.features.remove(f);
+        if f < self.values.len() {
+            self.values.remove(f);
+        }
+        self.grabbed = None;
+    }
+
+    /// The vertex, or the middle of an edge, within `reach` of `p` on the screen (vertices first).
+    pub fn hit(&self, p: Pos2, reach: f32, screen: &dyn Fn(&[f64; 2]) -> Pos2) -> Option<Hit> {
+        let near = |c: &[f64; 2]| screen(c).distance(p) <= reach;
+        for f in (0..self.features.len()).rev() {
+            if let Some(v) = (0..self.movable(f)).find(|&v| near(&self.features[f][v])) {
+                return Some(Hit::Vertex(f, v));
+            }
+        }
+        if matches!(self.kind, Kind::Line | Kind::Polygon) {
+            for f in (0..self.features.len()).rev() {
+                let r = &self.features[f];
+                if let Some(v) = (0..r.len() - 1).find(|&v| near(&mid(r[v], r[v + 1]))) {
+                    return Some(Hit::Middle(f, v));
+                }
+            }
+        }
+        None
+    }
+
+    /// The values of the attributes typed for a feature (empty where none was typed).
+    pub fn row(&self, f: usize) -> Vec<String> {
+        let mut r = self.values.get(f).cloned().unwrap_or_default();
+        r.resize(self.columns.len(), String::new());
+        r
+    }
+
+    /// The attributes typed as the layer's columns: numbers when every value typed reads as one, else texts
+    /// (named as typed, letters, digits and _; the empty names, `id` and those repeated skipped).
+    fn typed(&self) -> Vec<(String, Column)> {
+        let mut out: Vec<(String, Column)> = Vec::new();
+        for (k, name) in self.columns.iter().enumerate() {
+            let name: String =
+                name.trim().chars().map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' }).collect();
+            if name.is_empty() || name == "id" || out.iter().any(|(n, _)| *n == name) {
+                continue;
+            }
+            let texts: Vec<String> = (0..self.features.len()).map(|f| self.row(f)[k].trim().to_string()).collect();
+            let numbers: Option<Vec<f64>> =
+                texts.iter().map(|t| if t.is_empty() { Some(f64::NAN) } else { t.parse::<f64>().ok() }).collect();
+            let any = texts.iter().any(|t| !t.is_empty());
+            let column = match numbers {
+                Some(n) if any => Column::Numbers(n),
+                _ => Column::Texts(texts),
+            };
+            out.push((name, column));
+        }
+        out
     }
 
     /// A vertex clicked; `close` says whether it is on the first vertex of the feature (polygons close there).
@@ -95,8 +222,8 @@ impl Sketch {
 
     /// The last vertex taken back (of the feature being drawn, else the last feature).
     pub fn undo(&mut self) {
-        if self.current.pop().is_none() {
-            self.features.pop();
+        if self.current.pop().is_none() && !self.features.is_empty() {
+            self.remove_feature(self.features.len() - 1);
         }
     }
 
@@ -122,7 +249,9 @@ impl Sketch {
             .clone()
             .or_else(|| grid.geo.epsg().and_then(|c| terraflux_gdal::crs_wkt(&format!("EPSG:{c}")).ok()));
         let ids = (1..=self.features.len()).map(|i| i as f64).collect();
-        Vector { geometries, attributes: vec![("id".into(), Column::Numbers(ids))], crs }
+        let mut attributes = vec![("id".to_string(), Column::Numbers(ids))];
+        attributes.extend(self.typed());
+        Vector { geometries, attributes, crs }
     }
 }
 
@@ -141,6 +270,56 @@ pub fn write(sketch: &Sketch, grid: &terraflux_raster::Grid, path: &Path) -> Res
 
 const INK: Color32 = Color32::from_rgb(255, 210, 0);
 
+fn mid(a: [f64; 2], b: [f64; 2]) -> [f64; 2] {
+    [(a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0]
+}
+
+/// How near a vertex the pointer grabs it, in points.
+const REACH: f32 = 7.0;
+
+/// A vertex of a feature drawn dragged (or a new one, from the middle of an edge): true while it is, the map
+/// not moved then. Called before the map's own dragging.
+pub fn drag(
+    sketch: &mut Sketch,
+    ui: &Ui,
+    response: &Response,
+    to_cell: impl Fn(Pos2) -> Vec2,
+    to_screen: impl Fn(Vec2) -> Pos2,
+) -> bool {
+    let cell = |p: Pos2| {
+        let c = to_cell(p);
+        [f64::from(c.x), f64::from(c.y)]
+    };
+    let screen = |c: &[f64; 2]| to_screen(Vec2::new(c[0] as f32, c[1] as f32));
+    if response.drag_started()
+        && sketch.current.is_empty()
+        && let Some(p) = ui.input(|i| i.pointer.press_origin())
+    {
+        sketch.grabbed = match sketch.hit(p, REACH, &screen) {
+            Some(Hit::Vertex(f, v)) => Some((f, v)),
+            Some(Hit::Middle(f, v)) => {
+                let at = mid(sketch.features[f][v], sketch.features[f][v + 1]);
+                Some((f, sketch.insert_vertex(f, v, at)))
+            }
+            None => None,
+        };
+    }
+    let Some((f, v)) = sketch.grabbed else { return false };
+    if f >= sketch.features.len() || v >= sketch.features[f].len() {
+        sketch.grabbed = None;
+        return false;
+    }
+    if let Some(p) = response.interact_pointer_pos() {
+        let v = sketch.move_vertex(f, v, cell(p));
+        sketch.grabbed = Some((f, v));
+    }
+    if response.drag_stopped() || !response.dragged() {
+        sketch.grabbed = None;
+    }
+    ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+    true
+}
+
 /// The clicks and keys over the map while drawing (taking the place of the cell picked), and the features drawn
 /// over it: `to_cell` and `to_screen` between the screen and the map's cells.
 pub fn interact(
@@ -155,11 +334,20 @@ pub fn interact(
         [f64::from(c.x), f64::from(c.y)]
     };
     let screen = |c: &[f64; 2]| to_screen(Vec2::new(c[0] as f32, c[1] as f32));
+    // (a click on a vertex of a feature drawn: not a new vertex; a right click there takes it away)
+    let on = |s: &Sketch, p: Pos2| if s.current.is_empty() { s.hit(p, REACH, &screen) } else { None };
     if response.clicked()
         && let Some(p) = response.interact_pointer_pos()
+        && on(sketch, p).is_none()
     {
         let close = sketch.current.first().is_some_and(|f| screen(f).distance(p) < 8.0);
         sketch.click(cell(p), close);
+    }
+    if response.secondary_clicked()
+        && let Some(p) = response.interact_pointer_pos()
+        && let Some(Hit::Vertex(f, v)) = on(sketch, p)
+    {
+        sketch.remove_vertex(f, v);
     }
     if response.double_clicked() {
         sketch.finish();
@@ -203,6 +391,23 @@ pub fn interact(
             }
         }
     }
+    // the handles: a vertex to drag (a right click: away), the middle of an edge to drag a new one from
+    if sketch.current.is_empty() && sketch.kind != Kind::Point {
+        let lines = matches!(sketch.kind, Kind::Line | Kind::Polygon);
+        for (f, r) in sketch.features.iter().enumerate() {
+            for (v, c) in r[..sketch.movable(f)].iter().enumerate() {
+                let big = sketch.grabbed == Some((f, v));
+                let radius = if big { 5.0 } else { 3.5 };
+                painter.circle(screen(c), radius, Color32::WHITE, Stroke::new(1.5, Color32::BLACK));
+            }
+            if lines {
+                for w in r.windows(2) {
+                    let dot = Color32::from_black_alpha(90);
+                    painter.circle(screen(&mid(w[0], w[1])), 2.5, dot, Stroke::new(1.0, Color32::WHITE));
+                }
+            }
+        }
+    }
     let hover = response.hover_pos();
     if !sketch.current.is_empty() {
         let mut pts: Vec<Pos2> = sketch.current.iter().map(screen).collect();
@@ -228,8 +433,11 @@ pub fn interact(
             painter.circle_stroke(screen(&sketch.current[0]), 8.0, Stroke::new(1.5, INK));
         }
     }
-    if hover.is_some() {
-        ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+    if let Some(h) = hover
+        && sketch.grabbed.is_none()
+    {
+        let grab = on(sketch, h).is_some();
+        ui.ctx().set_cursor_icon(if grab { egui::CursorIcon::Grab } else { egui::CursorIcon::Crosshair });
     }
 }
 
@@ -266,6 +474,58 @@ mod tests {
         p.click([1.5, 2.5], false);
         p.click([2.5, 2.5], false);
         assert_eq!((s.features.len(), p.features.len()), (1, 2));
+    }
+
+    #[test]
+    fn vertices_moved_added_and_taken_away() {
+        let mut s = Sketch::new(Kind::Polygon);
+        for v in [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0]] {
+            s.click(v, false);
+        }
+        s.finish();
+        // the first vertex moved: the ring stays closed
+        assert_eq!(s.move_vertex(0, 0, [-1.0, -1.0]), 0);
+        assert_eq!(s.features[0], vec![[-1.0, -1.0], [10.0, 0.0], [10.0, 10.0], [-1.0, -1.0]]);
+        // a vertex amid an edge, found on the screen (a point a cell here)
+        let screen = |c: &[f64; 2]| Pos2::new(c[0] as f32, c[1] as f32);
+        assert_eq!(s.hit(Pos2::new(10.0, 5.0), 2.0, &screen), Some(Hit::Middle(0, 1)));
+        assert_eq!(s.hit(Pos2::new(10.5, 0.5), 2.0, &screen), Some(Hit::Vertex(0, 1)));
+        assert_eq!(s.hit(Pos2::new(30.0, 30.0), 2.0, &screen), None);
+        assert_eq!(s.insert_vertex(0, 1, [12.0, 5.0]), 2);
+        assert_eq!(s.features[0].len(), 5);
+        // taken away: the first (the ring closed on the next), then down to a triangle, then the polygon
+        s.remove_vertex(0, 0);
+        assert_eq!(s.features[0], vec![[10.0, 0.0], [12.0, 5.0], [10.0, 10.0], [10.0, 0.0]]);
+        s.remove_vertex(0, 1);
+        assert!(s.features.is_empty());
+
+        // a rectangle's corner dragged past the opposite one: a rectangle still
+        let mut r = Sketch::new(Kind::Rectangle);
+        r.click([2.0, 2.0], false);
+        r.click([4.0, 6.0], false);
+        let v = r.move_vertex(0, 2, [0.0, 1.0]);
+        assert_eq!(r.features[0], vec![[0.0, 1.0], [2.0, 1.0], [2.0, 2.0], [0.0, 2.0], [0.0, 1.0]]);
+        assert_eq!(r.features[0][v], [0.0, 1.0]);
+    }
+
+    #[test]
+    fn attributes_typed() {
+        let mut s = Sketch::new(Kind::Point);
+        for x in [1.0, 2.0, 3.0] {
+            s.click([x, 1.0], false);
+        }
+        s.columns = vec!["name".into(), "area ha".into(), "".into(), "name".into()];
+        s.values = vec![vec!["Mata".into(), "12.5".into()], vec!["".into(), "".into()], vec!["Rio".into(), "3".into()]];
+        let v = s.vector(&terraflux_raster::Grid::new(10, 10));
+        let names: Vec<&str> = v.attributes.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, ["id", "name", "area_ha"]);
+        assert_eq!(v.column("name"), Some(&Column::Texts(vec!["Mata".into(), "".into(), "Rio".into()])));
+        let Some(Column::Numbers(a)) = v.column("area_ha") else { panic!("{:?}", v.attributes) };
+        assert!(a[0] == 12.5 && a[1].is_nan() && a[2] == 3.0);
+        // a feature taken away takes its values
+        s.remove_feature(0);
+        assert_eq!(s.row(0), ["", "", "", ""]);
+        assert_eq!(s.row(1)[0], "Rio");
     }
 
     #[test]

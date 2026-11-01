@@ -8,6 +8,7 @@ use terraflux_ops::data::{
     chelsa, copernicus_tiles, h90m_tiles, hydrography90m, mapbiomas, soilgrids, worldclim, worldclim_future,
 };
 use terraflux_ops::{Args, Ctx, Map, Outputs, Registry, Value};
+use terraflux_raster::vector::{Column, Geometry, Vector};
 use terraflux_raster::{DataType, Grid, Raster};
 
 fn run(op: &str, inputs: Vec<(&str, Value)>, params: serde_json::Value) -> Outputs {
@@ -106,6 +107,27 @@ fn a_raster_warped_onto_a_grid() {
     );
     let l = layers(&out["raster"]);
     assert_eq!(l[0].1.len(), 8);
+    // cut to an area drawn: a triangle, the grid its bounds, no data beyond its long side
+    let tri = Vector {
+        geometries: vec![Geometry::Polygon(vec![vec![[-6.0, -2.0], [4.0, -2.0], [-6.0, 3.0], [-6.0, -2.0]]])],
+        attributes: vec![("name".into(), Column::Texts(vec!["drawn".into()]))],
+        crs: Some("EPSG:4326".into()),
+    };
+    let out = run(
+        "data.download",
+        vec![("area", Value::Vector(Arc::new(tri)))],
+        serde_json::json!({"url": path.to_string_lossy(), "cellsize": 1, "resampling": "near"}),
+    );
+    let Value::Raster(r) = &out["raster"] else { panic!() };
+    let g = r.grid_of(r.chosen);
+    assert_eq!((g.width, g.height, g.transform[0], g.transform[3]), (10, 5, -6.0, 3.0));
+    let l = layers(&out["raster"]);
+    let row = |y: usize| &l[0].1[y * 10..(y + 1) * 10];
+    // the top row: only its first cell inside; the bottom row: all but the last (its centre past the edge)
+    assert_eq!(row(0)[0], 4.0);
+    assert!(row(0)[1..].iter().all(|v| v.is_nan()), "{:?}", row(0));
+    assert_eq!(row(4)[..9], [4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0]);
+    assert!(row(4)[9].is_nan());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
