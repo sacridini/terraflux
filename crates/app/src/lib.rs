@@ -40,6 +40,7 @@ pub mod phrases;
 pub mod prepare;
 pub mod prepare_view;
 pub mod problems_view;
+pub mod pt;
 pub mod python;
 pub mod qgis;
 pub mod report;

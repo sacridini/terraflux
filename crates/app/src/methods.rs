@@ -770,11 +770,19 @@ fn and(items: &[String], lang: Lang) -> String {
     }
 }
 
-/// What a step does in Portuguese: its note (written by whoever built the model), else the settings given (the
-/// operators' descriptions are in English).
-fn step_pt(n: &Node) -> String {
+/// What a step does in Portuguese: its operator's phrase with its settings and its note after, else its note
+/// (written by whoever built the model), else the settings given (the operators' descriptions are in English).
+fn step_pt(n: &Node, r: &Registry) -> String {
     let mut out = format!("{} ({})", n.id, n.op);
-    match n.note.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+    let note = n.note.as_deref().map(str::trim).filter(|t| !t.is_empty());
+    if let Some(said) = crate::phrases::sentence_in(n, r.sig(&n.op).map(|s| s.as_ref()), Lang::Pt) {
+        out.push_str(&format!(": {said}"));
+        if let Some(note) = note {
+            out.push_str(&format!(" {}.", note.trim_end_matches('.')));
+        }
+        return out;
+    }
+    match note {
         Some(note) => out.push_str(&format!(": {}.", note.trim_end_matches('.'))),
         None => {
             let settings: Vec<String> = n
@@ -943,7 +951,7 @@ pub fn of_in(m: &Model, r: &Registry, version: &str, file: Option<&str>, lang: L
     }
     let steps = nodes
         .iter()
-        .map(|(depth, n)| format!("{}{}", "    ".repeat(*depth), if pt { step_pt(n) } else { step(n, r) }))
+        .map(|(depth, n)| format!("{}{}", "    ".repeat(*depth), if pt { step_pt(n, r) } else { step(n, r) }))
         .collect::<Vec<_>>();
     Methods { lang, paragraph, steps, references, software: software_apa_in(version, lang), own }
 }
@@ -1285,7 +1293,7 @@ inputs = { map = "mspa.map" }
         assert!(bib.starts_with("@software{terraflux,") && bib.contains("version     = {1.28.0}"), "{bib}");
         assert_eq!(bib.matches("\n@article{").count(), 3);
         assert!(x.ris("1.28.0").starts_with("TY  - COMP"));
-        // in Portuguese: the paragraph, the methods' names, the headings; each step its note, else its settings
+        // in Portuguese: the paragraph, the methods' names, the headings; each step its phrase in Portuguese
         let pt = of_in(&m, &r, "1.28.0", Some("forest.toml"), Lang::Pt);
         assert!(
             pt.paragraph.starts_with(
@@ -1302,8 +1310,13 @@ inputs = { map = "mspa.map" }
             "{}",
             pt.paragraph
         );
-        assert_eq!(pt.steps[1], "mspa (landscape.mspa): The forest's pattern.");
-        assert_eq!(pt.steps[0], "forest (raster.read): path = forest.tif.");
+        assert!(
+            pt.steps[1].starts_with("mspa (landscape.mspa): Os padrões do MSPA de ")
+                && pt.steps[1].ends_with(" The forest's pattern."),
+            "{}",
+            pt.steps[1]
+        );
+        assert!(pt.steps[0].starts_with("forest (raster.read): Lê os rasters de forest.tif"), "{}", pt.steps[0]);
         let text = pt.text();
         assert!(text.starts_with("Métodos\n\n") && text.contains("\nO modelo, etapa por etapa\n\n1. forest"), "{text}");
         assert!(text.contains("\nReferências\n\n") && text.contains("(Versão 1.28.0) [Software]"), "{text}");

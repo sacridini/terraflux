@@ -67,7 +67,7 @@ Here is the same window after a template has run, with its parts numbered:
 ![The parts of the window](/img/tutorials/getting-started/tour/window.png "The window with the template 'MSPA of a forest' run. Numbers are explained below. Screenshot of Terraflux 0.79 on Windows (the theme Default).")
 
 1. **The toolbar.** The **File** menu (*New model*, *Open...*, *Open recent*, *Save*, *Save as...*, *Open a raster
-   or vectors...*, *Compare* and *Export report...*), *Templates* (models to start from), *Operators* (the library
+   or vectors...*, *Compare* and *Export report*), *Templates* (models to start from), *Operators* (the library
    as a menu) and *View* (panes on and off); at the right, *Wizard...* (a land change model built step by step from
    your maps), *Many runs...*, *Computers...*, *Assistant...* and **⚙**, the settings.
 2. **Run and Stop**, then the model's name and how long the last run took (*done in 0.04 s*). **Run** (++f5++) runs
@@ -401,7 +401,7 @@ whoever reads, checks or reviews it rather than builds it. Its nodes are told in
 *Model*, *Validation*, *Results*), a step each, with its note, a sentence of what it does with its settings and
 where its inputs come from ("MSPA's patterns of forest: connected by 8 neighbours, the edges 1 cell wide."), its
 settings, and its map or table from the last run; the plots are its numbered figures. A step's name selects its
-node, and a setting can be changed there as in the Node pane. **Export report...** writes it as a web page or a PDF,
+node, and a setting can be changed there as in the Node pane. **Export report** writes it as a web page or a PDF (in English or Portuguese),
 and **Methods and citations** drafts the methods section of a paper from the model, with the papers to cite, in
 English or Portuguese (also `terraflux methods model.toml --language pt` on the
 [command line](/cli/models/#terraflux-methods), and the `methods` tool of the AI assistants).

@@ -593,6 +593,32 @@ como o próximo bloco, nesta ordem (um commit por item):
    assistente do aplicativo (`tools::methods`). Falta: as frases das etapas em português (as do documento,
    `phrases.rs`), o relatório em português.
 
+## Sobras das partes recentes
+
+Registro de 2026-11-01. As "Falta:" das partes já lançadas (as de "A interface: o que falta nas partes já feitas" e
+de "O que falta nas funções da 1.28.0"), escolhidas pelo usuário como o próximo bloco, nesta ordem (um commit por
+item):
+
+1. **Métodos e relatório em português:** as frases das etapas em português (`phrases.rs`) e o relatório inteiro.
+   **Feito** (Unreleased): `phrases::PHRASES_PT`, as frases dos 36 operadores em português (os mesmos
+   `{configurações}`, `<entradas>` e `[partes]` das inglesas, conferido num teste), nos métodos e no documento;
+   `pt.rs`, os textos do relatório pela sua forma inglesa (`Lang::t`, `Lang::f` com os valores), o que vale também
+   para as verificações (`Verdict::words_in`, `checks::health_in`) e a comparação de dois mapas
+   (`difference::make_in`); `Document::of_in` (as etapas, os tipos das entradas, sim e não, os intervalos dos
+   parâmetros) e `report::Extras::of_in` (a língua do relatório, os métodos nela). No aplicativo, Export report
+   pergunta a língua (In English / Em português); `terraflux report modelo.toml -l pt`. As descrições dos
+   operadores e das suas configurações continuam em inglês.
+2. **Vista Document:** frases para os operadores que ainda não têm (hoje são 36) e tabelas com mais de uma coluna.
+3. **Painel Changes:** casar as linhas das tabelas por uma chave, não pela posição.
+4. **Grupos e laços:** ver no viewer o mapa de um nó de dentro dos corpos de `control.repeat`/`switch`, e congelar
+   um nó de dentro de um grupo.
+5. **Cenários:** a matriz de transições inteira e mais de um resultado comparado por vez.
+6. **Trace:** a mancha desenhada no mapa e a razão da escolha da célula.
+7. **Depuração:** um breakpoint de verdade num nó escolhido (hoje o laço só para entre passos) e o Stop dentro das
+   chamadas do C++.
+8. **Calculadora:** os tipos das portas de `out` no checker do grafo.
+9. **My nodes:** biblioteca remota (URL ou repositório git) e permissões.
+
 ## Paridade com o landschaft na priorização, progresso e parada
 
 Registro de 2026-10-16. O `prioritize.optimize` passou a resolver como o landschaft (o motor de corte e o de

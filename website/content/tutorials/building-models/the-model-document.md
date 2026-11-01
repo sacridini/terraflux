@@ -66,7 +66,7 @@ model has none.
 
 A line above the document counts the steps and says how many have **no note or no why** (hover over it: *what each
 step is for and why it was chosen: the Node pane writes them*). The template's nodes have notes and no *why*, so
-it says so. On the right, **Export report...** writes the document as a file (below).
+it says so. On the right, **Export report** writes the document as a file (below).
 
 ### The sections: the stages of a model
 
@@ -190,8 +190,8 @@ note under its title and a link to the group. It is refused when the top level h
 
 ## Export a report
 
-**Export report...**, at the top right of the Document pane or in the **File** menu, asks where to write it, as *A
-web page (HTML)* or as a *PDF*:
+**Export report**, at the top right of the Document pane or in the **File** menu, offers the language, *In
+English...* or *Em português...*, then asks where to write it, as *A web page (HTML)* or as a *PDF*:
 
 - the **HTML** file is a single file, its images inside it: it opens in any web browser, without Terraflux, and can
   be sent by e-mail or put in a paper's supplementary material;
@@ -214,9 +214,15 @@ cells changed class, or the mean difference) and its key. The
 images come from the **last run**: run the model before you export it, or its steps say *Not run.* The report's maps are drawn in colours fitted to their values (a colour per class, or a ramp), not
 in the palette chosen in the Viewer. A line at the end says which version of Terraflux made it and on which day.
 
+In Portuguese, the report's own words are in Portuguese: the sections (*Dados*, *Preparação*, *Modelo*...), the
+tables' headings, what a step takes (*Recebe...*) and how a loop repeats, the figures (*Figura 1.*), the checks and
+their badges, a comparison's words, and the methods and citations; a step's sentence too, for the operators that
+have one (*Lê os rasters de forest.tif.*). The operators' descriptions of their settings stay in English.
+
 From the command line, `terraflux report ./model.toml` writes the same report next to the model (its name and
-`.html`); `--out report.pdf` chooses the file and its kind by the extension, and `--run` runs the model first, so
-that the steps have their maps and tables and the checks their badges.
+`.html`); `--out report.pdf` chooses the file and its kind by the extension, `--language pt` writes it in
+Portuguese, and `--run` runs the model first, so that the steps have their maps and tables and the checks their
+badges.
 
 !!! tip "Send the model with its report"
     The report is what a colleague reads; the model file is what they run. Send both: the report says what the

@@ -1772,10 +1772,9 @@ impl TerrafluxApp {
             ui.menu_button("Compare", |ui| {
                 crate::review::compare_menu(ui, s);
             });
-            if ui.button("Export report...").on_hover_text("the model as a document: HTML or PDF").clicked() {
-                ui.close();
-                crate::document_view::export(s, &self.registry);
-            }
+            ui.menu_button("Export report", |ui| crate::document_view::export_menu(ui, s, &self.registry))
+                .response
+                .on_hover_text("the model as a document: HTML or PDF, in English or in Portuguese");
             if ui
                 .button("Methods and citations...")
                 .on_hover_text("the model's methods as a paper tells them, the papers to cite (BibTeX, RIS)")

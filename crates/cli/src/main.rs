@@ -119,6 +119,9 @@ enum Command {
         /// Run the model first: the maps and tables of the steps in the report.
         #[arg(long)]
         run: bool,
+        /// The language: en (default) or pt.
+        #[arg(short, long, default_value = "en")]
+        language: String,
     },
     /// Draft the methods section of a paper from a model: the methods it uses with the papers to cite, the model
     /// step by step and the references; or the references as BibTeX or RIS.
@@ -1056,7 +1059,9 @@ fn main() -> Result<()> {
         }
         Command::Reproduce { manifest, out, quiet, thaw } => reproduce(&manifest, out, quiet, thaw, &engine)?,
         Command::Test { models, update, quiet, thaw } => test(&models, update, quiet, thaw, &engine)?,
-        Command::Report { model, out, run } => {
+        Command::Report { model, out, run, language } => {
+            let lang = terraflux_app::methods::Lang::parse(&language)
+                .ok_or_else(|| anyhow::anyhow!("no language {language}: en or pt"))?;
             let source = Model::load(&model).with_context(|| format!("reading {}", model.display()))?;
             let dir = folder_of(&model);
             let results = if run {
@@ -1067,7 +1072,7 @@ fn main() -> Result<()> {
             } else {
                 None
             };
-            let doc = terraflux_app::document::Document::of(&source, &engine.registry);
+            let doc = terraflux_app::document::Document::of_in(&source, &engine.registry, lang);
             let values = |n: &str, p: &str| results.as_ref()?.values.get(n)?.get(p).cloned();
             let first = |n: &str| terraflux_app::document::only_output(&source, &engine.registry, n);
             let out = out.unwrap_or_else(|| model.with_extension("html"));
@@ -1076,7 +1081,7 @@ fn main() -> Result<()> {
             let warnings = results.as_ref().map(|r| r.warnings.clone()).unwrap_or_default();
             let checks = terraflux_app::checks::of_run(&source, &values, &ran, None, &warnings);
             let file = model.file_name().map(|f| f.to_string_lossy().into_owned());
-            let extras = terraflux_app::report::Extras::of(&source, &engine.registry, file.as_deref(), checks);
+            let extras = terraflux_app::report::Extras::of_in(&source, &engine.registry, file.as_deref(), checks, lang);
             terraflux_app::report::write(&out, &doc, &values, &first, &extras)
                 .with_context(|| format!("writing {}", out.display()))?;
             eprintln!("wrote {}", out.display());

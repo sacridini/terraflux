@@ -226,7 +226,8 @@ The **Document** pane reads the same graph as the methods section of a paper, fo
 than builds it: its data, preparation, model, validation and results, a step per node with its note, why and
 settings in words, map algebra's expressions linked to the nodes they read, loops with their bodies, the plots as
 numbered figures and the maps and tables of the last run. A step's name selects its node; its settings are edited
-in place. File, Export report writes it as one HTML page or a PDF, as does `terraflux report model.toml`.
+in place. File, Export report writes it as one HTML page or a PDF, in English or in Portuguese, as does
+`terraflux report model.toml` (`-l pt`: in Portuguese).
 **Group the model by stage** (ctrl+K) puts it in a group per stage, each with a note: a few blocks on the
 canvas, opened one at a time, and a section per stage in the document; zoomed out, a model without groups shows
 its stages framed and named. The **Parameters** pane shows the values a user is to change as a form (sliders,

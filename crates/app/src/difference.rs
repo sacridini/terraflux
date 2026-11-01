@@ -11,6 +11,7 @@ use terraflux_ops::Map;
 use terraflux_raster::tiff::Window;
 
 use crate::map_view::Source;
+use crate::methods::Lang;
 use crate::palette::{Coloring, Ramp, class_colour};
 
 /// The most cells a difference is made of: a map with more is compared every few cells.
@@ -79,9 +80,15 @@ fn read(src: &Source, step: usize) -> Result<(Arc<Vec<f64>>, usize), String> {
 
 /// The difference of `b` from `a` on `a`'s grid; of classes when `classes` gives the names of both maps' classes.
 pub fn make(a: &Source, b: &Source, classes: Option<(&Names, &Names)>) -> Result<Made, String> {
+    make_in(a, b, classes, Lang::En)
+}
+
+/// The difference in a language: its summary and the transitions' names in it.
+pub fn make_in(a: &Source, b: &Source, classes: Option<(&Names, &Names)>, lang: Lang) -> Result<Made, String> {
     if crate::map_view::place_on(b.grid(), a.grid()).is_none() {
-        return Err("The map compared is of another coordinate system, or rotated: put it on this map's grid \
-                    (raster.match) to see the difference."
+        return Err(lang
+            .t("The map compared is of another coordinate system, or rotated: put it on this map's grid \
+                (raster.match) to see the difference.")
             .into());
     }
     let (ga, gb) = (a.grid(), b.grid());
@@ -135,10 +142,10 @@ pub fn make(a: &Source, b: &Source, classes: Option<(&Names, &Names)>) -> Result
         g.transform[5] *= step as f64;
         Arc::new(g)
     };
-    let every = if step > 1 { format!(" (every {step} cells)") } else { String::new() };
+    let every = if step > 1 { lang.f(" (every {} cells)", &[&step]) } else { String::new() };
     let mut made = match classes {
-        Some((na, nb)) => transitions(&va, aw, ah, &other, na, nb, step),
-        None => values(&va, aw, ah, &other),
+        Some((na, nb)) => transitions(&va, aw, ah, &other, na, nb, step, lang),
+        None => values(&va, aw, ah, &other, lang),
     };
     made.0.push_str(&every);
     let (summary, data, coloring, counts, names) = made;
@@ -148,7 +155,7 @@ pub fn make(a: &Source, b: &Source, classes: Option<(&Names, &Names)>) -> Result
 type Parts = (String, Vec<f64>, Coloring, Vec<(f64, usize)>, Vec<(f64, String)>);
 
 /// The other one minus this one, cell by cell, in a ramp centred on 0 (to the 98th percentile of the sizes).
-fn values(va: &[f64], aw: usize, ah: usize, other: &dyn Fn(usize, usize) -> f64) -> Parts {
+fn values(va: &[f64], aw: usize, ah: usize, other: &dyn Fn(usize, usize) -> f64, lang: Lang) -> Parts {
     let mut data = Vec::with_capacity(aw * ah);
     let (mut n, mut sum, mut up, mut down) = (0usize, 0.0, 0usize, 0usize);
     let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
@@ -180,17 +187,12 @@ fn values(va: &[f64], aw: usize, ah: usize, other: &dyn Fn(usize, usize) -> f64)
     };
     let coloring = Coloring::Continuous { min: -m, max: m, ramp: Ramp::Diverging, log: false };
     let summary = if n == 0 {
-        "no cell has a value in both maps".to_string()
+        lang.t("no cell has a value in both maps").to_string()
     } else {
-        let share = |k: usize| 100.0 * k as f64 / n as f64;
-        format!(
-            "the map compared minus this one: on average {}, from {} to {}; higher in {:.1}% of the cells, lower in \
-             {:.1}%",
-            short(sum / n as f64),
-            short(lo),
-            short(hi),
-            share(up),
-            share(down),
+        let share = |k: usize| format!("{:.1}", 100.0 * k as f64 / n as f64);
+        lang.f(
+            "the map compared minus this one: on average {}, from {} to {}; higher in {}% of the cells, lower in {}%",
+            &[&short(sum / n as f64), &short(lo), &short(hi), &share(up), &share(down)],
         )
     };
     (summary, data, coloring, Vec::new(), Vec::new())
@@ -208,6 +210,7 @@ fn short(v: f64) -> String {
 
 /// The transitions: a class each, the most common first (value 1 on), the cells that kept their class
 /// [`UNCHANGED`], those without a value in either map none; beyond [`TRANSITIONS`] the others together.
+#[allow(clippy::too_many_arguments)]
 fn transitions(
     va: &[f64],
     aw: usize,
@@ -216,6 +219,7 @@ fn transitions(
     na: &Names,
     nb: &Names,
     step: usize,
+    lang: Lang,
 ) -> Parts {
     let mut pairs = Vec::with_capacity(aw * ah);
     let mut count: HashMap<(i64, i64), usize> = HashMap::new();
@@ -247,7 +251,7 @@ fn transitions(
         })
         .collect();
     let name = |names: &Names, v: i64| names.get(&v).cloned().unwrap_or_else(|| v.to_string());
-    let mut names = vec![(UNCHANGED, "unchanged".to_string())];
+    let mut names = vec![(UNCHANGED, lang.t("unchanged").to_string())];
     let mut colours = vec![(UNCHANGED, Color32::from_gray(205))];
     let cells = step * step;
     let mut counts = vec![(UNCHANGED, kept * cells)];
@@ -260,22 +264,21 @@ fn transitions(
     if rest {
         let v = (named + 1) as f64;
         let n: usize = changes[named..].iter().map(|(_, n)| n).sum();
-        names.push((v, format!("other changes ({})", changes.len() - named)));
+        names.push((v, lang.f("other changes ({})", &[&(changes.len() - named)])));
         colours.push((v, Color32::from_gray(90)));
         counts.push((v, n * cells));
     }
     let changed = both - kept;
     let summary = if both == 0 {
-        "no cell has a class in both maps".to_string()
+        lang.t("no cell has a class in both maps").to_string()
     } else {
-        format!(
-            "{} of {} cells changed class ({:.1}%), in {} transition{}",
-            changed * cells,
-            both * cells,
-            100.0 * changed as f64 / both as f64,
-            changes.len(),
-            if changes.len() == 1 { "" } else { "s" }
-        )
+        let said = if changes.len() == 1 {
+            "{} of {} cells changed class ({}%), in {} transition"
+        } else {
+            "{} of {} cells changed class ({}%), in {} transitions"
+        };
+        let share = format!("{:.1}", 100.0 * changed as f64 / both as f64);
+        lang.f(said, &[&(changed * cells), &(both * cells), &share, &changes.len()])
     };
     (summary, data, Coloring::Classes(colours), counts, names)
 }

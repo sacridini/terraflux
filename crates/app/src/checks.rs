@@ -56,6 +56,22 @@ impl Verdict {
         }
     }
 
+    /// In words, in a language.
+    pub fn words_in(&self, lang: crate::methods::Lang) -> String {
+        match self {
+            Verdict::Warned(m) => lang.f("failed, warning only: {}", &[m]),
+            Verdict::Failed(m) => lang.f("failed, the run stopped: {}", &[m]),
+            Verdict::Passed => lang.t("passed").into(),
+            Verdict::NotRun => lang.t("not run yet").into(),
+            Verdict::Off => lang.t("turned off").into(),
+        }
+    }
+
+    /// In a word in a language, as a badge says it.
+    pub fn label_in(&self, lang: crate::methods::Lang) -> &'static str {
+        lang.t(self.label())
+    }
+
     /// In a word, as a badge says it.
     pub fn label(&self) -> &'static str {
         match self {
@@ -209,6 +225,11 @@ pub fn badges(checks: &[Check], path: &[String]) -> HashMap<String, Verdict> {
 
 /// The model's health in a few words: how many checks passed, warned, failed, did not run (none: no checks).
 pub fn health(checks: &[Check]) -> Option<String> {
+    health_in(checks, crate::methods::Lang::En)
+}
+
+/// How the checks fared, in a language.
+pub fn health_in(checks: &[Check], lang: crate::methods::Lang) -> Option<String> {
     if checks.is_empty() {
         return None;
     }
@@ -222,10 +243,10 @@ pub fn health(checks: &[Check]) -> Option<String> {
     ]
     .into_iter()
     .filter(|(k, _)| *k > 0)
-    .map(|(k, w)| format!("{k} {w}"))
+    .map(|(k, w)| format!("{k} {}", lang.t(w)))
     .collect();
-    let word = if checks.len() == 1 { "check" } else { "checks" };
-    Some(format!("{} {word}: {}", checks.len(), parts.join(", ")))
+    let said = if checks.len() == 1 { "{} check: {}" } else { "{} checks: {}" };
+    Some(lang.f(said, &[&checks.len(), &parts.join(", ")]))
 }
 
 /// The worst verdict of the checks (none: no checks).

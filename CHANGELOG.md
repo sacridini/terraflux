@@ -6,6 +6,17 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- The **report in Portuguese**: File, Export report (and the Document pane's) asks for the language, In English or
+  Em português, and `terraflux report model.toml -l pt` writes it so. The report's own words (the sections, the
+  tables' headings, what a step takes and how a loop repeats, the figures, the checks and their badges, a
+  comparison's words, the footer), the stages, the kinds of the inputs and the parameters' ranges are in
+  Portuguese, and so are the methods and citations at its end. The operators' descriptions of their settings stay
+  in English.
+- The sentences of the steps in Portuguese, for the 36 operators that have one (`Reads the rasters of…` is `Lê os
+  rasters de…`), in the report and in the methods: a step of the methods in Portuguese is its sentence and its
+  note, no longer only its note or its settings.
+
 ## [1.29.0] - 2026-11-01
 
 ### Added

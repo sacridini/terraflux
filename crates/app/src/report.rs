@@ -9,6 +9,7 @@ use terraflux_ops::Value;
 use crate::animation::Frame;
 use crate::document::{Body, Document, From, Section, Size, Stage, Step, data_rows, row_settings};
 use crate::map_view::Source;
+use crate::methods::Lang;
 use crate::palette::{Coloring, image, image_f32};
 
 /// The largest side of the images of a report, pixels: a figure's, a step's.
@@ -73,6 +74,11 @@ pub fn cell(x: f64) -> String {
 /// What a value is shown as, its images at most `side` pixels on a side: a map, rasters on disk (sampled), a
 /// stack's first layer, a series' last value; a table's first rows; else a line of words.
 pub fn visual(v: &Value, side: usize) -> Option<Visual> {
+    visual_in(v, side, Lang::En)
+}
+
+/// What a value is shown as, its words in a language.
+pub fn visual_in(v: &Value, side: usize, lang: Lang) -> Option<Visual> {
     match v {
         Value::Map(m) => {
             Some(Visual { shown: Shown::Picture(picture(&m.data, m.grid.width, m.grid.height, side)), of: None })
@@ -82,7 +88,7 @@ pub fn visual(v: &Value, side: usize) -> Option<Visual> {
             let key = s.keys.first().map(|k| k.to_string()).unwrap_or_default();
             Some(Visual {
                 shown: Shown::Picture(picture(first, s.grid.width, s.grid.height, side)),
-                of: (s.layers.len() > 1).then(|| format!("layer 1 of {}: {key}", s.layers.len())),
+                of: (s.layers.len() > 1).then(|| lang.f("layer 1 of {}: {}", &[&s.layers.len(), &key])),
             })
         }
         Value::Raster(r) => {
@@ -100,15 +106,15 @@ pub fn visual(v: &Value, side: usize) -> Option<Visual> {
             let n = r.layers.len();
             Some(Visual {
                 shown: Shown::Picture(Picture { width: sw, height: sh, rgba }),
-                of: (n > 1).then(|| format!("layer {} of {n}", r.chosen + 1)),
+                of: (n > 1).then(|| lang.f("layer {} of {}", &[&(r.chosen + 1), &n])),
             })
         }
         Value::Series(items) => {
             let last = items.last()?;
-            let mut out = visual(last, side)?;
+            let mut out = visual_in(last, side, lang)?;
             out.of = Some(match out.of {
-                Some(o) => format!("step {} of {}, {o}", items.len(), items.len()),
-                None => format!("step {} of {}", items.len(), items.len()),
+                Some(o) => lang.f("step {} of {}, {}", &[&items.len(), &items.len(), &o]),
+                None => lang.f("step {} of {}", &[&items.len(), &items.len()]),
             });
             Some(out)
         }
@@ -117,7 +123,7 @@ pub fn visual(v: &Value, side: usize) -> Option<Visual> {
             let rows = t.rows.iter().take(ROWS).map(|r| r.iter().take(COLUMNS).map(|&x| cell(x)).collect()).collect();
             Some(Visual {
                 shown: Shown::Table { columns, rows, more: t.rows.len().saturating_sub(ROWS) },
-                of: (t.columns.len() > COLUMNS).then(|| format!("{} of {} columns", COLUMNS, t.columns.len())),
+                of: (t.columns.len() > COLUMNS).then(|| lang.f("{} of {} columns", &[&COLUMNS, &t.columns.len()])),
             })
         }
         other => Some(Visual {
@@ -140,7 +146,7 @@ fn picks(n: usize, most: usize) -> Vec<usize> {
 /// The maps of a series (a loop's steps) to animate or lay in a row: `most` of its steps, in one colouring (a
 /// value the same colour at every step), each with its step written; none unless a series of two maps of one
 /// size or more.
-fn series_frames(v: &Value, most: usize) -> Option<Vec<Frame>> {
+fn series_frames(v: &Value, most: usize, lang: Lang) -> Option<Vec<Frame>> {
     let Value::Series(items) = v else { return None };
     let n = items.len();
     let steps: Vec<(usize, Source)> =
@@ -157,7 +163,7 @@ fn series_frames(v: &Value, most: usize) -> Option<Vec<Frame>> {
     let frame = |(i, source): (usize, Source)| Frame {
         source,
         coloring: coloring.clone(),
-        caption: format!("step {} of {n}", i + 1),
+        caption: lang.f("step {} of {}", &[&(i + 1), &n]),
     };
     Some(steps.into_iter().map(frame).collect())
 }
@@ -187,7 +193,7 @@ fn last_source(v: &Value) -> Option<Source> {
 
 /// Two values compared (`names` theirs), pictures at most `side` pixels on a side; their difference too when
 /// `difference` (between maps of classes, the transitions).
-fn compared(a: &Value, b: &Value, names: [String; 2], difference: bool, side: usize) -> Option<Compared> {
+fn compared(a: &Value, b: &Value, names: [String; 2], difference: bool, side: usize, lang: Lang) -> Option<Compared> {
     let (sa, sb) = (last_source(a)?, last_source(b)?);
     let colours = |s: &Source| {
         let (v, _, _) = crate::animation::values(s, 256).ok()?;
@@ -204,9 +210,9 @@ fn compared(a: &Value, b: &Value, names: [String; 2], difference: bool, side: us
     if difference {
         let classes = matches!((&ca, &cb), (Coloring::Classes(_), Coloring::Classes(_)));
         let none = crate::difference::Names::new();
-        match crate::difference::make(&sa, &sb, classes.then_some((&none, &none))) {
+        match crate::difference::make_in(&sa, &sb, classes.then_some((&none, &none)), lang) {
             Ok(d) => {
-                pics.push((picture(&d.source, &d.coloring)?, "difference".into()));
+                pics.push((picture(&d.source, &d.coloring)?, lang.t("difference").into()));
                 said = Some(d.summary.clone());
                 let rgb = |c: egui::Color32| [c.r(), c.g(), c.b()];
                 key = match &d.coloring {
@@ -214,13 +220,13 @@ fn compared(a: &Value, b: &Value, names: [String; 2], difference: bool, side: us
                         .iter()
                         .map(|(v, colour)| {
                             let n = d.counts.iter().find(|(k, _)| k == v).map_or(0, |(_, n)| *n);
-                            (rgb(*colour), format!("{}: {n} cells", d.name(*v)))
+                            (rgb(*colour), lang.f("{}: {} cells", &[&d.name(*v), &n]))
                         })
                         .collect(),
                     Coloring::Continuous { min, max, ramp, .. } => vec![
-                        (rgb(ramp.colour(0.0)), format!("lower, to {}", cell(*min))),
-                        (rgb(ramp.colour(0.5)), "the same".into()),
-                        (rgb(ramp.colour(1.0)), format!("higher, to {}", cell(*max))),
+                        (rgb(ramp.colour(0.0)), lang.f("lower, to {}", &[&cell(*min)])),
+                        (rgb(ramp.colour(0.5)), lang.t("the same").into()),
+                        (rgb(ramp.colour(1.0)), lang.f("higher, to {}", &[&cell(*max)])),
                     ],
                 };
             }
@@ -239,6 +245,8 @@ pub type Values<'a> = &'a dyn Fn(&str, &str) -> Option<Value>;
 pub struct Extras {
     pub methods: Option<crate::methods::Methods>,
     pub checks: Vec<crate::checks::Check>,
+    /// The language the report is written in.
+    pub lang: Lang,
 }
 
 impl Extras {
@@ -249,7 +257,19 @@ impl Extras {
         file: Option<&str>,
         checks: Vec<crate::checks::Check>,
     ) -> Extras {
-        Extras { methods: Some(crate::methods::of(m, r, env!("CARGO_PKG_VERSION"), file)), checks }
+        Extras::of_in(m, r, file, checks, Lang::En)
+    }
+
+    /// The same, in a language (the methods too).
+    pub fn of_in(
+        m: &terraflux_graph::Model,
+        r: &terraflux_ops::Registry,
+        file: Option<&str>,
+        checks: Vec<crate::checks::Check>,
+        lang: Lang,
+    ) -> Extras {
+        let methods = crate::methods::of_in(m, r, env!("CARGO_PKG_VERSION"), file, lang);
+        Extras { methods: Some(methods), checks, lang }
     }
 
     /// The badge of a step of a scope (`path`): a check's verdict, a container's worst of the checks it holds.
@@ -270,14 +290,14 @@ impl Extras {
 }
 
 /// What a badge says beside a step: a check's verdict in words (not again the badge's word), a container's worst.
-fn badge_words(v: &crate::checks::Verdict, own: bool) -> String {
+fn badge_words(v: &crate::checks::Verdict, own: bool, lang: Lang) -> String {
     use crate::checks::Verdict;
     match (v, own) {
-        (_, false) => format!("the worst of the checks inside: {}", v.words()),
-        (Verdict::Passed, true) => "it held in the run".into(),
-        (Verdict::NotRun, true) => "the run did not come to it".into(),
-        (Verdict::Off, true) => "turned off (bypassed)".into(),
-        (_, true) => v.words(),
+        (_, false) => lang.f("the worst of the checks inside: {}", &[&v.words_in(lang)]),
+        (Verdict::Passed, true) => lang.t("it held in the run").into(),
+        (Verdict::NotRun, true) => lang.t("the run did not come to it").into(),
+        (Verdict::Off, true) => lang.t("turned off (bypassed)").into(),
+        (_, true) => v.words_in(lang),
     }
 }
 
@@ -391,7 +411,7 @@ a { color: var(--accent); text-decoration: none; }
 "#;
 
 /// The HTML of a value shown (an image at most `side` pixels wide on the page).
-fn html_visual(v: &Visual, alt: &str, width: usize) -> String {
+fn html_visual(v: &Visual, alt: &str, width: usize, lang: Lang) -> String {
     let mut s = String::new();
     match &v.shown {
         Shown::Picture(p) => {
@@ -416,7 +436,7 @@ fn html_visual(v: &Visual, alt: &str, width: usize) -> String {
             }
             s.push_str("</table>");
             if *more > 0 {
-                let _ = write!(s, r#"<div class="of">and {more} more rows</div>"#);
+                let _ = write!(s, r#"<div class="of">{}</div>"#, lang.f("and {} more rows", &[more]));
             }
         }
         Shown::Text(t) => {
@@ -431,15 +451,15 @@ fn html_visual(v: &Visual, alt: &str, width: usize) -> String {
 
 /// A series of maps as an animated GIF (the step written on each, the legend under them), `width` pixels wide on
 /// the page, and how many steps it shows.
-fn html_animation(v: &Value, alt: &str, width: usize) -> Option<String> {
+fn html_animation(v: &Value, alt: &str, width: usize, lang: Lang) -> Option<String> {
     let Value::Series(items) = v else { return None };
-    let frames = series_frames(v, FRAMES)?;
+    let frames = series_frames(v, FRAMES, lang)?;
     let gif = crate::animation::gif(&frames, 250, width).ok()?;
     let n = items.len();
     let shown = if frames.len() < n {
-        format!("the {n} steps, {} of them animated", frames.len())
+        lang.f("the {} steps, {} of them animated", &[&n, &frames.len()])
     } else {
-        format!("the {n} steps, animated")
+        lang.f("the {} steps, animated", &[&n])
     };
     Some(format!(
         r#"<img class="anim" alt="{}" width="{width}" src="data:image/gif;base64,{}"><div class="of">{shown}</div>"#,
@@ -453,19 +473,20 @@ fn figure_compared(
     values: Values,
     first: &dyn Fn(&str) -> Option<String>,
     f: &crate::document::Figure,
+    lang: Lang,
 ) -> Option<Compared> {
     let (n, p, how) = f.compared.as_ref()?;
     let (a, b) = (values(&f.node, &f.port)?, values(n, p)?);
     let name = |node: &str, port: &str| From::Node { node: node.into(), port: port.into() }.text(first);
-    compared(&a, &b, [name(&f.node, &f.port), name(n, p)], how == "difference", FIGURE / 2)
+    compared(&a, &b, [name(&f.node, &f.port), name(n, p)], how == "difference", FIGURE / 2, lang)
 }
 
 /// A comparison on the page: the maps in a row, each named under it, what their difference says and its key.
-fn html_compared(c: &Compared) -> String {
+fn html_compared(c: &Compared, lang: Lang) -> String {
     let width = if c.pics.len() > 2 { 260 } else { 340 };
     let mut s = String::from(r#"<div class="pair">"#);
     for (p, name) in &c.pics {
-        let img = html_visual(&Visual { shown: Shown::Picture(p.clone()), of: None }, name, width);
+        let img = html_visual(&Visual { shown: Shown::Picture(p.clone()), of: None }, name, width, lang);
         let _ = write!(s, r#"<div>{img}<div class="of">{}</div></div>"#, esc(name));
     }
     s.push_str("</div>");
@@ -484,9 +505,10 @@ fn html_compared(c: &Compared) -> String {
 }
 
 /// A value on the page: a series of maps animated, else as [`visual`] shows it; none when there is none.
-fn html_value(v: Option<Value>, alt: &str, side: usize, width: usize) -> Option<String> {
+fn html_value(v: Option<Value>, alt: &str, side: usize, width: usize, lang: Lang) -> Option<String> {
     let v = v?;
-    html_animation(&v, alt, width).or_else(|| visual(&v, side).map(|x| html_visual(&x, alt, width)))
+    html_animation(&v, alt, width, lang)
+        .or_else(|| visual_in(&v, side, lang).map(|x| html_visual(&x, alt, width, lang)))
 }
 
 struct Html<'a> {
@@ -515,11 +537,11 @@ impl Html<'_> {
         }
     }
 
-    fn list(&mut self, title: &str, items: &[String]) {
+    fn list(&mut self, title: &'static str, items: &[String]) {
         if items.is_empty() {
             return;
         }
-        let _ = write!(self.out, "<div><b>{title}.</b><ul>");
+        let _ = write!(self.out, "<div><b>{}.</b><ul>", self.extras.lang.t(title));
         for i in items {
             let _ = write!(self.out, "<li>{}</li>", esc(i));
         }
@@ -527,6 +549,7 @@ impl Html<'_> {
     }
 
     fn step(&mut self, s: &Step, num: &str) {
+        let lang = self.extras.lang;
         let anchor = if s.value.is_some() { format!(r#" id="{}""#, esc(&s.id)) } else { String::new() };
         if s.size == Size::Line {
             let _ = write!(
@@ -537,13 +560,13 @@ impl Html<'_> {
             );
             let of: Vec<String> = s.inputs.iter().map(|l| self.from(&l.from)).collect();
             if !of.is_empty() {
-                let _ = write!(self.out, " of {}", of.join(", "));
+                let _ = write!(self.out, "{}{}", lang.t(" of "), of.join(", "));
             }
             if let Some(n) = &s.note {
                 let _ = write!(self.out, " — <i>{}</i>", esc(n));
             }
             if let Some((v, own)) = self.extras.badge(&self.path, &s.id) {
-                let _ = write!(self.out, " {}", html_badge(&v, &badge_words(&v, own)));
+                let _ = write!(self.out, " {}", html_badge(&v, &badge_words(&v, own, lang), lang));
             }
             self.out.push_str("</div>");
             return;
@@ -555,30 +578,32 @@ impl Html<'_> {
             esc(&s.op)
         );
         if let Some((v, own)) = self.extras.badge(&self.path, &s.id) {
-            let words = badge_words(&v, own);
-            let _ = write!(self.out, "<p>{}{}</p>", html_badge(&v, &words), esc(&words));
+            let words = badge_words(&v, own, lang);
+            let _ = write!(self.out, "<p>{}{}</p>", html_badge(&v, &words, lang), esc(&words));
         }
         match &s.note {
             Some(n) => {
                 let _ = write!(self.out, r#"<p class="note"><i>{}</i></p>"#, esc(n));
             }
-            None => self.out.push_str(r#"<p class="missing">No note.</p>"#),
+            None => {
+                let _ = write!(self.out, r#"<p class="missing">{}</p>"#, lang.t("No note."));
+            }
         }
         if let Some(w) = &s.why {
-            let _ = write!(self.out, "<p><b>Why.</b> {}</p>", esc(w));
+            let _ = write!(self.out, "<p><b>{}</b> {}</p>", lang.t("Why."), esc(w));
         }
         if let Some(t) = &s.sentence {
             let _ = write!(self.out, "<p>{}</p>", esc(t));
         }
         if let Some(f) = &s.file {
-            let _ = write!(self.out, "<p>File <code>{}</code></p>", esc(f));
+            let _ = write!(self.out, "<p>{} <code>{}</code></p>", lang.t("File"), esc(f));
         }
         if let Some(e) = &s.expression {
             let _ = write!(self.out, "<pre>{}</pre>", esc(e));
             let vars: Vec<String> =
                 s.inputs.iter().map(|l| format!("<code>{}</code> = {}", esc(&l.port), self.from(&l.from))).collect();
             if !vars.is_empty() {
-                let _ = write!(self.out, "<p>where {}</p>", vars.join(", "));
+                let _ = write!(self.out, "<p>{}</p>", lang.f("where {}", &[&vars.join(", ")]));
             }
         } else if !s.inputs.is_empty() {
             let of: Vec<String> = s
@@ -593,7 +618,7 @@ impl Html<'_> {
                     )
                 })
                 .collect();
-            let _ = write!(self.out, "<p>Takes {}.</p>", of.join("; "));
+            let _ = write!(self.out, "<p>{}</p>", lang.f("Takes {}.", &[&of.join("; ")]));
         }
         if !s.settings.is_empty() {
             self.out.push_str("<ul>");
@@ -601,7 +626,7 @@ impl Html<'_> {
                 let default = st
                     .default
                     .as_ref()
-                    .map(|d| format!(r#" <span class="default">(default {})</span>"#, esc(d)))
+                    .map(|d| format!(r#" <span class="default">{}</span>"#, esc(&lang.f("(default {})", &[d]))))
                     .unwrap_or_default();
                 let _ = write!(
                     self.out,
@@ -625,11 +650,13 @@ impl Html<'_> {
             && let Some((node, key)) = s.value_key(port)
         {
             let side = if matches!(s.stage, Stage::Data | Stage::Preparation) { STEP / 2 } else { STEP };
-            match html_value((self.values)(&node, &key), &format!("{}.{port}", s.id), side, side) {
+            match html_value((self.values)(&node, &key), &format!("{}.{port}", s.id), side, side, lang) {
                 Some(h) => {
                     let _ = write!(self.out, r#"<div class="thumb">{h}</div>"#);
                 }
-                None => self.out.push_str(r#"<p class="missing">Not run.</p>"#),
+                None => {
+                    let _ = write!(self.out, r#"<p class="missing">{}</p>"#, lang.t("Not run."));
+                }
             }
         }
         for f in &s.figures {
@@ -639,53 +666,57 @@ impl Html<'_> {
     }
 
     fn figure(&mut self, f: &crate::document::Figure) {
-        let img = match figure_compared(self.values, self.first, f) {
-            Some(c) => html_compared(&c),
-            None => html_value((self.values)(&f.node, &f.port), &f.caption, FIGURE, FIGURE * 3 / 4)
-                .unwrap_or_else(|| r#"<p class="missing">Not run.</p>"#.to_string()),
+        let lang = self.extras.lang;
+        let img = match figure_compared(self.values, self.first, f, lang) {
+            Some(c) => html_compared(&c, lang),
+            None => html_value((self.values)(&f.node, &f.port), &f.caption, FIGURE, FIGURE * 3 / 4, lang)
+                .unwrap_or_else(|| format!(r#"<p class="missing">{}</p>"#, lang.t("Not run."))),
         };
         let with = f
             .compared
             .as_ref()
-            .map(|(n, p, _)| format!(", compared with {}", self.from(&From::Node { node: n.clone(), port: p.clone() })))
+            .map(|(n, p, _)| {
+                lang.f(", compared with {}", &[&self.from(&From::Node { node: n.clone(), port: p.clone() })])
+            })
             .unwrap_or_default();
+        let from = lang.f("from {}", &[&self.from(&From::Node { node: f.node.clone(), port: f.port.clone() })]);
         let _ = write!(
             self.out,
-            "<figure>{img}<figcaption><b>Figure {}.</b> {} (from {}{with})</figcaption></figure>",
-            f.number,
+            "<figure>{img}<figcaption><b>{}</b> {} ({from}{with})</figcaption></figure>",
+            lang.f("Figure {}.", &[&f.number]),
             esc(&f.caption),
-            self.from(&From::Node { node: f.node.clone(), port: f.port.clone() })
         );
     }
 
     fn body(&mut self, b: &Body, num: &str) {
+        let lang = self.extras.lang;
         let mut head = Vec::new();
         if let Some(t) = &b.times {
-            head.push(format!("Repeated {} times.", self.from(t)));
+            head.push(lang.f("Repeated {} times.", &[&self.from(t)]));
         }
         if !b.carry.is_empty() {
             let c: Vec<String> = b
                 .carry
                 .iter()
                 .map(|(k, start, each)| {
-                    let start = start.as_ref().map(|f| format!(" from {}", self.from(f))).unwrap_or_default();
-                    format!("<b>{}</b>{start}, then {}", esc(k), self.reference(each))
+                    let start = start.as_ref().map(|f| lang.f(" from {}", &[&self.from(f)])).unwrap_or_default();
+                    format!("<b>{}</b>{start}{}{}", esc(k), lang.t(", then "), self.reference(each))
                 })
                 .collect();
-            head.push(format!("Carries {}.", c.join("; ")));
+            head.push(lang.f("Carries {}.", &[&c.join("; ")]));
         }
         if !b.collect.is_empty() {
             let c: Vec<String> =
                 b.collect.iter().map(|(k, r)| format!("<b>{}</b> ({})", esc(k), self.reference(r))).collect();
-            head.push(format!("Collects {}.", c.join(", ")));
+            head.push(lang.f("Collects {}.", &[&c.join(", ")]));
         }
         if !b.outputs.is_empty() {
             let c: Vec<String> =
                 b.outputs.iter().map(|(k, r)| format!("<b>{}</b> ({})", esc(k), self.reference(r))).collect();
-            head.push(format!("Gives {}.", c.join(", ")));
+            head.push(lang.f("Gives {}.", &[&c.join(", ")]));
         }
         if let Some(u) = &b.until {
-            head.push(format!("Stops when {} is true.", self.reference(u)));
+            head.push(lang.f("Stops when {} is true.", &[&self.reference(u)]));
         }
         if !head.is_empty() {
             let _ = write!(self.out, "<p>{}</p>", head.join(" "));
@@ -698,7 +729,9 @@ impl Html<'_> {
     }
 
     fn data(&mut self, sec: &Section, num: &str) {
-        self.out.push_str("<table><tr><th>Step</th><th>What it is</th><th></th></tr>");
+        let lang = self.extras.lang;
+        let _ =
+            write!(self.out, "<table><tr><th>{}</th><th>{}</th><th></th></tr>", lang.t("Step"), lang.t("What it is"));
         for (k, row) in data_rows(&sec.steps).iter().enumerate() {
             let ids: Vec<String> = row.iter().map(|s| format!(r#"<b id="{0}">{0}</b>"#, esc(&s.id))).collect();
             let _ = write!(
@@ -723,16 +756,16 @@ impl Html<'_> {
                 row_settings(row).iter().map(|(l, v)| format!("{}: <b>{}</b>", esc(l), esc(v))).collect();
             self.out.push_str(&set.join("; "));
             if let Some(w) = &row[0].why {
-                let _ = write!(self.out, "<br><b>Why.</b> {}", esc(w));
+                let _ = write!(self.out, "<br><b>{}</b> {}", lang.t("Why."), esc(w));
             }
             self.out.push_str("</td><td>");
             for s in row.iter().take(4) {
                 if let Some((port, _)) = &s.shows
                     && let Some((node, key)) = s.value_key(port)
-                    && let Some(v) = (self.values)(&node, &key).and_then(|v| visual(&v, 96))
+                    && let Some(v) = (self.values)(&node, &key).and_then(|v| visual_in(&v, 96, lang))
                     && matches!(v.shown, Shown::Picture(_))
                 {
-                    self.out.push_str(&html_visual(&v, &s.id, 72));
+                    self.out.push_str(&html_visual(&v, &s.id, 72, lang));
                 }
             }
             self.out.push_str("</td></tr>");
@@ -749,17 +782,20 @@ impl Html<'_> {
 }
 
 /// A check's verdict as a badge, in its colour, what it says shown over it.
-fn html_badge(v: &crate::checks::Verdict, title: &str) -> String {
+fn html_badge(v: &crate::checks::Verdict, title: &str, lang: Lang) -> String {
     let [r, g, b] = v.rgb();
-    format!(r#"<span class="badge" style="background: rgb({r}, {g}, {b})" title="{}">{}</span>"#, esc(title), v.label())
+    let label = v.label_in(lang);
+    format!(r#"<span class="badge" style="background: rgb({r}, {g}, {b})" title="{}">{label}</span>"#, esc(title))
 }
 
 /// The report as an HTML page.
 pub fn html(doc: &Document, values: Values, first: &dyn Fn(&str) -> Option<String>, extras: &Extras) -> String {
+    let lang = extras.lang;
     let mut h = Html { out: String::new(), values, extras, path: Vec::new(), first };
     let _ = write!(
         h.out,
-        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{}</title><style>{CSS}</style></head><body><main>"#,
+        r#"<!doctype html><html lang="{}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{}</title><style>{CSS}</style></head><body><main>"#,
+        lang.code(),
         esc(&doc.title)
     );
     let _ = write!(h.out, "<h1>{}</h1>", esc(&doc.title));
@@ -768,22 +804,23 @@ pub fn html(doc: &Document, values: Values, first: &dyn Fn(&str) -> Option<Strin
     }
     for (label, v) in [("Request", &doc.request), ("Author", &doc.author), ("Summary", &doc.summary)] {
         if let Some(v) = v {
-            let _ = write!(h.out, r#"<p class="meta"><b>{label}.</b> {}</p>"#, esc(v));
+            let _ = write!(h.out, r#"<p class="meta"><b>{}.</b> {}</p>"#, lang.t(label), esc(v));
         }
     }
     // the model's health: how its checks fared, each linked to its step
-    if let Some(health) = crate::checks::health(&extras.checks) {
-        let _ = write!(h.out, r#"<p class="meta"><b>Checks.</b> {}</p><ul class="checks">"#, esc(&health));
+    if let Some(health) = crate::checks::health_in(&extras.checks, lang) {
+        let _ =
+            write!(h.out, r#"<p class="meta"><b>{}.</b> {}</p><ul class="checks">"#, lang.t("Checks"), esc(&health));
         for c in &extras.checks {
             let at = c.path.iter().chain(std::iter::once(&c.id)).cloned().collect::<Vec<_>>().join("/");
             let _ = write!(
                 h.out,
                 r##"<li>{}<a href="#{}"><b>{}</b></a> <code>{}</code>: {}</li>"##,
-                html_badge(&c.verdict, &c.verdict.words()),
+                html_badge(&c.verdict, &c.verdict.words_in(lang), lang),
                 esc(c.path.first().unwrap_or(&c.id)),
                 esc(&at),
                 esc(&c.expression),
-                esc(&c.verdict.words())
+                esc(&c.verdict.words_in(lang))
             );
         }
         h.out.push_str("</ul>");
@@ -791,8 +828,15 @@ pub fn html(doc: &Document, values: Values, first: &dyn Fn(&str) -> Option<Strin
     let mut k = 0;
     if !doc.inputs.is_empty() {
         k += 1;
-        let _ =
-            write!(h.out, "<h2>{k}. Inputs</h2><table><tr><th>Input</th><th>Kind</th><th>Value</th><th>Note</th></tr>");
+        let _ = write!(
+            h.out,
+            "<h2>{k}. {}</h2><table><tr><th>{}</th><th>{}</th><th>{}</th><th>{}</th></tr>",
+            lang.t("Inputs"),
+            lang.t("Input"),
+            lang.t("Kind"),
+            lang.t("Value"),
+            lang.t("Note")
+        );
         for i in &doc.inputs {
             let _ = write!(
                 h.out,
@@ -809,7 +853,12 @@ pub fn html(doc: &Document, values: Values, first: &dyn Fn(&str) -> Option<Strin
         k += 1;
         let _ = write!(
             h.out,
-            "<h2>{k}. Parameters</h2><table><tr><th>Parameter</th><th>Value</th><th>Range</th><th>What it is</th></tr>"
+            "<h2>{k}. {}</h2><table><tr><th>{}</th><th>{}</th><th>{}</th><th>{}</th></tr>",
+            lang.t("Parameters"),
+            lang.t("Parameter"),
+            lang.t("Value"),
+            lang.t("Range"),
+            lang.t("What it is")
         );
         for p in &doc.parameters {
             let unit = p.unit.as_ref().map(|u| format!(" {}", esc(u))).unwrap_or_default();
@@ -827,7 +876,14 @@ pub fn html(doc: &Document, values: Values, first: &dyn Fn(&str) -> Option<Strin
     }
     if !doc.scenarios.is_empty() {
         k += 1;
-        let _ = write!(h.out, "<h2>{k}. Scenarios</h2><table><tr><th>Scenario</th><th>Values</th><th>Note</th></tr>");
+        let _ = write!(
+            h.out,
+            "<h2>{k}. {}</h2><table><tr><th>{}</th><th>{}</th><th>{}</th></tr>",
+            lang.t("Scenarios"),
+            lang.t("Scenario"),
+            lang.t("Values"),
+            lang.t("Note")
+        );
         for sc in &doc.scenarios {
             let v: Vec<String> = sc.values.iter().map(|(l, v)| format!("{} <b>{}</b>", esc(l), esc(v))).collect();
             let _ = write!(
@@ -862,14 +918,21 @@ pub fn html(doc: &Document, values: Values, first: &dyn Fn(&str) -> Option<Strin
     }
     if !doc.figures.is_empty() && !doc.sections.iter().any(|s| s.stage == Stage::Results) {
         k += 1;
-        let _ = write!(h.out, "<h2>{k}. Results</h2>");
+        let _ = write!(h.out, "<h2>{k}. {}</h2>", lang.t("Results"));
         for f in &doc.figures {
             h.figure(f);
         }
     }
     if !doc.outputs.is_empty() {
         k += 1;
-        let _ = write!(h.out, "<h2>{k}. Outputs</h2><table><tr><th>Output</th><th>From</th><th>File</th></tr>");
+        let _ = write!(
+            h.out,
+            "<h2>{k}. {}</h2><table><tr><th>{}</th><th>{}</th><th>{}</th></tr>",
+            lang.t("Outputs"),
+            lang.t("Output"),
+            lang.t("From"),
+            lang.t("File")
+        );
         for o in &doc.outputs {
             let file = if o.file.is_empty() { String::new() } else { format!("<code>{}</code>", esc(&o.file)) };
             let _ = write!(
@@ -884,27 +947,25 @@ pub fn html(doc: &Document, values: Values, first: &dyn Fn(&str) -> Option<Strin
     // the methods as a paper tells them, and the papers to cite
     if let Some(m) = &extras.methods {
         k += 1;
-        let _ = write!(h.out, "<h2>{k}. Methods and citations</h2><p>{}</p>", esc(&m.paragraph));
-        h.out.push_str(r#"<h3>References</h3><ul class="refs">"#);
+        let _ = write!(h.out, "<h2>{k}. {}</h2><p>{}</p>", lang.t("Methods and citations"), esc(&m.paragraph));
+        let _ = write!(h.out, r#"<h3>{}</h3><ul class="refs">"#, lang.t("References"));
         for r in extras.references() {
             let _ = write!(h.out, "<li>{}</li>", esc(&r));
         }
         h.out.push_str("</ul>");
         if !m.own.is_empty() {
-            h.out.push_str(r#"<h3>Given in the model's notes</h3><ul class="refs">"#);
+            let _ = write!(h.out, r#"<h3>{}</h3><ul class="refs">"#, lang.t("Given in the model's notes"));
             for r in &m.own {
                 let _ = write!(h.out, "<li>{}</li>", esc(r));
             }
             h.out.push_str("</ul>");
         }
     }
-    let _ = write!(
-        h.out,
-        "<footer>Made by Terraflux {} on {} from the model's graph: every step is a node, in the order of what it \
-         depends on.</footer></main></body></html>",
-        env!("CARGO_PKG_VERSION"),
-        today()
+    let made = lang.f(
+        "Made by Terraflux {} on {} from the model's graph: every step is a node, in the order of what it depends on.",
+        &[&env!("CARGO_PKG_VERSION"), &today()],
     );
+    let _ = write!(h.out, "<footer>{}</footer></main></body></html>", esc(&made));
     h.out
 }
 
@@ -1220,7 +1281,7 @@ impl Pdf {
         self.y -= 2.0;
     }
 
-    fn visual(&mut self, v: &Visual, w: f32, indent: f32) {
+    fn visual(&mut self, v: &Visual, w: f32, indent: f32, lang: Lang) {
         match &v.shown {
             Shown::Picture(p) => self.picture(p, w, indent),
             Shown::Table { columns, rows, more } => {
@@ -1243,7 +1304,7 @@ impl Pdf {
                     line(self, r, Font::Regular);
                 }
                 if *more > 0 {
-                    self.paragraph(&[run(Font::Italic, format!("and {more} more rows"))], 8.0, indent, 0.4);
+                    self.paragraph(&[run(Font::Italic, lang.f("and {} more rows", &[more]))], 8.0, indent, 0.4);
                 }
             }
             Shown::Text(t) => self.paragraph(&[run(Font::Italic, t.clone())], 9.0, indent, 0.4),
@@ -1339,8 +1400,8 @@ impl Pdf {
 
 /// A series of maps laid in a row in a PDF: its first, last and steps between, in one colouring, each `each`
 /// points wide at most; whether it was one.
-fn pdf_series(pdf: &mut Pdf, v: &Value, each: f32, indent: f32) -> bool {
-    let Some(frames) = series_frames(v, STRIP) else { return false };
+fn pdf_series(pdf: &mut Pdf, v: &Value, each: f32, indent: f32, lang: Lang) -> bool {
+    let Some(frames) = series_frames(v, STRIP, lang) else { return false };
     let pics: Vec<(Picture, String)> =
         frames.iter().filter_map(|f| Some((frame_picture(f, STEP)?, f.caption.clone()))).collect();
     pdf.strip(&pics, each, indent);
@@ -1368,11 +1429,11 @@ impl PdfReport<'_> {
         }
     }
 
-    fn list(&mut self, title: &str, items: &[String], indent: f32) {
+    fn list(&mut self, title: &'static str, items: &[String], indent: f32) {
         if items.is_empty() {
             return;
         }
-        self.pdf.paragraph(&[run(Font::Bold, format!("{title}."))], 9.5, indent, 0.0);
+        self.pdf.paragraph(&[run(Font::Bold, format!("{}.", self.extras.lang.t(title)))], 9.5, indent, 0.0);
         for i in items {
             self.pdf.paragraph(&[run(Font::Regular, format!("• {i}"))], 9.5, indent + 8.0, 0.0);
         }
@@ -1390,11 +1451,12 @@ impl PdfReport<'_> {
     }
 
     fn step(&mut self, s: &Step, num: &str, indent: f32) {
+        let lang = self.extras.lang;
         if s.size == Size::Line {
             let mut runs = vec![run(Font::Bold, format!("{num} {} ", s.id)), run(Font::Mono, s.op.clone())];
             let of: Vec<Vec<Run>> = s.inputs.iter().map(|l| vec![self.from(&l.from)]).collect();
             if !of.is_empty() {
-                runs.push(run(Font::Regular, " of "));
+                runs.push(run(Font::Regular, lang.t(" of ")));
                 runs.extend(self.joined(of, ", "));
             }
             if let Some(n) = &s.note {
@@ -1403,7 +1465,8 @@ impl PdfReport<'_> {
             self.pdf.space(3.0);
             self.pdf.paragraph(&runs, 9.5, indent, 0.0);
             if let Some((v, own)) = self.extras.badge(&self.path, &s.id) {
-                self.pdf.badge(v.rgb(), v.label(), &[run(Font::Regular, badge_words(&v, own))], 9.0, indent + 8.0);
+                let words = [run(Font::Regular, badge_words(&v, own, lang))];
+                self.pdf.badge(v.rgb(), v.label_in(lang), &words, 9.0, indent + 8.0);
             }
             return;
         }
@@ -1416,20 +1479,22 @@ impl PdfReport<'_> {
             0.0,
         );
         if let Some((v, own)) = self.extras.badge(&self.path, &s.id) {
-            self.pdf.badge(v.rgb(), v.label(), &[run(Font::Regular, badge_words(&v, own))], 9.5, indent);
+            self.pdf.badge(v.rgb(), v.label_in(lang), &[run(Font::Regular, badge_words(&v, own, lang))], 9.5, indent);
         }
         match &s.note {
             Some(n) => self.pdf.paragraph(&[run(Font::Italic, n.clone())], 9.5, indent, 0.0),
-            None => self.pdf.paragraph(&[run(Font::Italic, "No note.")], 9.0, indent, 0.45),
+            None => self.pdf.paragraph(&[run(Font::Italic, lang.t("No note."))], 9.0, indent, 0.45),
         }
         if let Some(w) = &s.why {
-            self.pdf.paragraph(&[run(Font::Bold, "Why. "), run(Font::Regular, w.clone())], 9.5, indent, 0.0);
+            let runs = [run(Font::Bold, format!("{} ", lang.t("Why."))), run(Font::Regular, w.clone())];
+            self.pdf.paragraph(&runs, 9.5, indent, 0.0);
         }
         if let Some(t) = &s.sentence {
             self.pdf.paragraph(&[run(Font::Regular, t.clone())], 9.5, indent, 0.0);
         }
         if let Some(f) = &s.file {
-            self.pdf.paragraph(&[run(Font::Regular, "File "), run(Font::Mono, f.clone())], 9.5, indent, 0.0);
+            let runs = [run(Font::Regular, format!("{} ", lang.t("File"))), run(Font::Mono, f.clone())];
+            self.pdf.paragraph(&runs, 9.5, indent, 0.0);
         }
         if let Some(e) = &s.expression {
             self.pdf.paragraph(&[run(Font::Mono, e.clone())], 9.0, indent + 8.0, 0.0);
@@ -1439,7 +1504,7 @@ impl PdfReport<'_> {
                 .map(|l| vec![run(Font::Mono, l.port.clone()), run(Font::Regular, " = "), self.from(&l.from)])
                 .collect();
             if !vars.is_empty() {
-                let mut runs = vec![run(Font::Regular, "where ")];
+                let mut runs = vec![run(Font::Regular, lang.t("where "))];
                 runs.extend(self.joined(vars, ", "));
                 self.pdf.paragraph(&runs, 9.5, indent, 0.0);
             }
@@ -1449,7 +1514,7 @@ impl PdfReport<'_> {
                 .iter()
                 .map(|l| vec![run(Font::Regular, format!("{} ", l.port.replace('_', " "))), self.from(&l.from)])
                 .collect();
-            let mut runs = vec![run(Font::Regular, "Takes ")];
+            let mut runs = vec![run(Font::Regular, lang.t("Takes "))];
             runs.extend(self.joined(of, "; "));
             runs.push(run(Font::Regular, "."));
             self.pdf.paragraph(&runs, 9.5, indent, 0.0);
@@ -1457,29 +1522,33 @@ impl PdfReport<'_> {
         for st in &s.settings {
             let mut runs = vec![run(Font::Regular, format!("• {}: ", st.label)), run(Font::Bold, st.value.clone())];
             if let Some(d) = &st.default {
-                runs.push(run(Font::Italic, format!(" (default {d})")));
+                runs.push(run(Font::Italic, format!(" {}", lang.f("(default {})", &[d]))));
             }
             self.pdf.paragraph(&runs, 9.5, indent + 8.0, 0.0);
         }
         if let Some(b) = &s.body {
             let mut head: Vec<Vec<Run>> = Vec::new();
             if let Some(t) = &b.times {
-                head.push(vec![run(Font::Regular, "Repeated "), self.from(t), run(Font::Regular, " times.")]);
+                head.push(vec![
+                    run(Font::Regular, lang.t("Repeated ")),
+                    self.from(t),
+                    run(Font::Regular, lang.t(" times.")),
+                ]);
             }
             for (k, start, each) in &b.carry {
-                let mut r = vec![run(Font::Regular, "Carries "), run(Font::Bold, k.clone())];
+                let mut r = vec![run(Font::Regular, lang.t("Carries ")), run(Font::Bold, k.clone())];
                 if let Some(f) = start {
-                    r.push(run(Font::Regular, " from "));
+                    r.push(run(Font::Regular, lang.t(" from ")));
                     r.push(self.from(f));
                 }
-                r.push(run(Font::Regular, ", then "));
+                r.push(run(Font::Regular, lang.t(", then ")));
                 r.push(self.reference(each));
                 r.push(run(Font::Regular, "."));
                 head.push(r);
             }
             for (k, r) in &b.collect {
                 head.push(vec![
-                    run(Font::Regular, "Collects "),
+                    run(Font::Regular, lang.t("Collects ")),
                     run(Font::Bold, k.clone()),
                     run(Font::Regular, " ("),
                     self.reference(r),
@@ -1488,7 +1557,7 @@ impl PdfReport<'_> {
             }
             for (k, r) in &b.outputs {
                 head.push(vec![
-                    run(Font::Regular, "Gives "),
+                    run(Font::Regular, lang.t("Gives ")),
                     run(Font::Bold, k.clone()),
                     run(Font::Regular, " ("),
                     self.reference(r),
@@ -1496,7 +1565,8 @@ impl PdfReport<'_> {
                 ]);
             }
             if let Some(u) = &b.until {
-                head.push(vec![run(Font::Regular, "Stops when "), self.reference(u), run(Font::Regular, " is true.")]);
+                let (a, b) = (lang.t("Stops when "), lang.t(" is true."));
+                head.push(vec![run(Font::Regular, a), self.reference(u), run(Font::Regular, b)]);
             }
             for h in head {
                 self.pdf.paragraph(&h, 9.5, indent, 0.0);
@@ -1515,10 +1585,10 @@ impl PdfReport<'_> {
         {
             let small = matches!(s.stage, Stage::Data | Stage::Preparation);
             let value = (self.values)(&node, &key);
-            if !value.as_ref().is_some_and(|v| pdf_series(&mut self.pdf, v, 110.0, indent)) {
-                match value.and_then(|v| visual(&v, STEP)) {
-                    Some(v) => self.pdf.visual(&v, if small { 110.0 } else { 180.0 }, indent),
-                    None => self.pdf.paragraph(&[run(Font::Italic, "Not run.")], 9.0, indent, 0.45),
+            if !value.as_ref().is_some_and(|v| pdf_series(&mut self.pdf, v, 110.0, indent, lang)) {
+                match value.and_then(|v| visual_in(&v, STEP, lang)) {
+                    Some(v) => self.pdf.visual(&v, if small { 110.0 } else { 180.0 }, indent, lang),
+                    None => self.pdf.paragraph(&[run(Font::Italic, lang.t("Not run."))], 9.0, indent, 0.45),
                 }
             }
         }
@@ -1528,9 +1598,10 @@ impl PdfReport<'_> {
     }
 
     fn figure(&mut self, f: &crate::document::Figure, indent: f32) {
+        let lang = self.extras.lang;
         self.pdf.space(4.0);
         let value = (self.values)(&f.node, &f.port);
-        if let Some(c) = figure_compared(self.values, self.first, f) {
+        if let Some(c) = figure_compared(self.values, self.first, f, lang) {
             // the maps compared in a row, what their difference says and its key
             self.pdf.strip(&c.pics, if c.pics.len() > 2 { 150.0 } else { 200.0 }, indent);
             if let Some(t) = &c.said {
@@ -1539,19 +1610,19 @@ impl PdfReport<'_> {
             for (rgb, words) in &c.key {
                 self.pdf.badge(*rgb, "", &[run(Font::Regular, words.clone())], 8.0, indent + 4.0);
             }
-        } else if !value.as_ref().is_some_and(|v| pdf_series(&mut self.pdf, v, 150.0, indent)) {
-            match value.and_then(|v| visual(&v, FIGURE)) {
-                Some(v) => self.pdf.visual(&v, 300.0, indent),
-                None => self.pdf.paragraph(&[run(Font::Italic, "Not run.")], 9.0, indent, 0.45),
+        } else if !value.as_ref().is_some_and(|v| pdf_series(&mut self.pdf, v, 150.0, indent, lang)) {
+            match value.and_then(|v| visual_in(&v, FIGURE, lang)) {
+                Some(v) => self.pdf.visual(&v, 300.0, indent, lang),
+                None => self.pdf.paragraph(&[run(Font::Italic, lang.t("Not run."))], 9.0, indent, 0.45),
             }
         }
         let mut caption = vec![
-            run(Font::Bold, format!("Figure {}. ", f.number)),
-            run(Font::Regular, format!("{} (from ", f.caption)),
+            run(Font::Bold, format!("{} ", lang.f("Figure {}.", &[&f.number]))),
+            run(Font::Regular, format!("{} ({}", f.caption, lang.t("from "))),
             self.from(&From::Node { node: f.node.clone(), port: f.port.clone() }),
         ];
         if let Some((n, p, _)) = &f.compared {
-            caption.push(run(Font::Regular, ", compared with "));
+            caption.push(run(Font::Regular, lang.f(", compared with {}", &[&""])));
             caption.push(self.from(&From::Node { node: n.clone(), port: p.clone() }));
         }
         caption.push(run(Font::Regular, ")"));
@@ -1568,6 +1639,7 @@ impl PdfReport<'_> {
 
 /// The report as a PDF.
 pub fn pdf(doc: &Document, values: Values, first: &dyn Fn(&str) -> Option<String>, extras: &Extras) -> Vec<u8> {
+    let lang = extras.lang;
     let mut p = PdfReport { pdf: Pdf::new(), values, extras, path: Vec::new(), first };
     p.pdf.paragraph(&[run(Font::Bold, doc.title.clone())], 20.0, 0.0, 0.0);
     if let Some(d) = &doc.description {
@@ -1576,27 +1648,29 @@ pub fn pdf(doc: &Document, values: Values, first: &dyn Fn(&str) -> Option<String
     for (label, v) in [("Request", &doc.request), ("Author", &doc.author), ("Summary", &doc.summary)] {
         if let Some(v) = v {
             p.pdf.space(2.0);
-            p.pdf.paragraph(&[run(Font::Bold, format!("{label}. ")), run(Font::Regular, v.clone())], 10.0, 0.0, 0.0);
+            let runs = [run(Font::Bold, format!("{}. ", lang.t(label))), run(Font::Regular, v.clone())];
+            p.pdf.paragraph(&runs, 10.0, 0.0, 0.0);
         }
     }
     // the model's health: how its checks fared
-    if let Some(health) = crate::checks::health(&extras.checks) {
+    if let Some(health) = crate::checks::health_in(&extras.checks, lang) {
         p.pdf.space(2.0);
-        p.pdf.paragraph(&[run(Font::Bold, "Checks. "), run(Font::Regular, health)], 10.0, 0.0, 0.0);
+        let runs = [run(Font::Bold, format!("{}. ", lang.t("Checks"))), run(Font::Regular, health)];
+        p.pdf.paragraph(&runs, 10.0, 0.0, 0.0);
         for c in &extras.checks {
             let at = c.path.iter().chain(std::iter::once(&c.id)).cloned().collect::<Vec<_>>().join("/");
             let rest = [
                 run(Font::Bold, format!("{at} ")),
                 run(Font::Mono, c.expression.clone()),
-                run(Font::Regular, format!(": {}", c.verdict.words())),
+                run(Font::Regular, format!(": {}", c.verdict.words_in(lang))),
             ];
-            p.pdf.badge(c.verdict.rgb(), c.verdict.label(), &rest, 9.0, 8.0);
+            p.pdf.badge(c.verdict.rgb(), c.verdict.label_in(lang), &rest, 9.0, 8.0);
         }
     }
     let mut k = 0;
     if !doc.inputs.is_empty() {
         k += 1;
-        p.heading(&format!("{k}. Inputs"));
+        p.heading(&format!("{k}. {}", lang.t("Inputs")));
         for i in &doc.inputs {
             let mut runs = vec![
                 run(Font::Bold, format!("${} ", i.name)),
@@ -1611,7 +1685,7 @@ pub fn pdf(doc: &Document, values: Values, first: &dyn Fn(&str) -> Option<String
     }
     if !doc.parameters.is_empty() {
         k += 1;
-        p.heading(&format!("{k}. Parameters"));
+        p.heading(&format!("{k}. {}", lang.t("Parameters")));
         for x in &doc.parameters {
             let mut runs = vec![
                 run(Font::Bold, format!("{}: ", x.label)),
@@ -1631,7 +1705,7 @@ pub fn pdf(doc: &Document, values: Values, first: &dyn Fn(&str) -> Option<String
     }
     if !doc.scenarios.is_empty() {
         k += 1;
-        p.heading(&format!("{k}. Scenarios"));
+        p.heading(&format!("{k}. {}", lang.t("Scenarios")));
         for sc in &doc.scenarios {
             let v: Vec<String> = sc.values.iter().map(|(l, v)| format!("{l} {v}")).collect();
             let mut runs = vec![run(Font::Bold, format!("{}: ", sc.name)), run(Font::Regular, v.join("; "))];
@@ -1675,7 +1749,8 @@ pub fn pdf(doc: &Document, values: Values, first: &dyn Fn(&str) -> Option<String
                     p.pdf.paragraph(&[run(Font::Regular, set.join("; "))], 9.0, 0.0, 0.25);
                 }
                 if let Some(w) = &row[0].why {
-                    p.pdf.paragraph(&[run(Font::Bold, "Why. "), run(Font::Regular, w.clone())], 9.5, 0.0, 0.0);
+                    let runs = [run(Font::Bold, format!("{} ", lang.t("Why."))), run(Font::Regular, w.clone())];
+                    p.pdf.paragraph(&runs, 9.5, 0.0, 0.0);
                 }
                 for s in row.iter() {
                     for f in &s.figures {
@@ -1696,17 +1771,20 @@ pub fn pdf(doc: &Document, values: Values, first: &dyn Fn(&str) -> Option<String
     }
     if !doc.figures.is_empty() && !doc.sections.iter().any(|s| s.stage == Stage::Results) {
         k += 1;
-        p.heading(&format!("{k}. Results"));
+        p.heading(&format!("{k}. {}", lang.t("Results")));
         for f in &doc.figures {
             p.figure(f, 0.0);
         }
     }
     if !doc.outputs.is_empty() {
         k += 1;
-        p.heading(&format!("{k}. Outputs"));
+        p.heading(&format!("{k}. {}", lang.t("Outputs")));
         for o in &doc.outputs {
-            let mut runs =
-                vec![run(Font::Bold, format!("{} ", o.name)), run(Font::Regular, "from "), p.reference(&o.from)];
+            let mut runs = vec![
+                run(Font::Bold, format!("{} ", o.name)),
+                run(Font::Regular, lang.t("from ")),
+                p.reference(&o.from),
+            ];
             if !o.file.is_empty() {
                 runs.push(run(Font::Regular, ", "));
                 runs.push(run(Font::Mono, o.file.clone()));
@@ -1717,17 +1795,17 @@ pub fn pdf(doc: &Document, values: Values, first: &dyn Fn(&str) -> Option<String
     // the methods as a paper tells them, and the papers to cite
     if let Some(m) = &extras.methods {
         k += 1;
-        p.heading(&format!("{k}. Methods and citations"));
+        p.heading(&format!("{k}. {}", lang.t("Methods and citations")));
         p.pdf.paragraph(&[run(Font::Regular, m.paragraph.clone())], 10.0, 0.0, 0.0);
         p.pdf.space(6.0);
-        p.pdf.paragraph(&[run(Font::Bold, "References")], 10.5, 0.0, 0.0);
+        p.pdf.paragraph(&[run(Font::Bold, lang.t("References"))], 10.5, 0.0, 0.0);
         for r in extras.references() {
             p.pdf.space(2.0);
             p.pdf.paragraph(&[run(Font::Regular, r)], 9.0, 0.0, 0.0);
         }
         if !m.own.is_empty() {
             p.pdf.space(6.0);
-            p.pdf.paragraph(&[run(Font::Bold, "Given in the model's notes")], 10.5, 0.0, 0.0);
+            p.pdf.paragraph(&[run(Font::Bold, lang.t("Given in the model's notes"))], 10.5, 0.0, 0.0);
             for r in &m.own {
                 p.pdf.space(2.0);
                 p.pdf.paragraph(&[run(Font::Regular, r.clone())], 9.0, 0.0, 0.0);
@@ -1738,7 +1816,7 @@ pub fn pdf(doc: &Document, values: Values, first: &dyn Fn(&str) -> Option<String
     p.pdf.paragraph(
         &[run(
             Font::Italic,
-            format!("Made by Terraflux {} on {} from the model's graph.", env!("CARGO_PKG_VERSION"), today()),
+            lang.f("Made by Terraflux {} on {} from the model's graph.", &[&env!("CARGO_PKG_VERSION"), &today()]),
         )],
         8.5,
         0.0,
@@ -1843,6 +1921,33 @@ mod tests {
     }
 
     #[test]
+    fn a_report_in_portuguese() {
+        use crate::checks::{Check, Verdict};
+        let r = Registry::standard();
+        let m = template("CLUE-S");
+        let d = Document::of_in(&m, &r, Lang::Pt);
+        let none = |_: &str, _: &str| None;
+        let first = |_: &str| None;
+        let checks =
+            vec![Check { path: Vec::new(), id: "x".into(), expression: "value >= 0".into(), verdict: Verdict::Passed }];
+        let extras = Extras::of_in(&m, &r, Some("clue.toml"), checks, Lang::Pt);
+        let h = html(&d, &none, &first, &extras);
+        assert!(h.contains(r#"<html lang="pt">"#));
+        assert!(h.contains("<h2>1. Dados</h2>") && h.contains("<h2>3. Modelo</h2>"), "the stages");
+        assert!(h.contains("Não rodou.") && h.contains("<b>Figura 1.</b> Simulated land use"));
+        assert!(h.contains("<b>Verificações.</b> 1 verificação: 1 passou"), "the health");
+        assert!(h.contains(">passou</span>"), "the badge");
+        assert!(h.contains("<p>Repetido ") && h.contains(" vezes."), "a loop's body");
+        assert!(h.contains(". Métodos e citações</h2><p>A análise foi feita no Terraflux"));
+        assert!(h.contains("<h3>Referências</h3>") && h.contains("(Versão "));
+        assert!(h.contains("<footer>Feito pelo Terraflux"));
+        assert!(!h.contains("Not run.") && !h.contains("Takes "), "nothing of the report's own in English");
+        let p = pdf(&d, &none, &first, &extras);
+        let text = String::from_utf8_lossy(&p);
+        assert!(text.contains("(Dados) Tj") && text.contains("(Figura) Tj"), "the PDF too");
+    }
+
+    #[test]
     fn a_series_is_animated_in_html_and_laid_in_a_row_in_a_pdf() {
         use std::sync::Arc;
         let map = |k: usize| {
@@ -1852,19 +1957,19 @@ mod tests {
         let series = Value::Series((0..50).map(map).collect());
         assert_eq!(picks(50, 4), [0, 16, 32, 49]);
         assert_eq!(picks(3, 4), [0, 1, 2]);
-        let frames = series_frames(&series, FRAMES).unwrap();
+        let frames = series_frames(&series, FRAMES, Lang::En).unwrap();
         assert_eq!(frames.len(), FRAMES);
         assert_eq!((frames[0].caption.as_str(), frames[39].caption.as_str()), ("step 1 of 50", "step 50 of 50"));
         assert!(frames.iter().all(|f| f.coloring == frames[0].coloring), "one colouring");
-        let h = html_value(Some(series.clone()), "sim", STEP, STEP).unwrap();
+        let h = html_value(Some(series.clone()), "sim", STEP, STEP, Lang::En).unwrap();
         assert!(h.contains("data:image/gif;base64,R0lGOD"), "a GIF");
         assert!(h.contains("the 50 steps, 40 of them animated"));
         let mut pdf = Pdf::new();
-        assert!(pdf_series(&mut pdf, &series, 110.0, 0.0));
+        assert!(pdf_series(&mut pdf, &series, 110.0, 0.0, Lang::En));
         assert_eq!(pdf.used.len(), 4, "four steps in a row");
         assert!(pdf.page.contains("(of) Tj") || pdf.page.contains("(step 50 of 50) Tj"), "{}", pdf.page);
         // a single map is not a series
-        assert!(series_frames(&map(3), FRAMES).is_none());
+        assert!(series_frames(&map(3), FRAMES, Lang::En).is_none());
     }
 
     #[test]
@@ -1902,7 +2007,7 @@ mod tests {
             terraflux_exec::Engine::default().run(&m, &Default::default(), &mut terraflux_exec::Quiet).unwrap();
         let values = |n: &str, p: &str| results.values.get(n)?.get(p).cloned();
         let first = |n: &str| crate::document::only_output(&m, &r, n);
-        let c = figure_compared(&values, &first, &f).unwrap();
+        let c = figure_compared(&values, &first, &f, Lang::En).unwrap();
         assert_eq!(c.pics.iter().map(|(_, n)| n.as_str()).collect::<Vec<_>>(), ["was", "after", "difference"]);
         assert!(c.said.as_deref().is_some_and(|t| t.contains("cells changed class")), "{:?}", c.said);
         assert_eq!(c.key[0].1.split(':').next(), Some("unchanged"));
@@ -1914,7 +2019,7 @@ mod tests {
         // side by side: the two maps, no difference
         let mut f2 = f.clone();
         f2.compared = Some(("after".into(), "x".into(), "side by side".into()));
-        let c = figure_compared(&values, &first, &f2).unwrap();
+        let c = figure_compared(&values, &first, &f2, Lang::En).unwrap();
         assert_eq!((c.pics.len(), c.said, c.key.len()), (2, None, 0));
     }
 
