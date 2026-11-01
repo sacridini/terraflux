@@ -2,6 +2,7 @@
 //! what each node gives shown at once, the maps drawn as they come, the area of each class along the steps and
 //! the validation against an observed map.
 
+pub mod advice;
 pub mod animation;
 pub mod app;
 pub mod basemap;
@@ -25,6 +26,7 @@ pub mod editor_view;
 pub mod eval;
 pub mod figure;
 pub mod files_view;
+pub mod guide;
 pub mod handoff;
 pub mod legend_view;
 pub mod llm;
@@ -34,6 +36,7 @@ pub mod metadata;
 pub mod methods;
 pub mod my_nodes;
 pub mod node_view;
+pub mod op_notes;
 pub mod palette;
 pub mod params_view;
 pub mod phrases;
@@ -46,6 +49,7 @@ pub mod qgis;
 pub mod report;
 pub mod review;
 pub mod runner;
+pub mod search;
 pub mod settings;
 pub mod table_view;
 pub mod templates;

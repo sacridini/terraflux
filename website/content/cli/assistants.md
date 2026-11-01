@@ -19,11 +19,12 @@ problems found in it, and summaries of the results).
 
 | Tool | What it does |
 |---|---|
-| `list_templates`, `new_model` | Lists the templates (small models that run as they are) and starts a model, empty or from a template |
-| `list_operators`, `describe_operator` | Finds operators by what they do; gives an operator's inputs, outputs and settings, with an example node. The nodes of your own and shared [libraries](/tutorials/building-models/calculator/#libraries-shared-with-your-group) are listed too, named `my:name` |
+| `guide` | The method of a field step by step, with its operators and templates (land change, connectivity, landscape metrics, conservation planning, species distributions, data preparation), and how a model is built; read by the assistant before it builds or reviews a model |
+| `list_templates`, `new_model` | Lists the templates (small models that run as they are), or those that match what you ask for (in English or Portuguese), and starts a model, empty or from a template; a copied template's reply says which of its nodes draw data, to be replaced by your files |
+| `list_operators`, `describe_operator` | Finds operators by what they do, in English or Portuguese words (*densidade de bordas*, *pesos de evidência*), the nearest ones when none has every word; gives an operator's inputs, outputs and settings, with an example node, advice on its use, the method and papers to cite, and the operators it usually reads and gives to in the templates. The nodes of your own and shared [libraries](/tutorials/building-models/calculator/#libraries-shared-with-your-group) are listed too, named `my:name` |
 | `add_node`, `edit_node`, `remove_node` | Adds a node connected and set (an operator, or a node of your libraries by its `my:name`), changes it (its connections, settings, note, name), removes it |
 | `set_input`, `set_output`, `edit_container` | The model's inputs and outputs, and what a loop or group carries, collects or gives |
-| `show_model`, `check_model`, `arrange` | Shows the model as text, checks it and its data, and puts its nodes in tidy columns |
+| `show_model`, `check_model`, `arrange` | Shows the model as text, checks it and its data, advises on its method (see below), and puts its nodes in tidy columns |
 | `methods` | Drafts the methods section of a paper from the model, with the papers to cite (in English or Portuguese), or its references as BibTeX or RIS |
 | `write_calc`, `explain_calc` | Writes a calculator's script ([raster.calc, vector.calc or vector.filter](../../calculators/)), checked and tried on a sample of its inputs before the model changes, and takes a script apart: what each name holds |
 | `run_model`, `inspect_file` | Runs the model, then summarises a result: a raster's classes or statistics, a table's first lines |
@@ -34,6 +35,31 @@ Every edit is checked the way the application checks the edits you make yourself
 type (a table into an input that takes a map), a setting the operator does not have, or a loop of nodes reading
 each other is refused, the reason is given to the assistant, and the model file is left as it was. After each
 edit the assistant is told the problems the model still has, so it can go on fixing them.
+
+### Guides, advice on the method, prompts
+
+An assistant knows a lot in general and little of your field's good practice in Terraflux. The server tells it
+that good practice where it is needed, rather than all at once:
+
+- **Guides.** When it connects, the assistant gets short instructions (clients cut long ones) that send it to the
+  `guide` of the field before it builds: the steps of a land change model (analyse the change, calibrate on the
+  first period, simulate, validate on a date not used to calibrate, run several seeds), of connectivity, of
+  landscape metrics, of conservation planning, of a species distribution model, and of putting the data on one
+  grid, each step with its operators and templates.
+- **Advice on the method.** `check_model`, and the reply to `run_model`, add what a reviewer of the paper would
+  ask, each with what to do and the guide that tells more: a land change simulated but never compared with an
+  observed map, or compared with the map it was calibrated on; a stochastic simulation run once; distances, areas
+  or landscape metrics on maps in degrees; metrics of a continuous map; a species distribution model evaluated
+  only on random folds. `inspect_file` says when a raster is in degrees or has no coordinate system.
+- **Prompts.** Workflows you start by name, with their arguments: `build_model` (a goal, your data, the file),
+  `adapt_template` (a template with your files in place of its drawn data), `review_model` (the method reviewed as
+  a paper's reviewer would, without changing the model), `explain_model` and `explain_cell`. In Claude Code they
+  are slash commands: `/mcp__terraflux__review_model D:\forest\model.toml`.
+- **Resources.** The guides (`terraflux://guide/land-change`), the templates' files
+  (`terraflux://template/dinamica-ego`) and any operator's documentation (`terraflux://operator/woe.fit`), for the
+  clients that let you attach them to a message (`@` in Claude Code).
+
+The [application's own assistant](#the-applications-own-assistant) has the same guides and the same advice.
 
 ## Connect an assistant
 
@@ -166,19 +192,21 @@ with **Review**, **Accept all** and **Reject all**.
 !!! note "Evaluate this model"
     Language models differ a lot in how well they use Terraflux's tools, and a small model on your own computer may
     not manage what a large one does. Under **Evaluation**, in the server's settings, **Evaluate this model** asks
-    the server's model the same 8 tasks every model gets, one after another, each in a model of its own (not the
+    the server's model the same 10 tasks every model gets, one after another, each in a model of its own (not the
     one open): drawing a neutral landscape and running it, a threshold in [[raster.calc]], a template changed, a
     model fixed, a node explained without changing the model, landscape metrics, a rename that keeps the
-    connections, and a loop. Each is checked on what the assistant made (the threshold cell by cell, the loop's
+    connections, a loop, landscape metrics asked in Portuguese, and a land change model's method reviewed (it
+    lacks a validation) without changing it. Each is checked on what the assistant made (the threshold cell by cell, the loop's
     last number, the model left unchanged...), with the seconds it took and the tools it called; a task can take
     minutes, and **Stop** ends the evaluation. The last score of each model is kept and shown with its server
-    (*2 of 8 tasks*, the date, and why each failed task failed), so the models you try are compared on the same
+    (*2 of 10 tasks*, the date, and why each failed task failed), so the models you try are compared on the same
     tasks.
 
 ## Check what the assistant built
 
 An assistant can be wrong: it may choose an operator that does not fit your question, or a setting that does not
-suit your landscape. The checks catch a model that cannot run, not a model that answers the wrong question.
+suit your landscape. The checks catch a model that cannot run, and the advice on the method the most common
+slips, not a model that answers the wrong question.
 Before you use the results:
 
 - read the model on the canvas, node by node, and make sure each step is one you would have chosen;

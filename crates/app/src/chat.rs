@@ -632,6 +632,9 @@ fn new_model(s: &mut Session, r: &Registry, a: &Value, stamp: &Stamp) -> Reply {
     if !nodes.is_empty() {
         t.push_str(&format!("; its nodes: {}", nodes.join(", ")));
     }
+    if tools::opt_text(a, "template").is_some() {
+        t.push_str(&tools::template_next(&s.source));
+    }
     Ok(format!("{t}\n{}", tools::problems(&s.source, &s.base(), r)))
 }
 
@@ -704,6 +707,7 @@ fn ran(s: &Session) -> Reply {
             t.push_str(&format!("\n- {w}"));
         }
     }
+    t.push_str(&crate::advice::after_run(&s.model, &Registry::standard(), &s.base(), s.inputs.as_ref()));
     Ok(t)
 }
 
@@ -777,7 +781,8 @@ impl Job {
         let a = &args;
         // (a failure of an operator ends the call, not the assistant)
         let done = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match call.name.as_str() {
-            "list_templates" => Ok(tools::list_templates()),
+            "list_templates" => Ok(tools::find_templates(tools::opt_text(a, "query"))),
+            "guide" => crate::guide::guide(tools::opt_text(a, "topic")),
             "list_operators" => Ok(tools::list_operators(r, tools::opt_text(a, "query"))),
             "describe_operator" => tools::describe_operator(r, tools::text(a, "name")?),
             "inspect_file" => tools::inspect_file(a),

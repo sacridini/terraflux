@@ -30,7 +30,9 @@ pub struct Task {
 const PATIENCE: Duration = Duration::from_secs(600);
 
 /// The tasks: drawing and running, a threshold checked cell by cell, a template changed, a model fixed, a node
-/// explained without a change, metrics, a rename that keeps the connections, a loop.
+/// explained without a change, metrics, a rename that keeps the connections, a loop, metrics asked in Portuguese
+/// (the operators found by Portuguese words), a model's method reviewed (the validation it lacks, from
+/// check_model's advice and the guides) without a change.
 pub const TASKS: &[Task] = &[
     Task {
         name: "a neutral landscape",
@@ -84,6 +86,20 @@ pub const TASKS: &[Task] = &[
         start: None,
         check: looped,
     },
+    Task {
+        name: "metrics in Portuguese",
+        ask: "Desenhe uma paisagem de agrupamento aleatório (random cluster) de 50 x 50 células com a seed 5 e calcule \
+              a densidade de bordas da paisagem. Rode o modelo.",
+        start: None,
+        check: metrics_pt,
+    },
+    Task {
+        name: "a method reviewed",
+        ask: "Review the method of this model as a paper's reviewer would: in two or three sentences, the most serious \
+              thing it lacks. Do not change the model.",
+        start: Some(dinamica),
+        check: reviewed,
+    },
 ];
 
 fn broken() -> Model {
@@ -95,6 +111,10 @@ fn broken() -> Model {
 
 fn neutral_landscapes() -> Model {
     crate::templates::TEMPLATES.iter().find(|t| t.name == "Neutral landscapes").expect("the template").model()
+}
+
+fn dinamica() -> Model {
+    crate::templates::TEMPLATES.iter().find(|t| t.name == "Dinamica EGO").expect("the template").model()
 }
 
 fn two_nodes() -> Model {
@@ -245,6 +265,35 @@ fn metrics(s: &Session, _: &Chat, r: &Registry) -> Result<(), String> {
         Value::Table(t) if !t.rows.is_empty() => Ok(()),
         Value::Table(_) => Err("the metrics' table is empty".into()),
         _ => Ok(()),
+    }
+}
+
+/// A landscape of 50 x 50 cells and a metrics node that reads it, run.
+fn metrics_pt(s: &Session, _: &Chat, r: &Registry) -> Result<(), String> {
+    let cluster = node(s, "nlm.random_cluster")?;
+    if (number(cluster, "rows"), number(cluster, "columns")) != (Some(50.0), Some(50.0)) {
+        return Err("the landscape is not of 50 x 50 cells".into());
+    }
+    let m = nodes(&s.source)
+        .into_iter()
+        .find(|n| {
+            n.op.starts_with("metrics.")
+                && terraflux_graph::references(n).iter().any(|x| x.starts_with(&format!("{}.", cluster.id)))
+        })
+        .ok_or("no metrics node reads the landscape")?;
+    gave(s, r, m, None).map(|_| ())
+}
+
+/// The model left as it was, and the answer says it is not validated.
+fn reviewed(s: &Session, c: &Chat, _: &Registry) -> Result<(), String> {
+    if s.source.nodes != dinamica().nodes {
+        return Err("the model was changed".into());
+    }
+    let a = crate::search::fold(&answer(c));
+    if a.contains("valid") {
+        Ok(())
+    } else {
+        Err(format!("the answer does not say it lacks a validation: {:?}", answer(c)))
     }
 }
 
@@ -482,6 +531,17 @@ mod tests {
         ));
         let s = ran(m);
         assert_eq!(looped(&s, &said("The number at the end is 10."), &r), Ok(()), "{:?}", s.error);
+        // metrics asked in Portuguese
+        let mut m = Model::new("pt");
+        m.nodes.push(Node::new("land", "nlm.random_cluster").param("rows", 50).param("columns", 50).param("seed", 5));
+        m.nodes.push(Node::new("ed", "metrics.landscape").input("map", "land.map").param("metrics", "ed"));
+        let s = ran(m);
+        assert_eq!(metrics_pt(&s, &none, &r), Ok(()), "{:?}", s.error);
+        // a review that leaves the model as it was and names the validation
+        let s = Session::from_model(dinamica()).unwrap();
+        assert_eq!(reviewed(&s, &said("It is never validated against a later map."), &r), Ok(()));
+        assert_eq!(reviewed(&s, &said("Falta a validação."), &r), Ok(()));
+        assert!(reviewed(&s, &said("The drivers are fine."), &r).is_err());
     }
 
     #[test]

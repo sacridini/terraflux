@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 use terraflux_exec::{Engine, Observer, load_inputs, write_outputs};
-use terraflux_graph::{Input, Model, Node, OpSignature, Output, PortSpec, Ref, Severity, check, valid_id};
+use terraflux_graph::{Input, Model, Node, Output, PortSpec, Ref, Severity, check, valid_id};
 use terraflux_ops::Registry;
 use terraflux_ops::{algebra_tools, vector_algebra};
 use terraflux_raster::vector::Column;
@@ -64,48 +64,34 @@ maps of different grids, raster.reproject for other coordinate systems), then ru
     };
 }
 
-/// What the assistant is told of Terraflux when it connects to `terraflux mcp`.
-pub const INSTRUCTIONS: &str = concat!(
-    "Terraflux builds and runs models of land use and land cover change, landscape ecology, connectivity and \
-conservation planning. A model is a file (.toml or .json) holding a graph of operators; build and change it with \
-these tools, not by writing the file.
+/// What the assistant is told of Terraflux when it connects to `terraflux mcp`: short, since clients cut long
+/// instructions (Claude Code's at about 4000 characters); the details are in the guides, read on demand
+/// ([`crate::guide`], the tool `guide`).
+pub const INSTRUCTIONS: &str = "Terraflux builds and runs models of land use and land cover change, landscape \
+ecology, connectivity and conservation planning. A model is a file (.toml or .json) holding a graph of operators; \
+build and change it with these tools, not by writing the file.
 
-",
-    nodes!(),
-    "
-- Start from list_templates: a template is a small model that runs as it is (its data drawn by neutral landscape \
-models, to be replaced by raster.read nodes of the user's files); new_model with `template` copies one. \
-list_operators (with a query) and describe_operator give the operators and their exact ports and settings.
-- Every edit is checked: a connection of the wrong type, a port the operator does not have, a cycle, is refused \
-with the reason and the file is left as it was. The reply to an edit lists the problems the model still has \
-(a model being built has some: inputs not connected yet).
-- Files: a raster.read node reads a raster (setting `path`) and gives `raster`; give absolute paths (they are \
-stored relative to the model's folder). The model's outputs (set_output) are what run_model writes; \
-raster.write and table.write nodes write files too.
-- The model is the record of its choices: give each node you add a `note` (what it is for) and a `why` (why this \
-operator and these settings), and `refs`, `assumptions` and `alternatives` when there are; give the model the \
-user's `request` in the user's words, a `summary` of the conversation and its `author` (new_model, \
-set_model_info).
-- raster.calc (and every expression: value.calc, table.filter, agents.update's rules...) takes Python's syntax, \
-the only one (describe_operator raster.calc): one statement a line (`#` a comment), `name = value`, \
-`name[where] = value` (the cells where it holds), `a if c else b`, `**`, `and or not`, `None` (no value), chained \
-comparisons, a stack's layers as `s.layer`, and `out name = value` for each output (the node's ports); other \
-forms (`if c then a else b`, `^`, `&&`, `null`, `ln`) are refused. Write a script of a few named lines with a \
-comment: a reclassification is `classes = 1`, `classes[elev >= 700] = 2`, `classes[elev >= 1000] = 3`, \
-`out classes` (a line each).
-",
-    calc!(),
-    "
-- check_model checks the model and its data; run_model runs it and writes its outputs; inspect_file summarises a \
-raster (size, classes, statistics) or shows a table.
-- methods drafts the methods section of a paper from the model (the methods it uses, the papers to cite, the model \
-step by step, the references; or BibTeX, RIS), in English or Portuguese (`language`: pt).
-- open_in_app opens the model in Terraflux's application: in the one the user has open (its model replaced, unless \
-it has edits not saved), else in a new window. The application follows the file: what is edited after appears \
-there at once, and the user can undo it (ctrl+Z).
-",
-    containers!()
-);
+- Read the guide of the field first (guide with `topic`): land-change, connectivity, landscape-metrics, \
+conservation-planning, species-distribution, data-preparation give the method step by step, with its operators \
+and templates; nodes, calc, containers, record and results tell how a model is built.
+- Start from a template (list_templates with a `query`; new_model with `template`): a small model that runs as it \
+is, its data drawn by neutral landscape models (nlm.*), to be replaced by raster.read nodes of the user's files \
+(absolute paths).
+- Operators: list_operators with a query (English or Portuguese) finds them; describe_operator gives the exact \
+ports and settings, advice, and what the operator usually reads and gives to. Never guess a port or a setting.
+- A node's input reads `node.port`, `$name` (a model's input) or `@name` (inside a container); a setting is a \
+value or `\"$name\"`. Every edit is checked: a wrong one is refused with the reason and the file left as it was; \
+the reply lists the problems left.
+- Calculators (raster.calc, vector.calc, vector.filter) are written with write_calc, in Python's syntax: one \
+statement a line, `out name = value` for each output (guide calc). Containers (control.repeat, control.each, \
+control.switch, control.group) hold a body: edit inside one with `scope` (guide containers).
+- Record each choice: a node's `note` and `why` (and `refs`, `assumptions`, `alternatives`), the model's \
+`request`, `summary` and `author` (set_model_info).
+- check_model checks the model and its data and advises on the method: follow its warnings. run_model runs it \
+and writes its outputs; a failed run says what does not fit: read it before changing anything. inspect_file looks \
+at a file, trace_cell explains a cell, methods drafts a paper's methods section.
+- open_in_app opens the model in Terraflux's application, which follows the file (the user can undo each edit).
+";
 
 /// What the assistant in the application is told (the model open there, and the node selected, follow it).
 pub const APP_INSTRUCTIONS: &str = concat!(
@@ -120,6 +106,9 @@ undo it (ctrl+Z). Answer in the user's language and briefly; say what you change
 - Look an operator up (describe_operator, or list_operators with a query) before using it: never guess its ports \
 or settings. To build a new model, start from list_templates (new_model with `template` puts one in place of the \
 model open, only when the user wants a new model).
+- guide gives the method of each field step by step, with its operators and templates (land-change, \
+connectivity, landscape-metrics, conservation-planning, species-distribution, data-preparation): read the field's \
+before building or reviewing a model of it. check_model advises on the method too: follow its warnings.
 - Every edit is checked: a connection of the wrong type, a port the operator does not have, a cycle, is refused \
 with the reason and the model is left as it was; read the reason and correct the call. The reply to an edit lists \
 the problems the model still has (a model being built has some: inputs not connected yet).
@@ -957,6 +946,22 @@ pub fn template_model(r: &Registry, name: &str) -> std::result::Result<Model, St
     Ok(m)
 }
 
+/// What to do next with a model copied from a template: its data drawn by neutral landscape models are to be
+/// replaced by the user's files (none drawn: nothing to say).
+pub fn template_next(m: &Model) -> String {
+    let drawn: Vec<String> = m.nodes.iter().filter(|n| n.op.starts_with("nlm.")).map(|n| n.id.clone()).collect();
+    if drawn.is_empty() {
+        return String::new();
+    }
+    format!(
+        "\nNext: its data are drawn ({}: neutral landscape models, and the maps made of them to stand for data, \
+         such as a later date); for the user's data put a raster.read node (absolute `path`) in place of each and \
+         connect what read them to it (inspect_file the files first; guide data-preparation puts them on one grid), \
+         then check_model and run_model.",
+        drawn.join(", ")
+    )
+}
+
 /// The model as text (TOML) and the problems it has.
 pub fn show_model(m: &Model, dir: &Path, r: &Registry) -> Reply {
     Ok(format!("{}\n{}", m.to_toml().map_err(|e| e.to_string())?, problems(m, dir, r)))
@@ -1004,18 +1009,21 @@ pub fn check_model(r: &Registry, source: &Model, dir: &Path) -> Reply {
     let issues = check(&m, r);
     let mut lines: Vec<String> = issues.iter().map(|i| i.to_string()).collect();
     let mut errors = issues.iter().any(|i| i.severity == Severity::Error);
-    match load_inputs(&m, dir, &BTreeMap::new()) {
+    let loaded = load_inputs(&m, dir, &BTreeMap::new());
+    match &loaded {
         Err(e) => {
             lines.push(format!("error: the inputs: {e}"));
             errors = true;
         }
         Ok(inputs) => {
-            for f in terraflux_exec::lint::lint(&m, &inputs) {
+            for f in terraflux_exec::lint::lint(&m, inputs) {
                 errors |= f.level == terraflux_exec::lint::Level::Error;
                 lines.push(f.to_string());
             }
         }
     }
+    // the method's (what a reviewer would ask)
+    lines.extend(crate::advice::advise(&m, r, dir, loaded.as_ref().ok()).iter().map(|a| a.to_string()));
     let (no_note, no_why) = unrecorded(source);
     for (what, ids) in [("a note (what it is for)", no_note), ("a why (why this operator and these settings)", no_why)]
     {
@@ -1149,6 +1157,7 @@ pub fn run_model(engine: &Engine, source: &Model, dir: &Path, a: &Value, watcher
             s.push_str(&format!("\n- {w}"));
         }
     }
+    s.push_str(&crate::advice::after_run(&m, &engine.registry, dir, Some(&inputs)));
     Ok(s)
 }
 
@@ -1268,22 +1277,29 @@ fn all() -> Vec<Value> {
     };
     vec![
         tool(
+            "guide",
+            "A guide, read before building or reviewing a model: the method of a field step by step with its operators and templates (land-change, connectivity, landscape-metrics, conservation-planning, species-distribution, data-preparation), or how a model is built (nodes, calc, containers, record, results). Without a topic: the guides listed.",
+            json!({ "topic": { "type": "string", "description": "The guide, e.g. land-change." } }),
+            &[],
+            Some(&read_only),
+        ),
+        tool(
             "list_templates",
-            "The templates: small models that run as they are, by group, with what each shows. A good start: new_model with `template` copies one.",
-            json!({}),
+            "The templates: small models that run as they are, by group, with what each shows. With a query (English or Portuguese words): those that match it, the best first. A good start: new_model with `template` copies one.",
+            json!({ "query": { "type": "string", "description": "What the model is to do, e.g. \"connectivity of a forest\", \"desmatamento\"." } }),
             &[],
             Some(&read_only),
         ),
         tool(
             "list_operators",
-            "The operators. Without a query: their names by family. With a query (words all found in the name or the documentation): each one found with what it does.",
-            json!({ "query": { "type": "string", "description": "Words to look for, e.g. \"weights of evidence\", \"patch area\"." } }),
+            "The operators. Without a query: their names by family. With a query (English or Portuguese words, found in the name or the documentation): those that have all of them, else those that have the most, each with what it does.",
+            json!({ "query": { "type": "string", "description": "Words to look for, e.g. \"weights of evidence\", \"patch area\", \"conectividade\"." } }),
             &[],
             Some(&read_only),
         ),
         tool(
             "describe_operator",
-            "An operator's documentation: its inputs, outputs and settings (types, choices, which are optional), and a node of a template using it.",
+            "An operator's documentation: its inputs, outputs and settings (types, choices, which are optional), a node of a template using it, advice on its use, the method and papers to cite, and the operators it usually reads and gives to.",
             json!({ "name": { "type": "string", "description": "The operator, e.g. markov.fit." } }),
             &["name"],
             Some(&read_only),
@@ -1503,7 +1519,7 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "check_model",
-            "Check the model and its data without running it: the errors and warnings of the graph, and what was found in the data.",
+            "Check the model and its data without running it: the errors and warnings of the graph, what was found in the data, and advice on the method (a simulation not validated, or validated on the map it was calibrated on; distances and areas measured on maps in degrees; metrics of a continuous map...), each with what to do and the guide that tells more.",
             json!({ "model": model }),
             &["model"],
             Some(&read_only),
@@ -1633,6 +1649,31 @@ pub fn list_templates() -> String {
     s
 }
 
+/// The templates that match a query (in English or Portuguese), the best first; all of them, by group, without
+/// one.
+pub fn find_templates(query: Option<&str>) -> String {
+    let words = query.map(crate::search::words).unwrap_or_default();
+    if words.is_empty() {
+        return list_templates();
+    }
+    let all: &[crate::templates::Template] = &crate::templates::TEMPLATES;
+    let (found, every) =
+        crate::search::rank(all, &words, |t| format!("{} {} {}", t.name, t.about, t.group), |t| t.name.to_string());
+    if found.is_empty() {
+        return format!("No template matches {:?}; the templates:\n{}", query.unwrap_or_default(), list_templates());
+    }
+    let mut s = if every {
+        String::new()
+    } else {
+        format!("No template has all of {:?}; those nearest:\n", query.unwrap_or_default())
+    };
+    for t in found.iter().take(12) {
+        s.push_str(&format!("{} ({}): {}\n", t.name, t.group, t.about));
+    }
+    s.push_str("new_model with `template` copies one; guide tells the method of its field.\n");
+    s
+}
+
 /// The first sentence of a documentation.
 pub fn first_sentence(doc: &str) -> String {
     let end = doc.find(". ").map_or(doc.len(), |i| i + 1);
@@ -1661,19 +1702,17 @@ pub fn list_operators(r: &Registry, query: Option<&str>) -> String {
             out
         }
         Some(q) => {
-            let words: Vec<String> = q.to_lowercase().split_whitespace().map(String::from).collect();
-            let found: Vec<&OpSignature> = sigs
-                .iter()
-                .filter(|s| {
-                    let hay = format!("{} {}", s.name, s.doc).to_lowercase();
-                    words.iter().all(|w| hay.contains(w.as_str()))
-                })
-                .collect();
+            let words = crate::search::words(q);
+            let (found, all) =
+                crate::search::rank(&sigs, &words, |s| format!("{} {}", s.name, s.doc), |s| s.name.clone());
             let mine = mine_listed(Some(&words));
             if found.is_empty() && mine.is_empty() {
-                return format!("No operator has all of {q:?}: try fewer or other words.");
+                return format!("No operator has any of {q:?}: try other words (or guide, the methods of each field).");
             }
             let mut out = mine;
+            if !all && !found.is_empty() {
+                out.push_str(&format!("No operator has all of {q:?}; those that have the most of its words:\n"));
+            }
             for s in found.iter().take(60) {
                 out.push_str(&format!("{}: {}\n", s.name, first_sentence(&s.doc)));
             }
@@ -1764,6 +1803,7 @@ pub fn describe_operator(r: &Registry, name: &str) -> Reply {
         let body: Vec<&str> = toml.lines().filter(|l| !l.starts_with("format =") && !l.starts_with("name =")).collect();
         s.push_str(&format!("\nA node of it in the template {template:?}:\n{}\n", body.join("\n").trim()));
     }
+    s.push_str(&crate::op_notes::notes(name));
     Ok(s)
 }
 
@@ -2225,5 +2265,24 @@ fn raster_summary(p: &Path) -> Reply {
     if r.layers.len() > 12 {
         s.push_str(&format!("... and {} bands more\n", r.layers.len() - 12));
     }
+    s.push_str(&grid_notes(g));
     Ok(s)
+}
+
+/// What a raster's grid asks for before it is used: a coordinate system of degrees, or none at all.
+fn grid_notes(g: &terraflux_raster::Grid) -> String {
+    let crs = terraflux_ops::prepare::crs_of(g);
+    let geographic =
+        g.geo.is_geographic().or_else(|| crs.as_deref().and_then(|c| terraflux_gdal::is_geographic(c).ok()));
+    match (geographic, &crs) {
+        (Some(true), _) => {
+            "note: its coordinates are longitudes and latitudes: distances, areas and landscape metrics \
+                            need a projected coordinate system (raster.reproject first; guide data-preparation)\n"
+                .into()
+        }
+        (_, None) if g.geo.geokeys.is_none() => "note: no coordinate system is known: give it (raster.match's \
+                                                 source_crs) before putting it with other maps\n"
+            .into(),
+        _ => String::new(),
+    }
 }

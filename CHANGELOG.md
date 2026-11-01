@@ -27,6 +27,28 @@ minor versions.
   of both of whole numbers or names, none twice, some in both (`id`, `key`, `class`, `value`... first), shown first.
   A row only the table before has is in red, a row only the table now has in green, and a row matched is compared
   cell by cell wherever it is; without a key the rows are matched by their place, as before.
+- **Guides** for the assistants (`terraflux mcp` and the application's Assistant): the tool `guide` gives the
+  method of a field step by step, with its operators and templates (land-change, connectivity, landscape-metrics,
+  conservation-planning, species-distribution, data-preparation), and how a model is built (nodes, calc,
+  containers, record, results). `terraflux mcp`'s instructions are short now (2,200 characters, from 5,500: Claude
+  Code cut them at about 4,000) and send the assistant to the guides.
+- **Advice on the method** in `check_model` and after `run_model`, as a paper's reviewer would ask, each with what
+  to do and its guide: a land change simulated and never compared with an observed map, or compared with the map
+  it was calibrated on (a warning); a stochastic simulation run once; distances, areas or metrics on maps in
+  degrees (a warning); landscape metrics of a continuous map (a warning); a species distribution model evaluated
+  only on random folds. `inspect_file` notes a raster in degrees or without a coordinate system.
+- `describe_operator` adds advice on the operator's use (19 operators: the calibrations, simulations and
+  validations of land change, MSPA, metrics, SDM folds, planning, circuits), the method it is part of and the
+  papers to cite, and the operators it reads and gives to in the templates, with the templates that use it.
+- `list_operators` and `list_templates` (now with a `query`) find by Portuguese words too (*densidade de
+  bordas*, *pesos de evidência*, *desmatamento*), without accents or small words, by plurals, and give the
+  nearest ones when none has every word.
+- `terraflux mcp`'s prompts `build_model`, `adapt_template`, `review_model` and `explain_model` (with
+  `explain_cell`), and its resources: the guides (`terraflux://guide/...`), the templates' files
+  (`terraflux://template/...`) and the operators' documentation (`terraflux://operator/{name}`). A template copied
+  says which of its nodes draw data, to be replaced by the user's files.
+- Two tasks more in the Assistant's evaluation: landscape metrics asked in Portuguese, and a land change model's
+  method reviewed (its missing validation) without changing it.
 
 ### Fixed
 - `prioritize.actions_raster` with a feature whose layer has no amounts (all 0) says that it dropped it ("The

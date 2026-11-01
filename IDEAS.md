@@ -1456,3 +1456,97 @@ nome, o "Processar uma pasta", a conversão do `batch.run` e o tutorial (itens 6
   "Copy the list". O `distance.proximity` e o `landscape.mspa_tiled` dados uma pasta rodam em cada arquivo, como o
   `raster.terrain` e o `raster.fill` (que já faziam isso sozinhos: não precisam rodar ×N pela cadeia); antes mediam
   só o primeiro arquivo.
+
+## O MCP e o assistente mais inteligentes: guias, conselhos de método, prompts
+
+Registro de 2026-11-01. A pergunta: dá para o `terraflux mcp` dar à LLM recomendações e instruções mais precisas?
+Dá, e o ganho não está em escrever mais instruções, e sim em *onde* a orientação chega. Instruções longas no
+`initialize` se diluem, e os clientes as cortam: o Claude Code cortou as do Terraflux por volta de 4.000
+caracteres (eram 5.535; a parte dos containers chegava pela metade). Uma recomendação dentro da resposta da
+ferramenta, no momento em que o problema aparece, é seguida. O AI Assistant do app (`chat.rs`) chama as mesmas
+funções de `crates/app/src/tools.rs`, então quase tudo abaixo serve aos dois; só os prompts, os resources e as
+instruções curtas são do MCP (o app tem as suas, `APP_INSTRUCTIONS`, que não são cortadas).
+
+Os níveis, do mais ao menos efetivo:
+
+1. **Instruções curtas, o resto sob demanda.** **Feito** (Unreleased): `tools::INSTRUCTIONS` tem 2.164 caracteres
+   (o fluxo, as regras de ouro e os nomes dos guias); o detalhe foi para `crates/app/src/guide.rs` (`GUIDES`), lido
+   pela ferramenta `guide` (no MCP e no app) e pelos resources `terraflux://guide/<nome>`. Guias de construção
+   (`nodes`, `calc`, `containers`, `record`, `results`: o que antes ficava nas instruções) e de método, passo a passo
+   com os operadores e templates de cada passo: `land-change` (analisar, calibrar no 1º período, simular, validar
+   numa data não usada na calibração e contra o modelo nulo, várias seeds), `connectivity`, `landscape-metrics`,
+   `conservation-planning`, `species-distribution`, `data-preparation`. Testes: todo `familia.nome` citado num
+   guia é um operador do registro, todo template citado existe, e as instruções ficam abaixo de 3.200 caracteres e
+   citam todos os guias (`mcp::tests::the_instructions_are_short_and_name_the_guides`).
+2. **Conselhos de método no `check_model` e depois do `run_model`.** **Feito** (Unreleased):
+   `crates/app/src/advice.rs` (`advise(model expandido, registro, pasta, entradas carregadas)`), o que um revisor do
+   artigo perguntaria, cada conselho com o que fazer e o guia (`advice: nó (op): ... (guide land-change)`), os
+   `warning` antes. As regras:
+   - simulação de mudança (`dinamica.step`, `lulcc.step`, `cars.step`, `clumondo.step`, `molusce.step`,
+     `futures.simulation`, `crafty.allocate`) sem nenhum `validate.*`;
+   - um `validate.*` cujo mapa observado (`observed`, `t1`, `reference`) é o mesmo `t1` de um `markov.fit` ou
+     `woe.fit` (warning: validado no mapa da calibração);
+   - um simulador com seed (ou `rng`) e nenhum `control.each`, `batch.run`, `uncertainty.monte_carlo`,
+     `sensitivity.*` nem cenários: uma rodada é um futuro possível;
+   - mapas em graus (as entradas carregadas e o cabeçalho dos arquivos dos `raster.read`, `GeoTags::is_geographic`
+     ou o WKT pelo GDAL) com operadores que medem distância ou área (`metrics.`, `fragmentation.`, `landscape.`,
+     `distance.`, `cost.`, `conn.`, `circuit.`, `restoration.`) e sem `raster.reproject` (warning);
+   - `metrics.*`, `fragmentation.*` ou `landscape.*` lendo uma entrada `$x` com valores não inteiros (warning);
+   - `sdm.fit` com `sdm.random_folds` e nenhuma dobra espacial.
+   O `run_model` (MCP e o `ran` do app) mostra até 3 ("On the method (check_model tells it all)"). Teste: nenhum
+   dos 54 templates recebe um warning (`advice::tests::the_templates_are_not_warned`). O `inspect_file` diz quando
+   um raster está em graus ou sem sistema de coordenadas (`tools::grid_notes`). O `new_model` com template diz
+   quais nós sorteiam dados (`nlm.*`) e o próximo passo (`tools::template_next`).
+3. **O `describe_operator` com conselhos, método e vizinhos.** **Feito** (Unreleased): `crates/app/src/op_notes.rs`.
+   Os vizinhos aprendidos dos templates (os operadores cujas saídas ele lê e os que leem as dele, sem `view.plot`
+   nem `nlm.*`, e os templates que o usam; calculado uma vez, `OnceLock`), o método e as citações
+   (`methods::method_of`, `Reference::cite`) e dicas escritas à mão para 19 operadores (`TIPS`: calibrações,
+   simulações e validações de LUCC, MSPA, métricas, dobras de SDM, priorização, circuitos, custos). Teste: toda
+   dica é de um operador do registro.
+4. **Busca por objetivo, em português.** **Feito** (Unreleased): `crates/app/src/search.rs`: as palavras sem
+   acento e sem as palavras pequenas (pt e en), cada uma achada por ela mesma, pelo singular (`-s`, `-es`,
+   `-ões`/`-ães` → `-ão`) ou pelos sinônimos (`SYNONYMS`, ~110 termos do campo: *desmatamento* → deforest,
+   *manchas* → patch, *pesos de evidência* → weights evidence); primeiro o que tem todas as palavras, senão os que
+   têm mais ("No operator has all of ...; those that have the most"). No `list_operators` e no `list_templates`
+   (que ganhou `query`; `tools::find_templates`).
+5. **Prompts do MCP.** **Feito** (Unreleased): `build_model` (goal, data, model), `adapt_template` (template,
+   data, model), `review_model` (model), `explain_model` (model, language), além do `explain_cell`. Cada um é um
+   roteiro (ler o guia, achar o template, `inspect_file`, uma grade, `describe_operator` antes de usar, nota e
+   why, `check_model` e os conselhos, rodar, agrupar por etapa, perguntar o que os dados não dizem). No Claude Code
+   são comandos `/mcp__terraflux__review_model`.
+6. **Resources do MCP.** **Feito** (Unreleased): `resources/list` (os guias e os arquivos dos templates,
+   `terraflux://template/<slug>`), `resources/templates/list` (`terraflux://operator/{name}`, o
+   `describe_operator`) e `resources/read` (-32002 quando não existe). No Claude Code, anexados com `@`.
+7. **Avaliar o efeito.** **Feito** (Unreleased): duas tarefas a mais no `eval.rs` (10 agora): métricas pedidas em
+   português (*densidade de bordas*) e o método de um modelo Dinamica revisado sem mudá-lo (a resposta tem de dizer
+   que falta a validação). Falta **rodar** a avaliação antes e depois com o Qwen da HU (VPN) e um modelo grande,
+   e guardar a comparação: é o que diz se os guias e os conselhos ajudam ou só alongam as respostas.
+
+Falta:
+
+- **Elicitation** (MCP 2025-06-18): o servidor perguntar ao usuário no meio de uma ferramenta ("qual classe é a
+  floresta?", "qual o período da calibração?"). Exige que o servidor mande um pedido ao cliente e espere a resposta
+  pela mesma entrada padrão: hoje `serve()` lê uma mensagem por linha e responde; teria de guardar os pedidos em
+  aberto (um `HashMap<id, Sender<Value>>`, como os `runs` do `run_model`) e entregar a resposta do cliente à thread
+  que espera. Só quando o cliente declarar `elicitation` no `initialize`; sem ele, a ferramenta segue pedindo à LLM
+  que pergunte. Candidatos: `new_model` com template (as classes do mapa do usuário), `set_input` de um mapa de
+  classes sem legenda.
+- **Mais regras de método** (`advice.rs`), cada uma com teste e sem warning nos templates: o `markov.fit` com
+  `steps` incoerente com o intervalo das datas (precisa das datas: um parâmetro ou o nome dos arquivos); drivers de
+  `woe.fit` sem nenhuma distância (o caso mais comum dos modelos de desmatamento); resistência com zeros ou
+  negativos lida por `circuit.*` ou `cost.transition` (dos dados carregados); `metrics.*` com mapas de classes
+  demais (provável mapa contínuo em inteiros); priorização sem `prioritize.evaluate`; SDM sem limpeza nem
+  thinning dos registros (`sdm.thin`, `sdm.one_per_cell`, ou `sdm.prepare`).
+- **Os conselhos no app**: hoje chegam ao assistente; mostrá-los também no painel Problems (com o nível "advice",
+  abaixo dos warnings de dados) e no relatório, na seção de checagens.
+- **Mais dicas por operador**: os 19 de hoje cobrem o caminho do LUCC e alguns de padrões; faltam os de
+  conectividade em grafo (`conn.*`: a distância de dispersão), hidrologia, serviços (InVEST), agentes, REDD+.
+  Melhor ainda se as dicas morarem no próprio operador (um campo `advice` em `OpSignature`), como a documentação, e
+  não numa tabela à parte em `op_notes.rs`.
+- **`guide` para os modelos pequenos**: o modo de poucas ferramentas (`tools::FEW`) não tem o `guide`; ver na
+  avaliação se acrescentá-lo ajuda o Qwen ou só aumenta o pedido.
+- **Saída estruturada** (`outputSchema` e `structuredContent`, MCP 2025-06-18) no `check_model` (erros, warnings e
+  conselhos como lista, com o nó e o guia) e no `run_model` (os arquivos escritos), para clientes que mostram ou
+  usam os campos; o texto continua para os outros.
+- **Guias em português**: os textos dos guias estão em inglês (como as instruções e os operadores); um
+  `guide(topic, language: pt)` a partir de `pt.rs` para o assistente do app, que responde na língua do usuário.

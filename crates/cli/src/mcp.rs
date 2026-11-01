@@ -118,12 +118,17 @@ impl Server {
             "ping" => Ok(json!({})),
             "tools/list" => Ok(json!({ "tools": tools::catalogue(false) })),
             "tools/call" => self.call(&params, watcher),
-            "prompts/list" => Ok(json!({ "prompts": [{
-                "name": "explain_cell",
-                "description": "Explain why the cell traced last in Terraflux's application (a right click on a cell of a map) has its value, from its trace.",
-                "arguments": [],
+            "prompts/list" => Ok(json!({ "prompts": prompts() })),
+            "prompts/get" => prompt(&params),
+            "resources/list" => Ok(json!({ "resources": resources() })),
+            "resources/templates/list" => Ok(json!({ "resourceTemplates": [{
+                "uriTemplate": "terraflux://operator/{name}",
+                "name": "operator",
+                "title": "An operator's documentation",
+                "description": "An operator's ports, settings, advice and the papers to cite (describe_operator), e.g. terraflux://operator/woe.fit.",
+                "mimeType": "text/plain",
             }] })),
-            "prompts/get" => explain_cell(&params),
+            "resources/read" => self.resource(&params),
             _ => Err((-32601, format!("no method {method:?}"))),
         };
         Some(match result {
@@ -154,10 +159,32 @@ impl Server {
         Ok(json!({ "content": [{ "type": "text", "text": text }], "isError": error }))
     }
 
+    /// A resource's contents: a guide, a template's file, an operator's documentation.
+    fn resource(&self, params: &Value) -> std::result::Result<Value, (i64, String)> {
+        let uri = params.get("uri").and_then(Value::as_str).unwrap_or_default();
+        // (the protocol's code for a resource not found)
+        let missing = || (-32002, format!("no resource {uri:?}"));
+        let (kind, name) = uri.strip_prefix("terraflux://").and_then(|r| r.split_once('/')).ok_or_else(missing)?;
+        let r = &self.engine.registry;
+        let (mime, text) = match kind {
+            "guide" => ("text/plain", terraflux_app::guide::guide(Some(name)).map_err(|_| missing())?),
+            "template" => {
+                let t =
+                    terraflux_app::templates::TEMPLATES.iter().find(|t| slug(t.name) == name).ok_or_else(missing)?;
+                let m = tools::template_model(r, t.name).map_err(|e| (-32603, e))?;
+                ("application/toml", m.to_toml().map_err(|e| (-32603, e.to_string()))?)
+            }
+            "operator" => ("text/plain", tools::describe_operator(r, name).map_err(|_| missing())?),
+            _ => return Err(missing()),
+        };
+        Ok(json!({ "contents": [{ "uri": uri, "mimeType": mime, "text": text }] }))
+    }
+
     fn tool(&self, name: &str, a: &Value, watcher: &mut Watcher) -> Reply {
         let r = &self.engine.registry;
         match name {
-            "list_templates" => Ok(tools::list_templates()),
+            "list_templates" => Ok(tools::find_templates(opt_text(a, "query"))),
+            "guide" => terraflux_app::guide::guide(opt_text(a, "topic")),
             "list_operators" => Ok(tools::list_operators(r, opt_text(a, "query"))),
             "describe_operator" => tools::describe_operator(r, text(a, "name")?),
             "new_model" => new_model(r, a),
@@ -207,7 +234,7 @@ fn initialize(params: &Value) -> Value {
     let version = VERSIONS.iter().find(|v| **v == asked).unwrap_or(&VERSIONS[0]);
     json!({
         "protocolVersion": version,
-        "capabilities": { "tools": {}, "prompts": {} },
+        "capabilities": { "tools": {}, "prompts": {}, "resources": {} },
         "serverInfo": { "name": "terraflux", "title": "Terraflux", "version": env!("CARGO_PKG_VERSION") },
         "instructions": INSTRUCTIONS,
     })
@@ -289,7 +316,180 @@ fn new_model(r: &Registry, a: &Value) -> Reply {
     if !nodes.is_empty() {
         s.push_str(&format!("; its nodes: {}", nodes.join(", ")));
     }
+    if opt_text(a, "template").is_some() {
+        s.push_str(&tools::template_next(&m));
+    }
     Ok(format!("{s}\n{}", tools::problems(&m, &folder(&path), r)))
+}
+
+/// A template's name as the last part of its resource's address: small letters, digits and dashes.
+fn slug(name: &str) -> String {
+    let mut s = String::new();
+    for c in terraflux_app::search::fold(name).chars() {
+        if c.is_ascii_alphanumeric() {
+            s.push(c);
+        } else if !s.ends_with('-') {
+            s.push('-');
+        }
+    }
+    s.trim_matches('-').to_string()
+}
+
+/// The resources: the guides and the templates (their files), read by the clients that show resources.
+fn resources() -> Vec<Value> {
+    let mut out: Vec<Value> = terraflux_app::guide::GUIDES
+        .iter()
+        .map(|g| {
+            json!({
+                "uri": format!("terraflux://guide/{}", g.name),
+                "name": g.name,
+                "title": g.title,
+                "description": format!("Terraflux's guide: {}", g.title),
+                "mimeType": "text/plain",
+            })
+        })
+        .collect();
+    out.extend(terraflux_app::templates::TEMPLATES.iter().map(|t| {
+        json!({
+            "uri": format!("terraflux://template/{}", slug(t.name)),
+            "name": slug(t.name),
+            "title": format!("Template: {}", t.name),
+            "description": t.about.split_whitespace().collect::<Vec<_>>().join(" "),
+            "mimeType": "application/toml",
+        })
+    }));
+    out
+}
+
+/// The prompts: workflows a user starts by name, with their arguments.
+fn prompts() -> Value {
+    let arg = |name: &str, description: &str, required: bool| json!({ "name": name, "description": description, "required": required });
+    let model = arg("model", "The model's file (.toml), an absolute path.", true);
+    json!([
+        {
+            "name": "build_model",
+            "title": "Build a model",
+            "description": "Build a Terraflux model for a goal, from the guide of its field and a template, with your data: checked, run and recorded.",
+            "arguments": [
+                arg("goal", "What the model is to find out, e.g. where the forest will be lost by 2040.", true),
+                arg("data", "The data: files or a folder (absolute paths), and what they are.", false),
+                arg("model", "The model's file to write (.toml), an absolute path.", false),
+            ],
+        },
+        {
+            "name": "adapt_template",
+            "title": "A template with your data",
+            "description": "Copy a template and put your files in place of its drawn data.",
+            "arguments": [
+                arg("template", "The template's name (list_templates).", true),
+                arg("data", "Your files (absolute paths) and what each is.", true),
+                model.clone(),
+            ],
+        },
+        {
+            "name": "review_model",
+            "title": "Review a model's method",
+            "description": "Review a model as a paper's reviewer would, without changing it: what is sound, what is missing, what to change.",
+            "arguments": [model.clone()],
+        },
+        {
+            "name": "explain_model",
+            "title": "Explain a model",
+            "description": "Explain what a model does and why, stage by stage, from its record and its operators' documentation.",
+            "arguments": [model, arg("language", "The language of the explanation (default: the user's).", false)],
+        },
+        {
+            "name": "explain_cell",
+            "title": "Explain the cell traced",
+            "description": "Explain why the cell traced last in Terraflux's application (a right click on a cell of a map) has its value, from its trace.",
+            "arguments": [],
+        },
+    ])
+}
+
+/// A prompt's messages, its arguments in place.
+fn prompt(params: &Value) -> std::result::Result<Value, (i64, String)> {
+    let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
+    if name == "explain_cell" {
+        return explain_cell(params);
+    }
+    let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+    let get = |k: &str| args.get(k).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty());
+    let need = |k: &str| get(k).ok_or((-32602, format!("the prompt {name} needs the argument {k}")));
+    let (description, text) = match name {
+        "build_model" => {
+            let goal = need("goal")?;
+            let data = get("data").map_or(String::new(), |d| format!("\nMy data: {d}"));
+            let file = get("model").map_or(String::new(), |m| format!(" in the file {m}"));
+            (
+                "Build a model for a goal",
+                format!(
+                    "Build a Terraflux model{file} for this: {goal}{data}
+
+1. Read the guide of its field (guide; without a topic it lists them) and follow its steps.
+2. Find the template nearest to it (list_templates with a query) and copy it (new_model with `template`, my \
+request in my words as `request`), or start from an empty model when none fits.
+3. Look at each of my files (inspect_file) and put them on one grid (guide data-preparation), in place of the \
+template's drawn data (raster.read nodes).
+4. Look each operator up (describe_operator) before adding it; give each node a note and a why, and refs and \
+assumptions where there are.
+5. check_model: fix the errors, follow the warnings and the advice on the method, or tell me why not.
+6. run_model, look at the outputs (inspect_file) and tell me what they show and how far to trust them.
+7. Group the model by stage (group_by_stage), give it a summary (set_model_info) and open it in the application \
+(open_in_app).
+Ask me what the data cannot tell (what the classes are, the period, the targets) before choosing it yourself."
+                ),
+            )
+        }
+        "adapt_template" => {
+            let (template, data, model) = (need("template")?, need("data")?, need("model")?);
+            (
+                "A template with the user's data",
+                format!(
+                    "Copy the Terraflux template {template:?} to {model} (new_model with `template`) and put my data in \
+place of its drawn data (the nlm.* nodes): {data}
+
+Look at each file first (inspect_file: its grid, coordinate system, classes) and at the guide of the template's \
+field (guide); put the files on one grid (guide data-preparation) with raster.read nodes, keep the template's \
+method, change its settings only where my data need it (say why in the node's why), then check_model (follow its \
+advice), run_model and tell me what the outputs show."
+                ),
+            )
+        }
+        "review_model" => {
+            let model = need("model")?;
+            (
+                "Review a model's method",
+                format!(
+                    "Review the method of the Terraflux model {model} as a reviewer of a paper would. Do not change it.
+
+Read it (show_model) and check it (check_model: its warnings and advice on the method), read the guide of its \
+field (guide) and look up the operators you are not sure of (describe_operator). Then tell me, the most serious \
+first: what is sound; what is missing (a validation on data not used to calibrate, the uncertainty, the data on \
+one grid in a projected coordinate system, choices without a note or a why); and what to change, with the \
+operators that would do it. End with the methods drafted from it (methods) and what a reader would still miss."
+                ),
+            )
+        }
+        "explain_model" => {
+            let model = need("model")?;
+            let lang = get("language").map_or(String::new(), |l| format!(", in {l}"));
+            (
+                "Explain a model",
+                format!(
+                    "Explain the Terraflux model {model} to me{lang}: what it is for, its stages, what each node does and \
+why, its inputs and outputs, and what it assumes. Read it (show_model) and take what each node does from its note \
+and why and from its operator's documentation (describe_operator), not from memory: an operator's name may mean \
+something else here. Do not change the model."
+                ),
+            )
+        }
+        _ => return Err((-32602, format!("no prompt {name:?}"))),
+    };
+    Ok(json!({
+        "description": description,
+        "messages": [{ "role": "user", "content": { "type": "text", "text": text } }],
+    }))
 }
 
 /// The prompt `explain_cell`: the last trace made in the application, and the question.
@@ -379,7 +579,7 @@ mod tests {
         assert_eq!(bad["error"]["code"], -32602);
         // the prompt that explains the cell traced last in the application
         let prompts = s.message(json!({ "jsonrpc": "2.0", "id": 4, "method": "prompts/list" })).unwrap();
-        assert_eq!(prompts["result"]["prompts"][0]["name"], "explain_cell");
+        assert!(prompts["result"]["prompts"].as_array().unwrap().iter().any(|p| p["name"] == "explain_cell"));
         let p = s
             .message(
                 json!({ "jsonrpc": "2.0", "id": 5, "method": "prompts/get", "params": { "name": "explain_cell" } }),
@@ -388,6 +588,87 @@ mod tests {
         let text = p["result"]["messages"][0]["content"]["text"].as_str().unwrap();
         assert!(text.contains("trace") || text.contains("traced"), "{text}");
         assert_eq!(init["result"]["capabilities"]["prompts"], json!({}));
+        assert_eq!(init["result"]["capabilities"]["resources"], json!({}));
+    }
+
+    /// The instructions stay short enough for the clients that cut them (Claude Code at about 4000 characters),
+    /// and name every guide, where the rest is.
+    #[test]
+    fn the_instructions_are_short_and_name_the_guides() {
+        assert!(INSTRUCTIONS.chars().count() < 3200, "{} characters", INSTRUCTIONS.chars().count());
+        for g in terraflux_app::guide::GUIDES {
+            assert!(INSTRUCTIONS.contains(g.name), "the instructions do not name the guide {}", g.name);
+        }
+    }
+
+    #[test]
+    fn guides_prompts_and_resources() {
+        let s = Server { engine: Engine::default() };
+        let (t, e) = call(&s, "guide", json!({}));
+        assert!(!e && t.contains("land-change") && t.contains("species-distribution"), "{t}");
+        let (t, e) = call(&s, "guide", json!({ "topic": "land-change" }));
+        assert!(!e && t.contains("validate.three_map") && t.contains("not used to calibrate"), "{t}");
+        assert!(call(&s, "guide", json!({ "topic": "astrology" })).1);
+        // the prompts: their arguments in place, one missing refused
+        let get = |name: &str, args: Value| {
+            s.message(json!({ "jsonrpc": "2.0", "id": 1, "method": "prompts/get", "params": { "name": name, "arguments": args } }))
+                .unwrap()
+        };
+        let p = get("build_model", json!({ "goal": "where the forest is lost by 2040", "data": "C:/data/lulc" }));
+        let text = p["result"]["messages"][0]["content"]["text"].as_str().unwrap();
+        assert!(text.contains("where the forest is lost by 2040") && text.contains("C:/data/lulc"), "{text}");
+        assert!(text.contains("guide") && text.contains("check_model"), "{text}");
+        assert_eq!(get("review_model", json!({}))["error"]["code"], -32602);
+        let p = get("review_model", json!({ "model": "C:/m.toml" }));
+        assert!(p["result"]["messages"][0]["content"]["text"].as_str().unwrap().contains("Do not change it"));
+        assert_eq!(get("nothing", json!({}))["error"]["code"], -32602);
+        // the resources: the guides and the templates, an operator's documentation by its address
+        let list = s.message(json!({ "jsonrpc": "2.0", "id": 2, "method": "resources/list" })).unwrap();
+        let uris: Vec<&str> =
+            list["result"]["resources"].as_array().unwrap().iter().filter_map(|r| r["uri"].as_str()).collect();
+        assert!(
+            uris.contains(&"terraflux://guide/connectivity") && uris.contains(&"terraflux://template/dinamica-ego")
+        );
+        let read = |uri: &str| {
+            s.message(json!({ "jsonrpc": "2.0", "id": 3, "method": "resources/read", "params": { "uri": uri } }))
+                .unwrap()
+        };
+        let r = read("terraflux://template/dinamica-ego");
+        assert!(r["result"]["contents"][0]["text"].as_str().unwrap().contains("woe.fit"), "{r}");
+        let r = read("terraflux://operator/woe.fit");
+        assert!(r["result"]["contents"][0]["text"].as_str().unwrap().contains("Advice:"), "{r}");
+        assert_eq!(read("terraflux://guide/nothing")["error"]["code"], -32002);
+        assert_eq!(read("https://example.org")["error"]["code"], -32002);
+        let t = s.message(json!({ "jsonrpc": "2.0", "id": 4, "method": "resources/templates/list" })).unwrap();
+        assert_eq!(t["result"]["resourceTemplates"][0]["uriTemplate"], "terraflux://operator/{name}");
+    }
+
+    #[test]
+    fn found_in_portuguese_and_advised_on_the_method() {
+        let s = Server { engine: Engine::default() };
+        let (t, _) = call(&s, "list_operators", json!({ "query": "densidade de bordas" }));
+        assert!(t.contains("metrics."), "{t}");
+        let (t, _) = call(&s, "list_operators", json!({ "query": "conectividade circuito" }));
+        assert!(t.contains("circuit.omniscape") && !t.contains("No operator"), "{t}");
+        let (t, _) = call(&s, "list_operators", json!({ "query": "circuitos" }));
+        assert!(t.contains("circuit.pairwise"), "{t}");
+        // none has all the words: those with the most
+        let (t, _) = call(&s, "list_operators", json!({ "query": "omniscape zzzz" }));
+        assert!(t.starts_with("No operator has all of") && t.contains("circuit.omniscape"), "{t}");
+        let (t, _) = call(&s, "list_templates", json!({ "query": "validação de uma simulação" }));
+        assert!(t.starts_with("Validating a simulation"), "{t}");
+        // a land change model copied: what to do next, and advice on its method
+        let dir = std::env::temp_dir().join(format!("terraflux-mcp-a-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let model = dir.join("d.toml").to_string_lossy().into_owned();
+        let (t, e) = call(&s, "new_model", json!({ "model": model, "template": "Dinamica EGO" }));
+        assert!(!e && t.contains("Next: its data are drawn") && t.contains("land_2000"), "{t}");
+        let (t, e) = call(&s, "check_model", json!({ "model": model }));
+        assert!(!e && t.contains("can run"), "{t}");
+        assert!(t.contains("advice:") && t.contains("never compares") && t.contains("guide land-change"), "{t}");
+        let (t, e) = call(&s, "describe_operator", json!({ "name": "woe.fit" }));
+        assert!(!e && t.contains("Advice:") && t.contains("Its outputs are read by:"), "{t}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

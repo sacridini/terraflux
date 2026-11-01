@@ -189,6 +189,14 @@ For Claude Desktop, add to its `claude_desktop_config.json` (Settings, Developer
 { "mcpServers": { "terraflux": { "command": "terraflux", "args": ["mcp"] } } }
 ```
 
+The assistant reads the guide of your field before it builds (the steps of a land change model, of connectivity,
+of landscape metrics, of conservation planning, of a species distribution model, each with its operators and
+templates); `check_model` and `run_model` advise it on the method as a paper's reviewer would (a simulation
+validated on the map it was calibrated on, metrics of maps in degrees...); and it finds operators and templates by
+Portuguese words too. Prompts start a workflow by name (`build_model`, `adapt_template`, `review_model`,
+`explain_model`, `explain_cell`: slash commands in Claude Code), and the guides, templates and operators'
+documentation are resources (`terraflux://guide/land-change`).
+
 The application has an assistant of its own too (View, Assistant): a chat beside the graph with the same tools,
 on the model open. Ask what a model or a node does ("Explain" asks about the node selected), for a change, or for
 a run and what it gave; each change shows on the canvas at once and ctrl+Z undoes it. The assistant talks to any
