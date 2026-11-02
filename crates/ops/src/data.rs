@@ -398,10 +398,7 @@ fn modis_sources(asset: &str, date: &str, g: &Grid) -> std::result::Result<Vec<S
     let start = |f: &serde_json::Value| f["properties"]["start_datetime"].as_str().unwrap_or("").to_string();
     let last = items.iter().map(|f| start(f)).filter(|s| s.as_str() <= date || s.starts_with(date)).max();
     let Some(last) = last else {
-        return Err(format!(
-            "modis: no {} over the grid in the {} days up to {date}",
-            product.prefix, product.days
-        ));
+        return Err(format!("modis: no {} over the grid in the {} days up to {date}", product.prefix, product.days));
     };
     // signed by a token of their storage account and container (https://ACCOUNT.blob.core.windows.net/CONTAINER/)
     let hrefs: Vec<&str> =

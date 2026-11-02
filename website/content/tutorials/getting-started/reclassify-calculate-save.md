@@ -368,7 +368,10 @@ with a QGIS project that opens them all (`.qgz`, as QGIS saves its own, or `.qgs
 choice in the window), in the colours you see in Terraflux: the classes as a paletted map with their names (those of
 the legend you gave, or MSPA's), values on the same ramp from the same minimum to the same maximum, and the vector
 layers as the viewer draws them over the map (their colour, fill and line width; by an attribute, a colour per class
-or ranges of its numbers along the ramp). **Open in QGIS**
+or ranges of its numbers along the ramp). A vector layer ticked has its own options under it: **labels** by one of
+its attributes, its points' **marker** (a circle, square, triangle, diamond, star, cross, pentagon or hexagon) and
+**as rules**, its style written as QGIS's rules (a rule each class or range, and one for the features of none) to
+change in QGIS rule by rule. **Open in QGIS**
 opens the project. A raster read from a file is referred to where it is, not copied, and each GeoTIFF written has
 its style beside it (a `.qml` of the same name), which QGIS uses when you add the file to another project by hand.
 

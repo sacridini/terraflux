@@ -310,7 +310,9 @@ The library is ordered by subject, the same subjects as the categories of this s
 **File > Data catalog...** (or "Data catalog" in ++ctrl+k++) lists the public datasets Terraflux downloads, a card
 each: WorldClim 2.1 and CHELSA 2.1 (the climate of today and CMIP6 futures), the Copernicus DEM, SoilGrids 2.0,
 MapBiomas Brazil, Hydrography90m, ESA WorldCover (land cover at 10 m), Hansen's Global Forest Change (tree cover,
-the year of loss), MODIS' vegetation indices (NDVI and EVI every 16 days) and GBIF's occurrences of a species
+the year of loss), MODIS (the vegetation indices NDVI and EVI every 16 days, the land surface temperature of the
+day and of the night, the burned area by month, the yearly gross and net primary production) and GBIF's occurrences
+of a species
 (added as an [[sdm.download_gbif]] node). Search them (`rain`, `soil`, `Brazil`, `future`) or filter by theme. A card
 says what the dataset holds, its resolution, years and coverage, its **licence** (WorldClim's is non-commercial,
 CHELSA's public domain, Hydrography90m's non-commercial on its record) and the paper to cite, with a button that

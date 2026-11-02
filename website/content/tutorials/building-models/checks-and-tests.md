@@ -294,6 +294,22 @@ Error: tenth: node "tenth": more than a tenth of the forest was lost ((before - 
 
 The command ends with an error (a non-zero exit code), so a script that runs many models stops there too.
 
+### Checks of their own
+
+The checks most models need are nodes of their own, without an expression to write. Each has `message` and `warn`
+as [[check.assert]] (a message of its own when none is given) and gives `ok`:
+
+| Node | Fails when | Settings |
+|---|---|---|
+| [[check.range]] | a value of a map, a stack or a number is out of its range | `min`, `max` (either) |
+| [[check.no_nodata]] | cells have no value (within the cells of `within` with a value, when connected) | `max_share` of them allowed (0) |
+| [[check.area_kept]] | a class's area changed from `before` to `after`, or a cell of `within` changed | `class`, `tolerance` in cells (0) |
+| [[check.accuracy]] | the map agrees with the `reference` less than asked | `min` (0 to 1), `measure` (`overall` or `kappa`) |
+| [[check.demand]] | the classes of a step's map are not the demand of that step | `step`, `tolerance` (cells, or a share with `relative`) |
+
+They count as checks everywhere a [[check.assert]] does: the badges, the health line, the report's seals and
+`terraflux test`.
+
 ### The checks in the application
 
 Open the model in the application and run it (**Run**, or ++f5++). Each [[check.assert]] node has a badge at the
