@@ -34,6 +34,7 @@ pub mod logo;
 pub mod map_view;
 pub mod metadata;
 pub mod methods;
+pub mod mp4;
 pub mod my_nodes;
 pub mod node_remotes;
 pub mod node_view;

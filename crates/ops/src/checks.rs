@@ -283,7 +283,7 @@ impl Operator for Accuracy {
             .input(PortSpec::new("reference", Type::Map, "the reference (observed) map"))
             .param(PortSpec::new("min", Type::Number, "the lowest agreement allowed, 0 to 1"))
             .param(
-                PortSpec::optional("measure", Type::Text, "overall (default) or kappa").choices(&["overall", "kappa"]),
+                PortSpec::optional("measure", Type::Text, "overall (default) or kappa").choices(["overall", "kappa"]),
             ),
             "the map is not accurate enough",
         )

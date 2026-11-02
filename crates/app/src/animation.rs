@@ -74,11 +74,7 @@ impl Animations {
         let video = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("mp4"));
         std::thread::spawn(move || {
             let frames = make();
-            let made = match (video, ffmpeg()) {
-                (true, Some(ff)) => mp4(&frames, delay, MAX_SIDE, &to, &ff),
-                (true, None) => Err("ffmpeg is not installed".into()),
-                (false, _) => write(&frames, delay, MAX_SIDE, &to),
-            };
+            let made = if video { mp4(&frames, delay, MAX_SIDE, &to) } else { write(&frames, delay, MAX_SIDE, &to) };
             let _ = tx.send(made);
         });
         self.job = Some(Job { path, rx });
@@ -106,7 +102,7 @@ impl Animations {
         }
     }
 
-    /// The buttons that ask where to save the animation of the frames, as a GIF or (with ffmpeg) a video
+    /// The buttons that ask where to save the animation of the frames, as a GIF or a video
     /// (`prepare`, once clicked, gives what makes them in the thread), at the speed chosen (else `default`
     /// milliseconds a frame); and what became of the last one.
     pub fn button<F>(&mut self, ui: &mut Ui, name: &str, default: u16, prepare: impl FnOnce() -> F)
@@ -119,11 +115,9 @@ impl Animations {
             let gif = ui
                 .add_enabled(!busy, egui::Button::new("Save as GIF..."))
                 .on_hover_text("an animation of the maps, each with its caption, for a talk or a class");
-            let ff = ffmpeg().is_some();
             let video = ui
-                .add_enabled(!busy && ff, egui::Button::new("Save as MP4..."))
-                .on_hover_text("a video of the maps (H.264), for slides; made by ffmpeg")
-                .on_disabled_hover_text("a video needs ffmpeg (ffmpeg.org) installed, on the PATH");
+                .add_enabled(!busy, egui::Button::new("Save as MP4..."))
+                .on_hover_text("a video of the maps (H.264), for slides and players");
             let (ext, filter) = match (gif.clicked(), video.clicked()) {
                 (true, _) => ("gif", "Animated GIF"),
                 (_, true) => ("mp4", "Video (MP4)"),
@@ -419,33 +413,25 @@ pub fn write(frames: &[Frame], delay: u16, max_side: usize, path: &Path) -> Resu
     encode(frames, delay, max_side, std::io::BufWriter::new(file))
 }
 
-/// ffmpeg, when it is installed: the program `TERRAFLUX_FFMPEG` names, else `ffmpeg` on the PATH (asked once).
-pub fn ffmpeg() -> Option<PathBuf> {
-    static FOUND: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
-    FOUND
-        .get_or_init(|| {
-            let p = std::env::var_os("TERRAFLUX_FFMPEG").map_or_else(|| PathBuf::from("ffmpeg"), PathBuf::from);
-            let mut c = std::process::Command::new(&p);
-            hidden(c.arg("-version")).output().ok().filter(|o| o.status.success()).map(|_| p)
-        })
-        .clone()
-}
-
-/// A program run without a console window of its own (on Windows).
-fn hidden(c: &mut std::process::Command) -> &mut std::process::Command {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        c.creation_flags(CREATE_NO_WINDOW);
+/// Pixels with even sides (as a video's colours, a value each two by two pixels, take them): a white column
+/// and row added where a side is odd.
+fn even(rgba: Vec<u8>, w: usize, h: usize) -> (Vec<u8>, usize, usize) {
+    let (ew, eh) = (w + (w & 1), h + (h & 1));
+    if (ew, eh) == (w, h) {
+        return (rgba, w, h);
     }
-    c
+    let mut out = vec![255u8; ew * eh * 4];
+    for y in 0..h {
+        out[y * ew * 4..(y * ew + w) * 4].copy_from_slice(&rgba[y * w * 4..(y + 1) * w * 4]);
+    }
+    (out, ew, eh)
 }
 
 /// A video of the frames (H.264 in an MP4, as slides and players take it), `delay` milliseconds each (the last one
-/// held longer), made by ffmpeg (`ff`) from the frames' pixels, with 4 threads at most.
-pub fn mp4(frames: &[Frame], delay: u16, max_side: usize, path: &Path, ff: &Path) -> Result<(), String> {
-    use std::io::Write;
+/// held four times as long), encoded here (OpenH264, in the application: nothing to install), its sides made even.
+pub fn mp4(frames: &[Frame], delay: u16, max_side: usize, path: &Path) -> Result<(), String> {
+    use openh264::encoder::{BitRate, Encoder, EncoderConfig, FrameRate, UsageType};
+    use openh264::formats::{RgbaSliceU8, YUVBuffer};
     let Some(first) = frames.first() else { return Err("no map to animate".into()) };
     let size = first.source.size();
     if let Some(f) = frames.iter().find(|f| f.source.size() != size) {
@@ -454,38 +440,39 @@ pub fn mp4(frames: &[Frame], delay: u16, max_side: usize, path: &Path, ff: &Path
     }
     let (_, zw, _, px) = layout_of(size, max_side);
     let lines = frames.iter().map(|f| legend_lines(&f.coloring, zw, px)).max().unwrap_or(1);
-    let (rgba, w, h) = picture(first, max_side, lines)?;
-    let mut c = std::process::Command::new(ff);
-    hidden(c.args(["-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgba"]))
-        .args(["-s", &format!("{w}x{h}"), "-framerate", &format!("1000/{}", delay.max(1))])
-        .args(["-i", "-", "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2:color=white"])
-        .args(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-threads", "4", "-movflags", "+faststart"])
-        .arg(path)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped());
-    let mut child = c.spawn().map_err(|e| format!("ffmpeg did not start: {e}"))?;
-    let fed = (|| -> Result<(), String> {
-        let mut stdin = child.stdin.take().ok_or("no input to ffmpeg")?;
-        let feed = |stdin: &mut std::process::ChildStdin, px: &[u8]| stdin.write_all(px).map_err(|e| e.to_string());
-        feed(&mut stdin, &rgba)?;
-        let mut last = rgba;
-        for f in &frames[1..] {
-            last = picture(f, max_side, lines)?.0;
-            feed(&mut stdin, &last)?;
+    let delay = u32::from(delay.max(1));
+    let mut video = crate::mp4::Video::default();
+    let mut encoder: Option<(Encoder, usize, usize)> = None;
+    for f in frames {
+        let (rgba, w, h) = picture(f, max_side, lines)?;
+        let (rgba, w, h) = even(rgba, w, h);
+        if encoder.is_none() {
+            // (maps: sharp edges of flat colours, kept by bits enough: about two bits a pixel a second)
+            let fps = 1000.0 / delay as f32;
+            let bits = ((w * h) as f32 * fps * 2.0).clamp(500_000.0, 20_000_000.0) as u32;
+            // (as a screen's content: flat colours, without what the encoder does not do for it; a frame it skips
+            // lengthens the last one; 4 threads at most)
+            let config = EncoderConfig::new()
+                .usage_type(UsageType::ScreenContentRealTime)
+                .adaptive_quantization(false)
+                .background_detection(false)
+                .bitrate(BitRate::from_bps(bits))
+                .max_frame_rate(FrameRate::from_hz(fps))
+                .num_threads(4);
+            let e = Encoder::with_api_config(openh264::OpenH264API::from_source(), config)
+                .map_err(|e| format!("the video encoder: {e}"))?;
+            encoder = Some((e, w, h));
         }
-        // (the last frame held: three more of it)
-        for _ in 0..3 {
-            feed(&mut stdin, &last)?;
-        }
-        Ok(())
-    })();
-    let out = child.wait_with_output().map_err(|e| e.to_string())?;
-    if !out.status.success() {
-        let said = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        return Err(if said.is_empty() { "ffmpeg failed".into() } else { format!("ffmpeg: {said}") });
+        let (e, ..) = encoder.as_mut().unwrap();
+        let yuv = YUVBuffer::from_rgb_source(RgbaSliceU8::new(&rgba, (w, h)));
+        let stream = e.encode(&yuv).map_err(|e| format!("the video encoder: {e}"))?;
+        video.add(&stream.to_vec(), delay);
     }
-    fed
+    // (the last frame held)
+    video.add(&[], delay * 3);
+    let (_, w, h) = encoder.unwrap();
+    let bytes = video.finish(w as u16, h as u16)?;
+    std::fs::write(path, bytes).map_err(|e| e.to_string())
 }
 
 /// The GIF of the frames as bytes (for a page that holds its images).
@@ -543,22 +530,71 @@ mod tests {
         assert_eq!((a.delay(200), a.delay(600)), (100, 100));
         a.fps = Some(1000.0);
         assert_eq!(a.delay(200), 40, "25 frames a second at most");
-        // a video, when ffmpeg is there: two steps of a map of 31 x 17 cells (sides made even)
-        let Some(ff) = ffmpeg() else { return };
+        // a video, nothing installed: two steps of a map of 31 x 17 cells (sides made even)
         let coloring = Coloring::Classes(vec![(1.0, Color32::from_rgb(0, 114, 178))]);
         let frames: Vec<Frame> = (0..2)
             .map(|k| Frame { source: map(31, 17, |_| 1.0), coloring: coloring.clone(), caption: format!("step {k}") })
             .collect();
         let path = std::env::temp_dir().join(format!("terraflux-anim-{}.mp4", std::process::id()));
-        mp4(&frames, 250, MAX_SIDE, &path, &ff).unwrap();
+        mp4(&frames, 250, MAX_SIDE, &path).unwrap();
         let bytes = std::fs::read(&path).unwrap();
         let _ = std::fs::remove_file(&path);
         assert_eq!(&bytes[4..8], b"ftyp", "an MP4");
-        assert!(bytes.windows(4).any(|w| w == b"avc1"), "H.264");
-        // a map of another size refused before ffmpeg starts
+        assert!(bytes.windows(4).any(|w| w == b"avc1") && bytes.windows(4).any(|w| w == b"avcC"), "H.264");
+        // its frames decoded again: the map's blue where the map is, the sides even
+        let (rgba, pw, ph) = picture(&frames[0], MAX_SIDE, 1).unwrap();
+        let (_, ew, eh) = even(rgba, pw, ph);
+        assert!(ew % 2 == 0 && eh % 2 == 0 && ew >= pw && eh >= ph);
+        let decoded = decode(&bytes);
+        assert_eq!(decoded.len(), 2);
+        let (img, dw, dh) = &decoded[1];
+        assert_eq!((*dw, *dh), (ew, eh));
+        // (a cell of the map, below the caption: its colour within the video's loss)
+        let at = ((ph * 3 / 8) * dw + dw / 2) * 3;
+        let near = |a: u8, b: u8| (a as i32 - b as i32).abs() <= 12;
+        assert!(near(img[at], 0) && near(img[at + 1], 114) && near(img[at + 2], 178), "{:?}", &img[at..at + 3]);
+        // a map of another size refused before anything is encoded
         let mut odd = frames.clone();
         odd[1].source = map(10, 10, |_| 1.0);
-        assert!(mp4(&odd, 250, MAX_SIDE, &path, &ff).unwrap_err().contains("not of one size"));
+        assert!(mp4(&odd, 250, MAX_SIDE, &path).unwrap_err().contains("not of one size"));
+    }
+
+    /// The frames of an MP4 written here, decoded (their pixels as RGB, their sides).
+    fn decode(mp4: &[u8]) -> Vec<(Vec<u8>, usize, usize)> {
+        use openh264::decoder::Decoder;
+        use openh264::formats::YUVSource;
+        // the parameter sets of avcC, then each frame's units (length-prefixed) back to a stream
+        let at = mp4.windows(4).position(|w| w == b"avcC").unwrap() + 4;
+        let sps_len = u16::from_be_bytes([mp4[at + 6], mp4[at + 7]]) as usize;
+        let sps = &mp4[at + 8..at + 8 + sps_len];
+        let p = at + 8 + sps_len + 1;
+        let pps_len = u16::from_be_bytes([mp4[p], mp4[p + 1]]) as usize;
+        let pps = &mp4[p + 2..p + 2 + pps_len];
+        let num = |i: usize| u32::from_be_bytes(mp4[i..i + 4].try_into().unwrap()) as usize;
+        let stsz = mp4.windows(4).position(|w| w == b"stsz").unwrap() + 4;
+        let stco = mp4.windows(4).position(|w| w == b"stco").unwrap() + 4;
+        let n = num(stsz + 8);
+        let mut d = Decoder::new().unwrap();
+        let mut out = Vec::new();
+        let mut head = [&[0, 0, 0, 1][..], sps, &[0, 0, 0, 1], pps].concat();
+        for k in 0..n {
+            let (size, offset) = (num(stsz + 12 + 4 * k), num(stco + 8 + 4 * k));
+            let mut stream = std::mem::take(&mut head);
+            let mut i = offset;
+            while i < offset + size {
+                let len = num(i);
+                stream.extend_from_slice(&[0, 0, 0, 1]);
+                stream.extend_from_slice(&mp4[i + 4..i + 4 + len]);
+                i += 4 + len;
+            }
+            if let Some(yuv) = d.decode(&stream).unwrap() {
+                let (w, h) = yuv.dimensions();
+                let mut rgb = vec![0u8; w * h * 3];
+                yuv.write_rgb8(&mut rgb);
+                out.push((rgb, w, h));
+            }
+        }
+        out
     }
 
     #[test]
