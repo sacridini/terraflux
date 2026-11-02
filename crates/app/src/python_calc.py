@@ -1,5 +1,6 @@
 # Terraflux's calculator (raster.calc) in numpy: the same script, in Python's syntax, cell by cell, a missing
-# value (NaN) making the result missing; `out name = value` names the node's outputs.
+# value (NaN) making the result missing; `out name = value` names the node's outputs. The inputs may be columns
+# (1-D arrays) too: a value per row of a table or per feature (_evaluate).
 import ast as _ast
 import warnings as _warnings
 
@@ -235,7 +236,10 @@ def _calc(script, **inputs):
             body.append(_ast.parse(f"map = {outs[0]}").body[0])
             outs = ["map"]
     tree = _ast.fix_missing_locations(_Cells().visit(_ast.Module(body=body, type_ignores=[])))
-    shape = next((_np.shape(v)[-2:] for v in names.values() if _np.ndim(v) >= 2), ())
+    # the cells of a map (a stack's of one layer); the rows of a table's columns
+    shape = next((_np.shape(v)[-2:] for v in names.values() if _np.ndim(v) >= 2), None)
+    if shape is None:
+        shape = next((_np.shape(v) for v in names.values() if _np.ndim(v) == 1), ())
 
     def _set(target, where, value):
         out = _np.array(_np.broadcast_to(_num(target), shape), dtype="float64")

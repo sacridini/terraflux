@@ -9,9 +9,18 @@
 //! `control.switch` an `if`/`elif` per branch; a group its body in place. The species distribution models
 //! (landschaft's prepare, fit and predict), the landscape metrics, a prioritization (prioritizr's `problem()`, as
 //! landschaft builds it), Zonation and the pieces of the land change models (Markov, weights of evidence, the
-//! changes and their validation) are calls of their own; the allocation of Dinamica, CLUE-S and PLUS, which
-//! landschaft runs only as a whole model (`ls.simulate.run`), is said so.
-//! A node with no counterpart known stays as a comment with its settings, the script saying which.
+//! changes and their validation, the logistic regressions, the demands, Dinamica's roads and continuous patcher)
+//! are calls of their own; the allocation of Dinamica, CLUE-S and PLUS, which landschaft runs only as a whole model
+//! (`ls.simulate.run`), is said so.
+//! Tables are pandas' DataFrames and vector features geopandas' GeoDataFrames. Reading features, burning them,
+//! their zones' statistics and the values at points are landschaft's (`load_vector`, `rasterize`, `zonal_stats`,
+//! `extract`); the operators of tables (filter, calc, aggregate, select, sort, join, pivot) and of features (filter,
+//! calc, buffer, clip, dissolve, reproject, join, spatial_join, overlay, points, from_table, polygonize, geometry,
+//! distance, grid_zones) helpers written into the script that do what Terraflux does, features given also as the
+//! table of their attributes. The expressions of the filters and calculators are kept as they are, run in numpy
+//! over the columns by the calculator's helper.
+//! A node with no counterpart known stays as a comment with its settings, the script saying which; so does a setting
+//! with none that would change the result.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::Path;
@@ -75,14 +84,6 @@ const MAPPED: &[Py] = &[
         args: &[("value", ""), ("path", "path"), ("type", "dtype")],
         defaults: &[],
         outs: &[("path", "")],
-        kind: Kind::Plain,
-    },
-    Py {
-        op: "vector.read",
-        call: "ls.load_vector",
-        args: &[("path", ""), ("layer", "layer")],
-        defaults: &[],
-        outs: &[("vector", "")],
         kind: Kind::Plain,
     },
     Py {
@@ -257,6 +258,14 @@ const MAPPED: &[Py] = &[
         kind: Kind::Plain,
     },
     Py {
+        op: "demand.from_maps",
+        call: "ls.simulate.AreaDemand.from_maps",
+        args: &[("maps", ""), ("times", "times"), ("out_times", "out_times")],
+        defaults: &[],
+        outs: &[("demand", ""), ("steps", ".steps")],
+        kind: Kind::Plain,
+    },
+    Py {
         op: "woe.fit",
         call: "ls.simulate.weights_of_evidence",
         args: &[
@@ -376,7 +385,8 @@ const BY_NAME: &[(&str, &str)] = &[
 /// The helper that runs a calculator's script in numpy (written into the script when a calculator is in it).
 pub const CALC_HELPER: &str = include_str!("python_calc.py");
 
-/// The helpers of stacks, tables and containers (stack.of, table.of, control.each, control.switch).
+/// The helpers of stacks, tables, features and containers (stack.of, table.of, control.each, control.switch; the
+/// operators of tables and of vector features).
 pub const FLOW_HELPER: &str = include_str!("python_flow.py");
 
 /// Zonation's settings and inputs of the same name in landschaft's `zonation`.
@@ -531,6 +541,29 @@ const RESERVED: &[&str] = &[
     "abs",
     "round",
     "range",
+    // Python's own functions, which the helpers call
+    "all",
+    "any",
+    "bool",
+    "enumerate",
+    "filter",
+    "float",
+    "format",
+    "getattr",
+    "hasattr",
+    "id",
+    "int",
+    "isinstance",
+    "iter",
+    "next",
+    "object",
+    "open",
+    "repr",
+    "reversed",
+    "sorted",
+    "str",
+    "tuple",
+    "zip",
 ];
 
 /// A name of the model (a node's id, an input's) as a Python variable.
@@ -629,6 +662,8 @@ enum Need {
     Nothing,
     Calc,
     Flow,
+    /// Both: the expressions over a table's rows and features (python_flow.py's, run by python_calc.py's).
+    Both,
 }
 
 /// The script being written: what was translated, the helpers it needs, the Python names taken.
@@ -681,8 +716,8 @@ impl Writer<'_> {
         let made = if n.body.is_some() { self.container(n, &var, sc, prefix) } else { node(n, self.r, &var, sc) };
         match made {
             Ok((code, outs, need)) => {
-                self.calc |= need == Need::Calc;
-                self.flow |= need == Need::Flow;
+                self.calc |= matches!(need, Need::Calc | Need::Both);
+                self.flow |= matches!(need, Need::Flow | Need::Both);
                 self.out.translated += 1;
                 block.push_str(&code);
                 sc.made.insert(n.id.clone(), Made { outs });
@@ -983,12 +1018,12 @@ pub fn script(m: &Model, r: &Registry, model_path: Option<&Path>) -> Script {
     });
     head.push_str("OUT = MODEL_DIR / \"output\"\n\n");
     if w.calc {
-        head.push_str("\n# --- Terraflux's calculator (raster.calc) in numpy ---\n\n");
+        head.push_str("\n# --- Terraflux's calculator (raster.calc, and the expressions over rows) in numpy ---\n\n");
         head.push_str(CALC_HELPER.trim_end());
         head.push_str("\n\n");
     }
     if w.flow {
-        head.push_str("\n# --- Terraflux's stacks, tables and containers ---\n\n");
+        head.push_str("\n# --- Terraflux's stacks, tables, features and containers ---\n\n");
         head.push_str(FLOW_HELPER.trim_end());
         head.push_str("\n\n");
     }
@@ -1093,6 +1128,9 @@ fn node(n: &Node, r: &Registry, var: &str, sc: &Scope) -> Result<Code, String> {
         return Ok((code, HashMap::new(), Need::Nothing));
     }
     if let Some(code) = special(n, var, sc)? {
+        return Ok(code);
+    }
+    if let Some(code) = tables_and_features(n, var, sc)? {
         return Ok(code);
     }
     let ports: Vec<String> = crate::editor::output_ports(n, r).into_iter().map(|(p, _)| p).collect();
@@ -1227,10 +1265,41 @@ fn choice<'n>(n: &'n Node, name: &str) -> Option<&'n str> {
     n.params.get(name).and_then(Value::as_str)
 }
 
+/// The node's inputs and settings outside `known` refused: a setting landschaft is not given changes the result.
+fn refuse_others(n: &Node, known: &[&str]) -> Result<(), String> {
+    for (k, what) in n.inputs.keys().map(|k| (k, "input")).chain(n.params.keys().map(|k| (k, "setting"))) {
+        if !known.contains(&k.as_str()) {
+            return Err(format!("its {what} {k}: not in the script yet"));
+        }
+    }
+    Ok(())
+}
+
+/// A class as Python writes the number (1, not 1.0).
+fn class_number(c: f64) -> String {
+    if c.fract() == 0.0 && c.abs() < 1e15 { format!("{}", c as i64) } else { format!("{c:?}") }
+}
+
+/// The seed of a random step as Terraflux makes it: `seed` (1) plus `step` times 0x9E3779B9, kept to `mask`.
+fn step_seed(n: &Node, sc: &Scope, mask: Option<&str>) -> Result<String, String> {
+    let int = |x: String| if x.parse::<i64>().is_ok() { x } else { format!("int({x})") };
+    let seed = value_of(n, "seed", sc)?.map_or_else(|| "1".to_string(), int);
+    let e = match value_of(n, "step", sc)? {
+        Some(t) => format!("{seed} + {} * 0x9E3779B9", int(t)),
+        None => seed,
+    };
+    Ok(match mask {
+        Some(m) if e.parse::<u32>().is_err() => format!("({e}) & {m}"),
+        _ => e,
+    })
+}
+
 /// The operators translated by code of their own, not one call with the arguments mapped: stacks and tables
 /// written in the model, the species distribution models (landschaft's prepare, fit and predict), the landscape
 /// metrics, a prioritization (prioritizr's problem, as landschaft builds it), Zonation, weights of evidence's
-/// probability; the allocation of the land change models, which landschaft runs only as a whole model, said so.
+/// probability, the logistic regressions (fitted, predicted, given), Dinamica's cost maps, destinations, pathways,
+/// roads and continuous patcher (the seed of a step as Terraflux makes it), a demand given as a table; the
+/// allocation of the land change models, which landschaft runs only as a whole model, said so.
 fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
     let v = |k: &str| value_of(n, k, sc);
     let need =
@@ -1430,7 +1499,9 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
         }
         "prioritize.optimize" => {
             for k in n.inputs.keys() {
-                if !["features", "cost", "locked_in", "locked_out"].contains(&k.as_str()) {
+                const INPUTS: &[&str] =
+                    &["features", "cost", "locked_in", "locked_out", "connectivity_data", "asym_connectivity_data"];
+                if !INPUTS.contains(&k.as_str()) {
                     return Err(format!("its input {k}: not in the script yet"));
                 }
             }
@@ -1442,6 +1513,8 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
                 "feature_weights",
                 "boundary_penalty",
                 "edge_factor",
+                "connectivity_penalty",
+                "asym_connectivity_penalty",
                 "neighbors",
                 "clamp",
                 "contiguity",
@@ -1484,6 +1557,18 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
             if let Some(p) = setting(n, "boundary_penalty", sc)? {
                 let e = given(n, &[("edge_factor", "edge_factor")], sc)?.into_iter().map(|e| format!(", {e}"));
                 chain.push(format!(".add_boundary_penalties({p}{})", e.collect::<String>()));
+            }
+            // the connectivity of pairs of units (a table i, j, x of every cell) as landschaft's units x units matrix
+            let mut pairs = false;
+            for (k, data, method) in [
+                ("connectivity_penalty", "connectivity_data", "add_connectivity_penalties"),
+                ("asym_connectivity_penalty", "asym_connectivity_data", "add_asym_connectivity_penalties"),
+            ] {
+                if let Some(p) = setting(n, k, sc)? {
+                    let t = v(data)?.ok_or_else(|| format!("{k} needs {data}"))?;
+                    chain.push(format!(".{method}({p}, _unit_pairs({t}, {cost}.size))"));
+                    pairs = true;
+                }
             }
             if let Some(k) = setting(n, "neighbors", sc)? {
                 let c = given(n, &[("clamp", "clamp")], sc)?.into_iter().map(|e| format!(", {e}"));
@@ -1541,7 +1626,194 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
                     ("coverage".to_string(), format!("{var}.coverage")),
                 ])
             };
+            (code, outs, if pairs { Need::Flow } else { Need::Nothing })
+        }
+        "glm.fit" => {
+            refuse_others(n, &["landscape", "drivers", "formulas", "maxit", "epsilon"])?;
+            let landscape = need("landscape", "its landscape")?;
+            let drivers = need("drivers", "its drivers")?;
+            // Terraflux fits the classes in their order, landschaft in the formulas'
+            let mut args = Vec::new();
+            match n.params.get("formulas") {
+                None | Some(Value::Null) => {}
+                Some(f) => match (terraflux_graph::setting_ref(f), f.as_object()) {
+                    (Some(x), _) => {
+                        let x = reference(x, sc)?;
+                        args.push(format!("dict(sorted({x}.items(), key=lambda kv: float(kv[0])))"));
+                    }
+                    (None, Some(o)) => {
+                        let mut classes = Vec::new();
+                        for (k, d) in o {
+                            let c = k.trim().parse::<f64>().map_err(|_| format!("formulas: {k:?} is not a class"))?;
+                            classes.push((c, d));
+                        }
+                        classes.sort_by(|a, b| a.0.total_cmp(&b.0));
+                        let entries: Vec<String> =
+                            classes.iter().map(|(c, d)| format!("{}: {}", class_number(*c), literal(d))).collect();
+                        args.push(format!("{{{}}}", entries.join(", ")));
+                    }
+                    (None, None) => return Err(format!("formulas {}: not a table of classes", literal(f))),
+                },
+            }
+            args.extend(given(n, &[("maxit", "maxit"), ("epsilon", "epsilon")], sc)?);
+            let code =
+                format!("{var} = ls.simulate.LogisticRegression({}).fit({landscape}, {drivers})\n", args.join(", "));
+            (code, one("model"), Need::Nothing)
+        }
+        "glm.predict" => {
+            refuse_others(n, &["model", "drivers", "landscape"])?;
+            let model = need("model", "its model")?;
+            let drivers = need("drivers", "its drivers")?;
+            let landscape = v("landscape")?.map(|l| format!(", landscape={l}")).unwrap_or_default();
+            (format!("{var} = _by_class({model}.predict({drivers}{landscape}))\n"), one("suitability"), Need::Flow)
+        }
+        "glm.coefficients" => {
+            refuse_others(n, &["fits"])?;
+            let fits = n.params.get("fits").and_then(Value::as_array).ok_or("its fits are not written in the model")?;
+            let mut classes = Vec::new();
+            let mut seen = Vec::new();
+            for f in fits {
+                let class = f.get("class").and_then(Value::as_f64).ok_or("a fit without its class")?;
+                let what = format!("class {}", class_number(class));
+                let list = |k: &str| f.get(k).and_then(Value::as_array).cloned().unwrap_or_default();
+                let drivers: Vec<String> =
+                    list("drivers").iter().filter_map(|d| d.as_str().map(String::from)).collect();
+                let coefficients: Vec<f64> = list("coefficients").iter().filter_map(Value::as_f64).collect();
+                let pivot: Vec<i64> = list("pivot").iter().filter_map(Value::as_i64).collect();
+                let p = drivers.len() + 1;
+                // landschaft's from_coefficients makes every driver count (pivot 1, 2..., full rank)
+                if coefficients.len() != p
+                    || pivot != (1..=p as i64).collect::<Vec<_>>()
+                    || f.get("rank").and_then(Value::as_i64) != Some(p as i64)
+                {
+                    return Err(format!(
+                        "{what}: an aliased driver or a pivot of its own (landschaft's \
+                         LogisticRegression.from_coefficients takes models of full rank)"
+                    ));
+                }
+                let mut names = drivers.clone();
+                names.sort_unstable();
+                names.dedup();
+                if names.len() != drivers.len() || seen.contains(&class.to_bits()) {
+                    return Err(format!("{what}: a driver or the class twice"));
+                }
+                seen.push(class.to_bits());
+                let terms: Vec<String> = std::iter::once("\"(Intercept)\"".to_string())
+                    .chain(drivers.iter().map(|d| text(d)))
+                    .zip(&coefficients)
+                    .map(|(t, b)| format!("{t}: {}", literal(&Value::from(*b))))
+                    .collect();
+                classes.push(format!("{}: {{{}}}", class_number(class), terms.join(", ")));
+            }
+            let code = format!(
+                "{var} = ls.simulate.LogisticRegression.from_coefficients({{\n    {},\n}})\n",
+                classes.join(",\n    ")
+            );
+            (code, one("model"), Need::Nothing)
+        }
+        "dinamica.cost_map" => {
+            refuse_others(n, &["sources", "friction", "diagonal", "relative"])?;
+            let mut args = vec![need("sources", "its sources")?, need("friction", "its friction")?];
+            args.extend(given(n, &[("diagonal", "diagonal"), ("relative", "relative")], sc)?);
+            let code = format!("{var} = ls.simulate.friction_cost({}, directions=True)\n", args.join(", "));
+            let outs = HashMap::from([
+                ("cost".to_string(), format!("{var}[0]")),
+                ("direction".to_string(), format!("{var}[1]")),
+            ]);
             (code, outs, Need::Nothing)
+        }
+        "dinamica.destinations" => {
+            const SETTINGS: &[(&str, &str)] =
+                &[("per_quadrant", "per_quadrant"), ("min_distance", "min_distance"), ("max_attempts", "max_attempts")];
+            refuse_others(
+                n,
+                &["attraction", "seed", "step", "quadrants", "per_quadrant", "min_distance", "max_attempts"],
+            )?;
+            let mut args = vec![need("attraction", "its attraction")?];
+            args.extend(setting(n, "quadrants", sc)?);
+            args.extend(given(n, SETTINGS, sc)?);
+            args.push(format!("seed={}", step_seed(n, sc, None)?));
+            (format!("{var} = ls.simulate.destinations({})\n", args.join(", ")), one("map"), Need::Nothing)
+        }
+        "dinamica.pathways" => {
+            refuse_others(
+                n,
+                &["network", "sources", "cost", "directions", "seed", "step", "lottery", "merge", "value"],
+            )?;
+            let mut args = vec![need("network", "its network")?, need("sources", "its sources")?];
+            for k in ["cost", "directions"] {
+                if let Some(x) = v(k)? {
+                    args.push(format!("{k}={x}"));
+                }
+            }
+            args.extend(given(n, &[("lottery", "lottery"), ("merge", "merge"), ("value", "value")], sc)?);
+            args.push(format!("seed={}", step_seed(n, sc, None)?));
+            (format!("{var} = ls.simulate.pathways({})\n", args.join(", ")), one("map"), Need::Nothing)
+        }
+        "dinamica.roads" => {
+            const SETTINGS: &[(&str, &str)] = &[
+                ("quadrants", "quadrants"),
+                ("distance", "distance"),
+                ("spacing", "spacing"),
+                ("per_quadrant", "per_quadrant"),
+                ("max_attempts", "max_attempts"),
+                ("lottery", "lottery"),
+                ("diagonal", "diagonal"),
+                ("relative", "relative"),
+            ];
+            let mut known = vec!["network", "friction", "attraction", "mask", "step", "seed"];
+            known.extend(SETTINGS.iter().map(|(k, _)| *k));
+            refuse_others(n, &known)?;
+            let network = need("network", "its network")?;
+            let mut args = vec![need("friction", "its friction")?, need("attraction", "its attraction")?];
+            args.extend(given(n, SETTINGS, sc)?);
+            if let Some(m) = v("mask")? {
+                args.push(format!("mask={m}"));
+            }
+            // Terraflux's seed of a step kept to 63 bits, as landschaft's run gives its steps
+            let seed = step_seed(n, sc, Some("0x7FFFFFFFFFFFFFFF"))?;
+            let code = format!("{var} = ls.simulate.RoadBuilder({}).step({network}, seed={seed})\n", args.join(", "));
+            let outs = HashMap::from([
+                ("network".to_string(), var.to_string()),
+                ("distance".to_string(), format!("_road_distance({var})")),
+            ]);
+            (code, outs, Need::Flow)
+        }
+        "dinamica.continuous_patcher" => {
+            const SETTINGS: &[(&str, &str)] = &[
+                ("mean", "mean"),
+                ("variance", "variance"),
+                ("isometry", "isometry"),
+                ("unit", "unit"),
+                ("prune_factor", "prune_factor"),
+                ("window", "window"),
+            ];
+            let mut known = vec!["stock", "probability", "quota", "step", "seed"];
+            known.extend(SETTINGS.iter().map(|(k, _)| *k));
+            refuse_others(n, &known)?;
+            let stock = need("stock", "its stock")?;
+            let probability = need("probability", "its probability")?;
+            let quota = need("quota", "its quota")?;
+            let seed = step_seed(n, sc, None)?;
+            let code = format!(
+                "{var} = ls.simulate.ContinuousPatcher({}).allocate({stock}, {probability}, {quota}, seed={seed})\n",
+                given(n, SETTINGS, sc)?.join(", ")
+            );
+            let outs = HashMap::from([
+                ("stock".to_string(), format!("{var}.stock")),
+                ("probability".to_string(), format!("{var}.probability")),
+                ("taken".to_string(), format!("{var}.taken")),
+                ("patch".to_string(), format!("{var}.patches")),
+                ("info".to_string(), format!("_stock_info({var}, {quota})")),
+            ]);
+            (code, outs, Need::Flow)
+        }
+        "demand.table" => {
+            refuse_others(n, &["table"])?;
+            let table = setting(n, "table", sc)?.ok_or("its table is not given")?;
+            let outs =
+                HashMap::from([("demand".to_string(), var.to_string()), ("steps".to_string(), format!("{var}.steps"))]);
+            (format!("{var} = _demand_table({table})\n"), outs, Need::Flow)
         }
         op @ ("dinamica.step" | "lulcc.step" | "cars.step") => {
             let preset = match op {
@@ -1555,6 +1827,315 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
             ));
         }
         _ => return Ok(None),
+    };
+    Ok(Some(code))
+}
+
+/// What the outputs of a helper's call are.
+#[derive(Clone, Copy)]
+enum Gives {
+    /// A table (`table`).
+    Table,
+    /// Features (`vector`), and their attributes as a table (`table`: the feature and those that are numbers).
+    Features,
+    /// One output, of this name.
+    One(&'static str),
+}
+
+/// An operator of tables or of features translated as a call of a helper of the script (python_flow.py), which
+/// does what Terraflux does: the node's inputs or settings `first` by position (needed), then those of `named`
+/// given, by their names there.
+struct Frame {
+    op: &'static str,
+    call: &'static str,
+    first: &'static [&'static str],
+    named: &'static [(&'static str, &'static str)],
+    gives: Gives,
+}
+
+const FRAMES: &[Frame] = &[
+    Frame {
+        op: "table.aggregate",
+        call: "_aggregate",
+        first: &["table"],
+        named: &[("by", "by"), ("columns", "columns"), ("stats", "stats")],
+        gives: Gives::Table,
+    },
+    Frame {
+        op: "table.select",
+        call: "_select",
+        first: &["table"],
+        named: &[("columns", "columns"), ("drop", "drop"), ("rename", "rename")],
+        gives: Gives::Table,
+    },
+    Frame {
+        op: "table.sort",
+        call: "_sort",
+        first: &["table", "by"],
+        named: &[("descending", "descending"), ("top", "top")],
+        gives: Gives::Table,
+    },
+    Frame {
+        op: "table.join",
+        call: "_join",
+        first: &["left", "right", "on"],
+        named: &[("right_on", "right_on"), ("how", "how"), ("suffix", "suffix")],
+        gives: Gives::Table,
+    },
+    Frame {
+        op: "table.pivot",
+        call: "_pivot",
+        first: &["table", "direction"],
+        named: &[
+            ("id", "id"),
+            ("names", "names"),
+            ("values", "values"),
+            ("prefix", "prefix"),
+            ("fill", "fill"),
+            ("columns", "columns"),
+            ("names_to", "names_to"),
+            ("values_to", "values_to"),
+        ],
+        gives: Gives::Table,
+    },
+    Frame {
+        op: "vector.extract",
+        call: "_extract",
+        first: &["map", "vector"],
+        named: &[("method", "method"), ("buffer", "buffer"), ("stats", "stats"), ("all_touched", "all_touched")],
+        gives: Gives::Features,
+    },
+    Frame {
+        op: "vector.buffer",
+        call: "_buffer",
+        first: &["vector", "distance"],
+        named: &[("segments", "segments"), ("dissolve", "dissolve")],
+        gives: Gives::Features,
+    },
+    Frame { op: "vector.clip", call: "_clip", first: &["vector", "mask"], named: &[], gives: Gives::Features },
+    Frame {
+        op: "vector.dissolve",
+        call: "_dissolve",
+        first: &["vector"],
+        named: &[("by", "by")],
+        gives: Gives::Features,
+    },
+    Frame {
+        op: "vector.reproject",
+        call: "_reproject",
+        first: &["vector"],
+        named: &[("crs", "crs"), ("like", "like")],
+        gives: Gives::Features,
+    },
+    Frame {
+        op: "vector.join",
+        call: "_join_features",
+        first: &["vector", "table"],
+        named: &[("on", "on"), ("key", "key")],
+        gives: Gives::Features,
+    },
+    Frame {
+        op: "vector.spatial_join",
+        call: "_spatial_join",
+        first: &["vector", "other"],
+        named: &[("mode", "mode"), ("fields", "fields"), ("suffix", "suffix")],
+        gives: Gives::Features,
+    },
+    Frame {
+        op: "vector.overlay",
+        call: "_overlay",
+        first: &["vector", "other"],
+        named: &[("how", "how"), ("suffix", "suffix")],
+        gives: Gives::Features,
+    },
+    Frame {
+        op: "vector.points",
+        call: "_points_inside",
+        first: &["vector"],
+        named: &[("method", "method"), ("n", "n"), ("spacing", "spacing"), ("seed", "seed")],
+        gives: Gives::Features,
+    },
+    Frame {
+        op: "vector.from_table",
+        call: "_points_from",
+        first: &["table"],
+        named: &[("x", "x"), ("y", "y"), ("crs", "crs")],
+        gives: Gives::Features,
+    },
+    Frame {
+        op: "vector.polygonize",
+        call: "_polygonize",
+        first: &["map"],
+        named: &[("neighbours", "neighbours")],
+        gives: Gives::Features,
+    },
+    Frame { op: "vector.geometry", call: "_measures", first: &["vector"], named: &[], gives: Gives::Features },
+    Frame {
+        op: "vector.distance",
+        call: "_distance",
+        first: &["vector", "like"],
+        named: &[("all_touched", "all_touched")],
+        gives: Gives::One("map"),
+    },
+    Frame {
+        op: "vector.grid_zones",
+        call: "_squares",
+        first: &["map", "size"],
+        named: &[],
+        gives: Gives::One("zones"),
+    },
+];
+
+/// A script's text as Python writes it: a script of several lines in triple quotes, as it is; else a string.
+fn script_text(s: &str) -> String {
+    if s.contains('\n') && !s.contains("\"\"\"") && !s.contains('\\') && !s.trim_end().ends_with('"') {
+        format!("\"\"\"\n{}\n\"\"\"", s.trim_end())
+    } else {
+        text(s)
+    }
+}
+
+/// The operators of tables (pandas' DataFrames) and of vector features (geopandas' GeoDataFrames): a call of
+/// landschaft's (load_vector, rasterize, zonal_stats) or of a helper written into the script (python_flow.py) that
+/// does what Terraflux does; the expressions of the filters and calculators as they are, run by the calculator's
+/// helper over the columns. A setting with no counterpart that would change the result is refused.
+fn tables_and_features(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
+    let v = |k: &str| value_of(n, k, sc);
+    let need = |k: &str| -> Result<String, String> {
+        v(k)?.ok_or_else(|| {
+            if n.params.contains_key(k)
+                || !["table", "vector", "map", "left", "right", "other", "mask", "like"].contains(&k)
+            {
+                format!("its {k} is not given")
+            } else {
+                format!("its {k} is not connected")
+            }
+        })
+    };
+    // the inputs and settings given among `names`, as `theirs=value`
+    let named = |names: &[(&str, &str)]| -> Result<Vec<String>, String> {
+        let mut out = Vec::new();
+        for (ours, theirs) in names {
+            if let Some(x) = v(ours)? {
+                out.push(format!("{theirs}={x}"));
+            }
+        }
+        Ok(out)
+    };
+    // the settings and inputs given but not among `known`, as comments
+    let unpassed = |known: &[&str]| -> String {
+        let mut said = String::new();
+        for (k, x) in &n.params {
+            if !known.contains(&k.as_str()) {
+                said.push_str(&format!("# (not passed: {k} = {})\n", literal(x)));
+            }
+        }
+        for k in n.inputs.keys().filter(|k| !known.contains(&k.as_str())) {
+            said.push_str(&format!("# (not passed: the input {k})\n"));
+        }
+        said
+    };
+    let features = |var: &str| {
+        HashMap::from([("vector".to_string(), var.to_string()), ("table".to_string(), format!("_attributes({var})"))])
+    };
+    let one = |port: &str| HashMap::from([(port.to_string(), var.to_string())]);
+    let code = match n.op.as_str() {
+        "vector.read" => {
+            let path = setting(n, "path", sc)?.ok_or("its file (path) is not given")?;
+            let layer = named(&[("layer", "layer")])?.into_iter().map(|l| format!(", {l}")).collect::<String>();
+            let code = format!("{}{var} = ls.load_vector({path}{layer})\n", unpassed(&["path", "layer"]));
+            (code, features(var), Need::Flow)
+        }
+        "vector.rasterize" => {
+            let mut args = vec![need("vector")?, need("like")?];
+            args.extend(named(&[("field", "field"), ("value", "value")])?);
+            match n.params.get("fill") {
+                // (no value: NaN where no feature is)
+                Some(Value::Null) => args.push("fill=np.nan".into()),
+                _ => args.extend(named(&[("fill", "fill")])?),
+            }
+            args.extend(named(&[("all_touched", "all_touched"), ("merge", "merge")])?);
+            let mut code = unpassed(&["vector", "like", "field", "value", "fill", "all_touched", "merge"]);
+            code.push_str(&format!("{var} = ls.rasterize({})\n", args.join(", ")));
+            (code, one("map"), Need::Nothing)
+        }
+        "vector.zonal" => {
+            // a row per feature (1..), a column per statistic
+            let mut args = vec![need("map")?, format!("{}.geometry", need("vector")?)];
+            args.extend(named(&[("stats", "stats"), ("all_touched", "all_touched")])?);
+            let mut code = unpassed(&["vector", "map", "stats", "all_touched"]);
+            code.push_str(&format!("{var} = _attributes(ls.zonal_stats({}))\n", args.join(", ")));
+            (code, one("table"), Need::Flow)
+        }
+        op @ ("table.filter" | "table.calc" | "vector.filter" | "vector.calc") => {
+            let (port, call) = match op {
+                "table.filter" => ("table", "_table_filter"),
+                "table.calc" => ("table", "_table_calc"),
+                "vector.filter" => ("vector", "_features_filter"),
+                _ => ("vector", "_features_calc"),
+            };
+            let mut args = vec![need(port)?];
+            if op == "table.calc" {
+                args.push(setting(n, "column", sc)?.ok_or("its column's name is not given")?);
+            }
+            // the expression as it is (map algebra, run by _calc over the columns)
+            args.push(match n.params.get("expression") {
+                Some(x) if terraflux_graph::setting_ref(x).is_some() => {
+                    setting(n, "expression", sc)?.unwrap_or_default()
+                }
+                Some(Value::String(s)) => script_text(s),
+                _ => return Err("no expression".into()),
+            });
+            if op == "vector.calc"
+                && let Some(c) = setting(n, "column", sc)?
+            {
+                args.push(format!("column={c}"));
+            }
+            // the node's other inputs, numbers and texts by their names
+            let mut others = Vec::new();
+            for k in n.inputs.keys().filter(|k| k.as_str() != port) {
+                others.push(format!("{}: {}", text(k), v(k)?.unwrap_or_else(|| "None".into())));
+            }
+            if !others.is_empty() {
+                args.push(format!("inputs={{{}}}", others.join(", ")));
+            }
+            let mut known: Vec<&str> = n.inputs.keys().map(String::as_str).collect();
+            known.extend(["expression", "column"]);
+            let code = format!("{}{var} = {call}({})\n", unpassed(&known), args.join(", "));
+            let outs = if port == "table" { one("table") } else { features(var) };
+            (code, outs, Need::Both)
+        }
+        "vector.geometry" if n.params.get("geodesic").and_then(Value::as_bool) == Some(true) => {
+            return Err("its geodesic areas (GDAL's, on the WGS84 ellipsoid): not in the script yet".into());
+        }
+        "vector.density" => {
+            return Err("no landschaft function for it: a kernel density of points on a map's grid (ArcGIS's \
+                        Kernel Density), to write by hand"
+                .into());
+        }
+        "vector.exact_sum" => {
+            return Err("landschaft's exact sums (exactextract's) are internal to its prioritization \
+                        (landschaft.prioritize._milp.exact_sums), not a function of its own"
+                .into());
+        }
+        op => {
+            let Some(f) = FRAMES.iter().find(|f| f.op == op) else { return Ok(None) };
+            let mut args = Vec::new();
+            for k in f.first {
+                args.push(need(k)?);
+            }
+            args.extend(named(f.named)?);
+            let known: Vec<&str> = f.first.iter().copied().chain(f.named.iter().map(|(k, _)| *k)).collect();
+            // (vector.geometry's geodesic false: the areas in the features' units, as here)
+            let known = if op == "vector.geometry" { [known, vec!["geodesic"]].concat() } else { known };
+            let code = format!("{}{var} = {}({})\n", unpassed(&known), f.call, args.join(", "));
+            let outs = match f.gives {
+                Gives::Table => one("table"),
+                Gives::Features => features(var),
+                Gives::One(port) => one(port),
+            };
+            (code, outs, Need::Flow)
+        }
     };
     Ok(Some(code))
 }
@@ -1676,6 +2257,425 @@ mod tests {
         for (op, _) in BY_NAME {
             assert!(r.sig(op).is_some(), "{op}");
         }
+        for f in FRAMES {
+            let sig = r.sig(f.op).unwrap_or_else(|| panic!("{}", f.op));
+            let names: Vec<&str> = sig.inputs.iter().chain(&sig.params).map(|x| x.name.as_str()).collect();
+            for k in f.first.iter().chain(f.named.iter().map(|(k, _)| k)) {
+                assert!(names.contains(k), "{}: {k}", f.op);
+            }
+            let ports: &[&str] = match f.gives {
+                Gives::Table => &["table"],
+                Gives::Features => &["vector"],
+                Gives::One(p) => &[p],
+            };
+            for port in ports {
+                assert!(sig.outputs.iter().any(|o| o.name == *port), "{}: {port}", f.op);
+            }
+        }
+    }
+
+    /// The script parses as Python (when there is a Python to ask).
+    fn parses(t: &str) {
+        if let Ok(o) = std::process::Command::new("python")
+            .args(["-I", "-c", "import ast, sys; ast.parse(sys.stdin.read())"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .and_then(|mut c| {
+                use std::io::Write;
+                c.stdin.take().unwrap().write_all(t.as_bytes())?;
+                c.wait_with_output()
+            })
+        {
+            assert!(o.status.success(), "{}\n{t}", String::from_utf8_lossy(&o.stderr));
+        }
+    }
+
+    #[test]
+    fn tables_as_pandas() {
+        let r = Registry::standard();
+        let m = Model::from_toml(
+            r#"
+format = "terraflux/1"
+
+[inputs.least]
+kind = "value"
+value = 10
+
+[[nodes]]
+id = "patches"
+op = "table.of"
+params = { columns = ["class", "area", "edge"], rows = [[1, 12, 4], [3, 20, 9], [3, 5, 2], [3, 40, 11]] }
+
+[[nodes]]
+id = "big"
+op = "table.filter"
+inputs = { table = "patches.table", least = "$least" }
+params = { expression = "class == 3 and area >= least" }
+
+[[nodes]]
+id = "ratio"
+op = "table.calc"
+inputs = { table = "patches.table" }
+params = { column = "ratio", expression = "edge / area if area > 0 else None" }
+
+[[nodes]]
+id = "sums"
+op = "table.aggregate"
+inputs = { table = "ratio.table" }
+params = { by = "class", stats = "sum, sd" }
+
+[[nodes]]
+id = "top"
+op = "table.sort"
+inputs = { table = "ratio.table" }
+params = { by = "area", descending = true, top = 2 }
+
+[[nodes]]
+id = "costs"
+op = "table.of"
+params = { columns = ["id", "cost"], rows = [[1, 100], [3, 10]] }
+
+[[nodes]]
+id = "joined"
+op = "table.join"
+inputs = { left = "top.table", right = "costs.table" }
+params = { on = "class", right_on = "id", how = "full" }
+
+[[nodes]]
+id = "wide"
+op = "table.pivot"
+inputs = { table = "patches.table" }
+params = { direction = "wider", id = "class", names = "edge", values = "area", fill = 0 }
+
+[[nodes]]
+id = "kept"
+op = "table.select"
+inputs = { table = "joined.table" }
+params = { columns = ["edge", "class"], rename = { edge = "perimeter" } }
+
+[outputs.kept]
+from = "kept.table"
+"#,
+        )
+        .unwrap();
+        let s = script(&m, &r, None);
+        let t = &s.text;
+        assert!(s.left.is_empty(), "{:?}", s.left);
+        assert!(
+            t.contains("big = _table_filter(patches, \"class == 3 and area >= least\", inputs={\"least\": least})\n"),
+            "{t}"
+        );
+        assert!(t.contains("ratio = _table_calc(patches, \"ratio\", \"edge / area if area > 0 else None\")\n"), "{t}");
+        assert!(t.contains("sums = _aggregate(ratio, by=\"class\", stats=\"sum, sd\")\n"), "{t}");
+        assert!(t.contains("top = _sort(ratio, \"area\", descending=True, top=2)\n"), "{t}");
+        assert!(t.contains("joined = _join(top, costs, \"class\", right_on=\"id\", how=\"full\")\n"), "{t}");
+        assert!(
+            t.contains("wide = _pivot(patches, \"wider\", id=\"class\", names=\"edge\", values=\"area\", fill=0)\n"),
+            "{t}"
+        );
+        assert!(
+            t.contains("kept = _select(joined, columns=[\"edge\", \"class\"], rename={\"edge\": \"perimeter\"})\n")
+        );
+        assert!(t.contains("ls.save(kept, OUT / \"kept\")"), "{t}");
+        // the expressions need both helpers: the tables' and the calculator's
+        assert!(t.contains("def _calc(script, **inputs):") && t.contains("def _evaluate(frame, script"), "{t}");
+        parses(t);
+    }
+
+    #[test]
+    fn features_as_geopandas() {
+        let r = Registry::standard();
+        let m = Model::from_toml(
+            r#"
+format = "terraflux/1"
+
+[[nodes]]
+id = "plots"
+op = "vector.read"
+params = { path = "data/plots.gpkg", layer = "plots" }
+
+[[nodes]]
+id = "forest"
+op = "vector.filter"
+inputs = { vector = "plots.vector" }
+params = { expression = 'uso == "forest" and geometry.area > 100' }
+
+[[nodes]]
+id = "dense"
+op = "vector.calc"
+inputs = { vector = "plots.vector" }
+params = { expression = "d = pop / geometry.area\nout dense = d > 1" }
+
+[[nodes]]
+id = "ring"
+op = "vector.buffer"
+inputs = { vector = "plots.vector" }
+params = { distance = 50, segments = 8 }
+
+[[nodes]]
+id = "land"
+op = "nlm.random"
+params = { columns = 20, rows = 10 }
+
+[[nodes]]
+id = "at"
+op = "vector.extract"
+inputs = { vector = "plots.vector", map = "land.map" }
+params = { method = "bilinear", block_rows = 64 }
+
+[[nodes]]
+id = "zones"
+op = "vector.zonal"
+inputs = { vector = "ring.vector", map = "land.map" }
+params = { stats = ["mean", "max"] }
+
+[[nodes]]
+id = "burnt"
+op = "vector.rasterize"
+inputs = { vector = "plots.vector", like = "land.map" }
+params = { field = "pop", merge = "add" }
+
+[[nodes]]
+id = "counted"
+op = "vector.spatial_join"
+inputs = { vector = "ring.vector", other = "at.vector" }
+params = { mode = "summary", fields = "value" }
+
+[[nodes]]
+id = "joined"
+op = "vector.join"
+inputs = { vector = "plots.vector", table = "zones.table" }
+
+[[nodes]]
+id = "near"
+op = "vector.distance"
+inputs = { vector = "plots.vector", like = "land.map" }
+
+[[nodes]]
+id = "squares"
+op = "vector.grid_zones"
+inputs = { map = "land.map" }
+params = { size = 5 }
+
+[[nodes]]
+id = "heat"
+op = "vector.density"
+inputs = { vector = "plots.vector", map = "land.map" }
+
+[[nodes]]
+id = "sums"
+op = "vector.exact_sum"
+inputs = { vector = "plots.vector", map = "land.map" }
+
+[[nodes]]
+id = "areas"
+op = "vector.geometry"
+inputs = { vector = "plots.vector" }
+params = { geodesic = true }
+
+[outputs.counted]
+from = "counted.table"
+"#,
+        )
+        .unwrap();
+        let s = script(&m, &r, None);
+        let t = &s.text;
+        assert!(t.contains("plots = ls.load_vector(MODEL_DIR / \"data/plots.gpkg\", layer=\"plots\")\n"), "{t}");
+        assert!(
+            t.contains("forest = _features_filter(plots, \"uso == \\\"forest\\\" and geometry.area > 100\")\n"),
+            "{t}"
+        );
+        // a script of several lines as it is
+        assert!(
+            t.contains("dense = _features_calc(plots, \"\"\"\nd = pop / geometry.area\nout dense = d > 1\n\"\"\")\n")
+        );
+        assert!(t.contains("ring = _buffer(plots, 50, segments=8)\n"), "{t}");
+        assert!(
+            t.contains("# (not passed: block_rows = 64)\nat = _extract(land, plots, method=\"bilinear\")\n"),
+            "{t}"
+        );
+        assert!(t.contains("zones = _attributes(ls.zonal_stats(land, ring.geometry, stats=[\"mean\", \"max\"]))\n"));
+        assert!(t.contains("burnt = ls.rasterize(plots, land, field=\"pop\", merge=\"add\")\n"), "{t}");
+        // features' table: their attributes
+        assert!(t.contains("counted = _spatial_join(ring, at, mode=\"summary\", fields=\"value\")\n"), "{t}");
+        assert!(t.contains("ls.save(_attributes(counted), OUT / \"counted\")"), "{t}");
+        assert!(t.contains("joined = _join_features(plots, zones)\n"), "{t}");
+        assert!(t.contains("near = _distance(plots, land)\n"), "{t}");
+        assert!(t.contains("squares = _squares(land, 5)\n"), "{t}");
+        // no counterpart, or a setting that would change the result: left, said why
+        let left: Vec<&str> = s.left.iter().map(|(id, _, _)| id.as_str()).collect();
+        assert_eq!(left, ["heat", "sums", "areas"], "{:?}", s.left);
+        assert!(s.left[0].2.contains("kernel density") && s.left[2].2.contains("geodesic"), "{:?}", s.left);
+        assert!(t.contains("def _evaluate(frame, script") && t.contains("def _calc(script, **inputs):"));
+        parses(t);
+        // no value where no feature is; a table's missing values
+        let m = Model::from_json(
+            r#"{"format": "terraflux/1", "nodes": [
+                {"id": "plots", "op": "vector.read", "params": {"path": "C:/data/plots.gpkg"}},
+                {"id": "land", "op": "nlm.random"},
+                {"id": "burnt", "op": "vector.rasterize", "inputs": {"vector": "plots.vector", "like": "land.map"},
+                 "params": {"fill": null, "all_touched": true}},
+                {"id": "t", "op": "table.of", "params": {"columns": ["a"], "rows": [[1], [null]]}},
+                {"id": "pts", "op": "vector.from_table", "inputs": {"table": "t.table"}, "params": {"x": "a", "y": "a"}}
+            ]}"#,
+        )
+        .unwrap();
+        let t = script(&m, &r, None).text;
+        assert!(t.contains("plots = ls.load_vector(Path(\"C:/data/plots.gpkg\"))\n"), "{t}");
+        assert!(t.contains("burnt = ls.rasterize(plots, land, fill=np.nan, all_touched=True)\n"), "{t}");
+        assert!(t.contains("t = _table([\"a\"], [[1], [None]])\n"), "{t}");
+        assert!(t.contains("pts = _points_from(t, x=\"a\", y=\"a\")\n"), "{t}");
+        // only the helpers of features: not the calculator's
+        assert!(!t.contains("def _calc("), "{t}");
+        parses(&t);
+    }
+
+    #[test]
+    fn land_change_as_landschaft() {
+        let r = Registry::standard();
+        let m = Model::from_toml(
+            r#"
+format = "terraflux/1"
+
+[[nodes]]
+id = "a"
+op = "nlm.random"
+
+[[nodes]]
+id = "b"
+op = "nlm.random"
+
+[[nodes]]
+id = "drivers"
+op = "stack.of"
+inputs = { slope = "a.map", dist = "b.map" }
+
+[[nodes]]
+id = "glm"
+op = "glm.fit"
+inputs = { landscape = "a.map", drivers = "drivers.stack" }
+params = { formulas = { "10" = ["slope"], "2" = ["slope", "dist"] }, maxit = 30 }
+
+[[nodes]]
+id = "suitability"
+op = "glm.predict"
+inputs = { model = "glm.model", drivers = "drivers.stack", landscape = "a.map" }
+
+[[nodes]]
+id = "given"
+op = "glm.coefficients"
+params = { fits = [{ class = 1, drivers = ["slope"], coefficients = [-1.5, 0.25], pivot = [1, 2], rank = 2 }] }
+
+[[nodes]]
+id = "aliased"
+op = "glm.coefficients"
+params = { fits = [{ class = 1, drivers = ["slope", "dist"], coefficients = [-1.5, 0.25, 0], pivot = [1, 3, 2], rank = 2 }] }
+
+[[nodes]]
+id = "cost"
+op = "dinamica.cost_map"
+inputs = { sources = "a.map", friction = "b.map" }
+params = { diagonal = false }
+
+[[nodes]]
+id = "ends"
+op = "dinamica.destinations"
+inputs = { attraction = "b.map", seed = 3, step = 2 }
+params = { quadrants = [2, 3], min_distance = 50 }
+
+[[nodes]]
+id = "paths"
+op = "dinamica.pathways"
+inputs = { network = "a.map", sources = "ends.map", directions = "cost.direction" }
+params = { merge = false }
+
+[[nodes]]
+id = "roads"
+op = "dinamica.roads"
+inputs = { network = "a.map", friction = "b.map", attraction = "b.map", step = 4 }
+params = { distance = [100, 500], spacing = 200 }
+
+[[nodes]]
+id = "logged"
+op = "dinamica.continuous_patcher"
+inputs = { stock = "a.map", probability = "b.map", quota = 500 }
+params = { mean = 4, unit = "cells", window = [5, 5] }
+
+[[nodes]]
+id = "wanted"
+op = "demand.table"
+params = { table = { classes = [1, 2], rows = [[5, 5], [4, 6]] } }
+
+[[nodes]]
+id = "observed"
+op = "demand.from_maps"
+inputs = { maps = "drivers.stack" }
+params = { times = [2000, 2010] }
+
+[[nodes]]
+id = "pairs"
+op = "table.of"
+params = { columns = ["i", "j", "x"], rows = [[1, 2, 0.5], [2, 1, 0.5]] }
+
+[[nodes]]
+id = "plan"
+op = "prioritize.optimize"
+inputs = { cost = "a.map", features = "drivers.stack", connectivity_data = "pairs.table" }
+params = { boundary_penalty = 0.1, connectivity_penalty = 2, relative_targets = 0.2 }
+
+[[nodes]]
+id = "zoned"
+op = "prioritize.optimize"
+inputs = { zone_costs = "drivers.stack", features = "drivers.stack" }
+
+[outputs.near]
+from = "roads.distance"
+"#,
+        )
+        .unwrap();
+        let s = script(&m, &r, None);
+        let t = &s.text;
+        // the classes in their order, as Terraflux fits them
+        assert!(
+            t.contains("glm = ls.simulate.LogisticRegression({2: [\"slope\", \"dist\"], 10: [\"slope\"]}, maxit=30).fit(a, drivers)\n"),
+            "{t}"
+        );
+        assert!(t.contains("suitability = _by_class(glm.predict(drivers, landscape=a))\n"), "{t}");
+        assert!(
+            t.contains("given = ls.simulate.LogisticRegression.from_coefficients({\n    1: {\"(Intercept)\": -1.5, \"slope\": 0.25},\n})\n"),
+            "{t}"
+        );
+        assert!(t.contains("cost = ls.simulate.friction_cost(a, b, diagonal=False, directions=True)\n"), "{t}");
+        // the seed of a step as Terraflux makes it
+        assert!(
+            t.contains("ends = ls.simulate.destinations(b, [2, 3], min_distance=50, seed=3 + 2 * 0x9E3779B9)\n"),
+            "{t}"
+        );
+        assert!(t.contains("paths = ls.simulate.pathways(a, ends, directions=cost[1], merge=False, seed=1)\n"), "{t}");
+        assert!(
+            t.contains("roads = ls.simulate.RoadBuilder(b, b, distance=[100, 500], spacing=200).step(a, seed=(1 + 4 * 0x9E3779B9) & 0x7FFFFFFFFFFFFFFF)\n"),
+            "{t}"
+        );
+        assert!(t.contains("ls.save(_road_distance(roads), OUT / \"near\""), "{t}");
+        assert!(
+            t.contains("logged = ls.simulate.ContinuousPatcher(mean=4, unit=\"cells\", window=[5, 5]).allocate(a, b, 500, seed=1)\n"),
+            "{t}"
+        );
+        assert!(t.contains("wanted = _demand_table({\"classes\": [1, 2], \"rows\": [[5, 5], [4, 6]]})\n"), "{t}");
+        assert!(t.contains("observed = ls.simulate.AreaDemand.from_maps(drivers, times=[2000, 2010])\n"), "{t}");
+        assert!(
+            t.contains(
+                "    .add_boundary_penalties(0.1)\n    .add_connectivity_penalties(2, _unit_pairs(pairs, a.size))\n"
+            ),
+            "{t}"
+        );
+        // a model of not full rank, and zones: left, said why
+        let left: Vec<&str> = s.left.iter().map(|(id, _, _)| id.as_str()).collect();
+        assert_eq!(left, ["aliased", "zoned"], "{:?}", s.left);
+        assert!(s.left[0].2.contains("full rank") && s.left[1].2.contains("zone_costs"), "{:?}", s.left);
+        parses(t);
     }
 
     /// The counterparts as JSON (to check them against landschaft's functions: TERRAFLUX_PY_DUMP=file).
@@ -1907,21 +2907,7 @@ from = "pick.map"
         // value.calc has no counterpart: left, by its place in the loop; the containers translated
         assert!(s.left.iter().any(|(id, _, _)| id == "growth/full"), "{:?}", s.left);
         assert_eq!(s.left.len(), 1, "{:?}", s.left);
-        // the Python parses (when there is one to ask)
-        if let Ok(o) = std::process::Command::new("python")
-            .args(["-I", "-c", "import ast, sys; ast.parse(sys.stdin.read())"])
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::piped())
-            .spawn()
-            .and_then(|mut c| {
-                use std::io::Write;
-                c.stdin.take().unwrap().write_all(t.as_bytes())?;
-                c.wait_with_output()
-            })
-        {
-            assert!(o.status.success(), "{}\n{t}", String::from_utf8_lossy(&o.stderr));
-        }
+        parses(t);
     }
 
     #[test]
