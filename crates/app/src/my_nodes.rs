@@ -88,16 +88,62 @@ fn saved_in(name: &str) -> PathBuf {
     if shelf.may_save().is_ok() { shelf.lib.dir } else { dir() }
 }
 
-/// The library a node's name is in (the first that has it: the user's own before the shared), else the user's.
-pub fn library_of(name: &str) -> Shelf {
-    let all = libraries();
-    let at = all.iter().position(|l| !l.lib.versions(name).is_empty()).unwrap_or(0);
-    all.into_iter().nth(at).expect("the user's library")
+/// What a library is called in a node's name (`lab/ndvi`): its name in lowercase, its spaces dashes (the user's
+/// own: `my`).
+pub fn slug(shelf: &Shelf) -> String {
+    if shelf.mine {
+        return "my".into();
+    }
+    shelf.name.trim().to_lowercase().split_whitespace().collect::<Vec<_>>().join("-")
 }
 
-/// The last version of a node of the libraries (none: the last there is).
+/// A node's name split from its library's (`lab/ndvi`: `lab` and `ndvi`; `ndvi`: none and `ndvi`).
+pub fn split(name: &str) -> (Option<&str>, &str) {
+    match name.split_once('/') {
+        Some((lib, n)) => (Some(lib), n),
+        None => (None, name),
+    }
+}
+
+/// The library a node's name is in: the one it names (`lab/ndvi`), else the first that has it (the user's own
+/// before the shared), else the user's.
+pub fn library_of(name: &str) -> Shelf {
+    let all = libraries();
+    let at = match split(name) {
+        (Some(lib), _) => all.iter().position(|l| slug(l) == lib.trim().to_lowercase()),
+        (None, n) => all.iter().position(|l| !l.lib.versions(n).is_empty()),
+    };
+    all.into_iter().nth(at.unwrap_or(0)).expect("the user's library")
+}
+
+/// A version of a node of the libraries (none: the last there is), by its name or its name with its library's
+/// (`lab/ndvi`).
 pub fn get(name: &str, version: Option<u32>) -> Result<UserNode, String> {
-    library_of(name).lib.get(name, version).map_err(|e| e.to_string())
+    let (lib, n) = split(name);
+    if let Some(lib) = lib
+        && !libraries().iter().any(|l| slug(l) == lib.trim().to_lowercase())
+    {
+        let known: Vec<String> = libraries().iter().map(slug).collect();
+        return Err(format!("no library {lib:?} (the libraries: {})", known.join(", ")));
+    }
+    library_of(name).lib.get(n, version).map_err(|e| e.to_string())
+}
+
+/// The name a node of a library (its place in [`libraries`]) is reached by: its own, unless a library before it
+/// has a node of that name (then with its library's: `lab/ndvi`).
+pub fn reached_as(k: usize, u: &UserNode) -> String {
+    let all = libraries();
+    let first = all.iter().position(|l| !l.lib.versions(&u.name).is_empty());
+    match (first, all.get(k)) {
+        (Some(f), Some(shelf)) if f != k => format!("{}/{}", slug(shelf), u.name),
+        _ => u.name.clone(),
+    }
+}
+
+/// Every node of the libraries (the last version of each), with the name it is reached by ([`reached_as`]): a
+/// name in two libraries, the second's with its library's.
+pub fn reachable() -> Vec<(String, UserNode)> {
+    shelved().into_iter().map(|(k, u)| (reached_as(k, &u), u)).collect()
 }
 
 /// The nodes of the libraries as read, with the library each is in (none: to be read).
@@ -108,8 +154,8 @@ fn cache() -> &'static Shelved {
     C.get_or_init(|| Mutex::new(None))
 }
 
-/// The last version of each node of the libraries, with the library it is in (its place in [`libraries`]): a
-/// name in two of them, the first's (read once, and again after [`changed`]).
+/// The last version of each node of each library, with the library it is in (its place in [`libraries`]); a
+/// name in two of them is in both (read once, and again after [`changed`]).
 pub fn shelved() -> Vec<(usize, UserNode)> {
     cache()
         .lock()
@@ -117,20 +163,22 @@ pub fn shelved() -> Vec<(usize, UserNode)> {
         .get_or_insert_with(|| {
             let mut out: Vec<(usize, UserNode)> = Vec::new();
             for (k, l) in libraries().iter().enumerate() {
-                for u in l.lib.list() {
-                    if !out.iter().any(|(_, v)| v.name == u.name) {
-                        out.push((k, u));
-                    }
-                }
+                out.extend(l.lib.list().into_iter().map(|u| (k, u)));
             }
             out
         })
         .clone()
 }
 
-/// The last version of each node of the libraries.
+/// The last version of each node of the libraries (a name in two of them: the first's).
 pub fn nodes() -> Vec<UserNode> {
-    shelved().into_iter().map(|(_, u)| u).collect()
+    let mut out: Vec<UserNode> = Vec::new();
+    for (_, u) in shelved() {
+        if !out.iter().any(|v| v.name == u.name) {
+            out.push(u);
+        }
+    }
+    out
 }
 
 /// The libraries changed: read them again.
@@ -141,7 +189,8 @@ pub fn changed() {
 /// What the assistant and the quick search call a node of the libraries as an operator: `my:name`.
 pub const PREFIX: &str = "my:";
 
-/// The node of the libraries an operator's name is (`my:name`, `my:name@2`): its name and version.
+/// The node of the libraries an operator's name is (`my:name`, `my:name@2`, `my:lab/name`: of the library `lab`):
+/// its name and version.
 pub fn named(op: &str) -> Option<(&str, Option<u32>)> {
     let rest = op.strip_prefix(PREFIX)?;
     Some(match rest.rsplit_once('@') {

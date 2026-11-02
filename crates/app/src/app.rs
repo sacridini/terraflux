@@ -2211,9 +2211,10 @@ impl TerrafluxApp {
         for e in &self.library.entries {
             all.push(Command::new(format!("Add {}", e.name), "operator", e.doc.clone(), Do::Add(e.name.clone())));
         }
-        for u in crate::my_nodes::nodes() {
+        for (name, u) in crate::my_nodes::reachable() {
             let doc = u.description.clone().unwrap_or_default();
-            all.push(Command::new(format!("Add {}", u.label()), "my node", doc, Do::AddMine(u.name.clone())));
+            let label = if name == u.name { u.label() } else { format!("{name}@{}", u.version) };
+            all.push(Command::new(format!("Add {label}"), "my node", doc, Do::AddMine(name)));
         }
         all
     }

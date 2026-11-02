@@ -562,6 +562,14 @@ fn pulse(s: &mut Session, args: &str) {
 /// A change of the model open by one of the [`tools::EDITS`]: made on a copy, taken when it worked (an edit of
 /// its own), the node it touched selected.
 fn change(s: &mut Session, r: &Registry, name: &str, a: &Value, stamp: &Stamp) -> Reply {
+    // a node saved in a library: of the model open (its types by the values of its last run)
+    if name == "save_my_node" {
+        crate::review::begin(s, &stamp.who, false);
+        let done = tools::save_my_node(s, r, a)?;
+        stamp.on(&mut s.source);
+        s.edited();
+        return Ok(format!("{done}\n{}", tools::problems(&s.source, &s.base(), r)));
+    }
     let mut m = s.source.clone();
     let before: Vec<String> = m.nodes.iter().map(|n| n.id.clone()).collect();
     let done = match name {

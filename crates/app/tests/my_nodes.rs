@@ -124,7 +124,8 @@ fn a_calculator_saved_as_my_node_and_used_again() {
     // its value k a setting in the Node pane, changed there
     h.state_mut().focus(Pane::Node);
     h.run_steps(3);
-    assert!(h.query_by_label("Settings").is_some());
+    // (its card's title in capitals in the modern look)
+    assert!(h.query_by_label("Settings").or_else(|| h.query_by_label("SETTINGS")).is_some());
     let field = h
         .get_all_by_value("10")
         .find(|n| n.accesskit_node().role() == egui::accesskit::Role::TextInput)
@@ -197,6 +198,46 @@ fn a_calculator_saved_as_my_node_and_used_again() {
     let e = terraflux_app::my_nodes::save(h.state_mut().session.as_mut().unwrap(), &r, &there).unwrap_err();
     assert!(e.contains("someone-else-entirely"), "{e}");
     assert_eq!(terraflux_graph::user_node::Library::new(&shared).versions("group_ndvi"), [1]);
+    // a name in two libraries: the second's reached with its library's (my:lab/ndvi)
+    let mut theirs = u.clone();
+    theirs.name = "ndvi".into();
+    theirs.description = Some("the lab's index".into());
+    terraflux_graph::user_node::Library::new(&shared).save(&theirs).unwrap();
+    terraflux_app::my_nodes::changed();
+    let reached: Vec<String> = terraflux_app::my_nodes::reachable().into_iter().map(|(n, _)| n).collect();
+    assert!(reached.contains(&"ndvi".to_string()) && reached.contains(&"lab/ndvi".to_string()), "{reached:?}");
+    let about = |name: &str| terraflux_app::my_nodes::get(name, None).unwrap().description;
+    assert_eq!(about("lab/ndvi").as_deref(), Some("the lab's index"));
+    assert_eq!(about("ndvi").as_deref(), Some("the vegetation index"));
+    assert_eq!(about("my/ndvi").as_deref(), Some("the vegetation index"));
+    let e = terraflux_app::my_nodes::get("elsewhere/ndvi", None).unwrap_err();
+    assert!(e.contains("no library \"elsewhere\" (the libraries: my, lab)"), "{e}");
+    let listed = terraflux_app::tools::list_operators(&r, Some("index"));
+    assert!(listed.contains("my:lab/ndvi (version 1): the lab's index"), "{listed}");
+    assert!(terraflux_app::tools::describe_operator(&r, "my:lab/ndvi").unwrap().contains("the lab's index"));
+    let mut m = model();
+    let a = serde_json::json!({ "op": "my:lab/ndvi", "id": "lab", "inputs": { "s": "s.stack" } });
+    terraflux_app::tools::edit("add_node", &mut m, &r, &dir, &a).unwrap();
+    let lab = m.nodes.iter().find(|n| n.id == "lab").unwrap();
+    assert_eq!(lab.uses.as_ref().unwrap().description.as_deref(), Some("the lab's index"));
+    // the assistant saves a calculator as a node of the user's (not in a library whose writers it is not)
+    let a = serde_json::json!({ "node": "twice", "name": "double", "description": "twice the map" });
+    let said = terraflux_app::tools::edit("save_my_node", &mut m, &r, &dir, &a).unwrap();
+    assert!(said.starts_with("saved double@1 in My nodes: add it to any model as my:double (takes a"), "{said}");
+    assert!(dir.join("nodes/double@1.toml").is_file());
+    let twice = m.nodes.iter().find(|n| n.id == "twice").unwrap();
+    assert_eq!((twice.op.as_str(), twice.uses.as_ref().unwrap().label()), (GROUP, "double@1".to_string()));
+    let a = serde_json::json!({ "node": "s", "name": "pair" });
+    let e = terraflux_app::tools::edit("save_my_node", &mut m, &r, &dir, &a).unwrap_err();
+    assert!(e.contains("a group or a calculator"), "{e}");
+    let a = serde_json::json!({ "node": "calc", "name": "theirs", "library": "lab" });
+    let e = terraflux_app::tools::edit("save_my_node", &mut m, &r, &dir, &a).unwrap_err();
+    assert!(e.contains("someone-else-entirely"), "{e}");
+    let a = serde_json::json!({ "node": "calc", "library": "nowhere" });
+    let e = terraflux_app::tools::edit("save_my_node", &mut m, &r, &dir, &a).unwrap_err();
+    assert!(e.contains("no library \"nowhere\""), "{e}");
+    terraflux_graph::user_node::Library::new(&shared).remove("ndvi").unwrap();
+    terraflux_app::my_nodes::changed();
     // a remote library (its copy here, as pulled): its nodes offered, only read
     let url = "https://lab.example.org/nodes/";
     let copy = terraflux_app::node_remotes::dir_of(url);

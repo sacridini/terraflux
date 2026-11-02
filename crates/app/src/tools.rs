@@ -128,7 +128,7 @@ built or changed the model, give it a `summary` of what was asked and done (set_
 );
 
 /// The tools that change a model.
-pub const EDITS: [&str; 18] = [
+pub const EDITS: [&str; 19] = [
     "set_model_info",
     "set_input",
     "remove_input",
@@ -147,6 +147,7 @@ pub const EDITS: [&str; 18] = [
     "set_scenario",
     "remove_scenario",
     "write_calc",
+    "save_my_node",
 ];
 
 /// The tools given to a small model (fewer to choose from, a shorter request): to explain a model, change its
@@ -290,6 +291,13 @@ pub fn edit(name: &str, m: &mut Model, r: &Registry, dir: &Path, a: &Value) -> R
         "set_scenario" => set_scenario(m, a),
         // (the inputs' values not known: rasters read from their files)
         "write_calc" => write_calc(m, r, dir, a, &|_| None),
+        // (the model's types known from its graph and the headers of its files only: it has not run here)
+        "save_my_node" => {
+            let mut s = crate::app::Session::from_model(m.clone())?;
+            let done = save_my_node(&mut s, r, a)?;
+            *m = s.source;
+            Ok(done)
+        }
         "remove_scenario" => {
             let name = text(a, "name")?;
             let before = m.scenarios.len();
@@ -1423,6 +1431,20 @@ fn all() -> Vec<Value> {
             None,
         ),
         tool(
+            "save_my_node",
+            "Save a group (control.group) or a calculator (raster.calc, made a group of itself) as a node of the user's libraries, to use in any model as `my:name` (add_node): the next version of its name, its inputs and outputs typed from what it is given and gave, the layers its scripts read, the literal values its inputs have its settings; the node in the model becomes that version. In `library` (a shared library's name as list_operators shows it, `lab` in `my:lab/name`; none: the user's own).",
+            json!({
+                "model": model,
+                "node": { "type": "string", "description": "The group's or the calculator's id." },
+                "name": { "type": "string", "description": "The node's name in the library (letters, digits, _ and -; none: the node's id)." },
+                "description": { "type": "string", "description": "What it does, for whoever adds it (none: the node's note)." },
+                "library": { "type": "string", "description": "The library: a shared one's name; none: the user's own." },
+                "scope": scope,
+            }),
+            &["model", "node"],
+            None,
+        ),
+        tool(
             "explain_calc",
             "A calculator's script (raster.calc, vector.calc, vector.filter) taken apart: each input (what it reads, and what it is: a map, a stack and its layers, a number; features, how many and their attributes), the layers it reads, its error if it has one, and what each name it gives a value holds at the end on a sample of the cells or features (classes and their shares, texts and their shares, or least, mean and largest values; the features a condition keeps). Explain a script, or find why it gives what it gives, from it.",
             json!({ "model": model, "node": { "type": "string" }, "scope": scope }),
@@ -1724,12 +1746,52 @@ pub fn list_operators(r: &Registry, query: Option<&str>) -> String {
     }
 }
 
+/// Save a group or a calculator of a model open (its values of the last run giving its types) as a node of the
+/// user's libraries: what was saved, and where.
+pub fn save_my_node(s: &mut crate::app::Session, r: &Registry, a: &Value) -> Reply {
+    let id = text(a, "node")?;
+    let path = scope(a);
+    let mut d = crate::my_nodes::draft(s, r, &path, id)?;
+    if let Some(name) = opt_text(a, "name") {
+        d.name = name.trim().to_string();
+    }
+    if let Some(about) = opt_text(a, "description") {
+        d.description = about.trim().to_string();
+    }
+    let all = crate::my_nodes::libraries();
+    if let Some(lib) = opt_text(a, "library") {
+        let wanted = lib.trim().to_lowercase();
+        let shelf = all
+            .iter()
+            .find(|l| crate::my_nodes::slug(l) == wanted || l.name.to_lowercase() == wanted)
+            .ok_or_else(|| {
+                let known: Vec<String> = all.iter().map(crate::my_nodes::slug).collect();
+                format!("no library {lib:?} (the libraries: {})", known.join(", "))
+            })?;
+        d.library = shelf.lib.dir.clone();
+    }
+    let at = all.iter().position(|l| l.lib.dir == d.library);
+    let u = crate::my_nodes::save(s, r, &d)?;
+    let lib = at.map_or_else(|| d.library.display().to_string(), |k| all[k].name.clone());
+    let reached = crate::my_nodes::reached_as(at.unwrap_or(0), &u);
+    let takes: Vec<String> = u.inputs.iter().map(|(k, i)| format!("{k}: {}", i.summary())).collect();
+    let gives: Vec<String> = u.outputs.iter().map(|(k, o)| format!("{k}: {}", o.ty.name())).collect();
+    Ok(format!(
+        "saved {}@{} in {lib}: add it to any model as {}{reached} (takes {}; gives {}); {id} is now that version",
+        u.name,
+        u.version,
+        crate::my_nodes::PREFIX,
+        if takes.is_empty() { "nothing".into() } else { takes.join(", ") },
+        if gives.is_empty() { "nothing".into() } else { gives.join(", ") },
+    ))
+}
+
 /// The nodes of the user's libraries (those that have all the words, when given), a line each, for
 /// list_operators: empty when there are none.
 fn mine_listed(words: Option<&[String]>) -> String {
-    let found: Vec<terraflux_graph::UserNode> = crate::my_nodes::nodes()
+    let found: Vec<(String, terraflux_graph::UserNode)> = crate::my_nodes::reachable()
         .into_iter()
-        .filter(|u| {
+        .filter(|(_, u)| {
             let hay = format!("{} {}", u.name, u.description.clone().unwrap_or_default()).to_lowercase();
             words.is_none_or(|w| w.iter().all(|w| hay.contains(w.as_str())))
         })
@@ -1741,9 +1803,9 @@ fn mine_listed(words: Option<&[String]>) -> String {
     let mut out = format!(
         "Nodes of the user's libraries (add_node with op = \"{p}name\"; describe_operator tells what they take):\n"
     );
-    for u in found {
+    for (name, u) in found {
         let what = u.description.as_deref().map_or(String::new(), |d| format!(": {}", first_sentence(d)));
-        out.push_str(&format!("{p}{} (version {}){what}\n", u.name, u.version));
+        out.push_str(&format!("{p}{name} (version {}){what}\n", u.version));
     }
     out
 }

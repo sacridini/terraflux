@@ -225,13 +225,13 @@ pub fn process_folder(s: &mut Session, r: &Registry, folder: &str, op: &str) -> 
 }
 
 /// A node of the user's libraries as the quick search offers it: `my:name`, what it does and takes.
-fn mine_entry(u: &terraflux_graph::UserNode) -> Entry {
+fn mine_entry((name, u): &(String, terraflux_graph::UserNode)) -> Entry {
     let mut doc = u.description.clone().unwrap_or_else(|| format!("{}: a node of your libraries", u.label()));
     let takes: Vec<String> = u.inputs.iter().map(|(k, i)| format!("{k}: {}", i.summary())).collect();
     if !takes.is_empty() {
         doc.push_str(&format!(" (takes {})", takes.join(", ")));
     }
-    Entry { name: format!("{}{}", crate::my_nodes::PREFIX, u.name), doc, subject: "My nodes", group: None }
+    Entry { name: format!("{}{name}", crate::my_nodes::PREFIX), doc, subject: "My nodes", group: None }
 }
 
 /// What Process a folder... does.
@@ -243,7 +243,7 @@ pub const PROCESS_HELP: &str = "Choose a folder, then an operator (MSPA, a metri
 pub fn quick_add(ctx: &egui::Context, s: &mut Session, r: &Registry, lib: &Library) {
     let Some(mut q) = s.editor.quick.take() else { return };
     // the nodes of the user's libraries first (`my:name`), then the operators
-    let mine = Library { entries: crate::my_nodes::nodes().iter().map(mine_entry).collect() };
+    let mine = Library { entries: crate::my_nodes::reachable().iter().map(mine_entry).collect() };
     let mut found = mine.find(&q.query);
     found.extend(lib.find(&q.query));
     // a folder to process: the operators that take a map
