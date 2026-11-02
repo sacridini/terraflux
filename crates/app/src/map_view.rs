@@ -357,6 +357,8 @@ pub struct MapView {
     workers: Option<Workers>,
     /// the tiles asked of the workers and not come yet
     asked: HashSet<(TileKey, u64)>,
+    /// the pass of the context the view was last drawn in
+    drawn_pass: u64,
     clock: u64,
     /// the size of the map shown (cells), to fit it again when another comes
     size: (usize, usize),
@@ -520,6 +522,14 @@ impl MapView {
     /// Whether tiles of the view (of the map or of its vector layers) are being made.
     pub fn busy(&self) -> bool {
         !self.asked.is_empty() || self.vectors.busy()
+    }
+
+    /// Not drawn in the pass of `ctx` (it shows something else now: a table, a value): the tiles asked not waited
+    /// for (those that come are kept when it is drawn again), so that it is not busy.
+    pub fn rest_unless_drawn(&mut self, ctx: &egui::Context) {
+        if self.drawn_pass != ctx.cumulative_pass_nr() {
+            self.asked.clear();
+        }
     }
 
     /// How far out the view zooms: the whole world in the view when the grid has a coordinate system, else the
@@ -788,6 +798,7 @@ impl MapView {
         curtain: Option<&Curtain>,
     ) -> Option<Hover> {
         let ctx = ui.ctx().clone();
+        self.drawn_pass = ctx.cumulative_pass_nr();
         self.pointer = None;
         let blank = matches!(source, Source::Blank(_));
         if self.workers.is_none() {

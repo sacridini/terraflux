@@ -2056,6 +2056,7 @@ fn preview(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Hover> {
     };
     let before = s.preview.clone();
     let hover = output(ui, s, r, &mut shown, "viewer");
+    shown.view.rest_unless_drawn(ui.ctx());
     // (a node selected meanwhile, by what the viewer shows: that node's output shown now)
     if s.preview == before {
         s.preview = Some((shown.node, shown.port));

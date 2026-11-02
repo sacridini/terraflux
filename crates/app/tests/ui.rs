@@ -40,9 +40,15 @@ fn shot(h: &mut Harness<TerrafluxApp>, name: &str) {
 }
 
 /// The tests' own settings, not the user's; no computer shared or lent unless a test does it (on this computer
-/// only).
+/// only). The tests look for the classic theme's labels and places ("Run", "Wizard...", the panes edge to edge):
+/// their settings start in it (a new installation opens in Slate since 1.31.0).
 fn setup() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
     unsafe { std::env::set_var("TERRAFLUX_SETTINGS", tmp("settings.json")) };
+    ONCE.call_once(|| {
+        let _ = std::fs::remove_file(tmp("settings.json"));
+        terraflux_app::settings::update(|st| st.theme = "Default".into());
+    });
     terraflux_app::computers::AUTOSTART.store(false, std::sync::atomic::Ordering::Relaxed);
 }
 
@@ -2177,7 +2183,9 @@ fn settings_themes_and_favourites() {
         assert_eq!(h.ctx.style_of(theme).visuals.panel_fill, t.panel);
         shot(&mut h, &format!("23-theme-{k}"));
     }
-    terraflux_app::settings::update(|s| *s = Default::default());
+    terraflux_app::settings::update(|s| {
+        *s = terraflux_app::settings::Settings { theme: "Default".into(), ..Default::default() }
+    });
     h.state_mut().settings_open = false;
     // red: raster.read
     terraflux_app::settings::toggle("raster.read", 0);
