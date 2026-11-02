@@ -6,6 +6,50 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.32.0] - 2026-11-02
+
+### Added
+- **Checks as operators of their own**, beside `check.assert`: `check.range` (a value between a minimum and a
+  maximum), `check.no_nodata` (a map without missing cells, or at most a share of them, within a mask if given),
+  `check.area_kept` (a class's area kept from one map to another, within a tolerance), `check.accuracy` (a map
+  against a reference: the overall agreement or kappa at least a value) and `check.demand` (a step's areas as the
+  demand asked, within a tolerance). Each gives `ok`, stops the run when it fails (or only warns, with `warn`), and
+  says its message (one of its own when none is given); the report's seals, the Document pane and `terraflux test` count them.
+- A **sentence for every operator**, in English and in Portuguese: the 322 that had none (and the new checks), in
+  the report, the Document pane and the methods.
+- The Calculator's preview **follows the Viewer**: the part of the map in view there (its zoom and place), worked
+  out again when it moves; *Follow the viewer* turns it off, and a part drawn by hand on the preview too.
+- **Node libraries of a group** reached by name: a shared library's nodes are listed with the user's own (in the
+  operators' pane, the quick search, the commands and the assistant's list), as `my:lab/ndvi` when the name is in
+  two libraries; the assistant saves a group or a calculator in a library with **save_my_node** (its name, what it
+  does, the library), the node in the model becoming that version.
+- **MODIS** in the catalog and in `data.download`: besides NDVI and EVI, the **land surface temperature** of the day
+  and of the night (MOD11A2, 8 days at 1 km), the **burned area** (MCD64A1, monthly at 500 m, the day of the year a
+  cell burned) and the yearly **gross and net primary production** (MOD17A3HGF, 500 m), each from its product on the
+  Planetary Computer and cited by its own reference.
+- **Export to QGIS**: a vector layer's **labels** by an attribute (around a point, along a line, over a polygon,
+  dark on a light halo), its points' **marker** (circle, square, triangle, diamond, star, cross, pentagon, hexagon)
+  and its style **as rules** (QGIS's rule-based renderer: a rule each class or range, and one for the features of
+  none), chosen for each vector layer in the export window.
+
+- The **Python script** of a model translates the **tables** (filter, calc, aggregate, select, sort, join, pivot, in
+  pandas, their expressions as the calculator's), the **vector layers** (read, rasterize, zonal, extract, filter,
+  calc, buffer, clip, dissolve, reproject, joins, overlay, random points, polygonize, distance, grid zones,
+  measures; geopandas and landschaft), the **logistic regressions** of the land change models, Dinamica's roads,
+  cost maps and continuous patcher, the demands, and a prioritization's **connectivity penalties**. Still said, not
+  translated: a step of Dinamica's, PLUS's or CLUE-S's allocation, and a prioritization by zones.
+
+### Changed
+- The **Node**, **Prepare** and **Calculator** tabs come when they make sense, not when the program opens: Node with
+  the first node or template, Prepare (behind it) and the Viewer with the data, the Calculator when it is asked for.
+  A layout kept with them does not bring them back, and a tab closed stays closed until another model opens.
+- **Save as MP4...** needs **nothing installed**: the video (H.264) is encoded by OpenH264, built into the
+  application, and written as an MP4 that plays before it is all read; ffmpeg is no longer used.
+
+### Fixed
+- A Viewer that showed a map and then a table or a value (a `raster.write`'s path) no longer stays busy for ever,
+  waiting for the map's tiles.
+
 ## [1.31.0] - 2026-11-01
 
 ### Changed

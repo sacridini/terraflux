@@ -674,6 +674,71 @@ item):
     represented…"), que o Terraflux perdia. Um teste de ids das unidades fora de ordem, com lacunas e inteiros (o
     `test_table_ids_in_any_order` do landschaft); o submódulo em 1.58.1 (nenhuma mudança no C++).
 
+## As pontas de 2026-11-02
+
+Pedido de 2026-11-02: as abas que aparecem quando fazem sentido, e as pontas que sobravam (um commit por item).
+
+1. **As abas Node, Prepare e Calculator só quando fazem sentido.** **Feito** (Unreleased): o programa abre com
+   Model e Document (`default_layout`); `open_due_with` abre o Node com o primeiro nó ou template, o Prepare (atrás
+   dele, o Node na frente) e o Viewer com os dados, a Calculator só pedida (`ask_calculator`). Um layout guardado
+   com elas não as traz (`comes_when_due`, tiradas em `restore_layout`); fechada, a aba fica fechada até outro
+   modelo abrir (`panes_due_again`). O foco fica onde estava (`open_behind`).
+2. **Frases para os ~320 operadores sem uma.** **Feito** (Unreleased): todas, em inglês e português (431 cada).
+3. **Selos no relatório e `check.*` como operadores próprios.** Os selos já estavam (1.30.0, HTML e PDF).
+   **Feito** (Unreleased): `ops::checks`, `check.range`, `check.no_nodata`, `check.area_kept`, `check.accuracy`,
+   `check.demand` (cada um dá `ok`, para a execução salvo com `warn`, a mensagem dada ou uma própria);
+   `checks::is_check` em todo lugar que olhava só o `check.assert` (o relatório, o documento, o editor, o
+   `terraflux test`); `checks::what` e `mark` descrevem um sem expressão.
+4. **Calculadora: a prévia que segue o zoom e o autocomplete das pilhas.** O autocomplete já estava.
+   **Feito** (Unreleased): `CalcState::follow` ("Follow the viewer"), a janela da prévia pela parte do mapa à vista
+   no Viewer (`MapView::visible`, `calc_view::window_in`), de novo quando ela muda; um retângulo desenhado à mão
+   desliga.
+5. **Bibliotecas de nós do grupo.** **Feito** (Unreleased): `my_nodes::reachable` (os nós de todas as
+   bibliotecas, o nome qualificado `lab/ndvi` quando está em duas), `my:lab/ndvi` no `add_node`, no painel de
+   operadores, na busca rápida, nos comandos e no `list_operators`; a ferramenta `save_my_node` do assistente (o
+   nome, a descrição, a biblioteca). `my_nodes::get` diz as bibliotecas quando não acha uma.
+6. **MP4 sem ffmpeg.** **Feito** (Unreleased): `openh264` 0.9 (compilado da fonte, 4 threads, conteúdo de tela)
+   e um MP4 escrito à mão (`mp4.rs`: `ftyp`, `moov` antes do `mdat`, `avcC`, `stts`, `stss`, `stsz`, `stco`), os
+   lados pares com branco, o último quadro quatro vezes mais longo; um teste decodifica de volta e confere a cor.
+   Nota: o OpenH264 compilado da fonte não vem com a licença de patentes do H.264 que a Cisco dá ao seu binário.
+7. **Catálogo: GBIF, prévia, cache, WorldCover, MODIS e GFC.** Quase tudo já estava. **Feito** (Unreleased):
+   MODIS além de NDVI e EVI (`data::MODIS`): a temperatura da superfície de dia e de noite (MOD11A2), a área
+   queimada (MCD64A1) e a produção primária bruta e líquida (MOD17A3HGF), cada uma pelo seu produto no Planetary
+   Computer e citada pela sua referência (`catalog::reference_of`). O MCD12Q1 (cobertura) não está no Planetary
+   Computer.
+8. **QGIS: rótulos e regras.** **Feito** (Unreleased): `qgis::VectorOptions` por camada vetorial na janela (o
+   atributo dos rótulos, o símbolo dos pontos entre oito, "as rules"): `<labeling type="simple">` com
+   `labelsEnabled`, o símbolo em `SimpleMarker`, e o `RuleRenderer` (uma regra por classe ou faixa, os textos com
+   aspas dobradas, e uma `ELSE`). Falta conferir no QGIS (PyQGIS) como o `.qgz` de antes.
+9. **Script Python: alocação passo a passo, vetores e tabelas.** **Feito** (Unreleased), em parte a alocação:
+   as tabelas em pandas (`table.filter`, `calc`, `aggregate`, `select`, `sort`, `join`, `pivot`; as expressões pelo
+   `_calc`, os textos pela ordem), os vetores em geopandas e no landschaft (`vector.read` com a tabela,
+   `rasterize`, `zonal`, `extract`, `filter`, `calc`, `buffer`, `clip`, `dissolve`, `reproject`, `join`,
+   `spatial_join`, `overlay`, `points` com os mesmos sorteios PCG64, `from_table`, `polygonize`, `distance`,
+   `grid_zones`, `geometry`), ajudantes em `python_flow.py`; o GLM (`glm.fit/predict/coefficients` pelo
+   `LogisticRegression`), as peças do Dinamica (`cost_map`, `destinations`, `pathways`, `roads`,
+   `continuous_patcher`, a semente como o `step_seed`), as demandas (`demand.table`, `demand.from_maps`) e as
+   penalidades de conectividade do `prioritize.optimize`. Conferido: um modelo de 55 nós de tabelas e vetores dá os
+   mesmos 37 CSV que o Terraflux (1e-9), e as estradas do Dinamica iguais (o `ls` de entrada e saída simulado: o
+   landschaft não está instalado com o núcleo compilado aqui). Recusados: `vector.density` (o landschaft não tem),
+   `vector.exact_sum` (só privado), `geometry` geodésica. Falta: `dinamica.step` e `cars.step` (o `ExpanderPatcher`
+   e o `CARS` só rodam o modelo inteiro), `lulcc.step` (o `CLUE.allocate` existe, mas a elasticidade, as transições,
+   o histórico e as restrições ficam no código privado), `plus.demand` e `demand.regional`, e as zonas do
+   `prioritize.optimize` (o landschaft as tem, mas as pilhas, os alvos e os orçamentos por zona pedem uma
+   conversão).
+10. **A lista das falhas dos lotes num painel.** Já estava: o painel Node do primeiro nó da cadeia lista os
+    arquivos que falharam com o motivo, "Run again" e "Copy the list" (`Observer::failures`); o Many runs dá o erro
+    de cada rodada. As "Falta" de "Lotes e laços" eram de antes disso.
+11. **A avaliação do assistente com o Qwen da HU.** Rodada em 2026-11-02 (`eval::tests::hu_berlin_does_the_tasks`,
+    o modelo `llm3`): 5 de 10 na primeira vez, 2 de 10 nas seguintes; a explicação e a revisão do método sempre
+    passam. As falhas não são do raciocínio: o modelo escreve a chamada como texto (`edit_node(node="a", ...)`,
+    um bloco ```json com `name` e `arguments`, `<invoke_name ...>`, `<list_operators><query>...`), o servidor
+    responde `finish_reason: stop` sem `tool_calls`, e a tarefa acaba sem ferramenta. A mesma pergunta sozinha às
+    vezes passa (a das métricas: 13 ferramentas, o modelo montado e rodado), e um pedido simples com uma ferramenta
+    sai certo 20 de 20 vezes, com e sem streaming; o "Few tools" não ajuda (2 de 10). Ideia: reconhecer essas
+    chamadas escritas como texto e rodá-las (os formatos acima), ou pedir de novo quando a resposta termina
+    anunciando uma ferramenta sem chamá-la.
+
 ## Paridade com o landschaft na priorização, progresso e parada
 
 Registro de 2026-10-16. O `prioritize.optimize` passou a resolver como o landschaft (o motor de corte e o de
