@@ -394,6 +394,8 @@ pub struct MapView {
     /// The map drawn at the last frame and its colouring; the one shown before the map now, while it fades in.
     last: Option<(Source, u64)>,
     prior: Option<Prior>,
+    /// The grid of the map drawn at the last frame.
+    shown_grid: Option<terraflux_raster::Grid>,
 }
 
 /// How long a map takes to fade in over the one shown before it (a series' next step), seconds.
@@ -415,6 +417,24 @@ enum Paint<'a> {
 }
 
 impl MapView {
+    /// The part of the map drawn at the last frame that is in view: its grid, and the columns and rows seen
+    /// (`[x0, y0, x1, y1]`, in cells of the grid, within it); none before a map was drawn.
+    pub fn visible(&self) -> Option<(&terraflux_raster::Grid, [f32; 4])> {
+        let (g, rect) = (self.shown_grid.as_ref()?, self.rect?);
+        if !self.fitted || self.zoom <= 0.0 || g.width == 0 || g.height == 0 {
+            return None;
+        }
+        let half = rect.size() / (2.0 * self.zoom);
+        let (w, h) = (g.width as f32, g.height as f32);
+        let b = [
+            (self.center.x - half.x).clamp(0.0, w),
+            (self.center.y - half.y).clamp(0.0, h),
+            (self.center.x + half.x).clamp(0.0, w),
+            (self.center.y + half.y).clamp(0.0, h),
+        ];
+        (b[2] > b[0] && b[3] > b[1]).then_some((g, b))
+    }
+
     /// Fit the map in the view at the next frame.
     pub fn fit(&mut self) {
         self.fitted = false;
@@ -782,6 +802,9 @@ impl MapView {
         }
         let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
         self.rect = Some(rect);
+        if self.shown_grid.as_ref() != Some(source.grid()) {
+            self.shown_grid = Some(source.grid().clone());
+        }
         if w == 0 || h == 0 {
             return None;
         }

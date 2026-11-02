@@ -89,6 +89,9 @@ pub struct Calculator {
     /// The part of the inputs' grid the preview is of (none: all of it), and the part the last preview was of.
     view: Option<Window>,
     shown_window: Option<Window>,
+    /// The preview of the part of the map in view in the Viewer (as it is zoomed and moved), instead of a part
+    /// chosen on it.
+    pub follow: bool,
     /// What the inputs connected to rasters not run yet are, by their headers (by path and band).
     headers: HashMap<(String, String), Input>,
     /// Whether the console is open (closed, a bar that opens it) and was just opened (its prompt to be typed in); its
@@ -594,6 +597,17 @@ pub fn pane(ui: &mut Ui, c: &mut Calculator, s: &mut Session) -> Option<Asked> {
         c.applied = script;
     }
     let (inputs, values) = connected(c, s, &path, &n);
+    // following the viewer: the part of the inputs' grid in view there (once it stops moving, the preview waits
+    // for a pause as after typing)
+    if c.follow {
+        let reads = algebra_tools::reads(&c.text);
+        let grid = values.iter().filter(|(k, _)| reads.contains(*k)).find_map(|(_, v)| grid_of(v));
+        let w = grid.and_then(|g| followed(&s.view, g));
+        if w != c.view {
+            c.view = w;
+            c.typed_at = Some(Instant::now());
+        }
+    }
     let problem = algebra_tools::problem(&c.text, &inputs);
     c.ask_preview(ui.ctx(), &values, problem.is_some());
     let mut asked = None;
@@ -973,6 +987,9 @@ fn preview(ui: &mut Ui, c: &mut Calculator, inputs: &Inputs, values: &BTreeMap<S
             }
             Ok(outs) => {
                 let mut view = None;
+                ui.checkbox(&mut c.follow, RichText::new("Follow the viewer").small()).on_hover_text(
+                    "the preview of the part of the map in view in the Viewer, as it is zoomed and moved (the maps                      of the same place)",
+                );
                 // a part of the map: which, and the way back to all of it
                 if let (Some(_), Some(w)) = (c.view, c.shown_window) {
                     ui.horizontal_wrapped(|ui| {
@@ -1016,10 +1033,44 @@ fn preview(ui: &mut Ui, c: &mut Calculator, inputs: &Inputs, values: &BTreeMap<S
                 );
                 if let Some(v) = view {
                     c.view = v;
+                    // (a part chosen by hand: no longer the viewer's)
+                    c.follow = false;
                 }
             }
         }
     });
+}
+
+/// The grid of a value read cell by cell (a map, a stack, rasters).
+fn grid_of(v: &Value) -> Option<&terraflux_raster::Grid> {
+    match v {
+        Value::Map(m) => Some(&m.grid),
+        Value::Stack(s) => Some(&s.grid),
+        Value::Raster(r) => Some(&r.grid),
+        _ => None,
+    }
+}
+
+/// The part of a grid in view in the viewer (none: all of it, or the viewer shows another place or nothing).
+fn followed(view: &crate::map_view::MapView, grid: &terraflux_raster::Grid) -> Option<Window> {
+    let (shown, b) = view.visible()?;
+    let place = crate::map_view::place_on(grid, shown)?;
+    window_in(place, b, grid.width, grid.height)
+}
+
+/// The cells of a grid (`width` × `height`, placed on the viewer's by `place`) within the viewer's cells `b`
+/// (`[x0, y0, x1, y1]`); none when that is all of it or none of it.
+fn window_in(place: crate::map_view::Place, b: [f32; 4], width: usize, height: usize) -> Option<Window> {
+    let a = place.to_source(egui::vec2(b[0], b[1]));
+    let z = place.to_source(egui::vec2(b[2], b[3]));
+    let x0 = (a.x.min(z.x).floor() as i64).max(0);
+    let y0 = (a.y.min(z.y).floor() as i64).max(0);
+    let x1 = (a.x.max(z.x).ceil() as i64).min(width as i64);
+    let y1 = (a.y.max(z.y).ceil() as i64).min(height as i64);
+    if x1 <= x0 || y1 <= y0 || (x0 == 0 && y0 == 0 && x1 == width as i64 && y1 == height as i64) {
+        return None;
+    }
+    Some(Window { x0, y0, width: (x1 - x0) as usize, height: (y1 - y0) as usize })
 }
 
 /// An image of a preview's output (of the part `shown` of the grid): a rectangle dragged on it is the part to
@@ -1206,6 +1257,24 @@ mod tests {
         let shown = Window { x0: 40, y0: 10, width: 20, height: 10 };
         let part = egui::Rect::from_min_max(egui::pos2(100.0, 50.0), egui::pos2(102.0, 52.0));
         assert_eq!(window_of(part, image, shown), Window { x0: 40, y0: 10, width: 8, height: 8 });
+    }
+
+    #[test]
+    fn the_part_in_view_in_the_viewer() {
+        // the same grid: the cells seen
+        let same = crate::map_view::Place { offset: egui::vec2(0.0, 0.0), scale: egui::vec2(1.0, 1.0) };
+        assert_eq!(
+            window_in(same, [10.2, 5.0, 60.7, 30.0], 100, 50),
+            Some(Window { x0: 10, y0: 5, width: 51, height: 25 })
+        );
+        assert_eq!(window_in(same, [0.0, 0.0, 100.0, 50.0], 100, 50), None, "all of it");
+        // a grid of cells twice as large, starting 20 cells of the viewer's to the right
+        let coarse = crate::map_view::Place { offset: egui::vec2(20.0, 0.0), scale: egui::vec2(2.0, 2.0) };
+        assert_eq!(
+            window_in(coarse, [30.0, 10.0, 50.0, 30.0], 100, 50),
+            Some(Window { x0: 5, y0: 5, width: 10, height: 10 })
+        );
+        assert_eq!(window_in(coarse, [0.0, 0.0, 10.0, 10.0], 100, 50), None, "none of it");
     }
 
     #[test]
