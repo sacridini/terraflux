@@ -122,21 +122,22 @@ impl Pane {
     }
 }
 
-/// The panes as they first are: the model in most of the window (its document in a tab beside it), the node
-/// selected at its left as an inspector (the preparation of its data in a tab beside it), nothing at the right
-/// (the assistant goes there when it opens); the others from the View menu.
-/// The viewer opens in a tab behind the model's when the first data comes (a raster or vectors read, a template);
-/// the maps of nodes open beside the viewer. The operators and the files are in drawers at the window's left edge
+/// The panes as they first are: the model in the whole window (its document in a tab beside it), nothing at the
+/// sides (the assistant goes at the right when it opens); the others from the View menu.
+/// The panes that only make sense with something in the model open when it comes: the node selected at the
+/// model's left as an inspector with the first node (a node added, a model or a template opened), the
+/// preparation of the data in a tab behind it with the first data, the viewer in a tab behind the model's with
+/// the first data (a raster or vectors read, a template); the calculator under the model when a script is opened
+/// in it. The maps of nodes open beside the viewer. The operators and the files are in drawers at the window's left edge
 /// (the operators also in the Operators menu, behind "/" and in the commands, ctrl+K); their panes, shown, take
 /// the left edge.
 pub fn default_layout() -> DockState<Pane> {
-    // the inspector a fifth of the window
-    const NODE: f32 = 0.2;
-    let mut d = DockState::new(vec![Pane::Model, Pane::Document]);
-    let s = d.main_surface_mut();
-    // (split_left: the new node's share)
-    let [_, _] = s.split_left(NodeIndex::root(), NODE, vec![Pane::Node, Pane::Prepare]);
-    d
+    DockState::new(vec![Pane::Model, Pane::Document])
+}
+
+/// The panes that come when they make sense (see [`default_layout`]), not kept from a session to the next.
+fn comes_when_due(p: &Pane) -> bool {
+    matches!(p, Pane::Map(_) | Pane::Viewer | Pane::Node | Pane::Prepare | Pane::Calculator)
 }
 
 /// The panes kept that `keep` says to keep, and the floating windows left with none taken away (egui_dock's
@@ -1471,6 +1472,10 @@ pub struct TerrafluxApp {
     pub drawer: Option<Pane>,
     /// The viewer was opened when the first data came (not again, if it is closed after).
     viewer_opened: bool,
+    /// The node's pane was opened when the first node came (not again, if it is closed after).
+    node_opened: bool,
+    /// The Prepare pane was opened when the first data came (not again, if it is closed after).
+    prepare_opened: bool,
     /// The window to be maximized, at its third frame (the frames drawn so far): on Windows the window shown
     /// after its first frame loses the maximized state it was made with.
     pub maximize: Option<u32>,
@@ -1554,6 +1559,8 @@ impl TerrafluxApp {
             tabbed: false,
             drawer: None,
             viewer_opened: false,
+            node_opened: false,
+            prepare_opened: false,
             maximize: None,
             files: crate::files_view::Files::default(),
             batch: crate::batch_view::BatchState::new(),
@@ -1582,11 +1589,9 @@ impl TerrafluxApp {
                 self.session = Some(s);
                 self.message = None;
                 self.focus(Pane::Model);
-                // a model of data: its viewer beside it, the graph in front
-                self.viewer_opened = false;
-                if self.has_data() {
-                    self.add_viewer();
-                }
+                // a model of data: its viewer beside it, the graph in front; its nodes in the node's pane
+                self.panes_due_again();
+                self.open_due();
             }
             Err(e) => self.message = Some(e),
         }
@@ -1616,8 +1621,9 @@ impl TerrafluxApp {
         self.session = Some(s);
         self.message = None;
         self.focus(Pane::Model);
-        // what it makes, in the viewer (behind the graph)
-        self.add_viewer();
+        // what it makes, in the viewer (behind the graph); the node selected in its pane
+        self.panes_due_again();
+        self.open_due_with(true);
     }
 
     /// Save the model (asking where when it has no file yet).
@@ -1643,6 +1649,7 @@ impl TerrafluxApp {
     fn new_model(&mut self) {
         self.wizard = None;
         self.session = Some(Session::blank());
+        self.panes_due_again();
         self.focus(Pane::Model);
     }
 
@@ -1883,6 +1890,7 @@ impl TerrafluxApp {
         if ui.button("Reset the layout").clicked() {
             self.windows.clear();
             self.dock = Some(default_layout());
+            self.panes_due_again();
             ui.close();
         }
         ui.separator();
@@ -2252,6 +2260,7 @@ impl TerrafluxApp {
             Do::ResetLayout => {
                 self.windows.clear();
                 self.dock = Some(default_layout());
+                self.panes_due_again();
             }
             Do::Template(k) => self.start_template(ctx, &crate::templates::TEMPLATES[k]),
             d => {
@@ -3343,11 +3352,59 @@ impl TerrafluxApp {
         }
     }
 
-    /// The viewer opened (beside the model, in front), once, when the first data comes: a raster or vectors read,
-    /// a model with inputs, a template started.
-    fn open_viewer(&mut self) {
-        if !self.viewer_opened && self.has_data() {
+    /// The panes that come when they make sense opened, once, when it comes: the viewer (beside the model, behind
+    /// it) and the preparation of the data (behind the node's pane) with the first data (a raster or vectors read,
+    /// a model with inputs, a template started), the node's pane (at the model's left) with the first node.
+    fn open_due(&mut self) {
+        self.open_due_with(false);
+    }
+
+    /// The panes that come when they make sense (`template`: a template started, its data made by its nodes).
+    fn open_due_with(&mut self, template: bool) {
+        let data = template || self.has_data();
+        if !self.node_opened && (data || self.session.as_ref().is_some_and(|s| !s.source.nodes.is_empty())) {
+            self.node_opened = true;
+            self.open_behind(Pane::Node);
+        }
+        if !self.prepare_opened && data {
+            self.prepare_opened = true;
+            self.open_behind(Pane::Prepare);
+            // (the node's pane in front of it)
+            if let Some(d) = &mut self.dock
+                && let Some(p) = d.find_tab(&Pane::Node)
+            {
+                let _ = d.set_active_tab(p);
+            }
+        }
+        if !self.viewer_opened && data {
             self.add_viewer();
+        }
+    }
+
+    /// The panes that come when they make sense to come again (a model opened, a template, the layout reset).
+    fn panes_due_again(&mut self) {
+        self.viewer_opened = false;
+        self.node_opened = false;
+        self.prepare_opened = false;
+    }
+
+    /// A pane opened where it goes (if it is not open), the focus left where it was.
+    fn open_behind(&mut self, pane: Pane) {
+        if self.is_open(pane) {
+            return;
+        }
+        let before = self.focused();
+        self.focus(pane);
+        match before.filter(|p| *p != pane) {
+            Some(b) => self.focus(b),
+            // (no focus before: the model's leaf, its tab in front as it was)
+            None => {
+                if let Some(d) = &mut self.dock
+                    && let Some(p) = d.find_tab(&Pane::Model)
+                {
+                    d.set_focused_node_and_surface(p.node_path());
+                }
+            }
         }
     }
 
@@ -3412,7 +3469,7 @@ impl TerrafluxApp {
         if self.session.as_mut().is_some_and(|s| std::mem::take(&mut s.ask_calculator)) {
             self.focus(Pane::Calculator);
         }
-        self.open_viewer();
+        self.open_due();
         // a review begun by another program (or asked for): its pane in front
         if self.session.as_mut().and_then(|s| s.review.as_mut()).is_some_and(|r| std::mem::take(&mut r.show)) {
             self.focus(Pane::Review);
@@ -3884,8 +3941,9 @@ impl TerrafluxApp {
             && let Ok(mut l) = serde_json::from_str::<Layout>(&text)
             && l.version == LAYOUT_VERSION
         {
-            // the maps of nodes were of the last session; the viewer opens when there is data
-            let kept = |t: &Pane| !matches!(t, Pane::Map(_) | Pane::Viewer);
+            // the maps of nodes were of the last session; the viewer, the node's pane, the preparation and the
+            // calculator come when they make sense
+            let kept = |t: &Pane| !comes_when_due(t);
             retain_panes(&mut l.main, |t| kept(t));
             self.dock = Some(l.main);
             for panes in l.windows {
@@ -3893,10 +3951,8 @@ impl TerrafluxApp {
                     self.detach(p);
                 }
             }
-            self.viewer_opened = false;
-            if self.has_data() {
-                self.add_viewer();
-            }
+            self.panes_due_again();
+            self.open_due();
         }
         self.layout_file = Some(path);
     }

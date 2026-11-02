@@ -534,11 +534,72 @@ fn a_layout_kept_with_the_viewer_in_front_shows_the_model() {
     let mut app = TerrafluxApp::new(None);
     app.restore_layout(path);
     assert!(!app.is_open(Pane::Viewer), "the viewer comes with the data");
-    assert!(app.is_open(Pane::Node), "the layout read");
+    assert!(!app.is_open(Pane::Node) && !app.is_open(Pane::Prepare), "the node's pane comes with the first node");
     let dock = app.dock.as_ref().unwrap();
     let at = dock.find_tab(&Pane::Model).unwrap();
     let leaf = dock.leaf(at.node_path()).unwrap();
     assert_eq!(leaf.tabs().get(leaf.active.0), Some(&Pane::Model));
+}
+
+/// The panes that only make sense with something in the model are not there when the application opens (nor
+/// from a layout kept): the node's pane comes with the first node (at the model's left, the graph keeping the
+/// focus), the preparation of the data behind it with the first data, the calculator only when a script is opened
+/// in it.
+#[test]
+fn the_node_prepare_and_calculator_come_when_they_make_sense() {
+    let mut h = harness(TerrafluxApp::new(None));
+    h.run_steps(2);
+    for p in [Pane::Node, Pane::Prepare, Pane::Calculator, Pane::Viewer] {
+        assert!(!h.state().is_open(p), "{p:?} at the start");
+    }
+    // a layout kept with them all: not read back
+    let mut kept = h.state().dock.clone().unwrap();
+    kept.push_to_first_leaf(Pane::Node);
+    kept.push_to_first_leaf(Pane::Prepare);
+    kept.push_to_first_leaf(Pane::Calculator);
+    let path = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("due-layout.json");
+    let text = serde_json::json!({ "version": 11, "main": kept, "windows": [[Pane::Calculator]] });
+    std::fs::write(&path, text.to_string()).unwrap();
+    h.state_mut().restore_layout(path);
+    h.run_steps(2);
+    for p in [Pane::Node, Pane::Prepare, Pane::Calculator] {
+        assert!(!h.state().is_open(p), "{p:?} from the layout kept");
+    }
+    // the first node: the node's pane, at the model's left; no data yet, no preparation
+    {
+        let app = h.state_mut();
+        let r = app.registry.clone();
+        terraflux_app::builder::add(app.session.as_mut().unwrap(), &r, "nlm.random", &[]).unwrap();
+    }
+    h.run_steps(2);
+    assert!(h.state().is_open(Pane::Node), "the node's pane with the first node");
+    assert!(!h.state().is_open(Pane::Prepare) && !h.state().is_open(Pane::Calculator));
+    let focused = h.state_mut().focused();
+    assert!(matches!(focused, Some(Pane::Model | Pane::Document)), "the model's leaf keeps the focus: {focused:?}");
+    // closed by the user: not back with the next node
+    {
+        let d = h.state_mut().dock.as_mut().unwrap();
+        let at = d.find_tab(&Pane::Node).unwrap();
+        d.remove_tab(at);
+    }
+    {
+        let app = h.state_mut();
+        let r = app.registry.clone();
+        terraflux_app::builder::add(app.session.as_mut().unwrap(), &r, "nlm.random", &[]).unwrap();
+    }
+    h.run_steps(2);
+    assert!(!h.state().is_open(Pane::Node), "closed, it stays closed");
+    // a template (of data): the node's pane and the preparation behind it, the viewer behind the graph
+    let ctx = h.ctx.clone();
+    h.state_mut().start_template(&ctx, &terraflux_app::templates::TEMPLATES[0]);
+    h.run_steps(2);
+    assert!(h.state().is_open(Pane::Node) && h.state().is_open(Pane::Prepare) && h.state().is_open(Pane::Viewer));
+    assert!(!h.state().is_open(Pane::Calculator), "the calculator only when a script is opened in it");
+    let dock = h.state().dock.as_ref().unwrap();
+    let node = dock.find_tab(&Pane::Node).unwrap();
+    assert_eq!(dock.find_tab(&Pane::Prepare).map(|p| p.node_path()), Some(node.node_path()), "together");
+    let leaf = dock.leaf(node.node_path()).unwrap();
+    assert_eq!(leaf.tabs().get(leaf.active.0), Some(&Pane::Node), "the node's pane in front");
 }
 
 /// A box is as wide as its texts need (an input's and an output's names side by side never overlap), wider when
