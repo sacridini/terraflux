@@ -2,10 +2,11 @@
 //! read from a file referred to where they are), styled as the Viewer shows them (the classes in their colours
 //! and with their names, as a paletted map; values on the ramp from its minimum to its maximum), with a `.qml`
 //! style beside each map written (QGIS takes it when the map is added by hand), the vector layers in the Viewer's
-//! colours (one, or by an attribute's classes or range), and the project (`.qgz`, QGIS's own, or `.qgs`) that
-//! opens them all in QGIS, the vector layers on top.
+//! colours (one, or by an attribute's classes or range; as QGIS's rules when asked, to edit there), labelled by an
+//! attribute and their points drawn as a marker chosen, and the project (`.qgz`, QGIS's own, or `.qgs`) that opens
+//! them all in QGIS, the vector layers on top.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, channel};
 
@@ -34,6 +35,21 @@ pub struct Pick {
     pub band: usize,
     /// A vector layer's style in the Viewer (when it is drawn over the map there).
     pub style: Option<crate::vector_tiles::Style>,
+    /// A vector layer's options in QGIS: its labels, its points' marker, its style as rules.
+    pub options: VectorOptions,
+}
+
+/// The markers a vector layer's points are drawn as in QGIS (its names of them).
+pub const MARKERS: [&str; 8] = ["circle", "square", "triangle", "diamond", "star", "cross", "pentagon", "hexagon"];
+
+/// How a vector layer goes to QGIS beyond its colours: labelled by an attribute, its points as a marker of
+/// [`MARKERS`], its style as rules (a rule each class or range, and one for the features of none: QGIS's rule-based
+/// renderer, to change there as rules).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct VectorOptions {
+    pub label: Option<String>,
+    pub marker: usize,
+    pub rules: bool,
 }
 
 /// Whether a value is a map or vector layer QGIS opens.
@@ -175,12 +191,14 @@ fn geometry_of(v: &terraflux_raster::vector::Vector) -> &'static str {
     }
 }
 
-/// How a vector layer is drawn: its colour, the polygons' fill (0 to 1), the lines' width (millimetres).
+/// How a vector layer is drawn: its colour, the polygons' fill (0 to 1), the lines' width (millimetres), the
+/// points' marker.
 #[derive(Clone, Copy)]
 struct VectorLook {
     colour: Color32,
     fill: f32,
     width_mm: f32,
+    marker: &'static str,
 }
 
 /// A symbol of a vector layer, named `name`.
@@ -194,7 +212,7 @@ fn symbol(name: &str, geometry: &str, l: VectorLook) -> String {
             "marker",
             "SimpleMarker",
             [
-                opt("name", "circle"),
+                opt("name", l.marker),
                 opt("color", &format!("{rgb},255")),
                 opt("outline_color", "35,35,35,255"),
                 opt("size", &format!("{:.2}", 1.6 + l.width_mm * 2.0)),
@@ -226,9 +244,15 @@ fn symbol(name: &str, geometry: &str, l: VectorLook) -> String {
     )
 }
 
+/// The marker of an option's (a circle for one unknown).
+fn marker_of(o: &VectorOptions) -> &'static str {
+    MARKERS.get(o.marker).copied().unwrap_or(MARKERS[0])
+}
+
 /// A vector layer's renderer: one symbol, of the colour given (polygons filled half transparent).
-fn vector_renderer(geometry: &str, c: Color32) -> String {
-    single(geometry, VectorLook { colour: c, fill: 90.0 / 255.0, width_mm: 0.4 })
+fn vector_renderer(geometry: &str, c: Color32, o: &VectorOptions) -> String {
+    let l = VectorLook { colour: c, fill: 90.0 / 255.0, width_mm: 0.4, marker: marker_of(o) };
+    if o.rules { rules(geometry, &[], l) } else { single(geometry, l) }
 }
 
 fn single(geometry: &str, l: VectorLook) -> String {
@@ -239,17 +263,83 @@ fn single(geometry: &str, l: VectorLook) -> String {
     )
 }
 
+/// A rule of a rule-based renderer: its filter (an expression of QGIS's), its label, how its features are drawn.
+struct Rule {
+    filter: String,
+    label: String,
+    look: VectorLook,
+}
+
+/// QGIS's rule-based renderer of rules: theirs, then one for the features of none (`ELSE`, drawn as `other`); of
+/// no rules, one that draws every feature.
+fn rules(geometry: &str, given: &[Rule], other: VectorLook) -> String {
+    let mut out = String::new();
+    let mut symbols = String::new();
+    for (i, r) in given.iter().enumerate() {
+        out.push_str(&format!(
+            "<rule key=\"{{terraflux-rule-{i}}}\" filter=\"{}\" label=\"{}\" symbol=\"{i}\"/>",
+            esc(&r.filter),
+            esc(&r.label)
+        ));
+        symbols.push_str(&symbol(&i.to_string(), geometry, r.look));
+    }
+    let k = given.len();
+    let (filter, label) = if given.is_empty() { ("", "all") } else { (" filter=\"ELSE\"", "other") };
+    out.push_str(&format!("<rule key=\"{{terraflux-rule-{k}}}\"{filter} label=\"{label}\" symbol=\"{k}\"/>"));
+    symbols.push_str(&symbol(&k.to_string(), geometry, other));
+    format!(
+        "<renderer-v2 type=\"RuleRenderer\" symbollevels=\"0\" enableorderby=\"0\" forceraster=\"0\">\
+         <rules key=\"{{terraflux-rules}}\">{out}</rules><symbols>{symbols}</symbols></renderer-v2>"
+    )
+}
+
+/// An attribute in an expression of QGIS's.
+fn field(name: &str) -> String {
+    format!("\"{}\"", name.replace('"', "\"\""))
+}
+
+/// A text in an expression of QGIS's.
+fn quoted(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "''"))
+}
+
+/// A vector layer's labels in QGIS: the attribute's values, dark on a light halo, placed as its geometry takes
+/// them (around a point, along a line, over a polygon's middle).
+fn labeling(geometry: &str, attr: &str) -> String {
+    let placement = match geometry {
+        "Point" => 6,
+        "Line" => 2,
+        _ => 1,
+    };
+    format!(
+        "<labeling type=\"simple\"><settings calloutType=\"simple\"><text-style fieldName=\"{}\" isExpression=\"0\" \
+         fontSize=\"9\" fontSizeUnit=\"Point\" textColor=\"35,35,35,255\" textOpacity=\"1\" fontWeight=\"50\" \
+         fontItalic=\"0\" multilineHeight=\"1\"><text-buffer bufferDraw=\"1\" bufferSize=\"0.8\" \
+         bufferSizeUnits=\"MM\" bufferColor=\"255,255,255,255\" bufferOpacity=\"1\" bufferJoinStyle=\"128\"/>\
+         </text-style><text-format wrapChar=\"\" multilineAlign=\"0\"/><placement placement=\"{placement}\" dist=\"1\" \
+         distUnits=\"MM\" priority=\"5\"/><rendering obstacle=\"1\" drawLabels=\"1\" labelPerPart=\"0\" \
+         displayAll=\"0\" limitNumLabels=\"0\" scaleVisibility=\"0\"/></settings></labeling>",
+        esc(attr)
+    )
+}
+
 /// The ranges of a graduated renderer of values (the Viewer's sequential ramp across them).
 const RANGES: usize = 7;
 
 /// A vector layer's renderer in its style in the Viewer: one colour, or by an attribute (its classes, a colour
-/// each, as the Viewer gives them; a range of numbers in ranges along the ramp).
-fn styled_renderer(geometry: &str, v: &terraflux_raster::vector::Vector, style: &crate::vector_tiles::Style) -> String {
+/// each, as the Viewer gives them; a range of numbers in ranges along the ramp); as rules when the options say.
+fn styled_renderer(
+    geometry: &str,
+    v: &terraflux_raster::vector::Vector,
+    style: &crate::vector_tiles::Style,
+    o: &VectorOptions,
+) -> String {
     use terraflux_raster::vector::Column;
     // (the Viewer's widths in pixels: about a quarter of a millimetre each)
-    let base = VectorLook { colour: style.colour, fill: style.fill, width_mm: style.width * 0.26 };
+    let base =
+        VectorLook { colour: style.colour, fill: style.fill, width_mm: style.width * 0.26, marker: marker_of(o) };
     let Some((attr, column)) = style.by.as_ref().and_then(|b| v.column(b).map(|c| (b, c))) else {
-        return single(geometry, base);
+        return if o.rules { rules(geometry, &[], base) } else { single(geometry, base) };
     };
     let colours = crate::vector_tiles::colours(v, style);
     let head = |kind: &str, extra: &str| {
@@ -259,7 +349,24 @@ fn styled_renderer(geometry: &str, v: &terraflux_raster::vector::Vector, style: 
         )
     };
     // classes: each value its colour (that of its first feature)
-    let categorized = |values: Vec<String>| {
+    let categorized = |values: Vec<String>, numbers: bool| {
+        if o.rules {
+            let mut given: Vec<Rule> = Vec::new();
+            for (k, value) in values.iter().enumerate() {
+                if given.iter().any(|r| r.label == *value) {
+                    continue;
+                }
+                let filter = if value.is_empty() {
+                    format!("{} IS NULL", field(attr))
+                } else if numbers {
+                    format!("{} = {value}", field(attr))
+                } else {
+                    format!("{} = {}", field(attr), quoted(value))
+                };
+                given.push(Rule { filter, label: value.clone(), look: VectorLook { colour: colours[k], ..base } });
+            }
+            return rules(geometry, &given, base);
+        }
         let mut cats = String::new();
         let mut symbols = String::new();
         let mut seen: Vec<&String> = Vec::new();
@@ -281,16 +388,38 @@ fn styled_renderer(geometry: &str, v: &terraflux_raster::vector::Vector, style: 
         )
     };
     match column {
-        Column::Texts(t) => categorized(t.clone()),
+        Column::Texts(t) => categorized(t.clone(), false),
         Column::Numbers(x) => {
             let mut distinct: Vec<f64> = x.iter().copied().filter(|v| !v.is_nan()).collect();
             distinct.sort_by(f64::total_cmp);
             distinct.dedup();
             if distinct.len() <= 24 && distinct.iter().all(|v| v.fract() == 0.0) {
-                return categorized(x.iter().map(|v| if v.is_nan() { String::new() } else { num(*v) }).collect());
+                return categorized(x.iter().map(|v| if v.is_nan() { String::new() } else { num(*v) }).collect(), true);
             }
             let (lo, hi) = (distinct.first().copied().unwrap_or(0.0), distinct.last().copied().unwrap_or(1.0));
             let span = if hi > lo { hi - lo } else { 1.0 };
+            if o.rules {
+                // (as QGIS's ranges: above the lower bound, up to the upper; the first from its lower bound)
+                let given: Vec<Rule> = (0..RANGES)
+                    .map(|i| {
+                        let (a, b) = (
+                            tidy(lo + span * i as f64 / RANGES as f64),
+                            tidy(lo + span * (i + 1) as f64 / RANGES as f64),
+                        );
+                        let above = if i == 0 { ">=" } else { ">" };
+                        let f = field(attr);
+                        Rule {
+                            filter: format!("{f} {above} {} AND {f} <= {}", num(a), num(b)),
+                            label: format!("{} - {}", crate::animation::short(a), crate::animation::short(b)),
+                            look: VectorLook {
+                                colour: crate::palette::sequential((i as f32 + 0.5) / RANGES as f32),
+                                ..base
+                            },
+                        }
+                    })
+                    .collect();
+                return rules(geometry, &given, base);
+            }
             let mut ranges = String::new();
             let mut symbols = String::new();
             for i in 0..RANGES {
@@ -379,8 +508,15 @@ struct Written {
 }
 
 enum Kind {
-    Raster { renderer: String },
-    Vector { geometry: &'static str, renderer: String },
+    Raster {
+        renderer: String,
+    },
+    /// (its labels: none, or QGIS's labelling of them)
+    Vector {
+        geometry: &'static str,
+        renderer: String,
+        labeling: String,
+    },
 }
 
 /// The coordinate system of a layer in the project: as WKT, or its EPSG code (QGIS takes the file's own when
@@ -421,8 +557,10 @@ fn project(title: &str, layers: &[Written]) -> String {
         ));
         let (head, body) = match &l.kind {
             Kind::Raster { renderer } => ("<maplayer type=\"raster\">".to_string(), format!("<pipe>{renderer}</pipe>")),
-            Kind::Vector { geometry, renderer } => {
-                (format!("<maplayer type=\"vector\" geometry=\"{geometry}\">"), renderer.clone())
+            Kind::Vector { geometry, renderer, labeling } => {
+                // (labels drawn only when the layer says so)
+                let on = if labeling.is_empty() { "" } else { " labelsEnabled=\"1\"" };
+                (format!("<maplayer type=\"vector\" geometry=\"{geometry}\"{on}>"), format!("{renderer}{labeling}"))
             }
         };
         let encoding = if provider == "ogr" { " encoding=\"UTF-8\"" } else { "" };
@@ -477,15 +615,21 @@ pub fn export(picks: &[Pick], dir: &Path, title: &str, plain: bool) -> Result<Pa
             let file = terraflux_exec::write_value(&p.value, &dir.join(format!("{stem}.gpkg")), None)
                 .map_err(|e| format!("{}: {e}", p.name))?;
             let geometry = geometry_of(v);
+            let o = &p.options;
             let renderer = match &p.style {
-                Some(style) => styled_renderer(geometry, v, style),
-                None => vector_renderer(geometry, VECTOR_COLOURS[vectors.len() % VECTOR_COLOURS.len()]),
+                Some(style) => styled_renderer(geometry, v, style, o),
+                None => vector_renderer(geometry, VECTOR_COLOURS[vectors.len() % VECTOR_COLOURS.len()], o),
+            };
+            // (labelled by an attribute it has)
+            let labeling = match &o.label {
+                Some(attr) if v.column(attr).is_some() => labeling(geometry, attr),
+                _ => String::new(),
             };
             vectors.push(Written {
                 name: p.name.clone(),
                 source: format!("./{}|layername={stem}", file.file_name().unwrap().to_string_lossy()),
                 crs: v.crs.clone(),
-                kind: Kind::Vector { geometry, renderer },
+                kind: Kind::Vector { geometry, renderer, labeling },
             });
             continue;
         }
@@ -544,6 +688,8 @@ pub struct Export {
     pub done: Option<Result<PathBuf, String>>,
     /// The project as text (`.qgs`), not zipped as QGIS keeps its own (`.qgz`).
     pub plain: bool,
+    /// The options of the vector layers (node, port): their labels, marker, rules.
+    pub options: BTreeMap<(String, String), VectorOptions>,
 }
 
 /// The maps and vector layers of the run, in the model's order: (node, port, their name).
@@ -593,7 +739,46 @@ pub fn pick(s: &Session, node: &str, port: &str) -> Option<Pick> {
         band,
         value,
         style,
+        options: s.qgis.options.get(&(node.to_string(), port.to_string())).cloned().unwrap_or_default(),
     })
+}
+
+/// The attributes of a vector output and its kind of geometry as QGIS names it.
+fn vector_info(s: &Session, node: &str, port: &str) -> Option<(Vec<String>, &'static str)> {
+    match s.value_of(node, port)? {
+        Value::Vector(v) => Some((v.attributes.iter().map(|(k, _)| k.clone()).collect(), geometry_of(&v))),
+        _ => None,
+    }
+}
+
+/// The options of a vector layer chosen: the attribute it is labelled by, its points' marker, its style as rules.
+fn options_ui(ui: &mut egui::Ui, id: &str, o: &mut VectorOptions, attrs: &[String], geometry: &str) {
+    ui.horizontal_wrapped(|ui| {
+        ui.add_space(22.0);
+        ui.label(RichText::new("labels").size(11.5));
+        egui::ComboBox::from_id_salt(("qgis label", id))
+            .selected_text(o.label.as_deref().unwrap_or("none"))
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut o.label, None, "none");
+                for a in attrs {
+                    ui.selectable_value(&mut o.label, Some(a.clone()), a);
+                }
+            })
+            .response
+            .on_hover_text("the attribute written by each feature in QGIS");
+        if geometry == "Point" {
+            ui.label(RichText::new("marker").size(11.5));
+            egui::ComboBox::from_id_salt(("qgis marker", id)).selected_text(marker_of(o)).show_ui(ui, |ui| {
+                for (k, m) in MARKERS.iter().enumerate() {
+                    ui.selectable_value(&mut o.marker, k, *m);
+                }
+            });
+        }
+        ui.checkbox(&mut o.rules, RichText::new("as rules").size(11.5)).on_hover_text(
+            "the style as QGIS's rules: a rule each class or range, and one for the features of none, to change \
+             there as rules",
+        );
+    });
 }
 
 /// The window.
@@ -650,7 +835,10 @@ pub fn window(ctx: &egui::Context, s: &mut Session) {
                 ui.label("Nothing to export yet: run the model (ctrl+enter runs the node shown).");
                 return;
             }
-            let chosen = s.qgis.chosen.as_mut().unwrap();
+            let info: BTreeMap<(String, String), (Vec<String>, &'static str)> =
+                all.iter().filter_map(|(n, p, _)| Some(((n.clone(), p.clone()), vector_info(s, n, p)?))).collect();
+            let Export { chosen, options, .. } = &mut s.qgis;
+            let chosen = chosen.as_mut().unwrap();
             ui.horizontal(|ui| {
                 if ui.small_button("all").clicked() {
                     *chosen = all.iter().map(|(n, p, _)| (n.clone(), p.clone())).collect();
@@ -665,10 +853,15 @@ pub fn window(ctx: &egui::Context, s: &mut Session) {
                     let mut on = chosen.contains(&key);
                     if ui.checkbox(&mut on, name).changed() {
                         if on {
-                            chosen.insert(key);
+                            chosen.insert(key.clone());
                         } else {
                             chosen.remove(&key);
                         }
+                    }
+                    // a vector layer's: its labels, marker and rules
+                    if on && let Some((attrs, geometry)) = info.get(&key) {
+                        let o = options.entry(key.clone()).or_default();
+                        options_ui(ui, &format!("{n}.{p}"), o, attrs, geometry);
                     }
                 }
             });
@@ -791,7 +984,7 @@ mod tests {
         let ramp = Map::new(g.clone(), (0..12).map(|i| i as f64 * 0.5).collect());
         let pts = terraflux_raster::vector::Vector {
             geometries: vec![Geometry::Point([500030.0, 8999950.0])],
-            attributes: vec![],
+            attributes: vec![("name".into(), terraflux_raster::vector::Column::Texts(vec!["plot 1".into()]))],
             crs: None,
         };
         let picks = vec![
@@ -802,6 +995,7 @@ mod tests {
                 legend: None,
                 band: 0,
                 style: None,
+                options: VectorOptions::default(),
             },
             Pick {
                 name: "land use".into(),
@@ -810,6 +1004,7 @@ mod tests {
                 legend: None,
                 band: 0,
                 style: None,
+                options: VectorOptions::default(),
             },
             Pick {
                 name: "plots".into(),
@@ -818,6 +1013,7 @@ mod tests {
                 legend: None,
                 band: 0,
                 style: None,
+                options: VectorOptions { label: Some("name".into()), marker: 1, rules: false },
             },
         ];
         let qgs = export(&picks, &dir, "A <model>", true).unwrap();
@@ -838,6 +1034,11 @@ mod tests {
         assert!(x.contains("<datasource>./plots.gpkg|layername=plots</datasource>"));
         assert!(x.contains("type=\"paletted\"") && x.contains("type=\"singlebandpseudocolor\""));
         assert!(x.contains("<layerorder><layer id=\"plots_00_terraflux\"/>"), "{x}");
+        // the points labelled by their name, drawn as squares
+        assert!(x.contains("<maplayer type=\"vector\" geometry=\"Point\" labelsEnabled=\"1\">"), "{x}");
+        assert!(x.contains("<labeling type=\"simple\">") && x.contains("fieldName=\"name\""), "{x}");
+        assert!(x.contains("placement=\"6\""));
+        assert!(x.contains("<Option name=\"name\" type=\"QString\" value=\"square\"/>"), "{x}");
         let qml = std::fs::read_to_string(dir.join("land_use.qml")).unwrap();
         assert!(qml.contains("<pipe><rasterrenderer type=\"paletted\""));
         // nothing chosen: said
@@ -885,12 +1086,13 @@ mod tests {
             crs: None,
         };
         let one = crate::vector_tiles::Style { colour: Color32::from_rgb(10, 20, 30), by: None, fill: 0.5, width: 2.0 };
-        let r = styled_renderer("Polygon", &v, &one);
+        let plain = VectorOptions::default();
+        let r = styled_renderer("Polygon", &v, &one, &plain);
         assert!(r.contains("type=\"singleSymbol\"") && r.contains("value=\"10,20,30,128\""), "{r}");
         assert!(r.contains("name=\"outline_width\" type=\"QString\" value=\"0.52\""), "{r}");
         // by the classes of a text: a colour each, as the Viewer gives them
         let by_use = crate::vector_tiles::Style { by: Some("use".into()), ..one.clone() };
-        let r = styled_renderer("Point", &v, &by_use);
+        let r = styled_renderer("Point", &v, &by_use, &plain);
         let colours = crate::vector_tiles::colours(&v, &by_use);
         assert!(r.contains("type=\"categorizedSymbol\" attr=\"use\""), "{r}");
         assert_eq!(r.matches("<category ").count(), 2);
@@ -898,9 +1100,32 @@ mod tests {
         assert!(r.contains(&rgb(colours[0])) && r.contains(&rgb(colours[1])));
         // by a range of numbers: ranges along the ramp
         let by_area = crate::vector_tiles::Style { by: Some("area".into()), ..one };
-        let r = styled_renderer("Line", &v, &by_area);
+        let r = styled_renderer("Line", &v, &by_area, &plain);
         assert!(r.contains("type=\"graduatedSymbol\" attr=\"area\""), "{r}");
         assert_eq!(r.matches("<range ").count(), RANGES);
         assert!(r.contains("lower=\"0.5\"") && r.contains("upper=\"100\""), "{r}");
+        // as rules: a rule each class (a text quoted, its quote doubled), then the others'
+        let as_rules = VectorOptions { rules: true, ..plain.clone() };
+        let r = styled_renderer("Point", &v, &by_use, &as_rules);
+        assert!(r.contains("type=\"RuleRenderer\""), "{r}");
+        assert_eq!(r.matches("<rule ").count(), 3);
+        assert!(r.contains("filter=\"&quot;use&quot; = &apos;forest&apos;\" label=\"forest\""), "{r}");
+        assert!(r.contains("filter=\"ELSE\" label=\"other\""), "{r}");
+        assert!(r.contains(&rgb(colours[1])));
+        assert_eq!(quoted("farmer's"), "'farmer''s'");
+        // ranges as rules: the first from its lower bound, the others above theirs
+        let r = styled_renderer("Line", &v, &by_area, &as_rules);
+        assert_eq!(r.matches("<rule ").count(), RANGES + 1);
+        assert!(r.contains("&quot;area&quot; &gt;= 0.5 AND &quot;area&quot; &lt;="), "{r}");
+        assert!(r.contains("&lt;= 100\""), "{r}");
+        // one colour as rules: one rule of every feature, no ELSE
+        let r = styled_renderer("Polygon", &v, &one, &as_rules);
+        assert_eq!(r.matches("<rule ").count(), 1);
+        assert!(!r.contains("ELSE") && r.contains("label=\"all\""), "{r}");
+        // the marker chosen; a polygon's labels over its middle, a line's along it
+        let star = VectorOptions { marker: 4, ..plain };
+        assert!(styled_renderer("Point", &v, &one, &star).contains("value=\"star\""));
+        assert!(labeling("Polygon", "use").contains("placement=\"1\""));
+        assert!(labeling("Line", "use").contains("placement=\"2\""));
     }
 }
