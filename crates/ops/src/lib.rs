@@ -24,6 +24,7 @@ pub mod cache;
 pub mod carbon;
 pub mod change;
 pub mod change_analysis;
+pub mod checks;
 pub mod circuit;
 pub mod circuit_ini;
 pub mod clumondo;
@@ -441,6 +442,7 @@ impl Registry {
         raster_neighbours::register(&mut r);
         vector_tools::register(&mut r);
         values::register(&mut r);
+        checks::register(&mut r);
         raster_analysis::register(&mut r);
         r
     }

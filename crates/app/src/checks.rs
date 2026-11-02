@@ -118,6 +118,34 @@ struct Run<'a> {
     warnings: &'a [String],
 }
 
+/// What a check holds in a line: `check.assert`'s expression, else the check's kind and its settings
+/// (`range: min 0, max 1`).
+pub fn what(n: &Node) -> String {
+    if n.op == "check.assert" {
+        return n.params.get("expression").and_then(|e| e.as_str()).unwrap_or_default().to_string();
+    }
+    let kind = n.op.trim_start_matches("check.").replace('_', " ");
+    let settings: Vec<String> = n
+        .params
+        .iter()
+        .filter(|(k, _)| !matches!(k.as_str(), "message" | "warn"))
+        .map(|(k, v)| format!("{k} {}", v.as_str().map(String::from).unwrap_or_else(|| v.to_string())))
+        .collect();
+    if settings.is_empty() { kind } else { format!("{kind}: {}", settings.join(", ")) }
+}
+
+/// The words a check's warning holds, to tell it from the others of its container: `check.assert`'s expression,
+/// another check's message.
+fn mark(n: &Node) -> String {
+    let param = |k: &str| n.params.get(k).and_then(|e| e.as_str()).map(String::from);
+    if n.op == "check.assert" {
+        return param("expression").unwrap_or_else(|| "\u{0}".into());
+    }
+    param("message")
+        .or_else(|| terraflux_ops::checks::default_message(&n.op).map(String::from))
+        .unwrap_or_else(|| "\u{0}".into())
+}
+
 /// What a check said, its node's name before it left out (`node "x": the demand is met (...)`).
 fn said(message: &str, id: &str) -> String {
     message.trim_start_matches(&format!("node {id:?}: ")).to_string()
@@ -138,7 +166,7 @@ fn verdict(run: &Run, path: &[String], n: &Node, ok: Option<bool>, ran: bool) ->
         let (from, text) = w.split_once(": ")?;
         (from == at || from == n.id || (!path.is_empty() && from == path[0]))
             .then(|| said(text, &n.id))
-            .filter(|t| t.contains(n.params.get("expression").and_then(|e| e.as_str()).unwrap_or("\u{0}")))
+            .filter(|t| t.contains(&mark(n)))
     });
     match (ok, warned) {
         (Some(false), w) | (None, w @ Some(_)) if ran => Verdict::Warned(w.unwrap_or_else(|| "it failed".into())),
@@ -179,7 +207,7 @@ fn walk(
     ran: bool,
     out: &mut Vec<Check>,
 ) {
-    if n.op == "check.assert" {
+    if terraflux_ops::checks::is_check(&n.op) {
         // (the outputs of a container's body are not kept: its check passed when the container ran to its end)
         let ok = if path.is_empty() {
             match values(&n.id, "ok") {
@@ -192,7 +220,7 @@ fn walk(
         out.push(Check {
             path: path.to_vec(),
             id: n.id.clone(),
-            expression: n.params.get("expression").and_then(|e| e.as_str()).unwrap_or_default().to_string(),
+            expression: what(n),
             verdict: verdict(run, path, n, ok, ran),
         });
     }
@@ -302,5 +330,34 @@ mod tests {
             Verdict::Failed("short (abs(a - d) < 1: it is 3)".into())
         );
         assert_eq!(verdict(&none, &["years".to_string()], &n, None, true), Verdict::Passed);
+    }
+
+    #[test]
+    fn a_check_of_its_own_fares_by_its_message() {
+        let n = Node::new("probability", "check.range").param("min", 0).param("max", 1).param("warn", true);
+        assert_eq!(what(&n), "range: max 1, min 0");
+        // inside a loop, the warning is the container's: told from the others by the check's message
+        let warnings = vec![
+            "years: the demand was not met (step 2: class 1: 3 cells, the demand 4)".to_string(),
+            "years: values are out of the range (2 of 9 cells not between 0 and 1, from -1 to 2)".to_string(),
+        ];
+        let run = Run { error: None, warnings: &warnings };
+        assert_eq!(
+            verdict(&run, &["years".to_string()], &n, None, true),
+            Verdict::Warned("values are out of the range (2 of 9 cells not between 0 and 1, from -1 to 2)".into())
+        );
+        let demand = Node::new("met", "check.demand").param("warn", true);
+        assert!(
+            matches!(verdict(&run, &["years".to_string()], &demand, None, true), Verdict::Warned(w) if w.contains("step 2"))
+        );
+        let accuracy = Node::new("good", "check.accuracy").param("min", 0.8).param("warn", true);
+        assert_eq!(verdict(&run, &["years".to_string()], &accuracy, None, true), Verdict::Passed);
+        // in a model: found as checks
+        let mut m = terraflux_graph::Model::new("m");
+        m.nodes.push(n.clone());
+        m.nodes.push(Node::new("other", "raster.calc"));
+        let checks = of_run(&m, &|_, _| Some(Value::Bool(true)), &|_| true, None, &[]);
+        assert_eq!(checks.len(), 1);
+        assert_eq!(checks[0].verdict, Verdict::Passed);
     }
 }

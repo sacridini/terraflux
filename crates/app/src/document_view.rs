@@ -306,7 +306,7 @@ fn title_ui(ui: &mut Ui, step: &Step, num: &str, size: f32, asked: &mut Asked) {
 
 /// A check's badge: how it fared in the last run.
 fn check_ui(ui: &mut Ui, s: &Session, step: &Step) {
-    if step.op != "check.assert" {
+    if !terraflux_ops::checks::is_check(&step.op) {
         return;
     }
     let Some(c) = crate::checks::of(s).into_iter().find(|c| c.id == step.id && c.path == step.path) else { return };

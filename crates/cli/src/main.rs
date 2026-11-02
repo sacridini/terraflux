@@ -645,11 +645,13 @@ fn full_precision(v: &terraflux_ops::Value) -> Option<&'static str> {
     any.then_some("f64")
 }
 
-/// The check.assert nodes of a model (in its containers too).
+/// The checks (check.*) of a model (in its containers too).
 fn count_asserts(nodes: &[terraflux_graph::Node]) -> usize {
     nodes
         .iter()
-        .map(|n| usize::from(n.op == "check.assert") + n.body.as_ref().map_or(0, |b| count_asserts(&b.nodes)))
+        .map(|n| {
+            usize::from(terraflux_ops::checks::is_check(&n.op)) + n.body.as_ref().map_or(0, |b| count_asserts(&b.nodes))
+        })
         .sum()
 }
 

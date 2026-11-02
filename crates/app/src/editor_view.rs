@@ -8,7 +8,7 @@
 //! or take it away, ctrl+A selects all, Esc none): dragging one of them moves them all. Drag with the middle or the right
 //! button to move the view, the wheel zooms around the pointer, Home fits the graph. Each node shows how it did
 //! in the last run: running, done (or taken from the cache), failed; a node with problems (an input it needs not
-//! given, the run's error) has a mark that tells them on hover; a check (`check.assert`) a badge of how it fared
+//! given, the run's error) has a mark that tells them on hover; a check (`check.*`) a badge of how it fared
 //! (passed, warned, failed, not run), a container the worst of its checks'; a node whose result is frozen a ❄ at its
 //! top left. A box that reads or writes a file names it at
 //! its bottom; the boxes of data (the model's inputs, what reads, writes, stacks or plots) may have a header in the
@@ -1890,7 +1890,8 @@ pub fn show(
                 let mut text: Vec<String> =
                     problems.get(&b.key).into_iter().flatten().map(|(_, m)| format!("⚠ {m}")).collect();
                 if let Some(c) = checks.get(&b.key) {
-                    let what = if b.op == "check.assert" { "the check" } else { "the worst of its checks" };
+                    let what =
+                        if terraflux_ops::checks::is_check(&b.op) { "the check" } else { "the worst of its checks" };
                     text.push(format!("{} {what}: {}", c.symbol(), c.words()));
                 }
                 if breakpoints.contains(&b.key) {
