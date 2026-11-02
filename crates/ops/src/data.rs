@@ -295,13 +295,42 @@ pub fn gfc_tiles(variable: &str, lon: [f64; 2], lat: [f64; 2]) -> std::result::R
 /// MODIS on Microsoft's Planetary Computer: its STAC catalog, and the tokens that sign its files (anonymous).
 const PLANETARY: &str = "https://planetarycomputer.microsoft.com/api";
 
-/// MODIS's vegetation indices (MOD13Q1, Terra, 16-day composites at 250 m): the asset of a variable.
+/// A MODIS product on the Planetary Computer: the variable's name here, its collection, the prefix of its items
+/// (Terra's, or both satellites' combined), its asset, and how many days back a date looks for the file that
+/// covers it (the product's period, and some).
+pub struct Modis {
+    pub variable: &'static str,
+    pub collection: &'static str,
+    pub prefix: &'static str,
+    pub asset: &'static str,
+    pub days: i64,
+}
+
+/// The MODIS variables: the vegetation indices (MOD13Q1, 16-day composites at 250 m, × 0.0001), the land surface
+/// temperature of the day and of the night (MOD11A2, 8-day at 1 km, kelvin × 0.02), the burned area (MCD64A1,
+/// monthly at 500 m: the day of the year a cell burned, 0 unburned) and the yearly gross and net primary
+/// production (MOD17A3HGF at 500 m, kg C/m² × 0.0001).
+pub const MODIS: [Modis; 7] = [
+    Modis { variable: "ndvi", collection: "modis-13Q1-061", prefix: "MOD13Q1", asset: "250m_16_days_NDVI", days: 40 },
+    Modis { variable: "evi", collection: "modis-13Q1-061", prefix: "MOD13Q1", asset: "250m_16_days_EVI", days: 40 },
+    Modis { variable: "lst_day", collection: "modis-11A2-061", prefix: "MOD11A2", asset: "LST_Day_1km", days: 24 },
+    Modis { variable: "lst_night", collection: "modis-11A2-061", prefix: "MOD11A2", asset: "LST_Night_1km", days: 24 },
+    Modis { variable: "burned", collection: "modis-64A1-061", prefix: "MCD64A1", asset: "Burn_Date", days: 62 },
+    Modis { variable: "gpp", collection: "modis-17A3HGF-061", prefix: "MOD17A3HGF", asset: "Gpp_500m", days: 366 },
+    Modis { variable: "npp", collection: "modis-17A3HGF-061", prefix: "MOD17A3HGF", asset: "Npp_500m", days: 366 },
+];
+
+/// The MODIS product of a variable.
+pub fn modis_of(variable: &str) -> std::result::Result<&'static Modis, String> {
+    MODIS.iter().find(|m| m.variable == variable).ok_or_else(|| {
+        let known: Vec<&str> = MODIS.iter().map(|m| m.variable).collect();
+        format!("modis: one of {}, not {variable:?}", known.join(", "))
+    })
+}
+
+/// The asset of a MODIS variable.
 pub fn modis_asset(variable: &str) -> std::result::Result<&'static str, String> {
-    match variable {
-        "ndvi" => Ok("250m_16_days_NDVI"),
-        "evi" => Ok("250m_16_days_EVI"),
-        v => Err(format!("modis: ndvi or evi, not {v:?}")),
-    }
+    modis_of(variable).map(|m| m.asset)
 }
 
 /// Days since 1970-01-01 of a date (proleptic Gregorian), and back.
@@ -340,11 +369,12 @@ pub fn parse_date(t: &str) -> std::result::Result<i64, String> {
     }
 }
 
-/// The files of the MODIS composite of a date over a grid: the latest 16-day composite of Terra begun on the
-/// date or before (its tiles together), signed.
+/// The files of the MODIS product of an asset at a date over a grid: its latest file (a 16-day or 8-day
+/// composite, a month, a year) begun on the date or before (its tiles together), signed.
 fn modis_sources(asset: &str, date: &str, g: &Grid) -> std::result::Result<Vec<String>, String> {
+    let product = MODIS.iter().find(|m| m.asset == asset).ok_or_else(|| format!("modis: no asset {asset:?}"))?;
     let day = parse_date(date)?;
-    let (y0, m0, d0) = date_of(day - 40);
+    let (y0, m0, d0) = date_of(day - product.days);
     let (lon, lat) = lonlat_box(g).map_err(|e| e.to_string())?;
     let get = |url: &str| -> std::result::Result<serde_json::Value, String> {
         let (status, body) =
@@ -354,7 +384,7 @@ fn modis_sources(asset: &str, date: &str, g: &Grid) -> std::result::Result<Vec<S
         }
         serde_json::from_slice(&body).map_err(|e| format!("{url}: {e}"))
     };
-    let collection = "modis-13Q1-061";
+    let collection = product.collection;
     let url = format!(
         "{PLANETARY}/stac/v1/search?collections={collection}&bbox={},{},{},{}&datetime={y0:04}-{m0:02}-{d0:02}T00:00:00Z/\
          {date}T23:59:59Z&limit=200",
@@ -363,12 +393,15 @@ fn modis_sources(asset: &str, date: &str, g: &Grid) -> std::result::Result<Vec<S
     let found = get(&url)?;
     let items: Vec<&serde_json::Value> = found["features"]
         .as_array()
-        .map(|a| a.iter().filter(|f| f["id"].as_str().is_some_and(|i| i.starts_with("MOD13Q1"))).collect())
+        .map(|a| a.iter().filter(|f| f["id"].as_str().is_some_and(|i| i.starts_with(product.prefix))).collect())
         .unwrap_or_default();
     let start = |f: &serde_json::Value| f["properties"]["start_datetime"].as_str().unwrap_or("").to_string();
     let last = items.iter().map(|f| start(f)).filter(|s| s.as_str() <= date || s.starts_with(date)).max();
     let Some(last) = last else {
-        return Err(format!("modis: no composite over the grid in the 40 days up to {date}"));
+        return Err(format!(
+            "modis: no {} over the grid in the {} days up to {date}",
+            product.prefix, product.days
+        ));
     };
     // signed by a token of their storage account and container (https://ACCOUNT.blob.core.windows.net/CONTAINER/)
     let hrefs: Vec<&str> =
@@ -667,11 +700,14 @@ impl Operator for Download {
              MapBiomas Brazil (land use and cover by year), Hydrography90m (the river network of the world at 90 m: \
              its sub-catchments, segments, basins, flow directions and accumulation, stream orders, slopes and \
              distances), ESA WorldCover (land cover at 10 m, 2020 and 2021), Hansen's Global Forest Change \
-             (tree cover in 2000, the year of loss, gain, at 30 m), MODIS' vegetation indices (NDVI, EVI: \
-             16-day composites at 250 m, from Microsoft's Planetary Computer), or any raster a url names; a file \
+             (tree cover in 2000, the year of loss, gain, at 30 m), MODIS from Microsoft's Planetary Computer \
+             (the vegetation indices NDVI and EVI, 16-day at 250 m; the land surface temperature of the day and \
+             the night, 8-day at 1 km; the burned area, monthly at 500 m; the yearly gross and net primary \
+             production at 500 m), or any raster a url names; a file \
              per layer kept in the cache (Terraflux's, TERRAFLUX_CACHE), downloaded once. Classes are resampled \
              by the most common cell, values bilinearly. The values are the servers' (CHELSA's scaled integers: \
-             × 0.1, and - 273.15 for temperatures; SoilGrids' in its mapped units; MODIS' indices × 0.0001).",
+             × 0.1, and - 273.15 for temperatures; SoilGrids' in its mapped units; MODIS' indices and production \
+             × 0.0001, its temperatures × 0.02 in kelvin, its burned area the day of the year, 0 unburned).",
             Access::Global,
         )
         .input(PortSpec::optional("like", Type::Raster, "the map whose grid to fill (else extent and cellsize)"))
@@ -688,7 +724,7 @@ impl Operator for Download {
             "worldclim: bio (default), tavg, tmin, tmax, prec, srad, wind, vapr, elev; worldclim_future: bioc \
              (default), tmin, tmax, prec; hydrography90m: sub_catchment (default), segment, basin, outlet, direction, \
              accumulation, order_strahler... (hydrographr's names); global_forest_change: treecover2000 (default), \
-             lossyear, gain, datamask; modis: ndvi (default), evi",
+             lossyear, gain, datamask; modis: ndvi (default), evi, lst_day, lst_night, burned, gpp, npp",
         ))
         .param(PortSpec::optional("layers", Type::Any, "the variables' numbers (bio 1-19, months 1-12; default all)"))
         .param(PortSpec::optional(
@@ -725,8 +761,8 @@ impl Operator for Download {
         .param(PortSpec::optional(
             "date",
             Type::Any,
-            "modis: a date, YYYY-MM-DD (the 16-day composite begun on it or last before it; default 2024-07-01), \
-             or a list",
+            "modis: a date, YYYY-MM-DD (the composite, month or year begun on it or last before it; default \
+             2024-07-01), or a list",
         ))
         .param(PortSpec::optional("url", Type::Any, "any raster GDAL reads (a URL, a path), or a list"))
         .param(PortSpec::optional("extent", Type::Any, "without like: [west, south, east, north], degrees"))

@@ -243,13 +243,15 @@ pub const DATASETS: [Dataset; 12] = [
     },
     Dataset {
         source: "modis",
-        name: "MODIS vegetation indices",
+        name: "MODIS: vegetation, temperature, fire, production",
         theme: Theme::LandCover,
-        what: "The greenness of the vegetation from MODIS on Terra (MOD13Q1): NDVI and EVI of 16-day composites \
-               (their values × 0.0001), the composite begun on a date or last before it, read from Microsoft's \
-               Planetary Computer. Several dates give a series.",
-        resolution: "250 m",
-        period: "every 16 days since 2000",
+        what: "MODIS, read from Microsoft's Planetary Computer: the greenness of the vegetation (MOD13Q1: NDVI and \
+               EVI of 16-day composites at 250 m, × 0.0001), the land surface temperature of the day and of the \
+               night (MOD11A2: 8-day at 1 km, kelvin × 0.02), the burned area (MCD64A1: monthly at 500 m, the day \
+               of the year a cell burned, 0 unburned) and the yearly gross and net primary production (MOD17A3HGF: \
+               500 m, kg C/m² × 0.0001). The file begun on a date or last before it; several dates give a series.",
+        resolution: "250 m to 1 km",
+        period: "every 8 or 16 days, monthly or yearly, since 2000",
         coverage: "the world",
         licence: "open, no restriction on reuse (NASA's Earth science data policy)",
         reference: "Didan, K. (2021). MODIS/Terra Vegetation Indices 16-Day L3 Global 250m SIN Grid V061. NASA \
@@ -283,6 +285,17 @@ pub const DATASETS: [Dataset; 12] = [
 pub const GBIF: &str = "gbif";
 
 /// Global Forest Change's variables.
+/// MODIS' variables: the name `data.download` takes, and in words.
+const MODIS_VARIABLES: [(&str, &str); 7] = [
+    ("ndvi", "NDVI"),
+    ("evi", "EVI"),
+    ("lst_day", "Land surface temperature, day"),
+    ("lst_night", "Land surface temperature, night"),
+    ("burned", "Burned area (day of burning)"),
+    ("gpp", "Gross primary production (yearly)"),
+    ("npp", "Net primary production (yearly)"),
+];
+
 const GFC_VARIABLES: [(&str, &str); 4] = [
     ("treecover2000", "tree cover in 2000 (%)"),
     ("lossyear", "the year of loss (1 = 2001)"),
@@ -378,6 +391,45 @@ const STATS: [(&str, &str); 5] = [
     ("Q0.95", "95% quantile"),
     ("uncertainty", "uncertainty"),
 ];
+
+/// The reference of a MODIS variable's product.
+const MODIS_REFS: [(&str, &str); 4] = [
+    (
+        "lst",
+        "Wan, Z., Hook, S., & Hulley, G. (2021). MODIS/Terra Land Surface Temperature/Emissivity 8-Day L3 Global 1km \
+         SIN Grid V061. NASA EOSDIS Land Processes Distributed Active Archive Center. \
+         https://doi.org/10.5067/MODIS/MOD11A2.061",
+    ),
+    (
+        "burned",
+        "Giglio, L., Justice, C., Boschetti, L., & Roy, D. (2021). MODIS/Terra+Aqua Burned Area Monthly L3 Global \
+         500m SIN Grid V061. NASA EOSDIS Land Processes Distributed Active Archive Center. \
+         https://doi.org/10.5067/MODIS/MCD64A1.061",
+    ),
+    (
+        "gpp",
+        "Running, S., & Zhao, M. (2021). MODIS/Terra Gross Primary Productivity Gap-Filled Yearly L4 Global 500m SIN \
+         Grid V061. NASA EOSDIS Land Processes Distributed Active Archive Center. \
+         https://doi.org/10.5067/MODIS/MOD17A3HGF.061",
+    ),
+    (
+        "npp",
+        "Running, S., & Zhao, M. (2021). MODIS/Terra Net Primary Production Gap-Filled Yearly L4 Global 500m SIN \
+         Grid V061. NASA EOSDIS Land Processes Distributed Active Archive Center. \
+         https://doi.org/10.5067/MODIS/MOD17A3HGF.061",
+    ),
+];
+
+/// The reference to cite for a dataset as chosen (a MODIS variable's own product).
+pub fn reference_of(d: &Dataset, c: &Choices) -> &'static str {
+    if d.source == "modis" {
+        let key = if c.modis.starts_with("lst") { "lst" } else { c.modis.as_str() };
+        if let Some((_, r)) = MODIS_REFS.iter().find(|(k, _)| *k == key) {
+            return r;
+        }
+    }
+    d.reference
+}
 
 /// The years of a MapBiomas collection.
 pub fn mapbiomas_years(collection: u32) -> std::ops::RangeInclusive<u32> {
@@ -675,7 +727,10 @@ pub fn summary(d: &Dataset, c: &Choices) -> String {
             y.join(", ")
         }
         "global_forest_change" => c.gfc.clone(),
-        "modis" => format!("{} of {}", c.modis.to_uppercase(), c.dates.trim()),
+        "modis" => {
+            let name = MODIS_VARIABLES.iter().find(|(k, _)| *k == c.modis).map_or(c.modis.as_str(), |(_, n)| *n);
+            format!("{name} of {}", c.dates.trim())
+        }
         GBIF => {
             let mut w = c.species.trim().to_string();
             if !c.country.trim().is_empty() {
@@ -688,7 +743,8 @@ pub fn summary(d: &Dataset, c: &Choices) -> String {
         }
         _ => String::new(),
     };
-    format!("{}: {what}", d.name)
+    // (a name that tells its parts after a colon: the part before)
+    format!("{}: {what}", d.name.split_once(": ").map_or(d.name, |(short, _)| short))
 }
 
 /// The window's state.
@@ -958,7 +1014,7 @@ pub fn add(s: &mut Session, r: &Registry, d: &Dataset, c: &Choices) -> Result<St
             "From the data catalog: {} ({}, {}, {}). Licence: {}.",
             d.name, d.resolution, d.period, d.coverage, d.licence
         ));
-        n.refs = vec![d.reference.to_string()];
+        n.refs = vec![reference_of(d, c).to_string()];
     }
     s.edited();
     crate::builder::select(s, r, &id);
@@ -1120,10 +1176,7 @@ fn form(ui: &mut Ui, d: &Dataset, c: &mut Choices) {
         }),
         "global_forest_change" => row(ui, "Variable", &mut |ui| combo(ui, "catalog gfc", &mut c.gfc, &GFC_VARIABLES)),
         "modis" => {
-            row(ui, "Index", &mut |ui| {
-                ui.radio_value(&mut c.modis, "ndvi".to_string(), "NDVI");
-                ui.radio_value(&mut c.modis, "evi".to_string(), "EVI");
-            });
+            row(ui, "Variable", &mut |ui| combo(ui, "catalog modis", &mut c.modis, &MODIS_VARIABLES));
             row(ui, "Dates", &mut |ui| {
                 ui.add(
                     egui::TextEdit::singleline(&mut c.dates).hint_text("2024-07-01, 2024-01-01").desired_width(220.0),
@@ -1378,6 +1431,7 @@ pub fn window(ctx: &egui::Context, s: &mut Session, r: &Registry) {
                 });
             });
             let d = &DATASETS[cat.chosen.min(DATASETS.len() - 1)];
+            let cite = reference_of(d, &cat.choices);
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                 ui.horizontal(|ui| {
                     swatch(ui, d, Vec2::new(40.0, 28.0));
@@ -1399,10 +1453,10 @@ pub fn window(ctx: &egui::Context, s: &mut Session, r: &Registry) {
                     }
                     ui.label(RichText::new("cite").color(weak));
                     ui.vertical(|ui| {
-                        ui.add(egui::Label::new(RichText::new(d.reference).size(11.5)).wrap());
+                        ui.add(egui::Label::new(RichText::new(cite).size(11.5)).wrap());
                         ui.horizontal(|ui| {
                             if ui.small_button("copy").on_hover_text("the reference, to the clipboard").clicked() {
-                                ui.ctx().copy_text(d.reference.to_string());
+                                ui.ctx().copy_text(cite.to_string());
                             }
                             ui.hyperlink_to("home page", d.home);
                         });
@@ -1618,8 +1672,19 @@ mod tests {
         let c = Choices { like: Some("x.map".into()), dates: "2023-07-28, 2024-01-01".into(), ..Default::default() };
         let p = params(at("modis"), &c).unwrap();
         assert!(p.contains(&("date", json!(["2023-07-28", "2024-01-01"]))) && p.contains(&("variable", json!("ndvi"))));
-        let bad = Choices { dates: "July".into(), ..c };
+        let bad = Choices { dates: "July".into(), ..c.clone() };
         assert!(params(at("modis"), &bad).is_err());
+        // the other MODIS products: every variable one data.download takes, its own reference
+        for (v, _) in MODIS_VARIABLES {
+            assert!(terraflux_ops::data::modis_of(v).is_ok(), "{v}");
+        }
+        assert_eq!(MODIS_VARIABLES.len(), terraflux_ops::data::MODIS.len());
+        let fire = Choices { modis: "burned".into(), ..c.clone() };
+        assert!(params(at("modis"), &fire).unwrap().contains(&("variable", json!("burned"))));
+        assert!(reference_of(at("modis"), &fire).contains("MCD64A1.061"));
+        assert!(reference_of(at("modis"), &Choices { modis: "lst_night".into(), ..c.clone() }).contains("MOD11A2"));
+        assert!(reference_of(at("modis"), &c).contains("MOD13Q1"));
+        assert_eq!(summary(at("modis"), &fire), "MODIS: Burned area (day of burning) of 2023-07-28, 2024-01-01");
         // GBIF: no grid, no source; the species needed
         let g = at(GBIF);
         assert!(params(g, &Choices::default()).is_err());
