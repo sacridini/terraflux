@@ -4,7 +4,7 @@ description: Build a model by hand from nodes, ports and typed connections; set 
 order: 70
 level: beginner
 time: 40 min
-ops: [raster.read, raster.reclassify, landscape.mspa, view.plot, raster.write]
+ops: [raster.read, raster.reclassify, landscape.mspa, raster.write]
 ---
 
 In the earlier tutorials you opened maps, reclassified them and saved them. In this one you put those steps
@@ -142,13 +142,15 @@ the node's note.
 
 ### Step 4: see the result, and keep it
 
-With `mspa` selected, add [[view.plot]] (++slash++, `plot`). It shows MSPA in a tab of its own, refreshed at every
-run, without writing any file. To keep the map as a file, select `mspa` and add [[raster.write]] (++slash++,
-`write`), and give it a `path`, such as `forest_mspa.tif` (**Choose...** opens a dialog). Paths are written
+Click `mspa`: the **Viewer** shows its map. To find it again after every run whatever node is selected, keep it
+as a **Plot**: in the Viewer's header, open **Plots** and choose **Save as a new plot**, then type its **title**
+(`Core forest`) in the same menu. A Plot writes no file; it is a view kept with the model, and the Document and the
+report show it as a figure (see [Plots and figures](../../building-models/plots-and-tables/)). To keep the map as
+a file, select `mspa` and add [[raster.write]] (++slash++, `write`), and give it a `path`, such as `forest_mspa.tif` (**Choose...** opens a dialog). Paths are written
 relative to the folder of the model file, so a model and its data can move together to another computer.
 
 ```tfgraph
-#! caption: The whole model: read, reclassify, MSPA, then a plot to see it and a write to keep it.
+#! caption: The whole model: read, reclassify, MSPA, then a write to keep it, and a Plot to see it.
 #! highlight: mspa
 #! numbered: true
 format = "terraflux/1"
@@ -175,16 +177,15 @@ params = { edge_width = 2 }
 note = "An edge of 2 cells (50 m): the forest within 50 m of its border is edge, not core."
 
 [[nodes]]
-id = "plot"
-op = "view.plot"
-inputs = { value = "mspa.map" }
-params = { title = "Core forest" }
-
-[[nodes]]
 id = "write"
 op = "raster.write"
 inputs = { value = "mspa.map" }
 params = { path = "forest_mspa.tif" }
+
+[[plots]]
+id = "plot_mspa"
+title = "Core forest"
+layers = [{ from = "mspa.map" }]
 ```
 
 Press ++f5++ to run the whole model. Then save it: **Save as...**, `core-forest.toml`, in the folder of `clc.tif`.
@@ -312,6 +313,8 @@ Line by line:
   `$landcover`.
 - Each `[[nodes]]` block is a node: its `id`, its `op`, its `inputs` (each a reference `node.port`, a model input
   `$name`, or a literal value such as `10`), its `params` (the settings) and its `note`.
+- A `[[plots]]` block (none here) is a **Plot**: a view of the results kept with the model, shown in the Viewer
+  and as a figure of the Document and the report, but never written by `terraflux run`.
 - `[outputs.mspa]` declares an **output of the model**: what `terraflux run` writes, here the map of `mspa.map`.
   `dtype = "u8"` gives the cell type of a raster, and `layer = "total"` writes one layer of a stack alone (its
   name or its number from 0).
@@ -343,7 +346,7 @@ Here is what `check` says about a model with two mistakes, a table connected to 
 ```text
 $ terraflux check broken.toml
 error: mspa.map: classes.table gives a Table, the port takes a Map
-error: plot.value: node "mspa" (landscape.mspa) has no output "mapp"
+error: write.value: node "mspa" (landscape.mspa) has no output "mapp"
 ```
 
 **Run** it. The outputs of the model are written to a folder `output` next to the model (or to the folder given
@@ -431,8 +434,9 @@ template *MSPA of your map* does with an empty `path`).
 - [Groups and submodels](../../building-models/groups-and-submodels/): a whole model as one node.
 - [Loops](../../building-models/loops/): simulations step by step.
 - [MSPA](../../habitat-patterns/mspa/): what each class means for species.
+- [Plots and figures](../../building-models/plots-and-tables/): layers, comparisons and Plots.
 - The [CLI reference](/cli/), and the operators [[raster.read]], [[raster.reclassify]], [[landscape.mspa]],
-  [[view.plot]], [[raster.write]].
+  [[raster.write]].
 
 ## References
 

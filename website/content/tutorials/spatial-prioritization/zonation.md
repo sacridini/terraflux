@@ -5,7 +5,7 @@ description: Zonation 5's priority ranking in Terraflux - how cells are removed 
 order: 20
 level: intermediate
 time: 60 min
-ops: [prioritize.zonation, prioritize.zonation_project, raster.read, stack.of, view.plot]
+ops: [prioritize.zonation, prioritize.zonation_project, raster.read, stack.of]
 series: Systematic conservation planning
 part: 2
 ---
@@ -128,14 +128,13 @@ op = "prioritize.zonation"
 inputs = { features = "features.raster", cost = "cost.raster" }
 params = { rule = "CAZ2" }
 
-[[nodes]]
-id = "show"
-op = "view.plot"
-inputs = { value = "zonation.rank" }
-params = { title = "Priority rank" }
-
 [outputs.curves]
 from = "zonation.curves"
+
+[[plots]]
+id = "show"
+title = "Priority rank"
+layers = [{ from = "zonation.rank" }]
 ```
 
 <div class="steps" markdown>
@@ -148,14 +147,15 @@ from = "zonation.curves"
    0 to 1), `curves` (a table: the rank, the cost still remaining and the share of every feature remaining at each
    step), `features` (each feature's weight, sum, number of cells and the error of storing it in 8 bits), `auc`
    and `iterations` (numbers).
-4. **Show the rank** (node 4) with [[view.plot]]; the curves are an output of the model.
+4. **Show the rank**: click node 3 to see its `rank` in the **Viewer**, and keep it with **Plots › Save as a new
+   plot** (here titled *Priority rank*); the curves are an output of the model.
 
 </div>
 
 !!! app "In the application"
     In the library, *Spatial prioritization* holds `prioritize.zonation`. Connect the features' `stack` to its
     `features` port and the cost's `map` to `cost`, choose the rule in the **Node** pane, and press
-    ++ctrl+enter++. The rank map appears under the canvas; select the `curves` port to see the table, sort it, or
+    ++ctrl+enter++. The rank map appears in the **Viewer**; select the `curves` port to see the table, sort it, or
     draw it as lines. **Templates ▸ Conservation and restoration ▸ Zonation** is the same model with random maps.
 
 From the command line, `terraflux run zonation.toml --out output` writes `output/curves.csv`; add a
@@ -204,10 +204,9 @@ op = "prioritize.zonation"
 inputs = { features = "features.raster", cost = "cost.raster", hierarchic_mask = "protected.raster", condition_maps = "conditions.stack" }
 params = { rule = "CAZ2", weights = [1, 1, 1, 1, 3, 1, 1, 3], condition = ["condition", "condition", "condition", "condition", "condition", "condition", "condition", "condition"], connectivity = [{ shape = "negexp", distance = 2 }, { shape = "negexp", distance = 2 }, { shape = "negexp", distance = 2 }, { shape = "negexp", distance = 2 }, { shape = "negexp", distance = 2 }, { shape = "negexp", distance = 2 }, { shape = "negexp", distance = 2 }, { shape = "negexp", distance = 2 }] }
 
-[[nodes]]
+[[plots]]
 id = "show"
-op = "view.plot"
-inputs = { value = "zonation.rank" }
+layers = [{ from = "zonation.rank" }]
 ```
 
 - **`hierarchic_mask`** (node 3 into node 6): cells of a higher level are removed only after all cells of lower
@@ -448,10 +447,9 @@ id = "project"
 op = "prioritize.zonation_project"
 params = { path = "settings.z5", flags = "-whX", mode = "CAZ2" }
 
-[[nodes]]
+[[plots]]
 id = "show"
-op = "view.plot"
-inputs = { value = "project.rank" }
+layers = [{ from = "project.rank" }]
 ```
 
 The `flags` are those of `z5`: `-w` weights, `-W` weight groups, `-c` conditions, `-r` retention, `-x`/`-X` the cost

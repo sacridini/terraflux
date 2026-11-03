@@ -294,12 +294,13 @@ raster of 20 bands). After the loop, `years.farmers` is the population of the la
     Open the template from **Templates**, double-click `years` to see its body, and click `year` to read and
     edit its rules in the Node pane. To carry a new value, add an input to the loop (its name becomes `@name`
     inside) and set what it takes at the end of each step in the loop's **carry**. Press ++ctrl+enter++ on the
-    loop to run up to it; the plots `plot_farming`, `plot_wealth` and `plot_fertility` open as tabs.
+    loop to run up to it. The template's Plots, *Parcels still farmed, year by year*, *Wealth after 20 years* and
+    *Fertility*, are in the Viewer's **Plots** menu: a click opens one.
 
 ??? note "The whole template"
 
     ```tfgraph
-    #! caption: The template Farmers on their parcels (agents): after the loop, the wealth of the last year painted on the parcels, and three maps shown in tabs.
+    #! caption: The template Farmers on their parcels (agents): after the loop, the wealth of the last year painted on the parcels, and three maps kept as Plots.
     #! highlight: wealth
     #! params: false
     format = "terraflux/1"
@@ -363,23 +364,20 @@ raster of 20 bands). After the loop, `years.farmers` is the population of the la
     inputs = { agents = "years.farmers", parcels = "parcels.map" }
     params = { column = "wealth" }
 
-    [[nodes]]
+    [[plots]]
     id = "plot_wealth"
-    op = "view.plot"
-    inputs = { value = "wealth.map" }
-    params = { title = "Wealth after 20 years" }
+    title = "Wealth after 20 years"
+    layers = [{ from = "wealth.map" }]
 
-    [[nodes]]
+    [[plots]]
     id = "plot_fertility"
-    op = "view.plot"
-    inputs = { value = "fertility.map" }
-    params = { title = "Fertility" }
+    title = "Fertility"
+    layers = [{ from = "fertility.map" }]
 
-    [[nodes]]
+    [[plots]]
     id = "plot_farming"
-    op = "view.plot"
-    inputs = { value = "years.maps" }
-    params = { title = "Parcels still farmed, year by year" }
+    title = "Parcels still farmed, year by year"
+    layers = [{ from = "years.maps" }]
     ```
 
 From the command line, the series can be written as files by adding outputs to the model file:

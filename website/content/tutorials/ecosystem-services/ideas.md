@@ -280,9 +280,9 @@ images:
 ```
 
 !!! app "In the application"
-    Connect a [[view.plot]] node to any map output (or to a table) to see it in a tab of its own, refreshed at
-    every run. A loop over scenarios ([[control.repeat]], see [Loops](/tutorials/building-models/loops/)) runs the
-    same models on many land use maps.
+    Click any node to see its map (or its table) in the **Viewer**, and keep the view with the model with
+    **Plots › Save as a new plot**: it is shown again after every run. A loop over scenarios
+    ([[control.repeat]], see [Loops](/tutorials/building-models/loops/)) runs the same models on many land use maps.
 
 ## Read the results
 

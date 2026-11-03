@@ -6,7 +6,7 @@ order: 10
 level: beginner
 time: 40 min
 # template: Species distribution model
-ops: [sdm.prepare, sdm.fit, sdm.maxnet_predict, sdm.background, view.plot]
+ops: [sdm.prepare, sdm.fit, sdm.maxnet_predict, sdm.background]
 series: Species distribution models
 part: 1
 ---
@@ -231,7 +231,7 @@ params = { n = 120, seed = 3 }
 ```
 
 ```tfgraph
-#! caption: The second half of the template: the records and the predictors prepared in one node (node 7, data), MaxNet fitted over spatial folds (node 8, fit), applied to every cell (node 9, predict) and shown (node 10, plot).
+#! caption: The second half of the template: the records and the predictors prepared in one node (node 7, data), MaxNet fitted over spatial folds (node 8, fit), applied to every cell (node 9, predict), and a Plot of its map.
 #! fragment: true
 #! highlight: data, fit, predict
 [[nodes]]
@@ -250,11 +250,10 @@ id = "predict"
 op = "sdm.maxnet_predict"
 inputs = { model = "fit.model", env = "data.env" }
 
-[[nodes]]
+[[plots]]
 id = "plot"
-op = "view.plot"
-inputs = { value = "predict.prediction" }
-params = { title = "Suitability (MaxNet, cloglog)" }
+title = "Suitability (MaxNet, cloglog)"
+layers = [{ from = "predict.prediction" }]
 ```
 
 What each node does:
@@ -275,14 +274,14 @@ What each node does:
 6. **fit** (node 8, [[sdm.fit]]): a MaxNet model (the open-source form of Maxent; Phillips et al., 2006) fitted to the presences
    against the background, once per fold to measure how well it predicts the fold it did not see, then once on
    all the records.
-7. **predict** (node 9, [[sdm.maxnet_predict]]) and **plot** (node 10, [[view.plot]]): the model applied to every
-   cell of the predictors, and its map.
+7. **predict** (node 9, [[sdm.maxnet_predict]]): the model applied to every cell of the predictors. Its map is
+   kept as a Plot, *Suitability (MaxNet, cloglog)*, in the Viewer's **Plots** menu.
 
 !!! app "In the application"
     Choose **Templates → Species → Species distribution model**. The graph opens on the canvas. Click the node
-    **plot** and press ++ctrl+enter++ (or **Run to here**): Terraflux runs it and everything it needs, and the
-    map opens in a tab of its own. Click any node to see its settings in the Node pane and, under the canvas,
-    what it gives: a map, a table, a value.
+    **predict** and press ++ctrl+enter++ (or **Run to here**): Terraflux runs it and everything it needs, and the
+    **Viewer** shows the map. Click any node to see its settings in the Node pane and, in the Viewer, what it
+    gives: a map, a table, a value. The **Plots** menu in the Viewer's header opens the template's Plot again.
 
 Because we drew the records ourselves, we can compare the model with the truth. Drag the handle:
 
@@ -297,7 +296,7 @@ after: { src: /img/tutorials/species-distributions/ideas/virtual_model.png, labe
 Now a real species. The model reads the records and the climate, prepares them, fits MaxNet and maps it:
 
 ```tfgraph
-#! caption: A first model of the sloth: the records (node 1) and the climate (node 2) prepared in one node (3), MaxNet fitted (4) and applied to the climate (5). Add a view.plot of the prediction to see it in a tab of its own.
+#! caption: A first model of the sloth: the records (node 1) and the climate (node 2) prepared in one node (3), MaxNet fitted (4) and applied to the climate (5). Click node 5 to see the prediction in the Viewer.
 #! numbered: true
 #! highlight: data, fit, predict
 format = "terraflux/1"
@@ -343,7 +342,8 @@ inputs = { model = "fit.model", env = "data.env" }
    10 000 cells of land, so the default of 10 000 points would be more than the cells available.
 4. **Fit** with [[sdm.fit]]: connect `data.records` to `records`. The defaults fit MaxNet over the folds.
 5. **Predict** with [[sdm.maxnet_predict]]: connect `fit.model` to `model` and `data.env` to `env` (the predictors
-   that the preparation kept), then **plot** the prediction with [[view.plot]].
+   that the preparation kept), then click the node to see the prediction in the **Viewer**, and keep it with
+   **Plots › Save as a new plot**.
 
 </div>
 

@@ -122,15 +122,15 @@ these numbers add to a transition matrix, and when to believe them.
 
 !!! app "In the application"
     **Templates → Patterns (GuidosToolbox) → Forest gain and loss** opens the model below on a forest drawn by
-    chance. Press ++f5++ to run it: the simple and morphological change open as tabs. Replace its first three
-    nodes by two [[raster.read]] nodes to run it on your maps.
+    chance. Press ++f5++ to run it: the simple and morphological change are its two Plots, in the Viewer's
+    **Plots** menu. Replace its first three nodes by two [[raster.read]] nodes to run it on your maps.
 
 ## Build the model
 
 ### The template
 
 ```tfgraph
-#! caption: The template Forest gain and loss. Nodes 1 to 3 draw a forest at two dates; nodes 4 to 6 are GuidosToolbox's three change analyses; nodes 7 and 8 show two of the maps.
+#! caption: The template Forest gain and loss. Nodes 1 to 3 draw a forest at two dates; nodes 4 to 6 are GuidosToolbox's three change analyses; two Plots show two of the maps.
 #! numbered: true
 #! highlight: simple, morphological, fad
 format = "terraflux/1"
@@ -173,17 +173,15 @@ inputs = { before = "before.map", after = "after.map" }
 params = { foreground = 2, windows = [7, 13, 27, 81] }
 note = "FAD at four scales at both dates: how many forest cells moved to a more fragmented class or a less fragmented one (stats), and the matrix of the classes."
 
-[[nodes]]
+[[plots]]
 id = "plot_simple"
-op = "view.plot"
-inputs = { value = "simple.map" }
-params = { title = "Simple change" }
+title = "Simple change"
+layers = [{ from = "simple.map" }]
 
-[[nodes]]
+[[plots]]
 id = "plot_morphological"
-op = "view.plot"
-inputs = { value = "morphological.map" }
-params = { title = "Morphological change" }
+title = "Morphological change"
+layers = [{ from = "morphological.map" }]
 ```
 
 1. **`before`** ([[nlm.random_cluster]]) draws the first date: clusters of two classes, 1 background (40%) and 2

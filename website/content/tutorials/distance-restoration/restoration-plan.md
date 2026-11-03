@@ -126,11 +126,10 @@ op = "restoration.plan"
 inputs = { restorable = "vegetation.anthropic", table = "habitat.table", gain = "habitat.gain" }
 params = { target = 100, z = 0.25, z_sd = 0.1 }
 
-[[nodes]]
+[[plots]]
 id = "show"
-op = "view.plot"
-inputs = { value = "plan.restored" }
-params = { title = "Share of each cell restored" }
+title = "Share of each cell restored"
+layers = [{ from = "plan.restored" }]
 ```
 
 <div class="steps" markdown>
@@ -159,8 +158,8 @@ params = { title = "Share of each cell restored" }
 
 !!! app "In the application"
     **Templates ▸ Conservation and restoration ▸ Restoration plan** has the whole chain on maps drawn by
-    chance. Select `plan`, set `target` in the Node pane and press ++ctrl+enter++: the map of shares restored opens
-    in a tab; click the `species` port to see each species' risk before and after.
+    chance. Select `plan`, set `target` in the Node pane and press ++ctrl+enter++: the Viewer shows the map of shares
+    restored; click the `species` port to see each species' risk before and after.
 
 ## Read the results
 

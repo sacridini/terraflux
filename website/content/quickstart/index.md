@@ -49,9 +49,9 @@ will start from a **template**, a model that is ready to run.
 
 The template opens and **runs by itself**, in a fraction of a second. You now see this:
 
-![The template after its run](/img/tutorials/getting-started/tour/window.png "The template 'MSPA of a forest' run: four nodes in the Model pane (3, 5), their settings in the Node pane (3), and the result in the tab MSPA (7) with its legend (9). The tour of the application explains every number.")
+![The template after its run](/img/tutorials/getting-started/tour/window.png "The template 'MSPA of a forest' run: its nodes in the Model pane (5), their settings in the Node pane (3), and the result in the Viewer (7) with its legend (9). The tour of the application explains every number.")
 
-What happened? The four nodes in the Model pane ran from left to right:
+What happened? The three nodes in the Model pane ran from left to right:
 
 1. `landscape` drew a map of 300 x 300 cells with three classes, farming, water and forest, **by chance** (a
    *neutral landscape model*), so that the template runs without any data;
@@ -59,8 +59,12 @@ What happened? The four nodes in the Model pane ran from left to right:
 3. `mspa` ran GuidosToolbox's **morphological spatial pattern analysis** (MSPA; Soille & Vogt, 2009), which splits
    the forest into **core** (green: forest far enough from any edge), **edge** (black), **perforations** (blue:
    the edges of holes inside a forest), **bridges** (red: strips joining two cores), **loops**, **branches** and
-   **islets** (small woods with no core at all);
-4. `plot` showed the result in the tab **MSPA**, with the number of cells of each class beside it.
+   **islets** (small woods with no core at all).
+
+The Viewer shows the result, with the number of cells of each class beside it: the template keeps it as a
+**Plot**, *MSPA*, a view of the result saved with the model (the Viewer's header says *Plot: MSPA*). Your own
+views are kept the same way, with **Plots › Save as a new plot** (see
+[Plots and figures](/tutorials/building-models/plots-and-tables/)).
 
 Click any node to see its own result in the Viewer: `landscape` shows the three classes, `forest` the two that
 MSPA reads. Checking every step like this is the best habit you can learn in Terraflux.
@@ -125,7 +129,7 @@ three classes, 23, 24 and 25, so the rules are `23..25 -> 2` and `* -> 1`:
 
 <div class="steps" markdown>
 
-1. To keep the map, select the node `mspa`; in the tab or the Viewer, click **Save output > As a file, and a write
+1. To keep the map, select the node `mspa`; in the Viewer's header, click **Save output > As a file, and a write
    node in the model...**, and give a name, such as `clc_mspa.tif`. A [[raster.write]] node is added to the model,
    so the file is written again at every run.
 2. Click **Save as...** in the toolbar and save the model as `my-mspa.toml`, in the folder of your map.

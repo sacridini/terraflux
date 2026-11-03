@@ -6,7 +6,7 @@ order: 40
 level: intermediate
 time: 60 min
 template: Conservation planning (linear programming)
-ops: [prioritize.optimize, prioritize.evaluate, raster.read, view.plot]
+ops: [prioritize.optimize, prioritize.evaluate, raster.read]
 series: Systematic conservation planning
 part: 4
 ---
@@ -127,16 +127,15 @@ op = "prioritize.optimize"
 inputs = { features = "features.raster", cost = "cost.raster", locked_in = "protected.raster", locked_out = "urban.raster" }
 params = { objective = "min_set", relative_targets = 0.3, gap = 0.001 }
 
-[[nodes]]
-id = "show"
-op = "view.plot"
-inputs = { value = "plan.solution" }
-
 [outputs.summary]
 from = "plan.summary"
 
 [outputs.coverage]
 from = "plan.coverage"
+
+[[plots]]
+id = "show"
+layers = [{ from = "plan.solution" }]
 ```
 
 <div class="steps" markdown>

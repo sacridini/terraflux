@@ -88,7 +88,8 @@ connected the forest is as a whole: for that see [habitat networks](/tutorials/#
     The operators of this series are under **Distance & restoration** in the library (the left pane). Click one
     to add it to the graph, drag from an output port (right side of a node) to an input port (left side) to
     connect them, and set its settings in the **Node** pane. ++ctrl+enter++ runs the model up to the selected
-    node, and a **view.plot** node shows a map in a tab of its own.
+    node, and clicking a node shows its output in the **Viewer**. **Plots › Save as a new plot**, in the
+    Viewer's header, keeps a view with the model.
 
 ## Build the model
 
@@ -218,17 +219,15 @@ op = "distance.influence_zones"
 inputs = { map = "forest.map" }
 params = { min_area = 1000 }
 
-[[nodes]]
+[[plots]]
 id = "plot_distance"
-op = "view.plot"
-inputs = { value = "distance.map" }
-params = { title = "Signed distance (cells)" }
+title = "Signed distance (cells)"
+layers = [{ from = "distance.map" }]
 
-[[nodes]]
+[[plots]]
 id = "plot_zones"
-op = "view.plot"
-inputs = { value = "zones.map" }
-params = { title = "Zones of influence" }
+title = "Zones of influence"
+layers = [{ from = "zones.map" }]
 ```
 
 From the command line, save the model as `distance.toml` next to `ndvi.tif` and run it. To keep a map, add a

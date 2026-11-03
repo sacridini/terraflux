@@ -5,7 +5,7 @@ description: Classify every cell of an elevation model into one of ten landforms
 order: 30
 level: intermediate
 time: 40 min
-ops: [raster.read, raster.reproject, surface.geomorphons, raster.terrain, view.plot, raster.calc, table.write]
+ops: [raster.read, raster.reproject, surface.geomorphons, raster.terrain, raster.calc, table.write]
 series: Continuous surfaces
 part: 3
 ---
@@ -211,9 +211,10 @@ The settings of [[surface.geomorphons]], and what they mean on the ground:
 
 <div class="steps" markdown>
 
-1. Select `elevation` and add [[raster.terrain]] with **measure** = `hillshade`, named `shade`. Add a [[view.plot]]
-   after it (**title** = `Relief`), then a second [[view.plot]] named `map` with `landforms`'s `forms` connected to
-   its `value` and `relief`'s `shown` to its `under`, **opacity** = `0.75`: the landforms drawn over the relief.
+1. Select `elevation` and add [[raster.terrain]] with **measure** = `hillshade`, named `shade`. Double-click
+   `shade` to keep the relief as a layer of the **Viewer**, then click `landforms` and, in **Layers**, keep its
+   `forms` too (📌) with **opacity** = `0.75`: the landforms drawn over the relief. Keep the view with **Plots ›
+   Save as a new plot**, titled `Landforms`.
 2. Add a [[table.write]] after `landforms`, its `table` input from the `share` output, **path** = `landforms.csv`.
 3. Add a [[raster.calc]] named `crests` (subject **Map algebra**), connect `landforms`'s `forms` to an input you name
    `f`, and write `1 if f == 2 or f == 3 else 0`: 1 on peaks and ridges, 0 elsewhere.
@@ -222,7 +223,7 @@ The settings of [[surface.geomorphons]], and what they mean on the ground:
 
 ```tfgraph
 #! caption: The landforms over the relief, their shares written to a file, and an indicator of crests (peaks and ridges) for a model of species or land change.
-#! highlight: shade, relief, map, save, crests
+#! highlight: shade, save, crests
 #! numbered: true
 format = "terraflux/1"
 
@@ -250,18 +251,6 @@ inputs = { raster = "elevation.raster" }
 params = { measure = "hillshade" }
 
 [[nodes]]
-id = "relief"
-op = "view.plot"
-inputs = { value = "shade.raster" }
-params = { title = "Relief" }
-
-[[nodes]]
-id = "map"
-op = "view.plot"
-inputs = { value = "landforms.forms", under = "relief.shown" }
-params = { title = "Landforms", opacity = 0.75 }
-
-[[nodes]]
 id = "save"
 op = "table.write"
 inputs = { table = "landforms.share" }
@@ -273,12 +262,23 @@ op = "raster.calc"
 inputs = { f = "landforms.forms" }
 params = { expression = "1 if f == 2 or f == 3 else 0" }
 note = "1 on peaks and ridges."
+
+[[plots]]
+id = "relief"
+title = "Relief"
+layers = [{ from = "shade.raster" }]
+
+[[plots]]
+id = "map"
+title = "Landforms"
+layers = [{ from = "shade.raster" }, { from = "landforms.forms", opacity = 0.75 }]
 ```
 
 === "Application"
 
-    Press ++f5++ to run the whole model. The tab *Landforms* shows the classes over the relief; the legend names
-    them. To keep the map, use *Save output* in its tab or add a [[raster.write]] node after `landforms`'s `forms`.
+    Press ++f5++ to run the whole model. The Plot *Landforms* (the Viewer's **Plots** menu) shows the classes over
+    the relief; the legend names them. To keep the map as a file, use **Save output** in the Viewer's header or add
+    a [[raster.write]] node after `landforms`'s `forms`.
 
 === "Command line"
 
@@ -290,7 +290,7 @@ note = "1 on peaks and ridges."
     terraflux run landforms.toml --out output
     ```
 
-The indicator in node 8 is how a categorical map usually enters a regression: one 0/1 map per landform (or group
+The indicator in node 6 is how a categorical map usually enters a regression: one 0/1 map per landform (or group
 of landforms) you want a coefficient for. Most species distribution methods also accept the `forms` map directly as
 a categorical predictor; then the coefficients are relative to a reference class (choose a common one, here the
 slope).

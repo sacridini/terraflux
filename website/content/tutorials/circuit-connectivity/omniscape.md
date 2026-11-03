@@ -106,11 +106,10 @@ inputs = { resistance = "resistance.map" }
 params = { radius = 30, block_size = 5, flow_potential = true, normalized_current = true }
 note = "Windows of 30 cells (3 km); a target every 5 cells."
 
-[[nodes]]
+[[plots]]
 id = "plot"
-op = "view.plot"
-inputs = { value = "omniscape.normalized" }
-params = { title = "Normalised current" }
+title = "Normalised current"
+layers = [{ from = "omniscape.normalized" }]
 ```
 
 The settings:

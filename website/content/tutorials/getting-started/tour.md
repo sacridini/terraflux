@@ -6,7 +6,7 @@ order: 10
 level: beginner
 time: 20 min
 template: MSPA of a forest
-ops: [nlm.random_cluster, raster.reclassify, landscape.mspa, view.plot]
+ops: [nlm.random_cluster, raster.reclassify, landscape.mspa]
 ---
 
 This tutorial is the first thing to read after installing Terraflux. You will open the application, learn the
@@ -152,10 +152,10 @@ pattern analysis*, MSPA (Soille & Vogt, 2009). You do not need to understand MSP
 <div class="steps" markdown>
 
 1. Click **Templates**, move to **Patterns (GuidosToolbox)** and click **MSPA of a forest**.
-2. Four nodes appear in the Model pane, joined from left to right, and run at once: the title bar says *done in*
+2. Three nodes appear in the Model pane, joined from left to right, and run at once: the title bar says *done in*
    a few hundredths of a second.
-3. A tab **MSPA** opens beside the Viewer with the result: the forest split into core (green), edge (black),
-   perforation (blue), islets, bridges, loops and branches.
+3. The Viewer shows the result, the template's Plot **MSPA** (the Viewer's header says *Plot: MSPA*): the forest
+   split into core (green), edge (black), perforation (blue), islets, bridges, loops and branches.
 4. The node `mspa` is selected (orange outline), so the Node pane shows its settings.
 
 </div>
@@ -164,7 +164,7 @@ The model is this graph. The same drawing appears in every tutorial of this site
 (click *Model file (TOML)*):
 
 ```tfgraph
-#! caption: The template "MSPA of a forest": a map drawn by chance, its forest made the foreground, MSPA, and a plot.
+#! caption: The template "MSPA of a forest": a map drawn by chance, its forest made the foreground, MSPA, and a Plot of the result.
 #! numbered: true
 format = "terraflux/1"
 name = "MSPA of a forest"
@@ -189,22 +189,22 @@ inputs = { map = "forest.map" }
 params = { edge_width = 1, connectivity = 8 }
 note = "Core, islet, perforation, edge, loop, bridge and branch, as GuidosToolbox computes them."
 
-[[nodes]]
+[[plots]]
 id = "plot"
-op = "view.plot"
-inputs = { value = "mspa.map" }
-params = { title = "MSPA" }
-note = "Its map in a tab of its own, in GuidosToolbox's colours, refreshed at every run."
+title = "MSPA"
+layers = [{ from = "mspa.map" }]
+note = "Its map in the Viewer, in GuidosToolbox's colours, refreshed at every run."
 ```
 
 Read it from left to right. Node 1, [[nlm.random_cluster]], draws a landscape of 300 x 300 cells in three classes
 (1 farming, 2 water, 3 forest). Node 2, [[raster.reclassify]], turns the forest into 2 and everything else into 1,
 because MSPA expects 2 for the habitat it analyses (the *foreground*) and 1 for the rest. Node 3,
-[[landscape.mspa]], runs MSPA. Node 4, [[view.plot]], shows the result in its own tab. Each box lists its inputs
-on the left edge and its outputs on the right; the connection from `landscape.map` to `forest`'s input `map` is
-how the map travels.
+[[landscape.mspa]], runs MSPA. Each box lists its inputs on the left edge and its outputs on the right; the
+connection from `landscape.map` to `forest`'s input `map` is how the map travels. The `[[plots]]` at the end of the
+model file is not a node: it is a **Plot**, a view of the result kept with the model, listed in the Viewer's
+**Plots** menu (see [Plots and figures](../../building-models/plots-and-tables/)).
 
-![The Model pane with the template](/img/tutorials/getting-started/tour/model-pane.png "The Model pane: four nodes, each with its name, its operator in small grey letters, its inputs (left) and outputs (right). The green dot at the top right of a node says that it ran; mspa is selected (orange).")
+![The Model pane with the template](/img/tutorials/getting-started/tour/model-pane.png "The Model pane: the nodes, each with its name, its operator in small grey letters, its inputs (left) and outputs (right). The green dot at the top right of a node says that it ran; mspa is selected (orange).")
 
 ### Look at any step
 
@@ -220,8 +220,8 @@ its result came from the cache (nothing it depends on had changed), orange while
 
 Select `mspa`. In the Node pane, under **Settings**, the box `edge_width` holds 1: the edge of the forest is one
 cell wide. Click in it, type `3` and press ++tab++ (or click elsewhere). Because **update after every edit** is
-ticked, the model runs again at once: only `mspa` and `plot` run, `landscape` and `forest` come from the cache,
-and the MSPA tab shows wider edges and smaller cores. Settings with a few possible values, such as
+ticked, the model runs again at once: only `mspa` runs, `landscape` and `forest` come from the cache, and the
+Viewer shows wider edges and smaller cores. Settings with a few possible values, such as
 `connectivity` (8 or 4 neighbours), are chosen in a list instead.
 
 ![The Node pane of mspa](/img/tutorials/getting-started/tour/node-pane.png "The Node pane of the node mspa: its operator and what it does, Why (the note of the template), its input map connected to forest.map, and its settings. A star marks an input that must be connected.")
@@ -299,7 +299,7 @@ The library is ordered by subject, the same subjects as the categories of this s
 | Biodiversity analysis, Spatial prioritization, Species distributions | `bio.*`, `prioritize.*`, `sdm.*` | Biodiverse, Zonation, Marxan, linear programming, MaxNet |
 | Land change simulation | `markov.*`, `woe.*`, `dinamica.*`, `lulcc.*`, `plus.*`, `agents.*`... | Dinamica EGO, CLUE-S, PLUS, agents |
 | Uncertainty | `uncertainty.*` | Monte Carlo, error propagation |
-| Map algebra, Plot, Model flow | `map.*`, `stack.*`, `view.*`, `control.*`, `rng.*`, `plugin.*` | the pieces of every model ([Building models](../../building-models/)) |
+| Map algebra, Model flow | `map.*`, `stack.*`, `control.*`, `rng.*`, `plugin.*` | the pieces of every model ([Building models](../../building-models/)) |
 
 !!! tip "Favourites"
     Right-click an operator in the library to put it in a coloured collection of favourites (red, orange, yellow,
@@ -355,14 +355,18 @@ Over a map:
   centred on 0 (with the mean difference and the share of cells higher and lower); for maps of classes, the
   transitions, a class each named by both legends ("forest -> pasture", the most common first, the cells that
   kept their class in grey), with how many cells changed. The difference is drawn where the map is, and
-  **Figure...** can make a figure of it. A comparison worth keeping goes in the model: connect the other map to
-  a `view.plot` node's **compared** input and choose **compare** (curtain, side by side or difference); its tab
-  opens so, and the report shows the two maps, and their difference when asked;
+  **Figure...** can make a figure of it. A comparison worth keeping goes in the model: with it shown, choose
+  **Plots › Save as a new plot**; the Plot opens with the comparison, and the report shows the two maps, and their
+  difference when asked;
 - **Layers** keep outputs on the map whatever node you click: the map shown is kept with the pin (a double click
   on a node keeps it too), **Add a layer** adds other maps and vector layers of the run, and each layer is shown
   or hidden, moved up or down, made more or less opaque (vectors styled) or taken away. A click on a layer's name
   shows that map, with its legend; the layers listed under it are drawn under it, those over it over it, and the
   pointer tells each map's value;
+- **Plots**, in the Viewer's header, lists the model's Plots: a click opens one (its layers, the map shown, its
+  comparison, a table's chart). **Save as a new plot** keeps what the Viewer shows with the model; with a Plot
+  open, the menu also holds its **title**, **Update the plot** and **Remove the plot**. The Document and the report
+  show the Plots as figures (see [Plots and figures](../../building-models/plots-and-tables/));
 - clicking a cell lists, under **This cell in every map**, its value in every map of the run at the same place
   (placed by their coordinates; *outside* where a map does not reach it): the land cover, the elevation and the
   model's result of one place side by side. A name shows that map, and **Copy** copies the list;
@@ -373,8 +377,8 @@ the map compared, or every layer of a stack or a series as panels (a), (b)... in
 width (85 mm is a journal's column, 180 mm its page) and the resolution (300 or 600 DPI, as journals ask), and
 choose the legend, the scale bar (in metres or kilometres, also on a map in longitudes and latitudes), the north
 arrow, the coordinates along the edges and the **location inset** (a small map of the world around, the map's place
-in red, in its bottom right corner); the preview follows. The vector layers drawn over the map (**Vectors over the
-map**) are drawn over it in the figure too, in their colours, cut at the map's edge. **Save PNG...** records the
+in red, in its bottom right corner); the preview follows. The vector layers drawn over the map (in **Layers**) are drawn
+over it in the figure too, in their colours, cut at the map's edge. **Save PNG...** records the
 resolution in the file, so that a word processor places it at its width; **Save SVG...** keeps the text as text,
 to change in Inkscape or Illustrator; **Save PDF...** writes a PDF of the figure's size, its lines and text as
 lines and text (in Helvetica) and the maps as pictures.
@@ -411,7 +415,7 @@ Beside the Model pane's tab is the **Document** tab: the same model read as the 
 whoever reads, checks or reviews it rather than builds it. Its nodes are told in stages (*Data*, *Preparation*,
 *Model*, *Validation*, *Results*), a step each, with its note, a sentence of what it does with its settings and
 where its inputs come from ("MSPA's patterns of forest: connected by 8 neighbours, the edges 1 cell wide."), its
-settings, and its map or table from the last run; the plots are its numbered figures. A step's name selects its
+settings, and its map or table from the last run; the model's Plots are its numbered figures. A step's name selects its
 node, and a setting can be changed there as in the Node pane. **Export report** writes it as a web page or a PDF (in English or Portuguese),
 and **Methods and citations** drafts the methods section of a paper from the model, with the papers to cite, in
 English or Portuguese (also `terraflux methods model.toml --language pt` on the

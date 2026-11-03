@@ -54,7 +54,7 @@ which paper; the document says what *this* model does with it.
 
 Only the application. The examples use the template **MSPA of a forest** (Templates, Patterns (GuidosToolbox)),
 the same as in [the tour](../../getting-started/tour/): a landscape drawn by chance, its forest made MSPA's
-foreground, MSPA, and a plot. Open it, let it run, and click the **Document** tab.
+foreground, MSPA, and a Plot of the result. Open it, let it run, and click the **Document** tab.
 
 ## Read a model as a document
 
@@ -78,7 +78,7 @@ The steps are told in up to five stages, in this order, each a numbered section:
 | **Preparation** | what is done to the data before the model (reprojections, reclassifications, distances, stacks) |
 | **Model** | what is fitted, simulated or optimised (a regression, MSPA, a loop of a simulation), and what lies between two of its nodes |
 | **Validation** | the model checked: the `validate.*` operators, accuracy, [[check.assert]], the evaluation of a species distribution model, importance |
-| **Results** | what comes of the model: maps made from it, the files written, the plots |
+| **Results** | what comes of the model: maps made from it, the files written |
 
 The stage of a node comes from its operator and from its place in the graph: the same [[raster.calc]] is
 preparation before the model and a result after it. A model with no model stage (a set of landscape metrics, say)
@@ -90,7 +90,9 @@ canvas, left to right, then top to bottom: the order in which you laid them out 
 tells them. Zoomed out, the canvas frames and names the same stages around their nodes.
 
 In the template, the document has three sections: **1. Data** (`landscape`), **2. Preparation** (`forest`) and
-**3. Model** (`mspa`). The plot is not a step: it is **Figure 1**, under the step whose map it shows.
+**3. Model** (`mspa`). The template's Plot is not a step: it is **Figure 1**, under the step whose map it shows,
+its title as the caption. Every Plot of the model (those you keep with **Plots › Save as a new plot** in the
+Viewer, see [Plots and figures](../plots-and-tables/)) is a numbered figure the same way.
 
 ### A step
 
@@ -109,7 +111,7 @@ link that selects the node on the canvas (and the Node pane shows all of it). Th
   what it **collects** and **gives**, when it **stops**, and the steps of its body inside it, numbered `3.4.1`,
   `3.4.2`...;
 - the node's **References**, **Assumptions** and **Alternatives**, when it has them;
-- the map or the table it gave in the last run, and the figures of the plots that show it.
+- the map or the table it gave in the last run, and the figures of the Plots that show it.
 
 Two kinds of steps take less room. The data read or drawn are rows of a table at the top, with a small picture of
 each map, and maps read the same way with the same note share a row (the three dates of a land use map are one
@@ -138,7 +140,7 @@ The operators with a sentence:
 
 | Subject | Operators |
 |---|---|
-| Reading and writing | `raster.read`, `raster.write`, `vector.read`, `vector.write`, `table.read`, `move.read_tracks`, `view.plot`, `table.write`, `data.download` |
+| Reading and writing | `raster.read`, `raster.write`, `vector.read`, `vector.write`, `table.read`, `move.read_tracks`, `table.write`, `data.download` |
 | Neutral landscapes | `nlm.random`, `nlm.gaussian_field`, `nlm.random_cluster`, `nlm.fbm`, `nlm.planar_gradient`, `nlm.distance_gradient`, `nlm.binarize`, `nlm.mosaic_tess`, `nlm.percolation`, `nlm.classify` |
 | Terrain and water | `hydro.flow_accumulation`, `hydro.fill`, `hydro.streams`, `surface.terrain`, `raster.terrain`, `surface.curvature`, `surface.tpi` |
 | Land change | `markov.fit`, `glm.fit`, `glm.predict`, `woe.fit`, `woe.probability`, `demand.from_maps`, `dinamica.step`, `lulcc.step`, `patches.observe`, `dynamic.distance_to`, `agents.update`, `agents.parcels`, `agents.map`, `agents.summary`, `lulcc.history`, `change.transitions`, `change.crosstab`, `change.components`, `change.simple`, `change.morphological`, `change.fad`, `plus.demand`, `markov.matrix` |
@@ -189,8 +191,8 @@ when you hover over it. A reader sees at once which of the model's own tests hel
 A long model reads better on the canvas, too, when its top level is a few blocks. **Group the model by stage
 (data, preparation, model...)**, in the commands (++ctrl+k++), puts the top-level nodes of each stage that has at
 least two into a [[control.group]] named `data`, `preparation` (or `analysis`), `model`, `validation` or
-`results`, each with a note that says what it is for, and arranges the canvas again. The plots, the files written
-and the random generators stay outside, at the top level. The document then reads a section per group, with its
+`results`, each with a note that says what it is for, and arranges the canvas again. The files written and the
+random generators stay outside, at the top level; the Plots follow their nodes into the groups. The document then reads a section per group, with its
 note under its title and a link to the group. It is refused when the top level has groups already. See
 [Groups and submodels](../groups-and-submodels/) for groups in general.
 
@@ -213,9 +215,9 @@ paragraph of the methods (the same as the Methods and citations window below, wi
 the references to cite in the APA style, Terraflux's among them, then those the nodes' references give. The maps
 of a loop's steps (what a `control.repeat` collects) are an animation in the HTML (an animated GIF, the step
 written on each map and the legend under them; 40 steps at most, evenly spaced, the first and the last among
-them) and four steps in a row in the PDF (the first, the last and two between), all in one colouring. A plot
-that compares (a `view.plot` with a map connected to **compared**) is a figure of the two maps side by side in
-the colours they share, and, with `compare = "difference"`, of their difference too, with what it says (how many
+them) and four steps in a row in the PDF (the first, the last and two between), all in one colouring. A Plot
+that compares (saved with a map in the Viewer's **Compare**) is a figure of the two maps side by side in
+the colours they share, and, when it compares by **Difference**, of their difference too, with what it says (how many
 cells changed class, or the mean difference) and its key. The
 images come from the **last run**: run the model before you export it, or its steps say *Not run.* The report's maps are drawn in colours fitted to their values (a colour per class, or a ramp), not
 in the palette chosen in the Viewer. A line at the end says which version of Terraflux made it and on which day.
@@ -275,7 +277,7 @@ it before it goes in a paper.
 - [AI assistants](/cli/assistants/): what an assistant built, checked in the document and in the Changes pane.
 - [Checks, tests and reproducible runs](../checks-and-tests/): the checks behind the badges and the health line,
   tests, manifests and frozen nodes.
-- [Plots and tables](../plots-and-tables/): the plots that become the document's figures.
+- [Plots and figures](../plots-and-tables/): the Plots that become the document's figures.
 - [Groups and submodels](../groups-and-submodels/): groups, which the document reads as sections.
 
 ## References

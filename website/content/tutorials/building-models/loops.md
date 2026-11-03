@@ -6,7 +6,7 @@ order: 30
 level: intermediate
 time: 45 min
 template: A city that grows (a loop)
-ops: [control.repeat, raster.calc, nlm.gaussian_field, nlm.distance_gradient, view.plot, raster.write]
+ops: [control.repeat, raster.calc, nlm.gaussian_field, nlm.distance_gradient, raster.write]
 ---
 
 A simulation is the same rule applied again and again: this year's forest decides next year's, today's city
@@ -185,11 +185,10 @@ inputs = { c = "@city", suit = "suitability.map", step = "@step" }
 params = { expression = "1 if c == 0 and nbsum(c == 1, 1) >= 3 and suit > 0.6 - step * 0.008 else c" }
 note = "A cell becomes city when three of its neighbours are and it is suitable enough; the bar falls every step."
 
-[[nodes]]
+[[plots]]
 id = "plot_growth"
-op = "view.plot"
-inputs = { value = "growth.maps" }
-params = { title = "The city, step by step" }
+title = "The city, step by step"
+layers = [{ from = "growth.maps" }]
 ```
 
 The loop node `growth` has two inputs: `times = 25` and `city = "town.map"`, the first value of `@city`. Its
@@ -243,8 +242,11 @@ every step.
 
 ### Step 4: see and keep the steps
 
-[[view.plot]] of `growth.maps` shows the steps in a tab, with a slider. To write them, connect `growth.maps` to
-[[raster.write]]: the file has one band per step. From the command line, `terraflux run model.toml` runs the
+Click `growth`: the Viewer shows `growth.maps`, the steps one at a time, with a slider. The template keeps it as
+a Plot, *The city, step by step* (the `[[plots]]` at the end of the model file), so the steps are in view after
+every run and in the Document and the report as a figure; to keep a view of your own, choose **Plots › Save as a
+new plot** in the Viewer's header (see [Plots and figures](../plots-and-tables/)). To write the steps, connect
+`growth.maps` to [[raster.write]]: the file has one band per step. From the command line, `terraflux run model.toml` runs the
 loop and prints each step.
 
 !!! tip "Name the series maps"
@@ -399,7 +401,7 @@ tutorials). Report the rule and its settings with the results; a CA with unrepor
 - [Randomness and reproducibility](../randomness/): seeds, replicates, and generators carried along a loop.
 - The `until` of a loop's body ends it early when a yes-or-no value becomes true; CLUMondo's step
   ([[clumondo.step]]) gives one (`stop`, a year without a solution).
-- The operator reference: [[control.repeat]], [[raster.calc]], [[view.plot]].
+- The operator reference: [[control.repeat]], [[raster.calc]].
 
 ## References
 

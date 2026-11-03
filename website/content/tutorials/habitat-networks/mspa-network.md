@@ -140,11 +140,10 @@ op = "networks.conefor"
 inputs = { map = "mspa.map" }
 note = "The same network as Conefor's input files."
 
-[[nodes]]
+[[plots]]
 id = "plot"
-op = "view.plot"
-inputs = { value = "importance.map" }
-params = { title = "The most important links and nodes" }
+title = "The most important links and nodes"
+layers = [{ from = "importance.map" }]
 ```
 
 Both network operators read the MSPA map only: they need its codes, so connect `mspa.map` directly, not a

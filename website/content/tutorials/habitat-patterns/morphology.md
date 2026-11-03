@@ -5,7 +5,7 @@ description: "What MSPA sees in a forest map, cell by cell, on a small drawn for
 order: 10
 level: beginner
 time: 35 min
-ops: [landscape.mspa, raster.reclassify, nlm.random_cluster, view.plot]
+ops: [landscape.mspa, raster.reclassify, nlm.random_cluster]
 series: Habitat patterns with GuidosToolbox
 part: 1
 ---
@@ -209,11 +209,11 @@ To start, nothing at all: the application's template **MSPA of a forest** draws 
 
 ## Build the model
 
-The template has four nodes. In the application, open **Templates > Patterns (GuidosToolbox) > MSPA of a forest**:
+The template has three nodes and a Plot. In the application, open **Templates > Patterns (GuidosToolbox) > MSPA of a forest**:
 it runs as soon as it opens.
 
 ```tfgraph
-#! caption: The template MSPA of a forest: a landscape drawn by chance, its forest made MSPA's foreground, MSPA, and a plot of the result.
+#! caption: The template MSPA of a forest: a landscape drawn by chance, its forest made MSPA's foreground, MSPA, and a Plot of the result.
 #! numbered: true
 format = "terraflux/1"
 
@@ -237,12 +237,11 @@ inputs = { map = "forest.map" }
 params = { edge_width = 1, connectivity = 8 }
 note = "Core, islet, perforation, edge, loop, bridge and branch, as GuidosToolbox computes them."
 
-[[nodes]]
+[[plots]]
 id = "plot"
-op = "view.plot"
-inputs = { value = "mspa.map" }
-params = { title = "MSPA" }
-note = "Its map in a tab of its own, in GuidosToolbox's colours, refreshed at every run."
+title = "MSPA"
+layers = [{ from = "mspa.map" }]
+note = "Its map in the Viewer, in GuidosToolbox's colours, refreshed at every run."
 ```
 
 **Node 1, the landscape** ([[nlm.random_cluster]]). A *neutral landscape model* draws a map by chance: here 300 ×
@@ -266,8 +265,11 @@ changes the result.
 
 Its output `map` holds the classes, in GuidosToolbox's codes.
 
-**Node 4, the plot** ([[view.plot]]). It shows a map in a tab of its own, refreshed at every run, without writing a
-file. Terraflux knows the map comes from MSPA and draws it in GuidosToolbox's colours with the class names.
+**The Plot** (`[[plots]]` in the model file). It keeps what the Viewer shows, here MSPA's map, with the model: the
+template opens with it in the Viewer, refreshed at every run, without writing a file. Click any node to see its
+output instead, and choose the Plot again in the Viewer's **Plots** menu (see
+[Plots and figures](../../building-models/plots-and-tables/)). Terraflux knows the map comes from MSPA and draws it
+in GuidosToolbox's colours with the class names.
 
 ```tfgallery
 columns: 2

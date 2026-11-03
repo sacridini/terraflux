@@ -5,7 +5,7 @@ description: InVEST's carbon model in Terraflux - the four carbon pools of each 
 order: 20
 level: beginner
 time: 40 min
-ops: [services.carbon, table.read, raster.read, view.plot]
+ops: [services.carbon, table.read, raster.read]
 series: Ecosystem services with InVEST
 part: 2
 ---
@@ -133,14 +133,15 @@ caption: "The carbon pools of this tutorial (carbon_pools.csv), by class. Forest
 2. Add a [[table.read]] node with `path` = `carbon_pools.csv`: the pools by class.
 3. Add [[services.carbon]] (subject *Ecosystem services*). Connect the land use's `raster` to its input `lulc`
    and the table to its input `pools`.
-4. Add a [[view.plot]] node and connect the carbon node's output `storage` to its input `value`. Select it and
-   press ++ctrl+enter++.
+4. Select the carbon node and press ++ctrl+enter++: the Viewer shows its output `storage`. To keep that view with
+   the model, choose **Plots › Save as a new plot** in the Viewer's header and give it the title *Carbon stored,
+   t C / ha*.
 
 </div>
 
 ```tfgraph
-#! caption: The carbon stored in 2020: land use, the pools table, the model and a plot of the storage.
-#! highlight: carbon, show
+#! caption: The carbon stored in 2020: land use, the pools table and the model, with a Plot of the storage.
+#! highlight: carbon
 #! numbered: true
 format = "terraflux/1"
 
@@ -161,11 +162,10 @@ id = "carbon"
 op = "services.carbon"
 inputs = { lulc = "lulc.raster", pools = "pools.table" }
 
-[[nodes]]
+[[plots]]
 id = "show"
-op = "view.plot"
-inputs = { value = "carbon.storage" }
-params = { title = "Carbon stored, t C / ha" }
+title = "Carbon stored, t C / ha"
+layers = [{ from = "carbon.storage" }]
 ```
 
 The carbon node gives:
@@ -210,11 +210,10 @@ id = "carbon"
 op = "services.carbon"
 inputs = { lulc = "lulc.raster", pools = "pools.table", future = "future.raster" }
 
-[[nodes]]
+[[plots]]
 id = "show"
-op = "view.plot"
-inputs = { value = "carbon.change" }
-params = { title = "Change, t C / ha" }
+title = "Change, t C / ha"
+layers = [{ from = "carbon.change" }]
 ```
 
 ### Step 3: the value of the change

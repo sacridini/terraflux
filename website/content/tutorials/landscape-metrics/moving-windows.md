@@ -6,7 +6,7 @@ order: 40
 level: intermediate
 time: 40 min
 template: Landscape metrics
-ops: [metrics.window, raster.reclassify, raster.resample, view.plot]
+ops: [metrics.window, raster.reclassify, raster.resample]
 series: Landscape metrics
 part: 4
 ---
@@ -97,11 +97,10 @@ inputs = { map = "cover.raster" }
 params = { metrics = ["shdi", "ed", "pr"], window = 21 }
 note = "A map per metric."
 
-[[nodes]]
+[[plots]]
 id = "plot"
-op = "view.plot"
-inputs = { value = "window.maps" }
-params = { title = "Around every cell" }
+title = "Around every cell"
+layers = [{ from = "window.maps" }]
 ```
 
 <div class="steps" markdown>
@@ -114,8 +113,9 @@ params = { title = "Around every cell" }
 3. **The window** (node 4). Click [[metrics.window]] in the library's **Landscape metrics** and connect node 3's
    `raster` to its `map` input. `metrics` lists the landscape metrics, `window` the side in cells (odd, so that the
    window has a centre; default 5), `shape` square (default) or circle.
-4. **Look** (node 5). [[view.plot]] shows the output `maps`, a stack with a map per metric named after it; pick the
-   layer in the map tab.
+4. **Look**. Click node 4: the **Viewer** shows its output `maps`, a stack with a map per metric named after it;
+   pick the layer in the Viewer. To keep the view with the model, choose **Plots › Save as a new plot** and give it
+   a title (here *Around every cell*).
 
 </div>
 

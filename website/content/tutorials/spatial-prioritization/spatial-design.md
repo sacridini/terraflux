@@ -124,10 +124,9 @@ op = "prioritize.evaluate"
 inputs = { features = "features.raster", cost = "cost.raster", solution = "plan.solution" }
 params = { relative_targets = 0.3 }
 
-[[nodes]]
+[[plots]]
 id = "show"
-op = "view.plot"
-inputs = { value = "plan.solution" }
+layers = [{ from = "plan.solution" }]
 ```
 
 <div class="steps" markdown>
@@ -294,10 +293,9 @@ op = "prioritize.optimize"
 inputs = { zone_costs = "zone_costs.stack", features = "features.raster" }
 params = { objective = "min_set", relative_targets = 0.3, contribution = { use = 0.5 }, gap = 0.01 }
 
-[[nodes]]
+[[plots]]
 id = "show"
-op = "view.plot"
-inputs = { value = "plan.solution" }
+layers = [{ from = "plan.solution" }]
 ```
 
 <div class="steps" markdown>

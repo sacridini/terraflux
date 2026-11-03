@@ -5,7 +5,7 @@ description: Why "protect the richest places" fails, what complementarity, irrep
 order: 10
 level: beginner
 time: 40 min
-ops: [prioritize.optimize, prioritize.evaluate, prioritize.zonation, raster.read, view.plot]
+ops: [prioritize.optimize, prioritize.evaluate, prioritize.zonation, raster.read]
 series: Systematic conservation planning
 part: 1
 ---
@@ -227,7 +227,7 @@ The first plan of the series: the cheapest set of cells that holds 30 % of each 
 evaluation.
 
 ```tfgraph
-#! caption: A first plan. Read the features and the cost, find the cheapest cells that hold 30 % of every feature, evaluate the plan and show it.
+#! caption: A first plan. Read the features and the cost, find the cheapest cells that hold 30 % of every feature, evaluate the plan and keep it as a Plot.
 #! numbered: true
 #! highlight: plan, evaluation
 format = "terraflux/1"
@@ -256,14 +256,13 @@ op = "prioritize.evaluate"
 inputs = { features = "features.raster", cost = "cost.raster", solution = "plan.solution" }
 params = { relative_targets = 0.3 }
 
-[[nodes]]
-id = "show"
-op = "view.plot"
-inputs = { value = "plan.solution" }
-params = { title = "Plan for 30 % of every feature" }
-
 [outputs.coverage]
 from = "evaluation.coverage"
+
+[[plots]]
+id = "show"
+title = "Plan for 30 % of every feature"
+layers = [{ from = "plan.solution" }]
 ```
 
 <div class="steps" markdown>
@@ -279,7 +278,8 @@ from = "evaluation.coverage"
    0 not.
 4. **Evaluate it** (node 4). [[prioritize.evaluate]] takes the same problem (features, cost, targets) and a solution
    on its `solution` input. Its `coverage` table says, for every target, whether it is met.
-5. **Show it** (node 5). [[view.plot]] draws the plan in a map tab of its own.
+5. **Show it**. Click node 3: the **Viewer** shows the plan. **Plots › Save as a new plot** keeps it with the
+   model; give it a title (here *Plan for 30 % of every feature*).
 
 </div>
 

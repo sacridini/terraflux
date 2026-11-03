@@ -205,7 +205,7 @@ These are not the `[[scenario]]` tables of a scenarios file for `submit`: in the
 with `values`. `terraflux run model.toml --scenario compact_growth` runs one from the command line.
 
 To compare scenarios, check them, check the outputs to compare in the list beside **Compare** (one or more: the
-model's outputs, the values its plots show, else each node's first output) and press one of:
+model's outputs, the maps its Plots show, else each node's first output) and press one of:
 
 - **Compare**: each scenario checked runs here, one after the other, up to those outputs (what they share runs
   once per scenario);

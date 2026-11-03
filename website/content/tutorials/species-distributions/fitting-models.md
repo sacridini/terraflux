@@ -198,7 +198,7 @@ inputs = { model = "fit.model", records = "data.records" }
    to another climate, connect a stack of the same predictors under the same names ([part
    6](../projection-and-extrapolation/)).
 4. **Explain** (nodes 6 and 7): [[sdm.response_curves]] and [[sdm.importance]] both take the model and the records.
-   Add [[view.plot]] nodes on `predict.prediction` to see the map in a tab of its own.
+   Click `predict` to see the map in the **Viewer**, and keep it with **Plots › Save as a new plot**.
 
 </div>
 

@@ -171,8 +171,8 @@ index, each named after it (`RICHNESS_ALL`, `ENDW_WE`...), ready for a GIS.
 
 === "Application"
 
-    Select `neighbourhood` and press ++ctrl+enter++: its result shows under the canvas, and a double-click opens
-    the maps in a tab of their own.
+    Select `neighbourhood` and press ++ctrl+enter++: its result shows in the Viewer, a map at a time; a double-click
+    keeps it there as a layer, and **Plots › Save as a new plot** keeps that view with the model.
 
 === "Command line"
 

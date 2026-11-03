@@ -324,11 +324,10 @@ inputs = { map = "trend.residuals" }
 params = { metrics = ["sa", "sku"], window = 9 }
 note = "A stack: a map of Sa and a map of Sku."
 
-[[nodes]]
+[[plots]]
 id = "plot"
-op = "view.plot"
-inputs = { value = "texture.maps" }
-params = { title = "Texture, 9 x 9 cells" }
+title = "Texture, 9 x 9 cells"
+layers = [{ from = "texture.maps" }]
 ```
 
 Each cell receives the value the metric would have on the small raster of its window, computed exactly as
@@ -338,8 +337,9 @@ model, connect the stack to the model's drivers (see [Species distributions](../
 
 === "Application"
 
-    Click a node and press ++ctrl+enter++: a table shows under the canvas (click a column to sort it), a stack
-    shows its maps. *Save output* in a tab writes what it shows to a file.
+    Click a node and press ++ctrl+enter++: the **Viewer** shows a table (click a column to sort it) or a stack's
+    maps. **Save output** in the Viewer's header writes what it shows to a file, and **Plots › Save as a new plot**
+    keeps the view with the model.
 
 === "Command line"
 

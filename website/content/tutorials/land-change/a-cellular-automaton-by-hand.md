@@ -5,7 +5,7 @@ description: Write the rules of a growing city yourself, in a loop of map algebr
 order: 20
 level: beginner
 time: 30 min
-ops: [control.repeat, raster.calc, nlm.gaussian_field, nlm.distance_gradient, view.plot]
+ops: [control.repeat, raster.calc, nlm.gaussian_field, nlm.distance_gradient]
 series: "Land change simulation: the foundations"
 part: 2
 ---
@@ -115,7 +115,8 @@ note = "The city at the start: the old town (1), the rest 0."
 <div class="steps" markdown>
 
 1. **Open the template.** In the application, **Templates** (in groups: *Land change*) → **A city that grows (a
-   loop)**. It runs at once; its nodes appear in the Model pane and the maps of its `view.plot` nodes in tabs.
+   loop)**. It runs at once; its nodes appear in the Model pane and the Viewer opens its last Plot. Its other Plots
+   are in the Viewer's **Plots** menu.
 2. **A relief** (node 1): [[nlm.gaussian_field]] draws a smooth random surface of 150 × 150 cells, whose values
    change over about `range` = 30 cells. Its lowest land will be water and its highest mountains: no city there.
 3. **Attraction** (node 2): another random surface, with a shorter range (20 cells), standing for jobs, roads and
@@ -181,12 +182,12 @@ city cells around it.
     Double-click the `growth` node (or **Open inside** in the Node pane) to edit its body; the trail at the top
     of the canvas takes you back. Inside, the column on the left lists what the body can read: `@city`, `@step`
     and the outer nodes. Select `grow` and edit its expression in the Node pane; ++ctrl+enter++ runs the model to
-    the node selected. The template's plots show `growth.maps` (a slider over the steps) and `growth.city`.
+    the node selected. The template's Plots show `growth.maps` (a slider over the steps) and `growth.city`.
 
 The whole model, as the application shows it:
 
 ```tfgraph
-#! caption: A city that grows, with this page's bar and 40 steps: the landscape (nodes 1 to 5) and the loop with its body (node 6). The template adds three view.plot nodes: the city step by step (growth.maps), the last city (growth.city) and the suitability.
+#! caption: A city that grows, with this page's bar and 40 steps: the landscape (nodes 1 to 5) and the loop with its body (node 6). The template keeps three Plots: the city step by step (growth.maps), the last city (growth.city) and the suitability.
 #! numbered: true
 #! params: false
 format = "terraflux/1"
@@ -233,6 +234,21 @@ id = "grow"
 op = "raster.calc"
 inputs = { c = "@city", suit = "suitability.map", step = "@step" }
 params = { expression = "1 if c == 0 and nbsum(c == 1, 1) >= 2 and suit > 0.6 - step * 0.004 else c" }
+
+[[plots]]
+id = "plot_growth"
+title = "The city, step by step"
+layers = [{ from = "growth.maps" }]
+
+[[plots]]
+id = "plot_city"
+title = "The city after 25 steps"
+layers = [{ from = "growth.city" }]
+
+[[plots]]
+id = "plot_suitability"
+title = "Suitability"
+layers = [{ from = "suitability.map" }]
 ```
 
 From the command line, the same model saved as `city.toml` runs with `terraflux run city.toml`. Plots write

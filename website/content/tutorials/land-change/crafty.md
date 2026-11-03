@@ -252,8 +252,9 @@ here food, 1 timber): its `demand`, the `supply_before` the step and the `supply
 
 !!! app "In the application"
     Open the template from **Templates** and double-click `simulation` to see `compete`. The AFTs are edited in
-    the Node pane as text. Press ++ctrl+enter++ on `plot_cover` to run the model and open the land cover of
-    every step in a tab, with a slider over the steps.
+    the Node pane as text. Press ++ctrl+enter++ on `simulation` to run the model, and open the Plot *Farmers (1),
+    foresters (2), unmanaged (0), step by step* from the Viewer's **Plots** menu: the land cover of every step,
+    with a slider over the steps.
 
 From the command line, add outputs for what you want written:
 

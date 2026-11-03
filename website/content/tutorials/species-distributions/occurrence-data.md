@@ -114,7 +114,7 @@ them as points in longitude and latitude, with their Darwin Core terms (the stan
 `decimalLongitude`, `basisOfRecord`, `coordinateUncertaintyInMeters`, `year`...) and GBIF's issues.
 
 ```tfgraph
-#! caption: Records of the sloth from GBIF (node 1), flagged by CoordinateCleaner's tests (node 2) and shown (node 3).
+#! caption: Records of the sloth from GBIF (node 1), flagged by CoordinateCleaner's tests (node 2) and kept as a Plot.
 #! numbered: true
 #! highlight: gbif
 format = "terraflux/1"
@@ -130,11 +130,10 @@ op = "sdm.clean_occurrences"
 inputs = { occurrences = "gbif.occurrences" }
 params = { action = "flag" }
 
-[[nodes]]
+[[plots]]
 id = "plot"
-op = "view.plot"
-inputs = { features = "clean.occurrences" }
-params = { title = "GBIF records of the sloth" }
+title = "GBIF records of the sloth"
+layers = [{ from = "clean.occurrences" }]
 ```
 
 The settings of node 1 that matter:

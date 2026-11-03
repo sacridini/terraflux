@@ -5,7 +5,7 @@ description: Find every hill of an elevation model with its base, height and mea
 order: 40
 level: intermediate
 time: 45 min
-ops: [raster.read, surface.hilltop, raster.reproject, raster.terrain, raster.write, table.write, view.plot]
+ops: [raster.read, surface.hilltop, raster.reproject, raster.terrain, raster.write, table.write]
 series: Continuous surfaces
 part: 4
 ---
@@ -273,14 +273,15 @@ after: { src: /img/tutorials/surface-metrics/hilltops/synthetic-app.png, label: 
 
 1. Add a [[raster.write]] after `hilltop`'s `app` output, **path** = `app.tif`, and a [[table.write]] after its `hills`
    output, **path** = `hills.csv`.
-2. For a picture, add a [[raster.terrain]] after `dem` with **measure** = `hillshade`, a [[view.plot]] after it, and a
-   second [[view.plot]] with `hilltop`'s `app` in `value`, the first plot's `shown` in `under` and **opacity** = 0.6.
+2. For a picture, add a [[raster.terrain]] after `dem` with **measure** = `hillshade` and double-click it: the
+   **Viewer** keeps the relief as a layer. Then click `hilltop`, show its `app` and keep it too (📌 in **Layers**),
+   with **opacity** = 0.6. **Plots › Save as a new plot** keeps the view with the model; title it `Hilltop APP`.
 
 </div>
 
 ```tfgraph
 #! caption: The protected tops written to a GeoTIFF, the table of hills to a CSV file, and the tops shown over the relief.
-#! highlight: save_app, save_hills, shade, relief, map
+#! highlight: save_app, save_hills, shade
 #! numbered: true
 format = "terraflux/1"
 
@@ -318,23 +319,21 @@ op = "raster.terrain"
 inputs = { raster = "dem.raster" }
 params = { measure = "hillshade" }
 
-[[nodes]]
+[[plots]]
 id = "relief"
-op = "view.plot"
-inputs = { value = "shade.raster" }
-params = { title = "Relief" }
+title = "Relief"
+layers = [{ from = "shade.raster" }]
 
-[[nodes]]
+[[plots]]
 id = "map"
-op = "view.plot"
-inputs = { value = "hilltop.app", under = "relief.shown" }
-params = { title = "Hilltop APP", opacity = 0.6 }
+title = "Hilltop APP"
+layers = [{ from = "shade.raster" }, { from = "hilltop.app", opacity = 0.6 }]
 ```
 
 === "Application"
 
-    Press ++f5++ to run the whole model. The tab *Hilltop APP* shows the protected tops over the relief; select
-    `hilltop` and choose `hills` in the header of the panel under the canvas to see the table. In a GIS, the GeoTIFF `app.tif` can be turned into polygons for
+    Press ++f5++ to run the whole model. The Plot *Hilltop APP* (the Viewer's **Plots** menu) shows the protected
+    tops over the relief; select `hilltop` and choose `hills` in the Viewer to see the table. In a GIS, the GeoTIFF `app.tif` can be turned into polygons for
     a report or for the CAR.
 
 === "Command line"

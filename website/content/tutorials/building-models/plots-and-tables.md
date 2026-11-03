@@ -1,45 +1,51 @@
 ---
-title: Plots and tables
-description: Show maps in tabs of their own with view.plot, stack them with under and opacity, read, sort, filter and chart the tables operators give, write small tables into a model with table.of, and keep what you see as files.
+title: Plots and figures
+description: See any result in the Viewer, keep maps on it as layers, compare two maps, save what the Viewer shows as a Plot of the model, find the Plots in the Document and the report, read, sort, filter and chart the tables operators give, and write small tables into a model with table.of.
 order: 70
 level: beginner
 time: 30 min
-ops: [view.plot, table.of, metrics.class, conn.graph, conn.node_importance, raster.legend]
+ops: [table.of, metrics.class, conn.graph, conn.node_importance, raster.legend]
 ---
 
 A model is only as good as your ability to look at what it does. Terraflux gives you two kinds of things to look at:
-**maps** (and stacks of maps) and **tables** (the class metrics of a landscape, the importance of each patch of a
-network, the cells allocated at each step of a simulation). In this tutorial you will make a map tab that shows a
-forest's MSPA over the land cover around it, read and chart a table of landscape metrics, and write two small
-tables directly into a model, the areas of six ponds and the distances between them, to find which pond holds a
-newt's network together.
+**maps** (and stacks of maps, and vector features) and **tables** (the class metrics of a landscape, the importance
+of each patch of a network, the cells allocated at each step of a simulation). In this tutorial you will show a
+forest's MSPA over the land cover around it, keep that view with the model as a **Plot**, read and chart a table of
+landscape metrics, and write two small tables directly into a model, the areas of six ponds and the distances
+between them, to find which pond holds a newt's network together.
 
 ## The idea
 
-Every node's output can be looked at by selecting the node: the **Viewer** shows it. That is enough while you
-build a model, but it shows one output at a time, of the node selected. Two operators of the library's subject
-**Plot** and **Model flow** make looking part of the model:
+Every result is seen in one place, the **Viewer**. Click a node and the Viewer shows its output: a map with its
+legend, a stack a layer at a time, the maps of a loop's steps, vector features, a table or a single value. That is
+enough while you build a model, but it shows the output of the node clicked. Three things make looking part of the
+model:
 
-- [[view.plot]] shows a map, a stack, the maps of a loop, rasters on disk or vector features **in a tab of its
-  own**, refreshed at every run, without writing any file. Plots can be **stacked**: a plot connected to another
-  plot's output is drawn over it, as transparent as you ask. A model with plots opens with its maps in view, which
-  is why every template has them.
-- [[table.of]] is the reverse: a **table you type** in the model's settings, for the small tables some operators
-  take as input (targets, costs, demands, the nodes and links of a network).
+- **Layers** keep outputs on the map whatever node you click, each as opaque as you ask: a habitat over the land
+  cover, a corridor over a resistance surface, sampling points over a map.
+- **Compare** puts another map beside the one shown: as a curtain, side by side, or as their difference.
+- A **Plot** keeps what the Viewer shows with the model: its layers, the map shown, its comparison, a table's
+  chart, and a title. A model's Plots are listed in the Viewer's **Plots** menu, a click away, and the Document and
+  the report show them as numbered figures. Every template has them, which is why a template opens with its result
+  in view.
 
 Tables that operators give are shown in the Viewer as a spreadsheet you can sort and filter, and as **charts**:
-bars, lines, points, box plots, a correlation matrix, a clustergram.
+bars, lines, points, box plots, a correlation matrix, a clustergram. Small tables that a model needs as input
+(targets, costs, demands, the nodes and links of a network) are typed in the model with [[table.of]].
 
 !!! science "Key idea"
     A figure is an analysis step like any other: what is shown, over what, and how transparent, are choices that
-    change what a reader sees. Putting them in the model (a [[view.plot]] node with its title, `under` and
-    `opacity`) makes them reproducible and reviewable, like the analysis itself.
+    change what a reader sees. Keeping them in the model as a Plot, with its title, its layers and their opacity,
+    makes them reproducible and reviewable, like the analysis itself.
 
 ## When to use it
 
-- **[[view.plot]]**: for every result you want to see after each run (the template's final map, a map to compare
-  with the input), and to compose maps: a habitat over the land cover, a corridor over a resistance surface, the
-  current of Circuitscape over a satellite basemap, sampling points over a map.
+- **A click on a node**: to look at any output while you build, edit and run the model.
+- **Layers**: to compose maps: a habitat over the land cover, the current of Circuitscape over a satellite
+  basemap, vector features over a raster.
+- **Compare**: to set two maps against each other: two dates, two scenarios, a simulation and the observed map.
+- **A Plot**: for every view you want back after each run, and for the figures of the Document and the report
+  (the template's final map, a map compared with the input, a table's chart).
 - **Tables in the Viewer**: for every operator that gives a table: landscape metrics ([[metrics.class]],
   [[metrics.patch]], [[metrics.landscape]]), connectivity indices, a simulation's `info`, a prioritization's
   summary, a model's evaluation.
@@ -53,11 +59,11 @@ bars, lines, points, box plots, a correlation matrix, a clustergram.
   below clips a 15 x 15 km window of it.
 - Nothing for the ponds: their table is typed in the model.
 
-## Plots stacked: a forest over its land cover
+## A forest over its land cover
 
 ```tfgraph
-#! caption: Land cover in six named classes, the MSPA of its forest with the background removed, and two plots: the land cover, and the forest's MSPA drawn over it at 60% opacity.
-#! highlight: plot_land, plot_forest
+#! caption: Land cover in six named classes and the MSPA of its forest with the background removed. Two Plots are kept with the model: the land cover, and the forest's MSPA drawn over it at 60% opacity.
+#! highlight: named, forest_only
 #! numbered: true
 format = "terraflux/1"
 name = "Forest over land cover"
@@ -106,63 +112,121 @@ op = "metrics.class"
 inputs = { map = "named.map" }
 params = { metrics = ["pland", "np", "area_mn", "ed"], show = "pland" }
 
-[[nodes]]
+[[plots]]
 id = "plot_land"
-op = "view.plot"
-inputs = { value = "named.map" }
-params = { title = "Land cover" }
+title = "Land cover"
+layers = [{ from = "named.map" }]
 
-[[nodes]]
+[[plots]]
 id = "plot_forest"
-op = "view.plot"
-inputs = { value = "forest_only.map", under = "plot_land.shown" }
-params = { title = "MSPA over the land cover", opacity = 0.6 }
+title = "MSPA over the land cover"
+layers = [{ from = "named.map" }, { from = "forest_only.map", opacity = 0.6 }]
 ```
 
-[[view.plot]] has three inputs and two settings:
+The graph has no node for looking: the nodes compute, and the **Plots** (the `[[plots]]` at the end of the model
+file, under the toggle) say what to show. Here is how to make them.
 
-| | Name | What it is |
-|---|---|---|
-| input | `value` | the map (a map, a stack, a loop's series, rasters on disk) to show |
-| input | `features` | vector features to show, over the map if there is one |
-| input | `under` | **another plot's** output `shown`: that plot is drawn beneath this one |
-| setting | `title` | the tab's title (by default the node's name) |
-| setting | `opacity` | how opaque this plot is over what is under it, 0 (invisible) to 1 (opaque) |
-| output | `shown` | what the plot shows, to connect to another plot's `under` |
+### Seeing a result
 
-Plot 9 (`plot_forest`) takes `plot_land.shown` as `under`: its tab draws the land cover first, then the forest's
-MSPA over it at 60% opacity. Cells **without a value** are transparent; that is why node 6 removes MSPA's
-background, which would otherwise cover the land cover in grey. Plots can be chained as deep as you like: a
-hillshade under an elevation under a set of sampling points.
+- **Click** a node: the Viewer shows its output. If it has not run yet, the Viewer says so; ++ctrl+enter++ runs the
+  model up to it. Click `named` to see the land cover in its six colours.
+- **Double-click** a node: the Viewer shows its output, runs it first if it has not run, and **keeps it as a
+  layer**. The pin (📌) beside the map's name in **Layers** does the same for the map shown.
+
+### Layers
+
+Double-click `named`, then click `forest_only`. The Viewer's side panel lists, under **Layers**, the outputs kept
+on the map, from the top. The map shown is drawn over the layers, so the forest's MSPA is drawn over the land
+cover. For each layer you can:
+
+- show or hide it;
+- move it **up** or **down**: the layers listed under the map shown are drawn under it, those over it over it;
+- change a map's **opacity**, from 0 (invisible) to 1 (opaque), or the **style** of vector features;
+- remove it.
+
+Keep `forest_only` too (📌) and set its opacity to 0.6: the forest's structure with its neighbours in view.
+**Add a layer** adds the run's other maps and vector features without clicking their nodes, and a click on a
+layer's name shows that map, with its legend and settings. Cells **without a value** are transparent; that is why
+node 6 removes MSPA's background, which would otherwise cover the land cover in grey. Layers can be as many as you
+like: a hillshade under an elevation under a set of sampling points.
 
 ```tfgallery
 columns: 3
-caption: "The three layers of the plot, drawn by this page's figure script from the model's outputs, as the application stacks them. Left: the land cover (farmland yellow, forest green, urban purple, wetlands blue-grey, water and a river blue). Middle: the forest's MSPA (core green, edge black, bridges red, branches orange), its background without a value. Right: MSPA at 60% over the land cover: the forest's structure with its neighbours in view."
+caption: "The layers of the Plot, drawn by this page's figure script from the model's outputs, as the Viewer stacks them. Left: the land cover (farmland yellow, forest green, urban purple, wetlands blue-grey, water and a river blue). Middle: the forest's MSPA (core green, edge black, bridges red, branches orange), its background without a value. Right: MSPA at 60% over the land cover: the forest's structure with its neighbours in view."
 images:
-  - { src: /img/tutorials/building-models/plots-and-tables/land.png, caption: "plot_land" }
+  - { src: /img/tutorials/building-models/plots-and-tables/land.png, caption: "named.map (the Plot Land cover)" }
   - { src: /img/tutorials/building-models/plots-and-tables/forest.png, caption: "forest_only.map" }
-  - { src: /img/tutorials/building-models/plots-and-tables/stacked.png, caption: "plot_forest (under: plot_land)" }
+  - { src: /img/tutorials/building-models/plots-and-tables/stacked.png, caption: "the Plot MSPA over the land cover" }
 ```
 
-!!! app "In the application"
-    Select a node and click **plot** under **Plot** in the library (or ++slash++ `plot`): a [[view.plot]] comes
-    connected to it, and clicking it shows it in the Viewer. A **double click** on any node shows its output in the
-    Viewer too, without adding a node, and keeps it there as a layer. In the Viewer, **Layers** keep other maps
-    and the vector layers of the run on the map, each with its own opacity or style, under or over the map shown,
-    and **Basemap** puts satellite imagery or a world map beneath (see the [tour](../../getting-started/tour/#the-viewer)).
-    Those choices are for looking; `under` and `opacity` in the model keep a composition with the model.
+**Basemap** puts satellite imagery or a world map beneath the layers (see the
+[tour](../../getting-started/tour/#the-viewer)).
 
-### Saving what a plot shows
+### Comparing two maps
 
-A plot writes nothing. To keep a map, use **Save output** in the tab's header: **As a file...** writes the map
-shown to a GeoTIFF (a table to CSV or JSON, vectors to GeoPackage, GeoJSON or Shapefile); **As a file, and a write
-node in the model...** also adds a [[raster.write]] (or [[vector.write]]) node, so the file is written again at
-every run. From the command line, plots are ignored: declare `[outputs]` for what `terraflux run` must write (see
-[Your first model](../../getting-started/first-model/#the-model-as-a-file)).
+**Compare**, in the Viewer's side panel, puts another map beside the one shown: another output of the run (a
+scenario, another date, the observed map) or another layer of the same stack. Choose how:
+
+- **Curtain**: the other map is right of a line you drag across the map;
+- **Side by side**: two views that zoom and pan together, the pointer marked in both;
+- **Difference**: for maps of values, the other map minus this one; for maps of classes, what each cell changed
+  from and to.
+
+Both maps are drawn in the same colours, so that the same value is the same colour.
+
+### Saving a Plot
+
+What the Viewer shows is gone when you click another node and take the layers away. To keep it with the model,
+open the **Plots** menu in the Viewer's header and choose **Save as a new plot**. The Plot keeps the layers (with
+their opacity, band and style, the hidden ones too), the map shown and the comparison. Give it a **title** in the
+same menu: the title is how the menu lists it and how the Document and the report name its figure.
+
+The **Plots** menu lists the model's Plots. A click opens one: its layers, the map shown, its comparison, a table's
+chart. With a Plot open, the menu shows its title, which you can edit, and two more items:
+
+- **Update the plot** keeps in it what the Viewer shows now (after you added a layer, changed an opacity or a
+  comparison);
+- **Remove the plot** takes it away from the model; its layers stay in the Viewer.
+
+In the model file, the Plots are kept outside the graph, as `[[plots]]`, the first layer at the bottom:
+
+```toml
+[[plots]]
+id = "plot_forest"
+title = "MSPA over the land cover"
+layers = [{ from = "named.map" }, { from = "forest_only.map", opacity = 0.6 }]
+```
+
+| Key | What it is |
+|---|---|
+| `id` | the Plot's name in the model |
+| `title` | its title, in the menu and over its figure (by default its `id`) |
+| `layers` | what it shows, the first at the bottom: each an output (`node.port`) with its `opacity` (0 to 1), `band` (the layer of a stack or the step of a loop), `style` (vector features') and `hidden` |
+| `compare` | a map compared with the top map: `{ with = "node.port", how = "curtain" }` (or `"side by side"`, `"difference"`) |
+| `chart` | a table's chart: `{ kind = "bars", x = "...", y = "...", by = "..." }` |
+| `note`, `why` | what it shows and why, as a node's note |
+
+A Plot follows a node renamed or put in a group, and loses a layer whose node is removed. `terraflux check` checks
+what the Plots read.
+
+### The Plots in the Document and the report
+
+The [Document](../the-model-document/) shows the Plots as numbered figures, each with the step whose output it
+shows, its title as the caption. The HTML and PDF report has the same figures, drawn from the last run; a Plot that
+compares is a figure of the two maps side by side, and of their difference when it asks for one. The comparison of
+scenarios offers the Plots' maps.
+
+### Saving a map as a file
+
+A Plot writes nothing. To keep a map as a file, use **Save output** in the Viewer's header: **As a file...** writes
+the map shown to a GeoTIFF (a table to CSV or JSON, vectors to GeoPackage, GeoJSON or Shapefile); **As a file, and
+a write node in the model...** also adds a [[raster.write]] (or [[vector.write]]) node, so the file is written
+again at every run. From the command line, Plots are not drawn: declare `[outputs]` for what `terraflux run` must
+write (see [Your first model](../../getting-started/first-model/#the-model-as-a-file)).
 
 ## Tables in the Viewer
 
-Select `classes`, the [[metrics.class]] node: the Viewer shows its table, a row per class, a column per metric.
+Click `classes`, the [[metrics.class]] node: the Viewer shows its table, a row per class, a column per metric.
 Here are its values (the class names added from the legend):
 
 | Class | pland (%) | np | area_mn (ha) | ed (m/ha) |
@@ -195,6 +259,18 @@ colors: { pland: "#3b8a5a" }
 ylabel: "% of the window"
 height: 280
 caption: "The column pland of the table as a bar chart, as the Viewer draws it with Bars: farmland dominates the window, forest covers a quarter of it."
+```
+
+A table is kept as a Plot like a map: its layer is the table, and its `chart` says how to draw it, `kind` (`bars`,
+`lines`, `points` or `boxes`; by default the one suggested), `x` (the column along the x axis), `y` (the columns
+drawn, comma-separated) and `by` (the column whose values make the groups). Opening the Plot draws that chart:
+
+```toml
+[[plots]]
+id = "plot_classes"
+title = "Share of each class"
+layers = [{ from = "classes.table" }]
+chart = { kind = "bars", x = "class", y = "pland" }
 ```
 
 `metrics.class` also gives a **map** of one metric (its setting `show`): here each class painted with its `pland`,
@@ -286,25 +362,37 @@ third. With least-cost distances, over a resistance surface, connectors appear (
   little, area dominates (intra); for one that moves far, position matters more (flux). Give `distance` a list,
   `[500, 1000, 2000]`, and the table has a row per pond and distance.
 
+## Models with view.plot nodes
+
+Older models showed their results with `view.plot` nodes (a map, features or a table, another plot's `shown` under
+it, a map `compared`). They still open: when a model is read, its `view.plot` nodes become Plots, with their
+titles, maps, opacity, features, tables and charts, comparisons and notes; a chain of plots connected by `under`
+becomes the layers of one Plot, the lowest first. What read a plot's `shown` reads what the plot showed. Plots
+inside groups stay nodes. The library no longer offers `view.plot`, which is kept for old models until Terraflux 2.0.
+
 ## Common pitfalls
 
-- **A plot that covers everything.** A map drawn over another hides it except where it has no value. Remove the
-  cells you do not want to show (as node 6 does), or lower `opacity`.
-- **Maps that do not line up.** Maps drawn over a map are placed by their coordinates; maps of different grids
-  or coordinate systems may not overlap as you expect. Put maps on one grid first
+- **A layer that covers everything.** A map drawn over another hides it except where it has no value. Remove the
+  cells you do not want to show (as node 6 does), lower its opacity, or move it down in **Layers**.
+- **Maps that do not line up.** Layers are placed by their coordinates; maps of different grids or coordinate
+  systems may not overlap as you expect. Put maps on one grid first
   ([One grid](../../getting-started/one-grid/)).
+- **A view lost.** Layers stay in the Viewer while you work, not in the model. Save what you want back with
+  **Plots › Save as a new plot**, and after a change, **Update the plot**.
 - **Rows of the wrong length.** Every row of [[table.of]] must have as many numbers as there are columns.
 - **Text in tables.** [[table.of]] holds numbers; codes stand for names (class 3, pond 4). Keep the names in a
   note.
-- **Expecting files from a plot.** [[view.plot]] never writes. Use **Save output**, [[raster.write]] or the
-  model's `[outputs]`.
+- **Expecting files from a Plot.** A Plot never writes. Use **Save output**, [[raster.write]] or the model's
+  `[outputs]`.
 
 ## Going further
 
-- [Your first raster](../../getting-started/first-raster/): colours, legends and the viewer.
+- [Your first raster](../../getting-started/first-raster/): colours, legends and the Viewer.
+- [The tour](../../getting-started/tour/#the-viewer): everything the Viewer does.
+- [The model's document](../the-model-document/): the Plots as figures of the Document and the report.
 - [Landscape metrics](../../landscape-metrics/): what the columns of a class metrics table mean.
 - [Habitat networks](../../habitat-networks/): habitat graphs from maps, and every connectivity index.
-- The operators [[view.plot]], [[table.of]], [[metrics.class]], [[conn.graph]], [[conn.node_importance]].
+- The operators [[table.of]], [[metrics.class]], [[conn.graph]], [[conn.node_importance]].
 
 ## References
 

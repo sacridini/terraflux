@@ -190,8 +190,8 @@ class), a **wrong hit** (2: changed, simulated to another class), a **miss** (3:
 a **false alarm** (4: unchanged, simulated as changed) or a correct persistence (0).
 
 ```tfgraph
-#! caption: The disagreement of the simulated map split into exchange and shift, and a map of hits, wrong hits, misses and false alarms.
-#! highlight: components, outcome, plot
+#! caption: The disagreement of the simulated map split into exchange and shift, and a map of hits, wrong hits, misses and false alarms, kept as a Plot.
+#! highlight: components, outcome
 #! numbered: true
 format = "terraflux/1"
 
@@ -224,17 +224,17 @@ inputs = { t0 = "land_1997.raster", o = "observed.raster", s = "simulated.raster
 params = { expression = "1 if o != t0 and s == o else 2 if o != t0 and s != t0 else 3 if o != t0 else 4 if s != t0 else 0" }
 note = "1 hit, 2 wrong hit, 3 miss, 4 false alarm, 0 persistence."
 
-[[nodes]]
+[[plots]]
 id = "plot"
-op = "view.plot"
-inputs = { value = "outcome.map" }
-params = { title = "Hits, misses and false alarms" }
+title = "Hits, misses and false alarms"
+layers = [{ from = "outcome.map" }]
 ```
 
 === "Application"
 
     Save the model next to the two files and press ++f5++. Select the `disagreement` node to see its tables in
-    the Viewer; the `plot` node opens the map of the outcomes in a tab of its own.
+    the Viewer; click `outcome` to see the map of the outcomes, or open the Plot *Hits, misses and false alarms*
+    from the Viewer's **Plots** menu.
 
 === "Command line"
 

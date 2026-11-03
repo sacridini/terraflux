@@ -153,11 +153,10 @@ inputs = { raster = "elevation.raster" }
 params = { crs = "EPSG:32610", resolution = 30, path = "elevation_utm.tif" }
 note = "UTM zone 10 N in metres; values interpolated (bilinear), the default for a continuous map."
 
-[[nodes]]
+[[plots]]
 id = "plot"
-op = "view.plot"
-inputs = { value = "elevation_utm.raster" }
-params = { title = "Elevation (UTM 10 N)" }
+title = "Elevation (UTM 10 N)"
+layers = [{ from = "elevation_utm.raster" }]
 ```
 
 The input is the `raster` output of [[raster.read]], the file on disk: reprojection is done file to file, whatever

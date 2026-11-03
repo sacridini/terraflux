@@ -4,7 +4,7 @@ description: Points, lines and polygons with their attributes; how to read them,
 order: 30
 level: beginner
 time: 30 min
-ops: [vector.read, view.plot, vector.rasterize, vector.zonal, vector.extract, vector.distance, vector.buffer, vector.write]
+ops: [vector.read, vector.rasterize, vector.zonal, vector.extract, vector.distance, vector.buffer, vector.write]
 ---
 
 Not everything in a landscape study is a grid of cells. Sampling plots are points, roads and rivers are lines,
@@ -82,12 +82,15 @@ hold several layers; the first is read by default). It has two outputs:
 - `table`: their attributes **that are numbers**, one row per feature numbered from 1, for operators that take
   tables. Text attributes (here `name`) stay with the features.
 
-To see features, select the [[vector.read]] node: the viewer draws them. To see them **over a map**, use plots
-that stack: a [[view.plot]] whose `under` input is connected to another plot's `shown` output is drawn on top of
-it. Here the land cover is at the bottom, the reserves over it, then the road and the plots:
+To see features, select the [[vector.read]] node: the Viewer draws them. To see them **over a map**, keep them as
+**layers**: double-click `landcover`, then `reserves`, `road` and `plots` (or use **Add a layer** in the Viewer's
+side panel). Each layer is drawn over the ones listed under it: here the land cover is at the bottom, the reserves
+over it, then the road and the plots. To keep that view with the model, choose **Plots › Save as a new plot** in
+the Viewer's header and give it a title: a **Plot** keeps its layers, the first at the bottom (see
+[Plots and figures](../../building-models/plots-and-tables/)).
 
 ```tfgraph
-#! caption: Read a map and three vector layers, and stack them in plots: each plot's under is the plot drawn beneath it.
+#! caption: Read a map and three vector layers, and keep them stacked in a Plot: its layers, the first at the bottom.
 #! highlight: reserves, road, plots
 format = "terraflux/1"
 
@@ -113,37 +116,17 @@ id = "plots"
 op = "vector.read"
 params = { path = "plots.gpkg" }
 
-[[nodes]]
-id = "map"
-op = "view.plot"
-inputs = { value = "landcover.raster" }
-params = { title = "Land cover" }
-
-[[nodes]]
-id = "with_reserves"
-op = "view.plot"
-inputs = { features = "reserves.vector", under = "map.shown" }
-params = { title = "Reserves" }
-
-[[nodes]]
-id = "with_road"
-op = "view.plot"
-inputs = { features = "road.vector", under = "with_reserves.shown" }
-params = { title = "Road" }
-
-[[nodes]]
+[[plots]]
 id = "everything"
-op = "view.plot"
-inputs = { features = "plots.vector", under = "with_road.shown" }
-params = { title = "Everything" }
+title = "Everything"
+layers = [{ from = "landcover.raster" }, { from = "reserves.vector" }, { from = "road.vector" }, { from = "plots.vector" }]
 ```
 
 ![The three layers over the land cover](/img/tutorials/getting-started/vector-data/overlay.png "The reserves (black outlines), the planned road and the twelve plots (orange, numbered) over the land cover of the window. Colours of the land cover as in CORINE: yellow arable land, greens forests, red towns, blue peat bogs.")
 
-!!! app "In the application: vectors without a plot"
-    You do not need plots to look. Beside any map, the viewer's **Layers** keep outputs on the map whatever node
-    you click: **Add a layer** lists every vector output of the run, drawn over the map, reprojected to it, in the
-    style you choose. Hover over a feature to read its attributes (`feature 2`, `id: 2`, `name: North`,
+!!! app "In the application: layers"
+    Beside any map, the Viewer's **Layers** keep outputs on the map whatever node you click: **Add a layer** lists
+    every vector output of the run, drawn over the map, reprojected to it, in the style you choose. Hover over a feature to read its attributes (`feature 2`, `id: 2`, `name: North`,
     `year: 1998`). Other maps are added the same way, each with its opacity.
 
 !!! app "In the application: draw a study area"

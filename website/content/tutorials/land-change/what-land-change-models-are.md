@@ -5,7 +5,7 @@ description: The ideas behind every land change simulation (how much changes, wh
 order: 10
 level: beginner
 time: 30 min
-ops: [change.crosstab, change.components, change.suggest, stack.of, raster.calc, view.plot]
+ops: [change.crosstab, change.components, change.suggest, stack.of, raster.calc]
 series: "Land change simulation: the foundations"
 part: 1
 ---
@@ -236,7 +236,7 @@ transition matrix, the components of the change and the transitions worth modell
 cells that changed.
 
 ```tfgraph
-#! caption: What changed on Sibuyan between 1997 and 2011: the transition matrix, the components of change, the transitions worth modelling and a map of the cells that changed.
+#! caption: What changed on Sibuyan between 1997 and 2011: the transition matrix, the components of change, the transitions worth modelling and a map of the cells that changed, kept as a Plot.
 #! numbered: true
 format = "terraflux/1"
 
@@ -283,11 +283,10 @@ inputs = { a = "land_1997.raster", b = "land_2011.raster" }
 params = { expression = "b if a != b else 0" }
 note = "Every cell that changed in its new class, 0 where nothing changed."
 
-[[nodes]]
+[[plots]]
 id = "plot"
-op = "view.plot"
-inputs = { value = "changed.map" }
-params = { title = "What changed, 1997 to 2011" }
+title = "What changed, 1997 to 2011"
+layers = [{ from = "changed.map" }]
 ```
 
 <div class="steps" markdown>
@@ -306,8 +305,8 @@ params = { title = "What changed, 1997 to 2011" }
    input's name becomes a layer's name) and add [[change.suggest]] (node 6). It lists the transitions from
    largest to smallest, with the share of all change and of the class each makes.
 5. **A map of the change.** [[raster.calc]] (node 7) computes a map cell by cell from an expression; give it two
-   inputs named `a` and `b` and the expression `b if a != b else 0`. [[view.plot]] (node 8) shows it in a
-   tab of its own.
+   inputs named `a` and `b` and the expression `b if a != b else 0`. Click it to see the map in the Viewer, and
+   keep it with the model with **Plots › Save as a new plot**, titled *What changed, 1997 to 2011*.
 
 </div>
 

@@ -116,7 +116,8 @@ the times are years.
 The model is short. A [[raster.read]] node (library: **IO**) with `path = "pie_landuse.tif"` and no band gives,
 on its `raster` output, the three dates as layers named by their years. Connect that output to the `maps` input of
 [[change.intensity]] (library: **Change detection**). Add [[change.transitions]] on the same stack to have the
-areas behind the rates, and a [[view.plot]] of the stack to see the maps.
+areas behind the rates. Click `dates` to see the maps in the Viewer, a layer at a time, and keep the view with
+**Plots › Save as a new plot** (here titled *Plum Island, 1985-1999*).
 
 [[change.intensity]] needs two settings: `gain`, the class whose gains the transition level examines, and `loss`,
 the class whose losses it examines. Here the question is urban growth: `gain = 2` (built) and `loss = 1` (forest).
@@ -149,11 +150,10 @@ inputs = { maps = "dates.raster" }
 params = { gain = 2, loss = 1 }
 note = "Interval, category and transition levels; built's gains, forest's losses."
 
-[[nodes]]
+[[plots]]
 id = "plot"
-op = "view.plot"
-inputs = { value = "dates.raster" }
-params = { title = "Plum Island, 1985-1999" }
+title = "Plum Island, 1985-1999"
+layers = [{ from = "dates.raster" }]
 ```
 
 Select the intensity node and press ++ctrl+enter++. It has nine outputs, all tables, which the Viewer shows when
