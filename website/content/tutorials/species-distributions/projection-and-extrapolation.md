@@ -230,7 +230,7 @@ predictors (1 for the first, bio1 here), and 0 where the cell shows no novelty.
 
 !!! app "In the application"
     **Templates → Species → A species in a warmer climate** is this model on predictors drawn by chance, with its
-    four maps in tabs of their own (today, 2 °C warmer, gains and losses, MESS). Replace the `warmer` node with a
+    four maps kept as Plots, in the Viewer's **Plots** menu (today, 2 °C warmer, gains and losses, MESS). Replace the `warmer` node with a
     [[raster.read]] of a scenario's layer, named as the predictor it replaces.
 
 ## Read the results

@@ -174,11 +174,10 @@ op = "prioritize.proxirr"
 inputs = { features = "features.raster" }
 params = { prop = 0.3 }
 
-[[nodes]]
+[[plots]]
 id = "show"
-op = "view.plot"
-inputs = { value = "marxan.frequency_map" }
-params = { title = "Selection frequency" }
+title = "Selection frequency"
+layers = [{ from = "marxan.frequency_map" }]
 ```
 
 <div class="steps" markdown>
@@ -198,7 +197,8 @@ params = { title = "Selection frequency" }
     - `misslevel` (1: a target counts as met only in full), `edge_factor` (1: the edges of a unit facing the sea or
       the edge of the map count fully in its boundary).
 4. **ProxIRR** (node 7): [[prioritize.proxirr]] with the same features and `prop = 0.3`.
-5. **Show** (node 8): the selection frequency in a map tab.
+5. **Show**: click node 6's output `frequency_map` to see the selection frequency in the **Viewer**, then keep it
+   with **Plots › Save as a new plot**, titled *Selection frequency*.
 
 </div>
 
@@ -412,10 +412,9 @@ op = "prioritize.proxirr"
 inputs = { features = "blocks.features" }
 params = { prop = 0.3 }
 
-[[nodes]]
+[[plots]]
 id = "show"
-op = "view.plot"
-inputs = { value = "irreplaceability.beta" }
+layers = [{ from = "irreplaceability.beta" }]
 ```
 
 ## Common pitfalls

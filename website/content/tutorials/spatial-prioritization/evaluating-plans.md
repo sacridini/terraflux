@@ -120,14 +120,13 @@ op = "raster.calc"
 inputs = { f = "evaluation.ferrier" }
 params = { expression = "f.total" }
 
-[[nodes]]
-id = "show"
-op = "view.plot"
-inputs = { value = "evaluation.replacement" }
-params = { title = "Replacement cost" }
-
 [outputs.coverage]
 from = "evaluation.coverage"
+
+[[plots]]
+id = "show"
+title = "Replacement cost"
+layers = [{ from = "evaluation.replacement" }]
 ```
 
 <div class="steps" markdown>
@@ -169,13 +168,12 @@ op = "prioritize.calibrate"
 inputs = { features = "features.raster", cost = "cost.raster" }
 params = { approach = "blended", penalty = "boundary", objective = "min_set", relative_targets = 0.3, values = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1], gap = 0.01 }
 
-[[nodes]]
-id = "show"
-op = "view.plot"
-inputs = { value = "calibration.best" }
-
 [outputs.table]
 from = "calibration.table"
+
+[[plots]]
+id = "show"
+layers = [{ from = "calibration.best" }]
 ```
 
 [[prioritize.calibrate]] takes the problem as [[prioritize.optimize]] does, **without** the penalty it trades off, and

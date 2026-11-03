@@ -6,7 +6,7 @@ order: 10
 level: beginner
 time: 45 min
 template: Fragmentation of a forest
-ops: [fragmentation.fad, fragmentation.fad_multiscale, raster.read, view.plot]
+ops: [fragmentation.fad, fragmentation.fad_multiscale, raster.read]
 series: Measuring fragmentation
 part: 1
 ---
@@ -99,7 +99,7 @@ drawn by chance; replace its first node by a [[raster.read]] of your map.
 ## Build the model
 
 ```tfgraph
-#! caption: The forest map, its FAD in a window of 27 cells, and its FAD at five scales.
+#! caption: The forest map, its FAD in a window of 27 cells, and its FAD at five scales, with a Plot of the classes at 27 cells.
 #! numbered: true
 format = "terraflux/1"
 
@@ -122,11 +122,10 @@ op = "fragmentation.fad_multiscale"
 inputs = { map = "forest.raster" }
 note = "Windows of 7, 13, 27, 81 and 243 cells, and their average."
 
-[[nodes]]
+[[plots]]
 id = "plot"
-op = "view.plot"
-inputs = { value = "fad.classes" }
-params = { title = "FAD, 27 cells" }
+title = "FAD, 27 cells"
+layers = [{ from = "fad.classes" }]
 ```
 
 <div class="steps" markdown>
@@ -137,7 +136,8 @@ params = { title = "FAD, 27 cells" }
    With a map of many classes, set `foreground` to the habitat's class (or list of classes).
 3. **FAD at five scales** (node 3): [[fragmentation.fad_multiscale]], connected the same way. `windows` changes the
    scales (default 7, 13, 27, 81, 243).
-4. **Look** (node 4): [[view.plot]] of `fad.classes` shows the six classes in GuidosToolbox's colours.
+4. **Look**: click node 2 and show its output `classes` in the Viewer: the six classes in GuidosToolbox's colours.
+   **Plots › Save as a new plot** keeps that view with the model (here titled *FAD, 27 cells*).
 
 </div>
 

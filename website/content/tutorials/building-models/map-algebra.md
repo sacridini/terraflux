@@ -5,7 +5,7 @@ description: Compute new maps cell by cell with raster.calc, and build a habitat
 order: 10
 level: beginner
 time: 45 min
-ops: [raster.calc, raster.read, raster.write, view.plot]
+ops: [raster.calc, raster.read, raster.write]
 ---
 
 In this tutorial you write your own maps from other maps. Starting from the land use of Sibuyan Island in the
@@ -229,16 +229,16 @@ inputs = { land = "$land", si_elev = "si_elev.map", si_road = "si_road.map" }
 params = { expression = "sqrt(si_elev * si_road) if land == 1 else 0" }
 note = "The geometric mean of the scores in forest, 0 outside it."
 
-[[nodes]]
+[[plots]]
 id = "plot"
-op = "view.plot"
-inputs = { value = "hsi.map" }
-params = { title = "Habitat suitability" }
+title = "Habitat suitability"
+layers = [{ from = "hsi.map" }]
 ```
 
 Node 3 takes three inputs: the land use and the outputs of nodes 1 and 2. The connection `si_elev.map` means "the
-port `map` of the node `si_elev`". Node 4, [[view.plot]], shows the index in a tab of its own without writing a
-file (see [Plots and tables](../plots-and-tables/)). You could also write the whole index as one expression;
+port `map` of the node `si_elev`". Click node 3 and the Viewer shows the index; the `[[plots]]` at the end of the
+model keeps that view as a Plot, *Habitat suitability*, saved with **Plots › Save as a new plot** in the Viewer's
+header, without writing a file (see [Plots and figures](../plots-and-tables/)). You could also write the whole index as one expression;
 splitting it into nodes lets you look at every score on its own, which is how errors are found.
 
 ![The habitat suitability index](/img/tutorials/building-models/map-algebra/hsi.png "The index: high in the lowland forest far from roads (yellow), lower up the mountains and near the roads of the coast, 0 outside forest. The sea has no value.")
@@ -393,7 +393,7 @@ coconut or rice. When you report numbers like these, give the rule that made the
 and the radius), since another rule gives another number.
 
 To keep a result, write it with [[raster.write]] (`path = "hsi.tif"`), make it an output of the model, or save it
-from its tab in the application (**Save output**).
+from the Viewer in the application (**Save output**, in its header).
 
 ## Settings that change the answer
 

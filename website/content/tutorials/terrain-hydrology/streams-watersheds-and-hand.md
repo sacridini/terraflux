@@ -204,8 +204,8 @@ after: { src: /img/tutorials/terrain-hydrology/streams-watersheds-and-hand/strea
 2. Add [[hydro.stream_links]] and rename it `links`. Connect `filled`'s raster to its `dem`, `streams`'s map to its
    `streams` and `outlets`'s `vector` to its `outlets`.
 3. Run to `links`. It has two outputs: a map (`map`), the number of the link of each stream cell, 0 elsewhere;
-   and a table (`table`), a row per link. To see the table as a chart, connect it to a [[view.plot]]; to keep it,
-   connect it to a [[table.write]] with **path** `links.csv`.
+   and a table (`table`), a row per link. To see the table as a chart, click `links` and chart its `table` in the
+   **Viewer**; to keep it, connect it to a [[table.write]] with **path** `links.csv`.
 
 </div>
 

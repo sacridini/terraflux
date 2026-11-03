@@ -6,7 +6,7 @@ order: 70
 level: advanced
 time: 50 min
 template: Multi-action planning
-ops: [prioritize.actions_raster, prioritize.actions, table.of, raster.read, view.plot]
+ops: [prioritize.actions_raster, prioritize.actions, table.of, raster.read]
 series: Systematic conservation planning
 part: 7
 ---
@@ -127,10 +127,9 @@ op = "prioritize.actions_raster"
 inputs = { monitoring_cost = "cost.raster", features = "features.raster", threats = "threats.raster" }
 params = { action_cost = [30, 10], target_recovery = 0.3, target_conservation = 0.1, model = "minimizeCosts", gap = 0.01 }
 
-[[nodes]]
+[[plots]]
 id = "show"
-op = "view.plot"
-inputs = { value = "plan.maps" }
+layers = [{ from = "plan.maps" }]
 ```
 
 <div class="steps" markdown>
@@ -159,7 +158,8 @@ inputs = { value = "plan.maps" }
 !!! app "In the application"
     Add `prioritize.actions_raster` from the *Spatial prioritization* subject, connect the three maps, set the
     targets and press ++ctrl+enter++. The `maps` port shows the monitored cells and the actions as layers of a
-    stack; the `benefit` table says what every feature gets.
+    stack in the **Viewer**; the `benefit` table says what every feature gets. **Plots › Save as a new plot** keeps
+    the stack with the model.
 
 ### On tables
 

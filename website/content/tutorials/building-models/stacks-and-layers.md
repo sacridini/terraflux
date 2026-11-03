@@ -80,8 +80,8 @@ a map.
 
 The names of the layers are the names of the bands in the file (GDAL's band descriptions, which R's
 terra and Python's rasterio can write). A band without a name is called by its position from 0: `"0"`, `"1"`...
-Check the names before you build a model on them: in the application, select the node and the maps of its stack
-are shown under the canvas; [[view.plot]] shows them in a tab of their own.
+Check the names before you build a model on them: in the application, select the node and the Viewer shows the
+maps of its stack, a layer at a time, with each layer's name.
 
 Whichever way it is read, a stack reaches [[raster.calc]] whole, and the expression reads its layers by name
 (`d.slope`). So does a stack connected to an input that takes a value of any kind (such as the predictors of a
@@ -297,11 +297,10 @@ op = "raster.write"
 inputs = { value = "series.raster" }
 params = { path = "series.tif" }
 
-[[nodes]]
+[[plots]]
 id = "plot"
-op = "view.plot"
-inputs = { value = "series.raster" }
-params = { title = "Land use, 1997 and 2011" }
+title = "Land use, 1997 and 2011"
+layers = [{ from = "series.raster" }]
 ```
 
 The files of a folder may be of different grids (tiles to join, maps from different sources). Terraflux shows
@@ -471,7 +470,7 @@ Dinamica EGO's allocation through `stack.of` with `inputs = { 1_to_2 = "rule.map
 A stack has no "result" of its own; what you check is that its layers are the ones you meant:
 
 - **The names.** [[raster.write]] the stack and look at the band descriptions (in QGIS: Layer Properties,
-  Information; with GDAL: `gdalinfo`), or show it with [[view.plot]].
+  Information; with GDAL: `gdalinfo`), or click its node and step through its layers in the Viewer.
 - **The count.** [[stack.set]] with a misspelt name adds a layer instead of replacing one: a stack of 14 layers
   where you expected 13 is the sign.
 - **The values.** Each layer should have the range and units you expect (metres, degrees, 0 to 1).

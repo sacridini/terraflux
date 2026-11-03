@@ -88,7 +88,7 @@ artificial surfaces, 12 to 22 agricultural areas, 23 to 25 forests, 26 to 34 shr
 35 to 39 wetlands and 40 to 44 water:
 
 ```tfgraph
-#! caption: Group CORINE's classes into six, name them, and show the result.
+#! caption: Group CORINE's classes into six, name them, and keep a Plot of the result.
 #! highlight: groups, named
 format = "terraflux/1"
 
@@ -110,11 +110,10 @@ op = "raster.legend"
 inputs = { map = "groups.map" }
 params = { classes = [[1, "Urban", "#b4508a"], [2, "Farmland", "#d9a441"], [3, "Forest", "#3b8a5a"], [4, "Open natural", "#a7c957"], [5, "Wetland", "#6f8fbf"], [6, "Water", "#2f6f9f"]] }
 
-[[nodes]]
+[[plots]]
 id = "plot"
-op = "view.plot"
-inputs = { value = "named.map" }
-params = { title = "Six groups" }
+title = "Six groups"
+layers = [{ from = "named.map" }]
 ```
 
 ```tfcompare

@@ -104,24 +104,22 @@ id = "fractal"
 op = "nlm.fbm"
 params = { rows = 256, columns = 256, dimension = 1.5, seed = 4 }
 
-[[nodes]]
+[[plots]]
 id = "plot_clusters"
-op = "view.plot"
-inputs = { value = "clusters.map" }
+layers = [{ from = "clusters.map" }]
 
-[[nodes]]
+[[plots]]
 id = "plot_field"
-op = "view.plot"
-inputs = { value = "field.map" }
+layers = [{ from = "field.map" }]
 
-[[nodes]]
+[[plots]]
 id = "plot_fractal"
-op = "view.plot"
-inputs = { value = "fractal.map" }
+layers = [{ from = "fractal.map" }]
 ```
 
 Each generator is one node without inputs: add it from the library, set its size and seed in the Node pane, and
-connect its `map` to a [[view.plot]] to see it. Here are all fifteen, on grids of 200 × 200 cells.
+click it to see its `map` in the **Viewer**. The template keeps each map as a Plot (the Viewer's **Plots** menu).
+Here are all fifteen, on grids of 200 × 200 cells.
 
 ```tfgallery
 columns: 4

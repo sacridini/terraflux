@@ -408,8 +408,8 @@ Then the classification of the landscape into slope positions:
 1. Add a [[raster.calc]] (subject **Map algebra**) named `position`. Connect `tpi`'s map to an input you name `t`
    and `slope`'s map to an input named `s`, and write the expression
    `6 if t > 17.8 else 5 if t > 8.9 else 4 if t >= -8.9 and s > 5 else 3 if t >= -8.9 else 2 if t >= -17.8 else 1`.
-2. Add a [[view.plot]] after `position` (**title** = `Slope positions`) to see the classes in a tab of their
-   own, and press ++f5++ to run the whole model.
+2. Press ++f5++ to run the whole model, and click `position` to see the classes in the **Viewer**. Keep the map
+   with **Plots › Save as a new plot**, titled `Slope positions`.
 
 </div>
 
@@ -468,7 +468,7 @@ images:
 ```
 
 ??? note "The whole model, in one file"
-    The stages above together, ready to paste into a file next to `elevation.tif` (13 nodes; open it in the
+    The stages above together, ready to paste into a file next to `elevation.tif` (12 nodes and a Plot; open it in the
     application, or run it with `terraflux run`).
 
     ```toml
@@ -545,18 +545,18 @@ images:
     inputs = { t = "tpi.map", s = "slope.map" }
     params = { expression = "6 if t > 17.8 else 5 if t > 8.9 else 4 if t >= -8.9 and s > 5 else 3 if t >= -8.9 else 2 if t >= -17.8 else 1" }
 
-    [[nodes]]
+    [[plots]]
     id = "plot"
-    op = "view.plot"
-    inputs = { value = "position.map" }
-    params = { title = "Slope positions" }
+    title = "Slope positions"
+    layers = [{ from = "position.map" }]
     ```
 
 === "Application"
 
     Open the model with *Open...* in the bar at the top, or build it as above. Click a node and press ++ctrl+enter++ to run to it:
-    its map shows under the canvas, with its legend. A double click on a node shows its map in the Viewer
-    and keeps it there as a layer. To keep a map as a file, use *Save output* in the Viewer, or add a [[raster.write]] node after it.
+    its map shows in the **Viewer**, with its legend. A double click on a node shows its map in the Viewer
+    and keeps it there as a layer. The Viewer's **Plots** menu opens the Plot *Slope positions*. To keep a map as a
+    file, use **Save output** in the Viewer's header, or add a [[raster.write]] node after it.
 
 === "Command line"
 

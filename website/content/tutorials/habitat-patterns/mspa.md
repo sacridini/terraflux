@@ -5,7 +5,7 @@ description: "Run MSPA on two real maps, a land cover map reclassified to forest
 order: 20
 level: beginner
 time: 50 min
-ops: [landscape.mspa, raster.read, raster.reclassify, raster.write, view.plot]
+ops: [landscape.mspa, raster.read, raster.reclassify, raster.write]
 series: Habitat patterns with GuidosToolbox
 part: 2
 ---
@@ -77,12 +77,12 @@ Two real maps, which you can download to follow along:
 
 Put them in a folder, and save the models of this page in the same folder: paths in a model are relative to the
 model's file. In the application, you can start from the template **MSPA of your map**
-(**Templates > Patterns (GuidosToolbox)**), which has the four nodes of the first model with an empty path.
+(**Templates > Patterns (GuidosToolbox)**), which has the nodes of the first model with an empty path.
 
 ## Model 1: from a land cover map to MSPA
 
 ```tfgraph
-#! caption: Read CORINE Land Cover, make its three forest classes the foreground, run MSPA with an edge of 100 m, show it.
+#! caption: Read CORINE Land Cover, make its three forest classes the foreground, run MSPA with an edge of 100 m, and keep a Plot of it.
 #! numbered: true
 format = "terraflux/1"
 
@@ -106,11 +106,10 @@ inputs = { map = "forest.map" }
 params = { edge_width = 4 }
 note = "An edge of 4 cells: 100 m."
 
-[[nodes]]
+[[plots]]
 id = "plot"
-op = "view.plot"
-inputs = { value = "mspa.map" }
-params = { title = "MSPA of CORINE's forest" }
+title = "MSPA of CORINE's forest"
+layers = [{ from = "mspa.map" }]
 ```
 
 <div class="steps" markdown>
@@ -127,7 +126,8 @@ params = { title = "MSPA of CORINE's forest" }
 3. **MSPA** ([[landscape.mspa]]). Connect `forest.map` to its input `map`. Set `edge_width` to 4: with cells of
    25 m, an edge of 4 cells is 100 m, a common figure for the depth of edge effects in temperate forests (choose
    yours from the literature on your species, Murcia, 1995; Ries et al., 2004). Leave `connectivity` at 8.
-4. **Show it** ([[view.plot]]). Connect `mspa.map`. Press ++f5++ to run.
+4. **Show it**. Press ++f5++ to run, and click `mspa`: the Viewer shows its map. Keep it with the model with
+   **Plots › Save as a new plot**, titled *MSPA of CORINE's forest*.
 
 </div>
 
@@ -161,7 +161,7 @@ forest mask from Sentinel-2 or Landsat imagery or a national forest map.
 GuidosToolbox's sample map is such a map. It is coded 0, 1 and 2 already, so MSPA reads it as it is.
 
 ```tfgraph
-#! caption: MSPA of GuidosToolbox's sample forest map, shown and written to a GeoTIFF.
+#! caption: MSPA of GuidosToolbox's sample forest map, kept as a Plot and written to a GeoTIFF.
 #! numbered: true
 #! highlight: write
 format = "terraflux/1"
@@ -180,23 +180,22 @@ params = { edge_width = 1, connectivity = 8 }
 note = "GuidosToolbox's defaults."
 
 [[nodes]]
-id = "plot"
-op = "view.plot"
-inputs = { value = "mspa.map" }
-params = { title = "MSPA" }
-
-[[nodes]]
 id = "write"
 op = "raster.write"
 inputs = { value = "mspa.map" }
 params = { path = "input_mspa.tif" }
 note = "The classes in a GeoTIFF, tagged as an MSPA map."
+
+[[plots]]
+id = "plot"
+title = "MSPA"
+layers = [{ from = "mspa.map" }]
 ```
 
-Node 4, [[raster.write]], keeps the result: its input `value` takes `mspa.map`, its `path` names the file. It writes
+Node 3, [[raster.write]], keeps the result: its input `value` takes `mspa.map`, its `path` names the file. It writes
 the smallest cell type that holds the values (a byte here) and tags the file as GuidosToolbox's MSPA product, so
 that Terraflux, and GuidosToolbox-aware tools, draw it again with its colours and names. Nothing else needs
-connecting: `view.plot` and `raster.write` both read the same output, and a node's output can feed as many inputs
+connecting: the Plot and `raster.write` both read the same output, and a node's output can feed as many inputs
 as you like.
 
 === "Command line"
@@ -209,9 +208,10 @@ as you like.
 
 === "Application"
 
-    ++f5++ runs the model; click the plot to see it in the Viewer. A double click on any node shows its result in
-    the Viewer too, and the viewer writes the row, column and value under the pointer in its corner: point at a red
-    strip to read 33 (bridge) or 35 (bridge in edge).
+    ++f5++ runs the model; click `mspa` to see it in the Viewer (or open the Plot *MSPA* from its **Plots** menu).
+    A double click on any node shows its result in the Viewer too and keeps it as a layer. The Viewer writes the
+    row, column and value under the pointer in its corner: point at a red strip to read 33 (bridge) or 35 (bridge
+    in edge).
 
 ## Read the results
 

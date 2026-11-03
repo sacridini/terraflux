@@ -259,11 +259,10 @@ inputs = { graph = "graph.graph", table = "components.table" }
 params = { column = "component" }
 note = "Each patch painted with its component."
 
-[[nodes]]
+[[plots]]
 id = "plot"
-op = "view.plot"
-inputs = { value = "component_map.map" }
-params = { title = "Components at 2 km" }
+title = "Components at 2 km"
+layers = [{ from = "component_map.map" }]
 ```
 
 <div class="steps" markdown>
@@ -271,7 +270,8 @@ params = { title = "Components at 2 km" }
 1. Connect `graph.graph` to [[conn.overall]], [[conn.components]] and [[conn.to_map]]: one graph feeds as many
    operators as you like, and it is computed once.
 2. Connect `components.table` to the `table` of [[conn.to_map]] and type `component` in its `column`.
-3. Select `plot` and press ++ctrl+enter++ to run up to it. Double-click `overall` to see its table.
+3. Select `component_map` and press ++ctrl+enter++ to run up to it: the Viewer shows the components. Keep the
+   view with **Plots › Save as a new plot** (here titled *Components at 2 km*). Click `overall` to see its table.
 
 </div>
 

@@ -4,7 +4,7 @@ description: What a raster is (cells, resolution, extent, coordinates, bands, no
 order: 20
 level: beginner
 time: 30 min
-ops: [raster.read, raster.legend, view.plot, raster.write]
+ops: [raster.read, raster.legend, raster.write]
 ---
 
 Almost every map you will use in Terraflux is a **raster**: a land cover map made from satellite images, an
@@ -125,7 +125,7 @@ adds a node of the operator [[raster.read]].
 </div>
 
 ```tfgraph
-#! caption: Read a raster and show it in a tab of its own.
+#! caption: Read a raster, and keep a Plot of it with the model.
 #! highlight: landcover
 format = "terraflux/1"
 
@@ -135,12 +135,11 @@ op = "raster.read"
 params = { path = "clc.tif" }
 note = "CORINE Land Cover around Hanover: 2000 x 2000 cells of 25 m, EPSG:3035."
 
-[[nodes]]
+[[plots]]
 id = "plot"
-op = "view.plot"
-inputs = { value = "landcover.raster" }
-params = { title = "Land cover" }
-note = "The map in a tab of its own, refreshed at every run."
+title = "Land cover"
+layers = [{ from = "landcover.raster" }]
+note = "The map in the Viewer, refreshed at every run."
 ```
 
 The node has one output, `raster`: the file **on disk**. Only its header (size, cells, coordinates) has been
@@ -155,9 +154,11 @@ read, so a raster of any size opens at once, and the next node reads what it nee
 Its settings, in the **Node** pane on the left, are `path` (the file, relative to the model's folder; **Choose...**
 opens a dialog), `band` and `nodata` (a value that replaces the file's own no-data value).
 
-The second node, [[view.plot]], is optional: it shows a map in a tab of its own, refreshed every time the
-model runs, without writing any file. To add it, keep `landcover` selected and click **plot** under **Plot**
-in the operators' library: a new node comes already connected to the selected one.
+The `[[plots]]` at the end of the file is optional: it is a **Plot**, a view of the result kept with the model,
+shown again in the Viewer after every run, without writing any file. To make it, open the **Plots** menu in the
+Viewer's header while the map is shown and choose **Save as a new plot**, then type its **title** in the same menu.
+A click on its name in that menu brings the map back whatever node is selected (see
+[Plots and figures](../../building-models/plots-and-tables/)).
 
 ## What the viewer shows
 
@@ -256,11 +257,10 @@ inputs = { map = "landuse.raster" }
 params = { classes = [[1, "Forest", "#3b8a5a"], [2, "Coconut", "#d9a441"], [3, "Grassland", "#a7c957"], [4, "Rice", "#e8d36a"], [5, "Other", "#b4508a"]] }
 note = "The classes of lulcc's Sibuyan data, with their names and colours."
 
-[[nodes]]
+[[plots]]
 id = "plot"
-op = "view.plot"
-inputs = { value = "legend.map" }
-params = { title = "Sibuyan, 1997" }
+title = "Sibuyan, 1997"
+layers = [{ from = "legend.map" }]
 ```
 
 ![Sibuyan's land use in 1997 with its legend](/img/tutorials/getting-started/first-raster/sibuyan_legend.png "Sibuyan Island in 1997, cells of 250 m, with the legend of the model above. Forest covers 65.4% of the island's cells, coconut plantations 16.0%, mostly near the coast.")
@@ -365,7 +365,8 @@ covers writing in detail.
 - [Vector data](../vector-data/): points, lines and polygons, and how they meet rasters.
 - [Coordinate systems and reprojection](../coordinate-systems/): degrees, metres and equal areas.
 - [One grid for all your maps](../one-grid/): resolution, alignment and resampling.
-- The operators: [[raster.read]], [[raster.legend]], [[view.plot]], [[raster.write]].
+- [Plots and figures](../../building-models/plots-and-tables/): layers, comparisons and Plots kept with the model.
+- The operators: [[raster.read]], [[raster.legend]], [[raster.write]].
 - The [Glossary](/glossary/) for every term in one place.
 
 ## References

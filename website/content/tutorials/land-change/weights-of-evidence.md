@@ -167,11 +167,10 @@ op = "woe.probability"
 inputs = { model = "weights.model", landscape = "land_1997.raster", drivers = "drivers.raster" }
 note = "The probability of each transition in each cell of its origin class."
 
-[[nodes]]
+[[plots]]
 id = "plot"
-op = "view.plot"
-inputs = { value = "probability.probability" }
-params = { title = "Transition probabilities" }
+title = "Transition probabilities"
+layers = [{ from = "probability.probability" }]
 ```
 
 <div class="steps" markdown>
@@ -195,7 +194,8 @@ params = { title = "Transition probabilities" }
    output is a stack with a layer per transition (`1_to_2`, `1_to_3`...), the probability in every cell of the
    origin class and no value elsewhere. Here it is computed on 1997; inside a simulation it is computed on the map
    of every step (part 3).
-5. Run (++f5++). Select node 5 to see the weights (below), node 6 or the plot for the maps.
+5. Run (++f5++). Select node 5 to see the weights (below), node 6 for the maps (or the Plot *Transition
+   probabilities*, in the Viewer's **Plots** menu).
 
 </div>
 

@@ -5,7 +5,7 @@ description: Run a SWAT+ project day by day in Terraflux, read its water balance
 order: 40
 level: advanced
 time: 50 min
-ops: [swat.run, table.write, view.plot]
+ops: [swat.run, table.write]
 ---
 
 The first three parts of this series described where water *would* go on a terrain. A watershed model says how
@@ -123,7 +123,7 @@ parts 1 to 3 are simpler and need no parameters.
 1. In the library's subject **Terrain hydrology**, click [[swat.run]]. In the Node pane, set **path** with
    **Choose...** (a zip) or **A folder...** (a TxtInOut folder); in the model file the path is relative to the
    model's folder: `hubbard_brook.zip`. Rename the node `swat`.
-2. Leave **step** at `year`. Run the node (++ctrl+enter++). Its outputs are tables, shown under the canvas,
+2. Leave **step** at `year`. Run the node (++ctrl+enter++). Its outputs are tables, shown in the **Viewer**,
    where you can sort and filter them.
 3. To keep a table, add a [[table.write]] (subject **IO**) and connect the output to its `table`, for example
    `swat`'s `basin_wb` with **path** `basin_wb.csv`.
@@ -190,8 +190,9 @@ The settings:
 1. Add a second [[swat.run]] named `daily`, the same **path**, **step** `day`, **tables**
    `["basin_wb", "channel_sd"]` and **nyskip** `0`, to see all three years.
 2. Add a third named `average`, **step** `aa`, **tables** `["hru_wb", "hru_ls", "hru_pw"]`.
-3. Write their tables with [[table.write]], or look at them with [[view.plot]] (its `table` input; **chart**
-   `lines`, **x** and **y** the columns to draw).
+3. Write their tables with [[table.write]], or look at them in the **Viewer** as a chart (**Lines**, a column
+   along x and the columns to draw). A Plot of a table keeps its chart: `chart = { kind = "lines", x = "...", y =
+   "..." }` in the model file (see [Plots and figures](../../building-models/plots-and-tables/)).
 
 </div>
 
@@ -242,8 +243,9 @@ scenario, copy the project, edit its files (a land use in `hru-data.hru`, the we
 
 === "Application"
 
-    Click a [[swat.run]] node and press ++ctrl+enter++: its tables show under the canvas, where you can sort
-    and filter them. A table connected to a [[view.plot]] is drawn as a chart in a tab of its own.
+    Click a [[swat.run]] node and press ++ctrl+enter++: its tables show in the **Viewer**, where you can sort,
+    filter and chart them. **Plots › Save as a new plot** keeps a table with the model; the Plot's `chart` in
+    the model file says how to draw it.
 
 === "Command line"
 

@@ -255,11 +255,12 @@ expression calls it). Its expression codes every transition with two digits:
 0 if a == b else a * 10 + b
 ```
 
-so 13 is forest → grassland and 42 rice → coconut, 0 no change. Add a [[view.plot]] to see it.
+so 13 is forest → grassland and 42 rice → coconut, 0 no change. Click the node to see the map in the Viewer, and
+keep it with the model with **Plots › Save as a new plot** (titled *Transitions 1997-2011* below).
 
 ```tfgraph
 #! caption: The full model: the transition matrix, the transitions in km², the transitions worth modelling, the components of the change and a map of where each transition happened.
-#! highlight: components, from_to, plot
+#! highlight: components, from_to
 #! numbered: true
 format = "terraflux/1"
 
@@ -307,11 +308,10 @@ inputs = { a = "land_1997.raster", b = "land_2011.raster" }
 params = { expression = "0 if a == b else a * 10 + b" }
 note = "13: forest to grassland, 42: rice to coconut... 0: no change."
 
-[[nodes]]
+[[plots]]
 id = "plot"
-op = "view.plot"
-inputs = { value = "from_to.map" }
-params = { title = "Transitions 1997-2011" }
+title = "Transitions 1997-2011"
+layers = [{ from = "from_to.map" }]
 ```
 
 === "Application"
