@@ -2,7 +2,7 @@
 //! what the scope may read on the left (the model's inputs, a container's values), the connections. Drag a
 //! node to move it, drag its right edge to make it wider (never narrower than its texts need; a double click on
 //! the edge: as wide as they need), drag from an output to an input to connect them, click a node to edit it in
-//! the side panel, double-click a container to edit its body (another node: its map in a tab of its own), click
+//! the side panel, double-click a container to edit its body (another node: its output in the Viewer), click
 //! an output to see it. Drag a connection off an input to take it away (onto another input: moved there), or
 //! right-click the input; right-click a node for its menu (Run on a folder...). Drag the background to select the nodes in a box (shift or ctrl and a click add a node
 //! or take it away, ctrl+A selects all, Esc none): dragging one of them moves them all. Drag with the middle or the right
@@ -208,7 +208,7 @@ pub enum Action {
     Select(String),
     /// Show an output of a node.
     Preview(String, String),
-    /// A node's map in a tab of its own (a double click).
+    /// A node's output shown in the Viewer, run first if need be (a double click).
     Open(String),
     Enter(String),
     Move(String, [f32; 2]),

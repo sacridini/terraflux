@@ -70,7 +70,7 @@ pub enum Pane {
     /// The script of the map algebra node selected: written with its names completed, its outputs previewed, and
     /// anything computed in its scope.
     Calculator,
-    /// A node's output in a tab of its own (opened by a double click on the node; one per node, brought to the
+    /// A node's output in a tab of its own (opened by `Session::open_map`; one per node, brought to the
     /// front when it is open already).
     Map(u64),
 }
@@ -560,6 +560,8 @@ pub struct Session {
     pub ask_problems: bool,
     /// The calculator asked for (the script of the node selected).
     pub ask_calculator: bool,
+    /// The Viewer asked for (a node double-clicked: its output shown there).
+    pub ask_viewer: bool,
     /// How far the node running is, as its operator tells it (a solver's gap...).
     pub task: Option<(String, terraflux_ops::Progress)>,
     /// When Stop was pressed, while the run stops.
@@ -755,6 +757,7 @@ impl Session {
             figure: None,
             ask_problems: false,
             ask_calculator: false,
+            ask_viewer: false,
             task: None,
             stopping: None,
             node: String::new(),
@@ -1206,6 +1209,17 @@ impl Session {
         self.start_with(target, Box::new(move || c.request_repaint()), true);
     }
 
+    /// Run up to a top-level node to show its output (a node double-clicked), as a run after an edit: only when it
+    /// is ready, and quiet (what it lacks, or its failure, told by a run asked for). Whether it started.
+    pub fn run_to_show(&mut self, target: &str, repaint: Box<dyn Fn() + Send>) -> bool {
+        let top = self.model.nodes.iter().any(|n| n.id == target);
+        if !top || !self.can_run_to() || self.not_ready(target, &Registry::standard()) {
+            return false;
+        }
+        self.start_with(Some(target.to_string()), repaint, true);
+        true
+    }
+
     /// An output in a map tab of its own; the tab. A node has one: asked for again, its tab comes to the front
     /// (showing the output asked for), and a new one opens only once it is closed.
     pub fn open_map(&mut self, node: &str, port: &str) -> u64 {
@@ -1319,7 +1333,6 @@ impl Session {
         }
         let Some(run) = &self.run else { return };
         let mut done = None;
-        let mut plots = Vec::new();
         while let Ok(m) = run.rx.try_recv() {
             match m {
                 Message::Node(at) => {
@@ -1335,11 +1348,6 @@ impl Session {
                     self.timings.insert(at, (seconds, bytes));
                 }
                 Message::Finished { at, cached } => {
-                    // a plot that ran: its map tab, opened once
-                    let plot = self.model.nodes.iter().any(|n| n.id == at && n.op == "view.plot");
-                    if plot && !self.map_tabs.values().any(|t| t.node == at) && !plots.contains(&at) {
-                        plots.push(at.clone());
-                    }
                     // a loop taken from the cache: its body as the run before kept it
                     if cached && let Some(b) = self.bodies_before.remove(&at) {
                         self.bodies.entry(at.clone()).or_insert(b);
@@ -1381,14 +1389,6 @@ impl Session {
                 }
                 Message::Recorded(r) => self.recorded = Some(r),
                 Message::Done(r) => done = Some(r),
-            }
-        }
-        // (a plot open already is left where it is)
-        for p in plots {
-            if !self.map_tabs.values().any(|t| t.node == p) {
-                let id = self.open_map(&p, "shown");
-                self.opened.retain(|&o| o != id);
-                self.quiet.push(id);
             }
         }
         // stopped, and still busy in a node that cannot stop in the middle a second later: let it end in the
@@ -1721,12 +1721,14 @@ impl TerrafluxApp {
         }
     }
 
-    /// A template in the builder, its graph arranged, its last node shown, and run (its plots open by themselves).
+    /// A template in the builder, its graph arranged, its last plot shown in the Viewer (else its last node), and
+    /// run.
     pub fn start_template(&mut self, ctx: &egui::Context, t: &crate::templates::Template) {
         self.start_model(ctx, t.model());
     }
 
-    /// A model to start from in the builder (a template's), its graph arranged, its last node shown, and run.
+    /// A model to start from in the builder (a template's), its graph arranged, its last plot shown in the Viewer
+    /// (else its last node), and run.
     pub fn start_model(&mut self, ctx: &egui::Context, model: Model) {
         let mut s = match Session::from_model(model) {
             Ok(s) => s,
@@ -1736,7 +1738,10 @@ impl TerrafluxApp {
             }
         };
         crate::builder::arrange(&mut s, &self.registry);
-        if let Some(last) = s.source.nodes.iter().rev().find(|n| n.op != "view.plot").map(|n| n.id.clone()) {
+        // (a plot shows what the model makes, with the maps under it; no tab of its own)
+        let nodes = &s.source.nodes;
+        let last = nodes.iter().rev().find(|n| n.op == "view.plot").or_else(|| nodes.last()).map(|n| n.id.clone());
+        if let Some(last) = last {
             crate::builder::select(&mut s, &self.registry, &last);
         }
         s.run_when_ready = true;
@@ -3606,6 +3611,9 @@ impl TerrafluxApp {
         }
         if self.session.as_mut().is_some_and(|s| std::mem::take(&mut s.ask_calculator)) {
             self.focus(Pane::Calculator);
+        }
+        if self.session.as_mut().is_some_and(|s| std::mem::take(&mut s.ask_viewer)) {
+            self.focus(Pane::Viewer);
         }
         self.open_due();
         // a review begun by another program (or asked for): its pane in front

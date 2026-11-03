@@ -1,6 +1,6 @@
-//! Seeing a value without writing it (`view.plot`): the application opens a tab of its own for each plot node
-//! that runs, and refreshes it at every run: a map, vector features, or a table drawn as a chart (bars, lines,
-//! points, boxes) as its settings ask; nothing is written (a result one likes is saved from the tab, or by a
+//! Seeing a value without writing it (`view.plot`): the application shows a plot node in the Viewer when it is
+//! clicked, refreshed at every run: a map, vector features, or a table drawn as a chart (bars, lines,
+//! points, boxes) as its settings ask; nothing is written (a result one likes is saved from the Viewer, or by a
 //! `raster.write`, `vector.write` or `table.write`).
 
 use std::sync::Arc;
@@ -22,7 +22,7 @@ impl Operator for Plot {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "view.plot",
-            "Show a map, a stack, the maps of a loop, rasters on disk, vector features or a table in a tab of its own, refreshed at every run, without writing anything; save it from the tab if it is worth keeping. A table is drawn as a chart: bars, lines, points or boxes (chart), of the columns y along x, a group by by (a chart suggested when none is given; changed in the tab too). Plots stack: a plot's shown connected to another's under is drawn beneath it (maps over maps, vectors over them), as many as wanted.",
+            "Show a map, a stack, the maps of a loop, rasters on disk, vector features or a table in the Viewer when the node is clicked, refreshed at every run, without writing anything; save it from the Viewer if it is worth keeping. A table is drawn as a chart: bars, lines, points or boxes (chart), of the columns y along x, a group by by (a chart suggested when none is given; changed in the Viewer too). Plots stack: a plot's shown connected to another's under is drawn beneath it (maps over maps, vectors over them), as many as wanted.",
             Access::None,
         )
         .input(PortSpec::optional("value", Type::Raster, "the map (or maps) to show"))

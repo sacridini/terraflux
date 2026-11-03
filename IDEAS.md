@@ -900,6 +900,15 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
      quando o nó é clicado, com a sua cadeia de `under`, como hoje.
    - Testes: duplo clique não abre `Pane::Map` e põe o Viewer na frente com o nó; um template que roda não abre abas
      `Map` (o teste de `canvas.rs` que esperava as abas dos plots muda).
+   **Feito** (Unreleased): `builder::show_in_viewer` (o duplo clique): seleciona o nó, `Session::ask_viewer` põe o
+   Viewer na frente, e um nó do nível de cima sem resultado roda até ele por `Session::run_to_show`, quieto como a
+   rodada depois de uma edição (só quando pronto; a falha dita por uma rodada pedida). O `poll` não abre mais abas
+   dos plots; um template começa com o seu último plot no Viewer (`start_model`). As abas `Map` só se abrem ainda
+   por `Session::open_map` (o código, até a fase 3). Testes: `canvas.rs` (o duplo clique), `ui.rs` (o plot, o
+   template e o gráfico de uma tabela no Viewer, sem abas).
+   A descrição do `view.plot`, as notas dos templates e os atalhos (F1) já dizem "no Viewer". Falta: os tutoriais do
+   site ainda dizem "a tab of its own" (uns 40 trechos), reescritos na fase 4 junto com os Plots; antes de um release,
+   ao menos os do duplo clique (`tour.md`, `plots-and-tables.md`, `mspa.md`, `terrain.md`, `wetness-and-connectivity.md`).
 2. **O painel de camadas.** (grande)
    - Estado: `Viewer { layers: Vec<Layer>, preview: Option<Layer> }` no lugar de `Shown` e dos `preview*` da
      `Session`. `Layer { from: node.port, kind (mapa, pilha, série, rasters em disco, vetores, tabela), visible,

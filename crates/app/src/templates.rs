@@ -230,7 +230,7 @@ pub const TEMPLATES: [Template; 54] = [
         group: PATTERNS,
         build: None,
         about: "a map of three classes drawn by chance, its forest made MSPA's foreground by a reclassification, \
-                MSPA, and its map in a tab",
+                MSPA, and its map in the Viewer",
         toml: r#"
 format = "terraflux/1"
 name = "MSPA of a forest"
@@ -261,7 +261,7 @@ id = "plot"
 op = "view.plot"
 inputs = { value = "mspa.map" }
 params = { title = "MSPA" }
-note = "Its map in a tab of its own, in GuidosToolbox's colours, refreshed at every run."
+note = "Its map in the Viewer, in GuidosToolbox's colours, refreshed at every run."
 "#,
     },
     Template {
@@ -300,7 +300,7 @@ id = "plot"
 op = "view.plot"
 inputs = { value = "mspa.map" }
 params = { title = "MSPA" }
-note = "Its map in a tab of its own, refreshed at every run."
+note = "Its map in the Viewer, refreshed at every run."
 "#,
     },
     Template {

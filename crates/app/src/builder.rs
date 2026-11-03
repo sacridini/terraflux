@@ -1613,17 +1613,19 @@ fn library(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library) {
     }
 }
 
-/// A node's output in a map tab of its own, run first when it has not run yet.
-pub fn open_map(ui: &Ui, s: &mut Session, r: &Registry, id: &str) {
+/// A node's output shown in the Viewer (a node double-clicked; no tab of its own): selected, the Viewer brought to
+/// the front, and a top-level node that has not run yet run up to it, quietly, when it is ready.
+pub fn show_in_viewer(ui: &Ui, s: &mut Session, r: &Registry, id: &str) {
+    select(s, r, id);
+    s.ask_viewer = true;
     if !s.editor.path.is_empty() {
         return;
     }
-    let Some(n) = s.source.nodes.iter().find(|n| n.id == id) else { return };
-    let Some(port) = first_output(n, r) else { return };
-    if s.value_of(id, &port).is_none() && s.can_run_to() {
-        run_to(ui, s, Some(id.to_string()));
+    let Some(port) = s.source.nodes.iter().find(|n| n.id == id).and_then(|n| first_output(n, r)) else { return };
+    if s.value_of(id, &port).is_none() {
+        let ctx = ui.ctx().clone();
+        s.run_to_show(id, Box::new(move || ctx.request_repaint()));
     }
-    s.open_map(id, &port);
 }
 
 /// Put the nodes of the scope shown in tidy places, and look at them all.
@@ -1991,7 +1993,7 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
                 Ok(false)
             }
             Action::Open(id) => {
-                open_map(ui, s, r, &id);
+                show_in_viewer(ui, s, r, &id);
                 Ok(false)
             }
             Action::Enter(id) => {

@@ -86,7 +86,7 @@ fn layout(below: Vec<Pane>) -> DockState<Pane> {
     d
 }
 
-/// A template run, its graph over its plots (the plot `front` in front), the node `select` selected.
+/// A template run, its graph over the Viewer showing the plot `front`, the node `select` selected.
 fn template(h: &mut Harness<TerrafluxApp>, name: &str, select: &str, front: &str) {
     let t = terraflux_app::templates::TEMPLATES.iter().find(|t| t.name == name).expect("the template");
     let ctx = h.ctx.clone();
@@ -95,10 +95,9 @@ fn template(h: &mut Harness<TerrafluxApp>, name: &str, select: &str, front: &str
     let a = h.state_mut();
     let s = a.session.as_mut().unwrap();
     terraflux_app::builder::select(s, &terraflux_ops::Registry::standard(), select);
-    let mut below: Vec<Pane> = s.map_tabs.keys().map(|&id| Pane::Map(id)).collect();
-    below.sort_by_key(|p| !matches!(p, Pane::Map(id) if s.map_tabs[id].node == front));
-    below.push(Pane::Viewer);
-    a.dock = Some(layout(below));
+    // (plots open no tab of their own: the Viewer shows the one asked for)
+    s.preview = Some((front.to_string(), "shown".to_string()));
+    a.dock = Some(layout(vec![Pane::Viewer]));
     h.run_steps(3);
     let a = h.state_mut();
     a.session.as_mut().unwrap().editor.fit();

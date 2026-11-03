@@ -14,6 +14,12 @@ minor versions.
 - The QGIS project (`.qgz`) with labels, markers and rules was **checked in QGIS 3.34 itself**. `tools/check_qgz.py`
   reads it in PyQGIS: the layers valid, the classes paletted, the labels, the marker and the rules as written.
 
+### Changed
+- **One place to see a result: the Viewer.** A double click on a node shows its output in the Viewer (brought to
+  the front), run first when it has not run yet (quietly, as the preview after an edit), instead of opening a map
+  tab of its own; a `view.plot` that runs no longer opens a tab either (it shows in the Viewer when clicked, with
+  the maps under it), and a template begins with its last plot in the Viewer.
+
 ## [1.33.0] - 2026-11-03
 
 ### Added

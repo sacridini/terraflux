@@ -394,7 +394,7 @@ fn nodes_are_selected_moved_deleted_arranged_and_opened() {
     h.run_steps(3);
     let (r, n1) = (pos(&h, "read"), pos(&h, "n1"));
     assert!(n1[0] > r[0], "{r:?} {n1:?}");
-    // a double click on a node: its map in a tab of its own, run first
+    // a double click on a node: its map in the Viewer (no tab of its own), run first
     // (the clicks before far enough in time not to make a triple click)
     h.run_steps(60);
     let at = editor(&h).screen_of("read").unwrap();
@@ -406,11 +406,11 @@ fn nodes_are_selected_moved_deleted_arranged_and_opened() {
     }
     h.run_steps(3);
     let s = h.state().session.as_ref().unwrap();
-    assert_eq!(s.map_tabs.len(), 1);
-    let (id, tab) = s.map_tabs.iter().next().unwrap();
-    assert_eq!((tab.node.as_str(), tab.port.as_str()), ("read", "raster"));
+    assert!(s.map_tabs.is_empty(), "no map tab");
+    assert_eq!(s.selected.as_deref(), Some("read"));
+    assert_eq!(s.preview, Some(("read".to_string(), "raster".to_string())));
     assert!(s.value_of("read", "raster").is_some());
-    assert!(h.state().is_open(terraflux_app::app::Pane::Map(*id)));
+    assert_eq!(h.state_mut().focused(), Some(terraflux_app::app::Pane::Viewer), "the Viewer in front");
     h.render().unwrap().save(PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("ui-13-map-tab.png")).unwrap();
 }
 

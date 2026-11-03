@@ -395,8 +395,8 @@ fn the_builder_reads_analyses_and_writes() {
     assert!(r.get("landscape_mspa.map").is_some(), "the saved model runs from the command line's engine too");
 }
 
-/// Read, reclassify, plot: the plot's map tab opens by itself, nothing written; saved from the tab (a file, then
-/// a write node in the model too); a rule changed, the tab shows the new map.
+/// Read, reclassify, plot: the plot shown in the Viewer (no tab of its own), nothing written; saved (a file, then
+/// a write node in the model too); a rule changed, the Viewer shows the new map.
 #[test]
 fn a_plot_shows_without_writing_and_saves_from_its_tab() {
     let mut h = harness(new_app(None));
@@ -412,17 +412,20 @@ fn a_plot_shows_without_writing_and_saves_from_its_tab() {
         let plot = s.source.nodes.iter().find(|n| n.id == "view_plot").unwrap();
         assert_eq!(plot.inputs["value"], terraflux_graph::Source::Ref("raster_reclassify.map".into()));
     }
-    until(&mut h, "the plot's tab", |a| a.session.as_ref().unwrap().map_tabs.values().any(|t| t.node == "view_plot"));
-    until(&mut h, "the plot", |a| !a.session.as_ref().unwrap().running());
+    until(&mut h, "the plot", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("view_plot", "shown").is_some()
+    });
+    h.state_mut().focus(Pane::Viewer);
     h.run_steps(3);
-    let (id, forest) = {
+    let forest = {
         let s = h.state().session.as_ref().unwrap();
-        let (id, _) = s.map_tabs.iter().find(|(_, t)| t.node == "view_plot").unwrap();
+        assert!(s.map_tabs.is_empty(), "no tab of its own");
+        assert_eq!(s.preview.as_ref().map(|(n, _)| n.as_str()), Some("view_plot"), "in the Viewer");
         let Some(terraflux_ops::Value::Map(m)) = s.value_of("view_plot", "shown") else { panic!("{:?}", s.error) };
         assert!(m.data.iter().all(|v| v.is_nan() || *v == 0.0 || *v == 1.0));
-        (*id, m)
+        m
     };
-    assert!(h.state().is_open(Pane::Map(id)));
     shot(&mut h, "14-plot");
     // saved from the tab: the same cells in the file
     let out = tmp("ui-forest.tif");
@@ -439,7 +442,7 @@ fn a_plot_shows_without_writing_and_saves_from_its_tab() {
         let w = s.source.nodes.iter().find(|n| n.id == id).unwrap();
         assert_eq!(w.inputs["value"], terraflux_graph::Source::Ref("view_plot.shown".into()));
     }
-    // another rule: the tab shows the new map
+    // another rule: the Viewer shows the new map
     {
         let s = h.state_mut().session.as_mut().unwrap();
         s.selected = Some("view_plot".into());
@@ -583,7 +586,7 @@ fn a_basemap_shows_under_the_data() {
     }
 }
 
-/// A template opens in the builder and runs by itself: its plot's tab in MSPA's colours. A node's map asked for
+/// A template opens in the builder and runs by itself: its plot in the Viewer in MSPA's colours. A node's map asked for
 /// twice is one tab, brought to the front. "/" searches the operators: enter adds the one chosen after the node
 /// selected, escape closes the search.
 #[test]
@@ -594,7 +597,7 @@ fn templates_run_and_the_keyboard_adds_operators() {
     h.state_mut().start_template(&ctx, &terraflux_app::templates::TEMPLATES[0]);
     // (the viewer opens behind the graph)
     h.state_mut().focus(Pane::Viewer);
-    until(&mut h, "the template's plot", |a| a.session.as_ref().unwrap().map_tabs.values().any(|t| t.node == "plot"));
+    assert_eq!(h.state().session.as_ref().unwrap().preview.as_ref().map(|(n, _)| n.as_str()), Some("plot"));
     until(&mut h, "the run", |a| {
         let s = a.session.as_ref().unwrap();
         !s.running() && s.value_of("plot", "shown").is_some()
@@ -2393,7 +2396,7 @@ fn the_legend_is_edited_in_the_viewer() {
     shot(&mut h, "30-legend");
 }
 
-/// A table plotted (in a tab of its own, as the chart its settings ask) and written to a file.
+/// A table plotted (in the Viewer, as the chart its settings ask) and written to a file.
 #[test]
 fn a_table_is_plotted_and_written() {
     use terraflux_graph::Node;
@@ -2421,12 +2424,18 @@ fn a_table_is_plotted_and_written() {
         assert!(s.issues.is_empty(), "{:?}", s.issues);
         s.start(Box::new(|| {}));
     }
-    until(&mut h, "the plot's tab", |a| {
+    until(&mut h, "the plot", |a| {
         let s = a.session.as_ref().unwrap();
-        !s.running() && s.map_tabs.values().any(|t| t.node == "plot")
+        !s.running() && s.value_of("plot", "shown").is_some()
     });
-    let tab = *h.state().session.as_ref().unwrap().map_tabs.iter().find(|(_, t)| t.node == "plot").unwrap().0;
-    h.state_mut().session.as_mut().unwrap().raised.push(tab);
+    // (in the Viewer: no tab of its own)
+    assert!(h.state().session.as_ref().unwrap().map_tabs.is_empty());
+    terraflux_app::builder::select(
+        h.state_mut().session.as_mut().unwrap(),
+        &terraflux_ops::Registry::standard(),
+        "plot",
+    );
+    h.state_mut().focus(Pane::Viewer);
     drawn(&mut h);
     h.run_steps(4);
     shot(&mut h, "31-table-plot");
