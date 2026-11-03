@@ -245,8 +245,9 @@ Vectors are written as GeoPackage files (`results/lines.gpkg`), which QGIS, R's 
 [[vector.write]] writes one where you choose, in any format GDAL writes.
 
 !!! app "In the application"
-    Beside any map, the viewer's **Vectors over the map** lists every vector output of the run: tick the tracks
-    or their lines to draw them over the land cover, reprojected to it, and choose their style. Hover over a
+    Beside any map, the viewer's **Layers** keep outputs on the map: **Add a layer** lists every vector output of
+    the run; add the tracks or their lines to draw them over the land cover, reprojected to it, and choose their
+    style. Hover over a
     location to read its attributes (its `timestamp`, its animal, the collar's columns): the quickest way to check
     that the time and the animal are the columns you expect.
 

@@ -13,6 +13,13 @@ minor versions.
   for editing below its table.
 - The QGIS project (`.qgz`) with labels, markers and rules was **checked in QGIS 3.34 itself**. `tools/check_qgz.py`
   reads it in PyQGIS: the layers valid, the classes paletted, the labels, the marker and the rules as written.
+- **Layers in the Viewer.** The side panel's *Layers* list the outputs kept on the map whatever node is clicked,
+  from the top: shown or hidden, up and down, taken away, a map's opacity, vector features' style; a click on a
+  layer's name shows that map, with its legend and settings. The map shown is kept with 📌 (a double click on a
+  node keeps it too), and *Add a layer* adds the run's other maps and features. The layers under the map shown are
+  drawn under it, those over it over it; the pointer tells each map's value by its name. Layers follow a node
+  renamed and go with one removed, and the QGIS project takes the visible ones. (In place of *Maps over it* and
+  *Vectors over the map*.)
 
 ### Changed
 - **One place to see a result: the Viewer.** A double click on a node shows its output in the Viewer (brought to

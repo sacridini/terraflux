@@ -209,8 +209,8 @@ as you like.
 
 === "Application"
 
-    ++f5++ runs the model; the plot opens in a tab of its own. A double click on any node opens its result in a
-    tab too, and the viewer writes the row, column and value under the pointer in its corner: point at a red
+    ++f5++ runs the model; click the plot to see it in the Viewer. A double click on any node shows its result in
+    the Viewer too, and the viewer writes the row, column and value under the pointer in its corner: point at a red
     strip to read 33 (bridge) or 35 (bridge in edge).
 
 ## Read the results

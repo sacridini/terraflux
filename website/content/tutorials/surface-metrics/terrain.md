@@ -555,8 +555,8 @@ images:
 === "Application"
 
     Open the model with *Open...* in the bar at the top, or build it as above. Click a node and press ++ctrl+enter++ to run to it:
-    its map shows under the canvas, with its legend. A double click on a node opens its map in a tab of its own.
-    To keep a map as a file, use *Save output* in its tab, or add a [[raster.write]] node after it.
+    its map shows under the canvas, with its legend. A double click on a node shows its map in the Viewer
+    and keeps it there as a layer. To keep a map as a file, use *Save output* in the Viewer, or add a [[raster.write]] node after it.
 
 === "Command line"
 

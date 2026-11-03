@@ -627,10 +627,8 @@ pub struct Session {
     pub preview_view: MapView,
     /// The palettes chosen by hand for outputs shown: (node, port).
     pub palettes: std::collections::HashMap<(String, String), crate::builder::Palette>,
-    /// The vector layers drawn over the maps shown (they stay as other nodes are shown).
-    pub preview_overlays: Vec<(String, String, crate::vector_tiles::Style)>,
-    /// The maps drawn over the map shown: (node, port, opacity).
-    pub preview_rasters: Vec<(String, String, f32)>,
+    /// The Viewer's layers: outputs kept on the map as other nodes are shown, the first at the bottom.
+    pub preview_layers: Vec<crate::builder::Layer>,
     /// The map compared with the map shown (by a curtain or side by side).
     pub preview_compare: crate::builder::Compare,
     /// Playing the layers of the output shown in the viewer: when the last one came.
@@ -798,8 +796,7 @@ impl Session {
             preview_band: 0,
             preview_chosen: false,
             preview_view: MapView::default(),
-            preview_overlays: Vec::new(),
-            preview_rasters: Vec::new(),
+            preview_layers: Vec::new(),
             preview_compare: Default::default(),
             preview_playing: None,
             animations: Default::default(),

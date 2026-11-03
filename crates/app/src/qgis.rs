@@ -731,7 +731,9 @@ pub fn pick(s: &Session, node: &str, port: &str) -> Option<Pick> {
     };
     let legend = band_source(&value, band).and_then(|src| crate::legend_view::legend_of(s, node, port, &src));
     // a vector layer as the Viewer draws it over the map
-    let style = s.preview_overlays.iter().find(|(n, p, _)| n == node && p == port).map(|(_, _, st)| st.clone());
+    // (a layer kept, not the map shown: the shown one is drawn in its own colours)
+    let shown = s.preview.as_ref().is_some_and(|(n, p)| n == node && p == port);
+    let style = (!shown).then(|| s.preview_layers.iter().find(|l| l.is(node, port)).map(|l| l.style.clone())).flatten();
     Some(Pick {
         name: name_of(s, node, port),
         palette: crate::builder::palette_of(s, node, port),
@@ -798,10 +800,10 @@ pub fn window(ctx: &egui::Context, s: &mut Session) {
         {
             c.insert(p.clone());
         }
-        // and the vector layers drawn over it
-        for (n, p, _) in &s.preview_overlays {
-            if all.iter().any(|(m, q, _)| (m, q) == (n, p)) {
-                c.insert((n.clone(), p.clone()));
+        // and the layers drawn with it
+        for l in s.preview_layers.iter().filter(|l| l.visible) {
+            if all.iter().any(|(m, q, _)| (m, q) == (&l.node, &l.port)) {
+                c.insert((l.node.clone(), l.port.clone()));
             }
         }
         s.qgis.chosen = Some(c);

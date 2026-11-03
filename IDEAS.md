@@ -907,8 +907,9 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    por `Session::open_map` (o código, até a fase 3). Testes: `canvas.rs` (o duplo clique), `ui.rs` (o plot, o
    template e o gráfico de uma tabela no Viewer, sem abas).
    A descrição do `view.plot`, as notas dos templates e os atalhos (F1) já dizem "no Viewer". Falta: os tutoriais do
-   site ainda dizem "a tab of its own" (uns 40 trechos), reescritos na fase 4 junto com os Plots; antes de um release,
-   ao menos os do duplo clique (`tour.md`, `plots-and-tables.md`, `mspa.md`, `terrain.md`, `wetness-and-connectivity.md`).
+   site ainda dizem "a tab of its own" (uns 40 trechos), reescritos na fase 4 junto com os Plots. Os do duplo clique já
+   foram corrigidos na fase 2 (`tour.md`, `plots-and-tables.md`, `mspa.md`, `terrain.md`,
+   `wetness-and-connectivity.md`, `depressions-and-flow.md`, `connectivity-as-a-graph.md`); ficam os dos `view.plot`.
 2. **O painel de camadas.** (grande)
    - Estado: `Viewer { layers: Vec<Layer>, preview: Option<Layer> }` no lugar de `Shown` e dos `preview*` da
      `Session`. `Layer { from: node.port, kind (mapa, pilha, série, rasters em disco, vetores, tabela), visible,
@@ -927,6 +928,18 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
      quadro mais lento com uma camada só do que hoje.
    - Testes: clicar troca a prévia; fixar mantém; ordem/opacidade/visível mudam o desenho (pixels do harness); o
      identificar lista as camadas; renomear e remover um nó.
+   **Feito** (Unreleased), uma primeira versão: `builder::Layer` (nó, porta, visível, opacidade, estilo dos vetores)
+   e `Session::preview_layers` no lugar de `preview_overlays` e `preview_rasters`; a seção **Layers** do painel do
+   Viewer no lugar de "Maps over it" e "Vectors over the map": o mapa mostrado em itálico com 📌 quando não é uma
+   camada, as camadas de cima para baixo (visível, o nome que, clicado, faz dela o mapa mostrado, com a sua legenda
+   e ajustes; ⏶ ⏷, tirar; a opacidade de um mapa, o estilo de vetores) e *Add a layer* com os outros mapas e vetores
+   do run. O duplo clique num nó fixa o seu mapa. Desenho: as camadas antes do mapa mostrado vão por baixo dele
+   (`RasterLayer::below`), as de depois por cima; o mapa mostrado que não é camada vai por cima de todas; os vetores
+   sempre por cima. O cursor diz o valor de cada mapa pelo nome (`RasterLayer::name`, `MapView::name`). As camadas
+   seguem um nó renomeado e saem com um removido; o projeto do QGIS leva as camadas visíveis. Teste: `ui.rs`
+   (fixar, clicar no nome, ⏷, tirar), `canvas.rs` (o duplo clique fixa). Falta: o painel próprio à esquerda,
+   arrastar para a ordem, *Zoom to layer*, a banda ou o passo por camada, os atributos de vetores no identificar,
+   os testes por pixels e a medida com `canvas::timings`.
 3. **Comparar e dividir dentro do Viewer; o fim das abas `Map`.** (média)
    - Cortina entre a camada de cima e a de baixo (ou duas escolhidas); a diferença (`difference.rs`) como camada
      derivada.

@@ -146,10 +146,10 @@ images:
 
 !!! app "In the application"
     Select a node and click **plot** under **Plot** in the library (or ++slash++ `plot`): a [[view.plot]] comes
-    connected to it, and its tab opens at the next run. A **double click** on any node opens its output in a tab
-    too, without adding a node, for a quick look. In any map tab or the Viewer, **Maps over it** draws other maps
-    of the run over the one shown and **Vectors over the map** the vector layers of the run, each with its own
-    opacity, and **Basemap** puts satellite imagery or a world map beneath (see the [tour](../../getting-started/tour/#the-viewer)).
+    connected to it, and clicking it shows it in the Viewer. A **double click** on any node shows its output in the
+    Viewer too, without adding a node, and keeps it there as a layer. In the Viewer, **Layers** keep other maps
+    and the vector layers of the run on the map, each with its own opacity or style, under or over the map shown,
+    and **Basemap** puts satellite imagery or a world map beneath (see the [tour](../../getting-started/tour/#the-viewer)).
     Those choices are for looking; `under` and `opacity` in the model keep a composition with the model.
 
 ### Saving what a plot shows

@@ -280,12 +280,15 @@ fn crs_of(g: &terraflux_raster::Grid) -> Option<String> {
     g.geo.wkt.clone().or_else(|| g.geo.epsg().map(|c| format!("EPSG:{c}")))
 }
 
-/// A map drawn over another: its colours and how opaque it is (0 to 1).
+/// A map drawn with another: its colours, how opaque it is (0 to 1), whether it is drawn under the map shown
+/// (else over it), and its name (its value under the pointer told by it).
 #[derive(Clone)]
 pub struct RasterLayer {
     pub source: Source,
     pub coloring: Coloring,
     pub opacity: f32,
+    pub below: bool,
+    pub name: String,
 }
 
 /// Another map compared with the one shown, right of a curtain dragged across the view: the map, and the names
@@ -393,6 +396,8 @@ pub struct MapView {
     pub ghost: Option<Vec2>,
     /// Features being drawn on the map (clicks add their vertices instead of picking a cell).
     pub drawing: Option<crate::draw::Sketch>,
+    /// The name of the map shown, its value under the pointer told by it beside those of the maps drawn with it.
+    pub name: String,
     /// The map drawn at the last frame and its colouring; the one shown before the map now, while it fades in.
     last: Option<(Source, u64)>,
     prior: Option<Prior>,
@@ -888,6 +893,20 @@ impl MapView {
         let ppp = ctx.pixels_per_point();
         let mut wanted: Vec<(f32, Job)> = Vec::new();
         self.clock += 1;
+        // the maps under it first, placed by their coordinates on its grid (of its coordinate system)
+        let mut layer_errors = Vec::new();
+        const OTHER_GRID: &str = "a map drawn with it is of another coordinate system or rotated: put it on this \
+                                  map's grid (raster.match)";
+        for l in rasters.iter().filter(|l| l.below) {
+            match place_on(l.source.grid(), source.grid()) {
+                Some(place) => {
+                    let tint = Color32::from_white_alpha((l.opacity.clamp(0.0, 1.0) * 255.0).round() as u8);
+                    let paint = Paint::Asked(&l.coloring);
+                    self.draw_source(&ctx, &painter, rect, &l.source, paint, tint, place, true, &mut wanted);
+                }
+                None => layer_errors.push(OTHER_GRID),
+            }
+        }
         if !blank {
             let base = Place { offset: Vec2::ZERO, scale: Vec2::splat(1.0) };
             // compared: this map left of the curtain, the other right of it, as opaque as this one
@@ -936,19 +955,15 @@ impl MapView {
                 self.draw_source(&ctx, &right, rect, &l.source, paint, tint, place, show_data, &mut wanted);
             }
         }
-        // the maps over it, placed by their coordinates on its grid (of its coordinate system)
-        let mut layer_errors = Vec::new();
-        for l in rasters {
+        // the maps over it
+        for l in rasters.iter().filter(|l| !l.below) {
             match place_on(l.source.grid(), source.grid()) {
                 Some(place) => {
                     let tint = Color32::from_white_alpha((l.opacity.clamp(0.0, 1.0) * 255.0).round() as u8);
                     let paint = Paint::Asked(&l.coloring);
                     self.draw_source(&ctx, &painter, rect, &l.source, paint, tint, place, true, &mut wanted);
                 }
-                None => layer_errors.push(
-                    "a map over it is of another coordinate system or rotated: put it on this \
-                                           map's grid (raster.match)",
-                ),
+                None => layer_errors.push(OTHER_GRID),
             }
         }
         if curtain.is_some() && compared.is_none() {
@@ -1213,6 +1228,22 @@ impl MapView {
                     Some((cmp, place)) => {
                         let w = said(self.layer_value(&cmp.layer, place, c));
                         text.push_str(&format!("   ·   {} {v}   ·   {} {w}", cmp.names[0], cmp.names[1]));
+                    }
+                    // the maps drawn with it: each one's value by its name, from the top
+                    None if rasters.iter().any(|l| !l.name.is_empty()) => {
+                        let named = |l: &&RasterLayer| !l.name.is_empty();
+                        for l in rasters.iter().rev().filter(|l| !l.below).filter(named) {
+                            if let Some(place) = place_on(l.source.grid(), source.grid()) {
+                                text.push_str(&format!("   ·   {} {}", l.name, said(self.layer_value(l, place, c))));
+                            }
+                        }
+                        let name = if self.name.is_empty() { "shown" } else { self.name.as_str() };
+                        text.push_str(&format!("   ·   {name} {v}"));
+                        for l in rasters.iter().rev().filter(|l| l.below).filter(named) {
+                            if let Some(place) = place_on(l.source.grid(), source.grid()) {
+                                text.push_str(&format!("   ·   {} {}", l.name, said(self.layer_value(l, place, c))));
+                            }
+                        }
                     }
                     None => text.push_str(&format!("   ·   {v}")),
                 }

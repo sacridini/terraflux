@@ -410,6 +410,7 @@ fn nodes_are_selected_moved_deleted_arranged_and_opened() {
     assert_eq!(s.selected.as_deref(), Some("read"));
     assert_eq!(s.preview, Some(("read".to_string(), "raster".to_string())));
     assert!(s.value_of("read", "raster").is_some());
+    assert!(s.preview_layers.iter().any(|l| l.is("read", "raster")), "kept as a layer");
     assert_eq!(h.state_mut().focused(), Some(terraflux_app::app::Pane::Viewer), "the Viewer in front");
     h.render().unwrap().save(PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("ui-13-map-tab.png")).unwrap();
 }

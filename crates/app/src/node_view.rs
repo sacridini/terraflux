@@ -154,6 +154,9 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
         let entered = modern && resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         if ((!modern || edited) && ui.button("Rename").clicked()) || (entered && name != n.id) {
             change = Some(crate::editor::rename_node(&mut s.source, &path, &n.id, &name).map(|_| {
+                if path.is_empty() {
+                    crate::builder::layers_follow(&mut s.preview_layers, &s.source, Some((&n.id, &name)));
+                }
                 s.selected = Some(name.clone());
             }));
         }

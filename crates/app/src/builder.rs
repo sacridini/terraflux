@@ -758,6 +758,9 @@ fn rename_box(ctx: &egui::Context, s: &mut Session, r: &Registry) {
         if new != id {
             match crate::editor::rename_node(&mut s.source, &path, &id, &new) {
                 Ok(()) => {
+                    if path.is_empty() {
+                        layers_follow(&mut s.preview_layers, &s.source, Some((&id, &new)));
+                    }
                     if s.selected.as_deref() == Some(id.as_str()) {
                         select(s, r, &new);
                     }
@@ -1621,7 +1624,15 @@ pub fn show_in_viewer(ui: &Ui, s: &mut Session, r: &Registry, id: &str) {
     if !s.editor.path.is_empty() {
         return;
     }
-    let Some(port) = s.source.nodes.iter().find(|n| n.id == id).and_then(|n| first_output(n, r)) else { return };
+    let Some(n) = s.source.nodes.iter().find(|n| n.id == id) else { return };
+    let Some(port) = first_output(n, r) else { return };
+    // a map or features kept as a layer: they stay on the map as other nodes are clicked
+    let mappable = crate::editor::output_ports(n, r)
+        .iter()
+        .any(|(p, t)| *p == port && matches!(t, Type::Raster | Type::Map | Type::Stack | Type::Series | Type::Vector));
+    if mappable {
+        pin(&mut s.preview_layers, id, &port);
+    }
     if s.value_of(id, &port).is_none() {
         let ctx = ui.ctx().clone();
         s.run_to_show(id, Box::new(move || ctx.request_repaint()));
@@ -2159,8 +2170,11 @@ fn preview(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Hover> {
         band: s.preview_band,
         chosen: s.preview_chosen,
         view: std::mem::take(&mut s.preview_view),
-        overlays: std::mem::take(&mut s.preview_overlays),
-        rasters: std::mem::take(&mut s.preview_rasters),
+        layers: {
+            let mut layers = std::mem::take(&mut s.preview_layers);
+            layers_follow(&mut layers, &s.source, None);
+            layers
+        },
         compare: std::mem::take(&mut s.preview_compare),
         playing: s.preview_playing,
     };
@@ -2174,8 +2188,7 @@ fn preview(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Hover> {
         s.preview_chosen = shown.chosen;
     }
     s.preview_view = shown.view;
-    s.preview_overlays = shown.overlays;
-    s.preview_rasters = shown.rasters;
+    s.preview_layers = shown.layers;
     s.preview_compare = shown.compare;
     s.preview_playing = shown.playing;
     hover
@@ -2190,14 +2203,179 @@ pub struct Shown {
     pub band: usize,
     pub chosen: bool,
     pub view: crate::map_view::MapView,
-    /// The vector layers drawn over the map: (node, port, style), the last on top.
-    pub overlays: Vec<(String, String, crate::vector_tiles::Style)>,
-    /// Other maps drawn over the map: (node, port, opacity), the last on top.
-    pub rasters: Vec<(String, String, f32)>,
+    /// The layers drawn with the map shown, the first at the bottom (see [`Layer`]).
+    pub layers: Vec<Layer>,
     /// Another map compared with this one.
     pub compare: Compare,
     /// Playing the layers (a series' steps, a stack's maps): when the last one came.
     pub playing: Option<std::time::Instant>,
+}
+
+/// The layers of the side panel: the map shown at the top when it is not one of them (a click keeps it), then the
+/// layers from the top: shown or hidden, the map whose legend and settings are here (a click on another's name), up
+/// and down, taken away; a map's opacity, vector features' style; and the run's other maps and features to add.
+fn layers_section(
+    ui: &mut Ui,
+    s: &mut Session,
+    r: &Registry,
+    sh: &mut Shown,
+    others: &[(String, String)],
+    main_name: &str,
+    salt: &str,
+) {
+    let (node, port) = (sh.node.clone(), sh.port.clone());
+    theme::section(ui, "Layers");
+    let weak = ui.visuals().weak_text_color();
+    if !sh.layers.iter().any(|l| l.is(&node, &port)) {
+        ui.horizontal(|ui| {
+            if ui
+                .button("📌")
+                .on_hover_text("keep it as a layer: it stays on the map when another node is clicked (a double click on the node keeps it too)")
+                .clicked()
+            {
+                pin(&mut sh.layers, &node, &port);
+            }
+            // (one label: the name with "shown", not the name again beside the one over the map)
+            let mut job = egui::text::LayoutJob::default();
+            let font = egui::TextStyle::Body.resolve(ui.style());
+            let text = ui.visuals().text_color();
+            job.append(main_name, 0.0, egui::TextFormat { font_id: font, color: text, italics: true, ..Default::default() });
+            let small = egui::FontId::proportional(11.0);
+            job.append("  shown", 0.0, egui::TextFormat { font_id: small, color: weak, ..Default::default() });
+            ui.label(job);
+        });
+    }
+    let vectors = vector_values(s, r);
+    let is_vector = |l: &Layer| vectors.iter().any(|(n, p, _)| l.is(n, p));
+    let n = sh.layers.len();
+    let (mut up, mut down, mut gone, mut chosen) = (None, None, None, None);
+    for i in (0..n).rev() {
+        let vector = is_vector(&sh.layers[i]);
+        let l = &mut sh.layers[i];
+        let active = l.is(&node, &port);
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut l.visible, "").on_hover_text("shown on the map, or hidden");
+            let name = output_name(&l.node, &l.port);
+            let text = if active { RichText::new(name).strong() } else { RichText::new(name) };
+            let resp = ui.selectable_label(active, text);
+            if !vector && !active && resp.on_hover_text("its legend and settings here").clicked() {
+                chosen = Some((l.node.clone(), l.port.clone()));
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.small_button("x").on_hover_text("no longer a layer").clicked() {
+                    gone = Some(i);
+                }
+                if ui
+                    .add_enabled(i > 0, egui::Button::new("⏷").small())
+                    .on_hover_text("down: under the one below")
+                    .clicked()
+                {
+                    down = Some(i);
+                }
+                if ui
+                    .add_enabled(i + 1 < n, egui::Button::new("⏶").small())
+                    .on_hover_text("up: over the one above")
+                    .clicked()
+                {
+                    up = Some(i);
+                }
+            });
+        });
+        if l.visible && !active {
+            ui.indent(("layer", salt, i), |ui| match vectors.iter().find(|(vn, vp, _)| l.is(vn, vp)) {
+                Some((vn, vp, v)) => {
+                    crate::vector_view::style_controls(ui, v, &mut l.style, egui::Id::new((vn, vp, salt)));
+                }
+                None => {
+                    ui.spacing_mut().slider_width = (ui.available_width() - 110.0).clamp(40.0, 160.0);
+                    ui.add(egui::Slider::new(&mut l.opacity, 0.0..=1.0).text("opacity"));
+                }
+            });
+        }
+    }
+    if let Some(i) = up {
+        sh.layers.swap(i, i + 1);
+    }
+    if let Some(i) = down {
+        sh.layers.swap(i, i - 1);
+    }
+    if let Some(i) = gone {
+        sh.layers.remove(i);
+    }
+    // another layer's legend and settings: it is the map shown now
+    if let Some((n, p)) = chosen {
+        sh.node = n;
+        sh.port = p;
+        sh.band = 0;
+        sh.chosen = false;
+    }
+    // the run's other maps and features, to add as layers
+    let more: Vec<(String, String)> = others
+        .iter()
+        .cloned()
+        .chain(vectors.iter().map(|(n, p, _)| (n.clone(), p.clone())))
+        .filter(|(n, p)| !sh.layers.iter().any(|l| l.is(n, p)))
+        .collect();
+    if n == 0 && more.is_empty() {
+        ui.label(RichText::new("no other map or features of the run").size(11.0).color(weak));
+    }
+    ui.add_enabled_ui(!more.is_empty(), |ui| {
+        ui.menu_button("Add a layer", |ui| {
+            for (n, p) in &more {
+                if ui.button(output_name(n, p)).clicked() {
+                    // (under the map shown when it is a layer: added under it, else on top)
+                    let l = Layer::new(n, p);
+                    match sh.layers.iter().position(|l| l.is(&node, &port)) {
+                        Some(a) => sh.layers.insert(a, l),
+                        None => sh.layers.push(l),
+                    }
+                    ui.close();
+                }
+            }
+        });
+    });
+}
+
+/// A layer of the Viewer: an output of the run kept in its list (pinned), drawn with the map shown whatever node is
+/// clicked, the first at the bottom: a map (or a stack's first layer), as opaque as asked, or vector features in
+/// their style (over the maps). The map shown is drawn at its place in the list when it is one of them, else over
+/// them all; the layers under it before it, those over it after.
+#[derive(Debug, Clone)]
+pub struct Layer {
+    pub node: String,
+    pub port: String,
+    pub visible: bool,
+    pub opacity: f32,
+    pub style: crate::vector_tiles::Style,
+}
+
+impl Layer {
+    pub fn new(node: &str, port: &str) -> Layer {
+        Layer { node: node.into(), port: port.into(), visible: true, opacity: 1.0, style: Default::default() }
+    }
+
+    /// Whether it is the output `node.port`.
+    pub fn is(&self, node: &str, port: &str) -> bool {
+        self.node == node && self.port == port
+    }
+}
+
+/// An output kept as a layer of the Viewer (on top of the others; nothing when it is one already).
+pub fn pin(layers: &mut Vec<Layer>, node: &str, port: &str) {
+    if !layers.iter().any(|l| l.is(node, port)) {
+        layers.push(Layer::new(node, port));
+    }
+}
+
+/// The layers kept for outputs of the model as it is now: those of nodes no longer there taken away, those of a node
+/// renamed (`from` to `to`) following it.
+pub fn layers_follow(layers: &mut Vec<Layer>, m: &terraflux_graph::Model, renamed: Option<(&str, &str)>) {
+    if let Some((from, to)) = renamed {
+        for l in layers.iter_mut().filter(|l| l.node == from) {
+            l.node = to.to_string();
+        }
+    }
+    layers.retain(|l| m.nodes.iter().any(|n| n.id == l.node));
 }
 
 /// A comparison of the map shown with another: which, and how (by a curtain, side by side, the other in a view of
@@ -2588,7 +2766,7 @@ fn draw_section(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, grid
                 std::time::Instant::now(),
             ));
             // drawn over the map once it is read
-            sh.overlays.push((node.clone(), "vector".into(), Default::default()));
+            pin(&mut sh.layers, &node, "vector");
             sh.view.drawing = None;
             if fetch {
                 // the catalog, its data cut to the area and on a grid spanning it
@@ -2997,8 +3175,8 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 {
                     // the vector layers drawn over the map, in its coordinates and their colours there
                     let styled = plot_vectors.iter().map(|v| (v.clone(), crate::vector_tiles::Style::default())).chain(
-                        sh.overlays.iter().filter_map(|(n, p, style)| match s.value_of(n, p) {
-                            Some(Value::Vector(v)) => Some((v, style.clone())),
+                        sh.layers.iter().filter(|l| l.visible).filter_map(|l| match s.value_of(&l.node, &l.port) {
+                            Some(Value::Vector(v)) => Some((v, l.style.clone())),
                             _ => None,
                         }),
                     );
@@ -3366,64 +3544,8 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                         );
                     }
                 }
-                // other maps of the run over this one (placed by their coordinates), each as opaque as asked
                 ui.add_space(8.0);
-                theme::section(ui, "Maps over it");
-                if others.is_empty() {
-                    ui.label(RichText::new("no other map of the run").weak().size(11.0));
-                }
-                for (mn, mp) in &others {
-                    let at = sh.rasters.iter().position(|(a, b, _)| a == mn && b == mp);
-                    let mut on = at.is_some();
-                    // (a raster read: by its node's name)
-                    let label = if mp == "raster" { mn.clone() } else { format!("{mn}.{mp}") };
-                    if ui.checkbox(&mut on, label).changed() {
-                        match at {
-                            Some(i) if !on => {
-                                sh.rasters.remove(i);
-                            }
-                            None if on => sh.rasters.push((mn.clone(), mp.clone(), 0.7)),
-                            _ => {}
-                        }
-                    }
-                    if let Some(i) = sh.rasters.iter().position(|(a, b, _)| a == mn && b == mp) {
-                        ui.indent(("over", mn, mp), |ui| {
-                            ui.spacing_mut().slider_width = (ui.available_width() - 110.0).clamp(40.0, 160.0);
-                            ui.add(egui::Slider::new(&mut sh.rasters[i].2, 0.0..=1.0).text("opacity"));
-                        });
-                    }
-                }
-                // vector layers of the run over the map (reprojected to it), each in its style
-                ui.add_space(8.0);
-                theme::section(ui, "Vectors over the map");
-                let available = vector_values(s, r);
-                if available.is_empty() {
-                    ui.label(RichText::new("no vector of the run").weak().size(11.0));
-                }
-                for (vn, vp, vec) in &available {
-                    let at = sh.overlays.iter().position(|(a, b, _)| a == vn && b == vp);
-                    let mut on = at.is_some();
-                    let label = if vp == "vector" { vn.clone() } else { format!("{vn}.{vp}") };
-                    if ui.checkbox(&mut on, label).on_hover_text(format!("{} features", vec.len())).changed() {
-                        match at {
-                            Some(i) if !on => {
-                                sh.overlays.remove(i);
-                            }
-                            None if on => sh.overlays.push((vn.clone(), vp.clone(), Default::default())),
-                            _ => {}
-                        }
-                    }
-                    if let Some(i) = sh.overlays.iter().position(|(a, b, _)| a == vn && b == vp) {
-                        ui.indent((vn, vp), |ui| {
-                            crate::vector_view::style_controls(
-                                ui,
-                                vec,
-                                &mut sh.overlays[i].2,
-                                egui::Id::new((vn, vp, salt)),
-                            );
-                        });
-                    }
-                }
+                layers_section(ui, s, r, sh, &others, &main_name, salt);
                 ui.add_space(8.0);
                 draw_section(ui, s, r, sh, maps[k].grid(), salt);
             });
@@ -3432,26 +3554,42 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         .into_iter()
         .map(|v| crate::vector_tiles::Overlay { vector: v, style: Default::default() })
         .collect();
-    overlays.extend(sh.overlays.iter().filter_map(|(n, p, style)| match s.value_of(n, p) {
-        Some(Value::Vector(v)) => Some(crate::vector_tiles::Overlay { vector: v, style: style.clone() }),
-        _ => None,
-    }));
-    // the maps over it: the plot's under ones, then those chosen; each in the colours of what it is
-    for (n, p, o) in &sh.rasters {
-        if let Some(src) = s.value_of(n, p).as_ref().and_then(first_source) {
-            over.push((src, *o, n.clone(), p.clone()));
+    // the layers kept (the first at the bottom): those under the map shown drawn before it, those over it after (the
+    // plot's own maps over it first); the map shown over them all when it is not one of them
+    let at = sh.layers.iter().position(|l| l.is(&node, &port));
+    let mut under: Vec<(Source, f32, String, String)> = Vec::new();
+    let mut above: Vec<(Source, f32, String, String)> = Vec::new();
+    for (i, l) in sh.layers.iter().enumerate() {
+        if !l.visible || Some(i) == at {
+            continue;
+        }
+        match s.value_of(&l.node, &l.port) {
+            Some(Value::Vector(v)) => overlays.push(crate::vector_tiles::Overlay { vector: v, style: l.style.clone() }),
+            Some(v) => {
+                if let Some(src) = first_source(&v) {
+                    let item = (src, l.opacity, l.node.clone(), l.port.clone());
+                    if at.is_none_or(|a| i < a) { under.push(item) } else { above.push(item) }
+                }
+            }
+            None => {}
         }
     }
-    let rasters: Vec<crate::map_view::RasterLayer> = over
+    over.extend(above);
+    let below = under.len();
+    let rasters: Vec<crate::map_view::RasterLayer> = under
         .into_iter()
-        .filter_map(|(src, opacity, n, p)| {
+        .chain(over)
+        .enumerate()
+        .filter_map(|(i, (src, opacity, n, p))| {
             let (made, mut hint) = producer(s, &n, &p);
             hint.push_str(&p);
             let palette = s.palettes.get(&(n.clone(), p.clone())).copied().unwrap_or_else(|| Palette::of(made, &hint));
             let look = s.looks.get(ui.ctx(), &src, palette)?;
-            Some(crate::map_view::RasterLayer { source: src, coloring: look.coloring, opacity })
+            let name = output_name(&n, &p);
+            Some(crate::map_view::RasterLayer { source: src, coloring: look.coloring, opacity, below: i < below, name })
         })
         .collect();
+    sh.view.name = main_name.clone();
     let mut hover = None;
     // the map compared, in the colouring of both (none while its look is being made)
     let other = match (&compared, &shared) {
@@ -3470,7 +3608,13 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 hover = show_difference(ui, sh, &maps[k], &rasters, &overlays);
             }
             Some((src, name, coloring)) if sh.compare.how == How::Curtain => {
-                let layer = crate::map_view::RasterLayer { source: src, coloring, opacity: 1.0 };
+                let layer = crate::map_view::RasterLayer {
+                    source: src,
+                    coloring,
+                    opacity: 1.0,
+                    below: false,
+                    name: String::new(),
+                };
                 let curtain = crate::map_view::Curtain { layer, names: [main_name.clone(), name] };
                 hover = sh.view.show_compared(ui, &maps[k], &l.coloring, &rasters, &overlays, Some(&curtain));
             }

@@ -141,10 +141,10 @@ params = { title = "Everything" }
 ![The three layers over the land cover](/img/tutorials/getting-started/vector-data/overlay.png "The reserves (black outlines), the planned road and the twelve plots (orange, numbered) over the land cover of the window. Colours of the land cover as in CORINE: yellow arable land, greens forests, red towns, blue peat bogs.")
 
 !!! app "In the application: vectors without a plot"
-    You do not need plots to look. Beside any map, the viewer's **Vectors over the map** lists every vector
-    output of the run: tick one to draw it over the map, reprojected to it, and choose its style. Hover over a
-    feature to read its attributes (`feature 2`, `id: 2`, `name: North`, `year: 1998`). **Maps over it** does the
-    same for other maps, each with its opacity.
+    You do not need plots to look. Beside any map, the viewer's **Layers** keep outputs on the map whatever node
+    you click: **Add a layer** lists every vector output of the run, drawn over the map, reprojected to it, in the
+    style you choose. Hover over a feature to read its attributes (`feature 2`, `id: 2`, `name: North`,
+    `year: 1998`). Other maps are added the same way, each with its opacity.
 
 !!! app "In the application: draw a study area"
     **Draw on the map**, under those, draws features on the map shown: **polygons** (a click a vertex; Enter, a

@@ -340,9 +340,9 @@ images:
 
 === "Application"
 
-    Run to a node with ++ctrl+enter++ to see its map under the canvas; a double click opens it in a tab. Put
-    two maps side by side in tabs to compare `ic` and `ic_cleared`, or subtract them with a [[raster.calc]]
-    (`b - a`).
+    Run to a node with ++ctrl+enter++ to see its map under the canvas; a double click shows it in the Viewer. To
+    compare `ic` and `ic_cleared`, choose the other under **Compare** in the Viewer (a curtain, side by side or
+    their difference), or subtract them with a [[raster.calc]] (`b - a`).
 
 === "Command line"
 

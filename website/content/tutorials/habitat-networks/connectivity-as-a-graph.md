@@ -287,7 +287,7 @@ params = { title = "Components at 2 km" }
 === "Application"
 
     ++f5++ runs the whole model. The table of `overall` opens under the canvas when you select the node; a
-    double-click on `component_map` opens the map in a tab, and the corner of the viewer gives the component
+    double-click on `component_map` shows the map in the Viewer, and the corner of the viewer gives the component
     under the pointer.
 
 ## Read the results

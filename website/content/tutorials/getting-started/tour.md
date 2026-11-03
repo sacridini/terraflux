@@ -88,8 +88,8 @@ Here is the same window after a template has run, with its parts numbered:
 6. **The Model pane's bar**: where you are in the model (*Whole model*, or inside a loop), **Run to here** (run the
    node selected and what it needs, ++ctrl+enter++), **Arrange** (tidy the nodes, ++ctrl+l++), **update after every
    edit** (run again by itself after every change) and **Text** (the model as text).
-7. **The Viewer and the map tabs.** The Viewer shows what the node selected gives. A [[view.plot]] node, or a
-   double click on any node, opens a tab of its own (here *MSPA*), refreshed at every run.
+7. **The Viewer.** It shows what the node selected gives, refreshed at every run; a double click on a node
+   brings it to the front with that node's output, and keeps it there as a layer.
 8. **Save output** (the map shown as a GeoTIFF file, with or without a [[raster.write]] node added to the model)
    and **Metadata** (what the file or map says about itself: size, cell size, coordinate system, no data...).
 9. **The legend**: the classes of the map with their colours and their number of cells (here 300 x 300 cells, of
@@ -210,8 +210,8 @@ how the map travels.
 
 Click a node to select it: the Viewer shows what it gives. Click `landscape` and the Viewer shows the three classes
 drawn by chance; click `forest` and you see the two classes MSPA reads. This is how you check a model step by
-step: **look at the output of every node** before you trust the last one. A double click on a node opens its map in
-a tab of its own, to keep it in view while you work on another node.
+step: **look at the output of every node** before you trust the last one. A double click on a node shows its map in
+the Viewer and keeps it as a layer, to keep it in view while you work on another node.
 
 The small dot at the top right of a node tells how it did in the last run: green when it ran, a darker green when
 its result came from the cache (nothing it depends on had changed), orange while it runs, red when it failed.
@@ -358,8 +358,11 @@ Over a map:
   **Figure...** can make a figure of it. A comparison worth keeping goes in the model: connect the other map to
   a `view.plot` node's **compared** input and choose **compare** (curtain, side by side or difference); its tab
   opens so, and the report shows the two maps, and their difference when asked;
-- **Maps over it** draws other maps of the run over this one, each as opaque as you like, and **Vectors over the
-  map** draws vector layers of the run over it;
+- **Layers** keep outputs on the map whatever node you click: the map shown is kept with the pin (a double click
+  on a node keeps it too), **Add a layer** adds other maps and vector layers of the run, and each layer is shown
+  or hidden, moved up or down, made more or less opaque (vectors styled) or taken away. A click on a layer's name
+  shows that map, with its legend; the layers listed under it are drawn under it, those over it over it, and the
+  pointer tells each map's value;
 - clicking a cell lists, under **This cell in every map**, its value in every map of the run at the same place
   (placed by their coordinates; *outside* where a map does not reach it): the land cover, the elevation and the
   model's result of one place side by side. A name shows that map, and **Copy** copies the list;
@@ -481,7 +484,7 @@ On macOS, ++cmd++ takes the place of ++ctrl++.
 - **Nothing happens when I press a key.** Keys go to the pane under the pointer, and not while you type in a box:
   click on the canvas first.
 - **The map I expect is not shown.** The Viewer shows the node *selected*. Click the node whose output you want,
-  or double-click it to open its own tab.
+  or double-click it to bring the Viewer to the front with it.
 - **A required input is missing.** Inputs that must be connected are marked with a star in the Node pane and are
   drawn in orange on the canvas until they are; **Run** stays greyed out while a model has errors, which the Model
   pane's **Text** view lists.

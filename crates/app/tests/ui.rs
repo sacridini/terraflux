@@ -2105,11 +2105,13 @@ fn maps_stack_and_cells_show_their_series() {
     {
         let s = h.state_mut().session.as_mut().unwrap();
         terraflux_app::builder::select(s, &terraflux_ops::Registry::standard(), "top");
-        s.preview_rasters.push(("drivers".into(), "raster".into(), 0.5));
+        let drivers =
+            terraflux_app::builder::Layer { opacity: 0.5, ..terraflux_app::builder::Layer::new("drivers", "raster") };
+        s.preview_layers.push(drivers);
     }
     h.state_mut().focus(Pane::Viewer);
     drawn(&mut h);
-    assert!(h.query_by_label("MAPS OVER IT").is_some());
+    assert!(h.query_by_label("LAYERS").is_some());
     shot(&mut h, "21-stacked");
     // B over the map: the satellite under it (once the map is drawn: its colours come from a thread)
     until(&mut h, "the map drawn", |a| a.session.as_ref().unwrap().preview_view.rect().is_some());
@@ -2139,10 +2141,40 @@ fn maps_stack_and_cells_show_their_series() {
     let zoom = h.state().session.as_ref().unwrap().preview_view.zoom();
     // 250 m cells: the world (40,075 km) is about 160,000 cells; the view about 900 points
     assert!(zoom > 1e-3 && zoom < 0.05, "{zoom}");
+    // the layers: the map shown kept (on top of the drivers), then the drivers' name clicked: their map shown, the
+    // plot over it now
+    h.get_by_label("📌").click();
+    h.run_steps(2);
+    let kept = |h: &Harness<TerrafluxApp>| -> Vec<(String, String)> {
+        let s = h.state().session.as_ref().unwrap();
+        s.preview_layers.iter().map(|l| (l.node.clone(), l.port.clone())).collect()
+    };
+    assert_eq!(kept(&h), [("drivers".to_string(), "raster".to_string()), ("top".into(), "shown".into())]);
+    h.get_by_label("drivers").click();
+    drawn(&mut h);
+    assert_eq!(h.state().session.as_ref().unwrap().preview, Some(("drivers".to_string(), "raster".to_string())));
+    // the plot up and down, then no longer a layer
+    h.get_by_label("top.shown").click();
+    drawn(&mut h);
+    assert_eq!(h.state().session.as_ref().unwrap().preview, Some(("top".to_string(), "shown".to_string())));
+    use egui_kittest::kittest::NodeT;
+    // (the bottom row's ⏷ disabled)
+    h.query_all_by_label("⏷").find(|n| !n.accesskit_node().is_disabled()).unwrap().click();
+    drawn(&mut h);
+    assert_eq!(kept(&h)[0].0, "top", "the plot under the drivers");
+    // (the rows from the top: the plot's x the bottom one, below the node's inputs' x; its ⏶ the one enabled)
+    assert!(h.query_all_by_label("⏶").find(|n| !n.accesskit_node().is_disabled()).is_some());
+    let bottom = h.query_all_by_label("x").max_by(|a, b| {
+        let y = |n: &egui_kittest::Node| n.accesskit_node().bounding_box().map_or(0.0, |r| r.y0);
+        y(a).total_cmp(&y(b))
+    });
+    bottom.unwrap().click();
+    h.run_steps(2);
+    assert_eq!(kept(&h), [("drivers".to_string(), "raster".to_string())]);
     // a cell of the drivers' stack clicked: its values along the layers
     {
         let s = h.state_mut().session.as_mut().unwrap();
-        s.preview_rasters.clear();
+        s.preview_layers.clear();
         terraflux_app::builder::select(s, &terraflux_ops::Registry::standard(), "drivers");
         s.preview_view.picked = Some((50, 60));
     }
@@ -3238,7 +3270,10 @@ fn the_maps_of_a_run_to_qgis() {
         terraflux_app::builder::add(s, &r, "vector.read", &[("path", gpkg.to_string_lossy().into_owned().into())])
             .unwrap();
         let style = terraflux_app::vector_tiles::Style { by: Some("use".into()), ..Default::default() };
-        s.preview_overlays = vec![("vector_read".into(), "vector".into(), style)];
+        s.preview_layers = vec![terraflux_app::builder::Layer {
+            style,
+            ..terraflux_app::builder::Layer::new("vector_read", "vector")
+        }];
         s.preview = Some(("raster_reclassify".into(), "map".into()));
     }
     h.state_mut().focus(Pane::Viewer);
@@ -3312,7 +3347,7 @@ fn a_map_as_a_figure() {
         terraflux_gdal::write_vector(&gpkg, "area", &v).unwrap();
         terraflux_app::builder::add(s, &r, "vector.read", &[("path", gpkg.to_string_lossy().into_owned().into())])
             .unwrap();
-        s.preview_overlays = vec![("vector_read".into(), "vector".into(), Default::default())];
+        s.preview_layers = vec![terraflux_app::builder::Layer::new("vector_read", "vector")];
         s.preview = Some(("raster_reclassify".into(), "map".into()));
     }
     h.state_mut().focus(Pane::Viewer);

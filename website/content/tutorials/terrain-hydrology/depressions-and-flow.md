@@ -401,8 +401,8 @@ farms, an estimate of nitrogen applied per cell. The result is always "how much 
 
 === "Application"
 
-    Click a node and press ++ctrl+enter++ to run to it; its map shows under the canvas. A double click opens it
-    in a tab of its own. To keep a map, use *Save output* in its tab, or add a [[raster.write]] node after it.
+    Click a node and press ++ctrl+enter++ to run to it; its map shows under the canvas. A double click shows it
+    in the Viewer and keeps it there as a layer. To keep a map, use *Save output* in the Viewer, or add a [[raster.write]] node after it.
 
 === "Command line"
 
