@@ -15,6 +15,8 @@ minor versions.
   takes a layer's `palette` by its name in the Viewer (or its first word: `cividis`, `terrain, logarithmic`).
 - Viewer: **Zoom to layer**: the "zoom" of a layer in the Layers puts the view on all of it (a map's extent, the
   box of vector features); the map shown fits again.
+- Viewer: **the Layers in a panel of their own** at the map's left, hidden and shown by the *Layers* button above
+  the map (no longer in the panel at its right); a layer's name is cut short rather than run under its buttons.
 - Viewer: a layer is **dragged by its name** onto another's row to take its place in the Layers.
 - Viewer: the pointer tells **the feature of every vector layer** under it (each by its layer's name, with its
   attributes), not only the topmost one's.

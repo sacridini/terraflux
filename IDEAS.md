@@ -937,8 +937,8 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    (`RasterLayer::below`), as de depois por cima; o mapa mostrado que não é camada vai por cima de todas; os vetores
    sempre por cima. O cursor diz o valor de cada mapa pelo nome (`RasterLayer::name`, `MapView::name`). As camadas
    seguem um nó renomeado e saem com um removido; o projeto do QGIS leva as camadas visíveis. Teste: `ui.rs`
-   (fixar, clicar no nome, ⏷, tirar), `canvas.rs` (o duplo clique fixa). Falta: o painel próprio à esquerda
-   e a medida do Viewer com 1 e 5 camadas (o `canvas::timings` mede o grafo, não o Viewer). Os testes por pixels:
+   (fixar, clicar no nome, ⏷, tirar), `canvas.rs` (o duplo clique fixa). O painel próprio à esquerda feito (o botão *Layers* no cabeçalho o
+   esconde; teste no `maps_stack_and_cells_show_their_series`). Falta: a medida do Viewer com 1 e 5 camadas (o `canvas::timings` mede o grafo, não o Viewer). Os testes por pixels:
    `the_layers_change_the_picture` (por cima, meia opacidade, escondida, por baixo).
 3. **Comparar e dividir dentro do Viewer; o fim das abas `Map`.** (média)
    - Cortina entre a camada de cima e a de baixo (ou duas escolhidas); a diferença (`difference.rs`) como camada

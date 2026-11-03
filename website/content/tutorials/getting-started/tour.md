@@ -91,7 +91,9 @@ dragged below the Model, to see both:
    node selected and what it needs, ++ctrl+enter++), **Arrange** (tidy the nodes, ++ctrl+l++), **Undo** and **Redo**, **update after
    every edit** (run again by itself after every change) and **Text** (the model as text).
 7. **The Viewer.** It shows what the node selected gives, refreshed at every run; a double click on a node
-   brings it to the front with that node's output, and keeps it there as a layer.
+   brings it to the front with that node's output, and keeps it there as a layer. The **Layers** at the map's
+   left list the maps and vectors drawn together (shown or hidden, dragged over or under each other, their
+   opacity, *zoom* to see all of one); the *Layers* button above the map hides them.
 8. **Save output** (the map shown as a GeoTIFF file, with or without a [[raster.write]] node added to the model),
    the **Plots** of the model (here *Plot: MSPA*, the one shown: what the Viewer shows kept with the model, see
    [Plots and figures](../../building-models/plots-and-tables/)) and **Metadata** (what the file or map says about

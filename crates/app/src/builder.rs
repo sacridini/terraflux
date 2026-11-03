@@ -2305,19 +2305,7 @@ fn layers_section(
         let active = l.is(&node, &port);
         let row = ui
             .horizontal(|ui| {
-                ui.checkbox(&mut l.visible, "").on_hover_text("shown on the map, or hidden");
-                let name = output_name(&l.node, &l.port);
-                let text = if active { RichText::new(name).strong() } else { RichText::new(name) };
-                let resp = ui.add(egui::Button::selectable(active, text).sense(egui::Sense::click_and_drag()));
-                resp.dnd_set_drag_payload(LayerAt(i));
-                let hint = if vector || active {
-                    "drag it over or under another"
-                } else {
-                    "its legend and settings here; drag it over or under another"
-                };
-                if resp.on_hover_text(hint).clicked() && !vector && !active {
-                    chosen = Some((l.node.clone(), l.port.clone()));
-                }
+                // (the buttons at the right first: the name cut to the room left, not under them)
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.small_button("x").on_hover_text("no longer a layer").clicked() {
                         gone = Some(i);
@@ -2339,6 +2327,23 @@ fn layers_section(
                     {
                         up = Some(i);
                     }
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        ui.checkbox(&mut l.visible, "").on_hover_text("shown on the map, or hidden");
+                        let name = output_name(&l.node, &l.port);
+                        let text = if active { RichText::new(&name).strong() } else { RichText::new(&name) };
+                        let resp = ui.add(
+                            egui::Button::selectable(active, text).truncate().sense(egui::Sense::click_and_drag()),
+                        );
+                        resp.dnd_set_drag_payload(LayerAt(i));
+                        let hint = if vector || active {
+                            format!("{name}: drag it over or under another")
+                        } else {
+                            format!("{name}: its legend and settings here; drag it over or under another")
+                        };
+                        if resp.on_hover_text(hint).clicked() && !vector && !active {
+                            chosen = Some((l.node.clone(), l.port.clone()));
+                        }
+                    });
                 });
             })
             .response;
@@ -3246,6 +3251,21 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     crate::metadata::window(ui.ctx(), &format!("{node}.{port}"), &crate::metadata::facts(v), &mut open);
                 }
                 ui.data_mut(|d| d.insert_temp(id, open));
+                // the panel of the layers at the map's left, hidden or shown
+                let id = egui::Id::new(("layers open", salt));
+                let mut layers: bool = ui.data(|d| d.get_temp(id)).unwrap_or(true);
+                let drawn =
+                    matches!(&value, Some(Value::Map(_) | Value::Stack(_) | Value::Raster(_) | Value::Vector(_)))
+                        || matches!(&value, Some(Value::Series(v)) if v.iter().all(|x| matches!(x, Value::Map(_))));
+                if drawn
+                    && ui
+                        .add(egui::Button::new("Layers").selected(layers))
+                        .on_hover_text("the layers drawn with this map, at its left: hidden or shown")
+                        .clicked()
+                {
+                    layers = !layers;
+                    ui.data_mut(|d| d.insert_temp(id, layers));
+                }
                 plots_menu(ui, s, sh, inner.is_none(), salt);
                 // what is shown, saved: a file only, or a file and a node that writes it at every run
                 let maps = matches!(&value, Some(Value::Map(_) | Value::Stack(_) | Value::Raster(_)))
@@ -3963,11 +3983,29 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     }
                 }
                 ui.add_space(8.0);
-                layers_section(ui, s, r, sh, &others, &main_name, salt);
-                ui.add_space(8.0);
                 draw_section(ui, s, r, sh, maps[k].grid(), salt);
             });
         });
+    // the layers, in a panel of their own at the map's left (its button in the header hides it)
+    let id = egui::Id::new(("layers open", salt));
+    let mut layers_open: bool = ui.data(|d| d.get_temp(id)).unwrap_or(true);
+    let others = {
+        let mut o = map_values(s, r, (&node, &port));
+        let rank =
+            |(n, p): &(String, String)| sh.layers.iter().rev().position(|l| l.is(n, p)).unwrap_or(sh.layers.len());
+        o.sort_by_key(rank);
+        o
+    };
+    egui::Panel::left(egui::Id::new(("layers side", salt)))
+        .resizable(true)
+        .default_size(270.0)
+        .frame(egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(Margin::same(8)))
+        .show_collapsible(ui, &mut layers_open, |ui| {
+            egui::ScrollArea::vertical().id_salt(("layers scroll", salt)).show(ui, |ui| {
+                layers_section(ui, s, r, sh, &others, &main_name, salt);
+            });
+        });
+    ui.data_mut(|d| d.insert_temp(id, layers_open));
     sh.view.name = main_name.clone();
     let mut hover = None;
     // the map compared, in the colouring of both (none while its look is being made)

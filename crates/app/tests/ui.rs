@@ -2150,6 +2150,13 @@ fn maps_stack_and_cells_show_their_series() {
     drawn(&mut h);
     assert!(h.query_by_label("LAYERS").is_some());
     shot(&mut h, "21-stacked");
+    // the panel of the layers, at the map's left: hidden by its button, and shown again
+    h.get_by_label("Layers").click();
+    h.run_steps(20);
+    assert!(h.query_by_label("LAYERS").is_none(), "the layers hidden");
+    h.get_by_label("Layers").click();
+    h.run_steps(20);
+    assert!(h.query_by_label("LAYERS").is_some(), "the layers shown");
     // B over the map: the satellite under it (once the map is drawn: its colours come from a thread)
     until(&mut h, "the map drawn", |a| a.session.as_ref().unwrap().preview_view.rect().is_some());
     let rect = h.state().session.as_ref().unwrap().preview_view.rect().unwrap();
