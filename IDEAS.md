@@ -711,7 +711,7 @@ Pedido de 2026-11-02: as abas que aparecem quando fazem sentido, e as pontas que
 8. **QGIS: rótulos e regras.** **Feito** (Unreleased): `qgis::VectorOptions` por camada vetorial na janela (o
    atributo dos rótulos, o símbolo dos pontos entre oito, "as rules"): `<labeling type="simple">` com
    `labelsEnabled`, o símbolo em `SimpleMarker`, e o `RuleRenderer` (uma regra por classe ou faixa, os textos com
-   aspas dobradas, e uma `ELSE`). Falta conferir no QGIS (PyQGIS) como o `.qgz` de antes.
+   aspas dobradas, e uma `ELSE`). Conferido no QGIS 3.34 (PyQGIS): item 11 de "O próximo bloco de 2026-11-03".
 9. **Script Python: alocação passo a passo, vetores e tabelas.** **Feito** (Unreleased), em parte a alocação:
    as tabelas em pandas (`table.filter`, `calc`, `aggregate`, `select`, `sort`, `join`, `pivot`; as expressões pelo
    `_calc`, os textos pela ordem), os vetores em geopandas e no landschaft (`vector.read` com a tabela,
@@ -836,6 +836,12 @@ commit por item):
    leem rodam sempre, e um nó que nada lê também (um write, um view). Nos laços, nada muda. Teste: `first`, lido só
    por `second` congelado, não roda mais (`cache.rs`).
 11. **QGIS:** o `.qgz` conferido no PyQGIS.
+    **Feito** (Unreleased): `qgis::tests::a_project_for_pyqgis` (ignorado; escreve na pasta `TERRAFLUX_QGIS_DIR`)
+    grava um `.qgz` com um mapa de classes, pontos rotulados como quadrados e feições em regras; `tools/check_qgz.py`
+    o lê no Python do QGIS (`python-qgis-ltr.bat`, `QT_QPA_PLATFORM=offscreen`). As 17 conferências passam no QGIS
+    3.34.14: o projeto lido, o CRS (EPSG:32651), as três camadas válidas, o mapa paletted com as classes 1, 2 e 3,
+    os rótulos ligados pelo `name`, o marcador quadrado, o `RuleRenderer` com uma regra por classe e um `ELSE`, e um
+    símbolo em cada regra.
 12. **Trace:** a variável de iteração do CLUE.
 13. **Document:** tabelas dentro de tabelas.
     **Feito** (Unreleased): uma célula de uma tabela (`grid`) ou um valor de uma tabela por nome (`items`) pode ser

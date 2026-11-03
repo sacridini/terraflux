@@ -1128,4 +1128,55 @@ mod tests {
         assert!(labeling("Polygon", "use").contains("placement=\"1\""));
         assert!(labeling("Line", "use").contains("placement=\"2\""));
     }
+
+    /// A `.qgz` of a map of classes, points labelled as squares and features styled as rules, written to the folder
+    /// `TERRAFLUX_QGIS_DIR` for QGIS to read (`tools/check_qgz.py` in PyQGIS).
+    #[test]
+    #[ignore]
+    fn a_project_for_pyqgis() {
+        use terraflux_raster::vector::{Column, Vector};
+        let dir = std::path::PathBuf::from(std::env::var("TERRAFLUX_QGIS_DIR").expect("TERRAFLUX_QGIS_DIR"));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut g = terraflux_raster::Grid::new(4, 3);
+        g.transform = [500000.0, 30.0, 0.0, 9000000.0, 0.0, -30.0];
+        g.geo.wkt = Some(terraflux_gdal::crs_wkt("EPSG:32651").unwrap());
+        let g = Arc::new(g);
+        let m = Map::new(g, vec![1.0, 1.0, 2.0, 2.0, 1.0, f64::NAN, 2.0, 2.0, 1.0, 1.0, 1.0, 3.0]);
+        let pts = Vector {
+            geometries: vec![Geometry::Point([500030.0, 8999950.0]), Geometry::Point([500060.0, 8999930.0])],
+            attributes: vec![
+                ("name".into(), Column::Texts(vec!["plot 1".into(), "farmer's".into()])),
+                ("use".into(), Column::Texts(vec!["forest".into(), "pasture".into()])),
+            ],
+            crs: None,
+        };
+        let pts = Arc::new(pts);
+        let by_use = crate::vector_tiles::Style {
+            colour: Color32::from_rgb(10, 20, 30),
+            by: Some("use".into()),
+            fill: 0.5,
+            width: 2.0,
+        };
+        let pick = |name: &str, value: Value, style, options| Pick {
+            name: name.into(),
+            value,
+            palette: Palette::Auto,
+            legend: None,
+            band: 0,
+            style,
+            options,
+        };
+        let picks = vec![
+            pick("land use", Value::Map(m), None, VectorOptions::default()),
+            pick(
+                "plots",
+                Value::Vector(pts.clone()),
+                None,
+                VectorOptions { label: Some("name".into()), marker: 1, rules: false },
+            ),
+            pick("uses", Value::Vector(pts), Some(by_use), VectorOptions { label: None, marker: 4, rules: true }),
+        ];
+        let qgz = export(&picks, &dir, "PyQGIS check", false).unwrap();
+        println!("{}", qgz.display());
+    }
 }

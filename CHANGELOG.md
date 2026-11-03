@@ -49,6 +49,8 @@ minor versions.
 - **Tables inside tables** are edited in place in the Document and the Node pane. A cell that is a list, rows or
   records in turn (the zones of manual targets, a demand per region, a demand's table) shows as a button, and opens
   for editing below its table.
+- The QGIS project (`.qgz`) with labels, markers and rules was **checked in QGIS 3.34 itself**. `tools/check_qgz.py`
+  reads it in PyQGIS: the layers valid, the classes paletted, the labels, the marker and the rules as written.
 - **Grouping nodes, easier to find**: with several nodes selected, a bar at the canvas's bottom tells how many and
   groups them (*Group them*, ctrl+G); a node's right-click menu groups the nodes selected, and a group's opens it,
   ungroups it and saves it as my node (a calculator's too). A group made asks for its name at once, with a tick to
