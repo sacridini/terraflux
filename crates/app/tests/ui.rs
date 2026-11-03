@@ -2508,6 +2508,59 @@ fn the_legend_is_edited_in_the_viewer() {
     shot(&mut h, "30-legend");
 }
 
+/// The layers change the picture (the harness's pixels at the middle of the map): a map over the one shown, half
+/// opaque, hidden, put under it.
+#[test]
+fn the_layers_change_the_picture() {
+    use terraflux_app::builder::Layer;
+    use terraflux_graph::Node;
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source.nodes = vec![
+            Node::new("land", "raster.read")
+                .param("path", data("sibuyan_landuse.tif").to_string_lossy().as_ref())
+                .param("band", "0"),
+            Node::new("drivers", "raster.read").param("path", data("sibuyan_drivers.tif").to_string_lossy().as_ref()),
+        ];
+        s.edited();
+        s.start(Box::new(|| {}));
+    }
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("land", "raster").is_some() && s.value_of("drivers", "raster").is_some()
+    });
+    show(&mut h, "land", "raster");
+    // the pixel at the middle of the map, once drawn and faded in
+    let pixel = |h: &mut Harness<TerrafluxApp>| -> [u8; 4] {
+        drawn(h);
+        let t = Instant::now();
+        while t.elapsed() < Duration::from_millis(500) {
+            h.step();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        drawn(h);
+        let at = h.state().session.as_ref().unwrap().preview_view.rect().expect("the map drawn").center();
+        let img = h.render().expect("the window drawn by wgpu");
+        img.get_pixel(at.x as u32, at.y as u32).0
+    };
+    let layers =
+        |h: &mut Harness<TerrafluxApp>, l: Vec<Layer>| h.state_mut().session.as_mut().unwrap().preview_layers = l;
+    let alone = pixel(&mut h);
+    // the drivers over the land (both layers, the drivers on top)
+    layers(&mut h, vec![Layer::new("land", "raster"), Layer::new("drivers", "raster")]);
+    let over = pixel(&mut h);
+    assert_ne!(over, alone, "the drivers over the land");
+    layers(&mut h, vec![Layer::new("land", "raster"), Layer { opacity: 0.5, ..Layer::new("drivers", "raster") }]);
+    let half = pixel(&mut h);
+    assert!(half != over && half != alone, "half opaque: between the two ({half:?}, {over:?}, {alone:?})");
+    layers(&mut h, vec![Layer::new("land", "raster"), Layer { visible: false, ..Layer::new("drivers", "raster") }]);
+    assert_eq!(pixel(&mut h), alone, "hidden");
+    layers(&mut h, vec![Layer::new("drivers", "raster"), Layer::new("land", "raster")]);
+    assert_eq!(pixel(&mut h), alone, "under the land");
+}
+
 /// A layer's band and palette kept in a Plot, and given back when it opens; the Document's colours by the Plot.
 #[test]
 fn a_layers_band_and_palette_are_kept_in_its_plot() {
