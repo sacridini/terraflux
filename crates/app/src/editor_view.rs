@@ -233,7 +233,26 @@ pub enum Action {
     NodeToInput(String),
     /// The box of something the scope reads taken away: a model's input removed, with what read it.
     RemoveSource(String),
+    /// The nodes selected put in a new group (its name asked for at once).
+    Group,
+    /// A group's nodes taken out into the scope shown.
+    Ungroup(String),
+    /// A group or a calculator saved as a node of the user's library (its dialog).
+    SaveMine(String),
 }
+
+/// What "Group the nodes selected" does.
+pub const GROUP_HELP: &str = "the nodes in a group: one node on the canvas (double-click it to see them), what read \
+     them from outside reads its outputs; its name asked for at once";
+
+/// What "Open the group" does.
+pub const OPEN_GROUP_HELP: &str = "its nodes on the canvas (Esc or ‹ Back: the level above)";
+
+/// What "Ungroup" does.
+pub const UNGROUP_HELP: &str = "its nodes back on this canvas, connected as they were";
+
+/// What "Save as my node..." does.
+pub const SAVE_MINE_HELP: &str = "a node of your library, to use in any model as one operator";
 
 /// What "Make it a node" does.
 pub const MAKE_NODE_HELP: &str = "the input a raster.read node of its file, read by what read it: a node like the \
@@ -312,6 +331,9 @@ pub struct EditorState {
     pub text: bool,
     /// A node being renamed (ctrl+R): its id, the name typed, whether the field was given the focus.
     pub renaming: Option<(String, String, bool)>,
+    /// The node renamed is a group just made: its name asked for, and whether to save it as a node of the user's
+    /// then (the box's tick).
+    pub naming_group: Option<bool>,
     /// The node running and its share done, as its operator tells it (a line along its bottom).
     pub progress: Option<(String, f32)>,
     /// The nodes whose optional inputs are unfolded, and a counter of their changes (the scene made again then).
@@ -1554,6 +1576,21 @@ pub fn show(
         } else if crate::editor::is_source(&key) {
             ui.label(egui::RichText::new(source_help(&key)).weak());
         } else {
+            let c = crate::commands::cmd();
+            // the nodes selected (this one among them): grouped, a node of their own
+            let chosen = st.chosen.iter().filter(|k| !crate::editor::is_source(k)).count();
+            if chosen >= 2 && st.chosen.contains(&key) {
+                item(ui, &format!("Group the {chosen} nodes selected    {c}G"), GROUP_HELP, Action::Group);
+                ui.separator();
+            }
+            if op == terraflux_graph::GROUP {
+                item(ui, "Open the group", OPEN_GROUP_HELP, Action::Enter(key.clone()));
+                item(ui, &format!("Ungroup    {c}shift+G"), UNGROUP_HELP, Action::Ungroup(key.clone()));
+            }
+            if op == terraflux_graph::GROUP || op == "raster.calc" {
+                item(ui, "Save as my node...", SAVE_MINE_HELP, Action::SaveMine(key.clone()));
+                ui.separator();
+            }
             item(ui, "Run on a folder...", crate::node_view::FOLDER_HELP, Action::RunOnFolder(key.clone()));
             if op == "raster.read" && st.path.is_empty() {
                 item(ui, "Make it an input of the model", MAKE_INPUT_HELP, Action::NodeToInput(key.clone()));

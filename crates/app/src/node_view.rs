@@ -185,6 +185,15 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
             s.ask_problems = true;
         }
     }
+    // its preview, run by itself after an edit, did not come: no error told until a run is asked for
+    let previewed = s.preview.as_ref().is_some_and(|(n, _)| *n == id);
+    let quiet = s.quiet_failed.as_deref().is_some_and(|at| previewed || at.split('/').next() == Some(id.as_str()));
+    if path.is_empty() && !failed && quiet {
+        ui.label(
+            RichText::new("Its preview could not be made yet: run the model (F5) to see why.")
+                .color(ui.visuals().weak_text_color()),
+        );
+    }
     let sig = r.sig(&n.op).cloned();
     // what it does: the first sentence, the rest a click away (a node of the user's: its own words, above)
     if let Some(sig) = sig.as_ref().filter(|_| n.uses.is_none()) {

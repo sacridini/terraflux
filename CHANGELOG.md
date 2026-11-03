@@ -40,6 +40,19 @@ minor versions.
 - **Stop and progress** in more long operators: Monte Carlo's draws (`uncertainty.monte_carlo`), a metapopulation's
   and MigClim's steps (`conn.metapopulation`, `sdm.migrate`) and the importance of the nodes at several distances
   (`conn.node_importance`) say how far they are and stop between two.
+- **Grouping nodes, easier to find**: with several nodes selected, a bar at the canvas's bottom tells how many and
+  groups them (*Group them*, ctrl+G); a node's right-click menu groups the nodes selected, and a group's opens it,
+  ungroups it and saves it as my node (a calculator's too). A group made asks for its name at once, with a tick to
+  save it as my node then.
+
+### Changed
+- The application **opens on the Model tab**: the Document pane is no longer there from the start, and comes with
+  the first node, as the Node pane does (in a tab behind the model's); a layout kept opens with the model in front,
+  whatever tab was there when it closed.
+- **A node just added tells nothing until a run is asked for**: the preview run after an edit no longer starts while
+  the node shown, or one it needs, is not filled in (a `raster.read` whose file is not chosen yet), and such a run
+  that fails no longer shows the error and *Why it failed* (the node's pane says, quietly, that a run tells why); it
+  no longer tells the nodes not filled in either. A run asked for (F5, ctrl+enter) tells them as before.
 
 ### Fixed
 - A stray `</think>` (a thinking model's closing tag without its opening one) no longer shows in the assistant's

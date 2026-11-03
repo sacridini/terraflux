@@ -542,29 +542,34 @@ fn a_layout_kept_with_the_viewer_in_front_shows_the_model() {
 }
 
 /// The panes that only make sense with something in the model are not there when the application opens (nor
-/// from a layout kept): the node's pane comes with the first node (at the model's left, the graph keeping the
-/// focus), the preparation of the data behind it with the first data, the calculator only when a script is opened
+/// from a layout kept, which opens on the model): the node's pane comes with the first node (at the model's left,
+/// the graph keeping the focus) and the model's document behind the model's tab, the preparation of the data behind it with the first data, the calculator only when a script is opened
 /// in it.
 #[test]
 fn the_node_prepare_and_calculator_come_when_they_make_sense() {
     let mut h = harness(TerrafluxApp::new(None));
     h.run_steps(2);
-    for p in [Pane::Node, Pane::Prepare, Pane::Calculator, Pane::Viewer] {
+    for p in [Pane::Node, Pane::Document, Pane::Prepare, Pane::Calculator, Pane::Viewer] {
         assert!(!h.state().is_open(p), "{p:?} at the start");
     }
-    // a layout kept with them all: not read back
+    // a layout kept with them all (the document's tab in front, beside the model's): not read back, the model
+    // in front
     let mut kept = h.state().dock.clone().unwrap();
     kept.push_to_first_leaf(Pane::Node);
     kept.push_to_first_leaf(Pane::Prepare);
     kept.push_to_first_leaf(Pane::Calculator);
+    kept.push_to_first_leaf(Pane::Areas);
+    kept.push_to_first_leaf(Pane::Document);
     let path = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("due-layout.json");
     let text = serde_json::json!({ "version": 11, "main": kept, "windows": [[Pane::Calculator]] });
     std::fs::write(&path, text.to_string()).unwrap();
     h.state_mut().restore_layout(path);
     h.run_steps(2);
-    for p in [Pane::Node, Pane::Prepare, Pane::Calculator] {
+    for p in [Pane::Node, Pane::Document, Pane::Prepare, Pane::Calculator] {
         assert!(!h.state().is_open(p), "{p:?} from the layout kept");
     }
+    assert!(h.state().is_open(Pane::Areas), "the others kept");
+    assert_eq!(h.state_mut().focused(), Some(Pane::Model), "the application opens on the model");
     // the first node: the node's pane, at the model's left; no data yet, no preparation
     {
         let app = h.state_mut();
@@ -575,7 +580,15 @@ fn the_node_prepare_and_calculator_come_when_they_make_sense() {
     assert!(h.state().is_open(Pane::Node), "the node's pane with the first node");
     assert!(!h.state().is_open(Pane::Prepare) && !h.state().is_open(Pane::Calculator));
     let focused = h.state_mut().focused();
-    assert!(matches!(focused, Some(Pane::Model | Pane::Document)), "the model's leaf keeps the focus: {focused:?}");
+    assert_eq!(focused, Some(Pane::Model), "the model's tab keeps the front and the focus");
+    // the model's document with it: behind the model's tab
+    {
+        let dock = h.state().dock.as_ref().unwrap();
+        let model = dock.find_tab(&Pane::Model).unwrap();
+        assert_eq!(dock.find_tab(&Pane::Document).map(|p| p.node_path()), Some(model.node_path()));
+        let leaf = dock.leaf(model.node_path()).unwrap();
+        assert_eq!(leaf.tabs().get(leaf.active.0), Some(&Pane::Model));
+    }
     // closed by the user: not back with the next node
     {
         let d = h.state_mut().dock.as_mut().unwrap();

@@ -122,22 +122,22 @@ impl Pane {
     }
 }
 
-/// The panes as they first are: the model in the whole window (its document in a tab beside it), nothing at the
-/// sides (the assistant goes at the right when it opens); the others from the View menu.
+/// The panes as they first are: the model in the whole window, nothing at the sides (the assistant goes at the
+/// right when it opens); the others from the View menu.
 /// The panes that only make sense with something in the model open when it comes: the node selected at the
-/// model's left as an inspector with the first node (a node added, a model or a template opened), the
-/// preparation of the data in a tab behind it with the first data, the viewer in a tab behind the model's with
+/// model's left as an inspector and the model's document in a tab behind the model's with the first node (a node
+/// added, a model or a template opened), the preparation of the data in a tab behind it with the first data, the viewer in a tab behind the model's with
 /// the first data (a raster or vectors read, a template); the calculator under the model when a script is opened
 /// in it. The maps of nodes open beside the viewer. The operators and the files are in drawers at the window's left edge
 /// (the operators also in the Operators menu, behind "/" and in the commands, ctrl+K); their panes, shown, take
 /// the left edge.
 pub fn default_layout() -> DockState<Pane> {
-    DockState::new(vec![Pane::Model, Pane::Document])
+    DockState::new(vec![Pane::Model])
 }
 
 /// The panes that come when they make sense (see [`default_layout`]), not kept from a session to the next.
 fn comes_when_due(p: &Pane) -> bool {
-    matches!(p, Pane::Map(_) | Pane::Viewer | Pane::Node | Pane::Prepare | Pane::Calculator)
+    matches!(p, Pane::Map(_) | Pane::Viewer | Pane::Node | Pane::Document | Pane::Prepare | Pane::Calculator)
 }
 
 /// The panes kept that `keep` says to keep, and the floating windows left with none taken away (egui_dock's
@@ -648,6 +648,10 @@ pub struct Session {
     /// Run the whole model once its data is read.
     pub run_when_ready: bool,
     edited_at: Option<Instant>,
+    /// The run going on was started by the application itself (after an edit): its failure is not told.
+    quiet_run: bool,
+    /// Where such a run failed (the node), until the next edit or run: its pane says a run tells why.
+    pub quiet_failed: Option<String>,
     /// The output whose grid the model's maps are put on (node, port).
     pub reference: Option<(String, String)>,
     /// What the values of nodes' rasters are, as chosen in the preparation (else guessed from their type).
@@ -798,6 +802,8 @@ impl Session {
             raised: Vec::new(),
             quiet: Vec::new(),
             run_when_ready: false,
+            quiet_run: false,
+            quiet_failed: None,
             saving: Vec::new(),
             notice: None,
             watch: None,
@@ -895,6 +901,7 @@ impl Session {
         if !self.running() {
             self.status.clear();
             self.status_rev += 1;
+            self.quiet_failed = None;
         }
         let mut m = self.source.clone();
         match terraflux_graph::submodel::expand(&mut m, &self.base()) {
@@ -1063,8 +1070,52 @@ impl Session {
     /// Run what a node needs (none: the whole model); what did not change since the last run comes from the
     /// cache.
     pub fn start_to(&mut self, target: Option<String>, repaint: Box<dyn Fn() + Send>) {
+        self.start_with(target, repaint, false);
+    }
+
+    /// The top-level nodes a node needs to run, itself among them.
+    fn needed(&self, target: &str) -> std::collections::BTreeSet<String> {
+        let among = terraflux_graph::ids(&self.model.nodes);
+        let mut seen = std::collections::BTreeSet::new();
+        let mut todo = vec![target.to_string()];
+        while let Some(id) = todo.pop() {
+            if let Some(n) = self.model.nodes.iter().find(|n| n.id == id)
+                && seen.insert(id)
+            {
+                todo.extend(terraflux_graph::dependencies_among(n, &among));
+            }
+        }
+        seen
+    }
+
+    /// Whether a node, or one it needs, is not ready to run: an error of the checks (an input it needs not
+    /// given), or a setting it needs not filled in (a file to read not chosen yet), in it or in a body.
+    fn not_ready(&self, target: &str, r: &Registry) -> bool {
+        let needed = self.needed(target);
+        let errs = self.issues.iter().any(|i| {
+            let top = i.at.split(['.', '/']).next().unwrap_or("");
+            i.severity == Severity::Error && needed.contains(top)
+        });
+        fn unset(n: &terraflux_graph::Node, r: &Registry) -> bool {
+            let missing = r.sig(&n.op).is_some_and(|sig| {
+                sig.params
+                    .iter()
+                    .any(|p| p.required && !n.params.contains_key(&p.name) && !n.inputs.contains_key(&p.name))
+            });
+            missing || n.body.as_ref().is_some_and(|b| b.nodes.iter().any(|m| unset(m, r)))
+        }
+        errs || self.model.nodes.iter().any(|n| needed.contains(&n.id) && unset(n, r))
+    }
+
+    /// Start a run; `quiet`: one the application started by itself (after an edit, to show the node selected),
+    /// which tells neither the nodes not filled in nor its failure (they are told when a run is asked for).
+    fn start_with(&mut self, target: Option<String>, repaint: Box<dyn Fn() + Send>, quiet: bool) {
         // (a run asked for: the nodes not filled in told)
-        self.unfilled_shown = self.issues.iter().any(|i| i.unfilled);
+        if !quiet {
+            self.unfilled_shown = self.issues.iter().any(|i| i.unfilled);
+        }
+        self.quiet_run = quiet;
+        self.quiet_failed = None;
         self.hold_frozen();
         let base = self.base();
         self.edited_at = None;
@@ -1083,19 +1134,7 @@ impl Session {
         self.node.clear();
         self.run_total = match &target {
             None => self.model.nodes.len(),
-            Some(t) => {
-                let among = terraflux_graph::ids(&self.model.nodes);
-                let mut seen = std::collections::BTreeSet::new();
-                let mut todo = vec![t.clone()];
-                while let Some(id) = todo.pop() {
-                    if let Some(n) = self.model.nodes.iter().find(|n| n.id == id)
-                        && seen.insert(id)
-                    {
-                        todo.extend(terraflux_graph::dependencies_among(n, &among));
-                    }
-                }
-                seen.len()
-            }
+            Some(t) => self.needed(t).len(),
         };
         self.maps.truncate(1);
         self.counts.truncate(1);
@@ -1147,12 +1186,14 @@ impl Session {
         }
         let target =
             self.preview.as_ref().map(|(n, _)| n.clone()).filter(|n| self.model.nodes.iter().any(|m| m.id == *n));
-        if target.is_none() {
+        // (a node not ready, as one just added whose file is not chosen yet: no run, nothing to tell until a run
+        // is asked for)
+        if target.as_ref().is_none_or(|t| self.not_ready(t, &Registry::standard())) {
             self.edited_at = None;
             return;
         }
         let c = ctx.clone();
-        self.start_to(target, Box::new(move || c.request_repaint()));
+        self.start_with(target, Box::new(move || c.request_repaint()), true);
     }
 
     /// An output in a map tab of its own; the tab. A node has one: asked for again, its tab comes to the front
@@ -1262,6 +1303,8 @@ impl Session {
                     self.status_rev += 1;
                     self.run_done += 1;
                 }
+                // (a run the application started by itself: its failure kept quiet, told by a run asked for)
+                Message::Failed(at) if self.quiet_run => self.quiet_failed = Some(at),
                 Message::Failed(at) => {
                     self.status.insert(at, NodeStatus::Failed);
                     self.status_rev += 1;
@@ -1316,8 +1359,10 @@ impl Session {
                     self.outputs.extend(results.values);
                     self.freeze_new();
                 }
+                Err(_) if self.quiet_run => {}
                 Err(e) => self.error = Some(e),
             }
+            self.quiet_run = false;
             self.outputs.retain(|id, _| self.model.nodes.iter().any(|n| n.id == *id));
         }
     }
@@ -1496,6 +1541,9 @@ pub struct TerrafluxApp {
     viewer_opened: bool,
     /// The node's pane was opened when the first node came (not again, if it is closed after).
     node_opened: bool,
+    /// The model's document was opened (behind the model's tab) when the first node came (not again, if it is
+    /// closed after).
+    document_opened: bool,
     /// The Prepare pane was opened when the first data came (not again, if it is closed after).
     prepare_opened: bool,
     /// The window to be maximized, at its third frame (the frames drawn so far): on Windows the window shown
@@ -1582,6 +1630,7 @@ impl TerrafluxApp {
             drawer: None,
             viewer_opened: false,
             node_opened: false,
+            document_opened: false,
             prepare_opened: false,
             maximize: None,
             files: crate::files_view::Files::default(),
@@ -3385,9 +3434,15 @@ impl TerrafluxApp {
     /// The panes that come when they make sense (`template`: a template started, its data made by its nodes).
     fn open_due_with(&mut self, template: bool) {
         let data = template || self.has_data();
-        if !self.node_opened && (data || self.session.as_ref().is_some_and(|s| !s.source.nodes.is_empty())) {
+        let nodes = data || self.session.as_ref().is_some_and(|s| !s.source.nodes.is_empty());
+        if !self.node_opened && nodes {
             self.node_opened = true;
             self.open_behind(Pane::Node);
+        }
+        // the model's document: a tab behind the model's, the graph in front
+        if !self.document_opened && nodes {
+            self.document_opened = true;
+            self.behind_model(Pane::Document);
         }
         if !self.prepare_opened && data {
             self.prepare_opened = true;
@@ -3408,6 +3463,7 @@ impl TerrafluxApp {
     fn panes_due_again(&mut self) {
         self.viewer_opened = false;
         self.node_opened = false;
+        self.document_opened = false;
         self.prepare_opened = false;
     }
 
@@ -3442,13 +3498,19 @@ impl TerrafluxApp {
     /// focus where it was.
     fn add_viewer(&mut self) {
         self.viewer_opened = true;
-        if self.is_open(Pane::Viewer) {
+        self.behind_model(Pane::Viewer);
+    }
+
+    /// A pane's tab opened beside the model's (if it is not open), behind it: the graph stays in front, and the
+    /// focus where it was.
+    fn behind_model(&mut self, pane: Pane) {
+        if self.is_open(pane) {
             return;
         }
         let before = self.focused();
-        self.focus(Pane::Viewer);
+        self.focus(pane);
         self.focus(Pane::Model);
-        if let Some(b) = before.filter(|p| !matches!(p, Pane::Viewer | Pane::Model)) {
+        if let Some(b) = before.filter(|p| *p != pane && *p != Pane::Model) {
             self.focus(b);
         }
     }
@@ -3964,8 +4026,8 @@ impl TerrafluxApp {
             && let Ok(mut l) = serde_json::from_str::<Layout>(&text)
             && l.version == LAYOUT_VERSION
         {
-            // the maps of nodes were of the last session; the viewer, the node's pane, the preparation and the
-            // calculator come when they make sense
+            // the maps of nodes were of the last session; the viewer, the node's pane, the document, the
+            // preparation and the calculator come when they make sense
             let kept = |t: &Pane| !comes_when_due(t);
             retain_panes(&mut l.main, |t| kept(t));
             self.dock = Some(l.main);
@@ -3974,6 +4036,8 @@ impl TerrafluxApp {
                     self.detach(p);
                 }
             }
+            // the application opens on the model, whatever tab was in front when it closed
+            self.focus(Pane::Model);
             self.panes_due_again();
             self.open_due();
         }

@@ -704,9 +704,14 @@ fn text_view(ui: &mut Ui, s: &mut Session) {
     });
 }
 
-/// The box to rename the node selected (ctrl+R): enter renames it, escape or a click elsewhere leaves it.
+/// The box to rename the node selected (ctrl+R): enter renames it, escape or a click elsewhere leaves it. A group
+/// just made: its name asked for, with a tick to save it as a node of the user's library then.
 fn rename_box(ctx: &egui::Context, s: &mut Session, r: &Registry) {
-    let Some((id, mut name, focused)) = s.editor.renaming.take() else { return };
+    let Some((id, mut name, focused)) = s.editor.renaming.take() else {
+        s.editor.naming_group = None;
+        return;
+    };
+    let mut mine = s.editor.naming_group;
     let (enter, escape) = ctx.input_mut(|i| {
         (
             i.consume_key(egui::Modifiers::NONE, egui::Key::Enter),
@@ -719,7 +724,8 @@ fn rename_box(ctx: &egui::Context, s: &mut Session, r: &Registry) {
         .fixed_pos(at - Vec2::new(120.0, 30.0))
         .show(ctx, |ui| {
             egui::Frame::popup(ui.style()).inner_margin(Margin::same(8)).show(ui, |ui| {
-                ui.label(RichText::new(format!("Rename {id}")).strong());
+                let title = if mine.is_some() { "Name the new group".to_string() } else { format!("Rename {id}") };
+                ui.label(RichText::new(title).strong());
                 let out = egui::TextEdit::singleline(&mut name).desired_width(240.0).show(ui);
                 // at first: the focus, and the whole name selected (typing replaces it)
                 if !focused {
@@ -732,9 +738,19 @@ fn rename_box(ctx: &egui::Context, s: &mut Session, r: &Registry) {
                     state.cursor.set_char_range(Some(all));
                     state.store(ui.ctx(), out.response.id);
                 }
-                ui.label(RichText::new("enter: rename · esc: leave").size(10.5).color(ui.visuals().weak_text_color()));
+                if let Some(save) = &mut mine {
+                    ui.checkbox(save, "Also save it as my node")
+                        .on_hover_text("a node of your library, to use in any model as one operator");
+                }
+                let hint = if mine.is_some() {
+                    format!("enter: name it · esc: keep \"{id}\"")
+                } else {
+                    "enter: rename · esc: leave".to_string()
+                };
+                ui.label(RichText::new(hint).size(10.5).color(ui.visuals().weak_text_color()));
             });
         });
+    s.editor.naming_group = mine;
     let away = ctx.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer();
     if enter {
         let path = s.editor.path.clone();
@@ -744,6 +760,9 @@ fn rename_box(ctx: &egui::Context, s: &mut Session, r: &Registry) {
                 Ok(()) => {
                     if s.selected.as_deref() == Some(id.as_str()) {
                         select(s, r, &new);
+                    }
+                    if s.editor.chosen.remove(&id) {
+                        s.editor.chosen.insert(new.clone());
                     }
                     s.fields.clear();
                     s.editor.message = None;
@@ -756,10 +775,15 @@ fn rename_box(ctx: &egui::Context, s: &mut Session, r: &Registry) {
                 }
             }
         }
+        // the group named: saved as a node of the user's too, when ticked (its dialog)
+        if s.editor.naming_group.take() == Some(true) {
+            crate::my_nodes::begin(s, r, &new);
+        }
     } else if !escape && !away {
         s.editor.renaming = Some((id, name, true));
         return;
     }
+    s.editor.naming_group = None;
     ctx.memory_mut(|m| {
         if let Some(f) = m.focused() {
             m.surrender_focus(f);
@@ -1616,12 +1640,47 @@ pub fn group_selected(s: &mut Session, r: &Registry) {
         .unwrap();
     match crate::editor::group_nodes(&mut s.source, r, &path, &ids, &id, None) {
         Ok(()) => {
-            s.editor.chosen.clear();
+            s.editor.chosen = [id.clone()].into();
             s.edited();
-            s.selected = Some(id);
+            s.selected = Some(id.clone());
+            // its name asked for at once (escape: it keeps the one given)
+            s.editor.text = false;
+            s.editor.renaming = Some((id.clone(), id, false));
+            s.editor.naming_group = Some(false);
         }
         Err(e) => s.editor.message = Some(e),
     }
+}
+
+/// Several nodes selected on the canvas: a bar at its bottom that tells how many, with the button to group them
+/// (whether it was clicked).
+fn selection_bar(ui: &mut Ui, s: &Session) -> bool {
+    let n = s.editor.chosen.iter().filter(|k| !crate::editor::is_source(k)).count();
+    let Some(rect) = s.editor.canvas().filter(|_| n >= 2 && s.editor.renaming.is_none() && !s.editor.text) else {
+        return false;
+    };
+    let mut group = false;
+    egui::Area::new(ui.id().with("selection bar"))
+        .order(egui::Order::Middle)
+        .pivot(egui::Align2::CENTER_BOTTOM)
+        .fixed_pos(rect.center_bottom() - Vec2::new(0.0, 14.0))
+        .constrain_to(rect)
+        .show(ui.ctx(), |ui| {
+            egui::Frame::popup(ui.style()).inner_margin(Margin::symmetric(10, 6)).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(format!("{n} nodes selected"));
+                    let c = crate::commands::cmd();
+                    group = ui
+                        .add(crate::app::accent_button(&format!("Group them  {c}G"), true))
+                        .on_hover_text(crate::editor_view::GROUP_HELP)
+                        .clicked();
+                    ui.label(
+                        RichText::new("right-click a node: more").size(10.5).color(ui.visuals().weak_text_color()),
+                    );
+                });
+            });
+        });
+    group
 }
 
 /// Take the nodes of the group selected out into the scope shown (ctrl+shift+G).
@@ -1835,7 +1894,7 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
         .collect();
     // escape on the canvas, nothing selected (escape lets the nodes selected go first): back up a level
     let nothing_chosen = s.editor.chosen.is_empty();
-    let actions = crate::editor_view::show(
+    let mut actions = crate::editor_view::show(
         ui,
         &s.source,
         r,
@@ -1863,6 +1922,9 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
         {
             go_up(s, s.editor.path.len() - 1);
         }
+    }
+    if selection_bar(ui, s) {
+        actions.push(crate::editor_view::Action::Group);
     }
     if s.source.nodes.is_empty() && s.editor.path.is_empty() {
         let c = ui.max_rect().center();
@@ -1968,6 +2030,20 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
                 s.editor.chosen.clear();
                 true
             }),
+            // (each edits and tells its error itself)
+            Action::Group => {
+                group_selected(s, r);
+                Ok(false)
+            }
+            Action::Ungroup(id) => {
+                s.selected = Some(id);
+                ungroup_selected(s, r);
+                Ok(false)
+            }
+            Action::SaveMine(id) => {
+                crate::my_nodes::begin(s, r, &id);
+                Ok(false)
+            }
         };
         match result {
             Ok(true) => {
@@ -4066,6 +4142,81 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(300));
         s.auto_run(&ctx);
         assert!(!s.running());
+    }
+
+    /// The run going on followed to its end.
+    fn finish(s: &mut Session) {
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        while s.running() && std::time::Instant::now() < until {
+            s.poll();
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(!s.running(), "the run did not end");
+    }
+
+    /// A node just added (a raster.read whose file is not chosen yet) is not run by itself, and nothing is told
+    /// of what it lacks; once its file is chosen, a run by itself that fails tells nothing either: a run asked
+    /// for tells it.
+    #[test]
+    fn a_node_just_added_tells_nothing_until_a_run_is_asked_for() {
+        let r = Registry::standard();
+        let mut s = Session::blank();
+        s.wait();
+        let ctx = egui::Context::default();
+        let id = add(&mut s, &r, "raster.read", &[]).unwrap();
+        assert!(s.preview.as_ref().is_some_and(|(n, _)| *n == id), "{:?}", s.preview);
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        s.auto_run(&ctx);
+        assert!(!s.running(), "a node whose file is not chosen is not run");
+        assert!(!s.unfilled_shown && s.error.is_none() && s.quiet_failed.is_none());
+        // a file that is not there: its run by itself fails, quietly
+        let missing = std::env::temp_dir().join("terraflux-not-there").join("none.tif");
+        crate::editor::set_param(&mut s.source, &[], &id, "path", &missing.to_string_lossy()).unwrap();
+        s.edited();
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        s.auto_run(&ctx);
+        assert!(s.running(), "a node filled in is run by itself");
+        finish(&mut s);
+        assert_eq!(s.quiet_failed.as_deref(), Some(id.as_str()));
+        assert!(s.error.is_none(), "{:?}", s.error);
+        assert!(!s.status.values().any(|st| *st == NodeStatus::Failed), "{:?}", s.status);
+        // a run asked for: its failure told
+        s.start_to(Some(id.clone()), Box::new(|| {}));
+        finish(&mut s);
+        assert!(s.error.is_some());
+        assert_eq!(s.status.get(&id), Some(&NodeStatus::Failed));
+        assert!(s.quiet_failed.is_none());
+    }
+
+    /// The nodes selected grouped: the group selected, its name asked for at once; named, it is renamed.
+    #[test]
+    fn a_group_made_asks_for_its_name() {
+        let r = Registry::standard();
+        let mut s = Session::blank();
+        let a = add(&mut s, &r, "nlm.random", &[]).unwrap();
+        let b = add(&mut s, &r, "nlm.random", &[]).unwrap();
+        s.editor.chosen = [a, b].into();
+        group_selected(&mut s, &r);
+        assert_eq!(s.selected.as_deref(), Some("group"));
+        assert_eq!(s.editor.renaming, Some(("group".into(), "group".into(), false)));
+        assert_eq!(s.editor.naming_group, Some(false));
+        // enter: the name typed
+        s.editor.renaming = Some(("group".into(), "landscapes".into(), true));
+        let ctx = egui::Context::default();
+        let mut input = egui::RawInput::default();
+        input.events.push(egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        let mut out = ctx.run_ui(input, |ui| rename_box(&ui.ctx().clone(), &mut s, &r));
+        out.textures_delta.clear();
+        assert!(s.source.nodes.iter().any(|n| n.id == "landscapes" && n.op == terraflux_graph::GROUP));
+        assert_eq!(s.selected.as_deref(), Some("landscapes"));
+        assert!(s.editor.chosen.contains("landscapes"));
+        assert!(s.editor.renaming.is_none() && s.editor.naming_group.is_none());
     }
 
     #[test]
