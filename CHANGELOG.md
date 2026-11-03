@@ -46,6 +46,9 @@ minor versions.
   of a loop: *step* (or *element*) in the Viewer's header, *last* or a number; the run keeps that step (*Run to see
   it* when it was not kept), and going step by step shows the step it is paused after.
 - A **frozen node inside a group** no longer has the nodes only it reads run (as at the top level).
+- **Tables inside tables** are edited in place in the Document and the Node pane. A cell that is a list, rows or
+  records in turn (the zones of manual targets, a demand per region, a demand's table) shows as a button, and opens
+  for editing below its table.
 - **Grouping nodes, easier to find**: with several nodes selected, a bar at the canvas's bottom tells how many and
   groups them (*Group them*, ctrl+G); a node's right-click menu groups the nodes selected, and a group's opens it,
   ungroups it and saves it as my node (a calculator's too). A group made asks for its name at once, with a tick to

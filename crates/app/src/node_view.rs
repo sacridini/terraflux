@@ -1156,18 +1156,79 @@ fn value_cell(
 }
 
 /// The items of a value edited item by item: a list of numbers or texts, or a table of them by name (an object
-/// of plain values); none for others (lists of tables, nested values: edited as text).
+/// of plain values, or of values that are tables in turn, edited below it: `{"classes": [...], "rows": [[...]]}`);
+/// none for others (lists of tables are [`grid`]'s; values too deep: edited as text).
 pub fn items(v: &serde_json::Value) -> Option<Vec<(Option<String>, serde_json::Value)>> {
+    items_at(v, 0)
+}
+
+/// How deep tables go inside tables, edited in place (deeper: the setting as text).
+const NESTED_DEPTH: usize = 4;
+
+fn items_at(v: &serde_json::Value, depth: usize) -> Option<Vec<(Option<String>, serde_json::Value)>> {
     let plain = |v: &serde_json::Value| v.is_number() || v.is_string();
     match v {
         serde_json::Value::Array(a) if !a.is_empty() && a.iter().all(plain) => {
             Some(a.iter().map(|v| (None, v.clone())).collect())
         }
-        serde_json::Value::Object(o) if !o.is_empty() && o.values().all(plain) => {
+        // (records by name are a table of several columns)
+        serde_json::Value::Object(o)
+            if !o.is_empty()
+                && (o.values().all(plain)
+                    || grid_at(v, depth).is_none() && o.values().all(|x| plain(x) || nested_ok(x, depth))) =>
+        {
             Some(o.iter().map(|(k, v)| (Some(k.clone()), v.clone())).collect())
         }
         _ => None,
     }
+}
+
+/// Whether a value inside a table is a table edited in place (below it).
+fn nested_ok(v: &serde_json::Value, depth: usize) -> bool {
+    depth < NESTED_DEPTH && (v.is_array() || v.is_object()) && editable_at(v, depth + 1)
+}
+
+/// What a table inside a table is, in a few signs: `[3]` a list, `2×3` rows and columns, `{2}` named values.
+fn summary(v: &serde_json::Value) -> String {
+    match (v, grid(v)) {
+        (_, Some(g)) => format!("{}×{}", g.rows.len(), g.columns.len()),
+        (serde_json::Value::Array(a), None) => format!("[{}]", a.len()),
+        (serde_json::Value::Object(o), None) => format!("{{{}}}", o.len()),
+        _ => String::new(),
+    }
+}
+
+/// The button of a table inside a table, opening it below or closing it (kept in the session's fields); whether it
+/// is open.
+fn nested_button(ui: &mut Ui, s: &mut Session, key: &str, v: &serde_json::Value) -> bool {
+    let open = s.fields.get(key).is_some_and(|t| t == "1");
+    let label = format!("{} {}", if open { "▾" } else { "▸" }, summary(v));
+    if ui.small_button(label).on_hover_text("a table inside: edited below").clicked() {
+        s.fields.insert(key.to_string(), if open { String::new() } else { "1".into() });
+    }
+    open
+}
+
+/// The tables inside a table that are open, each below it under the name of its row and column: the cell changed
+/// and its new value (none: taken away, nothing left in it).
+#[allow(clippy::type_complexity)]
+fn nested_editors(
+    ui: &mut Ui,
+    s: &mut Session,
+    at: &str,
+    name: &str,
+    open: &[(usize, usize, String, serde_json::Value)],
+) -> Option<(usize, usize, Option<serde_json::Value>)> {
+    let mut out = None;
+    for (i, j, label, v) in open {
+        ui.label(RichText::new(label).small().color(ui.visuals().weak_text_color()));
+        ui.indent((at, name, *i, *j), |ui| {
+            if let Some(t) = values(ui, s, &format!("{at}{name}.{i}.{j}."), label, v) {
+                out = Some((*i, *j, if t.is_empty() { None } else { serde_json::from_str(&t).ok() }));
+            }
+        });
+    }
+    out
 }
 
 /// A value typed in an item: a number when it reads as one (an integer kept an integer), else a text.
@@ -1191,10 +1252,24 @@ pub fn values(ui: &mut Ui, s: &mut Session, at: &str, name: &str, v: &serde_json
         serde_json::Value::String(t) => t.clone(),
         v => v.to_string(),
     };
+    let mut open = Vec::new();
     egui::Grid::new(("values", at, name)).num_columns(3).spacing([6.0, 3.0]).show(ui, |ui| {
         for (k, (key, value)) in rows.iter().enumerate() {
             let label = key.clone().unwrap_or_else(|| format!("{}", k + 1));
-            ui.label(RichText::new(label).monospace().color(ui.visuals().weak_text_color()));
+            ui.label(RichText::new(&label).monospace().color(ui.visuals().weak_text_color()));
+            // a table inside: a button, the table below
+            if value.is_array() || value.is_object() {
+                if nested_button(ui, s, &format!("{at}open.{name}.{k}"), value) {
+                    open.push((k, 0, label, value.clone()));
+                }
+                if ui.small_button("x").on_hover_text("take it away").clicked() {
+                    let mut r = rows.clone();
+                    r.remove(k);
+                    next = Some(r);
+                }
+                ui.end_row();
+                continue;
+            }
             let init = text_of(value);
             let f = format!("{at}item.{name}.{k}");
             let mut text = field(s, &f, init.clone());
@@ -1213,6 +1288,16 @@ pub fn values(ui: &mut Ui, s: &mut Session, at: &str, name: &str, v: &serde_json
             ui.end_row();
         }
     });
+    if let Some((k, _, v)) = nested_editors(ui, s, at, name, &open) {
+        let mut r = rows.clone();
+        match v {
+            Some(v) => r[k].1 = v,
+            None => {
+                r.remove(k);
+            }
+        }
+        next = Some(r);
+    }
     ui.horizontal(|ui| {
         if table {
             let mut key = field(s, &format!("{at}newkey.{name}"), String::new());
@@ -1250,7 +1335,11 @@ pub fn values(ui: &mut Ui, s: &mut Session, at: &str, name: &str, v: &serde_json
 /// Whether a value is edited in place, item by item or cell by cell: a list or a table of plain values
 /// ([`items`]), or a table of several columns ([`grid`]).
 pub fn editable(v: &serde_json::Value) -> bool {
-    items(v).is_some() || grid(v).is_some()
+    editable_at(v, 0)
+}
+
+fn editable_at(v: &serde_json::Value, depth: usize) -> bool {
+    items_at(v, depth).is_some() || grid_at(v, depth).is_some()
 }
 
 /// How a table of several columns is written in the model.
@@ -1294,10 +1383,16 @@ fn columns_of<'a>(records: impl Iterator<Item = &'a serde_json::Map<String, serd
 /// The table of several columns a value is, if it is one: rows of plain values of one length (two or more), records
 /// of plain values, or records by name; none for the others (a list of plain values is [`items`]'s).
 pub fn grid(v: &serde_json::Value) -> Option<Grid> {
+    grid_at(v, 0)
+}
+
+/// As [`grid`], `depth` levels deep: its cells (two levels below) plain values or tables in turn ([`nested_ok`]).
+fn grid_at(v: &serde_json::Value, depth: usize) -> Option<Grid> {
     use serde_json::Value as J;
-    let record = |r: &J| matches!(r, J::Object(o) if !o.is_empty() && o.values().all(cell_plain));
+    let cell = |c: &J| cell_plain(c) || nested_ok(c, depth + 1);
+    let record = |r: &J| matches!(r, J::Object(o) if !o.is_empty() && o.values().all(cell));
     match v {
-        J::Array(a) if !a.is_empty() && a.iter().all(|r| matches!(r, J::Array(c) if c.iter().all(cell_plain))) => {
+        J::Array(a) if !a.is_empty() && a.iter().all(|r| matches!(r, J::Array(c) if c.iter().all(cell))) => {
             let rows: Vec<&Vec<J>> = a.iter().filter_map(J::as_array).collect();
             let n = rows[0].len();
             if n < 2 || rows.iter().any(|r| r.len() != n) {
@@ -1373,6 +1468,7 @@ pub fn grid_ui(ui: &mut Ui, s: &mut Session, at: &str, name: &str, g: &Grid) -> 
     };
     let named = g.kind == GridKind::Named;
     let rows_only = g.kind == GridKind::Rows;
+    let mut open = Vec::new();
     egui::Grid::new(("grid", at, name)).spacing([6.0, 3.0]).striped(true).show(ui, |ui| {
         // (the columns' names: a list of rows has none)
         if !rows_only {
@@ -1406,6 +1502,14 @@ pub fn grid_ui(ui: &mut Ui, s: &mut Session, at: &str, name: &str, g: &Grid) -> 
                 }
             }
             for (j, v) in cells.iter().enumerate() {
+                // a table inside: a button, the table below
+                if let Some(t) = v.as_ref().filter(|t| t.is_array() || t.is_object()) {
+                    if nested_button(ui, s, &format!("{at}open.{name}.{i}.{j}"), t) {
+                        let row = key.clone().unwrap_or_else(|| (i + 1).to_string());
+                        open.push((i, j, format!("{row} · {}", g.columns[j]), t.clone()));
+                    }
+                    continue;
+                }
                 let init = text_of(v);
                 let f = format!("{at}grid.{name}.{i}.{j}");
                 let mut text = field(s, &f, init.clone());
@@ -1426,6 +1530,11 @@ pub fn grid_ui(ui: &mut Ui, s: &mut Session, at: &str, name: &str, g: &Grid) -> 
             ui.end_row();
         }
     });
+    if let Some((i, j, v)) = nested_editors(ui, s, at, name, &open) {
+        let mut n = g.clone();
+        n.rows[i].1[j] = v;
+        next = Some(n);
+    }
     ui.horizontal(|ui| {
         if named {
             let f = format!("{at}gridnew.{name}");
@@ -1493,11 +1602,52 @@ mod tests {
         assert_eq!(g.kind, GridKind::Named);
         assert_eq!(g.rows[0].0.as_deref(), Some("forest"));
         assert_eq!(g.value(), named);
-        // not tables of several columns: a list, a table of plain values, rows of other lengths, nested values
-        for v in [json!([1, 2]), json!({"a": 1}), json!([[1, 2], [3]]), json!([[1]]), json!([{"a": [1]}]), json!([])] {
+        // not tables of several columns: a list, a table of plain values, rows of other lengths
+        for v in [json!([1, 2]), json!({"a": 1}), json!([[1, 2], [3]]), json!([[1]]), json!([])] {
             assert!(grid(&v).is_none(), "{v}");
         }
-        assert!(editable(&json!([1, 2])) && editable(&rows) && !editable(&json!([{"a": {"b": 1}}])));
+        assert!(editable(&json!([1, 2])) && editable(&rows) && editable(&json!([{"a": {"b": 1}}])));
+        assert_eq!(typed_cell(" "), None);
+        assert_eq!(typed_cell("true"), Some(json!(true)));
+        assert_eq!(typed_cell("12"), Some(json!(12)));
+    }
+
+    /// Tables inside tables: a cell that is a list, a table or records in turn is edited below its table (as the
+    /// zones of manual targets, a demand per region); too deep, the setting is text.
+    #[test]
+    fn tables_inside_tables() {
+        use serde_json::json;
+        let targets = json!([{"feature": 1, "zone": ["a", "b"], "target": 0.3}, {"feature": 2, "zone": "a"}]);
+        let g = grid(&targets).unwrap();
+        assert_eq!(g.kind, GridKind::Records);
+        assert_eq!(g.rows[0].1[g.columns.iter().position(|c| c == "zone").unwrap()], Some(json!(["a", "b"])));
+        assert_eq!(g.value(), targets);
+        // a demand per region: named values, each a table of a table
+        let demands = json!({"1": {"table": {"classes": [1, 2], "rows": [[5, 5], [4, 6]], "times": [0, 1]}}});
+        // (records by name: a row per region, a column per kind of demand)
+        let g = grid(&demands).unwrap();
+        assert_eq!(
+            (g.kind, g.columns.clone(), g.rows[0].0.as_deref()),
+            (GridKind::Named, vec!["table".into()], Some("1"))
+        );
+        assert_eq!(g.value(), demands);
+        let table = &demands["1"]["table"];
+        assert!(items(table).is_some_and(|t| t.len() == 3) && grid(&table["rows"]).is_some());
+        assert_eq!(
+            (summary(&table["rows"]), summary(&table["classes"]), summary(table)),
+            ("2×2".into(), "[2]".into(), "{3}".into())
+        );
+        // records by name stay a table of several columns
+        assert_eq!(grid(&json!({"forest": {"carbon": 50}})).map(|g| g.kind), Some(GridKind::Named));
+        assert!(items(&json!({"forest": {"carbon": 50}})).is_none());
+        // too deep: text
+        let deep = json!({"a": {"b": {"c": {"d": {"e": {"f": {"g": [1]}}}}}}});
+        assert!(!editable(&deep));
+    }
+
+    #[test]
+    fn grid_cells_typed() {
+        use serde_json::json;
         assert_eq!(typed_cell(" "), None);
         assert_eq!(typed_cell("true"), Some(json!(true)));
         assert_eq!(typed_cell("12"), Some(json!(12)));

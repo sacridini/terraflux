@@ -838,6 +838,13 @@ commit por item):
 11. **QGIS:** o `.qgz` conferido no PyQGIS.
 12. **Trace:** a variável de iteração do CLUE.
 13. **Document:** tabelas dentro de tabelas.
+    **Feito** (Unreleased): uma célula de uma tabela (`grid`) ou um valor de uma tabela por nome (`items`) pode ser
+    uma lista, linhas ou registros por sua vez (`nested_ok`, até 4 níveis do JSON; mais fundo, a configuração
+    segue como texto). Na tabela ele aparece como um botão com o resumo (`[3]`, `2×3`, `{2}`); aberto, é editado
+    logo abaixo da tabela, com o nome da linha e da coluna (`nested_editors`, o mesmo `values` de novo, com os campos
+    à parte), e a mudança volta para a célula. Assim ficam editáveis as zonas do `manual_targets`, os `demands` do
+    `demand.regional` (uma linha por região) e a tabela do `demand.table`, no Document e no painel Node. Teste:
+    `tables_inside_tables`.
 
 ## O Viewer como central de mapas, e as vistas no lugar do `view.plot`
 
