@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.34.0] - 2026-11-03
+
 ### Added
 - A **frozen node inside a group** no longer has the nodes only it reads run (as at the top level).
 - **Tables inside tables** are edited in place in the Document and the Node pane. A cell that is a list, rows or
