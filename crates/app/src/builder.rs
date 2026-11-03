@@ -2297,41 +2297,67 @@ fn layers_section(
     let is_vector = |l: &Layer| vectors.iter().any(|(n, p, _)| l.is(n, p));
     let n = sh.layers.len();
     let (mut up, mut down, mut gone, mut chosen, mut zoom) = (None, None, None, None, None);
+    // a layer dragged by its name onto another's row: (from, to)
+    let mut dropped: Option<(usize, usize)> = None;
     for i in (0..n).rev() {
         let vector = is_vector(&sh.layers[i]);
         let l = &mut sh.layers[i];
         let active = l.is(&node, &port);
-        ui.horizontal(|ui| {
-            ui.checkbox(&mut l.visible, "").on_hover_text("shown on the map, or hidden");
-            let name = output_name(&l.node, &l.port);
-            let text = if active { RichText::new(name).strong() } else { RichText::new(name) };
-            let resp = ui.selectable_label(active, text);
-            if !vector && !active && resp.on_hover_text("its legend and settings here").clicked() {
-                chosen = Some((l.node.clone(), l.port.clone()));
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.small_button("x").on_hover_text("no longer a layer").clicked() {
-                    gone = Some(i);
+        let row = ui
+            .horizontal(|ui| {
+                ui.checkbox(&mut l.visible, "").on_hover_text("shown on the map, or hidden");
+                let name = output_name(&l.node, &l.port);
+                let text = if active { RichText::new(name).strong() } else { RichText::new(name) };
+                let resp = ui.add(egui::Button::selectable(active, text).sense(egui::Sense::click_and_drag()));
+                resp.dnd_set_drag_payload(LayerAt(i));
+                let hint = if vector || active {
+                    "drag it over or under another"
+                } else {
+                    "its legend and settings here; drag it over or under another"
+                };
+                if resp.on_hover_text(hint).clicked() && !vector && !active {
+                    chosen = Some((l.node.clone(), l.port.clone()));
                 }
-                if ui.small_button("zoom").on_hover_text("zoom to layer: the view on all of it").clicked() {
-                    zoom = Some(i);
-                }
-                if ui
-                    .add_enabled(i > 0, egui::Button::new("⏷").small())
-                    .on_hover_text("down: under the one below")
-                    .clicked()
-                {
-                    down = Some(i);
-                }
-                if ui
-                    .add_enabled(i + 1 < n, egui::Button::new("⏶").small())
-                    .on_hover_text("up: over the one above")
-                    .clicked()
-                {
-                    up = Some(i);
-                }
-            });
-        });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.small_button("x").on_hover_text("no longer a layer").clicked() {
+                        gone = Some(i);
+                    }
+                    if ui.small_button("zoom").on_hover_text("zoom to layer: the view on all of it").clicked() {
+                        zoom = Some(i);
+                    }
+                    if ui
+                        .add_enabled(i > 0, egui::Button::new("⏷").small())
+                        .on_hover_text("down: under the one below")
+                        .clicked()
+                    {
+                        down = Some(i);
+                    }
+                    if ui
+                        .add_enabled(i + 1 < n, egui::Button::new("⏶").small())
+                        .on_hover_text("up: over the one above")
+                        .clicked()
+                    {
+                        up = Some(i);
+                    }
+                });
+            })
+            .response;
+        // another layer dragged over this row: it takes this one's place
+        if let Some(from) = row.dnd_hover_payload::<LayerAt>()
+            && from.0 != i
+        {
+            ui.painter().rect_stroke(
+                row.rect.expand(1.0),
+                3.0,
+                ui.visuals().selection.stroke,
+                egui::StrokeKind::Outside,
+            );
+        }
+        if let Some(from) = row.dnd_release_payload::<LayerAt>()
+            && from.0 != i
+        {
+            dropped = Some((from.0, i));
+        }
         if l.visible && !active {
             ui.indent(("layer", salt, i), |ui| match vectors.iter().find(|(vn, vp, _)| l.is(vn, vp)) {
                 Some((vn, vp, v)) => {
@@ -2370,6 +2396,10 @@ fn layers_section(
         } else if let Some(cells) = sh.view.shown_grid().and_then(|g| layer_cells(s, l, g)) {
             sh.view.zoom_to(cells);
         }
+    }
+    if let Some((from, to)) = dropped {
+        let l = sh.layers.remove(from);
+        sh.layers.insert(to, l);
     }
     if let Some(i) = up {
         sh.layers.swap(i, i + 1);
@@ -2414,6 +2444,9 @@ fn layers_section(
         });
     });
 }
+
+/// A layer dragged in the Layers (its index).
+struct LayerAt(usize);
 
 /// What a Plot shows first, its legend and settings in the Viewer: its top map (a layer not hidden that is not
 /// vector features), else its top layer; an output (`node.port`).

@@ -2224,6 +2224,33 @@ fn maps_stack_and_cells_show_their_series() {
     h.get_by_label("📌").click();
     h.run_steps(2);
     assert_eq!(kept(&h).last(), Some(&pair("land", "raster")));
+    // the land (on top) dragged by its name onto the drivers' row (at the bottom): it takes their place
+    let name_at = |h: &Harness<TerrafluxApp>, name: &str| -> egui::Pos2 {
+        let n = h
+            .query_all_by_label(name)
+            .find(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
+            .unwrap_or_else(|| panic!("the layer {name}"));
+        let b = n.accesskit_node().bounding_box().unwrap();
+        egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32)
+    };
+    let (from, to) = (name_at(&h, "land"), name_at(&h, "drivers"));
+    h.event(egui::Event::PointerMoved(from));
+    h.run_steps(1);
+    let press = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Default::default(),
+    };
+    h.event(press(from, true));
+    h.run_steps(1);
+    for k in 1..=8 {
+        h.event(egui::Event::PointerMoved(from + (to - from) * (k as f32 / 8.0)));
+        h.run_steps(1);
+    }
+    h.event(press(to, false));
+    h.run_steps(2);
+    assert_eq!(kept(&h), [pair("land", "raster"), pair("drivers", "raster"), pair("roads", "vector")]);
     // a cell of the drivers' stack clicked: its values along the layers
     {
         let s = h.state_mut().session.as_mut().unwrap();
