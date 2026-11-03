@@ -9,6 +9,10 @@ minor versions.
 ### Changed
 - Viewer: *Save as a new plot* and *Update the plot* keep the chart chosen for a table in the Viewer (its kind and
   columns, by name), not only the one a plot already had.
+- Viewer: **a layer's band and palette**. A layer of a stack, a series or rasters on disk shows the map chosen
+  for it in the Layers (no longer always the first). A Plot keeps each layer's band and the palette chosen by
+  hand, and gives them back when it opens; the Document colours a map by the Plot that shows it. `set_plot`
+  takes a layer's `palette` by its name in the Viewer (or its first word: `cividis`, `terrain, logarithmic`).
 
 ## [1.34.0] - 2026-11-03
 

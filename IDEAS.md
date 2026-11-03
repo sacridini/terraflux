@@ -1004,8 +1004,11 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
      Plot), o *Many runs* e o script Python. O QGIS não lia os plots.
    - Testes: `ui.rs` (salvar um Plot pelo menu, a comparação de um Plot, o template, as camadas de um Plot, a
      tabela no gráfico, as legendas dos templates), os do Document e do relatório.
-   Falta: a paleta por camada no Plot (o campo existe, o Viewer ainda não grava nem lê), a coluna inteira por
-   Plot na comparação de cenários (hoje o mapa de cada Plot), a lista dos Plots no Document.
+   Depois da 1.34.0: a banda e a paleta por camada (`Layer.band`, o seletor "map:" nos Layers; `plot_of` grava a
+   paleta escolhida à mão pelo nome do Viewer, `open_plot` a devolve, `palette_of` cai na do Plot para o Document;
+   `builder::palette_name`/`palette_named`; teste `a_layers_band_and_palette_are_kept_in_its_plot`).
+   Falta: a coluna inteira por Plot na comparação de cenários (hoje o mapa de cada Plot), a lista dos Plots no
+   Document.
 
    **4c feito** (Unreleased).
    - O MCP e o assistente: `set_plot` (camadas como `node.port` ou `{ from, opacity, band, hidden }`, `compare`,

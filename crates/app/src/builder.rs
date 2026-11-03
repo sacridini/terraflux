@@ -399,6 +399,29 @@ pub const RAMPS: [(&str, Ramp); 8] = [
     ("rank", Ramp::Rank),
 ];
 
+/// A palette chosen by hand as a Plot keeps it: the ramp's name in the Viewer, ", logarithmic" when it is.
+pub fn palette_name(p: Palette) -> Option<String> {
+    let Palette::Chosen(r, log) = p else { return None };
+    let name = RAMPS.iter().find(|(_, x)| *x == r)?.0;
+    Some(if log { format!("{name}, logarithmic") } else { name.to_string() })
+}
+
+/// A palette by its name in a Plot: a ramp's name in the Viewer or its first word ("cividis", "blue"), then
+/// ", logarithmic" (or " log") when on a scale of logarithms; none when no ramp is called so.
+pub fn palette_named(text: &str) -> Option<Palette> {
+    let t = text.trim().to_lowercase();
+    let (name, log) = match t.strip_suffix("logarithmic").or_else(|| t.strip_suffix("log")) {
+        Some(n) => (n.trim_end().trim_end_matches(',').trim_end(), true),
+        None => (t.as_str(), false),
+    };
+    let first = |n: &str| n.split([' ', '(']).next().unwrap_or("").to_string();
+    RAMPS
+        .iter()
+        .find(|(n, _)| *n == name)
+        .or_else(|| RAMPS.iter().find(|(n, _)| !name.is_empty() && first(n) == name))
+        .map(|(_, r)| Palette::Chosen(*r, log))
+}
+
 impl Palette {
     /// The palette of what an operator gives (`made`, when it is a product of GuidosToolbox), `names` those of the
     /// nodes, files and bands it comes from.
@@ -492,10 +515,22 @@ pub fn class_name(look: &Look, v: f64) -> String {
 
 /// What a node gives at a port, through the plots that show it (they give what they are given): the product of
 /// GuidosToolbox it is, if one, and the ids of the nodes on the way.
-/// The palette of a node's output as the viewer shows it: the one chosen by hand, else by what made it.
+/// The palette of a node's output as the viewer shows it: the one chosen by hand (in the Viewer, else by a Plot
+/// that shows it, the one open first), else by what made it.
 pub fn palette_of(s: &Session, node: &str, port: &str) -> Palette {
     if let Some(p) = s.palettes.get(&(node.to_string(), port.to_string())) {
         return *p;
+    }
+    let from = format!("{node}.{port}");
+    let open = s.plot_open.as_deref().and_then(|id| s.source.plot(id));
+    if let Some(p) = open
+        .into_iter()
+        .chain(&s.source.plots)
+        .flat_map(|p| &p.layers)
+        .filter(|l| l.from == from)
+        .find_map(|l| l.palette.as_deref().and_then(palette_named))
+    {
+        return p;
     }
     let (made, mut hint) = producer(s, node, port);
     hint.push_str(port);
@@ -2302,6 +2337,25 @@ fn layers_section(
                 None => {
                     ui.spacing_mut().slider_width = (ui.available_width() - 110.0).clamp(40.0, 160.0);
                     ui.add(egui::Slider::new(&mut l.opacity, 0.0..=1.0).text("opacity"));
+                    // of a stack, a series or rasters on disk: the map it shows
+                    let names = s.value_of(&l.node, &l.port).map(|v| maps_of(&v).1).unwrap_or_default();
+                    if names.len() > 1 {
+                        let raster_chosen = match s.value_of(&l.node, &l.port) {
+                            Some(Value::Raster(r)) => r.chosen,
+                            _ => 0,
+                        };
+                        let at = l.band.unwrap_or(raster_chosen).min(names.len() - 1);
+                        egui::ComboBox::from_id_salt(("layer band", salt, &l.node, &l.port))
+                            .selected_text(format!("map: {}", names[at]))
+                            .width(160.0)
+                            .show_ui(ui, |ui| {
+                                for (b, name) in names.iter().enumerate() {
+                                    if ui.selectable_label(b == at, name).clicked() {
+                                        l.band = Some(b);
+                                    }
+                                }
+                            });
+                    }
                 }
             });
         }
@@ -2317,10 +2371,11 @@ fn layers_section(
     }
     // another layer's legend and settings: it is the map shown now
     if let Some((n, p)) = chosen {
+        let band = sh.layers.iter().find(|l| l.is(&n, &p)).and_then(|l| l.band);
         sh.node = n;
         sh.port = p;
-        sh.band = 0;
-        sh.chosen = false;
+        sh.band = band.unwrap_or(0);
+        sh.chosen = band.is_some();
     }
     // the run's other maps and features, to add as layers
     let more: Vec<(String, String)> = others
@@ -2375,9 +2430,18 @@ pub fn open_plot(s: &mut Session, r: &Registry, id: &str) {
                 visible: !l.hidden,
                 opacity: l.opacity.unwrap_or(1.0) as f32,
                 style: l.style.as_ref().map(crate::vector_tiles::Style::from_json).unwrap_or_default(),
+                band: l.band,
             })
         })
         .collect();
+    // the palettes the Plot asks for (none: by what the maps are)
+    for l in &p.layers {
+        let Some(key) = port_of(&l.from) else { continue };
+        match l.palette.as_deref().and_then(palette_named) {
+            Some(pal) => s.palettes.insert(key, pal),
+            None => s.palettes.remove(&key),
+        };
+    }
     if let Some((node, port)) = plot_figure(&s.source, r, &p) {
         let band = p.layers.iter().find(|l| l.from == format!("{node}.{port}")).and_then(|l| l.band);
         if s.source.nodes.iter().any(|n| n.id == node) {
@@ -2402,12 +2466,16 @@ pub fn open_plot(s: &mut Session, r: &Registry, id: &str) {
 /// comparison; the title, chart and record of the Plot it updates.
 fn plot_of(
     sh: &Shown,
+    palettes: &std::collections::HashMap<(String, String), Palette>,
     was: Option<&terraflux_graph::Plot>,
     id: &str,
     chart: Option<terraflux_graph::PlotChart>,
 ) -> terraflux_graph::Plot {
     use terraflux_graph::{PlotCompare, PlotLayer};
-    let band = |node: &str, port: &str| (node == sh.node && port == sh.port && sh.band > 0).then_some(sh.band);
+    // (the map shown: the band of the Viewer; another layer: its own)
+    let shown_band = (sh.band > 0 || sh.chosen).then_some(sh.band);
+    let palette =
+        |node: &str, port: &str| palettes.get(&(node.to_string(), port.to_string())).and_then(|p| palette_name(*p));
     let mut layers: Vec<PlotLayer> = sh
         .layers
         .iter()
@@ -2416,16 +2484,19 @@ fn plot_of(
             PlotLayer {
                 from: format!("{}.{}", l.node, l.port),
                 opacity: (l.opacity != 1.0).then_some(l.opacity as f64),
-                band: band(&l.node, &l.port),
+                palette: palette(&l.node, &l.port),
+                band: if l.is(&sh.node, &sh.port) { shown_band } else { l.band },
                 style: style.then(|| l.style.to_json()),
                 hidden: !l.visible,
-                ..Default::default()
             }
         })
         .collect();
     if !sh.layers.iter().any(|l| l.is(&sh.node, &sh.port)) {
-        layers
-            .push(PlotLayer { band: band(&sh.node, &sh.port), ..PlotLayer::new(&format!("{}.{}", sh.node, sh.port)) });
+        layers.push(PlotLayer {
+            band: shown_band,
+            palette: palette(&sh.node, &sh.port),
+            ..PlotLayer::new(&format!("{}.{}", sh.node, sh.port))
+        });
     }
     let compare = match &sh.compare.with {
         Some(CompareWith::Output(n, p)) => Some(PlotCompare {
@@ -2519,7 +2590,7 @@ fn plots_menu(ui: &mut Ui, s: &mut Session, sh: &Shown, top: bool, salt: &str) {
                 .clicked()
             {
                 if let Some(k) = s.source.plots.iter().position(|p| &p.id == id) {
-                    s.source.plots[k] = plot_of(sh, Some(&s.source.plots[k]), id, chart_now(ui, s));
+                    s.source.plots[k] = plot_of(sh, &s.palettes, Some(&s.source.plots[k]), id, chart_now(ui, s));
                     s.edited();
                 }
                 ui.close();
@@ -2540,7 +2611,7 @@ fn plots_menu(ui: &mut Ui, s: &mut Session, sh: &Shown, top: bool, salt: &str) {
             .clicked()
         {
             let id = new_plot_id(&s.source, &sh.node);
-            let p = plot_of(sh, None, &id, chart_now(ui, s));
+            let p = plot_of(sh, &s.palettes, None, &id, chart_now(ui, s));
             s.source.plots.push(p);
             s.plot_open = Some(id);
             s.edited();
@@ -2560,11 +2631,20 @@ pub struct Layer {
     pub visible: bool,
     pub opacity: f32,
     pub style: crate::vector_tiles::Style,
+    /// The map of a stack, a series or rasters on disk it shows (default: the first, or a raster's chosen band).
+    pub band: Option<usize>,
 }
 
 impl Layer {
     pub fn new(node: &str, port: &str) -> Layer {
-        Layer { node: node.into(), port: port.into(), visible: true, opacity: 1.0, style: Default::default() }
+        Layer {
+            node: node.into(),
+            port: port.into(),
+            visible: true,
+            opacity: 1.0,
+            style: Default::default(),
+            band: None,
+        }
     }
 
     /// Whether it is the output `node.port`.
@@ -2738,6 +2818,37 @@ fn stack_of(m: &terraflux_graph::Model, id: &str, out: &mut Vec<PlotLayer>, seen
 }
 
 /// The first map of a value as a source (a stack's first layer, rasters' chosen one).
+/// The maps of a value to show one of (a stack's, a series', rasters on disk) and their names (none for one map).
+pub(crate) fn maps_of(value: &Value) -> (Vec<Source>, Vec<String>) {
+    match value {
+        Value::Map(m) => (vec![Source::from(m)], vec![]),
+        Value::Stack(st) => (
+            st.layers.iter().map(|l| Source::Map(Map { grid: st.grid.clone(), data: l.clone() })).collect(),
+            st.keys.iter().map(|k| k.to_string()).collect(),
+        ),
+        Value::Series(items) if items.iter().all(|v| matches!(v, Value::Map(_))) && !items.is_empty() => (
+            items.iter().filter_map(|v| if let Value::Map(m) = v { Some(Source::from(m)) } else { None }).collect(),
+            (1..=items.len()).map(|k| format!("step {k}")).collect(),
+        ),
+        Value::Raster(r) => (
+            (0..r.layers.len()).map(|l| Source::Rasters(r.clone(), l)).collect(),
+            r.layers.iter().map(|l| l.name.clone()).collect(),
+        ),
+        _ => (vec![], vec![]),
+    }
+}
+
+/// The map a layer shows of a value: its band (the last when there are fewer), else the first.
+fn layer_source(v: &Value, band: Option<usize>) -> Option<Source> {
+    match band {
+        Some(b) => {
+            let mut maps = maps_of(v).0;
+            if maps.is_empty() { first_source(v) } else { Some(maps.swap_remove(b.min(maps.len() - 1))) }
+        }
+        None => first_source(v),
+    }
+}
+
 pub(crate) fn first_source(v: &Value) -> Option<Source> {
     match v {
         Value::Map(m) => Some(Source::from(m)),
@@ -3205,22 +3316,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         }
     }
     // a map to show, of the maps of a stack, a series or rasters on disk
-    let (maps, names): (Vec<Source>, Vec<String>) = match &value {
-        Value::Map(m) => (vec![Source::from(m)], vec![]),
-        Value::Stack(st) => (
-            st.layers.iter().map(|l| Source::Map(Map { grid: st.grid.clone(), data: l.clone() })).collect(),
-            st.keys.iter().map(|k| k.to_string()).collect(),
-        ),
-        Value::Series(items) if items.iter().all(|v| matches!(v, Value::Map(_))) && !items.is_empty() => (
-            items.iter().filter_map(|v| if let Value::Map(m) = v { Some(Source::from(m)) } else { None }).collect(),
-            (1..=items.len()).map(|k| format!("step {k}")).collect(),
-        ),
-        Value::Raster(r) => (
-            (0..r.layers.len()).map(|l| Source::Rasters(r.clone(), l)).collect(),
-            r.layers.iter().map(|l| l.name.clone()).collect(),
-        ),
-        _ => (vec![], vec![]),
-    };
+    let (maps, names) = maps_of(&value);
     // a raster's chosen band is shown first
     if let Value::Raster(r) = &value
         && sh.band == 0
@@ -3273,6 +3369,10 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         return None;
     }
     let k = sh.band.min(maps.len() - 1);
+    // the map shown, when it is a layer: its band is the Viewer's
+    if let Some(l) = sh.layers.iter_mut().find(|l| l.node == node && l.port == port) {
+        l.band = (sh.band > 0 || sh.chosen).then_some(sh.band);
+    }
     // the colours by what the values are: the operator that made them, the names they come by
     let (mut made, mut hint) = producer(s, &node, &port);
     // rasters on disk that say what product they are (landschaft_product, as landschaft writes it)
@@ -3775,7 +3875,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         match s.value_of(&l.node, &l.port) {
             Some(Value::Vector(v)) => overlays.push(crate::vector_tiles::Overlay { vector: v, style: l.style.clone() }),
             Some(v) => {
-                if let Some(src) = first_source(&v) {
+                if let Some(src) = layer_source(&v, l.band) {
                     let item = (src, l.opacity, l.node.clone(), l.port.clone());
                     if at.is_none_or(|a| i < a) { under.push(item) } else { above.push(item) }
                 }

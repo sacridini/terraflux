@@ -1595,7 +1595,7 @@ fn all() -> Vec<Value> {
                 "title": { "type": "string", "description": "Its title, the figure's caption (default: what it shows)." },
                 "layers": {
                     "type": "array",
-                    "description": "What it shows, the lowest first: node.port of top-level nodes (or $input), or objects { from, opacity (0 to 1), band (a stack's layer or a loop's step, 0-based), hidden }.",
+                    "description": "What it shows, the lowest first: node.port of top-level nodes (or $input), or objects { from, opacity (0 to 1), band (a stack's layer or a loop's step, 0-based), palette (viridis, cividis, blue, orange, terrain, grey, red, rank; \", logarithmic\" for a scale of logarithms; default: by what the map is), hidden }.",
                     "items": {},
                 },
                 "compare": { "description": "A map compared with the top map: node.port, or { with, how } (how: curtain, side by side (default) or difference)." },
@@ -2394,13 +2394,23 @@ fn set_plot(m: &mut Model, r: &Registry, a: &Value) -> Reply {
                 if opacity.is_some_and(|x| !(0.0..=1.0).contains(&x)) {
                     return Err(format!("{from}: opacity is 0 to 1"));
                 }
+                let palette = o.get("palette").and_then(Value::as_str).filter(|p| !p.trim().is_empty());
+                if let Some(p) = palette
+                    && crate::builder::palette_named(p).is_none()
+                {
+                    let names: Vec<&str> = crate::builder::RAMPS.iter().map(|(n, _)| *n).collect();
+                    return Err(format!(
+                        "{from}: no palette {p:?}; one of {} (\", logarithmic\" for a scale of logarithms)",
+                        names.join("; ")
+                    ));
+                }
                 PlotLayer {
                     from: checked(from)?,
                     opacity: opacity.filter(|x| *x != 1.0),
                     band: o.get("band").and_then(Value::as_u64).map(|b| b as usize),
                     hidden: o.get("hidden").and_then(Value::as_bool).unwrap_or(false),
                     style: o.get("style").cloned(),
-                    palette: o.get("palette").and_then(Value::as_str).map(String::from),
+                    palette: palette.and_then(crate::builder::palette_named).and_then(crate::builder::palette_name),
                 }
             }
             other => return Err(format!("a layer is node.port or an object with `from`, not {other}")),
@@ -2648,6 +2658,11 @@ mod plot_tests {
         assert!(said.starts_with("replaced"), "{said}");
         assert_eq!(m.plots.len(), 1);
         assert!(m.plot("cover").unwrap().compare.is_none());
+        // a palette by its name in the Viewer, or its first word
+        let a = json!({ "id": "cover", "layers": [{ "from": "forest.map", "palette": "Cividis, log" }] });
+        super::edit("set_plot", &mut m, &r, dir, &a).unwrap();
+        let kept = m.plot("cover").unwrap().layers[0].palette.clone();
+        assert_eq!(kept.as_deref(), Some("cividis (for colour-blind readers), logarithmic"));
         // what is not there, refused
         for bad in [
             json!({ "id": "x", "layers": ["gone.map"] }),
@@ -2655,6 +2670,7 @@ mod plot_tests {
             json!({ "id": "x", "layers": [] }),
             json!({ "id": "x", "layers": ["land.map"], "compare": { "with": "land.map", "how": "sideways" } }),
             json!({ "id": "1x", "layers": ["land.map"] }),
+            json!({ "id": "x", "layers": [{ "from": "land.map", "palette": "rainbow" }] }),
         ] {
             assert!(super::edit("set_plot", &mut m, &r, dir, &bad).is_err(), "{bad}");
         }

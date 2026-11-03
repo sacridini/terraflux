@@ -2465,6 +2465,68 @@ fn the_legend_is_edited_in_the_viewer() {
     shot(&mut h, "30-legend");
 }
 
+/// A layer's band and palette kept in a Plot, and given back when it opens; the Document's colours by the Plot.
+#[test]
+fn a_layers_band_and_palette_are_kept_in_its_plot() {
+    use terraflux_app::builder::{Layer, Palette, palette_of};
+    use terraflux_graph::Node;
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source.nodes = vec![
+            Node::new("land", "raster.read")
+                .param("path", data("sibuyan_landuse.tif").to_string_lossy().as_ref())
+                .param("band", "0"),
+            Node::new("drivers", "raster.read").param("path", data("sibuyan_drivers.tif").to_string_lossy().as_ref()),
+        ];
+        s.edited();
+        assert!(s.issues.is_empty(), "{:?}", s.issues);
+        s.start(Box::new(|| {}));
+    }
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("land", "raster").is_some() && s.value_of("drivers", "raster").is_some()
+    });
+    let terrain = Palette::Chosen(terraflux_app::palette::Ramp::Terrain, false);
+    let third = {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.preview_layers = vec![Layer { band: Some(2), ..Layer::new("drivers", "raster") }];
+        s.palettes.insert(("drivers".into(), "raster".into()), terrain);
+        let Some(terraflux_ops::Value::Raster(r)) = s.value_of("drivers", "raster") else { panic!("rasters") };
+        r.layers[2].name.clone()
+    };
+    show(&mut h, "land", "raster");
+    drawn(&mut h);
+    h.run_steps(3);
+    // the layer's map, chosen in the Layers: its third band
+    assert!(h.query_by_value(&format!("map: {third}")).is_some(), "the band of the layer");
+    h.get_by_label("Plots").click();
+    h.run_steps(2);
+    h.get_by_label("Save as a new plot").click();
+    h.run_steps(2);
+    let s = h.state_mut().session.as_mut().unwrap();
+    let p = s.source.plot("plot_land").expect("the Plot").clone();
+    let drivers = p.layers.iter().find(|l| l.from == "drivers.raster").expect("the drivers layer");
+    assert_eq!((drivers.band, drivers.palette.as_deref()), (Some(2), Some("terrain")));
+    assert_eq!(p.layers.last().unwrap().palette, None, "the land by what it is");
+    // the Viewer cleared: the Document's colours by the Plot, and opening it gives them back
+    s.preview_layers.clear();
+    s.palettes.clear();
+    assert_eq!(palette_of(s, "drivers", "raster"), terrain);
+    terraflux_app::builder::open_plot(s, &terraflux_ops::Registry::standard(), "plot_land");
+    assert_eq!(s.preview_layers[0].band, Some(2));
+    assert_eq!(s.palettes.get(&("drivers".to_string(), "raster".to_string())), Some(&terrain));
+    // the layer shown: its band is the Viewer's
+    s.preview = Some(("drivers".into(), "raster".into()));
+    s.preview_band = 4;
+    s.preview_chosen = true;
+    drawn(&mut h);
+    h.run_steps(2);
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.preview_layers[0].band, Some(4));
+}
+
 /// A table plotted (in the Viewer, as the chart its settings ask) and written to a file.
 #[test]
 fn a_table_is_plotted_and_written() {
