@@ -2296,7 +2296,7 @@ fn layers_section(
     let vectors = vector_values(s, r);
     let is_vector = |l: &Layer| vectors.iter().any(|(n, p, _)| l.is(n, p));
     let n = sh.layers.len();
-    let (mut up, mut down, mut gone, mut chosen) = (None, None, None, None);
+    let (mut up, mut down, mut gone, mut chosen, mut zoom) = (None, None, None, None, None);
     for i in (0..n).rev() {
         let vector = is_vector(&sh.layers[i]);
         let l = &mut sh.layers[i];
@@ -2312,6 +2312,9 @@ fn layers_section(
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.small_button("x").on_hover_text("no longer a layer").clicked() {
                     gone = Some(i);
+                }
+                if ui.small_button("zoom").on_hover_text("zoom to layer: the view on all of it").clicked() {
+                    zoom = Some(i);
                 }
                 if ui
                     .add_enabled(i > 0, egui::Button::new("⏷").small())
@@ -2358,6 +2361,14 @@ fn layers_section(
                     }
                 }
             });
+        }
+    }
+    if let Some(i) = zoom {
+        let l = &sh.layers[i];
+        if l.is(&node, &port) {
+            sh.view.fit();
+        } else if let Some(cells) = sh.view.shown_grid().and_then(|g| layer_cells(s, l, g)) {
+            sh.view.zoom_to(cells);
         }
     }
     if let Some(i) = up {
@@ -2835,6 +2846,24 @@ pub(crate) fn maps_of(value: &Value) -> (Vec<Source>, Vec<String>) {
             r.layers.iter().map(|l| l.name.clone()).collect(),
         ),
         _ => (vec![], vec![]),
+    }
+}
+
+/// Where a layer is on the map shown (a grid): the box of its cells (`[x0, y0, x1, y1]`); none when it is not
+/// placed on it (another coordinate system, rotated) or has nothing.
+fn layer_cells(s: &Session, l: &Layer, shown: &terraflux_raster::Grid) -> Option<[f32; 4]> {
+    match s.value_of(&l.node, &l.port)? {
+        Value::Vector(v) => {
+            let b = crate::vector_tiles::prepare(&v, shown).ok()?.bounds?;
+            Some([b[0] as f32, b[1] as f32, b[2] as f32, b[3] as f32])
+        }
+        v => {
+            let src = layer_source(&v, l.band)?;
+            let g = src.grid();
+            let p = crate::map_view::place_on(g, shown)?;
+            let end = p.offset + egui::Vec2::new(g.width as f32 * p.scale.x, g.height as f32 * p.scale.y);
+            Some([p.offset.x.min(end.x), p.offset.y.min(end.y), p.offset.x.max(end.x), p.offset.y.max(end.y)])
+        }
     }
 }
 

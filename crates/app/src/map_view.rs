@@ -509,6 +509,20 @@ impl MapView {
         self.fitted = true;
     }
 
+    /// The view on a box of cells of the map shown (`[x0, y0, x1, y1]`), at the size the view was drawn last;
+    /// nothing before it was drawn.
+    pub fn zoom_to(&mut self, cells: [f32; 4]) {
+        let Some(rect) = self.rect else { return };
+        let (w, h) = ((cells[2] - cells[0]).abs().max(1e-3), (cells[3] - cells[1]).abs().max(1e-3));
+        let zoom = (rect.width() / w).min(rect.height() / h).max(1e-6);
+        self.set_camera(zoom, Vec2::new((cells[0] + cells[2]) / 2.0, (cells[1] + cells[3]) / 2.0));
+    }
+
+    /// The grid of the map drawn at the last frame.
+    pub fn shown_grid(&self) -> Option<&terraflux_raster::Grid> {
+        self.shown_grid.as_ref()
+    }
+
     /// A map of this size shown next where the view is (a view following another), not fitted to it again.
     pub fn hold(&mut self, size: (usize, usize)) {
         self.size = size;

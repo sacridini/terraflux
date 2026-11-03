@@ -2178,6 +2178,22 @@ fn maps_stack_and_cells_show_their_series() {
     let zoom = h.state().session.as_ref().unwrap().preview_view.zoom();
     // 250 m cells: the world (40,075 km) is about 160,000 cells; the view about 900 points
     assert!(zoom > 1e-3 && zoom < 0.05, "{zoom}");
+    // zoom to layer: the roads (the second row from the top), the view on their 30 km, inside the land
+    {
+        use egui_kittest::kittest::NodeT;
+        let mut zooms: Vec<_> = h.query_all_by_label("zoom").collect();
+        let y = |n: &egui_kittest::Node| n.accesskit_node().bounding_box().map_or(0.0, |r| r.y0);
+        zooms.sort_by(|a, b| y(a).total_cmp(&y(b)));
+        assert_eq!(zooms.len(), 3, "a zoom per layer");
+        zooms[1].click();
+    }
+    h.run_steps(2);
+    let (zoom, center) = h.state().session.as_ref().unwrap().preview_view.camera();
+    // (the roads span 120 columns of 250 m: the view about 900 points wide)
+    assert!(zoom > 2.0, "{zoom}");
+    let g = h.state().session.as_ref().unwrap().preview_view.shown_grid().unwrap().clone();
+    let (x, y) = (g.transform[0] + center.x as f64 * g.transform[1], g.transform[3] + center.y as f64 * g.transform[5]);
+    assert!((x - 452000.0).abs() < 500.0 && (y - 1367500.0).abs() < 500.0, "{x} {y}");
     // the layers: the Plot's (the land, the roads) and the drivers on top; the drivers' name clicked: their map shown
     let kept = |h: &Harness<TerrafluxApp>| -> Vec<(String, String)> {
         let s = h.state().session.as_ref().unwrap();

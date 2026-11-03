@@ -13,6 +13,8 @@ minor versions.
   for it in the Layers (no longer always the first). A Plot keeps each layer's band and the palette chosen by
   hand, and gives them back when it opens; the Document colours a map by the Plot that shows it. `set_plot`
   takes a layer's `palette` by its name in the Viewer (or its first word: `cividis`, `terrain, logarithmic`).
+- Viewer: **Zoom to layer**: the "zoom" of a layer in the Layers puts the view on all of it (a map's extent, the
+  box of vector features); the map shown fits again.
 - Document: **a Plots section** lists the model's Plots (title, layers, comparison, the figure each is), and
   each figure has "open in the Viewer": the Plot opened there with its layers and settings.
 
