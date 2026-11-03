@@ -123,7 +123,7 @@ pub fn show(ui: &mut Ui, v: &Arc<Vector>, view: &mut MapView, id: egui::Id) {
         ui.centered_and_justified(|ui| ui.label("no geometry"));
         return;
     };
-    let overlays = [Overlay { vector: v.clone(), style }];
+    let overlays = [Overlay { vector: v.clone(), style, name: String::new() }];
     egui::CentralPanel::default().frame(egui::Frame::new().fill(crate::theme::well())).show(ui, |ui| {
         view.show_layers(ui, &Source::Blank(grid), &Coloring::Classes(Vec::new()), &overlays);
     });

@@ -317,6 +317,21 @@ impl Place {
     }
 }
 
+/// A feature of a vector layer as the pointer tells it: the layer's name (when it has one), its number, its
+/// attributes a line each.
+pub fn feature_text(o: &crate::vector_tiles::Overlay, k: usize) -> String {
+    let mut text =
+        if o.name.is_empty() { format!("feature {}", k + 1) } else { format!("{}: feature {}", o.name, k + 1) };
+    for (n, col) in &o.vector.attributes {
+        let value = match col {
+            terraflux_raster::vector::Column::Numbers(x) => crate::table_view::cell(x[k]),
+            terraflux_raster::vector::Column::Texts(t) => t[k].clone(),
+        };
+        text.push_str(&format!("\n{n}: {value}"));
+    }
+    text
+}
+
 /// A grid's place on another: by their transforms, when they are of the same coordinate system (or neither has
 /// one) and neither is rotated.
 pub fn place_on(g: &terraflux_raster::Grid, base: &terraflux_raster::Grid) -> Option<Place> {
@@ -1188,24 +1203,18 @@ impl MapView {
         self.pointer = Some(c);
         let g = &source.grid().transform;
         let inside = c.x >= 0.0 && c.y >= 0.0 && c.x < w as f32 && c.y < h as f32;
-        // the feature under the pointer (4 points around), its attributes beside it
-        let feature = if overlays.is_empty() {
-            None
+        // the features under the pointer (4 points around), of each vector layer from the top, their attributes
+        // beside them
+        let features = if overlays.is_empty() {
+            Vec::new()
         } else {
             let tolerance = f64::from(4.0 / self.zoom);
-            self.vectors.pick(&ctx, overlays, source.grid(), [f64::from(c.x), f64::from(c.y)], tolerance)
+            self.vectors.pick_all(&ctx, overlays, source.grid(), [f64::from(c.x), f64::from(c.y)], tolerance)
         };
-        if let Some((l, k)) = feature {
-            let v = &overlays[l].vector;
-            let mut text = format!("feature {}", k + 1);
-            for (n, col) in &v.attributes {
-                let value = match col {
-                    terraflux_raster::vector::Column::Numbers(x) => crate::table_view::cell(x[k]),
-                    terraflux_raster::vector::Column::Texts(t) => t[k].clone(),
-                };
-                text.push_str(&format!("\n{n}: {value}"));
-            }
-            response.clone().on_hover_text_at_pointer(text);
+        let feature = features.first().copied();
+        if !features.is_empty() {
+            let texts: Vec<String> = features.iter().map(|&(l, k)| feature_text(&overlays[l], k)).collect();
+            response.clone().on_hover_text_at_pointer(texts.join("\n\n"));
         }
         if (response.clicked() || response.secondary_clicked()) && !blank && self.drawing.is_none() {
             let picked = inside.then_some((c.y as usize, c.x as usize));

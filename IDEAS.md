@@ -938,7 +938,7 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    sempre por cima. O cursor diz o valor de cada mapa pelo nome (`RasterLayer::name`, `MapView::name`). As camadas
    seguem um nó renomeado e saem com um removido; o projeto do QGIS leva as camadas visíveis. Teste: `ui.rs`
    (fixar, clicar no nome, ⏷, tirar), `canvas.rs` (o duplo clique fixa). Falta: o painel próprio à esquerda,
-   arrastar para a ordem, os atributos de vetores no identificar,
+   arrastar para a ordem,
    os testes por pixels e a medida com `canvas::timings`.
 3. **Comparar e dividir dentro do Viewer; o fim das abas `Map`.** (média)
    - Cortina entre a camada de cima e a de baixo (ou duas escolhidas); a diferença (`difference.rs`) como camada
@@ -1009,6 +1009,8 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    `builder::palette_name`/`palette_named`; teste `a_layers_band_and_palette_are_kept_in_its_plot`).
    *Zoom to layer* (o "zoom" de cada camada: `MapView::zoom_to`, `builder::layer_cells`; teste no
    `maps_stack_and_cells_show_their_series`).
+   O identificar diz a feição de cada camada de vetores sob o cursor, pelo nome da camada (`VectorTiles::pick_all`,
+   `map_view::feature_text`, `Overlay::name`; teste `the_features_of_every_layer_are_told`).
    A lista dos Plots no Document (a seção "Plots": título, camadas, comparação, a figura; "open" e "open in the
    Viewer" nas figuras abrem o Plot; `Document::figure_of`).
    Falta: a coluna inteira por Plot na comparação de cenários (hoje o mapa de cada Plot; a confirmar, ver "Em

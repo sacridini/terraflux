@@ -3890,7 +3890,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         });
     let mut overlays: Vec<crate::vector_tiles::Overlay> = plot_vectors
         .into_iter()
-        .map(|v| crate::vector_tiles::Overlay { vector: v, style: Default::default() })
+        .map(|v| crate::vector_tiles::Overlay { vector: v, style: Default::default(), name: String::new() })
         .collect();
     // the layers kept (the first at the bottom): those under the map shown drawn before it, those over it after (the
     // plot's own maps over it first); the map shown over them all when it is not one of them
@@ -3902,7 +3902,11 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
             continue;
         }
         match s.value_of(&l.node, &l.port) {
-            Some(Value::Vector(v)) => overlays.push(crate::vector_tiles::Overlay { vector: v, style: l.style.clone() }),
+            Some(Value::Vector(v)) => overlays.push(crate::vector_tiles::Overlay {
+                vector: v,
+                style: l.style.clone(),
+                name: output_name(&l.node, &l.port),
+            }),
             Some(v) => {
                 if let Some(src) = layer_source(&v, l.band) {
                     let item = (src, l.opacity, l.node.clone(), l.port.clone());

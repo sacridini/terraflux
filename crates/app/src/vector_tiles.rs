@@ -511,6 +511,8 @@ fn grid_key(g: &Grid) -> u64 {
 pub struct Overlay {
     pub vector: Arc<Vector>,
     pub style: Style,
+    /// Its name, the feature under the pointer told by it (none: the only one).
+    pub name: String,
 }
 
 /// How the view maps cells to the screen: the cell at the centre, screen points per cell, the rectangle.
@@ -701,13 +703,26 @@ impl VectorTiles {
         cell: [f64; 2],
         tolerance: f64,
     ) -> Option<(usize, usize)> {
+        self.pick_all(ctx, overlays, grid, cell, tolerance).into_iter().next()
+    }
+
+    /// The feature under a cell position of every layer that has one there, the topmost first: (layer, feature).
+    pub fn pick_all(
+        &mut self,
+        ctx: &egui::Context,
+        overlays: &[Overlay],
+        grid: &Grid,
+        cell: [f64; 2],
+        tolerance: f64,
+    ) -> Vec<(usize, usize)> {
+        let mut out = Vec::new();
         for (i, o) in overlays.iter().enumerate().rev() {
             if let Ok(Some(l)) = self.layer(ctx, &o.vector, grid)
                 && let Some(k) = pick(&l, cell, tolerance)
             {
-                return Some((i, k));
+                out.push((i, k));
             }
         }
-        None
+        out
     }
 }

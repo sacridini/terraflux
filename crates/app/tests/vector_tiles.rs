@@ -62,6 +62,43 @@ fn features_are_picked() {
     assert!(rasterize(&layer, &colours, &style, 0, 1000, 1000).is_none());
 }
 
+/// Under the pointer, the feature of every layer that has one there, the topmost first, each told by its layer's
+/// name with its attributes.
+#[test]
+fn the_features_of_every_layer_are_told() {
+    let zone = |name: &str, x: f64| Vector {
+        geometries: vec![Geometry::Polygon(vec![square(x, 0.0, 10.0)])],
+        attributes: vec![("name".into(), Column::Texts(vec![name.into()]))],
+        crs: None,
+    };
+    let (park, farm) = (Arc::new(zone("park", 0.0)), Arc::new(zone("farm", 5.0)));
+    let grid = grid_over(&Arc::new(Vector {
+        geometries: vec![Geometry::Polygon(vec![square(0.0, 0.0, 15.0)])],
+        attributes: Vec::new(),
+        crs: None,
+    }));
+    let overlays = [
+        Overlay { vector: park, style: Style::default(), name: "parks".into() },
+        Overlay { vector: farm, style: Style::default(), name: "farms".into() },
+    ];
+    let t = grid.transform;
+    let cell = |x: f64, y: f64| [(x - t[0]) / t[1], (y - t[3]) / t[5]];
+    let tol = 0.05 / t[1];
+    let ctx = egui::Context::default();
+    let mut tiles = terraflux_app::vector_tiles::VectorTiles::default();
+    // (the layers prepared by threads)
+    let started = Instant::now();
+    while tiles.pick_all(&ctx, &overlays, &grid, cell(7.0, 5.0), tol).len() < 2 {
+        assert!(started.elapsed().as_secs() < 10, "the layers prepared");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert_eq!(tiles.pick_all(&ctx, &overlays, &grid, cell(7.0, 5.0), tol), [(1, 0), (0, 0)]);
+    assert_eq!(tiles.pick_all(&ctx, &overlays, &grid, cell(2.0, 5.0), tol), [(0, 0)]);
+    assert_eq!(tiles.pick(&ctx, &overlays, &grid, cell(7.0, 5.0), tol), Some((1, 0)));
+    let told = terraflux_app::map_view::feature_text(&overlays[1], 0);
+    assert_eq!(told, "farms: feature 1\nname: farm");
+}
+
 #[test]
 fn a_large_layer_is_quick() {
     let n = 500; // a quarter of a million polygons
@@ -219,6 +256,7 @@ fn the_viewer_draws_vectors() {
     let overlays = vec![Overlay {
         vector: zv.clone(),
         style: Style { by: Some("cluster".into()), fill: 0.45, ..Style::default() },
+        name: String::new(),
     }];
     let view = Arc::new(std::sync::Mutex::new(MapView::default()));
     let vw = view.clone();

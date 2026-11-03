@@ -15,6 +15,8 @@ minor versions.
   takes a layer's `palette` by its name in the Viewer (or its first word: `cividis`, `terrain, logarithmic`).
 - Viewer: **Zoom to layer**: the "zoom" of a layer in the Layers puts the view on all of it (a map's extent, the
   box of vector features); the map shown fits again.
+- Viewer: the pointer tells **the feature of every vector layer** under it (each by its layer's name, with its
+  attributes), not only the topmost one's.
 - Document: **a Plots section** lists the model's Plots (title, layers, comparison, the figure each is), and
   each figure has "open in the Viewer": the Plot opened there with its layers and settings.
 
