@@ -26,6 +26,14 @@ fn harness() -> Harness<'static, TerrafluxApp> {
 
 /// A window of `size` points drawn at `ppp` pixels a point (larger, for a picture cut to one part of it).
 fn harness_at(size: (f32, f32), ppp: f32) -> Harness<'static, TerrafluxApp> {
+    harness_marked(size, ppp, Marks::default())
+}
+
+/// Numbers drawn over the window (a picture's parts, explained below it): where, and the number.
+type Marks = std::sync::Arc<std::sync::Mutex<Vec<(egui::Pos2, String)>>>;
+
+/// A window with `marks` drawn over it, each number in an orange disc.
+fn harness_marked(size: (f32, f32), ppp: f32, marks: Marks) -> Harness<'static, TerrafluxApp> {
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
     std::fs::create_dir_all(&dir).unwrap();
     unsafe { std::env::set_var("TERRAFLUX_SETTINGS", dir.join("readme-settings.json")) };
@@ -39,7 +47,28 @@ fn harness_at(size: (f32, f32), ppp: f32) -> Harness<'static, TerrafluxApp> {
         .with_size(size)
         .with_pixels_per_point(ppp)
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
-        .build_ui_state(|ui, app: &mut TerrafluxApp| app.frame(ui), TerrafluxApp::new(None));
+        .build_ui_state(
+            move |ui, app: &mut TerrafluxApp| {
+                app.frame(ui);
+                let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("marks")));
+                for (at, n) in marks.lock().unwrap().iter() {
+                    painter.circle(
+                        *at,
+                        11.0,
+                        egui::Color32::from_rgb(240, 160, 20),
+                        egui::Stroke::new(1.5, egui::Color32::BLACK),
+                    );
+                    painter.text(
+                        *at,
+                        egui::Align2::CENTER_CENTER,
+                        n,
+                        egui::FontId::proportional(13.0),
+                        egui::Color32::BLACK,
+                    );
+                }
+            },
+            TerrafluxApp::new(None),
+        );
     h.run_steps(2);
     h
 }
@@ -395,4 +424,87 @@ out mean_hsi = hsi.mean()";
     }
     h.run_steps(3);
     shoot(&mut h, "my-node.png", Some([228.0, 45.0, 1062.0, 625.0]));
+}
+
+/// The tour's pictures of the window (website/static/img/tutorials/getting-started/tour): the template "MSPA of a
+/// forest" run, its parts numbered as the tour explains them, and the Model pane alone.
+#[test]
+#[ignore = "the website's pictures: run with --ignored"]
+fn tour_images() {
+    let out = std::env::var("TOUR_OUT").map(PathBuf::from).unwrap_or_else(|_| {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../website/static/img/tutorials/getting-started/tour")
+    });
+    std::fs::create_dir_all(&out).unwrap();
+    use egui_kittest::kittest::{NodeT, Queryable};
+    let marks = Marks::default();
+    // (wide enough for the bar's tools on it, not in its Tools menu)
+    let mut h = harness_marked((1280.0, 760.0), 1.0, marks.clone());
+    // the window as it opens
+    settled(&mut h);
+    h.render().expect("the window drawn by wgpu").save(out.join("empty.png")).unwrap();
+    let t = terraflux_app::templates::TEMPLATES.iter().find(|t| t.name == "MSPA of a forest").expect("the template");
+    let ctx = h.ctx.clone();
+    h.state_mut().start_template(&ctx, t);
+    settled(&mut h);
+    {
+        // the panes as the template opens them, the Viewer dragged below the Model (the tour's tip says how)
+        let a = h.state_mut();
+        let mut d = DockState::new(vec![Pane::Model, Pane::Document]);
+        let s = d.main_surface_mut();
+        let [right, _] = s.split_left(NodeIndex::root(), 0.2, vec![Pane::Node, Pane::Prepare]);
+        s.split_below(right, 0.45, vec![Pane::Viewer]);
+        a.dock = Some(d);
+        let s = a.session.as_mut().unwrap();
+        terraflux_app::builder::open_plot(s, &terraflux_ops::Registry::standard(), "plot");
+        s.selected = Some("mspa".into());
+        s.ask_viewer = false;
+    }
+    h.run_steps(3);
+    h.state_mut().session.as_mut().unwrap().editor.fit();
+    settled(&mut h);
+    let t = Instant::now();
+    while t.elapsed() < Duration::from_secs(2) {
+        h.step();
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // where a part is: the first widget whose words have these (its rectangle, points); the panes' tabs are not
+    // widgets, so they are found from the widgets of their panes
+    let rect = |h: &Harness<TerrafluxApp>, words: &str| -> egui::Rect {
+        let n = h
+            .query_all_by_label_contains("")
+            .find(|n| {
+                let a = n.accesskit_node();
+                a.label().is_some_and(|l| l.contains(words)) || a.value().is_some_and(|v| v.contains(words))
+            })
+            .unwrap_or_else(|| panic!("{words:?} in the window"));
+        let b = n.accesskit_node().bounding_box().expect("a place");
+        egui::Rect::from_min_max(egui::pos2(b.x0 as f32, b.y0 as f32), egui::pos2(b.x1 as f32, b.y1 as f32))
+    };
+    let (whole, save, metadata) = (rect(&h, "Whole model"), rect(&h, "Save output"), rect(&h, "Metadata"));
+    // the Model pane alone: from its tab (above its bar) to the Viewer's tabs, as wide as the Viewer's pane
+    let img = h.render().expect("the window drawn by wgpu");
+    let (x0, y0) = ((whole.left() - 14.0) as u32, (whole.top() - 36.0) as u32);
+    let (x1, y1) = ((metadata.right() + 15.0) as u32, (save.top() - 40.0) as u32);
+    image::imageops::crop_imm(&img, x0, y0, x1 - x0, y1 - y0).to_image().save(out.join("model-pane.png")).unwrap();
+    // the window, its parts numbered as the tour explains them
+    let beside = |r: egui::Rect| egui::pos2(r.right() + 16.0, r.center().y);
+    let before = |r: egui::Rect| egui::pos2(r.left() - 16.0, r.center().y);
+    let rename = rect(&h, "Rename");
+    let places = [
+        ("1", before(rect(&h, "Wizard"))),
+        ("2", beside(rect(&h, "done in"))),
+        ("3", beside(rename)),
+        // (the Prepare tab, above the Node pane's name; the Viewer's tab, above its bar)
+        ("4", egui::pos2(rename.left() + 2.0, rename.top() - 29.0)),
+        ("5", egui::pos2(whole.left() + 200.0, whole.bottom() + 50.0)),
+        ("6", beside(rect(&h, "Text"))),
+        ("7", egui::pos2(whole.left() + 81.0, save.top() - 25.0)),
+        ("8", egui::pos2(save.center().x, save.top() - 12.0)),
+        ("9", before(rect(&h, "Background")) - egui::vec2(18.0, 0.0)),
+        ("10", rect(&h, "add an operator").left_top() + egui::vec2(10.0, -12.0)),
+    ];
+    *marks.lock().unwrap() = places.iter().map(|(n, at)| (*at, n.to_string())).collect();
+    h.run_steps(2);
+    let img = h.render().expect("the window drawn by wgpu");
+    img.save(out.join("window.png")).unwrap();
 }

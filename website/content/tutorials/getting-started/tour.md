@@ -60,11 +60,13 @@ Open Terraflux (from the Start menu on Windows, Applications on macOS, the menu 
 typing `terraflux app` in a terminal). The window starts empty, with a message in the middle of the canvas:
 *Open a raster, click an operator of the library or press / to start; or begin from a template (Templates)*.
 
-![The empty window of Terraflux](/img/tutorials/getting-started/tour/empty.png "Terraflux as it opens: the toolbar at the top, the Node and Prepare panes on the left, the Model pane (an empty canvas) and the Viewer on the right, and a line of keyboard hints at the bottom. Screenshot of Terraflux 0.79 on Windows.")
+![The empty window of Terraflux](/img/tutorials/getting-started/tour/empty.png "Terraflux as it opens: the toolbar at the top, the Model pane (an empty canvas) in the whole window, the Operators and Files drawers at its left edge, and a line of keyboard hints at the bottom. The other panes come when they have something to show. Screenshot of Terraflux 1.34 on Windows.")
 
-Here is the same window after a template has run, with its parts numbered:
+Here is the same window after a template has run, with its parts numbered. The template brings the Node and
+Prepare panes at the left, and the Document and the Viewer as tabs behind the Model's; here the Viewer's tab was
+dragged below the Model, to see both:
 
-![The parts of the window](/img/tutorials/getting-started/tour/window.png "The window with the template 'MSPA of a forest' run. Numbers are explained below. Screenshot of Terraflux 0.79 on Windows (the theme Default).")
+![The parts of the window](/img/tutorials/getting-started/tour/window.png "The window with the template 'MSPA of a forest' run, the Viewer dragged below the Model. Numbers are explained below. Screenshot of Terraflux 1.34 on Windows (the theme Default).")
 
 1. **The toolbar.** The **File** menu (*New model*, *Open...*, *Open recent*, *Save*, *Save as...*, *Open a raster
    or vectors...*, *Compare* and *Export report*), *Templates* (models to start from), *Operators* (the library
@@ -86,12 +88,14 @@ Here is the same window after a template has run, with its parts numbered:
    names need (an input's and an output's never run into each other); drag its right edge to make it wider, and
    double-click the edge to bring it back to the width its names need.
 6. **The Model pane's bar**: where you are in the model (*Whole model*, or inside a loop), **Run to here** (run the
-   node selected and what it needs, ++ctrl+enter++), **Arrange** (tidy the nodes, ++ctrl+l++), **update after every
-   edit** (run again by itself after every change) and **Text** (the model as text).
+   node selected and what it needs, ++ctrl+enter++), **Arrange** (tidy the nodes, ++ctrl+l++), **Undo** and **Redo**, **update after
+   every edit** (run again by itself after every change) and **Text** (the model as text).
 7. **The Viewer.** It shows what the node selected gives, refreshed at every run; a double click on a node
    brings it to the front with that node's output, and keeps it there as a layer.
-8. **Save output** (the map shown as a GeoTIFF file, with or without a [[raster.write]] node added to the model)
-   and **Metadata** (what the file or map says about itself: size, cell size, coordinate system, no data...).
+8. **Save output** (the map shown as a GeoTIFF file, with or without a [[raster.write]] node added to the model),
+   the **Plots** of the model (here *Plot: MSPA*, the one shown: what the Viewer shows kept with the model, see
+   [Plots and figures](../../building-models/plots-and-tables/)) and **Metadata** (what the file or map says about
+   itself: size, cell size, coordinate system, no data...).
 9. **The legend**: the classes of the map with their colours and their number of cells (here 300 x 300 cells, of
    which 33,168 are core forest), or a colour bar for continuous values.
 10. **The key hints**: a reminder of the mouse and keyboard actions of the pane under the pointer.

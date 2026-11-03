@@ -19,6 +19,8 @@ minor versions.
   attributes), not only the topmost one's.
 - Document: **a Plots section** lists the model's Plots (title, layers, comparison, the figure each is), and
   each figure has "open in the Viewer": the Plot opened there with its layers and settings.
+- Website: the tour's pictures of the window made again from 1.34 (the Model in the whole window as it opens; the
+  template run with its parts numbered; the Model pane), drawn by the test `readme_images::tour_images`.
 
 ## [1.34.0] - 2026-11-03
 

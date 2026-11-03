@@ -1028,10 +1028,10 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    Depois da 1.34.0: *Save as a new plot* e *Update the plot* gravam o gráfico escolhido no Viewer para uma tabela
    (`builder::chart_names`, pelos nomes das colunas; teste em `a_table_is_plotted_and_written`); os 23 trechos
    "under the canvas" do site corrigidos (4b4e6c8).
-   Falta: as figuras antigas do site (`tour/window.png`, `model-pane.png` ainda com quatro nós e a
-   aba MSPA); o diagrama de `fitting-models.md`
-   (perto da linha 252) que lê `data.records` sem nó `data` e sem `fragment: true` (já era assim; ver no
-   `build.py --check`).
+   As figuras do tour refeitas (`empty.png`, `window.png` com os números, `model-pane.png`) pelo teste
+   `readme_images::tour_images` (os números postos pelos lugares dos botões, `--ignored`), e as legendas e os
+   itens 6 e 8 do tour postos em dia. O diagrama de `fitting-models.md` já era `fragment: true` (o site sai sem
+   avisos): nada a fazer.
 5. **Depois** (a decidir, cada um à parte): reprojetar outro CRS por tile, ao desenhar; medir distância e área;
    soltar um arquivo no Viewer (o `raster.read` criado e a camada fixada); a tabela de atributos de uma camada de
    vetores; rótulos; o histograma de cada camada; exportar o Plot como PNG ou GeoTIFF composto.
