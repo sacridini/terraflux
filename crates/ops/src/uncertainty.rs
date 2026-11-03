@@ -541,7 +541,7 @@ impl Operator for MonteCarlo {
         .param(PortSpec::optional("quantiles", Type::Any, "[0.025, 0.975] (default)"))
     }
 
-    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let fail = |e: Error| Error::msg(format!("node {:?}: {e}", args.node));
         let params = parameters(args)?;
         let model = Model::new(args, params.iter().map(|p| p.0.clone()).collect())?;
@@ -557,6 +557,10 @@ impl Operator for MonteCarlo {
         let z: Vec<f64> = (0..n * k).map(|_| standard_normal(&mut rng)).collect();
         let mut out: Vec<Vec<f64>> = Vec::with_capacity(n);
         for i in 0..n {
+            // (told every 1% of the draws: a draw of numbers alone is quick)
+            if i % (n / 100).max(1) == 0 && !ctx.progress(Some(i as f64 / n as f64), format!("draw {} of {n}", i + 1)) {
+                return Err(fail(Error::msg("stopped")));
+            }
             let draw: Vec<f64> = (0..k).map(|j| params[j].1 + z[i * k + j] * params[j].2).collect();
             out.push(model.eval(&draw).map_err(fail)?);
         }

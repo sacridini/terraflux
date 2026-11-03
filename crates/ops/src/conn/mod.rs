@@ -307,14 +307,19 @@ impl Operator for NodeImportance {
         ))
     }
 
-    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let g = the_graph(args)?;
+        let distances = distances(args)?;
+        let of = distances.len();
+        let mut go_on =
+            |k: usize| of < 2 || ctx.progress(Some(k as f64 / of as f64), format!("distance {} of {of}", k + 1));
         let t = g
-            .node_importance(
+            .node_importance_watched(
                 metrics(args)?.as_deref(),
-                &distances(args)?,
+                &distances,
                 args.opt_param("probability")?,
                 args.opt_param("pij_min")?,
+                &mut go_on,
             )
             .map_err(|e| bad(args, e))?;
         Ok(table_out("table", t))

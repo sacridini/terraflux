@@ -186,6 +186,18 @@ pub fn migrate(
     barriers: Option<&[i32]>,
     s: &Settings,
 ) -> Run {
+    migrate_watched((ny, nx), initial, suitability, barriers, s, &mut |_, _| true).expect("never stopped")
+}
+
+/// [`migrate`], `go_on` told the dispersal step done and of how many before each one: none when it says no.
+pub fn migrate_watched(
+    (ny, nx): (usize, usize),
+    initial: &[i32],
+    suitability: &[Vec<i32>],
+    barriers: Option<&[i32]>,
+    s: &Settings,
+    go_on: &mut dyn FnMut(usize, usize) -> bool,
+) -> Option<Run> {
     let n = ny * nx;
     let mut a = Automaton { ny, nx, s, rng: CrtRand::new(s.seed), use_barrier: barriers.is_some() };
     let mut cur = initial.to_vec();
@@ -250,6 +262,9 @@ pub fn migrate(
             }
         }
         for d in 1..=s.steps {
+            if !go_on(e * s.steps + d - 1, suitability.len() * s.steps) {
+                return None;
+            }
             loop_id += 1;
             let (mut step_colonized, mut step_ldd) = (0, 0);
             if d > 1 {
@@ -341,7 +356,7 @@ pub fn migrate(
             cur[k] = 30000;
         }
     }
-    Run { fin: cur, steps, stats }
+    Some(Run { fin: cur, steps, stats })
 }
 
 /// A map's values as MigClim's integers (no value: its no data).
@@ -415,7 +430,7 @@ impl Operator for Migrate {
         .param(PortSpec::optional("seed", Type::Integer, "the seed of the C runtime's rand() (default 1)"))
     }
 
-    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let initial = args.map("initial")?;
         let (grid, layers) = crate::stats::layers_of(args, "suitability")?;
         let (ny, nx) = initial.shape();
@@ -463,7 +478,10 @@ impl Operator for Migrate {
         }
         let suit: Vec<Vec<i32>> = layers.iter().map(|l| ints(l)).collect();
         let bar = barriers.map(|b| ints(&b.data));
-        let r = migrate((ny, nx), &ints(&initial.data), &suit, bar.as_deref(), &s);
+        let mut go_on =
+            |k: usize, of: usize| ctx.progress(Some(k as f64 / of as f64), format!("step {} of {of}", k + 1));
+        let r = migrate_watched((ny, nx), &ints(&initial.data), &suit, bar.as_deref(), &s, &mut go_on)
+            .ok_or_else(|| fail(args, "stopped"))?;
         let g = initial.grid.clone();
         let occupied: Vec<f64> =
             r.fin.iter().map(|&c| if c == NO_DATA { f64::NAN } else { f64::from(c > 0 && c < 30000) }).collect();

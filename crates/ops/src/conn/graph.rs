@@ -521,9 +521,24 @@ impl HabitatGraph {
         probability: Option<f64>,
         pij_min: Option<f64>,
     ) -> Result<Table, String> {
+        self.node_importance_watched(metrics, distances, probability, pij_min, &mut |_| true)
+    }
+
+    /// [`HabitatGraph::node_importance`], `go_on` told the distance it comes to (an error when it says no).
+    pub fn node_importance_watched(
+        &self,
+        metrics: Option<&[String]>,
+        distances: &[Option<f64>],
+        probability: Option<f64>,
+        pij_min: Option<f64>,
+        go_on: &mut dyn FnMut(usize) -> bool,
+    ) -> Result<Table, String> {
         let chosen = metric_list(metrics, self.kind)?;
         let mut frames = Vec::new();
-        for &d in distances {
+        for (k, &d) in distances.iter().enumerate() {
+            if !go_on(k) {
+                return Err("stopped".into());
+            }
             frames.push(match &self.restoration {
                 Some(flags) => self.restoration_frame(flags, &chosen, d, probability, pij_min)?,
                 None => self.removal_frame(&chosen, d, probability, pij_min)?,

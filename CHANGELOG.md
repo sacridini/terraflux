@@ -37,6 +37,9 @@ minor versions.
 - The **Python script** writes a conservation plan with **management zones** (`prioritize.optimize` with
   `zone_costs`, the features' `contribution` and `mandatory_allocation`) as landschaft's: the zone of each cell, and
   each zone's share as a layer.
+- **Stop and progress** in more long operators: Monte Carlo's draws (`uncertainty.monte_carlo`), a metapopulation's
+  and MigClim's steps (`conn.metapopulation`, `sdm.migrate`) and the importance of the nodes at several distances
+  (`conn.node_importance`) say how far they are and stop between two.
 
 ### Fixed
 - A stray `</think>` (a thinking model's closing tag without its opening one) no longer shows in the assistant's

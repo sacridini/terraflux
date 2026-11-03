@@ -813,6 +813,13 @@ commit por item):
    alocação, público"). `plus.demand` e `demand.regional` (`ls.simulate.Regional` é público) só servem a esses
    passos: nenhum operador do script lê uma demanda ainda, e entram com eles.
 8. **Stop dentro do C++** (MSPA, `circuit.pairwise`, Omniscape) e `ctx.stopped()` nos operadores longos.
+   **Feito no Rust** (Unreleased): `ctx.progress` e o Stop entre os sorteios do `uncertainty.monte_carlo` (a cada 1%),
+   os passos do `conn.metapopulation` e do `sdm.migrate` (`dispersal::migrate_watched`, o `migrate` de antes chama
+   ele) e as distâncias do `conn.node_importance` (`node_importance_watched`); um teste em `stopping.rs` (contado e
+   parado no meio). **O C++ espera o landschaft:** o MSPA inteiro, o `circuit.pairwise` por par e o Omniscape só
+   param entre as chamadas (os blocos do MSPA em tiles, os pontos do Circuitscape); o pedido de um callback ou de
+   uma flag de cancelamento olhada nos laços está no IDEAS.md de lá ("Cancelar as chamadas longas do C++",
+   2026-11-01).
 9. **Viewer:** o último elemento de um `control.each` e um passo escolhido de um laço.
 10. **Nó congelado:** o que só ele lê dentro de um grupo não roda mais.
 11. **QGIS:** o `.qgz` conferido no PyQGIS.

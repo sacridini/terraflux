@@ -229,7 +229,7 @@ impl Operator for Metapopulation {
         .param(PortSpec::optional("seed", Type::Integer, "R's set.seed (default 1)"))
     }
 
-    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let (xy, area, mut occupied) = patches_of(
             args,
             &args.param("area", "area".to_string())?,
@@ -283,6 +283,9 @@ impl Operator for Metapopulation {
         t.rows.push(summary(0, &occupied, &occupied));
         let mut times = vec![0usize; n];
         for step in 1..=steps {
+            if !ctx.progress(Some((step - 1) as f64 / steps as f64), format!("step {step} of {steps}")) {
+                return Err(fail(args, "stopped"));
+            }
             let next = m.step(&xy, &area, &occupied, &mut rng);
             t.rows.push(summary(step, &next, &occupied));
             occupied = next;
