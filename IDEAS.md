@@ -803,6 +803,15 @@ commit por item):
    operadores e templates citados (um teste); os de construção do modelo ficam em inglês.
 7. **Script Python:** `dinamica.step`, `cars.step`, `lulcc.step`, `plus.demand`, `demand.regional`, as zonas do
    `prioritize.optimize`.
+   **Feito em parte** (Unreleased): as zonas do `prioritize.optimize` (`zone_costs` como o custo de cada zona, uma
+   camada por zona com o nome dela; `features` com `contribution`; `mandatory_allocation` como
+   `add_mandatory_allocation_constraints()`; `solution` = `.zones`, `allocation` = `.selection` com as zonas como
+   camadas, `coverage`), conferidas no landschaft 1.56 instalado. Um portfólio de zonas e as outras entradas de zona
+   (`zone_features`, `contribution_maps`, `zone_locked_*`) ficam de fora, ditas no script. **Esperando o landschaft:**
+   os passos (`dinamica.step`, `cars.step`, `lulcc.step`) só existem dentro do `simulate` do modelo inteiro, e o corpo
+   de um passo chama `_core.sim_patches` / `sim_cars`, privados; pedido no IDEAS.md do landschaft ("Um passo de cada
+   alocação, público"). `plus.demand` e `demand.regional` (`ls.simulate.Regional` é público) só servem a esses
+   passos: nenhum operador do script lê uma demanda ainda, e entram com eles.
 8. **Stop dentro do C++** (MSPA, `circuit.pairwise`, Omniscape) e `ctx.stopped()` nos operadores longos.
 9. **Viewer:** o último elemento de um `control.each` e um passo escolhido de um laço.
 10. **Nó congelado:** o que só ele lê dentro de um grupo não roda mais.

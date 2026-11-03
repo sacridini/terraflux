@@ -1499,8 +1499,15 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
         }
         "prioritize.optimize" => {
             for k in n.inputs.keys() {
-                const INPUTS: &[&str] =
-                    &["features", "cost", "locked_in", "locked_out", "connectivity_data", "asym_connectivity_data"];
+                const INPUTS: &[&str] = &[
+                    "features",
+                    "cost",
+                    "zone_costs",
+                    "locked_in",
+                    "locked_out",
+                    "connectivity_data",
+                    "asym_connectivity_data",
+                ];
                 if !INPUTS.contains(&k.as_str()) {
                     return Err(format!("its input {k}: not in the script yet"));
                 }
@@ -1528,14 +1535,23 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
                 "gap",
                 "time_limit",
                 "threads",
+                "contribution",
+                "mandatory_allocation",
             ];
             let other: Vec<&str> = n.params.keys().map(String::as_str).filter(|k| !KNOWN.contains(k)).collect();
             if !other.is_empty() {
                 return Err(format!("its settings {}: not in the script yet", other.join(", ")));
             }
-            let cost = need("cost", "its cost")?;
+            // management zones: a cost a zone (a layer each, named by it), the features' contribution in each
+            let zoned = n.inputs.contains_key("zone_costs");
+            let cost = if zoned { need("zone_costs", "its zones' costs")? } else { need("cost", "its cost")? };
             let features = need("features", "its features")?;
-            let mut chain = vec![format!("ls.prioritize.problem({cost}, {features})")];
+            let contribution = match setting(n, "contribution", sc)? {
+                Some(c) if zoned => format!(", contribution={c}"),
+                Some(_) => return Err("contribution without zone_costs".into()),
+                None => String::new(),
+            };
+            let mut chain = vec![format!("ls.prioritize.problem({cost}, {features}{contribution})")];
             let objective = choice(n, "objective").unwrap_or("min_set");
             match OBJECTIVES.iter().find(|(o, _)| *o == objective) {
                 Some((o, false)) => chain.push(format!(".add_{o}_objective()")),
@@ -1584,6 +1600,9 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
                     chain.push(format!(".{method}({x})"));
                 }
             }
+            if n.params.get("mandatory_allocation").and_then(Value::as_bool) == Some(true) {
+                chain.push(".add_mandatory_allocation_constraints()".into());
+            }
             match choice(n, "decisions").unwrap_or("binary") {
                 "binary" => chain.push(".add_binary_decisions()".into()),
                 "proportion" => chain.push(".add_proportion_decisions()".into()),
@@ -1613,7 +1632,17 @@ fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, String> {
             chain.push(".solve()".into());
             let code = format!("{var} = (\n    {}\n)\n", chain.join("\n    "));
             // the solution as a map (`selection`; `values` is one per unit); a portfolio's first, all and how often
-            let outs = if n.params.contains_key("portfolio") {
+            let outs = if zoned {
+                if n.params.contains_key("portfolio") {
+                    return Err("a portfolio of zones: not in the script yet".into());
+                }
+                // the zone of every unit (1.., 0 none), and the share of each zone
+                HashMap::from([
+                    ("solution".to_string(), format!("{var}.zones")),
+                    ("allocation".to_string(), format!("{var}.selection.rename(zone=\"band\")")),
+                    ("coverage".to_string(), format!("{var}.coverage")),
+                ])
+            } else if n.params.contains_key("portfolio") {
                 HashMap::from([
                     ("solution".to_string(), format!("{var}[0].selection")),
                     ("solutions".to_string(), format!("{var}.selection")),
@@ -2629,6 +2658,13 @@ params = { boundary_penalty = 0.1, connectivity_penalty = 2, relative_targets = 
 id = "zoned"
 op = "prioritize.optimize"
 inputs = { zone_costs = "drivers.stack", features = "drivers.stack" }
+params = { contribution = { slope = 1, dist = 0.5 }, mandatory_allocation = true, relative_targets = 0.2 }
+
+[[nodes]]
+id = "zoned_many"
+op = "prioritize.optimize"
+inputs = { zone_costs = "drivers.stack", features = "drivers.stack" }
+params = { portfolio = "top" }
 
 [outputs.near]
 from = "roads.distance"
@@ -2671,10 +2707,26 @@ from = "roads.distance"
             ),
             "{t}"
         );
-        // a model of not full rank, and zones: left, said why
+        // management zones: a cost a zone, the features' contribution in each
+        assert!(
+            t.contains(
+                "ls.prioritize.problem(drivers, drivers, contribution={\"dist\": 0.5, \"slope\": 1})
+    .add_min_set_objective()
+"
+            ),
+            "{t}"
+        );
+        assert!(
+            t.contains(
+                ".add_mandatory_allocation_constraints()
+"
+            ),
+            "{t}"
+        );
+        // a model of not full rank, and a portfolio of zones: left, said why
         let left: Vec<&str> = s.left.iter().map(|(id, _, _)| id.as_str()).collect();
-        assert_eq!(left, ["aliased", "zoned"], "{:?}", s.left);
-        assert!(s.left[0].2.contains("full rank") && s.left[1].2.contains("zone_costs"), "{:?}", s.left);
+        assert_eq!(left, ["aliased", "zoned_many"], "{:?}", s.left);
+        assert!(s.left[0].2.contains("full rank") && s.left[1].2.contains("portfolio of zones"), "{:?}", s.left);
         parses(t);
     }
 

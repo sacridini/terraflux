@@ -34,6 +34,9 @@ minor versions.
 - `terraflux mcp` **asks the user** (MCP's elicitation, when the client can): set_input of a map of classes without
   a note asks what each class is, and keeps the names as the input's note.
 - The guides of the methods **in Portuguese** (`guide` with `language: pt`), for the assistant that answers in it.
+- The **Python script** writes a conservation plan with **management zones** (`prioritize.optimize` with
+  `zone_costs`, the features' `contribution` and `mandatory_allocation`) as landschaft's: the zone of each cell, and
+  each zone's share as a layer.
 
 ### Fixed
 - A stray `</think>` (a thinking model's closing tag without its opening one) no longer shows in the assistant's
