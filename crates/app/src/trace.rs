@@ -354,15 +354,23 @@ pub fn key(m: &Model, path: &[String], node: &str, port: &str) -> Option<(String
 }
 
 /// As [`key`], and in a loop's body too: the value its last step gave (`control.repeat` keeps it, as a group what
-/// its body gave); what the viewer shows of a node of a body.
+/// its body gave; `control.each` its last element's); what the viewer shows of a node of a body.
 pub fn shown_key(m: &Model, path: &[String], node: &str, port: &str) -> Option<(String, String)> {
     kept_at(m, path, node, port, true)
 }
 
-/// Whether a place goes through a loop's body (`control.repeat`): what is shown there is its last step's.
+/// Whether a place goes through a loop's body (`control.repeat`, `control.each`): what is shown there is its last
+/// step's (its last element's).
 pub fn in_loop(m: &Model, path: &[String]) -> bool {
-    (0..path.len())
-        .any(|k| m.scope(&path[..k]).and_then(|ns| ns.iter().find(|n| n.id == path[k])).is_some_and(|n| n.op == REPEAT))
+    loop_on(m, path).is_some()
+}
+
+/// The first loop a place goes through: its operator (`control.repeat` or `control.each`).
+pub fn loop_on(m: &Model, path: &[String]) -> Option<&'static str> {
+    (0..path.len()).find_map(|k| {
+        let n = m.scope(&path[..k])?.iter().find(|n| n.id == path[k])?;
+        [REPEAT, EACH].into_iter().find(|l| n.op == *l)
+    })
 }
 
 /// Whether a place is the top level or the body of a group (groups in groups): where a node's result can be
@@ -373,6 +381,7 @@ pub fn in_groups(m: &Model, path: &[String]) -> bool {
 }
 
 const REPEAT: &str = "control.repeat";
+const EACH: &str = "control.each";
 
 fn kept_at(m: &Model, path: &[String], node: &str, port: &str, loops: bool) -> Option<(String, String)> {
     if path.is_empty() {
@@ -381,7 +390,7 @@ fn kept_at(m: &Model, path: &[String], node: &str, port: &str, loops: bool) -> O
     // every container on the way a group, a switch (its branches are groups) or, when asked, a loop
     for k in 0..path.len() {
         let n = m.scope(&path[..k])?.iter().find(|n| n.id == path[k])?;
-        if !(n.op == GROUP || n.op == terraflux_graph::SWITCH || loops && n.op == REPEAT) {
+        if !(n.op == GROUP || n.op == terraflux_graph::SWITCH || loops && (n.op == REPEAT || n.op == EACH)) {
             return None;
         }
     }

@@ -821,6 +821,13 @@ commit por item):
    uma flag de cancelamento olhada nos laços está no IDEAS.md de lá ("Cancelar as chamadas longas do C++",
    2026-11-01).
 9. **Viewer:** o último elemento de um `control.each` e um passo escolhido de um laço.
+   **Feito** (Unreleased): o `control.each` dá o que os nós do corpo deram para o último elemento (`node.port`, como
+   o `control.repeat`), e `trace::shown_key` / `loop_on` levam o viewer até eles ("(the last element)"). Um passo
+   escolhido de um laço do nível de cima: no cabeçalho do viewer, "step"/"element" com *last* e o número
+   (`step_chooser`); `Session::choose_step` diz ao `Gate` (`want_step`) o passo cujo corpo a rodada manda
+   (`Message::Body`; ao andar passo a passo, todos: o passo em que parou aparece); `Session::bodies` guarda, e o de
+   um laço tirado do cache vem da rodada anterior. Um passo não guardado: *Run to see it* roda o laço de novo (fora
+   do cache, a não ser congelado). Falta: laços dentro de grupos ou de outros laços (só os do nível de cima).
 10. **Nó congelado:** o que só ele lê dentro de um grupo não roda mais.
 11. **QGIS:** o `.qgz` conferido no PyQGIS.
 12. **Trace:** a variável de iteração do CLUE.

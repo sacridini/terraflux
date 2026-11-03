@@ -49,6 +49,13 @@ pub enum Message {
         at: String,
         cached: bool,
     },
+    /// What the nodes of a loop's body gave at a step: the step wanted ([`Gate::want_step`]), or every step when
+    /// the run goes step by step (the step it is paused after shown).
+    Body {
+        at: String,
+        step: usize,
+        results: BTreeMap<String, terraflux_ops::Outputs>,
+    },
     /// The node that stopped the run.
     Failed(String),
     /// The outputs and the manifest written (the manifest's file), or why not.
@@ -100,6 +107,8 @@ pub struct Gate {
     /// Where it is paused: before a node (its place), or none (after a loop's step).
     at: Mutex<Option<String>>,
     cv: Condvar,
+    /// The step of a loop (by its place) whose body's results the run sends ([`Message::Body`]), to be shown.
+    wanted: Mutex<BTreeMap<String, usize>>,
 }
 
 impl Gate {
@@ -128,6 +137,20 @@ impl Gate {
         } else {
             b.remove(place);
         }
+    }
+
+    /// Keep what the body of the loop at a place gives at a step (none: its last, as the loop gives it).
+    pub fn want_step(&self, place: &str, step: Option<usize>) {
+        let mut w = self.wanted.lock().unwrap();
+        match step {
+            Some(k) => w.insert(place.to_string(), k),
+            None => w.remove(place),
+        };
+    }
+
+    /// The step of the loop at a place whose body is kept, if one is.
+    pub fn wanted_step(&self, place: &str) -> Option<usize> {
+        self.wanted.lock().unwrap().get(place).copied()
     }
 
     /// The places of the breakpoints.
@@ -231,6 +254,13 @@ impl Observer for Sending {
 
     fn warning(&mut self, at: &str, message: &str) {
         let _ = self.tx.send(Message::Warning(format!("{at}: {message}")));
+    }
+
+    fn body(&mut self, at: &str, step: usize, results: &BTreeMap<String, terraflux_ops::Outputs>) {
+        // (the values shared, not copied)
+        if self.gate.wanted_step(at) == Some(step) || self.gate.stepping.load(Ordering::Relaxed) {
+            let _ = self.tx.send(Message::Body { at: at.to_string(), step, results: results.clone() });
+        }
     }
 
     fn failures(&mut self, at: &str, failed: &[(String, String)]) {

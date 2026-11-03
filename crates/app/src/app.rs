@@ -612,6 +612,11 @@ pub struct Session {
     pub target: Option<String>,
     /// What every top-level node gave in the runs so far (the cache keeps only what may be used again).
     pub outputs: BTreeMap<String, terraflux_ops::Outputs>,
+    /// The step of a top-level loop chosen to be shown (none: its last step, its last element), and what the nodes
+    /// of its body gave at a step, as the run sent it (kept from the run before for a loop taken from the cache).
+    pub loop_step: BTreeMap<String, usize>,
+    pub bodies: BTreeMap<String, (usize, BTreeMap<String, terraflux_ops::Outputs>)>,
+    bodies_before: BTreeMap<String, (usize, BTreeMap<String, terraflux_ops::Outputs>)>,
     /// The output shown under the canvas: node and port; the band or step of a stack or series.
     pub preview: Option<(String, String)>,
     pub preview_band: usize,
@@ -775,6 +780,9 @@ impl Session {
             validation: Validation { windows: "1, 3, 5, 7, 9, 11".into(), ..Default::default() },
             cache: Arc::new(Mutex::new(Cache::default())),
             gate: Arc::new(Gate::default()),
+            loop_step: BTreeMap::new(),
+            bodies: BTreeMap::new(),
+            bodies_before: BTreeMap::new(),
             status: BTreeMap::new(),
             timings: BTreeMap::new(),
             revision: 0,
@@ -1139,6 +1147,8 @@ impl Session {
         self.maps.truncate(1);
         self.counts.truncate(1);
         self.tables.clear();
+        // the loops' bodies sent again by this run (kept for a loop the cache gives)
+        self.bodies_before = std::mem::take(&mut self.bodies);
         self.warnings.clear();
         self.failures.clear();
         self.error = None;
@@ -1242,13 +1252,44 @@ impl Session {
         self.value_of(node, port)
     }
 
-    /// An output of a node: from the cache while a run goes on, else from the last run.
+    /// An output of a node: from the cache while a run goes on, else from the last run; a node of a loop's body at
+    /// the step chosen ([`Session::choose_step`]) when the run kept it.
     pub fn value_of(&self, node: &str, port: &str) -> Option<Value> {
+        if let Some(v) = self.at_step(node, port) {
+            return Some(v);
+        }
         if let Some(v) = self.outputs.get(node).and_then(|o| o.get(port)).filter(|_| !self.running()) {
             return Some(v.clone());
         }
         let kept = self.cache.lock().unwrap().outputs(node).and_then(|o| o.get(port)).cloned();
         kept.or_else(|| self.outputs.get(node)?.get(port).cloned())
+    }
+
+    /// A node of the body of the loop `node` (`inner.port`) at the step chosen, when it was kept.
+    fn at_step(&self, node: &str, port: &str) -> Option<Value> {
+        let (step, results) = self.bodies.get(node)?;
+        // (none chosen, a run going step by step: the step it is at)
+        let stepping = self.running() && self.gate.stepping.load(std::sync::atomic::Ordering::Relaxed);
+        let chosen = self.loop_step.get(node);
+        if !(chosen == Some(step) || chosen.is_none() && stepping) {
+            return None;
+        }
+        let (id, p) = port.split_once('.')?;
+        results.get(id)?.get(p).cloned()
+    }
+
+    /// Show the loop `node`'s body at a step (none: its last), kept from the next run on.
+    pub fn choose_step(&mut self, node: &str, step: Option<usize>) {
+        match step {
+            Some(k) => self.loop_step.insert(node.to_string(), k),
+            None => self.loop_step.remove(node),
+        };
+        self.gate.want_step(node, step);
+    }
+
+    /// Whether the step chosen of the loop `node` was kept by a run (none chosen: the last, always kept).
+    pub fn step_kept(&self, node: &str) -> bool {
+        self.loop_step.get(node).is_none_or(|k| self.bodies.get(node).is_some_and(|(s, _)| s == k))
     }
 
     /// Take what the data's reading, the savings and the run sent.
@@ -1299,6 +1340,10 @@ impl Session {
                     if plot && !self.map_tabs.values().any(|t| t.node == at) && !plots.contains(&at) {
                         plots.push(at.clone());
                     }
+                    // a loop taken from the cache: its body as the run before kept it
+                    if cached && let Some(b) = self.bodies_before.remove(&at) {
+                        self.bodies.entry(at.clone()).or_insert(b);
+                    }
                     self.status.insert(at, NodeStatus::Done { cached });
                     self.status_rev += 1;
                     self.run_done += 1;
@@ -1321,6 +1366,14 @@ impl Session {
                         self.tables.push(t.clone());
                     }
                     self.progress = Some((at, step, of));
+                }
+                Message::Body { at, step, results } => {
+                    // (stepping: every step sent; the one chosen kept, else the latest)
+                    let chosen = self.loop_step.get(&at).copied();
+                    if chosen.is_none_or(|k| k == step) || self.bodies.get(&at).is_none_or(|(s, _)| Some(*s) != chosen)
+                    {
+                        self.bodies.insert(at, (step, results));
+                    }
                 }
                 Message::Warning(w) => self.warnings.push(w),
                 Message::Failures { at, failed } => {

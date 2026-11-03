@@ -1990,6 +1990,8 @@ impl Engine {
         let n = items.len();
         let names: Vec<String> = items.iter().map(|(name, _)| name.clone()).collect();
         let mut gathered = Vec::with_capacity(n);
+        // what the body's nodes gave for the last element
+        let mut last = BTreeMap::new();
         for (i, (name, item)) in items.into_iter().enumerate() {
             if obs.cancelled() {
                 return Err(Error::Cancelled);
@@ -2022,9 +2024,20 @@ impl Engine {
             }
             obs.collected(at, i + 1, n, &now);
             gathered.push(now);
+            last = std::mem::take(&mut child.results);
             obs.step(at, i + 1, n);
         }
-        Ok(gather(gathered, &names, false, "item"))
+        let mut out = gather(gathered, &names, false, "item");
+        // the last element's, as `node.port` (as a loop's last step: the application shows a node of the body with
+        // it), their random generators aside
+        for (id, outs) in last {
+            for (port, v) in outs {
+                if !holds_rng(&v) {
+                    out.entry(format!("{id}.{port}")).or_insert(v);
+                }
+            }
+        }
+        Ok(out)
     }
 
     #[allow(clippy::too_many_arguments)]

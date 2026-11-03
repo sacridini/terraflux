@@ -1118,9 +1118,41 @@ pub(crate) fn first_output(n: &Node, r: &Registry) -> Option<String> {
 
 /// Where the viewer finds an output of a node of the scope `path`: the node itself at the top level; inside groups
 /// the top-level container, which gives what its body's nodes gave as `node.port` (`inner.node.port` for a group in
-/// it): a group's, a switch's branch that ran (`branch.node.port`), a loop's last step; none in a `control.each`'s.
+/// it): a group's, a switch's branch that ran (`branch.node.port`), a loop's last step, a `control.each`'s last
+/// element.
 pub fn shown_at(s: &Session, path: &[String], id: &str, port: &str) -> Option<(String, String)> {
     crate::trace::shown_key(&s.source, path, id, port)
+}
+
+/// The step of a loop whose body is shown (its last, or one chosen): kept by the next run when it was not.
+fn step_chooser(ui: &mut Ui, s: &mut Session, node: &str, op: &str, times: Option<usize>) {
+    let each = op == "control.each";
+    ui.separator();
+    ui.label(if each { "element" } else { "step" });
+    let chosen = s.loop_step.get(node).copied();
+    if ui.selectable_label(chosen.is_none(), "last").on_hover_text("what the loop gives").clicked() {
+        s.choose_step(node, None);
+    }
+    let mut k = chosen.unwrap_or(1);
+    let drag = egui::DragValue::new(&mut k).range(1..=times.unwrap_or(100_000).max(1));
+    let r = ui.add(drag).on_hover_text(if each { "an element of the loop" } else { "a step of the loop" });
+    if r.changed() || (r.clicked() && chosen.is_none()) {
+        s.choose_step(node, Some(k));
+    }
+    if !s.step_kept(node) {
+        let r = ui.add_enabled(!s.running(), egui::Button::new("Run to see it").small());
+        if r.on_hover_text("the run keeps what the body gives at that step").clicked() {
+            // (the loop run again, not taken from the cache: its body sends that step; a frozen one stays)
+            {
+                let mut c = s.cache.lock().unwrap();
+                if !c.holds(node) {
+                    c.forget(node);
+                }
+            }
+            let ctx = ui.ctx().clone();
+            s.start_to(Some(node.to_string()), Box::new(move || ctx.request_repaint()));
+        }
+    }
 }
 
 /// The node of a group's body an output shown is of (`inner.node.port` of the group `node`), and the place of its
@@ -2573,14 +2605,29 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     // a node of a group's body: named by its place in the group, its own outputs to choose from (the group's
     // `inner.node.port`)
     let inner = inner_of(s, &node, &port);
+    // a node of the body of a top-level loop: the step shown can be chosen (its times, when written)
+    let top_loop: Option<(String, Option<usize>)> = inner.as_ref().and_then(|_| {
+        let n = s.source.nodes.iter().find(|n| n.id == node)?;
+        let times = match n.inputs.get("times") {
+            Some(terraflux_graph::Source::Literal(v)) => v.as_u64().map(|t| t as usize),
+            _ => None,
+        };
+        ["control.repeat", "control.each"].contains(&n.op.as_str()).then(|| (n.op.clone(), times))
+    });
     let (title, op, ports): (String, String, Vec<(String, String)>) = match &inner {
         Some((n, place)) => (
             {
                 // in a loop's body: what its last step gave
                 let path: Vec<String> =
                     std::iter::once(node.clone()).chain(place.split('.').map(String::from)).collect();
-                let last = crate::trace::in_loop(&s.source, &path[..path.len() - 1]);
-                format!("{node}/{}{}", place.replace('.', "/"), if last { " (the last step)" } else { "" })
+                let when = match (crate::trace::loop_on(&s.source, &path[..path.len() - 1]), s.loop_step.get(&node)) {
+                    (Some("control.each"), Some(k)) if top_loop.is_some() => format!(" (element {k})"),
+                    (Some(_), Some(k)) if top_loop.is_some() => format!(" (step {k})"),
+                    (Some("control.each"), _) => " (the last element)".into(),
+                    (Some(_), _) => " (the last step)".into(),
+                    (None, _) => String::new(),
+                };
+                format!("{node}/{}{when}", place.replace('.', "/"))
             },
             n.op.clone(),
             crate::editor::output_ports(n, r).into_iter().map(|(p, _)| (format!("{place}.{p}"), p)).collect(),
@@ -2605,6 +2652,9 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         ui.horizontal(|ui| {
             ui.label(RichText::new(&title).strong());
             ui.label(RichText::new(&op).monospace().weak());
+            if let Some((lop, times)) = &top_loop {
+                step_chooser(ui, s, &node, lop, *times);
+            }
             // the node's outputs to choose from, when it has several
             if ports.len() > 1 {
                 ui.separator();
@@ -4152,6 +4202,58 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         assert!(!s.running(), "the run did not end");
+    }
+
+    /// A node of a loop's body shown at a step chosen: its last by itself; a step chosen kept by the next run (the
+    /// loop run again, not taken from the cache), and the last again when the choice is let go.
+    #[test]
+    fn a_step_of_a_loop_is_shown_when_chosen() {
+        let m = terraflux_graph::Model::from_toml(
+            r#"format = "terraflux/1"
+[[nodes]]
+id = "land"
+op = "nlm.random"
+params = { rows = 4, columns = 4 }
+
+[[nodes]]
+id = "loop"
+op = "control.repeat"
+inputs = { times = 3, m = "land.map" }
+[nodes.body]
+carry = { m = "calc.map" }
+[[nodes.body.nodes]]
+id = "calc"
+op = "raster.calc"
+inputs = { x = "@m", k = "@step" }
+params = { expression = "x * 0 + k" }
+"#,
+        )
+        .unwrap();
+        let mut s = Session::from_model(m).unwrap();
+        let first = |s: &Session| match s.value_of("loop", "calc.map") {
+            Some(Value::Map(m)) => m.data[0],
+            v => panic!("{:?}", v.map(|v| v.ty())),
+        };
+        s.start(Box::new(|| {}));
+        finish(&mut s);
+        assert_eq!(first(&s), 3.0, "the last step");
+        assert!(s.step_kept("loop"));
+        // step 2 chosen: not kept by the run before; a run keeps it
+        s.choose_step("loop", Some(2));
+        assert!(!s.step_kept("loop"));
+        assert_eq!(first(&s), 3.0);
+        s.cache.lock().unwrap().forget("loop");
+        s.start_to(Some("loop".into()), Box::new(|| {}));
+        finish(&mut s);
+        assert!(s.step_kept("loop"));
+        assert_eq!(first(&s), 2.0, "the step chosen");
+        // the loop from the cache: the step kept by the run before
+        s.start(Box::new(|| {}));
+        finish(&mut s);
+        assert_eq!(s.status.get("loop"), Some(&NodeStatus::Done { cached: true }));
+        assert_eq!(first(&s), 2.0);
+        s.choose_step("loop", None);
+        assert_eq!(first(&s), 3.0);
     }
 
     /// A node just added (a raster.read whose file is not chosen yet) is not run by itself, and nothing is told

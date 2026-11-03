@@ -40,6 +40,9 @@ minor versions.
 - **Stop and progress** in more long operators: Monte Carlo's draws (`uncertainty.monte_carlo`), a metapopulation's
   and MigClim's steps (`conn.metapopulation`, `sdm.migrate`) and the importance of the nodes at several distances
   (`conn.node_importance`) say how far they are and stop between two.
+- The Viewer shows a node of a **`control.each`'s body** (what it gave for the last element), and **a step chosen**
+  of a loop: *step* (or *element*) in the Viewer's header, *last* or a number; the run keeps that step (*Run to see
+  it* when it was not kept), and going step by step shows the step it is paused after.
 - **Grouping nodes, easier to find**: with several nodes selected, a bar at the canvas's bottom tells how many and
   groups them (*Group them*, ctrl+G); a node's right-click menu groups the nodes selected, and a group's opens it,
   ungroups it and saves it as my node (a calculator's too). A group made asks for its name at once, with a tick to

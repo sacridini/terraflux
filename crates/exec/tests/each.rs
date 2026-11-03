@@ -74,6 +74,10 @@ inputs = {{ map = "calc.map" }}
     assert_eq!(t.column("item").unwrap(), [2000.0, 2010.0, 2020.0], "the year of each layer's name");
     let Some(Value::Series(names)) = out.get("each.names") else { panic!() };
     assert!(matches!(&names[1], Value::Text(t) if t == "forest_2010"));
+    // what the body's nodes gave for the last element, as `node.port` (the viewer shows a node of the body with it)
+    let Some(Value::Map(last)) = out.values["each"].get("calc.map") else { panic!("{:?}", out.values["each"].keys()) };
+    assert_eq!(*last.data, [25.0, 28.0]);
+    assert!(out.values["each"].contains_key("stats.table"));
 }
 
 #[test]
