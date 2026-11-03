@@ -843,6 +843,10 @@ commit por item):
     os rótulos ligados pelo `name`, o marcador quadrado, o `RuleRenderer` com uma regra por classe e um `ELSE`, e um
     símbolo em cada regra.
 12. **Trace:** a variável de iteração do CLUE.
+    **Esperando o landschaft** (conferido em 2026-11-03, landschaft 1.56): o `CluesOut` do C++ só devolve a alocação,
+    as iterações e as diferenças, não o vetor final das variáveis de iteração; o pedido está no IDEAS.md de lá ("As
+    variáveis de iteração do CLUE", 2026-11-01). Quando vier: uma linha "why" a mais no cartão do `clue.step` (a
+    aptidão mais a elasticidade mais a variável de iteração de cada classe na célula).
 13. **Document:** tabelas dentro de tabelas.
     **Feito** (Unreleased): uma célula de uma tabela (`grid`) ou um valor de uma tabela por nome (`items`) pode ser
     uma lista, linhas ou registros por sua vez (`nested_ok`, até 4 níveis do JSON; mais fundo, a configuração
