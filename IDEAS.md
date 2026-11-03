@@ -1013,7 +1013,14 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    - O `view.plot` aposentado: fora da biblioteca (`builder::Library`), da busca e do `list_operators`; o
      `add_node` recusa com a dica do `set_plot`; o `describe_operator` e a descrição do operador dizem por quê.
      Fica registrado até a 2.0 (os plots dentro de grupos, os modelos antigos).
-   - Os tutoriais do site, reescritos por um sub-agente num worktree à parte (ver o commit).
+   - Os tutoriais do site, reescritos por um sub-agente num worktree à parte (40e9a8a, 52 arquivos): os blocos
+     `tfgraph` com `[[plots]]` no lugar dos nós (o `tfgraph.py` só desenha os nós; o TOML mostra os Plots), a
+     página `plots-and-tables.md` como "Plots and figures"; o site gerado sem avisos.
+   Falta: *Save as a new plot* não grava o gráfico escolhido no Viewer para uma tabela (o `plot_of` só leva o de
+   um Plot existente); as figuras antigas do site (`tour/window.png`, `model-pane.png` ainda com quatro nós e a
+   aba MSPA); uns 15 trechos que ainda dizem "under the canvas" pelo Viewer; o diagrama de `fitting-models.md`
+   (perto da linha 252) que lê `data.records` sem nó `data` e sem `fragment: true` (já era assim; ver no
+   `build.py --check`).
 5. **Depois** (a decidir, cada um à parte): reprojetar outro CRS por tile, ao desenhar; medir distância e área;
    soltar um arquivo no Viewer (o `raster.read` criado e a camada fixada); a tabela de atributos de uma camada de
    vetores; rótulos; o histograma de cada camada; exportar o Plot como PNG ou GeoTIFF composto.
