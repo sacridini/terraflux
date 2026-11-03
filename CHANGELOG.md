@@ -6,6 +6,14 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- A **frozen node inside a group** no longer has the nodes only it reads run (as at the top level).
+- **Tables inside tables** are edited in place in the Document and the Node pane. A cell that is a list, rows or
+  records in turn (the zones of manual targets, a demand per region, a demand's table) shows as a button, and opens
+  for editing below its table.
+- The QGIS project (`.qgz`) with labels, markers and rules was **checked in QGIS 3.34 itself**. `tools/check_qgz.py`
+  reads it in PyQGIS: the layers valid, the classes paletted, the labels, the marker and the rules as written.
+
 ## [1.33.0] - 2026-11-03
 
 ### Added
@@ -45,12 +53,6 @@ minor versions.
 - The Viewer shows a node of a **`control.each`'s body** (what it gave for the last element), and **a step chosen**
   of a loop: *step* (or *element*) in the Viewer's header, *last* or a number; the run keeps that step (*Run to see
   it* when it was not kept), and going step by step shows the step it is paused after.
-- A **frozen node inside a group** no longer has the nodes only it reads run (as at the top level).
-- **Tables inside tables** are edited in place in the Document and the Node pane. A cell that is a list, rows or
-  records in turn (the zones of manual targets, a demand per region, a demand's table) shows as a button, and opens
-  for editing below its table.
-- The QGIS project (`.qgz`) with labels, markers and rules was **checked in QGIS 3.34 itself**. `tools/check_qgz.py`
-  reads it in PyQGIS: the layers valid, the classes paletted, the labels, the marker and the rules as written.
 - **Grouping nodes, easier to find**: with several nodes selected, a bar at the canvas's bottom tells how many and
   groups them (*Group them*, ctrl+G); a node's right-click menu groups the nodes selected, and a group's opens it,
   ungroups it and saves it as my node (a calculator's too). A group made asks for its name at once, with a tick to
