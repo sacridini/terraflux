@@ -13,6 +13,12 @@ minor versions.
   <query>...`), the values given the types the tools ask for; they enter the conversation as calls and leave the text
   shown. An answer that announces a call without making it is asked again, once. Smaller models served by vLLM
   (Qwen) wrote their calls this way, and the tasks ended without a tool.
+- **More advice on the method** (check_model, after a run, the assistant): a species distribution model of records
+  not cleaned or thinned (`sdm.one_per_cell`, `sdm.thin`); a prioritization never evaluated
+  (`prioritize.evaluate`); a resistance of 0 or less read by Circuitscape, Omniscape or a cost (a warning, from the
+  data loaded); a Markov chain whose `steps` does not divide the years between its maps (the years read in the
+  files' and nodes' names), or whose maps are in the wrong order; weights of evidence without any distance among the
+  drivers (when the drivers can be told).
 
 ## [1.32.0] - 2026-11-02
 

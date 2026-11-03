@@ -757,6 +757,15 @@ commit por item):
 2. **Avaliação antes e depois** com o Qwen da HU (VPN) e um modelo grande, guardada aqui.
 3. **Mais regras de método** (`advice.rs`): o `steps` do `markov.fit` contra as datas, `woe.fit` sem distância,
    resistência com zeros ou negativos, priorização sem `prioritize.evaluate`, SDM sem thinning dos registros.
+   **Feito** (Unreleased): os anos lidos nos nomes dos arquivos dos `raster.read`, dos nós e das entradas
+   (`year_in`, quatro dígitos de 1900 a 2100); `steps` que não divide os anos (conselho, com o `steps` anual e o
+   divisor mais próximo) ou t0 depois de t1 (alerta). As distâncias procuradas acima dos `drivers` (operadores de
+   distância e custo, nomes com "dist" ou "cost" em nós, portas, arquivos e camadas carregadas); um arquivo ou uma
+   entrada sem nome que diga nada não é acusado. A resistência das entradas carregadas (portas com "resistance" e o
+   `habitat` do Circuitscape quando é resistência) com células de 0 ou menos: alerta. `sdm.fit` sem
+   `sdm.one_per_cell`, `sdm.thin`, `sdm.prepare` nem `sdm.clean_occurrences`; `prioritize.optimize`, `marxan`,
+   `actions` ou `actions_raster` sem `prioritize.evaluate`. Os templates continuam sem alertas (Dinamica EGO,
+   CLUE-S, PLUS, CRAFTY e três de priorização recebem conselhos).
 4. **Os conselhos no app:** no painel Problems (nível "advice") e no relatório.
 5. **Dicas por operador** num campo `advice` do próprio operador, para `conn.*`, hidrologia, InVEST, agentes e REDD+.
 6. **Protocolo e línguas:** saída estruturada no `check_model` e no `run_model`, elicitation, guias em português.

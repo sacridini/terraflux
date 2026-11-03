@@ -260,8 +260,228 @@ pub fn advise(m: &Model, r: &Registry, dir: &Path, inputs: Option<&BTreeMap<Stri
         });
     }
 
+    // a species distribution model of records not thinned
+    if has("sdm.fit") && !THINNING.iter().any(|op| has(op)) {
+        out.push(Advice {
+            level: Level::Advice,
+            at: ids(&of(&["sdm.fit"])),
+            message: "the records are fitted as they come: duplicates and clusters of records (near roads, towns, \
+                      the collectors' paths) weigh as many presences and teach the model the sampling, not the \
+                      species; keep one record a cell (sdm.one_per_cell) or thin them by a distance (sdm.thin), \
+                      after cleaning them (sdm.clean_occurrences), or prepare them with sdm.prepare"
+                .into(),
+            guide: "species-distribution",
+        });
+    }
+
+    // a prioritization never evaluated
+    let solved = of(&PRIORITIZATIONS);
+    if !solved.is_empty() && !has("prioritize.evaluate") {
+        out.push(Advice {
+            level: Level::Advice,
+            at: ids(&solved),
+            message: "the solution is not evaluated: how much of each feature's target it meets, its cost, and \
+                      how irreplaceable each unit is; prioritize.evaluate gives them (the features' representation, \
+                      the replacement cost or the rank of the units) for the paper and the stakeholders"
+                .into(),
+            guide: "conservation-planning",
+        });
+    }
+
+    // resistances of zero or less
+    if let Some(inputs) = inputs {
+        for n in &nodes {
+            let Some(sig) = r.sig(&n.op) else { continue };
+            // (Circuitscape's modes read it as `habitat`, a resistance unless habitat_is_resistance is false)
+            let circuit_resistance = n.op.starts_with("circuit.")
+                && n.params.get("habitat_is_resistance").and_then(serde_json::Value::as_bool) != Some(false);
+            for p in sig
+                .inputs
+                .iter()
+                .filter(|p| p.name.contains("resistance") || (p.name == "habitat" && circuit_resistance))
+            {
+                let Some(name) = reads(n, &p.name).and_then(|s| s.strip_prefix('$')) else { continue };
+                let Some(Value::Map(map)) = inputs.get(name) else { continue };
+                let low = map.data.iter().filter(|v| v.is_finite()).fold(f64::INFINITY, |a, &b| a.min(b));
+                if low <= 0.0 {
+                    out.push(Advice {
+                        level: Level::Warning,
+                        at: vec![n.id.clone()],
+                        message: format!(
+                            "the resistance ${name} has cells of {} ({} {}): a resistance must be above 0 (a cell \
+                             of 0 costs nothing to cross and shorts the circuit; one below 0 has no meaning); set a \
+                             small positive minimum (write_calc), or make the cells that cannot be crossed no data",
+                            if low < 0.0 { "less than 0" } else { "0" },
+                            n.op,
+                            p.name
+                        ),
+                        guide: "connectivity",
+                    });
+                }
+            }
+        }
+    }
+
+    // the Markov chain's steps against the dates of its maps
+    for n in of(&["markov.fit"]) {
+        let (Some(y0), Some(y1)) = (year_of(&nodes, reads(n, "t0")), year_of(&nodes, reads(n, "t1"))) else {
+            continue;
+        };
+        let years = y1 - y0;
+        let steps = match n.inputs.get("steps") {
+            Some(Source::Literal(v)) => v.as_f64(),
+            None => Some(1.0),
+            _ => None,
+        };
+        let Some(steps) = steps.filter(|s| *s >= 1.0 && s.fract() == 0.0) else { continue };
+        let steps = steps as i64;
+        if years <= 0 {
+            out.push(Advice {
+                level: Level::Warning,
+                at: vec![n.id.clone()],
+                message: format!(
+                    "t0 is of {y0} and t1 of {y1}: the period runs backwards or has no length; t0 is the earlier map"
+                ),
+                guide: "land-change",
+            });
+        } else if steps > years || years % steps != 0 {
+            out.push(Advice {
+                level: Level::Advice,
+                at: vec![n.id.clone()],
+                message: format!(
+                    "the maps are of {y0} and {y1} ({years} years) and steps is {steps}: a step of {:.2} years. \
+                     The rates are per step, so the loop that simulates must take steps of that length; with \
+                     yearly steps, steps = {years} (or {} steps of {} years)",
+                    years as f64 / steps as f64,
+                    years / divisor(years, steps),
+                    divisor(years, steps)
+                ),
+                guide: "land-change",
+            });
+        }
+    }
+
+    // weights of evidence without any distance among the drivers
+    for n in of(&["woe.fit"]) {
+        if let Some(false) = has_distance(&nodes, reads(n, "drivers"), inputs) {
+            out.push(Advice {
+                level: Level::Advice,
+                at: vec![n.id.clone()],
+                message: "none of the drivers is a distance: land change (deforestation above all) follows roads, \
+                          rivers, towns and the edge of what already changed, and the distance to them is the \
+                          strongest driver in most models; add distances (distance.to_class of the cleared class, \
+                          vector.distance of roads and rivers) to the stack"
+                    .into(),
+                guide: "land-change",
+            });
+        }
+    }
+
     out.sort_by_key(|a| std::cmp::Reverse(a.level));
     out
+}
+
+/// The operators that solve a prioritization (their solution worth evaluating).
+const PRIORITIZATIONS: [&str; 4] =
+    ["prioritize.optimize", "prioritize.marxan", "prioritize.actions", "prioritize.actions_raster"];
+
+/// The operators that clean or thin the records of a species.
+const THINNING: [&str; 4] = ["sdm.thin", "sdm.one_per_cell", "sdm.prepare", "sdm.clean_occurrences"];
+
+/// The number of years of a step close to the one asked that divides the period (for the advice).
+fn divisor(years: i64, steps: i64) -> i64 {
+    let per = (years as f64 / steps as f64).round().max(1.0) as i64;
+    (1..=years).filter(|d| years % d == 0).min_by_key(|d| (d - per).abs()).unwrap_or(1)
+}
+
+/// The node a reference reads (`node.port`, `node`), among the nodes.
+fn source<'a>(nodes: &[&'a Node], r: &str) -> Option<&'a Node> {
+    let id = r.split('.').next()?;
+    nodes.iter().copied().find(|n| n.id == id)
+}
+
+/// A year in a name (four digits from 1900 to 2100, not part of a longer number).
+fn year_in(s: &str) -> Option<i64> {
+    let b = s.as_bytes();
+    (0..b.len().saturating_sub(3)).find_map(|i| {
+        let digits = b[i..i + 4].iter().all(u8::is_ascii_digit);
+        let alone = (i == 0 || !b[i - 1].is_ascii_digit()) && b.get(i + 4).is_none_or(|c| !c.is_ascii_digit());
+        let y: i64 = s.get(i..i + 4)?.parse().ok()?;
+        (digits && alone && (1900..=2100).contains(&y)).then_some(y)
+    })
+}
+
+/// The year of a map a reference reads: in its file's name (raster.read), the node's id or the input's name.
+fn year_of(nodes: &[&Node], r: Option<&str>) -> Option<i64> {
+    let r = r?;
+    if let Some(name) = r.strip_prefix('$') {
+        return year_in(name);
+    }
+    let n = source(nodes, r)?;
+    n.params
+        .get("path")
+        .and_then(|p| p.as_str())
+        .and_then(|p| year_in(Path::new(p).file_name()?.to_str()?))
+        .or_else(|| year_in(&n.id))
+}
+
+/// Whether what a reference reads has a distance among its sources (an operator of distances, or a layer, a node or
+/// a file named so): `None` when it cannot be told (a file or an input not loaded, without such a name).
+fn has_distance(nodes: &[&Node], r: Option<&str>, inputs: Option<&BTreeMap<String, Value>>) -> Option<bool> {
+    let named = |s: &str| {
+        let s = s.to_lowercase();
+        s.contains("dist") || s.contains("cost")
+    };
+    let mut todo = vec![r?.to_string()];
+    let mut seen = std::collections::HashSet::new();
+    let mut unknown = false;
+    while let Some(r) = todo.pop() {
+        if !seen.insert(r.clone()) {
+            continue;
+        }
+        if let Some(name) = r.strip_prefix('$') {
+            if named(name) {
+                return Some(true);
+            }
+            match inputs.and_then(|i| i.get(name)) {
+                Some(Value::Stack(s)) => {
+                    if s.keys.iter().any(|k| matches!(k, terraflux_ops::Key::Name(n) if named(n))) {
+                        return Some(true);
+                    }
+                }
+                Some(Value::Map(_)) => {}
+                _ => unknown = true,
+            }
+            continue;
+        }
+        if r.starts_with('@') {
+            unknown = true;
+            continue;
+        }
+        let Some(n) = source(nodes, &r) else {
+            unknown = true;
+            continue;
+        };
+        if n.op.contains("distance") || n.op == "dinamica.cost_map" || n.op.starts_with("cost.") || named(&n.id) {
+            return Some(true);
+        }
+        if n.inputs.keys().any(|k| named(k)) {
+            return Some(true);
+        }
+        if n.op == "raster.read" || n.op == "vector.read" {
+            let path = n.params.get("path").and_then(|p| p.as_str()).unwrap_or("");
+            if named(path) {
+                return Some(true);
+            }
+            unknown = true;
+        }
+        for s in n.inputs.values() {
+            if let Source::Ref(x) = s {
+                todo.push(x.as_str().to_string());
+            }
+        }
+    }
+    (!unknown).then_some(false)
 }
 
 /// The advice told after a run: the warnings and a few pieces of advice, a line each (none: empty).
@@ -376,7 +596,83 @@ mod tests {
         assert!(a.iter().any(|a| a.message.contains("spatial folds")), "{a:?}");
         m.nodes.push(Node::new("blocks", "sdm.spatial_blocks"));
         let a = advise(&m, &registry(), Path::new("."), None);
-        assert!(a.is_empty(), "{a:?}");
+        assert!(!a.iter().any(|a| a.message.contains("spatial folds")), "{a:?}");
+    }
+
+    #[test]
+    fn records_not_thinned_and_a_prioritization_not_evaluated() {
+        let r = registry();
+        let mut m = Model::new("sdm");
+        m.nodes.push(Node::new("fit", "sdm.fit").input("records", "$records"));
+        assert!(advise(&m, &r, Path::new("."), None).iter().any(|a| a.message.contains("sdm.one_per_cell")));
+        m.nodes.push(Node::new("thin", "sdm.thin").input("records", "$records"));
+        assert!(!advise(&m, &r, Path::new("."), None).iter().any(|a| a.message.contains("sdm.one_per_cell")));
+        let mut m = Model::new("plan");
+        m.nodes.push(Node::new("solve", "prioritize.optimize"));
+        let a = advise(&m, &r, Path::new("."), None);
+        assert!(a.iter().any(|a| a.message.contains("prioritize.evaluate") && a.at == ["solve (prioritize.optimize)"]));
+        m.nodes.push(Node::new("eval", "prioritize.evaluate").input("solution", "solve.solution"));
+        assert!(advise(&m, &r, Path::new("."), None).is_empty());
+    }
+
+    #[test]
+    fn a_resistance_of_zero() {
+        let r = registry();
+        let mut m = Model::new("circuits");
+        m.nodes.push(Node::new("pairs", "circuit.pairwise").input("habitat", "$res").input("points", "$points"));
+        let inputs = BTreeMap::from([("res".to_string(), map(false, vec![1.0, 0.0, 5.0, f64::NAN]))]);
+        let a = advise(&m, &r, Path::new("."), Some(&inputs));
+        assert!(a.iter().any(|a| a.level == Level::Warning && a.message.contains("cells of 0")), "{a:?}");
+        let inputs = BTreeMap::from([("res".to_string(), map(false, vec![1.0, 2.0, 5.0, f64::NAN]))]);
+        assert!(advise(&m, &r, Path::new("."), Some(&inputs)).is_empty());
+    }
+
+    #[test]
+    fn the_markov_steps_against_the_dates() {
+        let r = registry();
+        let markov = |steps: i64| {
+            let mut m = Model::new("rates");
+            m.nodes.push(Node::new("land_2000", "raster.read").param("path", "maps/land_2000.tif"));
+            m.nodes.push(Node::new("land_2010", "raster.read").param("path", "maps/land_2010.tif"));
+            m.nodes.push(
+                Node::new("rates", "markov.fit")
+                    .input("t0", "land_2000.map")
+                    .input("t1", "land_2010.map")
+                    .literal("steps", serde_json::json!(steps)),
+            );
+            advise(&m, &r, Path::new("."), None)
+        };
+        for good in [1, 2, 5, 10] {
+            assert!(!markov(good).iter().any(|a| a.message.contains("steps is")), "{good}");
+        }
+        let a = markov(3);
+        assert!(
+            a.iter().any(|a| a.message.contains("10 years) and steps is 3") && a.message.contains("steps = 10")),
+            "{a:?}"
+        );
+        assert!(markov(20).iter().any(|a| a.message.contains("steps is 20")));
+        // the years of the inputs' names
+        assert_eq!(year_of(&[], Some("$land1995")), Some(1995));
+        assert_eq!(year_in("cover_20101"), None);
+    }
+
+    #[test]
+    fn weights_of_evidence_without_distances() {
+        let r = registry();
+        let woe = |driver_op: &str, id: &str| {
+            let mut m = Model::new("woe");
+            m.nodes.push(Node::new(id, driver_op));
+            m.nodes.push(Node::new("drivers", "stack.of").input("slope", &format!("{id}.map")));
+            m.nodes.push(
+                Node::new("w", "woe.fit").input("t0", "$t0").input("t1", "$t1").input("drivers", "drivers.stack"),
+            );
+            advise(&m, &r, Path::new("."), None)
+        };
+        assert!(woe("nlm.random", "slope").iter().any(|a| a.message.contains("none of the drivers is a distance")));
+        assert!(!woe("distance.to_class", "roads").iter().any(|a| a.message.contains("none of the drivers")));
+        assert!(!woe("nlm.random", "dist_river").iter().any(|a| a.message.contains("none of the drivers")));
+        // a file of unknown layers: not told
+        assert!(!woe("raster.read", "drivers_file").iter().any(|a| a.message.contains("none of the drivers")));
     }
 
     /// The templates show good practice: none of them gets a warning.
