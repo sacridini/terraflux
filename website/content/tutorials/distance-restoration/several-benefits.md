@@ -221,7 +221,7 @@ instance `target = { 1 = 30, 2 = 40, 3 = 30 }`; `sense` applies to each.
 !!! app "In the application"
     Start from **Templates ▸ Conservation and restoration ▸ Restoration plan**, connect the extra maps to
     the plan's `linear`, `hfi` and `reduction` inputs, and set the weights in the Node pane. The `benefits` table
-    under the canvas shows what each benefit gets; the `weights` table, with sets of weights, their ranking.
+    in the Viewer shows what each benefit gets; the `weights` table, with sets of weights, their ranking.
 
 ## Read the results
 

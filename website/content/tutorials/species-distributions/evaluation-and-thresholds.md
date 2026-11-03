@@ -286,7 +286,7 @@ caption: "The out-of-fold predictions of the sloth's model (sdm.fit's prediction
 To use them elsewhere (a calibration, an ensemble learned from several models' predictions, a model that combines
 them with an expert's range map as Merow et al. (2017) did, an analysis in R or Python), add
 `[outputs.predictions]` with `from = "fit.predictions"` and run the model from the command line: the table is
-written as `predictions.csv`. In the application, click the `predictions` port of `fit` to see it under the canvas.
+written as `predictions.csv`. In the application, click the `predictions` port of `fit` to see it in the Viewer.
 
 ### Thresholds and the binary map
 
@@ -319,7 +319,7 @@ binary map. [[sdm.fit]] also has a `threshold` output: the `max_spec_sens` thres
 
 !!! app "In the application"
     Add the nodes from the *Species distributions* subject of the library, connect them as in the graphs and press
-    ++ctrl+enter++ on `evaluation`: its `stats` table appears under the canvas; click the `table` port to see the
+    ++ctrl+enter++ on `evaluation`: its `stats` table appears in the Viewer; click the `table` port to see the
     confusion table, which you can sort by `tss`. Selecting `threshold` shows the number; `binary` the map.
 
 ## Read the results

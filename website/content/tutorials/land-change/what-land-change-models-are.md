@@ -296,7 +296,7 @@ layers = [{ from = "changed.map" }]
    choose the band `2011`. Each node's `map` output is one band, as a map.
 2. **The transition matrix.** With node 1 selected, find [[change.crosstab]] in the library (subject *Change*,
    or press ++slash++ and type `crosstab`); it comes connected to node 1's map as its `from`. Drag from node 2's
-   `map` output to its `to` input. Press ++ctrl+enter++: the matrix appears under the canvas, as the table
+   `map` output to its `to` input. Press ++ctrl+enter++: the matrix appears in the Viewer, as the table
    above.
 3. **Gains and losses.** Add [[change.components]] the same way (node 4): its table gives each class's gain,
    persistence and loss, and splits the overall change into *quantity* (the net change of the classes),

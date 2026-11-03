@@ -177,8 +177,7 @@ inputs = { from = "land_1997.raster", to = "land_2011.raster" }
 note = "Rows: the class in 1997; columns: the class in 2011; cells: how many."
 ```
 
-Select the crosstab node and press ++ctrl+enter++: the model runs up to it and its table appears in the Viewer
-under the canvas. It has a row per class of 1997 (`from`) and a column per class of 2011, the cells in each pair.
+Select the crosstab node and press ++ctrl+enter++: the model runs up to it and its table appears in the Viewer. It has a row per class of 1997 (`from`) and a column per class of 2011, the cells in each pair.
 Classes found in neither map are left out, and so are cells without a value at either date.
 
 ### Every transition, in km²

@@ -205,8 +205,8 @@ note = "Quantity and allocation disagreement, kappa and kappa simulation."
 (Pontius's budget of errors at several resolutions) complete the set; both are in the template.
 
 From the command line, make the tables outputs (`[outputs.agreement] from = "agreement.table"`, and so on) and
-`terraflux run validate.toml` writes them as CSV files. In the application, select a node to see its table under
-the canvas; the **Validation** pane compares the last map of a simulation with an observed one (figure of merit,
+`terraflux run validate.toml` writes them as CSV files. In the application, select a node to see its table in
+the Viewer; the **Validation** pane compares the last map of a simulation with an observed one (figure of merit,
 hits, misses and false alarms, and the fuzzy similarity in windows of growing size):
 
 ![The application's Validation pane](/img/app/validation.png "The Validation pane: the last simulated map against the observed one.")

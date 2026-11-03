@@ -162,7 +162,7 @@ Read the expression from the inside out:
     In the library, open the subject **Map algebra** and click [[raster.calc]]. In the Node pane, type a name
     (`d`) and a source (`$drivers`, or a node's port such as `si_elev.map`) under the inputs and click
     **Add input**; repeat for every map the expression reads. Type the expression in the `expression` setting.
-    Press ++ctrl+enter++ to run the model up to the node and see its map under the canvas.
+    Press ++ctrl+enter++ to run the model up to the node and see its map in the Viewer.
 
 ### Step 3: a score for roads
 

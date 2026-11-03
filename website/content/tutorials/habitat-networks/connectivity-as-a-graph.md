@@ -286,8 +286,8 @@ layers = [{ from = "component_map.map" }]
 
 === "Application"
 
-    ++f5++ runs the whole model. The table of `overall` opens under the canvas when you select the node; a
-    double-click on `component_map` shows the map in the Viewer, and the corner of the viewer gives the component
+    ++f5++ runs the whole model. The table of `overall` opens in the Viewer when you select the node; a
+    double-click on `component_map` shows its map there, and the corner of the Viewer gives the component
     under the pointer.
 
 ## Read the results

@@ -137,7 +137,7 @@ protected hilltops of Brazil's Forest Code, see the [next part](../hilltops/).
    `[500010, 4760850, 508110, 4771920]` (the reason for each is in the [first part](../terrain/#read-and-reproject-the-elevation)).
 2. With `elevation` selected, open the subject **Surface metrics** and click [[surface.geomorphons]]: it comes
    connected through its `dem` input. Rename it `landforms` and set **search** to `20`.
-3. Press ++ctrl+enter++. The panel under the canvas shows the `forms` output: the ten landforms with their names in
+3. Press ++ctrl+enter++. The Viewer shows the `forms` output: the ten landforms with their names in
    the legend, in the colours of GRASS GIS (the application recognises this output). Its header lists the node's
    other outputs (`ternary`, `share`...) to choose from.
 

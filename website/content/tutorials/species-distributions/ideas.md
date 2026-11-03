@@ -362,7 +362,7 @@ explains the outputs). It is high where the climate resembles that of the record
 from Central America to the Atlantic forest of Brazil) and low in the deserts of Mexico, the dry diagonal of
 Brazil, the high Andes and the temperate south.
 
-Select the node **data** to read its `report` output under the canvas: what each step of the preparation did.
+Select the node **data** to read its `report` output in the Viewer: what each step of the preparation did.
 For the sloth it says:
 
 | Step | Presences | Removed | Detail |

@@ -157,7 +157,7 @@ layers = [{ from = "dates.raster" }]
 ```
 
 Select the intensity node and press ++ctrl+enter++. It has nine outputs, all tables, which the Viewer shows when
-you pick them under the canvas:
+you pick them in its header:
 
 | Output | What it holds (a row per...) | Key columns |
 |---|---|---|

@@ -382,7 +382,7 @@ weights of a range should be strongly negative, a range made noisy by a few cell
 weights of a `woe.fit` node as Dinamica EGO's weights editor does, and every edit becomes a setting of the node.
 
 !!! app "In the application: the weights view"
-    Select the `woe.fit` node (with its `model` output shown under the canvas, after a run). The view has:
+    Select the `woe.fit` node (with its `model` output shown in the Viewer, after a run). The view has:
 
     - two lists at the top: the **transition** (`1 -> 3`) and the **variable**;
     - the **W+** of each range in **bars**, the significant ones in the accent colour, the others grey;

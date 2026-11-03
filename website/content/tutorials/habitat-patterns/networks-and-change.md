@@ -161,7 +161,7 @@ edge shrinks the cores and turns more of the forest into bridges, which changes 
 1. In the library, open **Habitat networks** and click **networks.gtn_components**; it appears on the canvas.
 2. Drag from the `map` port of the MSPA node to the `map` port of the new node.
 3. Do the same for **networks.gtn_importance** and **networks.conefor**.
-4. Select a node and press ++ctrl+enter++ to run the model up to it; its tables show under the canvas.
+4. Select a node and press ++ctrl+enter++ to run the model up to it; its tables show in the Viewer.
 
 </div>
 

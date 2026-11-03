@@ -184,7 +184,7 @@ What it is not:
 2. With `dem` selected, open **Surface metrics** and click [[surface.hilltop]]; it comes connected through its `dem`
    input. Rename it `hilltop`. Leave its settings at the law's values: **min_height** = 100, **min_slope** = 25,
    **slope** = `mean`, **fraction** = 2/3 (0.6667).
-3. Press ++ctrl+enter++: the panel under the canvas shows the `app` output; its header lists the node's outputs,
+3. Press ++ctrl+enter++: the Viewer shows the `app` output; its header lists the node's outputs,
    and choosing `hills` there shows the table.
 
 </div>

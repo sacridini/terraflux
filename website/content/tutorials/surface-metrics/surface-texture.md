@@ -187,7 +187,7 @@ the *residuals*, the heights above and below it.
    `best`. Rename it `trend`.
 3. Select `trend` and click [[surface.metrics]]: drag from `trend`'s `residuals` port to its `map` input (not
    from `plane`, the trend itself). Leave **metrics** empty to compute all 27.
-4. Run to `metrics` with ++ctrl+enter++: the table of one row shows under the canvas.
+4. Run to `metrics` with ++ctrl+enter++: the table of one row shows in the Viewer.
 
 </div>
 

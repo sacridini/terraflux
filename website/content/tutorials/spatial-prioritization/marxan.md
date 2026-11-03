@@ -211,7 +211,7 @@ feature's target and the penalty it costs when missed). ProxIRR gives `beta` and
 !!! app "In the application"
     Add `prioritize.marxan` from the *Spatial prioritization* subject of the library (or press ++slash++ and type
     `marxan`), drag the features' `stack` to `features` and the cost's `map` to `cost`, and set `prop` in the Node
-    pane. Select the node and press ++ctrl+enter++: the `summary` table appears under the canvas, one row per run;
+    pane. Select the node and press ++ctrl+enter++: the `summary` table appears in the Viewer, one row per run;
     click the `map` port to see the best plan. **Templates ▸ Conservation and restoration ▸ Marxan and
     irreplaceability** is the same model on maps drawn by chance.
 

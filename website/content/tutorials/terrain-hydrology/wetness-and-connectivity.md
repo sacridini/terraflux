@@ -340,7 +340,7 @@ images:
 
 === "Application"
 
-    Run to a node with ++ctrl+enter++ to see its map under the canvas; a double click shows it in the Viewer. To
+    Run to a node with ++ctrl+enter++ to see its map in the Viewer; a double click keeps it there as a layer. To
     compare `ic` and `ic_cleared`, choose the other under **Compare** in the Viewer (a curtain, side by side or
     their difference), or subtract them with a [[raster.calc]] (`b - a`).
 

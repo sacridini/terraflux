@@ -230,7 +230,7 @@ images:
 
 1. Select `filled` and click [[hydro.flow_direction]] in **Terrain hydrology**. Rename it `directions`.
 2. Select `filled` again and click [[hydro.flow_accumulation]]. Rename it `accumulation`.
-3. Run to `accumulation` (++ctrl+enter++). In the map under the canvas, the valleys appear as bright lines.
+3. Run to `accumulation` (++ctrl+enter++). In the Viewer, the valleys appear as bright lines.
 
 </div>
 
@@ -401,8 +401,8 @@ farms, an estimate of nitrogen applied per cell. The result is always "how much 
 
 === "Application"
 
-    Click a node and press ++ctrl+enter++ to run to it; its map shows under the canvas. A double click shows it
-    in the Viewer and keeps it there as a layer. To keep a map, use *Save output* in the Viewer, or add a [[raster.write]] node after it.
+    Click a node and press ++ctrl+enter++ to run to it; its map shows in the Viewer. A double click keeps
+    it there as a layer. To keep a map, use *Save output* in the Viewer, or add a [[raster.write]] node after it.
 
 === "Command line"
 

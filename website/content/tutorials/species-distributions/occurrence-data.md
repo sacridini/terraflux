@@ -203,7 +203,7 @@ params = { action = "flag", countries = "ISO2" }
 2. Add [[sdm.clean_occurrences]] (subject **Species distributions**) and drag from `records.vector` to its
    `occurrences` input. In the Node pane set `action = flag` and `countries = ISO2`, the column of the country
    codes. The test of countries runs only when you name that column.
-3. Select the node and run it (++ctrl+enter++). Its `counts` output, under the canvas, gives the records each test
+3. Select the node and run it (++ctrl+enter++). Its `counts` output, in the Viewer, gives the records each test
    flagged.
 
 </div>

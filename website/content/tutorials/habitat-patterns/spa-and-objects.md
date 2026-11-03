@@ -138,7 +138,7 @@ params = { min_area = 5000 }
 
 Every tool takes the same input, `forest.raster`: connect node 1's output `map` to the input `map` of each. They do not
 depend on each other, so Terraflux runs them in parallel. The tables they give (`stats`, `objects`, `summary`) show
-under the canvas when the node is selected, and in a model run from the command line they are written as CSV
+in the Viewer when the node is selected, and in a model run from the command line they are written as CSV
 files when you make them outputs of the model:
 
 ```toml

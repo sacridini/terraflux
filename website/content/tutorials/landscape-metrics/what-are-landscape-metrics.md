@@ -206,7 +206,7 @@ note = "One row for the map."
    share.
 4. **Landscape metrics.** Click [[metrics.landscape]] and connect it the same way. `ta` is the total area, `np` all
    the patches, `pr` the number of classes (*patch richness*), `shdi` Shannon's diversity.
-5. Select a node and press ++ctrl+enter++: the model runs up to it, and its `table` shows under the canvas. Click a
+5. Select a node and press ++ctrl+enter++: the model runs up to it, and its `table` shows in the Viewer. Click a
    column's header to sort it.
 
 </div>

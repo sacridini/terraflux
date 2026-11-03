@@ -151,7 +151,7 @@ canopy height: for those, see the next part, [Surface metrics: texture without p
 2. With `dem` selected, click [[raster.reproject]] in **Data preparation**: it comes connected to `dem`'s
    `raster` output. Set **crs** to `EPSG:32610`, **resolution** to `30`, **resampling** to `bilinear` and
    **extent** to `[500010, 4760850, 508110, 4771920]`. Rename it `elevation`.
-3. Press ++ctrl+enter++ to run to the node and see the map under the canvas.
+3. Press ++ctrl+enter++ to run to the node and see the map in the Viewer.
 
 </div>
 

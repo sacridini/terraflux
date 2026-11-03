@@ -187,7 +187,7 @@ a row per candidate (its value, cost, criterion, gap, TOPSIS score, and `knee` a
 
 !!! app "In the application"
     `prioritize.evaluate` and `prioritize.calibrate` are in the library's *Spatial prioritization* subject. Connect a
-    plan's `solution` to the evaluation's `solution` input, run it, and click its output ports under the canvas:
+    plan's `solution` to the evaluation's `solution` input, run it, and pick its outputs in the Viewer's header:
     `coverage` and `units` are tables you can sort, `replacement` and `ferrier` maps.
 
 ## Read the results

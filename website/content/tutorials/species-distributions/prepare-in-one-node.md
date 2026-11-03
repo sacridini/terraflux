@@ -136,7 +136,7 @@ Its outputs:
 !!! app "In the application"
     **Templates → Species → Species distribution model** has the node with settings for maps drawn by chance
     (`clean = false`, since its points are not longitudes and latitudes). Select it, change the settings in the Node
-    pane, and press ++ctrl+enter++: the `report` appears under the canvas. The settings that take an object are
+    pane, and press ++ctrl+enter++: the `report` appears in the Viewer. The settings that take an object are
     written in the Node pane as TOML, `{ size = 500000, k = 5 }`.
 
 ## Read the results

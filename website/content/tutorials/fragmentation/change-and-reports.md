@@ -254,7 +254,7 @@ GuidosToolbox's delta_heatmap.csv.
 
 Every analysis has a `report` (or `heatmap_csv`) output: the text file GuidosToolbox itself writes, line for line, so
 that results made in Terraflux can be compared with GuidosToolbox's and published in the same form. In the
-application, select the node and the report shows under the canvas; from the command line, make it an output and it
+application, select the node and the report shows in the Viewer; from the command line, make it an output and it
 is written to the output folder. The report of [[change.fad]] (GuidosToolbox's FAD_change_mscale.txt) begins with the
 matrix of the FAD-MS average in cells, then the scales:
 

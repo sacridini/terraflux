@@ -289,8 +289,8 @@ layers = [{ from = "plan.solution" }]
     *Spatial prioritization* in the library on the left, or press ++slash++ and type `optimize`, and click
     `prioritize.optimize` to add it. Drag from the `stack` port of the features to the `features` port of the new
     node, and from the `map` port of the cost to `cost`. Select the node and set its settings in the **Node** pane:
-    objective, relative targets, gap. Press ++ctrl+enter++ to run up to the selected node; its result appears under
-    the canvas (a map, or a table you can sort). Or start from **Templates ▸ Conservation and restoration ▸
+    objective, relative targets, gap. Press ++ctrl+enter++ to run up to the selected node; its result appears in
+    the Viewer (a map, or a table you can sort). Or start from **Templates ▸ Conservation and restoration ▸
     Conservation planning (linear programming)** and replace its random maps with your own.
 
 From the command line, save the model as `first-plan.toml` next to the rasters and run it:
