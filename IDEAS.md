@@ -78,6 +78,8 @@ distâncias, unidades de planejamento em polígonos, o desenho no viewer).
 - **Feito** (Unreleased): o produto gravado com o mapa (`landschaft_product` no GeoTIFF) e lido de volta; a
   escala logarítmica (correntes de circuito, e à mão); a rampa pelos percentis 2–98; a paleta trocada à mão no
   painel e lembrada por saída.
+- O Viewer como central de mapas (camadas, comparação, vistas no lugar do `view.plot`): o plano em
+  "O Viewer como central de mapas, e as vistas no lugar do `view.plot`".
 
 ## Builder
 
@@ -836,6 +838,110 @@ commit por item):
 11. **QGIS:** o `.qgz` conferido no PyQGIS.
 12. **Trace:** a variável de iteração do CLUE.
 13. **Document:** tabelas dentro de tabelas.
+
+## O Viewer como central de mapas, e as vistas no lugar do `view.plot`
+
+Pedido de 2026-11-03. Hoje o Viewer é rápido (tiles feitos por threads, desenhados pela GPU), mas ver mais de um
+resultado abre abas: o duplo clique num nó abre uma aba `Map` só dele **e** mostra o mesmo mapa no Viewer; cada
+`view.plot` que roda abre outra aba; e sobrepor camadas só se faz encadeando nós `view.plot` pela entrada `under`.
+Há duas formas de ver um resultado (clicar no nó, ou ligar um plot nele), e isso confunde.
+
+O que se quer: o Viewer como **uma central de visualização**, como um SIG (várias camadas ao mesmo tempo, com
+ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e **uma forma só de ver** um resultado.
+
+### Decisões (combinadas em 2026-11-03)
+
+- **Ver é clicar no nó.** O clique mostra o resultado como a **camada de prévia** (no topo, em itálico), que o
+  próximo clique troca, como a aba de prévia do VS Code: clicar continua rápido e as camadas não se acumulam.
+  **Fixar** (duplo clique, o 📌 da camada ou arrastar o nó até o mapa) a torna uma camada da lista. Nenhuma aba
+  de mapa à parte.
+- **O `view.plot` sai do grafo.** Uma figura não é um cálculo: o que o plot guarda (título, camada de baixo,
+  opacidade, comparação, gráfico de uma tabela) é o que uma lista de camadas guarda. Ele vira uma **vista salva**
+  (`[[views]]` no arquivo do modelo, fora dos nós), feita no próprio Viewer (*Save as view*), e é ela que o
+  Document, o relatório, o QGIS, o script Python, a comparação de cenários e as figuras leem.
+- **Os modelos antigos continuam abrindo e rodando:** os `view.plot` viram vistas ao abrir (migração), e o
+  operador fica registrado como obsoleto (fora da biblioteca e das buscas) para o CLI e o MCP por um tempo.
+
+### O que já existe e é aproveitado
+
+- `map_view::MapView`: rasters empilhados com opacidade (`show_stacked`, `RasterLayer`), vetores por cima em
+  tiles (`vector_tiles`), basemap (B), cortina (`show_compared`, `Curtain`), grades diferentes postas umas nas
+  outras (`place_on`), o cursor de uma vista marcado na outra (`ghost`), a série do pixel clicado (`picked`).
+- `builder::Shown`: o que uma aba de mapa mostra (nó, porta, banda, `overlays` de vetores, `rasters` por cima com
+  opacidade, `compare`, `playing`): já é uma composição, espalhada hoje entre ele e a `Session` (`preview`,
+  `preview_band`, `preview_overlays`).
+- `builder::plot_stack` (a cadeia de `under` de um plot), `legend_view`, `palette` (a paleta lembrada por saída),
+  `difference.rs`, `figure.rs` (a figura para artigo), `animation.rs`/`mp4.rs` (GIF e MP4), `qgis.rs`.
+- O passo de um laço escolhido no cabeçalho do Viewer (`step_chooser`, 60b796c).
+
+### Fases (um commit por fase; release só quando pedido)
+
+1. **Duplo clique só no Viewer; plots sem abas.** (pequena)
+   - `Action::Open` → `builder::open_map` → `Session::open_map`: em vez de uma aba `Pane::Map`, o nó vai para o
+     Viewer (selecionado, roda até ele se preciso, o Viewer na frente). Até a fase 2 "fixar" é só mostrar.
+   - Um `view.plot` que roda não abre mais aba (`poll`: `plots` → `open_map` + `quiet`); ele aparece no Viewer
+     quando o nó é clicado, com a sua cadeia de `under`, como hoje.
+   - Testes: duplo clique não abre `Pane::Map` e põe o Viewer na frente com o nó; um template que roda não abre abas
+     `Map` (o teste de `canvas.rs` que esperava as abas dos plots muda).
+2. **O painel de camadas.** (grande)
+   - Estado: `Viewer { layers: Vec<Layer>, preview: Option<Layer> }` no lugar de `Shown` e dos `preview*` da
+     `Session`. `Layer { from: node.port, kind (mapa, pilha, série, rasters em disco, vetores, tabela), visible,
+     opacity, coloring/paleta, banda ou passo, nome }`. As camadas seguem os nós renomeados e saem com os
+     removidos.
+   - O painel à esquerda do mapa (recolhível): a prévia em itálico com 📌, depois as camadas fixas (a de cima por
+     cima); caixa de visível, arrastar para a ordem, opacidade, paleta e legenda de cada uma, banda/passo, *Zoom to
+     layer*, tirar. Atalhos: espaço esconde a de cima (como hoje), B o basemap.
+   - Desenho: `show_stacked` com N rasters, cada um com os seus tiles (chave: nó, porta, banda, revisão, cores);
+     camada escondida não pede tiles; a grade de referência é a da primeira camada raster visível (ou
+     `s.reference`); as outras grades por `place_on`. Outro CRS: avisado e não desenhado nesta fase (fase 5).
+   - **Identificar:** o cursor diz o valor de cada camada visível (e os atributos da feição de cada camada de
+     vetores), no lugar do valor de uma só.
+   - Uma tabela no Viewer é o gráfico de hoje (`charts.rs`), como uma camada à parte (não se sobrepõe a mapas).
+   - Velocidade: medir com `canvas::timings` (release, `--ignored`) 1 e 5 camadas de 10 000 × 10 000; nenhum
+     quadro mais lento com uma camada só do que hoje.
+   - Testes: clicar troca a prévia; fixar mantém; ordem/opacidade/visível mudam o desenho (pixels do harness); o
+     identificar lista as camadas; renomear e remover um nó.
+3. **Comparar e dividir dentro do Viewer; o fim das abas `Map`.** (média)
+   - Cortina entre a camada de cima e a de baixo (ou duas escolhidas); a diferença (`difference.rs`) como camada
+     derivada.
+   - Dividir em 1, 2 ou 4 vistas ligadas (zoom e lugar juntos, o cursor marcado nas outras), cada uma com a sua
+     lista de camadas (ou a mesma com outra banda ou passo); tocar a série junto.
+   - Saem `Pane::Map`, `map_tabs`, `beside_viewer`, `opened`/`quiet`/`raised` (`LAYOUT_VERSION` 12: um layout
+     guardado com abas `Map` abre sem elas).
+   - A figura (`figure.rs`) e o GIF/MP4 (`animation.rs`) partem das camadas e da divisão do Viewer.
+4. **As vistas salvas no lugar do `view.plot`.** (a maior)
+   - Formato: `[[views]]` no modelo (`terraflux_graph::Model::views`, serde, omitido quando vazio): `id`, `title`,
+     `layers = [{ from = "node.port", opacity, palette, band, style }]`, `compare = { with, how }`,
+     `chart = { kind, x, y, by }` para tabelas, extensão opcional, `note`/`why` (o registro). O `check` confere as
+     referências (`views.<id>.layers[i]`); renomear e remover nós atualizam as vistas (`editor.rs`).
+   - Migração ao ler (`terraflux_graph`): cada `view.plot` vira uma vista (`value`/`features`/`table` → camadas, a
+     cadeia de `under` → as de baixo, como `plot_stack`; `opacity`, `compared`/`compare`, `chart`/`x`/`y`/`by`,
+     `title`); o nó sai, e o que lia `plot.shown` passa a ler o que o plot mostrava. Salvo, o arquivo já tem
+     `[[views]]`. O operador `view.plot` fica obsoleto (fora da biblioteca, `describe_operator` diz para usar as
+     vistas) até a 2.0.
+   - Quem lê os plots passa a ler as vistas: `document.rs` (as figuras de cada seção), `params_view::comparable`,
+     `legend_view` (sem o salto pelo plot), `batch_view`, `report.rs`, `qgis.rs` (um grupo de camadas por vista, com
+     os estilos), `python.rs`, `figure.rs`, `methods`, `advice.rs` (o conselho que sugeria um plot sugere uma vista),
+     `op_notes`, `phrases` (a frase da vista no Document).
+   - No app: *Save as view* no painel de camadas, a lista das vistas no Viewer e no Document; abrir uma vista carrega
+     as suas camadas; *Update view* grava as mudanças.
+   - Templates: os 101 `view.plot` de `templates.rs` viram vistas (pela própria migração, conferida à mão nos
+     títulos). MCP: `set_view` e `remove_view` (`tools.rs`, `terraflux mcp`), o guia `results`, o assistente; a
+     tradução de scripts Python cria vistas. Site: 134 menções em 47 tutoriais; `plots-and-tables.md` reescrito como
+     "Views and figures".
+   - Testes: cada template migrado dá as mesmas camadas que o `plot_stack` dava; um modelo antigo com `view.plot`
+     roda no CLI; o Document, o relatório e o QGIS dos templates iguais antes e depois.
+5. **Depois** (a decidir, cada um à parte): reprojetar outro CRS por tile, ao desenhar; medir distância e área;
+   soltar um arquivo no Viewer (o `raster.read` criado e a camada fixada); a tabela de atributos de uma camada de
+   vetores; rótulos; o histograma de cada camada; exportar a vista como PNG ou GeoTIFF composto.
+
+### Em aberto
+
+- O nome na interface: *Views* (o que o Viewer guarda) ou *Figures* (o que vai para o artigo e o relatório).
+- Se uma comparação de cenários (`params_view`) passa a mostrar uma vista inteira (todas as camadas) por cenário.
+- Por quanto tempo o `view.plot` obsoleto fica (proposta: até a 2.0).
+- As fases 2 e 3 trocam `Shown` e o `preview` da `Session`: o trabalho no Viewer feito em paralelo (o passo de um
+  laço, 60b796c) entra nelas, e um trabalho ainda aberto ali precisa terminar antes.
 
 ## Paridade com o landschaft na priorização, progresso e parada
 
