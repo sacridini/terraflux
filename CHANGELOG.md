@@ -19,6 +19,8 @@ minor versions.
   data loaded); a Markov chain whose `steps` does not divide the years between its maps (the years read in the
   files' and nodes' names), or whose maps are in the wrong order; weights of evidence without any distance among the
   drivers (when the drivers can be told).
+- The advice on the method in the **Problems pane** (a section of its own, each piece with its nodes and *Ask the
+  assistant*) and in the **report** (HTML, PDF and `terraflux report`, in English or Portuguese, beside the checks).
 
 ## [1.32.0] - 2026-11-02
 

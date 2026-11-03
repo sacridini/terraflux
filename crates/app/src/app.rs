@@ -604,6 +604,10 @@ pub struct Session {
     /// Counters of the changes of the model and of the nodes' states (the canvas is laid out again then).
     pub revision: u64,
     pub status_rev: u64,
+    /// The times the data was read, and the advice on the method worked out for a revision and a reading
+    /// ([`Session::advice`]).
+    loads: u64,
+    advice_of: Mutex<Option<(u64, u64, Vec<crate::advice::Advice>)>>,
     /// The node a run stops at (none: the whole model).
     pub target: Option<String>,
     /// What every top-level node gave in the runs so far (the cache keeps only what may be used again).
@@ -771,6 +775,8 @@ impl Session {
             timings: BTreeMap::new(),
             revision: 0,
             status_rev: 0,
+            loads: 0,
+            advice_of: Mutex::new(None),
             target: None,
             outputs: BTreeMap::new(),
             preview: None,
@@ -839,6 +845,7 @@ impl Session {
     }
 
     fn loaded(&mut self, l: Loaded) {
+        self.loads += 1;
         self.inputs_of = l.of;
         match l.inputs {
             Ok(i) => {
@@ -860,6 +867,21 @@ impl Session {
         if self.maps.is_empty() && !self.layers.is_empty() {
             self.layer = Some(0);
         }
+    }
+
+    /// The advice on the model's method ([`crate::advice`]: what a reviewer would ask), worked out again when the
+    /// model or its data changed.
+    pub fn advice(&self) -> Vec<crate::advice::Advice> {
+        let mut held = self.advice_of.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((rev, loads, a)) = held.as_ref()
+            && *rev == self.revision
+            && *loads == self.loads
+        {
+            return a.clone();
+        }
+        let a = crate::advice::advise(&self.model, &Registry::standard(), &self.base(), self.inputs.as_ref());
+        *held = Some((self.revision, self.loads, a.clone()));
+        a
     }
 
     /// After an edit of the source: the model run and its checks follow.

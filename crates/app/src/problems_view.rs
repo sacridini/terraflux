@@ -35,7 +35,8 @@ pub fn counts(s: &Session) -> (usize, usize) {
         + s.findings.iter().filter(|f| f.level == terraflux_exec::lint::Level::Error).count();
     let warnings = s.warnings.len()
         + s.shown_issues().filter(|i| i.severity == Severity::Warning).count()
-        + s.findings.iter().filter(|f| f.level == terraflux_exec::lint::Level::Warning).count();
+        + s.findings.iter().filter(|f| f.level == terraflux_exec::lint::Level::Warning).count()
+        + s.advice().iter().filter(|a| a.level == crate::advice::Level::Warning).count();
     (errors, warnings)
 }
 
@@ -105,8 +106,9 @@ pub fn pane(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Asked> {
     egui::ScrollArea::vertical().id_salt("problems pane").auto_shrink([false, false]).show(ui, |ui| {
         egui::Frame::new().inner_margin(Margin::same(8)).show(ui, |ui| {
             let (errors, warnings) = counts(s);
+            let advice = s.advice();
             theme::section(ui, "Problems");
-            if errors + warnings == 0 {
+            if errors + warnings == 0 && advice.is_empty() {
                 ui.label(weak("No problems: the graph is checked at every edit, the data when it is read, and a run's failure shows here, explained."));
                 return;
             }
@@ -210,6 +212,36 @@ pub fn pane(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Asked> {
                         ui.label(w);
                     });
                 }
+                ui.add_space(6.0);
+            }
+            // the method: what a reviewer would ask
+            if !advice.is_empty() {
+                ui.label(RichText::new("The method").strong()).on_hover_text(
+                    "advice on the method, beyond the errors: what a reviewer of the paper would ask (the guides of \
+                     the assistant tell more)",
+                );
+                for a in &advice {
+                    ui.horizontal_wrapped(|ui| {
+                        let colour = if a.level == crate::advice::Level::Warning { warn } else { theme::accent() };
+                        ui.label(RichText::new(if a.level == crate::advice::Level::Warning { "●" } else { "○" }).color(colour));
+                        for at in &a.at {
+                            let node = at.split(' ').next().unwrap_or("");
+                            node_link(ui, node, &mut select);
+                        }
+                        ui.label(&a.message);
+                        if ui
+                            .small_button("Ask the assistant")
+                            .on_hover_text("this advice to the assistant: to follow it in the model, or tell why not")
+                            .clicked()
+                        {
+                            asked = Some(Asked::Assistant(format!(
+                                "Advice on the model's method: {a}\nFollow it in the model if it applies (guide {} \
+                                 tells more); if it does not, tell me why.",
+                                a.guide
+                            )));
+                        }
+                    });
+                }
             }
         });
     });
@@ -250,5 +282,19 @@ mod tests {
         s.edited();
         assert!(!s.issues.iter().any(|i| i.unfilled), "{:?}", s.issues);
         assert!(!s.unfilled_shown);
+    }
+
+    #[test]
+    fn the_advice_on_the_method_is_kept_until_the_model_changes() {
+        let r = Registry::standard();
+        let mut s = Session::blank();
+        assert!(s.advice().is_empty());
+        crate::builder::add_at(&mut s, &r, "sdm.fit", &[], Some([0.0, 0.0])).unwrap();
+        let a = s.advice();
+        assert!(a.iter().any(|a| a.message.contains("sdm.one_per_cell")), "{a:?}");
+        // advice, not a warning: the count of the problems is the same
+        assert_eq!(counts(&s).1, s.shown_issues().filter(|i| i.severity == Severity::Warning).count());
+        crate::builder::add_at(&mut s, &r, "sdm.thin", &[], Some([0.0, 200.0])).unwrap();
+        assert!(!s.advice().iter().any(|a| a.message.contains("sdm.one_per_cell")));
     }
 }

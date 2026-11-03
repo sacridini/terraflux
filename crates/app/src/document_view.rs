@@ -563,7 +563,8 @@ pub fn export(s: &mut Session, r: &Registry, lang: crate::methods::Lang) {
     let first = |n: &str| crate::document::only_output(&s.source, r, n);
     // (the methods and the papers to cite, how the checks fared)
     let file = s.path.as_ref().and_then(|p| p.file_name()).map(|f| f.to_string_lossy().into_owned());
-    let extras = crate::report::Extras::of_in(&s.source, r, file.as_deref(), crate::checks::of(s), lang);
+    let extras =
+        crate::report::Extras::of_in(&s.source, r, file.as_deref(), crate::checks::of(s), lang).with_advice(s.advice());
     let said = match crate::report::write(&path, &doc, &values, &first, &extras) {
         Ok(()) => format!("wrote {}", path.display()),
         Err(e) => format!("{} not written: {e}", path.display()),

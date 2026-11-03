@@ -767,6 +767,11 @@ commit por item):
    `actions` ou `actions_raster` sem `prioritize.evaluate`. Os templates continuam sem alertas (Dinamica EGO,
    CLUE-S, PLUS, CRAFTY e três de priorização recebem conselhos).
 4. **Os conselhos no app:** no painel Problems (nível "advice") e no relatório.
+   **Feito** (Unreleased): `Session::advice`, calculado de novo quando a revisão do modelo ou a leitura dos dados
+   muda; "The method" no painel Problems (alerta em amarelo e conta entre os warnings, conselho em ○ com a cor de
+   destaque, os nós como links, *Ask the assistant*); `report::Extras::with_advice` no HTML e no PDF ("On the
+   method" / "Sobre o método", selos warning/advice), no Export report do app e no `terraflux report` (com os dados
+   lidos quando `--run`).
 5. **Dicas por operador** num campo `advice` do próprio operador, para `conn.*`, hidrologia, InVEST, agentes e REDD+.
 6. **Protocolo e línguas:** saída estruturada no `check_model` e no `run_model`, elicitation, guias em português.
 7. **Script Python:** `dinamica.step`, `cars.step`, `lulcc.step`, `plus.demand`, `demand.regional`, as zonas do

@@ -1068,11 +1068,14 @@ fn main() -> Result<()> {
                 .ok_or_else(|| anyhow::anyhow!("no language {language}: en or pt"))?;
             let source = Model::load(&model).with_context(|| format!("reading {}", model.display()))?;
             let dir = folder_of(&model);
+            let expanded = Model::load_expanded(&model)?;
+            let mut loaded = None;
             let results = if run {
-                let m = Model::load_expanded(&model)?;
-                let inputs = load_inputs(&m, &dir, &BTreeMap::new())?;
+                let inputs = load_inputs(&expanded, &dir, &BTreeMap::new())?;
                 let mut progress = Progress { quiet: false, start: Instant::now() };
-                Some(engine.run(&m, &inputs, &mut progress)?)
+                let results = engine.run(&expanded, &inputs, &mut progress)?;
+                loaded = Some(inputs);
+                Some(results)
             } else {
                 None
             };
@@ -1085,7 +1088,10 @@ fn main() -> Result<()> {
             let warnings = results.as_ref().map(|r| r.warnings.clone()).unwrap_or_default();
             let checks = terraflux_app::checks::of_run(&source, &values, &ran, None, &warnings);
             let file = model.file_name().map(|f| f.to_string_lossy().into_owned());
-            let extras = terraflux_app::report::Extras::of_in(&source, &engine.registry, file.as_deref(), checks, lang);
+            // the advice on the method, with the inputs when the model ran
+            let advice = terraflux_app::advice::advise(&expanded, &engine.registry, &dir, loaded.as_ref());
+            let extras = terraflux_app::report::Extras::of_in(&source, &engine.registry, file.as_deref(), checks, lang)
+                .with_advice(advice);
             terraflux_app::report::write(&out, &doc, &values, &first, &extras)
                 .with_context(|| format!("writing {}", out.display()))?;
             eprintln!("wrote {}", out.display());

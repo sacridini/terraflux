@@ -245,6 +245,8 @@ pub type Values<'a> = &'a dyn Fn(&str, &str) -> Option<Value>;
 pub struct Extras {
     pub methods: Option<crate::methods::Methods>,
     pub checks: Vec<crate::checks::Check>,
+    /// The advice on the method (what a reviewer would ask: [`crate::advice`]), told with the checks.
+    pub advice: Vec<crate::advice::Advice>,
     /// The language the report is written in.
     pub lang: Lang,
 }
@@ -269,7 +271,13 @@ impl Extras {
         lang: Lang,
     ) -> Extras {
         let methods = crate::methods::of_in(m, r, env!("CARGO_PKG_VERSION"), file, lang);
-        Extras { methods: Some(methods), checks, lang }
+        Extras { methods: Some(methods), checks, advice: Vec::new(), lang }
+    }
+
+    /// With the advice on the method.
+    pub fn with_advice(mut self, advice: Vec<crate::advice::Advice>) -> Extras {
+        self.advice = advice;
+        self
     }
 
     /// The badge of a step of a scope (`path`): a check's verdict, a container's worst of the checks it holds.
@@ -821,6 +829,24 @@ pub fn html(doc: &Document, values: Values, first: &dyn Fn(&str) -> Option<Strin
                 esc(&at),
                 esc(&c.expression),
                 esc(&c.verdict.words_in(lang))
+            );
+        }
+        h.out.push_str("</ul>");
+    }
+    // the advice on the method
+    if !extras.advice.is_empty() {
+        let _ = write!(h.out, r#"<p class="meta"><b>{}.</b></p><ul class="checks">"#, lang.t("On the method"));
+        for a in &extras.advice {
+            let (mark, colour) = match a.level {
+                crate::advice::Level::Warning => (lang.t("warning"), "#b7791f"),
+                crate::advice::Level::Advice => (lang.t("advice"), "#2b6cb0"),
+            };
+            let at = if a.at.is_empty() { String::new() } else { format!("<b>{}</b>: ", esc(&a.at.join(", "))) };
+            let _ = write!(
+                h.out,
+                r#"<li><span class="badge" style="background:{colour}">{}</span> {at}{}</li>"#,
+                esc(mark),
+                esc(&a.message)
             );
         }
         h.out.push_str("</ul>");
@@ -1667,6 +1693,23 @@ pub fn pdf(doc: &Document, values: Values, first: &dyn Fn(&str) -> Option<String
             p.pdf.badge(c.verdict.rgb(), c.verdict.label_in(lang), &rest, 9.0, 8.0);
         }
     }
+    // the advice on the method
+    if !extras.advice.is_empty() {
+        p.pdf.space(2.0);
+        p.pdf.paragraph(&[run(Font::Bold, format!("{}.", lang.t("On the method")))], 10.0, 0.0, 0.0);
+        for a in &extras.advice {
+            let (mark, rgb) = match a.level {
+                crate::advice::Level::Warning => (lang.t("warning"), [183, 121, 31]),
+                crate::advice::Level::Advice => (lang.t("advice"), [43, 108, 176]),
+            };
+            let mut rest = Vec::new();
+            if !a.at.is_empty() {
+                rest.push(run(Font::Bold, format!("{}: ", a.at.join(", "))));
+            }
+            rest.push(run(Font::Regular, a.message.clone()));
+            p.pdf.badge(rgb, mark, &rest, 9.0, 8.0);
+        }
+    }
     let mut k = 0;
     if !doc.inputs.is_empty() {
         k += 1;
@@ -1918,6 +1961,25 @@ mod tests {
         // without them, neither
         let plain = html(&d, &none, &first, &Extras::default());
         assert!(!plain.contains("Methods and citations") && !plain.contains("Checks."));
+    }
+
+    #[test]
+    fn a_report_tells_the_advice_on_the_method() {
+        let r = Registry::standard();
+        let m = template("Dinamica EGO");
+        let mut sim = m.clone();
+        sim.nodes.retain(|n| !n.op.starts_with("validate."));
+        let advice = crate::advice::advise(&sim, &r, std::path::Path::new("."), None);
+        assert!(!advice.is_empty());
+        let d = Document::of(&sim, &r);
+        let none = |_: &str, _: &str| None;
+        let first = |_: &str| None;
+        let extras = Extras::of_in(&sim, &r, None, Vec::new(), Lang::Pt).with_advice(advice);
+        let h = html(&d, &none, &first, &extras);
+        assert!(h.contains("<b>Sobre o método.</b>"), "the advice's heading");
+        assert!(h.contains(">conselho</span>") && h.contains("never compares a simulation"), "{h}");
+        let p = pdf(&d, &none, &first, &extras);
+        assert!(String::from_utf8_lossy(&p).contains("(conselho) Tj"));
     }
 
     #[test]
