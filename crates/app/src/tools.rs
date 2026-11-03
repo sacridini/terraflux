@@ -128,7 +128,7 @@ built or changed the model, give it a `summary` of what was asked and done (set_
 );
 
 /// The tools that change a model.
-pub const EDITS: [&str; 19] = [
+pub const EDITS: [&str; 21] = [
     "set_model_info",
     "set_input",
     "remove_input",
@@ -138,6 +138,8 @@ pub const EDITS: [&str; 19] = [
     "edit_container",
     "set_output",
     "remove_output",
+    "set_plot",
+    "remove_plot",
     "arrange",
     "group_nodes",
     "ungroup",
@@ -323,6 +325,16 @@ pub fn edit(name: &str, m: &mut Model, r: &Registry, dir: &Path, a: &Value) -> R
         }
         "edit_container" => edit_container(m, r, a),
         "set_output" => set_output(m, r, a),
+        "set_plot" => set_plot(m, r, a),
+        "remove_plot" => {
+            let id = text(a, "id")?;
+            let before = m.plots.len();
+            m.plots.retain(|p| p.id != id);
+            if m.plots.len() == before {
+                return Err(format!("the model has no plot {id:?}"));
+            }
+            Ok(format!("removed the plot {id}"))
+        }
         "remove_output" => {
             let name = text(a, "name")?;
             m.outputs.remove(name).ok_or_else(|| format!("the model has no output {name:?}"))?;
@@ -1575,6 +1587,33 @@ fn all() -> Vec<Value> {
             None,
         ),
         tool(
+            "set_plot",
+            "Add or replace a Plot: a view of the results kept with the model (outside the graph), shown in the application's Viewer and as a figure of the Document and the report. Its layers, the lowest first: maps (each as opaque as asked), vector features over them, or a table (drawn as a chart). In place of the view.plot node.",
+            json!({
+                "model": model,
+                "id": { "type": "string", "description": "The plot's id (a letter, then letters, digits, _ or -)." },
+                "title": { "type": "string", "description": "Its title, the figure's caption (default: what it shows)." },
+                "layers": {
+                    "type": "array",
+                    "description": "What it shows, the lowest first: node.port of top-level nodes (or $input), or objects { from, opacity (0 to 1), band (a stack's layer or a loop's step, 0-based), hidden }.",
+                    "items": {},
+                },
+                "compare": { "description": "A map compared with the top map: node.port, or { with, how } (how: curtain, side by side (default) or difference)." },
+                "chart": { "type": "object", "description": "A table's chart: { kind (bars, lines, points, boxes), x (a column), y (columns, comma-separated), by (the column of the groups) }." },
+                "note": { "type": "string", "description": "What it shows and why (the record)." },
+                "why": { "type": "string" },
+            }),
+            &["model", "id", "layers"],
+            None,
+        ),
+        tool(
+            "remove_plot",
+            "Remove a Plot of the model.",
+            json!({ "model": model, "id": { "type": "string" } }),
+            &["model", "id"],
+            None,
+        ),
+        tool(
             "remove_output",
             "Remove an output of the model.",
             json!({ "model": model, "name": { "type": "string" } }),
@@ -1793,6 +1832,8 @@ pub fn first_sentence(doc: &str) -> String {
 
 pub fn list_operators(r: &Registry, query: Option<&str>) -> String {
     let mut sigs = r.signatures();
+    // (the view.plot: a Plot now, set_plot)
+    sigs.retain(|s| s.name != terraflux_graph::PLOT_OP);
     sigs.sort_by(|a, b| a.name.cmp(&b.name));
     match query {
         None => {
@@ -1928,6 +1969,12 @@ pub fn describe_operator(r: &Registry, name: &str) -> Reply {
     }
     let sig = r.sig(name).ok_or_else(|| format!("no operator {name:?}{}", like(r, name)))?;
     let mut s = format!("{}\n{}\n", sig.name, sig.doc);
+    if sig.name == terraflux_graph::PLOT_OP {
+        s.push_str(
+            "\nRetired: a figure is a Plot now, kept with the model outside the graph (set_plot, remove_plot); the \
+             view.plot nodes of older models are made Plots when they are read.\n",
+        );
+    }
     if sig.container {
         s.push_str(
             "\nA container: it holds a body of nodes (edit them with scope = this node's id; edit_container for what \
@@ -2120,6 +2167,11 @@ fn outputs_of(m: &Model, r: &Registry, path: &[String], id: &str) -> String {
 
 fn add_node(m: &mut Model, r: &Registry, a: &Value) -> Reply {
     let op = text(a, "op")?;
+    if op == terraflux_graph::PLOT_OP {
+        return Err("view.plot is no longer a node: a figure is a Plot, kept with the model (set_plot: its layers, \
+                    title, comparison, a table's chart)"
+            .into());
+    }
     let path = scope(a);
     let mut id = match crate::my_nodes::named(op) {
         // a node of the user's libraries
@@ -2306,6 +2358,101 @@ fn edit_container(m: &mut Model, r: &Registry, a: &Value) -> Reply {
     Ok(format!("changed the container {at}; {}", outputs_of(m, r, &path[..path.len() - 1], &path[path.len() - 1])))
 }
 
+/// A Plot added or replaced ([`terraflux_graph::Plot`]): its layers read outputs of top-level nodes (or inputs).
+fn set_plot(m: &mut Model, r: &Registry, a: &Value) -> Reply {
+    use terraflux_graph::{Plot, PlotChart, PlotCompare, PlotLayer};
+    let id = text(a, "id")?;
+    if !valid_id(id) {
+        return Err(format!("{id:?} is not a valid id (a letter, then letters, digits, _ or -)"));
+    }
+    // (a reference to an output of a top-level node, or an input)
+    let checked = |from: &str| -> std::result::Result<String, String> {
+        match Ref::parse(from) {
+            Ok(Ref::Input(name)) if m.inputs.contains_key(&name) => Ok(from.to_string()),
+            Ok(Ref::Input(name)) => Err(format!("the model has no input ${name}")),
+            Ok(Ref::Port { node, port }) => {
+                let n = m.node(&node).ok_or_else(|| format!("no node {node:?} at the top level"))?;
+                let ports = editor::output_ports(n, r);
+                if ports.iter().any(|(p, _)| *p == port) {
+                    Ok(from.to_string())
+                } else {
+                    let names: Vec<&str> = ports.iter().map(|(p, _)| p.as_str()).collect();
+                    Err(format!("{node} has no output {port:?} (its outputs: {})", names.join(", ")))
+                }
+            }
+            _ => Err(format!("{from:?}: give node.port of a top-level node, or $input")),
+        }
+    };
+    let list = a.get("layers").and_then(Value::as_array).ok_or("give `layers`: what it shows, the lowest first")?;
+    let mut layers = Vec::new();
+    for l in list {
+        let layer = match l {
+            Value::String(from) => PlotLayer::new(&checked(from)?),
+            Value::Object(o) => {
+                let from = o.get("from").and_then(Value::as_str).ok_or("a layer as an object needs `from`")?;
+                let opacity = o.get("opacity").and_then(Value::as_f64);
+                if opacity.is_some_and(|x| !(0.0..=1.0).contains(&x)) {
+                    return Err(format!("{from}: opacity is 0 to 1"));
+                }
+                PlotLayer {
+                    from: checked(from)?,
+                    opacity: opacity.filter(|x| *x != 1.0),
+                    band: o.get("band").and_then(Value::as_u64).map(|b| b as usize),
+                    hidden: o.get("hidden").and_then(Value::as_bool).unwrap_or(false),
+                    style: o.get("style").cloned(),
+                    palette: o.get("palette").and_then(Value::as_str).map(String::from),
+                }
+            }
+            other => return Err(format!("a layer is node.port or an object with `from`, not {other}")),
+        };
+        layers.push(layer);
+    }
+    if layers.is_empty() {
+        return Err("give at least one layer".into());
+    }
+    let compare = match a.get("compare") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(w)) if w.is_empty() => None,
+        Some(Value::String(w)) => Some(PlotCompare { with: checked(w)?, how: None }),
+        Some(Value::Object(o)) => {
+            let with = o.get("with").and_then(Value::as_str).ok_or("compare needs `with`: node.port")?;
+            let how = o.get("how").and_then(Value::as_str).map(str::to_string);
+            if let Some(h) = &how
+                && !["curtain", "side by side", "difference"].contains(&h.as_str())
+            {
+                return Err(format!("compare's how is curtain, side by side or difference, not {h:?}"));
+            }
+            Some(PlotCompare { with: checked(with)?, how })
+        }
+        Some(other) => return Err(format!("compare is node.port or {{ with, how }}, not {other}")),
+    };
+    let chart = a.get("chart").and_then(Value::as_object).map(|c| {
+        let s = |k: &str| c.get(k).and_then(Value::as_str).map(String::from);
+        PlotChart { kind: s("kind"), x: s("x"), y: s("y"), by: s("by") }
+    });
+    let plot = Plot {
+        id: id.to_string(),
+        title: opt_text(a, "title").map(String::from),
+        layers,
+        compare,
+        chart,
+        note: opt_text(a, "note").map(String::from),
+        why: opt_text(a, "why").map(String::from),
+    };
+    let shown: Vec<&str> = plot.layers.iter().map(|l| l.from.as_str()).collect();
+    let said = format!("{} ({})", id, shown.join(", "));
+    match m.plots.iter_mut().find(|p| p.id == id) {
+        Some(p) => {
+            *p = plot;
+            Ok(format!("replaced the plot {said}"))
+        }
+        None => {
+            m.plots.push(plot);
+            Ok(format!("added the plot {said}: in the Viewer's Plots, a figure of the Document and the report"))
+        }
+    }
+}
+
 fn set_output(m: &mut Model, r: &Registry, a: &Value) -> Reply {
     let name = text(a, "name")?;
     if !valid_id(name) {
@@ -2459,5 +2606,65 @@ fn grid_notes(g: &terraflux_raster::Grid) -> String {
                                                  source_crs) before putting it with other maps\n"
             .into(),
         _ => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod plot_tests {
+    use serde_json::json;
+    use terraflux_graph::{Model, Node, PlotLayer};
+
+    fn model() -> Model {
+        let mut m = Model::new("plots");
+        m.nodes.push(Node::new("land", "nlm.random").param("rows", 10).param("cols", 10));
+        m.nodes.push(Node::new("forest", "raster.reclassify").input("map", "land.map").param("rules", "1 -> 1"));
+        m
+    }
+
+    /// A Plot added and replaced by set_plot, its references checked; removed by remove_plot; no view.plot node.
+    #[test]
+    fn plots_are_set_and_removed() {
+        let r = terraflux_ops::Registry::standard();
+        let dir = std::path::Path::new(".");
+        let mut m = model();
+        let a = json!({
+            "id": "cover",
+            "title": "The forest over the land",
+            "layers": ["land.map", { "from": "forest.map", "opacity": 0.5 }],
+            "compare": { "with": "land.map", "how": "curtain" },
+        });
+        let said = super::edit("set_plot", &mut m, &r, dir, &a).unwrap();
+        assert!(said.contains("added the plot cover"), "{said}");
+        let p = m.plot("cover").unwrap();
+        assert_eq!(
+            p.layers,
+            [PlotLayer::new("land.map"), PlotLayer { opacity: Some(0.5), ..PlotLayer::new("forest.map") }]
+        );
+        assert_eq!(p.compare.as_ref().unwrap().how.as_deref(), Some("curtain"));
+        assert!(terraflux_graph::check(&m, &r).iter().all(|i| !i.at.starts_with("plots.")));
+        // replaced
+        let said =
+            super::edit("set_plot", &mut m, &r, dir, &json!({ "id": "cover", "layers": ["forest.map"] })).unwrap();
+        assert!(said.starts_with("replaced"), "{said}");
+        assert_eq!(m.plots.len(), 1);
+        assert!(m.plot("cover").unwrap().compare.is_none());
+        // what is not there, refused
+        for bad in [
+            json!({ "id": "x", "layers": ["gone.map"] }),
+            json!({ "id": "x", "layers": ["land.nothing"] }),
+            json!({ "id": "x", "layers": [] }),
+            json!({ "id": "x", "layers": ["land.map"], "compare": { "with": "land.map", "how": "sideways" } }),
+            json!({ "id": "1x", "layers": ["land.map"] }),
+        ] {
+            assert!(super::edit("set_plot", &mut m, &r, dir, &bad).is_err(), "{bad}");
+        }
+        // a view.plot node: a Plot instead
+        let e = super::edit("add_node", &mut m, &r, dir, &json!({ "op": "view.plot" })).unwrap_err();
+        assert!(e.contains("set_plot"), "{e}");
+        assert!(!super::list_operators(&r, None).contains("view.plot"));
+        // removed
+        super::edit("remove_plot", &mut m, &r, dir, &json!({ "id": "cover" })).unwrap();
+        assert!(m.plots.is_empty());
+        assert!(super::edit("remove_plot", &mut m, &r, dir, &json!({ "id": "cover" })).is_err());
     }
 }

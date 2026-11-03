@@ -22,7 +22,7 @@ impl Operator for Plot {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "view.plot",
-            "Show a map, a stack, the maps of a loop, rasters on disk, vector features or a table in the Viewer when the node is clicked, refreshed at every run, without writing anything; save it from the Viewer if it is worth keeping. A table is drawn as a chart: bars, lines, points or boxes (chart), of the columns y along x, a group by by (a chart suggested when none is given; changed in the Viewer too). Plots stack: a plot's shown connected to another's under is drawn beneath it (maps over maps, vectors over them), as many as wanted.",
+            "Retired: a figure is a Plot now, kept with the model outside the graph (the Viewer's Plots; set_plot for an agent), and a model's view.plot nodes are made Plots when it is read; it stays for the plots inside groups until 2.0. Show a map, a stack, the maps of a loop, rasters on disk, vector features or a table in the Viewer when the node is clicked, refreshed at every run, without writing anything; save it from the Viewer if it is worth keeping. A table is drawn as a chart: bars, lines, points or boxes (chart), of the columns y along x, a group by by (a chart suggested when none is given; changed in the Viewer too). Plots stack: a plot's shown connected to another's under is drawn beneath it (maps over maps, vectors over them), as many as wanted.",
             Access::None,
         )
         .input(PortSpec::optional("value", Type::Raster, "the map (or maps) to show"))

@@ -26,11 +26,16 @@ minor versions.
   and the report show the Plots as figures, the comparison of scenarios offers their maps, Many runs keeps what
   they show, and the Python script names them. A Plot follows a node renamed or grouped, and loses a layer whose
   node is removed; `terraflux check` checks what they read.
+- **`set_plot` and `remove_plot`** for agents (`terraflux mcp`) and the assistant: a Plot's layers (the lowest
+  first, each as opaque as asked, a band), a map compared and how, a table's chart, a title and the record. The
+  *results* guide tells of them.
 
 ### Changed
 - **The `view.plot` nodes of a model are Plots** when it is read (or when an agent adds one): their `under`
   chains, maps, opacity, features, tables and charts, comparisons, titles and notes kept; what read a plot's
   `shown` reads what it showed. Plots inside groups stay nodes. A template begins with its last Plot open.
+- **`view.plot` is retired** (until 2.0, for the plots inside groups): out of the operators' library, the search
+  and `list_operators`; `add_node` with it says to use `set_plot`, and `describe_operator` says why.
 - **One place to see a result: the Viewer.** A double click on a node shows its output in the Viewer (brought to
   the front), run first when it has not run yet (quietly, as the preview after an edit), instead of opening a map
   tab of its own; a `view.plot` that runs no longer opens a tab either (it shows in the Viewer when clicked, with

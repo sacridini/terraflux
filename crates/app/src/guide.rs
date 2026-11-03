@@ -96,6 +96,9 @@ maps of different grids, raster.reproject for other coordinate systems), then ru
 - Why a cell of a result has its value: trace_cell gives the chain of values that made it (expressions with the \
 values in place, the cells around, what a model weighs, a loop step by step). Explain a result from it, not from \
 what the model should do.
+- A figure of the results is a Plot, kept with the model outside the graph (set_plot: its layers, the lowest \
+first, a map compared, a table's chart, a title; remove_plot): the application's Viewer opens it, the Document and \
+the report show it. There is no view.plot node to add.
 - methods drafts the methods section of a paper from the model (the methods it uses, the papers to cite, the \
 model step by step, the references; or BibTeX, RIS), in English or Portuguese (`language`: pt).",
     },

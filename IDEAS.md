@@ -1007,8 +1007,13 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    Falta: a paleta por camada no Plot (o campo existe, o Viewer ainda não grava nem lê), a coluna inteira por
    Plot na comparação de cenários (hoje o mapa de cada Plot), a lista dos Plots no Document.
 
-   **4c**, o próximo: o MCP (`set_plot`, `remove_plot`, o guia `results`, o assistente), o `view.plot` fora da
-   biblioteca e das buscas (obsoleto até a 2.0) e os 47 tutoriais do site.
+   **4c feito** (Unreleased).
+   - O MCP e o assistente: `set_plot` (camadas como `node.port` ou `{ from, opacity, band, hidden }`, `compare`,
+     `chart`, título, nota, porquê; referências conferidas) e `remove_plot`. O guia `results` fala dos Plots.
+   - O `view.plot` aposentado: fora da biblioteca (`builder::Library`), da busca e do `list_operators`; o
+     `add_node` recusa com a dica do `set_plot`; o `describe_operator` e a descrição do operador dizem por quê.
+     Fica registrado até a 2.0 (os plots dentro de grupos, os modelos antigos).
+   - Os tutoriais do site, reescritos por um sub-agente num worktree à parte (ver o commit).
 5. **Depois** (a decidir, cada um à parte): reprojetar outro CRS por tile, ao desenhar; medir distância e área;
    soltar um arquivo no Viewer (o `raster.read` criado e a camada fixada); a tabela de atributos de uma camada de
    vetores; rótulos; o histograma de cada camada; exportar o Plot como PNG ou GeoTIFF composto.

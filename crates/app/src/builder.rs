@@ -140,6 +140,8 @@ impl Library {
         let mut entries: Vec<Entry> = r
             .signatures()
             .into_iter()
+            // (the view.plot: a Plot of the Viewer now)
+            .filter(|g| g.name != terraflux_graph::PLOT_OP)
             .map(|g| {
                 let prefix = g.name.split('.').next().unwrap_or("");
                 let subject = if IO.contains(&g.name.as_str()) {
