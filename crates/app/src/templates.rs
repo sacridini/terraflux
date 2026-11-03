@@ -4676,3 +4676,102 @@ mod table_template_tests {
         assert!(matrix.columns.iter().any(|c| c == "to_2"), "{:?}", matrix.columns);
     }
 }
+
+#[cfg(test)]
+mod plot_migration_tests {
+    use crate::builder::{PlotLayer, plot_stack};
+    use terraflux_graph::{PLOT_OP, Ref, Severity, Source};
+
+    /// Every template's `view.plot` nodes made Plots: the same layers the Viewer drew from their `under`
+    /// chains (a plot's `shown` read as what it showed), their tables kept, and nothing of them wrong.
+    #[test]
+    fn the_templates_plots_become_plots() {
+        let r = terraflux_ops::Registry::standard();
+        let mut plots = 0;
+        for t in super::TEMPLATES {
+            let mut m = t.model();
+            let ids: Vec<String> = m.nodes.iter().filter(|n| n.op == PLOT_OP).map(|n| n.id.clone()).collect();
+            // (a plot's shown: what it shows, through the plots it shows)
+            let shown = |m: &terraflux_graph::Model, mut r: String| {
+                for _ in 0..8 {
+                    let Ok(Ref::Port { node, port }) = Ref::parse(&r) else { break };
+                    let Some(n) = m.nodes.iter().find(|n| n.id == node && n.op == PLOT_OP) else { break };
+                    let _ = port;
+                    match ["value", "features", "table"].iter().find_map(|p| n.inputs.get(*p)) {
+                        Some(Source::Ref(to)) => r = to.clone(),
+                        _ => break,
+                    }
+                }
+                r
+            };
+            let before: Vec<(String, Vec<(String, f64)>)> = ids
+                .iter()
+                .map(|id| {
+                    let mut layers: Vec<(String, f64)> = plot_stack(&m, id)
+                        .into_iter()
+                        .map(|l| match l {
+                            PlotLayer::Map(n, p, o) => (shown(&m, format!("{n}.{p}")), o as f64),
+                            PlotLayer::Features(n, p) => (shown(&m, format!("{n}.{p}")), 1.0),
+                        })
+                        .collect();
+                    // (and its table, drawn as a chart, on top)
+                    let n = m.nodes.iter().find(|n| &n.id == id).unwrap();
+                    if let Some(Source::Ref(t)) = n.inputs.get("table") {
+                        layers.push((shown(&m, t.clone()), 1.0));
+                    }
+                    (id.clone(), layers)
+                })
+                .collect();
+            m.plots_from_nodes();
+            assert!(m.nodes.iter().all(|n| n.op != PLOT_OP), "{}: a plot node left", t.name);
+            for (id, layers) in before {
+                plots += 1;
+                let p = m.plot(&id).unwrap_or_else(|| panic!("{}: no Plot {id}", t.name));
+                let after: Vec<(String, f64)> =
+                    p.layers.iter().map(|l| (l.from.clone(), l.opacity.unwrap_or(1.0))).collect();
+                assert_eq!(after, layers, "{}: the Plot {id}", t.name);
+            }
+            let wrong: Vec<String> = terraflux_graph::check(&m, &r)
+                .into_iter()
+                .filter(|i| i.severity == Severity::Error && i.at.starts_with("plots."))
+                .map(|i| i.to_string())
+                .collect();
+            assert!(wrong.is_empty(), "{}: {wrong:?}", t.name);
+        }
+        assert!(plots > 90, "{plots} plots");
+    }
+
+    /// The website's models made Plots: none of their plots left a node, none of the Plots reads what is not there.
+    #[test]
+    fn the_websites_models_plots_become_plots() {
+        let r = terraflux_ops::Registry::standard();
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../website/models");
+        let mut files = Vec::new();
+        let mut todo = vec![dir];
+        while let Some(d) = todo.pop() {
+            for e in std::fs::read_dir(&d).unwrap().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    todo.push(p);
+                } else if p.extension().is_some_and(|x| x == "toml") {
+                    files.push(p);
+                }
+            }
+        }
+        let mut plots = 0;
+        for f in &files {
+            let Ok(mut m) = terraflux_graph::Model::load(f) else { continue };
+            let n = m.nodes.iter().filter(|n| n.op == PLOT_OP).count();
+            m.plots_from_nodes();
+            plots += n;
+            assert_eq!(m.plots.len(), n, "{}", f.display());
+            let wrong: Vec<String> = terraflux_graph::check(&m, &r)
+                .into_iter()
+                .filter(|i| i.severity == Severity::Error && i.at.starts_with("plots."))
+                .map(|i| i.to_string())
+                .collect();
+            assert!(wrong.is_empty(), "{}: {wrong:?}", f.display());
+        }
+        assert!(plots > 40, "{plots} plots in {} models", files.len());
+    }
+}

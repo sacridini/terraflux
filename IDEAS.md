@@ -978,6 +978,21 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
      "Plots and figures".
    - Testes: cada template migrado dá as mesmas camadas que o `plot_stack` dava; um modelo antigo com `view.plot`
      roda no CLI; o Document, o relatório e o QGIS dos templates iguais antes e depois.
+   **4a feito** (Unreleased): o formato e a migração, sem ligar ainda.
+   - `terraflux_graph::plots`: `Plot` (`id`, `title`, `layers`, `compare`, `chart`, `note`, `why`),
+     `PlotLayer` (`from`, `opacity`, `palette`, `band`, `style`, `hidden`), `PlotCompare`, `PlotChart`, e
+     `Model::plots` (`[[plots]]`, omitido quando vazio).
+   - `Model::plots_from_nodes`: os `view.plot` do nível de cima viram Plots (a cadeia de `under`, o mapa com a
+     opacidade, os vetores, a tabela com o gráfico, `compared`/`compare`, título, nota e porquê). O que lia
+     `plot.shown` passa a ler o que o plot mostrava; os parâmetros e cenários de um plot saem. Os de dentro de
+     grupos ficam nós.
+   - O `check` confere os ids e o que as camadas e a comparação leem.
+   - Testes: no grafo (a migração, o arquivo, o plot vazio e o de dentro de um grupo, o `check`); no app, os
+     templates (as mesmas camadas que o `plot_stack` dava, mais a tabela) e os 47 modelos do site.
+
+   **4b**, o próximo: ligar a migração no `upgrade`, o Viewer abrir e salvar Plots, e os leitores (Document,
+   relatório, QGIS, Python, cenários, batch, conselhos, frases). **4c**: o MCP (`set_plot`, `remove_plot`), o
+   operador obsoleto e o site.
 5. **Depois** (a decidir, cada um à parte): reprojetar outro CRS por tile, ao desenhar; medir distância e área;
    soltar um arquivo no Viewer (o `raster.read` criado e a camada fixada); a tabela de atributos de uma camada de
    vetores; rótulos; o histograma de cada camada; exportar o Plot como PNG ou GeoTIFF composto.

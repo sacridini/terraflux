@@ -19,6 +19,7 @@
 
 mod check;
 pub mod old_algebra;
+pub mod plots;
 pub mod submodel;
 mod types;
 pub mod user_node;
@@ -29,6 +30,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 pub use check::{Catalog, Issue, Severity, check, script_types};
+pub use plots::{PLOT_OP, Plot, PlotChart, PlotCompare, PlotLayer};
 pub use types::{Access, OpSignature, PortSpec, Type, declared_outputs};
 pub use user_node::{UserInput, UserNode, UserOutput, Uses};
 
@@ -162,6 +164,10 @@ pub struct Model {
     /// What `terraflux test` checks: outputs against the files of what they should be.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tests: Vec<ModelTest>,
+    /// The views of its results kept with it ([`plots`]): what the Viewer shows saved, read by the Document,
+    /// the report, the QGIS project and the Python script.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub plots: Vec<Plot>,
     /// Where the canvas draws the boxes of what a scope reads besides its nodes (a model's input, a container's
     /// value, a node outside it), moved there: by the scope and the reference ([`place_key`]: `|$land`,
     /// `loop|@step`). Those not given are drawn in a column at the scope's left.
@@ -527,6 +533,7 @@ impl Model {
             parameters: Vec::new(),
             scenarios: Vec::new(),
             tests: Vec::new(),
+            plots: Vec::new(),
             places: BTreeMap::new(),
         }
     }

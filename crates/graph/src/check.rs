@@ -586,6 +586,21 @@ pub fn check(model: &Model, catalog: &dyn Catalog) -> Vec<Issue> {
     for (name, out) in &model.outputs {
         c.check_ref(&format!("outputs.{name}"), &out.from, Type::Any, &scopes, false);
     }
+    // the Plots: their ids, and what their layers and comparison read
+    let mut ids = std::collections::HashSet::new();
+    for p in &model.plots {
+        if !valid_id(&p.id) {
+            c.error(&format!("plots.{}", p.id), format!("{:?} is not a valid plot id", p.id));
+        } else if !ids.insert(p.id.as_str()) {
+            c.error(&format!("plots.{}", p.id), format!("two plots are named {:?}", p.id));
+        }
+        for (i, l) in p.layers.iter().enumerate() {
+            c.check_ref(&format!("plots.{}.layers[{i}]", p.id), &l.from, Type::Any, &scopes, false);
+        }
+        if let Some(cmp) = &p.compare {
+            c.check_ref(&format!("plots.{}.compare", p.id), &cmp.with, Type::Any, &scopes, false);
+        }
+    }
     // what the parameters and scenarios change: a warning when it is not in the model (a node renamed away)
     let keys =
         model.parameters.iter().map(|p| (format!("parameters.{}", p.key), &p.key)).chain(
@@ -699,6 +714,22 @@ from = "sim.maps"
         let m = model(&GOOD.replace("model = \"woe.model\"", "model = \"$t0\""));
         let e = errors(&m);
         assert!(e.iter().any(|x| x.contains("gives a Map, the port takes a Woe")), "{e:?}");
+    }
+
+    /// The Plots' layers and comparison read what the model has; their ids are valid and one each.
+    #[test]
+    fn plots_read_what_the_model_has() {
+        let good =
+            format!("{GOOD}\n[[plots]]\nid = \"maps\"\nlayers = [{{ from = \"$t0\" }}, {{ from = \"woe.model\" }}]\n");
+        assert!(errors(&model(&good)).is_empty(), "{:?}", errors(&model(&good)));
+        let bad = format!(
+            "{GOOD}\n[[plots]]\nid = \"maps\"\nlayers = [{{ from = \"gone.map\" }}]\ncompare = {{ with = \"$none\" }}\n\
+             [[plots]]\nid = \"maps\"\n"
+        );
+        let e = errors(&model(&bad));
+        assert!(e.iter().any(|x| x.contains("plots.maps.layers[0]")), "{e:?}");
+        assert!(e.iter().any(|x| x.contains("plots.maps.compare")), "{e:?}");
+        assert!(e.iter().any(|x| x.contains("two plots are named")), "{e:?}");
     }
 
     /// A stack where a port takes one map: the node runs once per layer, its maps a stack, its tables a table,
