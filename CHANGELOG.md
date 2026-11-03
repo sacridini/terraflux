@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.33.0] - 2026-11-03
+
 ### Added
 - The assistant **makes the calls a model writes as text**: when an answer has no tool calls, the calls of the tools
   offered written in it are found and made, as Python (`edit_node(node="a", ...)`), as JSON (a block with `name` and
