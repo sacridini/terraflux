@@ -98,6 +98,7 @@ pub mod swat;
 pub mod swat_tables;
 pub mod table_ops;
 pub mod tables;
+pub mod tips;
 pub mod uncertainty;
 pub mod validate;
 pub mod value;
@@ -448,7 +449,12 @@ impl Registry {
     }
 
     pub fn add(&mut self, op: Arc<dyn Operator>) {
-        let sig = op.signature();
+        let mut sig = op.signature();
+        if sig.advice.is_empty()
+            && let Some(t) = tips::of(&sig.name)
+        {
+            sig.advice = t.to_string();
+        }
         self.ops.insert(sig.name.clone(), op);
         self.sigs.insert(sig.name.clone(), Arc::new(sig));
     }

@@ -183,6 +183,9 @@ pub struct OpSignature {
     /// algebra's script).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outputs_from: Option<String>,
+    /// A modeller's advice on its use: what to watch, where a choice is easy to get wrong (empty: none).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub advice: String,
 }
 
 impl OpSignature {
@@ -198,7 +201,14 @@ impl OpSignature {
             extra: None,
             together: false,
             outputs_from: None,
+            advice: String::new(),
         }
+    }
+
+    /// A modeller's advice on the operator's use.
+    pub fn advice(mut self, advice: &str) -> Self {
+        self.advice = advice.to_string();
+        self
     }
 
     pub fn input(mut self, p: PortSpec) -> Self {

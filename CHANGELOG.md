@@ -21,6 +21,9 @@ minor versions.
   drivers (when the drivers can be told).
 - The advice on the method in the **Problems pane** (a section of its own, each piece with its nodes and *Ask the
   assistant*) and in the **report** (HTML, PDF and `terraflux report`, in English or Portuguese, beside the checks).
+- **Advice on the operators** kept with them (a field of the operator's description, filled by the operator or by
+  a table of the operators' crate): describe_operator and the documentation tell it; new advice for the graphs of
+  connectivity (`conn.*`), the hydrology (`hydro.*`), InVEST (`services.*`), the agents, REDD+ and the emissions.
 
 ## [1.32.0] - 2026-11-02
 

@@ -1865,7 +1865,7 @@ pub fn describe_operator(r: &Registry, name: &str) -> Reply {
         let body: Vec<&str> = toml.lines().filter(|l| !l.starts_with("format =") && !l.starts_with("name =")).collect();
         s.push_str(&format!("\nA node of it in the template {template:?}:\n{}\n", body.join("\n").trim()));
     }
-    s.push_str(&crate::op_notes::notes(name));
+    s.push_str(&crate::op_notes::notes(name, &sig.advice));
     Ok(s)
 }
 

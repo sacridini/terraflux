@@ -773,6 +773,12 @@ commit por item):
    method" / "Sobre o método", selos warning/advice), no Export report do app e no `terraflux report` (com os dados
    lidos quando `--run`).
 5. **Dicas por operador** num campo `advice` do próprio operador, para `conn.*`, hidrologia, InVEST, agentes e REDD+.
+   **Feito** (Unreleased): `OpSignature::advice` (serde, omitido quando vazio) e `.advice(...)`; como vários
+   operadores são registrados por tabelas (essentials, hydro), as dicas ficam em `terraflux_ops::tips` e entram na
+   assinatura no `Registry::add` (a do próprio operador vale primeiro). As 19 de `op_notes.rs` foram para lá, mais 25:
+   grafos de manchas, ProtConn, mudança do ECA, importância dos nós; preenchimento, acumulação, rios, HAND, TWI,
+   bacias; carbono, qualidade do habitat, produção de água, SDR, NDR, polinização; `agents.update`, CRAFTY; a
+   vulnerabilidade, o ajuste, a avaliação e a alocação do REDD+ e as emissões.
 6. **Protocolo e línguas:** saída estruturada no `check_model` e no `run_model`, elicitation, guias em português.
 7. **Script Python:** `dinamica.step`, `cars.step`, `lulcc.step`, `plus.demand`, `demand.regional`, as zonas do
    `prioritize.optimize`.
