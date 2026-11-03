@@ -78,8 +78,8 @@ distâncias, unidades de planejamento em polígonos, o desenho no viewer).
 - **Feito** (Unreleased): o produto gravado com o mapa (`landschaft_product` no GeoTIFF) e lido de volta; a
   escala logarítmica (correntes de circuito, e à mão); a rampa pelos percentis 2–98; a paleta trocada à mão no
   painel e lembrada por saída.
-- O Viewer como central de mapas (camadas, comparação, vistas no lugar do `view.plot`): o plano em
-  "O Viewer como central de mapas, e as vistas no lugar do `view.plot`".
+- O Viewer como central de mapas (camadas, comparação, os Plots no lugar do nó `view.plot`): o plano em
+  "O Viewer como central de mapas, e os Plots no lugar do nó `view.plot`".
 
 ## Builder
 
@@ -856,7 +856,7 @@ commit por item):
     `demand.regional` (uma linha por região) e a tabela do `demand.table`, no Document e no painel Node. Teste:
     `tables_inside_tables`.
 
-## O Viewer como central de mapas, e as vistas no lugar do `view.plot`
+## O Viewer como central de mapas, e os Plots no lugar do nó `view.plot`
 
 Pedido de 2026-11-03. Hoje o Viewer é rápido (tiles feitos por threads, desenhados pela GPU), mas ver mais de um
 resultado abre abas: o duplo clique num nó abre uma aba `Map` só dele **e** mostra o mesmo mapa no Viewer; cada
@@ -873,10 +873,10 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
   **Fixar** (duplo clique, o 📌 da camada ou arrastar o nó até o mapa) a torna uma camada da lista. Nenhuma aba
   de mapa à parte.
 - **O `view.plot` sai do grafo.** Uma figura não é um cálculo: o que o plot guarda (título, camada de baixo,
-  opacidade, comparação, gráfico de uma tabela) é o que uma lista de camadas guarda. Ele vira uma **vista salva**
-  (`[[views]]` no arquivo do modelo, fora dos nós), feita no próprio Viewer (*Save as view*), e é ela que o
+  opacidade, comparação, gráfico de uma tabela) é o que uma lista de camadas guarda. Ele vira um **Plot** salvo
+  (`[[plots]]` no arquivo do modelo, fora dos nós), feito no próprio Viewer (*Save as plot*), e é ele que o
   Document, o relatório, o QGIS, o script Python, a comparação de cenários e as figuras leem.
-- **Os modelos antigos continuam abrindo e rodando:** os `view.plot` viram vistas ao abrir (migração), e o
+- **Os modelos antigos continuam abrindo e rodando:** os `view.plot` viram Plots ao abrir (migração), e o
   operador fica registrado como obsoleto (fora da biblioteca e das buscas) para o CLI e o MCP por um tempo.
 
 ### O que já existe e é aproveitado
@@ -926,36 +926,39 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    - Saem `Pane::Map`, `map_tabs`, `beside_viewer`, `opened`/`quiet`/`raised` (`LAYOUT_VERSION` 12: um layout
      guardado com abas `Map` abre sem elas).
    - A figura (`figure.rs`) e o GIF/MP4 (`animation.rs`) partem das camadas e da divisão do Viewer.
-4. **As vistas salvas no lugar do `view.plot`.** (a maior)
-   - Formato: `[[views]]` no modelo (`terraflux_graph::Model::views`, serde, omitido quando vazio): `id`, `title`,
+4. **Os Plots salvos no lugar do nó `view.plot`.** (a maior)
+   - Formato: `[[plots]]` no modelo (`terraflux_graph::Model::plots`, serde, omitido quando vazio): `id`, `title`,
      `layers = [{ from = "node.port", opacity, palette, band, style }]`, `compare = { with, how }`,
      `chart = { kind, x, y, by }` para tabelas, extensão opcional, `note`/`why` (o registro). O `check` confere as
-     referências (`views.<id>.layers[i]`); renomear e remover nós atualizam as vistas (`editor.rs`).
-   - Migração ao ler (`terraflux_graph`): cada `view.plot` vira uma vista (`value`/`features`/`table` → camadas, a
+     referências (`plots.<id>.layers[i]`); renomear e remover nós atualizam os Plots (`editor.rs`).
+   - Migração ao ler (`terraflux_graph`): cada nó `view.plot` vira um Plot (`value`/`features`/`table` → camadas, a
      cadeia de `under` → as de baixo, como `plot_stack`; `opacity`, `compared`/`compare`, `chart`/`x`/`y`/`by`,
      `title`); o nó sai, e o que lia `plot.shown` passa a ler o que o plot mostrava. Salvo, o arquivo já tem
-     `[[views]]`. O operador `view.plot` fica obsoleto (fora da biblioteca, `describe_operator` diz para usar as
-     vistas) até a 2.0.
-   - Quem lê os plots passa a ler as vistas: `document.rs` (as figuras de cada seção), `params_view::comparable`,
-     `legend_view` (sem o salto pelo plot), `batch_view`, `report.rs`, `qgis.rs` (um grupo de camadas por vista, com
-     os estilos), `python.rs`, `figure.rs`, `methods`, `advice.rs` (o conselho que sugeria um plot sugere uma vista),
-     `op_notes`, `phrases` (a frase da vista no Document).
-   - No app: *Save as view* no painel de camadas, a lista das vistas no Viewer e no Document; abrir uma vista carrega
-     as suas camadas; *Update view* grava as mudanças.
-   - Templates: os 101 `view.plot` de `templates.rs` viram vistas (pela própria migração, conferida à mão nos
-     títulos). MCP: `set_view` e `remove_view` (`tools.rs`, `terraflux mcp`), o guia `results`, o assistente; a
-     tradução de scripts Python cria vistas. Site: 134 menções em 47 tutoriais; `plots-and-tables.md` reescrito como
-     "Views and figures".
+     `[[plots]]`. O operador `view.plot` fica obsoleto (fora da biblioteca, `describe_operator` diz que o plot agora
+     se faz no Viewer) até a 2.0.
+   - Quem lê os nós plot passa a ler os Plots: `document.rs` (as figuras de cada seção), `params_view::comparable`,
+     `legend_view` (sem o salto pelo plot), `batch_view`, `report.rs`, `qgis.rs` (um grupo de camadas por Plot, com
+     os estilos), `python.rs`, `figure.rs`, `methods`, `advice.rs` (o conselho que sugeria um nó plot sugere um Plot),
+     `op_notes`, `phrases` (a frase do Plot no Document).
+   - No app: *Save as plot* no painel de camadas, a lista dos Plots no Viewer e no Document; abrir um Plot carrega
+     as suas camadas; *Update plot* grava as mudanças.
+   - Templates: os 101 `view.plot` de `templates.rs` viram Plots (pela própria migração, conferida à mão nos
+     títulos). MCP: `set_plot` e `remove_plot` (`tools.rs`, `terraflux mcp`), o guia `results`, o assistente; a
+     tradução de scripts Python cria Plots. Site: 134 menções em 47 tutoriais; `plots-and-tables.md` reescrito como
+     "Plots and figures".
    - Testes: cada template migrado dá as mesmas camadas que o `plot_stack` dava; um modelo antigo com `view.plot`
      roda no CLI; o Document, o relatório e o QGIS dos templates iguais antes e depois.
 5. **Depois** (a decidir, cada um à parte): reprojetar outro CRS por tile, ao desenhar; medir distância e área;
    soltar um arquivo no Viewer (o `raster.read` criado e a camada fixada); a tabela de atributos de uma camada de
-   vetores; rótulos; o histograma de cada camada; exportar a vista como PNG ou GeoTIFF composto.
+   vetores; rótulos; o histograma de cada camada; exportar o Plot como PNG ou GeoTIFF composto.
 
 ### Em aberto
 
-- O nome na interface: *Views* (o que o Viewer guarda) ou *Figures* (o que vai para o artigo e o relatório).
-- Se uma comparação de cenários (`params_view`) passa a mostrar uma vista inteira (todas as camadas) por cenário.
+- **Nome: Plots** (decidido em 2026-11-03): o que já faz esse papel, e a migração natural (`view.plot` → `[[plots]]`).
+- **Comparação de cenários** (`params_view`): hoje cada cenário mostra um mapa só (uma saída do modelo ou o valor de
+  um plot) numa coluna. Com Plots de várias camadas, a proposta é cada coluna mostrar o Plot inteiro (as camadas e
+  os estilos de quem o montou), e a diferença entre cenários continuar calculada só no mapa principal (a camada de
+  baixo). A confirmar.
 - Por quanto tempo o `view.plot` obsoleto fica (proposta: até a 2.0).
 - As fases 2 e 3 trocam `Shown` e o `preview` da `Session`: o trabalho no Viewer feito em paralelo (o passo de um
   laço, 60b796c) entra nelas, e um trabalho ainda aberto ali precisa terminar antes.
