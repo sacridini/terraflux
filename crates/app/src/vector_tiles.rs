@@ -47,6 +47,42 @@ impl Default for Style {
 }
 
 impl Style {
+    /// As a Plot keeps it: `{ colour = "#rrggbbaa", by, fill, width }`.
+    pub fn to_json(&self) -> serde_json::Value {
+        let [r, g, b, a] = self.colour.to_array();
+        let mut o = serde_json::json!({
+            "colour": format!("#{r:02x}{g:02x}{b:02x}{a:02x}"),
+            "fill": self.fill,
+            "width": self.width,
+        });
+        if let Some(by) = &self.by {
+            o["by"] = by.clone().into();
+        }
+        o
+    }
+
+    /// A style kept in a Plot ([`Style::to_json`]); what it does not say, as by default.
+    pub fn from_json(v: &serde_json::Value) -> Style {
+        let d = Style::default();
+        let colour = v
+            .get("colour")
+            .and_then(|c| c.as_str())
+            .and_then(|c| c.strip_prefix('#'))
+            .filter(|h| h.len() == 8 && h.is_ascii())
+            .and_then(|h| {
+                let byte = |i: usize| u8::from_str_radix(&h[i..i + 2], 16).ok();
+                Some(Color32::from_rgba_premultiplied(byte(0)?, byte(2)?, byte(4)?, byte(6)?))
+            })
+            .unwrap_or(d.colour);
+        let number = |k: &str, or: f32| v.get(k).and_then(|x| x.as_f64()).map_or(or, |x| x as f32);
+        Style {
+            colour,
+            by: v.get("by").and_then(|b| b.as_str()).map(String::from),
+            fill: number("fill", d.fill),
+            width: number("width", d.width),
+        }
+    }
+
     fn key(&self) -> u64 {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();

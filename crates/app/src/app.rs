@@ -600,6 +600,10 @@ pub struct Session {
     pub palettes: std::collections::HashMap<(String, String), crate::builder::Palette>,
     /// The Viewer's layers: outputs kept on the map as other nodes are shown, the first at the bottom.
     pub preview_layers: Vec<crate::builder::Layer>,
+    /// The Plot open in the Viewer (what *Update the plot* keeps), and one asked for (opened when the Viewer is
+    /// drawn next).
+    pub plot_open: Option<String>,
+    pub plot_to_open: Option<String>,
     /// The map compared with the map shown (by a curtain or side by side).
     pub preview_compare: crate::builder::Compare,
     /// Playing the layers of the output shown in the viewer: when the last one came.
@@ -759,6 +763,8 @@ impl Session {
             preview_chosen: false,
             preview_view: MapView::default(),
             preview_layers: Vec::new(),
+            plot_open: None,
+            plot_to_open: None,
             preview_compare: Default::default(),
             preview_playing: None,
             animations: Default::default(),
@@ -1675,11 +1681,12 @@ impl TerrafluxApp {
             }
         };
         crate::builder::arrange(&mut s, &self.registry);
-        // (a plot shows what the model makes, with the maps under it; no tab of its own)
-        let nodes = &s.source.nodes;
-        let last = nodes.iter().rev().find(|n| n.op == "view.plot").or_else(|| nodes.last()).map(|n| n.id.clone());
-        if let Some(last) = last {
+        // (its last Plot in the Viewer, else what its last node gives)
+        if let Some(last) = s.source.nodes.last().map(|n| n.id.clone()) {
             crate::builder::select(&mut s, &self.registry, &last);
+        }
+        if let Some(plot) = s.source.plots.last().map(|p| p.id.clone()) {
+            crate::builder::open_plot(&mut s, &self.registry, &plot);
         }
         s.run_when_ready = true;
         ctx.request_repaint();

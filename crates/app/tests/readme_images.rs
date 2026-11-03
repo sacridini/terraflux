@@ -94,9 +94,9 @@ fn template(h: &mut Harness<TerrafluxApp>, name: &str, select: &str, front: &str
     settled(h);
     let a = h.state_mut();
     let s = a.session.as_mut().unwrap();
-    terraflux_app::builder::select(s, &terraflux_ops::Registry::standard(), select);
-    // (plots open no tab of their own: the Viewer shows the one asked for)
-    s.preview = Some((front.to_string(), "shown".to_string()));
+    // (the Viewer shows the Plot asked for, the node asked for selected)
+    terraflux_app::builder::open_plot(s, &terraflux_ops::Registry::standard(), front);
+    s.selected = Some(select.to_string());
     a.dock = Some(layout(vec![Pane::Viewer]));
     h.run_steps(3);
     let a = h.state_mut();

@@ -544,6 +544,13 @@ fn for_each_ref(m: &mut Model, path: &[String], f: &mut dyn FnMut(&mut String)) 
         for o in m.outputs.values_mut() {
             f(&mut o.from);
         }
+        // (what the Plots show)
+        for p in m.plots.iter_mut() {
+            p.layers.iter_mut().for_each(|l| f(&mut l.from));
+            if let Some(c) = &mut p.compare {
+                f(&mut c.with);
+            }
+        }
     } else if let Some(container) = m.node_mut(&path.join("/"))
         && let Some(b) = &mut container.body
     {
@@ -695,6 +702,12 @@ pub fn remove_node(m: &mut Model, path: &[String], id: &str) -> Result<()> {
     }
     if path.is_empty() {
         m.outputs.retain(|_, o| !o.from.starts_with(&from));
+        for p in m.plots.iter_mut() {
+            p.layers.retain(|l| !l.from.starts_with(&from));
+            if p.compare.as_ref().is_some_and(|c| c.with.starts_with(&from)) {
+                p.compare = None;
+            }
+        }
     } else if let Some(c) = m.node_mut(&path.join("/"))
         && let Some(b) = &mut c.body
     {

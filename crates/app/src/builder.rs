@@ -1083,9 +1083,17 @@ fn put(s: &mut Session, r: &Registry, copies: &[Node], at: Option<[f32; 2]>, out
 /// The chart a plot's settings ask of a table: its kind (`chart`: bars, lines, points, boxes; else lines along a
 /// date, layer, step or year when the table has one, bars when not), the columns drawn (`y`, comma-separated),
 /// along `x`, a group by `by`; what is not given as the kind suggests.
-pub fn plot_chart(n: &Node, t: &terraflux_ops::Table) -> crate::charts::Chart {
+pub fn plot_chart(c: &terraflux_graph::PlotChart, t: &terraflux_ops::Table) -> crate::charts::Chart {
     use crate::charts::{Chart, Kind};
-    let text = |k: &str| n.params.get(k).and_then(|v| v.as_str()).map(str::trim).filter(|v| !v.is_empty());
+    let text = |k: &str| {
+        let v = match k {
+            "chart" => &c.kind,
+            "x" => &c.x,
+            "y" => &c.y,
+            _ => &c.by,
+        };
+        v.as_deref().map(str::trim).filter(|v| !v.is_empty())
+    };
     let column = |name: &str| t.columns.iter().position(|c| c.eq_ignore_ascii_case(name.trim()));
     let along = ["date", "year", "step", "layer"].iter().any(|c| column(c).is_some());
     let kinds = Kind::of(t);
@@ -2158,6 +2166,9 @@ fn problems(s: &Session) -> std::collections::HashMap<String, Vec<(bool, String)
 /// What the node shown gives: a map (with its legend), the maps of a stack or of a loop's steps one at a time,
 /// a table, or a value.
 fn preview(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Hover> {
+    if let Some(id) = s.plot_to_open.take() {
+        open_plot(s, r, &id);
+    }
     let Some((node, port)) = s.preview.clone() else {
         ui.centered_and_justified(|ui| {
             ui.label(RichText::new("Select a node to see what it gives").color(ui.visuals().weak_text_color()));
@@ -2336,6 +2347,192 @@ fn layers_section(
     });
 }
 
+/// What a Plot shows first, its legend and settings in the Viewer: its top map (a layer not hidden that is not
+/// vector features), else its top layer; an output (`node.port`).
+pub fn plot_figure(m: &terraflux_graph::Model, r: &Registry, p: &terraflux_graph::Plot) -> Option<(String, String)> {
+    let port_of = |from: &str| match terraflux_graph::Ref::parse(from) {
+        Ok(terraflux_graph::Ref::Port { node, port }) => Some((node, port)),
+        _ => None,
+    };
+    let vector = |node: &str, port: &str| {
+        m.nodes
+            .iter()
+            .find(|n| n.id == node)
+            .is_some_and(|n| crate::editor::output_ports(n, r).iter().any(|(q, t)| q == port && *t == Type::Vector))
+    };
+    let shown: Vec<(String, String)> = p.layers.iter().filter(|l| !l.hidden).filter_map(|l| port_of(&l.from)).collect();
+    shown.iter().rev().find(|(n, q)| !vector(n, q)).or(shown.last()).cloned()
+}
+
+/// A Plot opened in the Viewer: its layers, the map it shows (its band), its comparison; the Viewer brought to the
+/// front, and the model run when what it shows has not run yet.
+pub fn open_plot(s: &mut Session, r: &Registry, id: &str) {
+    let Some(p) = s.source.plot(id).cloned() else { return };
+    let port_of = |from: &str| match terraflux_graph::Ref::parse(from) {
+        Ok(terraflux_graph::Ref::Port { node, port }) => Some((node, port)),
+        _ => None,
+    };
+    s.preview_layers = p
+        .layers
+        .iter()
+        .filter_map(|l| {
+            let (node, port) = port_of(&l.from)?;
+            Some(Layer {
+                node,
+                port,
+                visible: !l.hidden,
+                opacity: l.opacity.unwrap_or(1.0) as f32,
+                style: l.style.as_ref().map(crate::vector_tiles::Style::from_json).unwrap_or_default(),
+            })
+        })
+        .collect();
+    if let Some((node, port)) = plot_figure(&s.source, r, &p) {
+        let band = p.layers.iter().find(|l| l.from == format!("{node}.{port}")).and_then(|l| l.band);
+        if s.source.nodes.iter().any(|n| n.id == node) {
+            s.selected = Some(node.clone());
+            s.fields.clear();
+        }
+        s.preview = Some((node, port));
+        s.preview_band = band.unwrap_or(0);
+        s.preview_chosen = band.is_some();
+    }
+    s.preview_compare.with = p.compare.as_ref().and_then(|c| port_of(&c.with)).map(|(n, q)| CompareWith::Output(n, q));
+    s.preview_compare.how = match p.compare.as_ref().and_then(|c| c.how.as_deref()) {
+        Some("curtain") => How::Curtain,
+        Some("difference") => How::Difference,
+        _ => How::SideBySide,
+    };
+    s.plot_open = Some(p.id.clone());
+    s.ask_viewer = true;
+}
+
+/// What the Viewer shows, as a Plot: the layers (the map shown on top when it is not one of them, its band), the
+/// comparison; the title, chart and record of the Plot it updates.
+fn plot_of(sh: &Shown, was: Option<&terraflux_graph::Plot>, id: &str) -> terraflux_graph::Plot {
+    use terraflux_graph::{PlotCompare, PlotLayer};
+    let band = |node: &str, port: &str| (node == sh.node && port == sh.port && sh.band > 0).then_some(sh.band);
+    let mut layers: Vec<PlotLayer> = sh
+        .layers
+        .iter()
+        .map(|l| {
+            let style = l.style != crate::vector_tiles::Style::default();
+            PlotLayer {
+                from: format!("{}.{}", l.node, l.port),
+                opacity: (l.opacity != 1.0).then_some(l.opacity as f64),
+                band: band(&l.node, &l.port),
+                style: style.then(|| l.style.to_json()),
+                hidden: !l.visible,
+                ..Default::default()
+            }
+        })
+        .collect();
+    if !sh.layers.iter().any(|l| l.is(&sh.node, &sh.port)) {
+        layers
+            .push(PlotLayer { band: band(&sh.node, &sh.port), ..PlotLayer::new(&format!("{}.{}", sh.node, sh.port)) });
+    }
+    let compare = match &sh.compare.with {
+        Some(CompareWith::Output(n, p)) => Some(PlotCompare {
+            with: format!("{n}.{p}"),
+            how: Some(
+                match sh.compare.how {
+                    How::Curtain => "curtain",
+                    How::SideBySide => "side by side",
+                    How::Difference => "difference",
+                }
+                .into(),
+            ),
+        }),
+        _ => None,
+    };
+    terraflux_graph::Plot {
+        id: id.to_string(),
+        title: was.and_then(|p| p.title.clone()),
+        layers,
+        compare,
+        chart: was.and_then(|p| p.chart.clone()),
+        note: was.and_then(|p| p.note.clone()),
+        why: was.and_then(|p| p.why.clone()),
+    }
+}
+
+/// An id for a new Plot of what a node gives: `plot_<node>`, numbered when taken (by a Plot or a node).
+fn new_plot_id(m: &terraflux_graph::Model, node: &str) -> String {
+    let base: String =
+        format!("plot_{node}").chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' }).collect();
+    let taken = |id: &str| m.plots.iter().any(|p| p.id == id) || m.nodes.iter().any(|n| n.id == id);
+    (1..).map(|k| if k == 1 { base.clone() } else { format!("{base}_{k}") }).find(|id| !taken(id)).unwrap_or(base)
+}
+
+/// The Plots of the Viewer's header: the model's, one a click away; what is shown kept as a new one, or in the one
+/// open (its title too), or that one taken away.
+fn plots_menu(ui: &mut Ui, s: &mut Session, sh: &Shown, top: bool) {
+    let open = s.plot_open.clone().filter(|id| s.source.plot(id).is_some());
+    let name =
+        |p: &terraflux_graph::Plot| p.title.clone().filter(|t| !t.trim().is_empty()).unwrap_or_else(|| p.id.clone());
+    let text = match open.as_deref().and_then(|id| s.source.plot(id)) {
+        Some(p) => format!("Plot: {}", name(p)),
+        None => "Plots".to_string(),
+    };
+    ui.menu_button(text, |ui| {
+        let plots: Vec<(String, String)> = s.source.plots.iter().map(|p| (p.id.clone(), name(p))).collect();
+        for (id, title) in &plots {
+            if ui.selectable_label(open.as_deref() == Some(id), title).clicked() {
+                s.plot_to_open = Some(id.clone());
+                ui.close();
+            }
+        }
+        if !plots.is_empty() {
+            ui.separator();
+        }
+        if let Some(id) = &open {
+            // its title, edited in place
+            let mut title = s.source.plot(id).and_then(|p| p.title.clone()).unwrap_or_default();
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("title").weak());
+                let edit = ui.add(egui::TextEdit::singleline(&mut title).hint_text(id.as_str()).desired_width(160.0));
+                if edit.changed()
+                    && let Some(p) = s.source.plots.iter_mut().find(|p| &p.id == id)
+                {
+                    p.title = Some(title.clone()).filter(|t| !t.trim().is_empty());
+                    s.edited();
+                }
+            });
+            if ui
+                .button("Update the plot")
+                .on_hover_text("keep in it what the Viewer shows now: the layers, the map shown, the comparison")
+                .clicked()
+            {
+                if let Some(k) = s.source.plots.iter().position(|p| &p.id == id) {
+                    s.source.plots[k] = plot_of(sh, Some(&s.source.plots[k]), id);
+                    s.edited();
+                }
+                ui.close();
+            }
+            if ui.button("Remove the plot").on_hover_text("the plot goes; the layers stay in the Viewer").clicked() {
+                s.source.plots.retain(|p| &p.id != id);
+                s.plot_open = None;
+                s.edited();
+                ui.close();
+            }
+        }
+        if ui
+            .add_enabled(top, egui::Button::new("Save as a new plot"))
+            .on_hover_text(
+                "what the Viewer shows (its layers, the map shown, the comparison) kept with the model: the Document, \
+                 the report and the QGIS project show it",
+            )
+            .clicked()
+        {
+            let id = new_plot_id(&s.source, &sh.node);
+            let p = plot_of(sh, None, &id);
+            s.source.plots.push(p);
+            s.plot_open = Some(id);
+            s.edited();
+            ui.close();
+        }
+    });
+}
+
 /// A layer of the Viewer: an output of the run kept in its list (pinned), drawn with the map shown whatever node is
 /// clicked, the first at the bottom: a map (or a stack's first layer), as opaque as asked, or vector features in
 /// their style (over the maps). The map shown is drawn at its place in the list when it is one of them, else over
@@ -2386,8 +2583,6 @@ pub struct Compare {
     pub how: How,
     pub view: crate::map_view::MapView,
     pub difference: Difference,
-    /// The comparison a plot asks for (`compared`, `compare`), as last applied: asked again only when it changes.
-    pub plotted: Option<Option<(String, String, String)>>,
 }
 
 /// How two maps are compared.
@@ -2862,6 +3057,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     crate::metadata::window(ui.ctx(), &format!("{node}.{port}"), &crate::metadata::facts(v), &mut open);
                 }
                 ui.data_mut(|d| d.insert_temp(id, open));
+                plots_menu(ui, s, sh, inner.is_none());
                 // what is shown, saved: a file only, or a file and a node that writes it at every run
                 let maps = matches!(&value, Some(Value::Map(_) | Value::Stack(_) | Value::Raster(_)))
                     || matches!(&value, Some(Value::Series(v)) if v.iter().all(|x| matches!(x, Value::Map(_))));
@@ -2963,21 +3159,6 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         });
         return None;
     };
-    // a plot that compares its map with another: shown with that comparison (again when the model changes it)
-    if op == "view.plot" {
-        let spec = s.model.nodes.iter().find(|n| n.id == node).and_then(crate::document::compared);
-        if sh.compare.plotted.as_ref() != Some(&spec) {
-            if let Some((n, p, how)) = &spec {
-                sh.compare.with = Some(CompareWith::Output(n.clone(), p.clone()));
-                sh.compare.how = match how.as_str() {
-                    "curtain" => How::Curtain,
-                    "difference" => How::Difference,
-                    _ => How::SideBySide,
-                };
-            }
-            sh.compare.plotted = Some(spec);
-        }
-    }
     // a plot over other plots: the lowest map shown, the others over it, the features over them all
     let stack = if op == "view.plot" { plot_stack(&s.model, &node) } else { Vec::new() };
     let mut over: Vec<(Source, f32, String, String)> = Vec::new();
@@ -3048,12 +3229,19 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         if let Value::Table(t) = &value {
             // sorted, filtered and drawn as bars, the rows scrolled within
             let id = egui::Id::new(("table", salt, &node, &port));
-            // a plot's table: drawn as its settings ask, from the start and whenever they change
-            if let Some(n) = s.model.nodes.iter().find(|n| n.id == node && n.op == "view.plot") {
-                let asked = serde_json::Value::Object(n.params.clone()).to_string();
+            // a Plot's table: drawn as its chart asks, from the start and whenever it changes
+            let from = format!("{node}.{port}");
+            let plot = s
+                .plot_open
+                .as_deref()
+                .and_then(|id| s.source.plot(id))
+                .filter(|p| p.layers.iter().any(|l| l.from == from))
+                .or_else(|| s.source.plots.iter().find(|p| p.layers.iter().any(|l| l.from == from)));
+            if let Some(c) = plot.and_then(|p| p.chart.as_ref()) {
+                let asked = format!("{c:?}");
                 let key = id.with("plot settings");
                 if ui.data(|d| d.get_temp::<String>(key)).as_ref() != Some(&asked) {
-                    let st = crate::table_view::TableState { chart: plot_chart(n, t), ..Default::default() };
+                    let st = crate::table_view::TableState { chart: plot_chart(c, t), ..Default::default() };
                     ui.data_mut(|d| {
                         d.insert_temp(id, st);
                         d.insert_temp(key, asked);

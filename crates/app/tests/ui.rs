@@ -31,6 +31,22 @@ fn model() -> PathBuf {
     w.save(&tmp("ui-model.toml")).unwrap()
 }
 
+/// A Plot of the model opened in the Viewer (in front); what it shows first.
+fn open_plot(h: &mut Harness<TerrafluxApp>, id: &str) -> (String, String) {
+    let s = h.state_mut().session.as_mut().unwrap();
+    terraflux_app::builder::open_plot(s, &terraflux_ops::Registry::standard(), id);
+    let shown = s.preview.clone().expect("the plot shows something");
+    h.state_mut().focus(Pane::Viewer);
+    shown
+}
+
+/// What a Plot of the model shows first, once run.
+fn plotted(s: &terraflux_app::app::Session, id: &str) -> Option<terraflux_ops::Value> {
+    let p = s.source.plot(id)?;
+    let (n, q) = terraflux_app::builder::plot_figure(&s.source, &terraflux_ops::Registry::standard(), p)?;
+    s.value_of(&n, &q)
+}
+
 /// An output shown in the Viewer, brought to the front (as a click on its node shows it).
 fn show(h: &mut Harness<TerrafluxApp>, node: &str, port: &str) {
     let s = h.state_mut().session.as_mut().unwrap();
@@ -403,41 +419,49 @@ fn the_builder_reads_analyses_and_writes() {
     assert!(r.get("landscape_mspa.map").is_some(), "the saved model runs from the command line's engine too");
 }
 
-/// Read, reclassify, plot: the plot shown in the Viewer (no tab of its own), nothing written; saved (a file, then
-/// a write node in the model too); a rule changed, the Viewer shows the new map.
+/// Read, reclassify, keep it as a Plot from the Viewer's Plots, nothing written; saved (a file, then a write node in
+/// the model too); a rule changed, the Viewer shows the new map.
 #[test]
-fn a_plot_shows_without_writing_and_saves_from_its_tab() {
+fn a_map_kept_as_a_plot_without_writing_and_saved() {
     let mut h = harness(new_app(None));
     h.run_steps(2);
     let r = terraflux_ops::Registry::standard();
     {
         let s = h.state_mut().session.as_mut().unwrap();
         let path = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
-        // (its first band: the file has two, and the plot would show a stack)
+        // (its first band: the file has two, and the Viewer would show a stack)
         terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into()), ("band", "0".into())]).unwrap();
         terraflux_app::builder::add(s, &r, "raster.reclassify", &[("rules", "1 -> 1\n* -> 0".into())]).unwrap();
-        terraflux_app::builder::add(s, &r, "view.plot", &[("title", "forest".into())]).unwrap();
-        let plot = s.source.nodes.iter().find(|n| n.id == "view_plot").unwrap();
-        assert_eq!(plot.inputs["value"], terraflux_graph::Source::Ref("raster_reclassify.map".into()));
+        terraflux_app::builder::select(s, &r, "raster_reclassify");
     }
-    until(&mut h, "the plot", |a| {
+    until(&mut h, "the map", |a| {
         let s = a.session.as_ref().unwrap();
-        !s.running() && s.value_of("view_plot", "shown").is_some()
+        !s.running() && s.value_of("raster_reclassify", "map").is_some()
     });
     h.state_mut().focus(Pane::Viewer);
-    h.run_steps(3);
+    drawn(&mut h);
+    // kept as a Plot: the Viewer's Plots, Save as a new plot
+    h.get_by_label("Plots").click();
+    h.run_steps(2);
+    h.get_by_label("Save as a new plot").click();
+    h.run_steps(2);
     let forest = {
         let s = h.state().session.as_ref().unwrap();
-        assert_eq!(s.preview.as_ref().map(|(n, _)| n.as_str()), Some("view_plot"), "in the Viewer");
-        let Some(terraflux_ops::Value::Map(m)) = s.value_of("view_plot", "shown") else { panic!("{:?}", s.error) };
+        assert_eq!(s.source.plots.len(), 1);
+        let p = &s.source.plots[0];
+        assert_eq!(p.id, "plot_raster_reclassify");
+        assert_eq!(p.layers, [terraflux_graph::PlotLayer::new("raster_reclassify.map")]);
+        assert_eq!(s.plot_open.as_deref(), Some("plot_raster_reclassify"));
+        let Some(terraflux_ops::Value::Map(m)) = plotted(s, "plot_raster_reclassify") else { panic!("{:?}", s.error) };
         assert!(m.data.iter().all(|v| v.is_nan() || *v == 0.0 || *v == 1.0));
         m
     };
+    assert!(h.query_by_label("Plot: plot_raster_reclassify").is_some(), "the Plot open named in the Viewer");
     shot(&mut h, "14-plot");
-    // saved from the tab: the same cells in the file
+    // saved from the Viewer: the same cells in the file
     let out = tmp("ui-forest.tif");
     let _ = std::fs::remove_file(&out);
-    h.state_mut().session.as_mut().unwrap().save_output("view_plot", "shown", &out);
+    h.state_mut().session.as_mut().unwrap().save_output("raster_reclassify", "map", &out);
     until(&mut h, "the file", |a| !a.session.as_ref().unwrap().saving());
     let saved = terraflux_raster::Raster::read(&out).unwrap();
     let back = saved.bands[0].masked(saved.nodata);
@@ -445,27 +469,33 @@ fn a_plot_shows_without_writing_and_saves_from_its_tab() {
     // and a write node in the model, that writes it at every run
     {
         let s = h.state_mut().session.as_mut().unwrap();
-        let id = terraflux_app::builder::add_write(s, &r, "view_plot", "shown", &out).unwrap();
+        let id = terraflux_app::builder::add_write(s, &r, "raster_reclassify", "map", &out).unwrap();
         let w = s.source.nodes.iter().find(|n| n.id == id).unwrap();
-        assert_eq!(w.inputs["value"], terraflux_graph::Source::Ref("view_plot.shown".into()));
+        assert_eq!(w.inputs["value"], terraflux_graph::Source::Ref("raster_reclassify.map".into()));
     }
     // another rule: the Viewer shows the new map
     {
         let s = h.state_mut().session.as_mut().unwrap();
-        s.selected = Some("view_plot".into());
-        s.preview = Some(("view_plot".into(), "shown".into()));
+        s.preview = Some(("raster_reclassify".into(), "map".into()));
         terraflux_app::editor::set_param(&mut s.source, &[], "raster_reclassify", "rules", "1 2 -> 1\n* -> 0").unwrap();
         s.edited();
     }
     h.run_steps(1);
-    until(&mut h, "the new plot", |a| {
+    until(&mut h, "the new map", |a| {
         let s = a.session.as_ref().unwrap();
-        !s.running() && s.status.contains_key("view_plot")
+        !s.running() && s.status.contains_key("raster_reclassify")
     });
     let s = h.state().session.as_ref().unwrap();
-    let Some(terraflux_ops::Value::Map(m)) = s.value_of("view_plot", "shown") else { panic!() };
+    let Some(terraflux_ops::Value::Map(m)) = s.value_of("raster_reclassify", "map") else { panic!() };
     let ones = |m: &terraflux_ops::Map| m.data.iter().filter(|v| **v == 1.0).count();
     assert!(ones(&m) > ones(&forest), "class 2 joined the ones");
+    // the node renamed: the Plot follows it
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        terraflux_app::editor::rename_node(&mut s.source, &[], "raster_reclassify", "forest").unwrap();
+        s.edited();
+        assert_eq!(s.source.plots[0].layers[0].from, "forest.map");
+    }
 }
 
 /// Two maps compared in the viewer: the land use read and the forest reclassified from it, by a curtain, side by
@@ -519,16 +549,22 @@ fn maps_compare_by_a_curtain_and_side_by_side() {
     assert!(d.summary.contains("cells changed class"), "{}", d.summary);
     let (a, b) = (s.preview_view.camera(), s.preview_compare.view.camera());
     assert!((a.0 - b.0).abs() < 1e-4 && (a.1 - b.1).length() < 1e-3, "drawn where the map is: {a:?} {b:?}");
-    // a plot that compares: shown with its comparison, as it asks
+    // a Plot that compares: opened with its comparison, as it asks
     {
         let s = h.state_mut().session.as_mut().unwrap();
         s.preview_compare.with = None;
         s.preview_compare.how = terraflux_app::builder::How::Curtain;
-        let plot = terraflux_app::builder::add(s, &r, "view.plot", &[("compare", "side by side".into())]).unwrap();
-        terraflux_app::editor::connect(&mut s.source, &r, &[], "raster_reclassify.map", &plot, "value").unwrap();
-        terraflux_app::editor::connect(&mut s.source, &r, &[], "raster_read.raster", &plot, "compared").unwrap();
+        s.source.plots.push(terraflux_graph::Plot {
+            id: "compared".into(),
+            layers: vec![terraflux_graph::PlotLayer::new("raster_reclassify.map")],
+            compare: Some(terraflux_graph::PlotCompare {
+                with: "raster_read.raster".into(),
+                how: Some("side by side".into()),
+            }),
+            ..Default::default()
+        });
         s.edited();
-        s.preview = Some((plot, "shown".into()));
+        s.plot_to_open = Some("compared".into());
     }
     until(&mut h, "the plot", |a| {
         let s = a.session.as_ref().unwrap();
@@ -604,10 +640,14 @@ fn templates_run_and_the_keyboard_adds_operators() {
     h.state_mut().start_template(&ctx, &terraflux_app::templates::TEMPLATES[0]);
     // (the viewer opens behind the graph)
     h.state_mut().focus(Pane::Viewer);
-    assert_eq!(h.state().session.as_ref().unwrap().preview.as_ref().map(|(n, _)| n.as_str()), Some("plot"));
+    {
+        let s = h.state().session.as_ref().unwrap();
+        assert_eq!(s.plot_open.as_deref(), Some("plot"), "its Plot open");
+        assert_eq!(s.preview, Some(("mspa".to_string(), "map".to_string())), "the map it shows");
+    }
     until(&mut h, "the run", |a| {
         let s = a.session.as_ref().unwrap();
-        !s.running() && s.value_of("plot", "shown").is_some()
+        !s.running() && plotted(s, "plot").is_some()
     });
     h.run_steps(3);
     {
@@ -617,7 +657,7 @@ fn templates_run_and_the_keyboard_adds_operators() {
     }
     until(&mut h, "the legend", |a| {
         let s = a.session.as_ref().unwrap();
-        let Some(terraflux_ops::Value::Map(m)) = s.value_of("plot", "shown") else { return false };
+        let Some(terraflux_ops::Value::Map(m)) = plotted(s, "plot") else { return false };
         s.looks
             .peek(&terraflux_app::map_view::Source::from(&m))
             .is_some_and(|l| l.product == Some(terraflux_ops::landscape::Product::Mspa))
@@ -1465,19 +1505,19 @@ fn fragmentation_is_shown_in_its_classes() {
     h.state_mut().start_template(&ctx, t);
     until(&mut h, "the run", |a| {
         let s = a.session.as_ref().unwrap();
-        !s.running() && s.value_of("plot_fad", "shown").is_some()
+        !s.running() && plotted(s, "plot_fad").is_some()
     });
     fn look(h: &mut Harness<TerrafluxApp>, node: &str) -> terraflux_app::app::Look {
         let of = |a: &TerrafluxApp| {
             let s = a.session.as_ref().unwrap();
-            let Some(terraflux_ops::Value::Map(m)) = s.value_of(node, "shown") else { return None };
+            let Some(terraflux_ops::Value::Map(m)) = plotted(s, node) else { return None };
             s.looks.peek(&terraflux_app::map_view::Source::from(&m)).filter(|l| l.product.is_some()).cloned()
         };
         until(h, "the legend", |a| of(a).is_some());
         of(h.state()).unwrap()
     }
     // the template's two plots in the Viewer: FAD's first
-    show(&mut h, "plot_fad", "shown");
+    open_plot(&mut h, "plot_fad");
     let fad = look(&mut h, "plot_fad");
     assert_eq!(fad.product, Some(Product::Density { five: false }));
     let terraflux_app::palette::Coloring::Classes(c) = &fad.coloring else { panic!("classes") };
@@ -1486,7 +1526,7 @@ fn fragmentation_is_shown_in_its_classes() {
     assert!(lines.iter().any(|(_, n, _)| n == "Background"));
     shot(&mut h, "18-fragmentation");
     // FOS's: in 5 classes
-    show(&mut h, "plot_fos", "shown");
+    open_plot(&mut h, "plot_fos");
     let fos = look(&mut h, "plot_fos");
     assert_eq!(fos.product, Some(Product::Density { five: true }));
 }
@@ -1502,13 +1542,13 @@ fn the_mosaic_and_contagion_are_named() {
     h.state_mut().start_template(&ctx, t);
     until(&mut h, "the run", |a| {
         let s = a.session.as_ref().unwrap();
-        !s.running() && s.value_of("plot_contagion", "shown").is_some()
+        !s.running() && plotted(s, "plot_contagion").is_some()
     });
     let lines = |h: &mut Harness<TerrafluxApp>, node: &str| {
-        show(h, node, "shown");
+        open_plot(h, node);
         let of = |a: &TerrafluxApp| {
             let s = a.session.as_ref().unwrap();
-            let Some(terraflux_ops::Value::Map(m)) = s.value_of(node, "shown") else { return None };
+            let Some(terraflux_ops::Value::Map(m)) = plotted(s, node) else { return None };
             s.looks.peek(&terraflux_app::map_view::Source::from(&m)).filter(|l| l.product.is_some()).cloned()
         };
         until(h, "the legend", |a| of(a).is_some());
@@ -1539,7 +1579,7 @@ fn metrics_show_as_tables_bars_and_maps() {
     h.state_mut().start_template(&ctx, t);
     until(&mut h, "the run", |a| {
         let s = a.session.as_ref().unwrap();
-        !s.running() && s.value_of("plot_window", "shown").is_some()
+        !s.running() && plotted(s, "plot_window").is_some()
     });
     let s = h.state().session.as_ref().unwrap();
     let Some(terraflux_ops::Value::Table(table)) = s.value_of("classes", "table") else { panic!("{:?}", s.error) };
@@ -1574,12 +1614,12 @@ fn zonation_rank_in_its_colours() {
     h.state_mut().start_template(&ctx, t);
     until(&mut h, "the run", |a| {
         let s = a.session.as_ref().unwrap();
-        !s.running() && s.value_of("plot_rank", "shown").is_some()
+        !s.running() && plotted(s, "plot_rank").is_some()
     });
-    show(&mut h, "plot_rank", "shown");
+    open_plot(&mut h, "plot_rank");
     until(&mut h, "the legend", |a| {
         let s = a.session.as_ref().unwrap();
-        let Some(terraflux_ops::Value::Map(m)) = s.value_of("plot_rank", "shown") else { return false };
+        let Some(terraflux_ops::Value::Map(m)) = plotted(s, "plot_rank") else { return false };
         s.looks.peek(&terraflux_app::map_view::Source::from(&m)).is_some_and(|l| {
             matches!(
                 l.coloring,
@@ -2090,11 +2130,18 @@ fn maps_stack_and_cells_show_their_series() {
     }
     until(&mut h, "the run", |a| {
         let s = a.session.as_ref().unwrap();
-        !s.running() && s.value_of("top", "shown").is_some()
+        !s.running() && s.value_of("land", "raster").is_some() && s.value_of("roads", "vector").is_some()
     });
+    // the plots made Plots: the top one's layers, the land under the roads
+    {
+        let s = h.state().session.as_ref().unwrap();
+        let top = s.source.plot("top").expect("the Plot top");
+        let from: Vec<&str> = top.layers.iter().map(|l| l.from.as_str()).collect();
+        assert_eq!(from, ["land.raster", "roads.vector"]);
+    }
     {
         let s = h.state_mut().session.as_mut().unwrap();
-        terraflux_app::builder::select(s, &terraflux_ops::Registry::standard(), "top");
+        terraflux_app::builder::open_plot(s, &terraflux_ops::Registry::standard(), "top");
         let drivers =
             terraflux_app::builder::Layer { opacity: 0.5, ..terraflux_app::builder::Layer::new("drivers", "raster") };
         s.preview_layers.push(drivers);
@@ -2131,36 +2178,36 @@ fn maps_stack_and_cells_show_their_series() {
     let zoom = h.state().session.as_ref().unwrap().preview_view.zoom();
     // 250 m cells: the world (40,075 km) is about 160,000 cells; the view about 900 points
     assert!(zoom > 1e-3 && zoom < 0.05, "{zoom}");
-    // the layers: the map shown kept (on top of the drivers), then the drivers' name clicked: their map shown, the
-    // plot over it now
-    h.get_by_label("📌").click();
-    h.run_steps(2);
+    // the layers: the Plot's (the land, the roads) and the drivers on top; the drivers' name clicked: their map shown
     let kept = |h: &Harness<TerrafluxApp>| -> Vec<(String, String)> {
         let s = h.state().session.as_ref().unwrap();
         s.preview_layers.iter().map(|l| (l.node.clone(), l.port.clone())).collect()
     };
-    assert_eq!(kept(&h), [("drivers".to_string(), "raster".to_string()), ("top".into(), "shown".into())]);
+    let pair = |n: &str, p: &str| (n.to_string(), p.to_string());
+    assert_eq!(kept(&h), [pair("land", "raster"), pair("roads", "vector"), pair("drivers", "raster")]);
+    assert_eq!(h.state().session.as_ref().unwrap().preview, Some(pair("land", "raster")), "the Plot's map shown");
     h.get_by_label("drivers").click();
     drawn(&mut h);
-    assert_eq!(h.state().session.as_ref().unwrap().preview, Some(("drivers".to_string(), "raster".to_string())));
-    // the plot up and down, then no longer a layer
-    h.get_by_label("top.shown").click();
-    drawn(&mut h);
-    assert_eq!(h.state().session.as_ref().unwrap().preview, Some(("top".to_string(), "shown".to_string())));
+    assert_eq!(h.state().session.as_ref().unwrap().preview, Some(pair("drivers", "raster")));
     use egui_kittest::kittest::NodeT;
-    // (the bottom row's ⏷ disabled)
+    // the drivers down, under the roads (the rows from the top: the drivers' first, the land's down disabled)
     h.query_all_by_label("⏷").find(|n| !n.accesskit_node().is_disabled()).unwrap().click();
     drawn(&mut h);
-    assert_eq!(kept(&h)[0].0, "top", "the plot under the drivers");
-    // (the rows from the top: the plot's x the bottom one, below the node's inputs' x; its ⏶ the one enabled)
-    assert!(h.query_all_by_label("⏶").find(|n| !n.accesskit_node().is_disabled()).is_some());
+    assert_eq!(kept(&h)[1], pair("drivers", "raster"), "the drivers under the roads");
+    // the land no longer a layer (its x the bottom one, below the node's inputs' x)
     let bottom = h.query_all_by_label("x").max_by(|a, b| {
         let y = |n: &egui_kittest::Node| n.accesskit_node().bounding_box().map_or(0.0, |r| r.y0);
         y(a).total_cmp(&y(b))
     });
     bottom.unwrap().click();
     h.run_steps(2);
-    assert_eq!(kept(&h), [("drivers".to_string(), "raster".to_string())]);
+    assert_eq!(kept(&h), [pair("drivers", "raster"), pair("roads", "vector")]);
+    // a map not among them, kept with the pin: on top
+    show(&mut h, "land", "raster");
+    drawn(&mut h);
+    h.get_by_label("📌").click();
+    h.run_steps(2);
+    assert_eq!(kept(&h).last(), Some(&pair("land", "raster")));
     // a cell of the drivers' stack clicked: its values along the layers
     {
         let s = h.state_mut().session.as_mut().unwrap();
@@ -2432,38 +2479,39 @@ fn a_table_is_plotted_and_written() {
             Node::new("areas", "table.of")
                 .param("columns", serde_json::json!(["year", "forest", "pasture"]))
                 .param("rows", serde_json::json!([[2000, 50.5, 20], [2010, 42, 31], [2020, 35.25, 40]])),
-            Node::new("plot", "view.plot")
-                .input("table", "areas.table")
-                .param("chart", "lines")
-                .param("y", "forest, pasture"),
             Node::new("write", "table.write")
                 .input("table", "areas.table")
                 .param("path", out.to_string_lossy().as_ref())
                 .param("separator", ";")
                 .param("decimal", ","),
         ];
+        s.source.plots = vec![terraflux_graph::Plot {
+            id: "plot".into(),
+            layers: vec![terraflux_graph::PlotLayer::new("areas.table")],
+            chart: Some(terraflux_graph::PlotChart {
+                kind: Some("lines".into()),
+                y: Some("forest, pasture".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }];
         s.edited();
         assert!(s.issues.is_empty(), "{:?}", s.issues);
         s.start(Box::new(|| {}));
     }
     until(&mut h, "the plot", |a| {
         let s = a.session.as_ref().unwrap();
-        !s.running() && s.value_of("plot", "shown").is_some()
+        !s.running() && plotted(s, "plot").is_some()
     });
     // (in the Viewer)
-    terraflux_app::builder::select(
-        h.state_mut().session.as_mut().unwrap(),
-        &terraflux_ops::Registry::standard(),
-        "plot",
-    );
-    h.state_mut().focus(Pane::Viewer);
+    open_plot(&mut h, "plot");
     drawn(&mut h);
     h.run_steps(4);
     shot(&mut h, "31-table-plot");
     // the chart the plot asks for: lines of forest and pasture along the year
     let s = h.state().session.as_ref().unwrap();
-    let Some(terraflux_ops::Value::Table(t)) = s.value_of("plot", "shown") else { panic!("{:?}", s.error) };
-    let chart = terraflux_app::builder::plot_chart(s.model.node("plot").unwrap(), &t);
+    let Some(terraflux_ops::Value::Table(t)) = plotted(s, "plot") else { panic!("{:?}", s.error) };
+    let chart = terraflux_app::builder::plot_chart(s.source.plot("plot").unwrap().chart.as_ref().unwrap(), &t);
     assert_eq!(chart.kind, terraflux_app::charts::Kind::Lines);
     assert_eq!((chart.columns.as_slice(), chart.x), ([1, 2].as_slice(), Some(0)));
     assert_eq!(
