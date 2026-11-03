@@ -2400,7 +2400,12 @@ pub fn open_plot(s: &mut Session, r: &Registry, id: &str) {
 
 /// What the Viewer shows, as a Plot: the layers (the map shown on top when it is not one of them, its band), the
 /// comparison; the title, chart and record of the Plot it updates.
-fn plot_of(sh: &Shown, was: Option<&terraflux_graph::Plot>, id: &str) -> terraflux_graph::Plot {
+fn plot_of(
+    sh: &Shown,
+    was: Option<&terraflux_graph::Plot>,
+    id: &str,
+    chart: Option<terraflux_graph::PlotChart>,
+) -> terraflux_graph::Plot {
     use terraflux_graph::{PlotCompare, PlotLayer};
     let band = |node: &str, port: &str| (node == sh.node && port == sh.port && sh.band > 0).then_some(sh.band);
     let mut layers: Vec<PlotLayer> = sh
@@ -2441,9 +2446,21 @@ fn plot_of(sh: &Shown, was: Option<&terraflux_graph::Plot>, id: &str) -> terrafl
         title: was.and_then(|p| p.title.clone()),
         layers,
         compare,
-        chart: was.and_then(|p| p.chart.clone()),
+        chart: chart.or_else(|| was.and_then(|p| p.chart.clone())),
         note: was.and_then(|p| p.note.clone()),
         why: was.and_then(|p| p.why.clone()),
+    }
+}
+
+/// A chart of the Viewer as a Plot keeps it: its kind, its columns by name (the inverse of [`plot_chart`]).
+pub fn chart_names(c: &crate::charts::Chart, t: &terraflux_ops::Table) -> terraflux_graph::PlotChart {
+    let name = |i: usize| t.columns.get(i).cloned();
+    let y: Vec<String> = c.columns.iter().filter_map(|&i| name(i)).collect();
+    terraflux_graph::PlotChart {
+        kind: Some(c.kind.name().to_string()),
+        x: c.x.and_then(name),
+        y: (!y.is_empty()).then(|| y.join(", ")),
+        by: c.by.and_then(name),
     }
 }
 
@@ -2457,7 +2474,14 @@ fn new_plot_id(m: &terraflux_graph::Model, node: &str) -> String {
 
 /// The Plots of the Viewer's header: the model's, one a click away; what is shown kept as a new one, or in the one
 /// open (its title too), or that one taken away.
-fn plots_menu(ui: &mut Ui, s: &mut Session, sh: &Shown, top: bool) {
+fn plots_menu(ui: &mut Ui, s: &mut Session, sh: &Shown, top: bool, salt: &str) {
+    // (a table's chart as the Viewer draws it now, by the names of its columns)
+    let chart_now = |ui: &Ui, s: &Session| -> Option<terraflux_graph::PlotChart> {
+        let Some(Value::Table(t)) = s.value_of(&sh.node, &sh.port) else { return None };
+        let id = egui::Id::new(("table", salt, &sh.node, &sh.port));
+        let st: crate::table_view::TableState = ui.data(|d| d.get_temp(id))?;
+        Some(chart_names(&st.chart, &t))
+    };
     let open = s.plot_open.clone().filter(|id| s.source.plot(id).is_some());
     let name =
         |p: &terraflux_graph::Plot| p.title.clone().filter(|t| !t.trim().is_empty()).unwrap_or_else(|| p.id.clone());
@@ -2495,7 +2519,7 @@ fn plots_menu(ui: &mut Ui, s: &mut Session, sh: &Shown, top: bool) {
                 .clicked()
             {
                 if let Some(k) = s.source.plots.iter().position(|p| &p.id == id) {
-                    s.source.plots[k] = plot_of(sh, Some(&s.source.plots[k]), id);
+                    s.source.plots[k] = plot_of(sh, Some(&s.source.plots[k]), id, chart_now(ui, s));
                     s.edited();
                 }
                 ui.close();
@@ -2516,7 +2540,7 @@ fn plots_menu(ui: &mut Ui, s: &mut Session, sh: &Shown, top: bool) {
             .clicked()
         {
             let id = new_plot_id(&s.source, &sh.node);
-            let p = plot_of(sh, None, &id);
+            let p = plot_of(sh, None, &id, chart_now(ui, s));
             s.source.plots.push(p);
             s.plot_open = Some(id);
             s.edited();
@@ -3049,7 +3073,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     crate::metadata::window(ui.ctx(), &format!("{node}.{port}"), &crate::metadata::facts(v), &mut open);
                 }
                 ui.data_mut(|d| d.insert_temp(id, open));
-                plots_menu(ui, s, sh, inner.is_none());
+                plots_menu(ui, s, sh, inner.is_none(), salt);
                 // what is shown, saved: a file only, or a file and a node that writes it at every run
                 let maps = matches!(&value, Some(Value::Map(_) | Value::Stack(_) | Value::Raster(_)))
                     || matches!(&value, Some(Value::Series(v)) if v.iter().all(|x| matches!(x, Value::Map(_))));

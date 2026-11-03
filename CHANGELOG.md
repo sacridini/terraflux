@@ -6,6 +6,10 @@ minor versions.
 
 ## [Unreleased]
 
+### Changed
+- Viewer: *Save as a new plot* and *Update the plot* keep the chart chosen for a table in the Viewer (its kind and
+  columns, by name), not only the one a plot already had.
+
 ## [1.34.0] - 2026-11-03
 
 ### Added

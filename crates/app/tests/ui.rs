@@ -2514,6 +2514,20 @@ fn a_table_is_plotted_and_written() {
     let chart = terraflux_app::builder::plot_chart(s.source.plot("plot").unwrap().chart.as_ref().unwrap(), &t);
     assert_eq!(chart.kind, terraflux_app::charts::Kind::Lines);
     assert_eq!((chart.columns.as_slice(), chart.x), ([1, 2].as_slice(), Some(0)));
+    // another chart chosen in the Viewer, kept by Update the plot
+    h.get_by_value("chart: lines").click();
+    h.run_steps(2);
+    h.get_by_label("bars").click();
+    h.run_steps(2);
+    h.get_by_label("Plot: plot").click();
+    h.run_steps(2);
+    h.get_by_label("Update the plot").click();
+    h.run_steps(2);
+    let s = h.state().session.as_ref().unwrap();
+    let kept = s.source.plot("plot").unwrap().chart.clone().unwrap();
+    assert_eq!(kept.kind.as_deref(), Some("bars"));
+    let chart = terraflux_app::builder::plot_chart(&kept, &t);
+    assert_eq!(chart.kind, terraflux_app::charts::Kind::Bars);
     assert_eq!(
         std::fs::read_to_string(&out).unwrap(),
         "year;forest;pasture\n2000;50,5;20\n2010;42;31\n2020;35,25;40\n"
