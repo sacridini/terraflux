@@ -143,9 +143,6 @@ fn default_seeds(knobs: &[Knob]) -> BTreeSet<String> {
 fn outputs(m: &Model, r: &Registry) -> Vec<(String, Type)> {
     let mut out = Vec::new();
     for n in &m.nodes {
-        if n.op == "view.plot" || crate::editor::output_ports(n, r).is_empty() {
-            continue;
-        }
         for (port, ty) in crate::editor::output_ports(n, r) {
             if matches!(
                 ty,
@@ -181,12 +178,15 @@ fn sinks(m: &Model) -> Vec<String> {
         }
     }
     refs(&m.nodes, &mut read);
-    for o in m.outputs.values() {
-        if let Some((node, _)) = o.from.split_once('.') {
+    // (what a Plot shows is read: by the Viewer, not where the model ends)
+    let plotted =
+        m.plots.iter().flat_map(|p| p.layers.iter().map(|l| &l.from).chain(p.compare.iter().map(|c| &c.with)));
+    for from in m.outputs.values().map(|o| &o.from).chain(plotted) {
+        if let Some((node, _)) = from.split_once('.') {
             read.insert(node.to_string());
         }
     }
-    m.nodes.iter().filter(|n| !read.contains(&n.id) && n.op != "view.plot").map(|n| n.id.clone()).collect()
+    m.nodes.iter().filter(|n| !read.contains(&n.id)).map(|n| n.id.clone()).collect()
 }
 
 /// What a run keeps by default: the first map (else any output) of each node where the model ends, unless the

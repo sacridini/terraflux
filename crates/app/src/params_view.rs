@@ -244,21 +244,24 @@ fn describe(ui: &mut Ui, s: &mut Session, k: usize) -> Option<Parameter> {
     (p != before).then_some(p)
 }
 
-/// The outputs a comparison may be of: the model's outputs, the values its plots show, else its top-level nodes'
-/// first outputs.
-fn comparable(m: &Model, r: &Registry) -> Vec<String> {
-    let mut out: Vec<String> = m.outputs.values().map(|o| o.from.clone()).collect();
-    for n in m.nodes.iter().filter(|n| n.op == "view.plot") {
-        if let Some(terraflux_graph::Source::Ref(rf)) = n.inputs.get("value").or_else(|| n.inputs.get("table"))
-            && !out.contains(rf)
-        {
-            out.push(rf.clone());
+/// The outputs a comparison may be of, and their names: the model's outputs, what its Plots show (named by the
+/// Plot's title, else its id), else its top-level nodes' first outputs.
+fn comparable(m: &Model, r: &Registry) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = m.outputs.values().map(|o| (o.from.clone(), o.from.clone())).collect();
+    for p in &m.plots {
+        if let Some((node, port)) = crate::document::plotted(m, r, p) {
+            let rf = format!("{node}.{port}");
+            if !out.iter().any(|(o, _)| *o == rf) {
+                let name = p.title.clone().filter(|t| !t.trim().is_empty()).unwrap_or_else(|| p.id.clone());
+                out.push((rf.clone(), format!("{name} ({rf})")));
+            }
         }
     }
     if out.is_empty() {
         for n in &m.nodes {
             if let Some(p) = crate::builder::first_output(n, r) {
-                out.push(format!("{}.{p}", n.id));
+                let rf = format!("{}.{p}", n.id);
+                out.push((rf.clone(), rf));
             }
         }
     }
@@ -737,7 +740,8 @@ fn scenarios_ui(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry, aske
     }
     ui.add_space(4.0);
     // side by side
-    let outputs = comparable(&s.source, r);
+    let offered = comparable(&s.source, r);
+    let outputs: Vec<String> = offered.iter().map(|(o, _)| o.clone()).collect();
     st.outputs.retain(|o| outputs.contains(o));
     if st.outputs.is_empty() {
         st.outputs.extend(outputs.first().cloned());
@@ -750,9 +754,9 @@ fn scenarios_ui(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry, aske
             n => format!("{} and {} more", st.outputs[0], n - 1),
         };
         egui::ComboBox::from_id_salt("compare output").selected_text(text).show_ui(ui, |ui| {
-            for o in &outputs {
+            for (o, name) in &offered {
                 let mut on = st.outputs.contains(o);
-                if ui.checkbox(&mut on, o).changed() {
+                if ui.checkbox(&mut on, name).changed() {
                     if on {
                         st.outputs.push(o.clone());
                         st.outputs.sort_by_key(|x| outputs.iter().position(|y| y == x));

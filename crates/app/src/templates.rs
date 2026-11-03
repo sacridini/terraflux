@@ -4689,7 +4689,11 @@ mod plot_migration_tests {
         let r = terraflux_ops::Registry::standard();
         let mut plots = 0;
         for t in super::TEMPLATES {
-            let mut m = t.model();
+            // (the model as written: read, it is made Plots already)
+            let mut m: terraflux_graph::Model = match t.build {
+                Some(f) => f(),
+                None => toml::from_str(t.toml).expect("a template is a model"),
+            };
             let ids: Vec<String> = m.nodes.iter().filter(|n| n.op == PLOT_OP).map(|n| n.id.clone()).collect();
             // (a plot's shown: what it shows, through the plots it shows)
             let shown = |m: &terraflux_graph::Model, mut r: String| {
@@ -4760,7 +4764,9 @@ mod plot_migration_tests {
         }
         let mut plots = 0;
         for f in &files {
-            let Ok(mut m) = terraflux_graph::Model::load(f) else { continue };
+            // (the model as written: read, it is made Plots already)
+            let Ok(text) = std::fs::read_to_string(f) else { continue };
+            let Ok(mut m) = toml::from_str::<terraflux_graph::Model>(&text) else { continue };
             let n = m.nodes.iter().filter(|n| n.op == PLOT_OP).count();
             m.plots_from_nodes();
             plots += n;

@@ -962,6 +962,16 @@ pub fn script(m: &Model, r: &Registry, model_path: Option<&Path>) -> Script {
     }
     let mut sc = Scope::top(&inputs);
     body.push_str(&w.nodes(&m.nodes, &mut sc, ""));
+    // the Plots: what each shows, by matplotlib (left as comments: a window would stop the script)
+    for p in &m.plots {
+        let name = p.title.clone().filter(|t| !t.trim().is_empty()).unwrap_or_else(|| p.id.clone());
+        let shown =
+            crate::document::plotted(m, r, p).and_then(|(node, port)| reference(&format!("{node}.{port}"), &sc).ok());
+        body.push_str(&match shown {
+            Some(v) => format!("# ls.plot({v})  # the Plot {:?} (matplotlib)\n", one_line(&name)),
+            None => format!("# (the Plot {:?}: a value not translated)\n", one_line(&name)),
+        });
+    }
     // the model's outputs
     if !m.outputs.is_empty() {
         body.push_str("# the model's outputs\nOUT.mkdir(parents=True, exist_ok=True)\n");

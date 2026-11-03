@@ -1889,7 +1889,9 @@ mod tests {
     use terraflux_ops::Registry;
 
     fn template(name: &str) -> terraflux_graph::Model {
-        crate::templates::TEMPLATES.iter().find(|t| t.name == name).expect("a template").model()
+        let mut m = crate::templates::TEMPLATES.iter().find(|t| t.name == name).expect("a template").model();
+        m.upgrade();
+        m
     }
 
     #[test]
@@ -2062,8 +2064,10 @@ mod tests {
             "#,
         )
         .unwrap();
+        assert_eq!(m.plots.len(), 1, "the plot node read as a Plot");
         let d = Document::of(&m, &r);
         let f = d.steps().iter().flat_map(|s| s.figures.clone()).next().unwrap();
+        assert_eq!((f.plot.as_str(), f.caption.as_str()), ("plot", "Forest lost"));
         assert_eq!(f.compared, Some(("after".into(), "x".into(), "difference".into())));
         let results =
             terraflux_exec::Engine::default().run(&m, &Default::default(), &mut terraflux_exec::Quiet).unwrap();
