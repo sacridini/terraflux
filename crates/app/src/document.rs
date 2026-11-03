@@ -926,6 +926,16 @@ impl Document {
         out
     }
 
+    /// The number of the figure a Plot is, if it is one (with a step, or with the results).
+    pub fn figure_of(&self, plot: &str) -> Option<usize> {
+        self.steps()
+            .into_iter()
+            .flat_map(|s| &s.figures)
+            .chain(&self.figures)
+            .find(|f| f.plot == plot)
+            .map(|f| f.number)
+    }
+
     /// The steps without a note or a why (what `check_model` advises to write).
     pub fn unexplained(&self) -> usize {
         self.steps().iter().filter(|s| s.size == Size::Card && (s.note.is_none() || s.why.is_none())).count()

@@ -97,6 +97,8 @@ struct Asked {
     set: Option<(Vec<String>, String, String, String)>,
     /// the Parameters pane to the front
     parameters: bool,
+    /// a Plot opened in the Viewer
+    plot: Option<String>,
 }
 
 fn link(ui: &mut Ui, s: &Session, r: &Registry, f: &From, path: &[String], asked: &mut Asked) {
@@ -464,6 +466,37 @@ fn figure_ui(ui: &mut Ui, s: &mut Session, r: &Registry, f: &crate::document::Fi
         ui.label(&f.caption);
         ui.label(weak("from").small());
         link(ui, s, r, &From::Node { node: f.node.clone(), port: f.port.clone() }, &[], asked);
+        if ui.link(weak("open in the Viewer").small()).on_hover_text("the Plot, its layers and settings").clicked() {
+            asked.plot = Some(f.plot.clone());
+        }
+    });
+}
+
+/// The model's Plots, a line each: the title, the layers (the lowest first), the comparison, the figure it is,
+/// opened in the Viewer a click away.
+fn plots_ui(ui: &mut Ui, s: &Session, doc: &Document, asked: &mut Asked) {
+    egui::Grid::new("document plots").striped(true).num_columns(4).show(ui, |ui| {
+        for p in &s.source.plots {
+            let title = p.title.clone().filter(|t| !t.trim().is_empty()).unwrap_or_else(|| p.id.clone());
+            ui.label(RichText::new(title).strong()).on_hover_text(&p.id);
+            let mut layers: Vec<String> = p
+                .layers
+                .iter()
+                .map(|l| if l.hidden { format!("{} (hidden)", l.from) } else { l.from.clone() })
+                .collect();
+            if let Some(c) = &p.compare {
+                layers.push(format!("compared with {} ({})", c.with, c.how.as_deref().unwrap_or("side by side")));
+            }
+            ui.label(RichText::new(layers.join(" · ")).monospace().small());
+            match doc.figure_of(&p.id) {
+                Some(n) => ui.label(weak(format!("Figure {n}")).small()),
+                None => ui.label(""),
+            };
+            if ui.link("open").on_hover_text("in the Viewer: its layers and settings").clicked() {
+                asked.plot = Some(p.id.clone());
+            }
+            ui.end_row();
+        }
     });
 }
 
@@ -733,6 +766,11 @@ pub fn pane(ui: &mut Ui, s: &mut Session, r: &Registry) -> bool {
                     figure_ui(ui, s, r, f, &mut asked);
                 }
             }
+            if !s.source.plots.is_empty() {
+                k += 1;
+                heading(ui, format!("{k}. Plots"));
+                plots_ui(ui, s, &doc, &mut asked);
+            }
             if !doc.outputs.is_empty() {
                 k += 1;
                 heading(ui, format!("{k}. Outputs"));
@@ -756,6 +794,9 @@ pub fn pane(ui: &mut Ui, s: &mut Session, r: &Registry) -> bool {
             s.selected = Some(id.clone());
         }
         s.editor.reveal(&id);
+    }
+    if let Some(id) = asked.plot {
+        crate::builder::open_plot(s, r, &id);
     }
     if let Some((path, id, name, text)) = asked.set {
         match crate::editor::set_param(&mut s.source, &path, &id, &name, &text) {

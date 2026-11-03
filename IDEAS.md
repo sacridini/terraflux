@@ -1007,8 +1007,10 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    Depois da 1.34.0: a banda e a paleta por camada (`Layer.band`, o seletor "map:" nos Layers; `plot_of` grava a
    paleta escolhida à mão pelo nome do Viewer, `open_plot` a devolve, `palette_of` cai na do Plot para o Document;
    `builder::palette_name`/`palette_named`; teste `a_layers_band_and_palette_are_kept_in_its_plot`).
-   Falta: a coluna inteira por Plot na comparação de cenários (hoje o mapa de cada Plot), a lista dos Plots no
-   Document.
+   A lista dos Plots no Document (a seção "Plots": título, camadas, comparação, a figura; "open" e "open in the
+   Viewer" nas figuras abrem o Plot; `Document::figure_of`).
+   Falta: a coluna inteira por Plot na comparação de cenários (hoje o mapa de cada Plot; a confirmar, ver "Em
+   aberto").
 
    **4c feito** (Unreleased).
    - O MCP e o assistente: `set_plot` (camadas como `node.port` ou `{ from, opacity, band, hidden }`, `compare`,

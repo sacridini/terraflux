@@ -2525,6 +2525,14 @@ fn a_layers_band_and_palette_are_kept_in_its_plot() {
     h.run_steps(2);
     let s = h.state().session.as_ref().unwrap();
     assert_eq!(s.preview_layers[0].band, Some(4));
+    // the Document lists the Plots, each opened in the Viewer a click away
+    h.state_mut().session.as_mut().unwrap().plot_open = None;
+    h.state_mut().focus(Pane::Document);
+    h.run_steps(3);
+    assert!(h.query_by_label("Figure 1").is_some(), "the Plot's figure");
+    h.get_by_label("open").click();
+    h.run_steps(3);
+    assert_eq!(h.state().session.as_ref().unwrap().plot_open.as_deref(), Some("plot_land"));
 }
 
 /// A table plotted (in the Viewer, as the chart its settings ask) and written to a file.
