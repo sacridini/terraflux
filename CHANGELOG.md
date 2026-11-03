@@ -6,6 +6,14 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- The assistant **makes the calls a model writes as text**: when an answer has no tool calls, the calls of the tools
+  offered written in it are found and made, as Python (`edit_node(node="a", ...)`), as JSON (a block with `name` and
+  `arguments`, Hermes' `<tool_call>`) or as tags (`<function=...>`, `<invoke name="...">`, `<list_operators>
+  <query>...`), the values given the types the tools ask for; they enter the conversation as calls and leave the text
+  shown. An answer that announces a call without making it is asked again, once. Smaller models served by vLLM
+  (Qwen) wrote their calls this way, and the tasks ended without a tool.
+
 ## [1.32.0] - 2026-11-02
 
 ### Added

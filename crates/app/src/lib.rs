@@ -66,6 +66,7 @@ pub mod vector_view;
 pub mod watch;
 pub mod wizard;
 pub mod woe_view;
+pub mod written;
 
 use std::path::PathBuf;
 

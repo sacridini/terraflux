@@ -737,7 +737,37 @@ Pedido de 2026-11-02: as abas que aparecem quando fazem sentido, e as pontas que
     vezes passa (a das métricas: 13 ferramentas, o modelo montado e rodado), e um pedido simples com uma ferramenta
     sai certo 20 de 20 vezes, com e sem streaming; o "Few tools" não ajuda (2 de 10). Ideia: reconhecer essas
     chamadas escritas como texto e rodá-las (os formatos acima), ou pedir de novo quando a resposta termina
-    anunciando uma ferramenta sem chamá-la.
+    anunciando uma ferramenta sem chamá-la. **Feito** (Unreleased): item 1 de "O próximo bloco de 2026-11-03".
+
+## O próximo bloco de 2026-11-03
+
+Pedido de 2026-11-03: as partes abertas do assistente e do MCP e as pontas das partes já lançadas, nesta ordem (um
+commit por item):
+
+1. **Chamadas escritas como texto.** **Feito** (Unreleased): `written.rs`. Quando a resposta não traz `tool_calls`,
+   `written::calls` acha no texto as chamadas das ferramentas oferecidas: em Python (`edit_node(node="a", ...)`, no
+   começo de uma linha, os literais do Python lidos, os posicionais pelos `required`), em JSON (um bloco ```json com
+   `name` e `arguments`/`parameters`, os argumentos como texto, `{"function": ...}`, `tool_calls`, listas; o
+   `<tool_call>` do Hermes) e em tags (`<function=nome><parameter=chave>`, `<invoke name="...">`,
+   `<invoke_name>`, `<nome_da_ferramenta><chave>...`), os valores pelo tipo do esquema. As chamadas viram
+   `tool_calls` de verdade na conversa (o modelo as vê como chamadas) e saem do texto mostrado. Uma resposta que
+   anuncia uma ferramenta sem chamá-la (o nome no último parágrafo com palavras de intenção, ou o texto terminando
+   em dois-pontos) é pedida de novo uma vez (`written::ask_again`). Testes: os formatos, um servidor falso em
+   127.0.0.1 que responde com uma chamada escrita e outro que só anuncia.
+2. **Avaliação antes e depois** com o Qwen da HU (VPN) e um modelo grande, guardada aqui.
+3. **Mais regras de método** (`advice.rs`): o `steps` do `markov.fit` contra as datas, `woe.fit` sem distância,
+   resistência com zeros ou negativos, priorização sem `prioritize.evaluate`, SDM sem thinning dos registros.
+4. **Os conselhos no app:** no painel Problems (nível "advice") e no relatório.
+5. **Dicas por operador** num campo `advice` do próprio operador, para `conn.*`, hidrologia, InVEST, agentes e REDD+.
+6. **Protocolo e línguas:** saída estruturada no `check_model` e no `run_model`, elicitation, guias em português.
+7. **Script Python:** `dinamica.step`, `cars.step`, `lulcc.step`, `plus.demand`, `demand.regional`, as zonas do
+   `prioritize.optimize`.
+8. **Stop dentro do C++** (MSPA, `circuit.pairwise`, Omniscape) e `ctx.stopped()` nos operadores longos.
+9. **Viewer:** o último elemento de um `control.each` e um passo escolhido de um laço.
+10. **Nó congelado:** o que só ele lê dentro de um grupo não roda mais.
+11. **QGIS:** o `.qgz` conferido no PyQGIS.
+12. **Trace:** a variável de iteração do CLUE.
+13. **Document:** tabelas dentro de tabelas.
 
 ## Paridade com o landschaft na priorização, progresso e parada
 

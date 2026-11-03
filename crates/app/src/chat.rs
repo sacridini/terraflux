@@ -153,6 +153,8 @@ enum Event {
     },
     /// Messages added to the conversation.
     Turn(Value),
+    /// The text of the answer being written shown as this (the calls written in it taken out).
+    Rewritten(String),
     Done,
     Failed(String),
 }
@@ -292,6 +294,14 @@ impl Chat {
                 }
                 Event::Ask(a) => self.ask(a, s, r, ctx),
                 Event::Turn(m) => self.history.push(m),
+                Event::Rewritten(t) => {
+                    if let Some(Item::Assistant { text, thinking }) = self.items.last_mut() {
+                        *text = t;
+                        if text.is_empty() && thinking.is_empty() {
+                            self.items.pop();
+                        }
+                    }
+                }
                 Event::Done => done = true,
                 Event::Failed(e) => {
                     self.items.push(Item::Error(e));
@@ -740,6 +750,7 @@ impl Job {
     fn work(mut self) {
         let functions = tools::functions(&self.offered);
         let registry = Registry::standard();
+        let mut asked_again = false;
         for _ in 0..ROUNDS {
             let mut all = vec![json!({ "role": "system", "content": self.system })];
             all.extend(self.messages.iter().cloned());
@@ -748,14 +759,31 @@ impl Job {
                 let _ = tx.send(Event::Delta(d));
                 ctx.request_repaint();
             };
-            let answer = match llm::complete(&self.endpoint, &all, &functions, &mut on, &self.stop) {
+            let mut answer = match llm::complete(&self.endpoint, &all, &functions, &mut on, &self.stop) {
                 Ok(a) => a,
                 Err(e) => return self.send(Event::Failed(e)),
             };
+            if answer.calls.is_empty() {
+                // the calls a model wrote in its text instead of calling them
+                let (calls, rest) = crate::written::calls(&answer.text, &self.offered);
+                if !calls.is_empty() {
+                    answer.calls = calls;
+                    answer.text = rest.clone();
+                    self.send(Event::Rewritten(rest));
+                }
+            }
             let message = answer.message();
             self.messages.push(message.clone());
             self.send(Event::Turn(message));
             if answer.calls.is_empty() {
+                // a call announced and not made: asked again, once
+                if !asked_again && let Some(tool) = crate::written::announced(&answer.text, &self.offered) {
+                    asked_again = true;
+                    let again = json!({ "role": "user", "content": crate::written::ask_again(&tool) });
+                    self.messages.push(again.clone());
+                    self.send(Event::Turn(again));
+                    continue;
+                }
                 return self.send(Event::Done);
             }
             for call in &answer.calls {
@@ -1683,6 +1711,101 @@ mod tests {
             assert!(all.iter().any(|t| t["name"] == f), "{f}");
         }
         assert_eq!(tools::functions(&all)[0]["type"], "function");
+    }
+
+    /// A server on this computer answering with the messages given, one a request (not streamed), and the bodies
+    /// of the requests it had.
+    fn server(answers: Vec<Value>) -> (Provider, std::thread::JoinHandle<Vec<Value>>) {
+        use std::io::{BufRead, Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let handle = std::thread::spawn(move || {
+            let mut bodies = Vec::new();
+            for a in answers {
+                let (stream, _) = listener.accept().unwrap();
+                let mut r = std::io::BufReader::new(stream);
+                let mut length = 0;
+                loop {
+                    let mut line = String::new();
+                    r.read_line(&mut line).unwrap();
+                    if line.trim().is_empty() {
+                        break;
+                    }
+                    if let Some(v) = line.to_lowercase().strip_prefix("content-length:") {
+                        length = v.trim().parse().unwrap();
+                    }
+                }
+                let mut body = vec![0; length];
+                r.read_exact(&mut body).unwrap();
+                bodies.push(serde_json::from_slice(&body).unwrap());
+                let reply = json!({ "choices": [{ "index": 0, "message": a, "finish_reason": "stop" }] }).to_string();
+                let mut s = r.into_inner();
+                write!(
+                    s,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}",
+                    reply.len()
+                )
+                .unwrap();
+            }
+            bodies
+        });
+        let p = Provider {
+            name: "test".into(),
+            base_url: format!("http://127.0.0.1:{port}/v1"),
+            model: "m".into(),
+            ..Default::default()
+        };
+        (p, handle)
+    }
+
+    fn answered(c: &mut Chat, p: &Provider, ask: &str) -> Session {
+        let r = Registry::standard();
+        let ctx = egui::Context::default();
+        let mut s = Session::blank();
+        c.send_to(p, ask.into(), &s, &ctx);
+        let t = std::time::Instant::now();
+        while c.busy() {
+            assert!(t.elapsed().as_secs() < 60, "no answer");
+            s.poll();
+            c.poll(&mut s, &r, &ctx);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        s
+    }
+
+    #[test]
+    fn a_call_written_as_text_is_made() {
+        let (p, server) = server(vec![
+            json!({ "role": "assistant", "content": "Let me search.\n```json\n{\"name\": \"list_operators\", \"arguments\": {\"query\": \"patch\"}}\n```" }),
+            json!({ "role": "assistant", "content": "landscape.mspa finds them." }),
+        ]);
+        let mut c = Chat::default();
+        answered(&mut c, &p, "which operator finds patches?");
+        let bodies = server.join().unwrap();
+        assert!(matches!(&c.items[1], Item::Assistant { text, .. } if text == "Let me search."), "{:?}", c.items);
+        assert!(matches!(&c.items[2], Item::Tool { name, result: Some((_, false)), .. } if name == "list_operators"));
+        assert!(matches!(c.items.last(), Some(Item::Assistant { text, .. }) if text == "landscape.mspa finds them."));
+        // the model saw its call as a call, and what it gave
+        let m = &bodies[1]["messages"];
+        let n = m.as_array().unwrap().len();
+        assert_eq!(m[n - 2]["tool_calls"][0]["function"]["name"], "list_operators");
+        assert_eq!(m[n - 1]["role"], "tool");
+    }
+
+    #[test]
+    fn a_call_announced_and_not_made_is_asked_again() {
+        let (p, server) = server(vec![
+            json!({ "role": "assistant", "content": "Now let me run it with run_model." }),
+            json!({ "role": "assistant", "content": "Now let me run it with run_model." }),
+        ]);
+        let mut c = Chat::default();
+        answered(&mut c, &p, "run it");
+        let bodies = server.join().unwrap();
+        // asked again once, then left
+        assert_eq!(bodies.len(), 2);
+        let m = bodies[1]["messages"].as_array().unwrap();
+        assert!(m.last().unwrap()["content"].as_str().unwrap().contains("`run_model`"));
+        assert!(!matches!(c.items.last(), Some(Item::Error(_))));
     }
 
     /// The Humboldt-Universität's model builds a small model and runs it, when this computer reaches it (its
