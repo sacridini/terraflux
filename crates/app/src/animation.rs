@@ -20,6 +20,8 @@ pub struct Frame {
     pub source: Source,
     pub coloring: Coloring,
     pub caption: String,
+    /// The maps drawn with it in the Viewer (under it or over it, at their opacity).
+    pub rasters: Vec<crate::map_view::RasterLayer>,
 }
 
 /// The longest side of the GIF's frames, pixels (a larger map read every few cells).
@@ -172,6 +174,68 @@ pub(crate) fn values(src: &Source, max_side: usize) -> Result<(Vec<f32>, usize, 
         }
         Source::Blank(_) => Err("no map".into()),
     }
+}
+
+/// A map's picture as [`values`] takes its cells, with the maps drawn with it: those `below` under it, the
+/// others over it, each at its opacity and placed by its grid (one of another coordinate system left out);
+/// premultiplied colours, transparent where nothing is.
+pub(crate) fn composed(
+    src: &Source,
+    coloring: &Coloring,
+    layers: &[crate::map_view::RasterLayer],
+    max_side: usize,
+) -> Result<egui::ColorImage, String> {
+    let (v, w, h) = values(src, max_side)?;
+    let main = image_f32(&v, w, h, coloring);
+    if layers.is_empty() {
+        return Ok(main);
+    }
+    let (step, _, _) = fitted(src.size(), max_side);
+    let over = |dst: Color32, top: Color32| -> Color32 {
+        let k = 1.0 - f32::from(top.a()) / 255.0;
+        let mix = |a: u8, b: u8| (f32::from(a) + f32::from(b) * k).round().min(255.0) as u8;
+        Color32::from_rgba_premultiplied(
+            mix(top.r(), dst.r()),
+            mix(top.g(), dst.g()),
+            mix(top.b(), dst.b()),
+            mix(top.a(), dst.a()),
+        )
+    };
+    let mut out = vec![Color32::TRANSPARENT; w * h];
+    let draw = |out: &mut [Color32], l: &crate::map_view::RasterLayer| {
+        let Some(place) = crate::map_view::place_on(l.source.grid(), src.grid()) else { return };
+        let side = (max_side * 2).min(4096);
+        let Ok((lv, lw, lh)) = values(&l.source, side) else { return };
+        let (lstep, _, _) = fitted(l.source.size(), side);
+        let img = image_f32(&lv, lw, lh, &l.coloring);
+        let opacity = l.opacity.clamp(0.0, 1.0);
+        for r in 0..h {
+            for c in 0..w {
+                // the cell's centre on the map, then on the layer
+                let (x, y) = ((c * step) as f32 + 0.5, (r * step) as f32 + 0.5);
+                let (lx, ly) = ((x - place.offset.x) / place.scale.x, (y - place.offset.y) / place.scale.y);
+                if lx < 0.0 || ly < 0.0 {
+                    continue;
+                }
+                let (pc, pr) = (lx as usize / lstep, ly as usize / lstep);
+                if pc >= lw || pr >= lh {
+                    continue;
+                }
+                let top = img.pixels[pr * lw + pc].gamma_multiply(opacity);
+                out[r * w + c] = over(out[r * w + c], top);
+            }
+        }
+    };
+    for l in layers.iter().filter(|l| l.below) {
+        draw(&mut out, l);
+    }
+    for (o, m) in out.iter_mut().zip(&main.pixels) {
+        *o = over(*o, *m);
+    }
+    for l in layers.iter().filter(|l| !l.below) {
+        draw(&mut out, l);
+    }
+    Ok(egui::ColorImage::new([w, h], out))
 }
 
 /// The font of the captions.
@@ -369,8 +433,8 @@ fn legend_lines(coloring: &Coloring, zw: usize, px: f32) -> usize {
 /// A frame as pixels, its legend at least `lines_high` lines high (the most of all the frames, so that they are
 /// of one size).
 fn picture(f: &Frame, max_side: usize, lines_high: usize) -> Result<(Vec<u8>, usize, usize), String> {
-    let (v, w, h) = values(&f.source, max_side)?;
-    let img = image_f32(&v, w, h, &f.coloring);
+    let img = composed(&f.source, &f.coloring, &f.rasters, max_side)?;
+    let w = img.size[0];
     let (zoom, zw, zh, px) = layout_of(f.source.size(), max_side);
     let font = font();
     let key = key(&f.coloring);
@@ -522,6 +586,35 @@ mod tests {
         Source::Map(Map::new(grid, (0..w * h).map(f).collect()))
     }
 
+    /// A map with the maps drawn with it: one under it (showing where it has no value), one over it at half its
+    /// opacity, each placed by its grid.
+    #[test]
+    fn the_layers_are_drawn_with_the_map() {
+        let (green, red, blue) =
+            (Color32::from_rgb(0, 200, 0), Color32::from_rgb(200, 0, 0), Color32::from_rgb(0, 0, 200));
+        // the map: its first row only; under it, the two columns at the left; over it, all of it
+        let main = map(4, 4, |i| if i < 4 { 1.0 } else { f64::NAN });
+        let layer = |source: Source, v: f64, c: Color32, opacity: f32, below: bool| crate::map_view::RasterLayer {
+            source,
+            coloring: Coloring::Classes(vec![(v, c)]),
+            opacity,
+            below,
+            name: String::new(),
+        };
+        let under = layer(map(2, 4, |_| 2.0), 2.0, red, 1.0, true);
+        let coloring = Coloring::Classes(vec![(1.0, green)]);
+        let img = composed(&main, &coloring, std::slice::from_ref(&under), 100).unwrap();
+        let at = |img: &egui::ColorImage, r: usize, c: usize| img.pixels[r * 4 + c];
+        assert_eq!((at(&img, 0, 3), at(&img, 2, 0)), (green, red), "the map over the one under it");
+        assert_eq!(at(&img, 2, 3).a(), 0, "nothing where neither has a value");
+        let top = layer(map(4, 4, |_| 3.0), 3.0, blue, 0.5, false);
+        let img = composed(&main, &coloring, &[under, top], 100).unwrap();
+        let half = at(&img, 2, 3);
+        assert!(half.a().abs_diff(128) <= 1 && half.b().abs_diff(100) <= 1 && half.r() == 0, "{half:?}");
+        let mixed = at(&img, 2, 0);
+        assert!(mixed.a() == 255 && mixed.r().abs_diff(100) <= 1 && mixed.b().abs_diff(100) <= 1, "{mixed:?}");
+    }
+
     #[test]
     fn the_speed_chosen_and_a_video() {
         let mut a = Animations::default();
@@ -533,7 +626,12 @@ mod tests {
         // a video, nothing installed: two steps of a map of 31 x 17 cells (sides made even)
         let coloring = Coloring::Classes(vec![(1.0, Color32::from_rgb(0, 114, 178))]);
         let frames: Vec<Frame> = (0..2)
-            .map(|k| Frame { source: map(31, 17, |_| 1.0), coloring: coloring.clone(), caption: format!("step {k}") })
+            .map(|k| Frame {
+                source: map(31, 17, |_| 1.0),
+                coloring: coloring.clone(),
+                caption: format!("step {k}"),
+                rasters: Vec::new(),
+            })
             .collect();
         let path = std::env::temp_dir().join(format!("terraflux-anim-{}.mp4", std::process::id()));
         mp4(&frames, 250, MAX_SIDE, &path).unwrap();
@@ -615,6 +713,7 @@ mod tests {
                 }),
                 coloring: coloring.clone(),
                 caption: format!("step {k} of 2"),
+                rasters: Vec::new(),
             })
             .collect();
         let path = std::env::temp_dir().join(format!("terraflux-anim-{}.gif", std::process::id()));
@@ -657,8 +756,12 @@ mod tests {
     #[test]
     fn a_ramp_in_the_legend() {
         let coloring = Coloring::Continuous { min: 0.0, max: 2.5, ramp: Default::default(), log: false };
-        let frames =
-            vec![Frame { source: map(60, 20, |i| (i % 60) as f64 / 24.0), coloring, caption: "elevation".into() }];
+        let frames = vec![Frame {
+            source: map(60, 20, |i| (i % 60) as f64 / 24.0),
+            coloring,
+            caption: "elevation".into(),
+            rasters: Vec::new(),
+        }];
         let path = std::env::temp_dir().join(format!("terraflux-anim-ramp-{}.gif", std::process::id()));
         // maps of other sizes are not animated together
         let two = [frames[0].clone(), Frame { source: map(10, 10, |_| 1.0), ..frames[0].clone() }];
@@ -692,7 +795,7 @@ mod tests {
         let mut a = Animations::default();
         let c = coloring.clone();
         a.start(
-            move || vec![Frame { source: map(8, 8, |_| 1.0), coloring: c, caption: "one".into() }],
+            move || vec![Frame { source: map(8, 8, |_| 1.0), coloring: c, caption: "one".into(), rasters: Vec::new() }],
             200,
             path.clone(),
         );

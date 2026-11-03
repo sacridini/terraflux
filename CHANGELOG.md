@@ -18,6 +18,9 @@ minor versions.
 - Viewer: a layer is **dragged by its name** onto another's row to take its place in the Layers.
 - Viewer: the pointer tells **the feature of every vector layer** under it (each by its layer's name, with its
   attributes), not only the topmost one's.
+- Viewer: **the figure and the GIF take the layers**: the maps drawn with the one shown (under it or over it,
+  at their opacity) are in each map of a figure (PNG, SVG, PDF) and in each frame of an animation, as the vector
+  layers already were.
 - Document: **a Plots section** lists the model's Plots (title, layers, comparison, the figure each is), and
   each figure has "open in the Viewer": the Plot opened there with its layers and settings.
 - Website: the tour's pictures of the window made again from 1.34 (the Model in the whole window as it opens; the

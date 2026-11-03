@@ -164,6 +164,7 @@ fn series_frames(v: &Value, most: usize, lang: Lang) -> Option<Vec<Frame>> {
         source,
         coloring: coloring.clone(),
         caption: lang.f("step {} of {}", &[&(i + 1), &n]),
+        rasters: Vec::new(),
     };
     Some(steps.into_iter().map(frame).collect())
 }
@@ -202,7 +203,10 @@ fn compared(a: &Value, b: &Value, names: [String; 2], difference: bool, side: us
     let (ca, cb) = (colours(&sa)?, colours(&sb)?);
     let shared = ca.shared(&cb);
     let picture = |source: &Source, coloring: &Coloring| {
-        frame_picture(&Frame { source: source.clone(), coloring: coloring.clone(), caption: String::new() }, side)
+        frame_picture(
+            &Frame { source: source.clone(), coloring: coloring.clone(), caption: String::new(), rasters: Vec::new() },
+            side,
+        )
     };
     let [na, nb] = names;
     let mut pics = vec![(picture(&sa, &shared)?, na), (picture(&sb, &shared)?, nb)];

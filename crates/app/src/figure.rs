@@ -24,6 +24,8 @@ pub struct Panel {
     pub names: Vec<(f64, String)>,
     pub caption: String,
     pub vectors: Vec<Vectors>,
+    /// The maps drawn with it in the Viewer (under it or over it, at their opacity).
+    pub rasters: Vec<crate::map_view::RasterLayer>,
 }
 
 /// Features drawn over a map, in its coordinate system: a colour each, the polygons' fill (0 to 1) and the
@@ -343,8 +345,8 @@ fn legend_size(t: &Type, p: &Panel) -> (f32, f32) {
 /// A map's picture at most `px` pixels across: its cells in their colours (premultiplied RGBA), transparent
 /// without a value.
 fn picture(p: &Panel, px: usize) -> Result<(Arc<Vec<u8>>, usize, usize), String> {
-    let (v, w, h) = crate::animation::values(&p.source, px.max(16))?;
-    let img = crate::palette::image_f32(&v, w, h, &p.coloring);
+    let img = crate::animation::composed(&p.source, &p.coloring, &p.rasters, px.max(16))?;
+    let [w, h] = img.size;
     let mut rgba = Vec::with_capacity(w * h * 4);
     for c in &img.pixels {
         rgba.extend_from_slice(&c.to_array());
@@ -1432,6 +1434,7 @@ mod tests {
             names: vec![(1.0, "forest".into())],
             caption: caption.into(),
             vectors: Vec::new(),
+            rasters: Vec::new(),
         }
     }
 
@@ -1523,6 +1526,7 @@ mod tests {
             names: Vec::new(),
             caption: String::new(),
             vectors: vec![Vectors { vector: Arc::new(v), colours: vec![magenta; 3], fill: 0.2, width: 1.0 }],
+            rasters: Vec::new(),
         };
         let l = Layout { width_mm: 120.0, columns: 1, legend: false, ..Default::default() };
         let d = lay_out(std::slice::from_ref(&a), &l, 2.0).unwrap();

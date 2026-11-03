@@ -3519,6 +3519,50 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         };
         sh.compare.difference.want(ui.ctx(), &maps[k], src, classes);
     }
+    let mut overlays: Vec<crate::vector_tiles::Overlay> = plot_vectors
+        .iter()
+        .map(|v| crate::vector_tiles::Overlay { vector: v.clone(), style: Default::default(), name: String::new() })
+        .collect();
+    // (before the side panel: its figure and animation draw them too)
+    // the layers kept (the first at the bottom): those under the map shown drawn before it, those over it after (the
+    // plot's own maps over it first); the map shown over them all when it is not one of them
+    let at = sh.layers.iter().position(|l| l.is(&node, &port));
+    let mut under: Vec<(Source, f32, String, String)> = Vec::new();
+    let mut above: Vec<(Source, f32, String, String)> = Vec::new();
+    for (i, l) in sh.layers.iter().enumerate() {
+        if !l.visible || Some(i) == at {
+            continue;
+        }
+        match s.value_of(&l.node, &l.port) {
+            Some(Value::Vector(v)) => overlays.push(crate::vector_tiles::Overlay {
+                vector: v,
+                style: l.style.clone(),
+                name: output_name(&l.node, &l.port),
+            }),
+            Some(v) => {
+                if let Some(src) = layer_source(&v, l.band) {
+                    let item = (src, l.opacity, l.node.clone(), l.port.clone());
+                    if at.is_none_or(|a| i < a) { under.push(item) } else { above.push(item) }
+                }
+            }
+            None => {}
+        }
+    }
+    over.extend(above);
+    let below = under.len();
+    let rasters: Vec<crate::map_view::RasterLayer> = under
+        .into_iter()
+        .chain(over)
+        .enumerate()
+        .filter_map(|(i, (src, opacity, n, p))| {
+            let (made, mut hint) = producer(s, &n, &p);
+            hint.push_str(&p);
+            let palette = s.palettes.get(&(n.clone(), p.clone())).copied().unwrap_or_else(|| Palette::of(made, &hint));
+            let look = s.looks.get(ui.ctx(), &src, palette)?;
+            let name = output_name(&n, &p);
+            Some(crate::map_view::RasterLayer { source: src, coloring: look.coloring, opacity, below: i < below, name })
+        })
+        .collect();
     egui::Panel::right(egui::Id::new(("output side", salt)))
         .resizable(true)
         .default_size(260.0)
@@ -3572,6 +3616,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                                 names,
                                 caption,
                                 vectors: vectors.clone(),
+                                rasters: rasters.clone(),
                             }
                         };
                     let legend = legend_classes.as_deref();
@@ -3598,6 +3643,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                                 names: d.names.clone(),
                                 caption,
                                 vectors: vectors.clone(),
+                                rasters: rasters.clone(),
                             };
                             choices.push(("the difference of the two".into(), vec![p]));
                         }
@@ -3666,7 +3712,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     // at every step), the layers of a stack or of rasters each in its own, as shown
                     let file = title.replace(['/', '\\', ':', ' '], "_");
                     s.animations.button(ui, &file, default, || {
-                        let (maps, legend) = (maps.clone(), legend_classes.clone());
+                        let (maps, legend, rasters) = (maps.clone(), legend_classes.clone(), rasters.clone());
                         let captions: Vec<String> = names.iter().map(|n| format!("{title} {n}")).collect();
                         move || {
                             let mut looks: Vec<Coloring> = maps
@@ -3686,6 +3732,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                                     source,
                                     coloring,
                                     caption,
+                                    rasters: rasters.clone(),
                                 })
                                 .collect()
                         }
@@ -3921,49 +3968,6 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 draw_section(ui, s, r, sh, maps[k].grid(), salt);
             });
         });
-    let mut overlays: Vec<crate::vector_tiles::Overlay> = plot_vectors
-        .into_iter()
-        .map(|v| crate::vector_tiles::Overlay { vector: v, style: Default::default(), name: String::new() })
-        .collect();
-    // the layers kept (the first at the bottom): those under the map shown drawn before it, those over it after (the
-    // plot's own maps over it first); the map shown over them all when it is not one of them
-    let at = sh.layers.iter().position(|l| l.is(&node, &port));
-    let mut under: Vec<(Source, f32, String, String)> = Vec::new();
-    let mut above: Vec<(Source, f32, String, String)> = Vec::new();
-    for (i, l) in sh.layers.iter().enumerate() {
-        if !l.visible || Some(i) == at {
-            continue;
-        }
-        match s.value_of(&l.node, &l.port) {
-            Some(Value::Vector(v)) => overlays.push(crate::vector_tiles::Overlay {
-                vector: v,
-                style: l.style.clone(),
-                name: output_name(&l.node, &l.port),
-            }),
-            Some(v) => {
-                if let Some(src) = layer_source(&v, l.band) {
-                    let item = (src, l.opacity, l.node.clone(), l.port.clone());
-                    if at.is_none_or(|a| i < a) { under.push(item) } else { above.push(item) }
-                }
-            }
-            None => {}
-        }
-    }
-    over.extend(above);
-    let below = under.len();
-    let rasters: Vec<crate::map_view::RasterLayer> = under
-        .into_iter()
-        .chain(over)
-        .enumerate()
-        .filter_map(|(i, (src, opacity, n, p))| {
-            let (made, mut hint) = producer(s, &n, &p);
-            hint.push_str(&p);
-            let palette = s.palettes.get(&(n.clone(), p.clone())).copied().unwrap_or_else(|| Palette::of(made, &hint));
-            let look = s.looks.get(ui.ctx(), &src, palette)?;
-            let name = output_name(&n, &p);
-            Some(crate::map_view::RasterLayer { source: src, coloring: look.coloring, opacity, below: i < below, name })
-        })
-        .collect();
     sh.view.name = main_name.clone();
     let mut hover = None;
     // the map compared, in the colouring of both (none while its look is being made)

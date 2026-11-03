@@ -3137,6 +3137,7 @@ impl TerrafluxApp {
                                     source: (&m).into(),
                                     coloring,
                                     caption,
+                                    rasters: Vec::new(),
                                 })
                                 .collect()
                         }

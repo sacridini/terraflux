@@ -953,8 +953,9 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    perdido. A comparação já era do Viewer (cortina, lado a lado, diferença com qualquer outro mapa do run ou outra
    camada de uma pilha). Agora as camadas fixas vêm primeiro na lista de *Compare*, a de cima primeiro. Os testes
    que abriam abas (`ui.rs`: o traço de uma célula, as legendas dos plots, o clique direito; `readme_images.rs`)
-   usam o Viewer. Falta: dividir em 4 vistas ligadas, cada uma com as suas camadas; a diferença como camada
-   derivada; a figura e o GIF/MP4 a partir de todas as camadas (a figura já leva os vetores das camadas).
+   usam o Viewer. Depois da 1.34.0: a figura e o GIF/MP4 levam as camadas de mapas (`animation::composed`,
+   `Panel::rasters`, `Frame::rasters`; teste `the_layers_are_drawn_with_the_map`), como já levavam os vetores.
+   Falta: dividir em 4 vistas ligadas, cada uma com as suas camadas; a diferença como camada derivada.
 4. **Os Plots salvos no lugar do nó `view.plot`.** (a maior)
    - Formato: `[[plots]]` no modelo (`terraflux_graph::Model::plots`, serde, omitido quando vazio): `id`, `title`,
      `layers = [{ from = "node.port", opacity, palette, band, style }]`, `compare = { with, how }`,
