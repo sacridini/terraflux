@@ -7,10 +7,10 @@
 //! under its title. Built from the model and the operators' signatures alone: the Document pane draws it with the
 //! values of the last run, and the report writes it ([`crate::report`]).
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 use serde_json::Value as Json;
-use terraflux_graph::{GROUP, Input, Model, Node, OpSignature, Ref, Source, Type};
+use terraflux_graph::{GROUP, Input, Model, Node, OpSignature, Plot, Ref, Source, Type};
 use terraflux_ops::Registry;
 
 use crate::methods::Lang;
@@ -140,7 +140,7 @@ pub struct Setting {
 /// A plot shown with the step whose output it shows.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Figure {
-    /// The `view.plot` node.
+    /// The Plot (its id).
     pub plot: String,
     /// What it shows: a node and its port.
     pub node: String,
@@ -688,19 +688,38 @@ fn each_step(steps: &mut [Step], f: &mut dyn FnMut(&mut Step)) {
     }
 }
 
-/// What a plot shows: the node and port of its map, else its features, else its table.
-fn plotted(n: &Node) -> Option<(String, String)> {
-    ["value", "features", "table"].iter().find_map(|p| match n.inputs.get(*p)? {
-        Source::Ref(r) => match Ref::parse(r).ok()? {
+/// What a Plot shows as a figure: the node and port of its top layer that is not vector features (a map, a stack,
+/// a series, a table), else of its top layer; the layers kept without being drawn and the model's inputs aside.
+pub fn plotted(m: &Model, r: &Registry, p: &Plot) -> Option<(String, String)> {
+    let ports: Vec<(String, String)> = p
+        .layers
+        .iter()
+        .rev()
+        .filter(|l| !l.hidden)
+        .filter_map(|l| match Ref::parse(&l.from).ok()? {
             Ref::Port { node, port } => Some((node, port)),
             _ => None,
-        },
-        Source::Literal(_) => None,
-    })
+        })
+        .collect();
+    let vector = |(node, port): &(String, String)| {
+        m.nodes
+            .iter()
+            .find(|n| &n.id == node)
+            .is_some_and(|n| crate::editor::output_ports(n, r).iter().any(|(q, t)| q == port && *t == Type::Vector))
+    };
+    ports.iter().find(|x| !vector(x)).or(ports.first()).cloned()
 }
 
-/// What a plot compares its map with (its `compared`: a node and a port) and how (`compare`; side by side when
-/// not said).
+/// What a Plot compares its top map with (a node and a port) and how (side by side when not said).
+pub fn plot_compared(p: &Plot) -> Option<(String, String, String)> {
+    let c = p.compare.as_ref()?;
+    let Ref::Port { node, port } = Ref::parse(&c.with).ok()? else { return None };
+    let how = c.how.clone().filter(|h| !h.trim().is_empty()).unwrap_or_else(|| "side by side".into());
+    Some((node, port, how))
+}
+
+/// What a plot node (a `view.plot` inside a container) compares its map with (its `compared`: a node and a port)
+/// and how (`compare`; side by side when not said).
 pub fn compared(n: &Node) -> Option<(String, String, String)> {
     let Source::Ref(r) = n.inputs.get("compared")? else { return None };
     let Ref::Port { node, port } = Ref::parse(r).ok()? else { return None };
@@ -718,8 +737,6 @@ impl Document {
     /// the steps) in it; the operators' descriptions of their settings stay in English.
     pub fn of_in(m: &Model, r: &Registry, lang: Lang) -> Document {
         let stage = stages(&m.nodes);
-        let plots: BTreeMap<&str, &Node> =
-            m.nodes.iter().filter(|n| n.op == "view.plot").map(|n| (n.id.as_str(), n)).collect();
         let order = reading_order(&m.nodes);
         let mut sections: Vec<Section> = Vec::new();
         for st in Stage::ALL {
@@ -729,7 +746,7 @@ impl Document {
             let loose: Vec<(usize, &Node)> = order
                 .iter()
                 .enumerate()
-                .filter(|(_, n)| stage[&n.id] == st && !plots.contains_key(n.id.as_str()) && n.op != GROUP)
+                .filter(|(_, n)| stage[&n.id] == st && n.op != GROUP)
                 .map(|(k, n)| (k, *n))
                 .collect();
             if let Some((first, _)) = loose.first() {
@@ -764,15 +781,15 @@ impl Document {
         {
             p.title = lang.t("Analysis").into();
         }
-        // the plots: the figures of the steps they show (the node in a group's body that gives what is shown),
+        // the Plots: the figures of the steps they show (the node in a group's body that gives what is shown),
         // numbered in the document's order
         let mut loose = Vec::new();
-        for n in &order {
-            let Some(plot) = plots.get(n.id.as_str()) else { continue };
-            let Some((node, port)) = plotted(plot) else { continue };
-            let caption = plot.params.get("title").map(words).unwrap_or_else(|| format!("{node}.{port}"));
+        for plot in &m.plots {
+            let Some((node, port)) = plotted(m, r, plot) else { continue };
+            let caption =
+                plot.title.clone().filter(|t| !t.trim().is_empty()).unwrap_or_else(|| format!("{node}.{port}"));
             let (path, id, step_port) = giver(&m.nodes, &node, &port);
-            let compared = compared(plot);
+            let compared = plot_compared(plot);
             let f = Figure { plot: plot.id.clone(), node: node.clone(), port, step_port, caption, number: 0, compared };
             let found = sections.iter_mut().find_map(|s| find_step(&mut s.steps, &path, &id));
             match found {
@@ -955,6 +972,7 @@ pub fn group_by_stage(m: &mut Model, r: &Registry) -> Result<Vec<String>, String
         let name = if st == Stage::Preparation && analysis { "analysis" } else { st.title() }.to_lowercase();
         let id = if copy.node(&name).is_some() { format!("{name}_stage") } else { name };
         crate::editor::group_nodes(&mut copy, r, &[], &ids, &id, Some(stage_note(st, analysis)))?;
+        plots_follow(&mut copy, &id, &ids);
         made.push(id);
     }
     if made.is_empty() {
@@ -967,6 +985,40 @@ pub fn group_by_stage(m: &mut Model, r: &Registry) -> Result<Vec<String>, String
     }
     *m = copy;
     Ok(made)
+}
+
+/// The Plots' layers and comparisons of the nodes put in the top-level group `id` read the group's outputs (one
+/// added for a port nothing else read: `node`, or `node_port` when the group gives another port of the node).
+fn plots_follow(m: &mut Model, id: &str, moved: &[String]) {
+    let Some(b) = m.nodes.iter_mut().find(|n| n.id == id).and_then(|g| g.body.as_mut()) else { return };
+    let mut follow = |r: &mut String| {
+        let Ok(Ref::Port { node, port }) = Ref::parse(r) else { return };
+        if !moved.contains(&node) {
+            return;
+        }
+        let key = match b.outputs.iter().find(|(_, v)| v.as_str() == r.as_str()) {
+            Some((k, _)) => k.clone(),
+            None => {
+                let of_node = format!("{node}.");
+                let k = if b.outputs.contains_key(&node) || b.outputs.values().any(|v| v.starts_with(&of_node)) {
+                    format!("{node}_{port}")
+                } else {
+                    node.clone()
+                };
+                b.outputs.insert(k.clone(), r.clone());
+                k
+            }
+        };
+        *r = format!("{id}.{key}");
+    };
+    for p in &mut m.plots {
+        for l in &mut p.layers {
+            follow(&mut l.from);
+        }
+        if let Some(c) = &mut p.compare {
+            follow(&mut c.with);
+        }
+    }
 }
 
 /// The output of a top-level node when it has only one: a reference to it names the node alone.
@@ -1021,7 +1073,9 @@ mod tests {
     use super::*;
 
     fn template(name: &str) -> Model {
-        crate::templates::TEMPLATES.iter().find(|t| t.name == name).expect("a template").model()
+        let mut m = crate::templates::TEMPLATES.iter().find(|t| t.name == name).expect("a template").model();
+        m.upgrade();
+        m
     }
 
     fn ids(sec: &Section) -> Vec<&str> {
@@ -1118,8 +1172,10 @@ mod tests {
         assert_eq!(made, ["data", "preparation", "model"]);
         assert!(group_by_stage(&mut g.clone(), &r).is_err(), "grouped already");
         let ids: Vec<&str> = g.nodes.iter().map(|n| n.id.as_str()).collect();
-        assert_eq!(ids.len(), 5, "{ids:?}");
-        assert!(ids.contains(&"plot") && ids.contains(&"rng"), "the plot and the generator at the top level");
+        assert_eq!(ids.len(), 4, "{ids:?}");
+        assert!(ids.contains(&"rng"), "the generator at the top level");
+        // the Plot reads the group's output
+        assert_eq!(g.plot("plot").unwrap().layers[0].from, "model.simulation_maps");
         assert!(terraflux_graph::check(&g, &r).iter().all(|i| i.severity != terraflux_graph::Severity::Error));
         assert_eq!(g.node("model").unwrap().note.as_deref(), Some(stage_note(Stage::Model, false)));
         assert_eq!(g.outputs["maps"].from, "model.simulation_maps");
@@ -1169,11 +1225,15 @@ mod tests {
     fn every_template_makes_a_document() {
         let r = Registry::standard();
         for t in crate::templates::TEMPLATES.iter() {
-            let m = t.model();
+            let mut m = t.model();
+            m.upgrade();
             let d = Document::of(&m, &r);
-            let plots = m.nodes.iter().filter(|n| n.op == "view.plot").count();
             let steps = d.sections.iter().map(|s| s.steps.len()).sum::<usize>();
-            assert_eq!(steps + plots, m.nodes.len(), "{}: every node once", t.name);
+            assert_eq!(steps, m.nodes.len(), "{}: every node once", t.name);
+            // every Plot showing a step's output a figure
+            let figures = d.steps().iter().map(|s| s.figures.len()).sum::<usize>() + d.figures.len();
+            let shown = m.plots.iter().filter(|p| plotted(&m, &r, p).is_some()).count();
+            assert_eq!(figures, shown, "{}: a figure per Plot", t.name);
             // a step never before what it depends on in its stage
             for sec in &d.sections {
                 let mut seen = HashSet::new();

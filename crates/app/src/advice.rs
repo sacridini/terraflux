@@ -515,7 +515,11 @@ mod tests {
         m.nodes.push(Node::new("rates", "markov.fit").input("t0", "$t0").input("t1", "$t1"));
         m.nodes.push(Node::new("weights", "woe.fit").input("t0", "$t0").input("t1", "$t1"));
         m.nodes.push(Node::new("step", "dinamica.step").input("landscape", "$t1"));
-        m.nodes.push(Node::new("plot", "view.plot").input("value", "step.landscape"));
+        m.plots.push(terraflux_graph::Plot {
+            id: "plot".into(),
+            layers: vec![terraflux_graph::PlotLayer::new("step.landscape")],
+            ..Default::default()
+        });
         m
     }
 

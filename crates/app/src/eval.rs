@@ -114,7 +114,10 @@ fn neutral_landscapes() -> Model {
 }
 
 fn dinamica() -> Model {
-    crate::templates::TEMPLATES.iter().find(|t| t.name == "Dinamica EGO").expect("the template").model()
+    // (brought up to date as a session reads it: its plots Plots)
+    let mut m = crate::templates::TEMPLATES.iter().find(|t| t.name == "Dinamica EGO").expect("the template").model();
+    m.upgrade();
+    m
 }
 
 fn two_nodes() -> Model {
