@@ -1147,6 +1147,7 @@ impl Engine {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn run_scope(
         &self,
         nodes: &[Node],
@@ -1155,10 +1156,15 @@ impl Engine {
         prefix: &str,
         obs: &mut dyn Observer,
         warnings: &mut Vec<String>,
+        roots: Option<&std::collections::BTreeSet<String>>,
     ) -> Result<()> {
         let among = ids(nodes);
         let ordered = order(nodes, |n| dependencies_among(n, &among)).map_err(|e| Error::Model(e.to_string()))?;
+        let skipped = roots.map(|r| self.only_for_frozen(&ordered, &among, env, prefix, r)).unwrap_or_default();
         for node in ordered {
+            if skipped.contains(node.id.as_str()) {
+                continue;
+            }
             let at = if prefix.is_empty() { node.id.clone() } else { format!("{prefix}/{}", node.id) };
             if obs.cancelled() {
                 return Err(Error::Cancelled);
@@ -1229,6 +1235,46 @@ impl Engine {
             env.results.insert(node.id.clone(), out);
         }
         Ok(())
+    }
+
+    /// The nodes of a group's body read only by frozen nodes whose results are held (or by nodes such in turn):
+    /// they need not run. `roots`: the nodes the group's outputs read (they run); a node nothing reads runs too (a
+    /// write, a view).
+    fn only_for_frozen<'n>(
+        &self,
+        ordered: &[&'n Node],
+        among: &std::collections::HashSet<&str>,
+        env: &Env,
+        prefix: &str,
+        roots: &std::collections::BTreeSet<String>,
+    ) -> std::collections::HashSet<&'n str> {
+        let mut skipped = std::collections::HashSet::new();
+        let Some(k) = env.kept else { return skipped };
+        let held: std::collections::HashSet<&str> = {
+            let c = k.cache.lock().unwrap();
+            ordered
+                .iter()
+                .filter(|n| n.frozen && c.holds(&format!("{prefix}/{}", n.id)))
+                .map(|n| n.id.as_str())
+                .collect()
+        };
+        if held.is_empty() {
+            return skipped;
+        }
+        let deps: Vec<(&str, Vec<String>)> =
+            ordered.iter().map(|n| (n.id.as_str(), dependencies_among(n, among))).collect();
+        // (readers after what they read: from the last back)
+        for n in ordered.iter().rev() {
+            let id = n.id.as_str();
+            if held.contains(id) || roots.contains(id) {
+                continue;
+            }
+            let mut readers = deps.iter().filter(|(_, d)| d.iter().any(|x| x == id)).map(|(r, _)| *r).peekable();
+            if readers.peek().is_some() && readers.all(|r| held.contains(r) || skipped.contains(r)) {
+                skipped.insert(id);
+            }
+        }
+        skipped
     }
 
     /// A node's outputs: those of a chain run file by file it is part of ([`Engine::chain`]), else it run. `runs`:
@@ -1875,7 +1921,9 @@ impl Engine {
             let outer = Node { body: None, ..node.clone() };
             scoped_print(&outer, env, &k, inputs).map(|print| Scope { print, ..k })
         });
-        self.run_scope(&body.nodes, &mut child, inputs, at, obs, warnings)?;
+        // (what only its frozen nodes read does not run: the nodes its outputs read do)
+        let roots = body.outputs.values().filter_map(|r| r.split('.').next()).map(String::from).collect();
+        self.run_scope(&body.nodes, &mut child, inputs, at, obs, warnings, Some(&roots))?;
         if let Some(k) = child.kept {
             // (what was kept of nodes no longer in its body: let go)
             let within = format!("{at}/");
@@ -2013,7 +2061,7 @@ impl Engine {
                 }
                 e => e,
             };
-            self.run_scope(&body.nodes, &mut child, inputs, at, obs, warnings).map_err(element)?;
+            self.run_scope(&body.nodes, &mut child, inputs, at, obs, warnings, None).map_err(element)?;
             obs.body(at, i + 1, &child.results);
             let mut now = Outputs::new();
             for (k, r) in &body.collect {
@@ -2072,7 +2120,7 @@ impl Engine {
             let mut c = carried.clone();
             c.insert("step".into(), Value::Integer(step as i64));
             let mut child = env.child(c);
-            self.run_scope(&body.nodes, &mut child, inputs, at, obs, warnings)?;
+            self.run_scope(&body.nodes, &mut child, inputs, at, obs, warnings, None)?;
             obs.body(at, step, &child.results);
             if let Some(r) = &body.until {
                 let stop = self.resolve(&Source::Ref(r.clone()), &child, inputs, &format!("{at}/until"))?;

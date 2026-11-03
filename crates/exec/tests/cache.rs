@@ -289,7 +289,9 @@ fn a_frozen_node_of_a_group_is_used_whatever_it_came_from() {
     let none = BTreeMap::new();
     let r = engine.run_with(&m, &none, &mut Seen::default(), Some(&cache), None).unwrap();
     assert_eq!(r.get("g.y").unwrap().as_number(), Some(42.0));
-    assert_eq!(runs.load(Ordering::SeqCst), 3, "a, first and third");
+    // first, read only by second, does not run (as a node read only by a frozen one at the top level)
+    assert_eq!(runs.load(Ordering::SeqCst), 2, "a and third");
+    assert!(!r.values["g"].contains_key("first.y"));
     // what it reads changed: the group runs again, still with the frozen result
     m.nodes[0].params.insert("by".into(), 5.into());
     let r = engine.run_with(&m, &none, &mut Seen::default(), Some(&cache), None).unwrap();

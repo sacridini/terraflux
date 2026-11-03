@@ -829,6 +829,10 @@ commit por item):
    um laço tirado do cache vem da rodada anterior. Um passo não guardado: *Run to see it* roda o laço de novo (fora
    do cache, a não ser congelado). Falta: laços dentro de grupos ou de outros laços (só os do nível de cima).
 10. **Nó congelado:** o que só ele lê dentro de um grupo não roda mais.
+   **Feito** (Unreleased): `Engine::only_for_frozen` acha, no corpo de um grupo, os nós lidos só por nós congelados
+   com o resultado segurado (ou por nós assim, de trás para frente); eles não rodam. Os nós que as saídas do grupo
+   leem rodam sempre, e um nó que nada lê também (um write, um view). Nos laços, nada muda. Teste: `first`, lido só
+   por `second` congelado, não roda mais (`cache.rs`).
 11. **QGIS:** o `.qgz` conferido no PyQGIS.
 12. **Trace:** a variável de iteração do CLUE.
 13. **Document:** tabelas dentro de tabelas.
