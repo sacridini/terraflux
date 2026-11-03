@@ -990,9 +990,25 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    - Testes: no grafo (a migração, o arquivo, o plot vazio e o de dentro de um grupo, o `check`); no app, os
      templates (as mesmas camadas que o `plot_stack` dava, mais a tabela) e os 47 modelos do site.
 
-   **4b**, o próximo: ligar a migração no `upgrade`, o Viewer abrir e salvar Plots, e os leitores (Document,
-   relatório, QGIS, Python, cenários, batch, conselhos, frases). **4c**: o MCP (`set_plot`, `remove_plot`), o
-   operador obsoleto e o site.
+   **4b feito** (Unreleased).
+   - A migração ligada no `Model::upgrade` (todo modelo lido) e no `Session::edited` (um `view.plot` posto
+     pelo assistente ou por um agente vira Plot).
+   - O Viewer: o menu **Plots** no cabeçalho (`builder::plots_menu`): abrir (`builder::open_plot`: as camadas, o
+     mapa mostrado e a banda, a comparação; uma tabela no gráfico do Plot), *Save as a new plot*
+     (`plot_<nó>`), *Update the plot*, o título, *Remove the plot*. Um template começa com o seu último Plot
+     aberto. O estilo dos vetores guardado como JSON (`Style::to_json`/`from_json`).
+   - As referências dos Plots seguem um nó renomeado ou agrupado e saem com um removido (`editor::for_each_ref`,
+     `remove_node`).
+   - Os leitores (feitos por um sub-agente num worktree à parte): o Document (`document::plotted`: a camada de
+     cima que não é vetor; as figuras na ordem dos Plots), o relatório, a comparação de cenários (o mapa de cada
+     Plot), o *Many runs* e o script Python. O QGIS não lia os plots.
+   - Testes: `ui.rs` (salvar um Plot pelo menu, a comparação de um Plot, o template, as camadas de um Plot, a
+     tabela no gráfico, as legendas dos templates), os do Document e do relatório.
+   Falta: a paleta por camada no Plot (o campo existe, o Viewer ainda não grava nem lê), a coluna inteira por
+   Plot na comparação de cenários (hoje o mapa de cada Plot), a lista dos Plots no Document.
+
+   **4c**, o próximo: o MCP (`set_plot`, `remove_plot`, o guia `results`, o assistente), o `view.plot` fora da
+   biblioteca e das buscas (obsoleto até a 2.0) e os 47 tutoriais do site.
 5. **Depois** (a decidir, cada um à parte): reprojetar outro CRS por tile, ao desenhar; medir distância e área;
    soltar um arquivo no Viewer (o `raster.read` criado e a camada fixada); a tabela de atributos de uma camada de
    vetores; rótulos; o histograma de cada camada; exportar o Plot como PNG ou GeoTIFF composto.

@@ -2350,18 +2350,8 @@ fn layers_section(
 /// What a Plot shows first, its legend and settings in the Viewer: its top map (a layer not hidden that is not
 /// vector features), else its top layer; an output (`node.port`).
 pub fn plot_figure(m: &terraflux_graph::Model, r: &Registry, p: &terraflux_graph::Plot) -> Option<(String, String)> {
-    let port_of = |from: &str| match terraflux_graph::Ref::parse(from) {
-        Ok(terraflux_graph::Ref::Port { node, port }) => Some((node, port)),
-        _ => None,
-    };
-    let vector = |node: &str, port: &str| {
-        m.nodes
-            .iter()
-            .find(|n| n.id == node)
-            .is_some_and(|n| crate::editor::output_ports(n, r).iter().any(|(q, t)| q == port && *t == Type::Vector))
-    };
-    let shown: Vec<(String, String)> = p.layers.iter().filter(|l| !l.hidden).filter_map(|l| port_of(&l.from)).collect();
-    shown.iter().rev().find(|(n, q)| !vector(n, q)).or(shown.last()).cloned()
+    // (the Document's figure of it)
+    crate::document::plotted(m, r, p)
 }
 
 /// A Plot opened in the Viewer: its layers, the map it shows (its band), its comparison; the Viewer brought to the

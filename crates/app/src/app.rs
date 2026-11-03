@@ -1687,6 +1687,8 @@ impl TerrafluxApp {
         }
         if let Some(plot) = s.source.plots.last().map(|p| p.id.clone()) {
             crate::builder::open_plot(&mut s, &self.registry, &plot);
+            // (in the Viewer behind the graph: the model in front)
+            s.ask_viewer = false;
         }
         s.run_when_ready = true;
         ctx.request_repaint();

@@ -20,8 +20,17 @@ minor versions.
   drawn under it, those over it over it; the pointer tells each map's value by its name. Layers follow a node
   renamed and go with one removed, and the QGIS project takes the visible ones. (In place of *Maps over it* and
   *Vectors over the map*.)
+- **Plots: views of the results kept with the model** (`[[plots]]` in its file), in place of `view.plot` nodes.
+  The Viewer's **Plots** menu opens one (its layers, the map shown and its band, its comparison, a table's chart),
+  keeps what the Viewer shows as a new one, updates the one open, renames its title or removes it. The Document
+  and the report show the Plots as figures, the comparison of scenarios offers their maps, Many runs keeps what
+  they show, and the Python script names them. A Plot follows a node renamed or grouped, and loses a layer whose
+  node is removed; `terraflux check` checks what they read.
 
 ### Changed
+- **The `view.plot` nodes of a model are Plots** when it is read (or when an agent adds one): their `under`
+  chains, maps, opacity, features, tables and charts, comparisons, titles and notes kept; what read a plot's
+  `shown` reads what it showed. Plots inside groups stay nodes. A template begins with its last Plot open.
 - **One place to see a result: the Viewer.** A double click on a node shows its output in the Viewer (brought to
   the front), run first when it has not run yet (quietly, as the preview after an edit), instead of opening a map
   tab of its own; a `view.plot` that runs no longer opens a tab either (it shows in the Viewer when clicked, with
