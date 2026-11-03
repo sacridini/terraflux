@@ -780,6 +780,15 @@ commit por item):
    bacias; carbono, qualidade do habitat, produção de água, SDR, NDR, polinização; `agents.update`, CRAFTY; a
    vulnerabilidade, o ajuste, a avaliação e a alocação do REDD+ e as emissões.
 6. **Protocolo e línguas:** saída estruturada no `check_model` e no `run_model`, elicitation, guias em português.
+   **Feito** (Unreleased): `tools::output_schema` e `tools::structured` (os dados tirados do texto da resposta: os
+   erros, warnings e conselhos do check; a duração, os arquivos, os warnings, os conselhos ou o erro da rodada),
+   `outputSchema` no `tools/list` e `structuredContent` no `tools/call` do MCP. Elicitation: o `initialize` guarda se
+   o cliente declara `elicitation`; o servidor manda `elicitation/create` e espera a resposta pela entrada padrão
+   (`Client`: os pedidos em aberto por id, a resposta entregue à thread que espera; o `set_input` roda numa thread
+   como o `run_model` quando o cliente pergunta). O `set_input` de um mapa de classes (2 a 24 inteiros,
+   `tools::classes_of`) sem nota pergunta o nome de cada classe e os guarda na nota ("Classes: 1 = forest; ...").
+   Os seis guias de método em português (`guide::GUIDES_PT`, `guide_in`, `language: pt` na ferramenta), os mesmos
+   operadores e templates citados (um teste); os de construção do modelo ficam em inglês.
 7. **Script Python:** `dinamica.step`, `cars.step`, `lulcc.step`, `plus.demand`, `demand.regional`, as zonas do
    `prioritize.optimize`.
 8. **Stop dentro do C++** (MSPA, `circuit.pairwise`, Omniscape) e `ctx.stopped()` nos operadores longos.

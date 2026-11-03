@@ -24,6 +24,12 @@ minor versions.
 - **Advice on the operators** kept with them (a field of the operator's description, filled by the operator or by
   a table of the operators' crate): describe_operator and the documentation tell it; new advice for the graphs of
   connectivity (`conn.*`), the hydrology (`hydro.*`), InVEST (`services.*`), the agents, REDD+ and the emissions.
+- `terraflux mcp` answers **as data** too (MCP 2025-06-18's `outputSchema` and `structuredContent`): check_model
+  (whether the model runs, its errors, warnings and advice) and run_model (the files written, the warnings, the
+  advice, or why it did not run).
+- `terraflux mcp` **asks the user** (MCP's elicitation, when the client can): set_input of a map of classes without
+  a note asks what each class is, and keeps the names as the input's note.
+- The guides of the methods **in Portuguese** (`guide` with `language: pt`), for the assistant that answers in it.
 
 ## [1.32.0] - 2026-11-02
 

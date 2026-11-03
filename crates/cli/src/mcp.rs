@@ -32,8 +32,12 @@ fn send(out: &Out, v: &Value) -> std::io::Result<()> {
 /// tools answered meanwhile), tells the client how it goes (progress notifications, when it gave a token) and stops
 /// when the client cancels it.
 pub fn serve() -> anyhow::Result<()> {
-    let server = Arc::new(Server { engine: Engine::default() });
     let out: Out = Arc::new(Mutex::new(std::io::stdout()));
+    let to_client = out.clone();
+    let client = Client::new(Box::new(move |v| {
+        let _ = send(&to_client, v);
+    }));
+    let server = Arc::new(Server::new(Some(client)));
     let runs: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>> = Arc::default();
     for line in std::io::stdin().lock().lines() {
         let line = line?;
@@ -41,6 +45,13 @@ pub fn serve() -> anyhow::Result<()> {
             continue;
         }
         let reply = match serde_json::from_str::<Value>(&line) {
+            // the client's answer to a question of the server's (elicitation)
+            Ok(m) if m.get("method").is_none() && m.get("id").is_some() => {
+                if let Some(c) = &server.client {
+                    c.answered(&m);
+                }
+                None
+            }
             // (a batch, as the protocol's first versions allowed)
             Ok(Value::Array(all)) => {
                 let r: Vec<Value> = all.into_iter().filter_map(|m| server.message(m)).collect();
@@ -53,7 +64,13 @@ pub fn serve() -> anyhow::Result<()> {
                 }
                 None
             }
-            Ok(m) if m["method"] == "tools/call" && m["params"]["name"] == "run_model" && !m["id"].is_null() => {
+            // run_model, and the tools that may ask the user (their answer comes on this input), in a thread
+            Ok(m)
+                if m["method"] == "tools/call"
+                    && !m["id"].is_null()
+                    && (m["params"]["name"] == "run_model"
+                        || (m["params"]["name"] == "set_input" && server.elicits.load(Ordering::Relaxed))) =>
+            {
                 let (server, out, runs) = (server.clone(), out.clone(), runs.clone());
                 let key = m["id"].to_string();
                 let stop = Arc::new(AtomicBool::new(false));
@@ -98,11 +115,103 @@ fn failure(id: Value, code: i64, message: &str) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
 }
 
+/// The client as the server asks it (MCP's requests from the server: elicitation): the questions sent, their
+/// answers waited for by the thread that asked.
+struct Client {
+    send: Box<dyn Fn(&Value) + Send + Sync>,
+    waiting: Mutex<HashMap<String, std::sync::mpsc::Sender<Value>>>,
+    asked: std::sync::atomic::AtomicU64,
+}
+
+impl Client {
+    fn new(send: Box<dyn Fn(&Value) + Send + Sync>) -> Client {
+        Client { send, waiting: Mutex::default(), asked: Default::default() }
+    }
+
+    /// Ask the client (a request of `method`): its answer's result, none when it failed or did not answer in time.
+    fn ask(&self, method: &str, params: Value) -> Option<Value> {
+        let id = format!("terraflux-{}", self.asked.fetch_add(1, Ordering::Relaxed) + 1);
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.waiting.lock().unwrap_or_else(|e| e.into_inner()).insert(id.clone(), tx);
+        (self.send)(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }));
+        let answer = rx.recv_timeout(std::time::Duration::from_secs(600)).ok();
+        self.waiting.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+        answer?.get("result").cloned()
+    }
+
+    /// An answer of the client's, to the thread waiting for it.
+    fn answered(&self, m: &Value) {
+        let id = match &m["id"] {
+            Value::String(s) => s.clone(),
+            other => other.to_string(),
+        };
+        if let Some(tx) = self.waiting.lock().unwrap_or_else(|e| e.into_inner()).remove(&id) {
+            let _ = tx.send(m.clone());
+        }
+    }
+}
+
 struct Server {
     engine: Engine,
+    /// Whether the client can ask its user (it declared `elicitation` in initialize).
+    elicits: AtomicBool,
+    client: Option<Client>,
 }
 
 impl Server {
+    fn new(client: Option<Client>) -> Server {
+        Server { engine: Engine::default(), elicits: AtomicBool::new(false), client }
+    }
+
+    /// The names of a map of classes given to set_input without a note, asked of the user (when the client can
+    /// ask): they go into the input's note, and what was learnt is told (empty: nothing asked or answered).
+    fn name_classes(&self, a: &mut Value) -> String {
+        let Some(client) = self.client.as_ref().filter(|_| self.elicits.load(Ordering::Relaxed)) else {
+            return String::new();
+        };
+        if a["kind"] != "map" || opt_text(a, "note").is_some() {
+            return String::new();
+        }
+        let Some(path) = opt_text(a, "path").map(absolute) else { return String::new() };
+        let band = a.get("band").and_then(Value::as_u64).map(|b| b as usize);
+        let Some(classes) = tools::classes_of(&path, band) else { return String::new() };
+        let key = |c: i64| if c < 0 { format!("class_minus_{}", -c) } else { format!("class_{c}") };
+        let properties: serde_json::Map<String, Value> = classes
+            .iter()
+            .map(|c| {
+                (key(*c), json!({ "type": "string", "title": format!("Class {c}"), "description": format!("what the cells of {c} are (e.g. forest); empty if not known") }))
+            })
+            .collect();
+        let file = path.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+        let message = format!(
+            "{file} is a map of {} classes ({}). What is each? The model's notes and the assistant's choices \
+             (which class is the forest, which changes) follow your names.",
+            classes.len(),
+            classes.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(", ")
+        );
+        let asked = json!({ "message": message, "requestedSchema": { "type": "object", "properties": properties } });
+        let Some(answer) = client.ask("elicitation/create", asked) else { return String::new() };
+        if answer["action"] != "accept" {
+            return format!(
+                " (the user was asked to name its classes and {}: ask in the conversation if it matters)",
+                if answer["action"] == "decline" { "declined" } else { "did not answer" }
+            );
+        }
+        let named: Vec<String> = classes
+            .iter()
+            .filter_map(|c| {
+                let n = answer["content"][key(*c)].as_str()?.trim();
+                (!n.is_empty()).then(|| format!("{c} = {n}"))
+            })
+            .collect();
+        if named.is_empty() {
+            return String::new();
+        }
+        let note = format!("Classes: {}", named.join("; "));
+        a["note"] = json!(note);
+        format!("; the user named its classes, kept as its note: {}", named.join("; "))
+    }
+
     /// The answer to a request; none to a notification (or to an answer of the client's).
     fn message(&self, m: Value) -> Option<Value> {
         self.answer(&m, &mut Watcher::default())
@@ -114,9 +223,12 @@ impl Server {
         let method = m.get("method").and_then(Value::as_str)?;
         let params = m.get("params").cloned().unwrap_or_else(|| json!({}));
         let result = match method {
-            "initialize" => Ok(initialize(&params)),
+            "initialize" => {
+                self.elicits.store(params["capabilities"]["elicitation"].is_object(), Ordering::Relaxed);
+                Ok(initialize(&params))
+            }
             "ping" => Ok(json!({})),
-            "tools/list" => Ok(json!({ "tools": tools::catalogue(false) })),
+            "tools/list" => Ok(json!({ "tools": listed() })),
             "tools/call" => self.call(&params, watcher),
             "prompts/list" => Ok(json!({ "prompts": prompts() })),
             "prompts/get" => prompt(&params),
@@ -156,7 +268,12 @@ impl Server {
                 (format!("Terraflux failed: {why}"), true)
             }
         };
-        Ok(json!({ "content": [{ "type": "text", "text": text }], "isError": error }))
+        let mut reply = json!({ "content": [{ "type": "text", "text": text }], "isError": error });
+        // (the same as data, for the tools that declare it)
+        if let Some(data) = tools::structured(name, &text, error) {
+            reply["structuredContent"] = data;
+        }
+        Ok(reply)
     }
 
     /// A resource's contents: a guide, a template's file, an operator's documentation.
@@ -184,7 +301,7 @@ impl Server {
         let r = &self.engine.registry;
         match name {
             "list_templates" => Ok(tools::find_templates(opt_text(a, "query"))),
-            "guide" => terraflux_app::guide::guide(opt_text(a, "topic")),
+            "guide" => terraflux_app::guide::guide_in(opt_text(a, "topic"), opt_text(a, "language")),
             "list_operators" => Ok(tools::list_operators(r, opt_text(a, "query"))),
             "describe_operator" => tools::describe_operator(r, text(a, "name")?),
             "new_model" => new_model(r, a),
@@ -223,10 +340,29 @@ impl Server {
                 let known = tools::known_by_running(&self.engine, m, dir);
                 tools::write_calc(m, r, dir, a, &known)
             }),
+            "set_input" => {
+                let mut a = a.clone();
+                let named = self.name_classes(&mut a);
+                change(&a, r, |m, r, dir| tools::edit("set_input", m, r, dir, &a)).map(|t| match t.split_once('\n') {
+                    Some((done, rest)) => format!("{done}{named}\n{rest}"),
+                    None => format!("{t}{named}"),
+                })
+            }
             edit if tools::EDITS.contains(&edit) => change(a, r, |m, r, dir| tools::edit(edit, m, r, dir, a)),
             _ => Err(format!("no tool {name:?}")),
         }
     }
+}
+
+/// The tools as MCP lists them: with the schema of what they answer as data, for those that give it.
+fn listed() -> Vec<Value> {
+    let mut all = tools::catalogue(false);
+    for t in &mut all {
+        if let Some(schema) = t["name"].as_str().and_then(tools::output_schema) {
+            t["outputSchema"] = schema;
+        }
+    }
+    all
 }
 
 fn initialize(params: &Value) -> Value {
@@ -563,7 +699,7 @@ mod tests {
 
     #[test]
     fn the_protocol_is_spoken() {
-        let s = Server { engine: Engine::default() };
+        let s = Server::new(None);
         let init = s
             .message(json!({ "jsonrpc": "2.0", "id": 0, "method": "initialize", "params": { "protocolVersion": "2025-06-18" } }))
             .unwrap();
@@ -603,7 +739,7 @@ mod tests {
 
     #[test]
     fn guides_prompts_and_resources() {
-        let s = Server { engine: Engine::default() };
+        let s = Server::new(None);
         let (t, e) = call(&s, "guide", json!({}));
         assert!(!e && t.contains("land-change") && t.contains("species-distribution"), "{t}");
         let (t, e) = call(&s, "guide", json!({ "topic": "land-change" }));
@@ -645,7 +781,7 @@ mod tests {
 
     #[test]
     fn found_in_portuguese_and_advised_on_the_method() {
-        let s = Server { engine: Engine::default() };
+        let s = Server::new(None);
         let (t, _) = call(&s, "list_operators", json!({ "query": "densidade de bordas" }));
         assert!(t.contains("metrics."), "{t}");
         let (t, _) = call(&s, "list_operators", json!({ "query": "conectividade circuito" }));
@@ -672,8 +808,99 @@ mod tests {
     }
 
     #[test]
+    fn the_check_and_the_run_answer_as_data_too() {
+        let s = Server::new(None);
+        let listed = s.message(json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })).unwrap();
+        let tools = listed["result"]["tools"].as_array().unwrap();
+        let schema = |n: &str| tools.iter().find(|t| t["name"] == n).unwrap()["outputSchema"].clone();
+        assert_eq!(schema("check_model")["required"], json!(["runs", "errors", "warnings", "advice"]));
+        assert_eq!(schema("run_model")["required"], json!(["ran"]));
+        assert!(schema("add_node").is_null());
+        let dir = std::env::temp_dir().join(format!("terraflux-mcp-data-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let model = dir.join("m.toml").to_string_lossy().into_owned();
+        call(&s, "new_model", json!({ "model": model, "template": "Neutral landscapes" }));
+        let ask = |name: &str| {
+            let r = s
+                .message(json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": { "name": name, "arguments": { "model": model } } }))
+                .unwrap();
+            r["result"].clone()
+        };
+        let checked = ask("check_model");
+        assert_eq!(checked["structuredContent"]["runs"], true, "{checked}");
+        assert!(checked["structuredContent"]["errors"].as_array().unwrap().is_empty());
+        let ran = ask("run_model");
+        let data = &ran["structuredContent"];
+        assert_eq!(data["ran"], true, "{ran}");
+        assert!(data["seconds"].as_f64().is_some(), "{data}");
+        // a model that does not run
+        let mut m = Model::load(&model).unwrap();
+        m.nodes.push(terraflux_graph::Node::new("bad", "raster.calc").input("x", "nothing.map"));
+        m.save(&model).unwrap();
+        let checked = ask("check_model");
+        assert_eq!(checked["structuredContent"]["runs"], false, "{checked}");
+        assert!(!checked["structuredContent"]["errors"].as_array().unwrap().is_empty());
+        let ran = ask("run_model");
+        assert_eq!(ran["structuredContent"]["ran"], false);
+        assert!(ran["structuredContent"]["error"].as_str().is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_user_names_the_classes_of_a_map() {
+        use terraflux_raster::{DataType, Grid, Raster};
+        let dir = std::env::temp_dir().join(format!("terraflux-mcp-ask-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let land = dir.join("land.tif");
+        Raster::single(Grid::new(3, 2), vec![1.0, 1.0, 2.0, 3.0, 2.0, 1.0], DataType::U8, None).write(&land).unwrap();
+        // a client that asks its user: the questions kept, a user who names two of the classes
+        let asked: Arc<Mutex<Vec<Value>>> = Arc::default();
+        let server: Arc<Mutex<Option<Arc<Server>>>> = Arc::default();
+        let (kept, to) = (asked.clone(), server.clone());
+        let client = Client::new(Box::new(move |q| {
+            kept.lock().unwrap().push(q.clone());
+            let answer = json!({ "jsonrpc": "2.0", "id": q["id"], "result": {
+                "action": "accept", "content": { "class_1": "forest", "class_2": " pasture ", "class_3": "" } } });
+            let s = to.lock().unwrap().clone().unwrap();
+            // (the answer comes from another thread, as from the input)
+            std::thread::spawn(move || s.client.as_ref().unwrap().answered(&answer));
+        }));
+        let s = Arc::new(Server::new(Some(client)));
+        *server.lock().unwrap() = Some(s.clone());
+        let model = dir.join("m.toml").to_string_lossy().into_owned();
+        call(&s, "new_model", json!({ "model": model }));
+        let args = json!({ "model": model, "name": "land", "kind": "map", "path": land.to_string_lossy() });
+        // a client that cannot ask: nothing asked
+        let (t, e) = call(&s, "set_input", args.clone());
+        assert!(!e && !t.contains("named"), "{t}");
+        assert!(asked.lock().unwrap().is_empty());
+        s.message(json!({ "jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {
+            "protocolVersion": "2025-06-18", "capabilities": { "elicitation": {} } } }));
+        let (t, e) = call(&s, "set_input", args.clone());
+        assert!(!e, "{t}");
+        assert!(t.contains("the user named its classes, kept as its note: 1 = forest; 2 = pasture"), "{t}");
+        let q = asked.lock().unwrap()[0].clone();
+        assert_eq!(q["method"], "elicitation/create");
+        assert!(q["params"]["message"].as_str().unwrap().contains("3 classes (1, 2, 3)"), "{q}");
+        assert_eq!(q["params"]["requestedSchema"]["properties"]["class_3"]["type"], "string");
+        match &Model::load(&model).unwrap().inputs["land"] {
+            terraflux_graph::Input::Map { note, .. } => {
+                assert_eq!(note.as_deref(), Some("Classes: 1 = forest; 2 = pasture"))
+            }
+            other => panic!("{other:?}"),
+        }
+        // a note given: not asked again
+        let mut noted = args.clone();
+        noted["note"] = json!("the land use of 2010");
+        call(&s, "set_input", noted);
+        assert_eq!(asked.lock().unwrap().len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn a_model_is_built_checked_and_run() {
-        let s = Server { engine: Engine::default() };
+        let s = Server::new(None);
         let dir = std::env::temp_dir().join(format!("terraflux-mcp-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let model = dir.join("m.toml").to_string_lossy().into_owned();
@@ -742,7 +969,7 @@ mod tests {
 
     #[test]
     fn a_model_is_grouped_by_stage() {
-        let s = Server { engine: Engine::default() };
+        let s = Server::new(None);
         let dir = std::env::temp_dir().join(format!("terraflux-mcp-g-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let model = dir.join("g.toml").to_string_lossy().into_owned();
@@ -769,7 +996,7 @@ mod tests {
 
     #[test]
     fn parameters_and_scenarios() {
-        let s = Server { engine: Engine::default() };
+        let s = Server::new(None);
         let dir = std::env::temp_dir().join(format!("terraflux-mcp-p-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let model = dir.join("p.toml").to_string_lossy().into_owned();
@@ -809,7 +1036,7 @@ mod tests {
 
     #[test]
     fn a_calculator_is_written_and_explained() {
-        let s = Server { engine: Engine::default() };
+        let s = Server::new(None);
         let dir = std::env::temp_dir().join(format!("terraflux-mcp-calc-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let model = dir.join("c.toml").to_string_lossy().into_owned();
@@ -863,7 +1090,7 @@ mod tests {
 
     #[test]
     fn a_cell_is_traced() {
-        let s = Server { engine: Engine::default() };
+        let s = Server::new(None);
         let dir = std::env::temp_dir().join(format!("terraflux-mcp-tr-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let model = dir.join("t.toml").to_string_lossy().into_owned();
@@ -887,7 +1114,7 @@ mod tests {
 
     #[test]
     fn a_failure_is_explained() {
-        let s = Server { engine: Engine::default() };
+        let s = Server::new(None);
         let dir = std::env::temp_dir().join(format!("terraflux-mcp-f-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let model = dir.join("f.toml").to_string_lossy().into_owned();
@@ -916,7 +1143,7 @@ mod tests {
 
     #[test]
     fn a_template_is_copied() {
-        let s = Server { engine: Engine::default() };
+        let s = Server::new(None);
         let dir = std::env::temp_dir().join(format!("terraflux-mcp-t-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let model = dir.join("t.toml").to_string_lossy().into_owned();
@@ -941,7 +1168,7 @@ mod tests {
 
     #[test]
     fn the_model_records_its_choices() {
-        let s = Server { engine: Engine::default() };
+        let s = Server::new(None);
         let dir = std::env::temp_dir().join(format!("terraflux-mcp-r-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let model = dir.join("r.toml").to_string_lossy().into_owned();

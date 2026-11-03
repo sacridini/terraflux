@@ -198,6 +198,91 @@ pub fn catalogue(app: bool) -> Vec<Value> {
     tools
 }
 
+/// The schema of what a tool answers as data (MCP's `outputSchema`, 2025-06-18), for those that give it: the
+/// check's problems and advice, a run's files and warnings.
+pub fn output_schema(name: &str) -> Option<Value> {
+    let list = json!({ "type": "array", "items": { "type": "string" } });
+    match name {
+        "check_model" => Some(json!({
+            "type": "object",
+            "properties": {
+                "runs": { "type": "boolean", "description": "whether the model can run (no errors)" },
+                "errors": list, "warnings": list,
+                "advice": { "type": "array", "description": "advice on the method and the record", "items": { "type": "string" } },
+            },
+            "required": ["runs", "errors", "warnings", "advice"],
+        })),
+        "run_model" => Some(json!({
+            "type": "object",
+            "properties": {
+                "ran": { "type": "boolean" },
+                "seconds": { "type": "number" },
+                "files": { "type": "array", "description": "the files written", "items": { "type": "string" } },
+                "warnings": list,
+                "advice": list,
+                "error": { "type": "string", "description": "why it did not run" },
+            },
+            "required": ["ran"],
+        })),
+        _ => None,
+    }
+}
+
+/// What a tool answered, as the data of its [`output_schema`] (none for the tools without one).
+pub fn structured(name: &str, text: &str, error: bool) -> Option<Value> {
+    let lines = || text.lines().map(str::trim);
+    let after = |prefix: &str| -> Vec<String> {
+        lines().filter_map(|l| l.strip_prefix(prefix)).map(|l| l.trim().to_string()).collect()
+    };
+    match name {
+        "check_model" => {
+            let runs = !error && text.starts_with("The model can run.");
+            Some(json!({
+                "runs": runs,
+                "errors": after("error:"),
+                "warnings": after("warning:"),
+                "advice": after("advice:"),
+            }))
+        }
+        "run_model" => {
+            if error {
+                return Some(json!({ "ran": false, "error": text }));
+            }
+            let seconds =
+                text.strip_prefix("Ran in ").and_then(|r| r.split(' ').next()).and_then(|s| s.parse::<f64>().ok());
+            // the lists after their headings, a "- " line each
+            let mut files = Vec::new();
+            let mut warnings = Vec::new();
+            let mut advice = Vec::new();
+            let mut list = 0;
+            for l in lines() {
+                if l.contains("Wrote (") {
+                    list = 1;
+                } else if l == "Warnings:" {
+                    list = 2;
+                } else if l.starts_with("On the method") {
+                    list = 3;
+                } else if let Some(item) = l.strip_prefix("- ") {
+                    match list {
+                        1 => files.push(item.to_string()),
+                        2 => warnings.push(item.to_string()),
+                        3 => advice.push(item.to_string()),
+                        _ => {}
+                    }
+                } else {
+                    list = 0;
+                }
+            }
+            let mut v = json!({ "ran": true, "files": files, "warnings": warnings, "advice": advice });
+            if let Some(s) = seconds {
+                v["seconds"] = json!(s);
+            }
+            Some(v)
+        }
+        _ => None,
+    }
+}
+
 /// The tools as a request to a chat model asks for them (the OpenAI API's `tools`).
 pub fn functions(tools: &[Value]) -> Vec<Value> {
     tools
@@ -1287,7 +1372,10 @@ fn all() -> Vec<Value> {
         tool(
             "guide",
             "A guide, read before building or reviewing a model: the method of a field step by step with its operators and templates (land-change, connectivity, landscape-metrics, conservation-planning, species-distribution, data-preparation), or how a model is built (nodes, calc, containers, record, results). Without a topic: the guides listed.",
-            json!({ "topic": { "type": "string", "description": "The guide, e.g. land-change." } }),
+            json!({
+                "topic": { "type": "string", "description": "The guide, e.g. land-change." },
+                "language": { "type": "string", "enum": ["en", "pt"], "description": "en (default) or pt: the guides of the methods in Portuguese, for a user who writes in it." },
+            }),
             &[],
             Some(&read_only),
         ),
@@ -2302,6 +2390,24 @@ fn text_head(p: &Path) -> Reply {
         shown.push_str(&format!("... and {more} lines more\n"));
     }
     Ok(format!("{} ({} lines)\n{shown}", p.display(), lines.len()))
+}
+
+/// The classes of a map of classes (a band of whole numbers with 2 to 24 values, no data apart), sorted; none when
+/// the file is not one (or cannot be read).
+pub fn classes_of(p: &Path, band: Option<usize>) -> Option<Vec<i64>> {
+    let r = terraflux_ops::files::Rasters::open(&p.to_string_lossy(), None, None).ok()?;
+    let data = r.read(band.unwrap_or(0)).ok()?;
+    let mut seen = std::collections::BTreeSet::new();
+    for v in data.iter().filter(|v| v.is_finite()) {
+        if v.fract() != 0.0 {
+            return None;
+        }
+        seen.insert(*v as i64);
+        if seen.len() > 24 {
+            return None;
+        }
+    }
+    (seen.len() >= 2).then(|| seen.into_iter().collect())
 }
 
 /// A raster's size, georeference and, for each band, its statistics or the cells of each class.

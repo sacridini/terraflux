@@ -818,7 +818,7 @@ impl Job {
         // (a failure of an operator ends the call, not the assistant)
         let done = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match call.name.as_str() {
             "list_templates" => Ok(tools::find_templates(tools::opt_text(a, "query"))),
-            "guide" => crate::guide::guide(tools::opt_text(a, "topic")),
+            "guide" => crate::guide::guide_in(tools::opt_text(a, "topic"), tools::opt_text(a, "language")),
             "list_operators" => Ok(tools::list_operators(r, tools::opt_text(a, "query"))),
             "describe_operator" => tools::describe_operator(r, tools::text(a, "name")?),
             "inspect_file" => tools::inspect_file(a),

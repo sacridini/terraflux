@@ -131,7 +131,8 @@ change.components (quantity, exchange and shift, Pontius & Santacruz 2014). Temp
 (demand.table, demand.from_maps, plus.demand);
    - where: weights of evidence (woe.fit, then woe.probability: Dinamica EGO), logistic regressions (glm.fit, \
 glm.predict: CLUE-S), random forests (ml.potential with `later`: PLUS's LEAS). Drivers correlated give double \
-weight: check_model warns on collinear drivers.
+weight: check_model warns on collinear drivers. Distances (to roads, rivers, towns and the change already there) are \
+the strongest drivers of most models.
 4. Simulate step by step in a control.repeat: dinamica.step (Expander and Patcher), lulcc.step (CLUE-S), cars.step \
 (PLUS), clumondo.step, molusce.step. Templates \"Dinamica EGO\", \"CLUE-S\", \"PLUS (LEAS and CARS)\".
 5. Validate: simulate from t1 to the date of t2 and compare with t2: validate.three_map (the budget of agreement \
@@ -228,6 +229,142 @@ predictors' names on the future stack. Template \"Species distribution model\", 
     },
 ];
 
+/// The guides of the methods in Portuguese (the names of the operators, settings and templates as they are), for an
+/// assistant answering a user who writes in it; the guides of building a model are only in English (read by the
+/// assistant alone).
+pub const GUIDES_PT: &[Guide] = &[
+    Guide {
+        name: "data-preparation",
+        title: "Os dados em forma: uma grade, classes, variáveis explicativas",
+        text: "\
+1. Olhe cada arquivo antes (inspect_file): tamanho, células, sistema de coordenadas, classes ou estatísticas, sem \
+dado.
+2. Uma grade de referência: o mapa de uso (ou de habitat) do início, num sistema de coordenadas projetado (metros: \
+uma zona UTM, ou uma projeção de áreas iguais para áreas). Mapas em longitudes e latitudes passam por \
+raster.reproject; cada outro mapa por raster.match para a referência (as mesmas células). A reamostragem pelo \
+dado: classes pela célula mais próxima ou pela moda, valores bilinear ou pela média (`auto` escolhe).
+3. Classes: números inteiros, poucos; reclassifique com raster.reclassify (regras `1 2 3 -> 1`) ou write_calc; \
+limpe os pixels soltos com raster.sieve ou raster.majority. Diga o que é cada classe na nota do nó.
+4. Variáveis explicativas como uma pilha (stack.of, uma camada cada, com nome): distâncias a estradas, rios, \
+cidades ou a uma classe (vector.distance, distance.proximity), declividade e altitude (raster.terrain, \
+surface.terrain), solos como categorias. Não constantes, com valor onde a terra tem classe, não colineares: o \
+check_model confere.
+5. Vetores: vector.read, vector.reproject para o sistema da referência, vector.rasterize na grade dela.
+Templates: \"Drivers of land change\", \"Cleaning a map of classes: filter, sieve, label and grow\", \"Terrain of a \
+surface\".",
+    },
+    Guide {
+        name: "land-change",
+        title: "Mudança de uso e cobertura da terra: analisar, calibrar, simular, validar",
+        text: "\
+1. Dados: duas datas de uso para calibrar (t0, t1) e, para validar, uma terceira (t2) não usada na calibração; \
+todas numa grade (guide data-preparation); as variáveis explicativas como uma pilha.
+2. Analise a mudança observada: change.crosstab e change.transitions (a matriz de transições), change.intensity \
+(análise de intensidade, Aldwaik & Pontius 2012: quais classes e transições estão ativas), change.components \
+(quantidade, troca e deslocamento, Pontius & Santacruz 2014). Template \"Land change analysis\".
+3. Calibre só no primeiro período (t0 a t1):
+   - a quantidade: markov.fit (`steps`: os passos de tempo do período, as taxas são por passo), ou uma demanda \
+(demand.table, demand.from_maps, plus.demand);
+   - onde: pesos de evidência (woe.fit, depois woe.probability: Dinamica EGO), regressões logísticas (glm.fit, \
+glm.predict: CLUE-S), florestas aleatórias (ml.potential com `later`: o LEAS do PLUS). Variáveis correlacionadas \
+contam em dobro: o check_model avisa das colineares. As distâncias (a estradas, rios, cidades e ao que já mudou) \
+são as variáveis mais fortes da maioria dos modelos.
+4. Simule passo a passo num control.repeat: dinamica.step (Expander e Patcher), lulcc.step (CLUE-S), cars.step \
+(PLUS), clumondo.step, molusce.step. Templates \"Dinamica EGO\", \"CLUE-S\", \"PLUS (LEAS and CARS)\".
+5. Valide: simule de t1 até a data de t2 e compare com t2: validate.three_map (o balanço de concordância e a \
+figure of merit em várias resoluções, Pontius et al. 2011), validate.similarity (a similaridade fuzzy do \
+Dinamica), validate.agreement, validate.kappa. Compare com o modelo nulo (nenhuma mudança: t1 como simulação, \
+Pontius et al. 2004): um modelo que não o supera não aprendeu nada. Nunca valide no mapa da calibração. Template \
+\"Validating a simulation\".
+6. Incerteza: os passos estocásticos (uma semente) dão um futuro possível por rodada; rode várias sementes \
+(control.each sobre uma lista delas) e informe a dispersão; futuros sob outras hipóteses como cenários \
+(set_scenario).
+7. Registre as classes, o período, a hipótese das taxas (estacionárias) e a validação nas notas dos nós; o \
+methods escreve a seção do artigo.",
+    },
+    Guide {
+        name: "connectivity",
+        title: "Conectividade: estrutural, grafos, menores custos, circuitos",
+        text: "\
+1. Dados: o habitat (um mapa de classes, ou 0 sem dado, 1 fundo, 2 habitat), num sistema de coordenadas \
+projetado (distâncias em metros); uma superfície de resistência (ou condutância) onde se estuda o movimento: \
+reclassificando o uso (raster.reclassify, com valores da literatura ou de especialistas, registrados nas refs do \
+nó) ou crescendo com a distância ao habitat (restoration.resistance). A resistência tem de ser maior que 0.
+2. Conectividade estrutural: landscape.mspa (núcleos, pontes, laços, ramos; `edge_width` em células), depois \
+networks.conefor ou networks.gtn_components e networks.gtn_importance (a rede de núcleos e pontes). Template \
+\"Network of a forest (MSPA)\".
+3. Grafos de manchas: conn.graph_from_raster ou conn.graph_from_vector (distâncias euclidianas, de menor custo ou \
+de tempo de percurso), conn.overall (IIC, PC e a conectividade equivalente), conn.node_importance (dIIC, dPC: \
+quais manchas importam), conn.link_importance, conn.protconn (o ProtConn das áreas protegidas). A distância de \
+dispersão vem da espécie estudada (registre-a nas refs). Template \"Habitat network (Conefor)\".
+4. Menores custos e passeios aleatórios: cost.transition de uma condutância (1 / resistência; \
+cost.geo_correction para as distâncias das células), depois cost.acc_cost, cost.shortest_path, cost.passage \
+(passeios aleatórios, caminhos mais curtos aleatorizados); restoration.corridor e restoration.least_cost_path. \
+Templates \"Least costs and random walks\", \"Restoring a corridor\".
+5. Circuitos: circuit.pairwise (resistências efetivas e correntes entre pontos focais), circuit.one_to_all, \
+circuit.omniscape (omnidirecional, janelas móveis). Template \"Circuit connectivity\".
+6. Rios: hydro.dci (o índice de conectividade dendrítica das barragens). Template \"Rivers: dams and their \
+connectivity (DCI)\".",
+    },
+    Guide {
+        name: "landscape-metrics",
+        title: "Padrões da paisagem: métricas, MSPA, fragmentação",
+        text: "\
+1. Dados: um mapa de classes (números inteiros) num sistema de coordenadas projetado: áreas e bordas são medidas \
+nas unidades das células. Um mapa contínuo é classificado antes (raster.reclassify, write_calc).
+2. Métricas como no landscapemetrics e no FRAGSTATS: metrics.patch, metrics.class, metrics.landscape (`metrics` um \
+nome ou uma lista; `type` um grupo delas), metrics.window (janela móvel: um mapa de uma métrica). Escolha poucas \
+métricas que respondam à pergunta (e não redundantes: metrics.correlation), não todas. A conectividade das \
+manchas (`directions`: 8 ou 4) muda as contagens: diga qual.
+3. Muitas paisagens ou datas: metrics.sample (pontos, buffers, polígonos), vector.grid_zones (zonas numa grade), \
+metrics.series (datas); assinaturas e grupos: metrics.signatures, metrics.pca, metrics.cluster.
+4. Morfologia e fragmentação (GuidosToolbox): landscape.mspa (as classes do primeiro plano em `foreground`, a \
+largura da borda em células: a escala do resultado), fragmentation.fad e fragmentation.fad_multiscale (a \
+densidade de área de floresta), fragmentation.fos, landscape.spa, landscape.accounting.
+5. Mudança de padrões: change.simple, change.morphological, change.fad. Paisagens neutras (nlm.*) dão os valores \
+esperados de uma métrica sem estrutura, para comparar.
+Templates: \"Landscape metrics\", \"MSPA of your map\", \"Fragmentation of a forest\", \"Patches and their \
+shapes\", \"Forest gain and loss\".",
+    },
+    Guide {
+        name: "conservation-planning",
+        title: "Planejamento de conservação e restauração",
+        text: "\
+1. Dados: as feições (distribuições de espécies, habitats, serviços ecossistêmicos) como uma pilha, uma camada \
+cada (stack.of), numa grade; um custo por unidade de planejamento (preço da terra, custo de oportunidade; células \
+sem custo não são unidades), ou unidades em polígonos; áreas já protegidas (travadas dentro) ou excluídas \
+(travadas fora).
+2. Metas: quanto de cada feição manter (relativas, absolutas, loglineares), da política ou da literatura \
+(registre-as nas refs).
+3. Resolva: prioritize.optimize (programação linear inteira, ótima dentro do gap: min_set, min_shortfall, \
+max_utility... com penalidades de borda ou de conectividade), prioritize.zonation (uma ordem de todas as células, \
+Zonation 5), prioritize.marxan (simulated annealing, Marxan 4), prioritize.actions e prioritize.actions_raster \
+(ações contra ameaças), restoration.plan (benefícios e custos da restauração).
+4. Avalie: prioritize.evaluate (o custo, quanto de cada feição a solução tem, metas atingidas, \
+insubstituibilidade), prioritize.proxirr; compare soluções sob outros custos ou metas como cenários \
+(set_scenario).
+Templates: \"Conservation planning (linear programming)\", \"Zonation\", \"Marxan and irreplaceability\", \
+\"Irreplaceability of a plan\", \"Restoration plan\", \"Multi-action planning\".",
+    },
+    Guide {
+        name: "species-distribution",
+        title: "Modelos de distribuição de espécies",
+        text: "\
+1. Registros: limpos (sdm.clean_occurrences), um por célula (sdm.one_per_cell), rarefeitos (sdm.thin) contra o \
+viés de amostragem; ou tudo de uma vez com sdm.prepare.
+2. Preditoras: uma pilha (stack.of) numa grade; sem colinearidade (sdm.vif, sdm.select_predictors); a área \
+acessível (sdm.accessible_area); pontos de fundo (sdm.background, uma superfície de viés com sdm.bias_surface).
+3. Dobras da avaliação: espaciais (sdm.spatial_blocks, sdm.buffer_folds, sdm.checkerboard_folds) e não \
+aleatórias (sdm.random_folds) quando os registros se agrupam, o que infla a acurácia (Roberts et al. 2017); \
+sdm.autocorrelation_range dá o tamanho dos blocos.
+4. Ajuste e avalie: sdm.fit (MaxNet, um GLM ou uma floresta aleatória, por dobra: AUC de treino e de teste, TSS, \
+Boyce), sdm.evaluate; um auc_diff (treino menos teste) grande: o modelo se sobreajusta.
+5. Projete: sdm.maxnet_predict na pilha das preditoras; um limiar (sdm.threshold) para um mapa de presença; \
+extrapolação onde o ambiente é novo (sdm.mess, sdm.exdet, sdm.mop); em outro clima, os mesmos nomes das \
+preditoras na pilha futura. Templates \"Species distribution model\", \"A species in a warmer climate\".",
+    },
+];
+
 /// A guide by its name (or its beginning, when only one guide has it).
 pub fn find(name: &str) -> Option<&'static Guide> {
     let n = name.trim().to_lowercase().replace([' ', '_'], "-");
@@ -261,9 +398,50 @@ pub fn guide(topic: Option<&str>) -> Result<String, String> {
     }
 }
 
+/// A guide in a language (`pt`: the method's in Portuguese, when it has one; else the English one, said so).
+pub fn guide_in(topic: Option<&str>, language: Option<&str>) -> Result<String, String> {
+    let pt = language.is_some_and(|l| l.trim().to_lowercase().starts_with("pt"));
+    let text = guide(topic)?;
+    if !pt {
+        return Ok(text);
+    }
+    let Some(g) = topic.and_then(find) else { return Ok(text) };
+    Ok(match GUIDES_PT.iter().find(|p| p.name == g.name) {
+        Some(p) => format!("{}\n\n{}\n", p.title, p.text),
+        None => format!("(este guia só existe em inglês)\n{text}"),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_methods_in_portuguese() {
+        // every guide of a method has its Portuguese, naming the same operators and templates
+        for g in GUIDES.iter().skip(5) {
+            let p = GUIDES_PT.iter().find(|p| p.name == g.name).unwrap_or_else(|| panic!("{} in Portuguese", g.name));
+            let words = |t: &str| {
+                let mut w: Vec<String> = t
+                    .split(|c: char| !(c.is_ascii_alphanumeric() || c == '.' || c == '_'))
+                    .map(|w| w.trim_end_matches('.').to_string())
+                    .filter(|w| {
+                        w.contains('.') && w.split('.').all(|p| !p.is_empty() && !p.chars().all(|c| c.is_ascii_digit()))
+                    })
+                    .collect();
+                w.sort();
+                w.dedup();
+                w
+            };
+            assert_eq!(words(p.text), words(g.text), "the operators of {}", g.name);
+            let quoted = |t: &str| t.split('"').skip(1).step_by(2).map(String::from).collect::<Vec<_>>();
+            assert_eq!(quoted(p.text), quoted(g.text), "the templates of {}", g.name);
+        }
+        assert!(guide_in(Some("land-change"), Some("pt")).unwrap().starts_with("Mudança de uso"));
+        assert!(guide_in(Some("land-change"), None).unwrap().starts_with("Land use"));
+        assert!(guide_in(Some("calc"), Some("pt")).unwrap().starts_with("(este guia só existe em inglês)"));
+        assert!(guide_in(Some("nothing"), Some("pt")).is_err());
+    }
 
     /// The operators a text names (`family.name` of a family the registry has).
     fn named_ops(text: &str, families: &std::collections::BTreeSet<String>) -> Vec<String> {
