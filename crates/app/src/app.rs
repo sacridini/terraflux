@@ -857,6 +857,8 @@ impl Session {
 
     /// After an edit of the source: the model run and its checks follow.
     pub fn edited(&mut self) {
+        // (a view.plot added, by the assistant or an agent: a Plot)
+        self.source.plots_from_nodes();
         self.history.changed(&self.source);
         self.dirty = true;
         self.fields.clear();

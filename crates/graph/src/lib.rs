@@ -602,7 +602,8 @@ impl Model {
     /// A model written by an older Terraflux brought up to date (done when a model is read): the operators
     /// renamed by their new names; map algebra in the language's one syntax ([`old_algebra`]), told in the notes
     /// returned; what read a `raster.read`'s `map` or `stack` (the same rasters on disk as its `raster`, which
-    /// feeds what takes a map, its band chosen, or a stack) reads its `raster`.
+    /// feeds what takes a map, its band chosen, or a stack) reads its `raster`; the `view.plot` nodes are Plots
+    /// ([`Model::plots_from_nodes`]).
     pub fn upgrade(&mut self) -> Vec<String> {
         // the operators renamed: their new names
         fn rename(nodes: &mut [Node]) {
@@ -642,6 +643,8 @@ impl Model {
         let mut notes = Vec::new();
         algebra(&mut self.nodes, &mut notes);
         self.read_raster();
+        // the view.plot nodes: Plots
+        notes.extend(self.plots_from_nodes());
         notes
     }
 
