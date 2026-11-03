@@ -70,9 +70,6 @@ pub enum Pane {
     /// The script of the map algebra node selected: written with its names completed, its outputs previewed, and
     /// anything computed in its scope.
     Calculator,
-    /// A node's output in a tab of its own (opened by `Session::open_map`; one per node, brought to the
-    /// front when it is open already).
-    Map(u64),
 }
 
 impl Pane {
@@ -117,7 +114,6 @@ impl Pane {
             Pane::Trace => "Trace",
             Pane::Problems => "Problems",
             Pane::Calculator => "Calculator",
-            Pane::Map(_) => "Map",
         }
     }
 }
@@ -128,7 +124,7 @@ impl Pane {
 /// model's left as an inspector and the model's document in a tab behind the model's with the first node (a node
 /// added, a model or a template opened), the preparation of the data in a tab behind it with the first data, the viewer in a tab behind the model's with
 /// the first data (a raster or vectors read, a template); the calculator under the model when a script is opened
-/// in it. The maps of nodes open beside the viewer. The operators and the files are in drawers at the window's left edge
+/// in it. A node's output shows in the viewer (no tab of its own). The operators and the files are in drawers at the window's left edge
 /// (the operators also in the Operators menu, behind "/" and in the commands, ctrl+K); their panes, shown, take
 /// the left edge.
 pub fn default_layout() -> DockState<Pane> {
@@ -137,7 +133,7 @@ pub fn default_layout() -> DockState<Pane> {
 
 /// The panes that come when they make sense (see [`default_layout`]), not kept from a session to the next.
 fn comes_when_due(p: &Pane) -> bool {
-    matches!(p, Pane::Map(_) | Pane::Viewer | Pane::Node | Pane::Document | Pane::Prepare | Pane::Calculator)
+    matches!(p, Pane::Viewer | Pane::Node | Pane::Document | Pane::Prepare | Pane::Calculator)
 }
 
 /// The panes kept that `keep` says to keep, and the floating windows left with none taken away (egui_dock's
@@ -258,32 +254,7 @@ impl egui_dock::TabViewer for Panes<'_> {
     }
 
     fn title(&mut self, tab: &mut Pane) -> egui::WidgetText {
-        match tab {
-            Pane::Map(id) => self
-                .app
-                .session
-                .as_ref()
-                .and_then(|s| s.map_tabs.get(id))
-                .map_or("Map".to_string(), |m| {
-                    // a plot's title, else the node and the output
-                    let title = self.app.session.as_ref().and_then(|s| {
-                        let n = s.source.nodes.iter().find(|n| n.id == m.node)?;
-                        (n.op == "view.plot").then(|| n.params.get("title")?.as_str().map(String::from)).flatten()
-                    });
-                    title.unwrap_or_else(|| format!("{} · {}", m.node, m.port))
-                })
-                .into(),
-            t => t.title().into(),
-        }
-    }
-
-    fn on_close(&mut self, tab: &mut Pane) -> egui_dock::widgets::tab_viewer::OnCloseResponse {
-        if let Pane::Map(id) = tab
-            && let Some(s) = &mut self.app.session
-        {
-            s.map_tabs.remove(id);
-        }
-        egui_dock::widgets::tab_viewer::OnCloseResponse::Close
+        tab.title().into()
     }
 
     fn ui(&mut self, ui: &mut Ui, tab: &mut Pane) {
@@ -636,15 +607,6 @@ pub struct Session {
     /// The animations (GIF) of steps or of a stack's maps being made, and what the last one said.
     pub animations: crate::animation::Animations,
     pub looks: Looks,
-    /// The outputs shown in map tabs of their own (a double click on a node), by tab; the tabs the dock is still
-    /// to show.
-    pub map_tabs: BTreeMap<u64, crate::builder::Shown>,
-    next_tab: u64,
-    pub opened: Vec<u64>,
-    /// The map tabs to bring to the front (asked for again while open).
-    pub raised: Vec<u64>,
-    /// The map tabs opened by a run (its plots): they do not take the front from the model's tab.
-    pub quiet: Vec<u64>,
     /// Outputs being saved (in threads): where, and what came of it; a word for the status bar and since when.
     saving: Vec<(PathBuf, Receiver<Result<PathBuf, String>>)>,
     pub notice: Option<(String, Instant)>,
@@ -804,11 +766,6 @@ impl Session {
             looks: Looks::default(),
             auto: true,
             edited_at: None,
-            map_tabs: BTreeMap::new(),
-            next_tab: 0,
-            opened: Vec::new(),
-            raised: Vec::new(),
-            quiet: Vec::new(),
             run_when_ready: false,
             quiet_run: false,
             quiet_failed: None,
@@ -1217,25 +1174,6 @@ impl Session {
         true
     }
 
-    /// An output in a map tab of its own; the tab. A node has one: asked for again, its tab comes to the front
-    /// (showing the output asked for), and a new one opens only once it is closed.
-    pub fn open_map(&mut self, node: &str, port: &str) -> u64 {
-        if let Some((&id, shown)) = self.map_tabs.iter_mut().find(|(_, t)| t.node == node) {
-            if shown.port != port {
-                shown.port = port.into();
-                shown.band = 0;
-                shown.chosen = false;
-            }
-            self.raised.push(id);
-            return id;
-        }
-        self.next_tab += 1;
-        let shown = crate::builder::Shown { node: node.into(), port: port.into(), ..Default::default() };
-        self.map_tabs.insert(self.next_tab, shown);
-        self.opened.push(self.next_tab);
-        self.next_tab
-    }
-
     /// Save an output to a file in a thread (a map, a stack, a series or rasters: GeoTIFF, copied in blocks
     /// whatever its size; a table: CSV; others: JSON); the status bar says when it is done.
     pub fn save_output(&mut self, node: &str, port: &str, path: &Path) {
@@ -1580,7 +1518,7 @@ pub struct TerrafluxApp {
     /// The bytes in the caches (rasters made, data downloaded), measured when (counted again every few seconds
     /// while the settings show it).
     cache_used: Option<(Instant, u64)>,
-    /// The map seen last (a map's tab or the viewer): Tab goes from the model to it and back.
+    /// The map seen last (the viewer): Tab goes from the model to it and back.
     tab_back: Option<Pane>,
     /// Tab was taken this frame: the keyboard's focus it may have given a field is let go at the frame's end.
     tabbed: bool,
@@ -3377,8 +3315,8 @@ impl TerrafluxApp {
         if !ui.input(|i| i.focused) {
             return;
         }
-        // the map seen last: a map's tab, or the viewer
-        if let Some(p @ (Pane::Map(_) | Pane::Viewer)) = self.focused() {
+        // the map seen last: the viewer
+        if let Some(p @ Pane::Viewer) = self.focused() {
             self.tab_back = Some(p);
         }
         let keys = Keys::read(ui);
@@ -3398,9 +3336,6 @@ impl TerrafluxApp {
         if keys.close
             && let Some(p) = self.focused()
         {
-            if let (Pane::Map(id), Some(s)) = (p, &mut self.session) {
-                s.map_tabs.remove(&id);
-            }
             self.close(p);
         }
         self.app_keys(ui.ctx(), &keys);
@@ -3826,17 +3761,6 @@ impl TerrafluxApp {
                 }
                 None => {}
             },
-            Pane::Map(id) => {
-                let Some(mut shown) = s.map_tabs.remove(&id) else {
-                    ui.label(RichText::new("This map's node is gone.").weak());
-                    return;
-                };
-                let hover = crate::builder::output(ui, s, r, &mut shown, &format!("map {id}"));
-                s.map_tabs.insert(id, shown);
-                if hover.is_some() {
-                    self.hover = hover;
-                }
-            }
         }
     }
 
@@ -3849,64 +3773,6 @@ impl TerrafluxApp {
             retain_panes(&mut w.dock, |t| *t != pane);
         }
         self.windows.retain(|w| w.dock.iter_all_tabs().next().is_some());
-    }
-
-    /// The map tabs asked for put in the dock (beside the viewer, else where the focus is); those of nodes no
-    /// longer open taken away.
-    fn place_map_tabs(&mut self) {
-        let (opened, raised, quiet, known): (Vec<u64>, Vec<u64>, Vec<u64>, Vec<u64>) = match &mut self.session {
-            Some(s) => (
-                std::mem::take(&mut s.opened),
-                std::mem::take(&mut s.raised),
-                std::mem::take(&mut s.quiet),
-                s.map_tabs.keys().copied().collect(),
-            ),
-            None => (Vec::new(), Vec::new(), Vec::new(), Vec::new()),
-        };
-        let stale = |t: &mut Pane| !matches!(t, Pane::Map(id) if !known.contains(id));
-        let dock = self.dock.get_or_insert_with(default_layout);
-        retain_panes(dock, stale);
-        for w in &mut self.windows {
-            retain_panes(&mut w.dock, stale);
-        }
-        self.windows.retain(|w| w.dock.iter_all_tabs().next().is_some());
-        for id in opened {
-            self.beside_viewer(Pane::Map(id), true);
-        }
-        for id in quiet {
-            self.beside_viewer(Pane::Map(id), false);
-        }
-        // (brought to the front where it is, or put back if its window went away)
-        for id in raised {
-            self.focus(Pane::Map(id));
-        }
-    }
-
-    /// A tab put beside the viewer's wherever it is (in the main window or one of its own), else beside the maps
-    /// open, else beside the model's, else where the focus is; brought to the front (not `front`: unless the model's tab is in front there).
-    fn beside_viewer(&mut self, pane: Pane, front: bool) {
-        let is_map = |t: &Pane| matches!(t, Pane::Map(_));
-        let dock = self.dock.get_or_insert_with(default_layout);
-        for d in std::iter::once(dock).chain(self.windows.iter_mut().map(|w| &mut w.dock)) {
-            let at = d
-                .find_tab(&Pane::Viewer)
-                .or_else(|| d.iter_all_tabs().find(|(_, t)| is_map(t)).map(|(p, _)| p))
-                .or_else(|| d.find_tab(&Pane::Model));
-            if let Some(path) = at
-                && let Ok(leaf) = d.leaf_mut(path.node_path())
-            {
-                let before = leaf.active;
-                let model = leaf.tabs().get(before.0) == Some(&Pane::Model);
-                leaf.append_tab(pane);
-                if !front && model {
-                    leaf.active = before;
-                } else if let Some(p) = d.find_tab(&pane) {
-                    let _ = d.set_active_tab(p);
-                }
-                return;
-            }
-        }
-        self.dock.get_or_insert_with(default_layout).push_to_focused_leaf(pane);
     }
 
     /// The pane whose tab has the focus (of the main window).
@@ -3936,7 +3802,7 @@ impl TerrafluxApp {
         // beside the pane it goes with: the maps and results by the viewer (else the model), the viewer by the model
         let dock = self.dock.get_or_insert_with(default_layout);
         let near: &[Pane] = match pane {
-            Pane::Simulation | Pane::Areas | Pane::Validation | Pane::Batch | Pane::Computers | Pane::Map(_) => {
+            Pane::Simulation | Pane::Areas | Pane::Validation | Pane::Batch | Pane::Computers => {
                 &[Pane::Viewer, Pane::Model]
             }
             Pane::Viewer | Pane::Document => &[Pane::Model],
@@ -4130,7 +3996,6 @@ impl TerrafluxApp {
 
     /// The dock of the main window, and the windows of their own.
     fn docks(&mut self, ui: &mut Ui) {
-        self.place_map_tabs();
         let mut moves = Moves::default();
         let mut dock = self.dock.take().unwrap_or_else(default_layout);
         let style = dock_style(ui);
@@ -4178,9 +4043,6 @@ impl TerrafluxApp {
                     if let Some(p) = front
                         && let Some(path) = w.dock.find_tab(&p)
                     {
-                        if let (Pane::Map(id), Some(s)) = (p, &mut app.session) {
-                            s.map_tabs.remove(&id);
-                        }
                         w.dock.remove_tab(path);
                     }
                 }
@@ -4243,7 +4105,7 @@ fn hints(focused: Option<Pane>) -> String {
             "click: select    drag: a box of nodes    right or middle drag: move    double click: its map    /: add an \
              operator    {c}enter: run to it    {c}K: commands    F1: shortcuts"
         ),
-        Some(Pane::Viewer | Pane::Map(_) | Pane::Simulation) => {
+        Some(Pane::Viewer | Pane::Simulation) => {
             "wheel: zoom    drag: move    double click: the whole map    B: satellite under the map    space: hide the \
              map    F1: shortcuts"
                 .to_string()

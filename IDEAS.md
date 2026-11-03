@@ -948,6 +948,14 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    - Saem `Pane::Map`, `map_tabs`, `beside_viewer`, `opened`/`quiet`/`raised` (`LAYOUT_VERSION` 12: um layout
      guardado com abas `Map` abre sem elas).
    - A figura (`figure.rs`) e o GIF/MP4 (`animation.rs`) partem das camadas e da divisão do Viewer.
+   **Feito** (Unreleased), em parte: saíram `Pane::Map`, `map_tabs`, `Session::open_map`, `place_map_tabs`,
+   `beside_viewer` e `opened`/`quiet`/`raised`. O Viewer é o único lugar de um mapa. O `LAYOUT_VERSION` ficou 11:
+   as abas `Map` nunca eram guardadas (`comes_when_due`), então nenhum layout salvo as tem e nenhum precisa ser
+   perdido. A comparação já era do Viewer (cortina, lado a lado, diferença com qualquer outro mapa do run ou outra
+   camada de uma pilha). Agora as camadas fixas vêm primeiro na lista de *Compare*, a de cima primeiro. Os testes
+   que abriam abas (`ui.rs`: o traço de uma célula, as legendas dos plots, o clique direito; `readme_images.rs`)
+   usam o Viewer. Falta: dividir em 4 vistas ligadas, cada uma com as suas camadas; a diferença como camada
+   derivada; a figura e o GIF/MP4 a partir de todas as camadas (a figura já leva os vetores das camadas).
 4. **Os Plots salvos no lugar do nó `view.plot`.** (a maior)
    - Formato: `[[plots]]` no modelo (`terraflux_graph::Model::plots`, serde, omitido quando vazio): `id`, `title`,
      `layers = [{ from = "node.port", opacity, palette, band, style }]`, `compare = { with, how }`,

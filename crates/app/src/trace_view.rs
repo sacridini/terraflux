@@ -1,5 +1,5 @@
-//! The Trace pane: why a cell of a result has its value ([`crate::trace`]). A cell clicked on a map (the viewer, a
-//! map's tab), then Trace this cell: the chain of values that made it, back through the graph, a card per node (its
+//! The Trace pane: why a cell of a result has its value ([`crate::trace`]). A cell clicked on a map (in the viewer),
+//! then Trace this cell: the chain of values that made it, back through the graph, a card per node (its
 //! value there, how it was made: map algebra's expression with the values in place of its names, the cells around,
 //! what a model weighs, a loop step by step), its inputs a click away; a sentence of it at the top. Trace inside the
 //! loops runs the model again keeping their bodies' values at the cell. Ask the assistant why sends the trace to the
@@ -144,8 +144,8 @@ pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) -> Optio
             theme::section(ui, "Trace of a cell");
             let Some(t) = st.trace.clone() else {
                 ui.label(weak(
-                    "Why a cell has its value: click a cell of a map (in the viewer or a map's tab), then Trace this \
-                     cell. The chain of values that made it shows here, node by node.",
+                    "Why a cell has its value: click a cell of a map in the viewer, then Trace this cell. The \
+                     chain of values that made it shows here, node by node.",
                 ));
                 return;
             };

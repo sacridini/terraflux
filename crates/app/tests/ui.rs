@@ -31,6 +31,14 @@ fn model() -> PathBuf {
     w.save(&tmp("ui-model.toml")).unwrap()
 }
 
+/// An output shown in the Viewer, brought to the front (as a click on its node shows it).
+fn show(h: &mut Harness<TerrafluxApp>, node: &str, port: &str) {
+    let s = h.state_mut().session.as_mut().unwrap();
+    terraflux_app::builder::select(s, &terraflux_ops::Registry::standard(), node);
+    s.preview = Some((node.to_string(), port.to_string()));
+    h.state_mut().focus(Pane::Viewer);
+}
+
 fn shot(h: &mut Harness<TerrafluxApp>, name: &str) {
     drawn(h);
     match h.render() {
@@ -420,7 +428,6 @@ fn a_plot_shows_without_writing_and_saves_from_its_tab() {
     h.run_steps(3);
     let forest = {
         let s = h.state().session.as_ref().unwrap();
-        assert!(s.map_tabs.is_empty(), "no tab of its own");
         assert_eq!(s.preview.as_ref().map(|(n, _)| n.as_str()), Some("view_plot"), "in the Viewer");
         let Some(terraflux_ops::Value::Map(m)) = s.value_of("view_plot", "shown") else { panic!("{:?}", s.error) };
         assert!(m.data.iter().all(|v| v.is_nan() || *v == 0.0 || *v == 1.0));
@@ -623,22 +630,6 @@ fn templates_run_and_the_keyboard_adds_operators() {
     }
     h.run_steps(4);
     shot(&mut h, "17-reclassify");
-    // a map asked for again: the same tab
-    let first = h.state_mut().session.as_mut().unwrap().open_map("mspa", "map");
-    h.run_steps(2);
-    let again = h.state_mut().session.as_mut().unwrap().open_map("mspa", "map");
-    h.run_steps(2);
-    assert_eq!(first, again);
-    let s = h.state().session.as_ref().unwrap();
-    assert_eq!(s.map_tabs.values().filter(|t| t.node == "mspa").count(), 1);
-    assert!(h.state().is_open(Pane::Map(first)));
-    // closed, it opens anew
-    h.state_mut().close(Pane::Map(first));
-    h.state_mut().session.as_mut().unwrap().map_tabs.remove(&first);
-    let third = h.state_mut().session.as_mut().unwrap().open_map("mspa", "map");
-    h.run_steps(2);
-    assert_ne!(third, first);
-    assert!(h.state().is_open(Pane::Map(third)));
     // "/", a few letters, enter: added after the node selected
     h.state_mut().session.as_mut().unwrap().selected = Some("mspa".into());
     h.event(egui::Event::Text("/".into()));
@@ -981,10 +972,9 @@ fn the_patch_of_a_traced_cell_is_drawn() {
         let i = p.data.iter().position(|v| v.is_finite() && *v > 0.0).expect("a patch");
         (i / p.grid.width, i % p.grid.width)
     };
-    let id = h.state_mut().session.as_mut().unwrap().open_map("patches", "map");
+    show(&mut h, "patches", "map");
     h.run_steps(3);
-    h.state_mut().focus(Pane::Map(id));
-    h.state_mut().session.as_mut().unwrap().map_tabs.get_mut(&id).unwrap().view.picked = Some(cell);
+    h.state_mut().session.as_mut().unwrap().preview_view.picked = Some(cell);
     h.run_steps(3);
     h.get_by_label("Trace this cell").click();
     h.run_steps(4);
@@ -999,7 +989,8 @@ fn the_patch_of_a_traced_cell_is_drawn() {
             n.click_accesskit();
         }
         h.run_steps(3);
-        if h.state().session.as_ref().unwrap().preview.as_ref().is_some_and(|(n, _)| n == "patches") {
+        // (the map is in the Viewer already: the link taken when it draws the patch)
+        if h.state().session.as_ref().unwrap().preview_view.patch.is_some() {
             break;
         }
     }
@@ -1409,10 +1400,9 @@ fn a_cell_is_traced_from_its_map() {
         let s = a.session.as_ref().unwrap();
         !s.running() && s.value_of("simulation", "maps").is_some()
     });
-    let id = h.state_mut().session.as_mut().unwrap().open_map("simulation", "maps");
+    show(&mut h, "simulation", "maps");
     h.run_steps(3);
-    h.state_mut().focus(Pane::Map(id));
-    h.state_mut().session.as_mut().unwrap().map_tabs.get_mut(&id).unwrap().view.picked = Some((40, 60));
+    h.state_mut().session.as_mut().unwrap().preview_view.picked = Some((40, 60));
     h.run_steps(3);
     h.get_by_label("Trace this cell").click();
     h.run_steps(4);
@@ -1486,8 +1476,8 @@ fn fragmentation_is_shown_in_its_classes() {
         until(h, "the legend", |a| of(a).is_some());
         of(h.state()).unwrap()
     }
-    // the template's two plots open in tabs: FAD's in front
-    h.state_mut().session.as_mut().unwrap().open_map("plot_fad", "shown");
+    // the template's two plots in the Viewer: FAD's first
+    show(&mut h, "plot_fad", "shown");
     let fad = look(&mut h, "plot_fad");
     assert_eq!(fad.product, Some(Product::Density { five: false }));
     let terraflux_app::palette::Coloring::Classes(c) = &fad.coloring else { panic!("classes") };
@@ -1495,8 +1485,8 @@ fn fragmentation_is_shown_in_its_classes() {
     assert!(c.len() > 20 && lines.len() <= 8, "{} values in {} lines: {lines:?}", c.len(), lines.len());
     assert!(lines.iter().any(|(_, n, _)| n == "Background"));
     shot(&mut h, "18-fragmentation");
-    // FOS's tab: in 5 classes
-    h.state_mut().session.as_mut().unwrap().open_map("plot_fos", "shown");
+    // FOS's: in 5 classes
+    show(&mut h, "plot_fos", "shown");
     let fos = look(&mut h, "plot_fos");
     assert_eq!(fos.product, Some(Product::Density { five: true }));
 }
@@ -1515,7 +1505,7 @@ fn the_mosaic_and_contagion_are_named() {
         !s.running() && s.value_of("plot_contagion", "shown").is_some()
     });
     let lines = |h: &mut Harness<TerrafluxApp>, node: &str| {
-        h.state_mut().session.as_mut().unwrap().open_map(node, "shown");
+        show(h, node, "shown");
         let of = |a: &TerrafluxApp| {
             let s = a.session.as_ref().unwrap();
             let Some(terraflux_ops::Value::Map(m)) = s.value_of(node, "shown") else { return None };
@@ -1586,7 +1576,7 @@ fn zonation_rank_in_its_colours() {
         let s = a.session.as_ref().unwrap();
         !s.running() && s.value_of("plot_rank", "shown").is_some()
     });
-    h.state_mut().session.as_mut().unwrap().open_map("plot_rank", "shown");
+    show(&mut h, "plot_rank", "shown");
     until(&mut h, "the legend", |a| {
         let s = a.session.as_ref().unwrap();
         let Some(terraflux_ops::Value::Map(m)) = s.value_of("plot_rank", "shown") else { return false };
@@ -2460,8 +2450,7 @@ fn a_table_is_plotted_and_written() {
         let s = a.session.as_ref().unwrap();
         !s.running() && s.value_of("plot", "shown").is_some()
     });
-    // (in the Viewer: no tab of its own)
-    assert!(h.state().session.as_ref().unwrap().map_tabs.is_empty());
+    // (in the Viewer)
     terraflux_app::builder::select(
         h.state_mut().session.as_mut().unwrap(),
         &terraflux_ops::Registry::standard(),
@@ -2889,13 +2878,11 @@ fn a_right_click_traces_a_cell() {
         let s = a.session.as_ref().unwrap();
         !s.running() && s.value_of("field", "map").is_some()
     });
-    let id = h.state_mut().session.as_mut().unwrap().open_map("field", "map");
+    show(&mut h, "field", "map");
     h.run_steps(3);
-    h.state_mut().focus(Pane::Map(id));
-    h.run_steps(3);
-    until(&mut h, "the map drawn", |a| a.session.as_ref().unwrap().map_tabs[&id].view.rect().is_some());
+    until(&mut h, "the map drawn", |a| a.session.as_ref().unwrap().preview_view.rect().is_some());
     drawn(&mut h);
-    let rect = h.state().session.as_ref().unwrap().map_tabs[&id].view.rect().unwrap();
+    let rect = h.state().session.as_ref().unwrap().preview_view.rect().unwrap();
     let at = rect.center();
     h.event(egui::Event::PointerMoved(at));
     h.run_steps(1);
@@ -2909,7 +2896,7 @@ fn a_right_click_traces_a_cell() {
         h.run_steps(1);
     }
     h.run_steps(2);
-    assert!(h.state().session.as_ref().unwrap().map_tabs[&id].view.picked.is_some(), "the cell picked");
+    assert!(h.state().session.as_ref().unwrap().preview_view.picked.is_some(), "the cell picked");
     shot(&mut h, "48-right-click");
     assert!(h.query_by_label("Explain with an MCP assistant").is_some(), "the option for an assistant through mcp");
     // the pointer to the menu, a few frames, then a click: the menu stays while the pointer goes to it

@@ -406,7 +406,6 @@ fn nodes_are_selected_moved_deleted_arranged_and_opened() {
     }
     h.run_steps(3);
     let s = h.state().session.as_ref().unwrap();
-    assert!(s.map_tabs.is_empty(), "no map tab");
     assert_eq!(s.selected.as_deref(), Some("read"));
     assert_eq!(s.preview, Some(("read".to_string(), "raster".to_string())));
     assert!(s.value_of("read", "raster").is_some());

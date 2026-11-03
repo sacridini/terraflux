@@ -3469,7 +3469,12 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 // another map compared with this one: another output of the run, or another layer of this one
                 ui.add_space(8.0);
                 theme::section(ui, "Compare");
-                let others = map_values(s, r, (&node, &port));
+                // (the layers kept first, from the top: the map shown compared with another of its layers)
+                let mut others = map_values(s, r, (&node, &port));
+                let rank = |(n, p): &(String, String)| {
+                    sh.layers.iter().rev().position(|l| l.is(n, p)).unwrap_or(sh.layers.len())
+                };
+                others.sort_by_key(rank);
                 let cmp = &mut sh.compare;
                 let shown = match &cmp.with {
                     None => "nothing".to_string(),

@@ -195,8 +195,7 @@ fn assistant_image() {
         let mut d = DockState::new(vec![Pane::Model]);
         let s = d.main_surface_mut();
         let [model, _] = s.split_right(NodeIndex::root(), 0.6, vec![Pane::Assistant, Pane::Node]);
-        let below: Vec<Pane> = a.session.as_ref().unwrap().map_tabs.keys().map(|&id| Pane::Map(id)).collect();
-        s.split_below(model, 0.45, below);
+        s.split_below(model, 0.45, vec![Pane::Viewer]);
         a.dock = Some(d);
         let ctx = h.ctx.clone();
         let a = h.state_mut();
@@ -250,8 +249,7 @@ fn review_image() {
         let mut d = DockState::new(vec![Pane::Model]);
         let s = d.main_surface_mut();
         let [model, _] = s.split_right(NodeIndex::root(), 0.6, vec![Pane::Review, Pane::Assistant, Pane::Node]);
-        let below: Vec<Pane> = a.session.as_ref().unwrap().map_tabs.keys().map(|&id| Pane::Map(id)).collect();
-        s.split_below(model, 0.45, below);
+        s.split_below(model, 0.45, vec![Pane::Viewer]);
         a.dock = Some(d);
     }
     save(&mut h, "review.png");

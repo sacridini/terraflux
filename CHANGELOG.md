@@ -25,7 +25,9 @@ minor versions.
 - **One place to see a result: the Viewer.** A double click on a node shows its output in the Viewer (brought to
   the front), run first when it has not run yet (quietly, as the preview after an edit), instead of opening a map
   tab of its own; a `view.plot` that runs no longer opens a tab either (it shows in the Viewer when clicked, with
-  the maps under it), and a template begins with its last plot in the Viewer.
+  the maps under it), and a template begins with its last plot in the Viewer. Map tabs are gone. The Viewer
+  compares two maps itself (*Compare*: curtain, side by side or difference), and its list now begins with the
+  layers kept.
 
 ## [1.33.0] - 2026-11-03
 
