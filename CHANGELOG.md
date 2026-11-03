@@ -12,7 +12,11 @@ minor versions.
   `arguments`, Hermes' `<tool_call>`) or as tags (`<function=...>`, `<invoke name="...">`, `<list_operators>
   <query>...`), the values given the types the tools ask for; they enter the conversation as calls and leave the text
   shown. An answer that announces a call without making it is asked again, once. Smaller models served by vLLM
-  (Qwen) wrote their calls this way, and the tasks ended without a tool.
+  (Qwen) wrote their calls this way, and the tasks ended without a tool. Measured on the evaluation's 10 tasks with
+  the HU Berlin Qwen: 5 and 2 before, 4, 7 and 6 after; the evaluation keeps the conversation of a failed task.
+- The assistant **paces its requests** to a server that limits them (the HU Berlin one, 15 a minute), reads Qwen's
+  `<function_calls>` and the tags inside `<tool_call>` by the tool's name and its schema, and asks again an answer
+  that ends promising to act ("Let me build this model now.").
 - **More advice on the method** (check_model, after a run, the assistant): a species distribution model of records
   not cleaned or thinned (`sdm.one_per_cell`, `sdm.thin`); a prioritization never evaluated
   (`prioritize.evaluate`); a resistance of 0 or less read by Circuitscape, Omniscape or a cost (a warning, from the
@@ -30,6 +34,10 @@ minor versions.
 - `terraflux mcp` **asks the user** (MCP's elicitation, when the client can): set_input of a map of classes without
   a note asks what each class is, and keeps the names as the input's note.
 - The guides of the methods **in Portuguese** (`guide` with `language: pt`), for the assistant that answers in it.
+
+### Fixed
+- A stray `</think>` (a thinking model's closing tag without its opening one) no longer shows in the assistant's
+  answer, even when it arrives split in two; nor an empty code block left where a written call was taken out.
 
 ## [1.32.0] - 2026-11-02
 

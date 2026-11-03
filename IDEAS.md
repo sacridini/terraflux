@@ -755,6 +755,18 @@ commit por item):
    em dois-pontos) é pedida de novo uma vez (`written::ask_again`). Testes: os formatos, um servidor falso em
    127.0.0.1 que responde com uma chamada escrita e outro que só anuncia.
 2. **Avaliação antes e depois** com o Qwen da HU (VPN) e um modelo grande, guardada aqui.
+   **Feito** (Unreleased), só com o Qwen da HU (llm3): não há chave de um modelo grande no chaveiro, e a HU só serve
+   o llm3. As 10 tarefas do `eval.rs`, uma rodada por vez. Antes (2026-11-02): 5/10, depois 2/10 (as chamadas
+   escritas como texto, a tarefa terminando sem ferramenta). Depois do item 1: 4/10 (duas tarefas paradas pelo limite
+   de 10 minutos: o servidor recusando pedidos seguidos), 7/10 e 6/10. O que as rodadas mostraram e entrou aqui: os
+   pedidos à HU espaçados (`llm::pace`, 15 por minuto em hu-berlin.de); um `</think>` sem `<think>` tirado do texto
+   (também partido entre dois pedaços); o formato `<function_calls><function_call><parameter name="ferramenta">` do
+   Qwen e as tags dentro de `tool_call(s)`/`function_call(s)`/`tool_use` lidas pelo nome da ferramenta e pelas
+   propriedades do esquema (`written::loose`); uma cerca de código vazia deixada pela chamada tirada; uma ferramenta
+   citada no que parece código, e a resposta que termina prometendo agir ("Let me build this model now.", "Vou ..."),
+   pedidas de novo. `Outcome::said` guarda a conversa, impressa nas tarefas que falham. Falhas que ficam, do próprio
+   modelo: o limiar trocado pela média (0.6 pedido), a saída do nó consertado não rodada, métricas sem o
+   `nlm.random_cluster` pedido.
 3. **Mais regras de método** (`advice.rs`): o `steps` do `markov.fit` contra as datas, `woe.fit` sem distância,
    resistência com zeros ou negativos, priorização sem `prioritize.evaluate`, SDM sem thinning dos registros.
    **Feito** (Unreleased): os anos lidos nos nomes dos arquivos dos `raster.read`, dos nós e das entradas

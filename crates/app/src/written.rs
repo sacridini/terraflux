@@ -114,8 +114,21 @@ pub fn announced(text: &str, offered: &[Value]) -> Option<String> {
         "chamando",
         "preciso",
     ];
-    if named.is_some() && INTENT.iter().any(|w| tail.contains(w)) {
+    // (a tool named in what looks like code: a call written in a form not read)
+    let as_code = ["<", "```", "{\"", "("].iter().any(|c| tail.contains(c));
+    if named.is_some() && (as_code || INTENT.iter().any(|w| tail.contains(w))) {
         return named;
+    }
+    // (a last sentence promising to act now, the answer ending there: "Let me build this model now.")
+    const PROMISE: [&str; 9] =
+        ["let me ", "i'll ", "i will ", "now i ", "now, i ", "vou ", "agora vou ", "deixe-me ", "vamos "];
+    let promise = tail.len() <= 160
+        && !tail.contains('?')
+        && tail.matches(". ").count() == 0
+        && PROMISE.iter().any(|w| tail.starts_with(w))
+        && !["let me know", "i'll be ", "i will be "].iter().any(|w| tail.starts_with(w));
+    if promise {
+        return Some(named.unwrap_or_default());
     }
     t.trim_end_matches('`').trim_end().ends_with(':').then(|| named.unwrap_or_default())
 }
@@ -147,7 +160,8 @@ fn tidy(t: &str) -> String {
                 }
                 body.push(m);
             }
-            if closed && body.iter().all(|b| b.trim().is_empty()) {
+            // (or not closed: what closed it went with a call)
+            if body.iter().all(|b| b.trim().is_empty()) {
                 continue;
             }
             out.push_str(l);
@@ -265,7 +279,7 @@ fn tagged(text: &str, at: usize, tools: &[(&str, &Value)]) -> Option<(usize, Vec
     let head_end = at + text[at..].find('>')?;
     let head = &text[at + 1..head_end];
     // wrappers
-    for wrap in ["tool_call", "tool_calls", "function_calls", "tools"] {
+    for wrap in ["tool_call", "tool_calls", "function_calls", "function_call", "tool_use", "tools"] {
         if head.trim() == wrap {
             let close = format!("</{wrap}>");
             let body_end = text[head_end..].find(&close).map(|k| head_end + k).unwrap_or(text.len());
@@ -276,7 +290,8 @@ fn tagged(text: &str, at: usize, tools: &[(&str, &Value)]) -> Option<(usize, Vec
                 &tools.iter().map(|t| serde_json::json!({ "name": t.0, "inputSchema": t.1 })).collect::<Vec<_>>(),
             );
             if calls.is_empty() {
-                return None;
+                // a form of its own: the tool named in it, the arguments by the names its schema has
+                return loose(body, tools).map(|(name, args)| (end, vec![(name, args)]));
             }
             let calls = calls
                 .into_iter()
@@ -325,6 +340,51 @@ fn tagged(text: &str, at: usize, tools: &[(&str, &Value)]) -> Option<(usize, Vec
     }
     let args = parameters(body, schema)?;
     Some((end, vec![(name.to_string(), args)]))
+}
+
+/// A call in tags of a form of its own, within a wrapper (`<function_calls><function_call><parameter
+/// name="list_operators"><parameter argument_name="query">...`): the first tool offered named in it (a tag's
+/// name, an attribute's value or a tag's text), and as its arguments the tags whose name or attribute is a property
+/// of the tool's schema, their text the value.
+fn loose(body: &str, tools: &[(&str, &Value)]) -> Option<(String, Value)> {
+    // the tags in order: (head, start of the text after it)
+    let mut tags = Vec::new();
+    let mut i = 0;
+    while let Some(k) = body[i..].find('<') {
+        let at = i + k;
+        let he = at + body[at..].find('>')?;
+        tags.push((body[at + 1..he].trim(), he + 1));
+        i = he + 1;
+    }
+    let words = |head: &str| -> Vec<String> {
+        let mut w = vec![head.split_whitespace().next().unwrap_or("").to_string()];
+        let mut r = head;
+        while let Some(q) = r.find('"') {
+            let Some(e) = r[q + 1..].find('"') else { break };
+            w.push(r[q + 1..q + 1 + e].to_string());
+            r = &r[q + 2 + e..];
+        }
+        w
+    };
+    let text_after = |from: usize| body[from..].split('<').next().unwrap_or("").trim().to_string();
+    let (tool, schema) = tags.iter().find_map(|(head, from)| {
+        let mut named = words(head);
+        named.push(text_after(*from));
+        named.iter().find_map(|w| known(w, tools))
+    })?;
+    let props = schema["properties"].as_object()?;
+    let mut args = Map::new();
+    for (head, from) in &tags {
+        if head.starts_with('/') {
+            continue;
+        }
+        let Some(key) = words(head).into_iter().find(|w| props.contains_key(w.as_str())) else { continue };
+        let v = text_after(*from);
+        if !v.is_empty() {
+            args.insert(key.clone(), value_of(&v, &props[&key]));
+        }
+    }
+    Some((tool.to_string(), Value::Object(args)))
 }
 
 /// An attribute's value in a tag's head (`name="x"`).
@@ -654,6 +714,12 @@ mod tests {
         assert_eq!((name.as_str(), args), ("edit_node", json!({ "node": "a" })));
         let (name, _, _) = one("<run_model/>");
         assert_eq!(name, "run_model");
+        // a form of the model's own (Qwen, 2026-11-03), its closing tags wrong
+        let (name, args, rest) = one(
+            "Primeiro, vou verificar.\n\n```xml\n<function_calls>\n<function_call>\n<parameter name=\"list_operators\">\n<parameter argument_name=\"query\">\nrandom cluster landscape\n</parameter>\n</function_call>\n</function_call>\n```",
+        );
+        assert_eq!((name.as_str(), args), ("list_operators", json!({ "query": "random cluster landscape" })));
+        assert_eq!(rest, "Primeiro, vou verificar.");
         // tags of no tool stay
         assert!(calls("A <b>bold</b> word, x < 3", &offered()).0.is_empty());
     }
@@ -669,6 +735,19 @@ mod tests {
             None
         );
         assert_eq!(announced("Done.", &o), None);
+        // the answer ending on a promise to act
+        assert_eq!(
+            announced("Sure. I'll use `control.repeat`.\n\nLet me build this model now.\n\n", &o).as_deref(),
+            Some("")
+        );
+        assert_eq!(announced("The number is 10.\n\nLet me know if you want more steps?", &o), None);
+        assert_eq!(announced("The number is 10.\n\nLet me know if you want more steps.", &o), None);
+        assert_eq!(announced("It ran.\n\nI'll leave the rest to you. The maps are in out/.", &o), None);
+        // a tool named in what looks like code
+        assert_eq!(
+            announced("Searching.\n\n<call tool=\"list_operators\" q=\"x\"/>", &o).as_deref(),
+            Some("list_operators")
+        );
         assert!(ask_again("run_model").contains("`run_model`"));
     }
 }

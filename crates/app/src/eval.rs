@@ -334,6 +334,9 @@ pub struct Outcome {
     pub seconds: f64,
     /// The tools the assistant called.
     pub tools: usize,
+    /// The conversation, a line an item (not kept).
+    #[serde(skip)]
+    pub said: Vec<String>,
 }
 
 impl Outcome {
@@ -352,6 +355,7 @@ pub fn one(p: &Provider, r: &Registry, t: &Task, stop: &AtomicBool) -> Outcome {
         failed,
         seconds: started.elapsed().as_secs_f64(),
         tools: c.items.iter().filter(|i| matches!(i, Item::Tool { .. })).count(),
+        said: c.items.iter().map(|i| format!("{i:?}")).collect(),
     };
     let mut c = Chat::default();
     c.quiet = true;
@@ -551,6 +555,7 @@ mod tests {
             failed: failed.map(String::from),
             seconds: 1.0,
             tools: 2,
+            said: Vec::new(),
         };
         let s = Score { date: chrono_date(), outcomes: vec![o(None), o(Some("no loop")), o(None)] };
         assert_eq!(s.passed(), 2);
@@ -570,6 +575,11 @@ mod tests {
         for t in TASKS {
             let o = one(&p, &r, t, &stop);
             println!("{}: {:?} ({:.0} s, {} tools)", o.task, o.failed, o.seconds, o.tools);
+            if !o.passed() {
+                for line in &o.said {
+                    println!("    {}", line.chars().take(1500).collect::<String>());
+                }
+            }
         }
     }
 }

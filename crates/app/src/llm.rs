@@ -284,6 +284,16 @@ impl Gather {
     fn text(&mut self, t: &str, on: &mut dyn FnMut(Delta)) {
         self.held.push_str(t);
         loop {
+            // (a closing tag without its opening one, as Qwen writes with its thinking turned off: left out)
+            if !self.thinking
+                && let Some(i) = self.held.find("</think>")
+                && !self.held[..i].contains("<think>")
+            {
+                let before: String = self.held[..i].into();
+                self.emit(before, on);
+                self.held.drain(..i + "</think>".len());
+                continue;
+            }
             let tag = if self.thinking { "</think>" } else { "<think>" };
             if let Some(i) = self.held.find(tag) {
                 let before: String = self.held[..i].into();
@@ -293,7 +303,12 @@ impl Gather {
                 continue;
             }
             // what may be the start of a tag is held back
-            let keep = (1..tag.len()).rev().find(|&n| self.held.ends_with(&tag[..n])).unwrap_or(0);
+            let tags: &[&str] = if self.thinking { &[tag] } else { &[tag, "</think>"] };
+            let keep = tags
+                .iter()
+                .filter_map(|tag| (1..tag.len()).rev().find(|&n| self.held.ends_with(&tag[..n])))
+                .max()
+                .unwrap_or(0);
             let cut = self.held.len() - keep;
             let out: String = self.held.drain(..cut).collect();
             self.emit(out, on);
@@ -329,6 +344,40 @@ impl Gather {
     }
 }
 
+/// The requests a minute a server asks for, at most, when it says so (the HU Berlin's KI-Service: 10 to 15).
+fn per_minute(base_url: &str) -> Option<u32> {
+    base_url.contains("hu-berlin.de").then_some(15)
+}
+
+/// Wait, when a server asks for few requests a minute, until the next may be sent (the last one's time kept by
+/// server, for all the threads asking).
+fn pace(base_url: &str, stop: &AtomicBool) {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+    static LAST: Mutex<Option<HashMap<String, Instant>>> = Mutex::new(None);
+    let Some(n) = per_minute(base_url) else { return };
+    let gap = Duration::from_secs_f64(60.0 / n as f64);
+    loop {
+        let wait = {
+            let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+            let map = last.get_or_insert_with(HashMap::new);
+            let now = Instant::now();
+            match map.get(base_url) {
+                Some(t) if now.duration_since(*t) < gap => gap - now.duration_since(*t),
+                _ => {
+                    map.insert(base_url.to_string(), now);
+                    return;
+                }
+            }
+        };
+        if stop.load(Ordering::Relaxed) {
+            return;
+        }
+        std::thread::sleep(wait.min(Duration::from_millis(200)));
+    }
+}
+
 /// Ask the model for the next message of a conversation (the system's message first), with the tools it may call
 /// (as [`crate::tools::functions`] gives them): its answer, streamed to `on` as it is written. `stop` ends it.
 pub fn complete(
@@ -350,6 +399,7 @@ pub fn complete(
         body["chat_template_kwargs"] = json!({ "enable_thinking": true });
     }
     let url = e.url("chat/completions");
+    pace(&p.base_url, stop);
     let mut res = e
         .request(agent().post(&url))
         .header("Content-Type", "application/json")
@@ -492,6 +542,9 @@ mod tests {
         // an answer not streamed
         let (a, _) = gathered(&[json!({ "choices": [{ "message": { "content": "Hi", "reasoning_content": "hm" } }] })]);
         assert_eq!((a.text.as_str(), a.thinking.as_str()), ("Hi", "hm"));
+        // closing tags without their opening one: left out
+        let (a, _) = gathered(&[chunk("First, the loop:\n\n</th"), chunk("ink>\n\n</think>")]);
+        assert_eq!(a.text, "First, the loop:");
     }
 
     #[test]
