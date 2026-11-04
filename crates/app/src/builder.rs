@@ -2329,18 +2329,18 @@ fn layers_section(
                     }
                     ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                         ui.checkbox(&mut l.visible, "").on_hover_text("shown on the map, or hidden");
-                        let name = output_name(&l.node, &l.port);
+                        let name = l.name(made_of(s, l).as_deref());
                         let text = if active { RichText::new(&name).strong() } else { RichText::new(&name) };
                         let resp = ui.add(
                             egui::Button::selectable(active, text).truncate().sense(egui::Sense::click_and_drag()),
                         );
                         resp.dnd_set_drag_payload(LayerAt(i));
-                        let hint = if vector || active {
+                        let hint = if vector || active || l.minus.is_some() {
                             format!("{name}: drag it over or under another")
                         } else {
                             format!("{name}: its legend and settings here; drag it over or under another")
                         };
-                        if resp.on_hover_text(hint).clicked() && !vector && !active {
+                        if resp.on_hover_text(hint).clicked() && !vector && !active && l.minus.is_none() {
                             chosen = Some((l.node.clone(), l.port.clone()));
                         }
                     });
@@ -2363,7 +2363,33 @@ fn layers_section(
         {
             dropped = Some((from.0, i));
         }
-        if l.visible && !active {
+        if l.visible && l.minus.is_some() {
+            ui.indent(("layer", salt, i), |ui| {
+                ui.spacing_mut().slider_width = (ui.available_width() - 110.0).clamp(40.0, 160.0);
+                ui.add(egui::Slider::new(&mut l.opacity, 0.0..=1.0).text("opacity"));
+                match made_of(s, l) {
+                    Some(d) => {
+                        ui.label(RichText::new(&d.summary).weak().size(11.0));
+                        legend(ui, &d.coloring, &d.counts, &|v| d.name(v));
+                    }
+                    None => match s
+                        .layer_differences
+                        .get(&l.difference_key().unwrap_or_default())
+                        .and_then(|d| d.made.as_ref())
+                    {
+                        Some(Err(e)) => {
+                            ui.label(RichText::new(e).color(ui.visuals().error_fg_color).size(11.0));
+                        }
+                        _ => {
+                            ui.horizontal(|ui| {
+                                ui.spinner();
+                                ui.label(RichText::new("the difference...").weak());
+                            });
+                        }
+                    },
+                }
+            });
+        } else if l.visible && !active {
             ui.indent(("layer", salt, i), |ui| match vectors.iter().find(|(vn, vp, _)| l.is(vn, vp)) {
                 Some((vn, vp, v)) => {
                     crate::vector_view::style_controls(ui, v, &mut l.style, egui::Id::new((vn, vp, salt)));
@@ -2480,6 +2506,7 @@ pub fn open_plot(s: &mut Session, r: &Registry, id: &str) {
                 opacity: l.opacity.unwrap_or(1.0) as f32,
                 style: l.style.as_ref().map(crate::vector_tiles::Style::from_json).unwrap_or_default(),
                 band: l.band,
+                minus: l.minus.as_deref().and_then(port_of),
             })
         })
         .collect();
@@ -2544,6 +2571,7 @@ fn plot_of(
                 band: if l.is(&sh.node, &sh.port) { shown_band } else { l.band },
                 style: style.then(|| l.style.to_json()),
                 hidden: !l.visible,
+                minus: l.minus.as_ref().map(|(n, p)| format!("{n}.{p}")),
             }
         })
         .collect();
@@ -2702,7 +2730,13 @@ pub struct Layer {
     pub style: crate::vector_tiles::Style,
     /// The map of a stack, a series or rasters on disk it shows (default: the first, or a raster's chosen band).
     pub band: Option<usize>,
+    /// Drawn as a difference: this output (`node.port`) minus the map `minus` (node, port) for maps of values, the
+    /// transitions from `minus` to it for maps of classes (made in a thread, see [`layer_difference`]).
+    pub minus: Option<(String, String)>,
 }
+
+/// The maps a difference is of: the one subtracted (node, port), then the other.
+pub type DifferenceKey = (String, String, String, String);
 
 impl Layer {
     pub fn new(node: &str, port: &str) -> Layer {
@@ -2713,13 +2747,80 @@ impl Layer {
             opacity: 1.0,
             style: Default::default(),
             band: None,
+            minus: None,
         }
     }
 
-    /// Whether it is the output `node.port`.
-    pub fn is(&self, node: &str, port: &str) -> bool {
-        self.node == node && self.port == port
+    /// The difference of `node.port` from `minus` (node, port) as a layer.
+    pub fn difference(node: &str, port: &str, minus: (&str, &str)) -> Layer {
+        Layer { minus: Some((minus.0.into(), minus.1.into())), ..Layer::new(node, port) }
     }
+
+    /// Whether it is the output `node.port` (not a difference of it).
+    pub fn is(&self, node: &str, port: &str) -> bool {
+        self.minus.is_none() && self.node == node && self.port == port
+    }
+
+    /// The maps it is the difference of, when it is one.
+    pub fn difference_key(&self) -> Option<DifferenceKey> {
+        let (n, p) = self.minus.clone()?;
+        Some((n, p, self.node.clone(), self.port.clone()))
+    }
+
+    /// Its name in the Viewer: the output's, or of a difference "b minus a" (values) or "a to b" (classes, once
+    /// made).
+    pub fn name(&self, made: Option<&crate::difference::Made>) -> String {
+        let b = output_name(&self.node, &self.port);
+        match &self.minus {
+            None => b,
+            Some((n, p)) if made.is_some_and(|d| !d.names.is_empty()) => format!("{} to {b}", output_name(n, p)),
+            Some((n, p)) => format!("{b} minus {}", output_name(n, p)),
+        }
+    }
+}
+
+/// A layer that is a difference (see [`Layer::minus`]): the one made (or why not), else made in a thread and kept
+/// in the session by the maps it is of; none while their colours are being made or one of them has not run.
+pub fn layer_difference(
+    s: &mut Session,
+    ctx: &egui::Context,
+    l: &Layer,
+) -> Option<Result<Arc<crate::difference::Made>, String>> {
+    let key = l.difference_key()?;
+    let (a, b) = (output_map(s, ctx, &key.0, &key.1)?, output_map(s, ctx, &key.2, &key.3)?);
+    let (Some(la), Some(lb)) = (&a.2, &b.2) else { return None };
+    let classes = match (&la.coloring, &lb.coloring) {
+        (Coloring::Classes(ca), Coloring::Classes(cb)) => {
+            let na = class_names(ca.as_slice(), la, crate::legend_view::legend_of(s, &key.0, &key.1, &a.0).as_deref());
+            let nb = class_names(cb.as_slice(), lb, crate::legend_view::legend_of(s, &key.2, &key.3, &b.0).as_deref());
+            Some((na, nb))
+        }
+        _ => None,
+    };
+    let d = s.layer_differences.entry(key).or_default();
+    d.want(ctx, &a.0, &b.0, classes);
+    d.made.clone()
+}
+
+/// A map drawn with the one shown: its source, opacity, node and port, and when it is a difference its colouring
+/// and name.
+type LayerMap = (Source, f32, String, String, Option<(Coloring, String)>);
+
+/// The difference a layer is, when made.
+fn made_of(s: &Session, l: &Layer) -> Option<Arc<crate::difference::Made>> {
+    match s.layer_differences.get(&l.difference_key()?)?.made.as_ref()? {
+        Ok(d) => Some(d.clone()),
+        Err(_) => None,
+    }
+}
+
+/// The names of the classes of a map's colouring, by its legend (as a difference names its transitions).
+fn class_names(
+    c: &[(f64, Color32)],
+    lk: &Look,
+    legend: Option<&[terraflux_ops::legend::Class]>,
+) -> crate::difference::Names {
+    c.iter().map(|(v, _)| (*v as i64, crate::legend_view::name(lk, legend, *v))).collect()
 }
 
 /// An output kept as a layer of the Viewer (on top of the others; nothing when it is one already).
@@ -2733,11 +2834,19 @@ pub fn pin(layers: &mut Vec<Layer>, node: &str, port: &str) {
 /// renamed (`from` to `to`) following it.
 pub fn layers_follow(layers: &mut Vec<Layer>, m: &terraflux_graph::Model, renamed: Option<(&str, &str)>) {
     if let Some((from, to)) = renamed {
-        for l in layers.iter_mut().filter(|l| l.node == from) {
-            l.node = to.to_string();
+        for l in layers.iter_mut() {
+            if l.node == from {
+                l.node = to.to_string();
+            }
+            if let Some((n, _)) = &mut l.minus
+                && n == from
+            {
+                *n = to.to_string();
+            }
         }
     }
-    layers.retain(|l| m.nodes.iter().any(|n| n.id == l.node));
+    let here = |id: &str| m.nodes.iter().any(|n| n.id == id);
+    layers.retain(|l| here(&l.node) && l.minus.as_ref().is_none_or(|(n, _)| here(n)));
 }
 
 /// A comparison of the map shown with another: which, and how (by a curtain, side by side, the other in a view of
@@ -2953,18 +3062,21 @@ pub(crate) fn maps_of(value: &Value) -> (Vec<Source>, Vec<String>) {
 /// Where a layer is on the map shown (a grid): the box of its cells (`[x0, y0, x1, y1]`); none when it is not
 /// placed on it (another coordinate system, rotated) or has nothing.
 fn layer_cells(s: &Session, l: &Layer, shown: &terraflux_raster::Grid) -> Option<[f32; 4]> {
+    let cells_of = |g: &terraflux_raster::Grid| {
+        let p = crate::map_view::place_on(g, shown)?;
+        let end = p.offset + egui::Vec2::new(g.width as f32 * p.scale.x, g.height as f32 * p.scale.y);
+        Some([p.offset.x.min(end.x), p.offset.y.min(end.y), p.offset.x.max(end.x), p.offset.y.max(end.y)])
+    };
+    // (a difference: of the cells of its own map)
+    if l.minus.is_some() {
+        return cells_of(made_of(s, l)?.source.grid());
+    }
     match s.value_of(&l.node, &l.port)? {
         Value::Vector(v) => {
             let b = crate::vector_tiles::prepare(&v, shown).ok()?.bounds?;
             Some([b[0] as f32, b[1] as f32, b[2] as f32, b[3] as f32])
         }
-        v => {
-            let src = layer_source(&v, l.band)?;
-            let g = src.grid();
-            let p = crate::map_view::place_on(g, shown)?;
-            let end = p.offset + egui::Vec2::new(g.width as f32 * p.scale.x, g.height as f32 * p.scale.y);
-            Some([p.offset.x.min(end.x), p.offset.y.min(end.y), p.offset.x.max(end.x), p.offset.y.max(end.y)])
-        }
+        v => cells_of(layer_source(&v, l.band)?.grid()),
     }
 }
 
@@ -3433,7 +3545,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     };
     // a plot over other plots: the lowest map shown, the others over it, the features over them all
     let stack = if op == "view.plot" { plot_stack(&s.model, &node) } else { Vec::new() };
-    let mut over: Vec<(Source, f32, String, String)> = Vec::new();
+    let mut over: Vec<LayerMap> = Vec::new();
     let mut plot_vectors: Vec<Arc<terraflux_raster::vector::Vector>> = Vec::new();
     let mut value = value;
     if stack.len() > 1 {
@@ -3444,7 +3556,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     Some(v) if base.is_none() && first_source(&v).is_some() => base = Some(v),
                     Some(v) => {
                         if let Some(src) = first_source(&v) {
-                            over.push((src, *o, n.clone(), p.clone()));
+                            over.push((src, *o, n.clone(), p.clone(), None));
                         }
                     }
                     None => {}
@@ -3515,7 +3627,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     }
     let k = sh.band.min(maps.len() - 1);
     // the map shown, when it is a layer: its band is the Viewer's
-    if let Some(l) = sh.layers.iter_mut().find(|l| l.node == node && l.port == port) {
+    if let Some(l) = sh.layers.iter_mut().find(|l| l.is(&node, &port)) {
         l.band = (sh.band > 0 || sh.chosen).then_some(sh.band);
     }
     // the colours by what the values are: the operator that made them, the names they come by
@@ -3606,10 +3718,25 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     // the layers kept (the first at the bottom): those under the map shown drawn before it, those over it after (the
     // plot's own maps over it first); the map shown over them all when it is not one of them
     let at = sh.layers.iter().position(|l| l.is(&node, &port));
-    let mut under: Vec<(Source, f32, String, String)> = Vec::new();
-    let mut above: Vec<(Source, f32, String, String)> = Vec::new();
+    let mut under: Vec<LayerMap> = Vec::new();
+    let mut above: Vec<LayerMap> = Vec::new();
+    // (the differences no layer is any longer let go)
+    s.layer_differences.retain(|k, _| sh.layers.iter().any(|l| l.difference_key().as_ref() == Some(k)));
     for (i, l) in sh.layers.iter().enumerate() {
         if !l.visible || Some(i) == at {
+            continue;
+        }
+        if l.minus.is_some() {
+            if let Some(Ok(d)) = layer_difference(s, ui.ctx(), l) {
+                let item = (
+                    d.source.clone(),
+                    l.opacity,
+                    l.node.clone(),
+                    l.port.clone(),
+                    Some((d.coloring.clone(), l.name(Some(&d)))),
+                );
+                if at.is_none_or(|a| i < a) { under.push(item) } else { above.push(item) }
+            }
             continue;
         }
         match s.value_of(&l.node, &l.port) {
@@ -3620,7 +3747,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
             }),
             Some(v) => {
                 if let Some(src) = layer_source(&v, l.band) {
-                    let item = (src, l.opacity, l.node.clone(), l.port.clone());
+                    let item = (src, l.opacity, l.node.clone(), l.port.clone(), None);
                     if at.is_none_or(|a| i < a) { under.push(item) } else { above.push(item) }
                 }
             }
@@ -3633,7 +3760,10 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         .into_iter()
         .chain(over)
         .enumerate()
-        .filter_map(|(i, (src, opacity, n, p))| {
+        .filter_map(|(i, (src, opacity, n, p, difference))| {
+            if let Some((coloring, name)) = difference {
+                return Some(crate::map_view::RasterLayer { source: src, coloring, opacity, below: i < below, name });
+            }
             let (made, mut hint) = producer(s, &n, &p);
             hint.push_str(&p);
             let palette = s.palettes.get(&(n.clone(), p.clone())).copied().unwrap_or_else(|| Palette::of(made, &hint));
@@ -3985,6 +4115,8 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 };
                 others.sort_by_key(rank);
                 let cmp = &mut sh.compare;
+                // (the difference kept as a layer: of which output)
+                let mut keep: Option<(String, String)> = None;
                 let shown = match &cmp.with {
                     None => "nothing".to_string(),
                     Some(CompareWith::Layer(_)) => "another layer of this one".to_string(),
@@ -4053,6 +4185,23 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                                 legend(ui, &d.coloring, &d.counts, &|v| d.name(v));
                             }
                         }
+                        let of = match &cmp.with {
+                            Some(CompareWith::Output(n, p)) => Some((n.clone(), p.clone())),
+                            _ => None,
+                        };
+                        let hint = if of.is_some() {
+                            "the difference as a layer of its own: drawn over the map, at an opacity, with the other \
+                             layers, kept in a Plot"
+                        } else {
+                            "a difference of two outputs of the run is kept as a layer, not of two layers of one"
+                        };
+                        if ui
+                            .add_enabled(of.is_some(), egui::Button::new("📌 Keep as a layer"))
+                            .on_hover_text(hint)
+                            .clicked()
+                        {
+                            keep = of;
+                        }
                     } else if shared.is_some() {
                         ui.label(
                             RichText::new("both in the same colours: the classes of both, or one range")
@@ -4060,6 +4209,14 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                                 .size(11.0),
                         );
                     }
+                }
+                // the difference kept: a layer over the others, the map shown again in place of the comparison
+                if let Some((n, p)) = keep {
+                    let l = Layer::difference(&n, &p, (&node, &port));
+                    if !sh.layers.iter().any(|x| x.difference_key() == l.difference_key()) {
+                        sh.layers.push(l);
+                    }
+                    sh.compare.with = None;
                 }
                 ui.add_space(8.0);
                 draw_section(ui, s, r, sh, maps[k].grid(), salt);
@@ -4266,19 +4423,24 @@ fn compared_map(
             let l = s.looks.get(ctx, &src, palette);
             Some((src, format!("{title} {}", names[*j]), l))
         }
-        CompareWith::Output(n, p) => s.value_of(n, p).as_ref().and_then(first_source).map(|src| {
-            let (made, mut hint) = producer(s, n, p);
-            hint.push_str(p);
-            let pal = s.palettes.get(&(n.clone(), p.clone())).copied().unwrap_or_else(|| Palette::of(made, &hint));
-            let l = s.looks.get(ctx, &src, pal);
-            let l = match (l, crate::legend_view::legend_of(s, n, p, &src)) {
-                (Some(l), Some(c)) => Some(crate::legend_view::apply(&l, &c)),
-                (l, _) => l,
-            };
-            (src, output_name(n, p), l)
-        }),
+        CompareWith::Output(n, p) => output_map(s, ctx, n, p),
         _ => None,
     }
+}
+
+/// An output of the run as a map: its source (a stack's first layer...), its name, its look in its own colours
+/// and legend (none while it is being made).
+fn output_map(s: &mut Session, ctx: &egui::Context, n: &str, p: &str) -> Option<Compared> {
+    let src = s.value_of(n, p).as_ref().and_then(first_source)?;
+    let (made, mut hint) = producer(s, n, p);
+    hint.push_str(p);
+    let pal = s.palettes.get(&(n.to_string(), p.to_string())).copied().unwrap_or_else(|| Palette::of(made, &hint));
+    let l = s.looks.get(ctx, &src, pal);
+    let l = match (l, crate::legend_view::legend_of(s, n, p, &src)) {
+        (Some(l), Some(c)) => Some(crate::legend_view::apply(&l, &c)),
+        (l, _) => l,
+    };
+    Some((src, output_name(n, p), l))
 }
 
 /// The difference of the maps compared, drawn in the view of the map compared, which follows the map shown's (the
@@ -5189,6 +5351,29 @@ params = { expression = "x * 0 + k" }
         // the rows being written come back as typed, empty ones and spaces too
         let rows = vec![RuleRow::new("1 ", "", ""), RuleRow::default(), RuleRow::new("0", "5", "2")];
         assert_eq!(rule_rows(&rule_draft(&rows)), rows);
+    }
+
+    /// A layer that is a difference: kept in a Plot as `minus`, following its nodes renamed, gone with one removed.
+    #[test]
+    fn a_difference_is_a_layer() {
+        let mut sh = Shown { node: "a".into(), port: "map".into(), ..Default::default() };
+        sh.layers.push(Layer::difference("b", "map", ("a", "map")));
+        let l = &sh.layers[0];
+        assert!(!l.is("b", "map"), "a difference is not the map it is of");
+        assert_eq!(l.name(None), "b.map minus a.map");
+        let p = plot_of(&sh, &Default::default(), None, "p", None);
+        assert_eq!(p.layers[0].from, "b.map");
+        assert_eq!(p.layers[0].minus.as_deref(), Some("a.map"));
+        assert_eq!((p.layers[1].from.as_str(), p.layers[1].minus.as_deref()), ("a.map", None));
+        // the nodes renamed and removed
+        let mut m = terraflux_graph::Model::new("m");
+        m.nodes.push(terraflux_graph::Node::new("c", "nlm.random"));
+        m.nodes.push(terraflux_graph::Node::new("b", "nlm.random"));
+        layers_follow(&mut sh.layers, &m, Some(("a", "c")));
+        assert_eq!(sh.layers[0].minus, Some(("c".to_string(), "map".to_string())));
+        m.nodes.retain(|n| n.id != "c");
+        layers_follow(&mut sh.layers, &m, None);
+        assert!(sh.layers.is_empty());
     }
 
     #[test]

@@ -172,7 +172,7 @@ scenario, another date, the observed map) or another layer of the same stack. Ch
   and a fourth map (another output, or another layer of the one shown), four views in two rows, all moving
   together;
 - **Difference**: for maps of values, the other map minus this one; for maps of classes, what each cell changed
-  from and to.
+  from and to. *Keep as a layer* makes it a layer of its own, drawn with the others and kept in a Plot.
 
 Both maps are drawn in the same colours, so that the same value is the same colour.
 
@@ -203,7 +203,7 @@ layers = [{ from = "named.map" }, { from = "forest_only.map", opacity = 0.6 }]
 |---|---|
 | `id` | the Plot's name in the model |
 | `title` | its title, in the menu and over its figure (by default its `id`) |
-| `layers` | what it shows, the first at the bottom: each an output (`node.port`) with its `opacity` (0 to 1), `band` (the layer of a stack or the step of a loop), `style` (vector features') and `hidden` |
+| `layers` | what it shows, the first at the bottom: each an output (`node.port`) with its `opacity` (0 to 1), `band` (the layer of a stack or the step of a loop), `style` (vector features'), `hidden`, and `minus` (another output: the layer is the difference, `from` minus it, or the transitions from it to `from` for classes) |
 | `compare` | a map compared with the top map: `{ with = "node.port", how = "curtain" }` (or `"side by side"`, `"difference"`); side by side, `also = ["node.port", ...]` adds up to two more views |
 | `chart` | a table's chart: `{ kind = "bars", x = "...", y = "...", by = "..." }` |
 | `note`, `why` | what it shows and why, as a node's note |

@@ -962,8 +962,13 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    `set_plot`); a figura "the views side by side"; o traço de uma célula de qualquer vista. Testes:
    `views_side_by_side_follow_each_other` (4 vistas), `maps_compare_by_a_curtain_and_side_by_side` (duas linhas,
    a que se moveu leva as outras; o Plot com `also`), `plots_are_set_and_removed`.
+   A diferença como camada (`Layer::minus`, `PlotLayer::minus`): *Keep as a layer* no Compare, feita numa thread
+   (`layer_difference`, guardada em `Session::layer_differences` pelos mapas de que é), com a sua cor, legenda e
+   resumo nos Layers, opacidade, *zoom*; num Plot, `minus` (conferido no `check`, no `set_plot`, seguindo nós
+   renomeados e agrupados, saindo com um removido); o Document e o QGIS a deixam de fora. Testes:
+   `a_difference_is_a_layer`, `maps_compare_by_a_curtain_and_side_by_side` (o botão, o desenho, o Plot).
    Falta: cada vista com a sua lista de camadas (hoje todas desenham as camadas do Viewer); tocar a série junto
-   nas vistas; a diferença como camada derivada.
+   nas vistas; a diferença de duas camadas de uma pilha como camada (hoje só de duas saídas).
 4. **Os Plots salvos no lugar do nó `view.plot`.** (a maior)
    - Formato: `[[plots]]` no modelo (`terraflux_graph::Model::plots`, serde, omitido quando vazio): `id`, `title`,
      `layers = [{ from = "node.port", opacity, palette, band, style }]`, `compare = { with, how }`,

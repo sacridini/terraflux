@@ -596,6 +596,9 @@ pub fn check(model: &Model, catalog: &dyn Catalog) -> Vec<Issue> {
         }
         for (i, l) in p.layers.iter().enumerate() {
             c.check_ref(&format!("plots.{}.layers[{i}]", p.id), &l.from, Type::Any, &scopes, false);
+            if let Some(m) = &l.minus {
+                c.check_ref(&format!("plots.{}.layers[{i}].minus", p.id), m, Type::Any, &scopes, false);
+            }
         }
         if let Some(cmp) = &p.compare {
             c.check_ref(&format!("plots.{}.compare", p.id), &cmp.with, Type::Any, &scopes, false);
@@ -726,11 +729,15 @@ from = "sim.maps"
             format!("{GOOD}\n[[plots]]\nid = \"maps\"\nlayers = [{{ from = \"$t0\" }}, {{ from = \"woe.model\" }}]\n");
         assert!(errors(&model(&good)).is_empty(), "{:?}", errors(&model(&good)));
         let bad = format!(
-            "{GOOD}\n[[plots]]\nid = \"maps\"\nlayers = [{{ from = \"gone.map\" }}]\ncompare = {{ with = \"$none\" }}\n\
+            "{GOOD}\n[[plots]]\nid = \"maps\"\nlayers = [{{ from = \"gone.map\" }}, {{ from = \"$t0\", minus = \"no.map\" }}]\n\
+             compare = {{ with = \"$none\", also = [\"$t0\", \"gone.too\"] }}\n\
              [[plots]]\nid = \"maps\"\n"
         );
         let e = errors(&model(&bad));
         assert!(e.iter().any(|x| x.contains("plots.maps.layers[0]")), "{e:?}");
+        assert!(e.iter().any(|x| x.contains("plots.maps.layers[1].minus")), "{e:?}");
+        assert!(e.iter().any(|x| x.contains("plots.maps.compare.also[1]")), "{e:?}");
+        assert!(!e.iter().any(|x| x.contains("plots.maps.compare.also[0]")), "{e:?}");
         assert!(e.iter().any(|x| x.contains("plots.maps.compare")), "{e:?}");
         assert!(e.iter().any(|x| x.contains("two plots are named")), "{e:?}");
     }

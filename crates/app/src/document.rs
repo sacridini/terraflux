@@ -695,7 +695,7 @@ pub fn plotted(m: &Model, r: &Registry, p: &Plot) -> Option<(String, String)> {
         .layers
         .iter()
         .rev()
-        .filter(|l| !l.hidden)
+        .filter(|l| !l.hidden && l.minus.is_none())
         .filter_map(|l| match Ref::parse(&l.from).ok()? {
             Ref::Port { node, port } => Some((node, port)),
             _ => None,
@@ -1024,6 +1024,9 @@ fn plots_follow(m: &mut Model, id: &str, moved: &[String]) {
     for p in &mut m.plots {
         for l in &mut p.layers {
             follow(&mut l.from);
+            if let Some(m) = &mut l.minus {
+                follow(m);
+            }
         }
         if let Some(c) = &mut p.compare {
             follow(&mut c.with);

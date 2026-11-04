@@ -48,6 +48,10 @@ pub struct PlotLayer {
     /// Vector features' style (as the Viewer keeps it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub style: Option<serde_json::Value>,
+    /// Drawn as a difference: `from` minus this map (`node.port`) for maps of values, the transitions from this map
+    /// to `from` for maps of classes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minus: Option<String>,
     /// Kept in the Plot without being drawn.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hidden: bool,
@@ -236,7 +240,7 @@ impl Model {
         self.outputs.retain(|_, o| fix(&mut o.from));
         self.tests.retain_mut(|t| fix(&mut t.from));
         for p in &mut self.plots {
-            p.layers.retain_mut(|l| fix(&mut l.from));
+            p.layers.retain_mut(|l| fix(&mut l.from) && l.minus.as_mut().is_none_or(fix));
             if p.compare.as_mut().is_some_and(|c| !fix(&mut c.with)) {
                 p.compare = None;
             }

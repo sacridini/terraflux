@@ -801,7 +801,8 @@ pub fn window(ctx: &egui::Context, s: &mut Session) {
             c.insert(p.clone());
         }
         // and the layers drawn with it
-        for l in s.preview_layers.iter().filter(|l| l.visible) {
+        // (not a difference: no file of it)
+        for l in s.preview_layers.iter().filter(|l| l.visible && l.minus.is_none()) {
             if all.iter().any(|(m, q, _)| (m, q) == (&l.node, &l.port)) {
                 c.insert((l.node.clone(), l.port.clone()));
             }

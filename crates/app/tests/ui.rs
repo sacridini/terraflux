@@ -583,6 +583,53 @@ fn maps_compare_by_a_curtain_and_side_by_side() {
     assert!(d.summary.contains("cells changed class"), "{}", d.summary);
     let (a, b) = (s.preview_view.camera(), s.preview_compare.view.camera());
     assert!((a.0 - b.0).abs() < 1e-4 && (a.1 - b.1).length() < 1e-3, "drawn where the map is: {a:?} {b:?}");
+    // the difference kept as a layer: over the map shown, the comparison let go
+    h.get_by_label("📌 Keep as a layer").click();
+    h.run_steps(2);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        assert!(s.preview_compare.with.is_none(), "the comparison let go");
+        assert_eq!(s.preview_layers.len(), 1);
+        let l = &s.preview_layers[0];
+        assert_eq!((l.node.as_str(), l.port.as_str()), ("raster_read", "raster"));
+        assert_eq!(l.minus, Some(("raster_reclassify".to_string(), "map".to_string())));
+    }
+    until(&mut h, "the difference layer", |a| {
+        let s = a.session.as_ref().unwrap();
+        s.layer_differences.values().any(|d| matches!(d.made, Some(Ok(_))))
+    });
+    h.run_steps(4);
+    drawn(&mut h);
+    shot(&mut h, "14c3-difference-layer");
+    {
+        let s = h.state().session.as_ref().unwrap();
+        let d = s.layer_differences.values().find_map(|d| d.made.clone()).unwrap().unwrap();
+        assert_eq!(s.preview_layers[0].name(Some(&d)), "raster_reclassify.map to raster_read");
+    }
+    // in a Plot: opened again as a difference
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.preview_layers.clear();
+        s.source.plots.push(terraflux_graph::Plot {
+            id: "changed".into(),
+            layers: vec![
+                terraflux_graph::PlotLayer::new("raster_reclassify.map"),
+                terraflux_graph::PlotLayer {
+                    minus: Some("raster_reclassify.map".into()),
+                    ..terraflux_graph::PlotLayer::new("raster_read.raster")
+                },
+            ],
+            ..Default::default()
+        });
+        s.edited();
+        s.plot_to_open = Some("changed".into());
+    }
+    h.run_steps(2);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        let minus: Vec<_> = s.preview_layers.iter().map(|l| l.minus.clone()).collect();
+        assert_eq!(minus, [None, Some(("raster_reclassify".to_string(), "map".to_string()))]);
+    }
     // a Plot that compares: opened with its comparison, as it asks
     {
         let s = h.state_mut().session.as_mut().unwrap();

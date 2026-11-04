@@ -600,6 +600,8 @@ pub struct Session {
     pub palettes: std::collections::HashMap<(String, String), crate::builder::Palette>,
     /// The Viewer's layers: outputs kept on the map as other nodes are shown, the first at the bottom.
     pub preview_layers: Vec<crate::builder::Layer>,
+    /// The differences the Viewer's layers are (see [`crate::builder::Layer::minus`]), by the maps they are of.
+    pub layer_differences: std::collections::HashMap<crate::builder::DifferenceKey, crate::builder::Difference>,
     /// The Plot open in the Viewer (what *Update the plot* keeps), and one asked for (opened when the Viewer is
     /// drawn next).
     pub plot_open: Option<String>,
@@ -763,6 +765,7 @@ impl Session {
             preview_chosen: false,
             preview_view: MapView::default(),
             preview_layers: Vec::new(),
+            layer_differences: Default::default(),
             plot_open: None,
             plot_to_open: None,
             preview_compare: Default::default(),

@@ -12,6 +12,10 @@ minor versions.
   and panning together, the pointer marked in the others, in one colouring. A Plot keeps them
   (`compare.also`, also in `set_plot`), the figure has "the views side by side", and a cell of any view is traced
   from its menu.
+- Viewer: **the difference as a layer**. Comparing by *Difference*, *Keep as a layer* makes it a layer of its own
+  (values: the other map minus this one; classes: the transitions, named): drawn with the other layers, at an
+  opacity, its legend and summary in the Layers, kept in a Plot (`minus` of a layer, also in `set_plot`), and
+  following its nodes renamed or removed.
 
 ## [1.35.0] - 2026-11-04
 

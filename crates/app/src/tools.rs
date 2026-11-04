@@ -1595,7 +1595,7 @@ fn all() -> Vec<Value> {
                 "title": { "type": "string", "description": "Its title, the figure's caption (default: what it shows)." },
                 "layers": {
                     "type": "array",
-                    "description": "What it shows, the lowest first: node.port of top-level nodes (or $input), or objects { from, opacity (0 to 1), band (a stack's layer or a loop's step, 0-based), palette (viridis, cividis, blue, orange, terrain, grey, red, rank; \", logarithmic\" for a scale of logarithms; default: by what the map is), hidden }.",
+                    "description": "What it shows, the lowest first: node.port of top-level nodes (or $input), or objects { from, opacity (0 to 1), band (a stack's layer or a loop's step, 0-based), palette (viridis, cividis, blue, orange, terrain, grey, red, rank; \", logarithmic\" for a scale of logarithms; default: by what the map is), hidden, minus (node.port: the layer is the difference, from minus it for values, the transitions from it to from for classes) }.",
                     "items": {},
                 },
                 "compare": { "description": "A map compared with the top map: node.port, or { with, how, also } (how: curtain, side by side (default) or difference; also: up to 2 more maps (node.port) side by side, 4 views in all that move together)." },
@@ -2411,6 +2411,10 @@ fn set_plot(m: &mut Model, r: &Registry, a: &Value) -> Reply {
                     hidden: o.get("hidden").and_then(Value::as_bool).unwrap_or(false),
                     style: o.get("style").cloned(),
                     palette: palette.and_then(crate::builder::palette_named).and_then(crate::builder::palette_name),
+                    minus: match o.get("minus").and_then(Value::as_str).filter(|m| !m.is_empty()) {
+                        Some(m) => Some(checked(m)?),
+                        None => None,
+                    },
                 }
             }
             other => return Err(format!("a layer is node.port or an object with `from`, not {other}")),
@@ -2684,6 +2688,10 @@ mod plot_tests {
         });
         super::edit("set_plot", &mut m, &r, dir, &a).unwrap();
         assert_eq!(m.plot("cover").unwrap().compare.as_ref().unwrap().also, ["land.map", "forest.map"]);
+        // a layer that is a difference
+        let a = json!({ "id": "cover", "layers": ["land.map", { "from": "forest.map", "minus": "land.map" }] });
+        super::edit("set_plot", &mut m, &r, dir, &a).unwrap();
+        assert_eq!(m.plot("cover").unwrap().layers[1].minus.as_deref(), Some("land.map"));
         assert!(terraflux_graph::check(&m, &r).iter().all(|i| !i.at.starts_with("plots.")));
         // a palette by its name in the Viewer, or its first word
         let a = json!({ "id": "cover", "layers": [{ "from": "forest.map", "palette": "Cividis, log" }] });
@@ -2701,6 +2709,7 @@ mod plot_tests {
             json!({ "id": "x", "layers": ["land.map"], "compare": { "with": "land.map", "how": "curtain", "also": ["land.map"] } }),
             json!({ "id": "x", "layers": ["land.map"], "compare": { "with": "land.map", "also": ["land.map", "land.map", "land.map"] } }),
             json!({ "id": "x", "layers": [{ "from": "land.map", "palette": "rainbow" }] }),
+            json!({ "id": "x", "layers": [{ "from": "land.map", "minus": "gone.map" }] }),
         ] {
             assert!(super::edit("set_plot", &mut m, &r, dir, &bad).is_err(), "{bad}");
         }
