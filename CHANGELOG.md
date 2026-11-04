@@ -6,6 +6,8 @@ minor versions.
 
 ## [Unreleased]
 
+## [1.39.0] - 2026-11-04
+
 ### Changed
 - Viewer: **the legend of a map of classes is one table**. The legend and the *Area of the classes* were two
   lists of the same classes, the second with a bar of the cells in each (a model of MSPA classes showed them
