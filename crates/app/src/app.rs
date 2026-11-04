@@ -3443,7 +3443,8 @@ impl TerrafluxApp {
     }
 
     /// Files dragged from the system's file manager to a window: shown while they are over it, a node each that
-    /// reads it when they are let go (a model dropped is opened); over the Viewer, each also a layer of it.
+    /// reads it when they are let go (a folder: its rasters as one stack; a model dropped is opened); over the
+    /// Viewer, or several of them, each also a layer of it.
     fn take_dropped(&mut self, ui: &Ui) {
         let (dropped, over): (Vec<PathBuf>, usize) = ui.input(|i| {
             (i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).collect(), i.raw.hovered_files.len())
@@ -3465,7 +3466,7 @@ impl TerrafluxApp {
             p.rect_stroke(area.shrink(6.0), 8.0, (2.0, theme::accent()), egui::StrokeKind::Inside);
             let text = match (on_viewer, over) {
                 (false, 1) => "a node that reads it".to_string(),
-                (false, n) => format!("{n} nodes that read them"),
+                (false, n) => format!("{n} nodes that read them, layers of the Viewer"),
                 (true, 1) => "a layer of the Viewer (a node that reads it)".to_string(),
                 (true, n) => format!("{n} layers of the Viewer (nodes that read them)"),
             };
@@ -3481,8 +3482,16 @@ impl TerrafluxApp {
             return;
         }
         let Some(s) = &mut self.session else { return };
+        // (several data files, wherever they go: all of them layers of the Viewer, not only the last one shown)
+        let data = dropped.iter().filter(|p| !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("toml"))).count();
         let model = if on_viewer {
             crate::builder::drop_on_viewer(s, &self.registry, &dropped)
+        } else if data > 1 {
+            // (the Viewer not brought to the front: the pane the files were let go on stays)
+            let ask = s.ask_viewer;
+            let model = crate::builder::drop_on_viewer(s, &self.registry, &dropped);
+            s.ask_viewer = ask;
+            model
         } else {
             crate::builder::add_files(s, &self.registry, &dropped)
         };

@@ -438,7 +438,8 @@ fn files_become_nodes_and_rasters_join_a_stack_by_a_connection() {
     let mut h = harness(open(&m, "canvas-files.toml"));
     h.run_steps(3);
     assert!(!h.state().is_open(Pane::Viewer), "no viewer before there is data");
-    // files dropped on the window (a raster and vector features; a folder is left out): a node that reads each
+    // files dropped on the window (a raster, vector features and a folder of rasters, read as one stack): a node
+    // that reads each
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
     let geojson = dir.join("canvas-points.geojson");
     std::fs::write(&geojson, r#"{"type":"FeatureCollection","features":[]}"#).unwrap();
@@ -450,7 +451,11 @@ fn files_become_nodes_and_rasters_join_a_stack_by_a_connection() {
     let read: Vec<(&str, &str)> =
         s.source.nodes.iter().skip(1).map(|n| (n.op.as_str(), n.params["path"].as_str().unwrap())).collect();
     let tif = inputs.join("sibuyan_landuse.tif").to_string_lossy().into_owned();
-    assert_eq!(read, [("raster.read", tif.as_str()), ("vector.read", geojson.to_str().unwrap())]);
+    let folder = inputs.to_string_lossy().into_owned();
+    assert_eq!(
+        read,
+        [("raster.read", tif.as_str()), ("vector.read", geojson.to_str().unwrap()), ("raster.read", folder.as_str())]
+    );
     let raster = s.source.nodes[1].id.clone();
     // the first data: the viewer, in a tab beside the model's, behind it
     assert!(h.state().is_open(Pane::Viewer));

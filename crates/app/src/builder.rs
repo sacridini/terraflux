@@ -886,7 +886,20 @@ fn rename_box(ctx: &egui::Context, s: &mut Session, r: &Registry) {
 
 /// What the node shown gives; the cell under the pointer.
 pub fn viewer_pane(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Hover> {
-    preview(ui, s, r)
+    // files of the Files pane let go over the Viewer: a node each, and all of them layers of it
+    let over = ui.max_rect();
+    let hover = preview(ui, s, r);
+    if egui::DragAndDrop::has_payload_of_type::<DraggedFile>(ui.ctx())
+        && ui.input(|i| i.pointer.latest_pos()).is_some_and(|p| over.contains(p))
+    {
+        ui.painter().rect_stroke(over.shrink(2.0), 4.0, (2.0, theme::accent()), egui::StrokeKind::Inside);
+        if ui.input(|i| i.pointer.any_released())
+            && let Some(f) = egui::DragAndDrop::take_payload::<DraggedFile>(ui.ctx())
+        {
+            drop_on_viewer(s, r, &f.0);
+        }
+    }
+    hover
 }
 
 /// Run up to a node (none: the whole model).
@@ -1525,6 +1538,16 @@ pub fn is_raster(p: &std::path::Path) -> bool {
 /// A node that reads a file (a raster's `raster.read`, vector features' `vector.read`), at a place of the graph or
 /// after the node selected (a file of neither kind: read as a raster, GDAL knows many more).
 pub fn add_file(s: &mut Session, r: &Registry, p: &Path, at: Option<[f32; 2]>) -> Result<String, String> {
+    // a folder: its rasters as one stack (a time series of maps, a layer each, in the order of their names)
+    if p.is_dir() {
+        let rasters = std::fs::read_dir(p)
+            .map(|d| d.flatten().filter(|e| e.path().is_file() && is_raster(&e.path())).count())
+            .unwrap_or(0);
+        if rasters == 0 {
+            return Err(format!("{}: no raster in the folder", p.display()));
+        }
+        return add_at(s, r, "raster.read", &[("path", p.to_string_lossy().into_owned().into())], at);
+    }
     let op = if is_table(p) {
         "table.read"
     } else if is_vector(p) {
@@ -1535,8 +1558,8 @@ pub fn add_file(s: &mut Session, r: &Registry, p: &Path, at: Option<[f32; 2]>) -
     add_at(s, r, op, &[("path", p.to_string_lossy().into_owned().into())], at)
 }
 
-/// Files dropped on a window (from the system's file manager): a node each that reads it, one under the other
-/// (the folders left out); a model (`.toml`) is not data, it is given back to be opened.
+/// Files dropped on a window (from the system's file manager): a node each that reads it, one under the other (a
+/// folder: its rasters as one stack); a model (`.toml`) is not data, it is given back to be opened.
 pub fn add_files(s: &mut Session, r: &Registry, files: &[PathBuf]) -> Option<PathBuf> {
     add_files_made(s, r, files).0
 }
@@ -1546,8 +1569,8 @@ fn add_files_made(s: &mut Session, r: &Registry, files: &[PathBuf]) -> (Option<P
     let mut model = None;
     let mut made = Vec::new();
     let selected = s.selected.clone();
-    for p in files.iter().filter(|p| p.is_file()) {
-        if p.extension().is_some_and(|e| e.eq_ignore_ascii_case("toml")) {
+    for p in files.iter().filter(|p| p.is_file() || p.is_dir()) {
+        if p.is_file() && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("toml")) {
             model = Some(p.clone());
             continue;
         }
@@ -1576,12 +1599,21 @@ pub fn drop_on_viewer(s: &mut Session, r: &Registry, files: &[PathBuf]) -> Optio
         return model;
     }
     s.ask_viewer = true;
+    as_layers(s, r, &made, showing);
+    model
+}
+
+/// Nodes that read files, made layers of the Viewer: the maps first, then the features over them, in the order
+/// given; the first map shown unless the Viewer `showing` something already (kept: the layers go over it); the
+/// model runs up to each, one run after the other, to draw them. Inside a container: none (the Viewer shows the
+/// model's top level).
+pub fn as_layers(s: &mut Session, r: &Registry, made: &[String], showing: bool) {
     if !s.editor.path.is_empty() {
-        return model;
+        return;
     }
     // (id, port, features)
     let mut shown: Vec<(String, String, bool)> = Vec::new();
-    for id in &made {
+    for id in made {
         let Some(n) = s.source.nodes.iter().find(|n| n.id == *id) else { continue };
         let Some(port) = first_output(n, r) else { continue };
         let kind = crate::editor::output_ports(n, r).into_iter().find(|(p, _)| *p == port).map(|(_, t)| t);
@@ -1590,6 +1622,10 @@ pub fn drop_on_viewer(s: &mut Session, r: &Registry, files: &[PathBuf]) -> Optio
             Some(Type::Raster | Type::Map | Type::Stack | Type::Series) => shown.push((id.clone(), port, false)),
             _ => {}
         }
+    }
+    // (the map shown kept under them, else they would be under it)
+    if showing && let Some((n, p)) = s.preview.clone() {
+        pin(&mut s.preview_layers, &n, &p);
     }
     for vectors in [false, true] {
         for (id, port, _) in shown.iter().filter(|(_, _, v)| *v == vectors) {
@@ -1600,7 +1636,6 @@ pub fn drop_on_viewer(s: &mut Session, r: &Registry, files: &[PathBuf]) -> Optio
         select(s, r, id);
     }
     s.show_queue.extend(shown.into_iter().map(|(id, _, _)| id));
-    model
 }
 
 /// The files dragged from the Files pane (`egui`'s drag and drop).
@@ -2062,13 +2097,23 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
             if ui.input(|i| i.pointer.any_released())
                 && let Some(f) = egui::DragAndDrop::take_payload::<DraggedFile>(ui.ctx())
             {
-                // a node each, one under the other from where they are let go
+                // a node each, one under the other from where they are let go; several: all of them layers of the
+                // Viewer (not only the last one selected)
                 let at = s.editor.graph_at(p).map(|q| [q.x - crate::editor_view::WIDTH / 2.0, q.y - 19.0]);
+                let showing = s.preview.clone().map(|v| (v, s.preview_band, s.preview_chosen));
+                let mut made = Vec::new();
                 for (k, file) in f.0.iter().enumerate() {
                     let at = at.map(|a| [a[0], a[1] + 150.0 * k as f32]);
-                    if let Err(e) = add_file(s, r, file, at) {
-                        s.editor.message = Some(e);
+                    match add_file(s, r, file, at) {
+                        Ok(id) => made.push(id),
+                        Err(e) => s.editor.message = Some(e),
                     }
+                }
+                if made.len() > 1 {
+                    if let Some((v, band, chosen)) = showing.clone() {
+                        (s.preview, s.preview_band, s.preview_chosen) = (Some(v), band, chosen);
+                    }
+                    as_layers(s, r, &made, showing.is_some());
                 }
             }
         }

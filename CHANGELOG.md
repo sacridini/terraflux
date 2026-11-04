@@ -49,6 +49,11 @@ minor versions.
   under it, *2% to 98%* (as at first) and *least to most*. Kept for the output and in a Plot (`range = [least,
   most]` in a layer of `[[plots]]`, `set_plot` takes it), and used by the export of a Plot, the Document and QGIS.
   The layers are drawn in the palette and legend they have when shown.
+- Viewer: **several files at once**. Files dragged together (from the system's file manager or the Files pane) are
+  all layers of the Viewer, wherever they are let go, not only the last one, which was the one shown; the map shown
+  stays under them. The Viewer takes files dragged from the Files pane (only the canvas did). A **folder** let go
+  (or dragged from the Files pane) is a `raster.read` of it: its rasters as one stack, a time series played with
+  *Play* (folders were left out).
 
 ## [1.37.0] - 2026-11-04
 

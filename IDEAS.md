@@ -2230,3 +2230,14 @@ responder no próprio Viewer as perguntas de quem estuda mudança de uso, sem mo
    `the_layers_as_a_gis_has_them` (UI), `maps_stack_and_cells_show_their_series` (UI, refeito para a barra, o menu
    e o arrasto). Falta: agrupar camadas (grupos do QGIS); renomear uma camada sem renomear o nó; a faixa de cores
    nas vistas lado a lado com camadas próprias; selecionar várias camadas de uma vez.
+8. **Vários arquivos de uma vez, séries e stacks** (pedido de 2026-11-04): arrastar vários rasters/vetores da pasta
+   criava os nós, mas o Viewer só mostrava o último (o último selecionado).
+   **Feito** (Unreleased): `builder::as_layers` (a parte de `drop_on_viewer` que fixa as camadas, os mapas e depois
+   as feições, e o mapa mostrado sob elas); vários arquivos soltos fora do Viewer (do sistema, `take_dropped`, ou
+   do painel Files no canvas) viram todos camadas, sem trazer o Viewer para frente; o Viewer (`viewer_pane`) aceita
+   o arraste do painel Files; uma pasta (do sistema ou do painel Files) vira `raster.read` da pasta, uma stack com
+   *Play* (`add_file`; uma pasta sem raster é recusada). Testes: `files_dropped_on_the_viewer_become_layers_of_it`
+   (estendido: vários fora do Viewer, uma pasta), `files_of_the_files_pane_let_go_over_the_viewer_are_its_layers`,
+   `files_become_nodes_and_rasters_join_a_stack_by_a_connection` (a pasta agora é um nó). Falta: vários rasters
+   soltos de uma vez como uma série só (um nó com padrão `pasta/nome_*.tif`), por escolha ao soltar; vetores de uma
+   pasta; reconhecer o ano no nome dos arquivos para os nomes dos passos.

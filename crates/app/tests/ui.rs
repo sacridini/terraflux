@@ -4497,6 +4497,37 @@ fn over_the_viewer_is_told_by_where_it_was_drawn() {
     assert!(!terraflux_app::app::over_viewer(None, Some(pos2(200.0, 200.0))));
 }
 
+/// Files of the Files pane let go over the Viewer: a node each, all of them layers of it.
+#[test]
+fn files_of_the_files_pane_let_go_over_the_viewer_are_its_layers() {
+    let mut h = harness(new_app(Some(model())));
+    loaded(&mut h);
+    h.state_mut().focus(Pane::Viewer);
+    drawn(&mut h);
+    let rect = h.state().viewer_rect.expect("the Viewer is drawn");
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.preview = None;
+        s.preview_layers.clear();
+    }
+    let nodes = h.state().session.as_ref().unwrap().source.nodes.len();
+    let files = vec![data("sibuyan_landuse.tif"), data("sibuyan_drivers.tif"), data("pie_landuse.tif")];
+    egui::DragAndDrop::set_payload(&h.ctx, terraflux_app::builder::DraggedFile(files));
+    let at = rect.center();
+    h.event(egui::Event::PointerMoved(at));
+    h.run_steps(1);
+    h.event(egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: Default::default(),
+    });
+    h.run_steps(2);
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.source.nodes.len(), nodes + 3);
+    assert_eq!(s.preview_layers.len(), 3, "every file a layer");
+}
+
 #[test]
 fn files_dropped_on_the_viewer_become_layers_of_it() {
     let mut h = harness(new_app(Some(model())));
@@ -4533,6 +4564,42 @@ fn files_dropped_on_the_viewer_become_layers_of_it() {
         s.show_queue.is_empty() && !s.running() && ids.iter().all(|id| s.value_of(id, "raster").is_some())
     });
     drawn(&mut h);
+    // several outside the Viewer: all of them layers too (not only the last one, shown), over the map shown
+    let shown = h.state().session.as_ref().unwrap().preview.clone();
+    drop_files(&mut h, egui::pos2(2.0, 2.0), &[data("pie_landuse.tif"), data("sibuyan_landuse.tif")]);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        assert_eq!(s.source.nodes.len(), nodes + 5);
+        assert_eq!(s.preview_layers.len(), 4, "the two before and the two dropped");
+        assert_eq!(s.preview, shown, "the map shown stays");
+    }
+    // a folder: its rasters as one stack (a time series), a layer of the Viewer, shown with its steps
+    let folder = tmp("dropped-series");
+    let _ = std::fs::remove_dir_all(&folder);
+    std::fs::create_dir_all(&folder).unwrap();
+    for year in ["1997", "2011"] {
+        std::fs::copy(data("sibuyan_landuse.tif"), folder.join(format!("landuse_{year}.tif"))).unwrap();
+    }
+    h.state_mut().session.as_mut().unwrap().preview = None;
+    drop_files(&mut h, rect.center(), std::slice::from_ref(&folder));
+    let id = {
+        let s = h.state().session.as_ref().unwrap();
+        assert_eq!(s.source.nodes.len(), nodes + 6);
+        let n = s.source.nodes.last().unwrap();
+        assert_eq!(n.op, "raster.read");
+        n.id.clone()
+    };
+    until(&mut h, "the folder read", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of(&id, "raster").is_some()
+    });
+    drawn(&mut h);
+    let s = h.state().session.as_ref().unwrap();
+    let Some(terraflux_ops::Value::Raster(r)) = s.value_of(&id, "raster") else { panic!("a stack") };
+    // (each file's two bands, 1997 and 2011: a layer each)
+    assert_eq!((r.images.len(), r.layers.len()), (2, 4), "the files and their layers");
+    assert_eq!(s.preview.as_ref().map(|(n, _)| n), Some(&id));
+    assert!(h.query_by_label("Play").is_some(), "its steps played");
 }
 
 /// The attribute table of a vector layer pinned over a map: opened from the layer's row (its table button), a row

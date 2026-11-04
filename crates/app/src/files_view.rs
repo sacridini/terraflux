@@ -977,7 +977,7 @@ pub fn pane(ui: &mut Ui, f: &mut Files, s: &mut Session, r: &Registry) -> Option
             .show(ui.ctx(), |ui| {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                     ui.label(RichText::new(name).strong());
-                    ui.label(RichText::new("to the model's canvas").weak().size(10.5));
+                    ui.label(RichText::new("to the model's canvas, or to the Viewer as layers").weak().size(10.5));
                 });
             });
     }
@@ -1354,12 +1354,14 @@ fn list(ui: &mut Ui, f: &mut Files, rows: &[Row], todo: &mut Vec<Do>) {
             resp.widget_info(|| {
                 egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, chosen, e.name.clone())
             });
-            // the data chosen dragged: all of it, else this one
-            if e.kind.data() {
+            // the data chosen dragged: all of it, else this one (a folder: its rasters as one stack)
+            if e.kind.data() || e.kind == Kind::Folder {
                 let carried: Vec<PathBuf> = if chosen {
                     let data: Vec<PathBuf> = rows
                         .iter()
-                        .filter(|r| r.entry.kind.data() && f.chosen.contains(&r.entry.path))
+                        .filter(|r| {
+                            (r.entry.kind.data() || r.entry.kind == Kind::Folder) && f.chosen.contains(&r.entry.path)
+                        })
                         .map(|r| r.entry.path.clone())
                         .collect();
                     data
