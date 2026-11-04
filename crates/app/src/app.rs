@@ -537,6 +537,9 @@ pub struct Session {
     pub ask_viewer: bool,
     /// The nodes to run up to, one after the other, to show their outputs (files dropped on the Viewer).
     pub show_queue: Vec<String>,
+    /// The nodes of rasters dropped at once (two or more), a layer each, that the Layers offer to join as one
+    /// stack (see `series_drop`).
+    pub dropped_rasters: Vec<String>,
     /// How far the node running is, as its operator tells it (a solver's gap...).
     pub task: Option<(String, terraflux_ops::Progress)>,
     /// When Stop was pressed, while the run stops.
@@ -747,6 +750,7 @@ impl Session {
             ask_calculator: false,
             ask_viewer: false,
             show_queue: Vec::new(),
+            dropped_rasters: Vec::new(),
             task: None,
             stopping: None,
             node: String::new(),

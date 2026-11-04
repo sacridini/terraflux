@@ -4497,6 +4497,70 @@ fn over_the_viewer_is_told_by_where_it_was_drawn() {
     assert!(!terraflux_app::app::over_viewer(None, Some(pos2(200.0, 200.0))));
 }
 
+/// Rasters dropped at once, a layer each, joined as one stack when asked: of one folder, a node reading a pattern of
+/// their names in place of theirs; of two folders, a stack.of they feed.
+#[test]
+fn rasters_dropped_at_once_joined_as_one_stack() {
+    let mut h = harness(new_app(Some(model())));
+    loaded(&mut h);
+    h.state_mut().focus(Pane::Viewer);
+    drawn(&mut h);
+    let rect = h.state().viewer_rect.expect("the Viewer is drawn");
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.preview = None;
+        s.preview_layers.clear();
+    }
+    let nodes = h.state().session.as_ref().unwrap().source.nodes.len();
+    let folder = tmp("joined-series");
+    let _ = std::fs::remove_dir_all(&folder);
+    std::fs::create_dir_all(folder.join("later")).unwrap();
+    let years = ["1997", "2005", "2011"];
+    for y in years {
+        std::fs::copy(data("pie_landuse.tif"), folder.join(format!("landuse_{y}.tif"))).unwrap();
+    }
+    std::fs::copy(data("pie_landuse.tif"), folder.join("later").join("landuse_2020.tif")).unwrap();
+    let files: Vec<PathBuf> = years.iter().map(|y| folder.join(format!("landuse_{y}.tif"))).collect();
+    drop_files(&mut h, rect.center(), &files);
+    drawn(&mut h);
+    assert_eq!(h.state().session.as_ref().unwrap().dropped_rasters.len(), 3);
+    shot(&mut h, "layers-dropped-rasters");
+    h.get_by_label("As one stack (a time series)").click();
+    h.run_steps(2);
+    let id = {
+        let s = h.state().session.as_ref().unwrap();
+        assert_eq!(s.source.nodes.len(), nodes + 1, "one node in place of three");
+        let n = s.source.nodes.last().unwrap();
+        let want = folder.join("landuse_*.tif").to_string_lossy().into_owned();
+        assert_eq!((n.op.as_str(), n.params["path"].as_str()), ("raster.read", Some(want.as_str())));
+        let layers: Vec<&str> = s.preview_layers.iter().map(|l| l.node.as_str()).collect();
+        assert_eq!(layers, [n.id.as_str()]);
+        assert!(s.dropped_rasters.is_empty());
+        n.id.clone()
+    };
+    until(&mut h, "the stack read", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of(&id, "raster").is_some()
+    });
+    drawn(&mut h);
+    let Some(terraflux_ops::Value::Raster(r)) = h.state().session.as_ref().unwrap().value_of(&id, "raster") else {
+        panic!("a stack")
+    };
+    assert_eq!(r.images.len(), 3, "a file a year");
+    assert!(h.query_by_label("Play").is_some(), "its steps played");
+    // in two folders: a stack.of fed by them, the nodes kept
+    let two = [folder.join("landuse_1997.tif"), folder.join("later").join("landuse_2020.tif")];
+    drop_files(&mut h, rect.center(), &two);
+    drawn(&mut h);
+    h.get_by_label("As one stack (a time series)").click();
+    h.run_steps(2);
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.source.nodes.len(), nodes + 4);
+    let n = s.source.nodes.last().unwrap();
+    assert_eq!((n.op.as_str(), n.inputs.len()), ("stack.of", 2));
+    assert_eq!(s.preview.as_ref().map(|(p, _)| p), Some(&n.id));
+}
+
 /// Files of the Files pane let go over the Viewer: a node each, all of them layers of it.
 #[test]
 fn files_of_the_files_pane_let_go_over_the_viewer_are_its_layers() {

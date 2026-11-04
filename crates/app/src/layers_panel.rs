@@ -32,6 +32,9 @@ struct Asked {
     /// Files read by new nodes, their layers on top (none: chosen in a dialog).
     files: Option<Vec<PathBuf>>,
     pick_files: bool,
+    /// The rasters dropped at once joined as one stack, or the offer let go.
+    join: bool,
+    no_join: bool,
 }
 
 /// What a row is: a map (of values or classes), vector features, a difference of two maps.
@@ -102,6 +105,34 @@ pub(super) fn layers_section(
         .collect();
     toolbar(ui, sh, &more, (shown_is_layer, main_name), selected, &mut asked);
     ui.add_space(2.0);
+    // rasters dropped at once, a layer each: the offer to join them as one stack (a time series)
+    s.dropped_rasters.retain(|id| s.source.nodes.iter().any(|n| &n.id == id));
+    if s.dropped_rasters.len() > 1 {
+        egui::Frame::new()
+            .fill(theme::accent().gamma_multiply(0.15))
+            .stroke(egui::Stroke::new(1.0, theme::accent().gamma_multiply(0.6)))
+            .corner_radius(4)
+            .inner_margin(Margin::same(6))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.label(RichText::new(format!("{} rasters dropped, a layer each", s.dropped_rasters.len())).size(11.5));
+                ui.horizontal(|ui| {
+                    if ui
+                        .button("As one stack (a time series)")
+                        .on_hover_text(
+                            "one node that reads them all, a layer per band of each file in the order of their names,                              played with Play: a pattern of their names when they are in one folder, else a                              stack.of they feed",
+                        )
+                        .clicked()
+                    {
+                        asked.join = true;
+                    }
+                    if ui.small_button("Keep them apart").clicked() {
+                        asked.no_join = true;
+                    }
+                });
+            });
+        ui.add_space(2.0);
+    }
     let dragged_id = egui::Id::new(("layer dragged", salt));
     let frame = egui::Frame::new()
         .fill(ui.visuals().extreme_bg_color)
@@ -979,6 +1010,26 @@ fn act(
     if let Some((n, p)) = asked.add {
         sh.layers.push(Layer::new(&n, &p));
         ui.data_mut(|d| d.insert_temp(selected_id, format!("{n}.{p}")));
+    }
+    if asked.no_join {
+        s.dropped_rasters.clear();
+    }
+    if asked.join {
+        // (joined with the Viewer's layers in the session: the stack takes the place of theirs)
+        let ids = std::mem::take(&mut s.dropped_rasters);
+        let was = std::mem::replace(&mut s.preview_layers, std::mem::take(&mut sh.layers));
+        match crate::series_drop::join(s, r, &ids) {
+            Ok(_) => {
+                if let Some((n, p)) = s.preview.clone() {
+                    sh.node = n;
+                    sh.port = p;
+                    sh.band = 0;
+                    sh.chosen = false;
+                }
+            }
+            Err(e) => s.editor.message = Some(e),
+        }
+        sh.layers = std::mem::replace(&mut s.preview_layers, was);
     }
     let files = match (asked.files, asked.pick_files) {
         (Some(f), _) => f,

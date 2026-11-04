@@ -2238,6 +2238,14 @@ responder no próprio Viewer as perguntas de quem estuda mudança de uso, sem mo
    o arraste do painel Files; uma pasta (do sistema ou do painel Files) vira `raster.read` da pasta, uma stack com
    *Play* (`add_file`; uma pasta sem raster é recusada). Testes: `files_dropped_on_the_viewer_become_layers_of_it`
    (estendido: vários fora do Viewer, uma pasta), `files_of_the_files_pane_let_go_over_the_viewer_are_its_layers`,
-   `files_become_nodes_and_rasters_join_a_stack_by_a_connection` (a pasta agora é um nó). Falta: vários rasters
-   soltos de uma vez como uma série só (um nó com padrão `pasta/nome_*.tif`), por escolha ao soltar; vetores de uma
-   pasta; reconhecer o ano no nome dos arquivos para os nomes dos passos.
+   `files_become_nodes_and_rasters_join_a_stack_by_a_connection` (a pasta agora é um nó).
+   **Feito também** (Unreleased, pedido em seguida): vários rasters soltos de uma vez como uma stack só, por escolha
+   depois de soltar (`series_drop.rs`): `as_layers` guarda os nós (`Session::dropped_rasters`, dois ou mais
+   `raster.read`) e o painel de camadas oferece *As one stack (a time series)* ou *Keep them apart*. Numa pasta,
+   `series_drop::pattern_of` acha o padrão (o começo e o fim comuns dos nomes em volta de `*`) que nomeia
+   exatamente esses arquivos (conferido com `files::files_of`; se nomeia outros, não serve) e um `raster.read` dele
+   substitui os nós (os lidos por outro nó ficam); em pastas diferentes, um `stack.of` alimentado por eles. A stack
+   vira a camada no lugar das deles e é mostrada; Ctrl+Z desfaz (é uma edição). Testes:
+   `a_pattern_names_exactly_the_files_dropped`, `rasters_dropped_at_once_joined_as_one_stack` (UI). Falta: vetores
+   de uma pasta; reconhecer o ano no nome dos arquivos para os nomes dos passos; nomear os nós pelos arquivos
+   (hoje `raster_read_2`...).

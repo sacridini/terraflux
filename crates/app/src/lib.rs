@@ -62,6 +62,7 @@ pub mod reproject;
 pub mod review;
 pub mod runner;
 pub mod search;
+pub mod series_drop;
 pub mod settings;
 pub mod table_view;
 pub mod templates;

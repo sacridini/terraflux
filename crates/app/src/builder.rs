@@ -1635,6 +1635,15 @@ pub fn as_layers(s: &mut Session, r: &Registry, made: &[String], showing: bool) 
     if !showing && let Some((id, _, _)) = shown.iter().find(|(_, _, v)| !v).or(shown.first()) {
         select(s, r, id);
     }
+    // (two rasters or more read one by one: the Layers offer them as one stack)
+    let rasters: Vec<String> = shown
+        .iter()
+        .filter(|(id, _, v)| !v && s.source.nodes.iter().any(|n| &n.id == id && n.op == "raster.read"))
+        .map(|(id, _, _)| id.clone())
+        .collect();
+    if rasters.len() > 1 {
+        s.dropped_rasters = rasters;
+    }
     s.show_queue.extend(shown.into_iter().map(|(id, _, _)| id));
 }
 

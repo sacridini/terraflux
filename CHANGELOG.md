@@ -54,6 +54,12 @@ minor versions.
   stays under them. The Viewer takes files dragged from the Files pane (only the canvas did). A **folder** let go
   (or dragged from the Files pane) is a `raster.read` of it: its rasters as one stack, a time series played with
   *Play* (folders were left out).
+- Viewer: **rasters dropped at once joined as one stack**, when asked: the Layers offer *As one stack (a time
+  series)* (or *Keep them apart*). In one folder, one `raster.read` of a pattern of their names that names exactly
+  them (`landuse_*.tif`) takes the place of their nodes (those another node reads stay); in several folders, a
+  `stack.of` they feed. The stack is the layer in their place, shown and played with *Play*; Ctrl+Z undoes it.
+- Problems: the *Ask the assistant* of an advice is under its text, no longer inside the box of a text of several
+  lines.
 
 ## [1.37.0] - 2026-11-04
 
