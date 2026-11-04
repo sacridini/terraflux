@@ -4781,6 +4781,8 @@ fn side_by_side(
     let (zoom, center) = sh.view.camera();
     let Compare { view: compared, more: views, .. } = &mut sh.compare;
     (compared.basemap, compared.transparency, compared.hide_data) = (basemap, transparency, hide);
+    // (every view draws the same vector layers: the features selected are outlined in each)
+    compared.selected = sh.view.selected.clone();
     let mut places = vec![SAME_PLACE, place];
     // the views more drawn (their places on this map's grid), or why not
     let mut drawn: Vec<Result<crate::map_view::Place, String>> = Vec::new();
@@ -4794,6 +4796,7 @@ fn side_by_side(
         if let (Ok(p), Ok((src, _, _))) = (&p, m) {
             let v = &mut b.view;
             (v.basemap, v.transparency, v.hide_data) = (basemap, transparency, hide);
+            v.selected = sh.view.selected.clone();
             v.hold(src.size());
             v.set_camera(zoom * p.scale.x.abs().max(1e-12), p.to_source(center));
             places.push(*p);

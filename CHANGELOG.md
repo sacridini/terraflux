@@ -46,6 +46,11 @@ minor versions.
   (or the map compared by a curtain) in another system than the map shown is laid on it tile by tile, as meshes
   the GPU stretches over the shown grid, and its value under the pointer is read through the inverse
   transformation. A rotated grid still has to be put on the map's grid first (`raster.match`).
+- Viewer: **several features selected in the attribute table**: ctrl+click toggles a row, shift+click selects the
+  range from the last row clicked, a plain click still selects just one and zooms to it; on the map a click selects
+  a feature and ctrl+click toggles it. All of them are outlined (those in view) in every view, side by side too;
+  the table's header tells how many are selected, with *Zoom to selection*, *Clear selection* (or esc), and *Copy
+  selected* and *Save selected* for their rows only.
 
 ## [1.35.0] - 2026-11-04
 

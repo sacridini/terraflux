@@ -4198,7 +4198,7 @@ fn the_attribute_table_of_a_vector_layer() {
     assert_eq!(o.pick.row, Some(1));
     assert!(!o.zoom, "zoomed");
     let view = &h.state().session.as_ref().unwrap().preview_view;
-    assert_eq!(view.selected, Some((0, 1)));
+    assert_eq!(view.selected, Some((0, vec![1])));
     let (zoom, center) = view.camera();
     assert!(zoom > before * 2.0, "{before} -> {zoom}");
     let shown = view.shown_grid().unwrap().clone();
@@ -4213,7 +4213,39 @@ fn the_attribute_table_of_a_vector_layer() {
     h.state_mut().session.as_mut().unwrap().preview_view.feature_clicked = vec![(0, 0)];
     h.run_steps(2);
     assert_eq!(open(&h).unwrap().pick.row, Some(0));
-    assert_eq!(h.state().session.as_ref().unwrap().preview_view.selected, Some((0, 0)));
+    assert_eq!(h.state().session.as_ref().unwrap().preview_view.selected, Some((0, vec![0])));
+    // ctrl+click on the other row: both selected and outlined, the view where it was, the header tells how many
+    let selected = |h: &Harness<TerrafluxApp>| h.state().session.as_ref().unwrap().preview_view.selected.clone();
+    let camera = h.state().session.as_ref().unwrap().preview_view.camera();
+    h.get_by_label("2 3 pasture").click_modifiers(egui::Modifiers::COMMAND);
+    until(&mut h, "both rows selected", |a| a.session.as_ref().unwrap().preview_view.selected == Some((0, vec![0, 1])));
+    h.run_steps(2);
+    assert!(h.query_by_label("2 selected").is_some());
+    assert!(h.query_by_label("Zoom to selection").is_some() && h.query_by_label("Copy selected").is_some());
+    assert!(!open(&h).unwrap().zoom, "zoomed by a ctrl+click");
+    assert_eq!(h.state().session.as_ref().unwrap().preview_view.camera(), camera);
+    shot(&mut h, "14f-attribute-table-two");
+    // ctrl+click on the map toggles a feature: the second one out, then in again
+    for want in [vec![0], vec![0, 1]] {
+        let view = &mut h.state_mut().session.as_mut().unwrap().preview_view;
+        (view.feature_clicked, view.feature_toggle) = (vec![(0, 1)], true);
+        h.run_steps(2);
+        assert_eq!(selected(&h), Some((0, want)));
+    }
+    // clear selection lets them all go
+    h.get_by_label("Clear selection").click();
+    h.run_steps(2);
+    assert_eq!(selected(&h), None);
+    assert!(open(&h).unwrap().pick.rows.is_empty() && open(&h).unwrap().pick.row.is_none());
+    assert!(h.query_by_label("Clear selection").is_none());
+    // a click and a shift+click: the range; escape lets it go
+    h.get_by_label("1 12.5 forest").click();
+    h.run_steps(2);
+    h.get_by_label("2 3 pasture").click_modifiers(egui::Modifiers::SHIFT);
+    until(&mut h, "the range selected", |a| a.session.as_ref().unwrap().preview_view.selected == Some((0, vec![0, 1])));
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert_eq!(selected(&h), None);
     // the tab-separated copy: its columns named, a line a feature
     let v = h.state().session.as_ref().unwrap().value_of("vector_read", "vector");
     let Some(terraflux_ops::Value::Vector(v)) = v else { panic!("no features") };

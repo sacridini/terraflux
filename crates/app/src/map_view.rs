@@ -381,6 +381,8 @@ pub struct Outline {
 
 /// The sides of an outline drawn one by one, at most (more: its rectangle).
 const OUTLINE_SIDES: usize = 60_000;
+/// The most features selected outlined at once (those in view).
+const SELECTED_DRAWN: usize = 500;
 
 #[derive(Default)]
 pub struct MapView {
@@ -412,10 +414,12 @@ pub struct MapView {
     /// The patch of the cell traced drawn around it (a trace's card of a patch's operator selected); let go when
     /// another cell is picked.
     pub patch: Option<Outline>,
-    /// The feature selected in a table of attributes (layer, feature), outlined in the accent; and the features
-    /// (layer, feature) under the pointer at the last click, to select a row by.
-    pub selected: Option<(usize, usize)>,
+    /// The features selected in a table of attributes (layer, features), outlined in the accent; and the features
+    /// (layer, feature) under the pointer at the last click, to select rows by (`feature_toggle`: with ctrl, to
+    /// toggle them instead).
+    pub selected: Option<(usize, Vec<usize>)>,
     pub feature_clicked: Vec<(usize, usize)>,
+    pub feature_toggle: bool,
     /// The trace of the cell picked asked for from its menu (a right click), and who explains it.
     pub trace_request: Option<crate::trace_view::Explain>,
     /// Where the view was drawn last.
@@ -1397,28 +1401,41 @@ impl MapView {
             }
         }
         // the feature selected in the table of attributes, outlined (white under the accent), a point ringed
-        if let Some((l, k)) = self.selected
-            && let Some(o) = overlays.get(l)
+        if let Some((l, ks)) = &self.selected
+            && let Some(o) = overlays.get(*l)
             && let Ok(Some(layer)) = self.vectors.layer(&ctx, &o.vector, source.grid())
-            && let Some((kind, parts)) = layer.shape(k)
         {
             let at = |p: &[f64; 2]| rect.center() + (Vec2::new(p[0] as f32, p[1] as f32) - self.center) * self.zoom;
             let clip = painter.clip_rect();
             let strokes = [egui::Stroke::new(3.5, Color32::WHITE), egui::Stroke::new(2.0, crate::theme::accent())];
+            // only those in view (by their boxes), and no more than a few hundred of them
+            let seen = ks
+                .iter()
+                .filter(|&&k| {
+                    layer.feature_box(k).is_some_and(|b| {
+                        clip.expand(8.0).intersects(Rect::from_two_pos(at(&[b[0], b[1]]), at(&[b[2], b[3]])))
+                    })
+                })
+                .filter_map(|&k| layer.shape(k))
+                .take(SELECTED_DRAWN)
+                .collect::<Vec<_>>();
             for s in strokes {
-                for part in &parts {
-                    if kind == crate::vector_tiles::Kind::Point {
-                        for p in part.iter() {
-                            painter.circle_stroke(at(p), 7.0, s);
+                for (kind, parts) in &seen {
+                    let kind = *kind;
+                    for part in parts {
+                        if kind == crate::vector_tiles::Kind::Point {
+                            for p in part.iter() {
+                                painter.circle_stroke(at(p), 7.0, s);
+                            }
+                            continue;
                         }
-                        continue;
-                    }
-                    let n = part.len();
-                    let closed = kind == crate::vector_tiles::Kind::Polygon;
-                    for i in 0..n.saturating_sub(1) + usize::from(closed && n > 2) {
-                        let (a, b) = (at(&part[i]), at(&part[(i + 1) % n]));
-                        if clip.intersects(Rect::from_two_pos(a, b).expand(2.0)) {
-                            painter.line_segment([a, b], s);
+                        let n = part.len();
+                        let closed = kind == crate::vector_tiles::Kind::Polygon;
+                        for i in 0..n.saturating_sub(1) + usize::from(closed && n > 2) {
+                            let (a, b) = (at(&part[i]), at(&part[(i + 1) % n]));
+                            if clip.intersects(Rect::from_two_pos(a, b).expand(2.0)) {
+                                painter.line_segment([a, b], s);
+                            }
                         }
                     }
                 }
@@ -1505,6 +1522,7 @@ impl MapView {
         }
         if response.clicked() {
             self.feature_clicked = features.clone();
+            self.feature_toggle = crate::table_view::click_modifiers(ui).command;
         }
         if (response.clicked() || response.secondary_clicked())
             && !blank

@@ -2,6 +2,8 @@
 //! `area > 1`) and sorted by a column, as many as they are (only those in view are laid out), and drawn as charts
 //! of several columns at once ([`crate::charts`]).
 
+use std::collections::BTreeSet;
+
 use egui::{RichText, Ui, Vec2};
 use terraflux_ops::Table;
 
@@ -105,13 +107,74 @@ pub fn rows_shown(t: &Table, st: &TableState) -> Result<Vec<usize>, String> {
     Ok(rows)
 }
 
-/// The row selected in a table whose rows can be clicked: which, whether the table is to scroll to it, and
-/// whether a click selected it this frame.
+/// The rows selected in a table whose rows can be clicked: the one clicked last (`row`), whether the table is to
+/// scroll to it, whether a click selected it this frame, all the rows selected (`rows`) and where a range from a
+/// shift+click starts (`anchor`).
 #[derive(Debug, Clone, Default)]
 pub struct Pick {
     pub row: Option<usize>,
     pub scroll: bool,
     pub clicked: bool,
+    pub rows: BTreeSet<usize>,
+    pub anchor: Option<usize>,
+}
+
+/// The keys held at the click of this frame (those of the last button event, else the ones held now).
+pub fn click_modifiers(ui: &Ui) -> egui::Modifiers {
+    ui.input(|i| {
+        i.events
+            .iter()
+            .rev()
+            .find_map(|e| match e {
+                egui::Event::PointerButton { modifiers, .. } => Some(*modifiers),
+                _ => None,
+            })
+            .unwrap_or(i.modifiers)
+    })
+}
+
+impl Pick {
+    /// A row clicked (`shown`: the rows in the order they are drawn): alone it is the only one selected; with ctrl
+    /// it is toggled; with shift the range from the row clicked before to it is selected (no row before: alone).
+    pub fn click(&mut self, shown: &[usize], k: usize, ctrl: bool, shift: bool) {
+        self.clicked = true;
+        let range = self.anchor.filter(|_| shift).and_then(|a| {
+            let (i, j) = (shown.iter().position(|&r| r == a)?, shown.iter().position(|&r| r == k)?);
+            Some(shown[i.min(j)..=i.max(j)].to_vec())
+        });
+        if let Some(range) = range {
+            if !ctrl {
+                self.rows.clear();
+            }
+            self.rows.extend(range);
+            self.row = Some(k);
+            return;
+        }
+        if ctrl {
+            if !self.rows.remove(&k) {
+                self.rows.insert(k);
+            }
+            self.row = self.rows.contains(&k).then_some(k).or_else(|| self.rows.iter().next_back().copied());
+        } else {
+            self.rows.clear();
+            self.rows.insert(k);
+            self.row = Some(k);
+        }
+        self.anchor = Some(k);
+    }
+
+    /// The selection let go.
+    pub fn clear(&mut self) {
+        (self.row, self.anchor) = (None, None);
+        self.rows.clear();
+    }
+
+    /// Only this row selected (a feature clicked on the map).
+    pub fn only(&mut self, k: usize) {
+        self.clear();
+        self.rows.insert(k);
+        (self.row, self.anchor) = (Some(k), Some(k));
+    }
 }
 
 /// A table: the filter and the column drawn above it, then its rows (headers sort them).
@@ -196,7 +259,7 @@ pub fn show_picking(ui: &mut Ui, t: &Table, id: egui::Id, mut pick: Option<&mut 
             for k in range {
                 let r = &t.rows[rows[k]];
                 let (rect, resp) = ui.allocate_exact_size(Vec2::new(widths.iter().sum(), row_h), sense);
-                let chosen = pick.as_deref().is_some_and(|p| p.row == Some(rows[k]));
+                let chosen = pick.as_deref().is_some_and(|p| p.rows.contains(&rows[k]));
                 if chosen {
                     ui.painter().rect_filled(rect, 0.0, ui.visuals().selection.bg_fill);
                 } else if k % 2 == 1 {
@@ -213,7 +276,8 @@ pub fn show_picking(ui: &mut Ui, t: &Table, id: egui::Id, mut pick: Option<&mut 
                 if resp.clicked()
                     && let Some(p) = pick.as_deref_mut()
                 {
-                    (p.row, p.clicked) = (Some(rows[k]), true);
+                    let m = click_modifiers(ui);
+                    p.click(&rows, rows[k], m.command, m.shift);
                 }
                 let mut x = rect.left() + 4.0;
                 for (j, &w) in widths.iter().enumerate() {

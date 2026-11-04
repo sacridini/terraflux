@@ -195,7 +195,10 @@ figure draws them.
 
 The *table* button of a vector layer's row in the Layers opens its attributes under the map: a row per feature,
 sorted and filtered like the other tables, copied or saved as CSV. A row clicked outlines its feature on the map
-and takes the view to it; a feature clicked on the map selects its row.
+and takes the view to it; a feature clicked on the map selects its row. Ctrl+click adds or removes a row (or a
+feature on the map) and shift+click takes the range from the last row clicked; the header counts the selected,
+zooms to all of them (*Zoom to selection*), lets them go (*Clear selection*, or esc) and copies or saves only their
+rows (*Copy selected*, *Save selected*). The selection is outlined in every view, side by side too.
 
 ### Exporting the view
 

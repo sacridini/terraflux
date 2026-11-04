@@ -1082,7 +1082,7 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    (`table_view::show_picking`), *Copy* (por tabs) e *Save as CSV*. A seleção ligada: a linha clicada destaca a
    feição no mapa (`MapView::selected`, o contorno na cor de destaque) e leva a vista até ela; a feição clicada no
    mapa (`MapView::feature_clicked`) seleciona a linha e rola até ela. Testes: os de `attribute_table.rs`,
-   `the_attribute_table_of_a_vector_layer`. Falta: várias feições selecionadas; o destaque nas vistas lado a lado.
+   `the_attribute_table_of_a_vector_layer`. (Várias feições e as vistas lado a lado: abaixo.)
    **O histograma feito** (Unreleased, por um sub-agente): `histogram.rs`. Sob a legenda de um mapa de valores, 60
    barras entre os limites da colorização, na cor da rampa, com mínimo, máximo, média e as células com e sem valor
    (o cursor diz a faixa e a contagem de uma barra); feito numa thread e guardado pela fonte (`Histograms`, como
@@ -1113,6 +1113,17 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    `a_layer_of_another_coordinate_system_is_drawn_reprojected`. Falta: lado a lado, a diferença, a figura e
    *Export the view*, a animação e o zoom à camada ainda pedem a mesma grade; grades rotacionadas (`raster.match`
    antes); a linha de data.
+   **Várias feições selecionadas feito** (Unreleased, por um sub-agente): `Pick` (`table_view.rs`) guarda as linhas
+   (`rows`), a última clicada (`row`) e o começo da faixa (`anchor`): `Pick::click` (clique simples, Ctrl alterna,
+   Shift pega a faixa na ordem mostrada), `clear`, `only`; `click_modifiers` lê as teclas do clique. A tabela mostra
+   "N selected", *Zoom to selection* (a união dos `feature_box`, `union_box`), *Clear selection* (Esc também),
+   *Copy selected* e *Save selected* (`subset`). No mapa, clique escolhe a feição e Ctrl+clique alterna
+   (`feature_toggle`). `MapView.selected` virou `Option<(camada, Vec<feição>)>`: só as que estão à vista (pela caixa)
+   são contornadas, no máximo 500 (`SELECTED_DRAWN`); `side_by_side` passa a seleção às vistas comparada e extras.
+   Testes: `rows_toggled_and_ranged`, `selected_rows_as_a_table`, `selection_box_is_the_union`,
+   `the_attribute_table_of_a_vector_layer` (Ctrl, Shift, Esc). Falta: o Shift+clique no mapa (laço/retângulo para
+   selecionar por área); selecionar por filtro ("select all shown"); a seleção guardada no Plot ou usada por
+   `vector.filter`.
 
 ### Em aberto
 
