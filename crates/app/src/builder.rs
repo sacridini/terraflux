@@ -2034,7 +2034,9 @@ fn selection_bar(ui: &mut Ui, s: &Session) -> bool {
                         .on_hover_text(crate::editor_view::GROUP_HELP)
                         .clicked();
                     ui.label(
-                        RichText::new("right-click a node: more").size(10.5).color(ui.visuals().weak_text_color()),
+                        RichText::new("drag an output: all connected  ·  right-click a node: more")
+                            .size(10.5)
+                            .color(ui.visuals().weak_text_color()),
                     );
                 });
             });
@@ -2368,6 +2370,9 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
                     true
                 })
             }
+            Action::ConnectMany { node, links } => {
+                crate::editor::connect_many(&mut s.source, r, &path, &node, &links).map(|_| true)
+            }
             Action::Disconnect { node, port } => {
                 crate::editor::disconnect(&mut s.source, &path, &node, &port).map(|_| true)
             }
@@ -2413,6 +2418,14 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
                 crate::my_nodes::begin(s, r, &id);
                 Ok(false)
             }
+            Action::ExposeLast(id) => match crate::editor::expose_last(&mut s.source, r, &path, &id) {
+                Ok(0) => {
+                    s.notice = Some((format!("{id}: its last nodes are outputs already"), std::time::Instant::now()));
+                    Ok(false)
+                }
+                Ok(_) => Ok(true),
+                Err(e) => Err(e),
+            },
         };
         match result {
             Ok(true) => {

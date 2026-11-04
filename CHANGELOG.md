@@ -6,6 +6,16 @@ minor versions.
 
 ## [Unreleased]
 
+### Added
+- Canvas: **the nodes selected are connected together**. A connection drawn from the output of a node selected
+  takes the others selected with it (their wires drawn along, "3 connections" at the pointer): let go on a node that
+  takes any (`stack.of`), each is a new input, in their order on the canvas; let go on another node, they fill its
+  free inputs that fit, in order. The menu of a node does the same: *Connect the 3 nodes selected here* (every
+  output of a group selected). One step of undo.
+- Canvas: **a group gives the results of its last nodes as outputs**: rasters grouped that nothing read yet (or the
+  end of a chain) are outputs of the group, to connect to a `raster.reclassify` or a `stack.of` outside. A group
+  made before gets them from its menu, *Give it the outputs of its last nodes*.
+
 ### Changed
 - **Terraflux never takes every core**: by default and at most it uses the cores but a quarter (20 cores: 15; 8: 6;
   4: 3; 2: 1), for every tool, run, solver and view: the settings, `--threads` and `TERRAFLUX_THREADS` may ask for

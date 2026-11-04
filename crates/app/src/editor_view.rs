@@ -220,6 +220,11 @@ pub enum Action {
         node: String,
         port: String,
     },
+    /// Several outputs connected to a node at once (the nodes selected): each reference into its port.
+    ConnectMany {
+        node: String,
+        links: Vec<(String, String)>,
+    },
     /// A connection taken off an input.
     Disconnect {
         node: String,
@@ -237,6 +242,8 @@ pub enum Action {
     Group,
     /// A group's nodes taken out into the scope shown.
     Ungroup(String),
+    /// A group given the results of its last nodes as outputs.
+    ExposeLast(String),
     /// A group or a calculator saved as a node of the user's library (its dialog).
     SaveMine(String),
 }
@@ -244,6 +251,14 @@ pub enum Action {
 /// What "Group the nodes selected" does.
 pub const GROUP_HELP: &str = "the nodes in a group: one node on the canvas (double-click it to see them), what read \
      them from outside reads its outputs; its name asked for at once";
+
+/// What "Connect the nodes selected here" does.
+pub const CONNECT_MANY_HELP: &str = "each node selected (top to bottom on the canvas) into an input of this one: a \
+     new input of a node that takes any (stack.of), else its free inputs that fit, in order";
+
+/// What "Give it the outputs of its last nodes" does.
+pub const EXPOSE_LAST_HELP: &str = "each node of the group that none of its others reads (its last results): an \
+     output of the group, to connect to the nodes outside";
 
 /// What "Open the group" does.
 pub const OPEN_GROUP_HELP: &str = "its nodes on the canvas (Esc or ‹ Back: the level above)";
@@ -296,8 +311,9 @@ impl Camera {
 /// What the pointer is doing on the canvas.
 #[derive(Debug, Clone, PartialEq)]
 enum Drag {
-    /// A connection drawn from an output (its reference and where it starts, graph units).
-    Connect(String, Pos2),
+    /// A connection drawn from an output (its reference and where it starts, graph units), and those of the
+    /// other nodes selected drawn with it (when it starts at a node selected).
+    Connect(String, Pos2, Vec<(String, Pos2)>),
     /// The nodes selected moved: where the pointer started and each node's corner then (graph units).
     Move(Pos2, Vec<(String, Pos2)>),
     /// A node made wider or narrower by its right edge: its id, its left edge and the width its texts need.
@@ -349,6 +365,8 @@ pub struct EditorState {
     pub saving: Option<crate::my_nodes::Draft>,
     /// The box whose menu is open (right-clicked), and its operator (none for what a scope reads).
     menu: Option<(String, String)>,
+    /// What connecting the nodes selected to the box of the menu would do (its menu offers it then).
+    menu_links: Option<Vec<(String, String)>>,
 }
 
 /// The inputs of a node a connection may go to, offered where it was let go.
@@ -1145,6 +1163,96 @@ impl Scene {
         self.edges.iter().find(|e| e.to == (i, k)).map(|e| e.from)
     }
 
+    /// The outputs of the other boxes selected that go with a connection drawn from output `k` of box `i`: of
+    /// each, the output of the same name, else the first whose type fits, else its first. None when box `i` is not
+    /// among those selected.
+    fn along(&self, chosen: &BTreeSet<String>, i: usize, k: usize) -> Vec<(String, Pos2)> {
+        let b = &self.boxes[i];
+        if !chosen.contains(&b.key) {
+            return Vec::new();
+        }
+        let (name, ty) = &b.outputs[k];
+        chosen
+            .iter()
+            .filter(|c| **c != b.key)
+            .filter_map(|c| {
+                let o = &self.boxes[*self.index.get(c)?];
+                let at = o
+                    .outputs
+                    .iter()
+                    .position(|(n, _)| n == name)
+                    .or_else(|| o.outputs.iter().position(|(_, t)| t.fits(*ty)))
+                    .or((!o.outputs.is_empty()).then_some(0))?;
+                Some((o.reference(at), o.output_at(at)))
+            })
+            .collect()
+    }
+
+    /// What box `i`'s menu connects to it of the boxes selected but it: the first output of each, every output of
+    /// a group.
+    fn chosen_outputs(&self, chosen: &BTreeSet<String>, i: usize) -> Vec<(String, Pos2)> {
+        chosen
+            .iter()
+            .filter(|c| **c != self.boxes[i].key)
+            .filter_map(|c| self.index.get(c).map(|&j| &self.boxes[j]))
+            .flat_map(|o| {
+                let n = if o.op == terraflux_graph::GROUP { o.outputs.len() } else { o.outputs.len().min(1) };
+                (0..n).map(|k| (o.reference(k), o.output_at(k)))
+            })
+            .collect()
+    }
+
+    /// Where outputs connected together go in box `i`, as (reference, port): ordered top to bottom on the canvas
+    /// (then left to right), what the box reads already and its own outputs left out; each a new input (named as
+    /// what it reads) of a node that takes any, else (not let go on one of its inputs, `on_port`) its free inputs,
+    /// shown or folded, that fit, in order (at least two). None when they do not go in it so.
+    fn links_into(&self, i: usize, outputs: &[(String, Pos2)], on_port: bool) -> Option<Vec<(String, String)>> {
+        let b = &self.boxes[i];
+        if b.source {
+            return None;
+        }
+        let read: Vec<String> =
+            (0..b.inputs.len()).filter_map(|k| self.feeding(i, k)).map(|(j, o)| self.boxes[j].reference(o)).collect();
+        let mut refs: Vec<&(String, Pos2)> =
+            outputs.iter().filter(|(r, _)| !read.contains(r) && r.split('.').next() != Some(b.key.as_str())).collect();
+        refs.sort_by(|a, b| a.1.y.total_cmp(&b.1.y).then(a.1.x.total_cmp(&b.1.x)));
+        refs.dedup_by(|a, b| a.0 == b.0);
+        if refs.is_empty() {
+            return None;
+        }
+        if b.inputs.last().is_some_and(|p| p.name.is_empty()) {
+            let mut taken: Vec<String> = b.inputs.iter().map(|p| p.name.clone()).collect();
+            let links = refs
+                .into_iter()
+                .map(|(r, _)| {
+                    let names: Vec<&str> = taken.iter().map(String::as_str).collect();
+                    let port = new_input(r, &names);
+                    taken.push(port.clone());
+                    (r.clone(), port)
+                })
+                .collect();
+            return Some(links);
+        }
+        if on_port {
+            return None;
+        }
+        let mut free: Vec<(String, Type)> = b
+            .inputs
+            .iter()
+            .filter(|p| !p.connected && !p.name.is_empty())
+            .map(|p| (p.name.clone(), p.ty))
+            .chain(b.folded.iter().cloned())
+            .collect();
+        let mut links = Vec::new();
+        for (r, _) in refs {
+            let ty = self.output_type(r);
+            if let Some(at) = free.iter().position(|(_, t)| ty.is_none_or(|ty| ty.fits(*t))) {
+                links.push((r.clone(), free.remove(at).0));
+            }
+        }
+        (links.len() >= 2).then_some(links)
+    }
+
     /// The type of what a reference gives (an output of a box of the scene), if known.
     fn output_type(&self, reference: &str) -> Option<Type> {
         let (i, k) = self.index.get(reference).map(|&i| (i, 0)).or_else(|| {
@@ -1373,14 +1481,14 @@ pub fn show(
         st.drag = Some(match scene.hit(w, reach(cam)) {
             Some(Hit::Output(i, k)) => {
                 let b = &scene.boxes[i];
-                Drag::Connect(b.reference(k), b.output_at(k))
+                Drag::Connect(b.reference(k), b.output_at(k), scene.along(&st.chosen, i, k))
             }
             // a connection taken off an input, carried by the pointer (dropped on an input: moved there)
             Some(Hit::Input(i, k)) if scene.boxes[i].inputs[k].connected => match scene.feeding(i, k) {
                 Some((j, o)) => {
                     let b = &scene.boxes[i];
                     actions.push(Action::Disconnect { node: b.key.clone(), port: b.inputs[k].name.clone() });
-                    Drag::Connect(scene.boxes[j].reference(o), scene.boxes[j].output_at(o))
+                    Drag::Connect(scene.boxes[j].reference(o), scene.boxes[j].output_at(o), Vec::new())
                 }
                 None => Drag::Select(w),
             },
@@ -1441,7 +1549,25 @@ pub fn show(
         _ => None,
     };
     if resp.drag_stopped() {
-        if let (Some(Drag::Connect(reference, _)), Some(q)) = (&st.drag, pointer) {
+        // the nodes selected dragged together: all into the node they are let go on (new inputs of a node that
+        // takes any; else, let go on the node itself, its free inputs that fit, in order)
+        let many = match (&st.drag, pointer) {
+            (Some(Drag::Connect(reference, from, along)), Some(q)) if !along.is_empty() => {
+                let all: Vec<(String, Pos2)> =
+                    std::iter::once((reference.clone(), *from)).chain(along.iter().cloned()).collect();
+                match scene.hit(to_world(q, cam), reach(cam)) {
+                    Some(Hit::Input(i, _)) => scene.links_into(i, &all, true).map(|l| (i, l)),
+                    Some(Hit::Head(i) | Hit::Body(i) | Hit::Fold(i)) => {
+                        scene.links_into(i, &all, false).map(|l| (i, l))
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+        if let Some((i, links)) = many {
+            actions.push(Action::ConnectMany { node: scene.boxes[i].key.clone(), links });
+        } else if let (Some(Drag::Connect(reference, _, _)), Some(q)) = (&st.drag, pointer) {
             // on an input; on a node that takes any (its place of a new input, or anywhere on it): a new one,
             // named as what it reads
             let port = match scene.hit(to_world(q, cam), reach(cam)) {
@@ -1549,9 +1675,14 @@ pub fn show(
     }
     // a right click on a node, or on the box of something the scope reads: its menu (elsewhere none)
     if resp.secondary_clicked() {
-        st.menu = at.and_then(|w| match scene.hit(w, reach(cam)) {
-            Some(Hit::Head(i) | Hit::Body(i)) => Some((scene.boxes[i].key.clone(), scene.boxes[i].op.clone())),
+        let hit = at.and_then(|w| match scene.hit(w, reach(cam)) {
+            Some(Hit::Head(i) | Hit::Body(i)) => Some(i),
             _ => None,
+        });
+        st.menu = hit.map(|i| (scene.boxes[i].key.clone(), scene.boxes[i].op.clone()));
+        st.menu_links = hit.and_then(|i| {
+            let all = scene.chosen_outputs(&st.chosen, i);
+            if all.is_empty() { None } else { scene.links_into(i, &all, false) }
         });
     }
     resp.context_menu(|ui| {
@@ -1577,6 +1708,17 @@ pub fn show(
             ui.label(egui::RichText::new(source_help(&key)).weak());
         } else {
             let c = crate::commands::cmd();
+            // the nodes selected (besides this one): all connected to it
+            if let Some(links) = st.menu_links.clone() {
+                let nodes: BTreeSet<&str> = links.iter().map(|(r, _)| r.split('.').next().unwrap_or(r)).collect();
+                let text = match (links.len(), nodes.len()) {
+                    (1, _) => "Connect the node selected here".to_string(),
+                    (n, k) if n == k => format!("Connect the {n} nodes selected here"),
+                    (n, _) => format!("Connect the {n} outputs selected here"),
+                };
+                item(ui, &text, CONNECT_MANY_HELP, Action::ConnectMany { node: key.clone(), links });
+                ui.separator();
+            }
             // the nodes selected (this one among them): grouped, a node of their own
             let chosen = st.chosen.iter().filter(|k| !crate::editor::is_source(k)).count();
             if chosen >= 2 && st.chosen.contains(&key) {
@@ -1586,6 +1728,7 @@ pub fn show(
             if op == terraflux_graph::GROUP {
                 item(ui, "Open the group", OPEN_GROUP_HELP, Action::Enter(key.clone()));
                 item(ui, &format!("Ungroup    {c}shift+G"), UNGROUP_HELP, Action::Ungroup(key.clone()));
+                item(ui, "Give it the outputs of its last nodes", EXPOSE_LAST_HELP, Action::ExposeLast(key.clone()));
             }
             if op == terraflux_graph::GROUP || op == "raster.calc" {
                 item(ui, "Save as my node...", SAVE_MINE_HELP, Action::SaveMine(key.clone()));
@@ -1899,7 +2042,7 @@ pub fn show(
         }
     }
     // a connection being drawn
-    if let (Some(Drag::Connect(reference, from)), Some(q)) = (&st.drag, pointer) {
+    if let (Some(Drag::Connect(reference, from, along)), Some(q)) = (&st.drag, pointer) {
         let p0 = screen(*from);
         // in the colour of the output it comes from
         let of = scene.index.get(reference.as_str()).map(|&i| (i, 0)).or_else(|| {
@@ -1909,13 +2052,29 @@ pub fn show(
         });
         let colour =
             of.and_then(|(i, k)| type_colour(scene.boxes[i].outputs[k].1, v.dark_mode)).unwrap_or(v.selection.bg_fill);
-        let dx = ((q.x - p0.x).abs() * 0.5).max(30.0 * cam.zoom);
-        painter.add(egui::epaint::CubicBezierShape::from_points_stroke(
-            [p0, p0 + Vec2::new(dx, 0.0), q - Vec2::new(dx, 0.0), q],
-            false,
-            Color32::TRANSPARENT,
-            Stroke::new(2.0, colour),
-        ));
+        let wire = |p0: Pos2, colour: Color32| {
+            let dx = ((q.x - p0.x).abs() * 0.5).max(30.0 * cam.zoom);
+            egui::epaint::CubicBezierShape::from_points_stroke(
+                [p0, p0 + Vec2::new(dx, 0.0), q - Vec2::new(dx, 0.0), q],
+                false,
+                Color32::TRANSPARENT,
+                Stroke::new(2.0, colour),
+            )
+        };
+        // the other nodes selected: their wires with it, fainter, and how many go
+        for (_, p) in along {
+            painter.add(wire(screen(*p), colour.gamma_multiply(0.55)));
+        }
+        painter.add(wire(p0, colour));
+        if !along.is_empty() {
+            let text = format!("{} connections", along.len() + 1);
+            let at = q + Vec2::new(14.0, -14.0);
+            let galley = painter.layout_no_wrap(text, FontId::proportional(12.0), v.strong_text_color());
+            let back = Rect::from_min_size(at, galley.size()).expand2(Vec2::new(6.0, 3.0));
+            painter.rect_filled(back, 4.0, v.extreme_bg_color);
+            painter.rect_stroke(back, 4.0, Stroke::new(1.0, colour), egui::StrokeKind::Outside);
+            painter.galley(at, galley, v.strong_text_color());
+        }
     }
     // the note of the node under the pointer; how to take a connection off an input
     if st.drag.is_none()

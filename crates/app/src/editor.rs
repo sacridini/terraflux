@@ -790,6 +790,33 @@ pub fn connect(m: &mut Model, r: &Registry, path: &[String], reference: &str, no
     })
 }
 
+/// Connect several references to a node's input ports at once, (reference, port) each: one change (one step of
+/// undo), checked; none made when one fails.
+pub fn connect_many(
+    m: &mut Model,
+    r: &Registry,
+    path: &[String],
+    node: &str,
+    links: &[(String, String)],
+) -> Result<()> {
+    for (reference, port) in links {
+        Ref::parse(reference).map_err(|e| e.to_string())?;
+        if !terraflux_graph::valid_port(port) {
+            return Err(format!("{port:?} is not a valid port name"));
+        }
+    }
+    let at = format!("{}{node}", prefix(path));
+    let checked: Vec<String> =
+        links.iter().map(|(_, port)| format!("{at}.{port}")).chain(std::iter::once(at.clone())).collect();
+    guarded(m, r, &checked, |c| {
+        let n = node_mut(c, path, node)?;
+        for (reference, port) in links {
+            n.inputs.insert(port.clone(), Source::Ref(reference.clone()));
+        }
+        Ok(())
+    })
+}
+
 /// Remove what a node's input port reads.
 pub fn disconnect(m: &mut Model, path: &[String], node: &str, port: &str) -> Result<()> {
     node_mut(m, path, node)?.inputs.remove(port);
@@ -954,6 +981,13 @@ pub fn group_nodes(
                 read.push((node, port));
             }
         });
+        // and the results of its last nodes (those none of the others reads: rasters grouped alone, the end of a
+        // chain), so that the group can be connected on
+        for (node, port) in last_outputs(r, &body) {
+            if !read.iter().any(|(n, _)| *n == node) {
+                read.push((node, port));
+            }
+        }
         let name = |node: &str, port: &str| {
             if read.iter().filter(|(n, _)| n == node).count() == 1 {
                 node.to_string()
@@ -981,6 +1015,55 @@ pub fn group_nodes(
         nodes.insert(first.min(nodes.len()), g);
         Ok(())
     })
+}
+
+/// The first output of each of a body's last nodes, those whose outputs none of its other nodes reads, as (node,
+/// port), in their order; the nodes without outputs (a file written, a check) left out.
+fn last_outputs(r: &Registry, body: &[Node]) -> Vec<(String, String)> {
+    let read: HashSet<String> = body
+        .iter()
+        .flat_map(terraflux_graph::references)
+        .filter_map(|rf| match Ref::parse(&rf) {
+            Ok(Ref::Port { node, .. }) => Some(node),
+            _ => None,
+        })
+        .collect();
+    body.iter()
+        .filter(|n| !read.contains(&n.id))
+        .filter_map(|n| {
+            let port = r
+                .sig(&n.op)
+                .and_then(|s| s.outputs_of(n).first().map(|p| p.name.clone()))
+                .or_else(|| n.body.as_ref().and_then(|b| b.outputs.keys().next().cloned()))?;
+            Some((n.id.clone(), port))
+        })
+        .collect()
+}
+
+/// A group given the results of its last nodes as outputs (those it has not already), to connect outside: a group
+/// made of nodes nothing read had none. How many it was given.
+pub fn expose_last(m: &mut Model, r: &Registry, path: &[String], id: &str) -> Result<usize> {
+    let mut added = 0;
+    let at = prefix(path) + id;
+    guarded(m, r, std::slice::from_ref(&at), |c| {
+        let g = node_mut(c, path, id)?;
+        let b = g.body.as_mut().ok_or_else(|| format!("{id} has no nodes"))?;
+        for (node, port) in last_outputs(r, &b.nodes) {
+            let reference = format!("{node}.{port}");
+            if b.outputs.values().any(|v| *v == reference) {
+                continue;
+            }
+            let name = [node.clone(), format!("{node}_{port}")]
+                .into_iter()
+                .chain((2..).map(|k| format!("{node}_{k}")))
+                .find(|n| !b.outputs.contains_key(n))
+                .unwrap();
+            b.outputs.insert(name, reference);
+            added += 1;
+        }
+        Ok(())
+    })?;
+    Ok(added)
 }
 
 /// What a setting holds to read a source: its value, or the reference (`"$input"`, `"@carried"`, `{ from =
@@ -1549,6 +1632,44 @@ out big = img > 5",
         let e = group_nodes(&mut c, &r, &[], &ends, "ends", None).unwrap_err();
         assert!(e.contains("cycle"), "{e}");
         assert_eq!(c, before);
+    }
+
+    /// Rasters grouped that nothing read yet: the group gives each as an output, to connect on (a reclassify, a
+    /// stack); a group made without them is given them from its menu.
+    #[test]
+    fn a_group_gives_the_results_of_its_last_nodes() {
+        let r = Registry::standard();
+        let mut m = model();
+        for k in 0..3 {
+            add_node(&mut m, &r, &[], "raster.read", [0.0, k as f32 * 150.0]).unwrap();
+        }
+        let ids: Vec<String> = m.nodes.iter().map(|n| n.id.clone()).collect();
+        group_nodes(&mut m, &r, &[], &ids, "inputs", None).unwrap();
+        let b = m.node("inputs").unwrap().body.as_ref().unwrap();
+        let outs: Vec<(&str, &str)> = b.outputs.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        assert_eq!(
+            outs,
+            [
+                ("raster_read", "raster_read.raster"),
+                ("raster_read_2", "raster_read_2.raster"),
+                ("raster_read_3", "raster_read_3.raster")
+            ]
+        );
+        let reclass = add_node(&mut m, &r, &[], "raster.reclassify", [400.0, 0.0]).unwrap();
+        connect(&mut m, &r, &[], "inputs.raster_read_2", &reclass, "map").unwrap();
+        // a chain grouped: only its end
+        let mut c = model();
+        let a = add_node(&mut c, &r, &[], "raster.calc", [0.0, 0.0]).unwrap();
+        let b = add_node(&mut c, &r, &[], "raster.calc", [200.0, 0.0]).unwrap();
+        connect(&mut c, &r, &[], &format!("{a}.map"), &b, "x").unwrap();
+        group_nodes(&mut c, &r, &[], &[a, b.clone()], "chain", None).unwrap();
+        let outs: Vec<&String> = c.node("chain").unwrap().body.as_ref().unwrap().outputs.values().collect();
+        assert_eq!(outs, [&format!("{b}.map")]);
+        // a group without them: given them, once
+        c.node_mut("chain").unwrap().body.as_mut().unwrap().outputs.clear();
+        assert_eq!(expose_last(&mut c, &r, &[], "chain").unwrap(), 1);
+        assert_eq!(expose_last(&mut c, &r, &[], "chain").unwrap(), 0);
+        assert_eq!(c.node("chain").unwrap().body.as_ref().unwrap().outputs[&b], format!("{b}.map"));
     }
 
     #[test]

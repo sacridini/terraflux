@@ -5988,3 +5988,90 @@ fn the_area_of_the_classes_along_the_steps_and_the_flows_from_the_first() {
     assert_eq!(s.steps_window.tab, terraflux_app::transition_view::Tab::Sankey, "the flows first");
     shot(&mut h, "14k-steps-flows");
 }
+
+/// Rasters selected together go into a stack.of at once: a connection drawn from one of them takes the others
+/// with it (each a new input, in their order on the canvas), and the menu of the stack.of connects them too.
+#[test]
+fn the_nodes_selected_are_connected_together() {
+    let path = tmp("ui-connect-many.toml");
+    let mut m = terraflux_graph::Model::new("many");
+    for (k, id) in ["a", "b", "c"].iter().enumerate() {
+        let mut n = terraflux_graph::Node::new(id, "raster.read")
+            .param("path", data("sibuyan_landuse.tif").to_string_lossy().into_owned());
+        n.pos = Some([0.0, 160.0 * k as f32]);
+        m.nodes.push(n);
+    }
+    let mut n = terraflux_graph::Node::new("stack", "stack.of");
+    n.pos = Some([420.0, 120.0]);
+    m.nodes.push(n);
+    m.save(&path).unwrap();
+    let mut h = harness(new_app(Some(path)));
+    loaded(&mut h);
+    h.state_mut().focus(Pane::Model);
+    h.run_steps(3);
+    let choose = |h: &mut Harness<TerrafluxApp>, ids: &[&str]| {
+        h.state_mut().session.as_mut().unwrap().editor.chosen = ids.iter().map(|s| s.to_string()).collect();
+        h.run_steps(2);
+    };
+    // a connection drawn from b's output, the three selected, let go on the stack: all three, in order
+    choose(&mut h, &["a", "b", "c"]);
+    let (from, to) = {
+        let e = &h.state().session.as_ref().unwrap().editor;
+        (e.screen_of_output("b", "raster").unwrap(), e.screen_of("stack").unwrap())
+    };
+    h.event(egui::Event::PointerMoved(from));
+    h.run_steps(1);
+    h.event(egui::Event::PointerButton {
+        pos: from,
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.run_steps(1);
+    for k in 1..=6 {
+        h.event(egui::Event::PointerMoved(from + (to - from) * (k as f32 / 6.0)));
+        h.run_steps(1);
+    }
+    shot(&mut h, "14l-connect-many");
+    h.event(egui::Event::PointerButton {
+        pos: to,
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.run_steps(3);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        let n = s.source.node("stack").unwrap();
+        let read: Vec<(&str, &terraflux_graph::Source)> = n.inputs.iter().map(|(k, v)| (k.as_str(), v)).collect();
+        assert_eq!(read.len(), 3, "{read:?}");
+        for id in ["a", "b", "c"] {
+            assert_eq!(n.inputs[id], terraflux_graph::Source::Ref(format!("{id}.raster")), "{read:?}");
+        }
+        assert!(s.editor.message.is_none(), "{:?}", s.editor.message);
+    }
+    // one step of undo takes the three away
+    terraflux_app::builder::undo_redo(h.state_mut().session.as_mut().unwrap(), false);
+    h.run_steps(2);
+    assert!(h.state().session.as_ref().unwrap().source.node("stack").unwrap().inputs.is_empty());
+    // the stack's menu, a and c selected: both connected
+    choose(&mut h, &["a", "c"]);
+    let at = h.state().session.as_ref().unwrap().editor.screen_of("stack").unwrap();
+    h.event(egui::Event::PointerMoved(at));
+    h.run_steps(1);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(1);
+    }
+    h.run_steps(2);
+    h.get_by_label("Connect the 2 nodes selected here").click();
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    let n = s.source.node("stack").unwrap();
+    assert_eq!(n.inputs.keys().map(String::as_str).collect::<Vec<_>>(), ["a", "c"]);
+}
