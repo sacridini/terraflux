@@ -4122,7 +4122,7 @@ fn hints(focused: Option<Pane>) -> String {
         ),
         Some(Pane::Viewer | Pane::Simulation) => {
             "wheel: zoom    drag: move    double click: the whole map    B: satellite under the map    space: hide the \
-             map    F1: shortcuts"
+             map    M: measure    F1: shortcuts"
                 .to_string()
         }
         _ => format!(

@@ -32,6 +32,7 @@ pub mod legend_view;
 pub mod llm;
 pub mod logo;
 pub mod map_view;
+pub mod measure;
 pub mod metadata;
 pub mod methods;
 pub mod mp4;

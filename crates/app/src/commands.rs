@@ -261,6 +261,7 @@ pub fn shortcuts() -> Vec<(&'static str, Vec<(String, &'static str)>)> {
                 ("double click".into(), "the whole map in view"),
                 ("B".into(), "the satellite under the map"),
                 ("space".into(), "hide the map, or show it again"),
+                ("M".into(), "measure: click points for lengths, area and perimeter (esc ends)"),
                 ("left, right".into(), "the step before, after (Simulation)"),
             ],
         ),

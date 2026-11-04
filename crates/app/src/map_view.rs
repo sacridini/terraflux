@@ -411,6 +411,8 @@ pub struct MapView {
     pub ghost: Option<Vec2>,
     /// Features being drawn on the map (clicks add their vertices instead of picking a cell).
     pub drawing: Option<crate::draw::Sketch>,
+    /// A line being measured (clicks add its points instead of picking a cell); not while drawing.
+    pub measuring: Option<crate::measure::Measure>,
     /// The name of the map shown, its value under the pointer told by it beside those of the maps drawn with it.
     pub name: String,
     /// The map drawn at the last frame and its colouring; the one shown before the map now, while it fades in.
@@ -506,6 +508,24 @@ impl MapView {
     /// Where the view was drawn last, on the screen.
     pub fn rect(&self) -> Option<Rect> {
         self.rect
+    }
+
+    /// Measuring turned on or off (the line lost); refused while features are being drawn.
+    pub fn set_measuring(&mut self, on: bool) {
+        self.measuring = (on && self.drawing.is_none()).then(Default::default);
+    }
+
+    /// What the line measured tells (none: not measuring, or no points yet).
+    pub fn measured(&self) -> Option<crate::measure::Report> {
+        let line = self.measuring.as_ref().filter(|l| !l.points.is_empty())?;
+        Some(line.report(self.shown_grid.as_ref()?))
+    }
+
+    /// A point added to the line measured, a cell of the map shown (as a click would).
+    pub fn measure_click(&mut self, cell: [f64; 2]) {
+        if let Some(l) = &mut self.measuring {
+            l.click(cell);
+        }
     }
 
     pub fn zoom(&self) -> f32 {
@@ -854,7 +874,7 @@ impl MapView {
             return None;
         }
         // (a double click while drawing ends a feature)
-        if !self.fitted || (response.double_clicked() && self.drawing.is_none()) {
+        if !self.fitted || (response.double_clicked() && self.drawing.is_none() && self.measuring.is_none()) {
             self.zoom = (rect.width() / w as f32).min(rect.height() / h as f32).max(1e-6);
             self.center = Vec2::new(w as f32 / 2.0, h as f32 / 2.0);
             self.fitted = true;
@@ -894,6 +914,14 @@ impl MapView {
         let typing = ui.ctx().memory(|m| m.focused().is_some());
         if response.hovered() && !typing && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::B)) {
             self.basemap = if self.basemap == Basemap::None { Basemap::EsriImagery } else { Basemap::None };
+        }
+        // (features drawn take the place of the line measured)
+        if self.drawing.is_some() {
+            self.measuring = None;
+        }
+        // M over the map: measuring, or not (not while drawing)
+        if response.hovered() && !typing && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::M)) {
+            self.set_measuring(self.measuring.is_none());
         }
         // space over the map: the map hidden (what is under it and over it seen alone), or shown again
         if response.hovered() && !typing && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Space)) {
@@ -1198,6 +1226,20 @@ impl MapView {
             );
             self.drawing = Some(sketch);
         }
+        if let Some(mut line) = self.measuring.take() {
+            let (zoom, center) = (self.zoom, self.center);
+            let wish = line.interact(
+                ui,
+                &response,
+                source.grid(),
+                typing,
+                |p| self.to_cell(rect, p),
+                |c| rect.center() + (c - center) * zoom,
+            );
+            if wish == crate::measure::Wish::Keep {
+                self.measuring = Some(line);
+            }
+        }
         let p = response.hover_pos()?;
         let c = self.to_cell(rect, p);
         self.pointer = Some(c);
@@ -1216,7 +1258,11 @@ impl MapView {
             let texts: Vec<String> = features.iter().map(|&(l, k)| feature_text(&overlays[l], k)).collect();
             response.clone().on_hover_text_at_pointer(texts.join("\n\n"));
         }
-        if (response.clicked() || response.secondary_clicked()) && !blank && self.drawing.is_none() {
+        if (response.clicked() || response.secondary_clicked())
+            && !blank
+            && self.drawing.is_none()
+            && self.measuring.is_none()
+        {
             let picked = inside.then_some((c.y as usize, c.x as usize));
             if picked != self.picked {
                 self.patch = None;

@@ -3441,6 +3441,17 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     layers = !layers;
                     ui.data_mut(|d| d.insert_temp(id, layers));
                 }
+                if drawn
+                    && ui
+                        .add_enabled(
+                            sh.view.drawing.is_none(),
+                            egui::Button::new("Measure").selected(sh.view.measuring.is_some()),
+                        )
+                        .on_hover_text("lengths, area and perimeter of a line clicked on the map (M)")
+                        .clicked()
+                {
+                    sh.view.set_measuring(sh.view.measuring.is_none());
+                }
                 plots_menu(ui, s, sh, inner.is_none(), salt);
                 // what is shown, saved: a file only, or a file and a node that writes it at every run
                 let maps = matches!(&value, Some(Value::Map(_) | Value::Stack(_) | Value::Raster(_)))

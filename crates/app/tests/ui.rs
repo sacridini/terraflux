@@ -501,6 +501,89 @@ fn a_map_kept_as_a_plot_without_writing_and_saved() {
 /// Two maps compared in the viewer: the land use read and the forest reclassified from it, by a curtain, side by
 /// side (the two views moving together) and by their difference (the transitions).
 #[test]
+fn measuring_on_the_map_by_clicks() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let r = terraflux_ops::Registry::standard();
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let path = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
+        terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into()), ("band", "0".into())]).unwrap();
+        s.preview = Some(("raster_read".into(), "raster".into()));
+    }
+    h.state_mut().focus(Pane::Viewer);
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("raster_read", "raster").is_some()
+    });
+    h.run_steps(4);
+    drawn(&mut h);
+    assert!(h.state().session.as_ref().unwrap().preview_view.measured().is_none());
+    // by the API: the points of the cells, and the numbers they tell
+    {
+        let v = &mut h.state_mut().session.as_mut().unwrap().preview_view;
+        v.set_measuring(true);
+        assert!(v.measuring.is_some());
+        v.measure_click([0.0, 0.0]);
+        v.measure_click([30.0, 0.0]);
+        v.measure_click([30.0, 40.0]);
+    }
+    h.run_steps(2);
+    shot(&mut h, "14d-measure");
+    let r = h.state().session.as_ref().unwrap().preview_view.measured().expect("measured");
+    assert_eq!(r.segments.len(), 2);
+    assert!((r.cells_length - 70.0).abs() < 1e-9, "{}", r.cells_length);
+    assert_eq!(r.cells_area, Some(600.0));
+    assert!(r.area.is_some() && r.perimeter.is_some() && r.text().contains("Area:"), "{}", r.text());
+    // drawing and measuring exclude each other
+    {
+        let v = &mut h.state_mut().session.as_mut().unwrap().preview_view;
+        v.drawing = Some(terraflux_app::draw::Sketch::new(terraflux_app::draw::Kind::Line));
+        v.set_measuring(true);
+        assert!(v.measuring.is_none(), "not while drawing");
+        v.drawing = None;
+        v.set_measuring(true);
+    }
+    // by the mouse: clicks add points (no cell picked), a right click takes the last away, esc ends
+    h.run_steps(2);
+    let (rect, zoom) = {
+        let v = &h.state().session.as_ref().unwrap().preview_view;
+        (v.rect().expect("drawn"), v.zoom())
+    };
+    let click = |h: &mut Harness<TerrafluxApp>, p: egui::Pos2, button: egui::PointerButton| {
+        h.event(egui::Event::PointerMoved(p));
+        h.run_steps(1);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton { pos: p, button, pressed, modifiers: egui::Modifiers::NONE });
+        }
+        h.run_steps(2);
+    };
+    let c = rect.center();
+    let a = c + egui::Vec2::new(-60.0, -20.0);
+    let b = c + egui::Vec2::new(60.0, -20.0);
+    click(&mut h, a, egui::PointerButton::Primary);
+    click(&mut h, b, egui::PointerButton::Primary);
+    {
+        let v = &h.state().session.as_ref().unwrap().preview_view;
+        assert!(v.picked.is_none(), "no cell picked while measuring");
+        let r = v.measured().expect("two points");
+        assert_eq!(r.segments.len(), 1);
+        assert!((r.cells_length - f64::from(120.0 / zoom)).abs() < 0.05, "{} cells at zoom {zoom}", r.cells_length);
+    }
+    click(&mut h, c, egui::PointerButton::Secondary);
+    assert_eq!(h.state().session.as_ref().unwrap().preview_view.measured().unwrap().segments.len(), 0);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert!(h.state().session.as_ref().unwrap().preview_view.measuring.is_none(), "esc ends measuring");
+    // M over the map turns it on again
+    h.event(egui::Event::PointerMoved(c));
+    h.run_steps(1);
+    h.key_press(egui::Key::M);
+    h.run_steps(2);
+    assert!(h.state().session.as_ref().unwrap().preview_view.measuring.is_some(), "M turns measuring on");
+}
+
+#[test]
 fn maps_compare_by_a_curtain_and_side_by_side() {
     let mut h = harness(new_app(None));
     h.run_steps(2);
