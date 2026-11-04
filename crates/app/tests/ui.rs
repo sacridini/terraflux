@@ -3829,8 +3829,7 @@ fn a_study_area_drawn_on_the_map() {
     h.get_by_label("polygons").scroll_to_me();
     h.run_steps(3);
     h.get_by_label("polygons").click();
-    h.run_steps(2);
-    assert!(h.state().session.as_ref().unwrap().preview_view.drawing.is_some());
+    until(&mut h, "drawing turned on", |a| a.session.as_ref().unwrap().preview_view.drawing.is_some());
     let rect = h.state().session.as_ref().unwrap().preview_view.rect().unwrap();
     let c = rect.center();
     let click = |h: &mut Harness<TerrafluxApp>, at: egui::Pos2| {
