@@ -177,8 +177,8 @@ pub(crate) fn values(src: &Source, max_side: usize) -> Result<(Vec<f32>, usize, 
 }
 
 /// A map's picture as [`values`] takes its cells, with the maps drawn with it: those `below` under it, the
-/// others over it, each at its opacity and placed by its grid (one of another coordinate system left out);
-/// premultiplied colours, transparent where nothing is.
+/// others over it, each at its opacity and placed by its grid (one of another coordinate system carried to the
+/// map's; one that cannot be carried, a rotated grid, left out); premultiplied colours, transparent where nothing is.
 pub(crate) fn composed(
     src: &Source,
     coloring: &Coloring,
@@ -203,18 +203,34 @@ pub(crate) fn composed(
     };
     let mut out = vec![Color32::TRANSPARENT; w * h];
     let draw = |out: &mut [Color32], l: &crate::map_view::RasterLayer| {
-        let Some(place) = crate::map_view::place_on(l.source.grid(), src.grid()) else { return };
+        let Some(link) = crate::reproject::Link::between(l.source.grid(), src.grid()) else { return };
         let side = (max_side * 2).min(4096);
         let Ok((lv, lw, lh)) = values(&l.source, side) else { return };
         let (lstep, _, _) = fitted(l.source.size(), side);
         let img = image_f32(&lv, lw, lh, &l.coloring);
         let opacity = l.opacity.clamp(0.0, 1.0);
         for r in 0..h {
+            // a row's pixel centres on the layer: by its place, or each one carried through the systems' transformation
+            // (a row at once)
+            let carried = match &link {
+                crate::reproject::Link::Warp(re) => {
+                    let row: Vec<[f64; 2]> =
+                        (0..w).map(|c| [((c * step) as f64) + 0.5, ((r * step) as f64) + 0.5]).collect();
+                    Some(re.to_source_many(&row))
+                }
+                crate::reproject::Link::Place(_) => None,
+            };
             for c in 0..w {
                 // the cell's centre on the map, then on the layer
                 let (x, y) = ((c * step) as f32 + 0.5, (r * step) as f32 + 0.5);
-                let (lx, ly) = ((x - place.offset.x) / place.scale.x, (y - place.offset.y) / place.scale.y);
-                if lx < 0.0 || ly < 0.0 {
+                let (lx, ly) = match (&link, &carried) {
+                    (crate::reproject::Link::Place(p), _) => {
+                        ((x - p.offset.x) / p.scale.x, (y - p.offset.y) / p.scale.y)
+                    }
+                    (_, Some(row)) => (row[c][0] as f32, row[c][1] as f32),
+                    _ => continue,
+                };
+                if !(lx >= 0.0 && ly >= 0.0) {
                     continue;
                 }
                 let (pc, pr) = (lx as usize / lstep, ly as usize / lstep);
@@ -613,6 +629,39 @@ mod tests {
         assert!(half.a().abs_diff(128) <= 1 && half.b().abs_diff(100) <= 1 && half.r() == 0, "{half:?}");
         let mixed = at(&img, 2, 0);
         assert!(mixed.a() == 255 && mixed.r().abs_diff(100) <= 1 && mixed.b().abs_diff(100) <= 1, "{mixed:?}");
+    }
+
+    /// A layer in WGS 84 under a map in UTM 51N: its pixel found through the transformation, not by the cells' places.
+    #[test]
+    fn a_layer_of_another_coordinate_system_is_carried_to_the_map() {
+        if terraflux_gdal::gdal().is_err() {
+            return;
+        }
+        let (red, blue) = (Color32::from_rgb(200, 0, 0), Color32::from_rgb(0, 0, 200));
+        // 400 x 300 cells of 10 m, about 122.54 E 11.76 N
+        let mut g = terraflux_raster::Grid::new(400, 300);
+        g.transform = [450_000.0, 10.0, 0.0, 1_300_000.0, 0.0, -10.0];
+        g.geo.geokeys = Some(vec![1, 1, 0, 2, 1024, 0, 1, 1, 3072, 0, 1, 32651]);
+        let main = Source::Map(Map::new(Arc::new(g), vec![f64::NAN; 400 * 300]));
+        // 1000 x 800 cells of 0.0001 degrees from 122.5 E 11.8 N: 1 west of 122.55 E, 2 east of it
+        let mut geo = terraflux_raster::Grid::new(1000, 800);
+        geo.transform = [122.5, 0.0001, 0.0, 11.8, 0.0, -0.0001];
+        geo.geo.geokeys = Some(vec![1, 1, 0, 2, 1024, 0, 1, 2, 2048, 0, 1, 4326]);
+        let data = (0..1000 * 800).map(|i| if i % 1000 < 500 { 1.0 } else { 2.0 }).collect();
+        let layer = crate::map_view::RasterLayer {
+            source: Source::Map(Map::new(Arc::new(geo), data)),
+            coloring: Coloring::Classes(vec![(1.0, red), (2.0, blue)]),
+            opacity: 1.0,
+            below: true,
+            name: String::new(),
+        };
+        let coloring = Coloring::Classes(vec![(1.0, Color32::GREEN)]);
+        let img = composed(&main, &coloring, &[layer], 1000).unwrap();
+        assert_eq!(img.size, [400, 300]);
+        // (122.55 E is about 95 cells from the map's west edge)
+        let at = |r: usize, c: usize| img.pixels[r * 400 + c];
+        assert_eq!((at(10, 20), at(150, 30), at(280, 40)), (red, red, red));
+        assert_eq!((at(10, 300), at(150, 200), at(280, 390)), (blue, blue, blue));
     }
 
     #[test]

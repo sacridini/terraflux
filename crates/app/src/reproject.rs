@@ -4,13 +4,14 @@
 //! tiles of the map in its own cells, as for any layer. The pointer's cell is carried back the same way.
 
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use egui::epaint::Vertex;
 use egui::{Color32, Mesh, Pos2, Rect, TextureId, Vec2};
 use terraflux_raster::Grid;
 
-use crate::map_view::TILE;
+use crate::map_view::{Place, TILE};
 
 /// A tile's quads along each side.
 const STEPS: usize = 16;
@@ -106,7 +107,7 @@ impl Reproj {
     }
 
     /// Cells of the view as cells of the layer (NaN where they have no place there).
-    fn back(&self, cells: &[[f64; 2]]) -> Vec<[f64; 2]> {
+    pub fn to_source_many(&self, cells: &[[f64; 2]]) -> Vec<[f64; 2]> {
         let v = self.view;
         let mut xs: Vec<f64> = cells.iter().map(|c| v[0] + c[0] * v[1]).collect();
         let mut ys: Vec<f64> = cells.iter().map(|c| v[3] + c[1] * v[5]).collect();
@@ -117,8 +118,37 @@ impl Reproj {
 
     /// A cell of the view as a cell of the layer (none where it has no place there).
     pub fn to_source(&self, c: Vec2) -> Option<Vec2> {
-        let p = self.back(&[[f64::from(c.x), f64::from(c.y)]])[0];
+        let p = self.to_source_many(&[[f64::from(c.x), f64::from(c.y)]])[0];
         (p[0].is_finite() && p[1].is_finite()).then(|| Vec2::new(p[0] as f32, p[1] as f32))
+    }
+
+    /// View cells per cell of the layer around the layer's cell `c` (the layer's middle's where `c` has no place).
+    pub fn scale_at(&self, c: Vec2) -> f32 {
+        let (x, y) = (f64::from(c.x), f64::from(c.y));
+        let v = self.carry(&[[x, y], [x + 1.0, y], [x, y + 1.0]]);
+        let d = |a: [f32; 2], b: [f32; 2]| (b[0] - a[0]).hypot(b[1] - a[1]);
+        let s = (d(v[0], v[1]) + d(v[0], v[2])) / 2.0;
+        if s.is_finite() && s > 0.0 { s } else { self.scale }
+    }
+
+    /// The box (`[x0, y0, x1, y1]`, cells of the view) a box of the layer's cells covers on the view: its edges
+    /// walked and carried (the corners alone miss a curved edge); none when no point has a place there.
+    pub fn box_on_view(&self, b: [f64; 4]) -> Option<[f32; 4]> {
+        let n = 16;
+        let mut cells = Vec::new();
+        for i in 0..=n {
+            let t = i as f64 / n as f64;
+            let (x, y) = (b[0] + (b[2] - b[0]) * t, b[1] + (b[3] - b[1]) * t);
+            cells.extend([[x, b[1]], [x, b[3]], [b[0], y], [b[2], y]]);
+        }
+        let (mut x0, mut y0, mut x1, mut y1) = (f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY);
+        for p in self.carry(&cells).iter().filter(|p| p[0].is_finite() && p[1].is_finite()) {
+            x0 = x0.min(p[0]);
+            x1 = x1.max(p[0]);
+            y0 = y0.min(p[1]);
+            y1 = y1.max(p[1]);
+        }
+        (x1 >= x0).then_some([x0, y0, x1, y1])
     }
 
     /// The box of the layer's cells (`[x0, y0, x1, y1]`) under the view whose corners are the cells `a` and `b` of
@@ -139,7 +169,7 @@ impl Reproj {
             }
         }
         let (mut x0, mut y0, mut x1, mut y1) = (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
-        for p in self.back(&cells).iter().filter(|p| p[0].is_finite() && p[1].is_finite()) {
+        for p in self.to_source_many(&cells).iter().filter(|p| p[0].is_finite() && p[1].is_finite()) {
             x0 = x0.min(p[0]);
             x1 = x1.max(p[0]);
             y0 = y0.min(p[1]);
@@ -173,6 +203,75 @@ impl Reproj {
         }
         self.vertices.insert(k, v.clone());
         v
+    }
+}
+
+thread_local! {
+    /// The ways to carry one grid to another that views side by side use, made once (the transformations are slow
+    /// to make): by [`key`].
+    static LINKS: std::cell::RefCell<HashMap<u64, Rc<Reproj>>> = std::cell::RefCell::new(HashMap::new());
+}
+
+/// How a view's cells are put on another view's (the first of those side by side): by their places when both are of
+/// one coordinate system, else carried through the transformation between the two.
+#[derive(Clone)]
+pub enum Link {
+    Place(Place),
+    Warp(Rc<Reproj>),
+}
+
+impl From<Place> for Link {
+    fn from(p: Place) -> Link {
+        Link::Place(p)
+    }
+}
+
+impl Link {
+    /// The grid `g` on the grid `base`; none when it is rotated or its system cannot be carried to base's.
+    pub fn between(g: &Grid, base: &Grid) -> Option<Link> {
+        if let Some(p) = crate::map_view::place_on(g, base) {
+            return Some(Link::Place(p));
+        }
+        let k = key(g, base);
+        if let Some(re) = LINKS.with(|l| l.borrow().get(&k).cloned()) {
+            return Some(Link::Warp(re));
+        }
+        let re = Rc::new(Reproj::new(g, base).ok()?);
+        LINKS.with(|l| {
+            let mut l = l.borrow_mut();
+            if l.len() > 16 {
+                l.clear();
+            }
+            l.insert(k, re.clone());
+        });
+        Some(Link::Warp(re))
+    }
+
+    /// A cell of the grid as a cell of the base (NaN where it has no place there).
+    pub fn to_base(&self, c: Vec2) -> Vec2 {
+        match self {
+            Link::Place(p) => p.to_view(c),
+            Link::Warp(re) => {
+                let v = re.carry(&[[f64::from(c.x), f64::from(c.y)]])[0];
+                Vec2::new(v[0], v[1])
+            }
+        }
+    }
+
+    /// A cell of the base as a cell of the grid (NaN where it has no place there).
+    pub fn to_own(&self, c: Vec2) -> Vec2 {
+        match self {
+            Link::Place(p) => p.to_source(c),
+            Link::Warp(re) => re.to_source(c).unwrap_or(Vec2::NAN),
+        }
+    }
+
+    /// Cells of the base per cell of the grid, around the grid's cell `c`.
+    pub fn scale_at(&self, c: Vec2) -> f32 {
+        match self {
+            Link::Place(p) => p.scale.x.abs().max(1e-12),
+            Link::Warp(re) => re.scale_at(c).max(1e-12),
+        }
     }
 }
 
@@ -269,6 +368,10 @@ mod tests {
         assert_eq!(v[0], corner[0]);
         assert_eq!(v[v.len() - 1], corner[1]);
         assert!(Arc::ptr_eq(&v, &re.vertices(0, 0, 0)), "made once");
+        // the layer's own box (400 x 300 cells of 10 m) on the view: about 0.04 x 0.027 degrees, 360 x 270 cells of it
+        let b = re.box_on_view([0.0, 0.0, 400.0, 300.0]).expect("a box on the view");
+        let (w, h) = (b[2] - b[0], b[3] - b[1]);
+        assert!((350.0..420.0).contains(&w) && (260.0..330.0).contains(&h), "{b:?}");
         // a mesh of it: every quad has a place
         let m =
             mesh(&v, TextureId::default(), Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE, |c| {

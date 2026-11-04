@@ -150,7 +150,8 @@ layer's name shows that map, with its legend and settings. Cells **without a val
 node 6 removes MSPA's background, which would otherwise cover the land cover in grey. Layers can be as many as you
 like: a hillshade under an elevation under a set of sampling points. A map layer in **another coordinate system**
 than the map shown is reprojected as it is drawn, tile by tile, and its value under the pointer read back through
-the same transformation; a rotated grid has to be put on the map's grid first (`raster.match`).
+the same transformation; side by side, the views follow each other across systems, and the Figure, *Export the
+view* and a layer's *zoom* handle them too. A rotated grid has to be put on the map's grid first (`raster.match`).
 
 ```tfgallery
 columns: 3

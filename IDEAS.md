@@ -1126,9 +1126,16 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    qualquer outro, vira uma malha de 16 × 16 quads cujos vértices são os cantos das células levados à grade
    mostrada (transformados uma vez e guardados, até 2 048 tiles), e a GPU estica a textura sobre eles; o valor sob
    o cursor vem pela transformação inversa (`crs_pair`, `key`). Teste:
-   `a_layer_of_another_coordinate_system_is_drawn_reprojected`. Falta: lado a lado, a diferença, a figura e
-   *Export the view*, a animação e o zoom à camada ainda pedem a mesma grade; grades rotacionadas (`raster.match`
-   antes); a linha de data.
+   `a_layer_of_another_coordinate_system_is_drawn_reprojected`.
+   Também feito: lado a lado (`Link::between` em `reproject.rs`: lugar quando o CRS é o mesmo, senão a
+   transformação; `follow_all` leva o centro da câmera e tira a escala do deslocamento de uma célula, o cursor
+   também; cada vista desenha o próprio mapa na própria grade, com as camadas dela reprojetadas), a figura e
+   *Export the view* (`animation::composed`: cada pixel de saída levado à grade da camada por linha, vizinho mais
+   próximo; os quadros da animação saem iguais) e o zoom à camada (`Reproj::box_on_view`, as bordas levadas).
+   Testes: `views_of_two_coordinate_systems_follow_each_other`,
+   `a_layer_of_another_coordinate_system_is_carried_to_the_map`,
+   `views_of_maps_of_two_coordinate_systems_follow_each_other`. Falta: a diferença de mapas de dois CRSs;
+   grades rotacionadas (`raster.match` antes); o antimeridiano; a linha de data.
    **Várias feições selecionadas feito** (Unreleased, por um sub-agente): `Pick` (`table_view.rs`) guarda as linhas
    (`rows`), a última clicada (`row`) e o começo da faixa (`anchor`): `Pick::click` (clique simples, Ctrl alterna,
    Shift pega a faixa na ordem mostrada), `clear`, `only`; `click_modifiers` lê as teclas do clique. A tabela mostra

@@ -45,7 +45,10 @@ minor versions.
 - Viewer: **a layer of another coordinate system is drawn reprojected** on the fly instead of skipped: a map layer
   (or the map compared by a curtain) in another system than the map shown is laid on it tile by tile, as meshes
   the GPU stretches over the shown grid, and its value under the pointer is read through the inverse
-  transformation. A rotated grid still has to be put on the map's grid first (`raster.match`).
+  transformation. Side by side, a view whose map is of another system follows the others (the camera carried
+  through the transformation of its centre, the scale from a cell's displacement; the pointer too), the Figure and
+  *Export the view* (and the animation's frames) draw such layers reprojected pixel by pixel, and a layer's *zoom*
+  carries its edges to the shown grid. A rotated grid still has to be put on the map's grid first (`raster.match`).
 - Viewer: **several features selected in the attribute table**: ctrl+click toggles a row, shift+click selects the
   range from the last row clicked, a plain click still selects just one and zooms to it; on the map a click selects
   a feature and ctrl+click toggles it. All of them are outlined (those in view) in every view, side by side too;

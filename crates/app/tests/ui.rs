@@ -4510,6 +4510,79 @@ fn a_layer_of_another_coordinate_system_is_drawn_reprojected() {
     assert!(same(&picture(&mut h), &drivers_alone) > 0.99, "hidden");
 }
 
+/// Two maps of two coordinate systems side by side: each in a view of its own grid, the views following each other
+/// through the transformation (the centre of one is the other's, carried) when one is zoomed.
+#[test]
+fn views_of_maps_of_two_coordinate_systems_follow_each_other() {
+    use terraflux_app::builder::{CompareWith, How};
+    use terraflux_app::reproject::Link;
+    use terraflux_graph::Node;
+    if terraflux_gdal::gdal().is_err() {
+        return;
+    }
+    let d = tmp("side_by_side_crs");
+    std::fs::create_dir_all(&d).unwrap();
+    let (land, geo) = (d.join("land.tif"), d.join("land_geo.tif"));
+    terraflux_gdal::translate(&data("sibuyan_landuse.tif"), &land, &["-a_srs".to_string(), "EPSG:32651".to_string()])
+        .unwrap();
+    terraflux_gdal::warp(&[&land], &geo, &["-t_srs".into(), "EPSG:4326".into(), "-r".into(), "near".into()]).unwrap();
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let read = |id: &str, p: &std::path::Path| {
+            Node::new(id, "raster.read").param("path", p.to_string_lossy().as_ref()).param("band", "0")
+        };
+        s.source.nodes = vec![read("land", &land), read("geo", &geo)];
+        s.edited();
+        s.start(Box::new(|| {}));
+    }
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && ["land", "geo"].iter().all(|n| s.value_of(n, "raster").is_some())
+    });
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.preview = Some(("land".into(), "raster".into()));
+        s.preview_compare.with = Some(CompareWith::Output("geo".into(), "raster".into()));
+        s.preview_compare.how = How::SideBySide;
+    }
+    h.state_mut().focus(Pane::Viewer);
+    until(&mut h, "both views drawn", |a| {
+        let s = a.session.as_ref().unwrap();
+        s.preview_view.shown_grid().is_some() && s.preview_compare.view.shown_grid().is_some()
+    });
+    drawn(&mut h);
+    shot(&mut h, "14c5-side-by-side-two-systems");
+    // the compared view's centre is the shown view's, carried; its cells are of its own grid (degrees)
+    let carried = |h: &Harness<TerrafluxApp>| {
+        let s = h.state().session.as_ref().unwrap();
+        let (a, b) = (s.preview_view.camera(), s.preview_compare.view.camera());
+        let link = Link::between(s.preview_compare.view.shown_grid().unwrap(), s.preview_view.shown_grid().unwrap())
+            .expect("a link");
+        assert!(matches!(link, Link::Warp(_)), "two coordinate systems");
+        (a, b, link.to_base(b.1))
+    };
+    let (a, b, base) = carried(&h);
+    assert!((base - a.1).length() < 1.0, "the compared view's centre carried is the shown one's: {a:?} {b:?} {base:?}");
+    // zoom the shown view with the wheel over it: the other follows
+    let rect = h.state().session.as_ref().unwrap().preview_view.rect().expect("drawn");
+    h.event(egui::Event::PointerMoved(rect.center() + egui::vec2(30.0, 20.0)));
+    h.run_steps(2);
+    h.event(egui::Event::Zoom(1.6));
+    h.run_steps(2);
+    until(&mut h, "the other view following", |app| {
+        let s = app.session.as_ref().unwrap();
+        s.preview_view.camera().0 > 1.3 * a.0 && s.preview_compare.view.camera().0 > 1.3 * b.0
+    });
+    h.run_steps(2);
+    let (a2, b2, base2) = carried(&h);
+    assert!(a2.0 > a.0 * 1.3, "the shown view zoomed in: {a:?} -> {a2:?}");
+    assert!((base2 - a2.1).length() < 1.0, "the compared view's centre carried is the shown one's: {a2:?} {b2:?}");
+    assert!(b2.0 > b.0 * 1.3, "and the other zoomed in with it: {b:?} -> {b2:?}");
+    shot(&mut h, "14c5-side-by-side-two-systems-zoomed");
+}
+
 /// The difference of two bands of one stack kept as a layer: the band of each side in the layer, the Plot and the
 /// cache apart from another pair's, back from the Plot.
 #[test]

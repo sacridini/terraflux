@@ -20,6 +20,7 @@ use crate::app::{Look, Session};
 use crate::editor_view::{Action, NodeStatus};
 use crate::map_view::{Hover, Source, SourceKey, class_counts, legend};
 use crate::palette::{Coloring, Ramp};
+use crate::reproject::Link;
 use crate::theme;
 
 /// The subjects of the library: landschaft's (the sections of its reference, in its order), then the
@@ -3276,7 +3277,7 @@ pub fn follow(
     place: crate::map_view::Place,
     before: [(f32, Vec2); 2],
 ) {
-    follow_all(&mut [left, right], &[SAME_PLACE, place], &before);
+    follow_all(&mut [left, right], &[SAME_PLACE.into(), place.into()], &before);
 }
 
 /// A grid on itself.
@@ -3284,31 +3285,39 @@ const SAME_PLACE: crate::map_view::Place = crate::map_view::Place { offset: Vec2
 
 /// Views following each other (side by side, up to four): the first one that moved since the last frame
 /// (`before`) moves the others, unless the first view moved (it leads then); each view's grid put on the first
-/// one's by its place (`places`, the first's on itself). The pointer over one marked in the others.
+/// one's by its link (`places`, the first's on itself): a place when the grids are of one coordinate system, else
+/// the cells carried through the systems' transformation (the centre, and the scale from a cell's displacement).
+/// The pointer over one marked in the others.
 pub fn follow_all(
     views: &mut [&mut crate::map_view::MapView],
-    places: &[crate::map_view::Place],
+    places: &[crate::reproject::Link],
     before: &[(f32, Vec2)],
 ) {
     let n = views.len().min(places.len()).min(before.len());
     if n == 0 {
         return;
     }
+    let finite = |c: Vec2| c.x.is_finite() && c.y.is_finite();
     let moved = |i: usize, v: &crate::map_view::MapView| v.camera() != before[i];
     let lead = if moved(0, views[0]) { 0 } else { (1..n).find(|&i| moved(i, views[i])).unwrap_or(0) };
     // the leader's camera on the first view's grid, then on each one's
-    let (zoom, center) = views[lead].camera();
-    let p = places[lead];
-    let (zoom, center) = (zoom / p.scale.x.abs().max(1e-12), p.to_view(center));
-    for i in (0..n).filter(|&i| i != lead) {
-        let q = places[i];
-        views[i].set_camera(zoom * q.scale.x.abs().max(1e-12), q.to_source(center));
+    let (zoom, own) = views[lead].camera();
+    let center = places[lead].to_base(own);
+    if finite(center) {
+        let zoom = zoom / places[lead].scale_at(own);
+        for i in (0..n).filter(|&i| i != lead) {
+            let at = places[i].to_own(center);
+            if finite(at) {
+                views[i].set_camera(zoom * places[i].scale_at(at), at);
+            }
+        }
     }
     // (the pointer, on the first view's grid: from the view it is over)
-    let pointers: Vec<Option<Vec2>> = (0..n).map(|i| views[i].pointer().map(|c| places[i].to_view(c))).collect();
+    let pointers: Vec<Option<Vec2>> =
+        (0..n).map(|i| views[i].pointer().map(|c| places[i].to_base(c)).filter(|c| finite(*c))).collect();
     for i in 0..n {
         let other = (0..n).filter(|&j| j != i).find_map(|j| pointers[j]);
-        views[i].ghost = other.map(|c| places[i].to_source(c));
+        views[i].ghost = other.map(|c| places[i].to_own(c)).filter(|c| finite(*c));
     }
 }
 
@@ -3379,12 +3388,17 @@ pub(crate) fn maps_of(value: &Value) -> (Vec<Source>, Vec<String>) {
 }
 
 /// Where a layer is on the map shown (a grid): the box of its cells (`[x0, y0, x1, y1]`); none when it is not
-/// placed on it (another coordinate system, rotated) or has nothing.
+/// placed on it (rotated, or its coordinate system cannot be carried to the map's) or has nothing.
 fn layer_cells(s: &Session, l: &Layer, shown: &terraflux_raster::Grid) -> Option<[f32; 4]> {
     let cells_of = |g: &terraflux_raster::Grid| {
-        let p = crate::map_view::place_on(g, shown)?;
-        let end = p.offset + egui::Vec2::new(g.width as f32 * p.scale.x, g.height as f32 * p.scale.y);
-        Some([p.offset.x.min(end.x), p.offset.y.min(end.y), p.offset.x.max(end.x), p.offset.y.max(end.y)])
+        match Link::between(g, shown)? {
+            Link::Place(p) => {
+                let end = p.offset + egui::Vec2::new(g.width as f32 * p.scale.x, g.height as f32 * p.scale.y);
+                Some([p.offset.x.min(end.x), p.offset.y.min(end.y), p.offset.x.max(end.x), p.offset.y.max(end.y)])
+            }
+            // (another coordinate system: the layer's edges carried to the cells of the map shown)
+            Link::Warp(re) => re.box_on_view([0.0, 0.0, g.width as f64, g.height as f64]),
+        }
     };
     // (a difference: of the cells of its own map)
     if l.minus.is_some() {
@@ -4959,12 +4973,12 @@ fn side_by_side(
     shared: (&[crate::map_view::RasterLayer], &[crate::vector_tiles::Overlay]),
     own: &[Option<Drawn>],
 ) -> Option<Hover> {
-    let Some(place) = crate::map_view::place_on(right.0.grid(), left.0.grid()) else {
+    let Some(place) = Link::between(right.0.grid(), left.0.grid()) else {
         ui.centered_and_justified(|ui| {
             ui.label(
                 RichText::new(
-                    "The map compared is of another coordinate system, or rotated: put it on this map's grid \
-                     (raster.match) to see them side by side.",
+                    "The map compared is rotated, or its coordinate system is unknown or cannot be carried to this \
+                     map's: put it on this map's grid (raster.match) to see them side by side.",
                 )
                 .color(ui.visuals().error_fg_color),
             );
@@ -4993,13 +5007,16 @@ fn side_by_side(
     // draws other vectors)
     let has_own = |i: usize| own.get(i).is_some_and(|o| o.is_some());
     compared.selected = if has_own(0) { None } else { sh.view.selected.clone() };
-    let mut places = vec![SAME_PLACE, place];
-    // the views more drawn (their places on this map's grid), or why not
-    let mut drawn: Vec<Result<crate::map_view::Place, String>> = Vec::new();
+    // (each view's grid on this map's: a place, or carried when of another coordinate system)
+    let mut places: Vec<Link> = vec![SAME_PLACE.into(), place];
+    // the views more drawn (their links to this map's grid), or why not
+    let mut drawn: Vec<Result<Link, String>> = Vec::new();
     for (i, (m, b)) in more.iter().zip(views.iter_mut()).enumerate() {
         let p = match m {
-            Ok((src, _, _)) => crate::map_view::place_on(src.grid(), left.0.grid()).ok_or_else(|| {
-                "another coordinate system, or rotated: put it on this map's grid (raster.match)".to_string()
+            Ok((src, _, _)) => Link::between(src.grid(), left.0.grid()).ok_or_else(|| {
+                "rotated, or its coordinate system is unknown or cannot be carried to this map's: put it on this \
+                 map's grid (raster.match)"
+                    .to_string()
             }),
             Err(e) => Err(e.clone()),
         };
@@ -5008,8 +5025,11 @@ fn side_by_side(
             (v.basemap, v.transparency, v.hide_data) = (basemap, transparency, hide);
             v.selected = if has_own(1 + i) { None } else { sh.view.selected.clone() };
             v.hold(src.size());
-            v.set_camera(zoom * p.scale.x.abs().max(1e-12), p.to_source(center));
-            places.push(*p);
+            let at = p.to_own(center);
+            if at.x.is_finite() && at.y.is_finite() {
+                v.set_camera(zoom * p.scale_at(at), at);
+            }
+            places.push(p.clone());
         }
         drawn.push(p);
     }
@@ -5965,7 +5985,7 @@ params = { expression = "x * 0 + k" }
         // four views: the fourth (its cells half as large, at the first one's corner) moved, the others follow
         let quarter = Place { offset: Vec2::ZERO, scale: Vec2::splat(0.5) };
         let (mut c, mut d) = (MapView::default(), MapView::default());
-        let places = [SAME_PLACE, place, SAME_PLACE, quarter];
+        let places = [SAME_PLACE, place, SAME_PLACE, quarter].map(Link::from);
         let before = [l.camera(), r.camera(), c.camera(), d.camera()];
         follow_all(&mut [&mut l, &mut r, &mut c, &mut d], &places, &before);
         let before = [l.camera(), r.camera(), c.camera(), d.camera()];
@@ -5981,5 +6001,41 @@ params = { expression = "x * 0 + k" }
         d.set_camera(3.0, Vec2::ZERO);
         follow_all(&mut [&mut l, &mut r, &mut c, &mut d], &places, &before);
         assert_eq!(d.camera(), (0.5, Vec2::new(4.0, 4.0)));
+    }
+
+    #[test]
+    fn views_of_two_coordinate_systems_follow_each_other() {
+        use crate::map_view::MapView;
+        if terraflux_gdal::gdal().is_err() {
+            return;
+        }
+        // the map shown in UTM 51N (10 m cells), the one compared in WGS 84 (0.0001 degree cells) around the same place
+        let mut utm = terraflux_raster::Grid::new(400, 300);
+        utm.transform = [450_000.0, 10.0, 0.0, 1_300_000.0, 0.0, -10.0];
+        utm.geo.geokeys = Some(vec![1, 1, 0, 2, 1024, 0, 1, 1, 3072, 0, 1, 32651]);
+        let mut geo = terraflux_raster::Grid::new(1000, 800);
+        geo.transform = [122.5, 0.0001, 0.0, 11.8, 0.0, -0.0001];
+        geo.geo.geokeys = Some(vec![1, 1, 0, 2, 1024, 0, 1, 2, 2048, 0, 1, 4326]);
+        let link = Link::between(&geo, &utm).expect("a link");
+        assert!(matches!(link, Link::Warp(_)));
+        assert!(matches!(Link::between(&utm, &utm), Some(Link::Place(_))));
+        let places = [SAME_PLACE.into(), link.clone()];
+        let (mut l, mut r) = (MapView::default(), MapView::default());
+        // the left one moved: the right one is at the same place, its cells (about 11 m) a little larger
+        let before = [l.camera(), r.camera()];
+        l.set_camera(4.0, Vec2::new(200.0, 150.0));
+        follow_all(&mut [&mut l, &mut r], &places, &before);
+        let (zoom, c) = r.camera();
+        let back = link.to_base(c);
+        assert!((back - Vec2::new(200.0, 150.0)).length() < 0.05, "{back:?}");
+        assert!((4.0..5.0).contains(&zoom), "{zoom}");
+        // the right one moved, twice as close: the left one follows
+        let before = [l.camera(), r.camera()];
+        r.set_camera(zoom * 2.0, Vec2::new(500.0, 400.0));
+        follow_all(&mut [&mut l, &mut r], &places, &before);
+        let (lz, lc) = l.camera();
+        let again = link.to_own(lc);
+        assert!((again - Vec2::new(500.0, 400.0)).length() < 0.05, "{again:?}");
+        assert!((lz - 8.0).abs() < 0.2, "twice as close: {lz}");
     }
 }
