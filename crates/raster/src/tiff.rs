@@ -829,7 +829,52 @@ pub fn write(r: &Raster, path: impl AsRef<Path>, opt: &WriteOptions) -> Result<(
     ];
     chunk_tags(&mut tags, STRIP_OFFSETS, STRIP_BYTE_COUNTS, offsets, counts, big);
     let names: Vec<Option<String>> = r.bands.iter().map(|b| b.name.clone()).collect();
-    grid_tags(&mut tags, &r.grid, &names, r.nodata);
+    grid_tags(&mut tags, &r.grid, &names, r.nodata, false);
+    finish(&mut out, pos, tags, big)
+}
+
+/// Write a picture as a GeoTIFF of red, green, blue and alpha bytes (`rgba`: four per cell, row by row, not
+/// premultiplied), with the grid's georeference.
+pub fn write_rgba(rgba: &[u8], grid: &Grid, path: impl AsRef<Path>, deflate: Option<u32>) -> Result<()> {
+    let (w, h) = (grid.width, grid.height);
+    if rgba.len() != w * h * 4 || w == 0 || h == 0 {
+        return Err(Error::Raster("a picture needs four bytes per cell of the grid".into()));
+    }
+    let row_bytes = w * 4;
+    let rps = ((1 << 16) / row_bytes).clamp(1, h);
+    let big = (row_bytes * h) as u64 > 3_900_000_000;
+    let mut out = BufWriter::new(File::create(path.as_ref())?);
+    let header_len: u64 = if big { 16 } else { 8 };
+    out.write_all(&vec![0u8; header_len as usize])?;
+    let mut pos = header_len;
+    let (mut offsets, mut counts) = (Vec::new(), Vec::new());
+    for strip in rgba.chunks(rps * row_bytes) {
+        let data = match deflate {
+            Some(level) => {
+                let mut z = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::new(level));
+                z.write_all(strip)?;
+                z.finish()?
+            }
+            None => strip.to_vec(),
+        };
+        out.write_all(&data)?;
+        offsets.push(pos);
+        counts.push(data.len() as u64);
+        pos += data.len() as u64;
+    }
+    let mut tags: Vec<(u16, Value)> = vec![
+        (IMAGE_WIDTH, Value::Long(vec![w as u32])),
+        (IMAGE_LENGTH, Value::Long(vec![h as u32])),
+        (BITS_PER_SAMPLE, Value::Short(vec![8; 4])),
+        (COMPRESSION, Value::Short(vec![if deflate.is_some() { 8 } else { 1 }])),
+        (PHOTOMETRIC, Value::Short(vec![2])),
+        (SAMPLES_PER_PIXEL, Value::Short(vec![4])),
+        (ROWS_PER_STRIP, Value::Long(vec![rps as u32])),
+        (PLANAR_CONFIG, Value::Short(vec![1])),
+        (SAMPLE_FORMAT, Value::Short(vec![1; 4])),
+    ];
+    chunk_tags(&mut tags, STRIP_OFFSETS, STRIP_BYTE_COUNTS, offsets, counts, big);
+    grid_tags(&mut tags, grid, &[None, None, None, None], None, true);
     finish(&mut out, pos, tags, big)
 }
 
@@ -851,9 +896,12 @@ fn chunk_tags(
 }
 
 /// The tags of the georeference, band names and no-data value.
-fn grid_tags(tags: &mut Vec<(u16, Value)>, grid: &Grid, names: &[Option<String>], nodata: Option<f64>) {
+fn grid_tags(tags: &mut Vec<(u16, Value)>, grid: &Grid, names: &[Option<String>], nodata: Option<f64>, rgba: bool) {
     let spp = names.len();
-    if spp > 1 {
+    if rgba {
+        // the fourth band is alpha, not premultiplied
+        tags.push((EXTRA_SAMPLES, Value::Short(vec![2])));
+    } else if spp > 1 {
         tags.push((EXTRA_SAMPLES, Value::Short(vec![0; spp - 1])));
     }
     let g = &grid.geo;
@@ -1089,7 +1137,7 @@ impl TiledWriter {
         ];
         let (offsets, counts) = (std::mem::take(&mut self.offsets), std::mem::take(&mut self.counts));
         chunk_tags(&mut tags, TILE_OFFSETS, TILE_BYTE_COUNTS, offsets, counts, self.big);
-        grid_tags(&mut tags, &self.grid, &self.names, self.nodata);
+        grid_tags(&mut tags, &self.grid, &self.names, self.nodata, false);
         finish(&mut self.out, self.pos, tags, self.big)
     }
 }

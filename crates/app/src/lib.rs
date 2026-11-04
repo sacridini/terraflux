@@ -25,6 +25,7 @@ pub mod draw;
 pub mod editor;
 pub mod editor_view;
 pub mod eval;
+pub mod export_view;
 pub mod figure;
 pub mod files_view;
 pub mod guide;

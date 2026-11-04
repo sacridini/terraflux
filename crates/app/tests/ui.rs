@@ -4320,3 +4320,81 @@ fn the_labels_of_a_vector_layer() {
     h.run_steps(3);
     assert_eq!(placed(&h), 0);
 }
+
+/// The Viewer's Export the view...: the map shown with a layer over it and a polygon, written as PNG and as GeoTIFF
+/// on the map's grid, a cell to a pixel and magnified.
+#[test]
+fn the_view_exported_as_a_picture() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let r = terraflux_ops::Registry::standard();
+    let g = terraflux_gdal::Dataset::open(data("sibuyan_landuse.tif")).unwrap().meta.grid.clone();
+    let t = g.transform;
+    let (w, ht) = (g.width as f64 * t[1], g.height as f64 * -t[5]);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let path = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
+        terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into()), ("band", "0".into())]).unwrap();
+        terraflux_app::builder::add(s, &r, "raster.reclassify", &[("rules", "1 -> 1\n* -> 2".into())]).unwrap();
+        let (x0, y0, x1, y1) = (t[0] + w * 0.3, t[3] - ht * 0.7, t[0] + w * 0.6, t[3] - ht * 0.4);
+        let v = terraflux_raster::vector::Vector {
+            geometries: vec![terraflux_raster::vector::Geometry::Polygon(vec![vec![
+                [x0, y0],
+                [x1, y0],
+                [x1, y1],
+                [x0, y1],
+                [x0, y0],
+            ]])],
+            attributes: Vec::new(),
+            crs: g.geo.wkt.clone(),
+        };
+        let gpkg = tmp("export-area.gpkg");
+        let _ = std::fs::remove_file(&gpkg);
+        terraflux_gdal::write_vector(&gpkg, "area", &v).unwrap();
+        terraflux_app::builder::add(s, &r, "vector.read", &[("path", gpkg.to_string_lossy().into_owned().into())])
+            .unwrap();
+        let mut over = terraflux_app::builder::Layer::new("raster_reclassify", "map");
+        over.opacity = 0.5;
+        s.preview_layers = vec![terraflux_app::builder::Layer::new("vector_read", "vector"), over];
+        s.preview = Some(("raster_read".into(), "raster".into()));
+    }
+    h.state_mut().focus(Pane::Viewer);
+    h.state_mut().session.as_mut().unwrap().start(Box::new(|| {}));
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running()
+            && s.value_of("vector_read", "vector").is_some()
+            && s.value_of("raster_reclassify", "map").is_some()
+    });
+    drawn(&mut h);
+    for _ in 0..400 {
+        if h.query_by_label("Export the view...").is_some() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+        h.run_steps(1);
+    }
+    h.get_by_label("Export the view...").click();
+    h.run_steps(4);
+    assert!(h.query_by_label("Save PNG...").is_some() && h.query_by_label("Save GeoTIFF...").is_some());
+    let e = h.state().session.as_ref().unwrap().export.as_ref().expect("the export's window");
+    assert_eq!((e.panel.vectors.len(), e.panel.rasters.len()), (1, 1));
+    let (png, tif, big) = (tmp("view.png"), tmp("view.tif"), tmp("view-x2.png"));
+    let said = terraflux_app::export_view::save(&e.panel, 1, terraflux_app::export_view::Format::Png, &png).unwrap();
+    assert!(said.starts_with("saved: "), "{said}");
+    terraflux_app::export_view::save(&e.panel, 2, terraflux_app::export_view::Format::Png, &big).unwrap();
+    terraflux_app::export_view::save(&e.panel, 1, terraflux_app::export_view::Format::GeoTiff, &tif).unwrap();
+    let size = |p: &std::path::Path| {
+        let pm = tiny_skia::Pixmap::load_png(p).unwrap();
+        (pm.width() as usize, pm.height() as usize)
+    };
+    assert_eq!(size(&png), (g.width, g.height));
+    assert_eq!(size(&big), (g.width * 2, g.height * 2));
+    // the GeoTIFF: four bands on the map's grid, with something drawn
+    let back = terraflux_raster::tiff::read(&tif).unwrap();
+    assert_eq!(back.bands.len(), 4);
+    assert_eq!((back.grid.width, back.grid.height), (g.width, g.height));
+    assert_eq!(back.grid.transform, g.transform);
+    assert!(back.bands[3].data.contains(&255.0), "cells drawn");
+    shot(&mut h, "14h-export");
+}

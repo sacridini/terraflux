@@ -357,6 +357,29 @@ fn picture(p: &Panel, px: usize) -> Result<(Arc<Vec<u8>>, usize, usize), String>
     Ok((Arc::new(rgba), w, h))
 }
 
+/// The map as the Viewer draws it and nothing else, each cell `scale` pixels across (the map read more coarsely
+/// when that passes `max_side` pixels): the cells coloured with the layers under and over them, the vectors and
+/// their labels. A point of the drawing is a pixel.
+pub fn plain(p: &Panel, scale: usize, max_side: usize) -> Result<Drawing, String> {
+    let k = scale.max(1);
+    let (rgba, iw, ih) = picture(p, max_side / k)?;
+    let (w, h) = ((iw * k) as f32, (ih * k) as f32);
+    let mut shapes = vec![Shape::Image { x: 0.0, y: 0.0, w, h, rgba, iw, ih }];
+    let g = p.source.grid();
+    let (west, south, east, north) = extent(g);
+    let north_up = g.transform[2] == 0.0 && g.transform[4] == 0.0 && g.transform[5] < 0.0;
+    if north_up && east > west && north > south {
+        let at = |x: f64, y: f64| (((x - west) / (east - west)) as f32 * w, ((north - y) / (north - south)) as f32 * h);
+        // (a panel keeps the widths and sizes in the figure's points, 0.6 of the Viewer's pixels)
+        let to_px = k as f32 / 0.6;
+        for v in &p.vectors {
+            let v = Vectors { width: v.width * to_px, label_size: v.label_size * to_px, ..v.clone() };
+            vectors(&mut shapes, &v, &at);
+        }
+    }
+    Ok(Drawing { w, h, shapes })
+}
+
 /// Features as shapes: polygons filled (and outlined), lines, points as small discs; `at` from the map's
 /// coordinates to the figure's points.
 fn vectors(out: &mut Vec<Shape>, v: &Vectors, at: &dyn Fn(f64, f64) -> (f32, f32)) {
@@ -1063,15 +1086,20 @@ impl Drawing {
         out
     }
 
-    /// The figure as pixels at `dpi` (premultiplied RGBA): its width and height.
+    /// The figure as pixels at `dpi` (premultiplied RGBA), on white.
     pub fn pixels(&self, dpi: u32) -> Result<tiny_skia::Pixmap, String> {
+        self.pixels_on(dpi, tiny_skia::Color::WHITE)
+    }
+
+    /// The figure as pixels at `dpi` over a background (premultiplied RGBA).
+    fn pixels_on(&self, dpi: u32, background: tiny_skia::Color) -> Result<tiny_skia::Pixmap, String> {
         let k = dpi as f32 / 72.0;
         let (w, h) = ((self.w * k).round() as u32, (self.h * k).round() as u32);
         if w as u64 * h as u64 > 40_000 * 40_000 {
             return Err("the figure is too large at this resolution".into());
         }
         let mut pm = tiny_skia::Pixmap::new(w.max(1), h.max(1)).ok_or("no picture of this size")?;
-        pm.fill(tiny_skia::Color::WHITE);
+        pm.fill(background);
         let tr = tiny_skia::Transform::from_scale(k, k);
         let t = Type::new();
         let paint = |c: Color32| {
@@ -1231,6 +1259,14 @@ fn text_path(t: &Type, x: f32, y: f32, size: f32, text: &str, anchor: Anchor, up
         last_id = Some(id);
     }
     pb.finish()
+}
+
+impl Drawing {
+    /// A drawing of a map with nothing behind it (premultiplied RGBA, transparent where nothing is drawn), a
+    /// point to a pixel.
+    pub fn clear_pixels(&self) -> Result<tiny_skia::Pixmap, String> {
+        self.pixels_on(72, tiny_skia::Color::TRANSPARENT)
+    }
 }
 
 /// A picture as PNG (from premultiplied RGBA).

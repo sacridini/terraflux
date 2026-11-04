@@ -2562,6 +2562,37 @@ fn layers_section(
     });
 }
 
+/// The vector layers drawn over a map as a figure or a picture keeps them: those of the Plot and the Layers shown,
+/// on the map's grid, with their colours, fills, widths and labels (in the figure's points, 0.6 of the Viewer's
+/// pixels).
+fn figure_vectors(
+    s: &Session,
+    plot_vectors: &[Arc<terraflux_raster::vector::Vector>],
+    layers: &[Layer],
+    grid: &terraflux_raster::Grid,
+) -> Vec<crate::figure::Vectors> {
+    let styled = plot_vectors.iter().map(|v| (v.clone(), crate::vector_tiles::Style::default())).chain(
+        layers.iter().filter(|l| l.visible).filter_map(|l| match s.value_of(&l.node, &l.port) {
+            Some(Value::Vector(v)) => Some((v, l.style.clone())),
+            _ => None,
+        }),
+    );
+    styled
+        .filter_map(|(v, style)| {
+            let v = terraflux_ops::vector::on_grid(&v, grid).ok()?;
+            let colours = crate::vector_tiles::colours(&v, &style);
+            Some(crate::figure::Vectors {
+                vector: v,
+                colours,
+                fill: style.fill,
+                width: style.width * 0.6,
+                labels: style.labels.clone(),
+                label_size: style.label_size * 0.6,
+            })
+        })
+        .collect()
+}
+
 /// A layer dragged in the Layers (its index).
 struct LayerAt(usize);
 
@@ -3887,36 +3918,42 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 if gw * gh > 100_000_000 {
                     ui.label(RichText::new("on disk: read where it is shown").weak().size(11.0));
                 }
-                // the map as a figure for a paper: alone, with the one compared, or every layer of it
+                // the map as a figure for a paper (alone, with the one compared, or every layer of it), or as the
+                // picture the Viewer shows (a file for QGIS or a slide)
+                let (figure, export) = ui
+                    .horizontal(|ui| {
+                        let f = look.is_some()
+                            && ui
+                                .button("Figure...")
+                                .on_hover_text(
+                                    "this map as a figure for a paper: legend, scale bar, north arrow, coordinates;                                      PNG or SVG",
+                                )
+                                .clicked();
+                        let e = look.is_some()
+                            && ui
+                                .button("Export the view...")
+                                .on_hover_text(
+                                    "the map as the Viewer shows it, with its layers, vectors and labels, as a PNG or                                      a GeoTIFF placed on the map",
+                                )
+                                .clicked();
+                        (f, e)
+                    })
+                    .inner;
                 if let Some(l) = &look
-                    && ui
-                        .button("Figure...")
-                        .on_hover_text(
-                            "this map as a figure for a paper: legend, scale bar, north arrow, coordinates; PNG or SVG",
-                        )
-                        .clicked()
+                    && (figure || export)
                 {
-                    // the vector layers drawn over the map, in its coordinates and their colours there
-                    let styled = plot_vectors.iter().map(|v| (v.clone(), crate::vector_tiles::Style::default())).chain(
-                        sh.layers.iter().filter(|l| l.visible).filter_map(|l| match s.value_of(&l.node, &l.port) {
-                            Some(Value::Vector(v)) => Some((v, l.style.clone())),
-                            _ => None,
-                        }),
-                    );
-                    let vectors: Vec<crate::figure::Vectors> = styled
-                        .filter_map(|(v, style)| {
-                            let v = terraflux_ops::vector::on_grid(&v, maps[k].grid()).ok()?;
-                            let colours = crate::vector_tiles::colours(&v, &style);
-                            Some(crate::figure::Vectors {
-                                vector: v,
-                                colours,
-                                fill: style.fill,
-                                width: style.width * 0.6,
-                                labels: style.labels.clone(),
-                                label_size: style.label_size * 0.6,
-                            })
-                        })
-                        .collect();
+                    let vectors = figure_vectors(s, &plot_vectors, &sh.layers, maps[k].grid());
+                    if export {
+                        let panel = crate::figure::Panel {
+                            source: maps[k].clone(),
+                            coloring: l.coloring.clone(),
+                            names: Vec::new(),
+                            caption: String::new(),
+                            vectors: vectors.clone(),
+                            rasters: rasters.clone(),
+                        };
+                        s.export = Some(crate::export_view::Export::new(panel));
+                    }
                     let panel =
                         |src: &Source, lk: &Look, legend: Option<&[terraflux_ops::legend::Class]>, caption: String| {
                             let names = match &lk.coloring {
@@ -4000,7 +4037,9 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                             maps.iter().zip(&looks).zip(&names).map(|((m, lk), n)| panel(m, lk, legend, n.clone()));
                         choices.push((format!("every layer ({})", maps.len()), all.collect()));
                     }
-                    s.figure = Some(crate::figure::Composer::new(choices, String::new()));
+                    if figure {
+                        s.figure = Some(crate::figure::Composer::new(choices, String::new()));
+                    }
                 }
                 if maps.len() > 1 {
                     ui.add_space(4.0);

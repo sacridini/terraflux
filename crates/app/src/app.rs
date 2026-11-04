@@ -527,6 +527,8 @@ pub struct Session {
     pub python: Option<crate::python::View>,
     /// A figure being composed of the map shown (the Viewer's Figure...).
     pub figure: Option<crate::figure::Composer>,
+    /// The map shown being exported as a picture (the Viewer's Export the view...).
+    pub export: Option<crate::export_view::Export>,
     /// The Problems pane asked for (why a node failed).
     pub ask_problems: bool,
     /// The calculator asked for (the script of the node selected).
@@ -727,6 +729,7 @@ impl Session {
             catalog: Default::default(),
             python: None,
             figure: None,
+            export: None,
             ask_problems: false,
             ask_calculator: false,
             ask_viewer: false,
@@ -3697,6 +3700,7 @@ impl TerrafluxApp {
             crate::catalog::window(ui.ctx(), s, &self.registry);
             crate::python::window(ui.ctx(), s);
             crate::figure::window(ui.ctx(), s);
+            crate::export_view::window(ui.ctx(), s);
         }
         if self.commands.is_some() {
             let all = self.command_list();
