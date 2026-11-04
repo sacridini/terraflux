@@ -2,7 +2,8 @@
 //! spans them (in their coordinate system, so a basemap can go under them), as smoothly whatever their number:
 //! scroll to zoom, drag to move, double-click to fit again; the feature under the pointer named with its
 //! attributes, and the style (a colour or the colours of an attribute, the fill, the lines' width) beside. The
-//! attributes' table is the node's output of its own (`table`), not repeated here.
+//! attributes' table is also the node's output of its own (`table`); here a button opens it under the map,
+//! its rows linked to the features ([`crate::attribute_table`]).
 
 use std::sync::Arc;
 
@@ -97,6 +98,7 @@ pub fn show(ui: &mut Ui, v: &Arc<Vector>, view: &mut MapView, id: egui::Id) {
             s
         }
     };
+    let mut open: Option<crate::attribute_table::Open> = ui.data(|d| d.get_temp(id.with("open")));
     egui::Panel::right(id.with("attributes"))
         .resizable(true)
         .default_size(300.0)
@@ -108,6 +110,14 @@ pub fn show(ui: &mut Ui, v: &Arc<Vector>, view: &mut MapView, id: egui::Id) {
             }
             ui.add_space(4.0);
             style_controls(ui, v, &mut style, id);
+            let shown = open.is_some();
+            if ui
+                .add(egui::Button::selectable(shown, "Table"))
+                .on_hover_text("the attributes of the features in a table under the map: a row selects its feature")
+                .clicked()
+            {
+                open = (!shown).then(crate::attribute_table::Open::default);
+            }
             if v.crs.is_some() {
                 egui::ComboBox::from_id_salt(id.with("basemap"))
                     .selected_text(format!("basemap: {}", view.basemap.name()))
@@ -124,7 +134,30 @@ pub fn show(ui: &mut Ui, v: &Arc<Vector>, view: &mut MapView, id: egui::Id) {
         return;
     };
     let overlays = [Overlay { vector: v.clone(), style, name: String::new() }];
+    // the table under the map, the feature of its row selected on it
+    if let Some(o) = &mut open {
+        if crate::attribute_table::panel(ui, id.with("table"), v, "", o) {
+            crate::attribute_table::link(o, view, ui.ctx(), v, Some(0));
+        } else {
+            open = None;
+        }
+    }
+    if open.is_none() {
+        view.selected = None;
+    }
     egui::CentralPanel::default().frame(egui::Frame::new().fill(crate::theme::well())).show(ui, |ui| {
         view.show_layers(ui, &Source::Blank(grid), &Coloring::Classes(Vec::new()), &overlays);
+    });
+    match &mut open {
+        Some(o) => crate::attribute_table::clicked(o, view, Some(0)),
+        None => view.feature_clicked.clear(),
+    }
+    ui.data_mut(|d| match open {
+        Some(o) => {
+            d.insert_temp(id.with("open"), o);
+        }
+        None => {
+            d.remove::<crate::attribute_table::Open>(id.with("open"));
+        }
     });
 }

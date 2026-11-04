@@ -96,7 +96,7 @@ impl Style {
 
 /// What a feature is drawn as.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Kind {
+pub enum Kind {
     Point,
     Line,
     Polygon,
@@ -220,6 +220,23 @@ pub fn prepare(v: &Arc<Vector>, grid: &Grid) -> Result<Layer, String> {
     }
     run_of.push(runs.len() as u32);
     Ok(Layer { vector: v.clone(), features, parts, xy, runs, run_of, tree, bounds })
+}
+
+impl Layer {
+    /// A feature's kind and its parts in cells (rings, lines or points), as it is drawn; none for a number it has
+    /// not.
+    pub fn shape(&self, k: usize) -> Option<(Kind, Vec<&[[f64; 2]]>)> {
+        let f = self.features.get(k)?;
+        let parts =
+            (f.first..f.last).map(|i| &self.xy[self.parts[i as usize] as usize..self.parts[i as usize + 1] as usize]);
+        Some((f.kind, parts.collect()))
+    }
+
+    /// The box of a feature in cells (`[x0, y0, x1, y1]`); none when it has no vertex.
+    pub fn feature_box(&self, k: usize) -> Option<[f64; 4]> {
+        let b = self.features.get(k)?.bbox;
+        b.iter().all(|v| v.is_finite()).then_some(b)
+    }
 }
 
 fn crs_of(g: &Grid) -> Option<String> {

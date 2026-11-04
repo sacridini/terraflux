@@ -4132,3 +4132,93 @@ fn files_dropped_on_the_viewer_become_layers_of_it() {
     });
     drawn(&mut h);
 }
+
+/// The attribute table of a vector layer pinned over a map: opened from the layer's row (its table button), a row
+/// clicked selects its feature (outlined, the view zoomed to it), a feature clicked on the map selects its row, the
+/// button again closes it.
+#[test]
+fn the_attribute_table_of_a_vector_layer() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let r = terraflux_ops::Registry::standard();
+    let g = terraflux_gdal::Dataset::open(data("sibuyan_landuse.tif")).unwrap().meta.grid.clone();
+    let t = g.transform;
+    let (w, ht) = (g.width as f64 * t[1], g.height as f64 * -t[5]);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let path = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
+        terraflux_app::builder::add(s, &r, "raster.read", &[("path", path.into()), ("band", "0".into())]).unwrap();
+        // two plots over the map, the second lower right
+        let square = |a: f64, b: f64| {
+            let (x0, y0, x1, y1) = (t[0] + w * a, t[3] - ht * b, t[0] + w * (a + 0.2), t[3] - ht * (b - 0.2));
+            terraflux_raster::vector::Geometry::Polygon(vec![vec![[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]])
+        };
+        let v = terraflux_raster::vector::Vector {
+            geometries: vec![square(0.2, 0.4), square(0.5, 0.9)],
+            attributes: vec![
+                ("area".into(), terraflux_raster::vector::Column::Numbers(vec![12.5, 3.0])),
+                ("use".into(), terraflux_raster::vector::Column::Texts(vec!["forest".into(), "pasture".into()])),
+            ],
+            crs: g.geo.wkt.clone(),
+        };
+        let gpkg = tmp("attributes-plots.gpkg");
+        let _ = std::fs::remove_file(&gpkg);
+        terraflux_gdal::write_vector(&gpkg, "plots", &v).unwrap();
+        terraflux_app::builder::add(s, &r, "vector.read", &[("path", gpkg.to_string_lossy().into_owned().into())])
+            .unwrap();
+        s.preview_layers = vec![terraflux_app::builder::Layer::new("vector_read", "vector")];
+        s.preview = Some(("raster_read".into(), "raster".into()));
+    }
+    h.state_mut().focus(Pane::Viewer);
+    h.state_mut().session.as_mut().unwrap().start(Box::new(|| {}));
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("raster_read", "raster").is_some() && s.value_of("vector_read", "vector").is_some()
+    });
+    h.run_steps(4);
+    drawn(&mut h);
+    let open = |h: &Harness<TerrafluxApp>| h.state().session.as_ref().unwrap().preview_attributes.clone();
+    assert!(open(&h).is_none());
+    assert!(h.query_by_label("Attributes of vector_read.vector").is_none());
+    // the table button of the layer's row
+    h.get_by_label("table").click();
+    h.run_steps(3);
+    assert!(open(&h).is_some_and(|o| o.is("vector_read", "vector") && o.pick.row.is_none()));
+    assert!(h.query_by_label("Attributes of vector_read.vector").is_some());
+    let before = h.state().session.as_ref().unwrap().preview_view.camera().0;
+    // a row clicked: the second feature selected, outlined on the map, the view on it
+    h.get_by_label("2 3 pasture").click();
+    h.run_steps(3);
+    let o = open(&h).unwrap();
+    assert_eq!(o.pick.row, Some(1));
+    assert!(!o.zoom, "zoomed");
+    let view = &h.state().session.as_ref().unwrap().preview_view;
+    assert_eq!(view.selected, Some((0, 1)));
+    let (zoom, center) = view.camera();
+    assert!(zoom > before * 2.0, "{before} -> {zoom}");
+    let shown = view.shown_grid().unwrap().clone();
+    let (x, y) = (
+        shown.transform[0] + center.x as f64 * shown.transform[1],
+        shown.transform[3] + center.y as f64 * shown.transform[5],
+    );
+    let (ex, ey) = (t[0] + w * 0.6, t[3] - ht * 0.8);
+    assert!((x - ex).abs() < 2.0 * t[1] && (y - ey).abs() < 2.0 * t[1], "{x} {y} against {ex} {ey}");
+    shot(&mut h, "14e-attribute-table");
+    // a feature clicked on the map: its row selected, the table scrolled to it
+    h.state_mut().session.as_mut().unwrap().preview_view.feature_clicked = vec![(0, 0)];
+    h.run_steps(2);
+    assert_eq!(open(&h).unwrap().pick.row, Some(0));
+    assert_eq!(h.state().session.as_ref().unwrap().preview_view.selected, Some((0, 0)));
+    // the tab-separated copy: its columns named, a line a feature
+    let v = h.state().session.as_ref().unwrap().value_of("vector_read", "vector");
+    let Some(terraflux_ops::Value::Vector(v)) = v else { panic!("no features") };
+    let text = terraflux_app::attribute_table::tsv(&terraflux_app::attribute_table::table_of(&v));
+    assert_eq!(text.lines().next(), Some("feature\tarea\tuse"));
+    assert_eq!(text.lines().nth(1), Some("1\t12.5\tforest"));
+    // the button again closes the table, the outline goes
+    h.get_by_label("table").click();
+    h.run_steps(3);
+    assert!(open(&h).is_none());
+    assert!(h.query_by_label("Attributes of vector_read.vector").is_none());
+    assert_eq!(h.state().session.as_ref().unwrap().preview_view.selected, None);
+}

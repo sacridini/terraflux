@@ -399,6 +399,10 @@ pub struct MapView {
     /// The patch of the cell traced drawn around it (a trace's card of a patch's operator selected); let go when
     /// another cell is picked.
     pub patch: Option<Outline>,
+    /// The feature selected in a table of attributes (layer, feature), outlined in the accent; and the features
+    /// (layer, feature) under the pointer at the last click, to select a row by.
+    pub selected: Option<(usize, usize)>,
+    pub feature_clicked: Vec<(usize, usize)>,
     /// The trace of the cell picked asked for from its menu (a right click), and who explains it.
     pub trace_request: Option<crate::trace_view::Explain>,
     /// Where the view was drawn last.
@@ -1179,6 +1183,34 @@ impl MapView {
                 }
             }
         }
+        // the feature selected in the table of attributes, outlined (white under the accent), a point ringed
+        if let Some((l, k)) = self.selected
+            && let Some(o) = overlays.get(l)
+            && let Ok(Some(layer)) = self.vectors.layer(&ctx, &o.vector, source.grid())
+            && let Some((kind, parts)) = layer.shape(k)
+        {
+            let at = |p: &[f64; 2]| rect.center() + (Vec2::new(p[0] as f32, p[1] as f32) - self.center) * self.zoom;
+            let clip = painter.clip_rect();
+            let strokes = [egui::Stroke::new(3.5, Color32::WHITE), egui::Stroke::new(2.0, crate::theme::accent())];
+            for s in strokes {
+                for part in &parts {
+                    if kind == crate::vector_tiles::Kind::Point {
+                        for p in part.iter() {
+                            painter.circle_stroke(at(p), 7.0, s);
+                        }
+                        continue;
+                    }
+                    let n = part.len();
+                    let closed = kind == crate::vector_tiles::Kind::Polygon;
+                    for i in 0..n.saturating_sub(1) + usize::from(closed && n > 2) {
+                        let (a, b) = (at(&part[i]), at(&part[(i + 1) % n]));
+                        if clip.intersects(Rect::from_two_pos(a, b).expand(2.0)) {
+                            painter.line_segment([a, b], s);
+                        }
+                    }
+                }
+            }
+        }
         // the cell clicked, outlined in the accent (its values along the layers beside the map)
         if let Some((row, col)) = self.picked.filter(|&(r, c)| r < h && c < w && !blank) {
             let cell = Vec2::new(col as f32, row as f32);
@@ -1257,6 +1289,9 @@ impl MapView {
         if !features.is_empty() {
             let texts: Vec<String> = features.iter().map(|&(l, k)| feature_text(&overlays[l], k)).collect();
             response.clone().on_hover_text_at_pointer(texts.join("\n\n"));
+        }
+        if response.clicked() {
+            self.feature_clicked = features.clone();
         }
         if (response.clicked() || response.secondary_clicked())
             && !blank

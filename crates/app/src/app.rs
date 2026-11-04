@@ -612,6 +612,8 @@ pub struct Session {
     pub preview_compare: crate::builder::Compare,
     /// Playing the layers of the output shown in the viewer: when the last one came.
     pub preview_playing: Option<Instant>,
+    /// The table of a vector layer's attributes open under the Viewer's map, with the feature selected.
+    pub preview_attributes: Option<crate::attribute_table::Open>,
     /// The animations (GIF) of steps or of a stack's maps being made, and what the last one said.
     pub animations: crate::animation::Animations,
     pub looks: Looks,
@@ -773,6 +775,7 @@ impl Session {
             plot_to_open: None,
             preview_compare: Default::default(),
             preview_playing: None,
+            preview_attributes: None,
             animations: Default::default(),
             palettes: Default::default(),
             looks: Looks::default(),

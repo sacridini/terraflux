@@ -105,8 +105,22 @@ pub fn rows_shown(t: &Table, st: &TableState) -> Result<Vec<usize>, String> {
     Ok(rows)
 }
 
+/// The row selected in a table whose rows can be clicked: which, whether the table is to scroll to it, and
+/// whether a click selected it this frame.
+#[derive(Debug, Clone, Default)]
+pub struct Pick {
+    pub row: Option<usize>,
+    pub scroll: bool,
+    pub clicked: bool,
+}
+
 /// A table: the filter and the column drawn above it, then its rows (headers sort them).
 pub fn show(ui: &mut Ui, t: &Table, id: egui::Id) {
+    show_picking(ui, t, id, None);
+}
+
+/// A table whose rows are clicked to select one (`pick`): the row drawn selected, scrolled to when asked.
+pub fn show_picking(ui: &mut Ui, t: &Table, id: egui::Id, mut pick: Option<&mut Pick>) {
     let mut st: TableState = ui.data(|d| d.get_temp(id)).unwrap_or_default();
     let shown = rows_shown(t, &st);
     ui.horizontal(|ui| {
@@ -169,31 +183,51 @@ pub fn show(ui: &mut Ui, t: &Table, id: egui::Id) {
             }
         });
         ui.separator();
-        egui::ScrollArea::vertical().id_salt(id.with("v")).auto_shrink([false, false]).show_rows(
-            ui,
-            row_h,
-            rows.len(),
-            |ui, range| {
-                for k in range {
-                    let r = &t.rows[rows[k]];
-                    let (rect, _) = ui.allocate_exact_size(Vec2::new(widths.iter().sum(), row_h), egui::Sense::hover());
-                    if k % 2 == 1 {
-                        ui.painter().rect_filled(rect, 0.0, ui.visuals().faint_bg_color);
-                    }
-                    let mut x = rect.left() + 4.0;
-                    for (j, &w) in widths.iter().enumerate() {
-                        ui.painter().text(
-                            egui::pos2(x, rect.center().y),
-                            egui::Align2::LEFT_CENTER,
-                            cell_of(t, j, r[j]),
-                            mono.clone(),
-                            ui.visuals().text_color(),
-                        );
-                        x += w;
-                    }
+        let mut area = egui::ScrollArea::vertical().id_salt(id.with("v")).auto_shrink([false, false]);
+        // (the selected row one row under the top, when it is shown)
+        if let Some(p) = pick.as_deref_mut().filter(|p| p.scroll) {
+            p.scroll = false;
+            if let Some(at) = p.row.and_then(|r| rows.iter().position(|&x| x == r)) {
+                area = area.vertical_scroll_offset(at.saturating_sub(1) as f32 * (row_h + ui.spacing().item_spacing.y));
+            }
+        }
+        let sense = if pick.is_some() { egui::Sense::click() } else { egui::Sense::hover() };
+        area.show_rows(ui, row_h, rows.len(), |ui, range| {
+            for k in range {
+                let r = &t.rows[rows[k]];
+                let (rect, resp) = ui.allocate_exact_size(Vec2::new(widths.iter().sum(), row_h), sense);
+                let chosen = pick.as_deref().is_some_and(|p| p.row == Some(rows[k]));
+                if chosen {
+                    ui.painter().rect_filled(rect, 0.0, ui.visuals().selection.bg_fill);
+                } else if k % 2 == 1 {
+                    ui.painter().rect_filled(rect, 0.0, ui.visuals().faint_bg_color);
+                } else if resp.hovered() && pick.is_some() {
+                    ui.painter().rect_filled(rect, 0.0, ui.visuals().widgets.hovered.weak_bg_fill);
                 }
-            },
-        );
+                if pick.is_some() {
+                    let said: Vec<String> = r.iter().enumerate().map(|(j, &x)| cell_of(t, j, x)).collect();
+                    resp.widget_info(|| {
+                        egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, chosen, said.join(" "))
+                    });
+                }
+                if resp.clicked()
+                    && let Some(p) = pick.as_deref_mut()
+                {
+                    (p.row, p.clicked) = (Some(rows[k]), true);
+                }
+                let mut x = rect.left() + 4.0;
+                for (j, &w) in widths.iter().enumerate() {
+                    ui.painter().text(
+                        egui::pos2(x, rect.center().y),
+                        egui::Align2::LEFT_CENTER,
+                        cell_of(t, j, r[j]),
+                        mono.clone(),
+                        ui.visuals().text_color(),
+                    );
+                    x += w;
+                }
+            }
+        });
     });
     ui.data_mut(|d| d.insert_temp(id, st));
 }

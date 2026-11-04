@@ -2274,6 +2274,7 @@ fn preview(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Hover> {
         },
         compare: std::mem::take(&mut s.preview_compare),
         playing: s.preview_playing,
+        attributes: s.preview_attributes.take(),
     };
     let before = s.preview.clone();
     let hover = output(ui, s, r, &mut shown, "viewer");
@@ -2288,6 +2289,7 @@ fn preview(ui: &mut Ui, s: &mut Session, r: &Registry) -> Option<Hover> {
     s.preview_layers = shown.layers;
     s.preview_compare = shown.compare;
     s.preview_playing = shown.playing;
+    s.preview_attributes = shown.attributes;
     hover
 }
 
@@ -2306,6 +2308,8 @@ pub struct Shown {
     pub compare: Compare,
     /// Playing the layers (a series' steps, a stack's maps): when the last one came.
     pub playing: Option<std::time::Instant>,
+    /// The table of attributes open under the map: of a vector layer, with the feature selected.
+    pub attributes: Option<crate::attribute_table::Open>,
 }
 
 /// The layers of the side panel: the map shown at the top when it is not one of them (a click keeps it), then the
@@ -2346,6 +2350,7 @@ fn layers_section(
     let is_vector = |l: &Layer| vectors.iter().any(|(n, p, _)| l.is(n, p));
     let n = sh.layers.len();
     let (mut up, mut down, mut gone, mut chosen, mut zoom) = (None, None, None, None, None);
+    let mut table: Option<usize> = None;
     // a layer dragged by its name onto another's row: (from, to)
     let mut dropped: Option<(usize, usize)> = None;
     for i in (0..n).rev() {
@@ -2361,6 +2366,16 @@ fn layers_section(
                     }
                     if ui.small_button("zoom").on_hover_text("zoom to layer: the view on all of it").clicked() {
                         zoom = Some(i);
+                    }
+                    if vector {
+                        let open = sh.attributes.as_ref().is_some_and(|o| o.is(&l.node, &l.port));
+                        if ui
+                            .add(egui::Button::selectable(open, "table").small())
+                            .on_hover_text("the attributes of its features in a table under the map (again: closes it)")
+                            .clicked()
+                        {
+                            table = Some(i);
+                        }
                     }
                     if ui
                         .add_enabled(i > 0, egui::Button::new("⏷").small())
@@ -2468,6 +2483,11 @@ fn layers_section(
                 }
             });
         }
+    }
+    if let Some(i) = table {
+        let l = &sh.layers[i];
+        let was = sh.attributes.as_ref().is_some_and(|o| o.is(&l.node, &l.port));
+        sh.attributes = (!was).then(|| crate::attribute_table::Open::of(&l.node, &l.port));
     }
     if let Some(i) = zoom {
         let l = &sh.layers[i];
@@ -3778,6 +3798,8 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     // the layers kept (the first at the bottom): those under the map shown drawn before it, those over it after (the
     // plot's own maps over it first); the map shown over them all when it is not one of them
     let at = sh.layers.iter().position(|l| l.is(&node, &port));
+    // (the place of the layer whose attributes are in the table among the features drawn)
+    let mut table_at: Option<usize> = None;
     let mut under: Vec<LayerMap> = Vec::new();
     let mut above: Vec<LayerMap> = Vec::new();
     // (the differences no layer is any longer let go)
@@ -3800,11 +3822,16 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
             continue;
         }
         match s.value_of(&l.node, &l.port) {
-            Some(Value::Vector(v)) => overlays.push(crate::vector_tiles::Overlay {
-                vector: v,
-                style: l.style.clone(),
-                name: output_name(&l.node, &l.port),
-            }),
+            Some(Value::Vector(v)) => {
+                if sh.attributes.as_ref().is_some_and(|o| o.is(&l.node, &l.port)) {
+                    table_at = Some(overlays.len());
+                }
+                overlays.push(crate::vector_tiles::Overlay {
+                    vector: v,
+                    style: l.style.clone(),
+                    name: output_name(&l.node, &l.port),
+                });
+            }
             Some(v) => {
                 if let Some(src) = layer_source(&v, l.band) {
                     let item = (src, l.opacity, l.node.clone(), l.port.clone(), None);
@@ -4310,6 +4337,30 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         (Some((src, name, Some(l))), None) => Some((src.clone(), name.clone(), l.coloring.clone())),
         _ => None,
     };
+    // the table of a layer's attributes under the map (closed with the layer): its feature selected outlined on
+    // the map, the view brought to it
+    let mut table = sh.attributes.take();
+    if let Some(open) = &mut table {
+        let value = s.value_of(&open.node, &open.port);
+        match value {
+            Some(Value::Vector(v)) if sh.layers.iter().any(|l| l.is(&open.node, &open.port)) => {
+                let id = egui::Id::new(("attributes", salt, &open.node, &open.port));
+                let name = output_name(&open.node, &open.port);
+                if crate::attribute_table::panel(ui, id, &v, &name, open) {
+                    crate::attribute_table::link(open, &mut sh.view, ui.ctx(), &v, table_at);
+                } else {
+                    sh.view.selected = None;
+                    table = None;
+                }
+            }
+            _ => {
+                sh.view.selected = None;
+                table = None;
+            }
+        }
+    } else {
+        sh.view.selected = None;
+    }
     egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::well())).show(ui, |ui| {
         let Some(l) = &look else {
             ui.centered_and_justified(|ui| ui.spinner());
@@ -4355,6 +4406,12 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
             }
         }
     });
+    // a feature clicked on the map selects its row (a click with no table open only picks the cell)
+    match &mut table {
+        Some(open) => crate::attribute_table::clicked(open, &mut sh.view, table_at),
+        None => sh.view.feature_clicked.clear(),
+    }
+    sh.attributes = table;
     // the cell of the map compared side by side, traced from its menu: of the output it is, or of the layer
     if let Some(explain) = sh.compare.view.trace_request.take()
         && let Some(cell) = sh.compare.view.picked
