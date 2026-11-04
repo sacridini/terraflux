@@ -2555,15 +2555,11 @@ fn maps_stack_and_cells_show_their_series() {
     let zoom = h.state().session.as_ref().unwrap().preview_view.zoom();
     // 250 m cells: the world (40,075 km) is about 160,000 cells; the view about 900 points
     assert!(zoom > 1e-3 && zoom < 0.05, "{zoom}");
-    // zoom to layer: the roads (the second row from the top), the view on their 30 km, inside the land
-    {
-        use egui_kittest::kittest::NodeT;
-        let mut zooms: Vec<_> = h.query_all_by_label("zoom").collect();
-        let y = |n: &egui_kittest::Node| n.accesskit_node().bounding_box().map_or(0.0, |r| r.y0);
-        zooms.sort_by(|a, b| y(a).total_cmp(&y(b)));
-        assert_eq!(zooms.len(), 3, "a zoom per layer");
-        zooms[1].click();
-    }
+    // zoom to layer: the roads (their row selected, then the zoom of the bar), the view on their 30 km, inside the
+    // land
+    h.get_by_label("roads.vector").click();
+    h.run_steps(2);
+    h.get_by_label("🔍").click();
     h.run_steps(2);
     let (zoom, center) = h.state().session.as_ref().unwrap().preview_view.camera();
     // (the roads span 120 columns of 250 m: the view about 900 points wide)
@@ -2583,16 +2579,14 @@ fn maps_stack_and_cells_show_their_series() {
     drawn(&mut h);
     assert_eq!(h.state().session.as_ref().unwrap().preview, Some(pair("drivers", "raster")));
     use egui_kittest::kittest::NodeT;
-    // the drivers down, under the roads (the rows from the top: the drivers' first, the land's down disabled)
-    h.query_all_by_label("⏷").find(|n| !n.accesskit_node().is_disabled()).unwrap().click();
+    // the drivers (selected by the click) down, under the roads, by the bar's down
+    h.get_by_label("⏷").click();
     drawn(&mut h);
     assert_eq!(kept(&h)[1], pair("drivers", "raster"), "the drivers under the roads");
-    // the land no longer a layer (its x the bottom one, below the node's inputs' x)
-    let bottom = h.query_all_by_label("x").max_by(|a, b| {
-        let y = |n: &egui_kittest::Node| n.accesskit_node().bounding_box().map_or(0.0, |r| r.y0);
-        y(a).total_cmp(&y(b))
-    });
-    bottom.unwrap().click();
+    // the land no longer a layer: removed from its menu (a right click on its row)
+    h.get_by_label("land").click_secondary();
+    h.run_steps(2);
+    h.get_by_label("🗑 Remove layer").click();
     h.run_steps(2);
     assert_eq!(kept(&h), [pair("drivers", "raster"), pair("roads", "vector")]);
     // a map not among them, kept with the pin: on top
@@ -2601,16 +2595,16 @@ fn maps_stack_and_cells_show_their_series() {
     h.get_by_label("📌").click();
     h.run_steps(2);
     assert_eq!(kept(&h).last(), Some(&pair("land", "raster")));
-    // the land (on top) dragged by its name onto the drivers' row (at the bottom): it takes their place
+    // the land (on top) dragged by its row under the drivers' (at the bottom): a line where it goes, and there
+    // (the row: the widest of what is so named, not the node's name in the Node pane)
     let name_at = |h: &Harness<TerrafluxApp>, name: &str| -> egui::Pos2 {
-        let n = h
-            .query_all_by_label(name)
-            .find(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
-            .unwrap_or_else(|| panic!("the layer {name}"));
-        let b = n.accesskit_node().bounding_box().unwrap();
+        let width = |n: &egui_kittest::Node| n.accesskit_node().bounding_box().map_or(0.0, |b| b.x1 - b.x0);
+        let n = h.query_all_by_label(name).max_by(|a, b| width(a).total_cmp(&width(b)));
+        let b = n.unwrap_or_else(|| panic!("the layer {name}")).accesskit_node().bounding_box().unwrap();
         egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32)
     };
-    let (from, to) = (name_at(&h, "land"), name_at(&h, "drivers"));
+    let from = name_at(&h, "land");
+    let to = name_at(&h, "drag a row to put it over or under the others; a right click on it: more");
     h.event(egui::Event::PointerMoved(from));
     h.run_steps(1);
     let press = |pos, pressed| egui::Event::PointerButton {
@@ -2625,6 +2619,7 @@ fn maps_stack_and_cells_show_their_series() {
         h.event(egui::Event::PointerMoved(from + (to - from) * (k as f32 / 8.0)));
         h.run_steps(1);
     }
+    shot(&mut h, "21-layer-dragged");
     h.event(press(to, false));
     h.run_steps(2);
     assert_eq!(kept(&h), [pair("land", "raster"), pair("drivers", "raster"), pair("roads", "vector")]);
@@ -2943,6 +2938,132 @@ fn the_layers_change_the_picture() {
     assert_eq!(pixel(&mut h), alone, "hidden");
     layers(&mut h, vec![Layer::new("drivers", "raster"), Layer::new("land", "raster")]);
     assert_eq!(pixel(&mut h), alone, "under the land");
+}
+
+/// The Layers as a GIS has them: a layer of the run added over the map shown when there are layers already (the
+/// map shown kept under it), the map shown hidden by its box, its palette changed by a click on the palette, the
+/// range of its colours set under its histogram and kept in a Plot, a layer shown alone from its menu.
+#[test]
+fn the_layers_as_a_gis_has_them() {
+    use egui_kittest::kittest::NodeT;
+    use terraflux_app::builder::{Layer, Palette};
+    use terraflux_graph::Node;
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let drivers = data("sibuyan_drivers.tif").to_string_lossy().into_owned();
+        s.source.nodes = vec![
+            Node::new("land", "raster.read")
+                .param("path", data("sibuyan_landuse.tif").to_string_lossy().as_ref())
+                .param("band", "0"),
+            Node::new("drivers", "raster.read").param("path", drivers.as_str()),
+            Node::new("slope", "raster.read").param("path", drivers.as_str()).param("band", "1"),
+        ];
+        s.edited();
+        assert!(s.issues.is_empty(), "{:?}", s.issues);
+        s.start(Box::new(|| {}));
+    }
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && ["land", "drivers", "slope"].iter().all(|n| s.value_of(n, "raster").is_some())
+    });
+    h.state_mut().session.as_mut().unwrap().preview_layers = vec![Layer::new("land", "raster")];
+    show(&mut h, "drivers", "raster");
+    drawn(&mut h);
+    let kept = |h: &Harness<TerrafluxApp>| -> Vec<String> {
+        let s = h.state().session.as_ref().unwrap();
+        s.preview_layers.iter().map(|l| l.node.clone()).collect()
+    };
+    // a layer added while there are layers: on top, the map shown kept under it (it would hide it else)
+    h.get_by_label("➕").click();
+    h.run_steps(2);
+    h.get_by_label("slope").click();
+    drawn(&mut h);
+    assert_eq!(kept(&h), ["land", "drivers", "slope"]);
+    // (the row of a name: the widest of what is so named)
+    let row = |h: &Harness<TerrafluxApp>, name: &str| -> egui::Pos2 {
+        let width = |n: &egui_kittest::Node| n.accesskit_node().bounding_box().map_or(0.0, |b| b.x1 - b.x0);
+        let n = h.query_all_by_label(name).max_by(|a, b| width(a).total_cmp(&width(b)));
+        let b = n.unwrap_or_else(|| panic!("{name}")).accesskit_node().bounding_box().unwrap();
+        egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32)
+    };
+    // the slope hidden by its box: the map shown seen again
+    h.get_by_label("show slope").click();
+    h.run_steps(2);
+    let s = h.state().session.as_ref().unwrap();
+    assert!(!s.preview_layers[2].visible && s.preview_layers[1].visible);
+    // the map shown hidden by its own box: the view draws it as hidden
+    h.get_by_label("show drivers").click();
+    h.run_steps(2);
+    assert_eq!(h.state().session.as_ref().unwrap().preview_view.opacity, Some(0.0));
+    h.get_by_label("show drivers").click();
+    h.run_steps(2);
+    assert_eq!(h.state().session.as_ref().unwrap().preview_view.opacity, Some(1.0));
+    // the palette of the map shown changed by a click on it (the one at the right, by its legend)
+    let palette = |h: &Harness<TerrafluxApp>| -> egui::Pos2 {
+        let right = h
+            .query_all_by_label("palette")
+            .filter_map(|n| n.accesskit_node().bounding_box())
+            .max_by(|a, b| a.x0.total_cmp(&b.x0))
+            .expect("the palette at the right");
+        egui::pos2(((right.x0 + right.x1) / 2.0) as f32, ((right.y0 + right.y1) / 2.0) as f32)
+    };
+    let at = palette(&h);
+    h.event(egui::Event::PointerMoved(at));
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        });
+    }
+    h.run_steps(2);
+    shot(&mut h, "layers-palettes");
+    h.get_by_label("terrain").click();
+    drawn(&mut h);
+    let key = ("drivers".to_string(), "raster".to_string());
+    let terrain = Palette::Chosen(terraflux_app::palette::Ramp::Terrain, false);
+    assert_eq!(h.state().session.as_ref().unwrap().palettes.get(&key), Some(&terrain));
+    // the range of its colours: over all its values, then back to the percentiles
+    h.get_by_label("least to most").scroll_to_me();
+    h.run_steps(30);
+    h.get_by_label("least to most").click();
+    drawn(&mut h);
+    let range = h.state().session.as_ref().unwrap().ranges.get(&key).copied().expect("the range chosen");
+    assert!(range.1 > range.0, "{range:?}");
+    // kept in a Plot with the palette
+    h.get_by_label("Plots").click();
+    h.run_steps(2);
+    h.get_by_label("Save as a new plot").click();
+    h.run_steps(2);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        let p = s.source.plot("plot_drivers").expect("the Plot");
+        let l = p.layers.iter().find(|l| l.from == "drivers.raster").expect("the map shown");
+        assert_eq!((l.palette.as_deref(), l.range), (Some("terrain"), Some([range.0, range.1])));
+    }
+    h.get_by_label("2% to 98%").click();
+    drawn(&mut h);
+    assert!(h.state().session.as_ref().unwrap().ranges.is_empty());
+    // the land shown alone, from its menu (a right click on its row)
+    let at = row(&h, "land");
+    h.event(egui::Event::PointerMoved(at));
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: Default::default(),
+        });
+    }
+    h.run_steps(2);
+    h.get_by_label("Show only this layer").click();
+    h.run_steps(2);
+    let visible: Vec<bool> = h.state().session.as_ref().unwrap().preview_layers.iter().map(|l| l.visible).collect();
+    assert_eq!(visible, [true, false, false]);
+    shot(&mut h, "layers-gis");
 }
 
 /// A layer's band and palette kept in a Plot, and given back when it opens; the Document's colours by the Plot.
@@ -4466,8 +4587,8 @@ fn the_attribute_table_of_a_vector_layer() {
     let open = |h: &Harness<TerrafluxApp>| h.state().session.as_ref().unwrap().preview_attributes.clone();
     assert!(open(&h).is_none());
     assert!(h.query_by_label("Attributes of vector_read.vector").is_none());
-    // the table button of the layer's row
-    h.get_by_label("table").click();
+    // the table button of the layer's settings
+    h.get_by_label("Attribute table").click();
     h.run_steps(3);
     assert!(open(&h).is_some_and(|o| o.is("vector_read", "vector") && o.pick.row.is_none()));
     assert!(h.query_by_label("Attributes of vector_read.vector").is_some());
@@ -4610,7 +4731,7 @@ fn the_attribute_table_of_a_vector_layer() {
     assert_eq!(text.lines().next(), Some("feature\tarea\tuse"));
     assert_eq!(text.lines().nth(1), Some("1\t12.5\tforest"));
     // the button again closes the table, the outline goes
-    h.get_by_label("table").click();
+    h.get_by_label("Attribute table").click();
     h.run_steps(3);
     assert!(open(&h).is_none());
     assert!(h.query_by_label("Attributes of vector_read.vector").is_none());

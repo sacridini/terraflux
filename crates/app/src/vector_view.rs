@@ -47,7 +47,7 @@ pub fn style_controls(ui: &mut Ui, v: &Vector, style: &mut Style, id: egui::Id) 
             }
         });
     });
-    ui.spacing_mut().slider_width = (ui.available_width() - 90.0).clamp(40.0, 160.0);
+    ui.spacing_mut().slider_width = (ui.available_width() - 130.0).clamp(40.0, 160.0);
     if v.geometries.iter().any(Geometry::is_polygonal) {
         ui.add(egui::Slider::new(&mut style.fill, 0.0..=1.0).text("fill"));
     }

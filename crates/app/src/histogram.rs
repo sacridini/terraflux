@@ -145,6 +145,117 @@ impl Histograms {
 /// The histogram drawn: a bar per range in the colour of its value, the numbers under it; a bar hovered tells
 /// its range and cells.
 pub fn show(ui: &mut Ui, h: &Histogram, coloring: &Coloring) {
+    bars(ui, h, coloring);
+    numbers_of(ui, h.lo, h.hi);
+    numbers(ui, h);
+}
+
+/// What was asked of the range of the colours under a histogram.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Asked {
+    /// The colours from the least to the most of these two.
+    Range(f64, f64),
+    /// The colours as at first (over the 2nd to the 98th percentiles).
+    Again,
+}
+
+/// [`show`] with the range of a ramp's colours to set: its least and most drawn as two lines over the bars,
+/// dragged along them, typed under them, or set to the values' extremes or back to the percentiles; what was
+/// asked, and whether a line is being dragged (the bars' span then stays).
+pub fn show_ranged(ui: &mut Ui, h: &Histogram, coloring: &Coloring, id: egui::Id) -> (Option<Asked>, bool) {
+    let Coloring::Continuous { min, max, log, .. } = *coloring else {
+        show(ui, h, coloring);
+        return (None, false);
+    };
+    let r = bars(ui, h, coloring);
+    let span = (h.hi - h.lo).max(f64::MIN_POSITIVE);
+    let x_of = |v: f64| r.left() + r.width() * ((v - h.lo) / span).clamp(0.0, 1.0) as f32;
+    let v_of = |x: f32| h.lo + span * f64::from(((x - r.left()) / r.width()).clamp(0.0, 1.0));
+    // (the values out of the range shaded: they take the ramp's ends)
+    let shade = ui.visuals().extreme_bg_color.gamma_multiply(0.6);
+    let (a, b) = (x_of(min), x_of(max));
+    ui.painter().rect_filled(Rect::from_min_max(r.min, Pos2::new(a, r.bottom())), 0.0, shade);
+    ui.painter().rect_filled(Rect::from_min_max(Pos2::new(b, r.top()), r.max), 0.0, shade);
+    let (mut lo, mut hi) = (min, max);
+    let mut asked = None;
+    let mut dragging = false;
+    let accent = ui.visuals().selection.stroke.color;
+    for (k, x) in [(0, a), (1, b)] {
+        let handle = ui
+            .interact(
+                Rect::from_center_size(Pos2::new(x, r.center().y), Vec2::new(10.0, r.height())),
+                id.with(k),
+                Sense::drag(),
+            )
+            .on_hover_cursor(egui::CursorIcon::ResizeHorizontal)
+            .on_hover_text(if k == 0 {
+                "the least of the colours: drag it"
+            } else {
+                "the most of the colours: drag it"
+            });
+        let strong = handle.hovered() || handle.dragged();
+        let stroke = egui::Stroke::new(if strong { 2.5 } else { 1.5 }, accent);
+        ui.painter().line_segment([Pos2::new(x, r.top()), Pos2::new(x, r.bottom())], stroke);
+        // (a tab at the top to take it by)
+        let tab = Rect::from_center_size(Pos2::new(x, r.top() + 4.0), Vec2::new(8.0, 8.0));
+        ui.painter().rect_filled(tab, 2.0, accent);
+        if handle.dragged() {
+            dragging = true;
+            if let Some(p) = handle.interact_pointer_pos() {
+                let v = v_of(p.x);
+                if k == 0 {
+                    lo = v.min(hi - span * 1e-6);
+                } else {
+                    hi = v.max(lo + span * 1e-6);
+                }
+                asked = Some(Asked::Range(lo, hi));
+            }
+        }
+    }
+    numbers_of(ui, h.lo, h.hi);
+    // the range typed
+    let speed = ((hi - lo).abs() / 200.0).max(1e-9);
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("colours from").size(11.0));
+        let a = ui
+            .add(egui::DragValue::new(&mut lo).speed(speed).max_decimals(4))
+            .on_hover_text("the least of the colours");
+        ui.label(egui::RichText::new("to").size(11.0));
+        let b =
+            ui.add(egui::DragValue::new(&mut hi).speed(speed).max_decimals(4)).on_hover_text("the most of the colours");
+        if (a.changed() || b.changed()) && hi > lo {
+            asked = Some(Asked::Range(lo, hi));
+        }
+    });
+    ui.horizontal(|ui| {
+        if ui
+            .small_button("2% to 98%")
+            .on_hover_text("the colours over the 2nd to the 98th percentiles of the values, as at first")
+            .clicked()
+        {
+            asked = Some(Asked::Again);
+        }
+        if h.valid > 0
+            && h.max > h.min
+            && ui.small_button("least to most").on_hover_text("the colours over all the values").clicked()
+        {
+            // (on a scale of logarithms, from the least above 0)
+            let least = if log && h.min <= 0.0 { h.max * 1e-6 } else { h.min };
+            asked = Some(Asked::Range(least, h.max));
+        }
+    });
+    if log
+        && let Some(Asked::Range(a, b)) = asked
+        && a <= 0.0
+    {
+        asked = Some(Asked::Range(b.abs() * 1e-6, b));
+    }
+    numbers(ui, h);
+    (asked, dragging)
+}
+
+/// The bars of a histogram drawn, a bar hovered telling its range and cells; where they are.
+fn bars(ui: &mut Ui, h: &Histogram, coloring: &Coloring) -> Rect {
     let (r, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width().clamp(120.0, 260.0), 90.0), Sense::hover());
     ui.painter().rect_filled(r, 2.0, ui.visuals().extreme_bg_color);
     let top = h.bins.iter().copied().max().unwrap_or(0).max(1);
@@ -168,12 +279,21 @@ pub fn show(ui: &mut Ui, h: &Histogram, coloring: &Coloring) {
         let (a, b) = (cell_text(a), cell_text(b));
         resp.on_hover_text(format!("{a} to {b}: {} cells", h.bins[i]));
     }
+    r
+}
+
+/// The values at the ends of the bars, under them.
+fn numbers_of(ui: &mut Ui, lo: f64, hi: f64) {
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(cell_text(h.lo)).weak().size(11.0));
+        ui.label(egui::RichText::new(cell_text(lo)).weak().size(11.0));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.label(egui::RichText::new(cell_text(h.hi)).weak().size(11.0));
+            ui.label(egui::RichText::new(cell_text(hi)).weak().size(11.0));
         });
     });
+}
+
+/// The values' extremes and mean, and the cells.
+fn numbers(ui: &mut Ui, h: &Histogram) {
     if h.valid == 0 {
         ui.label(egui::RichText::new("no cell has a value").weak());
         return;

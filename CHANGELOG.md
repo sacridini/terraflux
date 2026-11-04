@@ -34,6 +34,21 @@ minor versions.
   by its id (`terraflux plot`, `export_plot`) and the Document and report pictures show only that part of the map,
   at the same proportions, the vectors and the other maps cut the same way. `set_plot` takes `view` too. Plots without
   a view, and old files, are unchanged.
+- Viewer: **the Layers as a GIS has them**. A bar over the list: *➕* adds a map or features of the run, or files
+  from disk (files dragged from the Files pane onto the list too), on top; *🗑*, *⏷*, *⏶* and *🔍* act on the layer
+  selected, *👁* shows or hides them all. Each row: its box (shown or hidden, the map shown too, now), an arrow that
+  folds its legend and settings, its symbol (its ramp, its first classes, its features' colour as points, a line or a
+  polygon), its name. A click selects it (a map: its legend at the right), a double click zooms to it, a right click
+  or its *⋯* gives zoom, the attribute table, colours, show only this layer, show every layer, to the top, up, down,
+  to the bottom and remove. Rows are **dragged** to their place, a line showing where they go (it did not work
+  before). *Add a layer* no longer puts the new layer under the map shown, where it could not be seen: the map shown
+  is kept as a layer and the new one goes over it. The map shown takes its layer's opacity.
+- Viewer: **the palette changed by a click on it**: the legend's ramp (or the classes' colours) at the right and in
+  each layer opens the ramps, drawn, with *by what they are* and *logarithmic*; the *Colours* list is gone.
+- Viewer: **the range of the colours set on the histogram**: two lines dragged along it, the least and the most typed
+  under it, *2% to 98%* (as at first) and *least to most*. Kept for the output and in a Plot (`range = [least,
+  most]` in a layer of `[[plots]]`, `set_plot` takes it), and used by the export of a Plot, the Document and QGIS.
+  The layers are drawn in the palette and legend they have when shown.
 
 ## [1.37.0] - 2026-11-04
 

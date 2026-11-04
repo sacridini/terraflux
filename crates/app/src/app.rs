@@ -602,6 +602,8 @@ pub struct Session {
     pub preview_view: MapView,
     /// The palettes chosen by hand for outputs shown: (node, port).
     pub palettes: std::collections::HashMap<(String, String), crate::builder::Palette>,
+    /// The ranges of the colours chosen by hand for outputs of values shown (least, most): (node, port).
+    pub ranges: std::collections::HashMap<(String, String), (f64, f64)>,
     /// The Viewer's layers: outputs kept on the map as other nodes are shown, the first at the bottom.
     pub preview_layers: Vec<crate::builder::Layer>,
     /// The differences the Viewer's layers are (see [`crate::builder::Layer::minus`]), by the maps they are of.
@@ -795,6 +797,7 @@ impl Session {
             preview_attributes: None,
             animations: Default::default(),
             palettes: Default::default(),
+            ranges: Default::default(),
             looks: Looks::default(),
             histograms: Default::default(),
             regions: Default::default(),

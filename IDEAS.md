@@ -2208,3 +2208,25 @@ responder no próprio Viewer as perguntas de quem estuda mudança de uso, sem mo
    `a_plot_keeps_its_view`, `a_plot_keeps_the_frame_of_its_map` (UI). Falta: *Save as a new plot* não grava a vista;
    `set_plot` sem `view` apaga a vista (o Plot é trocado inteiro); o recorte de um raster grande em disco é lido na
    thread da interface ao abrir a figura; Python e QGIS não leem a vista; a figura do Document ainda sem vetores.
+7. **O painel de camadas como num GIS** (pedido de 2026-11-04): arrastar para reordenar (não funcionava), ligar e
+   desligar fácil, trocar a paleta clicando na própria paleta, mínimo e máximo do histograma, *Add a layer* que
+   funcione com camadas já presentes, o aspecto de um GIS comum (QGIS).
+   **Feito** (Unreleased): `layers_panel.rs` (submódulo do builder). Uma barra (*LAYERS*, ➕ com as saídas da
+   execução e *A file from disk...*, 🗑, ⏷, ⏶, 🔍 e 👁 sobre a camada selecionada) e uma lista emoldurada, a camada
+   de cima primeiro: caixa de visibilidade, seta que dobra a legenda e os ajustes, símbolo (a rampa, as primeiras
+   classes, pontos/linha/polígono na cor do estilo, ± de uma diferença), nome cortado e ⋯. Clique seleciona (um
+   mapa vai para a direita), duplo clique dá zoom, botão direito e ⋯ abrem o menu (zoom, tabela de atributos,
+   cores, só esta camada, todas, topo/subir/descer/fundo, remover). O arrasto é próprio (a linha onde a camada
+   cai entre duas, o nome junto do ponteiro; `move_to_slot`), não mais o `dnd` do egui (soltar sobre a linha de
+   outra, que não funcionava na prática). *Add a layer* falhava em silêncio: a camada nova ia para baixo do mapa mostrado (fora das camadas,
+   desenhado por cima de todas); agora o mapa mostrado é fixado e a nova vai por cima; arquivos do painel Files
+   soltos sobre a lista também viram camadas. A caixa do mapa mostrado agora o esconde e a opacidade vale para ele
+   (`MapView::opacity`). A paleta: a barra da legenda (à direita e em cada camada) abre as rampas desenhadas, *by
+   what they are* e *logarithmic*; a seção *Colours* saiu. O histograma (`histogram::show_ranged`): duas linhas
+   arrastáveis, *colours from ... to ...*, *2% to 98%* e *least to most*; a faixa por saída em `Session::ranges`,
+   guardada no Plot (`range = [a, b]` no PlotLayer, `set_plot` aceita), usada no export do Plot, no Document e no
+   QGIS (`builder::ranged`, `range_of`). As camadas agora são desenhadas na paleta e na legenda do modelo como
+   quando mostradas (`default_palette`, `legend_of`), como o símbolo. Testes: `a_row_moved_among_the_others`,
+   `the_layers_as_a_gis_has_them` (UI), `maps_stack_and_cells_show_their_series` (UI, refeito para a barra, o menu
+   e o arrasto). Falta: agrupar camadas (grupos do QGIS); renomear uma camada sem renomear o nó; a faixa de cores
+   nas vistas lado a lado com camadas próprias; selecionar várias camadas de uma vez.

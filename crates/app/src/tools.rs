@@ -1633,7 +1633,7 @@ fn all() -> Vec<Value> {
                 "title": { "type": "string", "description": "Its title, the figure's caption (default: what it shows)." },
                 "layers": {
                     "type": "array",
-                    "description": "What it shows, the lowest first: node.port of top-level nodes (or $input), or objects { from, opacity (0 to 1), band (a stack's layer or a loop's step, 0-based), palette (viridis, cividis, blue, orange, terrain, grey, red, rank; \", logarithmic\" for a scale of logarithms; default: by what the map is), hidden, minus (node.port: the layer is the difference, from minus it for values, the transitions from it to from for classes), minus_band (the band or step of minus, 0-based: two layers of one stack or series) }.",
+                    "description": "What it shows, the lowest first: node.port of top-level nodes (or $input), or objects { from, opacity (0 to 1), band (a stack's layer or a loop's step, 0-based), palette (viridis, cividis, blue, orange, terrain, grey, red, rank; \", logarithmic\" for a scale of logarithms; default: by what the map is), range ([least, most] of the colours of a map of values; default: its 2nd to 98th percentiles), hidden, minus (node.port: the layer is the difference, from minus it for values, the transitions from it to from for classes), minus_band (the band or step of minus, 0-based: two layers of one stack or series) }.",
                     "items": {},
                 },
                 "compare": { "description": "A map compared with the top map: node.port, or { with, how, also } (how: curtain, side by side (default) or difference; also: up to 2 more maps (node.port) side by side, 4 views in all that move together; band: the band of the stack or the step of the loop `with` is (from 0, default the first); also_bands: the same for each map of also (a number each, 0 or null for the first); layers: side by side, the layers each view draws instead of the Plot's, a list per view (first the view of `with`, then those of `also`) in the form of the Plot's layers but without palette, an empty list for a view that draws the Plot's layers)." },
@@ -2461,6 +2461,17 @@ fn set_plot(m: &mut Model, r: &Registry, a: &Value) -> Reply {
                         names.join("; ")
                     ));
                 }
+                // (the range of the colours: two numbers, the least first)
+                let range = match o.get("range") {
+                    None | Some(Value::Null) => None,
+                    Some(Value::Array(v)) => match v.as_slice() {
+                        [a, b] if a.as_f64().zip(b.as_f64()).is_some_and(|(a, b)| a < b) => {
+                            Some([a.as_f64().unwrap_or(0.0), b.as_f64().unwrap_or(1.0)])
+                        }
+                        _ => return Err(format!("{from}: range is [least, most], two numbers, the least first")),
+                    },
+                    Some(other) => return Err(format!("{from}: range is [least, most], not {other}")),
+                };
                 let minus = match o.get("minus").and_then(Value::as_str).filter(|m| !m.is_empty()) {
                     Some(m) => Some(checked(m)?),
                     None => None,
@@ -2478,6 +2489,7 @@ fn set_plot(m: &mut Model, r: &Registry, a: &Value) -> Reply {
                     hidden: o.get("hidden").and_then(Value::as_bool).unwrap_or(false),
                     style: o.get("style").cloned(),
                     palette: palette.and_then(crate::builder::palette_named).and_then(crate::builder::palette_name),
+                    range,
                     minus,
                 }
             }

@@ -31,6 +31,8 @@ pub struct Pick {
     pub name: String,
     pub value: Value,
     pub palette: Palette,
+    /// The range of its colours chosen by hand (least, most), when it is of values.
+    pub range: Option<(f64, f64)>,
     pub legend: Option<Vec<Class>>,
     pub band: usize,
     /// A vector layer's style in the Viewer (when it is drawn over the map there).
@@ -646,7 +648,7 @@ pub fn export(picks: &[Pick], dir: &Path, title: &str, plain: bool) -> Result<Pa
                 (format!("./{}", file.file_name().unwrap().to_string_lossy()), band + 1, true)
             }
         };
-        let look = crate::builder::look_of(&src, p.palette);
+        let look = crate::builder::ranged(crate::builder::look_of(&src, p.palette), p.range);
         let look = match &p.legend {
             Some(c) => crate::legend_view::apply(&look, c),
             None => look,
@@ -737,6 +739,7 @@ pub fn pick(s: &Session, node: &str, port: &str) -> Option<Pick> {
     Some(Pick {
         name: name_of(s, node, port),
         palette: crate::builder::palette_of(s, node, port),
+        range: crate::builder::range_of(s, node, port),
         legend,
         band,
         value,
@@ -995,6 +998,7 @@ mod tests {
                 name: "land use".into(),
                 value: Value::Map(m.clone()),
                 palette: Palette::Auto,
+                range: None,
                 legend: None,
                 band: 0,
                 style: None,
@@ -1004,6 +1008,7 @@ mod tests {
                 name: "land use".into(),
                 value: Value::Map(ramp),
                 palette: Palette::Auto,
+                range: None,
                 legend: None,
                 band: 0,
                 style: None,
@@ -1013,6 +1018,7 @@ mod tests {
                 name: "plots".into(),
                 value: Value::Vector(Arc::new(pts)),
                 palette: Palette::Auto,
+                range: None,
                 legend: None,
                 band: 0,
                 style: None,
@@ -1171,6 +1177,7 @@ mod tests {
             name: name.into(),
             value,
             palette: Palette::Auto,
+            range: None,
             legend: None,
             band: 0,
             style,

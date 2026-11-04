@@ -63,6 +63,9 @@ pub struct PlotLayer {
     /// The palette (by its name in the Viewer; default: by what the map is).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub palette: Option<String>,
+    /// The range of the colours of a map of values, least and most (default: over its 2nd to 98th percentiles).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub range: Option<[f64; 2]>,
     /// The band of a stack or the step of a loop shown (default the first).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub band: Option<usize>,

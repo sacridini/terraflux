@@ -404,6 +404,8 @@ pub struct MapView {
     pub basemap: Basemap,
     pub transparency: f32,
     pub hide_data: bool,
+    /// How opaque the map shown is as a layer, 0 to 1 (none: opaque; 0: hidden in the Layers).
+    pub opacity: Option<f32>,
     base: crate::basemap::Layer,
     /// The vector layers drawn over the map.
     pub vectors: crate::vector_tiles::VectorTiles,
@@ -1206,6 +1208,8 @@ impl MapView {
         }
         let tint = Color32::from_white_alpha(((1.0 - self.transparency.clamp(0.0, 1.0)) * 255.0).round() as u8);
         let show_data = !self.hide_data && !blank;
+        // (the map shown as opaque as its layer is: the maps compared with it keep the data's)
+        let own = tint.gamma_multiply(self.opacity.unwrap_or(1.0).clamp(0.0, 1.0));
         let ppp = ctx.pixels_per_point();
         let mut wanted: Vec<(f32, Job)> = Vec::new();
         self.clock += 1;
@@ -1246,13 +1250,13 @@ impl MapView {
             let fade = match under {
                 Some((was, colouring, fade)) => {
                     let held = Paint::Held(colouring);
-                    self.draw_source(&ctx, &left, rect, &was, held, tint, base, show_data, &mut wanted);
+                    self.draw_source(&ctx, &left, rect, &was, held, own, base, show_data, &mut wanted);
                     fade
                 }
                 None => 1.0,
             };
             let asked = Paint::Asked(coloring);
-            let faded = tint.gamma_multiply(fade);
+            let faded = own.gamma_multiply(fade);
             let complete = self.draw_source(&ctx, &left, rect, source, asked, faded, base, show_data, &mut wanted);
             if self.prior.is_some() {
                 if complete && fade >= 1.0 {

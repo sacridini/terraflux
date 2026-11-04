@@ -538,10 +538,37 @@ pub fn palette_of(s: &Session, node: &str, port: &str) -> Palette {
     Palette::of(made, &hint)
 }
 
-/// The look of a map of a node's output as the viewer gives it (the document's pictures): its palette and the
-/// classes' colours of the model's legend.
+/// The range of the colours of a node's output chosen by hand (least, most): in the Viewer, else by a Plot that
+/// shows it (the one open first); none: over the values' 2nd to 98th percentiles.
+pub fn range_of(s: &Session, node: &str, port: &str) -> Option<(f64, f64)> {
+    if let Some(r) = s.ranges.get(&(node.to_string(), port.to_string())) {
+        return Some(*r);
+    }
+    let from = format!("{node}.{port}");
+    let open = s.plot_open.as_deref().and_then(|id| s.source.plot(id));
+    open.into_iter()
+        .chain(&s.source.plots)
+        .flat_map(|p| &p.layers)
+        .filter(|l| l.from == from)
+        .find_map(|l| l.range.map(|[a, b]| (a, b)))
+}
+
+/// A look with the range of its colours chosen by hand, when it is of values (a look of classes stays).
+pub fn ranged(mut look: Look, range: Option<(f64, f64)>) -> Look {
+    if let (Some((a, b)), Coloring::Continuous { min, max, .. }) = (range, &mut look.coloring)
+        && a.is_finite()
+        && b.is_finite()
+        && b > a
+    {
+        (*min, *max) = (a, b);
+    }
+    look
+}
+
+/// The look of a map of a node's output as the viewer gives it (the document's pictures): its palette, the range
+/// of its colours and the classes' colours of the model's legend.
 pub fn output_look(s: &Session, node: &str, port: &str, map: &terraflux_ops::Map) -> Look {
-    let look = palette_of(s, node, port).look(&map.data);
+    let look = ranged(palette_of(s, node, port).look(&map.data), range_of(s, node, port));
     match crate::legend_view::legend_of(s, node, port, &Source::Map(map.clone())) {
         Some(c) => crate::legend_view::apply(&look, &c),
         None => look,
@@ -2346,255 +2373,9 @@ pub struct Shown {
     pub attributes: Option<crate::attribute_table::Open>,
 }
 
-/// The layers of the side panel: the map shown at the top when it is not one of them (a click keeps it), then the
-/// layers from the top: shown or hidden, the map whose legend and settings are here (a click on another's name), up
-/// and down, taken away; a map's opacity, vector features' style; and the run's other maps and features to add.
-fn layers_section(
-    ui: &mut Ui,
-    s: &mut Session,
-    r: &Registry,
-    sh: &mut Shown,
-    others: &[(String, String)],
-    main_name: &str,
-    salt: &str,
-) {
-    let (node, port) = (sh.node.clone(), sh.port.clone());
-    theme::section(ui, "Layers");
-    let weak = ui.visuals().weak_text_color();
-    if !sh.layers.iter().any(|l| l.is(&node, &port)) {
-        ui.horizontal(|ui| {
-            if ui
-                .button("📌")
-                .on_hover_text("keep it as a layer: it stays on the map when another node is clicked (a double click on the node keeps it too)")
-                .clicked()
-            {
-                pin(&mut sh.layers, &node, &port);
-            }
-            // (one label: the name with "shown", not the name again beside the one over the map)
-            let mut job = egui::text::LayoutJob::default();
-            let font = egui::TextStyle::Body.resolve(ui.style());
-            let text = ui.visuals().text_color();
-            job.append(main_name, 0.0, egui::TextFormat { font_id: font, color: text, italics: true, ..Default::default() });
-            let small = egui::FontId::proportional(11.0);
-            job.append("  shown", 0.0, egui::TextFormat { font_id: small, color: weak, ..Default::default() });
-            ui.label(job);
-        });
-    }
-    let vectors = vector_values(s, r);
-    let is_vector = |l: &Layer| vectors.iter().any(|(n, p, _)| l.is(n, p));
-    let n = sh.layers.len();
-    let (mut up, mut down, mut gone, mut chosen, mut zoom) = (None, None, None, None, None);
-    let mut table: Option<usize> = None;
-    // a layer dragged by its name onto another's row: (from, to)
-    let mut dropped: Option<(usize, usize)> = None;
-    for i in (0..n).rev() {
-        let vector = is_vector(&sh.layers[i]);
-        let l = &mut sh.layers[i];
-        let active = l.is(&node, &port);
-        let row = ui
-            .horizontal(|ui| {
-                // (the buttons at the right first: the name cut to the room left, not under them)
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.small_button("x").on_hover_text("no longer a layer").clicked() {
-                        gone = Some(i);
-                    }
-                    if ui.small_button("zoom").on_hover_text("zoom to layer: the view on all of it").clicked() {
-                        zoom = Some(i);
-                    }
-                    if vector {
-                        let open = sh.attributes.as_ref().is_some_and(|o| o.is(&l.node, &l.port));
-                        if ui
-                            .add(egui::Button::selectable(open, "table").small())
-                            .on_hover_text("the attributes of its features in a table under the map (again: closes it)")
-                            .clicked()
-                        {
-                            table = Some(i);
-                        }
-                    }
-                    if ui
-                        .add_enabled(i > 0, egui::Button::new("⏷").small())
-                        .on_hover_text("down: under the one below")
-                        .clicked()
-                    {
-                        down = Some(i);
-                    }
-                    if ui
-                        .add_enabled(i + 1 < n, egui::Button::new("⏶").small())
-                        .on_hover_text("up: over the one above")
-                        .clicked()
-                    {
-                        up = Some(i);
-                    }
-                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                        ui.checkbox(&mut l.visible, "").on_hover_text("shown on the map, or hidden");
-                        let name = l.name_by(made_of(s, l).as_deref(), |n, p, b| band_name(s, n, p, b));
-                        let text = if active { RichText::new(&name).strong() } else { RichText::new(&name) };
-                        let resp = ui.add(
-                            egui::Button::selectable(active, text).truncate().sense(egui::Sense::click_and_drag()),
-                        );
-                        resp.dnd_set_drag_payload(LayerAt(i));
-                        let hint = if vector || active || l.minus.is_some() {
-                            format!("{name}: drag it over or under another")
-                        } else {
-                            format!("{name}: its legend and settings here; drag it over or under another")
-                        };
-                        if resp.on_hover_text(hint).clicked() && !vector && !active && l.minus.is_none() {
-                            chosen = Some((l.node.clone(), l.port.clone()));
-                        }
-                    });
-                });
-            })
-            .response;
-        // another layer dragged over this row: it takes this one's place
-        if let Some(from) = row.dnd_hover_payload::<LayerAt>()
-            && from.0 != i
-        {
-            ui.painter().rect_stroke(
-                row.rect.expand(1.0),
-                3.0,
-                ui.visuals().selection.stroke,
-                egui::StrokeKind::Outside,
-            );
-        }
-        if let Some(from) = row.dnd_release_payload::<LayerAt>()
-            && from.0 != i
-        {
-            dropped = Some((from.0, i));
-        }
-        if l.visible && l.minus.is_some() {
-            ui.indent(("layer", salt, i), |ui| {
-                ui.spacing_mut().slider_width = (ui.available_width() - 110.0).clamp(40.0, 160.0);
-                ui.add(egui::Slider::new(&mut l.opacity, 0.0..=1.0).text("opacity"));
-                match made_of(s, l) {
-                    Some(d) => {
-                        ui.label(RichText::new(&d.summary).weak().size(11.0));
-                        legend(ui, &d.coloring, &d.counts, &|v| d.name(v));
-                    }
-                    None => match s
-                        .layer_differences
-                        .get(&l.difference_key().unwrap_or_default())
-                        .and_then(|d| d.made.as_ref())
-                    {
-                        Some(Err(e)) => {
-                            ui.label(RichText::new(e).color(ui.visuals().error_fg_color).size(11.0));
-                        }
-                        _ => {
-                            ui.horizontal(|ui| {
-                                ui.spinner();
-                                ui.label(RichText::new("the difference...").weak());
-                            });
-                        }
-                    },
-                }
-            });
-        } else if l.visible && !active {
-            ui.indent(("layer", salt, i), |ui| match vectors.iter().find(|(vn, vp, _)| l.is(vn, vp)) {
-                Some((vn, vp, v)) => {
-                    crate::vector_view::style_controls(ui, v, &mut l.style, egui::Id::new((vn, vp, salt)));
-                }
-                None => {
-                    ui.spacing_mut().slider_width = (ui.available_width() - 110.0).clamp(40.0, 160.0);
-                    ui.add(egui::Slider::new(&mut l.opacity, 0.0..=1.0).text("opacity"));
-                    // the histogram of the values, when open (and its colouring is known)
-                    if let Some(src) = s.value_of(&l.node, &l.port).and_then(|v| layer_source(&v, l.band))
-                        && let Some(Coloring::Continuous { min, max, ramp, log }) =
-                            s.looks.peek(&src).map(|k| k.coloring.clone())
-                    {
-                        let id = egui::Id::new(("layer histogram", salt, &l.node, &l.port));
-                        egui::CollapsingHeader::new("histogram").id_salt(id).show(ui, |ui| {
-                            match s.histograms.get(ui.ctx(), &src, min, max) {
-                                Some(h) => {
-                                    crate::histogram::show(ui, &h, &Coloring::Continuous { min, max, ramp, log })
-                                }
-                                None => {
-                                    ui.spinner();
-                                }
-                            }
-                        });
-                    }
-                    // of a stack, a series or rasters on disk: the map it shows
-                    let names = s.value_of(&l.node, &l.port).map(|v| maps_of(&v).1).unwrap_or_default();
-                    if names.len() > 1 {
-                        let raster_chosen = match s.value_of(&l.node, &l.port) {
-                            Some(Value::Raster(r)) => r.chosen,
-                            _ => 0,
-                        };
-                        let at = l.band.unwrap_or(raster_chosen).min(names.len() - 1);
-                        egui::ComboBox::from_id_salt(("layer band", salt, &l.node, &l.port))
-                            .selected_text(format!("map: {}", names[at]))
-                            .width(160.0)
-                            .show_ui(ui, |ui| {
-                                for (b, name) in names.iter().enumerate() {
-                                    if ui.selectable_label(b == at, name).clicked() {
-                                        l.band = Some(b);
-                                    }
-                                }
-                            });
-                    }
-                }
-            });
-        }
-    }
-    if let Some(i) = table {
-        let l = &sh.layers[i];
-        let was = sh.attributes.as_ref().is_some_and(|o| o.is(&l.node, &l.port));
-        sh.attributes = (!was).then(|| crate::attribute_table::Open::of(&l.node, &l.port));
-    }
-    if let Some(i) = zoom {
-        let l = &sh.layers[i];
-        if l.is(&node, &port) {
-            sh.view.fit();
-        } else if let Some(cells) = sh.view.shown_grid().and_then(|g| layer_cells(s, l, g)) {
-            sh.view.zoom_to(cells);
-        }
-    }
-    if let Some((from, to)) = dropped {
-        let l = sh.layers.remove(from);
-        sh.layers.insert(to, l);
-    }
-    if let Some(i) = up {
-        sh.layers.swap(i, i + 1);
-    }
-    if let Some(i) = down {
-        sh.layers.swap(i, i - 1);
-    }
-    if let Some(i) = gone {
-        sh.layers.remove(i);
-    }
-    // another layer's legend and settings: it is the map shown now
-    if let Some((n, p)) = chosen {
-        let band = sh.layers.iter().find(|l| l.is(&n, &p)).and_then(|l| l.band);
-        sh.node = n;
-        sh.port = p;
-        sh.band = band.unwrap_or(0);
-        sh.chosen = band.is_some();
-    }
-    // the run's other maps and features, to add as layers
-    let more: Vec<(String, String)> = others
-        .iter()
-        .cloned()
-        .chain(vectors.iter().map(|(n, p, _)| (n.clone(), p.clone())))
-        .filter(|(n, p)| !sh.layers.iter().any(|l| l.is(n, p)))
-        .collect();
-    if n == 0 && more.is_empty() {
-        ui.label(RichText::new("no other map or features of the run").size(11.0).color(weak));
-    }
-    ui.add_enabled_ui(!more.is_empty(), |ui| {
-        ui.menu_button("Add a layer", |ui| {
-            for (n, p) in &more {
-                if ui.button(output_name(n, p)).clicked() {
-                    // (under the map shown when it is a layer: added under it, else on top)
-                    let l = Layer::new(n, p);
-                    match sh.layers.iter().position(|l| l.is(&node, &port)) {
-                        Some(a) => sh.layers.insert(a, l),
-                        None => sh.layers.push(l),
-                    }
-                    ui.close();
-                }
-            }
-        });
-    });
-}
+#[path = "layers_panel.rs"]
+mod layers_panel;
+use layers_panel::layers_section;
 
 /// The vector layers drawn over a map as a figure or a picture keeps them: those of the Plot and the Layers shown,
 /// on the map's grid, with their colours, fills, widths and labels (in the figure's points, 0.6 of the Viewer's
@@ -2633,9 +2414,6 @@ pub(crate) fn figure_vector(
     })
 }
 
-/// A layer dragged in the Layers (its index).
-struct LayerAt(usize);
-
 /// What a Plot shows first, its legend and settings in the Viewer: its top map (a layer not hidden that is not
 /// vector features), else its top layer; an output (`node.port`).
 pub fn plot_figure(m: &terraflux_graph::Model, r: &Registry, p: &terraflux_graph::Plot) -> Option<(String, String)> {
@@ -2655,6 +2433,10 @@ pub fn open_plot(s: &mut Session, r: &Registry, id: &str) {
     // the palettes the Plot asks for (none: by what the maps are)
     for l in &p.layers {
         let Some(key) = port_of(&l.from) else { continue };
+        match l.range {
+            Some([a, b]) => s.ranges.insert(key.clone(), (a, b)),
+            None => s.ranges.remove(&key),
+        };
         match l.palette.as_deref().and_then(palette_named) {
             Some(pal) => s.palettes.insert(key, pal),
             None => s.palettes.remove(&key),
@@ -2701,13 +2483,19 @@ pub fn open_plot(s: &mut Session, r: &Registry, id: &str) {
     s.ask_viewer = true;
 }
 
-/// A layer of the Viewer as a Plot keeps it (its `band` and `palette` given).
-fn plot_layer(l: &Layer, band: Option<usize>, palette: Option<String>) -> terraflux_graph::PlotLayer {
+/// A layer of the Viewer as a Plot keeps it (its `band`, `palette` and range of colours given).
+fn plot_layer(
+    l: &Layer,
+    band: Option<usize>,
+    palette: Option<String>,
+    range: Option<(f64, f64)>,
+) -> terraflux_graph::PlotLayer {
     let style = l.style != crate::vector_tiles::Style::default();
     terraflux_graph::PlotLayer {
         from: format!("{}.{}", l.node, l.port),
         opacity: (l.opacity != 1.0).then_some(l.opacity as f64),
         palette,
+        range: range.map(|(a, b)| [a, b]),
         band,
         style: style.then(|| l.style.to_json()),
         hidden: !l.visible,
@@ -2739,11 +2527,16 @@ fn layers_of_plot(list: &[terraflux_graph::PlotLayer]) -> Vec<Layer> {
         .collect()
 }
 
+/// The palettes chosen by hand, of outputs (node, port).
+type Palettes = std::collections::HashMap<(String, String), Palette>;
+/// The ranges of colours chosen by hand (least, most), of outputs (node, port).
+type Ranges = std::collections::HashMap<(String, String), (f64, f64)>;
+
 /// What the Viewer shows, as a Plot: the layers (the map shown on top when it is not one of them, its band), the
 /// comparison; the title, chart and record of the Plot it updates.
 fn plot_of(
     sh: &Shown,
-    palettes: &std::collections::HashMap<(String, String), Palette>,
+    (palettes, ranges): (&Palettes, &Ranges),
     was: Option<&terraflux_graph::Plot>,
     id: &str,
     chart: Option<terraflux_graph::PlotChart>,
@@ -2753,18 +2546,20 @@ fn plot_of(
     let shown_band = (sh.band > 0 || sh.chosen).then_some(sh.band);
     let palette =
         |node: &str, port: &str| palettes.get(&(node.to_string(), port.to_string())).and_then(|p| palette_name(*p));
+    let range = |node: &str, port: &str| ranges.get(&(node.to_string(), port.to_string())).copied();
     let mut layers: Vec<PlotLayer> = sh
         .layers
         .iter()
         .map(|l| {
             let band = if l.is(&sh.node, &sh.port) { shown_band } else { l.band };
-            plot_layer(l, band, palette(&l.node, &l.port))
+            plot_layer(l, band, palette(&l.node, &l.port), range(&l.node, &l.port))
         })
         .collect();
     if !sh.layers.iter().any(|l| l.is(&sh.node, &sh.port)) {
         layers.push(PlotLayer {
             band: shown_band,
             palette: palette(&sh.node, &sh.port),
+            range: range(&sh.node, &sh.port).map(|(a, b)| [a, b]),
             ..PlotLayer::new(&format!("{}.{}", sh.node, sh.port))
         });
     }
@@ -2773,7 +2568,7 @@ fn plot_of(
             // (side by side, the views more of other outputs, each with the layers of its own, those of the
             // compared view first)
             let own = |l: &Option<Vec<Layer>>| -> Vec<PlotLayer> {
-                l.iter().flatten().map(|l| plot_layer(l, l.band, None)).collect()
+                l.iter().flatten().map(|l| plot_layer(l, l.band, None, None)).collect()
             };
             let (mut also, mut views) = (Vec::new(), vec![own(&sh.compare.layers)]);
             let mut also_bands = Vec::new();
@@ -2892,7 +2687,7 @@ fn plots_menu(ui: &mut Ui, s: &mut Session, sh: &Shown, top: bool, salt: &str) {
                 .clicked()
             {
                 if let Some(k) = s.source.plots.iter().position(|p| &p.id == id) {
-                    s.source.plots[k] = plot_of(sh, &s.palettes, Some(&s.source.plots[k]), id, chart_now(ui, s));
+                    s.source.plots[k] = plot_of(sh, (&s.palettes, &s.ranges), Some(&s.source.plots[k]), id, chart_now(ui, s));
                     s.edited();
                 }
                 ui.close();
@@ -2951,7 +2746,7 @@ fn plots_menu(ui: &mut Ui, s: &mut Session, sh: &Shown, top: bool, salt: &str) {
             .clicked()
         {
             let id = new_plot_id(&s.source, &sh.node);
-            let p = plot_of(sh, &s.palettes, None, &id, chart_now(ui, s));
+            let p = plot_of(sh, (&s.palettes, &s.ranges), None, &id, chart_now(ui, s));
             s.source.plots.push(p);
             s.plot_open = Some(id);
             s.edited();
@@ -3157,10 +2952,15 @@ fn draw_layers(
             if let Some((coloring, name)) = difference {
                 return Some(crate::map_view::RasterLayer { source: src, coloring, opacity, below: i < below, name });
             }
-            let (made, mut hint) = producer(s, &n, &p);
-            hint.push_str(&p);
-            let palette = s.palettes.get(&(n.clone(), p.clone())).copied().unwrap_or_else(|| Palette::of(made, &hint));
-            let look = s.looks.get(ctx, &src, palette)?;
+            // (in the colours of its legend in the Layers: as it is shown)
+            let key = (n.clone(), p.clone());
+            let palette =
+                s.palettes.get(&key).copied().unwrap_or_else(|| default_palette(&s.model.nodes, &n, &p, Some(&src)));
+            let look = ranged(s.looks.get(ctx, &src, palette)?, s.ranges.get(&key).copied());
+            let look = match crate::legend_view::legend_of(s, &n, &p, &src) {
+                Some(c) => crate::legend_view::apply(&look, &c),
+                None => look,
+            };
             let name = output_name(&n, &p);
             Some(crate::map_view::RasterLayer { source: src, coloring: look.coloring, opacity, below: i < below, name })
         })
@@ -4103,6 +3903,13 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         (Some(l), Some(c)) => Some(crate::legend_view::apply(l, c)),
         _ => look,
     };
+    // the range of the colours chosen by hand (the one by the values kept: the span of the histogram)
+    let range = s.ranges.get(&(node.clone(), port.clone())).copied();
+    let first_range = look.as_ref().and_then(|l| match l.coloring {
+        Coloring::Continuous { min, max, .. } => Some((min, max)),
+        Coloring::Classes(_) => None,
+    });
+    let look = look.map(|l| ranged(l, range));
     // the map compared with it: its source, its name and its look; the two in one colouring (the same value the
     // same colour on both sides), the legend that colouring's
     let main_name = if maps.len() > 1 { format!("{title} {}", names[k]) } else { title.clone() };
@@ -4317,7 +4124,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                         let mut looks: Vec<Look> = maps
                             .iter()
                             .map(|m| {
-                                let lk = look_of(m, palette);
+                                let lk = ranged(look_of(m, palette), range);
                                 legend.map_or(lk.clone(), |c| crate::legend_view::apply(&lk, c))
                             })
                             .collect();
@@ -4385,7 +4192,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                             let mut looks: Vec<Coloring> = maps
                                 .iter()
                                 .map(|m| {
-                                    let l = look_of(m, palette);
+                                    let l = ranged(look_of(m, palette), range);
                                     legend.as_ref().map_or(l.clone(), |c| crate::legend_view::apply(&l, c)).coloring
                                 })
                                 .collect();
@@ -4432,23 +4239,25 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 match &look {
                     Some(l) => {
                         let named = legend_classes.as_deref();
-                        // (the editor in the legend's place while it is open)
+                        // (the editor in the legend's place while it is open; the palette first, a click on it
+                        // gives the others)
+                        let key = (node.clone(), port.clone());
                         if !crate::legend_view::editing(ui, &node, &port) {
-                            legend(ui, &l.coloring, &l.counts, &|v| crate::legend_view::name(l, named, v));
+                            match &l.coloring {
+                                Coloring::Classes(_) => {
+                                    layers_panel::palette_legend(ui, s, &key, l, named, 0);
+                                    ui.add_space(2.0);
+                                    legend(ui, &l.coloring, &l.counts, &|v| crate::legend_view::name(l, named, v));
+                                }
+                                Coloring::Continuous { .. } => layers_panel::palette_legend(ui, s, &key, l, named, 0),
+                            }
                         }
                         crate::legend_view::editor(ui, s, r, &node, &port, l, named);
-                        // (of values: the histogram under the legend)
-                        if let Coloring::Continuous { min, max, .. } = &l.coloring {
+                        // (of values: the histogram under the legend, the range of the colours set on it)
+                        if matches!(l.coloring, Coloring::Continuous { .. }) {
                             ui.add_space(4.0);
-                            match s.histograms.get(ui.ctx(), &maps[k], *min, *max) {
-                                Some(h) => crate::histogram::show(ui, &h, &l.coloring),
-                                None => {
-                                    ui.horizontal(|ui| {
-                                        ui.spinner();
-                                        ui.label(RichText::new("the histogram...").weak());
-                                    });
-                                }
-                            }
+                            let id = egui::Id::new(("histogram", salt, &node, &port));
+                            layers_panel::range_histogram(ui, s, &key, &maps[k], &l.coloring, first_range, id);
                         }
                     }
                     None => {
@@ -4511,41 +4320,6 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 }
                 // the world under the data (web maps, by GDAL), the data over it
                 ui.add_space(8.0);
-                // the colours by hand (remembered for this output), or by what the values are
-                ui.add_space(8.0);
-                theme::section(ui, "Colours");
-                let key = (node.clone(), port.clone());
-                let chosen = s.palettes.get(&key).copied();
-                let shown = match chosen {
-                    Some(Palette::Chosen(r, log)) => {
-                        let name = RAMPS.iter().find(|(_, x)| *x == r).map_or("ramp", |(n, _)| n);
-                        if log { format!("{name}, logarithmic") } else { name.to_string() }
-                    }
-                    _ => "by what they are".to_string(),
-                };
-                let mut pick: Option<Option<Palette>> = None;
-                egui::ComboBox::from_id_salt(("colours", salt)).selected_text(shown).width(180.0).show_ui(ui, |ui| {
-                    if ui.selectable_label(chosen.is_none(), "by what they are").clicked() {
-                        pick = Some(None);
-                    }
-                    for (name, r) in RAMPS {
-                        for log in [false, true] {
-                            let label = if log { format!("{name}, logarithmic") } else { name.to_string() };
-                            if ui.selectable_label(chosen == Some(Palette::Chosen(r, log)), label).clicked() {
-                                pick = Some(Some(Palette::Chosen(r, log)));
-                            }
-                        }
-                    }
-                });
-                match pick {
-                    Some(Some(p)) => {
-                        s.palettes.insert(key, p);
-                    }
-                    Some(None) => {
-                        s.palettes.remove(&key);
-                    }
-                    None => {}
-                }
                 ui.add_space(8.0);
                 theme::section(ui, "Basemap");
                 let v = &mut sh.view;
@@ -4742,6 +4516,8 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         });
     ui.data_mut(|d| d.insert_temp(id, layers_open));
     sh.view.name = main_name.clone();
+    // the map shown as opaque as its layer is (hidden when its layer is)
+    sh.view.opacity = sh.layers.iter().find(|l| l.is(&node, &port)).map(|l| if l.visible { l.opacity } else { 0.0 });
     let mut hover = None;
     // the map compared, in the colouring of both (none while its look is being made)
     let other = match (&compared, &shared) {
@@ -5518,7 +5294,7 @@ fn output_map(s: &mut Session, ctx: &egui::Context, n: &str, p: &str, band: Opti
     let (made, mut hint) = producer(s, n, p);
     hint.push_str(p);
     let pal = s.palettes.get(&(n.to_string(), p.to_string())).copied().unwrap_or_else(|| Palette::of(made, &hint));
-    let l = s.looks.get(ctx, &src, pal);
+    let l = s.looks.get(ctx, &src, pal).map(|l| ranged(l, s.ranges.get(&(n.to_string(), p.to_string())).copied()));
     let l = match (l, crate::legend_view::legend_of(s, n, p, &src)) {
         (Some(l), Some(c)) => Some(crate::legend_view::apply(&l, &c)),
         (l, _) => l,
@@ -6517,7 +6293,7 @@ params = { expression = "x * 0 + k" }
         let l = &sh.layers[0];
         assert!(!l.is("b", "map"), "a difference is not the map it is of");
         assert_eq!(l.name(None), "b.map minus a.map");
-        let p = plot_of(&sh, &Default::default(), None, "p", None);
+        let p = plot_of(&sh, (&Default::default(), &Default::default()), None, "p", None);
         assert_eq!(p.layers[0].from, "b.map");
         assert_eq!(p.layers[0].minus.as_deref(), Some("a.map"));
         assert_eq!((p.layers[1].from.as_str(), p.layers[1].minus.as_deref()), ("a.map", None));
@@ -6546,7 +6322,7 @@ params = { expression = "x * 0 + k" }
         let steps = |_: &str, _: &str, i: usize| format!("step {}", i + 1);
         assert_eq!(a.name_by(None, steps), "x.map step 5 minus step 1");
         sh.layers = vec![a, b];
-        let p = plot_of(&sh, &Default::default(), None, "p", None);
+        let p = plot_of(&sh, (&Default::default(), &Default::default()), None, "p", None);
         let kept: Vec<_> =
             p.layers.iter().take(2).map(|l| (l.from.as_str(), l.band, l.minus.as_deref(), l.minus_band)).collect();
         assert_eq!(kept, [("x.map", Some(4), Some("x.map"), Some(0)), ("x.map", Some(4), Some("x.map"), Some(2))]);
@@ -6578,7 +6354,7 @@ params = { expression = "x * 0 + k" }
         sh.compare
             .more
             .push(Beside { layers: Some(vec![diff]), ..Beside::new(CompareWith::Output("d".into(), "map".into())) });
-        let p = plot_of(&sh, &Default::default(), None, "p", None);
+        let p = plot_of(&sh, (&Default::default(), &Default::default()), None, "p", None);
         let c = p.compare.as_ref().unwrap();
         assert_eq!(c.also, ["c.map", "d.map"]);
         assert_eq!(c.layers.len(), 3);
@@ -6593,7 +6369,13 @@ params = { expression = "x * 0 + k" }
         curtain.compare.with = out("b");
         curtain.compare.how = How::Curtain;
         curtain.compare.layers = sh.compare.layers.clone();
-        assert!(plot_of(&curtain, &Default::default(), None, "p", None).compare.unwrap().layers.is_empty());
+        assert!(
+            plot_of(&curtain, (&Default::default(), &Default::default()), None, "p", None)
+                .compare
+                .unwrap()
+                .layers
+                .is_empty()
+        );
         // back from the Plot
         s.source.plots.push(p);
         open_plot(&mut s, &r, "p");

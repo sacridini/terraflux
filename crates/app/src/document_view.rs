@@ -69,7 +69,8 @@ fn picture(
             use std::hash::{Hash, Hasher};
             let legend = crate::legend_view::legend_of(s, node, port, &crate::map_view::Source::Map(m.clone()));
             let mut h = std::collections::hash_map::DefaultHasher::new();
-            format!("{:?}{legend:?}", crate::builder::palette_of(s, node, port)).hash(&mut h);
+            let range = crate::builder::range_of(s, node, port);
+            format!("{:?}{legend:?}{range:?}", crate::builder::palette_of(s, node, port)).hash(&mut h);
             h.finish() as usize
         });
     // (a part of a map is a picture of its own)

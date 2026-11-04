@@ -96,7 +96,7 @@ fn made(m: &Model, plot: &Plot, value: &dyn Fn(&str) -> Option<Value>) -> Result
             .as_deref()
             .and_then(palette_named)
             .unwrap_or_else(|| default_palette(&m.nodes, node, port, Some(src)));
-        let look = look_of(src, palette);
+        let look = crate::builder::ranged(look_of(src, palette), l.range.map(|[a, b]| (a, b)));
         let legend = crate::legend_view::legend_in(&m.nodes, node, port, src);
         let look = match &legend {
             Some(c) => crate::legend_view::apply(&look, c),
