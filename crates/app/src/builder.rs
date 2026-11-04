@@ -2393,7 +2393,7 @@ fn layers_section(
                     }
                     ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                         ui.checkbox(&mut l.visible, "").on_hover_text("shown on the map, or hidden");
-                        let name = l.name(made_of(s, l).as_deref());
+                        let name = l.name_by(made_of(s, l).as_deref(), |n, p, b| band_name(s, n, p, b));
                         let text = if active { RichText::new(&name).strong() } else { RichText::new(&name) };
                         let resp = ui.add(
                             egui::Button::selectable(active, text).truncate().sense(egui::Sense::click_and_drag()),
@@ -2624,6 +2624,7 @@ pub fn open_plot(s: &mut Session, r: &Registry, id: &str) {
                 style: l.style.as_ref().map(crate::vector_tiles::Style::from_json).unwrap_or_default(),
                 band: l.band,
                 minus: l.minus.as_deref().and_then(port_of),
+                minus_band: l.minus_band,
             })
         })
         .collect();
@@ -2689,6 +2690,7 @@ fn plot_of(
                 style: style.then(|| l.style.to_json()),
                 hidden: !l.visible,
                 minus: l.minus.as_ref().map(|(n, p)| format!("{n}.{p}")),
+                minus_band: l.minus.as_ref().and(l.minus_band),
             }
         })
         .collect();
@@ -2850,10 +2852,13 @@ pub struct Layer {
     /// Drawn as a difference: this output (`node.port`) minus the map `minus` (node, port) for maps of values, the
     /// transitions from `minus` to it for maps of classes (made in a thread, see [`layer_difference`]).
     pub minus: Option<(String, String)>,
+    /// The map of `minus` it subtracts: a band of its stack or a step of its series (default the first), so that
+    /// two layers of one stack make a difference.
+    pub minus_band: Option<usize>,
 }
 
-/// The maps a difference is of: the one subtracted (node, port), then the other.
-pub type DifferenceKey = (String, String, String, String);
+/// The maps a difference is of: the one subtracted (node, port, band), then the other.
+pub type DifferenceKey = (String, String, Option<usize>, String, String, Option<usize>);
 
 impl Layer {
     pub fn new(node: &str, port: &str) -> Layer {
@@ -2865,12 +2870,23 @@ impl Layer {
             style: Default::default(),
             band: None,
             minus: None,
+            minus_band: None,
         }
     }
 
     /// The difference of `node.port` from `minus` (node, port) as a layer.
     pub fn difference(node: &str, port: &str, minus: (&str, &str)) -> Layer {
         Layer { minus: Some((minus.0.into(), minus.1.into())), ..Layer::new(node, port) }
+    }
+
+    /// The difference of the band `band` of `node.port` from the band `minus.2` of `minus` (node, port, band).
+    pub fn difference_of_bands(
+        node: &str,
+        port: &str,
+        band: Option<usize>,
+        minus: (&str, &str, Option<usize>),
+    ) -> Layer {
+        Layer { band, minus_band: minus.2, ..Layer::difference(node, port, (minus.0, minus.1)) }
     }
 
     /// Whether it is the output `node.port` (not a difference of it).
@@ -2881,17 +2897,34 @@ impl Layer {
     /// The maps it is the difference of, when it is one.
     pub fn difference_key(&self) -> Option<DifferenceKey> {
         let (n, p) = self.minus.clone()?;
-        Some((n, p, self.node.clone(), self.port.clone()))
+        Some((n, p, self.minus_band, self.node.clone(), self.port.clone(), self.band))
     }
 
     /// Its name in the Viewer: the output's, or of a difference "b minus a" (values) or "a to b" (classes, once
-    /// made).
+    /// made); the bands of a difference as "band 5" (see [`Layer::name_by`]).
     pub fn name(&self, made: Option<&crate::difference::Made>) -> String {
-        let b = output_name(&self.node, &self.port);
-        match &self.minus {
-            None => b,
-            Some((n, p)) if made.is_some_and(|d| !d.names.is_empty()) => format!("{} to {b}", output_name(n, p)),
-            Some((n, p)) => format!("{b} minus {}", output_name(n, p)),
+        self.name_by(made, |_, _, b| format!("band {}", b + 1))
+    }
+
+    /// [`Layer::name`] with the names of the bands of an output (node, port, band) given by `band_name`: of two
+    /// layers of one stack "x.map step 5 minus step 1", the output named once.
+    pub fn name_by(
+        &self,
+        made: Option<&crate::difference::Made>,
+        band_name: impl Fn(&str, &str, usize) -> String,
+    ) -> String {
+        let side = |n: &str, p: &str, band: Option<usize>, short: bool| match band {
+            Some(i) if short => band_name(n, p, i),
+            Some(i) => format!("{} {}", output_name(n, p), band_name(n, p, i)),
+            None => output_name(n, p),
+        };
+        let Some((n, p)) = &self.minus else { return side(&self.node, &self.port, None, false) };
+        // (one output on both sides: its name once, on the first)
+        let same = (n, p) == (&self.node, &self.port) && self.band.is_some() && self.minus_band.is_some();
+        if made.is_some_and(|d| !d.names.is_empty()) {
+            format!("{} to {}", side(n, p, self.minus_band, false), side(&self.node, &self.port, self.band, same))
+        } else {
+            format!("{} minus {}", side(&self.node, &self.port, self.band, false), side(n, p, self.minus_band, same))
         }
     }
 }
@@ -2904,12 +2937,12 @@ pub fn layer_difference(
     l: &Layer,
 ) -> Option<Result<Arc<crate::difference::Made>, String>> {
     let key = l.difference_key()?;
-    let (a, b) = (output_map(s, ctx, &key.0, &key.1)?, output_map(s, ctx, &key.2, &key.3)?);
+    let (a, b) = (output_map(s, ctx, &key.0, &key.1, key.2)?, output_map(s, ctx, &key.3, &key.4, key.5)?);
     let (Some(la), Some(lb)) = (&a.2, &b.2) else { return None };
     let classes = match (&la.coloring, &lb.coloring) {
         (Coloring::Classes(ca), Coloring::Classes(cb)) => {
             let na = class_names(ca.as_slice(), la, crate::legend_view::legend_of(s, &key.0, &key.1, &a.0).as_deref());
-            let nb = class_names(cb.as_slice(), lb, crate::legend_view::legend_of(s, &key.2, &key.3, &b.0).as_deref());
+            let nb = class_names(cb.as_slice(), lb, crate::legend_view::legend_of(s, &key.3, &key.4, &b.0).as_deref());
             Some((na, nb))
         }
         _ => None,
@@ -2917,6 +2950,12 @@ pub fn layer_difference(
     let d = s.layer_differences.entry(key).or_default();
     d.want(ctx, &a.0, &b.0, classes);
     d.made.clone()
+}
+
+/// The name of a band of an output (a stack's key, a series' "step 5"), else "band 5".
+fn band_name(s: &Session, node: &str, port: &str, band: usize) -> String {
+    let names = s.value_of(node, port).map(|v| maps_of(&v).1).unwrap_or_default();
+    names.get(band).cloned().unwrap_or_else(|| format!("band {}", band + 1))
 }
 
 /// A map drawn with the one shown: its source, opacity, node and port, and when it is a difference its colouring
@@ -3863,7 +3902,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     l.opacity,
                     l.node.clone(),
                     l.port.clone(),
-                    Some((d.coloring.clone(), l.name(Some(&d)))),
+                    Some((d.coloring.clone(), l.name_by(Some(&d), |n, p, b| band_name(s, n, p, b)))),
                 );
                 if at.is_none_or(|a| i < a) { under.push(item) } else { above.push(item) }
             }
@@ -4275,7 +4314,8 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 others.sort_by_key(rank);
                 let cmp = &mut sh.compare;
                 // (the difference kept as a layer: of which output)
-                let mut keep: Option<(String, String)> = None;
+                // (the difference to keep as a layer: the output compared and its band)
+                let mut keep: Option<(String, String, Option<usize>)> = None;
                 let shown = match &cmp.with {
                     None => "nothing".to_string(),
                     Some(CompareWith::Layer(_)) => "another layer of this one".to_string(),
@@ -4345,14 +4385,16 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                             }
                         }
                         let of = match &cmp.with {
-                            Some(CompareWith::Output(n, p)) => Some((n.clone(), p.clone())),
+                            Some(CompareWith::Output(n, p)) => Some((n.clone(), p.clone(), None)),
+                            // (two layers of one stack or series, by their bands)
+                            Some(CompareWith::Layer(j)) if *j != k => Some((node.clone(), port.clone(), Some(*j))),
                             _ => None,
                         };
                         let hint = if of.is_some() {
                             "the difference as a layer of its own: drawn over the map, at an opacity, with the other \
                              layers, kept in a Plot"
                         } else {
-                            "a difference of two outputs of the run is kept as a layer, not of two layers of one"
+                            "the same layer is no difference: choose another"
                         };
                         if ui
                             .add_enabled(of.is_some(), egui::Button::new("📌 Keep as a layer"))
@@ -4370,8 +4412,10 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     }
                 }
                 // the difference kept: a layer over the others, the map shown again in place of the comparison
-                if let Some((n, p)) = keep {
-                    let l = Layer::difference(&n, &p, (&node, &port));
+                if let Some((n, p, band)) = keep {
+                    // (the band shown is the one subtracted; the first when not chosen)
+                    let shown = (sh.band > 0 || sh.chosen || band.is_some()).then_some(k);
+                    let l = Layer::difference_of_bands(&n, &p, band, (&node, &port, shown));
                     if !sh.layers.iter().any(|x| x.difference_key() == l.difference_key()) {
                         sh.layers.push(l);
                     }
@@ -4626,15 +4670,15 @@ fn compared_map(
             let l = s.looks.get(ctx, &src, palette);
             Some((src, format!("{title} {}", names[*j]), l))
         }
-        CompareWith::Output(n, p) => output_map(s, ctx, n, p),
+        CompareWith::Output(n, p) => output_map(s, ctx, n, p, None),
         _ => None,
     }
 }
 
 /// An output of the run as a map: its source (a stack's first layer...), its name, its look in its own colours
 /// and legend (none while it is being made).
-fn output_map(s: &mut Session, ctx: &egui::Context, n: &str, p: &str) -> Option<Compared> {
-    let src = s.value_of(n, p).as_ref().and_then(first_source)?;
+fn output_map(s: &mut Session, ctx: &egui::Context, n: &str, p: &str, band: Option<usize>) -> Option<Compared> {
+    let src = s.value_of(n, p).as_ref().and_then(|v| layer_source(v, band))?;
     let (made, mut hint) = producer(s, n, p);
     hint.push_str(p);
     let pal = s.palettes.get(&(n.to_string(), p.to_string())).copied().unwrap_or_else(|| Palette::of(made, &hint));
@@ -5589,6 +5633,28 @@ params = { expression = "x * 0 + k" }
         m.nodes.retain(|n| n.id != "c");
         layers_follow(&mut sh.layers, &m, None);
         assert!(sh.layers.is_empty());
+    }
+
+    /// Two layers of one stack make a difference: kept apart by their bands, named once, kept in a Plot and back.
+    #[test]
+    fn two_bands_of_a_stack_are_a_difference() {
+        let mut sh = Shown { node: "x".into(), port: "map".into(), ..Default::default() };
+        let (a, b) = (
+            Layer::difference_of_bands("x", "map", Some(4), ("x", "map", Some(0))),
+            Layer::difference_of_bands("x", "map", Some(4), ("x", "map", Some(2))),
+        );
+        assert_ne!(a.difference_key(), b.difference_key(), "other bands, another difference");
+        assert_ne!(a.difference_key(), Layer::difference("x", "map", ("x", "map")).difference_key());
+        assert_eq!(a.name(None), "x.map band 5 minus band 1");
+        let steps = |_: &str, _: &str, i: usize| format!("step {}", i + 1);
+        assert_eq!(a.name_by(None, steps), "x.map step 5 minus step 1");
+        sh.layers = vec![a, b];
+        let p = plot_of(&sh, &Default::default(), None, "p", None);
+        let kept: Vec<_> =
+            p.layers.iter().take(2).map(|l| (l.from.as_str(), l.band, l.minus.as_deref(), l.minus_band)).collect();
+        assert_eq!(kept, [("x.map", Some(4), Some("x.map"), Some(0)), ("x.map", Some(4), Some("x.map"), Some(2))]);
+        assert!(p.layers[2].minus_band.is_none(), "the map shown has none");
+        // (back from the Plot: see the UI test of the difference of two steps)
     }
 
     #[test]

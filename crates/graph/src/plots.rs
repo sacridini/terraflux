@@ -52,6 +52,10 @@ pub struct PlotLayer {
     /// to `from` for maps of classes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub minus: Option<String>,
+    /// The band of the stack or the step of the loop `minus` is (default the first): a difference of two layers of
+    /// one stack or series.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minus_band: Option<usize>,
     /// Kept in the Plot without being drawn.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hidden: bool,

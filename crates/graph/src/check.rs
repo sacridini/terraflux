@@ -725,9 +725,13 @@ from = "sim.maps"
     /// The Plots' layers and comparison read what the model has; their ids are valid and one each.
     #[test]
     fn plots_read_what_the_model_has() {
-        let good =
-            format!("{GOOD}\n[[plots]]\nid = \"maps\"\nlayers = [{{ from = \"$t0\" }}, {{ from = \"woe.model\" }}]\n");
+        let good = format!(
+            "{GOOD}\n[[plots]]\nid = \"maps\"\nlayers = [{{ from = \"$t0\" }}, {{ from = \"woe.model\" }}, \
+             {{ from = \"$t0\", band = 4, minus = \"$t0\", minus_band = 0 }}]\n"
+        );
         assert!(errors(&model(&good)).is_empty(), "{:?}", errors(&model(&good)));
+        let kept = &model(&good).plots[0].layers[2];
+        assert_eq!((kept.band, kept.minus_band), (Some(4), Some(0)));
         let bad = format!(
             "{GOOD}\n[[plots]]\nid = \"maps\"\nlayers = [{{ from = \"gone.map\" }}, {{ from = \"$t0\", minus = \"no.map\" }}]\n\
              compare = {{ with = \"$none\", also = [\"$t0\", \"gone.too\"] }}\n\

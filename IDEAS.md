@@ -969,8 +969,16 @@ ordem, transparência, estilo, comparação), mantendo a velocidade de hoje, e *
    `a_difference_is_a_layer`, `maps_compare_by_a_curtain_and_side_by_side` (o botão, o desenho, o Plot).
    Tocar a série junto (`step_together`): no *Play*, as vistas de outros passos da mesma série andam com ela, cada
    uma à sua distância (teste `views_play_together`).
-   Falta: cada vista com a sua lista de camadas (hoje todas desenham as camadas do Viewer); a diferença de duas
-   camadas de uma pilha como camada (hoje só de duas saídas).
+   Falta: cada vista com a sua lista de camadas (hoje todas desenham as camadas do Viewer).
+   A diferença de duas camadas de uma pilha feita (Unreleased, por um sub-agente): o *Keep as a layer* vale também
+   para dois passos da mesma pilha ou série (`CompareWith::Layer`) e, nas saídas, usa a banda mostrada; a
+   `Layer` ganha `minus_band` (a banda do mapa subtraído; `band` é a do outro), a `DifferenceKey` leva as duas
+   bandas (duas diferenças da mesma pilha com outras bandas ficam em cache à parte), `layer_difference` pega cada
+   lado com `layer_source`; o nome sai como "x.map step 5 minus step 1" (`Layer::name_by`, com os nomes das
+   bandas da pilha ou "band 5"); no Plot, `PlotLayer::minus_band` (serde default, omitido quando vazio), levado
+   por `plot_of`/`open_plot` e aceito pelo `set_plot` (só com `minus`). O `step_together` só mexe nas vistas
+   do Compare, nunca nas camadas de diferença. Testes: `two_bands_of_a_stack_are_a_difference`,
+   `the_difference_of_two_bands_of_a_stack_is_a_layer`, `plots_are_set_and_removed`, `plots_read_what_the_model_has`.
 4. **Os Plots salvos no lugar do nó `view.plot`.** (a maior)
    - Formato: `[[plots]]` no modelo (`terraflux_graph::Model::plots`, serde, omitido quando vazio): `id`, `title`,
      `layers = [{ from = "node.port", opacity, palette, band, style }]`, `compare = { with, how }`,

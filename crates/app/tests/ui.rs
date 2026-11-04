@@ -4477,3 +4477,82 @@ fn a_layer_of_another_coordinate_system_is_drawn_reprojected() {
     h.state_mut().session.as_mut().unwrap().preview_layers = vec![Layer::new("drivers", "raster"), hidden];
     assert!(same(&picture(&mut h), &drivers_alone) > 0.99, "hidden");
 }
+
+/// The difference of two bands of one stack kept as a layer: the band of each side in the layer, the Plot and the
+/// cache apart from another pair's, back from the Plot.
+#[test]
+fn the_difference_of_two_bands_of_a_stack_is_a_layer() {
+    use terraflux_app::builder::{CompareWith, How, Layer};
+    use terraflux_graph::Node;
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source.nodes = vec![
+            Node::new("drivers", "raster.read").param("path", data("sibuyan_drivers.tif").to_string_lossy().as_ref()),
+        ];
+        s.edited();
+        s.start(Box::new(|| {}));
+    }
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("drivers", "raster").is_some()
+    });
+    show(&mut h, "drivers", "raster");
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.preview_compare.with = Some(CompareWith::Layer(2));
+        s.preview_compare.how = How::Difference;
+    }
+    until(&mut h, "the difference", |a| a.session.as_ref().unwrap().preview_compare.difference.made.is_some());
+    drawn(&mut h);
+    // kept as a layer: the third band minus the first, of the same stack
+    h.get_by_label("📌 Keep as a layer").click();
+    h.run_steps(2);
+    {
+        let s = h.state().session.as_ref().unwrap();
+        assert!(s.preview_compare.with.is_none(), "the comparison let go");
+        assert_eq!(s.preview_layers.len(), 1);
+        let l = &s.preview_layers[0];
+        assert_eq!((l.node.as_str(), l.port.as_str(), l.band), ("drivers", "raster", Some(2)));
+        assert_eq!(l.minus, Some(("drivers".to_string(), "raster".to_string())));
+        assert_eq!(l.minus_band, Some(0));
+        assert_ne!(
+            l.difference_key(),
+            Layer::difference_of_bands("drivers", "raster", Some(2), ("drivers", "raster", Some(1))).difference_key()
+        );
+    }
+    until(&mut h, "the difference layer", |a| {
+        let s = a.session.as_ref().unwrap();
+        s.layer_differences.values().any(|d| matches!(d.made, Some(Ok(_))))
+    });
+    drawn(&mut h);
+    shot(&mut h, "14i-difference-of-bands");
+    // the band names of the stack in its name, the output once
+    {
+        let s = h.state().session.as_ref().unwrap();
+        let Some(terraflux_ops::Value::Raster(r)) = s.value_of("drivers", "raster") else { panic!("rasters") };
+        let (third, first) = (r.layers[2].name.clone(), r.layers[0].name.clone());
+        assert_eq!(s.layer_differences.len(), 1);
+        let names: Vec<String> = r.layers.iter().map(|l| l.name.clone()).collect();
+        let name = s.preview_layers[0].name_by(None, |_, _, b| names[b].clone());
+        assert_eq!(name, format!("drivers {third} minus {first}"));
+    }
+    // kept in a Plot, and back from it
+    h.get_by_label("Plots").click();
+    h.run_steps(2);
+    h.get_by_label("Save as a new plot").click();
+    h.run_steps(2);
+    let s = h.state_mut().session.as_mut().unwrap();
+    let p = s.source.plot("plot_drivers").expect("the Plot").clone();
+    let l = p.layers.iter().find(|l| l.minus.is_some()).expect("the difference");
+    assert_eq!(
+        (l.from.as_str(), l.band, l.minus.as_deref(), l.minus_band),
+        ("drivers.raster", Some(2), Some("drivers.raster"), Some(0))
+    );
+    let before = s.preview_layers[0].difference_key();
+    s.preview_layers.clear();
+    terraflux_app::builder::open_plot(s, &terraflux_ops::Registry::standard(), "plot_drivers");
+    let back = s.preview_layers.iter().find(|l| l.minus.is_some()).expect("the difference back");
+    assert_eq!(back.difference_key(), before);
+}

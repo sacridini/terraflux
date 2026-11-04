@@ -15,7 +15,8 @@ minor versions.
 - Viewer: **the difference as a layer**. Comparing by *Difference*, *Keep as a layer* makes it a layer of its own
   (values: the other map minus this one; classes: the transitions, named): drawn with the other layers, at an
   opacity, its legend and summary in the Layers, kept in a Plot (`minus` of a layer, also in `set_plot`), and
-  following its nodes renamed or removed.
+  following its nodes renamed or removed. It is also the difference of two steps of one stack or series (a
+  `minus_band` beside `minus` in the Plot's layer, "x.map step 5 minus step 1").
 - Viewer: **measure on the map**. *Measure* (or M over the map) turns on a line clicked point by point: each
   segment and the total length, and from three points the area and perimeter, in m, km, m², ha and km² (geodesic
   on the WGS84 ellipsoid for grids in degrees; the grid's units and cells without a coordinate system), with
